@@ -35,6 +35,8 @@ process.env.SPEAKER_ID_MODE = 'off'
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test-local.supabase.co'
 
 import { createHmac } from 'node:crypto'
+import { readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
 jest.mock('next/cache', () => ({
@@ -460,6 +462,62 @@ describe('the job worker — the phone’s normal save path', () => {
       rescued: true,
       take_id: '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30',
     })
+  })
+})
+
+// ── t9 — the provider body is PRIVATE (fix round 2, Greptile P2) ────────────
+//
+// A wall with a door beside it is a decoration. While `runTranscription` was
+// exported, any new caller could import it and reach Deepgram with no ceiling
+// asked and no debit filed — and the money would only show up on the invoice.
+// Two locks: the module exports it to nobody, and no file under src/ calls it
+// (or the provider under it) by name.
+describe('the provider body is unreachable from outside the wrapper', () => {
+  it('t9 @/lib/ai/transcribe exports no runTranscription', () => {
+    const exported = Object.keys(jest.requireActual('@/lib/ai/transcribe'))
+    expect(exported).not.toContain('runTranscription')
+    // The wrapper IS exported — a test that passed because the module failed to
+    // load, or because the name simply moved, would prove nothing.
+    expect(exported).toContain('runMeteredTranscription')
+  })
+
+  it('t9 no file under src/ calls the provider body, or Deepgram itself, directly', () => {
+    // Anchored on THIS file, not the cwd — a run from anywhere walks the same
+    // tree. The two homes that are allowed to call: the wrapper's own file (it
+    // calls both) and deepgram.ts (it DEFINES both).
+    const SRC = path.resolve(__dirname, '..', '..')
+    const METER = path.join(SRC, 'lib', 'ai', 'transcribe.ts')
+    const DEEPGRAM = path.join(SRC, 'lib', 'deepgram.ts')
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        const full = path.join(dir, e.name)
+        // Tests may name anything — they mock these very modules.
+        if (e.isDirectory()) return e.name === '__tests__' ? [] : walk(full)
+        return /\.tsx?$/.test(e.name) ? [full] : []
+      })
+
+    const files = walk(SRC)
+    const offenders: string[] = []
+    for (const file of files) {
+      readFileSync(file, 'utf8')
+        .split('\n')
+        .forEach((line, i) => {
+          const at = `${path.relative(SRC, file)}:${i + 1}`
+          if (file !== METER && /\brunTranscription\s*\(/.test(line)) offenders.push(at)
+          if (
+            file !== METER &&
+            file !== DEEPGRAM &&
+            /transcribe(Url)?WithDeepgram\s*\(/.test(line)
+          ) {
+            offenders.push(at)
+          }
+        })
+    }
+    expect(offenders).toEqual([])
+    // The walk must actually have walked: an empty (or tiny) file list would
+    // pass the assertion above while proving nothing at all.
+    expect(files.length).toBeGreaterThan(100)
+    expect(files).toContain(METER)
   })
 })
 

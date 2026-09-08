@@ -136,8 +136,15 @@ export type TranscriptionAudio = { url: string } | { buffer: Buffer; mimeType: s
  * serialized response shape the legacy route always emitted (`serialize(result)`
  * + optional `speakerId`) — the client-side diarization assembly consumes it
  * unchanged.
+ *
+ * ⚖ MODULE-PRIVATE (fix round 2, Greptile P2). While this was exported, the
+ * spend wall was a door anyone could walk PAST: one import and a new caller
+ * reaches Deepgram with no ceiling asked and no debit filed, and nothing in the
+ * build would say so. runMeteredTranscription below is the only caller, and the
+ * only way out of this module — pinned in transcription-spend-wall.test.ts,
+ * which also walks src/ for a direct call to this or to deepgram.ts's own two.
  */
-export async function runTranscription(params: {
+async function runTranscription(params: {
   audio: TranscriptionAudio
   locale: string
   diarize: boolean
