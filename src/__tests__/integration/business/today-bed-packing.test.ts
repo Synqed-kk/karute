@@ -1227,7 +1227,8 @@ describe('F1 — `pack` is the only switch: the same ask, two answers', () => {
     )
     // …and a question that never names `pack` at all is the same answer, because
     // absent means NO — every caller that predates the pack is untouched.
-    const { pack: _drop, ...silent } = askKiri(staff.key, false)
+    const silent: Omit<ReturnType<typeof askKiri>, 'pack'> & { pack?: boolean } = askKiri(staff.key, false)
+    delete silent.pack
     expect(landingVerdict(lanes, silent, null).reason).toBe(off.reason)
   })
 
