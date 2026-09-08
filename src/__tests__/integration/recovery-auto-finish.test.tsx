@@ -129,6 +129,12 @@ let takeOverride: Record<string, unknown> | null = null
 const mockStampTakeOutcome = jest.fn(async () => {})
 const mockDeleteTake = jest.fn()
 let mockTakeBlob: Blob | null = new Blob(['audio'])
+// Capture pipeline PR3 — the record page's mount retry. This suite's take-store
+// is a fake, so the real secureTake would reach for functions that are not in
+// it; nothing here is about whether the audio reaches the server (that is
+// take-durability.test.ts + recovery-banner-save-only.test.tsx).
+jest.mock('@/lib/recording/secure-take', () => ({ secureTake: jest.fn(async () => {}) }))
+
 jest.mock('@/lib/karute/take-store', () => ({
   // A2-2: the discard-transcript register. Default false/[] = nothing is
   // held back, so every case below behaves exactly as it did pre-A2-2.
@@ -137,9 +143,13 @@ jest.mock('@/lib/karute/take-store', () => ({
   appendTakeSegment: jest.fn(),
   createTake: jest.fn(),
   deleteTake: (...a: unknown[]) => mockDeleteTake(...a),
+  // PR4 fix round 4: the save's settle door. Same standing as deleteTake here —
+  // this suite is about the auto-finish notice, not about the audio.
+  settleTakeAfterSave: (...a: unknown[]) => mockDeleteTake(...a),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: (...a: unknown[]) => mockStampTakeOutcome(...(a as [])),
   readTakeOutcome: jest.fn(async () => null),
+  listOwnStoppedUnsecuredTakeIds: jest.fn(async () => []),
   getRecoverableTake: jest.fn(async () => (offerTake ? (takeOverride ?? TAKE) : null)),
   loadTakeBlob: jest.fn(async () => mockTakeBlob),
 }))

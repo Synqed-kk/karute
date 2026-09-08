@@ -114,6 +114,49 @@ describe('録音履歴 — the five states', () => {
     expect(row.takeId).toBe('t1')
     expect(needsAttention(row)).toBe(true)
   })
+
+  // ⚖ …AND IT SAYS SO WHEN THE STOP COULD NOT FINISH WRITING IT (capture
+  // pipeline PR3 fix round 16, AC2). Such a take is refused by both drains and
+  // by secureTake's belt, so it will sit here until a human deals with it —
+  // which is exactly why the row must not tell them the ordinary story. Same
+  // state, same 要対応, one honest sub-line: what is on the device ends
+  // partway.
+  it('復元可能: …and a take whose stop could not write its tail says so', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1' })],
+      [take({ takeId: 't1', recordingSessionId: 's1', tailIncomplete: true })],
+    )
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('tailIncomplete')
+    expect(needsAttention(row)).toBe(true)
+  })
+
+  it('…and an ORPHAN take carrying the flag says the same thing', () => {
+    const [row] = fold([], [take({ takeId: 't1', tailIncomplete: true })])
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('tailIncomplete')
+  })
+
+  // …and so does a stop that never finished at all (fix round 17). Same news
+  // to the staffer — the recording has an end nobody managed to write — and
+  // nothing auto-seals either of them, so the row must say so on both.
+  it('復元可能: a take whose STOP never finished reads the same way', () => {
+    const [row] = fold([], [take({ takeId: 't1', stopPendingAt: 1_000 })])
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('tailIncomplete')
+    expect(needsAttention(row)).toBe(true)
+  })
+
+  // The SERVER's reason is the more specific fact about what went wrong, so a
+  // device-side flag never overwrites it.
+  it('a failed job keeps ITS reason even when the local take lost its tail', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'EMPTY_TRANSCRIPT' })],
+      [take({ takeId: 't1', recordingSessionId: 's1', tailIncomplete: true })],
+    )
+    expect(row.state).toBe('failed')
+    expect(row.reason).toBe('emptyTranscript')
+  })
 })
 
 // ── A2-3: the deliberate discard, rendered honestly ────────────────────────
@@ -314,6 +357,60 @@ describe('録音履歴 — walk-ins and orphan takes', () => {
     expect(rows[0].recordingSessionId).toBeNull()
   })
 
+  // ⚖ EXPIRED, UNSECURED, STILL ON THE DEVICE (capture pipeline PR4 fix round
+  // 1). The take store refuses to prune audio the server never received, so
+  // these takes outlive the 7-day window — and the server read is bounded by
+  // that same window, so no session row comes back to carry them. Without a row
+  // of their own they are invisible everywhere, which is how tens of megabytes
+  // per take end up parked on a salon phone with nothing on any screen saying
+  // so. 復元可能, in the vocabulary the card already speaks, offering 保存する.
+  it('an expired UNSECURED take gets a row of its own, however old it is', () => {
+    const rows = fold(
+      [],
+      [
+        take({
+          takeId: 't-stranded',
+          recordingSessionId: 's-gone',
+          startedAt: NOW - 9 * 24 * 3600_000,
+          updatedAt: NOW - 9 * 24 * 3600_000,
+          expiredUnsecured: true,
+        }),
+      ],
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].key).toBe('take:t-stranded')
+    expect(rows[0].state).toBe('recoverable')
+    expect(rows[0].reason).toBe('localAudio')
+    expect(rows[0].takeId).toBe('t-stranded')
+    expect(needsAttention(rows[0])).toBe(true)
+  })
+
+  it('…and an ordinary take that old is still dropped — the flag is the exemption', () => {
+    const rows = fold(
+      [],
+      [
+        take({
+          takeId: 't-old',
+          startedAt: NOW - 9 * 24 * 3600_000,
+          updatedAt: NOW - 9 * 24 * 3600_000,
+        }),
+      ],
+    )
+    expect(rows).toHaveLength(0)
+  })
+
+  // One row per session, always. The two windows are the same constant today,
+  // so this cannot happen — but if they ever drift the session's own row wins
+  // and the stranded take stands down rather than doubling it.
+  it('a stranded take never doubles a session row that DID come back', () => {
+    const rows = fold(
+      [session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' })],
+      [take({ takeId: 't1', recordingSessionId: 's1', expiredUnsecured: true })],
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].key).toBe('session:s1')
+  })
+
   it('MULTI-TAKE: two independent takes are two rows — not just the newest', () => {
     // The pre-F1 banner offered only the newest recoverable take; every older
     // one sat un-offered until the TTL swept it. That is the loss this row set
@@ -402,6 +499,29 @@ describe('録音履歴 — window, ordering and the count', () => {
     )
     expect(row.durationSeconds).toBe(15 * 60)
   })
+
+  // ⚖ …AND THE STOP STAMP OUTRANKS THAT FALLBACK (slice five, D12). The window
+  // between the take's two timestamps is the FLUSH window: short by however
+  // long the tail flush took, long by every pause. `durationMs` is what the
+  // recorder measured, and listOwnTakes projects it now — so a take that
+  // carries it must show it, not the estimate beside it.
+  it('…but a take that carries its STOP STAMP shows the measured length', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', durationSeconds: null })],
+      [
+        take({
+          takeId: 't1',
+          recordingSessionId: 's1',
+          // A 40 s flush window around a 30 s recording — the shape a stop
+          // whose tail took ten seconds to write leaves behind.
+          startedAt: NOW - 40_000,
+          updatedAt: NOW,
+          durationMs: 30_000,
+        }),
+      ],
+    )
+    expect(row.durationSeconds).toBe(30)
+  })
 })
 
 describe('録音履歴 — i18n parity for the new keys', () => {
@@ -427,6 +547,9 @@ describe('録音履歴 — i18n parity for the new keys', () => {
     'reason.autoSaved',
     'reason.genericFailure',
     'reason.localAudio',
+    'reason.tailIncomplete',
+    'reason.serverAudio',
+    'reason.partialOnServer',
     'action.open',
     'action.check',
     'action.retry',
@@ -456,6 +579,9 @@ describe('録音履歴 — i18n parity for the new keys', () => {
       'autoSaved',
       'genericFailure',
       'localAudio',
+      'tailIncomplete',
+      'serverAudio',
+      'partialOnServer',
     ] as const
     const jaInbox = jaRecording.inbox as { reason: Record<string, string> }
     for (const r of emitted) expect(typeof jaInbox.reason[r]).toBe('string')
@@ -562,5 +688,204 @@ describe('録音履歴 — the exact boundaries (FX-6a)', () => {
       session({ recordingSessionId: 'out', createdAt: new Date(NOW - INBOX_WINDOW_MS - 1).toISOString() }),
     ])
     expect(rows.map((r) => r.recordingSessionId)).toEqual(['edge'])
+  })
+})
+
+/**
+ * 録音履歴 — WHAT THE SERVER HOLDS (build 23 slice ③).
+ *
+ * Two facts the server can now tell this fold, and the precedence around them.
+ * The claims being pinned here: a device that still holds the take always
+ * wins, a server object is 復元可能 in the SAME vocabulary as a device one
+ * (chip, button and 要対応 unchanged), segments are 処理中 and never counted,
+ * a discard still outranks both, and a literal this build has never heard of
+ * changes nothing at all.
+ */
+describe('録音履歴 — server-held audio (③)', () => {
+  const OLD = () => new Date(NOW - SESSION_UNSETTLED_GRACE_MS - 60 * MIN).toISOString()
+
+  it("'object' is 復元可能 with the serverAudio reason, and IS counted in 要対応", () => {
+    const [row] = fold([session({ recordingSessionId: 's1', serverAudio: 'object', createdAt: OLD() })])
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('serverAudio')
+    expect(row.serverAudio).toBe(true)
+    // The device holds nothing, so there is no take to retry from.
+    expect(row.takeId).toBeNull()
+    expect(row.canRetry).toBe(false)
+    expect(needsAttention(row)).toBe(true)
+  })
+
+  it("'segments' is 処理中 with partialOnServer, and is NEVER counted", () => {
+    const [row] = fold([session({ recordingSessionId: 's1', serverAudio: 'segments', createdAt: OLD() })])
+    expect(row.state).toBe('processing')
+    expect(row.reason).toBe('partialOnServer')
+    expect(row.serverAudio).toBeUndefined()
+    expect(needsAttention(row)).toBe(false)
+  })
+
+  it('WITHOUT the server fact the same row is unchanged — still 失敗', () => {
+    const [row] = fold([session({ recordingSessionId: 's1', createdAt: OLD() })])
+    expect(row.state).toBe('failed')
+    expect(row.reason).toBe('genericFailure')
+  })
+
+  it('THE LOCAL TAKE WINS: a device that still holds it keeps 復元可能/localAudio', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', serverAudio: 'object', createdAt: OLD() })],
+      [take({ takeId: 't1', recordingSessionId: 's1' })],
+    )
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('localAudio')
+    expect(row.takeId).toBe('t1')
+    // The save must go through the TAKE path, so the server flag stays off.
+    expect(row.serverAudio).toBeUndefined()
+  })
+
+  it('a local take beats segments too — the complete copy is the one to save', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', serverAudio: 'segments', createdAt: OLD() })],
+      [take({ takeId: 't1', recordingSessionId: 's1' })],
+    )
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('localAudio')
+  })
+
+  it('a karute record still wins: the recording was saved, whatever storage holds', () => {
+    const [row] = fold([
+      session({ recordingSessionId: 's1', karuteRecordId: 'rec-1', serverAudio: 'object' }),
+    ])
+    expect(row.state).toBe('saved')
+  })
+
+  it('a live job still wins — never offer a save for audio a job is processing', () => {
+    const [row] = fold([
+      session({ recordingSessionId: 's1', jobStatus: 'RUNNING', serverAudio: 'object', createdAt: OLD() }),
+    ])
+    expect(row.state).toBe('processing')
+    expect(row.reason).toBe('transcribing')
+  })
+
+  it.each(['object', 'segments'] as const)(
+    'a deliberate 破棄 outranks %s — a thrown-away take is never re-offered',
+    (serverAudio) => {
+      const [row] = fold([
+        session({ recordingSessionId: 's1', discardedByStaff: true, serverAudio, createdAt: OLD() }),
+      ])
+      expect(row.state).toBe('discarded')
+      expect(row.reason).toBeNull()
+      expect(row.serverAudio).toBeUndefined()
+      expect(needsAttention(row)).toBe(false)
+    },
+  )
+
+  it('a value this build has never heard of falls through to today’s behaviour', () => {
+    // Phones run a BAKED bundle; the DTO ships this as a plain string on
+    // purpose, so an unknown literal must change nothing rather than invent a
+    // state. Typed through `as never` because only the WIRE can carry one.
+    const [row] = fold([
+      session({
+        recordingSessionId: 's1',
+        serverAudio: 'reassembling' as never,
+        createdAt: OLD(),
+      }),
+    ])
+    expect(row.state).toBe('failed')
+    expect(row.reason).toBe('genericFailure')
+  })
+
+  it('null and absent are the same fact — an older server that never derived it', () => {
+    const rows = fold([
+      session({ recordingSessionId: 's-null', serverAudio: null, createdAt: OLD() }),
+      session({ recordingSessionId: 's-absent', createdAt: OLD() }),
+    ])
+    expect(rows.map((r) => r.state)).toEqual(['failed', 'failed'])
+  })
+
+  it('BELOW the grace a server-less row is still 処理中/unsettled, unchanged', () => {
+    const [row] = fold([session({ recordingSessionId: 's1' })])
+    expect(row.state).toBe('processing')
+    expect(row.reason).toBe('unsettled')
+  })
+
+  it('要対応 counts exactly the three arms it always did — nothing widened', () => {
+    const rows = fold([
+      session({ recordingSessionId: 'obj', serverAudio: 'object', createdAt: OLD() }),
+      session({ recordingSessionId: 'seg', serverAudio: 'segments', createdAt: OLD() }),
+      session({ recordingSessionId: 'saved', karuteRecordId: 'rec-1' }),
+    ])
+    // The 復元可能 row and nothing else: 処理中 is not an action, 保存済み is done.
+    expect(countNeedsAttention(rows)).toBe(1)
+  })
+})
+
+/**
+ * ⚖ R10b — A SPENT AFFORDANCE IS NOT A LOST RECORDING (fix round 1).
+ *
+ * A server-audio row whose job FAILS used to become permanently inert: no take
+ * on this device meant `canRetry: false`, so the card offered nothing, and the
+ * audio sat on the server unreachable from 録音履歴 forever. Core re-arms a
+ * FAILED job per session, so 再試行 can reach the same door again.
+ */
+describe('録音履歴 — a failed job on a server-held recording (③ fix round 1)', () => {
+  const OLD = () => new Date(NOW - SESSION_UNSETTLED_GRACE_MS - 60 * MIN).toISOString()
+
+  it('keeps 再試行 and the server flag when the device holds nothing', () => {
+    const [row] = fold([
+      session({
+        recordingSessionId: 's1',
+        jobStatus: 'FAILED',
+        jobLastError: 'CONSENT_REQUIRED',
+        serverAudio: 'object',
+        createdAt: OLD(),
+      }),
+    ])
+    expect(row.state).toBe('failed')
+    // The SERVER's reason survives — it is the more specific fact.
+    expect(row.reason).toBe('genericFailure')
+    expect(row.canRetry).toBe(true)
+    expect(row.serverAudio).toBe(true)
+    expect(row.takeId).toBeNull()
+    // Counted, because `failed && canRetry` is one of the three arms it always
+    // had — no predicate widened.
+    expect(needsAttention(row)).toBe(true)
+  })
+
+  it('a FAILED row with NO server audio is inert exactly as before', () => {
+    const [row] = fold([session({ recordingSessionId: 's1', jobStatus: 'FAILED', createdAt: OLD() })])
+    expect(row.canRetry).toBe(false)
+    expect(row.serverAudio).toBeUndefined()
+    expect(needsAttention(row)).toBe(false)
+  })
+
+  it('a local take still owns the retry — the flag stays off so the take path runs', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', jobStatus: 'FAILED', serverAudio: 'object', createdAt: OLD() })],
+      [take({ takeId: 't1', recordingSessionId: 's1' })],
+    )
+    expect(row.canRetry).toBe(true)
+    expect(row.takeId).toBe('t1')
+    expect(row.serverAudio).toBeUndefined()
+  })
+
+  it("'segments' does NOT resurrect a failed row — there is nothing whole to save", () => {
+    const [row] = fold([
+      session({ recordingSessionId: 's1', jobStatus: 'FAILED', serverAudio: 'segments', createdAt: OLD() }),
+    ])
+    expect(row.canRetry).toBe(false)
+    expect(row.serverAudio).toBeUndefined()
+  })
+
+  it('an EMPTY_TRANSCRIPT failure keeps its own honest reason', () => {
+    const [row] = fold([
+      session({
+        recordingSessionId: 's1',
+        jobStatus: 'FAILED',
+        jobLastError: 'EMPTY_TRANSCRIPT',
+        serverAudio: 'object',
+        createdAt: OLD(),
+      }),
+    ])
+    expect(row.reason).toBe('emptyTranscript')
+    expect(row.canRetry).toBe(true)
   })
 })

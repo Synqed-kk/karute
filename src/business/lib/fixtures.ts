@@ -125,6 +125,12 @@ export interface FixtureAppointment {
   settlement: 'settled' | 'awaiting' | null
   /** Today F10 / F20–F22 (ask T-04). `null` renders 【未定】, never a guess. */
   resource_id: string | null
+  /** ⚖ ROOM RULE (Liam 2026-09-05) — 個室のみ. The one thing that says 「this
+   *  booking needs the private room」, on the BOOKING and nowhere else. Core's
+   *  own column (`Appointment.requires_private_room`, Anthony ask 2) is stamped
+   *  at CREATE from the menu's room class; absent here means the same as false,
+   *  which is what all but one of these rows are. */
+  requires_private_room?: boolean
   /** Inspector G5 予約経路. */
   source: string
   /** Today G6 / J2 (ask T-14). The staff this booking was taken for, when the
@@ -375,6 +381,7 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
         | 'board_state'
         | 'settlement'
         | 'resource_id'
+        | 'requires_private_room'
         | 'source'
         | 'reassigned_from'
         | 'taken_days_ago'
@@ -400,6 +407,7 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     board_state: 'board_state' in board ? (board.board_state ?? null) : status === 'cancelled' ? null : 'confirmed',
     settlement: board.settlement ?? null,
     resource_id: board.resource_id ?? null,
+    requires_private_room: board.requires_private_room ?? false,
     source: board.source ?? '店頭受付',
     reassigned_from: board.reassigned_from ?? null,
     taken_days_ago: board.taken_days_ago ?? 3,
@@ -436,6 +444,12 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
       { board_state: 'confirmed', settlement: 'settled', resource_id: 'bed-01', source: '店頭受付 #357498', taken_days_ago: 6, updated_minute: 11 * 60 + 5 }),
     slot('apt-22', 'cus-08', STORE_A, 'p-01', 'menu-01', 0, 10, 30, 60, 6600, 'done',
       { board_state: 'confirmed', settlement: 'settled', resource_id: 'bed-02', source: 'Reserve #357501', taken_days_ago: 11, updated_minute: 11 * 60 + 38 }),
+    // ⚖ ROOM RULE, FIX ROUND 1 (blind lens 3 F11) — THE VIP ROW IS UNTAGGED, ON
+    // PURPOSE. cus-04 is the sample's only `vip: true` customer, and while the
+    // tag sat on HER the board could not show that the two facts are separate:
+    // one row where both are true is exactly the row that cannot separate them.
+    // She is a plain booking now, so 「a VIP places anywhere」 — the rule Liam
+    // ruled — is visible on the board he looks at. The tag moved to apt-29 (テスト なぎ).
     slot('apt-25', 'cus-04', STORE_A, 'p-05', 'menu-01', 0, 11, 0, 60, 6600, 'done',
       { board_state: 'confirmed', settlement: 'awaiting', resource_id: 'bed-03', source: '店頭受付 #357509', taken_days_ago: 2, updated_minute: 12 * 60 }),
     slot('apt-13', 'cus-03', STORE_B, 'p-02', 'menu-05', 0, 11, 0, 45, 5500, 'booked',
@@ -464,8 +478,17 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     // can, so canon's PACK MODE fires and the run is advertised as TWO merged
     // 60-minute sessions crossing the 16:00 and 17:00 lines. On a board of tidy
     // 30/60/90 starts that layer is unreachable — the demo was hiding a feature.
+    // ⚖ ROOM RULE, FIX ROUND 1 (blind lens 3 F11) — THE SAMPLE'S ONE 個室のみ
+    // BOOKING. テスト なぎ (thin-02) is not a VIP and holds no 回数券, so her
+    // card wears 単発 in the category badge AND 個室のみ in the note beside it —
+    // two facts, two words, on two different rows of the board (⚖ 8/9 demo
+    // data = product truth). She is already seated in the 個室 (bed-03), so
+    // the sample day is legal as it stands and the rule is visible rather
+    // than merely obeyed. apt-28 (見本 あかり) is deliberately left untouched:
+    // today-explains §9 (flag 87) depends on that card being bumped between
+    // rooms.
     slot('apt-29', 'thin-02', STORE_A, 'p-06', 'menu-01', 0, 14, 5, 60, 6600, 'booked',
-      { board_state: 'confirmed', resource_id: 'bed-03', source: '店頭受付 #357544' }),
+      { board_state: 'confirmed', resource_id: 'bed-03', requires_private_room: true, source: '店頭受付 #357544' }),
     // The far wall of that run, and odd on its own account (canon's fixture day
     // runs on 17:12 / 12:27 / 10:25 starts for exactly this reason).
     slot('apt-33', 'cus-06', STORE_A, 'p-06', 'menu-01', 0, 17, 12, 60, 6600, 'booked',

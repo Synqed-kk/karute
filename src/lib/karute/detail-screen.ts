@@ -16,6 +16,7 @@ import {
   karuteSummaryToBullets,
 } from '@/lib/adapters/karute-detail'
 import { canViewTranscript } from '@/lib/auth/recording-acl'
+import { serverHoldsTakeRow } from '@/lib/recording/take-binding'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { computeAge, jpGender } from '@/lib/customers/demographics'
 import { formatJoinDate } from '@/lib/customers/list-enrich'
@@ -50,6 +51,22 @@ export interface KaruteDetailScreenHeader {
   lastVisitDate: string | null
 }
 
+/**
+ * The recording AS THE VIEWER MAY HEAR IT — the same rule `transcript` obeys
+ * one field down, so the player's presence is decided SERVER-side and a viewer
+ * who may not hear this take is never handed a reason to try.
+ *
+ * `status` is a plain string, not core's RecordingStatus union, for the same
+ * degrade-not-fail reason the outcome value is one (see the DTO's OutcomeSchema
+ * note): a baked shell must render a status it has never heard of, not fail the
+ * whole screen's parse over it.
+ */
+export interface KaruteDetailRecording {
+  audioPresent: boolean
+  durationSeconds: number | null
+  status: string
+}
+
 export interface KaruteDetailScreen {
   karuteId: string
   customerId: string | null
@@ -70,9 +87,18 @@ export interface KaruteDetailScreen {
   consentOnFile: boolean
   transcriptDurationLabel: string | null
   transcriptRestricted: boolean
+  /** null = no player, and the card says NOTHING about one (⚖ 9/3, frame F5).
+   *  See `recordingRow` on the args below for every reason it can be null. */
+  recording: KaruteDetailRecording | null
   /** F4: records.reassign gate — the 顧客を変更 entry point. Additive field,
    *  same staffCanDeletePhotos threading pattern (RecordPageView.tsx). */
   staffCanReassignRecords: boolean
+  /** May this viewer actually RUN 再生成 on this karute — the server's own
+   *  answer, resolved by the caller (⚖ 9/3 named grant; fix round 4). Seeing
+   *  the transcript no longer implies it: the READ is `recordings.viewAll`,
+   *  the ACT is the owner's two keys, so a named grantee reads a colleague's
+   *  words and may not rewrite them. Hide the control, never show-and-refuse. */
+  staffCanRegenerate: boolean
 }
 
 export interface BuildKaruteDetailScreenArgs {
@@ -83,10 +109,27 @@ export interface BuildKaruteDetailScreenArgs {
   /** Recording-privacy ACL inputs (#4). */
   viewerStaffId: string | null
   canViewAllRecordings: boolean
+  /** The core recording row behind this karute's session, or null when there is
+   *  no session id, the row is gone, or the read FAILED (D-8: an accessory read
+   *  that blipped costs the player, never the karute). The CALLER fetches — this
+   *  builder stays pure. */
+  recordingRow: {
+    audio_storage_path: string | null
+    duration_seconds: number | null
+    status: string
+  } | null
+  /** The caller's verified tenant — the key grammar's fence needs it (web:
+   *  getBusinessId(); facade: ctx.identity.businessId). */
+  businessId: string
   /** F4: records.reassign gate, resolved by the caller (web: can(); facade:
    *  ctx.identity.capabilities.has()) — same threading chokepoint as the
    *  recording-privacy inputs above. */
   staffCanReassignRecords: boolean
+  /** The 再生成 gate, resolved by the caller with the SERVER'S OWN predicate —
+   *  `canViewTranscript({ …, canViewAll: holdsOwnerKeys(caps) })`, the exact
+   *  expression actions/regenerate-karute.ts enforces — so the button and the
+   *  action cannot drift apart. */
+  staffCanRegenerate: boolean
   /** customerId-gated wave-2 results — null when the karute has no linked client. */
   contact: Contact | null
   consentResult: { consent: unknown } | null
@@ -103,7 +146,10 @@ export function buildKaruteDetailScreen(
     outcome,
     viewerStaffId,
     canViewAllRecordings,
+    recordingRow,
+    businessId,
     staffCanReassignRecords,
+    staffCanRegenerate,
     contact,
     consentResult,
     customer,
@@ -118,8 +164,11 @@ export function buildKaruteDetailScreen(
 
   // Recording privacy (#4): the raw transcript is private to the recording
   // staffer — only they (or a recordings.viewAll role) see the text. A record
-  // with no owner (legacy/manual) is shared. Withholding the transcript also
-  // hides the regenerate action, which reads the same raw text.
+  // with no owner (legacy/manual) is shared. Withholding the transcript still
+  // hides the regenerate action — but SHOWING it no longer means the act is
+  // allowed: `staffCanRegenerate` carries the server's own answer, because the
+  // READ is `recordings.viewAll` and the ACT is the owner's two keys
+  // (⚖ 9/3 named grant; fix round 4).
   const ownerStaffId = karute.staff_profile_id ?? null
   const canSeeTranscript = canViewTranscript({
     ownerStaffId,
@@ -128,6 +177,41 @@ export function buildKaruteDetailScreen(
   })
   const visibleTranscript = canSeeTranscript ? transcript : null
   const transcriptRestricted = !canSeeTranscript && Boolean(transcript)
+
+  // THE PLAYER'S PRESENCE (slice ①). ONE predicate for the words and the sound,
+  // on the SAME input: whoever may read the raw transcript of this karute may
+  // hear its audio, and nobody else.
+  //
+  // ⚠ THE CAPABILITY FLOOR IS `recordings.viewAll`, FULL STOP (fix round 2) —
+  // and the CALLER narrows it by the viewer's store reach before it arrives
+  // (canViewAllInStore, auth/recording-acl.ts; ⚖ 8/17 store isolation). It used to OR
+  // in `business.manage` as a proxy for "the owner", which was wrong in this
+  // repo: `recordings.viewAll` is owner by preset and grantable per person by
+  // the OWNER ONLY (⚖ 9/3 named grant, 2026-09-06) — still ONE capability,
+  // still the whole floor — while `business.manage` is a separately grantable
+  // row labelled 「店舗の削除・譲渡」. An owner ticking THAT for a manager
+  // silently handed them every staffer's AUDIO while the words stayed withheld:
+  // the exact inversion the recorder-private ruling exists to prevent.
+  //
+  // ⚠ A KEY ON THE ROW IS NOT AUDIO (fix round 1). The row is BORN RESERVED:
+  // session-mint.ts stamps `audio_storage_path` when the row is created, before
+  // any byte exists. So the question is `serverHoldsTakeRow` — the take fence
+  // AND the server's own receipt that the object landed (take-binding.ts, the
+  // module the mint and finalize already share). Reading the pointer alone put
+  // a player on a take still sitting on the device, whose every tap could only
+  // answer 「再生できませんでした」.
+  //
+  // The fence inside stays TAKE-only, so a null path, a discarded take's `stg/`
+  // staged copy and another tenant's key are all the same answer — no player,
+  // nothing said.
+  const recording =
+    recordingRow && canSeeTranscript && serverHoldsTakeRow(recordingRow, businessId)
+      ? {
+          audioPresent: true,
+          durationSeconds: recordingRow.duration_seconds,
+          status: recordingRow.status,
+        }
+      : null
 
   // Sequential per-tenant number from the shared customer list — matches the
   // karute list and customer profile (#00007).
@@ -185,6 +269,8 @@ export function buildKaruteDetailScreen(
     consentOnFile,
     transcriptDurationLabel: null,
     transcriptRestricted,
+    recording,
     staffCanReassignRecords,
+    staffCanRegenerate,
   }
 }

@@ -1,51 +1,74 @@
 'use client'
 
-// 予約一覧 — the canon screen's markup and behavior
-// (fable-store-reservations.html), transplanted. Canon class names, canon
-// Japanese wording, canon structure. Values arrive pre-formatted from the
-// server page: no dates, no data access and no store lens logic live here.
+// 予約一覧 — the accepted desktop redesign, running on PLAY-PHASE FIXTURES.
 //
-// EVERY NUMBER IS DERIVED, NONE IS TYPED. 要対応, 最短期限, the queue and the
-// 状態 filter's 要対応 option all read the SAME `isQueued` predicate from
-// src/business/lib/reservations.ts, and the countdowns are that predicate's
-// deadline minus the one pinned world clock. That is canon's own discipline
-// (「数字はどこにも直書きしない」) and the reason a client-side accept moves the
-// tile, the queue and the row together or not at all.
+// ⚖ THE MOCK IS THE SPEC (RESERVATIONS-MOCK-v1.html, accepted by Liam 9/2 after
+// the responsive round, the act-inline round and the ultra-wide law). What the
+// mock decides is layout, hierarchy, copy and motion. What it does NOT decide is
+// which behaviours this room already proves: one 要対応 predicate on every
+// surface, the lifecycle derived from the board's own fields, one pinned clock,
+// store isolation down to the names, M-87's no-numbers-on-failure, the L-6
+// window, the accept/record commit gates, the focus handoff and the 表示する列
+// primitive all survive the redesign unchanged.
 //
-// BATCH-1 INTERACTION FLOOR (⚖ L-7, read-and-play, zero persistence):
-//   · search / filters / saved views / row select all work client-side
-//   · 受付 → 確定, 変更 → the new slot, 記録 → 精算待ち / 取消 / 来店なし are
-//     canon's own client-state transitions and they carry over: the pill, the
-//     queue, the tiles and the row order all move, and it resets on reload
-//   · an action whose screen is not built (売上・レジ, 受信トレイ, カルテ) is
-//     greyed 準備中, and one with no canon transition sits disabled with the
-//     standing hint. Nothing here reports a success the screen cannot show.
+// THE SHAPE, top to bottom:
+//   · ONE compact title row — eyebrow, 予約一覧, the ?, the range, the CTA
+//   · the 要対応 DEADLINE RAIL, at the TOP, with a live countdown and a detail
+//     card that springs open IN PLACE under it (it replaces the old bottom queue)
+//   · the COUNTS ARE THE FILTERS — six chips, each carrying the number of rows
+//     its own press reveals, over the same `matchesFilters` the list runs
+//   · the day-grouped 48px table, and the inspector beside it
 //
-// ⚖ CUT #5: canon's two-sentence subtitle is reduced to one functional line.
-// ⚖ CUT #7: 本人関係 renders COLLAPSED — one line per party, detail on click, a
-// chip only where the fixture deviates.
-// ⚖ L-4: the boundary paragraphs (queue footer, inspector footer) and the mock
-// harness (role lenses, 表示プレビュー, testdb anchor) do not ship.
+// ⚖ EVERY REAL WRITE REFUSES, HONESTLY. The picker's 「この枠で返信する」 would
+// send a customer a reply, and notification is core's (registry ⑤ / C-18): it
+// refuses INLINE, keeps the picked slot and the reason on screen, moves no row
+// and stamps no history. `changeCommit` below stays exported and unwired — it is
+// the reconnect-shape commit that send will apply once notification exists.
+//
+// ⚖ CLASS NAMES ARE PREFIXED `rv-` ON EVERY ELEMENT THIS ROOM OWNS. App Router
+// leaves every sibling room's stylesheet in the document after a client-side
+// navigation, and the neighbours state BARE `.biz .<name>` rules on the names
+// canon's page used (`.panel`, `.empty`, `.toast`, `.price`, `.proof`, `.row`,
+// `.chip`, `.spot-card`…). A fence that has to enumerate sixty shared names rots
+// as the neighbours grow; not colliding at all cannot. `page` / `h1` / `btn` /
+// `pill` are the SHELL's and are fenced in reservations.css at four levels.
+//
+// ⚖ NOTHING IS `position: fixed` INSIDE `.rv-view`. That wrapper carries
+// `container-type: inline-size`, which implies layout containment and would make
+// it the containing block for every fixed descendant — so the toast, the two
+// dialogs, the phone sheet, its scrim and the four tour layers are siblings of
+// it at the page root. Same structure the 録音 room ships, same reason.
 
 import Link from 'next/link'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toggleColumn, wireColumnsPopover } from '@/business/lib/column-config'
+import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
+import { makeSpring } from '@/business/lib/spring'
 import {
+  CHIP_LABEL,
+  CHIP_VIEWS,
   DEADLINE_WORD,
   LIFECYCLE,
+  PAGE_BANDS,
   QUEUE_ACTION,
+  SCRIM_SETTLE_MS,
   WANTS_CHANGE,
+  chipCounts,
+  countdownText,
   deadlineOf,
   decisionKindOf,
+  elapsedSecondsSince,
   flagsOf,
+  genuineOf,
   isQueued,
   matchesFilters,
+  overdueOf,
   primaryActionOf,
   safeSlotsFor,
-  spanText,
   viewFilters,
   type DecisionKind,
   type Lifecycle,
+  type ReservationFilters,
   type SavedView,
 } from '@/business/lib/reservations'
 import { hhmm } from '@/business/lib/today-board'
@@ -54,10 +77,15 @@ export interface ReservationRow {
   id: string
   no: string
   dateLabel: string
+  /** 「9月3日(水)」 — the day header's own label, built on the server. */
+  dayLabel: string
   dayKey: number
   isToday: boolean
   startMinute: number
   durationMinutes: number
+  /** 「16:30」 — the row's lead figure. Formatted server-side like every other
+   *  time on this page, so the client never splits or parses one. */
+  startLabel: string
   timeLabel: string
   customerName: string
   menuName: string
@@ -84,11 +112,14 @@ export interface ReservationRow {
   qualificationText: string
   staffUnavailable: boolean
   settled: boolean
+  /** 来店なし memory (rider #3) — how many OTHER times this customer has not
+   *  turned up, inside this lens, before the pinned moment. */
+  noShowCount: number
   txNote: string
   txDetail: string | null
 }
 
-/** A 販売可能枠 the 変更 dialog can offer. Whether it can hold a given booking is
+/** A 販売可能枠 the picker can offer. Whether it can hold a given booking is
  *  arithmetic (`safeSlotsFor`); whether it is genuinely safe is core's (C-13). */
 export interface SlotOption {
   id: string
@@ -106,8 +137,8 @@ export interface ReservationsProps {
   slots: SlotOption[]
   lensLabel: string
   spanLabel: string
-  /** Canon's date filter names its days (「本日 8月5日」/「8月6日以降」). Both come
-   *  off the server's clock so no second calendar exists on the client. */
+  /** The date filter names its days (「本日 9月3日」/「9月4日以降」). Both come off
+   *  the server's clock so no second calendar exists on the client. */
   todayLabel: string
   tomorrowLabel: string
   store: string | null
@@ -119,54 +150,43 @@ export interface ReservationsProps {
   closeMinute: number
 }
 
-const HINT = '見本データのため実行できません'
-
 type DateFilter = 'all' | 'today' | 'future'
-type StatusFilter = 'all' | 'attention' | Lifecycle
-type SourceFilter = 'all' | 'reserve' | 'store' | 'external'
 
-/** 表示する列 — canon's own `data-columns-config` for this panel, verbatim
- *  (fable-store-reservations.html:407). `nw` is the ≤1320px track the page's
- *  @media block declares. Reservations lists no column as `off`, so all five
- *  start visible; the popover is a per-device display preference, which is what
- *  fable-shared.js's comment calls it (no permission gate). */
+/** G2(a) — 「本日」 chip and 期間 dropdown are ONE axis. Moving the period off
+ *  today while that chip is lit leaves a pressed chip describing a list it no
+ *  longer selects (the pressed-chip-contradicts-the-list bug); every other
+ *  chip is orthogonal to 期間 and is left alone. */
+export function chipAfterDateChange(chip: SavedView, nextDate: DateFilter): SavedView {
+  return chip === 'today' && nextDate !== 'today' ? 'all' : chip
+}
+
+/** Pressing 本日 while it is already lit moves the SAME axis back to the full
+ *  span rather than re-applying an already-applied chip — the dropdown shows
+ *  the full span again. Every other chip presses exactly as it always did. */
+export function viewOnChipPress(chip: SavedView, pressed: SavedView): SavedView {
+  return pressed === 'today' && chip === 'today' ? 'all' : pressed
+}
+
+/** 表示する列 — this panel's own five columns driving the shared primitive.
+ *  `w` is the desk track list and `nw` the narrow-desk one; the narrow list is
+ *  built from the visible columns MINUS 担当・設備, which the narrow band sheds
+ *  into the row's own second line (the mock's `.mline`). Both ride in as custom
+ *  properties, so the sheet picks between them and the user's column choice and
+ *  the band's shed compose instead of fighting. */
 export const COLUMNS = [
-  { k: 'when', label: '日時', w: '84px', nw: '78px' },
-  { k: 'who', label: 'お客様・メニュー', w: 'minmax(min-content, 1.15fr)', nw: 'minmax(min-content, 1.1fr)' },
-  { k: 'staff', label: '担当・設備', w: 'minmax(min-content, .72fr)', nw: 'minmax(min-content, .68fr)' },
-  { k: 'source', label: '受付元・価格', w: 'minmax(0, 1.08fr)', nw: 'minmax(0, 1.02fr)' },
-  { k: 'state', label: '状態', w: '152px', nw: '140px' },
+  { k: 'when', label: '日時', w: '74px', nw: '70px' },
+  { k: 'who', label: 'お客様・メニュー', w: 'minmax(0, 1fr)', nw: 'minmax(0, 1fr)' },
+  { k: 'staff', label: '担当・設備', w: '96px', nw: '94px' },
+  { k: 'source', label: '受付元・価格', w: '98px', nw: '94px' },
+  { k: 'state', label: '状態', w: '120px', nw: '116px' },
 ] as const
 
 const DEFAULT_COLUMNS: string[] = COLUMNS.map((c) => c.k)
 
-const STATUS_OPTIONS: Array<[StatusFilter, string]> = [
-  ['all', 'すべての状態'],
-  ['attention', '要対応（期限あり）'],
-  ['pending_accept', '受付判断'],
-  ['confirmed', '確定'],
-  ['awaiting_settlement', '精算待ち'],
-  ['settled', '精算済み'],
-  ['cancelled', '取消'],
-  ['no_show', '来店なし'],
-  ['external', '予約元で管理'],
-]
+/** The column the narrow-desk band sheds into the row's second line. */
+const SHED_COLUMN = 'staff'
 
-const SOURCE_OPTIONS: Array<[SourceFilter, string]> = [
-  ['all', 'すべての受付元'],
-  ['reserve', 'Reserve'],
-  ['store', '電話・店頭'],
-  ['external', '外部予約元'],
-]
-
-const SAVED_VIEW_LABELS: Array<[SavedView, string]> = [
-  ['all', 'すべて'],
-  ['attention', '要対応'],
-  ['reserve', 'Reserve受付'],
-  ['none', '一致なしを確認'],
-]
-
-/** The one-sentence judgement on a queue card. Read from the decision kind, so
+/** The one-sentence judgement on a rail card. Read from the decision kind, so
  *  a card can never describe a booking it is not about. */
 const DECISION: Record<DecisionKind, (r: Decorated) => string> = {
   accept: (r) => `${r.customerName}さんの受付リクエストを受けるか決める`,
@@ -175,6 +195,29 @@ const DECISION: Record<DecisionKind, (r: Decorated) => string> = {
   settle: (r) => `${r.customerName}さんの施術が未精算のまま残っている`,
   open: (r) => `${r.customerName}さんの予約に期限のある判断が残っている`,
 }
+
+/** 変更理由 — canon's three, kept because the 根拠 and the history stamp read
+ *  them and `changeCommit` still gates on one being chosen. */
+const CHANGE_REASONS = ['お客様希望', '担当者の勤務変更', '設備停止']
+
+/** registry ⑤ (C-18) — the notification resource this send is waiting on. The
+ *  refusal says which write it is and that nothing moved, in that order. */
+const SEND_REFUSAL =
+  '見本データのため、お客様への返信は送れません。Reserve通知とSMSの送信はまだつないでいないので、この画面では枠と理由の確認までを示します。予約は変わっていません。'
+
+/** F-5 (fix round 1, LENS-4) — ONE escalate toast for both call sites: the
+ *  rail card's own action and the inspector's `Primary` used to diverge by
+ *  one clause for the identical non-write hand-off. The inspector's wording
+ *  is the kept one. */
+const ESCALATE_TOAST = (no: string) =>
+  `この画面内のプロトタイプでは、予約 ${no}を判断できる担当者へ渡すところまでを示します`
+
+/** F-3 (hardening round, FRESH lens) — ONE 精算 verdict word for both homes:
+ *  the rail card's placeholder and the inspector's `Primary` used to diverge
+ *  by wording for the identical disabled/準備中 state. `QUEUE_ACTION.settle`
+ *  stays as-is (its own suite pin, and the label a live settle action would
+ *  use later) — only this pending-state sentence is shared. */
+const SETTLE_PENDING_LABEL = '売上・レジで精算（準備中）'
 
 export interface Decorated extends ReservationRow {
   deadlineMinute: number | null
@@ -185,11 +228,11 @@ export interface Decorated extends ReservationRow {
 }
 
 /** Everything the screen shows about a row that is not literally a field.
- *  Exported for the suite: the tile↔queue↔row reconciliation is asserted
+ *  Exported for the suite: the rail↔chip↔row reconciliation is asserted
  *  against this one function rather than against three re-implementations. */
 export function decorate(row: ReservationRow, boardNow: number, closeMinute: number): Decorated {
   const deadlineMinute = deadlineOf(row.lifecycle, row, closeMinute)
-  const overdue = deadlineMinute !== null && deadlineMinute < boardNow
+  const overdue = overdueOf(deadlineMinute, boardNow)
   const allFlags = flagsOf(row.flags, row.reassigned, overdue)
   return {
     ...row,
@@ -230,10 +273,18 @@ export function acceptCommit(row: Decorated, confirmed: boolean, lensLabel: stri
 }
 
 /**
- * 画面内で変更を試す (canon :699) — the in-page trial move. The day does NOT
- * move: a 販売可能枠 is a daily shape offered on the booking's own date, so this
- * changes time, staff and bed only. The agreed price is carried untouched, and
- * 変更希望あり comes off while 担当変更あり goes on when the person changed.
+ * 画面内で変更を試す (canon :699) — the in-page trial move.
+ *
+ * ⚖-ADJ B — KEPT, EXPORTED AND DELIBERATELY UNWIRED. The 変更 dialog it used to
+ * serve is retired: the accepted design puts the decision in ONE home, the
+ * inline slot picker on the 要対応 card, and that picker's send is a REAL write
+ * (a reply to a customer) which refuses honestly to registry ⑤. This function is
+ * the reconnect-SHAPE of the commit that send will apply once notification
+ * exists — every rule in it (the day never moves, the agreed price is carried
+ * untouched, 変更希望あり comes off and 担当変更あり goes on only when the person
+ * really changed) is a rule the reconnect must keep, and its pins are what stop
+ * it rotting while it waits. Deleting it and rewriting it later is how those
+ * rules get lost.
  */
 export function changeCommit(
   row: Decorated,
@@ -249,6 +300,7 @@ export function changeCommit(
   return {
     patch: {
       startMinute: slot.start,
+      startLabel: hhmm(slot.start),
       timeLabel,
       staffName: slot.staffName,
       resourceName: slot.resourceName,
@@ -310,24 +362,35 @@ export function ReservationsScreen(
  *  that looks like normal operation. Every number goes to 「—」. */
 function LoadFailure() {
   return (
-    <div className="page page-reservations">
-      <header className="page-head">
-        <div>
-          <div className="eyebrow">予約管理</div>
-          <h1>予約一覧</h1>
-        </div>
-      </header>
-      <section className="summary" aria-label="予約の概要">
-        <div className="summary-main">
+    <div className="page pg-reservations">
+      <div className="rv-view">
+        <header className="rv-head">
+          <div className="rv-titlerow">
+            <span className="rv-eyebrow">予約管理</span>
+            <h1>予約一覧</h1>
+          </div>
+        </header>
+        <div className="rv-loaderror" role="alert">
           <strong>予約を読み込めませんでした</strong>
-          <span>この画面の数字は1つも表示していません。</span>
+          <span>
+            データを読み込めませんでした。この画面の数字は使わないでください。再読み込みしても直らない場合は管理者へ。
+          </span>
         </div>
-        <div className="summary-stat"><span>要対応</span><b>—</b><span>最短期限 —</span></div>
-        <div className="summary-stat"><span>精算待ち</span><b>—</b></div>
-        <div className="summary-stat"><span>本日</span><b>—</b></div>
-      </section>
-      <div className="load-error" role="alert">
-        データを読み込めませんでした。この画面の数字は使わないでください。再読み込みしても直らない場合は管理者へ。
+        <section className="rv-card rv-railrow" aria-label="要対応">
+          <div className="rv-raillabel">
+            <span className="rv-rl-t">要対応</span>
+            <span className="rv-rl-c">—</span>
+            {/* FINAL-FRESH F-1 — see the live rail's own note below: the label
+                says WHAT the badge counts (⚖ 8/25 numbers explain themselves). */}
+            <span className="rv-rl-h">全期間・<br />期限順</span>
+          </div>
+          <div className="rv-railcards">
+            <div className="rv-railempty">
+              <strong>—</strong>
+              <span>この画面の数字は1つも表示していません。</span>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   )
@@ -343,39 +406,109 @@ function Screen(props: ReservationsProps) {
   const [selected, setSelected] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [date, setDate] = useState<DateFilter>('all')
-  const [status, setStatus] = useState<StatusFilter>('all')
-  const [source, setSource] = useState<SourceFilter>('all')
-  // Canon starts on 「すべて」 (w2-bookings-customers.js `runtime.savedView='all'`)
-  // and only ever moves when another chip is pressed — editing a filter by hand
-  // does NOT clear it, which is why canon's own 保存した表示 criteria string
-  // reads the live controls rather than the view. One lit chip, always.
-  const [savedView, setSavedView] = useState<SavedView>('all')
+  const [status, setStatus] = useState<ReservationFilters['status']>('all')
+  const [source, setSource] = useState<ReservationFilters['source']>('all')
+  const [price, setPrice] = useState<ReservationFilters['price']>('all')
+  // ONE LIT CHIP, ALWAYS. Canon starts on 「すべて」 and the chip only ever moves
+  // when another chip is pressed — the criteria string reads the live controls
+  // rather than the view, which is why editing search or the range by hand does
+  // not blank the row.
+  const [chip, setChip] = useState<SavedView>('all')
+  const [swap, setSwap] = useState(0)
   const [openParty, setOpenParty] = useState(false)
   const [toast, setToast] = useState('')
   const [shown, setShown] = useState<string[]>(DEFAULT_COLUMNS)
   const [colsOpen, setColsOpen] = useState(false)
 
+  // the 要対応 rail
+  const [openAtt, setOpenAtt] = useState<string | null>(null)
+  const [pickedSlot, setPickedSlot] = useState('')
+  const [pickReason, setPickReason] = useState('')
+  const [sendRefused, setSendRefused] = useState(false)
+
+  // the dialogs that stayed (⚖-ADJ C)
+  const [acceptOk, setAcceptOk] = useState(false)
+  const [recordType, setRecordType] = useState('')
+  const [recordSource, setRecordSource] = useState('')
+  const [recordOk, setRecordOk] = useState(false)
+
+  // ⚖-ADJ J — the countdown's own second hand. ONE interval from mount, and the
+  // server render is always `0`, so the first client frame matches the HTML byte
+  // for byte. No `?freeze=` lever ships: a debug URL in product code is a dead
+  // lever waiting to be found, and the harness stubs the clock instead.
+  const [elapsedSec, setElapsedSec] = useState(0)
+
+  const [reduced, setReduced] = useState(false)
+  const [band, setBand] = useState<'wide' | 'narrow' | 'onecol' | 'phone'>('wide')
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [tourIdx, setTourIdx] = useState(-1)
+  const [tourTick, setTourTick] = useState(0)
+  const tourOpen = tourIdx >= 0
+
+  const rootRef = useRef<HTMLDivElement>(null)
+  const viewRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const countRef = useRef<HTMLSpanElement>(null)
   const colsBtnRef = useRef<HTMLButtonElement>(null)
   const popRef = useRef<HTMLDivElement>(null)
   const acceptRef = useRef<HTMLDialogElement>(null)
-  const changeRef = useRef<HTMLDialogElement>(null)
   const recordRef = useRef<HTMLDialogElement>(null)
-  const [acceptOk, setAcceptOk] = useState(false)
-  const [changeSlot, setChangeSlot] = useState('')
-  const [changeReason, setChangeReason] = useState('')
-  const [changeOk, setChangeOk] = useState(false)
-  const [recordType, setRecordType] = useState('')
-  const [recordSource, setRecordSource] = useState('')
-  const [recordOk, setRecordOk] = useState(false)
+  const railRef = useRef<HTMLElement>(null)
+  const detailRef = useRef<HTMLDivElement>(null)
+  const confirmRef = useRef<HTMLDivElement>(null)
+  const segRef = useRef<HTMLDivElement>(null)
+  const thumbRef = useRef<HTMLSpanElement>(null)
+  // F-1 (hardening round, FRESH lens) — the thumb's `move` closes over its
+  // OWN springs and `placed` flag; parked in a ref (the `useCollapse` `first`
+  // ref shape, :1424) so the mount effect below (deps `[reduced]`, springs
+  // created once) and the per-press effect (deps `[chip]`) can share it
+  // without either effect tearing the springs down on a chip press.
+  const thumbMoveRef = useRef<((jump: boolean) => void) | null>(null)
+  const sheetRef = useRef<HTMLElement>(null)
+  // F6 (fix round 1, LENS-3 F-1) — the sheet's own modal hardening state,
+  // mirroring RecordingScreen.tsx's `Overlay` (:2275-2300, IN-ROOM).
+  const sheetOpenedAt = useRef(Number.POSITIVE_INFINITY)
+  const sheetOpenerId = useRef<string | null>(null)
+  const helpRef = useRef<HTMLButtonElement>(null)
+  const tourCardRef = useRef<HTMLDivElement>(null)
+  const tourNextRef = useRef<HTMLButtonElement>(null)
+
+  /** ⚠ REDUCED MOTION IS READ ONCE, IN AN EFFECT, and handed to every spring as
+   *  a constructor argument — `spring.ts` is pure of `window` on purpose. */
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const read = () => setReduced(mq.matches)
+    read()
+    mq.addEventListener('change', read)
+    return () => mq.removeEventListener('change', read)
+  }, [])
 
   useEffect(() => {
     if (!toast) return
-    const t = setTimeout(() => setToast(''), 2700)
+    // The mock's own dwell on its own surface (2400ms).
+    const t = setTimeout(() => setToast(''), 2400)
     return () => clearTimeout(t)
   }, [toast])
+
+  // G1 fix — real elapsed time, not counted callbacks (⚖-ADJ J stays true: ONE
+  // interval from mount, no `?freeze=` lever). A throttled background tab can
+  // skip callbacks; `elapsedSecondsSince` reads the wall clock so a skipped
+  // tick is caught up rather than compounding into a drifting countdown. The
+  // `visibilitychange` correction runs the same tick the instant the tab comes
+  // back, so the reader is not left staring at a stale number for up to a
+  // second before the next scheduled tick.
+  useEffect(() => {
+    const t0 = Date.now()
+    const tick = () => setElapsedSec(elapsedSecondsSince(t0, Date.now()))
+    const id = setInterval(tick, 1000)
+    const onVisible = () => { if (document.visibilityState === 'visible') tick() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
 
   // 表示する列 popover — the wiring itself is the shared canon primitive, unit-
   // tested on real DOM nodes, so this effect stays a thin caller of it.
@@ -384,12 +517,75 @@ function Screen(props: ReservationsProps) {
     return wireColumnsPopover(popRef.current, colsBtnRef.current, () => setColsOpen(false))
   }, [colsOpen])
 
+  /** PRESS STATES ON POINTER-DOWN, one document listener for the whole room
+   *  (the mock's `[data-press]`). Pointer-DOWN, not click: the feedback has to
+   *  arrive while the finger is still down or it is not feedback. */
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      const t = (e.target as Element | null)?.closest?.('[data-press]')
+      if (t) t.classList.add('is-pressed')
+    }
+    const clear = () => {
+      for (const el of document.querySelectorAll('[data-press].is-pressed')) el.classList.remove('is-pressed')
+    }
+    document.addEventListener('pointerdown', down, true)
+    for (const ev of ['pointerup', 'pointercancel', 'blur', 'dragend']) window.addEventListener(ev, clear, true)
+    return () => {
+      document.removeEventListener('pointerdown', down, true)
+      for (const ev of ['pointerup', 'pointercancel', 'blur', 'dragend']) window.removeEventListener(ev, clear, true)
+    }
+  }, [])
+
+  /** ⚖ HARNESS-GEOMETRY, IN THE PRODUCT. The sticky column head and the sticky
+   *  day headers hang off the SHELL's real topbar, which is 62px at a desk and
+   *  wraps to ~87px on a narrow one — so the offset is MEASURED rather than
+   *  typed, once on mount and again whenever the bar changes height. The sheet's
+   *  own 62px is the pre-measurement default, not the answer. */
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    const bar = root?.closest('.main')?.querySelector('.topbar')
+    if (!root || !bar) return
+    const apply = () => root.style.setProperty('--rv-topbar', `${Math.round(bar.getBoundingClientRect().height)}px`)
+    apply()
+    const ro = new ResizeObserver(apply)
+    ro.observe(bar)
+    return () => ro.disconnect()
+  }, [])
+
+  /** THE BAND, MEASURED ON THE PAGE rather than on the viewport. The shell's
+   *  rail is 264px at ≥1024 with the sidebar open and 76px everywhere else, so
+   *  the PAGE a room is given falls by 188px as the viewport crosses 1024 — a
+   *  layout chosen from a viewport width is a layout chosen from the wrong
+   *  number. The sheet only exists in JS (the CSS band is the one that hides the
+   *  desk inspector), so a first paint never depends on this. */
+  useEffect(() => {
+    const el = viewRef.current
+    if (!el) return
+    const read = () => {
+      const w = el.getBoundingClientRect().width
+      setBand(w <= PAGE_BANDS.phone ? 'phone' : w <= PAGE_BANDS.oneColumn ? 'onecol' : w <= PAGE_BANDS.narrow ? 'narrow' : 'wide')
+    }
+    read()
+    const ro = new ResizeObserver(read)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const sheetBand = band === 'onecol' || band === 'phone'
+  // Crossing back into a desk band puts the sheet away: an overlay standing over
+  // a two-column layout is a surface nobody asked for.
+  useEffect(() => {
+    if (!sheetBand) setSheetOpen(false)
+  }, [sheetBand])
+
   const columns = useMemo(() => COLUMNS.filter((c) => shown.includes(c.k)), [shown])
-  // Both track lists ride as custom properties; the stylesheet's 1320px media
-  // query picks between them, exactly as canon's own @media does.
+  /** Both track lists ride as custom properties and the sheet's band rule picks
+   *  between them. The narrow list drops 担当・設備 — the column the band sheds
+   *  into the row's own second line — so the user's column choice and the band's
+   *  shed compose instead of fighting over a `nth-child`. */
   const trackStyle = {
-    '--fx-wide': columns.map((c) => c.w).join(' '),
-    '--fx-narrow': columns.map((c) => c.nw).join(' '),
+    '--rv-wide': columns.map((c) => c.w).join(' '),
+    '--rv-narrow': columns.filter((c) => c.k !== SHED_COLUMN).map((c) => c.nw).join(' '),
   } as React.CSSProperties
 
   const all = useMemo(
@@ -397,14 +593,49 @@ function Screen(props: ReservationsProps) {
     [props.rows, patch, boardNow, closeMinute],
   )
 
-  const visible = useMemo(
-    () => all.filter((r) => matchesFilters(r, { search, date, status, source })),
-    [all, search, date, status, source],
+  const filters: ReservationFilters = useMemo(
+    () => ({ search, date, status, source, price }),
+    [search, date, status, source, price],
+  )
+  const visible = useMemo(() => all.filter((r) => matchesFilters(r, filters)), [all, filters])
+
+  /** G2(b) — COUNTS DESCRIBE THE LIST ACTUALLY SHOWN. `chipBase` is the list
+   *  BEFORE the chip's own status/source/price narrow it: 期間 and 検索 stay
+   *  exactly as they currently stand (independent of which chip is lit), so
+   *  「要対応 5件」 is exactly the rows that chip reveals under the period and
+   *  search on screen right now — never a second, chip-narrowed base (which
+   *  would silently collapse every OTHER chip's number to its intersection
+   *  with whatever is currently pressed). */
+  const chipBase = useMemo(
+    () => all.filter((r) => matchesFilters(r, { search, date, status: 'all', source: 'all', price: 'all' })),
+    [all, search, date],
+  )
+  /** A1 fix — 本日 is the one chip whose OWN press sets 期間 (`chipAfterDateChange`
+   *  law a), so its number cannot be read off `chipBase` (period-narrowed by
+   *  whatever 期間 currently shows): with 期間 = 明日以降 that base holds zero
+   *  today rows and the chip would promise a press that reveals nothing. Its
+   *  count is read off the SEARCH-only base instead — 期間 ignored, because
+   *  pressing 本日 sets it — so the number always equals what the press reveals. */
+  const searchBase = useMemo(
+    () => all.filter((r) => matchesFilters(r, { search, date: 'all', status: 'all', source: 'all', price: 'all' })),
+    [all, search],
+  )
+  /** ⚖ THE COUNT ON A CHIP IS THE NUMBER OF ROWS ITS OWN PRESS REVEALS — one
+   *  function, over the same predicate the list runs, so the two cannot drift. */
+  const counts = useMemo(
+    () => ({ ...chipCounts(chipBase), today: chipCounts(searchBase).today }),
+    [chipBase, searchBase],
+  )
+
+  /** How many rows the RANGE alone leaves, which is what 「全N件のうち」 counts. */
+  const rangeTotal = useMemo(
+    () => all.filter((r) => matchesFilters(r, { search: '', date, status: 'all', source: 'all', price: 'all' })).length,
+    [all, date],
   )
 
   // A1: the selection is sovereign. It moves only when the booking itself is
   // gone from the lens — not when a filter hides it, which would let the
-  // inspector quietly swap to another customer after a queue action.
+  // inspector quietly swap to another customer after a rail action.
   const current = all.find((r) => r.id === selected) ?? visible[0] ?? all[0] ?? null
   const offList = current != null && !visible.some((r) => r.id === current.id)
 
@@ -412,12 +643,27 @@ function Screen(props: ReservationsProps) {
     () => all.filter((r) => r.queued).sort((a, b) => a.deadlineMinute! - b.deadlineMinute!),
     [all],
   )
-  const settling = all.filter((r) => r.lifecycle === 'awaiting_settlement').length
-  // 本日 counts the day's live rows — the same rule the board's 本日の予約件数
-  // uses, so the two screens report one number for one day.
-  const todayCount = all.filter((r) => r.isToday && r.lifecycle !== 'cancelled').length
+  const openRow = openAtt === null ? null : (queue.find((r) => r.id === openAtt) ?? null)
+  const openCandidates = openRow ? safeSlotsFor(props.slots, openRow.durationMinutes) : []
+  const picked = openCandidates.find((s) => s.id === pickedSlot)
 
-  const candidates = current ? safeSlotsFor(props.slots, current.durationMinutes) : []
+  /** ⚖-ADJ K · ANY-ROSTER-SIZE on the QUEUE dimension. Up to five cards the rail
+   *  is the mock's five-column grid; from six it becomes the mock's own ≤1099
+   *  horizontal strip at EVERY width — a surface's own container may pan
+   *  sideways (⚖ PAGE-SCROLL), and the label's count still names the total.
+   *  Never a second row of cards, never a vertical scroller. */
+  const railStrip = queue.length > 5
+
+  /** Each day's own row count, taken over the VISIBLE rows — the header says how
+   *  many rows are under it, never how many the world holds. */
+  const dayCounts = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const r of visible) m.set(r.dayKey, (m.get(r.dayKey) ?? 0) + 1)
+    return m
+  }, [visible])
+
+  const rangeWord =
+    date === 'today' ? `本日 ${props.todayLabel}` : date === 'future' ? `${props.tomorrowLabel}以降` : props.spanLabel
 
   function update(id: string, next: Partial<ReservationRow>, message: string) {
     setPatch((was) => ({ ...was, [id]: { ...was[id], ...next } }))
@@ -429,24 +675,47 @@ function Screen(props: ReservationsProps) {
     requestAnimationFrame(() => focusResult(listRef.current, countRef.current, id))
   }
 
-  // canon `clearFilters` (:710): the saved-view chip is NOT cleared here, and
-  // the caret goes back in the search box — clearing is a step in typing the
-  // next search, not the end of one.
+  /** ⚖-ADJ D's consequence, and a deviation from the packet's literal wording,
+   *  argued in the report (V2-3): since the chips ARE the filters, clearing
+   *  status / 受付元 / price by hand would leave a lit chip describing a list it
+   *  no longer selects — one verdict with two answers. クリア therefore empties
+   *  the TYPED search and returns the range to the lit chip's own criteria; the
+   *  chip is not cleared (canon's rule, unchanged) and the caret goes back in
+   *  the search box, because clearing is a step in typing the next search. */
   function clearFilters() {
+    const f = viewFilters(chip)
     setSearch('')
-    setDate('all')
-    setStatus('all')
-    setSource('all')
+    setDate(f.date)
+    setStatus(f.status)
+    setSource(f.source)
+    setPrice(f.price)
+    setSwap((n) => n + 1)
     searchRef.current?.focus()
   }
 
-  function applyView(view: SavedView) {
+  /** G2 fix — `touchDate` is true only when the BUTTON actually pressed was
+   *  本日 (a fresh press or its own toggle-off), never for the other five
+   *  chips: 期間 is 本日's own axis (law a), so a すべて/要対応/… press must
+   *  leave whatever period is already on screen alone rather than silently
+   *  discarding it. Without this, a chip's own displayed count (which now
+   *  reads the live period, G2(b)) would promise one number and a later
+   *  chip's OWN full reset would reveal a different one. */
+  // ADDENDUM F-3 (Greptile round 2) — CHIPS NEVER TOUCH THE SEARCH. `viewFilters`
+  // always answers `search: ''`, so calling `setSearch(f.search)` here used to
+  // clear whatever the reader had just typed the moment they pressed a chip —
+  // a chip's own count (search-narrowed, G2(b)/A1) would then describe the
+  // list BEFORE the press while the press itself revealed every row matching
+  // chip + period, search dropped. Only クリア and the search box itself may
+  // change `search` now, so a chip's number always equals what its own press
+  // reveals under the SAME search.
+  function applyView(view: SavedView, touchDate: boolean) {
     const f = viewFilters(view)
-    setSavedView(view)
-    setDate(f.date)
+    setChip(view)
+    if (touchDate) setDate(f.date)
     setSource(f.source)
     setStatus(f.status)
-    setSearch(f.search)
+    setPrice(f.price)
+    setSwap((n) => n + 1)
     // canon hands focus to the result count (:744) — the one thing on screen
     // that just changed meaning.
     countRef.current?.focus()
@@ -456,12 +725,6 @@ function Screen(props: ReservationsProps) {
     setAcceptOk(false)
     acceptRef.current?.showModal()
   }
-  function openChange() {
-    setChangeSlot(candidates[0]?.id ?? '')
-    setChangeReason('')
-    setChangeOk(false)
-    changeRef.current?.showModal()
-  }
   function openRecord() {
     setRecordType('')
     setRecordSource('')
@@ -469,7 +732,7 @@ function Screen(props: ReservationsProps) {
     recordRef.current?.showModal()
   }
 
-  // The three commits are thin: the gate and the transition are pure functions
+  // The two commits are thin: the gate and the transition are pure functions
   // above (unit-tested directly), and these own only the dialog and the patch.
   function run(commit: Commit | null, dialog: HTMLDialogElement | null) {
     if (!commit || !current) return
@@ -477,330 +740,658 @@ function Screen(props: ReservationsProps) {
     dialog?.close()
   }
 
+  function selectRow(id: string, fromRow: boolean) {
+    setSelected(id)
+    if (fromRow && sheetBand) {
+      sheetOpenerId.current = id
+      setSheetOpen(true)
+    }
+  }
+
+  /** F6 (fix round 1) — closes the sheet and hands focus back to the row that
+   *  opened it, via `focusResult` (canon :541, the same handoff every commit
+   *  on this page uses). */
+  function closeSheet() {
+    setSheetOpen(false)
+    const id = sheetOpenerId.current
+    if (id) requestAnimationFrame(() => focusResult(listRef.current, countRef.current, id))
+  }
+
+  /** A rail card selects its booking AND takes the reader to its row — the two
+   *  surfaces agree by construction. The scroll waits for the detail's height
+   *  spring to rest, because a smooth scroll started mid-resize is cancelled by
+   *  the resize (the mock's own 420ms). */
+  const scrollToRow = useCallback(
+    (id: string) => {
+      const go = () => listRef.current?.querySelector(`[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
+      if (reduced) go()
+      else setTimeout(go, 420)
+    },
+    [reduced],
+  )
+
+  /** ⚖ ONE SCROLL PER ACTION (F7, fix round 1, LENS-3 F-2): a rail-card click
+   *  takes the reader DOWN to its row (`target: 'row'`, unchanged — the
+   *  mock's own 420ms wait for the detail's height spring to rest); the
+   *  inspector's 変更 button takes the reader UP to the decision surface it
+   *  just opened instead (`target: 'rail'`, scrolled via the rail row so both
+   *  the cards and the detail clear the sticky topbar) — the row is where
+   *  they came from, not where they are going. The two used to fire back to
+   *  back. */
+  function toggleAtt(id: string, target: 'row' | 'rail' = 'row') {
+    setPickedSlot('')
+    setPickReason('')
+    setSendRefused(false)
+    if (openAtt === id) {
+      setOpenAtt(null)
+      return
+    }
+    setOpenAtt(id)
+    setSelected(id)
+    if (target === 'row') scrollToRow(id)
+    else railRef.current?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })
+  }
+
+  // ── the two height springs: the rail's detail, and the picker's confirm ────
+  useCollapse(detailRef, openRow !== null, reduced)
+  useCollapse(confirmRef, picked !== undefined, reduced)
+
+  /** THE SEGMENTED THUMB — X and W on their own springs (.30), driven by the
+   *  LIT chip's own offset box, so the thumb cannot drift from the chip it is
+   *  under when the counts change width. It JUMPS on first layout, on a resize
+   *  and once the real fonts have loaded; it SETS when a chip is pressed.
+   *
+   *  F-1 (hardening round, FRESH lens) — TWO effects, not one: this one builds
+   *  the springs ONCE per `reduced` (mount, plus the rare reduced-motion
+   *  flip), so a chip press below never tears them down and re-seeds `placed`
+   *  — the bug that made every press JUMP instead of SLIDE. */
+  useEffect(() => {
+    const seg = segRef.current
+    const thumb = thumbRef.current
+    if (!seg || !thumb) return
+    const state = { x: 0, w: 100 }
+    const paint = () => { thumb.style.transform = `translateX(${state.x}px) scaleX(${state.w / 100})` }
+    const sx = makeSpring((v) => { state.x = v; paint() }, { response: 0.3, reduced })
+    const sw = makeSpring((v) => { state.w = v; paint() }, { response: 0.3, reduced })
+    let placed = false
+    const move = (jump: boolean) => {
+      const on = seg.querySelector<HTMLElement>('.rv-seg-btn.is-on')
+      if (!on) { thumb.style.opacity = '0'; return }
+      thumb.style.opacity = ''
+      const x = on.offsetLeft - 3
+      const w = on.offsetWidth
+      if (placed && !jump) { sx.set(x); sw.set(w) } else { sx.jump(x); sw.jump(w); placed = true }
+    }
+    thumbMoveRef.current = move
+    move(false)
+    const onResize = () => move(true)
+    window.addEventListener('resize', onResize)
+    document.fonts?.ready?.then(() => move(true)).catch(() => {})
+    return () => {
+      sx.stop(); sw.stop()
+      window.removeEventListener('resize', onResize)
+      thumbMoveRef.current = null
+    }
+  }, [reduced])
+
+  /** …and THIS effect is the one a chip press actually reruns: it calls the
+   *  persisted `move` against the springs the effect above already built, so
+   *  the press SLIDES (`set`) instead of rebuilding the springs and jumping. */
+  useEffect(() => {
+    thumbMoveRef.current?.(false)
+  }, [chip])
+
+  /** THE PHONE SHEET — the same critically-damped spring as everything else, so
+   *  it leaves along the exact path it arrived on. It is a page-root sibling of
+   *  the contained view, which is what lets it be `position: fixed` at all. */
+  useEffect(() => {
+    const el = sheetRef.current
+    if (!el) return
+    const sp = makeSpring((v) => { el.style.transform = `translateY(${v}%)` }, { response: 0.34, eps: 0.2, reduced })
+    sp.jump(100)
+    sp.set(sheetOpen ? 0 : 100)
+    return () => sp.stop()
+  }, [sheetOpen, reduced])
+
+  /** F6 (fix round 1, LENS-3 F-1) — the sheet is a real modal: the moment it
+   *  opened is stamped (fail-closed until then, so no unstamped scrim can
+   *  dismiss it) and focus moves into its first focusable, mirroring
+   *  RecordingScreen.tsx's `Overlay` (:2288-2300) IN-ROOM — a shared overlay
+   *  primitive is a family-sweep item, not this round. */
+  useLayoutEffect(() => {
+    const panel = sheetRef.current
+    if (!sheetOpen || !panel) return
+    sheetOpenedAt.current = Date.now()
+    return wireSheet(panel)
+  }, [sheetOpen])
+
+  // ── ⚖ Liam 8/23 — 画面の説明 (the guided tour) ─────────────────────────────
+  const tourRectsRef = useRef<SpotRect[]>([])
+  const [tourStep, setTourStep] = useState<{ title: string; text: string; idx: number; total: number } | null>(null)
+  const [tourPos, setTourPos] = useState<{ hole: SpotRect; top: number; left: number } | null>(null)
+  const [tourHover, setTourHover] = useState<SpotRect | null>(null)
+
+  useLayoutEffect(() => {
+    if (tourIdx < 0) { setTourStep(null); setTourPos(null); setTourHover(null); return }
+    const targets = spotTargets(rootRef.current)
+    if (targets.length === 0) { setTourIdx(-1); return }
+    const i = Math.min(tourIdx, targets.length - 1)
+    const el = targets[i]
+    let r = el.getBoundingClientRect()
+    if (r.top < 60 || r.bottom > window.innerHeight - 40) {
+      el.scrollIntoView({ block: 'center' })
+      r = el.getBoundingClientRect()
+    }
+    tourRectsRef.current = targets.map((t) => boxOf(t.getBoundingClientRect()))
+    const next = { title: el.dataset.guideTitle ?? '', text: el.dataset.guide ?? '', idx: i, total: targets.length }
+    setTourStep((was) => (was && was.title === next.title && was.text === next.text && was.idx === next.idx && was.total === next.total ? was : next))
+    const card = tourCardRef.current
+    const size = { width: card?.offsetWidth || 300, height: card?.offsetHeight || 160 }
+    const at = spotCardAt(boxOf(r), size, { width: window.innerWidth, height: window.innerHeight })
+    const pos = { hole: { left: r.left - 5, top: r.top - 5, width: r.width + 10, height: r.height + 10 }, ...at }
+    setTourPos((was) => (was && was.top === pos.top && was.left === pos.left && was.hole.left === pos.hole.left && was.hole.top === pos.hole.top && was.hole.width === pos.hole.width && was.hole.height === pos.hole.height ? was : pos))
+  }, [tourIdx, tourTick, tourStep])
+
+  useEffect(() => {
+    if (!tourOpen) return
+    const bump = () => setTourTick((t) => t + 1)
+    window.addEventListener('resize', bump)
+    window.addEventListener('scroll', bump, true)
+    return () => {
+      window.removeEventListener('resize', bump)
+      window.removeEventListener('scroll', bump, true)
+    }
+  }, [tourOpen])
+
+  // ONE keyboard listener for the layers that can be open, innermost first:
+  // while the tour is up it owns Escape (and the arrows walk the ring); once it
+  // is closed Escape reaches the sheet. Two listeners would both fire on one
+  // Escape and close two layers at once.
+  useEffect(() => {
+    if (!tourOpen && !sheetOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (tourOpen) {
+        if (e.key === 'Escape') setTourIdx(-1)
+        if (e.key === 'ArrowRight') setTourIdx((i) => wrapStep(i + 1, tourRectsRef.current.length))
+        if (e.key === 'ArrowLeft') setTourIdx((i) => wrapStep(i - 1, tourRectsRef.current.length))
+        return
+      }
+      if (e.key === 'Escape') closeSheet()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [tourOpen, sheetOpen])
+
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (tourOpen) {
+      wasOpen.current = true
+      tourNextRef.current?.focus()
+      return
+    }
+    if (!wasOpen.current) return
+    wasOpen.current = false
+    helpRef.current?.focus()
+  }, [tourOpen])
+
+  /** G4 fix — the tour card traps Tab the SAME way the sheet does: `trapSheetTab`
+   *  over `SHEET_FOCUSABLE`, no second mechanism. Escape and the arrow-key ring
+   *  already exist (the keydown listener above); this only adds Tab containment. */
+  useLayoutEffect(() => {
+    const panel = tourCardRef.current
+    if (!tourOpen || !panel) return
+    const onKey = (e: KeyboardEvent) => trapSheetTab(panel, e)
+    panel.addEventListener('keydown', onKey)
+    return () => panel.removeEventListener('keydown', onKey)
+  }, [tourOpen])
+
+  const inspector = current && (
+    <InspectorBody
+      row={current}
+      props={props}
+      offList={offList}
+      openParty={openParty}
+      onParty={() => setOpenParty((v) => !v)}
+      onAccept={openAccept}
+      onRecord={openRecord}
+      onChange={() => {
+        // ⚖ NO DEAD LEVER. 変更希望あり outranks the lifecycle in
+        // `primaryActionOf`, so a booking whose deadline has already been
+        // cleared can still ask for this button while having no card on the
+        // rail to open. It says so rather than doing nothing.
+        if (!current.queued) {
+          setToast(`予約 ${current.no}の変更希望は、すでに要対応の対象から外れています。下の一覧で内容を確認してください`)
+          return
+        }
+        toggleAtt(current.id, 'rail')
+      }}
+      onToast={setToast}
+    />
+  )
+
   return (
-    <div className="page page-reservations">
-      <header className="page-head">
-        <div>
-          <div className="eyebrow">{props.lensLabel} / 予約管理</div>
-          <h1>予約一覧</h1>
-          <p className="subtitle">期限のある予約判断と、日をまたぐ予約の検索。</p>
-        </div>
-        <Link className="btn primary" href={href(props, 'today')}>今日の運営で予約を作成</Link>
-      </header>
-
-      <section className="summary" aria-label="予約の概要">
-        <div className="summary-main">
-          <strong>{props.spanLabel}の予約</strong>
-          <span>予定表ではなく、日をまたぐ予約の検索・例外処理・証拠確認に使います。</span>
-        </div>
-        <div className="summary-stat">
-          <span>要対応</span>
-          <b className="warn">{queue.length}</b>
-          <span>最短期限 {queue.length ? hhmm(queue[0].deadlineMinute!) : '—'}</span>
-        </div>
-        <div className="summary-stat"><span>精算待ち</span><b>{settling}</b></div>
-        <div className="summary-stat"><span>本日</span><b>{todayCount}</b></div>
-      </section>
-
-      <div className="saved-views" role="group" aria-label="保存した表示">
-        <span>保存した表示</span>
-        {SAVED_VIEW_LABELS.map(([k, label]) => (
-          <button
-            key={k}
-            className="saved-view"
-            type="button"
-            aria-pressed={savedView === k}
-            onClick={() => applyView(k)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <form className="filters" aria-label="予約を絞り込む" onSubmit={(e) => e.preventDefault()}>
-        <input
-          type="search"
-          ref={searchRef}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="お客様名・予約番号・メニュー・担当"
-          aria-label="予約を検索"
-        />
-        <select value={date} onChange={(e) => setDate(e.target.value as DateFilter)} aria-label="日付">
-          <option value="all">{props.spanLabel}</option>
-          <option value="today">本日 {props.todayLabel}</option>
-          <option value="future">{props.tomorrowLabel}以降</option>
-        </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} aria-label="状態">
-          {STATUS_OPTIONS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-        </select>
-        <select value={source} onChange={(e) => setSource(e.target.value as SourceFilter)} aria-label="受付元">
-          {SOURCE_OPTIONS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-        </select>
-        <button className="btn" type="button" onClick={clearFilters}>クリア</button>
-      </form>
-
-      <div className="workspace">
-        <section className="panel" id="bookingPanel" style={trackStyle} aria-labelledby="listTitle">
-          <div className="panel-head">
-            <div>
-              <strong id="listTitle">全予約リスト</strong>
-              <span>{props.spanLabel}の全件。検索と絞り込みはこの一覧に効きます</span>
-            </div>
-            <div className="panel-actions" style={{ position: 'relative' }}>
-              <span className="result-count" role="status" aria-live="polite" tabIndex={-1} ref={countRef}>
-                {visible.length}件
-              </span>
-              <button
-                className="btn fx-cols-btn"
-                type="button"
-                ref={colsBtnRef}
-                aria-expanded={colsOpen}
-                aria-haspopup="dialog"
-                onClick={() => setColsOpen((v) => !v)}
-              >
-                表示設定
-              </button>
-              {colsOpen && (
-                <div className="fx-cols-pop" role="dialog" aria-label="表示する列" ref={popRef}>
-                  <h3>表示する列</h3>
-                  {COLUMNS.map((c) => (
-                    <label className="fx-cols-opt" key={c.k}>
-                      <input
-                        type="checkbox"
-                        checked={shown.includes(c.k)}
-                        onChange={() => setShown((was) => toggleColumn(was, c.k))}
-                      />
-                      <span>{c.label}</span>
-                    </label>
-                  ))}
-                  <p className="fx-cols-note">この端末での表示だけを変えます。データは消えません。</p>
-                </div>
-              )}
-            </div>
+    <div className="page pg-reservations" ref={rootRef}>
+      {/* G4 fix — `inert` while the tour is open sits on the CONTENT wrapper,
+          not the page root, matching this room's own `rv-raildetail`/`rv-confirm`
+          pattern above. The tour's own overlay layers (spot-catch/spot-hover/
+          spot-hole/spot-card, below) render as siblings of this wrapper, still
+          inside `.pg-reservations` (reservations.css's tour rules keep
+          matching) and outside the inert subtree (tap-to-learn still works). */}
+      <div className="rv-view" ref={viewRef} inert={tourOpen}>
+        {/* ⚖ ONE COMPACT TITLE ROW (the mock's `.titlerow`). The old subtitle and
+            the summary band's sentence are not cut — they are the head's own
+            tour text, which is where a sentence about the whole screen belongs. */}
+        <header
+          className="rv-head"
+          data-guide-title="予約一覧"
+          data-guide="期限のある予約判断と、日をまたぐ予約の検索をまとめた画面です。予定表ではなく、日をまたぐ予約の検索・例外処理・証拠確認に使います。この画面は見本データなので、予約の変更・精算・連絡はできません。"
+        >
+          <div className="rv-titlerow">
+            <span className="rv-eyebrow">{props.lensLabel} / 予約管理</span>
+            <h1>予約一覧</h1>
+            {/* ⚖ Liam 8/23 — the ? opens the GUIDED TOUR, never the mock's own
+                popover: the mock's paragraphs ARE the sections' tour texts. A
+                hairline circle, never a filled one (⚖ R13). */}
+            <button
+              className="rv-help"
+              type="button"
+              ref={helpRef}
+              data-press
+              title="画面の説明"
+              aria-label="画面の説明"
+              aria-haspopup="dialog"
+              aria-expanded={tourOpen}
+              aria-controls={tourOpen ? 'rvTour' : undefined}
+              onClick={() => setTourIdx(0)}
+            >
+              ?
+            </button>
+            <span className="rv-range">{rangeWord}の予約</span>
+            <span className="rv-sp" />
+            <Link className="btn primary rv-cta" href={href(props, 'today')} data-press>
+              今日の運営で予約を作成
+            </Link>
           </div>
-          <div className="fx-scroll">
-            <div className="list-head" aria-hidden="true">
-              {columns.map((c) => (
-                <span key={c.k} className={c.k === 'state' ? 'badge-col' : undefined}>{c.label}</span>
-              ))}
-            </div>
-            {visible.length > 0 && (
-              <div className="booking-list" ref={listRef}>
-                {visible.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    data-id={r.id}
-                    className={`booking-row${r.id === current?.id ? ' selected' : ''}`}
-                    aria-pressed={r.id === current?.id}
-                    onClick={() => setSelected(r.id)}
-                  >
-                    {columns.map((c) => (
-                      <Cell key={c.k} col={c.k} row={r} />
-                    ))}
-                  </button>
-                ))}
+        </header>
+
+        {/* ── ⚖-ADJ A · the 要対応 deadline rail, at the TOP ─────────────── */}
+        <section
+          className="rv-card rv-railrow"
+          ref={railRef}
+          data-guide-title="要対応"
+          data-guide="対応期限の早い順に、期間や検索で一覧を絞っていても全件を並べています。カードを押すと、判断の根拠と次の操作がその場で開きます。"
+        >
+          {/* FINAL-FRESH F-1 (Fable ruling) — this badge is the DEADLINE QUEUE
+              for the whole loaded span, never narrowed by 期間/検索 (its cards
+              stay `queue`, unfiltered): a manager must never see an overdue
+              item hidden by a search. The 要対応 CHIP below is the filter —
+              its own number is what pressing it reveals under the current
+              period/search — so the two can show different counts at once by
+              design. The sub-label says so (全期間・期限順) rather than let two
+              identically-named counts read as a contradiction. */}
+          <div className="rv-raillabel">
+            <span className="rv-rl-t">要対応</span>
+            <span className="rv-rl-c">{queue.length}件</span>
+            <span className="rv-rl-h">{queue.length ? <>全期間・<br />期限順</> : 'この画面で今日決めることはありません'}</span>
+          </div>
+          {queue.length === 0 ? (
+            <div className="rv-railcards">
+              <div className="rv-railempty">
+                <strong>期限のある対応はありません</strong>
+                <span>下の全予約リストで、日をまたぐ検索と価格の証拠を確認できます。</span>
               </div>
-            )}
-          </div>
-          {visible.length === 0 && (
-            <div className="empty">
-              <strong>一致する予約はありません</strong>
-              <span>検索語または絞り込みを変えてください。</span>
+            </div>
+          ) : (
+            <div className={`rv-railcards${railStrip ? ' is-strip' : ''}`}>
+              {queue.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  data-press
+                  data-att={r.id}
+                  className={`rv-rcard${r.overdue ? ' is-over' : ''}${openAtt === r.id ? ' is-sel' : ''}`}
+                  aria-expanded={openAtt === r.id}
+                  onClick={() => toggleAtt(r.id, 'row')}
+                >
+                  <span className="rv-dl">{DEADLINE_WORD[r.kind]} {hhmm(r.deadlineMinute!)}まで</span>
+                  <span className="rv-cd">{countdownText(r.deadlineMinute!, boardNow, elapsedSec)}</span>
+                  <span className="rv-ti">{DECISION[r.kind](r)}</span>
+                  <span className="rv-mt">{r.no} / {r.dateLabel} {r.timeLabel}</span>
+                  <span className="rv-cv" aria-hidden="true">⌄</span>
+                </button>
+              ))}
             </div>
           )}
         </section>
 
-        {current && (
-          <aside className="panel inspector" aria-labelledby="inspectorTitle">
-            <div className="inspector-head">
-              <div className="inspector-kicker">予約 {current.no}</div>
-              <h2 id="inspectorTitle">{current.customerName}</h2>
-              <p>{current.dateLabel} {current.timeLabel} / {current.menuName}</p>
-            </div>
-            <div className="inspector-body">
-              {offList && (
-                <p className="w2-off-list">
-                  選択中の予約は現在の検索・保存した表示には含まれていません。選択は保持しています。
-                </p>
-              )}
-              <div className="status-row">
-                <span className="state-cell"><StateCell row={current} /></span>
-                <span className="source">{current.sourceLabel} / {current.no}</span>
-              </div>
-              {current.lifecycle === 'external' && (
-                <div className="readonly-note">
-                  この予約は外部予約元が正本です — 表示のみ。SYNQEDからは日時・担当・受付価格を変更しません。
+        {/* the detail springs open IN PLACE under the rail; it declares itself
+            for the tour only while it is open, which the engine's own property
+            takes care of (a closed panel has no rect) */}
+        <div className="rv-raildetail rv-card" ref={detailRef} inert={openRow === null}>
+          <div className="rv-collapse-inner">
+            {openRow && (
+              <section
+                className="rv-rd-body"
+                data-guide-title="この対応の中身"
+                data-guide="開いているカードの中身です。左に期限と残り時間、真ん中に判断の根拠、右に次の操作が並びます。空き枠候補が出ているときは、その場で枠を選んでお客様への返信まで進められます。"
+              >
+                <div className={`rv-rd-left${openRow.overdue ? ' is-over' : ''}`}>
+                  <span className="rv-dl">{DEADLINE_WORD[openRow.kind]} {hhmm(openRow.deadlineMinute!)}まで</span>
+                  <span className="rv-cd">{countdownText(openRow.deadlineMinute!, boardNow, elapsedSec)}</span>
+                  <span className="rv-mt">
+                    <span className="rv-m1">{openRow.no}</span>
+                    <span className="rv-m2">{openRow.dateLabel} {openRow.timeLabel}</span>
+                  </span>
                 </div>
-              )}
-
-              <div className="facts">
-                <div className="fact"><span>担当</span><b>{current.staffName}</b></div>
-                <div className="fact"><span>設備</span><b>{current.resourceName}</b></div>
-                <div className="fact"><span>日時</span><b>{current.dateLabel} {current.timeLabel}</b></div>
-                <div className="fact"><span>正本</span><b>{current.sourceGroup === 'external' ? '外部予約元' : 'SYNQED'}</b></div>
-              </div>
-
-              <PartyBlock row={current} open={openParty} onToggle={() => setOpenParty((v) => !v)} />
-
-              <div className="section-title">価格の証拠</div>
-              <div className="price">
-                <div><span>受付時に合意</span><b>{current.priceLabel}</b></div>
-                <div><span>現在の公開価格</span><b>{current.currentPriceLabel}</b></div>
-              </div>
-              <div className="proof" style={{ marginTop: 9 }}>
-                <strong>{current.eligibility}</strong>
-                <br />
-                {current.proof}
-              </div>
-
-              <div className="section-title">操作履歴</div>
-              <div className="history">
-                {current.history.length === 0 ? (
-                  <div className="history-row">
-                    <time>—</time>
-                    <span><strong>この予約の操作履歴はまだありません</strong></span>
-                  </div>
-                ) : (
-                  current.history.map(([time, action, detail], i) => (
-                    <div className="history-row" key={`${time}-${i}`}>
-                      <time>{time}</time>
-                      <span><strong>{action}</strong><span>{detail}</span></span>
+                <div className="rv-rd-mid">
+                  <h3>{DECISION[openRow.kind](openRow)}</h3>
+                  <Evidence
+                    row={openRow}
+                    candidates={openCandidates}
+                    pickedSlot={pickedSlot}
+                    onPick={(id) => {
+                      setSendRefused(false)
+                      setPickedSlot((was) => (was === id ? '' : id))
+                    }}
+                  />
+                  {openRow.kind === 'change' && (
+                    <div className="rv-confirm" ref={confirmRef} inert={picked === undefined}>
+                      <div className="rv-collapse-inner">
+                        <div className="rv-cf-body">
+                          <div className="rv-cf-txt">
+                            <span className="rv-cf-pick">
+                              {/* FINAL-FRESH F-2 — wrapped past 1440 (a
+                                  candidate near midnight plus an overnight
+                                  duration): the honest read is 「00:30」, never
+                                  「24:30」. `hhmm` itself stays byte-faithful to
+                                  shift windows, which legitimately print 24:00. */}
+                              選んだ枠：{picked ? `${openRow.dateLabel} ${hhmm(picked.start)}–${hhmm(((picked.start + openRow.durationMinutes) % 1440 + 1440) % 1440)} / ${picked.staffName} + ${picked.resourceName}` : '—'}
+                            </span>
+                            <span className="rv-cf-hold">
+                              受付価格 {openRow.priceLabel} を保持（現在の公開価格 {openRow.currentPriceLabel}）
+                            </span>
+                            この枠でお客様に返信します。見本データのため返信の送信はまだつないでいないので、実際には送られません。
+                          </div>
+                          <label className="rv-cf-reason">
+                            変更理由
+                            <select value={pickReason} onChange={(e) => { setSendRefused(false); setPickReason(e.target.value) }}>
+                              <option value="">選択してください</option>
+                              {CHANGE_REASONS.map((r) => <option key={r}>{r}</option>)}
+                            </select>
+                          </label>
+                          {/* ⚖ THE REFUSAL IS INLINE AND IT CHANGES NOTHING (§A7):
+                              the picked slot and the reason stay exactly where
+                              they were, the row does not move, no history is
+                              stamped. It names the write it is waiting on. */}
+                          {sendRefused && <p className="rv-cf-refusal" role="alert">{SEND_REFUSAL}</p>}
+                          <div className="rv-cf-act">
+                            <button
+                              className="btn primary"
+                              type="button"
+                              data-press
+                              disabled={!picked || !pickReason}
+                              onClick={() => {
+                                setSendRefused(true)
+                                setToast('見本データのため送信できません。予約は変わっていません。')
+                              }}
+                            >
+                              この枠で返信する
+                            </button>
+                            <button
+                              className="btn"
+                              type="button"
+                              data-press
+                              onClick={() => { setPickedSlot(''); setSendRefused(false) }}
+                            >
+                              選び直す
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  ))
+                  )}
+                </div>
+                <div className="rv-rd-act">
+                  <RailAction row={openRow} onAccept={() => { setSelected(openRow.id); openAccept() }} onToast={setToast} onFocusRow={() => { setSelected(openRow.id); requestAnimationFrame(() => focusResult(listRef.current, countRef.current, openRow.id)) }} />
+                  <button
+                    className="btn"
+                    type="button"
+                    data-press
+                    onClick={() => {
+                      setSelected(openRow.id)
+                      requestAnimationFrame(() => focusResult(listRef.current, countRef.current, openRow.id))
+                    }}
+                  >
+                    予約の正本を見る
+                  </button>
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
+
+        {/* ── ⚖-ADJ D · the counts ARE the filters ───────────────────────── */}
+        <section
+          className="rv-card rv-filterrow"
+          data-guide-title="絞り込み"
+          data-guide="件数のチップがそのまま絞り込みです。押すと、そのチップに当てはまる予約だけが下の一覧に残ります。検索と期間は、選んでいるチップの中をさらに絞り込みます。"
+        >
+          <div className="rv-seg" ref={segRef} role="group" aria-label="予約の絞り込み">
+            <span className="rv-seg-thumb" ref={thumbRef} aria-hidden="true" />
+            {CHIP_VIEWS.map((v) => (
+              <button
+                key={v}
+                type="button"
+                data-press
+                data-chip={v}
+                className={`rv-seg-btn${v === 'attention' ? ' is-warn' : ''}${chip === v ? ' is-on' : ''}`}
+                aria-pressed={chip === v}
+                onClick={() => applyView(viewOnChipPress(chip, v), v === 'today')}
+              >
+                {CHIP_LABEL[v]}<span className="rv-n">{counts[v]}件</span>
+              </button>
+            ))}
+          </div>
+          <span className="rv-sp" />
+          <div className="rv-searchwrap">
+            <input
+              className="rv-search"
+              type="search"
+              ref={searchRef}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="お客様名・予約番号・メニュー・担当"
+              aria-label="予約を検索"
+            />
+          </div>
+          <select
+            className="rv-daterange"
+            value={date}
+            onChange={(e) => {
+              const next = e.target.value as DateFilter
+              setDate(next)
+              setChip((c) => chipAfterDateChange(c, next))
+              setSwap((n) => n + 1)
+            }}
+            aria-label="期間"
+          >
+            <option value="all">{props.spanLabel}</option>
+            <option value="today">本日 {props.todayLabel}</option>
+            <option value="future">{props.tomorrowLabel}以降</option>
+          </select>
+          <button className="btn rv-clear" type="button" data-press onClick={clearFilters}>クリア</button>
+        </section>
+
+        <div className="rv-workgrid">
+          <section
+            className="rv-card rv-tablecard"
+            style={trackStyle}
+            data-guide-title="全予約リスト"
+            data-guide="表示している期間の予約を、日ごとにまとめた一覧です。行を押すと、その予約の詳しい中身が出ます。表示設定で列の出し入れができます。"
+          >
+            <div className="rv-tbl-hd">
+              <span className="rv-ttl">全予約リスト</span>
+              <span className="rv-sub">{rangeWord}の全{rangeTotal}件のうち {visible.length}件を表示</span>
+              <span className="rv-sp" />
+              <span className="rv-cnt" role="status" aria-live="polite" tabIndex={-1} ref={countRef}>
+                {visible.length}件
+              </span>
+              <div className="rv-colswrap">
+                <button
+                  className="btn rv-colsbtn"
+                  type="button"
+                  data-press
+                  ref={colsBtnRef}
+                  aria-expanded={colsOpen}
+                  aria-haspopup="dialog"
+                  onClick={() => setColsOpen((v) => !v)}
+                >
+                  表示設定
+                </button>
+                {colsOpen && (
+                  <div className="fx-cols-pop" role="dialog" aria-label="表示する列" ref={popRef}>
+                    <h3>表示する列</h3>
+                    {COLUMNS.map((c) => (
+                      <label className="fx-cols-opt" key={c.k}>
+                        <input
+                          type="checkbox"
+                          checked={shown.includes(c.k)}
+                          onChange={() => setShown((was) => toggleColumn(was, c.k))}
+                        />
+                        <span>{c.label}</span>
+                      </label>
+                    ))}
+                    <p className="fx-cols-note">この端末での表示だけを変えます。データは消えません。</p>
+                  </div>
                 )}
               </div>
-
-              <div className="actions">
-                <Primary
-                  row={current}
-                  props={props}
-                  onAccept={openAccept}
-                  onChange={openChange}
-                  onRecord={openRecord}
-                  onToast={setToast}
-                />
-                <button className="btn" type="button" disabled title="カルテ連携は準備中です">Karuteを開く（準備中）</button>
-                <button className="btn" type="button" disabled title="受信トレイは準備中です">受信トレイで連絡（準備中）</button>
-              </div>
             </div>
-          </aside>
-        )}
+
+            <div className="rv-thead" aria-hidden="true">
+              {columns.map((c) => (
+                <span key={c.k} data-col={c.k} className={c.k === 'state' ? 'rv-th-right' : undefined}>{c.label}</span>
+              ))}
+            </div>
+
+            {chip === 'none' && (
+              <p className="rv-demonote">
+                受付時に合意した価格と、現在の公開価格が照合できない予約だけを表示しています。ほかの予約は2つの価格が一致しています。
+              </p>
+            )}
+
+            {visible.length === 0 ? (
+              <div className="rv-emptybox">
+                <strong>この絞り込みに当てはまる予約はありません。</strong>
+                <span>「クリア」で条件を外すと、{rangeWord}の全{rangeTotal}件に戻ります。</span>
+              </div>
+            ) : (
+              <div className="rv-rowsbox" key={swap} ref={listRef}>
+                {visible.map((r, i) => (
+                  <RowGroup key={r.id}>
+                    {(i === 0 || visible[i - 1].dayKey !== r.dayKey) && (
+                      <div className="rv-dayhd">
+                        <span className="rv-d">{r.dayLabel}</span>
+                        <span className="rv-n">予約 {dayCounts.get(r.dayKey)}件</span>
+                        <span className="rv-ln" />
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      data-id={r.id}
+                      data-press
+                      className={`rv-row${r.id === current?.id ? ' is-sel' : ''}`}
+                      aria-pressed={r.id === current?.id}
+                      onClick={() => selectRow(r.id, true)}
+                    >
+                      {columns.map((c) => (
+                        <Cell key={c.k} col={c.k} row={r} />
+                      ))}
+                    </button>
+                  </RowGroup>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* the DESK inspector. At the one-column band and below it is hidden
+              by the sheet and the same body renders inside the overlay instead
+              (⚖-ADJ F) — one component, one home for the verdict. */}
+          {current && (
+            <aside
+              className="rv-card rv-insp"
+              aria-label="予約の詳細"
+              data-guide-title="予約の詳細"
+              data-guide="選んでいる予約の中身です。受付時に合意した価格と現在の公開価格を並べているので、公開価格が動いたあとでも受付時の価格が保たれていることをそのまま確認できます。"
+            >
+              {inspector}
+            </aside>
+          )}
+        </div>
       </div>
 
-      <section className="panel queue" aria-labelledby="queueTitle">
-        <div className="panel-head">
-          <div>
-            <strong id="queueTitle">要対応</strong>
-            <span>
-              {queue.length
-                ? '対応期限の早い順。1件ずつ、判断とその根拠を並べています'
-                : 'この画面で今日決めることはありません'}
-            </span>
-          </div>
-          <span className="result-count" role="status" aria-live="polite">{queue.length}件</span>
-        </div>
-        {queue.length === 0 ? (
-          <div className="queue-empty">
-            <strong>期限のある対応はありません</strong>
-            <span>上の全予約リストで、日をまたぐ検索と価格の証拠を確認できます。</span>
-          </div>
-        ) : (
-          <div>
-            {queue.map((r) => {
-              const left = r.deadlineMinute! - boardNow
-              return (
-                <article className={`queue-card${r.kind === 'escalate' ? ' escalate' : ''}`} key={r.id}>
-                  <div className="queue-when">
-                    <span className={`pill wrap ${r.overdue ? 'alert' : 'warn'}`}>
-                      {DEADLINE_WORD[r.kind]} {hhmm(r.deadlineMinute!)}まで
-                    </span>
-                    <span className={`queue-left${r.overdue ? ' over' : ''}`}>
-                      {r.overdue ? `期限超過 ${spanText(left)}` : `あと${spanText(left)}`}
-                    </span>
-                    <span className="queue-ref">{r.no} / {r.dateLabel} {r.timeLabel}</span>
-                  </div>
-                  <div className="queue-body">
-                    <strong>{DECISION[r.kind](r)}</strong>
-                    <Evidence row={r} candidates={safeSlotsFor(props.slots, r.durationMinutes)} />
-                  </div>
-                  <div className="queue-act">
-                    {/* 準備中 wears the outline button, never a washed-out
-                        filled one — the same treatment 顧客 and 今日の運営 give
-                        an unbuilt destination (one design system). */}
-                    {r.kind === 'settle' ? (
-                      <button className="btn" type="button" disabled title="売上・レジは準備中です">
-                        精算へ（準備中）
-                      </button>
-                    ) : (
-                      <button
-                        className="btn primary"
-                        type="button"
-                        onClick={() => {
-                          setSelected(r.id)
-                          if (r.kind === 'accept') openAccept()
-                          else if (r.kind === 'change') openChange()
-                          else if (r.kind === 'escalate')
-                            setToast(`この画面内のプロトタイプでは、予約 ${r.no}と影響範囲を判断できる担当者へ渡すところまでを示します`)
-                        }}
-                      >
-                        {QUEUE_ACTION[r.kind]}
-                      </button>
-                    )}
-                    {/* canon (:602-605) selects the booking AND sends focus to
-                        its row — the queue's job is to hand you off to the
-                        record, so the keyboard goes there too. */}
-                    <button
-                      className="btn"
-                      type="button"
-                      onClick={() => {
-                        setSelected(r.id)
-                        requestAnimationFrame(() => focusResult(listRef.current, countRef.current, r.id))
-                      }}
-                    >
-                      予約の正本を見る
-                    </button>
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-        )}
-      </section>
+      {/* ══ the fixed layers — page-root siblings of the contained view ══════ */}
 
-      {/* ── 受付ダイアログ (M-70–M-71) ─────────────────────────────────── */}
-      <dialog ref={acceptRef} aria-labelledby="acceptTitle">
-        <div className="dialog-head">
+      {/* ⚖-ADJ F · the sheet. It renders only while it is open, so the server
+          render never carries one and a phone's first paint cannot flash it. */}
+      {sheetOpen && current && (
+        <>
+          {/* F6 (fix round 1, LENS-3 F-1) — the scrim's click is gated on how
+              long the panel has been on screen (RecordingScreen.tsx's
+              Overlay, :2322-2325), so a double-tap on the row that just
+              opened it cannot land here and close what it opened. */}
+          <div
+            className="rv-scrim"
+            onClick={() => { if (Date.now() - sheetOpenedAt.current >= SCRIM_SETTLE_MS) closeSheet() }}
+          />
+          <aside
+            className="rv-sheet"
+            ref={sheetRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label="予約の詳細"
+            data-guide-title="予約の詳細"
+            data-guide="選んでいる予約の中身です。受付時に合意した価格と現在の公開価格を並べているので、公開価格が動いたあとでも受付時の価格が保たれていることをそのまま確認できます。"
+          >
+            <div className="rv-sheet-grip" aria-hidden="true" />
+            <button className="btn rv-sheet-close" type="button" data-press aria-label="閉じる" onClick={closeSheet}>✕</button>
+            {inspector}
+          </aside>
+        </>
+      )}
+
+      {/* ── 受付ダイアログ (M-70–M-71), kept EXACTLY as built (⚖-ADJ C) ──── */}
+      <dialog className="rv-dlg" ref={acceptRef} aria-labelledby="rvAcceptTitle">
+        <div className="rv-dlg-head">
           <div>
-            <h2 id="acceptTitle">受付リクエストを確定</h2>
+            <h2 id="rvAcceptTitle">受付リクエストを確定</h2>
             <p>空き、担当、設備、受付価格、通知を一度に確認します</p>
           </div>
-          <button className="close" type="button" aria-label="閉じる" onClick={() => acceptRef.current?.close()}>×</button>
+          <button className="rv-dlg-close" type="button" aria-label="閉じる" onClick={() => acceptRef.current?.close()}>×</button>
         </div>
-        <div className="dialog-body">
+        <div className="rv-dlg-body">
           {current && (
-            <div className="dialog-facts">
-              <div className="dialog-fact"><span>お客様・通知先</span><b>{current.customerName} / Reserve登録先</b></div>
-              <div className="dialog-fact"><span>予約枠</span><b>{current.dateLabel} {current.timeLabel}</b></div>
+            <div className="rv-dlg-facts">
+              <div className="rv-dlg-fact"><span>お客様・通知先</span><b>{current.customerName} / Reserve登録先</b></div>
+              <div className="rv-dlg-fact"><span>予約枠</span><b>{current.dateLabel} {current.timeLabel}</b></div>
               {/* Three segments, canon's own shape (:692) — WHO, what they are
                   qualified for, and on which bed. The middle one is read off
                   the roster's 資格 plane rather than written in. */}
-              <div className="dialog-fact"><span>担当資格・設備</span><b>{current.staffName} / {current.qualificationText} / {current.resourceName}</b></div>
-              <div className="dialog-fact"><span>受付価格</span><b>{current.priceLabel}</b></div>
-              <div className="dialog-fact"><span>価格条件</span><b>{current.eligibility}</b></div>
-              <div className="dialog-fact"><span>確定通知</span><b>Reserve通知 + SMS / 送信待ち</b></div>
+              <div className="rv-dlg-fact"><span>担当資格・設備</span><b>{current.staffName} / {current.qualificationText} / {current.resourceName}</b></div>
+              <div className="rv-dlg-fact"><span>受付価格</span><b>{current.priceLabel}</b></div>
+              <div className="rv-dlg-fact"><span>価格条件</span><b>{current.eligibility}</b></div>
+              <div className="rv-dlg-fact"><span>確定通知</span><b>Reserve通知 + SMS / 送信待ち</b></div>
               {current.shiftWarning && (
-                <div className="dialog-fact warn"><span>勤務時間</span><b>{current.shiftWarning}</b></div>
+                <div className="rv-dlg-fact is-warn"><span>勤務時間</span><b>{current.shiftWarning}</b></div>
               )}
             </div>
           )}
-          <label className="confirm">
+          <label className="rv-confirmbox">
             <input type="checkbox" checked={acceptOk} onChange={(e) => setAcceptOk(e.target.checked)} />
             <span>予約枠・担当資格・ベッド・受付価格・通知先を確認しました</span>
           </label>
         </div>
-        <div className="dialog-foot">
+        <div className="rv-dlg-foot">
           <button className="btn" type="button" onClick={() => acceptRef.current?.close()}>戻る</button>
           <button className="btn primary" type="button" disabled={!acceptOk} onClick={() => current && run(acceptCommit(current, acceptOk, props.lensLabel, boardNow), acceptRef.current)}>
             証拠を残して受け付ける
@@ -808,95 +1399,25 @@ function Screen(props: ReservationsProps) {
         </div>
       </dialog>
 
-      {/* ── 変更ダイアログ (M-72–M-75) ─────────────────────────────────── */}
-      <dialog ref={changeRef} aria-labelledby="changeTitle">
-        <div className="dialog-head">
+      {/* ── 記録ダイアログ (M-76–M-79), kept EXACTLY as built (⚖-ADJ C) ──── */}
+      <dialog className="rv-dlg" ref={recordRef} aria-labelledby="rvRecordTitle">
+        <div className="rv-dlg-head">
           <div>
-            <h2 id="changeTitle">予約の日時・担当を変更</h2>
-            <p>この画面内のプロトタイプで、元の予約を残した変更結果を確認します</p>
-          </div>
-          <button className="close" type="button" aria-label="閉じる" onClick={() => changeRef.current?.close()}>×</button>
-        </div>
-        <div className="dialog-body">
-          {current && (
-            <div className="dialog-facts">
-              <div className="dialog-fact"><span>お客様・正本</span><b>{current.customerName} / SYNQED</b></div>
-              <div className="dialog-fact"><span>現在</span><b>{current.dateLabel} {current.timeLabel}</b></div>
-              <div className="dialog-fact"><span>現在の担当・設備</span><b>{current.staffName} / {current.resourceName}</b></div>
-              {/* M-75: the API shape itself makes this a guarantee — a booking's
-                  agreed price has no update path at all. */}
-              <div className="dialog-fact"><span>保持する受付価格</span><b>{current.priceLabel}</b></div>
-              <div className="dialog-fact"><span>新担当の確認</span><b>選択枠ごとに資格・設備を確認済み</b></div>
-              <div className="dialog-fact"><span>変更通知</span><b>電話確認 + SMS / この画面内の変更後に送る想定</b></div>
-            </div>
-          )}
-          <label className="field">
-            新しい空き枠
-            <select value={changeSlot} onChange={(e) => setChangeSlot(e.target.value)} disabled={candidates.length === 0}>
-              {candidates.length === 0 ? (
-                <option value="">この予約を収められる空き枠はありません</option>
-              ) : (
-                candidates.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {current?.dateLabel} {hhmm(s.start)}–{hhmm(s.start + (current?.durationMinutes ?? 0))} / {s.staffName} + {s.resourceName}
-                  </option>
-                ))
-              )}
-            </select>
-          </label>
-          <label className="field">
-            変更理由
-            <select value={changeReason} onChange={(e) => setChangeReason(e.target.value)}>
-              <option value="">選択してください</option>
-              <option>お客様希望</option>
-              <option>担当者の勤務変更</option>
-              <option>設備停止</option>
-            </select>
-          </label>
-          <label className="confirm">
-            <input type="checkbox" checked={changeOk} onChange={(e) => setChangeOk(e.target.checked)} />
-            <span>お客様、価格保持、担当資格、設備、通知先を確認しました</span>
-          </label>
-        </div>
-        <div className="dialog-foot">
-          <button className="btn" type="button" onClick={() => changeRef.current?.close()}>戻る</button>
-          <button
-            className="btn primary"
-            type="button"
-            disabled={!changeOk || !changeReason || !changeSlot}
-            title={candidates.length === 0 ? HINT : undefined}
-            onClick={() =>
-              current &&
-              run(
-                changeCommit(current, candidates.find((s) => s.id === changeSlot), changeReason, changeOk, boardNow),
-                changeRef.current,
-              )
-            }
-          >
-            画面内で変更を試す
-          </button>
-        </div>
-      </dialog>
-
-      {/* ── 記録ダイアログ (M-76–M-79) ─────────────────────────────────── */}
-      <dialog ref={recordRef} aria-labelledby="recordTitle">
-        <div className="dialog-head">
-          <div>
-            <h2 id="recordTitle">来店・キャンセルを記録</h2>
+            <h2 id="rvRecordTitle">来店・キャンセルを記録</h2>
             <p>予約を消さず、判断元と次の仕事を履歴に残します</p>
           </div>
-          <button className="close" type="button" aria-label="閉じる" onClick={() => recordRef.current?.close()}>×</button>
+          <button className="rv-dlg-close" type="button" aria-label="閉じる" onClick={() => recordRef.current?.close()}>×</button>
         </div>
-        <div className="dialog-body">
+        <div className="rv-dlg-body">
           {current && (
-            <div className="dialog-facts">
-              <div className="dialog-fact"><span>予約・お客様</span><b>{current.no} / {current.customerName}</b></div>
-              <div className="dialog-fact"><span>予約枠</span><b>{current.dateLabel} {current.timeLabel}</b></div>
-              <div className="dialog-fact"><span>受付価格</span><b>{current.priceLabel}</b></div>
-              <div className="dialog-fact"><span>正本・受付元</span><b>{current.sourceGroup === 'external' ? '外部予約元' : `SYNQED / ${current.sourceLabel}`}</b></div>
+            <div className="rv-dlg-facts">
+              <div className="rv-dlg-fact"><span>予約・お客様</span><b>{current.no} / {current.customerName}</b></div>
+              <div className="rv-dlg-fact"><span>予約枠</span><b>{current.dateLabel} {current.timeLabel}</b></div>
+              <div className="rv-dlg-fact"><span>受付価格</span><b>{current.priceLabel}</b></div>
+              <div className="rv-dlg-fact"><span>正本・受付元</span><b>{current.sourceGroup === 'external' ? genuineOf(current.sourceGroup) : `${genuineOf(current.sourceGroup)} / ${current.sourceLabel}`}</b></div>
             </div>
           )}
-          <label className="field">
+          <label className="rv-field">
             結果
             <select value={recordType} onChange={(e) => setRecordType(e.target.value)}>
               <option value="">選択してください</option>
@@ -905,7 +1426,7 @@ function Screen(props: ReservationsProps) {
               <option value="no_show">無断キャンセル</option>
             </select>
           </label>
-          <label className="field">
+          <label className="rv-field">
             確認元
             <select value={recordSource} onChange={(e) => setRecordSource(e.target.value)}>
               <option value="">選択してください</option>
@@ -915,12 +1436,12 @@ function Screen(props: ReservationsProps) {
               <option>店頭で確認</option>
             </select>
           </label>
-          <label className="confirm">
+          <label className="rv-confirmbox">
             <input type="checkbox" checked={recordOk} onChange={(e) => setRecordOk(e.target.checked)} />
             <span>予約番号・お客様・受付価格・確認元・次の対応を確認しました</span>
           </label>
         </div>
-        <div className="dialog-foot">
+        <div className="rv-dlg-foot">
           <button className="btn" type="button" onClick={() => recordRef.current?.close()}>戻る</button>
           <button
             className="btn primary"
@@ -936,18 +1457,145 @@ function Screen(props: ReservationsProps) {
         </div>
       </dialog>
 
-      <div className={`toast${toast ? ' show' : ''}`} role="status" aria-live="polite" aria-atomic="true">
+      <div className={`rv-toast${toast ? ' is-on' : ''}`} role="status" aria-live="polite" aria-atomic="true">
         {toast}
       </div>
+
+      {/* ⚖ Liam 8/23 — 画面の説明. Four layers, in the family's own order: the
+          click catcher (which is what makes every declared region jumpable), the
+          hover outline, the spotlight hole, and the card. G4 fix — this whole
+          block is a SIBLING of `.rv-view`, never a descendant of it, so
+          `.rv-view`'s own `inert` (while the tour is open) cannot reach in and
+          disable tap-to-learn or the card itself; it stays inside
+          `.pg-reservations` so reservations.css's tour rules keep matching. */}
+      {tourOpen && (
+        <>
+          <div
+            className="rv-spot-catch"
+            onClick={(e) => {
+              const hit = spotHitIndex(e.clientX, e.clientY, tourRectsRef.current)
+              setTourIdx(hit >= 0 ? hit : -1)
+            }}
+            onMouseMove={(e) => {
+              const hit = spotHitIndex(e.clientX, e.clientY, tourRectsRef.current)
+              setTourHover(hit >= 0 && hit !== tourStep?.idx ? tourRectsRef.current[hit] : null)
+            }}
+          />
+          {tourHover && (
+            <div
+              className="rv-spot-hover"
+              aria-hidden="true"
+              style={{ top: tourHover.top - 5, left: tourHover.left - 5, width: tourHover.width + 10, height: tourHover.height + 10 }}
+            />
+          )}
+          {tourPos && (
+            <div className="rv-spot-hole" aria-hidden="true" style={{ top: tourPos.hole.top, left: tourPos.hole.left, width: tourPos.hole.width, height: tourPos.hole.height }} />
+          )}
+          <div
+            className="rv-spot-card"
+            id="rvTour"
+            ref={tourCardRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="画面の説明"
+            style={tourPos ? { top: tourPos.top, left: tourPos.left } : { top: -9999, left: -9999 }}
+          >
+            <b>{tourStep?.title ?? ''}</b>
+            <span className="rv-spot-text">{tourStep?.text ?? ''}</span>
+            <div className="rv-spot-hint">気になる場所を押すと、その説明にジャンプします</div>
+            <div className="rv-spot-foot">
+              <button type="button" className="rv-spot-prev" disabled={tourStep?.idx === 0} onClick={() => setTourIdx((i) => wrapStep(i - 1, tourRectsRef.current.length))}>前へ</button>
+              <button type="button" className="rv-spot-next" ref={tourNextRef} onClick={() => setTourIdx((i) => wrapStep(i + 1, tourRectsRef.current.length))}>
+                {tourStep && tourStep.idx === tourStep.total - 1 ? '最初へ' : '次へ'}
+              </button>
+              <span className="rv-spot-count">{tourStep ? `${tourStep.idx + 1} / ${tourStep.total}` : ''}</span>
+              <button type="button" className="rv-spot-done" onClick={() => setTourIdx(-1)}>終了 ✕</button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
+}
+
+/** A day header and its row share one parent slot; React needs a keyed wrapper
+ *  and a grid needs the two to be siblings, so the wrapper is `display: contents`
+ *  rather than a box. */
+function RowGroup({ children }: { children: React.ReactNode }) {
+  return <div className="rv-grouping">{children}</div>
+}
+
+const boxOf = (r: DOMRect): SpotRect => ({ left: r.left, top: r.top, width: r.width, height: r.height })
+
+/** The height spring every collapse on this page rides — the rail's detail and
+ *  the picker's confirm. `auto` at rest so a panel that grows while open (a
+ *  refusal line appearing) is not pinned to a stale pixel height. */
+function useCollapse(ref: React.RefObject<HTMLDivElement | null>, open: boolean, reduced: boolean) {
+  const first = useRef(true)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const inner = el.firstElementChild
+    inner?.classList.toggle('is-in', open)
+    if (first.current) {
+      first.current = false
+      el.style.height = open ? 'auto' : '0px'
+      return
+    }
+    const sp = makeSpring((v) => { el.style.height = `${v}px` }, {
+      response: 0.34,
+      reduced,
+      onRest: () => { if (open) el.style.height = 'auto' },
+    })
+    sp.jump(el.getBoundingClientRect().height)
+    sp.set(open ? el.scrollHeight : 0)
+    return () => sp.stop()
+  }, [ref, open, reduced])
 }
 
 function href(props: ReservationsProps, segment: string): string {
   return `/${props.locale}/business/${segment}${props.store ? `?store=${props.store}` : ''}`
 }
 
-/** canon `focusResult` (:541): after a commit or a queue jump, focus lands on
+/** F6 (fix round 1, LENS-3 F-1) — the sheet's own focusable set, spelled ONCE
+ *  so the Tab trap and the focus-on-open read cannot disagree, ported from
+ *  RecordingScreen.tsx's `Overlay` (:2263) IN-ROOM: a shared overlay
+ *  primitive is a family-sweep item, not this round. */
+export const SHEET_FOCUSABLE = 'button:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]'
+
+/** The sheet's Tab trap, ported from RecordingScreen.tsx's `Overlay`
+ *  (:2302-2310). Exported so the suite drives it on real nodes, the same
+ *  reason `focusResult` is. */
+export function trapSheetTab(panel: HTMLElement, e: KeyboardEvent): void {
+  if (e.key !== 'Tab') return
+  const focusable = Array.from(panel.querySelectorAll<HTMLElement>(SHEET_FOCUSABLE))
+  if (focusable.length === 0) {
+    e.preventDefault()
+    return
+  }
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault()
+    last.focus()
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault()
+    first.focus()
+  }
+}
+
+/** Wires the sheet panel on open: focuses its first focusable and installs
+ *  the Tab trap, returning the cleanup — same shape as `wireColumnsPopover`
+ *  (column-config.ts), IN-ROOM because this room's overlay is not that
+ *  shared primitive. */
+export function wireSheet(panel: HTMLElement): () => void {
+  ;(panel.querySelector<HTMLElement>(SHEET_FOCUSABLE) ?? panel).focus()
+  const onKey = (e: KeyboardEvent) => trapSheetTab(panel, e)
+  panel.addEventListener('keydown', onKey)
+  return () => panel.removeEventListener('keydown', onKey)
+}
+
+/** canon `focusResult` (:541): after a commit or a rail jump, focus lands on
  *  the row that changed; on the first row when that booking is filtered out of
  *  the list; and on the result count when the list is empty. Exported so the
  *  suite drives it on real nodes — this is the focus handoff, not a decoration. */
@@ -958,118 +1606,169 @@ export function focusResult(
 ): void {
   const target =
     list?.querySelector<HTMLElement>(`[data-id="${CSS.escape(preferredId)}"]`) ??
-    list?.querySelector<HTMLElement>('.booking-row') ??
+    list?.querySelector<HTMLElement>('.rv-row') ??
     count
   target?.focus()
 }
 
 /** One list cell. The column set is user-controlled, so each cell names its
  *  column (`data-col`) rather than relying on its position — hiding 日時 must
- *  not hand 受付元's wrapping rules to whichever cell slid into slot 4. */
+ *  not hand 受付元's wrapping rules to whichever cell slid into slot 4, and the
+ *  narrow band's shed keys on the same attribute. */
 function Cell({ col, row }: { col: (typeof COLUMNS)[number]['k']; row: Decorated }) {
   if (col === 'when') {
     return (
-      <span className="cell" data-col="when">
-        <strong>{row.dateLabel}</strong>
-        <span>{row.timeLabel}</span>
+      <span className="rv-cell" data-col="when">
+        <span className="rv-tm">{row.startLabel}</span>
+        <span className="rv-l2">{row.timeLabel}</span>
       </span>
     )
   }
   if (col === 'who') {
     return (
-      <span className="cell" data-col="who">
-        <strong>{row.customerName}</strong>
-        <span>{row.menuName} / {row.no}</span>
+      <span className="rv-cell" data-col="who">
+        <span className="rv-nm">
+          {row.queued && <span className="rv-attnmark" aria-hidden="true">!</span>}
+          {row.customerName}
+          {/* ⚖ rider #3 — quiet memory, and it says WHAT it counts. */}
+          {row.noShowCount > 0 && <span className="rv-noshow">来店なし{row.noShowCount}回</span>}
+        </span>
+        <span className="rv-l2">{row.menuName} / {row.no}</span>
+        {/* the line the narrow and phone bands fall back to — 担当・設備 first,
+            then 受付元・価格; the sheet decides which halves show */}
+        <span className="rv-mline">
+          <span className="rv-m-sd">担当 {row.staffName} / {row.resourceName}</span>
+          <span className="rv-m-sp">受付 {row.sourceLabel} / {row.priceLabel}</span>
+        </span>
       </span>
     )
   }
   if (col === 'staff') {
     return (
-      <span className="cell" data-col="staff">
-        <strong>{row.staffName}</strong>
-        <span>{row.resourceName}</span>
+      <span className="rv-cell" data-col="staff">
+        <span className="rv-l1">{row.staffName}</span>
+        <span className="rv-l2">{row.resourceName}</span>
       </span>
     )
   }
   if (col === 'source') {
     return (
-      <span className="cell" data-col="source">
-        <strong>{row.sourceLabel}</strong>
-        <span>{row.priceLabel}</span>
-        {row.storeLabel && <small className="w2-provenance">{row.storeLabel} / {row.no}</small>}
+      <span className="rv-cell" data-col="source">
+        <span className="rv-l1">{row.sourceLabel}</span>
+        <span className="rv-l2">{row.priceLabel}</span>
+        {row.storeLabel && <span className="rv-prov">{row.storeLabel}</span>}
       </span>
     )
   }
   return (
-    <span className="cell state-cell badge-col" data-col="state">
+    <span className="rv-cell rv-st" data-col="state">
       <StateCell row={row} />
     </span>
   )
 }
 
-/** 状態列 = the lifecycle pill over its modifier flags. */
+/** 状態列 = the lifecycle pill over its modifier flags, joined into ONE note
+ *  line. The flags wrap inside their own track and never truncate — the note is
+ *  the reason a row needs a human. */
 function StateCell({ row }: { row: Decorated }) {
   const { label, tone } = LIFECYCLE[row.lifecycle]
+  const alarming = row.overdue || row.allFlags.includes('担当変更が必要（安全な候補なし）')
   return (
     <>
       <span className={`pill ${tone}`}>{label}</span>
       {row.allFlags.length > 0 && (
-        <span className="state-flags">
-          {row.allFlags.map((f) => (
-            <span className={`flag${f === '期限超過' ? ' over' : ''}`} key={f}>{f}</span>
-          ))}
-        </span>
+        <span className={`rv-note${alarming ? ' is-warn' : ''}`}>{row.allFlags.join('・')}</span>
       )}
     </>
   )
 }
 
-/** The evidence under a queue card. Every line is read off the booking or off a
- *  fixture plane — no urgency is written here that the data does not carry. */
-function Evidence({ row, candidates }: { row: Decorated; candidates: SlotOption[] }) {
+/** The evidence under an open rail card. Every line is read off the booking or
+ *  off a fixture plane — no urgency is written here that the data does not
+ *  carry. ⚖-ADJ B: only the CHANGE card's 空き枠候補 row is pickable; every
+ *  other slot is read-only or the honest empty state, so a card never implies an
+ *  action its data cannot carry. */
+function Evidence({
+  row,
+  candidates,
+  pickedSlot,
+  onPick,
+}: {
+  row: Decorated
+  candidates: SlotOption[]
+  pickedSlot: string
+  onPick: (id: string) => void
+}) {
   const money = (
-    <Block rows={[['受付価格', `${row.priceLabel} を保持`, `現在の公開価格 ${row.currentPriceLabel}`]]} />
+    <Ev k="受付価格" v={`${row.priceLabel} を保持`} n={`現在の公開価格 ${row.currentPriceLabel}`} />
   )
   if (row.kind === 'accept') {
     return (
       <>
         {money}
-        <Block rows={[['担当・設備', `${row.staffName} / ${row.resourceName}`, row.eligibility]]} />
-        {row.shiftWarning && <Block risk rows={[['確認が必要', row.shiftWarning, null]]} />}
+        <Ev k="担当・設備" n={row.eligibility}>
+          <span className="rv-slots">
+            <span className="rv-slot is-ro">
+              <span className="rv-sl-t">{row.staffName}</span>
+              <span className="rv-sl-s">{row.resourceName}</span>
+            </span>
+          </span>
+        </Ev>
+        {row.shiftWarning && <Ev warn k="確認が必要" v={row.shiftWarning} />}
       </>
     )
   }
   if (row.kind === 'change') {
-    const first = candidates[0]
     return (
       <>
         {money}
-        <Block
-          rows={[
-            [
-              '空き枠候補',
-              first
-                ? `${row.dateLabel} ${hhmm(first.start)}–${hhmm(first.start + row.durationMinutes)} / ${first.staffName} + ${first.resourceName}`
-                : 'なし',
-              null,
-            ],
-            ['希望の内容', row.proof, null],
-          ]}
-        />
+        {/* ⚖ rider #2 — the candidate COUNT is what the plane honestly knows;
+            a per-day 空き hint would be an invented number (registry ⑥). */}
+        <Ev k={`空き枠候補 ${candidates.length}件`}>
+          {candidates.length === 0 ? (
+            <span className="rv-slots">
+              <span className="rv-slot is-empty">
+                <span className="rv-sl-t">この予約を収められる空き枠はありません</span>
+              </span>
+            </span>
+          ) : (
+            <span className="rv-slots">
+              {candidates.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  data-press
+                  data-cand={s.id}
+                  className={`rv-slot${pickedSlot === s.id ? ' is-on' : ''}`}
+                  aria-pressed={pickedSlot === s.id}
+                  onClick={() => onPick(s.id)}
+                >
+                  <span className="rv-mark" aria-hidden="true" />
+                  <span className="rv-sl-t">{row.dateLabel} {hhmm(s.start)}–{hhmm(s.start + row.durationMinutes)}</span>
+                  <span className="rv-sl-s">{s.staffName} + {s.resourceName}</span>
+                  <span className="rv-sl-pick">{pickedSlot === s.id ? '選択中' : '選ぶ'}</span>
+                </button>
+              ))}
+            </span>
+          )}
+        </Ev>
+        <Ev k="希望の内容" v={row.proof} />
       </>
     )
   }
   if (row.kind === 'escalate') {
     return (
       <>
-        <Block
-          rows={[[
-            '現在の担当',
-            `${row.staffName} / ${row.staffUnavailable ? '勤務不可' : '対応不可'}`,
-            `${row.dateLabel} ${row.timeLabel} / ${row.menuName}`,
-          ]]}
+        <Ev
+          k="現在の担当"
+          v={`${row.staffName} / ${row.staffUnavailable ? '勤務不可' : '対応不可'}`}
+          n={`${row.dateLabel} ${row.timeLabel} / ${row.menuName}`}
         />
-        <Block risk rows={[['安全な候補', 'なし', row.proof]]} />
+        <Ev warn k="安全な候補" n={row.proof}>
+          <span className="rv-slots">
+            <span className="rv-slot is-empty"><span className="rv-sl-t">なし</span></span>
+          </span>
+        </Ev>
       </>
     )
   }
@@ -1077,23 +1776,196 @@ function Evidence({ row, candidates }: { row: Decorated; candidates: SlotOption[
     return (
       <>
         {money}
-        <Block rows={[['レジ取引', row.txNote, row.txDetail]]} />
+        <Ev k="レジ取引" n={row.txDetail}>
+          <span className="rv-slots">
+            <span className="rv-slot is-ro"><span className="rv-sl-t">{row.txNote}</span></span>
+          </span>
+        </Ev>
       </>
     )
   }
-  return <Block rows={[['予約', `${row.dateLabel} ${row.timeLabel} / ${row.menuName}`, row.proof]]} />
+  return (
+    <Ev k="予約" n={row.proof}>
+      <span className="rv-slots">
+        <span className="rv-slot is-ro">
+          <span className="rv-sl-t">{row.dateLabel} {row.timeLabel}</span>
+          <span className="rv-sl-s">{row.menuName}</span>
+        </span>
+      </span>
+    </Ev>
+  )
 }
 
-function Block({ rows, risk }: { rows: Array<[string, string, string | null]>; risk?: boolean }) {
+function Ev({
+  k,
+  v,
+  n,
+  warn,
+  children,
+}: {
+  k: string
+  v?: string
+  n?: string | null
+  warn?: boolean
+  children?: React.ReactNode
+}) {
   return (
-    <ul className={`evidence${risk ? ' risk' : ''}`}>
-      {rows.map(([label, value, note]) => (
-        <li key={label}>
-          <span>{label}</span>
-          <b>{value}{note && <i>{note}</i>}</b>
-        </li>
-      ))}
-    </ul>
+    <div className={`rv-ev${warn ? ' is-warn' : ''}`}>
+      <span className="rv-ev-k">{k}</span>
+      <span className="rv-ev-v">
+        {children ?? v}
+        {n && <span className="rv-ev-n">{n}</span>}
+      </span>
+    </div>
+  )
+}
+
+/** The rail card's own primary. ONE HOME PER DECISION: the change card has no
+ *  button at all, because the picker beside it IS the action (⚖-ADJ B). */
+function RailAction({
+  row,
+  onAccept,
+  onToast,
+  onFocusRow,
+}: {
+  row: Decorated
+  onAccept: () => void
+  onToast: (m: string) => void
+  onFocusRow: () => void
+}) {
+  if (row.kind === 'change') return null
+  if (row.kind === 'settle') {
+    return (
+      <button className="btn" type="button" disabled title="売上・レジは準備中です">
+        {SETTLE_PENDING_LABEL}
+      </button>
+    )
+  }
+  return (
+    <button
+      className="btn primary"
+      type="button"
+      data-press
+      onClick={() => {
+        if (row.kind === 'accept') onAccept()
+        else if (row.kind === 'escalate') onToast(ESCALATE_TOAST(row.no))
+        else onFocusRow()
+      }}
+    >
+      {QUEUE_ACTION[row.kind]}
+    </button>
+  )
+}
+
+/** THE INSPECTOR'S BODY — ONE component, rendered inside the desk column or
+ *  inside the phone sheet, never both at once on screen (⚖ one verdict, one
+ *  home). It owns no layout of its own; where it sits is the band's business. */
+function InspectorBody({
+  row,
+  props,
+  offList,
+  openParty,
+  onParty,
+  onAccept,
+  onRecord,
+  onChange,
+  onToast,
+}: {
+  row: Decorated
+  props: ReservationsProps
+  offList: boolean
+  openParty: boolean
+  onParty: () => void
+  onAccept: () => void
+  onRecord: () => void
+  onChange: () => void
+  onToast: (m: string) => void
+}) {
+  const action = primaryActionOf(row.lifecycle, row.allFlags, row.deadlineMinute)
+  const todayLink = (
+    <Link className={`btn${action === 'today' ? ' primary' : ''} rv-pin-btn`} href={href(props, 'today')} data-press>
+      今日の運営で見る
+    </Link>
+  )
+  return (
+    <>
+      <div className="rv-insp-pin">
+        {action !== 'today' && (
+          <Primary row={row} action={action} onAccept={onAccept} onRecord={onRecord} onChange={onChange} onToast={onToast} />
+        )}
+        {todayLink}
+      </div>
+      <div className="rv-insp-body" key={row.id}>
+        <div className="rv-insp-hd">
+          <div className="rv-rid">予約 {row.no}</div>
+          <div className="rv-insp-nm">{row.customerName}</div>
+          <div className="rv-insp-mt">{row.dateLabel} {row.timeLabel} / {row.menuName}</div>
+        </div>
+        {offList && (
+          <p className="rv-offlist">
+            選択中の予約は現在の検索・絞り込みには含まれていません。選択は保持しています。
+          </p>
+        )}
+        <div className="rv-toprow">
+          <StateCell row={row} />
+          <span className="rv-src">{row.sourceLabel} / {row.no}</span>
+        </div>
+        <div className="rv-insp-sec">
+          <div className="rv-kv2">
+            <div><span className="rv-k2">担当</span><span className="rv-v2">{row.staffName}</span></div>
+            <div><span className="rv-k2">設備</span><span className="rv-v2">{row.resourceName}</span></div>
+            <div><span className="rv-k2">日時</span><span className="rv-v2">{row.dateLabel} {row.timeLabel}</span></div>
+            {/* ⚖-ADJ G — 正本 is SYNQED for a Reserve row. Reserve and SYNQED are
+                two doors onto ONE database; only an外部予約元 booking is owned
+                somewhere else. The accept dialog's own 「お客様・正本 … / SYNQED」
+                and the external readonly band below both say the same thing.
+                F-1 (fix round 1, LENS-2 BLOCKER): ONE home, `genuineOf` — this
+                site and the 記録 dialog's 正本・受付元 both read it now. */}
+            <div><span className="rv-k2">正本</span><span className="rv-v2">{genuineOf(row.sourceGroup)}</span></div>
+          </div>
+        </div>
+        {row.lifecycle === 'external' && (
+          <p className="rv-readonly">
+            この予約は外部予約元が正本です。表示のみで、SYNQEDからは日時・担当・受付価格を変更しません。
+          </p>
+        )}
+        <div className="rv-insp-sec">
+          <span className="rv-sk">本人関係</span>
+          <PartyBlock row={row} open={openParty} onToggle={onParty} />
+        </div>
+        <div className="rv-insp-sec">
+          <span className="rv-sk">価格の証拠</span>
+          <div className="rv-price">
+            <div><span className="rv-k2">受付時に合意</span><span className="rv-v2">{row.priceLabel}</span></div>
+            <div><span className="rv-k2">現在の公開価格</span><span className="rv-v2">{row.currentPriceLabel}</span></div>
+          </div>
+          <div className="rv-provbox">
+            <div className="rv-prov-t">{row.eligibility}</div>
+            <div className="rv-prov-b">{row.proof}</div>
+          </div>
+        </div>
+        <div className="rv-insp-sec">
+          <span className="rv-sk">操作履歴</span>
+          {row.history.length === 0 ? (
+            <div className="rv-histline">
+              <span className="rv-dash">—</span>
+              <span className="rv-tx">この予約の操作履歴はまだありません</span>
+            </div>
+          ) : (
+            row.history.map(([time, act, detail], i) => (
+              <div className="rv-histline" key={`${time}-${i}`}>
+                <span className="rv-dash">{time}</span>
+                <span className="rv-tx">{act}<span className="rv-hd">{detail}</span></span>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="rv-insp-foot">
+          <button className="btn" type="button" disabled title="カルテ連携は準備中です">Karuteを開く（準備中）</button>
+          <button className="btn" type="button" disabled title="受信トレイは準備中です">受信トレイで連絡（準備中）</button>
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -1102,88 +1974,80 @@ function Block({ rows, risk }: { rows: Array<[string, string, string | null]>; r
  *  offered as a dead link (L-7). */
 function Primary({
   row,
-  props,
+  action,
   onAccept,
-  onChange,
   onRecord,
+  onChange,
   onToast,
 }: {
   row: Decorated
-  props: ReservationsProps
+  action: ReturnType<typeof primaryActionOf>
   onAccept: () => void
-  onChange: () => void
   onRecord: () => void
+  onChange: () => void
   onToast: (m: string) => void
 }) {
-  const cls = 'btn primary wide'
+  const cls = 'btn primary rv-pin-btn'
   // A destination that does not exist yet is greyed on the OUTLINE button, the
   // same as everywhere else in Business — a disabled filled button reads as a
   // broken commit rather than as "not built yet".
-  const pending = 'btn wide'
-  switch (primaryActionOf(row.lifecycle, row.allFlags, row.deadlineMinute)) {
+  const pending = 'btn rv-pin-btn'
+  switch (action) {
     case 'escalate':
       return (
-        <button
-          className={cls}
-          type="button"
-          onClick={() => onToast(`この画面内のプロトタイプでは、予約 ${row.no}を判断できる担当者へ渡すところまでを示します`)}
-        >
+        <button className={cls} type="button" data-press onClick={() => onToast(ESCALATE_TOAST(row.no))}>
           判断できる担当者へ相談
         </button>
       )
+    // ⚖-ADJ B — the change decision has ONE home, the rail's own picker. The
+    // inspector's button takes the reader there rather than opening a second
+    // surface for the same verdict.
     case 'change':
-      return <button className={cls} type="button" onClick={onChange}>日時・担当変更を確認</button>
+      return <button className={cls} type="button" data-press onClick={onChange}>日時・担当変更を確認</button>
     case 'accept':
-      return <button className={cls} type="button" onClick={onAccept}>受付リクエストを確認</button>
+      return <button className={cls} type="button" data-press onClick={onAccept}>受付リクエストを確認</button>
     case 'settle':
-      return <button className={pending} type="button" disabled title="売上・レジは準備中です">売上・レジで精算（準備中）</button>
+      return <button className={pending} type="button" disabled title="売上・レジは準備中です">{SETTLE_PENDING_LABEL}</button>
     case 'external':
       return (
-        <button
-          className={cls}
-          type="button"
-          onClick={() => onToast(`外部予約元 ${row.no}の参照先はこの探索では省略しています。SYNQEDから変更はしません`)}
-        >
+        <button className={cls} type="button" data-press onClick={() => onToast(`外部予約元 ${row.no}の参照先は、この見本データには含まれていません。SYNQEDからは変更しません`)}>
           予約元の記録を確認
         </button>
       )
     case 'record':
-      return <button className={cls} type="button" onClick={onRecord}>来店・キャンセルを記録</button>
+      return <button className={cls} type="button" data-press onClick={onRecord}>来店・キャンセルを記録</button>
     case 'propose':
       return <button className={pending} type="button" disabled title="受信トレイは準備中です">受信トレイで提案（準備中）</button>
-    case 'contact':
-      return <button className={pending} type="button" disabled title="受信トレイは準備中です">お客様対応を確認（準備中）</button>
     default:
-      return <Link className={cls} href={href(props, 'today')}>今日の運営で見る</Link>
+      return <button className={pending} type="button" disabled title="受信トレイは準備中です">お客様対応を確認（準備中）</button>
   }
 }
 
 /** 本人関係, collapsed per ⚖ cut #7 — the same treatment the 顧客 screen carries,
- *  so a party that deviates reads the same way on both screens. */
+ *  so a party that deviates reads the same way on both screens. The 来店なし
+ *  memory rides on the 顧客 line, where the person it is about is named. */
 function PartyBlock({ row, open, onToggle }: { row: Decorated; open: boolean; onToggle: () => void }) {
   return (
-    <>
-      <div className="section-title">本人関係</div>
-      <div className="party-list">
-        <button className="party-row" type="button" onClick={onToggle} aria-expanded={open}>
-          <span>顧客</span>
-          <b>{row.customerName}</b>
+    <div className="rv-party">
+      <button className="rv-party-row" type="button" data-press onClick={onToggle} aria-expanded={open}>
+        <span className="rv-k2">顧客</span>
+        <b>{row.customerName}</b>
+        {row.noShowCount > 0 && <span className="rv-noshow">来店なし 過去{row.noShowCount}回</span>}
+      </button>
+      {row.party.map((p) => (
+        <button className="rv-party-row" type="button" data-press key={p.role} onClick={onToggle} aria-expanded={open}>
+          <span className="rv-k2">{p.role}</span>
+          <b>{p.name}</b>
+          <span className="pill warn">別の方</span>
         </button>
-        {row.party.map((p) => (
-          <button className="party-row" type="button" key={p.role} onClick={onToggle} aria-expanded={open}>
-            <span>{p.role}</span>
-            <b>{p.name}</b>
-            <span className="pill warn">別の方</span>
-          </button>
-        ))}
-        {open && (
-          <div className="party-note">
-            {row.party.length === 0
-              ? 'サービス対象・保護者・支払者はすべてご本人です。'
-              : row.party.map((p) => `${p.role}: ${p.name} — ${p.note}`).join(' / ')}
-          </div>
-        )}
-      </div>
-    </>
+      ))}
+      {open && (
+        <div className="rv-party-note">
+          {row.party.length === 0
+            ? 'サービス対象・保護者・支払者はすべてご本人です。'
+            : row.party.map((p) => `${p.role}：${p.name}（${p.note}）`).join(' / ')}
+        </div>
+      )}
+    </div>
   )
 }

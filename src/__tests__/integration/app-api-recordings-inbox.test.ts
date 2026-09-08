@@ -86,6 +86,10 @@ const recordingsGet = jest.fn(async (id: string) => ({
   staff_id: 'auth-user-1',
   customer_id: 'cust-1',
   audio_storage_path: null,
+  // ⚖ capture pipeline PR4 fix round 1: the cleanup keeps any row whose status
+  // has left RECORDING — something happened to that take after the row was
+  // minted, and this is not the place to decide it did not.
+  status: 'RECORDING',
 }))
 const recordingsDelete = jest.fn(async (_id: string) => {})
 /** The cleanup's provenance probe. Default = 404: no karute for this session,
@@ -163,6 +167,7 @@ beforeEach(() => {
     staff_id: 'auth-user-1',
     customer_id: 'cust-1',
     audio_storage_path: null,
+    status: 'RECORDING',
   }))
   recordingsDelete.mockImplementation(async () => {})
   getKaruteByRecordingSession.mockImplementation(async () => {
@@ -600,6 +605,7 @@ describe('DELETE recordings/session/[id] — the discard cleanup twin', () => {
       staff_id: 'auth-user-2',
       customer_id: 'cust-9',
       audio_storage_path: null,
+      status: 'RECORDING',
     })
     const res = await SESSION_DELETE(delReq(idem), route())
     expect(await res.json()).toEqual({ error: 'not_owned' })

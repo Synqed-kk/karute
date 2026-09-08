@@ -179,7 +179,7 @@ export interface RegisterCloseProps {
     dayCashValue: string
     tolerance: string
     toleranceLinkLabel: string
-    toleranceLinkRefusal: string
+    toleranceLinkHref: string
     saveLabel: string
     saveRefusal: string
     /** ⑩ 金種で数える, on the days there is a sheet to count. `null` when the
@@ -1441,15 +1441,15 @@ export function RegisterScreen(props: RegisterProps) {
                       <span>しきい値</span>
                       <b className={cash.redacted ? 'redacted' : undefined}>
                         {cash.tolerance}
-                        {/* ⑥ THE DIAL'S HOME, NAMED ON THE ROW THAT USES IT. A
-                            quiet link, refused with its reason — the settings room
-                            is not live, and pointing at a route that would 404 is
-                            worse than saying where the dial lives. */}
-                        <Refused
-                          className="rg-quietlink"
-                          label={cash.toleranceLinkLabel}
-                          reason={cash.toleranceLinkRefusal}
-                        />
+                        {/* ⑥ THE DIAL'S HOME, NAMED ON THE ROW THAT USES IT —
+                            AND NOW REACHED FROM IT (⚖ LINKED UP, 2026-09-01).
+                            This was a refused link while the 設定 room was not
+                            live; it is live, it reads `?section=`, and a signpost
+                            that names a destination it could reach and does not
+                            is a sentence asking the reader to do the walking. */}
+                        <Link className="rg-quietlink" href={cash.toleranceLinkHref}>
+                          {cash.toleranceLinkLabel}
+                        </Link>
                       </b>
                     </div>
                   </div>

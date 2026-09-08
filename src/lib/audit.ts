@@ -294,7 +294,9 @@ export type FacadeEndpointKey =
   | 'recordings.finalize'
   | 'recordings.inbox'
   | 'recordings.job.enqueue'
+  | 'recordings.job.enqueueFromSession'
   | 'recordings.job.status'
+  | 'recordings.playbackUrl'
   | 'recordings.session.delete'
   | 'recordings.session.mint'
   | 'recordings.uploadUrl'
@@ -767,10 +769,23 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // idempotent no-op this route deliberately returns in a 2xx body.
   'recordings.finalize': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/finalize-take.ts#finalizeTakeWithClient' },
   'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
+  // The SAME job, entered from the 録音履歴 row instead of from a device that
+  // just uploaded (build 23 slice ③) — so the same skip, for the same reason:
+  // this route routes exclusively into processJob, which is where the act
+  // becomes auditable. The enqueue step itself stages no outcome, and a live
+  // row here would double-log every save that goes through the worker.
+  'recordings.job.enqueueFromSession': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
+  // The play button's mint (build 23 slice ①). Same doctrine as finalize above:
+  // the ONE emit lives at the shared choke point, which alone knows whether a
+  // url was actually minted — the generic hook would emit on every 2xx, and a
+  // refusal here leaves as an error status, so a live row would over-count
+  // listens by exactly the refusals.
+  'recordings.playbackUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/playback-url.ts#mintPlaybackUrlWithClient' },
   // recordings.session.mint / recordings.uploadUrl: BOTH stage audio/ids for
   // EITHER downstream pipeline (verified at source: thin's
-  // viteRecordingPort.prepareTranscription AND .stageForJob both call the
-  // SAME upload-url facade endpoint before diverging — one leg reaches
+  // viteRecordingPort.mintTakeUrl and prepareTranscription's un-finalized
+  // fallback both call the SAME upload-url facade endpoint before diverging —
+  // .stageForJob, the third caller, was deleted in PR4 — one leg reaches
   // createOrUpdateKaruteRecord via the interactive transcribe→save flow, the
   // other reaches processJob via enqueueJob). coveredBy keeps citing the
   // interactive choke point (the default/primary flow when no job is
@@ -964,5 +979,22 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       "coveredBy burnOneAutoRedemption's customer.pack_redeem emit, one row per ticket actually burned (verified at source). The batch driver autoBurnForBusiness is deliberately NOT the citation — it returns without emitting whenever there is nothing to burn, which is a correct outcome, not an unaudited write.",
     dated: '2026-08-08',
     coveredBy: 'src/lib/packs/auto-burn.ts#burnOneAutoRedemption',
+  },
+  // The nightly assembler (build 23 slice ③). CRON_SECRET-gated like its
+  // siblings, and NOT a skip: it is the first job in the app that WRITES an
+  // object into the recordings bucket — a take rebuilt from the segments a
+  // dead device left behind — with no staff in the loop. Every sealed take
+  // therefore files its own recording.capture_resumed row (actorType 'system',
+  // severity 'notice', detail carrying the segment counts, the first gap and
+  // the fact that the duration is an ESTIMATE), because otherwise the only
+  // audio this product ever created without a person present would have no
+  // trail at all. Structured `action` is deliberately omitted, exactly as the
+  // auto-burn row above omits it: the emit site's own literal is CP4's source.
+  assemble: {
+    kind: 'mutation',
+    justification:
+      "coveredBy assembleStrandedTake's recording.capture_resumed emit, ONE row per take actually sealed (verified at source). The walk driver runAssembler is deliberately NOT the citation — it returns a summary whenever there is nothing old enough to rescue, which is a correct outcome, not an unaudited write. Every path that writes nothing (a concurrent run already wrote the rescue; a leaf would not come down) returns before the emit and files nothing, by design — no device ever writes the `rsc/` key this job uploads to (⚖ Liam 2026-09-06 \"b\"), so the walk, not this symbol, is where a returning phone is skipped. It writes no core row at all — the client it is handed is narrowed to `list`.",
+    dated: '2026-09-06',
+    coveredBy: 'src/lib/recording/assembler.ts#assembleStrandedTake',
   },
 }

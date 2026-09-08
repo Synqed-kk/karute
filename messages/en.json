@@ -503,6 +503,18 @@
       "title": "Recording · transcript",
       "consentOnFile": "Consent on file",
       "duration": "Duration {duration}",
+      "play": "Play",
+      "pause": "Pause",
+      "back15": "Back 15 seconds",
+      "fwd15": "Forward 15 seconds",
+      "speed": "Playback speed",
+      "seek": "Playback position",
+      "speedChip": "{rate}×",
+      "speedNormal": "Normal",
+      "processing": "Transcribing",
+      "processingHint": "This may take a little while",
+      "playBlockedWhileRecording": "Can’t play while recording",
+      "playbackUnavailable": "Couldn’t play this recording",
       "noTranscript": "No transcript yet",
       "restrictedTitle": "Recording · transcript",
       "restricted": "Only the staff who recorded this session can view the transcript. The summary above is shared."
@@ -601,6 +613,7 @@
     "pipelineErrorEmptyTranscript": "No speech could be recognized. Please check that the recording contains audio and try again.",
     "pipelineErrorConsentRequired": "Recording consent is required. Please obtain consent and try again.",
     "pipelineErrorGeneric": "Something went wrong while processing. Please try again.",
+    "pipelineErrorDiscarded": "This recording was discarded by a staff member, so it cannot be saved to a karute.",
     "recordingFor": "Recording for",
     "noUpcomingAppointment": "No upcoming appointment",
     "noBookingTitle": "No booking found",
@@ -753,7 +766,10 @@
         "unsettled": "No result has come back yet",
         "autoSaved": "This recording was saved automatically (nobody has checked it yet)",
         "genericFailure": "This recording was not saved",
-        "localAudio": "The audio is still on this device (unsaved)"
+        "localAudio": "The audio is still on this device (unsaved)",
+        "tailIncomplete": "The recording ends partway (you can save what is left on this device)",
+        "serverAudio": "Audio is on the server (not saved yet; may end partway)",
+        "partialOnServer": "Audio reached the server partway (you'll be able to save it within a few days)"
       },
       "action": {
         "open": "Open",
@@ -2459,8 +2475,10 @@
         },
         "recording": {
           "capture_finalized": "Recording audio saved",
+          "capture_resumed": "Recording audio restored on the server",
           "capture_unlinked": "Recording audio not linked to a record",
           "discard": "Discarded recording",
+          "play": "Played recording",
           "session_cleanup": "Recording discarded",
           "take_named": "Recording upload address issued (existing session)",
           "transcribe": "Transcribed recording"
@@ -3408,7 +3426,7 @@
     "cap_records_delete": "Delete records",
     "cap_records_reassign": "Reassign karute customer",
     "cap_records_write": "Record sessions & edit karute",
-    "cap_recordings_viewAll": "View every staff's recordings",
+    "cap_recordings_viewAll": "Play & read other staff's recordings",
     "cap_analytics_viewAll": "Whole-salon analytics",
     "cap_stores_viewAll": "View all stores",
     "cap_alerts_manage": "Manage alerts",

@@ -21,7 +21,10 @@ const info = jest.fn(
     _key: string,
     // `status` matters: storage saying "no such object" and storage failing to
     // ANSWER are different facts, and only the first settles a take.
-  ): Promise<{ data: { size?: number } | null; error: { message: string; status?: number } | null }> => ({
+  ): Promise<{
+    data: { size?: number } | null
+    error: { message: string; status?: number; statusCode?: string } | null
+  }> => ({
     data: { size: 1024 },
     error: null,
   }),
@@ -31,6 +34,7 @@ jest.mock('@/lib/supabase/service', () => ({
 }))
 
 import { finalizeTakeWithClient, type FinalizeTakeActor } from '@/lib/recording/finalize-take'
+import { assertRecorderOwnsRow } from '@/lib/recording/take-binding'
 import { TAKE_UUID_FIXTURE as TAKE } from './helpers/recording-key-fixtures'
 
 const BIZ = 'biz-1'
@@ -52,6 +56,11 @@ type Row = {
   status: string
   audio_storage_path: string | null
   duration_seconds: number | null
+  /** ③ The store the device was in. `null` is the PRODUCTION shape for every
+   *  row minted before ③ and can never be filled in afterwards, so it is the
+   *  default here; the store-leg cases below set it when the case is about a
+   *  stamped row. */
+  store_id: string | null
 }
 /** The state the MINT leaves behind: this take's key reserved, UPLOADING, and
  *  no duration yet — the one thing finalize is here to add. */
@@ -62,6 +71,7 @@ const row = (over: Partial<Row> = {}): Row => ({
   status: 'UPLOADING',
   audio_storage_path: KEY,
   duration_seconds: null,
+  store_id: null,
   ...over,
 })
 
@@ -73,7 +83,10 @@ const synqed = { recordings: { get, create, update } } as never
 const actor = (over: Partial<FinalizeTakeActor> = {}): FinalizeTakeActor => ({
   staffId: 'staff-1',
   businessId: BIZ,
-  canViewAll: false,
+  holdsOwnerKeys: false,
+  // ③ Unrestricted by default (`stores.viewAll` or floating staff) — the shape
+  // every case here already assumed. The store leg's own cases set it.
+  allowedStoreIds: null,
   source: 'web',
   ...over,
 })
@@ -207,42 +220,44 @@ describe('finalizeTakeWithClient — only the row that RESERVED the key may fina
         row_take_id: OLD_TAKE,
         bytes: 1024,
         ext: 'webm',
-        // Fix round 9 (O2): same size_verified flag emitFinalized carries —
-        // the default `info` mock answers a real size, so this byte match was
-        // actually proved, not just unlisted.
-        size_verified: true,
+        // ⚖ PR4 rider: FALSE, always, on this branch. The superseded row's key
+        // is CLIENT-NAMED and this row does not point at it, so finalize never
+        // asks storage about it (see the next test) — and a row that cannot
+        // prove the bytes says so, exactly as emitFinalized does when the
+        // listing carries no size. Was `true` until 2026-09-04, back when the
+        // probe ran here and handed callers an existence oracle.
+        size_verified: false,
       })
     },
   )
 
-  // FIX ROUND 7 (J4). capture_unlinked used to be filed BEFORE the object was
-  // ever looked up, and its detail is the CLIENT's take id and byte count — so
-  // any caller who guessed a superseded row's id could write an audit row about
-  // audio that does not exist. The byte check comes first now: a superseded row
-  // answers object_missing / size_mismatch like any other take, and files
-  // nothing.
-  it('a superseded row whose object is NOT THERE — object_missing, and no unlinked row', async () => {
+  // ⚖ PR4 RIDER — NO EXISTENCE ORACLE FOR A CALLER-NAMED KEY. Fix round 7 (J4)
+  // moved the probe AHEAD of capture_unlinked so an unlinked row could never
+  // describe audio that was not there. The price was an oracle: `key` is
+  // composed from the CLIENT's takeId, the row does not point at it, and the
+  // object_missing / superseded split told any caller holding one job-owned row
+  // of their own whether a colleague's take existed. So the probe is now
+  // reached ONLY where the row's own pointer IS the key. These three pin that:
+  // whatever storage would have said, it is never asked, and the answer is the
+  // same one every time.
+  it.each([
+    ['not there', { data: null, error: { message: 'Object not found', status: 404 } }],
+    ['the wrong size', { data: { size: 999 }, error: null }],
+    ['unanswerable', { data: null, error: { message: 'boom', status: 500 } }],
+  ])('a superseded row whose object is %s — superseded, and storage is never asked', async (_label, storage) => {
     get.mockResolvedValue(row({ status: 'PROCESSING', audio_storage_path: OLD_KEY, duration_seconds: 30 }))
-    info.mockResolvedValue({ data: null, error: { message: 'Object not found', status: 404 } })
+    info.mockResolvedValue(storage)
     const res = await finalizeTakeWithClient(synqed, actor(), input)
-    expect(res).toEqual({ error: 'object_missing' })
-    expectNoWrites()
-  })
-
-  it('a superseded row whose object is the WRONG SIZE — size_mismatch, and no unlinked row', async () => {
-    get.mockResolvedValue(row({ status: 'PROCESSING', audio_storage_path: OLD_KEY, duration_seconds: 30 }))
-    info.mockResolvedValue({ data: { size: 999 }, error: null })
-    const res = await finalizeTakeWithClient(synqed, actor(), input)
-    expect(res).toEqual({ error: 'size_mismatch' })
-    expectNoWrites()
-  })
-
-  it('a superseded row storage cannot answer for — failed, and no unlinked row', async () => {
-    get.mockResolvedValue(row({ status: 'PROCESSING', audio_storage_path: OLD_KEY, duration_seconds: 30 }))
-    info.mockResolvedValue({ data: null, error: { message: 'boom', status: 500 } })
-    const res = await finalizeTakeWithClient(synqed, actor(), input)
-    expect(res).toEqual({ error: 'failed' })
-    expectNoWrites()
+    expect(res).toEqual({ error: 'superseded' })
+    expect(info).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    // The unlinked row is still filed — it is the only thread back to an object
+    // this row moved on from — and it says the bytes are unproved.
+    expect(auditFn).toHaveBeenCalledTimes(1)
+    const [event] = auditFn.mock.calls[0] as [Record<string, unknown>]
+    expect(event).toMatchObject({ action: 'recording.capture_unlinked' })
+    expect((event.detail as Record<string, unknown>).size_verified).toBe(false)
   })
 })
 
@@ -276,7 +291,13 @@ describe('finalizeTakeWithClient — the schema is the web door’s parse', () =
 
 describe('finalizeTakeWithClient — the object must be there, at the size claimed', () => {
   it('refuses when storage has no such object — zero core writes, zero audit rows', async () => {
-    info.mockResolvedValue({ data: null, error: { message: 'not found', status: 404 } })
+    // The production shape (hotfix 9/5): storage-api answers a missing object
+    // on /object/info/… with HTTP 400 and body statusCode '404' — never a
+    // plain 404 alone.
+    info.mockResolvedValue({
+      data: null,
+      error: { message: 'Object not found', status: 400, statusCode: '404' },
+    })
     const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ error: 'object_missing' })
     expectNoWrites()
@@ -291,17 +312,25 @@ describe('finalizeTakeWithClient — the object must be there, at the size claim
 
   // Fix round 2, B5: storage answering "no" and storage not answering at all
   // are different facts. Only the first may settle the take.
-  it('a 404 status is a genuine miss — object_missing, the drain retries', async () => {
-    info.mockResolvedValue({ data: null, error: { message: 'nope', status: 404 } })
+  it('a plain 404 status is a genuine miss — object_missing, the drain retries', async () => {
+    // The alternate real shape (hotfix 9/5): a plain HTTP 404 carrying the
+    // same NoSuchKey message storage-api's other missing-object route uses.
+    info.mockResolvedValue({
+      data: null,
+      error: { message: 'Object not found', status: 404, statusCode: '404' },
+    })
     const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ error: 'object_missing' })
     expectNoWrites()
   })
 
-  // FIX ROUND 12 (fresh-eyes #8, P3): the message regex is GONE — status 404
-  // alone is a miss. A message-only "not found" no longer counts, and neither
-  // does storage's own "Bucket not found" (a bucket-config problem the old
-  // regex silently swallowed as an ordinary "the PUT hasn't landed" retry).
+  // FIX ROUND 12 (fresh-eyes #8, P3), narrowed again by the hotfix of 9/5:
+  // status/statusCode 404 alone is NOT a miss — it must carry storage's own
+  // NoSuchKey message ('Object not found') too. A message-only "not found"
+  // still doesn't count, and neither does storage's own "Bucket not found"
+  // (a bucket-config problem the old regex silently swallowed as an ordinary
+  // "the PUT hasn't landed" retry) or a 404 with any OTHER message (a missing
+  // route, say).
   it.each([
     ['a storage 500', { message: 'internal error', status: 500 }],
     ['an unrecognizable failure', { message: 'boom' }],
@@ -378,9 +407,9 @@ describe('finalizeTakeWithClient — the fences', () => {
     expectNoWrites()
   })
 
-  it('allows an owner (recordings.viewAll) to finalize a colleague’s session', async () => {
+  it('allows the OWNER’S HAND (both keys) to finalize a colleague’s session', async () => {
     get.mockResolvedValue(row({ staff_id: 'staff-2' }))
-    const res = await finalizeTakeWithClient(synqed, actor({ canViewAll: true }), input)
+    const res = await finalizeTakeWithClient(synqed, actor({ holdsOwnerKeys: true }), input)
     expect(res).toEqual({ ok: true, recordingSessionId: SESSION })
     expect(update).toHaveBeenCalled()
   })
@@ -484,5 +513,146 @@ describe('finalizeTakeWithClient — idempotency and the terminal statuses', () 
     const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ ok: true, recordingSessionId: SESSION })
     expect(update).toHaveBeenCalledWith(SESSION, { duration_seconds: 42, status: 'UPLOADING' })
+  })
+})
+
+// ── ⚖ THE STORE LEG AT THE TAKE DOORS (slice three ③) ──────────────────────
+// The ONE predicate both take doors ask, on its own. Before ③ a recording row
+// carried no store, so the owner's hand reached every branch; now it reaches
+// only where the person can see — and a row with NO store stays open, because
+// there is no store for it to be outside of (Fable's null rule, D7).
+describe('assertRecorderOwnsRow — the store leg', () => {
+  const OWN = { staffId: 'staff-1', businessId: BIZ }
+  // Typed, not cast: this is the one PR whose census IS the compiler, so a
+  // fixture override must stay checked against the row shape it just changed.
+  const rowOf = (
+    over: Partial<{ business_id: string; staff_id: string; store_id: string | null }> = {},
+  ) => ({
+    business_id: BIZ,
+    staff_id: 'staff-1',
+    store_id: null as string | null,
+    ...over,
+  })
+
+  it('(a) her OWN session → allowed, whatever the stores say', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ store_id: 'store-9' }), {
+        ...OWN,
+        holdsOwnerKeys: false,
+        allowedStoreIds: ['store-a'],
+      }),
+    ).toBeNull()
+  })
+
+  it('(b) a colleague’s row, the owner’s hand, UNRESTRICTED scope → allowed', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ staff_id: 'staff-2', store_id: 'store-9' }), {
+        ...OWN,
+        holdsOwnerKeys: true,
+        allowedStoreIds: null,
+      }),
+    ).toBeNull()
+  })
+
+  it('(c) a CLAMPED pair-holder on another store’s stamped row → forbidden', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ staff_id: 'staff-2', store_id: 'store-9' }), {
+        ...OWN,
+        holdsOwnerKeys: true,
+        allowedStoreIds: ['store-a'],
+      }),
+    ).toEqual({ error: 'forbidden' })
+  })
+
+  it('(d) pre-③ rows carry no store and stay open — the null rule', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ staff_id: 'staff-2', store_id: null }), {
+        ...OWN,
+        holdsOwnerKeys: true,
+        allowedStoreIds: ['store-a'],
+      }),
+    ).toBeNull()
+  })
+
+  it('(e) a DEGRADED scope ([]) fails closed on a STAMPED row', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ staff_id: 'staff-2', store_id: 'store-9' }), {
+        ...OWN,
+        holdsOwnerKeys: true,
+        allowedStoreIds: [],
+      }),
+    ).toEqual({ error: 'forbidden' })
+  })
+
+  it('(f) no owner’s hand → forbidden however wide the scope', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ staff_id: 'staff-2', store_id: null }), {
+        ...OWN,
+        holdsOwnerKeys: false,
+        allowedStoreIds: null,
+      }),
+    ).toEqual({ error: 'forbidden' })
+  })
+
+  it('the TENANT half is unchanged and asked first', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ business_id: 'biz-2', store_id: null }), {
+        ...OWN,
+        holdsOwnerKeys: true,
+        allowedStoreIds: null,
+      }),
+    ).toEqual({ error: 'forbidden' })
+  })
+
+  // …and with a store the actor DOES hold, so the store leg would say yes. A
+  // mutant that asked the tenant only when the store leg had already failed
+  // stays green on the case above and dies here.
+  it('…even when the store leg would have passed — another tenant is refused first', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ business_id: 'biz-2', staff_id: 'staff-2', store_id: 'store-a' }), {
+        ...OWN,
+        holdsOwnerKeys: true,
+        allowedStoreIds: ['store-a'],
+      }),
+    ).toEqual({ error: 'forbidden' })
+  })
+})
+
+// ── THE FINALIZE DOOR, through the shared body ─────────────────────────────
+describe('finalizeTakeWithClient — a clamped pair-holder', () => {
+  const clamped = actor({ holdsOwnerKeys: true, allowedStoreIds: ['store-a'] })
+
+  it('is refused a colleague’s take STAMPED with another store — nothing written', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: 'store-9' }))
+    expect(await finalizeTakeWithClient(synqed, clamped, input)).toEqual({ error: 'forbidden' })
+    expectNoWrites()
+  })
+
+  it('…and still finalizes a colleague’s PRE-③ take, which carries no store', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: null }))
+    expect(await finalizeTakeWithClient(synqed, clamped, input)).toEqual({
+      ok: true,
+      recordingSessionId: SESSION,
+    })
+    expect(update).toHaveBeenCalled()
+  })
+
+  it('…and a take stamped with a store she IS assigned to', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: 'store-a' }))
+    expect(await finalizeTakeWithClient(synqed, clamped, input)).toEqual({
+      ok: true,
+      recordingSessionId: SESSION,
+    })
+  })
+
+  it('her OWN take is untouched by the clamp — a foreign store on her own row', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-1', store_id: 'store-9' }))
+    expect(
+      await finalizeTakeWithClient(
+        synqed,
+        actor({ holdsOwnerKeys: false, allowedStoreIds: [] }),
+        input,
+      ),
+    ).toEqual({ ok: true, recordingSessionId: SESSION })
   })
 })

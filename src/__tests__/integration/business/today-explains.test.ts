@@ -68,7 +68,6 @@ import {
   type Move,
   type Moves,
   type RailCell,
-  type RoomPolicy,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
@@ -138,11 +137,79 @@ const supabase = createClient as jest.Mock
  *  argument to, is what closes it: a duplicate moves the count, and a move
  *  leaves the slice.
  *
- *  A decoy hidden as a TRAILING comment on a real code line survives the
- *  filter — and then it INFLATES the count, which is red the other way
- *  round. */
+ *  ⚖ BREAKER-828 F5 + DELTA G3 (MAJOR) — AND IT IS ONE PASS, NOT TWO. A
+ *  trailing comment that ends in `/*` used to survive the line pass into the
+ *  block pass, which then ate everything down to the next block close — real,
+ *  compiled code, invisible to every ban and count built on this helper. F5's
+ *  per-line quote walker closed that shape and not the class: an apostrophe
+ *  inside a same-line `/* … *\/` still left it believing a string was open
+ *  (`N12`), and the block pass respected no strings at all, so `const OPEN =
+ *  '/*'` … `const CLOSE = '*\/'` opened and closed a comment out of two string
+ *  literals (`N13`). v3 walks the source ONCE as a state machine over code,
+ *  `'…'`, `"…"`, `` `…` `` with `${ … }` holes, `//` and `/* … *\/`: a
+ *  delimiter inside a string is a character, comments are blanked to spaces so
+ *  the output keeps the input's length and line numbers, and strings come back
+ *  verbatim.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY (⚖ BREAKER-828 DELTA 2 H1). A regex literal
+ *  is not parsed, and a quote inside its character class is not the only
+ *  thing that leaks: the very next `/*` INSIDE the regex body (`/[/*]/`,
+ *  `/a\/*b/`) opens a real block comment too, closing string-blind on the
+ *  next `*\/`. Hiding is only red when it removes a PINNED line from a count;
+ *  hiding a mutant's own addition moves nothing. The guard is not in the
+ *  tokenizer — it is a RAW count over `src` standing beside every
+ *  `codeOnly(src)` single-reader count that a hidden second reader would
+ *  matter to (today-screen-interactions.test.ts, the `computeChecks(` and
+ *  `priceFactSets(`/`hasPriceFact(` reader counts).
+ *
+ *  Unit-pinned in today-screen-interactions.test.ts; this is a
+ *  VERBATIM copy — these three suites do not import one another — and the last
+ *  describe in this file asserts all three copies are byte-identical. */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const codeOnly = (src: string) => src.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
+// ⚖ codeOnly v3 — BYTE-IDENTICAL IN THREE SUITES (open)
+const codeOnly = (src: string) => {
+  const out: string[] = []
+  const blank = (s: string) => { out.push(s.replace(/[^\n]/g, ' ')) }
+  const holes: number[] = []
+  let tpl = false
+  let i = 0
+  while (i < src.length) {
+    const c = src[i]
+    if (tpl) {
+      if (c === '\\') { out.push(src.slice(i, i + 2)); i += 2; continue }
+      if (c === '`') { out.push(c); i += 1; tpl = false; continue }
+      if (c === '$' && src[i + 1] === '{') { holes.push(0); out.push('${'); i += 2; tpl = false; continue }
+      out.push(c); i += 1
+      continue
+    }
+    if (c === '/' && src[i + 1] === '/') {
+      const e = src.indexOf('\n', i)
+      blank(src.slice(i, e < 0 ? src.length : e)); i = e < 0 ? src.length : e
+      continue
+    }
+    if (c === '/' && src[i + 1] === '*') {
+      const e = src.indexOf('*/', i + 2)
+      blank(src.slice(i, e < 0 ? src.length : e + 2)); i = e < 0 ? src.length : e + 2
+      continue
+    }
+    if (c === "'" || c === '"') {
+      let j = i + 1
+      while (j < src.length && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1
+      const k = j < src.length && src[j] === c ? j + 1 : j
+      out.push(src.slice(i, k)); i = k
+      continue
+    }
+    if (c === '`') { out.push(c); i += 1; tpl = true; continue }
+    if (holes.length > 0 && (c === '{' || c === '}')) {
+      if (c === '{') holes[holes.length - 1] += 1
+      else if (holes[holes.length - 1] === 0) { holes.pop(); out.push(c); i += 1; tpl = true; continue }
+      else holes[holes.length - 1] -= 1
+    }
+    out.push(c); i += 1
+  }
+  return out.join('')
+}
+// ⚖ codeOnly v3 — BYTE-IDENTICAL IN THREE SUITES (close)
 const pinnedLines = (src: string, line: string) =>
   (codeOnly(src).match(new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')) ?? []).length
 const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
@@ -191,7 +258,6 @@ afterAll(() => jest.useRealTimers())
 // ── the hand-built scenes ───────────────────────────────────────────────────
 
 const HOURS = { open: 600, close: 1140 } // 10:00–19:00
-const POLICY: RoomPolicy = { vipStaysPrivate: true, privateIsLastResort: true }
 const GUARD = {
   services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
   newClientSessionMin: 90,
@@ -231,7 +297,7 @@ function lane(over: Partial<BoardLane> & Pick<BoardLane, 'key' | 'group'>): Boar
 /** The rail exactly as the screen builds it, rooms included — flag 76's
  *  callback is what makes a bed refusal reachable here at all. */
 function railOn(lanes: BoardLane[], dur = 60): GuardRail {
-  const truth = bedTruthViews(lanes, POLICY, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
+  const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
   return guardRailsFor(lanes, {
     open: HOURS.open, close: HOURS.close, stepMin: 30, dur, protectedDur: 90,
     nowMinute: null, locked: [], guard: GUARD,
@@ -260,8 +326,8 @@ const explainOn = (lanes: BoardLane[], cell: RailCell, dur = 60) =>
     room:
       cell.reason === 'bed'
         ? allocateBed(lanes, {
-            id: null, currentBed: null, stores: null, vip: false,
-            start: cell.start, end: cell.start + dur, policy: POLICY,
+            id: null, currentBed: null, stores: null, requiresPrivate: false,
+            start: cell.start, end: cell.start + dur,
           })
         : null,
   })
@@ -353,14 +419,14 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     const cell = at(railOn(busy), 780)
     expect(cell.reason).toBe('bed')
     const lifted = allocateBed(busy, {
-      id: 'x1', currentBed: null, stores: null, vip: false, start: 780, end: 840, policy: POLICY,
+      id: 'x1', currentBed: null, stores: null, requiresPrivate: false, start: 780, end: 840,
     })
     expect([lifted.laneKey, lifted.refusal]).toEqual(['bed-01', null])
     // 満室 over a room that is standing empty is the lie. Bare 「—」 instead.
     expect(railExplain(cell, 60, { room: lifted }).word).toBeNull()
   })
 
-  it('a refusal that names NOBODY wears no word — 使えるベッドがありません is not a full house', () => {
+  it('a refusal that names NOBODY wears no word — この店舗には使えるベッドがありません is not a full house', () => {
     // ⚖ 46 store isolation: this staff member's store has no rooms in it at all,
     // so the allocator's candidate list is empty. It refuses — truthfully — and
     // there is no occupant anywhere in the answer.
@@ -369,17 +435,17 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', stores: ['store-a'] }),
     ]
     const empty = allocateBed(split, {
-      id: null, currentBed: null, stores: ['store-b'], vip: false, start: 780, end: 840, policy: POLICY,
+      id: null, currentBed: null, stores: ['store-b'], requiresPrivate: false, start: 780, end: 840,
     })
-    expect(empty.refusal).toBe('13:00〜14:00に使えるベッドがありません')
+    expect(empty.refusal).toBe('この店舗には使えるベッドがありません')
     expect(empty.blockers).toEqual([])
     const bedCell: RailCell = { ...at(railOn(sceneWith([])), 780), state: 'blocked', reason: 'bed' }
     const said = railExplain(bedCell, 60, { room: empty })
-    // 「満室」 beside 「使えるベッドがありません」 said two different things about
+    // 「満室」 beside 「この店舗には使えるベッドがありません」 said two different things about
     // one board — and 清掃 was the LITERAL old answer here, because `every` on an
     // empty list is true. Neither now: the sentence still refuses, the chip is bare.
     expect(said.word).toBeNull()
-    expect(said.sentence).toBe('13:00〜14:00に使えるベッドがありません')
+    expect(said.sentence).toBe('この店舗には使えるベッドがありません')
   })
 })
 
@@ -387,7 +453,7 @@ describe('§3 — every sentence names the window it judged', () => {
   it('a bed refusal is `fullRoomsRefusal`’s sentence, whole and unedited', () => {
     const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
     const said = explainOn(busy, at(railOn(busy), 780)).sentence
-    expect(said).toBe('13:00〜14:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様）')
+    expect(said).toBe('13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）が使用中です')
     // ⛔ THE RETIRED VOCABULARY, pinned dead. The 8/25 native pass ruled
     // 「…に空きがありません」; 満室 survives as the CHIP's word and nowhere else,
     // and 「空きベッドなし」 was never vocabulary at all.
@@ -455,7 +521,7 @@ describe('§4 — ⚖ 75(i): the collector observes, and the clause never invent
     return sellLayerFor(oneRoom(), REAL.hours, {
       gridMin: 60, nowMinute: null, locked: [], showPrice: true,
       hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth,
-      reconcile: { claims, rooms: POLICY, cleanupMinutesByBed: {}, onDrop },
+      reconcile: { claims, cleanupMinutesByBed: {}, onDrop },
     })
   }
 
@@ -521,7 +587,6 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
     const frame = { hi: price.hi, lo: price.lo, hqMin: REAL.dialogs.pricing.hqMin, hqMax: REAL.dialogs.pricing.hqMax }
     const truth = bedTruthViews(
       REAL.lanes,
-      REAL.rooms,
       { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open },
       null,
     ).world
@@ -557,7 +622,7 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
             gridMin, nowMinute: REAL.sell.nowMinute, locked: [], showPrice: true,
             hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth,
             reconcile: {
-              claims, rooms: REAL.rooms, cleanupMinutesByBed: REAL.bedCleanupMinutes,
+              claims, cleanupMinutesByBed: REAL.bedCleanupMinutes,
               onDrop: (d) => drops.push(d),
             },
           })
@@ -571,7 +636,6 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
           const explained = explainRails(rails, REAL.lanes, {
             dur: sessionMin,
             handId: null,
-            rooms: REAL.rooms,
             stagedId: null,
             sellCells: sell.cells,
             claims,
@@ -658,7 +722,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
   ]
   const railsOn = (lanes: BoardLane[], dur = 60): GuardRail[] => {
-    const truth = bedTruthViews(lanes, POLICY, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
+    const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
     return guardRailsFor(lanes, {
       open: HOURS.open, close: HOURS.close, stepMin: 30, dur, protectedDur: 90,
       nowMinute: null, locked: [], guard: GUARD,
@@ -667,7 +731,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
   }
   const ask = (lanes: BoardLane[], over: Partial<Parameters<typeof explainRails>[2]> = {}) =>
     explainRails(railsOn(lanes), lanes, {
-      dur: 60, handId: null, rooms: POLICY, stagedId: null,
+      dur: 60, handId: null, stagedId: null,
       sellCells: [], claims: [], drops: [], inHand: false, sellDisplayed: true,
       ...over,
     })
@@ -714,7 +778,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     const per = ask(busy).get('p-01')!
     // `fullRoomsRefusal`'s sentence, whole — the composer was handed a real
     // `allocateBed` answer for this chip's own window.
-    expect(per.get(780)).toEqual({ word: '満室', sentence: '13:00〜14:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様）' })
+    expect(per.get(780)).toEqual({ word: '満室', sentence: '13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）が使用中です' })
     // …and a chip of any other class never grew a room answer, so it can never
     // wear a room word.
     for (const [start, said] of per) {
@@ -728,7 +792,35 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // asked with `handId` lifted out, which is the booking in the way — case (a).
     const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
     expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)).toEqual({ word: null, sentence: expect.any(String) })
-    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)!.sentence).not.toContain('ベッド1が使用中')
+    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)!.sentence).not.toContain('ベッド1（見本 かえる様')
+  })
+
+  it('⚖ ROOM RULE — the strip answers the question the DROP will ask, for the card in hand', () => {
+    // ⚖ FIX ROUND 2 (delta lens 4 N5). The rail's room probe used to ask the
+    // allocator with `requiresPrivate: false` always, so the strip beside a
+    // 個室のみ card answered a different question than the drop itself would. Fix
+    // round 1 read the hand's own tag and defended it with two source-text pins
+    // and no behaviour — this is the behaviour.
+    //
+    // Both beds busy, so the cell IS bed-refused and the probe runs. The hand
+    // sits on the STAFF row at a window of its own, so it is neither occupant.
+    const tagged = { ...booking({ key: 'h1', caseId: 'tag-1', title: 'テスト なぎ' }, 600, 660), requiresPrivateRoom: true }
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', items: [tagged] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)] }),
+      lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private', items: [booking({ key: 'b3', caseId: 'x3', title: '見本 さくら' }, 780, 900)] }),
+    ]
+    // With the tagged card in hand the strip judges the 個室 alone…
+    expect(ask(lanes, { handId: 'tag-1' }).get('p-01')!.get(780)!.sentence)
+      .toBe('13:00〜14:00は個室に空きがありません。ベッド3（見本 さくら様 13:00〜15:00）が使用中です')
+    // …and with nothing in hand it is the hypothetical it always was.
+    expect(ask(lanes).get('p-01')!.get(780)!.sentence)
+      .toBe('13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）、ベッド3（見本 さくら様 13:00〜15:00）が使用中です')
+    // An UNTAGGED hand asks the hypothetical's question, so the tag is what
+    // moved the answer rather than the presence of a hand.
+    const plain = [{ ...lanes[0], items: [{ ...tagged, requiresPrivateRoom: false }] }, lanes[1], lanes[2]]
+    expect(ask(plain, { handId: 'tag-1' }).get('p-01')!.get(780)!.sentence)
+      .toBe('13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）、ベッド3（見本 さくら様 13:00〜15:00）が使用中です')
   })
 
   it('A GESTURE EMPTIES THE MAP — nothing is composed while a card is in hand', () => {
@@ -1287,10 +1379,9 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
       id,
       currentBed: carried,
       stores: board.find((l) => l.key === sides.staffLane)?.stores ?? null,
-      vip: item.category === 'vip',
+      requiresPrivate: item.requiresPrivateRoom === true,
       start: minuteOf(at.x, REAL.hours),
       end: minuteOf(at.x + at.w, REAL.hours),
-      policy: REAL.rooms,
       stagedId: s.pending?.id ?? null,
     })
     // ⚖ 47 — a refusal changes nothing, so a scene that produces one is a scene
@@ -1358,7 +1449,7 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
       hi: price.hi,
       hqMin: REAL.dialogs.pricing.hqMin,
       depth,
-      reconcile: { claims, rooms: REAL.rooms, cleanupMinutesByBed: REAL.bedCleanupMinutes },
+      reconcile: { claims, cleanupMinutesByBed: REAL.bedCleanupMinutes },
     })
     const yen = (p: number | null) => (p == null ? '—' : money(p))
     return [
@@ -1419,7 +1510,7 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
   })
 
   it('a busy origin gets a FRESH SOLVE on return, never a blind restore', () => {
-    // 14:30, where ベッド3 is 見本 ゆうこ's (apt-29, 14:05–15:05): the outbound
+    // 14:30, where ベッド3 is テスト なぎ's (apt-29, 14:05–15:05): the outbound
     // leg is re-bedded, and so is the leg back — the seed is a candidate the
     // allocator judges, not an instruction it obeys.
     const out = landOn(REST, 'apt-28', 'c-03', span(870, 900))
@@ -1554,8 +1645,8 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     // than the substring they pinned before, and the smallest change that
     // anchors them.
     for (const line of [
-      "const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)",
-      "const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)",
+      'const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.requiresPrivateRoom === true, at)',
+      'const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.requiresPrivateRoom === true, next)',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
     }
@@ -1570,8 +1661,8 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     // bed came first. The category rides `PlacingIntent` now. The seed is still
     // `null, null` — which is what this test is actually about.
     for (const line of [
-      "const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))",
-      "const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
+      'const partnerKey = solveBed(lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))',
+      'const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
     }
@@ -1611,5 +1702,43 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     const nudge = SRC.slice(SRC.indexOf('function onCardKeyDown('), SRC.indexOf('function park('))
     expect(nudge).toContain('const on = { ...sides }')
     expect(nudge).not.toContain('bedChosen:')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ BREAKER-828 DELTA G3 — THE THREE COPIES OF codeOnly CANNOT DRIFT
+//
+// `codeOnly` is duplicated verbatim in three suites (they do not import one
+// another, and a new module is forbidden on this lane), so a fix applied to one
+// copy and forgotten in the other two leaves two suites reading the blind
+// version — which is exactly how F5's blind spot lived in three places at once.
+// Every suite asserts all three copies are byte-identical, marker to marker.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ BREAKER-828 G3 — the three codeOnly copies are byte-identical', () => {
+  // Assembled from two halves on purpose: written whole, THIS line would itself
+  // be a third marker in the file it lives in.
+  const MARK = '// ⚖ codeOnly v3 — BYTE-IDENTICAL' + ' IN THREE SUITES'
+  const COPIES = ['today-screen-interactions.test.ts', 'today-explains.test.ts', 'selling-engine-doors.test.ts']
+
+  const blockOf = (file: string) => {
+    const text = readFileSync(join(process.cwd(), 'src/__tests__/integration/business', file), 'utf8')
+    const a = text.indexOf(MARK)
+    const b = text.indexOf(MARK, a + 1)
+    return { file, marks: text.split(MARK).length - 1, text: a > -1 && b > a ? text.slice(a, b) : '' }
+  }
+
+  it('every suite carries the same tokenizer, marker to marker', () => {
+    const blocks = COPIES.map(blockOf)
+    // Exactly two markers per file, and something real between them — a pair of
+    // markers around nothing would make three empty strings 「identical」.
+    for (const b of blocks) {
+      expect({ file: b.file, marks: b.marks }).toEqual({ file: b.file, marks: 2 })
+      expect({ file: b.file, opens: b.text.includes('const codeOnly = (src: string) => {') }).toEqual({ file: b.file, opens: true })
+      expect({ file: b.file, long: b.text.length > 800 }).toEqual({ file: b.file, long: true })
+    }
+    for (const b of blocks.slice(1)) {
+      expect({ file: b.file, same: b.text === blocks[0].text }).toEqual({ file: b.file, same: true })
+    }
   })
 })

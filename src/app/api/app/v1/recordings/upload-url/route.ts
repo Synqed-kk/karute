@@ -29,9 +29,12 @@
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
+import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { mintTakeUploadUrl } from '@/lib/recording/mint-take-url'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
+import { mintSegmentUploadUrls, mintTakeUploadUrl } from '@/lib/recording/mint-take-url'
 import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
 
 export const runtime = 'nodejs'
@@ -55,12 +58,14 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
   const parsed = UploadUrlMintSchema.safeParse(body)
   if (!parsed.success) throw new AppApiError('validation', 'invalid upload-url payload')
 
-  const synqed = newSynqedClient(ctx.identity.businessId)
+  const synqed = newSynqedClient(ctx.identity.businessId, extractBearer(ctx.req))
 
-  // ONLY a CLIENT-NAMED take reserves a row, so only it pays for an identity.
-  // A server-named mint stays byte-identical to before this round: no roster
-  // read, and therefore none of its failure modes on the hot record-start path.
-  const named = Boolean(parsed.data.takeId)
+  // ONLY a body that NAMES A SESSION pays for an identity — a client-named take
+  // (which reserves a row) and, since fix round 7, a staged copy (which reserves
+  // nothing but is bound to a session the SAME staff rule has to clear). A
+  // server-named mint stays byte-identical to before this round: no roster read,
+  // and therefore none of its failure modes on the hot record-start path.
+  const named = Boolean(parsed.data.takeId ?? parsed.data.stagedFor)
 
   // ROSTER GATE — the same half a capability check cannot carry that the
   // finalize twin runs (#566). ctx.identity.authUserId carries no proof of
@@ -79,18 +84,49 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
   // its own key, and attributes both the reservation and the take_named row to
   // the roster identity resolved above. A null staffId can only reach the
   // server-named path, which binds nothing; the shared core still refuses to
-  // write anything without one.
-  const minted = await mintTakeUploadUrl(
-    synqed,
-    {
-      staffId,
-      businessId: ctx.identity.businessId,
-      canViewAll: ctx.identity.capabilities.has('recordings.viewAll'),
-      source: 'facade',
-      requestId: ctx.meta.requestId,
-    },
-    parsed.data,
-  )
+  // write anything without one. The one field that depends on WHICH act this
+  // is — the store reach — is added per arm below.
+  const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
+  const actor = {
+    staffId,
+    businessId: ctx.identity.businessId,
+    holdsOwnerKeys: callerHoldsOwnerKeys,
+    source: 'facade' as const,
+    requestId: ctx.meta.requestId,
+  }
+  // ③ THE OWNER'S HAND REACHES ONLY WHERE THE PERSON CAN SEE. The Bearer twin
+  // of web's viewerScopeForActs, and the same call the regenerate/relearn act
+  // routes already make (karute/[id]/regenerate/route.ts). Resolved ONLY when
+  // the pair is held: a recorder acting on her OWN session never reaches the
+  // store leg, so an assignment blip must not cost her the take. It reads the
+  // ASSIGNMENT, never the `store-id` header — a phone-set pin can neither
+  // widen nor narrow the owner's hand.
+  const reach = async (): Promise<readonly string[] | null> =>
+    callerHoldsOwnerKeys
+      ? await viewerAllowedStoreIds({
+          synqed,
+          authUserId: ctx.identity.authUserId,
+          capabilities: ctx.identity.capabilities,
+          selfStaffId: staffId,
+        })
+      : null
+  // ⚖ THE THIRD ACT (slice five packet C, D6). A body carrying `seqs` asks for
+  // this take's SEGMENT keys — the bytes that reach the server while the
+  // recording is still running. Branched HERE, before either body runs, because
+  // the two answer different result unions and a caller must never be able to
+  // get one where it asked for the other. The schema already proved a `seqs`
+  // body carries a takeId (so `named` above is true and the roster gate ran)
+  // and never carries `stagedFor`.
+  //
+  // ⚖ AND THE REACH IS RESOLVED PER ARM (③ fix round 1, L2 F2). The SEGMENT arm
+  // passes null and asks core nothing: inert — the segment door refuses every
+  // non-own row two lines after assertRecorderOwnsRow
+  // (mint-take-url.ts:997), so a resolved scope there is a round trip that
+  // changes no answer, once per segment batch, on the live-recording hot path
+  // this route's own header (:64-67) exists to protect.
+  const minted = parsed.data.seqs
+    ? await mintSegmentUploadUrls(synqed, { ...actor, allowedStoreIds: null }, parsed.data)
+    : await mintTakeUploadUrl(synqed, { ...actor, allowedStoreIds: await reach() }, parsed.data)
   if ('error' in minted) {
     if (minted.error === 'upstream') {
       throw new AppApiError('upstream_unavailable', 'could not mint an upload URL')
@@ -111,7 +147,17 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
     // The take is already SPOKEN FOR — its object exists without this caller's
     // reservation, or this row is bound to a different take. 409 is the client's
     // "start a new take", never a retry of this one.
-    if (minted.error === 'exists' || minted.error === 'reserved_elsewhere') {
+    //
+    // `not_reserved` joins them (slice five packet C): the segment door refuses
+    // to hang anything under a take the row has not reserved — an unbound row
+    // is the whole-take mint's job at stop, and a row bound elsewhere is not
+    // this take's. Same class of answer, same 409: a fact about the binding,
+    // never a moment in time to retry.
+    if (
+      minted.error === 'exists' ||
+      minted.error === 'reserved_elsewhere' ||
+      minted.error === 'not_reserved'
+    ) {
       throw new AppApiError('conflict', minted.error)
     }
     // A take id or container this server will not store is the CLIENT's error,

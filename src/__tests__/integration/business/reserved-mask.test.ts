@@ -63,7 +63,7 @@ import {
   type ReleasedWindow,
   type ReservedLaneMask,
 } from '@/app/[locale]/(business)/business/today/reserved-mask'
-import { guardRailsFor, laneSpans, type RoomPolicy } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { guardRailsFor, laneSpans } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { freePockets, type GuardPocketSpan } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
 import { opsConfig } from '@/business/lib/fixtures-today'
@@ -75,8 +75,6 @@ const OPEN = 540 // 09:00
 const CLOSE = 1080 // 18:00
 const HOURS: Hours = { open: OPEN, close: CLOSE }
 const FRAME = { openMin: OPEN, closeMin: CLOSE, nowMin: OPEN }
-const POLICY: RoomPolicy = { vipStaysPrivate: true, privateIsLastResort: true }
-
 /** THE STORE'S OWN DIALS, read from the fixture — by the TEST, never by the
  *  module (the module takes every dial as a parameter; spec §2). */
 const SHIPPED_PROTECTED = opsConfig.newClientSessionMin
@@ -229,7 +227,7 @@ function board(spec: BoardSpec): BoardLane[] {
  *  the binding constraint rather than the roster. */
 const SWEEP: BoardSpec = { staff: 8, beds: 3, seed: 4242, perLane: 3 }
 
-const bookOf = (lanes: BoardLane[]): BedTruth => bedTruthViews(lanes, POLICY, FRAME, null).world
+const bookOf = (lanes: BoardLane[]): BedTruth => bedTruthViews(lanes, FRAME, null).world
 const staffLanesOf = (lanes: BoardLane[]) => lanes.filter((l) => l.group === 'staff' && l.window != null)
 
 /** The mask, for one board at one dial combination. A FRESH book every time —

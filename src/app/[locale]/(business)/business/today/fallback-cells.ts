@@ -29,16 +29,14 @@
 // decides. Additions-only by construction — nothing here can drop a survivor,
 // because nothing here can see one except as a wall.
 //
-// ROOM ORDER IS ⚖ 51'S, NOT THE BOARD'S. Canon's internal `bedLedger`
-// (availability.ts:345-358) walks `resourceLanes` in board order and consults
-// no room class at all — `roomFitsClass` is never called on that path. Latent
-// today (the gap layer never reaches ベッド3 on this board); live the moment a
-// fallback exists, and it would spend the 個室 on a ¥4,610 scrap where
-// `allocateBed`, which does obey 個室-last, would not. So the clip is BUILT in
-// the allocator's own class order, out of the allocator's own exported
-// predicates — one spelling of the rule, not a second room solver — and a 個室
-// clip is only offered for a span no standard room could yield, because the
-// standard rooms are walked first and what they take is subtracted.
+// ROOM ORDER IS THE ⚖ ROOM RULE'S, NOT THE BOARD'S. Canon's internal `bedLedger`
+// (availability.ts:345-358) walks `resourceLanes` in board order and knows no
+// room class at all. That is now answered at the SEAM — `sellResourceLanes`
+// hands canon its rooms 施術室-first — and this pass uses the same `orderRooms`,
+// so it would spend the 個室 on a ¥4,610 scrap only where `allocateBed` would
+// too. One spelling of the rule, not a second room solver: a 個室 clip is only
+// offered for a span no standard room could yield, because the standard rooms
+// are walked first and what they take is subtracted.
 //
 // IT HAS A SECOND TRIGGER NOW — THE GRID HOLE (⚖ R6 B1, 2026-09-02). The
 // reconcile's drops are one way a stretch goes unadvertised while the rooms
@@ -101,12 +99,10 @@ import type { ReservedLaneMask } from './reserved-mask'
 import {
   combineCrumbs,
   laneSpans,
-  needsPrivateRoom,
-  roomFitsClass,
+  orderRooms,
   sellStaffLanes,
   sharesStore,
   type KindedGapCell,
-  type RoomPolicy,
   type SellDrop,
 } from './today-interactions'
 
@@ -185,7 +181,6 @@ export interface FallbackInput {
   /** ⚖ flag 77's dial. A room missing from the map is a bare room (0 minutes) —
    *  the same decision, and the same reason, as the reconcile's own reading. */
   cleanupMinutesByBed: Readonly<Record<string, number>>
-  rooms: RoomPolicy
   /** The reserved mask for THIS world (spec §2). Empty for a guard-off store. */
   held: readonly ReservedLaneMask[]
   /** ⚖ Greptile #815 — the same locked-lane list `gapLayerFor`/`sellLayerFor`
@@ -235,25 +230,13 @@ function subtract(base: readonly Iv[], cut: readonly Iv[]): Iv[] {
   return out
 }
 
-/** ⚖ 51 — THE ALLOCATOR'S OWN ORDER, asked with the reconcile's own `vip:false`
- *  (an advertisement is not a booking, so the 個室 floor asks its ordinary
- *  question — today-interactions.ts:1020). Built out of `sharesStore`,
- *  `roomFitsClass` and `needsPrivateRoom`, which is where `allocateBed` keeps
- *  the same three rules, so this cannot answer differently from the search that
- *  dropped the offer in the first place. */
-function roomsInClassOrder(
-  lanes: readonly BoardLane[],
-  staff: BoardLane,
-  policy: RoomPolicy,
-): BoardLane[] {
-  const beds = lanes.filter((l) => l.group === 'beds' && sharesStore(staff.stores, l.stores))
-  const candidates = beds.filter((l) => roomFitsClass(l, false, policy))
-  return needsPrivateRoom(false, policy) || !policy.privateIsLastResort
-    ? candidates
-    : [
-        ...candidates.filter((l) => l.roomClass !== 'private'),
-        ...candidates.filter((l) => l.roomClass === 'private'),
-      ]
+/** ⚖ ROOM RULE clause 1 — THE ALLOCATOR'S OWN ORDER, asked for a hypothetical
+ *  (an advertisement is not a booking, so it carries no 個室のみ tag and every
+ *  same-store room is a candidate). `sharesStore` and `orderRooms` are the SAME
+ *  two functions `allocateBed` uses — one home each — so this cannot answer
+ *  differently from the search that dropped the offer in the first place. */
+function roomsInClassOrder(lanes: readonly BoardLane[], staff: BoardLane): BoardLane[] {
+  return orderRooms(lanes.filter((l) => l.group === 'beds' && sharesStore(staff.stores, l.stores)))
 }
 
 /** ⚖ R6 B1 — WHAT `deriveGapPackingCells`' GRID BRANCH LEFT FOR NOBODY, asked
@@ -441,7 +424,7 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
         .filter((c) => c.group === 'staff' && c.laneKey === lane.key)
         .map((c) => ({ s: c.h, e: c.h + SELL_SLOT_MIN })),
     ]
-    const rooms = roomsInClassOrder(input.lanes, lane, input.rooms)
+    const rooms = roomsInClassOrder(input.lanes, lane)
     const heldSpans = heldByLane.get(lane.key) ?? []
 
     for (const pocket of freePockets({

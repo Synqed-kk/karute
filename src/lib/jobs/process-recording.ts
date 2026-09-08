@@ -23,7 +23,9 @@ import { runKaruteExtraction } from '@/lib/ai/karute-extract'
 import { runKaruteSummary } from '@/lib/ai/karute-summarize'
 import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
-import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { isOwnAudioKey } from '@/lib/recording/key-grammar'
+import { readStaffDiscard } from '@/lib/recording/staff-discard'
+import { DISCARDED_BY_STAFF } from '@/lib/recording/job-errors'
 import { audit } from '@/lib/audit'
 import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
@@ -44,9 +46,9 @@ export interface RecordingJobPayload {
   duration_seconds?: number
   /** Coaching label chosen at stop (packet 22 B4) — written via the SAME
    *  best-effort upsert the interactive save uses (setKaruteOutcomeWithClient),
-   *  but a failure here THROWS (unlike the interactive save's swallow):
-   *  the audio is deleted right after this function returns, so a silently
-   *  lost label has no retry path. Absent = no outcome to write. */
+   *  but a failure here THROWS (unlike the interactive save's swallow): a
+   *  silently lost label has no retry path of its own, and failing the whole
+   *  job is what gets one. Absent = no outcome to write. */
   outcome?: SessionOutcome
 }
 
@@ -55,6 +57,46 @@ function coreClient(businessId: string): SynqedClient {
   const apiKey = process.env.SYNQED_CORE_API_KEY
   if (!baseUrl || !apiKey) throw new Error('SYNQED core env missing')
   return new SynqedClient({ baseUrl, apiKey, businessId })
+}
+
+/** ⚖ A DELIBERATE DISCARD OUTRANKS THE JOB (fix round 6, R1 — Greptile P1 on #851).
+ *  The doors ask the ledger before they queue; nothing asked it again between
+ *  the queue and the write, so a STAFF discard landing in that window still
+ *  produced a karute. The read is the shared one (staff-discard.ts); here a
+ *  'discarded' verdict ends the job with a named reason, 'unreadable' and a
+ *  throw fail it too — "could not check" is never "not discarded" — and
+ *  core's requeue asks again.
+ *  ⚖ THIS REFUSAL IS DETERMINISTIC AND STILL REQUEUED, on purpose: core's
+ *  fail() has no terminal flag (recordingJobs.fail(id, error) is the whole
+ *  verb), so a discarded take is re-asked up to max_attempts times. Each
+ *  retry costs ONE ledger read and nothing else, because check #1 runs before
+ *  any yen is spent — that is the accepted cost, and it is why the early check
+ *  exists (the REVISIT_NOT_ELIGIBLE comment below describes the expensive
+ *  version of this class). A ledger BLIP now also costs an attempt; same class
+ *  as the consent read beside it, and after fix round 6 R2 the row keeps its
+ *  再試行 even inside the grace.
+ *  THIS REFUSAL IS NOT AUDITED: the discard's own recording.discard row is the
+ *  receipt, and the job row carries the last_error. A new audit action is a
+ *  core-shaped decision, not this round's.
+ *  THE DISCARD IS THE ONE FENCE THE WORKER RE-ASKS. Ownership and the store
+ *  reach are settled at enqueue by the twins' own rule (attribution-at-enqueue;
+ *  revocation is covered at the door) — a discard is different because it is a
+ *  human decision that can land AFTER the queue and must still win.
+ *  WHAT THE STAFFER SEES: 録音履歴 folds a discarded session to 破棄済み FIRST
+ *  (inbox.ts:340-347), ahead of any job state; the device pipeline shows the
+ *  terminal 'discarded' card (fix round 6, R7) and offers no retry.
+ *  THE ONE SAVE THIS FENCE DOES NOT REACH: the in-tab pipeline. global-pipeline.ts
+ *  falls back to run() when a pre-enqueue failure meets a session whose only
+ *  job is FAILED (:486-490 — an unfinalized take, a retake), and run() ends at
+ *  saveKaruteRecordInline (actions/karute.ts), which reads no discard ledger.
+ *  Pre-existing, and NARROWED by this fence (the server path now refuses), not
+ *  widened; the honest close is the same ledger read at that chokepoint, which
+ *  would protect the whole web arm too — a product decision (a new refusal on
+ *  the review screen), parked with Liam, not this round's. */
+async function assertNotDiscardedByStaff(synqed: SynqedClient, recordingSessionId: string): Promise<void> {
+  const verdict = await readStaffDiscard(synqed, recordingSessionId)
+  if (verdict === 'unreadable') throw new Error('discard ledger row unreadable — refusing to write')
+  if (verdict === 'discarded') throw new Error(DISCARDED_BY_STAFF)
 }
 
 /** Process one claimed job end-to-end. Throws on failure — the caller reports
@@ -67,22 +109,38 @@ async function processJob(job: RecordingJob): Promise<string> {
   const synqed = coreClient(job.business_id)
 
   // Tenancy gate at the chokepoint EVERY arm routes through — the last line
-  // before a service-role read + delete of the object (no RLS on that client).
+  // before a service-role read of the object (no RLS on that client; PR4 left
+  // this worker no delete at all).
   // A job's audio MUST live under this job's own tenant prefix; anything else
   // — a cross-tenant `app_${other}_*` key OR a non-tenant-scoped `rec_*` key
-  // whose owner can't be verified — is refused before it can be read or
-  // deleted. This is why the ONLY audio the worker will touch is a
+  // whose owner can't be verified — is refused before it can be read.
+  // This is why the ONLY audio the worker will touch is a
   // `app_${businessId}_*` object the upload-url facade minted for THIS tenant;
   // both the facade route and the web action enforce the same shape up front,
   // and this is the invariant that holds even if a future caller forgets to.
   // The re-check runs the SHARED grammar (2026-09-03), not its own prefix twin:
   // same intent, stronger — a prefix alone accepted a separator, a traversal
-  // body or a segment fragment, and this worker only ever means a whole take.
-  if (!isOwnRecordingKey(payload.audio_path, job.business_id)) {
+  // body or a segment fragment.
+  //
+  // ⚖ A WHOLE TAKE, OR THE JOB'S RESCUE OF ONE (ADDENDUM 9.1, Liam
+  // 2026-09-06 "b"). Since the nightly assembler writes beside a take rather
+  // than on it, the audio a save door enqueues for a device that never came
+  // back is a `rsc/` object — same tenant prefix, same closed container set,
+  // same take. Fencing on 'take' alone would mean a rescued recording could
+  // never be transcribed at all. Still NEVER a segment, never a staged copy and
+  // never another tenant's object, and this path is SERVER-DERIVED throughout:
+  // the payload was written by a door that read the row, not by a client naming
+  // a key — which is why isOwnRecordingKey (take-only) stays exactly as it is at
+  // every client-facing surface.
+  if (!isOwnAudioKey(payload.audio_path, job.business_id)) {
     throw new Error('audio_path does not belong to this job’s business')
   }
 
-  // Consent gate FIRST — fail closed before spending a yen on transcription.
+  // Discard check #1 — ahead of consent and before a yen is spent: a requeued
+  // job for a discarded take costs one ledger read.
+  await assertNotDiscardedByStaff(synqed, job.recording_session_id)
+
+  // Consent gate — fail closed before spending a yen on transcription.
   // Same rule as the interactive save: unreadable consent rejects, never bypasses.
   const { consent } = await synqed.customers.getConsent(payload.customer_id)
   if (!isConsentCurrent(consent)) throw new Error(CONSENT_REQUIRED_ERROR)
@@ -154,6 +212,10 @@ async function processJob(job: RecordingJob): Promise<string> {
     runKaruteSummary(common),
   ])
 
+  // Discard check #2 — the LAST read before the write; a discard that landed
+  // during transcription ends here, with no karute.
+  await assertNotDiscardedByStaff(synqed, job.recording_session_id)
+
   // 4. ONE short write — the same idempotent by-recording-session upsert the
   // interactive path uses (core #38): a reclaimed/retried job converges on the
   // same record instead of duplicating it.
@@ -164,10 +226,10 @@ async function processJob(job: RecordingJob): Promise<string> {
   })
 
   // Coaching label (packet 22 B4) — same idempotent upsert the interactive
-  // save uses. UNLIKE that call site, a write failure here THROWS: the audio
-  // is deleted right after this function returns, so there is no later
-  // opportunity to retry just the outcome — failing the whole job lets core's
-  // requeue converge on the SAME record (the upsert above is idempotent too).
+  // save uses. UNLIKE that call site, a write failure here THROWS: there is no
+  // later opportunity to retry just the outcome — failing the whole job lets
+  // core's requeue converge on the SAME record (the upsert above is idempotent
+  // too, and PR4 leaves the audio in place for that re-run).
   if (payload.outcome) {
     const outcomeResult = await setKaruteOutcomeWithClient(synqed, {
       karuteRecordId: record,
@@ -223,12 +285,10 @@ async function processJob(job: RecordingJob): Promise<string> {
     source: 'system',
   })
 
-  // 5. Audio lifecycle: job complete → delete, exactly like the interactive
-  // flow. Best-effort — a leftover object is only REPORTED by the daily sweep
-  // (audio is never deleted, 2026-09-03); the retention round removes this
-  // delete entirely.
-  await supabase.storage.from('recordings').remove([payload.audio_path]).catch(() => {})
-
+  // 5. ⚖ THE AUDIO STAYS (capture pipeline PR4). A completed job used to delete
+  // the object it had just transcribed. `audio_path` is the take's FINALIZED
+  // key now — the recording itself, the evidence behind the karute this job
+  // just wrote — so nothing here removes it, and the daily sweep only reports.
   return record
 }
 

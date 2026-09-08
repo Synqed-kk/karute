@@ -17,6 +17,7 @@ import {
   deriveSellableCells,
   freePockets,
   type GapCell,
+  type GuardPocketSpan,
   type GapPackingInput,
   type SellBand,
   type SellCell,
@@ -24,7 +25,7 @@ import {
   type SellResourceLane,
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
-import { createGapGuard, type GuardConfig, type GuardContext, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
+import { createGapGuard, type GuardConfig, type GuardContext, type GuardPlacement, type GuardReason, type GuardResult, type GuardService } from '@/business/lib/canon-logic/gap-guard'
 import { gapFillPrice, gapFillRawTotal, money, packedPrice, priceAt, priceLabel, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
 import {
   computeChecks,
@@ -38,7 +39,7 @@ import {
   type DragMode,
   type DragOrigin,
 } from '@/business/lib/canon-logic/drag-rules'
-import { minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
+import { hhmm, minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 // ⚖ SPEC-SELLING-ENGINE §2 — TYPE-ONLY, and it has to stay that way: the mask
 // imports `laneSpans` from this file as a VALUE, and the capacity book imports
 // `allocateBed`, so a value import back to either would be a real module cycle.
@@ -797,8 +798,13 @@ export function sellStaffLanes(lanes: readonly BoardLane[], locked: string[]): S
  *  canon's own emission needs `SellResourceLane` to carry the list, and that is
  *  an edit to a frozen file — recorded as a spec/ask, not done here. */
 export function sellResourceLanes(lanes: BoardLane[]): SellResourceLane[] {
-  return lanes
-    .filter((l) => l.group === 'beds')
+  // ⚖ ROOM RULE clause 1, AT THE SEAM. `SellResourceLane` carries no room class
+  // and canon's `bedLedger` (availability.ts :345-358) takes the first free lane
+  // in ARRAY order, so 個室-last survived on the money surface only because
+  // bed-03 happens to sit third in the fixture. A store whose 個室 was created
+  // first would sell it to online traffic with standard rooms standing empty. One
+  // ordering, applied before the hand-off; canon stays byte-frozen.
+  return orderRooms(lanes.filter((l) => l.group === 'beds'))
     .map((l) => ({ key: l.key, name: l.label, occupied: laneSpans(l), storeId: l.stores?.[0] ?? '' }))
 }
 
@@ -846,9 +852,6 @@ export function keepsTheRoom(): 'sell' | 'gap' {
  *  the derivation byte-identical to R3's. */
 export interface SellReconcile {
   claims: readonly GapCell[]
-  /** The store's two room-allocation judgements — the re-bedding is a real
-   *  `allocateBed` search and it obeys them. */
-  rooms: RoomPolicy
   /** Per-room turnaround, ⚖ flag 77's dial. A room MISSING from the map is a
    *  bare room (0 minutes) — the same decision, and the same reason, as
    *  `ClaimsBook.violations`. */
@@ -893,8 +896,8 @@ export interface SellDrop {
  *  box could both point at ベッド2 at the same minute. The shipped suppression
  *  ran inside `renderLane` and filtered `onThisLane` — the same DRAWN ROW — so
  *  it could not see a cross-row collision at all, and because it ran after
- *  `buildSellLayer` the counts it fed (公開中 N枠, 販売可能枠 N窓, 安全な空き)
- *  were computed from boxes the screen then declined to draw.
+ *  `buildSellLayer` the counts it fed (公開中 N枠, 販売可能枠 N窓, the 運営影響
+ *  stat) were computed from boxes the screen then declined to draw.
  *
  *  Reconciling HERE, between `deriveSellableCells` and `buildSellLayer`, makes
  *  those counts honest BY CONSTRUCTION: every surface reads a layer built out of
@@ -1043,12 +1046,12 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
         id: null,
         currentBed: null,
         stores,
-        // A window is an advertisement, not a booking: nobody is VIP yet, so
-        // the 個室 floor asks its ordinary question and 個室-last still holds.
-        vip: false,
+        // ⚖ ROOM RULE — a hypothetical never needs the private room. A window is
+        // an advertisement, not a booking: there is no booking to carry a
+        // 個室のみ tag, so the offer takes a standard room first like anyone else.
+        requiresPrivate: false,
         start: c.h,
         end: c.h + SELL_SLOT_MIN,
-        policy: input.rooms,
       })
       if (found.laneKey === null) {
         decisions.set(offerKey(c), null)
@@ -1155,7 +1158,7 @@ export const isHeldBound = (c: SellCell): boolean => (c as { heldBound?: unknown
  *  purchasable, or be painted.
  *
  *  ⚖ R4's OWN LESSON, OBEYED. The reconcile moved out of the renderer in R4
- *  precisely because 公開中 N枠 / 販売可能枠 N窓 / 安全な空き and the 公開価格
+ *  precisely because 公開中 N枠 / 販売可能枠 N窓 / the 運営影響 stat and the 公開価格
  *  button were counting boxes the paint then declined to draw. Withholding at
  *  the RENDERER would rebuild that defect one law along, so it happens to the
  *  LAYER: every surface that reads the layer stays honest for free, both rows
@@ -1616,6 +1619,28 @@ export interface RailCell {
     windowsBefore: number[]
     windowsAfter: number[]
   }
+  /** ⚖ NUDGE-RESIDUE (Liam 2026-09-07) — THE GAP AXIS'S OWN VERDICT AND DIFFERENCE.
+   *
+   *  Present exactly on the cells `residueVerdict` decided: a MOVE refused on the
+   *  leftover-space axis, measured against the store's committed day. Its presence is
+   *  what says 「this cell was weighed on the gap axis」 to a surface that must not
+   *  parse sentences back into numbers (⚖ 54's disease — same law as `impact` above).
+   *
+   *  THE FACE IS `gapIsQuiet`, NOT `worse` ALONE. `worse` is canon's lexicographic
+   *  ranking (`residueVerdict`'s own answer); the card goes quiet only when `worse` is
+   *  false AND `dead` is 0 AND `lostMenus` is empty (FIX 1 §A — new dead minutes and a
+   *  newly lost menu are always said, whatever a higher term did). A surface that
+   *  wants the verdict reads the fields the way `gapIsQuiet` does; `worse` alone
+   *  disagrees with the face on 108 of 3,144 swept rows (DELTA-RESIDUE L1 §F2). The
+   *  three numbers are the FLOORED difference and cannot reproduce the ranking by
+   *  themselves: a quiet move can carry a non-zero one (なぎ 14:05→14:00 is
+   *  `{worse: false, salvage: 5}` — the dead term improved and canon ranks it above
+   *  salvage), and two cells whose numbers are byte-identical can hold opposite
+   *  `worse` (LENS-1 §F1's three colliding shapes, LENS-3 §R-6).
+   *  Absent everywhere else, including at rest and in strict mode.
+   *  ponytail: no product surface reads this yet (LENS-4 §D-11) — it is the explain
+   *  surfaces' data, published with the axis rather than bolted on after it. */
+  gapNote?: { worse: boolean; dead: number; salvage: number; lostMenus: string[] }
 }
 
 export interface GuardRail {
@@ -1626,16 +1651,106 @@ export interface GuardRail {
 
 const clockOf = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 
-/** canon `reasonLine` (:7092). The engine's refusal, said out loud. */
-export function reasonLine(reason: GuardReason | undefined, protectedDur: number): string {
+/** ⚖ Liam 2026-08-30 — THE GUARD PRESS NAMES *WHERE* THE PROTECTED WINDOW IS.
+ *
+ *  Both sentences below used to say only HOW MANY 新規 windows a start keeps or
+ *  costs. An operator who wanted to know which minutes were being protected had
+ *  to rebuild the stretch by hand off the rail's marks — and a 60 + a 30 read as
+ *  one composite 90 that the engine never counted. The board is already holding
+ *  the starts, so it says them out loud:
+ *  「17:30〜19:00の新規90分の空きを守れます」.
+ *
+ *  THIS FUNCTION ONLY FORMATS A LIST. Which list is the caller's decision, and
+ *  each of the three callers inside `railCell` makes a different one: the safe
+ *  ✓ site hands it the windows that SURVIVE the drop (`protectedWindowsAfter`),
+ *  because 「守れます」 is a promise about what is still there after the card
+ *  goes down, never about what was there before it. The degraded △ site and the
+ *  window-refusal hand it the windows the placement EATS instead
+ *  (`windowsEatenBy`'s result), whose own comment explains why a
+ *  before-minus-after difference names the wrong set. This function never
+ *  chooses between them.
+ *
+ *  Three named, the remainder folded as 「、ほかN件」 — a 読点 closes the named
+ *  list before the count, so a skimming eye doesn't run the last window straight
+ *  into the fold (JP-NATIVE-PASS-R8-PR2-007c81b9.md §D). 件 rather than 枠,
+ *  because 枠 is already carrying the loss count in the same sentence and two
+ *  different 「N枠」 in one line collide. Empty list → '' and the caller keeps
+ *  the sentence it shipped with; the de-duplicating sort is defensive only, the
+ *  engine emits ascending unique starts (gap-guard's own `.slice()` copy of its
+ *  window list).
+ */
+export function protectedWindowsClause(starts: readonly number[], protectedDur: number): string {
+  const windows = [...new Set(starts)].sort((a, b) => a - b)
+  if (windows.length === 0) return ''
+  const named = windows.slice(0, 3).map((s) => `${clockOf(s)}〜${clockOf(s + protectedDur)}`).join('・')
+  return windows.length > 3 ? `${named}、ほか${windows.length - 3}件` : named
+}
+
+/** ⚖ 90 — WHICH of the protected windows THIS placement eats.
+ *
+ *  Two of the three sentences name the windows the drop costs, and neither may
+ *  take the before-set minus the after-set to find them: the engine RE-TILES the
+ *  pocket with the placement excluded, so the after-set's starts shift rather
+ *  than dropping out (a 10:00 landing on an open lane turns [10:00, 11:30, …]
+ *  into [11:00, 12:30, …] — every start differs, for a loss of exactly one), and
+ *  a set difference would name every window on the lane for a one-window loss.
+ *
+ *  The honest question is the one canon itself asks when it re-tiles: does this
+ *  window overlap the span being placed (gap-guard :199, its private `overlaps`
+ *  at :187-188). Same predicate, spelled here because canon's is not exported —
+ *  half-open on both sides, so a window that ENDS exactly where the placement
+ *  begins, or BEGINS exactly where it ends, is untouched and is not named.
+ *
+ *  Order and duplicates are left exactly as given; `protectedWindowsClause` is
+ *  the one place that sorts and de-duplicates. */
+export function windowsEatenBy(
+  windows: readonly number[],
+  protectedDur: number,
+  start: number,
+  dur: number,
+): number[] {
+  return windows.filter((s) => s < start + dur && s + protectedDur > start)
+}
+
+/** canon `reasonLine` (:7092). The engine's refusal, said out loud.
+ *
+ *  ⚖ Liam 8/30 (flag 90) — `windows` is the ONE addition, and only the R-REP
+ *  branch reads it: 「ここに置くと17:30〜19:00の新規（90分）が入らなくなります」.
+ *  It defaults to '' so every existing two-argument call — canon's parity
+ *  contract, and the rail's own R-UNAVAILABLE call — returns the identical
+ *  string it always did.
+ *
+ *  THE CALLER DECIDES, not this function. R-REP wears two shapes: a lost
+ *  PROTECTED window (`params.capacityLost > 0`, label 「新規（90分）」) and a
+ *  SERVICE that no longer fits (label 「整体60」, gap-guard `reasonForKey`'s
+ *  `key[0]`/`key[1]` branches — :327-338). Only the
+ *  first is a window and only the first may be given a clause, and the thing
+ *  that knows which is the composer holding the verdict — so `railCell` passes
+ *  '' for the other. */
+export function reasonLine(reason: GuardReason | undefined, protectedDur: number, windows = ''): string {
   if (!reason) return '配置できません'
   const p = reason.params as Record<string, number | string>
   switch (reason.code) {
-    case 'R-REP': return `ここに置くと${p.label}が入らなくなります`
-    case 'R-DEAD': return `ここに置くと${p.n}分の売れない空きが残ります`
-    case 'R-SALV': return `ここに置くと${p.n}分の割引でしか売れない空きが残ります`
+    case 'R-REP': return `ここに置くと${windows ? `${windows}の` : ''}${p.label}が入らなくなります`
+    case 'R-DEAD': return `ここに置くと売れない空きが${p.n}分残ります`
+    case 'R-SALV': return `ここに置くと割引でしか売れない空きが${p.n}分残ります`
     case 'R-UNAVAILABLE': return `この開始には既存${p.dur}分を配置できません`
     case 'EXEMPT': return `端は${wallJa(String(p.wallType ?? ''), p.trigger === 'wall')}に接するため空きになりません`
+    /** ⚖ Liam 8/30 (flag 90) — THIS BRANCH IS UNREACHABLE FROM THE BOARD, which
+     *  is why it alone names no windows while the rail's three other sentences
+     *  do. Its `params` carry the counts and the least-loss minute and never the
+     *  spans, and the `windows` argument above is the R-REP branch's alone —
+     *  there is nothing honest to give this one.
+     *
+     *  It cannot be reached: canon mints `code: 'DEGRADED'` only in the block
+     *  that has just set `verdict = 'degraded'` (gap-guard :407 + :411), and
+     *  `railCell` answers `v.verdict === 'degraded'` with its own sentence and
+     *  RETURNS before the fallthrough that calls `reasonLine` for a refusal.
+     *  The rail's other call sits under `R-UNAVAILABLE`. `reasonLine` has no
+     *  caller outside `railCell`.
+     *
+     *  It stays anyway: it is a straight transplant of canon's own reason line
+     *  (parity is its reason to exist) and the unit contract pins its shape. */
     case 'DEGRADED': {
       const before = Number(p.capacityBefore)
       const after = Number(p.capacityAfter)
@@ -1713,6 +1828,19 @@ export interface RailInput {
    *  callback only when there is one, and a store with no rooms configured has
    *  none to consult either way. */
   protectedWindowFeasible?: (lane: BoardLane, start: number, dur: number) => boolean
+  /** ⚖ NUDGE-GUARD — WHERE THE STORE'S COMMITTED DAY STILL HAS THIS CARD, when the
+   *  question is a MOVE. The baseline for 「does the store lose inventory by
+   *  confirming this change」 is the span 元に戻す restores, never the lane with the
+   *  card lifted out — see COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 2.
+   *  Absent or null = today's behaviour everywhere (a new card, a cell at rest). */
+  resting?: { laneKey: string; start: number; dur: number } | null
+  /** The window door the BEFORE-list is judged through: 「could a NEW placement start
+   *  here, with the moving card lifted out」 — never 「may THIS card go here」, which
+   *  binds the mover's own 個室のみ tag and silenced a real loss (…/nextround/
+   *  PKT-NUDGE-FIX1.md §F2). Judging it on the after-world erased the very window the
+   *  move destroys (COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 3). Same
+   *  shape as `protectedWindowFeasible` above; the AFTER-list keeps that one. */
+  restingWindowFeasible?: (lane: BoardLane, start: number, dur: number) => boolean
 }
 
 /** The engine's ctx for ONE staff lane — canon `ctxFor` (:7278). The clock the
@@ -1725,6 +1853,81 @@ function railCtx(lane: BoardLane, input: RailInput): GuardContext {
     placementFeasible: feasible ? (start, dur) => feasible(lane, start, dur) : undefined,
     protectedWindowFeasible: held ? (start, dur) => held(lane, start, dur) : undefined,
   }
+}
+
+/** Does a placement touch this pocket at all? Half-open both sides, canon's own
+ *  `overlaps` grammar (gap-guard :187-188). Spelled by its own name because
+ *  `spansOverlap` next door is PERCENT-space with an epsilon and would answer a
+ *  different question here. */
+const overlapsPocket = (a: GuardPlacement, p: { s: number; e: number }) => a.start < p.e && a.start + a.dur > p.s
+
+/** The lane's protected windows with a card at X; `protectedCapacityOf` answers the
+ *  at-rest count and stays separate. WHOLE-LANE, because a per-pocket frame is blind
+ *  across the pockets of one lane — a nudge across a 休憩 kept a false 1枠減
+ *  (COUNCIL-NUDGE-FIX-2026-09-06/ADJUDICATION.md ruling 2). */
+export function laneWindowsWith(
+  engine: ReturnType<typeof createGapGuard>,
+  pockets: ReturnType<typeof freePockets>,
+  placement: GuardPlacement | null,
+  ctx: GuardContext,
+): number[] {
+  return pockets.flatMap((p) =>
+    placement && overlapsPocket(placement, p)
+      ? engine.protectedCapacity(p, placement, ctx).afterStarts
+      : engine.protectedCapacity(p, null, ctx).beforeStarts,
+  )
+}
+
+/** ⚖ NUDGE-GUARD — THE CARD'S COMMITTED SPAN, in the arm order the ruling fixes
+ *  (COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 1).
+ *
+ *  PENDING FIRST, because `committedLanes` already carries a staged card at its
+ *  STAGED span — reading the board there would price the move against itself and
+ *  report zero for every staged nudge. `pending.origin` is the span 元に戻す
+ *  restores, which is the store's own committed day.
+ *
+ *  A `ParkHome` origin (the shelf's place-back) carries the day and store it was
+ *  parked from, and it is only a baseline on the board it belongs to; a creation
+ *  sentinel (`laneKey === ''`) has no committed span at all, so its first landing's
+ *  warning honestly re-fires until it is confirmed (C4). `pending.origin` is TYPED
+ *  `Move` on the screen and a `ParkHome` is assignable to it, so the home fields are
+ *  read structurally — this file may not import the session provider (foundation's
+ *  import inventory for it). */
+export function restingSpanFor(
+  pending: { id: string; origin: Move & { dayOffset?: number; store?: string | null } } | null,
+  committedLanes: BoardLane[],
+  id: string | null,
+  hours: Hours,
+  dayOffset: number,
+  store: string | null,
+): RailInput['resting'] {
+  if (id == null) return null
+  if (pending != null && pending.id === id) {
+    const home = pending.origin
+    if (home.laneKey === '') return null
+    if (home.dayOffset !== undefined && (home.dayOffset !== dayOffset || home.store !== store)) return null
+    const start = minuteOf(home.x, hours)
+    return { laneKey: home.laneKey, start, dur: minuteOf(home.x + home.w, hours) - start }
+  }
+  const lane = committedLanes.find(
+    (l) => l.group === 'staff' && l.items.some((i) => i.kind === 'booking' && i.caseId === id),
+  )
+  const item = lane?.items.find((i) => i.kind === 'booking' && i.caseId === id)
+  return lane != null && item != null ? { laneKey: lane.key, start: item.startMin, dur: item.endMin - item.startMin } : null
+}
+
+/** The committed span, but only where it is this lane's business: a cross-lane target
+ *  is priced exactly as today, and STRICT mode keeps today's behaviour entirely
+ *  (C2 — COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 7). */
+const restingOn = (lane: BoardLane, input: RailInput): GuardPlacement | null =>
+  input.resting != null && input.resting.laneKey === lane.key && input.guard.mode !== 'strict'
+    ? { start: input.resting.start, dur: input.resting.dur }
+    : null
+
+/** `railCtx` for the BEFORE-list — the same wiring, through the other door. */
+function beforeCtxFor(lane: BoardLane, input: RailInput, ctx: GuardContext): GuardContext {
+  const lifted = input.restingWindowFeasible
+  return lifted ? { ...ctx, protectedWindowFeasible: (start, dur) => lifted(lane, start, dur) } : ctx
 }
 
 /** The 60分配置 rail for every staff lane — canon `renderSlotBoxes` (:7543),
@@ -1762,8 +1965,12 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[]
     })
     const cells: RailCell[] = []
     const ctx = railCtx(lane, input)
+    const resting = restingOn(lane, input)
+    const beforeCtx = beforeCtxFor(lane, input, ctx)
+    // ⚖ perf — the gap axis's rest leg, once for the whole rail (see `restResidueOn`).
+    const restGap = restResidueOn(engine, pockets, resting, ctx, RESIDUE_COMPARE_STRIPS_EXEMPTIONS)
     for (let start = input.open; start < input.close; start += input.stepMin) {
-      cells.push(railCell(engine, pockets, start, input, ctx))
+      cells.push(railCell(engine, pockets, start, input, ctx, resting, beforeCtx, restGap))
     }
     rails.push({ laneKey: lane.key, laneLabel: lane.label, cells })
   }
@@ -1782,8 +1989,209 @@ export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: numbe
     now: input.nowMinute,
     occupied: laneSpans(lane, input.excludeId),
   })
-  return railCell(createGapGuard(input.guard), pockets, start, input, railCtx(lane, input))
+  const ctx = railCtx(lane, input)
+  return railCell(createGapGuard(input.guard), pockets, start, input, ctx, restingOn(lane, input), beforeCtxFor(lane, input, ctx))
 }
+
+/** ⚖ Liam 2026-09-07 (MOCK-NUDGE-RESIDUE-2026-09-07/SIGNOFF.md) — THE SLIVER POLICY.
+ *
+ *  For the COMPARISON only, a residue against a wall or inside the lead time counts
+ *  as real minutes on BOTH sides. The comparison blames nobody; it measures the day.
+ *  なぎ's own 14:05→14:00 is the scene it decides: the five minutes 14:00–14:05 are a
+ *  wall sliver where she stands (exempt, uncounted by canon) and join the 127-minute
+ *  discount gap at the ask. Counted on both sides the move reads dead 5→0 / salvage
+ *  127→132 — lexicographically BETTER, so the board goes quiet. Counted canon's own
+ *  way it is five more discount-only minutes and the board says so, softly. Liam read
+ *  the footnote on the mock and let the default stand. Ruling, whole:
+ *  business-release-packets/evidence-transplant-batch1-20260819/WO2-today/batch14/nextround/COUNCIL-NUDGE-RESIDUE-2026-09-07/ADJUDICATION.md row 8 */
+export const RESIDUE_COMPARE_STRIPS_EXEMPTIONS = true
+
+/** The four gap-axis lines, each spelled once (JP-NATIVE-NUDGE-RESIDUE-2026-09-07/
+ *  FINAL.md §AMENDMENT 2, verbatim — the system register; ⚖ Liam 9/7 16:1x picked the
+ *  quiet line himself and its comma is part of the string). One vocabulary for one
+ *  fact: 売れない空き and 割引でしか売れない空き are the words `reasonLine` already
+ *  uses for the rows with no baseline (LENS-3 §R-3), and the menu wears 「」, the only
+ *  quote mark this surface uses (§R-4). The difference SAYS 増えます and the absolute
+ *  SAYS 残ります — that is the whole difference in shape, and no total is ever printed
+ *  on this axis. */
+const QUIET_GAP_LINE = 'ここに置いても、売れない空きは増えません'
+const SALVAGE_GAP_LINE = (n: number) => `ここに置くと割引でしか売れない空きが${n}分増えます`
+const DEAD_GAP_LINE = (n: number) => `ここに置くと売れない空きが${n}分増えます`
+const LOST_MENU_LINE = (name: string) => `ここに置くと「${name}」が入らなくなります`
+
+export interface ResidueVerdict {
+  /** the committed span's own cost vector, as `evaluate` published it */
+  rest: readonly number[]
+  askCost: readonly number[]
+  worse: boolean
+  delta: { dead: number; salvage: number; lostMenus: number[] }
+}
+
+/** The committed span's own answer — the only two fields the comparison reads. */
+export type RestResidue = Pick<GuardResult, 'cost' | 'lossSet'>
+
+/** The pocket and the ctx the comparison is made in, spelled ONCE so both legs are
+ *  asked the same question. `strip` = the sliver policy: the wall flags go to
+ *  `WallType`'s no-wall value on a SHALLOW COPY (`availability.ts` is frozen and
+ *  nothing here edits it) and `now` leaves the ctx, so a wall or lead-time sliver
+ *  counts as real minutes on BOTH sides. */
+const comparisonFrame = (pocket: GuardPocketSpan, ctx: GuardContext, strip: boolean) =>
+  strip
+    ? { p: { ...pocket, walls: { left: null, right: null } }, c: { ...ctx, now: undefined } }
+    : { p: pocket, c: ctx }
+
+/** ⚖ perf (LENS-2 §B-14) — THE REST LEG, HOISTED. The committed span's answer is the
+ *  same for every cell of one rail (one span, one pocket, one ctx), and a second
+ *  `evaluate` per cell costs +142% of a rail build against +7.9% hoisted. So the rail
+ *  computes it once and hands it down; `guardVerdictAt`'s single cell computes its own
+ *  inside `residueVerdict` and pays nothing for the difference.
+ *
+ *  It answers on the pocket that CONTAINS the committed span, which is the only pocket
+ *  `residueVerdict` will accept it for — the containment test there is what makes the
+ *  hand-off safe (D2: a straddling or cross-pocket origin has no baseline at all).
+ *  LENS-2 §F5 proved that claim rather than asserting it: over 606 spans against three
+ *  disjoint pockets a looser overlap find disagrees 347 times and the strict gate
+ *  accepts none of them.
+ *
+ *  ponytail — WHICH CTX THIS IS HANDED IS LOAD-BEARING, and the pin on it is a string
+ *  (P14/P15), by a ceiling rather than an oversight: the rest leg built in the
+ *  lifted-door ctx publishes a different `rest` vector (P22 measures it, 13 of 13 asks),
+ *  but a door can only move `key[0]` and the compare reads terms 1..3, so the CELL's
+ *  answer provably cannot change. The string is what guards the frame. */
+export function restResidueOn(
+  engine: ReturnType<typeof createGapGuard>,
+  pockets: ReturnType<typeof freePockets>,
+  resting: GuardPlacement | null,
+  ctx: GuardContext,
+  strip: boolean,
+): RestResidue | null {
+  if (resting === null) return null
+  const pocket = pockets.find((p) => resting.start >= p.s && resting.start + resting.dur <= p.e)
+  if (pocket === undefined) return null
+  const { p, c } = comparisonFrame(pocket, ctx, strip)
+  const r = engine.evaluate(p, resting, c)
+  return { cost: r.cost, lossSet: r.lossSet }
+}
+
+/** ⚖ NUDGE-RESIDUE — THE GAP AXIS OF A MOVE: is the space this card leaves behind
+ *  worse than the space the store is already living with?
+ *
+ *  Canon answers a different question, and answers it correctly: 「is this a good
+ *  place for a NEW card」 — the ask's residue against the BEST start in the pocket,
+ *  which is built with the moving card LIFTED. For a move that is the wrong
+ *  question, and it refuses the identity move: なぎ standing exactly where the store
+ *  put her reads 「ここに置くと割引でしか売れない空きが127分残ります」. So the seam
+ *  asks canon TWICE — the committed span and the ask, the SAME pocket, the SAME ctx —
+ *  and compares the two answers. Canon classifies, the seam accumulates: the same
+ *  split `laneWindowsWith` already makes one axis over (R2 ruling 2).
+ *
+ *  The order is canon's own lexicographic compare (gap-guard :263-269) over the
+ *  RESIDUE sub-vector [repertoireLossCount, deadResidueMin, salvageResidueMin],
+ *  re-spelled here rather than imported — `compareKeys` is module-private, and a term
+ *  ORDER is a constant, not the dial-dependent behaviour a seam may never duplicate.
+ *  Set containment rides beside the count (LENS-1 §F6: the count cannot see a SWAP,
+ *  because `repLabel` names only the longest lost duration). ponytail — against
+ *  TODAY's engine that term can never fire on its own: `repertoireLossSet` subtracts a
+ *  downward-closed hostable set from a downward-closed base, so a loss set is always
+ *  the top slice above the longer residue and equal sizes mean equal sets. LENS-2 §F4
+ *  swept 2,608,224 calls and found it firing alone 0 times, which turns the builder's
+ *  「survivor」 into 「equivalent, proved」. It stays because it is the honest question,
+ *  and it is what names the menu below.
+ *
+ *  Rulings and evidence, whole:
+ *  business-release-packets/evidence-transplant-batch1-20260819/WO2-today/batch14/nextround/COUNCIL-NUDGE-RESIDUE-2026-09-07/ADJUDICATION.md rows 5-9
+ *
+ *  ponytail: D1 — a row with NO baseline keeps today's absolute total sentence.
+ *  ponytail: D2 — no baseline is the COMMON case, never an edge. `freePockets` floors
+ *    every pocket at `now`, so every card the clock has passed has none; a straddling
+ *    origin has none; a cross-pocket origin has none and may never get one — canon
+ *    :23-26, 「Pockets are never compared against each other」.
+ *  ponytail: D3 — strict mode never reaches here at all; `restingOn` hands `null`.
+ *  ponytail: D4 — a costless move wears △, never ✓: canon still refused the start.
+ *  ponytail: D5 — this `worse` is canon's RANKING, and canon's order can rank a
+ *    regained menu above sixty new dead minutes. `gapIsQuiet` below refuses to be
+ *    silent about dead minutes or a newly lost menu whatever the ranking says; salvage
+ *    growth under a dead decrease is the one trade that stays quiet (LENS-2 §F1). */
+export function residueVerdict(
+  engine: ReturnType<typeof createGapGuard>,
+  pocket: GuardPocketSpan,
+  resting: GuardPlacement | null,
+  ask: GuardPlacement,
+  ctx: GuardContext,
+  strip: boolean,
+  /** `restResidueOn`'s answer, hoisted once per rail. Only ever used AFTER the
+   *  containment test below has proved this pocket is the committed span's own, so it
+   *  can only be the answer this call would compute itself. Absent → computed here. */
+  hoistedRest?: RestResidue | null,
+): ResidueVerdict | null {
+  // The lane and the mode are `restingOn`'s business and are already settled by the
+  // time a placement reaches here; what is left is whether the committed span lives
+  // inside THIS pocket (D2).
+  if (resting === null) return null
+  if (resting.start < pocket.s || resting.start + resting.dur > pocket.e) return null
+  const { p, c } = comparisonFrame(pocket, ctx, strip)
+  const rest = hoistedRest ?? engine.evaluate(p, resting, c)
+  const at = engine.evaluate(p, ask, c)
+  const lostMenus = at.lossSet.filter((d) => !rest.lossSet.includes(d))
+  let cmp = 0
+  for (const i of [1, 2, 3]) {
+    if (at.cost[i] !== rest.cost[i]) { cmp = at.cost[i] - rest.cost[i]; break }
+  }
+  return {
+    rest: rest.cost,
+    askCost: at.cost,
+    worse: cmp > 0 || lostMenus.length > 0,
+    delta: {
+      dead: Math.max(0, at.cost[2] - rest.cost[2]),
+      salvage: Math.max(0, at.cost[3] - rest.cost[3]),
+      lostMenus,
+    },
+  }
+}
+
+/** ⚖ FIX 1 §A (LENS-2 §F1 BLOCKER · LENS-3 §R-1) — WHEN THE QUIET LINE MAY SPEAK.
+ *
+ *  `worse` is canon's lexicographic ranking and stays exactly that. 「Not worse」 is
+ *  not 「nothing got worse for the desk」: canon puts the repertoire term ABOVE dead
+ *  minutes, so a move that regains one menu while creating sixty NEW dead minutes
+ *  ranks not-worse — and the board printed the quiet line over its own
+ *  `gapNote {dead: 60}` (LENS-2: 6,116 of 973,680 measured pairs, 10 of 60 dial sets).
+ *  New dead minutes and a newly lost menu are therefore always SAID, whatever a higher
+ *  term did. Salvage growth under a dead decrease is the one trade that stays quiet,
+ *  and it is the pair of faces Liam signed on the mock: なぎ's 14:05→14:00 (dead 5→0,
+ *  salvage 127→132) and the same card shrunk to 30分 (dead 5→0, salvage 127→162). */
+const gapIsQuiet = (rv: ResidueVerdict): boolean =>
+  !rv.worse && rv.delta.dead === 0 && rv.delta.lostMenus.length === 0
+
+/** The difference, in the desk's own words. Precedence dead > menus > salvage — the
+ *  worst thing FOR THE DESK leads. That order is the packet's own ruling and NOT
+ *  canon's key order: canon ranks the repertoire term above dead (gap-guard :12), so
+ *  the COMPARE uses canon's order and the SENTENCE does not (LENS-1 §F4). The number
+ *  is the DIFFERENCE and never the total (LENS-3 §4). The menu is named the way
+ *  `repLabel` names it, the longest duration lost, re-spelled here for the reason the
+ *  compare is; a long name is ellipsized by the DISPLAY, never here. */
+function softGapLine(delta: ResidueVerdict['delta'], services: GuardService[]): string {
+  if (delta.dead > 0) return DEAD_GAP_LINE(delta.dead)
+  if (delta.lostMenus.length > 0) {
+    return LOST_MENU_LINE(menuNameOf(delta.lostMenus.slice().sort((a, b) => b - a)[0], services))
+  }
+  // The only term left, and it is reached only when `gapIsQuiet` said no: with dead 0
+  // and no newly lost menu that means `worse`, which this same sub-vector decided, so
+  // the salvage term is what moved.
+  return SALVAGE_GAP_LINE(delta.salvage)
+}
+
+/** canon `repLabel` (gap-guard :320-324), re-spelled for the reason the compare is —
+ *  it is module-private inside the frozen file. One spelling: the sentence names the
+ *  longest NEWLY lost duration through it, and `gapNote` names them all through it.
+ *  `repLabel` names the longest of the whole loss set; on this axis the sentence is
+ *  about the DIFFERENCE, so it names the longest of what newly stopped fitting. P21 is
+ *  the pin that can SEE that rule: it needs a scene where the menu line is printed with
+ *  more than one newly-lost duration, and until FIX 1 the suite had none (LENS-2 §F3 —
+ *  flipping the sort survived the whole battery). Duplicate durations behave as canon's
+ *  `repLabel` does: the first service with that duration wins. */
+const menuNameOf = (dur: number, services: GuardService[]): string =>
+  services.find((s) => s.dur === dur)?.name ?? `${dur}分`
 
 function railCell(
   engine: ReturnType<typeof createGapGuard>,
@@ -1791,6 +2199,9 @@ function railCell(
   start: number,
   input: RailInput,
   ctx: GuardContext,
+  resting: GuardPlacement | null = null,
+  beforeCtx: GuardContext = ctx,
+  restGap: RestResidue | null = null,
 ): RailCell {
   const blocked = (sentence: string, reason: RailReason): RailCell => ({
     start, state: 'blocked', label: '—', sentence, reason, alternatives: [], alternativeKind: null, ackAllowed: false,
@@ -1826,6 +2237,57 @@ function railCell(
     }
   }
   const v = engine.evaluate(pocket, { start, dur: input.dur }, ctx)
+  // The engine's 「before」 is this POCKET with the card lifted out, which is the honest
+  // baseline for a NEW card and a phantom for a MOVE: a 5-minute nudge inside a card's
+  // own stretch read as one lost 新規 window. A move's honest before is the WHOLE LANE
+  // with the card where the store's committed day still has it, and its rooms are judged
+  // through the door that lifts the card's own room hold. Ceiling C1: a window at the
+  // card's OLD minutes may then count as feasible when its only free room was that card's
+  // — over-report only, never a false quiet. Rulings, whole:
+  // business-release-packets/evidence-transplant-batch1-20260819/WO2-today/batch14/nextround/COUNCIL-NUDGE-FIX-2026-09-06/ADJUDICATION.md
+  // business-release-packets/evidence-transplant-batch1-20260819/WO2-today/batch14/nextround/COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md
+  // ponytail: C2 — strict mode keeps today's behaviour entirely; `restingOn` hands null there.
+  // ponytail: C3 — the count frame is the board's own, so a count-neutral swap of a prime window for a cheaper one reads 0枠減 and prices nothing.
+  // ponytail: C4 — a created card has no committed span, so its first landing's warning re-fires on a nudge until it is confirmed.
+  const beforeStarts = resting === null ? v.protectedWindowsBefore : laneWindowsWith(engine, pockets, resting, beforeCtx)
+  const afterStarts = resting === null ? v.protectedWindowsAfter : laneWindowsWith(engine, pockets, { start, dur: input.dur }, ctx)
+  const loss = Math.max(0, beforeStarts.length - afterStarts.length)
+  /** ⚖ 9/1 「zero-loss is quiet」 — WHAT SURVIVES, in the ✓ branch's own words, spelled
+   *  once: a MOVE that costs the store no window says exactly this and no count pair
+   *  (COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 4). THE CALLER NAMES ITS
+   *  OWN LISTS: the ✓ branch decided on the engine's pocket, a MOVE decided on the
+   *  honest lane lists, and reading the pocket here printed a bare 「守れます」 over
+   *  a lane holding nothing (…/nextround/PKT-NUDGE-FIX1.md §F1). */
+  const keptSentence = (after: readonly number[], noneAtAll: boolean) => {
+    const held = protectedWindowsClause(after, input.protectedDur)
+    // ponytail: the `held === ''` arm is DEAD and stays as insurance —
+    // `protectedWindowsClause` returns '' only for an empty list, which is exactly what
+    // `noneAtAll` already tested on every caller (BREAKER-NUDGE-5fab5076b.md §F4:
+    // mutant E7 is equivalent over 44,226 oracle answers and 18,895 lane shapes).
+    return noneAtAll
+      ? `配置できます。この区間には現在、守れる新規${input.protectedDur}分の空きはありません`
+      : `${held === '' ? '' : `${held}の`}新規${input.protectedDur}分の空きを守れます`
+  }
+  // ⚖ R2 ruling 6 — a zero-loss row keeps only the engine's SAFE offers: with nothing to
+  // reduce, a least-loss offer under it prints 「（損を減らす）」 over a costless move.
+  const safeAlternatives = v.alternativeKind === 'safe' ? v.alternatives : []
+  const degradedFace = (sentence: string, alternatives: number[], alternativeKind: RailCell['alternativeKind']): RailCell => ({
+    start,
+    state: 'degraded',
+    label: `△${clockOf(start)}`,
+    sentence,
+    reason: null,
+    alternatives,
+    alternativeKind,
+    ackAllowed: true,
+    impact: {
+      code: 'DEGRADED',
+      capacityBefore: beforeStarts.length,
+      capacityAfter: afterStarts.length,
+      windowsBefore: beforeStarts,
+      windowsAfter: afterStarts,
+    },
+  })
   /** ⚖ 76 / canon `evaluateExactAim` (:7330-7337) — THE ROOM IS A HARD BLOCK.
    *
    *  The staff pocket held (the branch above already answered when it did not,
@@ -1861,36 +2323,122 @@ function railCell(
   if (v.verdict === 'ok' || v.verdict === 'exempt') {
     // canon `exactAimConsequence` (:7570): a pocket that never held a protected
     // window cannot claim to be protecting one.
-    const sentence = v.protectedCapacityBefore === 0
-      ? `配置できます。この区間には現在、守れる新規${input.protectedDur}分の空きはありません`
-      : `新規${input.protectedDur}分の空きを守れます`
+    // ⚖ Liam 8/30 — and it names them. THE WINDOWS THAT SURVIVE THE DROP
+    // (`protectedWindowsAfter`, filled for every verdict at gap-guard `evaluate`'s
+    // `result` literal, its `protectedWindowsAfter:` line),
+    // because that is what 「守れます」 promises: the before-set would name spans
+    // that no longer exist once the card is down — a 30 at a pocket's start
+    // pushes every window along with it. The empty guard cannot fire on a real
+    // engine (a start that keeps its capacity keeps its windows); it is here so
+    // a future engine that reports a count without its starts falls back to the
+    // sentence that shipped rather than printing a bare 「の」.
+    // ⚖ RIDER, DELTA-NUDGE-5fab5076b/ADJUDICATION.md #2 — AND A MOVE IS ASKED ABOUT
+    // THE WHOLE LANE HERE TOO. The two ✗-free move routes below decided on the honest
+    // lane lists while this one kept the ENGINE'S POCKET, so one costless landing could
+    // read 「この区間には…空きはありません」 and another 「17:30〜19:00…守れます」 about
+    // the same lane in the same drag — 「この区間」 carrying two different scopes. Same
+    // caller-names-its-own-lists law as ⚖ FIX 1 §F1. At rest (`resting === null`)
+    // nothing moves: the pocket lists ARE the answer, byte for byte.
+    const sentence = resting === null
+      ? keptSentence(v.protectedWindowsAfter, v.protectedCapacityBefore === 0)
+      : keptSentence(afterStarts, afterStarts.length === 0)
     return { start, state: 'safe', label: `✓${clockOf(start)}`, sentence, reason: null, alternatives: [], alternativeKind: null, ackAllowed: true }
   }
   if (v.verdict === 'degraded') {
-    const loss = Math.max(0, v.protectedCapacityBefore - v.protectedCapacityAfter)
+    // A MOVE whose honest loss is zero is not a 0枠減 count sentence: it is the ✓
+    // branch's own promise about what survives, quiet and un-priced.
+    if (resting !== null && loss === 0) return degradedFace(keptSentence(afterStarts, afterStarts.length === 0), safeAlternatives, v.alternativeKind === 'safe' ? 'safe' : null)
+    // ⚖ Liam 8/30 — and it names the windows this start EATS, which is the
+    // question a cost sentence answers. Not the whole before-set (most of it
+    // survives) and not before-minus-after (the after-set re-tiles). A degraded
+    // verdict can carry 0枠減 (canon's 「nowhere wins」 path, when the loss is a
+    // dead or salvage gap and the window count re-tiles unchanged); naming a
+    // window as the cost of a placement that costs no window is a
+    // contradiction, so the clause waits for a real loss.
+    const atRisk =
+      loss > 0
+        ? protectedWindowsClause(
+            windowsEatenBy(beforeStarts, input.protectedDur, start, input.dur),
+            input.protectedDur,
+          )
+        : ''
+    // ⚖ 92 — the same two numbers the sentence spells, carried as data, and the window
+    // starts behind them so the card prices the loss through canon.
+    return degradedFace(
+      `${atRisk === '' ? '' : `${atRisk}の`}新規${input.protectedDur}分の空き${beforeStarts.length}→${afterStarts.length}（${loss}枠減・損を減らす）。${clockOf(v.leastLossStart ?? start)}はこの区間で損が最少の開始です`,
+      v.alternatives,
+      v.alternativeKind,
+    )
+  }
+  // ⚖ Liam 8/30 — THE THIRD SENTENCE, and the decision that guards it. A refusal
+  // that names 新規（90分） is the same fact as the ✓ and △ rows above and gets
+  // the same leading clause; a refusal that names a SERVICE (「整体60が入らなく
+  // なります」, gap-guard `reasonForKey`'s `repLabel(lossSet)` line — :338) is not
+  // a protected window and gets nothing. The engine's own `capacityLost` is the
+  // test — the words are not.
+  const repCapacity =
+    v.reason?.code === 'R-REP' && Number(v.reason.params.capacityLost) > 0
+  // (c) — A REFUSAL WHOSE ONLY COST WAS THE PHANTOM WINDOW IS PLACEABLE. The store loses
+  // no inventory by confirming this change, so the gate that priced it and held it behind
+  // 長押し had nothing to gate: △, quiet, un-priced, the engine's safe offers kept.
+  if (repCapacity && resting !== null && loss === 0) {
+    return degradedFace(keptSentence(afterStarts, afterStarts.length === 0), safeAlternatives, v.alternativeKind === 'safe' ? 'safe' : null)
+  }
+  // (c2) — THE GAP AXIS OF A MOVE, measured against the store's committed day. The
+  // three residue classes canon can refuse a move on: dead minutes, discount-only
+  // minutes, and a SERVICE that no longer fits (`R-REP` with no `capacityLost` — arm
+  // (c) took the protected-window shape already). No baseline → `rv` is null → the
+  // (d)/(e) fall-through, which is today's behaviour byte for byte.
+  //
+  // ⚖ FIX 1 §D (LENS-1 §F2) — `v.verdict === 'refuse'` is SPELLED. It is a no-op at
+  // this tip (ok, exempt, degraded and R-UNAVAILABLE have all returned above), and an
+  // invariant held by the order of four earlier returns in a 240-line function is not
+  // an invariant this arm should rest on.
+  //
+  // ⚖ FIX 1 §B (LENS-2 §F2 BLOCKER) — and `loss === 0` joins the gate its three
+  // siblings already carry. `degradedFace` fills its impact from the LANE lists, which
+  // on a MOVE are built through two DIFFERENT doors (the lifted one before, the real
+  // one after), so the C1 over-report reached `lossOf` and a row arrived placeable △,
+  // amber, priced 約¥11,370 and behind 長押し while its own sentence said nothing had
+  // changed — three contradictory signals in one cell. A row with a real window loss
+  // now falls through to (d)/(e) and is priced there, exactly as at base.
+  const rv =
+    resting !== null && v.verdict === 'refuse' && loss === 0 && v.reason
+    && (v.reason.code === 'R-DEAD' || v.reason.code === 'R-SALV' || (v.reason.code === 'R-REP' && !repCapacity))
+      ? residueVerdict(engine, pocket, resting, { start, dur: input.dur }, ctx, RESIDUE_COMPARE_STRIPS_EXEMPTIONS, restGap)
+      : null
+  if (rv !== null) {
+    // Quiet (`gapIsQuiet`) → the quiet △ and the gap's own line. Anything else → the
+    // same placeable △ wearing a SOFT note that states the DIFFERENCE: no hard 「—」,
+    // no 長押し, no ¥ — the gate above has already proved the window axis is 0, so
+    // `lossOf` is 0 and `warnFaceFor` keeps the clean face (⚖ 9/1 「zero-loss is
+    // quiet」). Liam's mock, 9/7.
     return {
-      start,
-      state: 'degraded',
-      label: `△${clockOf(start)}`,
-      sentence: `新規${input.protectedDur}分の空き${v.protectedCapacityBefore}→${v.protectedCapacityAfter}（${loss}枠減・損を減らす）。${clockOf(v.leastLossStart ?? start)}はこの区間で損が最少の開始です`,
-      reason: null,
-      alternatives: v.alternatives,
-      alternativeKind: v.alternativeKind,
-      ackAllowed: true,
-      // ⚖ 92 — the same two numbers the sentence above spells, carried as data.
-      // ⚖ 92 fix round 5 V1 (breaker #4) — plus the window starts behind them, so
-      // the card can price the loss through canon instead of guessing at it.
-      impact: {
-        code: 'DEGRADED',
-        capacityBefore: v.protectedCapacityBefore,
-        capacityAfter: v.protectedCapacityAfter,
-        windowsBefore: v.protectedWindowsBefore,
-        windowsAfter: v.protectedWindowsAfter,
+      ...degradedFace(
+        gapIsQuiet(rv) ? QUIET_GAP_LINE : softGapLine(rv.delta, input.guard.services),
+        safeAlternatives,
+        v.alternativeKind === 'safe' ? 'safe' : null,
+      ),
+      gapNote: {
+        worse: rv.worse,
+        dead: rv.delta.dead,
+        salvage: rv.delta.salvage,
+        lostMenus: rv.delta.lostMenus.map((d) => menuNameOf(d, input.guard.services)),
       },
     }
   }
+  // (d)/(e) — a refusal that really costs a window names and prices the honest lists;
+  // every other refusal class keeps the engine's own pocket numbers, untouched.
+  const windowsBefore = repCapacity ? beforeStarts : v.protectedWindowsBefore
+  const windowsAfter = repCapacity ? afterStarts : v.protectedWindowsAfter
+  const repWindows = repCapacity
+    ? protectedWindowsClause(
+        windowsEatenBy(beforeStarts, input.protectedDur, start, input.dur),
+        input.protectedDur,
+      )
+    : ''
   return {
-    ...blocked(reasonLine(v.reason, input.protectedDur), 'guard'),
+    ...blocked(reasonLine(v.reason, input.protectedDur, repWindows), 'guard'),
     alternatives: v.alternatives,
     alternativeKind: v.alternativeKind,
     ackAllowed: v.reason?.ackAllowed === true,
@@ -1901,10 +2449,10 @@ function railCell(
       ? {
           impact: {
             code: v.reason.code,
-            capacityBefore: v.protectedCapacityBefore,
-            capacityAfter: v.protectedCapacityAfter,
-            windowsBefore: v.protectedWindowsBefore,
-            windowsAfter: v.protectedWindowsAfter,
+            capacityBefore: windowsBefore.length,
+            capacityAfter: windowsAfter.length,
+            windowsBefore,
+            windowsAfter,
           },
         }
       : {}),
@@ -2107,7 +2655,6 @@ export function explainRails(
     dur: number
     /** The card in hand, lifted out of the board for the room question. */
     handId: string | null
-    rooms: RoomPolicy
     /** ⚖ R3 one world — the operator's own staged card, named as theirs. */
     stagedId: string | null
     /** The advertised layer and the promises, as the board draws them.
@@ -2182,6 +2729,20 @@ export function explainRails(
   if (opts.inHand) return out
   const overlaps = (aS: number, aE: number, bS: number, bE: number) => aS < bE && bS < aE
   const heldLanes = heldByLane(opts.held)
+  // ⚖ FIX ROUND 1 (blind lens 1 F3) — THE HAND'S OWN TAG, when there IS a hand.
+  // The probe below asked the allocator with `requiresPrivate: false` always, so
+  // a rail cell explaining a placement for a 個室のみ card answered a different
+  // question than the drop itself will. Read once per call, off the same
+  // `caseId` every other card-reading site uses; a null hand is a genuine
+  // hypothetical and stays `false`.
+  //
+  // ⚖ FIX ROUND 2 (delta lens 4 N5) — AND WHICH GESTURES ACTUALLY REACH IT. The
+  // `opts.inHand` return two lines above is taken by exactly the ordinary
+  // gesture — a card dragged along its own staff row — so this lookup is live
+  // for a BED-LANE drag, a RESIZE and a drag OVER THE SHELF, and never for that
+  // one. Reachable and worth fixing; not the commonest path.
+  const handItem =
+    opts.handId == null ? null : (lanes.flatMap((l) => l.items).find((i) => i.caseId === opts.handId) ?? null)
   for (const rail of rails) {
     const staff = lanes.find((l) => l.key === rail.laneKey && l.group === 'staff')
     // Per lane, once — the ad-less test below is asked per cell and these three
@@ -2252,13 +2813,20 @@ export function explainRails(
                   id: opts.handId,
                   currentBed: null,
                   stores: staff.stores,
-                  // A rail cell asks about a placement nobody has made yet, so
-                  // nobody is VIP and nobody holds a room — the same
-                  // hypothetical `bedDoor` binds for the marks themselves.
-                  vip: false,
+                  // ⚖ ROOM RULE — the HAND's own tag, or none. A rail cell with
+                  // nothing in hand asks about a placement nobody has made yet,
+                  // so there is no booking to carry a 個室のみ tag — the same
+                  // hypothetical `bedDoor` binds for the marks themselves. With
+                  // a card in hand there IS one, and the strip has to answer the
+                  // question the drop will ask (fix round 1, lens 1 F3) — on the
+                  // gestures that reach this lookup at all: a BED-LANE drag, a
+                  // RESIZE and a drag OVER THE SHELF. The ordinary staff-row move
+                  // returns above it on `opts.inHand`, so it never gets here
+                  // (fix round 3, delta2 lens 4 D8; the reachability truth is
+                  // spelled once, at the lookup).
+                  requiresPrivate: handItem?.requiresPrivateRoom === true,
                   start: c.start,
                   end,
-                  policy: opts.rooms,
                   stagedId: opts.stagedId,
                 })
               : null,
@@ -2468,11 +3036,6 @@ export function bedClassCell(v: LandingVerdict, starts: () => number[]): RailCel
   return { ...v.cell, alternatives: starts(), alternativeKind: null }
 }
 
-/** ⚖ 51 — DOES THIS BOOKING NEED THE 個室, one spelling. The solve asks it to
- *  pick the room and the refusal asks it to pick the WORD it says out loud; two
- *  copies of the predicate is how a box comes to say ベッド over a 個室 hunt. */
-export const needsPrivateRoom = (vip: boolean, policy: RoomPolicy) => vip && policy.vipStaysPrivate
-
 /** One drag step: origin + pointer travel → the card's new span, on canon's
  *  dual lattice. Separated from the event so the test can drive it directly. */
 export function nextSpan(origin: DragOrigin, track: Element, dx: number, step: number): { x: number; w: number } {
@@ -2487,7 +3050,11 @@ export function parkChipText(item: BoardItem, hours: Hours, dayLabel: string): {
   const tkt = [item.ticketCat, item.ticketCore].filter(Boolean).join(' ')
   return {
     title: `${item.title}様（仮押さえ・未配置）`,
-    line1: `${durMin}分${tkt ? `・${tkt}` : ''}`,
+    // ⚖ FIX ROUND 1 (blind lens 4 F6) — AND THE 個室のみ TAG RIDES THE SHELF TOO.
+    // The shelf is exactly where the operator re-places a parked card, and the
+    // one fact that will refuse the drop was invisible there: the card said
+    // 個室のみ and its own chip said only 「VIP 月額」.
+    line1: `${durMin}分${tkt ? `・${tkt}` : ''}${item.requiresPrivateRoom === true ? '・個室のみ' : ''}`,
     line2: `元: ${dayLabel} ${clock(item.startMin)}〜${clock(item.endMin)} — 置きたい日の枠へドラッグ`,
   }
 }
@@ -2711,6 +3278,33 @@ export function liveTimeLabel(nodes: readonly Element[], text: string): void {
   }
 }
 
+/** ⚖ R8 GAP-11 — THE CARD IN HAND SAYS THE TIME UNDER THE CURSOR.
+ *
+ *  A card being CARRIED shares its face with the one standing on the board
+ *  (`cardFace`), and that face prints the booking's committed start — so for the
+ *  whole gesture the thing in the operator's hand advertised where it came FROM
+ *  while the dashed landing under it said where it was going. Two answers to one
+ *  question, which is ⚖ 54's disease on the one surface the eye is actually on.
+ *
+ *  `liveStartMin` is the landing the ghost is already drawn from, in minutes;
+ *  `null` means there is no landing to speak of (nothing in flight, over the
+ *  shelf, off the board) and the card keeps the label it rests with. The
+ *  grammar is `today-board`'s own — `${hhmm(startMinute)}〜`, start only
+ *  (:423) — reused rather than re-spelled, so a card in hand and the same card
+ *  at rest can never format one minute two ways.
+ *
+ *  ⚖ FIX ROUND 1 (blind round 1, L1 F2) — AND THE SAME LIE WAS ON THE BLOCK.
+ *  A 休憩/予定ブロック in flight printed the time it came FROM too, for exactly
+ *  the reason the card did, so it gets the same answer here rather than a
+ *  second author on the same board. Its face is the OTHER grammar today-board
+ *  writes — `${hhmm(start)}〜${hhmm(end)}` (:462 休憩, :472 block), a span and
+ *  not a start — so an end minute, when the caller has one already in render,
+ *  selects it; no end, and the start-only card grammar stands. */
+export function proxyTimeLabel(restTime: string, liveStartMin: number | null, liveEndMin: number | null = null): string {
+  if (liveStartMin == null) return restTime
+  return liveEndMin == null ? `${hhmm(liveStartMin)}〜` : `${hhmm(liveStartMin)}〜${hhmm(liveEndMin)}`
+}
+
 /** Every drawing of one booking. The board puts the same card on a staff lane
  *  and on a bed lane (canon's `pairOf`), and a gesture owns all of them. */
 export function cardNodes(board: Element | null, caseId: string): HTMLElement[] {
@@ -2747,27 +3341,36 @@ export function sharesStore(a: string[] | null, b: string[] | null): boolean {
   return a === null || b === null || a.some((s) => b.includes(s))
 }
 
-/** ⚠SETTINGS-BATCH — the store's two room-allocation judgements, as data. They
- *  arrive from `opsConfig.roomPolicy`; nothing in this file or in the board
- *  decides them, so a store that runs its 個室 differently changes a setting
- *  rather than a component. */
-export interface RoomPolicy {
-  vipStaysPrivate: boolean
-  privateIsLastResort: boolean
+/** ⚖ ROOM RULE (Liam 2026-09-05) — CAN THIS BOOKING USE THIS ROOM, spelled ONCE.
+ *
+ *  The same two-sided shape as `sharesStore`, for the same reason, and these are
+ *  its callers by name: `allocateBed`'s `compatible` uses it when the board is
+ *  CHOOSING a room, `landingVerdict`'s bed-row stop uses it as a TEST when the
+ *  operator named the room out loud, and `capacity-ledger`'s `usable` uses it to
+ *  say which rooms exist for an asker at all. A rule with two spellings is a
+ *  rule with two answers (Greptile #744 P1) — and the bed-row test WAS the
+ *  second spelling until fix round 1 (blind lens 1 F1) put it back through here.
+ *
+ *  AND IT IS ONE-SIDED NOW. The room class is an ORDER, never a filter: a plain
+ *  booking may use ANY room in its store, the 個室 included, so the only thing
+ *  that can narrow the candidates is the booking's own 個室のみ tag. That is why
+ *  a store with no private room can no longer refuse a plain booking for a room
+ *  reason — the case the shipped board got wrong on its own fixture (STORE_B has
+ *  one standard bed and answered 「使える個室がありません」 to a VIP all day). */
+export function roomFitsNeed(lane: BoardLane, requiresPrivate: boolean): boolean {
+  return !requiresPrivate || lane.roomClass === 'private'
 }
 
-/** ⚖ 51 — A VIP NEVER SILENTLY LEAVES THE 個室, spelled ONCE.
+/** ⚖ ROOM RULE clause 1 — STANDARD ROOMS FIRST, 個室 LAST, and it is LAW rather than a
+ *  dial: no store has asked to spend its private room first, and a lever with
+ *  one legal setting is the dead lever this board keeps removing.
  *
- *  The same two-sided shape as `sharesStore`, for the same reason: `allocateBed`
- *  uses it as a FILTER when the board is choosing a room, and `landingVerdict`
- *  uses it as a TEST when the operator named the room out loud on a bed row.
- *  That gesture never reaches the allocator (⚖ 51's exemption), so while the
- *  rule lived only inside `allocateBed` a 個室クラス booking could be hand-placed
- *  onto a same-store standard bed with no verdict at all — the auto path
- *  enforced the floor and the explicit path walked straight past it
- *  (Greptile #744 P1). A rule with two spellings is a rule with two answers. */
-export function roomFitsClass(lane: BoardLane, vip: boolean, policy: RoomPolicy): boolean {
-  return !(vip && policy.vipStaysPrivate) || lane.roomClass === 'private'
+ *  ONE HOME, because two layers order rooms: `allocateBed` when it hands a
+ *  booking a room, and `fallback-cells` when it walks the rooms a lost offer
+ *  could fall into. They used to be two copies of the same three lines. Stable
+ *  within each class, so board order still decides between two standard rooms. */
+export function orderRooms(rooms: readonly BoardLane[]): BoardLane[] {
+  return [...rooms.filter((l) => l.roomClass !== 'private'), ...rooms.filter((l) => l.roomClass === 'private')]
 }
 
 /** ⚖ LIAM 2026-08-21 (flag 51, LOCKED) — THE BED IS AN ALLOCATION, NOT A
@@ -2812,18 +3415,19 @@ export function allocateBed(
      *  construction. An optional field defaulting to "every store" would be
      *  fail-open, which is the one thing this must not be. */
     stores: string[] | null
-    /** A VIP/個室クラス booking never silently leaves the 個室. */
-    vip: boolean
+    /** ⚖ ROOM RULE — 個室のみ, read off the BOOKING's own tag and never off the
+     *  customer. Sitting in the 個室 grants nothing: an untagged booking in it
+     *  moves to any free room with no verdict and no manager. */
+    requiresPrivate: boolean
     start: number
     end: number
-    policy: RoomPolicy
     /** ⚖ Liam flag 50(d) (2026-08-22) — 「注意して配置」. An operator the store
      *  has given the authority has already been told this landing is 置けない
      *  and has said it happens anyway, so the search stops asking whether the
      *  room is free and names the one it would otherwise have chosen. The
      *  COMPATIBILITY rules are untouched — an escalation over a busy room is not
-     *  permission to walk a VIP out of the 個室 (⚖ 51's floor is a rule about
-     *  what the treatment needs, not about who is in the way).
+     *  permission to put a 個室のみ booking on a standard bed (the tag is a rule
+     *  about what the treatment needs, not about who is in the way).
      *
      *  ⚖ LIAM flag 73 (2026-08-23) — UNREACHABLE FROM THE BOOKING SURFACES, and
      *  left standing rather than removed. 満室 is now a `hard-room` floor, so no
@@ -2853,7 +3457,7 @@ export function allocateBed(
   // READ (classified into the chip's word), never to be sorted or spliced by the
   // display that borrowed it.
 ): { laneKey: string | null; refusal: string | null; blockers: readonly BoardItem[] } {
-  const { id, start, end, policy } = opts
+  const { id, start, end } = opts
   const blockersOn = (lane: BoardLane) =>
     lane.items.filter(
       (i) =>
@@ -2866,18 +3470,15 @@ export function allocateBed(
   // same predicate is applied to that landing as a confirm-blocking check row;
   // see `sharesStore` for why there is only one spelling of the rule.
   const beds = lanes.filter((l) => l.group === 'beds' && sharesStore(opts.stores, l.stores))
-  const needsPrivate = needsPrivateRoom(opts.vip, policy)
-  const compatible = (l: BoardLane) => roomFitsClass(l, opts.vip, policy)
+  const compatible = (l: BoardLane) => roomFitsNeed(l, opts.requiresPrivate)
   const free = (l: BoardLane) => opts.allowBusy === true || blockersOn(l).length === 0
   const current = beds.find((l) => l.key === opts.currentBed)
   if (current && compatible(current) && free(current)) return { laneKey: current.key, refusal: null, blockers: [] }
   const candidates = beds.filter(compatible)
-  // 個室 last for a regular booking: it is the room the VIP work needs, so it is
-  // spent only when the treatment rooms are gone.
-  const ordered =
-    needsPrivate || !policy.privateIsLastResort
-      ? candidates
-      : [...candidates.filter((l) => l.roomClass !== 'private'), ...candidates.filter((l) => l.roomClass === 'private')]
+  // ⚖ ROOM RULE clause 1 — standard rooms first, 個室 last, ALWAYS. `orderRooms` is the
+  // one home for that; a tagged booking's candidates are private-only anyway, so
+  // the same call is correct on both branches and there is nothing to switch on.
+  const ordered = orderRooms(candidates)
   const taken = ordered.find(free)
   if (taken) return { laneKey: taken.key, refusal: null, blockers: [] }
   // ⚖ 44 — THE SAME WALK, HANDED OUT ONCE. The refusal SENTENCE names the
@@ -2890,7 +3491,7 @@ export function allocateBed(
   const rows = candidates.map((l) => [l, blockersOn(l)] as const)
   return {
     laneKey: null,
-    refusal: fullRoomsRefusal(rows, start, end, needsPrivate, opts.stagedId ?? null),
+    refusal: fullRoomsRefusal(rows, start, end, opts.requiresPrivate, opts.stagedId ?? null),
     blockers: rows.flatMap(([, blockers]) => blockers),
   }
 }
@@ -2932,7 +3533,6 @@ export function allocateBed(
 export function bedFeasibility(
   lanes: BoardLane[],
   excludeId: string | null,
-  policy: RoomPolicy,
 ): ((lane: BoardLane, start: number, dur: number) => boolean) | undefined {
   if (!lanes.some((l) => l.group === 'beds')) return undefined
   const held = excludeId ? lanes.flatMap((l) => l.items).find((i) => i.caseId === excludeId) : undefined
@@ -2953,10 +3553,10 @@ export function bedFeasibility(
         id: excludeId,
         currentBed,
         stores: lane.stores,
-        vip: held?.category === 'vip',
+        // ⚖ ROOM RULE — the BOOKING's own tag, never the customer's badge.
+        requiresPrivate: held?.requiresPrivateRoom === true,
         start,
         end: start + dur,
-        policy,
       }).laneKey !== null
     seen.set(key, free)
     return free
@@ -3029,8 +3629,61 @@ export function holdSummary(
   // is a sentence about nobody, so the name is omitted rather than faked. With
   // ⚖ A3 the only landing that reaches this is a plain 新規予約, which stages
   // nothing and has no customer yet by definition.
-  return `${title ? `${title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'} / ${moved}${bedLane?.label ?? '—'}`
+  //
+  // ⚖ FIX ROUND 3 (delta2 lens 3 M1) — AND THE ROOM SEGMENT OBEYS THE SAME LAW.
+  // 「/ —」 is the shape Liam rejected on 8/22, and fix round 2 removed it by
+  // deleting the whole SENTENCE on the boxes that produce it — which took the
+  // customer, the window and the staff member with it, on the two landings that
+  // have no card drawn to read them off (an armed 配置モード and a shelf chip),
+  // under two buttons that COMMIT a placement. Omit what cannot be stated, never
+  // the rest of the sentence: no room in hand, no room segment, and the em-dash
+  // is gone here — at the source — for every caller at once.
+  return `${title ? `${title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'}${bedLane ? ` / ${moved}${bedLane.label}` : ''}`
 }
+
+/** ⚖ FIX ROUND 3 (delta2 lens 2 F1 · lens 4 D6) — WHICH ROWS THE REFUSAL BOX
+ *  EARNS, AS A RULE THAT CAN BE ASKED.
+ *
+ *  It lived inside `explainBlocked`, inside the component, and this suite never
+ *  renders the screen — so the only armour available was four byte-exact copies
+ *  of the expression's own source text, and lens 2 walked three DIFFERENT gates
+ *  through the whole battery green once those four strings were edited to match.
+ *  A rule with no seam has no proof. This is the seam.
+ *
+ *  The rule: rows render when the landing read them, EXCEPT where it asked for a
+ *  room and got none. On the 満室 box every row is ✓ — or nearly, since 満室
+ *  outranks the policy stop and a landing that is also 勤務時間外 carries a real
+ *  × — about a room nothing ever checked, under a sentence that already said the
+ *  room is the problem. The SUMMARY is not part of this question: it is the box's
+ *  identity line and it is always composed, because `holdSummary` now leaves out
+ *  the room it cannot name.
+ *
+ *  ⚖ FIX ROUND 4 (delta3 lens 3 X3) — AND THE GATE IS PRICED HONESTLY. It asks
+ *  「did a room come back?」, and that is WIDER than 満室: a CLASH whose room also
+ *  failed returns first with `bedLane` already null, so it is hidden when no room
+ *  came back, which includes a CLASH that also failed its room. That box's
+ *  sentence names a PERSON (「時間帯が重複: ◯◯」) and the rows it loses include
+ *  the very × the sentence names, so the 「every row is ✓」 argument does not
+ *  describe it — what it loses is the ✓ context, and the blocking fact is already
+ *  in the sentence. Recorded rather than believed narrower than it is; the
+ *  narrower gate, if it is ever wanted, is 「hide when the FLOOR is hard-room」.
+ *
+ *  ⚖ FIX ROUND 4 (delta3 lens 4 E2) — the CALLER stands the guard row down on the
+ *  same answer. A room refusal that also loses its lane would otherwise draw the
+ *  guard's loss row ALONE under a room sentence — ⚖ 73's rider, one surface over.
+ *
+ *  It takes the ASK, not a bare boolean (delta3 lens 2 §c): the call site sits
+ *  inside a component this suite never renders, so a loose `boolean` argument
+ *  could be inverted there and nothing behavioural would notice. `solveRoom` is
+ *  the whole condition. The two landings that carry no room AND solve none never
+ *  asked, so nothing about a room is being suppressed for them: 新規予約を作成
+ *  opens a FORM (the bed is chosen in the dialog) and keeps its rows, and the
+ *  release over no lane never reaches here at all — its `staffLane: null` returns
+ *  above the rows in `landingVerdict`. */
+export const factsRowsShown = (
+  v: Pick<LandingVerdict, 'bedLane' | 'checks'>,
+  ask: { solveRoom: boolean },
+): boolean => v.checks.length > 0 && !(v.bedLane === null && ask.solveRoom)
 
 /** ⚖ flags 44 + 51 — a full house, said the way the board says every other
  *  refusal: the exact window it judged, then WHY, naming the room and who is in
@@ -3064,20 +3717,91 @@ function fullRoomsRefusal(
   rows: ReadonlyArray<readonly [BoardLane, BoardItem[]]>,
   start: number,
   end: number,
-  needsPrivate: boolean,
+  requiresPrivate: boolean,
   stagedId: string | null = null,
 ): string {
   const window = `${clockOf(start)}〜${clockOf(end)}`
-  const room = needsPrivate ? '個室' : 'ベッド'
-  if (rows.length === 0) return `${window}に使える${room}がありません`
-  const who = (i: BoardItem) =>
-    i.kind !== 'booking'
-      ? i.title
-      : stagedId != null && i.caseId === stagedId
-        ? `仮押さえ中：${i.title}様`
-        : `${i.title}様`
-  const named = rows.map(([lane, blockers]) => `${lane.label}が使用中（${[...new Set(blockers.map(who))].join('・')}）`)
-  return `${window}は${room}に空きがありません。${named.join('、')}`
+  const room = requiresPrivate ? '個室' : 'ベッド'
+  // ⚖ ROOM RULE clause 5 — A DEAD END GETS THE WAY OUT. 「使える個室がありません」
+  // told the operator a true thing they could do nothing with, so the move they
+  // can actually make is named instead.
+  //
+  // ⚖ FIX ROUND 1 (blind lens 3 F15) — WHICH BRANCH REACHES WHICH SENTENCE. This
+  // comment used to claim `rows.length === 0` "can now only mean a TAGGED
+  // booking at a store with no private room". It cannot: an UNTAGGED booking on
+  // a staff lane whose store owns no bed lane at all reaches it too (`beds` is
+  // empty, so `candidates` is empty), which is exactly why the `else` arm below
+  // is still live and correct code rather than a leftover.
+  //
+  // ⚖ FIX ROUND 1 (blind lens 3 F6) — AND THE WAY OUT IS ONE THE OPERATOR CAN
+  // ACTUALLY TAKE. The first clause used to offer 「個室のみの指定を外す」, a
+  // control that exists nowhere in this product (the booking-detail toggle and
+  // the menu checkbox are on the S17 rider) — a label promising what the
+  // destination cannot do, which is this lane's own 9/4 Greptile lesson. And the
+  // verb was wrong: the booking already EXISTS and just got refused, so the
+  // operator is 移す-ing it, never 予約する-ing it.
+  //
+  // ⚖ FIX ROUND 2 (delta lens 3 N8) — AND THE SECOND ARM ANSWERS THE SAME
+  // QUESTION AS THE FIRST. Both arms are 「does a usable room exist HERE?」, and
+  // only one of them said so: 「14:05〜15:05に使えるベッドがありません」 named a
+  // window at a store that owns no bed lane at all, sending the operator hunting
+  // the clock for a room that does not exist at any hour.
+  if (rows.length === 0) {
+    return requiresPrivate
+      ? 'この店舗には個室がありません。個室のある店舗へ移してください'
+      : 'この店舗には使えるベッドがありません'
+  }
+  // ⚖ ROOM RULE clause 5 — AND UNTIL WHEN. The name alone left the operator to
+  // go hunting the card for the one fact that lets them rearrange by hand, and
+  // the blockers are already in this walk's hand. One composer, so the toast,
+  // the rail chip, 配置モード and the guard strip all inherit the clock.
+  //
+  // ⚖ FIX ROUND 1 (blind lens 3 F2/F9/F10, lens 1 F2, lens 4 F3) — ONLY WHEN IT
+  // DIFFERS, and for EVERY kind of occupant.
+  //
+  // The clock was printed on every booking, so the commonest sentence said the
+  // same four digits three times — 「10:00〜11:00はベッドに空きがありません。
+  // bed-01が使用中（… 10:00〜11:00）、bed-02が使用中（… 10:00〜11:00）」 — and
+  // buried the ONE occupant who runs past the window, which is the only fact the
+  // clock was added for. In a 7-second toast (`REFUSAL_MS`) that is unreadable.
+  // So the window rides ONLY on an occupant whose own window is not the judged
+  // one, and a 清掃 or a 予定ブロック earns it on the same terms a booking does:
+  // a 15-minute turnaround and a 60-minute session are opposite decisions and
+  // the sentence used to hide which one was in the way.
+  //
+  // ONE template, not two. The staged and plain arms were two copies of one
+  // grammar — the very thing the pinned-homes census exists to forbid.
+  //
+  // ⚖ FIX ROUND 1 (blind lens 3 F9) — 「仮押さえ中の」, not 「仮押さえ中：」. A
+  // 〜中： reads as a LABEL OVER A LIST, and with the ・ join both occupants
+  // looked staged: the operator concluded their own unconfirmed card was holding
+  // the whole room. 「の」 binds the marker to exactly one name.
+  const when = (i: BoardItem) => `${clockOf(i.startMin)}〜${clockOf(i.endMin)}`
+  const who = (i: BoardItem) => {
+    const name =
+      i.kind !== 'booking'
+        ? i.title
+        : stagedId != null && i.caseId === stagedId
+          ? `仮押さえ中の${i.title}様`
+          : `${i.title}様`
+    return i.startMin === start && i.endMin === end ? name : `${name} ${when(i)}`
+  }
+  //
+  // ⚖ FIX ROUND 2 (JP native pass 3) — THE ROOMS ARE LISTED, THE PREDICATE IS
+  // SAID ONCE. 「◯◯が使用中」 repeated per room made the reader stop three times
+  // and left the sentence ending on a closing bracket with no predicate at all —
+  // a 言いさし. Japanese puts the list first and the verb last, and one verb after
+  // a list governs every item in it, so nothing is lost.
+  //
+  // ⚖ FIX ROUND 3 (delta2 lens 4 D4) — AND THE LENGTH CLAIM, MEASURED RATHER
+  // THAN ASSERTED. It said 「~8 characters go」; the arithmetic is 6 − 4n, one
+  // predicate added and one 「が使用中」 removed per room, so the sentence GROWS
+  // by 2 at a single room (55 vs 53 on the tagged pin), breaks even between one
+  // and two, and shrinks by 6 at three. The single room is the room rule's own
+  // headline scene. The grammar is the reason this shape shipped — list first,
+  // one predicate last, no 言いさし — and it stands on its own.
+  const named = rows.map(([lane, blockers]) => `${lane.label}（${[...new Set(blockers.map(who))].join('・')}）`)
+  return `${window}は${room}に空きがありません。${named.join('、')}が使用中です`
 }
 
 // ── ⚖ Liam flag 50 (2026-08-22) — ONE VERDICT, THREE CLASSES ───────────────
@@ -3091,7 +3815,7 @@ export type LandingClass = 'blocked' | 'caution' | 'clean'
  *  His ruling: a TRUE 満室 board has no room in it, and 「注意して配置」 over
  *  that is a button offering to do a thing the world cannot do — ⚖ 31c at the
  *  level of physics. So the escalation belongs to the floors that are a
- *  JUDGEMENT (the VIP rule, 勤務時間外, シフトロック — the mistake-proofing
+ *  JUDGEMENT (勤務時間外, シフトロック — the mistake-proofing
  *  law's manager-judgement class, whose advise-vs-block level is the settings
  *  batch's own dial) and never to the floors that are a FACT (a person already
  *  in the room, a room that is full, a placement the engine calls impossible,
@@ -3149,6 +3873,127 @@ export interface LandingVerdict {
   checks: Check[]
 }
 
+/** canon `computeChecks` (drag-rules.ts:227) pushes this row UNCONDITIONALLY,
+ *  and canon is frozen. The constant is the app side's copy of that literal, and
+ *  it is pinned against the canon source so the two cannot drift apart in
+ *  silence (today-screen-interactions.test.ts). */
+export const PRICE_HOLD_ROW = '予約時価格を保持（動的価格は適用しません）'
+
+/** ⚖ R8 T1 — A CHECK ROW THAT NEVER RAN A CHECK.
+ *
+ *  canon asserts 予約時価格を保持 over every landing, including a booking that
+ *  has NO recorded price (apt-09 carries `booked_price: null` by documented
+ *  fixture intent). The row then promises to hold a number that does not exist,
+ *  on a card whose own 予約時価格 fact three lines away reads 記録なし.
+ *
+ *  The row is DROPPED rather than reworded (Fable default, overturnable): the
+ *  fact line already says 記録なし in the operator's own words, so a second
+ *  sentence about the same nothing is noise, and rewording it would be a new
+ *  operator string for a state the surface can already say.
+ *
+ *  Pure, and applied at the two app callers that consume canon's raw rows —
+ *  `landingVerdict` below and the screen's `checksFor`. Order is canon's: a
+ *  filter, never a rebuild. */
+export function withPriceFact(checks: Check[], hasPrice: boolean): Check[] {
+  return hasPrice ? checks : checks.filter((c) => c.label !== PRICE_HOLD_ROW)
+}
+
+/** ⚖ R8 FIX ROUND 3 (BREAKER-828 F1 + F3) — THE THREE SETS THE PRICE QUESTION
+ *  IS ANSWERED FROM, built by ONE author and beside the rule that reads them.
+ *
+ *  F3 — WHY IT LEFT THE SCREEN. The memo built these inline, where an anchored
+ *  text pin was the only armour there is, and two tsc-clean edits inside it
+ *  re-opened this item's own defect: a wrapper-body `addedPriced.add(...)` that
+ *  stamped every session row whatever its mint said, and a `priced` rebuilt off
+ *  the server's LANES so every card on the board counted as priced while the
+ *  page's 根拠 list still said no. Set-building is logic; logic lives where a
+ *  truth table can be written about it.
+ *
+ *  F1 — AND THE SHELF IS A SESSION SOURCE, exactly like `added`. A chip carried
+ *  to another day (⚖ Liam 22 — `placeFromShelf` supports that on purpose) is on
+ *  none of THAT day's server lanes and in no `added` row until it lands. The two
+ *  questions asked about the same chip — the mid-drag word (`inHand`) and the
+ *  release (`chipAsk`) — therefore answered 「no price」 for a priced booking in
+ *  hand and 「price」 one gesture later, after the drop stamped the row from
+ *  `chip.priced`: one gesture, two answers to one question, which is the disease
+ *  this item exists to remove. The shelf's own park-time stamp joins the session
+ *  set, so the answer is the same in hand and after the drop.
+ *
+ *  `sessionPriced` is the UNION of the two session writers — rows this session
+ *  added ∪ chips on the shelf — and both halves are STAMPS, never a reading of
+ *  the card's ticket line. `fromServer` is every booking the server's lanes know,
+ *  priced or not: it is what tells a server card apart from a session one, and
+ *  the reason a price-less server booking cannot be answered for by the session.
+ *  Pure — no React, no props, nothing to memoise here. */
+export function priceFactSets(input: {
+  pricedIds: readonly string[]
+  serverLanes: readonly BoardLane[]
+  added: readonly { priced: boolean; item: { caseId: string | null } }[]
+  parked: readonly { id: string; priced: boolean }[]
+}): { priced: ReadonlySet<string>; fromServer: ReadonlySet<string>; sessionPriced: ReadonlySet<string> } {
+  const fromServer = new Set<string>()
+  for (const lane of input.serverLanes) for (const item of lane.items) if (item.caseId != null) fromServer.add(item.caseId)
+  const sessionPriced = new Set<string>()
+  for (const row of input.added) if (row.priced && row.item.caseId != null) sessionPriced.add(row.item.caseId)
+  for (const chip of input.parked) if (chip.priced) sessionPriced.add(chip.id)
+  return { priced: new Set(input.pricedIds), fromServer, sessionPriced }
+}
+
+/** ⚖ R8 T1, FIX ROUND 1 (blind round 1, L2 F10) — 「DOES THIS PLACEMENT HAVE A
+ *  PRICE THE 保持 ROW CAN BE ABOUT?」, asked once for the whole screen.
+ *
+ *  It lives HERE, over four primitives, because the answer IS the item: the
+ *  screen's own closure could have its guard dropped and 444 tests stayed green
+ *  — the wiring was counted, the decision was not. Its two siblings on this
+ *  round (`withPriceFact`, `proxyTimeLabel`) were lifted for that reason and
+ *  this one was not; the truth table below is now pinned like theirs.
+ *
+ *  Two kinds of card stand on this board and they carry their price in two
+ *  different places:
+ *  · a card the SERVER put here answers from the server's own record —
+ *    `priced`, the bookings whose `price` is non-null. apt-09 has none by
+ *    documented fixture intent, and it is the scene this item is for.
+ *  · a card this SESSION put on the board has no server row at all; it answers
+ *    from the STAMP its mint wrote on the row (`AddedRow.priced` — the lane's
+ *    定価 for a 次回予約, `null` on a lane with no 定価 (⚖ R6 D2); the chip's own
+ *    park-time stamp for a shelf placement; the dialog's コース for a creation).
+ *  · a booking this session is HOLDING — a chip on the shelf — answers from that
+ *    same park-time stamp, before it has landed anywhere. `sessionPricedIds` is
+ *    the union of those two, and nothing else.
+ *
+ *  The two are told apart by whether the SERVER's lanes know the id
+ *  (`fromServer`) — never by the shape of the id, and never by the mint alone:
+ *  a real booking's ticket line is non-null even with no price (「価格未記録」/
+ *  「残り3回」), and `placeFromShelf` puts a real booking's own card back into
+ *  the session's list, so reading the session FIRST would answer 「price」 for
+ *  apt-09, which is the exact bug this item removes. That ordering is the whole
+ *  logic, and it is why the guard is a pinned row and not a comment.
+ *
+ *  ⚖ FIX ROUND 2 (Greptile on #828) — AND THE SESSION'S SIDE IS A STAMP NOW,
+ *  never a reading of the card. The session set used to be built from
+ *  `item.ticketCore != null`, which is DISPLAY TEXT: on ANOTHER DAY, where
+ *  `priced` and `fromServer` are both empty, a price-less booking placed from
+ *  the shelf still carried the non-null line 「価格未記録」 and the 保持 row came
+ *  back on exactly the booking T1 removed it from. Every writer now stamps
+ *  `AddedRow.priced` / `ParkChip.priced` at the moment the price is known, and
+ *  this function only reads.
+ *
+ *  ⚖ FIX ROUND 3 (BREAKER-828 F1) — AND THE FOURTH ARGUMENT IS THE WHOLE
+ *  SESSION, which is why it is named for the session and not for `added`. It is
+ *  the UNION of the rows this session put on the board and the CHIPS on the
+ *  shelf (`priceFactSets` above builds it): a chip is a session-held booking
+ *  that has not landed yet, and while it is in the operator's hand on another
+ *  day nothing else on that board knows its price. Reading only `added` is what
+ *  made one gesture answer twice — false in hand, true after the drop. */
+export function hasPriceFact(
+  id: string | null,
+  priced: ReadonlySet<string>,
+  fromServer: ReadonlySet<string>,
+  sessionPricedIds: ReadonlySet<string>,
+): boolean {
+  return id != null && (priced.has(id) || (!fromServer.has(id) && sessionPricedIds.has(id)))
+}
+
 /** One landing, as a question. Every field is something the caller already has;
  *  nothing here reads the DOM, so the same question is asked by the mid-drag
  *  cursor, by the 60分配置 strip's × marks and by the release itself. */
@@ -3163,15 +4008,21 @@ export interface LandingQuestion {
   solveRoom: boolean
   /** The booking being landed; `null` for one that does not exist yet. */
   id: string | null
-  vip: boolean
+  /** ⚖ ROOM RULE — 個室のみ, off the booking's own tag. */
+  requiresPrivate: boolean
   start: number
   end: number
   /** The same span in canon's percent units — `computeChecks` speaks percent. */
   span: { x: number; w: number }
   /** ⚖ 46 — a chip or a 配置モード intent carried onto a foreign store's board. */
   foreignRefusal: string | null
+  /** ⚖ R8 T1 — does this placement have a price the 保持 row can be ABOUT?
+   *  REQUIRED, because absent would have to default to one of the two answers
+   *  and both defaults lie on the other half of the board: `true` re-asserts the
+   *  row over a price-less booking (the defect), `false` deletes it from every
+   *  caller that simply forgot to say. The screen answers it per gesture. */
+  hasPrice: boolean
   locked: string[]
-  rooms: RoomPolicy
   minutesOf: (x: number) => number
   /** ⚖ R3 ONE WORLD — the session's own unconfirmed move, for the one sentence
    *  that can end up naming it (`allocateBed`'s 満室 refusal). Absent is the
@@ -3218,8 +4069,18 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // honestly reports none: no room had been solved and no row had been read.
   let bedLane: string | null = null
   let checks: Check[] = []
-  const stop = (reason: string, floor: LandingFloor): LandingVerdict =>
-    ({ kind: 'blocked', floor, label: VERDICT_WORD.blocked, reason, cell, bedLane, checks })
+  /** ⚖ ROOM RULE fix round 1 (blind lens 3 F1) — AND A STOP MAY SAY IT HAS
+   *  NOTHING TO OFFER. `cell` is the guard's own ranking of nearby starts, and
+   *  every floor that is about the CLOCK is entitled to it. The 個室のみ stop is
+   *  not: the room is wrong at every start on the lane, so the offer line under
+   *  it printed 「この区間に、より損の少ない開始はありません」 — the guard's loss
+   *  vocabulary over a refusal that has nothing to do with time, sending the
+   *  operator hunting for a start. `null` is the board's own existing word for
+   *  「nothing to offer」 (the keyboard nudge sets it deliberately, ⚖ 31c), so the
+   *  offer line and the alternatives simply do not render and the way out rides
+   *  in the sentence instead. Defaulted, so every other stop is byte-unchanged. */
+  const stop = (reason: string, floor: LandingFloor, offer: RailCell | null = cell): LandingVerdict =>
+    ({ kind: 'blocked', floor, label: VERDICT_WORD.blocked, reason, cell: offer, bedLane, checks })
   // ⚖ 46 store isolation is LAW, never a judgement — there is no authority on
   // this board that may place a person in another store's building.
   if (q.foreignRefusal) return stop(q.foreignRefusal, 'hard')
@@ -3236,10 +4097,9 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
         id: q.id,
         currentBed: q.bedLane,
         stores: staff.stores,
-        vip: q.vip,
+        requiresPrivate: q.requiresPrivate,
         start: q.start,
         end: q.end,
-        policy: q.rooms,
         stagedId: q.stagedId ?? null,
       })
     // ⚖ 44 FIX ROUND (blind lens 1, F6) — ONE SHAPE ON BOTH SIDES. A bed-row
@@ -3263,33 +4123,61 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
       spans.push({ id: i.caseId ?? i.key, x: i.x, w: i.w, title: i.title, derived: i.kind === 'cleanup', parked: false })
     }
   }
-  checks = computeChecks(q.span, {
-    spans,
-    bookingId: q.id ?? '',
-    staffName: staff.label,
-    staffUntil: staff.untilLabel,
-    laneLocked: q.locked.includes(staff.key),
-    minutesOf: q.minutesOf,
-  })
+  // ⚖ R8 T1 — canon's rows, minus the 価格保持 assertion when there is no price
+  // to hold. Applied HERE, at the raw-canon entry point, so the cursor word, the
+  // × strip and the red box's fact list all read one filtered list.
+  checks = withPriceFact(
+    computeChecks(q.span, {
+      spans,
+      bookingId: q.id ?? '',
+      staffName: staff.label,
+      staffUntil: staff.untilLabel,
+      laneLocked: q.locked.includes(staff.key),
+      minutesOf: q.minutesOf,
+    }),
+    q.hasPrice,
+  )
 
   // ⚖ STORE ISOLATION on the explicit room choice — `allocateBed` filters, this
   // tests, and `sharesStore` is the one spelling of the rule either way.
   if (!q.solveRoom && bed && !sharesStore(staff.stores, bed.stores)) {
     return stop(`担当と店舗が異なります: ${staff.label} / ${bed.label}`, 'hard')
   }
-  // ⚖ 51 on the explicit room choice — the store rule is not the only floor the
-  // allocator applies, so it may not be the only one this path re-tests: a 個室
-  // クラス booking dropped straight onto a standard bed was landing silently.
-  // 置けない like every other floor, which means it inherits ⚖ 50(d) whole — the
-  // explanation names the policy, and the 「注意して配置」 escalation appears only
-  // where the store's overridePolicy put it. The VIP leaves the 個室 out loud,
-  // with a manager's name on it, or not at all.
-  // ⚖ 73 — POLICY. Liam named the VIP rules himself: this is the store's own
-  // judgement about what the treatment is owed, and the override is the manager
-  // walking the VIP out of the 個室 OUT LOUD, with their name on it, which is
-  // the un-silent path ⚖ 51 was written to protect.
-  if (!q.solveRoom && bed && !roomFitsClass(bed, q.vip, q.rooms)) {
-    return stop(`VIP・個室クラスのご予約です: ${bed.label}は個室ではありません`, 'policy')
+  // ⚖ ROOM RULE on the explicit room choice — the store rule is not the only
+  // floor the allocator applies, so it may not be the only one this path
+  // re-tests: a 個室のみ booking dropped straight onto a standard bed was
+  // landing silently (Greptile #744 P1).
+  //
+  // AND ITS FLOOR IS `hard`, NOT `policy`. It used to mint a 「注意して配置」 —
+  // a manager walking a VIP out of the 個室 out loud. Liam has overturned the
+  // rule underneath it: sitting in the 個室 means nothing, so there is no VIP to
+  // walk out, and the only thing left that can refuse is the booking's own tag.
+  // A tag is a FACT about what the treatment needs, and ⚖ 73 already says a fact
+  // gets no escalation button — the way past it is clearing the tag on the
+  // booking, never an override. An UNTAGGED booking gets no room stop at all.
+  //
+  // ⚖ FIX ROUND 1 (blind lens 1 F1) — AND IT ASKS `roomFitsNeed`, rather than
+  // re-spelling it. The two forms answer the same today; a rule with two
+  // spellings is a rule with two answers (Greptile #744 P1), and this file's own
+  // one-home doc named this site as a caller while the code open-coded it.
+  //
+  // ⚖ FIX ROUND 1 (blind lens 3 F1/F6/F7/F8) — AND THE SENTENCE SAYS WHAT TO DO,
+  // in the register the rest of this board uses. 「ご予約」 addresses the
+  // receptionist as if she were the guest, a halfwidth `: ` is not JP
+  // punctuation, and the old line ended with no way out — so the operator read a
+  // refusal and a loss ranking and had nowhere to go. `cell: null` is what stops
+  // the offer line from speaking about start times under a ROOM refusal.
+  //
+  // ⚖ FIX ROUND 2 (JP native pass 1) — AND IT STOPS TWICE, NOT THREE TIMES. The
+  // board's own grammar is 「◯◯の予約です。→ 次にやること」 (`foreignStoreRefusal`
+  // is the sibling), and three stops in a 7-second toast is one beat too many
+  // for a sentence that said 「個室」 three times in 39 characters. ⚖ FIX ROUND 3
+  // (delta2 lens 3 M6) — those two counts read 「four times in 35」 until now, and
+  // both were wrong: the repetition is the rule's own vocabulary and it did not
+  // change (three times in 36 now). What went is the third stop — 「〜ので」 joins
+  // the reason to the action so they read in one breath.
+  if (!q.solveRoom && bed && !roomFitsNeed(bed, q.requiresPrivate)) {
+    return stop(`個室のみの予約です。${bed.label}は個室ではないので、個室の行に置いてください`, 'hard', null)
   }
 
   const failed = checks.find((c) => !c.ok)
@@ -3317,7 +4205,14 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   if (failed && failed.label.startsWith(CLASH_ROW)) return stop(failed.label, 'hard')
   // ⚖ 73's core — the full house. There is no room, so there is nothing for an
   // escalation to buy; the surface offers the starts whose room IS free instead.
-  if (solved.refusal) return stop(solved.refusal, 'hard-room')
+  //
+  // ⚖ FIX ROUND 2 (delta lens 3 N1) — EXCEPT ON THE EXISTENCE BRANCH. No blockers
+  // means the candidate list was EMPTY: this store owns no room of the kind
+  // asked for, so no start on any lane can make one appear and 「…の空く開始は
+  // ありません」 answered the clock's question under a refusal that is not about
+  // the clock. `blockers` is the walk `allocateBed` already did, so this reads
+  // that answer rather than making a second one.
+  if (solved.refusal) return stop(solved.refusal, 'hard-room', solved.blockers.length === 0 ? null : cell)
   if (failed) return stop(failed.label, 'policy')
   // ⚖ LIAM flag 58 (2026-08-22) — ROOT A: AN ACK-ALLOWED REFUSAL IS 要確認,
   // NOT 置けない. His words: 「even the triangle ones are going into red
@@ -3347,7 +4242,7 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // confirm surface because the release never staged.
   //
   // 「注意して配置」 stays exactly where it is, for the floors that ARE illegal:
-  // 店舗 / 重複 / 勤務 / ロック / 満室 / VIP・個室 — all of which are `stop`s
+  // 店舗 / 重複 / 勤務 / ロック / 満室 / 個室のみ — all of which are `stop`s
   // above this line — plus `R-UNAVAILABLE` here.
   // ⚖ 73 — `ackAllowed: false` is the engine's own word for physically
   // impossible (gap-guard :371, `R-UNAVAILABLE`). A floor the engine calls
@@ -3784,7 +4679,7 @@ function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame
  *  face's own TRIGGER, so the composer, the draw gate and the press now all ask
  *  it. Three readers, one spelling, and the screen imports it. */
 export const lossOf = (c: RailCell | null): number =>
-  c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
+  c == null || c.state === 'safe' || c.impact == null ? 0 : Math.max(0, c.impact.capacityBefore - c.impact.capacityAfter)
 
 /** ⚖ 54 — HOW MANY 新規 WINDOWS A DAY HOLDS, and it is the ENGINE'S count.
  *

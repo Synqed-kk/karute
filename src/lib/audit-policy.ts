@@ -72,8 +72,10 @@ export const AUDIT_ACTIONS = [
   'privacy.voice_enroll',
   'privacy.voice_revoke',
   'recording.capture_finalized',
+  'recording.capture_resumed',
   'recording.capture_unlinked',
   'recording.discard',
+  'recording.play',
   'recording.session_cleanup',
   'recording.take_named',
   'recording.transcribe',
@@ -164,6 +166,28 @@ export const AUDITED_CORES: {
   // It no longer creates rows at all: fix round 4 moved the minting to
   // mint-take-url.ts, where the take is bound before any byte exists.
   { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
+  // The nightly assembler (build 23 slice ③) — the take a dead device never
+  // came back for, rebuilt from its segments. Its ONE write sits inside this
+  // symbol alongside the emit — the bucket PUT (storage.recordings.upload) —
+  // so it needs no SDK_WRITE_ALLOWLIST row, the same shape
+  // finalizeTakeWithClient above has. It makes NO SDK write at all: the client
+  // it is handed is narrowed to `list`, because core fences a recording write
+  // behind a human actor and a cron has none (the duration is written by the
+  // save door instead). The walk driver runAssembler is deliberately NOT
+  // listed: it performs no write of its own and returns a summary whenever
+  // there is nothing old enough to rescue. Every path here that writes nothing
+  // (a concurrent run already wrote the rescue; a leaf would not come down)
+  // returns an { error } before the emit — a rescue that files a row for audio
+  // it did not actually settle would be the one lie this job must never tell.
+  // ⚖ Liam 2026-09-06 "b": no device ever writes `rsc/`, so "the device sealed
+  // its own key first" is no longer one of those paths — a folder whose phone
+  // came back is skipped by the walk, long before this symbol is called.
+  { file: 'src/lib/recording/assembler.ts', symbols: ['assembleStrandedTake'] },
+  // The play-button mint (build 23 slice ①) — its ONE success return is
+  // dominated by the recording.play emit; every refusal is an { error } literal
+  // that returns before it. It performs no SDK/storage WRITE at all
+  // (createSignedUrl is a read), so it needs no SDK_WRITE_ALLOWLIST row.
+  { file: 'src/lib/recording/playback-url.ts', symbols: ['mintPlaybackUrlWithClient'] },
   // The take-URL mint (capture pipeline PR2 fix round 2, widened in fix round
   // 4, re-split in fix round 6). auditTakeNamed is a private helper emitting
   // unconditionally on its one path; mintTakeUploadUrl conditions the CALL (a
@@ -492,6 +516,14 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-07-27',
   },
   {
+    file: 'src/lib/recording/enqueue-from-session.ts',
+    call: 'recordingJobs.enqueue',
+    symbols: ['enqueueFromSessionWithClient'],
+    justification:
+      "Build 23 slice ③ — the shared body BOTH new doors run (the web action enqueueRecordingJobFromSession and POST /api/app/v1/recordings/job/from-session). Identical reasoning to the src/actions/recording-jobs.ts entry above and to FACADE_AUDIT_MAP['recordings.job.enqueueFromSession']'s skip row: this call routes EXCLUSIVELY into the job worker (src/lib/jobs/process-recording.ts#processJob, AUDITED_CORES), which is where the recording actually becomes a karute and emits karute.save. The enqueue step stages no auditable outcome of its own, and a row here would double-log every save the worker performs. Nothing else in this symbol writes: every other SDK call is a read (recordings.get, the shared discard-ledger read, and the revisit guard's customer/pack/record lookups).",
+    dated: '2026-09-06',
+  },
+  {
     file: 'src/actions/recording-discard-transcript.ts',
     call: 'recordings.upsertSegments',
     symbols: ['writeTranscript'],
@@ -499,22 +531,13 @@ export const SDK_WRITE_ALLOWLIST: {
       "A2-2 (packet P5-A2): the WORDS of an ALREADY-AUDITED action. The staff discard that authorises this write emitted its own recording.discard receipt moments earlier (src/lib/recording/discard.ts, AUDITED_CORES — carrying discard_row_id, duration_sec and below_floor), and both callers refuse to write at all unless that STAFF discard row already exists. A second row here would double-count one act. ⚖ 8/17 doc law also forbids the CONTENT reaching an audit detail, which is exactly what this call persists — the segments are read back through getDiscardTranscript's staff.manage gate, never through the audit log. EXTENDED 2026-09-01 (PHONEWIRE-2C): the call now has a THIRD caller, the phone. persistDiscardTranscriptWithClient / transcribeAndPersistDiscardWithClient are the shared bodies the cookie wrappers and the facade route (src/app/api/app/v1/recordings/discards/transcript/route.ts POST, FACADE_AUDIT_MAP['recordings.discards.transcript.write'] — a 'skip' citing this same ruling) both run. Nothing about the justification moves: the facade door writes only after the SAME hasStaffDiscard fence proves the audited recording.discard receipt already landed, so a phone discard is still one act with one row.",
     dated: '2026-08-31',
   },
-  {
-    file: 'src/lib/recording/staged-audio.ts',
-    call: 'storage.recordings.remove',
-    symbols: ['sweepStagedDiscardAudio'],
-    justification:
-      'Best-effort cleanup of the staged audio object right after the discard transcription resolves — the same timing and the same reasoning as recording-upload.ts#removeRecordingObject and the facade transcribe route below (read-then-delete; the worker posture). Not itself a business action: the audited action is the recording.discard receipt this transcription belongs to. MOVED 2026-09-01 (PHONEWIRE-2C fix round 3, Greptile #813): the janitor was extracted out of src/actions/recording-discard-transcript.ts into its own non-server module because it grew a SECOND caller — the facade route must sweep its own pre-body refusals, since the phone stages its audio before it posts and every retry stages a fresh object. Same one delete call, now with the isOwnRecordingKey tenant fence inside it rather than at the call sites, so no caller can reach a key that is not its own business’s. Nothing about the justification moves: still best-effort, still not a business action.',
-    dated: '2026-08-31',
-  },
-  {
-    file: 'src/actions/recording-upload.ts',
-    call: 'storage.recordings.remove',
-    symbols: ['removeRecordingObject'],
-    justification:
-      "Best-effort cleanup of the staged audio object, fired by the web recording port right AFTER transcription resolves (src/lib/ai-pipeline.ts cleanup(), before extraction/summarization/save even start) — not itself a business action; the eventual karute.save is what audits. Carries over verbatim from the pruned src/lib/ports/recording-port.ts#prepareTranscription entry (2026-07-27, FIX ROUND 1 #15): the 2026-08-25 upload hotfix moved the delete off the browser's supabase-js client and onto this cookie-authed server action (bucket RLS now 403s browser-direct writes), the timing and the reasoning are unchanged. Precedent for the sibling mint legs: src/app/api/app/v1/recordings/upload-url/route.ts.",
-    dated: '2026-08-25',
-  },
+  // src/lib/recording/staged-audio.ts#sweepStagedDiscardAudio and
+  // src/actions/recording-upload.ts#removeRecordingObject both held a
+  // 'storage.recordings.remove' entry until 2026-09-04. Capture pipeline PR4
+  // deleted the janitor (file and all) and the server action outright — the
+  // pipeline reads the take's finalized object and nothing removes recording
+  // audio — so the writes are gone and the entries with them: an allowlist row
+  // for a write that no longer exists is what the dead-entry rule refuses.
   {
     file: 'src/lib/recording/session-mint.ts',
     call: 'recordings.create',
@@ -583,14 +606,9 @@ export const SDK_WRITE_ALLOWLIST: {
       "sync.run is a LIVE FACADE_AUDIT_MAP row (kind: 'mutation') — handler.ts's generic post-response hook (logFacadeAudit) auto-emits settings.sync_run_now on every 2xx from this route. No direct audit() call belongs in this file.",
     dated: '2026-07-27',
   },
-  {
-    file: 'src/app/api/app/v1/ai/transcribe/route.ts',
-    call: 'storage.recordings.remove',
-    symbols: ['POST'],
-    justification:
-      'Best-effort cleanup of the staged audio object after transcription (finally block, mirrors ai-pipeline.ts\'s own cleanup() timing — right after the transcribe call resolves, before extraction/summarization/save even start) — not itself a business action; the eventual karute.save is what audits.',
-    dated: '2026-07-27',
-  },
+  // src/app/api/app/v1/ai/transcribe/route.ts#POST held a
+  // 'storage.recordings.remove' entry until 2026-09-04 (PR4): the `finally`
+  // that deleted the transcribed object is gone, so the entry is too.
   // src/app/api/cleanup/route.ts#GET held a 'storage.recordings.remove' entry
   // until 2026-09-03. The sweep no longer deletes anything (⚖ audio is never
   // deleted — it reports orphan candidates and a human decides), so the call is

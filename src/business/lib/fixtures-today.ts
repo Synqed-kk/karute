@@ -130,13 +130,16 @@ export interface FixtureResource {
   room_class: RoomClass
 }
 
-/** ⚠SETTINGS-BATCH — 施術室 (interchangeable) vs 個室/VIP (reserved). */
+/** ⚠SETTINGS-BATCH — the room's CLASS. 施術室 rooms are interchangeable; a
+ *  個室 is the same to the allocator except that it is spent LAST, and it is the
+ *  only room a 個室のみ booking may use. ⚖ ROOM RULE: the class is an ORDER, and
+ *  nothing about a CUSTOMER (VIP included) reads it. */
 export type RoomClass = 'standard' | 'private'
 
 export const resources: FixtureResource[] = [
   { id: 'bed-01', store_id: STORE_A, name: 'ベッド1', note: '施術室A', cleanup_minutes: 0, room_class: 'standard' },
   { id: 'bed-02', store_id: STORE_A, name: 'ベッド2', note: '施術室A', cleanup_minutes: 0, room_class: 'standard' },
-  { id: 'bed-03', store_id: STORE_A, name: 'ベッド3', note: '個室 / VIP対応', cleanup_minutes: 0, room_class: 'private' },
+  { id: 'bed-03', store_id: STORE_A, name: 'ベッド3', note: '個室', cleanup_minutes: 0, room_class: 'private' },
   { id: 'bed-04', store_id: STORE_B, name: 'ベッド1', note: '施術室B', cleanup_minutes: 0, room_class: 'standard' },
 ]
 
@@ -370,20 +373,11 @@ export const opsConfig = {
   gapGuardMode: storeBookingPolicy.gapGuardMode,
   newClientSessionMin: storeBookingPolicy.newClientSessionMinutes,
   leadTimeMin: 60,
-  /** ⚠SETTINGS-BATCH — 部屋の自動割り当てポリシー (⚖ Liam 2026-08-21, flag 51:
-   *  「people are chosen, rooms are solved」). The bed is re-solved at every
-   *  landing, and these two dials are the only judgements in that solve. Both
-   *  are Fable defaults and OVERTURNABLE: the 店舗設定 control ships with the
-   *  settings batch, with per-business-type defaults and the self-harm
-   *  guardrails the mistake-proofing law asks for. Stated here rather than in
-   *  the allocator so no component ever hardcodes a store's room policy. */
-  roomPolicy: {
-    /** VIP/個室クラスの予約は個室から自動で出さない — 個室が埋まっていれば、
-     *  その予約にとってはそこが満室. */
-    vipStaysPrivate: true,
-    /** 通常の予約が個室を取れるのは、施術室に空きがないときだけ. */
-    privateIsLastResort: true,
-  },
+  /* ⚖ ROOM RULE (Liam 2026-09-05) — THE TWO ROOM DIALS ARE GONE, not defaulted
+   * off. 「VIPは個室から出さない」 was a rule about the CUSTOMER and Liam has
+   * overturned it; 「個室は最後に使う」 is now law for every store, so it is a
+   * constant in the allocator rather than a lever nobody may pull. A dial with
+   * one legal setting is the dead lever this board keeps removing. */
   /** DERIVED — §6's one dial home. The ⚖ 50(d) object MOVED to
    *  `storeBookingPolicy` (its comment travelled with it); this alias stays
    *  because `readDayPlanes` hands the board `opsConfig` and every existing

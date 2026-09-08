@@ -21,7 +21,14 @@ jest.mock('@/i18n/navigation', () => ({
   usePathname: () => '/sessions',
   Link: ({ children }: { children: unknown }) => children,
 }))
-jest.mock('@/actions/recordings', () => ({ startRecordingSession: jest.fn() }))
+// Driveable since fix round 20 (AL1): the recovery save's own mint is issued
+// HERE, and how long it is given is the thing that item changes.
+const mockStartRecordingSession = jest.fn(
+  async (_input?: unknown): Promise<{ id: string } | null> => null,
+)
+jest.mock('@/actions/recordings', () => ({
+  startRecordingSession: (i: unknown) => mockStartRecordingSession(i as never),
+}))
 // P5-A: RecordPageView imports the written-reason discard action; unmocked it
 // pulls the ESM SDK into this suite. Not exercised here.
 jest.mock('@/actions/recording-discard', () => ({ discardRecordingWithReason: jest.fn() }))
@@ -108,13 +115,33 @@ const TAKE = {
   outcomeSkipped: undefined as boolean | undefined,
 }
 let offerTake = true
+/** What the store's drain read answers — the takes whose audio the server does
+ *  NOT have. Independent of `offerTake`: the recovery offer and the drain ask
+ *  different questions. */
+let unsecuredTakeIds: string[] = ['take-1']
 /** Per-test override of the offered take (e.g. an unbound walk-in one). Reset
  *  in afterEach — a mockResolvedValue would leak into every later test, since
  *  clearAllMocks clears CALLS, not implementations. */
 let takeOverride: Record<string, unknown> | null = null
 /** What take-store would hand back after a reload (F-2's durable draft seam). */
 let stampedAnswer: Record<string, unknown> | null = null
+/** What the take ROW carries now — which is not always what the offer carries
+ *  (fix round 17, AF1): the mount drain's session-first leg mints and stamps a
+ *  row for the very takes this banner is made of, and it can do so after the
+ *  offer was read. null = the drain has not been there. */
+let stampedSessionId: string | null = null
 const mockStampTakeOutcome = jest.fn(async () => {})
+/** Takes the SERVER NEVER RECEIVED — the cohort deleteTake refuses to destroy
+ *  automatically (capture pipeline PR4), and the whole subject of fix round 2's
+ *  D1: the stranded 復元可能 row a staffer saves must actually settle. */
+const mockStrandedTakeIds = new Set<string>()
+/** …and the subset the server can NEVER receive (a lost tail, a dead stop leg,
+ *  a terminal refusal). Fix round 4: only these may be settled by a save — a
+ *  take whose secure merely failed retryably is still owed its own finalized
+ *  key, and the drain is coming for it. */
+const mockUnsecurableTakeIds = new Set<string>()
+/** …and what the store would have left behind afterwards. */
+const mockDeletedTakeIds = new Set<string>()
 jest.mock('@/lib/karute/take-store', () => ({
   // A2-2: the discard-transcript register. Default false/[] = nothing is
   // held back, so every case below behaves exactly as it did pre-A2-2.
@@ -122,14 +149,42 @@ jest.mock('@/lib/karute/take-store', () => ({
   listPendingDiscardTakes: jest.fn(async () => []),
   appendTakeSegment: jest.fn(),
   createTake: jest.fn(),
-  deleteTake: jest.fn(),
+  // ⚖ IT CARRIES THE REAL GUARD (capture pipeline PR4). A take the server never
+  // received is removed only when a HUMAN resolved the row; a fake that removed
+  // unconditionally would go green on a call site that had lost the flag, which
+  // is exactly the bug fix round 2 closes for the SAVE path.
+  deleteTake: jest.fn(async (takeId: string, opts?: { humanResolved?: boolean }) => {
+    if (mockStrandedTakeIds.has(takeId) && !opts?.humanResolved) return
+    mockDeletedTakeIds.add(takeId)
+  }),
+  // ⚖ THE DECISION ABOVE THE GUARD (fix round 4). The save no longer asserts
+  // the flag; it asks the store, and this stands in for that answer. The rule
+  // itself is pinned against the real store in take-durability.
+  settleTakeAfterSave: jest.fn(async (takeId: string) => {
+    if (mockStrandedTakeIds.has(takeId) && !mockUnsecurableTakeIds.has(takeId)) return
+    mockDeletedTakeIds.add(takeId)
+  }),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: (...a: unknown[]) => mockStampTakeOutcome(...(a as [])),
   // F-2: a draft's answer now survives a reload through the take id it already
   // carries. `stampedAnswer` is what a REMOUNT would read back.
   readTakeOutcome: jest.fn(async () => stampedAnswer),
+  // AF1: the read the save path uses to catch up with that stamp.
+  readTakeSecureMeta: jest.fn(async () => ({ recordingSessionId: stampedSessionId })),
+  // Capture pipeline PR3 fix round 3 — the mount DRAIN's own read. Separate
+  // from the offer below on purpose: the offer hides a take flushed inside the
+  // 20 s grace, and audio the server lacks must not be hidden by that.
+  listOwnStoppedUnsecuredTakeIds: jest.fn(async () => unsecuredTakeIds),
   getRecoverableTake: jest.fn(async () => (offerTake ? (takeOverride ?? TAKE) : null)),
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
+}))
+
+// Capture pipeline PR3 — the mount retry. Mocked (not exercised for real) for
+// the same reason take-store is: this suite's store is a fake, and what the
+// page owes is one call, on the right takes only.
+const mockSecureTake = jest.fn(async () => {})
+jest.mock('@/lib/recording/secure-take', () => ({
+  secureTake: (...a: unknown[]) => mockSecureTake(...(a as [])),
 }))
 
 let offerDraft: Record<string, unknown> | null = null
@@ -183,6 +238,10 @@ jest.mock('@/lib/global-pipeline', () => ({
 }))
 
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+// The REAL singleton — the page reads it directly for the recovery exclude list
+// and (PR3 fix round 2) for its own stopped take's retry. The hook above is what
+// the render tree consumes; this is the module the effect reaches for.
+import { globalRecorder } from '@/lib/global-recorder'
 import {
   RecordPageView,
   resolveRecoveryTicketState,
@@ -204,8 +263,13 @@ afterEach(() => {
   mockSaveInline.mockResolvedValue({ id: 'karute-1' })
   mockDayFacts.mockReset()
   mockDayFacts.mockImplementation(async () => DAY_FACTS)
+  mockStrandedTakeIds.clear()
+  mockUnsecurableTakeIds.clear()
+  mockDeletedTakeIds.clear()
   offerTake = true
+  unsecuredTakeIds = ['take-1']
   takeOverride = null
+  stampedSessionId = null
   stampedAnswer = null
   mockPipelineContext = null
   offerDraft = null
@@ -515,6 +579,99 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
     expect(ctx.appointmentCustomerId).toBe('cust-1')
     expect(ctx.outcome).toEqual({ status: 'success' })
     expect(ctx.appointmentId).toBe('appt-1')
+    // The fixture carries no stop stamp, so the length is still the flush
+    // window: 05:22 → 05:45, 23 minutes. The case below is the stamped one.
+    expect(ctx.duration).toBe(1380)
+  })
+
+  // ⚖ …AND A STAMPED TAKE SAVES ITS MEASURED LENGTH (slice five, D12; §17
+  // carry-forward 1). `updatedAt - startedAt` is the FLUSH window — short by
+  // however long the tail flush took, long by every pause — and it was the only
+  // length this save could see, because listOwnTakes dropped `durationMs` on
+  // the floor. The number goes onto the karute, so the estimate was the record.
+  it('…and a take carrying its STOP STAMP saves the measured length, not the flush window', async () => {
+    grantConsent()
+    // A 23-minute window around a 25-minute recording.
+    takeOverride = { ...TAKE, durationMs: 1_500_000, outcome: { status: 'success' } }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+    const ctx = mockPipelineStart.mock.calls[0][1] as Record<string, unknown>
+    expect(ctx.duration).toBe(1500)
+  })
+
+  // ⚖ THE STAMP CAN BE NEWER THAN THIS OFFER (fix round 17, AF1). The offer
+  // carries the session id the take had when the banner (or the inbox fold)
+  // read it — and the mount drain's session-first leg mints and stamps a row
+  // for exactly these takes, un-awaited, while the banner sits there. Saving
+  // the snapshot then wrote a karute pointing at nothing while the audio was
+  // already on a real row: the two never met again.
+  it('a take the drain stamped AFTER the offer saves against the stamped row', async () => {
+    grantConsent()
+    // Born unbound (a walk-in whose start-mint failed), then given a row by the
+    // drain a moment after this offer was read.
+    takeOverride = { ...TAKE, recordingSessionId: null, outcome: { status: 'success' } }
+    stampedSessionId = 'sess-drained'
+
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+    const ctx = mockPipelineStart.mock.calls[0][1] as Record<string, unknown>
+    // Pass the offer's own snapshot here instead and this is null — the karute
+    // saves unlinked, and nothing later can pair it with the audio.
+    expect(ctx.recordingSessionId).toBe('sess-drained')
+    expect(ctx.takeId).toBe('take-1')
+  })
+
+  // ⚖ AND IT IS GIVEN THE STOP LEG'S TEN SECONDS (fix round 20, AL1). The
+  // mint above is ISSUED by this tap and nobody waits for it afterwards, so the
+  // 1.5 s default — the bound for a mint the RECORDER already has in flight,
+  // where giving up costs nothing because the field holds the answer a moment
+  // later — meant a slow phone network saved the karute unlinked. Exactly the
+  // outcome AF1 exists to prevent, arrived at the slow way.
+  it('a slow mint is still waited for: three seconds is inside the bound', async () => {
+    grantConsent()
+    takeOverride = { ...TAKE, recordingSessionId: null, outcome: { status: 'success' } }
+    let answer: (v: { id: string }) => void = () => {}
+    mockStartRecordingSession.mockImplementationOnce(
+      () => new Promise<{ id: string }>((res) => (answer = res)),
+    )
+
+    await renderPage()
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] })
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByText('recoverSaveAction'))
+        for (let i = 0; i < 12; i++) await Promise.resolve()
+      })
+      // Three seconds on a bad connection: past the 1.5 s default, well inside
+      // the 10 s the stop leg gives the same mint.
+      await act(async () => {
+        jest.advanceTimersByTime(3_000)
+        for (let i = 0; i < 12; i++) await Promise.resolve()
+      })
+      // Drop the option and the race is already over by now, answering null.
+      expect(mockPipelineStart).not.toHaveBeenCalled()
+
+      await act(async () => {
+        answer({ id: 'sess-slow' })
+        for (let i = 0; i < 20; i++) await Promise.resolve()
+      })
+      expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+      const ctx = mockPipelineStart.mock.calls[0][1] as Record<string, unknown>
+      expect(ctx.recordingSessionId).toBe('sess-slow')
+      expect(ctx.takeId).toBe('take-1')
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('a persisted SKIP also qualifies, and still asks nothing', async () => {
@@ -1251,11 +1408,79 @@ describe('draft save (T-5) and the per-offer answer latch (A-4)', () => {
       ],
     })
     const { clearDraft } = jest.requireMock('@/lib/karute/draft') as { clearDraft: jest.Mock }
-    const { deleteTake } = jest.requireMock('@/lib/karute/take-store') as {
-      deleteTake: jest.Mock
+    const { settleTakeAfterSave } = jest.requireMock('@/lib/karute/take-store') as {
+      settleTakeAfterSave: jest.Mock
     }
     expect(clearDraft).toHaveBeenCalled()
-    expect(deleteTake).toHaveBeenCalledWith('take-1')
+    // ⚖ THE SECOND SETTLED EXIT (PR4 fix round 2, routed through the ONE rule
+    // since round 4). The record is on the server with this take's words; the
+    // staffer who owns the row asked for it — and what that may take of the
+    // AUDIO is the store's answer, not this call site's assertion.
+    expect(settleTakeAfterSave).toHaveBeenCalledWith('take-1')
+  })
+
+  // ⚖ …AND THAT FLAG IS WHAT MAKES THE ROW GO AWAY (PR4 fix round 2). The
+  // stranded cohort is BY DEFINITION audio the server never received under its
+  // finalized key, so the never-delete guard refuses it — and without the flag
+  // the save wrote the karute, the take survived, and the same 復元可能 row came
+  // back on the very next fold, for ever.
+  it('⚖ a STRANDED take — one the server can never receive — is settled by the save', async () => {
+    mockStrandedTakeIds.add('take-1')
+    mockUnsecurableTakeIds.add('take-1')
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('pending.title'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('save'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    expect(mockSaveInline).toHaveBeenCalledTimes(1)
+    // The row is gone from the device — the guard let this one through because
+    // a human settled a take nothing can ever seal, and nothing on the SERVER
+    // was touched either way.
+    expect(mockDeletedTakeIds.has('take-1')).toBe(true)
+  })
+
+  // ⚖ …AND A TAKE THE DRAIN CAN STILL SEAL IS NOT THAT (fix round 4, F1). Its
+  // stop-time secure failed RETRYABLY, so the pipeline transcribed a row-less
+  // staged copy and this save wrote the karute from it — but the recording is
+  // still owed its OWN finalized key, and the only audio that can get there is
+  // the device copy. Round 3's constant deleted it.
+  it('⚖ …but a take whose secure merely failed RETRYABLY keeps its audio', async () => {
+    mockStrandedTakeIds.add('take-1')
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('pending.title'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('save'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    const { settleTakeAfterSave } = jest.requireMock('@/lib/karute/take-store') as {
+      settleTakeAfterSave: jest.Mock
+    }
+    // The karute is written and the settle DID run — it simply did not take the
+    // audio, which is the drain's to finish.
+    expect(mockSaveInline).toHaveBeenCalledTimes(1)
+    expect(settleTakeAfterSave).toHaveBeenCalledWith('take-1')
+    expect(mockDeletedTakeIds.has('take-1')).toBe(false)
   })
 
   it('A-4: a retry after a FAILED save never mints a second pack sale', async () => {
@@ -2041,3 +2266,184 @@ describe('the new-pack payload is durable (Greptile #728)', () => {
 })
 
 export {}
+
+// ── Capture pipeline PR3 — the record page's secure retry ──────────────────
+// A stop that happened offline (or whose finalize died) leaves a take with
+// audio and no finalizedAt. Nothing else in the app would ever try again, so
+// this mount is it — and it must be silent: no UI, no toast, and no dependence
+// on whether the banner ends up showing the take.
+describe('the mount retry secures a take the stop could not', () => {
+  it('every take the server lacks is secured once, through the arm\'s own port', async () => {
+    await renderPage()
+    expect(mockSecureTake).toHaveBeenCalledTimes(1)
+    // No recorder duration on this leg, and the singleton's own live-take probe
+    // (fix round 5 — ⚖ never finalize a take that is still recording).
+    expect(mockSecureTake).toHaveBeenCalledWith(
+      expect.anything(),
+      'take-1',
+      undefined,
+      expect.any(Function),
+    )
+    // And it IS the recorder's answer, not a stand-in that always says no.
+    const isActive = (mockSecureTake.mock.calls[0] as unknown[])[3] as (
+      id: string,
+    ) => boolean
+    globalRecorder.state = 'recording'
+    globalRecorder.takeId = 'take-1'
+    try {
+      expect(isActive('take-1')).toBe(true)
+      expect(isActive('take-2')).toBe(false)
+    } finally {
+      globalRecorder.state = 'idle'
+      globalRecorder.takeId = null
+    }
+  })
+
+  // Fix round 3 — THE reason the drain has its own store read. The recovery
+  // offer hides a take flushed inside the 20 s grace (it could be live in
+  // another tab), so a stop whose upload failed, plus a reload seconds later,
+  // used to leave the audio device-only for the whole page lifetime: the fresh
+  // recorder has no take and the offer said nothing. Ask the drain instead and
+  // the take is still named.
+  it('a take the recovery offer HIDES is secured all the same', async () => {
+    offerTake = false
+    unsecuredTakeIds = ['take-hidden-by-the-grace']
+    await renderPage()
+    expect(mockSecureTake).toHaveBeenCalledTimes(1)
+    expect(mockSecureTake).toHaveBeenCalledWith(
+      expect.anything(),
+      'take-hidden-by-the-grace',
+      undefined,
+      expect.any(Function),
+    )
+  })
+
+  it('more than one owed take is drained — each secured once', async () => {
+    unsecuredTakeIds = ['take-1', 'take-2']
+    await renderPage()
+    expect(mockSecureTake).toHaveBeenCalledTimes(2)
+    expect(mockSecureTake).toHaveBeenCalledWith(
+      expect.anything(),
+      'take-2',
+      undefined,
+      expect.any(Function),
+    )
+  })
+
+  // ONE AT A TIME. A take is a whole recording — tens of megabytes — so three
+  // owed takes fired at once on salon wifi means three PUTs starving each other
+  // (and the app's own calls) until they all time out. Fanning out was the old
+  // shape; sequential turns that into three uploads that finish.
+  it('owed takes are drained ONE AT A TIME, never fanned out at once', async () => {
+    unsecuredTakeIds = ['take-1', 'take-2', 'take-3']
+    let releaseFirst!: () => void
+    const firstDone = new Promise<void>((r) => (releaseFirst = r))
+    mockSecureTake.mockImplementationOnce(async () => {
+      await firstDone
+    })
+
+    await renderPage()
+    // The first upload is still in flight, so nothing else has started.
+    expect(mockSecureTake).toHaveBeenCalledTimes(1)
+    expect(mockSecureTake).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      'take-1',
+      undefined,
+      expect.any(Function),
+    )
+
+    await act(async () => {
+      releaseFirst()
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+    expect(mockSecureTake).toHaveBeenCalledTimes(3)
+    expect(mockSecureTake).toHaveBeenNthCalledWith(
+      3,
+      expect.anything(),
+      'take-3',
+      undefined,
+      expect.any(Function),
+    )
+  })
+
+  // The finalized/terminal exclusions now live in the store read (one home for
+  // the rule); from the page's side "nothing owed" is simply an empty list.
+  it('nothing owed, nothing secured', async () => {
+    offerTake = false
+    unsecuredTakeIds = []
+    await renderPage()
+    expect(mockSecureTake).not.toHaveBeenCalled()
+  })
+
+  // THE case the recoverable-take read can never reach: the recorder's OWN
+  // take, which is deliberately excluded from that read (an in-progress session
+  // must not be offered as its own recovery). Stop → phone locked → the PUT
+  // dies: onstop has already run and will not run again, so its audio must
+  // still be retried here.
+  //
+  // It rides the WORKLIST, and only the worklist (fix round 7). onstop stamps
+  // the duration the store's read requires before it ever uploads, so the take
+  // this page is holding is simply one of the ids the drain gets. The second,
+  // un-awaited call it used to get of its own bought nothing — an unstamped
+  // take is one secureTake returns from untouched — and it put two whole takes
+  // on the wire at once, which is exactly what the sequential loop above
+  // exists to prevent.
+  it("the recorder's own stopped take is retried too — on the worklist, once", async () => {
+    offerTake = false // nothing recoverable — this take IS the live one
+    unsecuredTakeIds = ['take-live-1', 'take-older']
+    globalRecorder.state = 'recorded'
+    globalRecorder.takeId = 'take-live-1'
+    try {
+      await renderPage()
+      expect(mockSecureTake).toHaveBeenCalledTimes(2)
+      expect(mockSecureTake).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        'take-live-1',
+        undefined,
+        expect.any(Function),
+      )
+    } finally {
+      globalRecorder.state = 'idle'
+      globalRecorder.takeId = null
+    }
+  })
+
+  it('a recorder that never stopped is left alone — nothing to secure mid-recording', async () => {
+    offerTake = false
+    unsecuredTakeIds = []
+    globalRecorder.state = 'recording'
+    globalRecorder.takeId = 'take-live-1'
+    try {
+      await renderPage()
+      expect(mockSecureTake).not.toHaveBeenCalled()
+    } finally {
+      globalRecorder.state = 'idle'
+      globalRecorder.takeId = null
+    }
+  })
+
+  it('a DRAFT outranking the take for the banner does not stop the audio being secured', async () => {
+    offerDraft = {
+      transcript: 't',
+      summary: 's',
+      entries: [],
+      duration: 1380,
+      appointmentId: 'appt-1',
+      appointmentCustomerId: 'cust-1',
+      recordingSessionId: 'sess-1',
+      takeId: 'take-1',
+      savedAt: Date.parse('2026-08-18T05:45:00Z'),
+    }
+    await renderPage()
+    // The banner shows the draft (recoveredTake is nulled) — the audio is
+    // secured all the same.
+    expect(mockSecureTake).toHaveBeenCalledWith(
+      expect.anything(),
+      'take-1',
+      undefined,
+      expect.any(Function),
+    )
+  })
+})

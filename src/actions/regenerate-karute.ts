@@ -3,11 +3,13 @@
 import { revalidatePath } from 'next/cache'
 import { auditWeb } from '@/lib/audit-web'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { requireCapability, can } from '@/lib/auth/require-permission'
+import { requireCapability, getMyCapabilities } from '@/lib/auth/require-permission'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
-import { canViewTranscript } from '@/lib/auth/recording-acl'
+import { canViewTranscript, ownerHandReach, readDoorStoreId } from '@/lib/auth/recording-acl'
+import { statusOf } from '@/lib/recording/take-binding'
 import {
   lookupProfileIdForSynqedStaffId,
   lookupProfileIdForSynqedStaffIdForBusiness,
@@ -24,7 +26,10 @@ import type { EntryAuthor } from '@synqed-kk/client'
 
 type SynqedRecordsClient = Pick<
   Awaited<ReturnType<typeof getSynqedClient>>,
-  'karuteRecords' | 'customers' | 'aiRateLimit' | 'orgSettings'
+  // `recordings` since ③ fix round 4: the store gate below falls back to the
+  // RECORDING row's store when the karute carries none, exactly as the read
+  // doors do — and it is read here, only when it is needed.
+  'karuteRecords' | 'customers' | 'aiRateLimit' | 'orgSettings' | 'recordings'
 >
 
 type SynqedCategory =
@@ -355,14 +360,30 @@ export async function regenerateKaruteWithClient(
   params: {
     karuteRecordId: string
     viewerStaffId: string | null
-    canViewAll: boolean
+    /** The OWNER'S HAND — holdsOwnerKeys (auth/permissions.ts), NOT the named
+     *  grant alone. Regenerating rewrites a colleague's record, so it is an ACT
+     *  and keys on the pair; the READ doors stay on recordings.viewAll
+     *  (⚖ 9/3 council; Greptile #848 point 1). */
+    holdsOwnerKeys: boolean
+    /** The caller's store assignment, resolved by the caller exactly as the
+     *  READ doors resolve it (web resolveStoreScope · facade
+     *  viewerAllowedStoreIds). null = unrestricted; `[]` = degraded, fails
+     *  closed. The store compare happens HERE rather than at the callers,
+     *  because this is where the karute — and so its store — is known
+     *  (⚖ 8/17; Greptile #848 review 2, point 2).
+     *
+     *  REQUIRED, deliberately (fix round 8): every other fail-closed shape in
+     *  this slice defaults to `[]`, and an optional param here would default a
+     *  forgetful third transport to UNRESTRICTED — fail-open, silently. The
+     *  type checker is the pin: omit it and the build breaks. */
+    allowedStoreIds: readonly string[] | null
     locale: string
     /** Facade Bearer path: the verified token's business id. Omitted on the
      *  cookie web path (featureAllowed resolves it). */
     businessId?: string
   },
 ): Promise<RegenerateResult> {
-  const { karuteRecordId, viewerStaffId, canViewAll, locale, businessId } = params
+  const { karuteRecordId, viewerStaffId, holdsOwnerKeys, allowedStoreIds, locale, businessId } = params
 
   // Authoritative read — cross-tenant/missing → not_found, genuine upstream → 502.
   const record = await readKaruteRaw(synqed, karuteRecordId)
@@ -372,7 +393,9 @@ export async function regenerateKaruteWithClient(
   }
 
   // Recording-privacy ACL server-gate (#4): withholding the transcript also
-  // withholds the regenerate — it reads the same raw text. Fail closed.
+  // withholds the regenerate — it reads the same raw text. Fail closed. The
+  // reach fed in is the OWNER'S HAND, never the named grant alone: a person the
+  // owner ticked may READ a colleague's transcript and never rewrite it.
   // Recorder-lock fix (⚖ Liam 8/22): record.staff_id may carry a synqed-core
   // staff CARD id rather than a profile id — translate before the compare,
   // `?? original` keeps profile-id-stamped rows and unlinked cards unchanged.
@@ -382,7 +405,48 @@ export async function regenerateKaruteWithClient(
         ? await lookupProfileIdForSynqedStaffIdForBusiness(rawOwnerStaffId, businessId)
         : await lookupProfileIdForSynqedStaffId(rawOwnerStaffId)) ?? rawOwnerStaffId)
     : null
-  if (!canViewTranscript({ ownerStaffId, viewerStaffId, canViewAll })) {
+  //    …AND ONLY WHERE THE CALLER CAN SEE: the owner's hand obeys the store law
+  //    the read doors already obey, so a clamped both-keys manager cannot
+  //    rewrite another branch's record. The recorder's own branch is untouched.
+  //
+  //    ⚖ AN ACT IS NEVER MORE PERMISSIVE THAN THE READ (③ fix round 4). The
+  //    read doors compare `readDoorStoreId` — the karute's store, then the
+  //    RECORDING row's — so this gate must compare the same thing, or the
+  //    person who cannot READ this record could still rewrite it, which is the
+  //    wrong way round for the stronger door.
+  //
+  //    The row is fetched ONLY when the karute names no store of its own: the
+  //    common case pays nothing, and the rare one pays a single read on an act
+  //    path that is about to run an LLM anyway.
+  //
+  //    ⚖ A FAILED FETCH IS `'unreadable'`, AND IT CLOSES FOR A CLAMPED HAND
+  //    (fix round 6, Greptile #849 review 2). Until this round it read as "no
+  //    store" — the pre-③ answer, OPEN — so a storage blip on a null-store
+  //    karute let a store-limited both-keys manager rewrite another branch's
+  //    record. A store we could not READ is not a record with no store, and
+  //    this is the strongest of the doors (it rewrites), so it fails closed:
+  //    an owner or preset manager (stores.viewAll) is untouched, the recorder
+  //    never reaches this leg, and only a clamped hand is refused — for as long
+  //    as the blip lasts. A karute with no session at all is genuinely
+  //    store-less and stays `null` (open), which is not a failure at all.
+  const karuteStoreId = (record.store_id as string | null) ?? null
+  const recordingSessionId = (record.recording_session_id as string | null) ?? null
+  // A 404 — the row was swept — is the same null as no session; anything else
+  // is 'unreadable' (a definite no is a no; only an unknown closes).
+  const recordingRow =
+    karuteStoreId === null && recordingSessionId
+      ? await synqed.recordings.get(recordingSessionId).catch((err: unknown) => {
+          if (statusOf(err) === 404) return null
+          console.warn('[regenerate] recording read failed — store UNREADABLE, clamped hands refused', err)
+          return 'unreadable' as const
+        })
+      : null
+  const reach = ownerHandReach({
+    holdsOwnerKeys,
+    allowedStoreIds,
+    recordStoreId: readDoorStoreId({ store_id: karuteStoreId }, recordingRow),
+  })
+  if (!canViewTranscript({ ownerStaffId, viewerStaffId, canViewAll: reach })) {
     throw new AppApiError('forbidden', 'You cannot regenerate a recording you are not allowed to view.')
   }
 
@@ -500,15 +564,19 @@ export async function regenerateKarute(karuteRecordId: string): Promise<Regenera
     // top-level import drags next-intl ESM into every jest graph that touches
     // this module (regen-list-owner-gate.test.ts broke on exactly that).
     const { getLocale } = await import('next-intl/server')
-    const [viewerStaffId, canViewAll, locale] = await Promise.all([
+    const [viewerStaffId, capabilities, locale] = await Promise.all([
       getCurrentUserStaffId(),
-      can('recordings.viewAll'),
+      getMyCapabilities(),
       getLocale(),
     ])
     const result = await regenerateKaruteWithClient(synqed, {
       karuteRecordId,
       viewerStaffId,
-      canViewAll,
+      holdsOwnerKeys: holdsOwnerKeys(capabilities),
+      // The one shared spelling of the web act scope (auth/store-scope.ts);
+      // dynamic import — a top-level one drags the ESM-only SDK into this
+      // module's jest graph (repo convention, see actions/memory.ts).
+      allowedStoreIds: await (await import('@/lib/auth/store-scope')).viewerScopeForActs(),
       locale,
     })
     revalidatePath('/[locale]/(app)/karute/[id]', 'page')
@@ -545,8 +613,9 @@ export async function listCustomerKaruteForRegen(
 ): Promise<Array<{ id: string; transcript: string }>> {
   if (!customerId) return []
   // This is the ONE action that RETURNS raw transcripts (the whole history at
-  // once), and raw recordings are recorder-private — so it rides the owner dev
-  // key, same as 再学習 (memory.ts). Server-side twin of the UI gate: hiding
+  // once), and raw recordings are recorder-private — so it rides the same dev
+  // key pair as 再学習 (memory.ts): the owner, or a person the owner gave BOTH
+  // keys by hand (see actions/dev-tools.ts). Server-side twin of the UI gate: hiding
   // the 全カルテ再生成 button is never the only defense. Dynamic import mirrors
   // that gate — keeps the auth chain out of the module graph for callers that
   // never bulk-regen.

@@ -105,9 +105,16 @@ describe('one clock anchor per render (#724)', () => {
         .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
         .join('\n')
 
+    // ⚖ THE ROOM-3 F1 LAW MOVED THE ASSEMBLY, SO THE PIN MOVES WITH THE CODE:
+    // 顧客's reads, joins and formats live in `customers-props.ts` now, which is
+    // where the one anchor is read. The page keeps the no-second-clock
+    // assertion, because a `new Date()` re-introduced there would be exactly the
+    // second read this test exists to forbid.
     const page = code('src/app/[locale]/(business)/business/customers/page.tsx')
-    expect(page).toContain('renderNow().toISOString()')
     expect(page.match(/new Date\(\s*\)/g)).toBeNull()
+    const customersProps = code('src/app/[locale]/(business)/business/customers/customers-props.ts')
+    expect(customersProps).toContain('const now = renderNow()')
+    expect(customersProps.match(/new Date\(\s*\)/g)).toBeNull()
 
     // 今日の運営 has the same exposure and more of it: todayKey, the read
     // window, 表示日, the month calendar and the ルール stamp all hang off one
@@ -120,10 +127,16 @@ describe('one clock anchor per render (#724)', () => {
     // itself (`from`/`to`), 今日 bucketing, 表示日 and the 明日 label all hang
     // off one `now`, so a bare clock read here can fetch one day's window and
     // then label it with another's. (Greptile P1 on #727 — this page's commits
-    // predate the #724 fix, so it carried the same disease.)
-    const reservations = code('src/app/[locale]/(business)/business/reservations/page.tsx')
-    expect(reservations).toContain('const now = renderNow()')
-    expect(reservations.match(/new Date\(\s*\)/g)).toBeNull()
+    // predate the #724 fix, so it carried the same disease.) V2's room-3 F1 law
+    // moved the whole prop assembly — window, bucketing, labels, and the clock
+    // anchor with it — out of page.tsx into reservations-props.ts; page.tsx now
+    // only admits, reads params and delegates to `reservationsProps()`, so the
+    // anchor is checked at its new, one home.
+    const reservationsPage = code('src/app/[locale]/(business)/business/reservations/page.tsx')
+    expect(reservationsPage.match(/new Date\(\s*\)/g)).toBeNull()
+    const reservationsProps = code('src/app/[locale]/(business)/business/reservations/reservations-props.ts')
+    expect(reservationsProps).toContain('const now = renderNow()')
+    expect(reservationsProps.match(/new Date\(\s*\)/g)).toBeNull()
 
     // …and in the door itself the one bare clock read sits inside cache(),
     // with no call to appointments() left taking its own default clock.
@@ -153,7 +166,7 @@ describe('one clock anchor per render (#724)', () => {
     for (const [file, src] of [
       ['customers/page.tsx', page],
       ['today/page.tsx', today],
-      ['reservations/page.tsx', reservations],
+      ['reservations/reservations-props.ts', reservationsProps],
       ['data.ts', data],
     ] as const) {
       for (const line of src.split('\n').filter((l) => /\b(jstMidnight|jstSlot|jstSlotEnd)\(/.test(l))) {

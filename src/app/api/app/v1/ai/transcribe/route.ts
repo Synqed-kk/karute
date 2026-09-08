@@ -5,8 +5,8 @@
 // Runs the shared runTranscription core with the org diarization toggle + the
 // FACADE CALLER's OWN enrollment clip via selfStaffId (voice-isolation rule #401
 // on the Bearer path — extra-eyes MANDATORY). Plan gate BEFORE the rate-limit
-// consume (F-A1); WithClient rate-limit; server-side object delete after
-// transcription (parity). records.write; POST → revocation-sensitive (ai.transcribe).
+// consume (F-A1); WithClient rate-limit; ⚖ the object is READ and never deleted
+// (PR4). records.write; POST → revocation-sensitive (ai.transcribe).
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
@@ -51,54 +51,47 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
     throw new AppApiError('not_found', 'recording not found in this business')
   }
 
-  // From here the object is tenant-proven and the client has ALREADY uploaded
-  // it — every exit (plan gate, rate limit, signed-URL failure, transcription
-  // failure, success) must delete it. The thin client has no storage access by
-  // design, so an early throw must not orphan the raw audio — customer-
-  // conversation content — in the bucket.
+  // ⚖ AND NOTHING HERE DELETES IT (capture pipeline PR4). Every exit — plan
+  // gate, rate limit, signed-URL failure, transcription failure, success — used
+  // to remove the object in a `finally`, because the client staged a throwaway
+  // copy for this one call. The path it is handed is the take's own FINALIZED
+  // object now: the recording itself, which nothing in this app destroys.
   const supabase = createServiceClient()
-  try {
-    const synqed = newSynqedClient(ctx.identity.businessId)
-    // Plan gate BEFORE the rate-limit consume (F-A1 ordering).
-    if (!(await featureAllowedForBusiness(ctx.identity.businessId, 'aiKaruteGeneration'))) {
-      throw new AppApiError('forbidden', 'aiKaruteGeneration plan required')
-    }
-    await enforceAiRateLimitWithClient(synqed, 'transcribe')
-
-    const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
-    const diarize = orgSettings?.speaker_diarization !== false
-    const mode = speakerIdMode()
-    // Voice-isolation: the FACADE CALLER's OWN enrollment clip (selfStaffId), never
-    // another staffer's, never the roster.
-    const selfStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
-    const reference =
-      mode === 'off' ? null : await loadStaffReferenceForStaff(orgSettings, selfStaffId)
-
-    // Mint our OWN signed READ url from the tenant-proven path.
-    const { data: signed, error: signErr } = await supabase.storage
-      .from('recordings')
-      .createSignedUrl(path, 3600)
-    if (signErr || !signed?.signedUrl) {
-      throw new AppApiError('upstream_unavailable', 'could not read the recording')
-    }
-
-    const result = await runTranscription({
-      audio: { url: signed.signedUrl },
-      locale: parsed.data.locale === 'en' ? 'en' : 'ja',
-      diarize,
-      reference,
-      mode,
-      // Deepgram keyterm prompting (a85b6bf6 fold) — same derivation as the web
-      // route, from the identity-threaded org settings.
-      businessType: orgSettings?.business_type ?? null,
-    })
-    return ok(ctx, result)
-  } finally {
-    await supabase.storage
-      .from('recordings')
-      .remove([path])
-      .catch(() => {})
+  const synqed = newSynqedClient(ctx.identity.businessId)
+  // Plan gate BEFORE the rate-limit consume (F-A1 ordering).
+  if (!(await featureAllowedForBusiness(ctx.identity.businessId, 'aiKaruteGeneration'))) {
+    throw new AppApiError('forbidden', 'aiKaruteGeneration plan required')
   }
+  await enforceAiRateLimitWithClient(synqed, 'transcribe')
+
+  const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
+  const diarize = orgSettings?.speaker_diarization !== false
+  const mode = speakerIdMode()
+  // Voice-isolation: the FACADE CALLER's OWN enrollment clip (selfStaffId), never
+  // another staffer's, never the roster.
+  const selfStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
+  const reference =
+    mode === 'off' ? null : await loadStaffReferenceForStaff(orgSettings, selfStaffId)
+
+  // Mint our OWN signed READ url from the tenant-proven path.
+  const { data: signed, error: signErr } = await supabase.storage
+    .from('recordings')
+    .createSignedUrl(path, 3600)
+  if (signErr || !signed?.signedUrl) {
+    throw new AppApiError('upstream_unavailable', 'could not read the recording')
+  }
+
+  const result = await runTranscription({
+    audio: { url: signed.signedUrl },
+    locale: parsed.data.locale === 'en' ? 'en' : 'ja',
+    diarize,
+    reference,
+    mode,
+    // Deepgram keyterm prompting (a85b6bf6 fold) — same derivation as the web
+    // route, from the identity-threaded org settings.
+    businessType: orgSettings?.business_type ?? null,
+  })
+  return ok(ctx, result)
 })
 
 export const OPTIONS = POST // facadeHandler short-circuits OPTIONS before auth.

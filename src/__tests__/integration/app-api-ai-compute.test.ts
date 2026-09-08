@@ -164,20 +164,22 @@ describe('transcribe — storage-path tenancy + voice isolation', () => {
     expect(res.status).toBe(200)
     // Voice-isolation: loadStaffReferenceForStaff called with THIS caller's staff id.
     expect(loadRef).toHaveBeenCalledWith(expect.anything(), 'auth-user-1')
-    expect(removeObj).toHaveBeenCalledWith([OWN_PATH])
+    // ⚖ capture pipeline PR4: the path is the take's FINALIZED object, so the
+    // route READS it and leaves it — the `finally` that deleted it is gone.
+    expect(removeObj).not.toHaveBeenCalled()
   })
-  it('early gate failure (rate limit) AFTER upload → object still deleted', async () => {
+  it('⚖ early gate failure (rate limit) deletes nothing', async () => {
     enforceRate.mockRejectedValueOnce(new AppApiError('rate_limited', 'slow down'))
     const res = await transcribePOST(post(auth, { path: OWN_PATH, locale: 'ja' }), noRoute)
     expect(res.status).toBe(429)
-    expect(removeObj).toHaveBeenCalledWith([OWN_PATH])
+    expect(removeObj).not.toHaveBeenCalled()
     expect(runTranscription).not.toHaveBeenCalled()
   })
-  it('transcription failure → object still deleted (no orphaned audio)', async () => {
+  it('⚖ transcription failure deletes nothing — the audio outlives the failure', async () => {
     runTranscription.mockRejectedValueOnce(new Error('deepgram down'))
     const res = await transcribePOST(post(auth, { path: OWN_PATH, locale: 'ja' }), noRoute)
     expect(res.status).toBeGreaterThanOrEqual(500)
-    expect(removeObj).toHaveBeenCalledWith([OWN_PATH])
+    expect(removeObj).not.toHaveBeenCalled()
   })
   it('missing capability → 403', async () => {
     capabilities.current = new Set(['customers.view'])

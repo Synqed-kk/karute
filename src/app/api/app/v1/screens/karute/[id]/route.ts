@@ -28,6 +28,15 @@ import { getCustomerWithClient } from '@/lib/customers/queries'
 import { getKaruteOutcomeWithClient, OLD_SHELL_OUTCOMES } from '@/lib/karute/outcome'
 import { mapSynqedKaruteRecord } from '@/lib/supabase/karute'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
+import {
+  canViewAllInStore,
+  canViewTranscript,
+  ownerHandReach,
+  readDoorStoreId,
+} from '@/lib/auth/recording-acl'
+import { statusOf } from '@/lib/recording/take-binding'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { scopeKarutePhotos } from '@/lib/karute/scoped-photos'
 
@@ -60,9 +69,10 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
   // both OUTSIDE the wave catch so they surface with their own status.
   const raw = await readKaruteRaw(synqed, id)
   const customerId = (raw.customer_id as string | null) ?? null
+  const recordingSessionId = (raw.recording_session_id as string | null) ?? null
 
   try {
-    const [staffList, allCustomers, outcome, gated] = await Promise.all([
+    const [staffList, allCustomers, outcome, gated, recordingRead] = await Promise.all([
       staffListByBusinessOrThrow(businessId),
       listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       // Pre-ruled exception: outcome stays null-on-failure (product semantics).
@@ -91,23 +101,78 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
               ),
           ])
         : Promise.resolve(null),
+      // The recording behind this karute — the player's presence probe (slice
+      // ①). Page-parity graceful like photos above, and for the stronger
+      // reason: an accessory read that blipped must cost the PLAYER, never 502
+      // the whole karute screen. A 404 — the row was swept — is the same null
+      // as no session; anything else is 'unreadable'.
+      //
+      // ⚖ …AND THE FAILURE IS `'unreadable'`, NOT `null` (fix round 6, Greptile
+      // #849 review 2) — the web page's twin. A store we could not read is not
+      // a record with no store: collapsing the two opened a null-store karute
+      // to a store-clamped grantee on every blip. The player still goes away;
+      // only the store question sees the sentinel (readDoorStoreId). A 404 is
+      // a definite no, not an unknown, so it is exempt (a definite no is a no;
+      // only an unknown closes).
+      recordingSessionId
+        ? synqed.recordings.get(recordingSessionId).catch((err: unknown) => {
+            if (statusOf(err) === 404) return null
+            console.warn('[screens/karute] recording read failed — no player', err)
+            return 'unreadable' as const
+          })
+        : Promise.resolve(null),
     ])
 
     const customer = gated?.[0] ?? null
     const consent = gated?.[1] ?? null
     const photoRows = gated?.[2] ?? []
+    // Everything BUT the store question wants a ROW or nothing: a read that
+    // failed is no row, so the DTO's `recording` is null exactly as before (fix
+    // round 6). Only the two store computations below see the sentinel.
+    const recordingRow = recordingRead === 'unreadable' ? null : recordingRead
 
     // The caller's roster row: staff id (ACL viewer) + display role (coaching
     // panel gate). Keyed by the CONFIRMED auth user id — never client input.
     const selfRow = staffList.find((s) => s.id === ctx.identity.authUserId) ?? null
     const viewerStaffId = selfRow ? selfRow.id : null
     const viewerRole = (selfRow?.display_role ?? '') as string
-    const canViewAllRecordings = ctx.identity.capabilities.has('recordings.viewAll')
+    const holdsRecordingsViewAll = ctx.identity.capabilities.has('recordings.viewAll')
 
     const customerName = customerId
       ? allCustomers.customers.find((c) => c.id === customerId)?.name ?? null
       : null
     const karute = mapSynqedKaruteRecord(raw, customerName)
+
+    // THE GRANT WIDENS WHOSE RECORDINGS, NEVER WHICH STORES (⚖ Liam's store-
+    // isolation law 8/17; Greptile #848 point 2) — the Bearer twin of the web
+    // page's line. Resolved ONLY for a viewAll caller, and a failed assignment
+    // read arrives as [] (fail closed), so an assignment blip narrows the grant
+    // and never 502s the screen or hides a recorder's own transcript.
+    // ONE resolved scope, fed to BOTH the read predicate and the act predicate
+    // — they cannot disagree about which stores this viewer can see. Resolved
+    // whenever the read grant is held: the PAIR IMPLIES IT (holdsOwnerKeys is
+    // `business.manage && recordings.viewAll`), so a both-keys caller always
+    // takes this branch and a caller holding neither key pays nothing.
+    const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
+    const allowedStoreIds = holdsRecordingsViewAll
+        ? await viewerAllowedStoreIds({
+            synqed,
+            authUserId: ctx.identity.authUserId,
+            capabilities: ctx.identity.capabilities,
+            selfStaffId: viewerStaffId,
+          })
+        : null
+    // ⚖ R1′ — WHICH STORE JUDGES THIS KARUTE (③ fix round 3; Greptile #849). The
+    // karute's own store leads; a karute that carries none inherits the RECORDING
+    // row's, which since ③ names the branch the device was in. ONE spelling for
+    // all three read doors (readDoorStoreId, auth/recording-acl.ts), so the words
+    // door and the sound door can never disagree about one karute — neither
+    // show-and-refuse, nor open where the row knows better.
+    const canViewAllRecordings = canViewAllInStore({
+      canViewAll: holdsRecordingsViewAll,
+      allowedStoreIds,
+      recordStoreId: readDoorStoreId(karute, recordingRead),
+    })
 
     // Recorder-lock fix (⚖ Liam 8/22): translate a synqed-core staff CARD id
     // (not a Supabase profile id) into its profile id before the ACL compare
@@ -148,7 +213,31 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       outcome: outcomeForClient,
       viewerStaffId,
       canViewAllRecordings,
+      recordingRow,
+      businessId,
       staffCanReassignRecords: ctx.identity.capabilities.has('records.reassign'),
+      // ⚠ HIDE, NEVER SHOW-AND-REFUSE (⚖ 9/3 named grant; fix round 4) — the
+      // Bearer twin of the web page's line, the same server expression the
+      // regenerate route enforces. A named grantee reads a colleague's words
+      // and gets no 再生成 button; the recorder and the owner's hand keep theirs.
+      // The flag is the server's gate VERBATIM: `records.write` first, then
+      // the ACL — so a front-desk viewer on an unowned karute never sees a
+      // control the server refuses (the ACL alone passes every unowned record).
+      staffCanRegenerate:
+        ctx.identity.capabilities.has('records.write') &&
+        canViewTranscript({
+          ownerStaffId: ownerProfileId,
+          viewerStaffId,
+          canViewAll: ownerHandReach({
+            holdsOwnerKeys: callerHoldsOwnerKeys,
+            allowedStoreIds,
+            // ⚖ AN ACT IS NEVER MORE PERMISSIVE THAN THE READ (③ fix round
+            // 4): the SAME input as canViewAllRecordings above. Reading the
+            // karute alone here let a clamped manager who could not READ this
+            // record still be handed the 再生成 control.
+            recordStoreId: readDoorStoreId(karute, recordingRead),
+          }),
+        }),
       contact: customer ? { phone: customer.phone, email: customer.email } : null,
       consentResult: consent ? { consent: consent.consent ?? null } : null,
       customer,

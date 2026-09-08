@@ -429,10 +429,30 @@ export function ticketLiability(
 
 // ── the 推移 chart ───────────────────────────────────────────────────────────
 
-/** Canon's own plot box and bar geometry (fable-store-sales-analytics.html
- *  `buildChart`), computed here so the SVG can be rendered declaratively and
- *  the arithmetic can be asserted without a browser. */
-export const CHART = { w: 1160, h: 300, ml: 60, mr: 12, mt: 30, mb: 34, barW: 22, pairGap: 3, step: 500000 } as const
+/**
+ * The plot box and bar geometry — THE ACCEPTED MOCK'S OWN
+ * (ANALYTICS-MOCK-v1.html: `VW 980 · VH 320 · PL 54 · PR 972 · PT 12 · PB 268`,
+ * `BW 24 / SW 17 / GAP 7`), computed here so the SVG can be rendered
+ * declaratively and every question about it can be asserted without a browser.
+ *
+ * ⚠ THE TWO BARS ARE DIFFERENT WIDTHS. 総合売上 is the fat one (24) and 新規売上
+ * the slim one (17) — the mock's own pair, and the reason the eye reads「how much
+ * of the month was new」without a legend. A single `barW` cannot state that.
+ */
+export const CHART = {
+  w: 980,
+  h: 320,
+  ml: 54,
+  mr: 8,
+  mt: 12,
+  mb: 52,
+  /** 総合売上's width. */
+  barW: 24,
+  /** 新規売上's width. */
+  newW: 17,
+  pairGap: 7,
+  step: 500000,
+} as const
 
 export interface ChartBar {
   monthIndex: number
@@ -441,61 +461,94 @@ export interface ChartBar {
   y: number
   w: number
   h: number
+  /** The month in progress — drawn hatched, never solid (mask honesty). */
+  partial: boolean
 }
 
 export interface ChartModel {
+  /** The top of the y domain. */
+  niceMax: number
   gridLines: Array<{ y: number; value: number }>
   bars: ChartBar[]
-  axis: Array<{ x: number; short: string }>
+  axis: Array<{ x: number; short: string; partial: boolean }>
+  /** One full-height band per month: the hover/click target and the crosshair's
+   *  own x. A month is ONE thing to point at, not two bars. */
+  groups: Array<{ monthIndex: number; x: number; w: number; center: number }>
   baselineY: number
-  /** Selective direct labels — the last FINISHED month's 総合 and the month in
-   *  progress's 新規, canon's own two. Placed clear of BOTH bars in the group. */
-  labels: Array<{ x: number; y: number; value: number }>
+  plotTop: number
+  /** Where the dashed 目標 rule sits, or `null` when no target is set. */
+  targetY: number | null
+  /** Selective direct labels — the PEAK finished month's 総合 and the month in
+   *  progress's 新規. Placed clear of BOTH bars in the group. */
+  labels: Array<{ monthIndex: number; series: 'total' | 'nw'; x: number; y: number; value: number }>
 }
 
-export function chartModel(months: Array<{ short: string; total: number; nw: number }>): ChartModel {
+/**
+ * ⚠ THE DOMAIN HAS TO COVER THE TARGET LINE AS WELL AS THE TALLEST BAR. A
+ * domain taken from the bars alone puts the dashed 目標 rule off the top of the
+ * plot in every store that is behind its goal — which is precisely the store
+ * that needs to see it. The extra step of headroom is so the right-anchored
+ * 目標 label clears the top edge rather than sitting half outside it.
+ */
+export function chartModel(
+  months: Array<{ short: string; total: number; nw: number; partial?: boolean }>,
+  target = 0,
+): ChartModel {
   const plotW = CHART.w - CHART.ml - CHART.mr
   const plotH = CHART.h - CHART.mt - CHART.mb
-  const maxTotal = months.reduce((n, m) => Math.max(n, m.total, m.nw), 0)
-  const niceMax = Math.max(Math.ceil(maxTotal / CHART.step) * CHART.step, CHART.step)
+  const maxBar = months.reduce((n, m) => Math.max(n, m.total, m.nw), 0)
+  const ceiling = Math.max(maxBar, target > 0 ? target * 1.06 : 0)
+  const niceMax = Math.max(Math.ceil(ceiling / CHART.step) * CHART.step, CHART.step)
   const groupW = plotW / Math.max(months.length, 1)
-  const offset = (groupW - (CHART.barW * 2 + CHART.pairGap)) / 2
+  const offset = (groupW - (CHART.barW + CHART.pairGap + CHART.newW)) / 2
   const baselineY = CHART.mt + plotH
+  const yOf = (v: number) => baselineY - (v / niceMax) * plotH
 
   const gridLines: ChartModel['gridLines'] = []
   for (let s = 0; s * CHART.step <= niceMax; s += 1) {
     const value = s * CHART.step
-    gridLines.push({ y: CHART.mt + plotH - (value / niceMax) * plotH, value })
+    gridLines.push({ y: yOf(value), value })
   }
+
+  // The peak FINISHED month — derived, never a month name written into the
+  // code. A callout that said 「8月」 because the mock's fixture peaked in
+  // August would be wrong in every store whose best month is not August.
+  let peak = -1
+  months.forEach((m, i) => {
+    if (m.partial) return
+    if (peak < 0 || m.total > months[peak].total) peak = i
+  })
 
   const bars: ChartBar[] = []
   const axis: ChartModel['axis'] = []
+  const groups: ChartModel['groups'] = []
   const labels: ChartModel['labels'] = []
   months.forEach((m, i) => {
+    const partial = m.partial === true
     const groupStart = CHART.ml + i * groupW
     const xTotal = groupStart + offset
     const xNew = xTotal + CHART.barW + CHART.pairGap
     const hTotal = (m.total / niceMax) * plotH
     const hNew = (m.nw / niceMax) * plotH
-    const yTotal = CHART.mt + plotH - hTotal
-    const yNew = CHART.mt + plotH - hNew
-    bars.push({ monthIndex: i, series: 'total', x: xTotal, y: yTotal, w: CHART.barW, h: hTotal })
-    bars.push({ monthIndex: i, series: 'nw', x: xNew, y: yNew, w: CHART.barW, h: hNew })
-    axis.push({ x: groupStart + groupW / 2, short: m.short })
-    const clear = Math.min(yTotal, yNew) - 8
-    if (i === months.length - 2) labels.push({ x: xTotal + CHART.barW / 2, y: clear, value: m.total })
-    if (i === months.length - 1) labels.push({ x: xNew + CHART.barW / 2, y: clear, value: m.nw })
+    bars.push({ monthIndex: i, series: 'total', x: xTotal, y: baselineY - hTotal, w: CHART.barW, h: hTotal, partial })
+    bars.push({ monthIndex: i, series: 'nw', x: xNew, y: baselineY - hNew, w: CHART.newW, h: hNew, partial })
+    axis.push({ x: groupStart + groupW / 2, short: m.short, partial })
+    groups.push({ monthIndex: i, x: groupStart, w: groupW, center: groupStart + groupW / 2 })
+    const clear = Math.min(baselineY - hTotal, baselineY - hNew) - 7
+    if (i === peak) labels.push({ monthIndex: i, series: 'total', x: xTotal + CHART.barW / 2 + 4, y: clear, value: m.total })
+    if (partial) labels.push({ monthIndex: i, series: 'nw', x: xNew + CHART.newW / 2 + 2, y: clear, value: m.nw })
   })
-  return { gridLines, bars, axis, baselineY, labels }
-}
-
-/** Canon's rounded-top bar path. A zero-height bar draws nothing rather than a
- *  1px artefact on the baseline. */
-export function barPath(x: number, y: number, w: number, h: number, r = 4): string {
-  if (h <= 0) return ''
-  const radius = Math.min(r, h, w / 2)
-  const base = y + h
-  return `M${x},${base} L${x},${y + radius} Q${x},${y} ${x + radius},${y} L${x + w - radius},${y} Q${x + w},${y} ${x + w},${y + radius} L${x + w},${base} Z`
+  return {
+    niceMax,
+    gridLines,
+    bars,
+    axis,
+    groups,
+    baselineY,
+    plotTop: CHART.mt,
+    targetY: target > 0 ? yOf(target) : null,
+    labels,
+  }
 }
 
 /**

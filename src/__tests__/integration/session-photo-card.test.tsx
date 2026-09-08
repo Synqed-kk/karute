@@ -78,6 +78,34 @@ beforeAll(() => {
   // jsdom doesn't implement object URLs.
   global.URL.createObjectURL = jest.fn(() => 'blob:mock')
   global.URL.revokeObjectURL = jest.fn()
+  // …nor a microphone. §14 below needs a recording that actually STARTS: since
+  // fix round 13 a denied mic ABANDONS the session mint (a refused prompt means
+  // no recording, so the row it made is an orphan nothing may file against), so
+  // jsdom's missing getUserMedia is no longer a free way to seed a pending one.
+  // The minimal recorder pair from take-durability.test.ts, and nothing else —
+  // no test in this file records anything.
+  ;(globalThis as unknown as { MediaRecorder: unknown }).MediaRecorder = class {
+    static isTypeSupported() {
+      return true
+    }
+    ondataavailable: ((e: { data: Blob }) => void) | null = null
+    onstop: (() => void) | null = null
+    state = 'inactive'
+    mimeType = 'audio/webm'
+    start() {
+      this.state = 'recording'
+    }
+    stop() {
+      this.state = 'inactive'
+      this.onstop?.()
+    }
+    pause() {}
+    resume() {}
+  }
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: { getUserMedia: async () => ({ getTracks: () => [] }) },
+  })
 })
 
 beforeEach(() => {
@@ -297,9 +325,10 @@ describe('SessionPhotoCard', () => {
 // awaitRecordingSessionId's actual Promise.race branch — a mint that's still
 // IN FLIGHT when the upload starts, settling (either way) while the upload
 // awaits it. globalRecorder.start() sets up the real recordingSessionPromise
-// synchronously (before its own getUserMedia await), so calling it — even
-// though getUserMedia itself will fail in jsdom — is enough to seed a
-// genuinely pending mint; @/actions/recordings is already mocked above.
+// synchronously (before its own getUserMedia await), so calling it seeds a
+// genuinely pending mint; @/actions/recordings is already mocked above, and the
+// mic is granted in beforeAll (fix round 13 — a DENIED one now abandons the
+// mint, which would be a different scenario entirely).
 describe('SessionPhotoCard — linkage stamping mint race (§14)', () => {
   function startWithPendingMint() {
     let resolveMint: (v: { id: string } | null) => void = () => {}

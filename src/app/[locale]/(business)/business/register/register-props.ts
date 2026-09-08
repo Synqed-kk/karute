@@ -51,6 +51,7 @@ import {
   tenderReconciliation,
   type TransactionModel,
 } from '@/business/lib/register'
+import { settingsHref } from '@/business/lib/settings-link'
 import { hhmm, yen } from '@/business/lib/today-board'
 import { type RegisterProps, type RegisterRowProps } from './RegisterScreen'
 
@@ -76,9 +77,11 @@ const REFUSAL = {
   // ledger is; the screen it opens — choosing the item, the quantity, the
   // payment — is registry ⑪ and is not built here.
   sell: '見本データのため店頭販売を記録できません。売上の記録は在庫と決済に触れる操作のため、商品の登録と実データをつないだあとに有効になります。',
-  // ⑥ しきい値 の変更先. The 店舗設定 room is not live, so the row says where the
-  // dial lives instead of pointing at a route that would 404 (registry ④).
-  tolerance: '現金差異の承認しきい値は店舗設定で変更します。設定の画面はまだ準備中のため、ここからは開けません。',
+  // ⑥ しきい値 の変更先 IS NO LONGER A REFUSAL. The 設定 room shipped and its
+  // 決済 section carries this exact value with a working control, so the row's
+  // quiet link now GOES there (`toleranceLinkHref`) instead of explaining why it
+  // cannot. A refusal sentence kept past the opening of its destination is the
+  // 「checks lying about state」 class, so it is deleted rather than reworded.
 } as const
 
 const FOOTNOTE = '見本データのため実行・記録はできません — 実データ接続後に有効になります。'
@@ -520,7 +523,11 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
               tolerance: redactMoney(`許容額 ${yen(tolerance)}（現金差異の承認しきい値）`),
               // ⑥ THE DIAL'S HOME, NAMED ON THE ROW THAT USES IT (registry ④).
               toleranceLinkLabel: '店舗設定で変更',
-              toleranceLinkRefusal: REFUSAL.tolerance,
+              // ⚖ S17 fix round 5 · G2 — THROUGH THE ONE LINK HOME, so it
+              // carries the locale and the store this drawer belongs to. The
+              // literal here opened the operator's DEFAULT store's 決済 settings
+              // from 代官山's register (⚖ 8/17).
+              toleranceLinkHref: settingsHref(locale, clamped ? storeId! : null, 'payments'),
               saveLabel: '計数を保存',
               saveRefusal: REFUSAL.cash,
               // ⑩ 金種で数える — the count sheet, collapsed. 実査額 is what these

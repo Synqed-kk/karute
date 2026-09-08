@@ -36,7 +36,11 @@ jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(async () => (
 jest.mock('@/lib/synqed/staff-map', () => ({
   lookupProfileIdForSynqedStaffId: jest.fn(async () => null),
 }))
-jest.mock('@/lib/auth/require-permission', () => ({ can: jest.fn(async () => false) }))
+jest.mock('@/lib/auth/require-permission', () => ({
+  can: jest.fn(async () => false),
+  // The page resolves the whole set for the 再生成 ACT gate (fix round 4).
+  getMyCapabilities: jest.fn(async () => new Set<string>()),
+}))
 jest.mock('@/lib/customers/list-all', () => ({
   listAllCustomers: jest.fn(async () => ({ customers: [] })),
 }))

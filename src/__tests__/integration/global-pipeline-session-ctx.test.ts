@@ -16,7 +16,14 @@ const mockCalls: { ctx: AiCtx | undefined }[] = []
 
 jest.mock('@/lib/ai-pipeline', () => ({
   runAIPipeline: jest.fn(
-    (_blob: Blob, _locale: string, _onProgress: (s: string) => void, ctx?: AiCtx) => {
+    (
+      _blob: Blob,
+      // capture pipeline PR4 — the take whose FINALIZED object this reads.
+      _takeId: string | null,
+      _locale: string,
+      _onProgress: (s: string) => void,
+      ctx?: AiCtx,
+    ) => {
       mockCalls.push({ ctx })
       return new Promise<PipelineResult>(() => {
         // Never resolves — these tests only assert the call, not the lifecycle.

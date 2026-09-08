@@ -98,18 +98,33 @@ jest.mock('@synqed-kk/ui', () => {
  *  below-floor take so RecoveryBanner's belowFloor discard link appears. */
 let mockRecoverableTake: Record<string, unknown> | null = null
 const mockStampDiscardPending = jest.fn(async (_takeId: string, _pending: unknown) => true)
+const mockMarkDiscardTranscriptDone = jest.fn(async (_takeId: string) => {})
+const mockSettleTakeAfterSave = jest.fn(async (_takeId: string) => {})
+// Capture pipeline PR3 — the record page's mount retry. This suite's take-store
+// is a fake, so the real secureTake would reach for functions that are not in
+// it; nothing here is about whether the audio reaches the server (that is
+// take-durability.test.ts + recovery-banner-save-only.test.tsx).
+jest.mock('@/lib/recording/secure-take', () => ({ secureTake: jest.fn(async () => {}) }))
+
 jest.mock('@/lib/karute/take-store', () => ({
   appendTakeSegment: jest.fn(),
   // A2-2 — the discard-transcript register.
   stampDiscardPending: (takeId: string, pending: unknown) =>
     mockStampDiscardPending(takeId, pending),
+  // PR4 fix round 4: a below-floor discard owes NO words, so its stamp is
+  // settled the moment it lands — the sweep must never read it.
+  markDiscardTranscriptDone: (takeId: string) => mockMarkDiscardTranscriptDone(takeId),
   listPendingDiscardTakes: jest.fn(async () => []),
   createTake: jest.fn(),
   deleteTake: jest.fn(),
+  // PR4 fix round 6: the SAVE exits ask this rule what a save may take;
+  // none of them calls deleteTake any more.
+  settleTakeAfterSave: (takeId: string) => mockSettleTakeAfterSave(takeId),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: jest.fn(async () => {}),
   readTakeOutcome: jest.fn(async () => null),
   listOwnTakes: jest.fn(async () => []),
+  listOwnStoppedUnsecuredTakeIds: jest.fn(async () => []),
   getRecoverableTake: jest.fn(async () => mockRecoverableTake),
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
   // The logout-wipe test runs the REAL wipeSessionVault through this module.
@@ -152,6 +167,9 @@ jest.mock('@/lib/global-recorder', () => ({
     state: 'idle',
     recordingSessionId: 'sess-live',
     subscribe: () => () => {},
+    // Fix round 17: the page asks whether a stop leg is still finishing a
+    // take before it decides it has nothing left to drain.
+    isSecuring: () => false,
     // The logout-wipe test drives the REAL wipeSessionVault through this.
     discard: jest.fn(),
     // Fix round 1: the gate's SECOND chance at a session id. The mint runs once
@@ -466,6 +484,48 @@ describe('a discard that cannot leave its trace does not happen', () => {
     })
     await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
     expect(reasonGate()).toBeNull()
+  })
+
+  // ⚖ THE SAVE FINDS THE ROW WHATEVER MINTED IT (fix round 12, P2). Since the
+  // take is secured at STOP, the recorder is no longer the only route to a row:
+  // a start-mint that failed leaves the bounded await answering null forever
+  // (its promise is settled), while secureTake's own session-first call has
+  // already minted this take's row and STAMPED it. The save read that null and
+  // filed the karute UNLINKED, beside audio sitting on that very row — and
+  // silently, because null is also the honest answer when there is no row at
+  // all. So the save falls back exactly the way the discard gate does.
+  it('the SAVE re-reads the stamp too: a row secureTake minted still reaches the karute', async () => {
+    mockAwaitSession.mockImplementation(async () => null)
+    // What retryRecordingSessionMint answers for a take that already carries a
+    // row: the stamp, with nothing minted.
+    mockRetryMint.mockImplementationOnce(async () => 'sess-secured-at-stop')
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('useRecording'))
+    })
+
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+    expect(mockPipelineStart.mock.calls[0][1]).toMatchObject({
+      recordingSessionId: 'sess-secured-at-stop',
+    })
+    expect(mockRetryMint).toHaveBeenCalledTimes(1)
+  })
+
+  // …and a take that genuinely has no row still saves — unlinked, exactly as it
+  // did before any of this existed. The fallback adds a second chance, never a
+  // new way to fail.
+  it('no row anywhere: the save still goes through, without a session id', async () => {
+    mockAwaitSession.mockImplementation(async () => null)
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('useRecording'))
+    })
+
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+    expect(mockPipelineStart.mock.calls[0][1]).toMatchObject({ recordingSessionId: null })
+    expect(mockRetryMint).toHaveBeenCalledTimes(1)
   })
 
   // ── The 使用/破棄 race (fix round 1) ────────────────────────────────────
@@ -1059,6 +1119,9 @@ describe('A2-2 — persisting the words at discard', () => {
       // session row server-side, so there is nothing here to name the wrong
       // person with — including after a reload, out of the store.
       expect(mockStampDiscardPending.mock.calls[0][1]).not.toHaveProperty('customerId')
+      // …and it is NOT the below-floor mark (fix round 4): these words are owed.
+      expect(mockStampDiscardPending.mock.calls[0][1]).not.toHaveProperty('belowFloor')
+      expect(mockMarkDiscardTranscriptDone).not.toHaveBeenCalled()
       // The audio survives the discard — only the persist run may delete it.
       expect(mockDiscardRecording).toHaveBeenCalledWith({ keepTake: true })
       expect(takeStore().deleteTake).not.toHaveBeenCalled()
@@ -1067,7 +1130,13 @@ describe('A2-2 — persisting the words at discard', () => {
       expect(mockRunDiscardTranscript.mock.calls[0][0]).toBe('take-1')
     })
 
-    it('BELOW the floor: nothing is registered and the take goes, exactly as before', async () => {
+    // ⚖ BELOW THE FLOOR THE STAMP IS STILL OWED (PR4 fix round 4, F2). No words
+    // are ever collected down there (the spend gate is unchanged), but the
+    // stamp is not about words — it is the recovery exclusion. Since the
+    // never-delete guard began refusing an unsecured take, a below-floor
+    // discard left the take ALIVE with no stamp at all, and the recovery banner
+    // offered the staffer back the very recording they had just thrown away.
+    it('BELOW the floor: no words are collected, but the take is MARKED so it is never re-offered', async () => {
       recorderTake.takeId = 'take-1'
       mockDurationMs = 5_000 // an accidental tap — under BELOW_FLOOR_SEC
       await renderPage()
@@ -1076,8 +1145,38 @@ describe('A2-2 — persisting the words at discard', () => {
       await confirmReason()
 
       // ⚖ the spend gate: an accidental tap never reaches a transcription bill.
-      expect(mockStampDiscardPending).not.toHaveBeenCalled()
       expect(mockRunDiscardTranscript).not.toHaveBeenCalled()
+      // …and the stamp says exactly that — marked below-floor, and SETTLED in
+      // the same breath, so the mount sweep never reads it either.
+      expect(mockStampDiscardPending).toHaveBeenCalledTimes(1)
+      expect(mockStampDiscardPending.mock.calls[0]).toEqual([
+        'take-1',
+        expect.objectContaining({
+          recordingSessionId: RECORDER_SESSION,
+          durationSeconds: 5,
+          locale: 'ja',
+          belowFloor: true,
+        }),
+      ])
+      expect(mockMarkDiscardTranscriptDone).toHaveBeenCalledWith('take-1')
+      // The take is NOT held back — the discard's own delete runs exactly as it
+      // always did (refused for an unsecured take by the guard, and for a
+      // finalized one the rows go with the stamp on them: the same answer).
+      expect(mockDiscardRecording).toHaveBeenCalledWith({ keepTake: false })
+    })
+
+    it('…and a below-floor stamp that cannot be written settles nothing, silently', async () => {
+      recorderTake.takeId = 'take-1'
+      mockDurationMs = 5_000
+      mockStampDiscardPending.mockImplementationOnce(async () => false)
+      await renderPage()
+      await tapDiscard('discard')
+      await writeReason()
+      await confirmReason()
+
+      // Nothing to settle: the take is gone or another staffer's, and marking a
+      // row that is not there would say something untrue about it.
+      expect(mockMarkDiscardTranscriptDone).not.toHaveBeenCalled()
       expect(mockDiscardRecording).toHaveBeenCalledWith({ keepTake: false })
     })
 
@@ -1183,21 +1282,50 @@ describe('A2-2 — persisting the words at discard', () => {
   // The negative census. These three arms have no words to keep — by
   // definition, not by omission — and must behave exactly as they did before
   // A2-2 existed.
-  describe('the arms that keep NOTHING', () => {
-    it('pipeline-error (the empty-transcript refusal): nothing registered, take deleted', async () => {
+  // ⚖ THE ARMS THAT OWE NO WORDS — MARKED, NEVER JUST DELETED (PR4 fix round 4,
+  // G5). Neither of these collects a transcript: the pipeline-error origin IS
+  // the transcript already refused, and the banner origin is below the floor by
+  // construction. They used to do nothing but `deleteTake` — and since the
+  // never-delete guard began refusing an unsecured take, that take SURVIVED
+  // with no stamp on it, so listOwnTakes' A2-2 exclusion never fired and the
+  // recovery banner offered back the recording the staffer had just thrown
+  // away. Same fix as G2: stamp, settle in the same breath, delete unchanged.
+  describe('the arms that owe NO WORDS — marked, then deleted', () => {
+    it('pipeline-error (the empty-transcript refusal): marked and settled, take deleted', async () => {
       mockPipelineState = 'error'
       await renderPage()
       await tapDiscard('discardTakeAction')
       await writeReason()
       await confirmReason()
 
-      expect(mockStampDiscardPending).not.toHaveBeenCalled()
+      // Nothing is collected — this origin is the refusal itself.
       expect(mockPersistReviewDiscard).not.toHaveBeenCalled()
       expect(mockRunDiscardTranscript).not.toHaveBeenCalled()
+      // …but the take is MARKED, against the session the receipt was filed on,
+      // and settled at once so the mount sweep never reads it.
+      expect(mockStampDiscardPending).toHaveBeenCalledTimes(1)
+      expect(mockStampDiscardPending.mock.calls[0][0]).toBe('take-1')
+      // The session the RECEIPT was filed against — this arm's own pipeline
+      // session, never the live recorder's.
+      expect(mockStampDiscardPending.mock.calls[0][1]).toEqual(
+        expect.objectContaining({
+          recordingSessionId: PIPELINE_SESSION,
+          durationSeconds: 60,
+          locale: 'ja',
+        }),
+      )
+      // NOT below-floor: a pipeline-error take can be an hour long, and that
+      // field says what it says. The settle is the mark-done itself.
+      expect(
+        (mockStampDiscardPending.mock.calls[0][1] as { belowFloor?: boolean }).belowFloor,
+      ).toBeUndefined()
+      expect(mockMarkDiscardTranscriptDone).toHaveBeenCalledWith('take-1')
+      // The delete is unchanged — refused by the guard for an unsecured take,
+      // which is exactly why the mark above has to exist.
       expect(takeStore().deleteTake).toHaveBeenCalledWith('take-1')
     })
 
-    it('banner (a below-floor take at the recovery offer): nothing registered, take deleted', async () => {
+    it('banner (a below-floor take at the recovery offer): marked below-floor, settled, take deleted', async () => {
       mockRecState = 'idle'
       mockRecoverableTake = {
         takeId: 'take-bf',
@@ -1218,9 +1346,14 @@ describe('A2-2 — persisting the words at discard', () => {
       await writeReason()
       await confirmReason()
 
-      expect(mockStampDiscardPending).not.toHaveBeenCalled()
       expect(mockPersistReviewDiscard).not.toHaveBeenCalled()
       expect(mockRunDiscardTranscript).not.toHaveBeenCalled()
+      expect(mockStampDiscardPending).toHaveBeenCalledTimes(1)
+      expect(mockStampDiscardPending.mock.calls[0]).toEqual([
+        'take-bf',
+        expect.objectContaining({ locale: 'ja', belowFloor: true }),
+      ])
+      expect(mockMarkDiscardTranscriptDone).toHaveBeenCalledWith('take-bf')
       expect(takeStore().deleteTake).toHaveBeenCalledWith('take-bf')
     })
 
@@ -1235,8 +1368,31 @@ describe('A2-2 — persisting the words at discard', () => {
       await confirmReason()
 
       expect(mockStampDiscardPending).not.toHaveBeenCalled()
+      expect(mockMarkDiscardTranscriptDone).not.toHaveBeenCalled()
       expect(mockRunDiscardTranscript).not.toHaveBeenCalled()
       expect(mockDiscardRecording).not.toHaveBeenCalled()
     })
+  })
+})
+
+// ⚖ THE FOURTH SETTLED EXIT (PR4 fix round 6). ReviewScreen's 保存 is the SAVE
+// twin of the review discard above — and the exit a walk-in normally takes,
+// because the autosave gate needs an appointment customer. It called deleteTake
+// BARE, which the never-delete guard refuses for a take the server does not
+// have: the just-saved session survived with no stamp on it, so the next fold
+// offered it back as 復元可能 and every retap re-transcribed the same audio.
+// The record here is already on the server carrying this take's words, so the
+// question is only what the AUDIO may do — which is the one rule's question.
+describe('ReviewScreen’s 保存 — the fourth settled exit', () => {
+  it('settles the take through the ONE rule, and deletes nothing bare', async () => {
+    mockPipelineState = 'review'
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('review-saved'))
+    })
+
+    expect(mockSettleTakeAfterSave).toHaveBeenCalledWith('take-1')
+    const { deleteTake } = jest.requireMock('@/lib/karute/take-store') as { deleteTake: jest.Mock }
+    expect(deleteTake).not.toHaveBeenCalled()
   })
 })

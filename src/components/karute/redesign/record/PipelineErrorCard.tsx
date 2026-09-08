@@ -35,7 +35,9 @@ export function PipelineErrorCard({
               ? 'pipelineErrorEmptyTranscript'
               : code === 'consent-required'
                 ? 'pipelineErrorConsentRequired'
-                : 'pipelineErrorGeneric',
+                : code === 'discarded'
+                  ? 'pipelineErrorDiscarded'
+                  : 'pipelineErrorGeneric',
           )}
         </p>
         <div className="mt-5 flex justify-center gap-3">
@@ -46,13 +48,21 @@ export function PipelineErrorCard({
           >
             {tc('cancel')}
           </button>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover"
-          >
-            {tc('retry')}
-          </button>
+          {/* ⚖ NO RETRY FOR A DISCARD (fix round 6, R7). Every other code here
+              can come out differently on a second attempt; this one cannot —
+              a staff member made a decision and wrote why, and the worker
+              refuses the re-armed job on exactly the same ground. The button
+              is not disabled, it is absent: a greyed control still reads as
+              "later, maybe". */}
+          {code !== 'discarded' && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover"
+            >
+              {tc('retry')}
+            </button>
+          )}
         </div>
         {code === 'empty-transcript' && onDiscard && (
           <button

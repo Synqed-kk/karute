@@ -12,6 +12,7 @@
 // therefore cannot read 確定 on the list while its card says 来店なし on the
 // board — there is no second copy of the fact to drift.
 
+import { jstMidnight, jstMinuteOfDay } from './clock'
 import type { FixtureAppointment, FixtureCustomer } from './fixtures'
 import { NEEDS_STAFF, WANTS_CHANGE, type FixtureReservation } from './fixtures-reservations'
 import type { FixtureSellSlot, FixtureShift } from './fixtures-today'
@@ -90,6 +91,12 @@ export function isQueued(lifecycle: Lifecycle, deadline: number | null): boolean
   return deadline !== null && OPEN_LIFECYCLE.includes(lifecycle)
 }
 
+/** 期限超過 — the ONE definition. `decorate` is its only caller: no second copy
+ *  of this fact anywhere else derives it from `deadlineMinute`/`boardNow` again. */
+export function overdueOf(deadlineMinute: number | null, boardNow: number): boolean {
+  return deadlineMinute !== null && deadlineMinute < boardNow
+}
+
 /** 状態フラグ (M-31): the stored half plus the two derived ones. 期限超過 comes
  *  from the clock and 担当変更あり from the booking's own `reassigned_from`, so
  *  neither can be stored stale. 期限超過 leads — it is the one that changes what
@@ -159,20 +166,78 @@ export function primaryActionOf(
   return 'today'
 }
 
-/** 保存した表示 (M-83) — a saved view stores CRITERIA, never a cached row set, so
- *  pressing one sets the four filters below and the list re-derives. Canon's own
- *  mapping (w2-bookings-customers.js `applySavedView`, :734-745); 一致なし is its
- *  deliberate empty-result view, because a saved view that matches nothing has
- *  to be visibly survivable rather than a state the screen hides. */
-export type SavedView = 'all' | 'attention' | 'reserve' | 'none'
+/** THE COUNTS ARE THE FILTERS (⚖-ADJ D, the accepted mock). A chip stores
+ *  CRITERIA, never a cached row set: pressing one sets the five filters below
+ *  and the list re-derives. Canon's own mapping is kept where it stood
+ *  (w2-bookings-customers.js `applySavedView`, :734-745) and two chips join it —
+ *  精算待ち and 本日, which used to be summary tiles nobody could press.
+ *
+ *  ⚖-ADJ E — 一致なしを確認 IS NOW A REAL JOB. Canon's `'none'` was a deliberate
+ *  empty-result view (a saved view that matches nothing has to be visibly
+ *  survivable); the accepted mock reads the same words as 「受付価格を照合できない
+ *  予約」, which this screen's own 価格の証拠 surface can answer from the two price
+ *  labels every row already carries. The empty-result case stays survivable —
+ *  it is what a search matching nothing does, and the suite pins it there. */
+export type SavedView = 'all' | 'attention' | 'settling' | 'today' | 'reserve' | 'none'
+
+/** The chip row, in the mock's own order. ONE list, read by the control that
+ *  draws the chips and by the counts beside them, so a chip can never be
+ *  counted with a predicate the list does not run. */
+/**
+ * ⚖ THE LADDER IS KEYED TO THE **PAGE**, NOT TO THE VIEWPORT — and these are the
+ * numbers, spelled ONCE so the sheet's `@container` bands and the screen's own
+ * band read cannot drift apart (the probe measures that they agree).
+ *
+ * THE HAZARD, in the shell's own arithmetic: the rail is 264px at ≥1024 with the
+ * sidebar open and 76px everywhere else, so the page a room is given FALLS BY
+ * 188px as the viewport crosses 1024. A layout chosen from a viewport width is a
+ * layout chosen from the wrong number.
+ *
+ * WHERE EACH NUMBER COMES FROM, in the accepted mock's own arithmetic:
+ *   · 1015 — the mock's desk layout is proven at viewport 1280 with its own
+ *     264px sidebar, so the widest page it was ACCEPTED at is 1280 − 264 = 1016.
+ *     Below that the mock's own narrow band takes over.
+ *   · 891 — the mock's one-column band starts at viewport 1099, where its
+ *     sidebar is 208px: 1099 − 208 = 891.
+ *   · 699 — the mock's phone band starts at viewport 899, where its sidebar is
+ *     still 208px in flow: 899 − 208 = 691, and 699 is where the head's four
+ *     parts genuinely stop fitting (the same measurement the 録音 room took).
+ * Monotonic by construction: one page width, one answer, and a page that grows
+ * can never lose a column.
+ */
+export const PAGE_BANDS = { narrow: 1015, oneColumn: 891, phone: 699 } as const
+
+export const CHIP_VIEWS: SavedView[] = ['all', 'attention', 'settling', 'today', 'reserve', 'none']
+
+export const CHIP_LABEL: Record<SavedView, string> = {
+  all: 'すべて',
+  attention: '要対応',
+  settling: '精算待ち',
+  today: '本日',
+  reserve: 'Reserve受付',
+  none: '一致なしを確認',
+}
 
 export function viewFilters(view: SavedView): ReservationFilters {
   return {
-    date: 'all',
-    status: view === 'attention' ? 'attention' : 'all',
+    date: view === 'today' ? 'today' : 'all',
+    status: view === 'attention' ? 'attention' : view === 'settling' ? 'awaiting_settlement' : 'all',
     source: view === 'reserve' ? 'reserve' : 'all',
-    search: view === 'none' ? '__一致なし__' : '',
+    price: view === 'none' ? 'unmatched' : 'all',
+    search: '',
   }
+}
+
+/** Each chip's number, taken over the SAME predicate the list runs. The pin is
+ *  both ways: this count IS the number of rows the chip reveals when pressed,
+ *  for every chip and every lens. A count computed a second way is the disease
+ *  (⚖ one verdict, one home). */
+export function chipCounts<
+  R extends Parameters<typeof matchesFilters>[0] & { priceLabel: string; currentPriceLabel: string },
+>(rows: readonly R[]): Record<SavedView, number> {
+  const out = {} as Record<SavedView, number>
+  for (const v of CHIP_VIEWS) out[v] = rows.filter((r) => matchesFilters(r, viewFilters(v))).length
+  return out
 }
 
 export const QUEUE_ACTION: Record<DecisionKind, string> = {
@@ -193,6 +258,13 @@ export function sourceOf(source: string, pending: boolean): { label: string; gro
   if (isExternal(source)) return { label: '外部予約元', group: 'external', ref }
   if (base === 'Reserve') return { label: pending ? 'Reserveリクエスト' : 'Reserve', group: 'reserve', ref }
   return { label: base, group: 'store', ref }
+}
+
+/** 正本 — who holds the booking's record of truth. ⚖-ADJ G / D5: Reserve and SYNQED are two
+ *  doors onto ONE database, so only an 外部予約元 booking is owned somewhere else. ONE home:
+ *  the inspector's 正本 line and the 記録 dialog's 正本・受付元 both read this. */
+export function genuineOf(group: 'reserve' | 'store' | 'external'): 'SYNQED' | '外部予約元' {
+  return group === 'external' ? '外部予約元' : 'SYNQED'
 }
 
 /** 価格条件 (M-49). Strongest-first, the same precedence the board's カテゴリー
@@ -217,19 +289,101 @@ export function spanText(minutes: number): string {
   return h ? `${h}時間${m ? `${m}分` : ''}` : `${m}分`
 }
 
+const two = (n: number) => (n < 10 ? `0${n}` : `${n}`)
+
+/** G1 fix — the countdown's own second hand, measured from the wall clock
+ *  rather than counted `setInterval` callbacks. A throttled background tab
+ *  still fires the interval at whatever cadence the browser allows it (some
+ *  callbacks simply never run), so counting CALLS drifts the moment one is
+ *  skipped. Reading real elapsed time instead means a skipped tick is caught
+ *  up on the next one rather than lost forever. Never negative — a callback
+ *  that lands early (rAF jitter) must not count backwards. */
+export function elapsedSecondsSince(startedAtMs: number, nowMs: number): number {
+  return Math.max(0, Math.floor((nowMs - startedAtMs) / 1000))
+}
+
+/**
+ * 「あと21分00秒」/「期限超過 54分00秒」 — the accepted mock's own `cdText`,
+ * ported line for line (RESERVATIONS-MOCK-v1.html:1113). Seconds always two
+ * digits so the rail's number never changes width as it counts; hours appear
+ * only when there is at least one.
+ *
+ * ⚖-ADJ M — THIS IS DISPLAY, AND ONLY DISPLAY. `elapsedSec` is the client's own
+ * tick since mount; the row's 期限超過 flag, its queue membership and its pill
+ * stay the MINUTE derivation on the server-pinned `boardNow`, which is the one
+ * truth the suite tests. So a countdown crossing zero in front of a reader
+ * reads 「期限超過 0分NN秒」 while the pill still says what the render said. A
+ * second client-side `overdue` would be a second copy of a fact, which is the
+ * one thing this room's whole derivation file exists to prevent.
+ */
+export function countdownText(deadlineMinute: number, nowMinute: number, elapsedSec: number): string {
+  const left = deadlineMinute * 60 - (nowMinute * 60 + elapsedSec)
+  if (left <= 0) {
+    const over = -left
+    const h = Math.floor(over / 3600)
+    return `期限超過 ${h ? `${h}時間` : ''}${Math.floor((over % 3600) / 60)}分${two(over % 60)}秒`
+  }
+  const h = Math.floor(left / 3600)
+  return `あと${h ? `${h}時間` : ''}${Math.floor((left % 3600) / 60)}分${two(left % 60)}秒`
+}
+
+/**
+ * 来店なし memory (rider #3, ⚖ 9/2). How many times THIS customer has already
+ * failed to turn up — the same `board_state === 'noshow'` rows the Today board
+ * paints, so the two screens count one thing.
+ *
+ * THREE RULES, EACH FOR A REASON:
+ *   · the rows handed in are the LENS's own, so a branch counts only its own
+ *     store's no-shows and the isolation law holds by construction rather than
+ *     by a filter someone could forget (⚖ 8/17);
+ *   · a booking that has not happened yet is not a no-show — the cut is the
+ *     room's ONE pinned clock (`boardNow` on today's day key), never a wall
+ *     clock, so the number is the same on every render;
+ *   · a booking never counts ITSELF. The tag is memory about the customer's
+ *     other visits; on the no-show row the pill already says what happened, and
+ *     a row explaining itself back to the reader is noise.
+ */
+export function noShowCountOf(
+  rows: ReadonlyArray<{ id: string; customerId: string; boardState: string | null; dayKey: number; endMinute: number }>,
+  customerId: string,
+  exceptId: string,
+  now: { dayKey: number; minute: number },
+): number {
+  return rows.filter(
+    (r) =>
+      r.id !== exceptId &&
+      r.customerId === customerId &&
+      r.boardState === 'noshow' &&
+      (r.dayKey < now.dayKey || (r.dayKey === now.dayKey && r.endMinute <= now.minute)),
+  ).length
+}
+
 /** 勤務時間 warning (M-70's 7th fact, ask C-11). DERIVED from the shift plane:
  *  a request that runs past the end of its staff member's day is the reason the
  *  accept dialog exists. `null` = the booking sits inside the shift and there is
- *  nothing to warn about — an always-present warning warns about nothing. */
+ *  nothing to warn about — an always-present warning warns about nothing.
+ *
+ *  A2 fix (same bug shape as G3) — the overage half is computed from real
+ *  INSTANTS, not bare minute-of-day numbers: a booking that crosses JST
+ *  midnight (23:30→00:30) has a SMALLER end-minute-of-day than its start, so
+ *  `endMinute > shift.end` could silently miss a real overage. The shift's own
+ *  end is anchored to the booking's START day (`jstMidnight(startsAt)` +
+ *  `shift.end` minutes) rather than compared as a bare minute-of-day — the
+ *  shift itself never wraps, only the booking can. */
 export function shiftWarningOf(
   staffName: string,
   shift: Pick<FixtureShift, 'start' | 'end'> | null,
-  startMinute: number,
-  endMinute: number,
+  startsAt: string | Date,
+  endsAt: string | Date,
 ): string | null {
   if (!shift) return `${staffName} はこの日の勤務予定がありません`
   const window = `${staffName} ${hhmm(shift.start)}–${hhmm(shift.end)}`
-  if (endMinute > shift.end) return `${window}・この予約は${endMinute - shift.end}分超過`
+  const startAt = typeof startsAt === 'string' ? new Date(startsAt) : startsAt
+  const endAt = typeof endsAt === 'string' ? new Date(endsAt) : endsAt
+  const shiftEndAt = jstMidnight(startAt) + shift.end * 60_000
+  const overageMinutes = Math.round((endAt.getTime() - shiftEndAt) / 60_000)
+  if (overageMinutes > 0) return `${window}・この予約は${overageMinutes}分超過`
+  const startMinute = jstMinuteOfDay(startAt)
   if (startMinute < shift.start) return `${window}・この予約は${shift.start - startMinute}分早い開始`
   return null
 }
@@ -262,6 +416,21 @@ export interface ReservationFilters {
   date: 'all' | 'today' | 'future'
   status: 'all' | 'attention' | Lifecycle
   source: 'all' | 'reserve' | 'store' | 'external'
+  /** ⚖-ADJ E — 受付価格の照合. `unmatched` keeps the rows whose 受付時に合意 and
+   *  現在の公開価格 cannot be reconciled, which is the job the 価格の証拠 panel
+   *  exists for and the only axis this screen can answer from its own data. */
+  price: 'all' | 'unmatched'
+}
+
+/** 受付価格が照合できない — the two labels the row already carries, compared.
+ *
+ *  ONE COMPARISON, and it is enough: a row with no recorded 受付価格 reads
+ *  「受付価格の記録なし」 and a menu with no published price reads
+ *  「公開価格の記録なし」, so a missing figure can never equal the one beside it.
+ *  Comparing the LABELS rather than the numbers keeps one formatter and one
+ *  truth — the same strings the panel prints are the ones the filter judges. */
+export function priceUnmatched(row: { priceLabel: string; currentPriceLabel: string }): boolean {
+  return row.priceLabel !== row.currentPriceLabel
 }
 
 export function matchesFilters(
@@ -274,6 +443,8 @@ export function matchesFilters(
     lifecycle: Lifecycle
     sourceGroup: 'reserve' | 'store' | 'external'
     queued: boolean
+    priceLabel: string
+    currentPriceLabel: string
   },
   f: ReservationFilters,
 ): boolean {
@@ -281,6 +452,7 @@ export function matchesFilters(
   if (f.date === 'today' && !row.isToday) return false
   if (f.date === 'future' && row.isToday) return false
   if (f.source !== 'all' && row.sourceGroup !== f.source) return false
+  if (f.price === 'unmatched' && !priceUnmatched(row)) return false
   const q = f.search.trim().toLowerCase()
   if (!q) return true
   return [row.no, row.customerName, row.menuName, row.staffName].join(' ').toLowerCase().includes(q)
@@ -292,3 +464,13 @@ export function safeSlotsFor<T extends Pick<FixtureSellSlot, 'start' | 'end'>>(
 ): T[] {
   return slots.filter((s) => s.end - s.start >= durationMinutes)
 }
+
+/**
+ * F-6 (fix round 1, LENS-3) — the phone/one-column sheet's own modal
+ * hardening, mirroring `RecordingScreen.tsx`'s `Overlay` (:2259-2340)
+ * IN-ROOM: a shared overlay primitive is a family-sweep item, not this round.
+ * `SCRIM_SETTLE_MS` is the platform's own double-click interval (the same
+ * value `recording.ts` carries), so a double-tap on the row that opened the
+ * sheet cannot land on the scrim and close what it just opened.
+ */
+export const SCRIM_SETTLE_MS = 500

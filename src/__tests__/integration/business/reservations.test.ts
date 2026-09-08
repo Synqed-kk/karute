@@ -44,26 +44,33 @@ import { createClient } from '@/lib/supabase/server'
 import { appointments, staff, staffAssignments, staffCards, STORE_A, STORE_B } from '@/business/lib/fixtures'
 import { reservations } from '@/business/lib/fixtures-reservations'
 import { decisions, operatingHours, boardNow, shifts, sellSlots, register } from '@/business/lib/fixtures-today'
-import { jstDayKey, jstMinuteOfDay } from '@/business/lib/clock'
+import { jstDayKey, jstMinuteOfDay, jstSlot, jstSlotEnd } from '@/business/lib/clock'
 import { dayTotals } from '@/business/lib/today-board'
 import {
+  CHIP_VIEWS,
+  DEADLINE_WORD,
   LIFECYCLE,
+  chipCounts,
+  countdownText,
+  viewFilters,
   deadlineOf,
   decisionKindOf,
   eligibilityOf,
+  elapsedSecondsSince,
   flagsOf,
+  genuineOf,
   isQueued,
   lifecycleOf,
   matchesFilters,
+  overdueOf,
   safeSlotsFor,
   shiftWarningOf,
   sourceOf,
   spanText,
   type ReservationFilters,
 } from '@/business/lib/reservations'
-import ReservationsPage, {
-  reservationsScreen,
-} from '@/app/[locale]/(business)/business/reservations/page'
+import ReservationsPage from '@/app/[locale]/(business)/business/reservations/page'
+import { reservationsProps, reservationsPropsFor } from '@/app/[locale]/(business)/business/reservations/reservations-props'
 import { listStoreOptions } from '@/business/lib/data'
 import {
   ReservationsScreen,
@@ -125,15 +132,13 @@ const load = async (store?: string) =>
  *  deleted: reconnect restores the lens for a viewAll-capable actor, and until
  *  then this is what proves the cross-store payload still holds. */
 const loadAll = async () =>
-  screenProps(
-    await reservationsScreen('ja', { viewAll: true }, false, undefined, await listStoreOptions()),
-  )!
+  reservationsPropsFor('ja', { viewAll: true }, false, undefined, await listStoreOptions())
 
 /** The decorated rows the screen itself works from. */
 const decorated = (p: ReservationsProps) => p.rows.map((r) => decorate(r, p.boardNow, p.closeMinute))
 const byId = (p: ReservationsProps, id: string) => decorated(p).find((r) => r.id === id)!
 
-const FILTERS: ReservationFilters = { search: '', date: 'all', status: 'all', source: 'all' }
+const FILTERS: ReservationFilters = { search: '', date: 'all', status: 'all', source: 'all', price: 'all' }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. The fixture world is still operationally possible — on EVERY day
@@ -210,7 +215,7 @@ describe('the booking calendar stays possible with the 予約 rows in it (⚖ 8/
       if (!a.staff_id) continue
       const shift = shiftOf(a.staff_id)
       expect(shift).not.toBeNull()
-      const warning = shiftWarningOf('x', shift, jstMinuteOfDay(a.starts_at), jstMinuteOfDay(a.ends_at))
+      const warning = shiftWarningOf('x', shift, a.starts_at, a.ends_at)
       if (pending.has(a.id)) {
         // The overrun IS the reason a human has to look at it (M-70's 勤務時間
         // fact). A pending request with nothing to warn about would make the
@@ -349,6 +354,16 @@ describe('要対応 is one predicate on four surfaces', () => {
       expect(isQueued(word, 14 * 60)).toBe(true)
       expect(isQueued(word, null)).toBe(false)
     }
+  })
+
+  // H1 (hardening round, BREAKER #1) — 期限超過 exported beside isQueued, unit-
+  // pinned directly rather than by an identifier-keyed regex over decorate's
+  // own source (renaming the client re-derivation used to defeat that regex).
+  it('overdueOf — the ONE 期限超過 predicate, no deadline never overdue, ties are NOT overdue', () => {
+    expect(overdueOf(null, 14 * 60)).toBe(false)
+    expect(overdueOf(12 * 60, 12 * 60 + 1)).toBe(true)
+    expect(overdueOf(12 * 60, 12 * 60)).toBe(false)
+    expect(overdueOf(12 * 60, 12 * 60 - 1)).toBe(false)
   })
 
   it('each queue card asks for exactly one decision, and every kind has a carrier', async () => {
@@ -520,6 +535,15 @@ describe('the transplanted bands are populated from fixtures', () => {
     expect(sourceOf('電話予約 #357540', false)).toMatchObject({ label: '電話予約', group: 'store' })
     expect(sourceOf('店頭受付 #357498', false)).toMatchObject({ label: '店頭受付', group: 'store' })
     expect(sourceOf('外部予約元 #357505', false)).toMatchObject({ label: '外部予約元', group: 'external' })
+  })
+
+  it('⚖-ADJ G · 正本 — SYNQED for reserve and store, 外部予約元 only for an externally-owned booking (F-1, fix round 1)', () => {
+    // D5 SETTLED: Reserve and SYNQED are two doors onto ONE database, so the
+    // mock's own 「Reserve」正本 inference is refuted — a `reserve` row falls to
+    // the same SYNQED arm as a `store` row.
+    expect(genuineOf('reserve')).toBe('SYNQED')
+    expect(genuineOf('store')).toBe('SYNQED')
+    expect(genuineOf('external')).toBe('外部予約元')
   })
 
   it('価格条件 reads strongest-first, the same order the board colours by', () => {
@@ -700,5 +724,369 @@ describe('the canon client transitions move the row, the queue and the tiles tog
     )
     expect(after.allFlags).toEqual(['担当変更あり'])
     expect(after.queued).toBe(false)
+  })
+})
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 10. V2 — THE COUNTS ARE THE FILTERS (⚖-ADJ D/E)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('every chip’s number IS the number of rows its press reveals', () => {
+  const lenses: Array<[string, () => Promise<ReservationsProps>]> = [
+    ['銀座 (STORE_A)', () => load(STORE_A)],
+    ['代官山 (STORE_B)', () => load(STORE_B)],
+    ['すべての店舗', () => loadAll()],
+  ]
+
+  // R3 (hardening round, BREAKER #7) — this "both ways" check calls
+  // `chipCounts` and `matchesFilters` on both sides of the comparison, so a
+  // broken `matchesFilters` (e.g. its `attention` branch always returning
+  // true) moves both sides together and still agrees here. The REAL pin
+  // against that class of bug is the hardcoded-numbers test below (「銀座
+  // reads the world's own six numbers」) — accepted as-is, no new pin.
+  it.each(lenses)('%s — all six chips agree with their own list, both ways', async (_name, get) => {
+    const p = await get()
+    const rows = decorated(p)
+    const counts = chipCounts(rows)
+    for (const v of CHIP_VIEWS) {
+      const revealed = rows.filter((r) => matchesFilters(r, viewFilters(v)))
+      expect(counts[v]).toBe(revealed.length)
+    }
+    // …and the numbers are not all the same number, which a broken predicate
+    // that always answered `true` would also satisfy.
+    expect(new Set(CHIP_VIEWS.map((v) => counts[v])).size).toBeGreaterThan(2)
+  })
+
+  it('銀座 reads the world’s own six numbers', async () => {
+    const p = await load(STORE_A)
+    const rows = decorated(p)
+    const counts = chipCounts(rows)
+    const reserveRows = rows.filter((r) => r.sourceGroup === 'reserve').length
+    expect(counts).toEqual({
+      all: 18,
+      attention: 5,
+      settling: 1,
+      today: 11,
+      reserve: reserveRows,
+      none: 1,
+    })
+    // 18 = 11 today + 7 ahead, taken off the rows rather than typed twice
+    expect(rows.filter((r) => r.isToday).length).toBe(11)
+  })
+
+  it('一致なしを確認 selects apt-09 — the one booking with no agreed price — and nothing else', async () => {
+    const rows = decorated(await load(STORE_A))
+    const unmatched = rows.filter((r) => matchesFilters(r, viewFilters('none')))
+    expect(unmatched.map((r) => r.id)).toEqual(['apt-09'])
+    expect(unmatched[0].priceLabel).toBe('受付価格の記録なし')
+    // every other row's two figures reconcile, which is what makes the view mean
+    // something rather than being a second name for the whole list
+    for (const r of rows.filter((x) => x.id !== 'apt-09')) {
+      expect(r.priceLabel).toBe(r.currentPriceLabel)
+    }
+  })
+
+  it('要対応 still selects exactly the queue — the chip and the rail are one predicate', async () => {
+    const rows = decorated(await load(STORE_A))
+    const chip = rows.filter((r) => matchesFilters(r, viewFilters('attention'))).map((r) => r.id).sort()
+    expect(chip).toEqual(rows.filter((r) => r.queued).map((r) => r.id).sort())
+  })
+
+  it('本日 counts the same day the range select shows, and 精算待ち the settlement rows', async () => {
+    const rows = decorated(await load(STORE_A))
+    expect(rows.filter((r) => matchesFilters(r, viewFilters('today'))).every((r) => r.isToday)).toBe(true)
+    expect(rows.filter((r) => matchesFilters(r, viewFilters('settling'))).map((r) => r.id)).toEqual(['apt-25'])
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 11. V2 — the rail's five countdowns, byte for byte
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('the 要対応 rail', () => {
+  const queueOf = (p: ReservationsProps) =>
+    decorated(p).filter((r) => r.queued).sort((a, b) => a.deadlineMinute! - b.deadlineMinute!)
+
+  it('reads the five cards in deadline order, with the mock’s own words and countdowns', async () => {
+    const p = await load(STORE_A)
+    const q = queueOf(p)
+    expect(q.map((r) => r.id)).toEqual(['apt-31', 'apt-26', 'apt-30', 'apt-27', 'apt-25'])
+    expect(q.map((r) => DEADLINE_WORD[r.kind])).toEqual(['回答期限', '対応期限', '回答期限', '対応期限', '精算期限'])
+    expect(q.map((r) => countdownText(r.deadlineMinute!, p.boardNow, 0))).toEqual([
+      '期限超過 54分00秒',
+      'あと21分00秒',
+      'あと36分00秒',
+      'あと3時間6分00秒',
+      'あと5時間36分00秒',
+    ])
+    expect(q[0].overdue).toBe(true)
+    expect(q.slice(1).every((r) => !r.overdue)).toBe(true)
+  })
+
+  it('the label’s count IS the rail’s length, and 最短期限 is its first card', async () => {
+    const p = await load(STORE_A)
+    const q = queueOf(p)
+    expect(q.length).toBe(chipCounts(decorated(p)).attention)
+    expect(q[0].deadlineMinute).toBe(12 * 60 + 30)
+  })
+
+  it('the change card is the ONLY one with pickable candidates, and it has two', async () => {
+    const p = await load(STORE_A)
+    const change = queueOf(p).find((r) => r.kind === 'change')!
+    expect(change.id).toBe('apt-31')
+    const candidates = safeSlotsFor(p.slots, change.durationMinutes)
+    expect(candidates.length).toBe(2)
+    // offered on the booking's OWN day — the slots carry no date at all
+    for (const c of candidates) expect(Object.keys(c)).not.toContain('dateLabel')
+  })
+
+  it('the escalate card has NO safe candidate to offer — the honest empty state', async () => {
+    const p = await load(STORE_A)
+    const escalate = queueOf(p).find((r) => r.kind === 'escalate')!
+    expect(escalate.id).toBe('apt-27')
+    expect(escalate.staffUnavailable).toBe(true)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 12. V2 — the day-grouped table's own server-side labels
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('the screen holds no calendar', () => {
+  it('every row arrives with its day header label and its lead time already formatted', async () => {
+    for (const r of decorated(await load(STORE_A))) {
+      expect(r.dayLabel).toMatch(/^\d{1,2}月\d{1,2}日\([日月火水木金土]\)$/)
+      expect(r.dayLabel.startsWith(r.dateLabel)).toBe(true)
+      expect(r.startLabel).toMatch(/^\d{2}:\d{2}$/)
+      expect(r.timeLabel.startsWith(r.startLabel)).toBe(true)
+    }
+  })
+
+  it('rows in one day share one label, and the days come in ascending order', async () => {
+    const rows = decorated(await load(STORE_A))
+    const byDay = new Map<number, Set<string>>()
+    for (const r of rows) byDay.set(r.dayKey, (byDay.get(r.dayKey) ?? new Set()).add(r.dayLabel))
+    for (const [, labels] of byDay) expect(labels.size).toBe(1)
+    expect([...byDay.keys()]).toEqual([...byDay.keys()].sort((a, b) => a - b))
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 13. V2 — 来店なし memory (rider #3), and it is lens-clamped by construction
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('来店なし memory', () => {
+  it('thin-01’s later bookings carry the tag, and no other customer’s row does', async () => {
+    const rows = decorated(await load(STORE_A))
+    const tagged = rows.filter((r) => r.noShowCount > 0)
+    // BOTH of her remaining bookings in the window, and that is the honest
+    // answer rather than a convenient one: the memory belongs to the CUSTOMER,
+    // so every booking of hers carries it. apt-32 is +3 days, apt-20 is +6.
+    expect(tagged.map((r) => r.id)).toEqual(['apt-32', 'apt-20'])
+    expect(tagged.every((r) => r.noShowCount === 1)).toBe(true)
+    expect(new Set(tagged.map((r) => r.customerName)).size).toBe(1)
+    // the carrier itself is apt-23, today's 来店なし — and it does NOT explain
+    // itself back to the reader: its own pill already says what happened.
+    expect(rows.find((r) => r.id === 'apt-23')!.noShowCount).toBe(0)
+    // …and nobody else's rows moved
+    expect(rows.filter((r) => r.noShowCount === 0).length).toBe(rows.length - 2)
+  })
+
+  it('under the other store nobody has a no-show to remember', async () => {
+    expect(decorated(await load(STORE_B)).every((r) => r.noShowCount === 0)).toBe(true)
+  })
+
+  it('the count is LENS-CLAMPED: another store’s no-show for the same customer never counts', async () => {
+    // A synthetic 代官山 no-show for thin-01, handed to the assembly through the
+    // harness's own world door. Under 銀座 it must not move a number.
+    const world = { appointments: [...appointments(), otherStoreNoShow()] }
+    const ginza = (await reservationsProps({ locale: 'ja', store: STORE_A, world })).props
+    expect(ginza.rows.find((r) => r.id === 'apt-20')!.noShowCount).toBe(1)
+    // …and the same world read from 代官山 does see it, which is what proves the
+    // synthetic row was really there rather than silently dropped.
+    const daikanyama = (await reservationsProps({ locale: 'ja', store: STORE_B, world })).props
+    expect(daikanyama.rows.every((r) => r.storeLabel === null)).toBe(true)
+    expect(ginza.rows.some((r) => r.id === 'apt-syn-noshow')).toBe(false)
+  })
+})
+
+/** A 代官山 booking for 銀座's own thin-01, already ended, marked 来店なし. It
+ *  exists only inside a harness world: the demo plane has no cross-store
+ *  no-show, and an impossible-to-reach state is what a proof world is for. */
+function otherStoreNoShow() {
+  const base = appointments().find((a) => a.id === 'apt-23')!
+  return {
+    ...base,
+    id: 'apt-syn-noshow',
+    store_id: STORE_B,
+    display_no: 'R-9001',
+    starts_at: jstSlot(-1, 10, 0),
+    ends_at: jstSlotEnd(-1, 10, 0, 30),
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 14. V2 — ⚖ ANY-ROSTER-SIZE on BOTH dimensions, through the real derivations
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('the room holds at scale', () => {
+  /** Twelve 要対応 cards — the rail's own dimension (⚖-ADJ K). Every one is a
+   *  real booking through the real door with a real exception record beside it;
+   *  nothing is a class toggle. */
+  const twelveQueue = () => {
+    const seed = appointments().find((a) => a.id === 'apt-15')!
+    const extra = Array.from({ length: 11 }, (_, i) => ({
+      ...seed,
+      id: `apt-q${i}`,
+      display_no: `R-88${String(i).padStart(2, '0')}`,
+      staff_id: null,
+      resource_id: null,
+      starts_at: jstSlot(2, 10, i * 5),
+      ends_at: jstSlotEnd(2, 10, i * 5, 30),
+    }))
+    return {
+      appointments: [...appointments(), ...extra],
+      reservations: [
+        ...reservations,
+        ...extra.map((a, i) => ({ appointment_id: a.id, pending: false, deadline: 15 * 60 + i, flags: [], proof: '合成の根拠' })),
+      ],
+    }
+  }
+
+  it('twelve deadline cards stay ONE ordered rail — the count names the total', async () => {
+    const p = (await reservationsProps({ locale: 'ja', store: STORE_A, world: twelveQueue() })).props
+    const q = decorated(p).filter((r) => r.queued).sort((a, b) => a.deadlineMinute! - b.deadlineMinute!)
+    expect(q.length).toBe(16)
+    expect(q.map((r) => r.deadlineMinute!)).toEqual([...q.map((r) => r.deadlineMinute!)].sort((a, b) => a - b))
+    expect(chipCounts(decorated(p)).attention).toBe(q.length)
+  })
+
+  /** Sixty bookings across the whole seven-day window — the LIST's dimension. */
+  const sixtyRows = () => {
+    const seed = appointments().find((a) => a.id === 'apt-15')!
+    return {
+      appointments: Array.from({ length: 60 }, (_, i) => ({
+        ...seed,
+        id: `apt-w${i}`,
+        display_no: `R-7${String(i).padStart(3, '0')}`,
+        staff_id: null,
+        resource_id: null,
+        starts_at: jstSlot(i % 7, 10, (i % 8) * 5),
+        ends_at: jstSlotEnd(i % 7, 10, (i % 8) * 5, 30),
+      })),
+      reservations: [],
+    }
+  }
+
+  it('a sixty-row week arrives as sixty rows over seven day groups, in 日時 order', async () => {
+    const p = (await reservationsProps({ locale: 'ja', store: STORE_A, world: sixtyRows() })).props
+    expect(p.rows.length).toBe(60)
+    expect(new Set(p.rows.map((r) => r.dayKey)).size).toBe(7)
+    const keys = p.rows.map((r) => r.dayKey * 10000 + r.startMinute)
+    expect(keys).toEqual([...keys].sort((a, b) => a - b))
+    // every day header has a label and every row a lead time, at scale too
+    for (const r of p.rows) expect(r.dayLabel).toContain('(')
+  })
+
+  it('a world override cannot smuggle another store’s booking past the lens', async () => {
+    const world = { appointments: appointments().map((a) => ({ ...a, store_id: STORE_B })) }
+    const p = (await reservationsProps({ locale: 'ja', store: STORE_A, world })).props
+    expect(p.rows).toEqual([])
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 15. GREPTILE ROUND 1 — G1 · the countdown reads real elapsed time
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('elapsedSecondsSince — measured from the wall clock, never counted callbacks', () => {
+  it('0 → 0, 1s → 1, and a throttled gap catches up rather than drifting', () => {
+    expect(elapsedSecondsSince(1_000, 1_000)).toBe(0)
+    expect(elapsedSecondsSince(1_000, 2_000)).toBe(1)
+    // a background tab throttled to one callback every 125s: the real elapsed
+    // time is read directly rather than reconstructed from missed callbacks
+    expect(elapsedSecondsSince(1_000, 126_000)).toBe(125)
+  })
+
+  it('never negative — a callback landing a hair before its scheduled instant does not count backwards', () => {
+    expect(elapsedSecondsSince(1_000, 999)).toBe(0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 16. GREPTILE ROUND 1 — G2(b) · chip counts run on the period+search base
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('chipBase (G2(b)) — chipCounts runs over 期間+検索, never the chip’s own status/source/price', () => {
+  it('narrowing by the CURRENT period before counting is the whole point — すべて’s number becomes that period’s own total', async () => {
+    const rows = decorated(await load(STORE_A))
+    const full = chipCounts(rows)
+    const todayOnly = chipCounts(rows.filter((r) => r.isToday))
+    // this IS `chipBase`'s own mechanism: narrowing the rows by the current
+    // 期間 BEFORE chipCounts runs is what makes 「要対応 5件」 describe the rows
+    // that chip shows under the period on screen right now — すべて's own
+    // number, read off a 本日-narrowed base, becomes exactly what 本日's count
+    // already was off the full corpus.
+    expect(todayOnly.all).toBe(full.today)
+    expect(todayOnly.all).toBeLessThan(full.all)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 17. GREPTILE ROUND 1 — G3 · overnight duration is a real instant difference
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('durationMinutes survives a booking that crosses JST midnight', () => {
+  it('23:30 → 00:30 reads 60 minutes, never a negative minute-of-day subtraction', async () => {
+    const seed = appointments().find((a) => a.id === 'apt-15')!
+    const overnight = {
+      ...seed,
+      id: 'apt-overnight',
+      display_no: 'R-9002',
+      staff_id: null,
+      resource_id: null,
+      starts_at: jstSlot(0, 23, 30),
+      ends_at: jstSlotEnd(0, 23, 30, 60),
+    }
+    const world = { appointments: [...appointments(), overnight] }
+    const p = (await reservationsProps({ locale: 'ja', store: STORE_A, world })).props
+    const row = p.rows.find((r) => r.id === 'apt-overnight')!
+    expect(row.durationMinutes).toBe(60)
+    expect(row.startMinute).toBe(23 * 60 + 30)
+    expect(row.timeLabel).toBe('23:30–00:30')
+    // a slot-picker candidate filter reading this row's durationMinutes must
+    // never be offered a candidate shorter than the booking itself
+    for (const s of safeSlotsFor(sellSlots, row.durationMinutes)) {
+      expect(s.end - s.start).toBeGreaterThanOrEqual(60)
+    }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 18. GREPTILE ROUND 1B — A2 · 勤務時間超過 survives a booking that crosses
+// JST midnight — the same bug shape as G3, in the OTHER derivation that reads
+// start/end minutes (`shiftWarningOf`'s overage half)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('shiftWarningOf’s overage warning survives a booking that crosses JST midnight', () => {
+  it('23:30 → 00:30 with the shift ending 24:00 reads 30 minutes overage, never a missed warning', () => {
+    const shift = { start: 10 * 60, end: 24 * 60 }
+    const warning = shiftWarningOf('x', shift, jstSlot(0, 23, 30), jstSlotEnd(0, 23, 30, 60))
+    expect(warning).not.toBeNull()
+    expect(warning).toContain('30分超過')
+  })
+
+  it('23:30 → 00:30 with the shift ending 23:00 reads 90 minutes overage', () => {
+    const shift = { start: 10 * 60, end: 23 * 60 }
+    const warning = shiftWarningOf('x', shift, jstSlot(0, 23, 30), jstSlotEnd(0, 23, 30, 60))
+    expect(warning).not.toBeNull()
+    expect(warning).toContain('90分超過')
+  })
+
+  it('a normal 10:00 → 11:00 booking inside a 09:00–18:00 shift still warns of nothing (unchanged)', () => {
+    const shift = { start: 9 * 60, end: 18 * 60 }
+    const warning = shiftWarningOf('x', shift, jstSlot(0, 10, 0), jstSlotEnd(0, 10, 0, 60))
+    expect(warning).toBeNull()
   })
 })

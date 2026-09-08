@@ -11,6 +11,7 @@ import {
 } from './CurrentSessionCard'
 import { RegenerateEntriesButton } from './RegenerateEntriesButton'
 import { RecordingTranscriptCard } from './RecordingTranscriptCard'
+import type { KaruteDetailRecording } from '@/lib/karute/detail-screen'
 import {
   CustomerMemoryCard,
   type CustomerMemorySnapshot,
@@ -40,6 +41,9 @@ export interface KaruteDetailViewProps {
   /** A transcript exists but is withheld from this viewer (not the recording
    *  staff). The shared summary/entries still render. */
   transcriptRestricted?: boolean
+  /** The audio behind this karute, AS THE VIEWER MAY HEAR IT — server-decided.
+   *  null/absent = no player, and the card says nothing about one (⚖ 9/3). */
+  recording?: KaruteDetailRecording | null
   // photosSlot is streamed in via Suspense from the server page so the shell can
   // paint before the photo HTTP fetch resolves. Renders directly under 詳細記録
   // and ONLY when the karute has linked photos (Liam 8/10, mock frame C) — the
@@ -54,6 +58,11 @@ export interface KaruteDetailViewProps {
   /** F4: records.reassign gate — hides the 顧客を変更 entry point entirely
    *  for staff without the capability (hide, never show-and-refuse). */
   staffCanReassignRecords: boolean
+  /** The 再生成 gate — the SERVER's answer, not "can I read the words". A
+   *  named grantee sees a colleague's transcript and may not rewrite it, so
+   *  the button is hidden for her rather than shown and refused
+   *  (⚖ 9/3 named grant; fix round 4). Absent = hidden. */
+  staffCanRegenerate?: boolean
 }
 
 export function KaruteDetailView({
@@ -69,12 +78,14 @@ export function KaruteDetailView({
   consentOnFile,
   transcriptDurationLabel,
   transcriptRestricted,
+  recording,
   photosSlot,
   memory,
   bodyPredictionSlot,
   suggestedMessageSlot,
   outcome,
   staffCanReassignRecords,
+  staffCanRegenerate,
 }: KaruteDetailViewProps) {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
@@ -135,7 +146,7 @@ export function KaruteDetailView({
               entries={entries}
               karuteRecordId={karuteId}
               headerAction={
-                transcript ? (
+                transcript && staffCanRegenerate ? (
                   <RegenerateEntriesButton karuteRecordId={karuteId} />
                 ) : null
               }
@@ -166,10 +177,12 @@ export function KaruteDetailView({
             {suggestedMessageSlot}
           </div>
           <RecordingTranscriptCard
+            karuteId={karuteId}
             transcript={transcript}
             consentOnFile={consentOnFile}
             durationLabel={transcriptDurationLabel}
             restricted={transcriptRestricted}
+            recording={recording}
           />
           {/* Layer 1 staff-private coaching panel — renders null
            *  for owners (role gate inside the component). Currently

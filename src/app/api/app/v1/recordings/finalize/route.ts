@@ -20,8 +20,11 @@
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
+import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { FinalizeTakeSchema } from '@/lib/app-api/record-schemas'
 import { finalizeTakeWithClient } from '@/lib/recording/finalize-take'
 
@@ -39,7 +42,7 @@ export const POST = facadeHandler('recordings.finalize', async (ctx) => {
   const parsed = FinalizeTakeSchema.safeParse(body)
   if (!parsed.success) throw new AppApiError('validation', 'invalid finalize payload')
 
-  const synqed = newSynqedClient(ctx.identity.businessId)
+  const synqed = newSynqedClient(ctx.identity.businessId, extractBearer(ctx.req))
 
   // ROSTER GATE — the half a capability check cannot carry (#566). The web
   // twin's getCurrentUserStaffId IS a roster-membership probe; ctx.identity
@@ -50,14 +53,32 @@ export const POST = facadeHandler('recordings.finalize', async (ctx) => {
     throw new AppApiError('forbidden', 'no acting staff identity for this user; nothing was written')
   }
 
-  // NO store clamp here any more (fix round 4): finalize never mints a row, so
-  // it has no store to choose. The MINT does — see the upload-url twin.
+  // Finalize still CHOOSES no store — it never mints a row; the mint does (see
+  // the session twin). What it now needs is the caller's own store REACH.
+  // ③ THE OWNER'S HAND REACHES ONLY WHERE THE PERSON CAN SEE. The Bearer twin
+  // of web's viewerScopeForActs, and the same call the regenerate/relearn act
+  // routes already make (karute/[id]/regenerate/route.ts). Resolved ONLY when
+  // the pair is held: a recorder acting on her OWN session never reaches the
+  // store leg, so an assignment blip must not cost her the take. It reads the
+  // ASSIGNMENT, never the `store-id` header — a phone-set pin can neither
+  // widen nor narrow the owner's hand.
+  const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
+  const allowedStoreIds = callerHoldsOwnerKeys
+    ? await viewerAllowedStoreIds({
+        synqed,
+        authUserId: ctx.identity.authUserId,
+        capabilities: ctx.identity.capabilities,
+        selfStaffId: staffId,
+      })
+    : null
+
   const result = await finalizeTakeWithClient(
     synqed,
     {
       staffId,
       businessId: ctx.identity.businessId,
-      canViewAll: ctx.identity.capabilities.has('recordings.viewAll'),
+      holdsOwnerKeys: callerHoldsOwnerKeys,
+      allowedStoreIds,
       source: 'facade',
       requestId: ctx.meta.requestId,
     },

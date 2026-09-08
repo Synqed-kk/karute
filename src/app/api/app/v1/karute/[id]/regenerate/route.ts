@@ -9,6 +9,8 @@
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { regenerateKaruteWithClient } from '@/actions/regenerate-karute'
@@ -34,7 +36,20 @@ export const POST = facadeHandler<Params>('karute.regenerate', async (ctx) => {
 
   const synqed = newSynqedClient(ctx.identity.businessId)
   const viewerStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
-  const canViewAll = ctx.identity.capabilities.has('recordings.viewAll')
+  // The ACT keys on the OWNER'S HAND, not the named grant alone — same law as
+  // the web wrapper (⚖ 9/3 council; Greptile #848 point 1).
+  const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
+  // …and only where the caller can SEE: the owner's hand obeys the same store
+  // law as the read doors (⚖ 8/17; Greptile #848 review 2, point 2). Resolved
+  // only when it can matter; the core does the compare, where the karute is.
+  const allowedStoreIds = callerHoldsOwnerKeys
+    ? await viewerAllowedStoreIds({
+        synqed,
+        authUserId: ctx.identity.authUserId,
+        capabilities: ctx.identity.capabilities,
+        selfStaffId: viewerStaffId,
+      })
+    : null
 
   // Tenancy (not_found), ACL (forbidden), and rate-limit (rate_limited) throw
   // AppApiError inside the orchestration → the handler maps them to a status.
@@ -42,7 +57,8 @@ export const POST = facadeHandler<Params>('karute.regenerate', async (ctx) => {
   const result = await regenerateKaruteWithClient(synqed, {
     karuteRecordId: id,
     viewerStaffId,
-    canViewAll,
+    holdsOwnerKeys: callerHoldsOwnerKeys,
+    allowedStoreIds,
     locale: readLocale(ctx),
     businessId: ctx.identity.businessId,
   })

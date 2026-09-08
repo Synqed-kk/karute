@@ -84,6 +84,15 @@ export interface GuardResult {
   protectedWindowsBefore: number[]
   protectedWindowsAfter: number[]
   leastLossStart?: number
+  /** The attempted placement's own cost vector, in the order the key compares:
+   *  [protectedCapacityLoss, repertoireLossCount, deadResidueMin, salvageResidueMin].
+   *  It is the ATTEMPTED key whatever the verdict — ok, exempt, degraded,
+   *  R-UNAVAILABLE and refuse all carry the same four numbers, because it
+   *  describes the placement asked about and not the answer given. */
+  cost: readonly [number, number, number, number]
+  /** The menu durations this placement puts out of reach — `repLabel` names only
+   *  the longest of them. */
+  lossSet: readonly number[]
 }
 
 function uniqueSorted(nums: Array<number | undefined>): number[] {
@@ -364,6 +373,8 @@ export function createGapGuard(config: GuardConfig) {
       protectedCapacityLoss: attempted.key[0],
       protectedWindowsBefore: attempted.protectedWindowsBefore.slice(),
       protectedWindowsAfter: attempted.protectedWindowsAfter.slice(),
+      cost: [attempted.key[0], attempted.key[1], attempted.key[2], attempted.key[3]] as const,
+      lossSet: attempted.lossSet.slice(),
     }
 
     /** An impossible placement must never inherit an ok/exempt/degraded rank. */

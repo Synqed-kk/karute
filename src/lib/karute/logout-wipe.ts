@@ -51,7 +51,9 @@ export async function wipeSessionVault(opts: { uid?: string } = {}): Promise<voi
     import('@/lib/recordings/inbox-store'),
   ])
   resetInbox()
-  globalRecorder.discard() // stops the mic if live; deletes the live take
+  // ⚖ Slice five (D4): stops the mic if live and KEEPS the take on the device —
+  // the next sign-in's drain secures it; only the identity is dropped.
+  globalRecorder.abandon()
   globalPipeline.reset()
   clearDraft()
   // Owner-scoped on purpose: only the signing-out user's takes die here —

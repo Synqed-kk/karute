@@ -12,7 +12,7 @@
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveWebActorId } from '@/lib/audit-web'
 import { requireCapability } from '@/lib/auth/require-permission'
-import { getBusinessId } from '@/lib/staff'
+import { getBusinessId, getCurrentAccessToken } from '@/lib/staff'
 import {
   discardRecordingWithClient,
   discardRecordingWithReasonRow,
@@ -72,7 +72,7 @@ async function openDiscardDoor(): Promise<
     const businessId = await getBusinessId()
     return {
       ok: true,
-      synqed: newSynqedClient(businessId),
+      synqed: newSynqedClient(businessId, await getCurrentAccessToken()),
       actor: {
         staffId: await resolveWebActorId(),
         businessId,

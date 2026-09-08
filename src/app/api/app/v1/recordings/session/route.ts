@@ -15,12 +15,21 @@
 // name, because a 200 {id:null} would tell the caller "carry on regardless"
 // about a key it has to fix first. The tenant prefix the key carries comes from
 // the VERIFIED Bearer identity, never from the body.
+//
+// SLICE THREE ③ — THE STORE. The row is now minted carrying the store the
+// caller is working in: the `store-id` header, clamped, and — ⚖ amendment 10 —
+// the business's primary store when the request named none, so a NEW row is
+// never born store-less. Both run OUTSIDE the fail-open try: a store this
+// caller may not use, or a store lookup that cannot answer, is a 403, never a
+// 200 {id:null} that would let the take be captured against it anyway.
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
+import { resolvePrimaryStoreId, resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import {
   startRecordingSessionWithClient,
   type StartRecordingSessionResult,
@@ -66,8 +75,59 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
     throw new AppApiError('validation', parsed.error.issues.map((e) => e.message).join(', '))
   }
 
-  const synqed = newSynqedClient(ctx.identity.businessId)
+  const synqed = newSynqedClient(ctx.identity.businessId, extractBearer(ctx.req))
   const selfStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
+
+  // THE STORE THIS RECORDING IS MADE IN (slice three ③) — the Bearer twin of
+  // the web action's resolveStoreScope(), and the same call the job route makes
+  // for the same field (recordings/job/route.ts:102-113): no active-store
+  // cookie exists here, so the store travels as an explicit `store-id` header
+  // and is PROVEN to be this caller's before it is written to anything.
+  //
+  // OUTSIDE the fail-open try below, deliberately. A store-id the caller may
+  // not use is a `store_forbidden` throw, and it must leave as the 403 every
+  // other facade route answers with — swallowed into `{ id: null }` it would
+  // read to the client as "carry on, the mint just failed", and the take would
+  // be captured against a store this caller was refused. The inbox route places
+  // its clamp for exactly this reason (recordings/inbox/route.ts).
+  //
+  // ⚖ AND SO DOES A LOOKUP FAILURE — an upstream blip here reads as 403, not
+  // 5xx, because that is the clamp's own fail-closed shape (store-clamp.ts:74
+  // and :109, both without the `store_header` marker, so the thin shell's
+  // stranded-pin self-heal correctly does not fire). It is NOT swallowed to
+  // `storeId: null`: under the ruled null rule an unstamped row is permanently
+  // OPEN at the take doors, so swallowing would turn a momentary blip into a
+  // permanent, invisible widening. Capture is not blocked either way — the
+  // client reads every non-2xx as a null mint, and the drain re-mints later
+  // with the CORRECT store.
+  const clamp = await resolveStoreForRequest({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    requestedStoreId: ctx.req.headers.get('store-id'),
+  })
+
+  // ⚖ AMENDMENT 10 — THIS SERVER NEVER PERSISTS A STORE-LESS NEW ROW, whatever
+  // the client sent. `null` is no longer a possible outcome of this route: the
+  // header wins when one rode the request (the clamp above has already proven
+  // it belongs to this caller), and otherwise the business's PRIMARY store is
+  // the answer. The thin shell seeds its own lens to that same store on first
+  // boot and sends it as `store-id` from then on
+  // (thin/chrome/chrome-store.ts seedStoreLens · thin/ports/facade-fetch.ts),
+  // so this is the server-side twin of the client's own seed, not a second
+  // opinion — it simply also covers the caller whose seed never stuck and the
+  // raw API caller. It is a NARROWING, never a widening: a clamped staffer
+  // cannot reach the lookup at all (the clamp already answered them
+  // `requested ?? assigned[0]`, always concrete), so nobody's reach grows —
+  // an unstamped row would have read OPEN at the take doors under the D7 null
+  // rule, which was only ever meant for rows minted before slice ③.
+  //
+  // The lookup's own failure leg is the SAME fail-closed 403 as the clamp's
+  // (`store_forbidden` from resolvePrimaryStoreId, normalized by facadeHandler
+  // → 403, errors.ts STATUS), and it stays OUTSIDE the fail-open try below for
+  // the reason above: swallowed into `{ id: null }` it would read as "carry on"
+  // and put a store-less row behind the take.
+  const storeId = clamp.storeId ?? (await resolvePrimaryStoreId(synqed))
 
   // Fail-OPEN parity with the web action: a null mint (unresolvable staff) is
   // NOT an error, and a genuine SDK throw is swallowed to { id: null } too —
@@ -83,6 +143,7 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
       businessId: ctx.identity.businessId,
       takeId: parsed.data.takeId ?? null,
       mimeType: parsed.data.mimeType ?? null,
+      storeId,
     })
   } catch (err) {
     console.error('[recordings.session.mint] failed:', err)

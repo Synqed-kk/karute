@@ -42,6 +42,8 @@ type Session = {
   jobStatus: string | null
   jobProbeFailed: boolean
   jobLastError: string | null
+  /** Slice ③ — what the server holds for this session's audio. */
+  serverAudio?: 'segments' | 'object' | null
 }
 const session = (over: Partial<Session> & { recordingSessionId: string }): Session => ({
   customerId: 'cust-1',
@@ -117,6 +119,48 @@ describe('FX-2 — a refresh during a fold is deferred, not dropped', () => {
     await loadInbox()
     expect(listRecordingsInbox).toHaveBeenCalledTimes(2)
   })
+
+  it('⚖ R2: a mid-fold caller gets a promise it can FOLLOW, not one already resolved', async () => {
+    // The server save holds a UI latch until its reload settles. On the
+    // single-flight path that reload used to resolve on the same tick: the
+    // row re-enabled over a list that had not changed yet and a second tap
+    // enqueued again. What the caller must wait for is the TRAILING re-run —
+    // the only read that has seen its own write.
+    const first = deferred<Session[]>()
+    listRecordingsInbox.mockReturnValueOnce(first.promise)
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' }),
+    ])
+
+    const started = loadInbox()
+    await flush()
+
+    let settled = false
+    let rowsWhenSettled = -1
+    const follower = loadInbox().then(() => {
+      settled = true
+      // ⚖ R3 (fix round 3) — the state AT THE MOMENT the promise settled, read
+      // inside the `.then()`. Asserting it after the test's own `flush()` below
+      // proves nothing about the promise: the trailing re-run finishes inside
+      // that flush whether or not anyone awaited it, so dropping the `await` in
+      // inbox-store's re-run left this test green. This variable is the only
+      // thing here that can tell the two apart.
+      rowsWhenSettled = getInboxState().rows.length
+    })
+    await flush()
+    expect(settled).toBe(false)
+
+    first.resolve([]) // the pre-write world
+    await started
+    await follower
+    await flush()
+
+    expect(settled).toBe(true)
+    // The FRESH fold — the trailing re-run's, not the one that ran before it.
+    expect(rowsWhenSettled).toBe(1)
+    expect(getInboxState().rows).toHaveLength(1)
+    expect(getInboxState().rows[0].state).toBe('saved')
+  })
 })
 
 describe('FX-3 — the bounded poll for processing rows', () => {
@@ -159,6 +203,41 @@ describe('FX-3 — the bounded poll for processing rows', () => {
     await loadInbox()
     await flush()
     expect(getInboxState().rows[0].state).toBe('processing')
+    await jest.advanceTimersByTimeAsync(INBOX_POLL_MS)
+    await flush()
+    expect(listRecordingsInbox).toHaveBeenCalledTimes(2)
+  })
+
+  it('a partialOnServer row is 処理中 but does NOT poll — the nightly job resolves it', async () => {
+    // Slice ③: this row is waiting on a cron that runs once a night, so a 90 s
+    // re-read of the whole inbox for up to three days would cost real calls and
+    // catch the change no sooner than the next mount does.
+    listRecordingsInbox.mockResolvedValue([
+      session({
+        recordingSessionId: 's1',
+        serverAudio: 'segments',
+        createdAt: new Date(NOW - 5 * 60 * 60_000).toISOString(),
+      }),
+    ])
+    await loadInbox()
+    await flush()
+    expect(getInboxState().rows[0].reason).toBe('partialOnServer')
+    await jest.advanceTimersByTimeAsync(INBOX_POLL_MS * 3)
+    await flush()
+    expect(listRecordingsInbox).toHaveBeenCalledTimes(1)
+  })
+
+  it('a live job alongside it still arms the timer — the exclusion is per-reason', async () => {
+    listRecordingsInbox.mockResolvedValue([
+      session({
+        recordingSessionId: 's1',
+        serverAudio: 'segments',
+        createdAt: new Date(NOW - 5 * 60 * 60_000).toISOString(),
+      }),
+      session({ recordingSessionId: 's2', jobStatus: 'RUNNING' }),
+    ])
+    await loadInbox()
+    await flush()
     await jest.advanceTimersByTimeAsync(INBOX_POLL_MS)
     await flush()
     expect(listRecordingsInbox).toHaveBeenCalledTimes(2)

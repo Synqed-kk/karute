@@ -2,10 +2,10 @@
 
 | | |
 | --- | --- |
-| **Status** | Plan — capture T0 shipped (#170, #171); capture T1–T4 + the server-side processing pipeline to build |
+| **Status** | Building — capture T0 shipped (#170, #171); T1's capture path is now shipped end to end (segments as they complete, the launch drain, the nightly assembler) with one decision still open (bitrate, below); T2–T4 to build |
 | **Audience** | Anthony + whoever owns the recording pipeline |
 | **Owners** | Liam (product) · Anthony (engineering) |
-| **Updated** | 2026-06-05 |
+| **Updated** | 2026-09-07 |
 
 ## Why this matters (the principle)
 
@@ -47,9 +47,117 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   **not** save a pocketed/locked phone (T4) and the 2h ceiling exists only because
   capture is still one blob (T1 removes it).
 
-### T1 — Local-first segmented capture (the real fix)
-Record in rolling ~10-min segments; **persist each locally as captured**
-(IndexedDB / OPFS) and upload as it completes. A crash/kill/dead-battery loses *at
+### T1 — Local-first segmented capture (the real fix) — shipped, one decision open
+**Where it actually stands (2026-09-07, capture-pipeline lane):**
+- **Local persistence is live.** Takes are held in IndexedDB as ~5 s segments
+  and survive a crash, a kill, and a dead battery (`lib/karute/take-store.ts`).
+- **The segments go up as they complete** (#836, `lib/recording/segment-uploader
+  .ts`) — every ~5 s, while the recording is still running. What the device had
+  is no longer only on the device.
+- **The whole take is secured at STOP**, to its own server-composed key, and the
+  core row points at it (`lib/recording/secure-take.ts`). Transcription and the
+  server job both read *that* object — there is no second staging upload.
+- **Every session row minted since slice ③ is born in a store** (older rows
+  carry none, and the take doors read that as open). The recording carries the store it
+  was made in, and both doors refuse rather than persist a store-less *new* row
+  whatever the client sent: the facade mint stamps the request's own `store-id`
+  lens when one rode it (proven to be this caller's first) and otherwise the
+  business's primary store — the same store the shell seeds its own lens to on
+  first boot, so the two answers agree by construction. A store lookup that
+  cannot answer is a fail-closed 403 on the facade, or a null mint (no row) on
+  the web action; capture is unaffected either way, because the client reads any
+  non-2xx / null id as "no session id" and the drain re-mints later.
+- **A take the device never sent is drained at the next launch** (#835), so a
+  phone that comes back finishes its own recording rather than waiting for
+  anyone to notice — and it can *always* finish it, whenever it turns up,
+  because the nightly job below never occupies the key it will need.
+- **And a device that never comes back no longer keeps the audio** — a nightly
+  job (03:07 JST, `/api/assemble`, `lib/recording/assembler.ts`) rebuilds the
+  take from the segments it left behind, once they have gone 48 hours
+  untouched (the 48 hours are the default of the server setting
+  `ASSEMBLE_AFTER_MS`, minimum 5 minutes; it is shortened only for a proof
+  and reset after). It
+  concatenates the contiguous run from the first segment, ADDS the result
+  **beside** the take — at `rsc/<the take's own key>`, never on it —
+  and files one `recording.capture_resumed` audit row that says plainly how many
+  segments there were, where the first hole is, and how long the rebuilt audio
+  is estimated to run. Two days, not two hours, because the device's own drain
+  is faster than we are and there is nothing to gain by spending a rebuild on a
+  take that is about to arrive whole.
+- **⚖ The rescue is a SIDE key, and that is what closes the returning phone**
+  (Liam's ruling, 2026-09-06). It used to write under the take's own key, which
+  meant a phone turning up later — out of a drawer, or simply *un-paused* — met
+  an object it could not replace, and its own finalize ended at a terminal
+  `size_mismatch` with the fuller audio stuck on the device. Writing one prefix
+  over leaves the phone's key free: it uploads its whole take and finalizes at
+  the size it declared, and nothing is stuck. Both objects then exist, and every
+  reader **prefers the phone's** — one precedence in one place
+  (`lib/recording/take-audio.ts`), used by the play button, the discard door and
+  — from this build — 録音履歴's own read and its save door. The 48-hour line now decides only
+  *when* a rescue happens, never what it can break. The cost is one extra
+  partial object per rescued take, which — like all audio here — is never
+  deleted.
+- **⚖ What the side key does NOT close — the words.** A karute somebody saved
+  from a rescue was transcribed from the rebuilt prefix, and it keeps those
+  words for good: no door in the app re-transcribes an existing record
+  (`regenerate-karute.ts` reads the record's own transcript, never the audio).
+  So when the phone returns, its fuller take becomes *playable* — the play
+  button signs it automatically — without becoming *written*. The staffer sees a
+  normal saved karute, not 要対応. There will be NO staff-facing
+  re-transcribe button (⚖ Liam 2026-09-07): bad text from the same audio is the
+  engine's failure to fix, not a button's job. The only conceivable successor is
+  an automatic, once-only re-listen when the phone's whole file arrives after a
+  partial was transcribed — and that is PARKED until the audit log shows the case
+  actually happening. Until then a karute saved from a rescue keeps its partial
+  transcript. It is still strictly better than what it replaced: nothing is
+  stuck, no second karute appears, and the full recording is on the server
+  either way.
+- **⚖ And a karute saved from 録音履歴 is not linked to a booking.** Which
+  appointment a recording belongs to is known only on the device that made it —
+  the inbox row carries no appointment id, by design (it carries metadata, never
+  a path or a booking), so the job the save door queues files the karute with no
+  booking on it. Nothing breaks; the record simply stands alone. Resolving the
+  day's booking server-side is a separate decision, not this lane.
+- **⚖ A rescued take's LENGTH is written by NOBODY here — not the job, and not
+  the save door either** (corrected 2026-09-07, after the side key). The nightly
+  job cannot: core fences `PUT /v1/recordings/:id` behind a human actor (core
+  D10, `docs/backlog/LIAM_FULL_DUMP_BACKLOG.md:94`) and a 03:07 cron has none.
+  The save door *could*, and deliberately does not — because any duration on the
+  row makes `finalizedBefore` true, which would send the returning phone's own
+  finalize down the "already finalized" exit: a 15-second estimate left standing
+  on a 45-minute recording, a scrubber that lies, and no `capture_finalized` row
+  for the real arrival. So **the length stays null until the phone itself comes
+  back and writes the true one**, and playback is satisfied by the job-owned
+  status alone. For a rescued take nobody ever saves, and for one whose phone
+  never returns, the row keeps a null duration and 録音履歴 shows no length —
+  the audio is on the server and the audit row carries the estimate. Closing
+  that for good would take a system actor in core.
+- **⚖ Retention is LIVE: audio is never deleted.** Every code path that could
+  destroy a recording is gone — the worker's post-transcription delete, the
+  facade transcribe route's `finally`, the web port's cleanup leg, the discard
+  janitor, the `removeRecordingObject` server action, and the hour-old bucket
+  sweep (which now only *reports*). `deleteTake` refuses a take the server has
+  not received, and session cleanup refuses a row that still points at audio.
+  The assembler is held to the same rule: it reads segments and adds an object,
+  and removes nothing at all. Enforced in CI by
+  `scripts/audit/check-audio-never-deleted.mjs`; the one exemption is
+  voice-enrolment revocation, fenced to its own key prefix.
+
+**What T1 still does NOT cover — so it is not "done":**
+- **Bitrate stays 48 kbps** (T0's number). Whether to raise it is still an OPEN
+  decision, and it is the bucket cap that has to answer first — a 2-hour take
+  at 48 kbps is already ~43 MB against a 50 MB object cap.
+- **A pocketed or locked phone still suspends capture** — that is T4 (native
+  background audio), not this lane.
+- **録音履歴 now says it — but a rescued row still has no length.** From this
+  build a staffer on a device that no longer holds the take reads 復元可能 with
+  保存する when the server holds the audio, and 処理中「サーバーに音声が途中まで
+  届いています」 while only the segments are up. What it still cannot show is the
+  recording's length, for the reason the **LENGTH** bullet above gives: nothing in this lane may
+  stamp one.
+
+The design, in full: record in rolling segments; **persist each locally as
+captured** (IndexedDB / OPFS) and upload as it completes. A crash/kill/dead-battery loses *at
 most the last segment*, never the session, and no single blob is ever too big or
 too large for memory. On stop, transcribe segments and **stitch** into one
 transcript. This is Plaud's model in software (see below). Removes the length

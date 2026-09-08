@@ -203,8 +203,19 @@ export async function revokeVoiceActionCore(
     const current = settings?.voice_enrollments?.[staffId]
     if (!current) return { ok: false }
 
+    // ⚖ THE ONE EXEMPTION FROM "audio is never deleted" (capture pipeline PR4),
+    // and it is fenced HERE, at runtime, not merely on an allowlist: staff own
+    // their own voice, so revoking an enrolment destroys the enrolment clips —
+    // and NOTHING ELSE. The keys are read back out of org settings, which is
+    // shared mutable state, so they are matched POSITIVELY against the exact
+    // prefix enrollVoiceActionCore composes them with (`voice-enroll/<business>/
+    // <staff>`): a settings blob carrying a recording key, this tenant's or
+    // anyone's, can never reach the remove below. The audit guard
+    // scripts/audit/check-audio-never-deleted.mjs names this call site and no
+    // other; if this fence moves, that script's exemption must be re-argued.
+    const ownPrefix = `voice-enroll/${businessId}/${staffId}`
     const paths = [current.sample_path, current.ref_path].filter(
-      (p): p is string => !!p,
+      (p): p is string => typeof p === 'string' && p.startsWith(ownPrefix),
     )
     if (paths.length > 0) {
       const supabase = createServiceClient()

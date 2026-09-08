@@ -99,6 +99,15 @@ export interface ParkChip {
   home: ParkHome
   lenMin: number
   item: BoardItem
+  /** ⚖ R8 FIX ROUND 2 (Greptile on #828) — WHETHER THE BOOKING HAS A RECORDED
+   *  PRICE, stamped at park time, while the board that knows the answer is
+   *  still the board on screen. The chip travels to another day (⚖ Liam 22),
+   *  where neither `pricedIds` nor the server's lanes have ever heard of the
+   *  id; the placement that lands there used to infer the fact from the card's
+   *  ticket LINE, which for a price-less booking is the non-null text
+   *  「価格未記録」 (today-board.ts :409-410) — a fact read off display prose.
+   *  Carried, it cannot be re-read wrong. */
+  priced: boolean
 }
 
 /** ⚖ Liam 22 — a card this session put on a board, and THE DAY it belongs to.
@@ -115,6 +124,10 @@ export interface AddedRow {
   laneKey: string
   item: BoardItem
   fromChip?: ParkChip
+  /** ⚖ R8 FIX ROUND 2 — the same fact for a row this SESSION minted, written by
+   *  the mint that knew the price (the chip's own stamp, the lane's 定価, the
+   *  dialog's コース) and never inferred afterwards from `item.ticketCore`. */
+  priced: boolean
 }
 
 /** canon's `pendingChange`, and — ⚖ R11-4 (:5686) — the DAY it is staged on. A

@@ -41,7 +41,7 @@ describe('RBAC permission model', () => {
     expect(effectiveCapabilities('owner', null).has('audit.view')).toBe(true)
   })
 
-  it('raw recordings are recorder-private: only the owner keeps recordings.viewAll (Liam 7/16)', () => {
+  it('raw recordings are recorder-private: recordings.viewAll ships in NO non-owner preset (Liam 7/16) — a named override is the only other way in', () => {
     expect(new Set(ROLE_PRESETS.owner).has('recordings.viewAll')).toBe(true)
     for (const role of ['manager', 'senior', 'practitioner', 'frontdesk', 'custom'] as const) {
       expect(new Set(ROLE_PRESETS[role]).has('recordings.viewAll')).toBe(false)
@@ -110,22 +110,30 @@ describe('RBAC permission model', () => {
     expect(caps.size).toBe(1)
   })
 
-  it('recordings.viewAll strips from every non-owner at resolve time — stale overrides included', () => {
-    // A manager customized BEFORE the recorder-private ruling: their stored
-    // override still carries recordings.viewAll. The preset change alone
-    // can't fix that row — the resolve-time strip must.
-    const stale = [...presetCapabilities('manager'), 'recordings.viewAll']
-    const caps = effectiveCapabilities('manager', stale)
-    expect(caps.has('recordings.viewAll')).toBe(false)
-    // The rest of the override survives untouched.
-    expect(caps.has('staff.manage')).toBe(true)
-    // Owner keeps it (the dev/support key) — preset or explicit override.
+  it("recordings.viewAll: never by preset, YES by an explicit override for every non-owner role, owner always (\u2696 9/3 council; strip removed 9/6)", () => {
+    // THE LAW. The owner ticking 全スタッフの録音 in StaffForm stores an override
+    // carrying recordings.viewAll; that deliberate grant now resolves as-is,
+    // exactly like audit.view. The resolve-time strip that used to sit in
+    // effectiveCapabilities() is GONE — it made the owner's own tick a
+    // checkbox that never stuck.
+    //
+    // Stale pre-7/16 rows: the population was COUNTED at 0 on 2026-09-06
+    // (evidence/grant-20260906/q2-stale-count.json) and the OLD write path
+    // stripped every non-owner request until this code deployed, so the set
+    // was frozen at zero — nothing to heal, no migration.
+    for (const role of ['manager', 'senior', 'practitioner', 'frontdesk', 'custom'] as const) {
+      // Named grant → held.
+      const granted = effectiveCapabilities(role, [...presetCapabilities(role), 'recordings.viewAll'])
+      expect(granted.has('recordings.viewAll')).toBe(true)
+      // No override → the preset → never held.
+      expect(effectiveCapabilities(role, null).has('recordings.viewAll')).toBe(false)
+    }
+    // The rest of the override survives untouched alongside the grant.
+    const manager = effectiveCapabilities('manager', [...presetCapabilities('manager'), 'recordings.viewAll'])
+    expect(manager.has('staff.manage')).toBe(true)
+    // Owner always — preset or explicit override.
     expect(effectiveCapabilities('owner', null).has('recordings.viewAll')).toBe(true)
     expect(effectiveCapabilities('owner', ['recordings.viewAll']).has('recordings.viewAll')).toBe(true)
-    // No other role can hold it, even via an explicit grant.
-    for (const role of ['senior', 'practitioner', 'frontdesk', 'custom'] as const) {
-      expect(effectiveCapabilities(role, ['recordings.viewAll']).has('recordings.viewAll')).toBe(false)
-    }
   })
 
   it('a null override falls back to the role preset', () => {

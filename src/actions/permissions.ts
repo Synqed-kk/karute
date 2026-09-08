@@ -33,8 +33,12 @@ import {
 //     through untouched (keeping an existing grant is not a grant — otherwise
 //     one owner-granted capability would lock every other manager out of
 //     editing that staff member).
-//   - audit.view is owner-granted ONLY (Liam ruling 7/17): holding it never
-//     confers the right to spread it.
+//   - audit.view / sync.view / recordings.viewAll are owner-granted ONLY
+//     (Liam rulings 7/17 · 7/24 · ⚖ 9/3 council): holding one of them never
+//     confers the right to spread it. This is what makes a stored override
+//     carrying recordings.viewAll trustworthy as a live grant — the resolve
+//     chokepoint no longer strips it (src/lib/auth/permissions.ts), so THIS
+//     gate is the only hand it can come from.
 // ───────────────────────────────────────────────────────────────────────────
 
 export interface StaffPermissions {
@@ -115,7 +119,7 @@ export async function getStaffPermissions(
  *  resolved (design-parity packet 12 §S4a — same P-B pattern as
  *  StoreWriteDeps): callerStaffId + callerCapabilities carry the two
  *  invariants moved in from the web action (no-escalation-by-delta,
- *  audit.view grant = owner only); actorId + source feed the moved-in audit
+ *  owner-granted-only adds); actorId + source feed the moved-in audit
  *  row. */
 export interface PermissionsWriteDeps {
   /** The acting caller's OWN staff/profile id — cookie-resolved
@@ -135,8 +139,8 @@ export interface PermissionsWriteDeps {
 
 /** Client-threaded core of setStaffPermissions (facade Bearer path, design-
  *  parity packet 12 §S4a). Carries all three invariants from the SECURITY
- *  block above (never target owner, no-escalation-by-delta, audit.view
- *  grant = owner only) plus the moved-in audit row, so web and facade can
+ *  block above (never target owner, no-escalation-by-delta, owner-granted-
+ *  only adds) plus the moved-in audit row, so web and facade can
  *  never diverge. businessId is REQUIRED — every query below is tenant-
  *  scoped by it. */
 export async function setStaffPermissionsCore(
@@ -178,15 +182,24 @@ export async function setStaffPermissionsCore(
     (target.permissions as string[] | null) ?? null,
   )
   const requested = effectiveCapabilities(permissionRole, capabilities)
+  // Did 全スタッフの録音 change hands on THIS write? Read BEFORE the update,
+  // spent on the audit row below (⚖ 9/3 council: the grant is logged).
+  const hadViewAll = targetCurrent.has('recordings.viewAll')
+  const hasViewAll = requested.has('recordings.viewAll')
   const added = [...requested].filter((c) => !targetCurrent.has(c))
   for (const c of added) {
     if (!deps.callerCapabilities.has(c)) return { error: 'You can only grant permissions you have yourself.' }
   }
-  // 監査ログ and 予約同期 status spread only from the owner's hand: a granted
-  // manager passes the hold-what-you-grant check above, so gate the ADD on
-  // ownership explicitly (audit.view: Liam ruling 7/17; sync.view mirrors it,
-  // Liam ruling 7/24 / packet 31 — Greptile #599 caught the missing twin).
-  const ownerGrantedOnlyAdds = added.filter((c) => c === 'audit.view' || c === 'sync.view')
+  // 監査ログ, 予約同期 status and 全スタッフの録音 spread only from the owner's
+  // hand: a granted manager passes the hold-what-you-grant check above (they
+  // hold staff.manage by preset), so gate the ADD on ownership explicitly
+  // (audit.view: Liam ruling 7/17; sync.view mirrors it, Liam ruling 7/24 /
+  // packet 31 — Greptile #599 caught the missing twin; recordings.viewAll
+  // joins them ⚖ 9/3 council, and this gate is now the ONLY way it can enter
+  // a stored override — the resolve chokepoint stopped stripping it).
+  const ownerGrantedOnlyAdds = added.filter(
+    (c) => c === 'audit.view' || c === 'sync.view' || c === 'recordings.viewAll',
+  )
   if (ownerGrantedOnlyAdds.length > 0) {
     const me = deps.callerStaffId
     const { data: caller } = me
@@ -204,7 +217,9 @@ export async function setStaffPermissionsCore(
       return {
         error: ownerGrantedOnlyAdds.includes('audit.view')
           ? 'Only the owner can grant audit-log access.'
-          : 'Only the owner can grant sync-status access.',
+          : ownerGrantedOnlyAdds.includes('sync.view')
+            ? 'Only the owner can grant sync-status access.'
+            : 'Only the owner can grant recording access.',
       }
   }
 
@@ -233,7 +248,17 @@ export async function setStaffPermissionsCore(
     businessId,
     targetType: 'staff',
     targetId: staffId,
-    detail: { before_role: beforeRole, after_role: permissionRole, customized: !matchesPreset },
+    detail: {
+      before_role: beforeRole,
+      after_role: permissionRole,
+      customized: !matchesPreset,
+      // ONE flag, ONLY when this capability changed hands — an id/flag, never
+      // content (the detail contract, src/lib/audit.ts). Key absent = it did
+      // not move on this write.
+      ...(hadViewAll !== hasViewAll
+        ? { recordings_view_all: hasViewAll ? 'granted' : 'revoked' }
+        : {}),
+    },
     requestId: deps.requestId,
     source: deps.source,
   })

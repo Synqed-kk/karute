@@ -36,6 +36,23 @@ export interface RecordingsInboxCardProps {
   onOpenRecord: (row: InboxRow) => void
   /** 保存する / 再試行 — hand this take's audio to the recovery save. */
   onSaveTake: (row: InboxRow) => void
+  /** The session whose SERVER save is in flight (build 23 slice ③, fix round
+   *  1). Its one button greys out until the row has been re-read — without it
+   *  the tap changed nothing on screen, and a second tap fired a second
+   *  enqueue. Null/absent = nothing in flight, which is the ordinary case.
+   *
+   *  ⚖ AND IT GREYS THE NEIGHBOURS TOO (fix round 3, R2). The page holds ONE
+   *  latch for the whole card, so while this row's save is in flight the save
+   *  on the row NEXT DOOR is UNAVAILABLE — its button is disabled, silently,
+   *  with no toast and no chip change, and a SERVER neighbour is additionally
+   *  refused at startServerSave's own guard. A device that walked out of signal
+   *  usually strands more than one recording, so two rows offering 保存する is
+   *  the ordinary shape here, not the exotic one: the staffer would tap both,
+   *  see both stay solid, and walk away believing both were queued. Only the
+   *  save/retry arms are locked — 開く and 確認する have nothing to do with a
+   *  save in flight — and only THIS row keeps `aria-busy`: the others are not
+   *  busy, they are unavailable. */
+  savingSessionId?: string | null
   /** The viewer's OWN discards this month (⚖ 8/25 ruling B, staff half).
    *  A LABELLED PLAIN FACT in muted type — never a badge, a threshold or a
    *  colour: Liam's rule is that this number must never make someone hesitate
@@ -76,8 +93,13 @@ const CHIP_CLASS: Record<InboxState, string> = {
 const QUIET_BTN = 'rounded-lg px-1 py-0.5 text-[12.5px] font-semibold text-primary'
 const WASH_BTN =
   'inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-primary bg-primary/8 px-3 text-[12.5px] font-semibold text-primary'
+// `disabled:hover:bg-primary` is not decoration: Tailwind's `hover:` is not
+// gated on `:disabled`, and iOS Safari applies :hover on tap and KEEPS it until
+// the next tap elsewhere. Without it the button the staffer just pressed holds
+// the pressed fill for the whole save — greyed by opacity, but wearing the
+// colour of a live control (fix round 2, R5).
 const SOLID_BTN =
-  'inline-flex h-8 items-center gap-1.5 rounded-[9px] bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover'
+  'inline-flex h-8 items-center gap-1.5 rounded-[9px] bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:hover:bg-primary'
 
 export function RecordingsInboxCard({
   rows,
@@ -88,6 +110,7 @@ export function RecordingsInboxCard({
   customerNameById,
   onOpenRecord,
   onSaveTake,
+  savingSessionId,
   myDiscardsThisMonth,
 }: RecordingsInboxCardProps) {
   const t = useTranslations('recording.inbox')
@@ -134,6 +157,8 @@ export function RecordingsInboxCard({
         labelKey: check ? 'action.check' : 'action.open',
         className: check ? WASH_BTN : QUIET_BTN,
         Icon: check ? Eye : undefined,
+        // Opening a saved record has nothing to do with a save in flight.
+        blocksOnSave: false,
         run: () => onOpenRecord(row),
       }
     }
@@ -142,6 +167,10 @@ export function RecordingsInboxCard({
         labelKey: 'action.save',
         className: SOLID_BTN,
         Icon: Save,
+        // ⚖ R2 (fix round 3) — routes through the page's ONE server-save latch,
+        // so it is unavailable while ANY server save is running, not just this
+        // row's. See savingSessionId's docblock above.
+        blocksOnSave: true,
         run: () => onSaveTake(row),
       }
     }
@@ -150,6 +179,7 @@ export function RecordingsInboxCard({
         labelKey: 'action.retry',
         className: QUIET_BTN,
         Icon: undefined,
+        blocksOnSave: true,
         run: () => onSaveTake(row),
       }
     }
@@ -253,7 +283,18 @@ export function RecordingsInboxCard({
                       <button
                         type="button"
                         onClick={action.run}
-                        className={action.className}
+                        // In flight → EVERY save/retry arm is spent until the
+                        // list has been re-read, because the page holds one
+                        // latch for the whole card (fix round 3, R2).
+                        // `disabled` carries the a11y half by itself
+                        // (aria-disabled is implied), and `aria-busy` says WHY
+                        // rather than just "no" — so it stays on the one row
+                        // that is actually busy.
+                        disabled={!!savingSessionId && action.blocksOnSave}
+                        aria-busy={
+                          !!savingSessionId && savingSessionId === row.recordingSessionId
+                        }
+                        className={`${action.className} disabled:opacity-60`}
                       >
                         {action.Icon && <action.Icon size={13} aria-hidden="true" />}
                         {t(action.labelKey as 'action.open')}

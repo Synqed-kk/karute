@@ -67,6 +67,30 @@ const DAY_MS = 86_400_000
 /** 予約種別 as canon writes it on a card and in the 精算 dialog's sub-line. */
 const CATEGORY_WORD = { new: '新規', repeat: '単発', ticket: '回数券', vip: 'VIP' } as const
 const WEEKDAY_WORD = ['日曜', '月曜', '火曜', '水曜', '木曜', '金曜', '土曜'] as const
+/** ⚖ R8 T1 — the 根拠 line that asserts the booking's own price survives a move.
+ *  Named once because both proof lists append it under the same condition, and a
+ *  second literal is a second place for the condition to be forgotten. */
+const PRICE_HOLD_PROOF = '予約時価格を保持'
+
+/** ⚖ R8 FIX ROUND 3 (BREAKER-828 F2) — ONE AUTHOR FOR A BOOKING'S 根拠 LIST.
+ *
+ *  The condition used to be spelled once per arm of `b.resourceId ? … : …`, and
+ *  the fixture only ever walks one of them: its single price-less booking
+ *  (apt-09) has no resource, so a with-resource arm that appended the 保持 line
+ *  unconditionally — a booking with a bed and no recorded price claiming its
+ *  price is held, the exact defect T1 removes — shipped green through the whole
+ *  suite. Two arms, one rule, so the rule is written once and the arms differ
+ *  only in the sentence about the bed.
+ *
+ *  `resourceProof` is the bed's own line, or `null` when the booking has no
+ *  resource yet; `priced` is whether the SERVER recorded a price for it. */
+export function bookingProofs(resourceProof: string | null, priced: boolean): string[] {
+  return [
+    '担当の勤務時間内',
+    ...(resourceProof == null ? ['設備の割当てが未確定'] : ['休憩と重ならない', resourceProof]),
+    ...(priced ? [PRICE_HOLD_PROOF] : []),
+  ]
+}
 /** The window the date nav and the month calendar can reach. Wide enough for a
  *  month either way, small enough that the per-day sums are free. */
 const WINDOW = 45
@@ -301,8 +325,31 @@ export default async function TodayPage({
       statusTone,
       source: `${b.source} / ${b.displayNo}`,
       facts: [
+        // ⚖ FIX ROUND 1 (blind lens 3 F5) — the 個室のみ tag on the inspector too.
+        // The card, the inspector and the accessible name described one booking
+        // three different ways and only the card mentioned the room rule.
+        //
+        // ⚖ FIX ROUND 2 (delta lens 3 N2 · JP native pass 5c) — IN THE BOOKING'S
+        // ROW, NOT THE ROOM'S. A parenthetical after a room name describes THAT
+        // ROOM: 「ベッド3（個室のみ）」 reads as 「bed 3 is private-room-only」, which
+        // is F4's own defect one surface later — and on any row the allocator did
+        // not choose (an imported booking carrying a standard bed, or none yet) it
+        // was 「ベッド1（個室のみ）」, flatly false. 予約種別 is about the booking, and
+        // 「個室のみ・単発」 is the shape the accessible name already ships.
+        //
+        // ⚖ FIX ROUND 3 (delta2 lens 4 D5 · lens 3 M2 · JP 3) — AND THE WORD
+        // COMES FROM THE TABLE. The open-coded ternary collapsed everything that
+        // was not 回数券/VIP to 単発, so cus-11's deliberately-新規 booking read
+        // 新規 on its card and in its accessible name and 単発 here — a
+        // contradiction between two rows of one screen, and the shape fix round 2
+        // gave this line is what made it visible. `CATEGORY_WORD` is this file's
+        // own 予約種別 vocabulary and already feeds the 精算 dialog's sub-line.
+        // ⚠ It is NOT the 再来/単発 question: `CATEGORY_WORD.repeat` is 単発 and
+        // `CATEGORY_LABEL.repeat` is 再来, and which of the two a 予約種別 row
+        // should say is a ruled rider (one word, one home). This change only
+        // stops 新規 from reading as 単発.
         ['担当・設備', `${b.staffName} / ${b.resourceName}`],
-        ['予約種別', `${b.category === 'ticket' ? '回数券' : b.category === 'vip' ? 'VIP' : '単発'} / ${b.source.split(' ')[0]}`],
+        ['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],
         [b.settlement === 'awaiting' ? '請求額' : '予約時価格', b.price == null ? '記録なし' : `${yen(b.price)}（税込）`],
         ['連絡状態', b.state === 'hold' ? '未送信' : '送信済み'],
         ['カルテ', b.settlement === null ? '施術後に作成' : '施術記録あり'],
@@ -334,9 +381,12 @@ export default async function TodayPage({
       b.state === 'hold' ? '仮押さえ' : b.state === 'attention' ? '要対応' : b.state === 'noshow' ? '来店なし' : b.settlement === 'awaiting' ? '精算待ち' : '確定',
       b.state === 'hold' ? 'waiting' : b.state === 'attention' || b.settlement === 'awaiting' ? 'checkout' : 'done',
       b.resourceId ? `${b.staffName} + ${b.resourceName}が成立` : '設備は未確定',
-      b.resourceId
-        ? ['担当の勤務時間内', '休憩と重ならない', bedSecuredProof(resources, b.resourceId), '予約時価格を保持']
-        : ['担当の勤務時間内', '設備の割当てが未確定', '予約時価格を保持'],
+      // ⚖ R8 T1 — the 価格保持 根拠 is CONDITIONAL: a booking with no recorded
+      // price has nothing to hold, and the facts above already say 記録なし
+      // about it. ⚖ FIX ROUND 3 (BREAKER-828 F2) — and the condition is written
+      // ONCE, in `bookingProofs`, because a rule spelled once per arm is a rule
+      // the fixture can only walk half of.
+      bookingProofs(b.resourceId ? bedSecuredProof(resources, b.resourceId) : null, b.price != null),
     )
   })
   planes.decisions.forEach((d, i) => {
@@ -413,6 +463,12 @@ export default async function TodayPage({
       : null,
     nowLabel: hhmm(planes.boardNow),
     lanes,
+    // ⚖ R8 T1 — WHICH OF TODAY'S BOOKINGS CARRY A RECORDED PRICE. `BoardItem`
+    // has no price field (today-board.ts) and the board is what every gesture
+    // holds, so the fact travels beside the lanes: the screen filters canon's
+    // unconditional 価格保持 check row with it, exactly as the 根拠 lists above
+    // are filtered with `b.price`. One reading of one server field, both places.
+    pricedIds: bookings.filter((b) => b.price != null).map((b) => b.id),
     // The 販売可能枠 layer is DERIVED IN THE BROWSER, not here: it has to answer
     // to a drag in progress, and a server-frozen cell list would keep painting
     // a window the card being dragged is already standing in. The dials come
@@ -448,11 +504,6 @@ export default async function TodayPage({
         mode: planes.opsConfig.gapGuardMode === 'strict' ? 'strict' : 'standard',
       },
     },
-    // ⚠SETTINGS-BATCH — ⚖ Liam flag 51. The bed the board hands a landing is an
-    // allocation, and these two dials are the whole of its judgement. They come
-    // from the store's own config for the same reason the guard's do: one place,
-    // read by everything, changed in 設定 rather than in code.
-    rooms: planes.opsConfig.roomPolicy,
     // ⚖ flag 77 — the dial itself, not what today happens to have on it.
     bedCleanupOn: resources.some((r) => r.cleanup_minutes > 0),
     // ⚖ R4 (2026-08-25) — THE SAME DIAL, PER ROOM. `bedCleanupOn` is a sentence

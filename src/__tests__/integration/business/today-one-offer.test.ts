@@ -11,7 +11,7 @@
 // The suppression that was supposed to catch it ran inside `renderLane`,
 // filtered `onThisLane` — the same DRAWN ROW — so it could not see p-05's
 // 販売可能枠 hour and p-06's スキマ枠 box both pointing at ベッド2 at all; and it
-// ran AFTER `buildSellLayer`, so 公開中 N枠 / 販売可能枠 N窓 / 安全な空き and the
+// ran AFTER `buildSellLayer`, so 公開中 N枠 / 販売可能枠 N窓 / the 運営影響 stat and the
 // price button were computed from boxes the screen then declined to draw.
 //
 // WHAT THIS FILE PROVES, in the order the round decides things:
@@ -62,7 +62,6 @@ import {
   gapLayerFor,
   keepsTheRoom,
   sellLayerFor,
-  type RoomPolicy,
   type SellReconcile,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
@@ -163,14 +162,14 @@ function layersOf(
     hi: price.hi,
     hqMin: props.dialogs.pricing.hqMin,
     depth,
-    reconcile: reconciled ? { claims, rooms: props.rooms, cleanupMinutesByBed: props.bedCleanupMinutes } : undefined,
+    reconcile: reconciled ? { claims, cleanupMinutesByBed: props.bedCleanupMinutes } : undefined,
   })
   return { sell, gap, claims }
 }
 
-const truthOn = (lanes: BoardLane[], rooms: RoomPolicy, hours: Hours, nowMin: number): BedTruth => {
+const truthOn = (lanes: BoardLane[], hours: Hours, nowMin: number): BedTruth => {
   const frame: DayFrame = { openMin: hours.open, closeMin: hours.close, nowMin }
-  return bedTruthViews(lanes, rooms, frame, null).world
+  return bedTruthViews(lanes, frame, null).world
 }
 
 /** THE ASSERTION, assembled the one way: the FINAL cells of both layers, read
@@ -180,7 +179,7 @@ function violationsOf(
   lanes: BoardLane[],
   layers: { sell: SellLayer; claims: GapCell[] },
 ) {
-  const truth = truthOn(lanes, props.rooms, props.hours, props.sell.nowMinute ?? props.hours.open)
+  const truth = truthOn(lanes, props.hours, props.sell.nowMinute ?? props.hours.open)
   return buildClaims(truth, boardOffers(layers.sell.cells, layers.claims)).violations(props.bedCleanupMinutes)
 }
 
@@ -227,7 +226,6 @@ function lane(over: Partial<BoardLane> & Pick<BoardLane, 'key' | 'group'>): Boar
   }
 }
 
-const ROOMS: RoomPolicy = { vipStaysPrivate: true, privateIsLastResort: true }
 const SELL_OPTS = { gridMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
 
 /** A スキマ枠-shaped promise on one room, as `gapLayerFor` emits them: a staff
@@ -239,7 +237,6 @@ const promise = (laneKey: string, resourceKey: string, s: number, e: number): Ga
 
 const rec = (claims: GapCell[], cleanup: Record<string, number> = {}): SellReconcile => ({
   claims,
-  rooms: ROOMS,
   cleanupMinutesByBed: cleanup,
 })
 
@@ -317,7 +314,7 @@ describe('§1 — the distinction, and the one place it is spelled', () => {
   it('every スキマ枠 box is its OWN claim, and its staff/bed pair collapses to one', () => {
     const offers = boardOffers([], promise('p-01', 'bed-01', 900, 950))
     expect(offers).toHaveLength(2) // the pair is still two OFFERS here…
-    const truth = truthOn([lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })], ROOMS, HOURS, 600)
+    const truth = truthOn([lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })], HOURS, 600)
     expect(buildClaims(truth, offers).claims).toHaveLength(1) // …and one CLAIM there.
   })
 
@@ -330,7 +327,7 @@ describe('§1 — the distinction, and the one place it is spelled', () => {
 
   it('overlapping sell options are NOT a violation — a gap box over them is', () => {
     const lanes = [lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })]
-    const truth = truthOn(lanes, ROOMS, HOURS, 600)
+    const truth = truthOn(lanes, HOURS, 600)
     const menu = [cell('bed-01', 900), cell('bed-01', 930), cell('bed-01', 960)]
     expect(buildClaims(truth, boardOffers(menu, [])).violations({})).toEqual([])
     const withGap = buildClaims(truth, boardOffers(menu, promise('p-02', 'bed-01', 930, 980))).violations({})
@@ -437,7 +434,6 @@ describe('§2 — reconciled before the layer is built, never in the renderer', 
     const reconcile = src.slice(src.indexOf('reconcile: {'), src.indexOf('\n        },', src.indexOf('reconcile: {')))
     for (const field of [
       'claims: gapClaims,',
-      'rooms: props.rooms,',
       'cleanupMinutesByBed: props.bedCleanupMinutes,',
       // Observation only, and collected inside the ONE derivation run — a second
       // `sellLayerFor` call to hear the same answer is what this must not become.
@@ -452,7 +448,7 @@ describe('§2 — reconciled before the layer is built, never in the renderer', 
     // ⚖ PIN MIGRATED at E3b, WITH the decision: same four surfaces, same law,
     // one layer along — they read `sellDrawn`, the PUBLISHED layer (⚖ Q4: the
     // standard hours inside a 新規用に確保 window are withheld from a regular
-    // customer, so they are not 公開中 and not 安全な空き either). The 販売可能枠
+    // customer, so they are not 公開中 and not counted in the 運営影響 stat either). The 販売可能枠
     // heading is now the sell GROUP of the ruled by-kind breakdown (⚖ 8/30 Q3),
     // and its rows are fed from this same `sellDrawn.staffBands` — the counter's
     // own memo is the fourth line below, which is where that surface now lives.
@@ -954,7 +950,7 @@ describe('§6 — one advertised offer per bed, on the operator’s own board', 
     // layer nor already held by a surviving 販売可能枠 offer in the same slot,
     // which is canon's own per-slot cap and the thing that stops a re-bedding
     // from handing two people one room for one hour.
-    const truth = truthOn(REAL.lanes, REAL.rooms, REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open)
+    const truth = truthOn(REAL.lanes, REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open)
     const claimed = new Map<string, Array<{ s: number; e: number }>>()
     for (const g of after.claims) {
       const held = claimed.get(g.resourceKey) ?? []

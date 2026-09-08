@@ -5,6 +5,7 @@
 // the audit-map registration — never the shared body's logic, which is proved
 // in recording-finalize-take.test.ts.
 import { createHmac } from 'node:crypto'
+import { fakeCreateSignedUploadUrl, OBJECT_NOT_FOUND } from './helpers/storage-fakes'
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 
@@ -31,13 +32,14 @@ jest.mock('@/lib/auth/require-permission', () => ({
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
 }))
 
-const createSignedUploadUrl = jest.fn(async (p: string) => ({
-  data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}`, token: 'tok-1' },
-  error: null as { message: string } | null,
-}))
+/** What the fake bucket HOLDS — a non-upsert sign is a CREATE and storage
+ *  refuses one for a key already there (helpers/storage-fakes.ts). */
+const held = new Set<string>()
+const uploadUrl = (p: string) => `https://proj.supabase.co/upload/${p}`
+const createSignedUploadUrl = jest.fn(fakeCreateSignedUploadUrl(held, uploadUrl))
 const info = jest.fn(async (_key: string) => ({
   data: { size: 1024 } as { size?: number } | null,
-  error: null as { message: string; status?: number } | null,
+  error: null as { message: string; status?: number; statusCode?: string } | null,
 }))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({ storage: { from: (_b: string) => ({ createSignedUploadUrl, info }) } }),
@@ -52,6 +54,10 @@ type Row = {
   status: string
   audio_storage_path: string | null
   duration_seconds: number | null
+  /** ③ The store the device was in. Null is the PRODUCTION shape for every row
+   *  minted before ③ and can never be filled afterwards, so it is the default;
+   *  only the store-leg cases below set it. */
+  store_id: string | null
 }
 /** The state the MINT leaves behind — see the beforeEach: the finalize door only
  *  ever meets a row that already reserved its take's key (fix round 4). */
@@ -62,6 +68,7 @@ const ROW: Row = {
   status: 'UPLOADING',
   audio_storage_path: null,
   duration_seconds: null,
+  store_id: null,
 }
 const recordingsGet = jest.fn(async (_id: string): Promise<Row> => ROW)
 const recordingsUpdate = jest.fn(async (id: string, _i: unknown): Promise<Row> => ({ ...ROW, id }))
@@ -106,7 +113,7 @@ const finalizeBody = {
  *  row the body names — REQUIRED as of fix round 7: the mint creates none. */
 const mintBody = { takeId: TAKE, mimeType: 'audio/mp4', recordingSessionId: SESSION }
 /** storage-js's "no such object" — a free key, which is every first mint. */
-const objectFree = { data: null, error: { message: 'Object not found', status: 404 } }
+const objectFree = { data: null, error: { ...OBJECT_NOT_FOUND } }
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -116,10 +123,14 @@ beforeEach(() => {
   getUser.fn.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
   info.mockResolvedValue({ data: { size: 1024 }, error: null })
   recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: KEY })
-  createSignedUploadUrl.mockImplementation(async (p: string) => ({
-    data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}`, token: 'tok-1' },
-    error: null,
-  }))
+  held.clear()
+  createSignedUploadUrl.mockImplementation(fakeCreateSignedUploadUrl(held, uploadUrl))
+  // ③ The two clamp doubles: jest.clearAllMocks() clears CALLS, not
+  // implementations, so a case that sets a persistent assignment would leak a
+  // clamped scope into every test declared after it. Floating (empty) is the
+  // shape every case outside the store-leg describe assumes.
+  fakeClient.staffStores.get.mockResolvedValue({ store_ids: [] } as never)
+  fakeClient.stores.get.mockResolvedValue({ id: 'store-1' } as never)
 })
 
 describe('POST recordings/upload-url — the fenced mint', () => {
@@ -166,6 +177,141 @@ describe('POST recordings/upload-url — the fenced mint', () => {
     expect(res.status).toBe(400)
     expect(recordingsGet).not.toHaveBeenCalled()
     expect(recordingsCreate).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  // ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (fix round 7). The phone's
+  // discard staging posts `{ stagedFor }`, and that body NAMES a session — so
+  // it pays for the same roster identity a client-named take does, and the same
+  // staff rule decides it. Nothing is reserved and nothing is written.
+  it('a stagedFor body signs a session-named key, and binds nothing', async () => {
+    recordingsGet.mockResolvedValue(ROW)
+    // The key is FREE — this suite's default `info` answers "an object is
+    // there", which since fix round 2 is a different, un-signed answer.
+    info.mockResolvedValue({ data: null, error: { ...OBJECT_NOT_FOUND } })
+    const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.path).toMatch(
+      new RegExp(`^stg/business-1_${SESSION}_[0-9a-f-]{36}\\.webm$`),
+    )
+    expect(body.recordingSessionId).toBe(SESSION)
+    expect(body.url).toBeTruthy()
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+    // ⚖ …BUT THE KEY IS PROBED FIRST (fix round 2). "A fresh uuid nobody can
+    // hold" stopped being true when the slot became the TAKE: the key is
+    // composable in advance, so the door looks before it signs, and an object
+    // already there is answered with its SIZE instead of a signed URL. One
+    // `info()` read, the shared one — and here it says the key is free, so this
+    // body is signed exactly as it always was.
+    expect(info).toHaveBeenCalledWith(body.path)
+  })
+
+  // …and when the object IS already there the door signs NOTHING and hands back
+  // the size, which is the only thing the device can check its own blob against.
+  it('…and an object already at that key comes back as a SIZE, never a URL', async () => {
+    recordingsGet.mockResolvedValue(ROW)
+    info.mockResolvedValue({ data: { size: 4096 }, error: null })
+    const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.existingSize).toBe(4096)
+    expect(body.url).toBeUndefined()
+    expect(body.token).toBeUndefined()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…on ANOTHER staffer’s session → 403, and nothing is signed', async () => {
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2' })
+    const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
+    expect(res.status).toBe(403)
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  // ⚖ …AND recordings.viewAll DOES NOT LIFT IT (slice five fix round 4, G2).
+  // The take mint lets an owner reserve a colleague's take by design; a staged
+  // copy is never anyone's but the recorder's — the discard word-collection
+  // runs on the recorder's own device against the owner-gated take store. With
+  // a deterministic, immutable key, owner reach here was a pre-fill lever: mint
+  // the colleague's key first, PUT anything, and their device meets a size
+  // mismatch for ever. The route's existing `forbidden` mapping carries it.
+  it('…and the OWNER’S OWN KEYS get the SAME 403 on this door', async () => {
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2' })
+    const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
+    expect(res.status).toBe(403)
+    expect(info).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  // ⚖ THE THIRD ACT, THROUGH THE REAL ROUTE (slice five packet C). A `seqs`
+  // body asks the SAME door for this take's segment keys — the bytes that reach
+  // the server while the recording is still running.
+  it('a seqs body comes back with one signed key per seq, under the take’s folder', async () => {
+    info.mockResolvedValue(objectFree)
+    // The fence: the row has ALREADY reserved this take's key (which is what a
+    // born-reserved create leaves behind). Without it the door signs nothing.
+    recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: KEY })
+    const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0, 1] }), noRoute)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.recordingSessionId).toBe(SESSION)
+    expect(body.segments.map((s: { path: string }) => s.path)).toEqual([
+      `seg/app_business-1_${TAKE}/000000.mp4`,
+      `seg/app_business-1_${TAKE}/000001.mp4`,
+    ])
+    expect(body.segments.every((s: { url?: string }) => Boolean(s.url))).toBe(true)
+    // It reserves nothing and it writes nothing — the finalize at the end of
+    // the take is the audited act, not this.
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  // ⚖ AND AN OWNER GETS THE SAME 403 ON THE SEGMENT ARM (fix round 1, K1) —
+  // the staged arm's rule, one act over. A segment key is composable in advance
+  // and both halves are readable off a colleague's row by exactly this
+  // capability, so owner reach here was a pre-fill lever: mint a seq the device
+  // has not reached, PUT anything, and that take's pump meets a length that is
+  // not its own and goes terminally quiet. The pump runs on the recording
+  // device alone, so nothing legitimate is lost by closing it.
+  it('…and the OWNER’S OWN KEYS get a 403 on a colleague’s segments', async () => {
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: KEY })
+    const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0, 1] }), noRoute)
+    expect(res.status).toBe(403)
+    expect(info).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…and a row that has not reserved this take’s key → 409 not_reserved', async () => {
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: null })
+    const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0] }), noRoute)
+    expect(res.status).toBe(409)
+    expect((await res.json()).error.message).toBe('not_reserved')
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…and a seqs body with no takeId is a 400, before anything is read', async () => {
+    const res = await mintPOST(jreq(auth, { recordingSessionId: SESSION, seqs: [0] }), noRoute)
+    expect(res.status).toBe(400)
+    expect(recordingsGet).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…and a take body with NO seqs still mints the whole take, exactly as before', async () => {
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue(ROW)
+    const body = await (await mintPOST(jreq(auth, mintBody), noRoute)).json()
+    expect(body.path).toBe(KEY)
+    expect(body.segments).toBeUndefined()
+  })
+
+  it('…and a body naming BOTH a take and a staged copy is a 400', async () => {
+    const res = await mintPOST(jreq(auth, { ...mintBody, stagedFor: SESSION }), noRoute)
+    expect(res.status).toBe(400)
+    expect(recordingsGet).not.toHaveBeenCalled()
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
@@ -335,7 +481,13 @@ describe('POST recordings/finalize', () => {
   })
 
   it('a missing object rides out in the 2xx body — the drain retries it', async () => {
-    info.mockResolvedValue({ data: null, error: { message: 'not found', status: 404 } })
+    // The production shape (hotfix 9/5): storage-api answers a missing
+    // object on /object/info/… with HTTP 400 and body statusCode '404',
+    // message 'Object not found' — never a plain 404 alone.
+    info.mockResolvedValue({
+      data: null,
+      error: { ...OBJECT_NOT_FOUND },
+    })
     const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ error: 'object_missing' })
@@ -354,5 +506,174 @@ describe('POST recordings/finalize', () => {
 
   it('is revocation-sensitive — a just-terminated staffer must re-verify', () => {
     expect(REVOCATION_SENSITIVE_ENDPOINTS.has('recordings.finalize')).toBe(true)
+  })
+})
+
+// ── ⚖ THE NAMED GRANT IS READ-ONLY, ON THE BEARER TRANSPORT (fix round 4) ────
+// Greptile #848 point 1's phone half. The web twins pinned it
+// (recording-upload-actions · recording-finalize-web-action); the transport the
+// app actually uses did not — mutating either route back to
+// `.has('recordings.viewAll')` left this whole file green (blind round 2, L2 F2).
+// Each refusal is bracketed by the both-keys positive on the SAME row, so the
+// 403 is provably about the keys and not about the row.
+describe('the named grant reserves and finalizes NOTHING on a colleague’s session (facade)', () => {
+  const colleaguesRow = () => {
+    // The take key must be FREE for the mint to reserve it — same setup the
+    // ordinary mint cases use; otherwise a 409 would mask the 403 question.
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: null })
+  }
+
+  it('mint: a NAMED GRANTEE (recordings.viewAll alone) → 403, nothing signed', async () => {
+    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    colleaguesRow()
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(403)
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('…while the OWNER’S HAND (both keys) reserves on the same row → 200', async () => {
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    colleaguesRow()
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(recordingsUpdate).toHaveBeenCalled()
+  })
+
+  it('finalize: a NAMED GRANTEE (recordings.viewAll alone) → 403, nothing written', async () => {
+    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: KEY })
+    const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
+    expect(res.status).toBe(403)
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('…while the OWNER’S HAND (both keys) finalizes the same row → 200', async () => {
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: KEY })
+    const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
+    expect(res.status).toBe(200)
+  })
+})
+
+// ── ⚖ WHO PAYS FOR THE REACH (slice three ③, fix round 1 — L2 F1/F2) ───────
+// The store reach is resolved ONLY where it can change an answer: a caller
+// holding the owner's pair, on the TAKE arm. A plain recorder never pays for
+// it, and neither does the SEGMENT arm — the segment door refuses every non-own
+// row two lines after the shared predicate, so a scope there is a core round
+// trip per batch on the live-recording hot path this route's header protects.
+describe('the act scope is resolved only where it can matter', () => {
+  const bothKeys = () =>
+    (capabilities.current = new Set([
+      'records.write',
+      'business.manage',
+      'recordings.viewAll',
+    ]))
+
+  it('a named take by a caller WITHOUT the pair asks core for no assignment', async () => {
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: null })
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(fakeClient.staffStores.get).not.toHaveBeenCalled()
+  })
+
+  it('…and the SAME caller WITH the pair does — the take arm is where it counts', async () => {
+    bothKeys()
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: null })
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(fakeClient.staffStores.get).toHaveBeenCalledTimes(1)
+  })
+
+  it('a SEGMENT body asks for no assignment even WITH the pair — the hot path stays cold', async () => {
+    bothKeys()
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: KEY })
+    const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0, 1] }), noRoute)
+    expect(res.status).toBe(200)
+    expect(fakeClient.staffStores.get).not.toHaveBeenCalled()
+  })
+})
+
+// ── ⚖ THE STORE LEG ON THE BEARER TRANSPORT (slice three ③) ────────────────
+// The owner's hand reaches only where the person can see, on the phone exactly
+// as on the web. The clamped pair-holder is the one person this changes, and
+// only on a colleague's row that carries a store — a row minted since ③. The
+// caller's REACH comes from the ASSIGNMENT (staffStores), never the `store-id`
+// header, so a phone-set pin can neither widen nor narrow it.
+describe('the store leg — a clamped pair-holder on a colleague’s take', () => {
+  const bothKeys = () => {
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    fakeClient.staffStores.get.mockResolvedValue({ store_ids: ['store-a'] } as never)
+  }
+
+  it('mint: another store’s STAMPED row → 403, nothing signed', async () => {
+    bothKeys()
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({
+      ...ROW,
+      staff_id: 'staff-2',
+      audio_storage_path: null,
+      store_id: 'store-9',
+    })
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(403)
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('mint: a PRE-③ row carries no store and still mints → 200', async () => {
+    bothKeys()
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({
+      ...ROW,
+      staff_id: 'staff-2',
+      audio_storage_path: null,
+      store_id: null,
+    })
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(recordingsUpdate).toHaveBeenCalled()
+  })
+
+  it('finalize: another store’s STAMPED row → 403, nothing written', async () => {
+    bothKeys()
+    recordingsGet.mockResolvedValue({
+      ...ROW,
+      staff_id: 'staff-2',
+      audio_storage_path: KEY,
+      store_id: 'store-9',
+    })
+    const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
+    expect(res.status).toBe(403)
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('finalize: a PRE-③ row carries no store and still finalizes → 200', async () => {
+    bothKeys()
+    recordingsGet.mockResolvedValue({
+      ...ROW,
+      staff_id: 'staff-2',
+      audio_storage_path: KEY,
+      store_id: null,
+    })
+    const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
+    expect(res.status).toBe(200)
+  })
+
+  it('the RECORDER never pays for it — her own take, and the assignment is never read', async () => {
+    capabilities.current = new Set(['records.write'])
+    recordingsGet.mockResolvedValue({
+      ...ROW,
+      staff_id: 'auth-user-1',
+      audio_storage_path: KEY,
+      store_id: 'store-9',
+    })
+    const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(fakeClient.staffStores.get).not.toHaveBeenCalled()
   })
 })

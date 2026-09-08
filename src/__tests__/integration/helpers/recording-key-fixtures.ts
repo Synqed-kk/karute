@@ -26,6 +26,15 @@ export const conformingKey = (businessId: string) =>
 export const segmentKey = (businessId: string, seq = '000000', ext = 'webm') =>
   `seg/app_${businessId}_${TAKE_UUID_FIXTURE}/${seq}.${ext}`
 
+/** ⚖ THE NIGHTLY JOB'S RESCUE of that same take (Liam 2026-09-06, "b") — the
+ *  take key one prefix further left. It parses, it is genuinely this tenant's,
+ *  and every door where the path is a CLIENT'S CLAIM still refuses it: no
+ *  client ever needs to name one, because the two SERVER-DERIVED doors that
+ *  reach a rescue (the worker's payload re-check, the discard door's audio
+ *  path) derive it themselves. */
+export const rescueKey = (businessId: string, ext = 'webm') =>
+  `rsc/app_${businessId}_${TAKE_UUID_FIXTURE}.${ext}`
+
 export const refusedKeys = (businessId: string): [string, string][] => [
   ['another business’s object', `app_other-biz_${TAKE_UUID_FIXTURE}.webm`],
   ['a prefix-lookalike', `app_${businessId}0_${TAKE_UUID_FIXTURE}.webm`],
@@ -36,6 +45,10 @@ export const refusedKeys = (businessId: string): [string, string][] => [
   ['no unique part at all', `app_${businessId}_.webm`],
   ['a query suffix', `app_${businessId}_${TAKE_UUID_FIXTURE}.webm?download=1`],
   ['this business’s own SEGMENT — parses, but is not a take', segmentKey(businessId)],
+  // ⚖ 2026-09-06 ("b"): the assembler's own rescue of this tenant's take. It
+  // parses, it belongs here, and every CLIENT-NAMED door still refuses it —
+  // isOwnRecordingKey did not widen when the grammar did.
+  ['this business’s own RESCUE — parses, and is still not a take', rescueKey(businessId)],
 ]
 
 /**

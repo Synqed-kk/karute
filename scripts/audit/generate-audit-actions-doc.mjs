@@ -32,6 +32,10 @@ const LITERAL_ONLY_CATEGORY = {
   // karute.entry_edit above).
   'karute.summary_edit': 'karute',
   'customer.create': 'customer',
+  // Choke emit: src/lib/recording/playback-url.ts#mintPlaybackUrlWithClient
+  // (facade key recordings.playbackUrl is a skip row — same doctrine as
+  // karute.entry_edit above).
+  'recording.play': 'recording',
   'privacy.customer_delete_canceled': 'privacy',
   'privacy.customer_delete_scheduled': 'privacy',
   'settings.permissions_change': 'settings',
@@ -67,6 +71,10 @@ const LITERAL_ONLY_CATEGORY = {
   // superseded branch's own action (fix round 6, I2) — a row that moved on to
   // other audio before this take's finalize landed. capture_finalized above
   // stays reserved for a call that actually wrote a pointer or a duration.
+  // Choke emit: src/lib/recording/assembler.ts#assembleStrandedTake — the
+  // nightly rescue of a take whose device never came back (build 23 slice ③).
+  // Literal-only by construction: no endpoint reaches it, only the cron.
+  'recording.capture_resumed': 'recording',
   'recording.capture_unlinked': 'recording',
   'recording.discard': 'recording',
   // Choke emit: src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient
