@@ -2234,10 +2234,16 @@ export function TodayScreen(props: TodayProps) {
     /** ⚖ 9/8 PACKING — `pack` is an ARGUMENT here, defaulted OFF, and not a field
      *  on `LandingAsk`: the ask is passed around by every surface on this board
      *  and a field would ride into all of them. Only `verdictAtLanding` — the
-     *  gesture END — turns it on. */
-    (q: LandingAsk, cell: RailCell | null, pack = false): LandingVerdict =>
+     *  gesture END — turns it on.
+     *
+     *  ⚖ FIX ROUND 1 (F1) — AND `lanes` IS THE BOARD THE QUESTION IS ASKED ON,
+     *  defaulted to the one on screen. Every per-frame consumer leaves it out
+     *  and is byte-unchanged; only `verdictAtLanding` hands one in, because a
+     *  re-landing is SOLVED on the board with its companions restored and was
+     *  being JUDGED on the board with them still moved. */
+    (q: LandingAsk, cell: RailCell | null, pack = false, lanes: BoardLane[] = boardLanes): LandingVerdict =>
       landingVerdict(
-        boardLanes,
+        lanes,
         {
           ...q,
           start: minuteOf(q.span.x, hours),
@@ -2284,11 +2290,30 @@ export function TodayScreen(props: TodayProps) {
       // 「…が入らなくなります」 face has to fire for that. So the solve runs, and
       // when it carries companions the cell is re-read on the synthetic board
       // `stage()` is about to write (`applyBedMoves`, the same helper).
-      const v = verdictFor(q, cellOn(boardLanes), true)
+      //
+      // ⚖ FIX ROUND 1 (F1) — AND ALL OF IT ON ONE BOARD. `solveLanes` is what
+      // the landing that follows this verdict SOLVES against (a re-landing puts
+      // its own companions back first), and this function was judging on
+      // `boardLanes` — the day with the first gesture's companions still in
+      // their new rooms. On a second gesture the two boards differ, so the word
+      // could refuse what the drop would then pack, or pass what the drop would
+      // then refuse and leave `solveBed`'s toast to speak after a clean verdict.
+      // One board, asked once: the cell, the verdict and the shuffle all read it.
+      const base = solveLanes(q.id)
+      const v = verdictFor(q, cellOn(base), true, base)
       if (v.reseats.length === 0) return v
-      return verdictFor(q, cellOn(applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), hours)), true)
+      const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours)
+      return verdictFor(q, cellOn(shuffled), true, shuffled)
     },
-    [verdictFor, verdictAt, hours, boardLanes],
+    // `solveLanes` is a body function declaration (⚖ its own doc comment: one
+    // home for 「which board does this landing solve against?」, and the pins in
+    // the suite hold it there), so the rule cannot see through it: this list is
+    // hand-maintained against what it actually reads — `pending` and `hours`,
+    // plus `boardLanesRef`, which is a ref and therefore always current. That
+    // ref is also why `boardLanes` LEAVES the list: nothing here reads the
+    // render's own copy of the board any more.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [verdictFor, verdictAt, hours, pending],
   )
 
   /** ⚖ Liam flag 50 — the drag frame runs inside listeners bound once per

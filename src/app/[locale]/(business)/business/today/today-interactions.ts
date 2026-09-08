@@ -4543,6 +4543,11 @@ export interface LandingQuestion {
    *  no-shuffle fits and the drop may accept a start the strip did not promise —
    *  ⚖ flag 54's asymmetry, kept in its original direction.
    *
+   *  ⚖ FIX ROUND 1 (F3, Q3 ACCEPTED) — and the refusal box's OFFERED STARTS are
+   *  judged with the pack too (`offerableStarts` asks through `verdictRef`),
+   *  because taking an offer is a drop by another gesture: an offer the drop
+   *  would then refuse is the very disagreement flag 54 was about.
+   *
    *  OPTIONAL, and absent means NO: every caller that predates the pack keeps
    *  today's answer with no edit, and the geometry-only asks stay geometry-only.
    *  `allocateBed` is the one that refuses to guess — it throws when `pack` is
