@@ -60,6 +60,8 @@ import {
   heldDrawnFor,
   landingVerdict,
   onlineOffers,
+  railChipClass,
+  railExplain,
   reservedClause,
   restCueStarts,
   sellDrawnFor,
@@ -1335,5 +1337,53 @@ describe('§C — one gate for the round: no door, nothing derived (L2-m1)', () 
         }
       }
     }
+  })
+})
+
+describe('§G1 — the ⇄ chip’s palette is a pure function now, and it is pinned (L4-M1)', () => {
+  it('the mark takes the palette of the verdict the drop will give', () => {
+    // ⚠ THE BREAKER'S SURVIVOR: swapping these two lines passed all 10,687
+    // tests, because the mapping lived in a template literal inside the JSX
+    // where this folder's import fence puts it out of reach.
+    expect(railChipClass({ mark: { face: 'reseat', tone: 'degraded' }, state: 'blocked', inert: false, aimed: false }))
+      .toBe('guard-rail-cell reseat degraded')
+    expect(railChipClass({ mark: { face: 'reseat', tone: 'safe' }, state: 'blocked', inert: false, aimed: false }))
+      .toBe('guard-rail-cell reseat guard-slot')
+  })
+
+  it('…and every state without a mark is byte-identical to what the JSX built', () => {
+    // The lift may not change one character of what the board draws.
+    expect(railChipClass({ mark: null, state: 'safe', inert: false, aimed: false })).toBe('guard-rail-cell guard-slot safe')
+    expect(railChipClass({ mark: null, state: 'degraded', inert: false, aimed: false })).toBe('guard-rail-cell degraded')
+    expect(railChipClass({ mark: null, state: 'blocked', inert: false, aimed: false })).toBe('guard-rail-cell blocked')
+    expect(railChipClass({ mark: null, state: 'blocked', inert: true, aimed: false })).toBe('guard-rail-cell blocked inert')
+    expect(railChipClass({ mark: null, state: 'safe', inert: false, aimed: true })).toBe('guard-rail-cell guard-slot safe aimed')
+    expect(railChipClass({ mark: null, state: 'blocked', inert: true, aimed: true })).toBe('guard-rail-cell blocked inert aimed')
+    // …and the two appended flags keep their order, which is what the reskin's
+    // STATE-CLASS LAW pins on the other side.
+    expect(railChipClass({ mark: { face: 'reseat', tone: 'degraded' }, state: 'safe', inert: true, aimed: true }))
+      .toBe('guard-rail-cell reseat degraded inert aimed')
+  })
+})
+
+describe('§G2 — 新規用 beats 満室 at the composer, where the only road to it is (L4-m1)', () => {
+  it('a FULL half hour inside a 確保 extent wears the hold’s word, its class and its mark', () => {
+    // Unreachable on any real board — the engine checks the beds before the
+    // guard, so a guard-classed chip always has a free half hour (§R-D sweeps
+    // that on all four boards). The rung is real all the same, and this is the
+    // one road to it: ask the composer directly.
+    const cell: RailCell = {
+      start: 780, state: 'blocked', label: '—', sentence: 'この開始ではベッドを60分確保できません',
+      reason: 'bed', alternatives: [], alternativeKind: null, ackAllowed: true,
+    }
+    const room = { refusal: '13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様）が使用中です', blockers: [{ kind: 'booking' } as unknown as BoardItem] }
+    const full = { free: 0, refusal: room.refusal, blockers: room.blockers }
+    const plain = railExplain(cell, 60, { room, halfHour: full })
+    expect(plain.word).toBe('満室')
+    const held = railExplain(cell, 60, { room, halfHour: full, reservedHalf: true, reservedDur: 90 })
+    expect({ word: held.word, wordReason: held.wordReason, cue: held.cue }).toEqual({
+      word: '新規用', wordReason: 'guard', cue: { kind: 'guard', label: ['新規用'] },
+    })
+    expect(held.sentence).toBe(`${room.refusal}。${reservedClause(90)}`)
   })
 })

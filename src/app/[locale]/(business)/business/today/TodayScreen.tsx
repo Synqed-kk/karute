@@ -126,6 +126,7 @@ import {
   proxyTimeLabel,
   restCueStarts,
   RAIL_STEP_MIN,
+  railChipClass,
   restingSpanFor,
   warnFaceFor,
   holdClock,
@@ -6263,7 +6264,16 @@ export function TodayScreen(props: TodayProps) {
                 // ⚖ 9/9 — a marked chip borrows the ✓ or △ palette by tone and
                 // wears a DASHED edge: placeable, at the cost the tone names,
                 // and not without moving somebody.
-                className={`guard-rail-cell ${mark ? `reseat ${mark.tone === 'degraded' ? 'degraded' : 'guard-slot'}` : state === 'safe' ? 'guard-slot safe' : state}${v?.kind === 'blocked' ? ' inert' : ''}${aimed?.laneKey === rail.laneKey && aimed.start === c.start ? ' aimed' : ''}`}
+                // ⚖ FIX ROUND 2 (G1) — the mapping lives in `railChipClass` now,
+                // where a test can ask it: the breaker swapped this chip's two
+                // palettes inside the template literal and the whole battery
+                // stayed green. Same string, one home.
+                className={railChipClass({
+                  mark,
+                  state,
+                  inert: v?.kind === 'blocked',
+                  aimed: aimed?.laneKey === rail.laneKey && aimed.start === c.start,
+                })}
                 key={c.start}
                 type="button"
                 data-start={c.start}

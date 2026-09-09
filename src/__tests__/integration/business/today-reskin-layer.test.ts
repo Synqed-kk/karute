@@ -277,7 +277,12 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
     // TodayScreen writes BOTH classes on the same chip when the live verdict is
     // 置けない (`state` = 'blocked', plus ' inert'), so the grey tint at 0,4,0
     // was beating canon's `.inert` at 0,3,0 and the refusal lost its colour.
-    expect(SRC).toContain("${v?.kind === 'blocked' ? ' inert' : ''}")
+    // ⚖ FIX ROUND 2 (G1, 2026-09-09) — the class composition was LIFTED out of the
+    // JSX into `railChipClass` (today-interactions.ts), because the breaker
+    // swapped the ⇄ mark's two palettes inside the template literal and all
+    // 10,687 tests stayed green. The wiring is pinned here, the mapping itself is
+    // unit-pinned at the helper (today-rail-halfhour.test.ts §G1).
+    expect(SRC).toContain("inert: v?.kind === 'blocked',")
     after(
       '.biz .page-today .guard-rail-cell.blocked.inert {',
       '.biz .page-today .guard-rail-cell.blocked {',

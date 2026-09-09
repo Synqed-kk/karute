@@ -2605,6 +2605,37 @@ export interface HalfHourBeds {
  *  fits stays one line. */
 export type RailCue = { kind: 'bed' | 'sold' | 'guard'; label: readonly string[] }
 
+/** ⚖ FIX ROUND 2 (G1, lens 4's MAJOR) — THE CHIP'S CLASSES, AS A PURE FUNCTION.
+ *
+ *  The breaker swapped the ⇄ mark's two palettes — amber for purple and back —
+ *  and all 10,687 tests stayed green: the mapping lived inside a template
+ *  literal in the JSX, where this folder's import fence means no test can reach
+ *  it. ⚖ 9/3 R7's own instruction is to lift such behaviour into a unit-pinned
+ *  pure helper, and this is that lift: the SAME string the renderer built, and
+ *  now a thing that can be asked.
+ *
+ *  The mapping, said once:
+ *    · a 「moves someone」 mark takes the palette of the verdict the DROP will
+ *      give once the shuffle is staged — `degraded` → the △ amber, anything
+ *      else → the ✓ purple — plus `reseat`, which is only the dashed edge;
+ *    · with no mark, `safe` carries canon's own two classes and the other two
+ *      states are their own name;
+ *    · `inert` is the live verdict's 「置けない」 and `aimed` is canon's hover
+ *      pairing, both appended in that order, exactly as before. */
+export function railChipClass(input: {
+  mark: RailMark | null
+  state: RailState
+  inert: boolean
+  aimed: boolean
+}): string {
+  const face = input.mark
+    ? `reseat ${input.mark.tone === 'degraded' ? 'degraded' : 'guard-slot'}`
+    : input.state === 'safe'
+      ? 'guard-slot safe'
+      : input.state
+  return `guard-rail-cell ${face}${input.inert ? ' inert' : ''}${input.aimed ? ' aimed' : ''}`
+}
+
 /** ⚖ LIAM RULING 3 (2026-09-09) — THE FACE A CHIP WEARS INSTEAD OF ITS VERDICT.
  *
  *  One member today: a start that fits only by re-seating somebody. `tone` is
