@@ -2819,12 +2819,13 @@
    DOM forced:
 
      · `.close` is TEN elements here, not the nine dialogs the packet assumed:
-       TodayScreen :6924 is `<button className="close inspector-close">`, the
+       the tenth is `<button className="close inspector-close">`, the
        INSPECTOR's close, outside every dialog. Both are named by their own
        room, so the bare `.close` — a shell name this route sheet may not own —
        never appears.
      · `.time-nav button` / `.time-nav a` are written as ②'s ruled CHILD form.
-       The pressed set is IDENTICAL, read in the DOM (:6556–6607): `.time-nav`'s
+       The pressed set is IDENTICAL, read in the DOM (the
+       `<div className="time-nav date-nav" data-pop="cal">` group): `.time-nav`'s
        only button/link descendants are its three direct children plus the
        calendar's `.cal-tools a`, `.cal-tools button` ×2 and the `.cal-cell`
        links — every one of them separately named below. The descendant form
@@ -2838,7 +2839,7 @@
    `.cal-tools`, `.spot-foot`, `.park-chip`, `.toast`, `.time-nav`,
    `.fields-pop`, `.inspector-actions`, `.section-tools`, `.ops-right`,
    `.dialog-foot`, `.session-chip` — are none of them members. (`.ops-decisions`
-   at :6408 is a `register-cell ops-decisions` button that does NOT carry
+   is a `<button className="register-cell ops-decisions">` that does NOT carry
    `.act`, so it and `.register-cell.act` are never the same element either.)
    The checker asserts this in the page rather than trusting the paragraph. */
 .biz .page-today :is(.btn, .segmented button, .density-seg button, .register-cell.act, .ops-decisions,
@@ -2942,8 +2943,9 @@
    transition ① declared for it had nothing to transition. R-9's table gives the
    row the wash every sibling row on this page already wears — canon's own
    `.biz-dialog .course-row:hover` value (:1674), not a new colour. Read at
-   source first: the row is a `<button className="decision-row">` (:7345 /
-   :7360), a real pressable, and canon writes no state class or `[aria-current]`
+   source first: the row is a `<button className="decision-row">` inside the
+   判断と閉店阻害 dialog's `<div className="decision-rows">` (both call sites), a
+   real pressable, and canon writes no state class or `[aria-current]`
    on it, so there is no state for the wash to erase. */
 .biz .page-today .decision-row:hover { background: #fafafb; }
 
@@ -3023,7 +3025,8 @@
 .biz .page-today .guard-pop.pinned { transform: translateX(-50%); }
 /* The drawer: the COLUMN appears instantly (layout is never animated) and only
    the panel's content travels. The inspector is conditionally mounted
-   (TodayScreen :6921) AND display-toggled by canon's `.biz.drawer-open
+   (`{currentCase && <aside className="panel inspector" aria-labelledby="caseTitle">}`)
+   AND display-toggled by canon's `.biz.drawer-open
    .inspector` (:1099), so this fires on OPEN and never on page load — nothing
    here animates when the board is opened. `> *` is `.inspector-head` and
    `.inspector-body`; canon declares nothing on `.inspector > *`. */
