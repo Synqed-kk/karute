@@ -2603,7 +2603,7 @@ export interface HalfHourBeds {
  *  41–65px wide at the board widths this store runs at (measured, WORDS §Width),
  *  so where the break falls is a decision and not an accident. One line that
  *  fits stays one line. */
-export type RailCue = { kind: 'bed' | 'sold'; label: readonly string[] }
+export type RailCue = { kind: 'bed' | 'sold' | 'guard'; label: readonly string[] }
 
 /** ⚖ LIAM RULING 3 (2026-09-09) — THE FACE A CHIP WEARS INSTEAD OF ITS VERDICT.
  *
@@ -2847,8 +2847,28 @@ export function railExplain(
   // are busy through the half hour), and an attribute reading 'fit' beside 満室
   // is flag 44's own disease — two readings of one answer, free to disagree.
   const wordReason: RailReason | null = word == null ? null : word === '新規用' ? 'guard' : 'bed'
-  const bedCue: RailCue | null = word === '満室' || word === '清掃' ? { kind: 'bed', label: [word] } : null
-  const cue: RailCue | null = bedCue ?? (opts.soldCue === true ? { kind: 'sold', label: SOLD_ELSEWHERE_LABEL } : null)
+  // ⚖ FIX ROUND 2 (B, L2-M2 + L2-M3 MAJOR) — EVERY WORD GETS ITS MARK, and the
+  // mark's kind is the word's own. Round 1 built a mark for 満室／清掃 only, so a
+  // chip wearing 新規用 lost the hatch base painted under it (real fixture, sell
+  // layer off: `p-05 BASE=[960] TIP=[]`) — no ruling removes a hatch — and then
+  // fell through to the SOLD mark, which said the opposite of its word. The
+  // jsdoc that justified it («the 確保 chip is drawn over that emptiness») is
+  // false of a guard refusal: 新規用 rides `cell.reason === 'guard'`, the guard
+  // protecting its last 新規 window, and that start can sit outside every 確保
+  // span. `covered()` still stands the mark down under a DRAWN 確保 span
+  // (⚖ flag 88), so nothing on the mock's boards moves — with the sell layer
+  // OFF base's hatch comes back, now carrying the word it always meant.
+  const wordCue: RailCue | null =
+    word === '新規用' ? { kind: 'guard', label: [word] } : word != null ? { kind: 'bed', label: [word] } : null
+  // ⚖ FIX ROUND 1 (F3) — ONE mark per half hour, composed once for every branch
+  // below. A bed-less half hour says so first: 満室 is why nothing is offered
+  // here, and 「別の枠で販売中」 under it would be a second, softer answer to a
+  // question the first one already closed.
+  // …and the word's mark ALWAYS wins: a chip that says something about its own
+  // half hour may not also carry somebody else's sale (⚖ L2-M3). `wordCue` is
+  // non-null for exactly the chips that wear a word, so this IS the 「gated on
+  // `word == null`」 the ruling asks for, spelled once.
+  const cue: RailCue | null = wordCue ?? (opts.soldCue === true ? { kind: 'sold', label: SOLD_ELSEWHERE_LABEL } : null)
   // ⚖ LIAM RULING 3 (2026-09-09) — 「ここに置くと、ほかのお客様のベッドを入れ替えて
   // 収めます（…）」. Two accepted strings joined and nothing coined: the clause is
   // the board's own tour wording for the packing landing (TodayScreen :7592,

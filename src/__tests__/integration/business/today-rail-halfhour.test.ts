@@ -1024,8 +1024,12 @@ describe('§F2 — the store’s own hold outranks the bed fact, and displaces n
     const held = explainHand(heldScene(), { held: HELD }).get('p-01')!.get(780)!
     expect(held.word).toBe('新規用')
     expect(held.wordReason).toBe('guard')
-    // No mark: the 確保 chip E3b paints is what explains that emptiness.
-    expect(held.cue).toBeNull()
+    // ⚖ FIX ROUND 2 (B, L2-M2) — and its mark says the word, not the beds: the
+    // hatch under a 新規用 chip is the store's own hold, and round 1 removed it
+    // altogether on the strength of a false claim (that the 確保 chip is always
+    // drawn over it — a guard refusal can sit outside every 確保 span). It is
+    // back, labelled, and `covered()` still stands it down under a DRAWN span.
+    expect(held.cue).toEqual({ kind: 'guard', label: ['新規用'] })
     // …and the sentence is the bed refusal with the law's own clause after it —
     // the CLAUSE is unchanged by this fix, only the word moved.
     expect(held.sentence).toBe(`${plain.sentence}。${reservedClause(90)}`)
@@ -1206,5 +1210,130 @@ describe('§A — 別の枠で販売中 means the ONLY free bed went elsewhere (
     expect(p04.cues).toEqual([{ start: 870, end: 930, kind: 'sold', label: ['別の枠で', '販売中'] }])
     expect(p04.chips.find((c) => c.start === 870)!.sentence)
       .toContain('ベッドは別のスタッフ（テスト さぶろう）の枠が使うため、ここには販売可能枠を出していません')
+  })
+})
+
+describe('§B — 新規用 keeps its hatch, labelled, and never carries somebody else’s sale (L2-M2 + L2-M3)', () => {
+  /** The REAL fixture with the sell layer switched off, so no sold mark can
+   *  stand in for the one under test — lens 2's own case, `p-05 BASE=[960]`. */
+  const sellOffCues = (laneKey: string, drawHeld = true) => {
+    const lanes = REAL.lanes
+    const frame = DAY_FRAME()
+    const held = heldCommittedFor({
+      gateOn: true, lanes, frame, bookOf: bedViewsFor, closeMin: REAL.hours.close,
+      nowMin: REAL.sell.nowMinute, guard: REAL.guard.config, gapGuardMode: REAL.guard.mode, released: [],
+    })
+    const views = bedViewsFor(lanes, frame, null)
+    const explained = explainRails(railsOn(lanes), lanes, {
+      dur: REAL.guard.standardSessionMin, handId: null, stagedId: null,
+      sellCells: [], claims: [], drops: [], inHand: false, sellDisplayed: false, held,
+      bedsOver: (key, start, end) => {
+        const lane = lanes.find((l) => l.key === key && l.group === 'staff')
+        if (!lane) return null
+        const asker = { stores: lane.stores, requiresPrivate: false }
+        const answer = views.world.bedFor(start, end, asker)
+        if (!answer.compatibleRoomsExist) return null
+        return { full: answer.laneKey === null, keys: () => views.world.freeBedKeys(start, end, asker) }
+      },
+    }).get(laneKey)!
+    const spans = drawHeld ? new Map(heldDrawnFor(held, lanes, []).map((m) => [m.laneKey, m.spans])) : new Map()
+    const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')!
+    return { explained, cues: restCueStarts(explained, [], [], spans.get(laneKey) ?? [], lane.items) }
+  }
+
+  it('a guard-refused start with NO 確保 span drawn over it keeps the hatch base painted — now labelled', () => {
+    // ⚠ THE MAJOR. 新規用 rides `cell.reason === 'guard'` — the guard protecting
+    // its last 新規 window — which is a different thing from a 新規用に確保 span
+    // being DRAWN, and the two come apart the moment the publication filter
+    // removes one (a locked lane, a lane with no list price, the sell layer
+    // off). Round 1's jsdoc said 「the 確保 chip is drawn over that emptiness」
+    // and made the hatch depend on it; lens 2 measured the loss on the real
+    // fixture (`p-05 BASE=[960] TIP=[]`). No ruling removes a hatch; ruling 1
+    // ADDS them. Here the same board with nothing drawn over it.
+    const { explained, cues } = sellOffCues('p-05', false)
+    const worded = [...explained].filter(([, e]) => e.word === '新規用').map(([start]) => start)
+    expect(worded.length).toBeGreaterThan(0)
+    for (const start of worded) {
+      expect({ at: clock(start), cue: cues.find((c) => c.start <= start && start < c.end)?.label ?? null })
+        .toEqual({ at: clock(start), cue: ['新規用'] })
+    }
+  })
+
+  it('…and every worded chip on all four boards carries its own word’s mark, or none at all', () => {
+    // The law swept: the mark's kind is the word's, always — and ⚖ flag 88's
+    // narrowing (a drawn box, a drawn 確保 span, the row's own card) is the only
+    // thing that may take one away.
+    for (const b of boards()) {
+      const read = readBoard(b.lanes)
+      for (const [laneKey, lane] of Object.entries(read.lanes)) {
+        for (const chip of lane.chips.filter((c) => c.word != null)) {
+          const cue = lane.cues.find((q) => q.start <= chip.start && chip.start < q.end)
+          const at = `${b.name}/${laneKey}@${clock(chip.start)}`
+          expect({ at, kind: cue?.kind ?? null })
+            .toEqual({ at, kind: cue == null ? null : chip.word === '新規用' ? 'guard' : 'bed' })
+        }
+      }
+    }
+  })
+
+  it('…and that chip can never wear the sold mark instead (precedence, on the lane)', () => {
+    // ⚠ THE OTHER MAJOR: `cue = bedCue ?? sold` let a 新規用 chip fall straight
+    // through to somebody else's sale. The word's own mark wins, always.
+    const { explained } = sellOffCues('p-05')
+    for (const [, said] of explained) {
+      if (said.word == null) continue
+      expect({ word: said.word, kind: said.cue?.kind ?? null })
+        .toEqual({ word: said.word, kind: said.word === '新規用' ? 'guard' : 'bed' })
+    }
+  })
+
+  it('⚖ flag 88 still stands it down under a DRAWN 確保 span, so the mock’s boards do not move', () => {
+    const lanes = REAL.lanes
+    const worded: ReadonlyMap<number, { cue: RailCue | null }> = new Map([[960, { cue: { kind: 'guard' as const, label: ['新規用'] } }]])
+    expect(restCueStarts(worded, [], [], [{ start: 960, end: 1050, windowStart: 960 }], [])).toEqual([])
+    expect(restCueStarts(worded, [], [], [], [])).toEqual([{ start: 960, end: 990, kind: 'guard', label: ['新規用'] }])
+    expect(lanes.length).toBeGreaterThan(0)
+  })
+})
+
+describe('§C — one gate for the round: no door, nothing derived (L2-m1)', () => {
+  it('with the door absent every board reads byte-identically to main, on all four', () => {
+    // Round 1 gated the WORD and the MARK on the door but not the sold cue or
+    // the taker lookup, so a caller that had not adopted the round still got a
+    // sentence it never had (lens 2's F2: 「ベッドは別のスタッフ（見本 かおる）…」
+    // on a gate-OFF board). One door, one gate: absent, this function derives
+    // no new fact of any kind.
+    for (const b of boards()) {
+      const lanes = b.lanes
+      const dur = REAL.guard.standardSessionMin
+      const rails = railsOn(lanes)
+      const box: SellCell = { laneKey: 'c-03', resourceKey: 'bed-02', group: 'staff', staff: 'c-03', bed: 'ベッド2', h: 870, price: 7010, tier: 2 }
+      const common = {
+        dur, handId: null, stagedId: null, sellCells: [box], claims: [], drops: [],
+        inHand: false, sellDisplayed: true,
+      }
+      const off = explainRails(rails, lanes, common)
+      const on = explainRails(rails, lanes, { ...common, bedsOver: () => null })
+      for (const rail of rails) {
+        for (const c of rail.cells) {
+          const a = off.get(rail.laneKey)!.get(c.start)!
+          const at = `${b.name}/${rail.laneKey}@${clock(c.start)}`
+          // NOTHING NEW is derived: no half-hour word (the word is the engine's
+          // own class, as it was on main), no 「moves someone」 mark, no sold
+          // mark, and no taker found off a drawn box. The mark that DOES survive
+          // is base's own — base painted a hatch under every worded chip — and
+          // it carries that word, which is §B.
+          expect({ at, word: a.word, kind: a.cue?.kind ?? null, mark: a.mark }).toEqual({
+            at,
+            word: a.word,
+            kind: a.word == null ? null : a.word === '新規用' ? 'guard' : 'bed',
+            mark: null,
+          })
+          expect(a.sentence).not.toContain('別のスタッフ')
+          // …and a door that answers 「no compatible room」 is the same silence.
+          expect({ at, same: on.get(rail.laneKey)!.get(c.start)!.sentence === a.sentence }).toEqual({ at, same: true })
+        }
+      }
+    }
   })
 })
