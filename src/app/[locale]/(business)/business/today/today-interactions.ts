@@ -2723,8 +2723,10 @@ export function railExplain(
      *  gap. And its mirror, ruling 3: a half hour WITH a free bed never wears
      *  it, however the longer start was answered.
      *
-     *  `free` is the count of compatible rooms free over `[start, start + 30)`,
-     *  or `null` when this lane shares a store with no room at all — ⚖ #777's
+     *  ⚖ FIX ROUND 3 (H5, D1-m5) — `full`, not a count. It was `free: 0 | 1`
+     *  under a jsdoc that called it 「the count of compatible rooms free」, and a
+     *  number that is not a count is a number somebody will believe. Only
+     *  「is it full?」 was ever read. `null` for the whole object is ⚖ #777's own
      *  distinction, carried rather than re-derived: a store with no rooms is
      *  never 満室, it has no rooms to be full of. `refusal`/`blockers` are the
      *  allocator's answer for that same half hour, and they are what the word
@@ -2733,7 +2735,7 @@ export function railExplain(
      *
      *  ABSENT (`undefined`) is the round gate off: every word and every
      *  sentence below is byte-identical to the board that shipped before it. */
-    halfHour?: { free: number | null; refusal: string | null; blockers: readonly BoardItem[] } | null
+    halfHour?: { full: boolean; refusal: string | null; blockers: readonly BoardItem[] } | null
     /** ⚖ LIAM RULING 3 (2026-09-09) — THE FEWEST-MOVES ANSWER FOR THIS START,
      *  when the board has one and the half hour under the chip is not full.
      *
@@ -2803,7 +2805,7 @@ export function railExplain(
   // hour's now, so the 60-minute answer decides the SENTENCE and never the word.
   const halfBlockers = opts.halfHour?.blockers ?? []
   const halfWord =
-    opts.halfHour != null && opts.halfHour.free === 0 && opts.halfHour.refusal != null && halfBlockers.length > 0
+    opts.halfHour != null && opts.halfHour.full && opts.halfHour.refusal != null && halfBlockers.length > 0
       ? (halfBlockers.every((i) => i.kind === 'cleanup') ? '清掃' : '満室')
       : null
   const word =
@@ -3061,9 +3063,10 @@ export function explainRails(
      *  gate off, or a caller with nothing withheld — collapses the extents back
      *  onto the held spans themselves and every sentence is unchanged. */
     withheld?: readonly SellCell[]
-    /** ⚖ LIAM RULING 1 (2026-09-09) — HOW MANY COMPATIBLE ROOMS ARE FREE FOR ONE
-     *  HALF HOUR on this lane, answered by the capacity book the screen already
-     *  built for the frame (`freeBedCount`, capacity-ledger.ts:227) — never a
+    /** ⚖ LIAM RULING 1 (2026-09-09) — IS A COMPATIBLE ROOM FREE OVER ONE
+     *  WINDOW on this lane, answered by the capacity book the screen already
+     *  built for the frame (`bedFor`, which stops at the first free room and is
+     *  the same cached row the door reads `compatibleRoomsExist` off) — never a
      *  second occupancy reading. `null` = the lane shares a store with no room
      *  at all (⚖ #777).
      *
@@ -3339,8 +3342,8 @@ export function explainRails(
           : halfBeds === undefined || halfBeds === null
             ? null
             : halfBeds.full
-              ? { free: 0, ...halfWalk(staff, c.start) }
-              : { free: 1, refusal: null, blockers: [] as readonly BoardItem[] }
+              ? { full: true, ...halfWalk(staff, c.start) }
+              : { full: false, refusal: null, blockers: [] as readonly BoardItem[] }
       // ⚖ LIAM RULING 3 (2026-09-09) — THE ONE PACKING ASK ON THIS LAYER.
       //
       // Three gates before it runs, and each one is a rule rather than a guard:

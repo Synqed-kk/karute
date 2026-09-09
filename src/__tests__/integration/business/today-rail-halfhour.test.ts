@@ -1377,7 +1377,7 @@ describe('§G2 — 新規用 beats 満室 at the composer, where the only road t
       reason: 'bed', alternatives: [], alternativeKind: null, ackAllowed: true,
     }
     const room = { refusal: '13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様）が使用中です', blockers: [{ kind: 'booking' } as unknown as BoardItem] }
-    const full = { free: 0, refusal: room.refusal, blockers: room.blockers }
+    const full = { full: true, refusal: room.refusal, blockers: room.blockers }
     const plain = railExplain(cell, 60, { room, halfHour: full })
     expect(plain.word).toBe('満室')
     const held = railExplain(cell, 60, { room, halfHour: full, reservedHalf: true, reservedDur: 90 })
@@ -1594,5 +1594,27 @@ describe('§H7 — `restCueStarts` really does lift the card in hand (delta brea
     // Somebody ELSE's card is not lifted by anybody's hand.
     const other = [handItem({ key: 'x', caseId: 'apt-other' }, 780, 810)]
     expect(restCueStarts(worded, [], [], [], other, 'apt-hand')).toEqual([])
+  })
+})
+
+describe('§H5 — the invariant the F1 comment rests on (D1-m6)', () => {
+  it('a half hour covered on its own row is never the ENGINE’s bed refusal', () => {
+    // F1's comment claims a covered half hour keeps today's word 「byte for
+    // byte」. That is true, but it rests on an unstated invariant: a covered
+    // half hour fails the POCKET, so the engine's class there is `fit` and
+    // never `bed` — which is why nulling the half-hour answer can lose nothing.
+    // The lens swept 10,980 chips and found 0 counter-examples; this pins it on
+    // the four boards the round is judged on.
+    for (const b of boards()) {
+      for (const rail of railsOn(b.lanes)) {
+        const lane = laneOf(b.lanes, rail.laneKey)
+        for (const c of rail.cells) {
+          const covered = lane.items.some((i) => i.startMin < c.start + 30 && c.start < i.endMin)
+          if (!covered) continue
+          expect({ at: `${b.name}/${rail.laneKey}@${clock(c.start)}`, reason: c.reason === 'bed' })
+            .toEqual({ at: `${b.name}/${rail.laneKey}@${clock(c.start)}`, reason: false })
+        }
+      }
+    }
   })
 })
