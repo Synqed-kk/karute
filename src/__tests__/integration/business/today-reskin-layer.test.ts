@@ -56,6 +56,17 @@ const LAYER_CODE = LAYER.replace(/\/\*[\s\S]*?\*\//g, '')
  * `{` and split on commas, so the fence sees what the browser sees. `@media`
  * heads are stepped INTO rather than counted; any other at-rule is skipped
  * whole.
+ *
+ * ⚖ C-7 (slice ④'s cold read) — AND `@starting-style` IS STEPPED INTO TOO.
+ * Slice ④ is the first to write one, and the old scanner skipped it WHOLE: the
+ * `i = j` below jumps an at-rule's entire body, so every selector inside
+ * `@starting-style { … }` walked past BOTH fences at once — the page fence and
+ * the shell-name fence — and a shell selector hidden in an entrance block would
+ * have shipped with nothing to catch it. Slice ④ also needs the nested
+ * `@media { @starting-style { … } }` form for its reduced-motion answers, so
+ * the counter is a GROUP depth now rather than a media depth: both group
+ * at-rules step in, both are closed by the same trailing-`}` walk, and a rule
+ * inside two of them is still read exactly once. Probed on decoys below.
  */
 const selectorsOf = (css: string): string[] => {
   // ⚖ GREPTILE G-3 — the scan is STRING-AWARE and PAREN-AWARE. Counting raw
@@ -100,13 +111,15 @@ const selectorsOf = (css: string): string[] => {
     return parts.map((x) => x.trim()).filter(Boolean)
   }
   let i = 0
-  let mediaDepth = 0
+  let groupDepth = 0
   while (i < css.length) {
     const brace = scanTo(i, (c) => c === '{')
     if (brace < 0) break
     const head = css.slice(i, brace).trim()
-    if (head.startsWith('@media')) {
-      mediaDepth += 1
+    // (C-7) the two group at-rules the layer writes: both hold ordinary style
+    // rules, so both are stepped into and neither may hide a selector.
+    if (head.startsWith('@media') || head.startsWith('@starting-style')) {
+      groupDepth += 1
       i = brace + 1
       continue
     }
@@ -120,11 +133,11 @@ const selectorsOf = (css: string): string[] => {
     }
     if (head && !head.startsWith('@')) out.push(...splitHead(head))
     i = j
-    while (mediaDepth > 0) {
+    while (groupDepth > 0) {
       const close = scanTo(i, (c) => !/\s/.test(c))
       if (close < 0 || css[close] !== '}') break
       i = close + 1
-      mediaDepth -= 1
+      groupDepth -= 1
     }
   }
   return out
@@ -184,6 +197,42 @@ describe('今日の運営 reskin layer — the append shape', () => {
     const decoyNot = '.biz .page-today .x:not(.a, .b) { color: red; }'
     expect(selectorsOf(decoyNot)).toEqual(['.biz .page-today .x:not(.a, .b)'])
     expect(selectorsOf(decoyNot).filter((s) => !/^\.biz \.page(\.page-today|-today)(\s|$)/.test(s))).toEqual([])
+  })
+
+  it('an `@starting-style` block cannot hide a selector from either fence (C-7)', () => {
+    // ⚖ C-7. Slice ④ is the first to write an entrance block, and the scanner
+    // used to skip every at-rule that is not `@media` WHOLE — body and all — so
+    // a shell selector inside one walked past the page fence and the shell-name
+    // fence together. Both shapes the layer actually writes are probed: the
+    // top-level entrance, and the reduced-motion one nested inside `@media`.
+    const decoyStart = [
+      '.biz .page-today .fields-pop { transition: opacity 140ms ease; }',
+      '@starting-style {',
+      '  .biz .page-today .fields-pop { opacity: 0; }',
+      '  .topbar .brand { opacity: 0; }',
+      '}',
+      '.biz .page-today .toast { transition: opacity 140ms ease; }',
+    ].join('\n')
+    expect(selectorsOf(decoyStart)).toEqual([
+      '.biz .page-today .fields-pop',
+      '.biz .page-today .fields-pop',
+      '.topbar .brand',
+      '.biz .page-today .toast',
+    ])
+    expect(selectorsOf(decoyStart).filter((s) => !/^\.biz \.page(\.page-today|-today)(\s|$)/.test(s))).toEqual(['.topbar .brand'])
+
+    // …and nested one level deeper, which is exactly the shape block R writes:
+    // the rule after the two closing braces must still be read, i.e. BOTH
+    // groups have to be closed by the trailing-`}` walk.
+    const decoyNested = [
+      '@media (prefers-reduced-motion: reduce) {',
+      '  @starting-style {',
+      '    .sidebar .x { transform: none; }',
+      '  }',
+      '}',
+      '.biz .page-today .spot-card { transition: none; }',
+    ].join('\n')
+    expect(selectorsOf(decoyNested)).toEqual(['.sidebar .x', '.biz .page-today .spot-card'])
   })
 })
 
