@@ -2744,15 +2744,35 @@
    moved by a spring instead of jumping between three static rules. The accent is
    written as the shell's own `--select-ink` (`--indigo` #3f5be8, the mock's own
    literal), per the one-way accent law: this is a pressable's selected state. */
+/* ⚠ D-PR4-11 — AND THE LABEL GOES BOLD, because ink alone is not a selection
+   before hydration. The three tabs share `font-weight: 600` above, so with the
+   pill gone the only thing telling them apart is colour — and the thumb is
+   placed by a `useLayoutEffect` inside an 8,000-line client component, so it
+   has no geometry until that hydrates (and none at all if it never does). The
+   family already answered this: `settings.css` keeps
+   `.st-opt[aria-pressed="true"] { color: var(--st-accent); font-weight: 700 }`
+   so its selection survives with weight AND colour while its own thumb is
+   unplaced. A 100-weight departure from the mock's uniform 600, on the SELECTED
+   label only; the thumb still lands under it and the seat reads the bolder
+   width (which is also why F-3 re-seats on `document.fonts.ready`). */
 .biz .page-today .segmented button[aria-pressed="true"] {
   background: transparent;
   color: var(--select-ink);
   box-shadow: none;
+  font-weight: 700;
 }
 /* The thumb's REST state, and only that: the effect writes `transform`, `width`
-   and `opacity` inline. jsdom does no layout, so `offsetLeft`/`offsetWidth` are
-   0 there and a static render shows NO thumb at all — a named ceiling, and the
-   pixels are on the Vercel preview. */
+   and `opacity` inline.
+   ⚠ THE CEILING IS WIDER THAN jsdom, and D-PR4-11 is the answer to it. The
+   element ships with `width: 0`, and the effect that gives it geometry is a
+   `useLayoutEffect` — so a static render, a harness render AND ANY PAINT BEFORE
+   HYDRATION all show no thumb. The bold accent label is the selection until the
+   thumb arrives; the white pill's own pixels are on the Vercel preview.
+   ⚠ Naming note: this is an `<i class="seg-thumb">` — the mock's element and the
+   mock's name. The family's four siblings are `<span>`s with page-prefixed
+   classes (`st-` settings, `an-` analytics, `rv-` reservations, `rc-` recording),
+   so `seg-thumb` is the one unprefixed member. `.segmented` exists nowhere else
+   in the repo and the rule is page-scoped, so nothing collides. */
 .biz .page-today .segmented > .seg-thumb {
   position: absolute;
   z-index: 0;
