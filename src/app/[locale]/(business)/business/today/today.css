@@ -2994,26 +2994,37 @@
 @starting-style {
   .biz .page-today .inspector > * { opacity: 0; transform: translateX(10px); }
 }
-/* The modal family, both ways — mock 3064–3077, scoped to the page. All nine
-   dialogs are descendants of `.page.page-today`, and a `showModal()` dialog in
-   the top layer still matches a descendant selector (the top layer changes
-   paint order, not the tree). Canon's `.biz-dialog` (:1594) and `::backdrop`
-   (:1605) are 0,1,0; these are 0,3,0 and beat them outright.
+/* The modal family — ENTRANCE ONLY, scoped to the page (mock 3064–3077). All
+   nine dialogs are descendants of `.page.page-today`, and a `showModal()` dialog
+   in the top layer still matches a descendant selector (the top layer changes
+   paint order, not the tree). Canon's `.biz-dialog` and its `::backdrop` are
+   0,1,0; these are 0,3,0 and beat them outright.
    ⚠ THE BACKDROP CHANGES BOTH HUE AND ALPHA: canon is rgba(24, 24, 27, .48) and
    this is rgba(16, 24, 40, .45). Disclosed rather than slipped in — 16,24,40 is
    the reskin layer's own shadow tint since ② (`.fields-pop`'s box-shadow), so
    this is a recalibration into the layer's established family, not a new
-   colour. */
+   colour.
+   ⚠ D-PR4-12 — THE EXIT IS INSTANT, and the mock's 「both ways」 yields to what
+   the exit actually costs. `overlay 120ms allow-discrete` keeps a closed dialog
+   PAINTED for those 120ms, and a dialog that has been `close()`d is no longer
+   modal: for that window the page behind it is live while a click aimed at the
+   page still lands on the fading dialog. Worse on the two `close(); showModal()`
+   hops this screen performs (判断と閉店阻害 → 決済端末, and the close that opens
+   the inspector): two dialogs sit in the top layer at once and the old one is
+   visible UNDER the new backdrop for 120ms — a ghost on a routine hop. Liam's
+   #9 keep named the materialize, not the exit, and every popover on this page
+   already exits instantly because React unmounts it. So the dialogs match them:
+   `@starting-style` entrance stays, `overlay` / `display` `allow-discrete` go. */
 .biz .page-today .biz-dialog {
   opacity: 0;
   transform: scale(.96);
-  transition: opacity 120ms cubic-bezier(.2, .7, .2, 1), transform 120ms cubic-bezier(.2, .7, .2, 1), overlay 120ms allow-discrete, display 120ms allow-discrete;
+  transition: opacity 120ms cubic-bezier(.2, .7, .2, 1), transform 120ms cubic-bezier(.2, .7, .2, 1);
 }
 .biz .page-today .biz-dialog[open] { opacity: 1; transform: scale(1); transition-duration: 180ms; }
 .biz .page-today .biz-dialog::backdrop {
   background: rgba(16, 24, 40, .45);
   opacity: 0;
-  transition: opacity 120ms ease, overlay 120ms allow-discrete, display 120ms allow-discrete;
+  transition: opacity 120ms ease;
 }
 .biz .page-today .biz-dialog[open]::backdrop { opacity: 1; transition-duration: 180ms; }
 @starting-style {
@@ -3047,12 +3058,16 @@
    `.biz *` under this very query, so every duration written below is already
    .01ms before this block is read, and `!important` is forbidden in this layer
    (rightly). What this block actually contributes is the TRANSFORMS — the
-   press scale, the four entrance slides, the card's press face — which no shell
-   rule touches. The durations stay because they are what the page MEANS: if the
-   shell's blanket rule ever goes, these are the answers.
-   Second order, and it is correct: the same `!important` collapses the dialogs'
-   `overlay` / `display` `allow-discrete` timing too, so a dialog closes
-   instantly for a reduced-motion reader. */
+   press scale, the card's press face, the two entrance transforms D-PR4-10
+   leaves standing — which no shell rule touches. The durations stay because they
+   are what the page MEANS: if the shell's blanket rule ever goes, these are the
+   answers.
+   ⚠ AND THE BLANKET DOES NOT REACH EVERYTHING. Read at source, the shell's rule
+   is `.biz *, .biz *::before, .biz *::after` — `::backdrop` is in none of the
+   three, and `transition` is not inherited from the originating element. So the
+   dialog's scrim is the ONE surface on this page whose reduced-motion answer has
+   to be written here rather than assumed; F-5 below is that line. (Dialog exits
+   need no answer at all any more: D-PR4-12 made them instant for everyone.) */
 @media (prefers-reduced-motion: reduce) {
   .biz .page-today :is(.btn, .segmented button, .density-seg button, .register-cell.act, .ops-decisions,
       .decision-card, .decision-row, .cal-cell, .guard-rail-cell, .cell-held,
@@ -3091,7 +3106,7 @@
   .biz .page-today .guard-pop.pinned { transform: translateX(-50%); }
   .biz .page-today .inspector > * { transition: opacity 100ms linear; transform: none; }
   .biz .page-today .biz-dialog,
-  .biz .page-today .biz-dialog[open] { transition: opacity 120ms linear, overlay 120ms allow-discrete, display 120ms allow-discrete; transform: none; }
+  .biz .page-today .biz-dialog[open] { transition: opacity 120ms linear; transform: none; }
   .biz .page-today .toast { transition: opacity 120ms linear; }
   .biz .page-today .spot-card { transition: none; }
   /* The entrances, answered at the SAME selector shapes and written AFTER the
