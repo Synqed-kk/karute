@@ -1574,3 +1574,25 @@ describe('§H2 — a ⇄ chip carries no row note (D1-M2)', () => {
     }
   })
 })
+
+describe('§H7 — `restCueStarts` really does lift the card in hand (delta breaker N4)', () => {
+  it('the hand’s own card does not cover the half hour it is being dragged off', () => {
+    // ⚠ THE BREAKER'S SURVIVOR: dropping this exclusion passed all 10,700 tests,
+    // because every shipped call site passes `null`. The parameter is real and
+    // load-bearing — same inputs, only the id differs, genuinely different
+    // output — and it is the fix round 2 (L2-m4) that keeps the lane's mark and
+    // the chip's word from disagreeing for the length of a bed-lane drag.
+    const worded: ReadonlyMap<number, { cue: RailCue | null }> = new Map([[780, { cue: { kind: 'bed' as const, label: ['満室'] } }]])
+    const itemsHere = [handItem({ key: 'apt-hand', caseId: 'apt-hand' }, 780, 810)]
+    expect(restCueStarts(worded, [], [], [], itemsHere, null)).toEqual([])
+    expect(restCueStarts(worded, [], [], [], itemsHere, 'apt-hand'))
+      .toEqual([{ start: 780, end: 810, kind: 'bed', label: ['満室'] }])
+    // …and its own trailing 清掃 travels with it, exactly as `allocateBed` says.
+    const withTail = [...itemsHere, { ...handItem({ key: 'apt-hand-cleanup', caseId: null }, 810, 825), kind: 'cleanup' as const }]
+    expect(restCueStarts(new Map([[810, { cue: { kind: 'bed' as const, label: ['満室'] } }]]), [], [], [], withTail, 'apt-hand'))
+      .toEqual([{ start: 810, end: 840, kind: 'bed', label: ['満室'] }])
+    // Somebody ELSE's card is not lifted by anybody's hand.
+    const other = [handItem({ key: 'x', caseId: 'apt-other' }, 780, 810)]
+    expect(restCueStarts(worded, [], [], [], other, 'apt-hand')).toEqual([])
+  })
+})
