@@ -2703,6 +2703,15 @@ export function railExplain(
      *  ABSENT is a chip with no re-seat to offer, which is every chip on every
      *  board that shipped before this round. */
     reseat?: { tone: 'safe' | 'degraded'; lines: readonly string[]; caution: string | null } | null
+    /** ⚖ FIX ROUND 1 (F3, Fable on the build's §Open 3) — IS THIS HALF HOUR A
+     *  QUIET ONE WHOSE BED IS BEING SOLD ON ANOTHER ROW?
+     *
+     *  Ruling 2's fact is about the 30 minutes the mark is drawn over, so it is
+     *  decided per half hour and NOT by the chip's 60-minute verdict: しろう's
+     *  15:00 is refused by his own 記録 block, and that says nothing at all
+     *  about whether his 15:00〜15:30 bed went to somebody else. The chip's word
+     *  and sentence are untouched by this — only the LANE says it. */
+    soldCue?: boolean
     /** ⚖ FIX ROUND 1 (F2) — IS THE HALF HOUR ITSELF INSIDE A 新規用に確保 EXTENT?
      *
      *  Kept apart from `reservedDur`, which is the CLAUSE's input and is about
@@ -2825,6 +2834,11 @@ export function railExplain(
   // is flag 44's own disease — two readings of one answer, free to disagree.
   const wordReason: RailReason | null = word == null ? null : word === '新規用' ? 'guard' : 'bed'
   const bedCue: RailCue | null = word === '満室' || word === '清掃' ? { kind: 'bed', label: [word] } : null
+  // ⚖ FIX ROUND 1 (F3) — ONE mark per half hour, composed once for every branch
+  // below. A bed-less half hour says so first: 満室 is why nothing is offered
+  // here, and 「別の枠で販売中」 under it would be a second, softer answer to a
+  // question the first one already closed.
+  const cue: RailCue | null = bedCue ?? (opts.soldCue === true ? { kind: 'sold', label: SOLD_ELSEWHERE_LABEL } : null)
   // ⚖ LIAM RULING 3 (2026-09-09) — 「ここに置くと、ほかのお客様のベッドを入れ替えて
   // 収めます（…）」. Two accepted strings joined and nothing coined: the clause is
   // the board's own tour wording for the packing landing (TodayScreen :7592,
@@ -2843,14 +2857,14 @@ export function railExplain(
       word: null,
       wordReason: null,
       sentence: `${base}。${moved}${caution}`,
-      cue: null,
+      cue,
       mark: { face: 'reseat', tone: opts.reseat.tone },
     }
   }
-  if (opts.reservedDur != null) return { word, wordReason, sentence: `${base}。${reservedClause(opts.reservedDur)}`, cue: bedCue, mark: null }
+  if (opts.reservedDur != null) return { word, wordReason, sentence: `${base}。${reservedClause(opts.reservedDur)}`, cue, mark: null }
   // A refused chip is already answering; ⚖ 75(i)'s clause is about a start the
   // board said YES to and then advertised nothing at.
-  if (cell.state === 'blocked' || opts.adless !== true) return { word, wordReason, sentence: base, cue: bedCue, mark: null }
+  if (cell.state === 'blocked' || opts.adless !== true) return { word, wordReason, sentence: base, cue, mark: null }
   // ⚖ NATIVE PASS (2026-08-26) — BOTH CLAUSES NAMED THE WRONG THING.
   //   · the taker read 「ベッドは別の販売枠（…）が使っています」, but what took
   //     the room is a 詰め込み／スキマ box, not a 販売枠, and the label in the
@@ -2866,14 +2880,14 @@ export function railExplain(
     word,
     wordReason,
     sentence: `${base}。${clause}`,
-    // ⚖ RULING 2 IS NOT HERE. A quiet hour on a free person whose bed went to
-    // somebody else's row does carry its reason — in the SENTENCE, exactly as
-    // ⚖ 75(i) has said it since before this round. Promoting that clause to a
-    // mark the operator sees without pressing is ruling 2's own slice, and it
-    // waits for the ledger's bed door: without the door the only board that can
-    // name a taker is one carrying a room drop, which ordinary selling never
-    // leaves, so the mark would be a promise this layer cannot keep.
-    cue: null,
+    // ⚖ LIAM RULING 2 (2026-09-09) — A QUIET HOUR ON A FREE PERSON CARRIES ITS
+    // REASON. This is his scene: the board said YES to the start, drew nothing
+    // on it, and the sell layer put the one free bed on somebody else's row. The
+    // clause has said so in a SENTENCE since 75(i); the ruling promotes it to
+    // something the operator can see without pressing — and ⚖ FIX ROUND 1 (F3)
+    // moved that promotion out of this branch, because the mark is about the
+    // HALF HOUR while this clause is about the chip's whole judged window.
+    cue,
     mark: null,
   }
 }
@@ -3157,6 +3171,19 @@ export function explainRails(
       // ⚖ FIX ROUND 1 (F2) — the SAME extents, asked of the mark's own span. One
       // `find` more, on a list of at most a handful of windows per lane.
       const reservedHalf = heldExtents.some((h) => c.start < h.end && h.start < halfEnd)
+      // ⚖ FIX ROUND 1 (F3) — THE MARK'S OWN QUESTION, asked of the 30 minutes it
+      // is drawn over rather than of the chip's judged hour. A half hour that is
+      // empty on this row, advertised by nothing on this row, outside the
+      // store's own hold, with the layer on screen, and whose bed is visibly on
+      // sale on somebody else's row: every clause is the same fact the sentence
+      // uses, narrowed to the mark's own span.
+      const soldCue =
+        halfEmpty &&
+        reserved == null &&
+        opts.sellDisplayed &&
+        !sellHere.some((s) => overlaps(s.h, s.h + SELL_SLOT_MIN, c.start, halfEnd)) &&
+        !gapHere.some((g) => overlaps(g.s, g.e, c.start, halfEnd)) &&
+        drawnTaker(c.start, halfEnd) != null
       // ⚖ LIAM RULING 1 (2026-09-09) — THIS CHIP'S OWN HALF HOUR, asked once and
       // only as far as the answer can change a word. The book answers the COUNT
       // from the frame's own cache; only a count of zero pays for the allocator's
@@ -3188,7 +3215,8 @@ export function explainRails(
       //     backtracking search on those would be the per-frame cost design §3
       //     exists to forbid. A mark is a fact about a placement nobody has made.
       const packed =
-        opts.reseat != null && staff != null && opts.handId == null && c.reason === 'bed' && typeof halfFree === 'number' && halfFree > 0
+        opts.reseat != null && staff != null && opts.handId == null && reserved == null &&
+        c.reason === 'bed' && typeof halfFree === 'number' && halfFree > 0
           ? allocate(lanes, {
               ...askOn(staff, c.start, end),
               pack: true,
@@ -3220,6 +3248,7 @@ export function explainRails(
         c.start,
         railExplain(c, opts.dur, {
           room: c.reason === 'bed' && staff ? allocate(lanes, askOn(staff, c.start, end)) : null,
+          soldCue,
           halfHour,
           reservedHalf,
           reseat,
