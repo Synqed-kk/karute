@@ -671,15 +671,15 @@ describe('今日の運営 reskin layer — slice ④ (motion · the sliding thum
     // `transform: translateY(-50%)` (:372), so the family's bare `scale(.97)`
     // would replace the centring and drop it 11px on every press.
     expect(isLists[0]).not.toContain('.lock-toggle')
-    expect(LAYER_CODE).toContain('.biz .page-today .lock-toggle:active:not(:disabled) { transform: translateY(-50%) scale(.97); transition-duration: 100ms; }')
+    expect(LAYER_CODE).toContain('.biz .page-today .lock-toggle:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-50%) scale(.97); transition-duration: 100ms; }')
   })
 
   it('the lock toggle keeps its centring under reduced motion — never `none`', () => {
     // The whole reason it left the family. `transform: none` here is not 「no
     // motion」, it is 「11px lower, for every reduced-motion reader, forever」.
     const reduced = LAYER_CODE.slice(LAYER_CODE.indexOf('@media (prefers-reduced-motion: reduce)'))
-    expect(reduced).toContain('.biz .page-today .lock-toggle:active:not(:disabled) { transform: translateY(-50%); }')
-    expect(reduced).not.toMatch(/\.lock-toggle:active:not\(:disabled\) \{ transform: none/)
+    expect(reduced).toContain('.biz .page-today .lock-toggle:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-50%); }')
+    expect(reduced).not.toMatch(/\.lock-toggle:active[^{]*\{ transform: none/)
   })
 
   it('a card in a gesture never takes the press face either', () => {
@@ -698,8 +698,22 @@ describe('今日の運営 reskin layer — slice ④ (motion · the sliding thum
     }
     // …and the press face is a FILTER, never a scale: a scaling card would
     // re-draw its own lane geometry under the operator's finger.
-    expect(LAYER_CODE).toContain('.biz .page-today .event:not(.dragging):not(.resizing):active { filter: brightness(.97); }')
     expect(LAYER_CODE).not.toMatch(/\.event[^{]*:active[^}]*transform:\s*scale/)
+    // ⚖ F-7 — AND THE PRESS HEADS ARE ③'s HOVER SHAPES, which is the whole fix.
+    // A mouse press is always also a hover, so a press head that does not
+    // out-specify ③'s `filter: none` hover heads never paints. Pinned as the
+    // PAIR, at the two shapes ③ wrote, and as a RULE: no `:active` head on a
+    // card may be weaker than the `:hover` head that answers the same family.
+    expect(LAYER_CODE).toContain('.biz .page-today button.event[data-cat]:not(.dragging):not(.resizing):active { filter: brightness(.97); }')
+    expect(LAYER_CODE).toContain('.biz .page-today .event.block:not(.dragging):not(.resizing):active,\n.biz .page-today .event.cleanup:not(.dragging):not(.resizing):active { filter: brightness(.97); }')
+    // the generic (0,6,0) head is GONE: its only live target was
+    // `<span class="event absence" role="note">`, which is not pressable.
+    expect(LAYER_CODE).not.toContain('.biz .page-today .event:not(.dragging):not(.resizing):active')
+    // every card `:active` head carries a qualifier that lifts it past a bare
+    // `.event…:hover` — either the `button…[data-cat]` shape or a state class.
+    for (const s of selectorsOf(LAYER_CODE).filter((x) => /\.event(?![\w-])[^{]*:active/.test(x))) {
+      expect(s).toMatch(/button\.event\[data-cat\]|\.event\.(block|cleanup)/)
+    }
   })
 
   it('nothing transitions the four properties a gesture writes every frame', () => {
@@ -719,7 +733,7 @@ describe('今日の運営 reskin layer — slice ④ (motion · the sliding thum
     // centring too or the pill slides in from half its own width off-centre.
     const pinned = '.biz .page-today .hold-pop.pinned,\n.biz .page-today .guard-pop.pinned { transform: translateX(-50%); }'
     expect(LAYER_CODE).toContain(pinned)
-    expect(LAYER_CODE).toContain('.biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%) translateY(4px) scale(.97); }')
+    expect(LAYER_CODE).toContain('.biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%); }')
     const reduced = LAYER_CODE.slice(LAYER_CODE.indexOf('@media (prefers-reduced-motion: reduce)'))
     expect(reduced).toContain('.biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%); }')
     // …and canon's own two lines are untouched above the header.
@@ -774,5 +788,79 @@ describe('今日の運営 reskin layer — slice ④ (motion · the sliding thum
     expect(SRC_CODE).toContain('segX.current!.set(x)')
     // nothing pressed → no thumb at all
     expect(SRC_CODE).toContain("if (!on) { thumb.style.opacity = '0'; return }")
+    // ⚖ F-3 — and the seat runs again when the Japanese face lands. Without it
+    // the thumb sits at pre-font geometry until a press or a resize, on a board
+    // left open all day. Two siblings already carry this line.
+    expect(SRC_CODE).toContain('document.fonts?.ready?.then(() => seat(true)).catch(() => {})')
+    // ⚖ W10 (H-d) — THE FIRST SEAT JUMPS. `seat(false)` must still jump the
+    // first time, or the thumb travels in from the left edge on page load —
+    // the one animation this board is not allowed to have. The condition IS
+    // the behaviour, so the condition is what is pinned.
+    expect(SRC_CODE).toContain('if (instant || !segSeated.current) {')
+  })
+
+  it('the entrances of the three surfaces that measure themselves carry no scale (F-2)', () => {
+    // ⚖ D-PR4-10. `.fields-pop` (with its `.sell-shelf` / `.help-pop` variants),
+    // `.hold-pop` and `.guard-pop` have their placement computed from their OWN
+    // `getBoundingClientRect()` on the mount commit — and a starting transform
+    // IS in that box (measured: 276.48 vs 288, 368.60 vs 380, 252.20 vs 260).
+    // So their starting rules may declare `opacity` and, for `.pinned`, the
+    // centring translate — nothing else. `.cal-pop`, which nothing measures,
+    // keeps its scale, so this is not a blanket ban on entrance transforms.
+    const starts = [...LAYER_CODE.matchAll(/@starting-style\s*\{/g)].map((m) => m.index ?? -1)
+    expect(starts.length).toBeGreaterThanOrEqual(4)
+    for (const at of starts) {
+      // the block's own body, brace-balanced
+      let depth = 0
+      let end = -1
+      for (let k = LAYER_CODE.indexOf('{', at); k < LAYER_CODE.length; k += 1) {
+        if (LAYER_CODE[k] === '{') depth += 1
+        else if (LAYER_CODE[k] === '}') { depth -= 1; if (depth === 0) { end = k; break } }
+      }
+      expect(end).toBeGreaterThan(-1)
+      const body = LAYER_CODE.slice(at, end)
+      for (const rule of body.split('}')) {
+        if (!/transform\s*:/.test(rule)) continue
+        const measured = /\.fields-pop|\.hold-pop|\.guard-pop/.test(rule)
+        if (!measured) continue
+        // the only transform a measured surface may start with is the centring
+        expect(rule).toMatch(/transform:\s*translateX\(-50%\);/)
+        expect(rule).not.toMatch(/scale\(|translateY\(/)
+      }
+    }
+    // and their transition lists no longer name `transform` at all
+    expect(LAYER_CODE).toContain('.biz .page-today .fields-pop {\n  transition: opacity 140ms cubic-bezier(.2, .7, .2, 1);\n}')
+    expect(LAYER_CODE).toContain('.biz .page-today .guard-pop { transition: opacity 120ms ease-out; }')
+    // `.cal-pop` keeps its own scale — nothing measures it (no ref in the screen)
+    expect(LAYER_CODE).toContain('.biz .page-today .cal-pop { opacity: 0; transform: scale(.96); }')
+  })
+
+  it('the dialogs enter and leave the way the popovers do (F-6), and the scrim has a reduced answer (F-5)', () => {
+    // ⚖ D-PR4-12 — `overlay … allow-discrete` kept a CLOSED dialog painted and
+    // hit-testable for 120ms while no longer being modal, and stacked a visible
+    // ghost under the next dialog's backdrop on this screen's two
+    // `close(); showModal()` hops. Exits are instant now, as every popover's is.
+    expect(LAYER_CODE).not.toContain('allow-discrete')
+    expect(LAYER_CODE).not.toContain('overlay ')
+    // the entrance itself is untouched
+    expect(LAYER_CODE).toContain('.biz .page-today .biz-dialog[open] { opacity: 1; transform: scale(1); transition-duration: 180ms; }')
+    expect(LAYER_CODE).toContain('.biz .page-today .biz-dialog[open] { opacity: 0; transform: scale(.96); }')
+    // ⚖ F-5 — the scrim is the one surface the shell's blanket cannot reach:
+    // that rule is `.biz *, .biz *::before, .biz *::after`, and `::backdrop` is
+    // none of the three (nor does `transition` inherit onto it).
+    const reduced = LAYER_CODE.slice(LAYER_CODE.indexOf('@media (prefers-reduced-motion: reduce)'))
+    expect(reduced).toContain('.biz .page-today .biz-dialog::backdrop,\n  .biz .page-today .biz-dialog[open]::backdrop { transition: opacity .01ms linear; }')
+  })
+
+  it('the selected tab is legible before the thumb exists (F-4), and the ghost buys nothing (F-1)', () => {
+    // ⚖ D-PR4-11 — the thumb is placed by a `useLayoutEffect` inside an
+    // 8,000-line client component, so there is no pill until hydration. Weight
+    // carries the selection until then, exactly as `settings.css` does for its
+    // own pressed option.
+    expect(LAYER_CODE).toContain('.biz .page-today .segmented button[aria-pressed="true"] {\n  background: transparent;\n  color: var(--select-ink);\n  box-shadow: none;\n  font-weight: 700;\n}')
+    // ⚖ F-1 — canon moves the ghost with `left` / `width`, never a transform,
+    // so `will-change: transform` bought a permanent compositor layer for a
+    // property the element never animates.
+    expect(LAYER_CODE).not.toContain('will-change')
   })
 })
