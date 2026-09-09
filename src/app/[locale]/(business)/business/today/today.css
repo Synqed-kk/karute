@@ -3107,6 +3107,14 @@
   .biz .page-today .inspector > * { transition: opacity 100ms linear; transform: none; }
   .biz .page-today .biz-dialog,
   .biz .page-today .biz-dialog[open] { transition: opacity 120ms linear; transform: none; }
+  /* F-5 — the scrim, the one surface the shell's blanket cannot reach (see the
+     ⚠ above). Without this line a reduced-motion reader got an instant dialog
+     over a backdrop still running the layer's 120ms / 180ms fade — the longest
+     fade left on the page, beside neighbours this very block answers at 100ms.
+     `.01ms` rather than `none`, so it matches what the shell gives everything
+     else instead of inventing a second convention. */
+  .biz .page-today .biz-dialog::backdrop,
+  .biz .page-today .biz-dialog[open]::backdrop { transition: opacity .01ms linear; }
   .biz .page-today .toast { transition: opacity 120ms linear; }
   .biz .page-today .spot-card { transition: none; }
   /* The entrances, answered at the SAME selector shapes and written AFTER the
