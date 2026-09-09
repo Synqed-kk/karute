@@ -2890,37 +2890,66 @@
    on it, so there is no state for the wash to erase. */
 .biz .page-today .decision-row:hover { background: #fafafb; }
 
-/* D-B · ENTRANCES ARE `@starting-style`; EXITS ARE INSTANT where React
-   unmounts, and both ways for the dialogs, which the browser keeps in the DOM.
-   Popovers first — `.sell-shelf` and `.help-pop` share the `.fields-pop` base
-   (TodayScreen :6474 / :6522), and the mock's `mountPop` origins are fields and
-   cal from the top RIGHT, shelf and help from the top LEFT. Canon's ≤1320 block
-   (:1733–1739) sets no `transform` on any of the four, so nothing here fights a
-   width rule; `.fields-pop`'s JS-written top/left (`fieldsPopAnchor`) is
-   untouched, since a transform moves the paint and not the anchor. */
-.biz .page-today .fields-pop,
+/* D-B · ENTRANCES ARE `@starting-style`; EXITS ARE INSTANT — React unmounts the
+   popovers, and F-6 makes the dialogs instant too.
+   Popovers first. `.sell-shelf` (`<div className="fields-pop sell-shelf">`) and
+   `.help-pop` (`<div className="fields-pop help-pop">`) share the `.fields-pop`
+   base and come with it. The mock gave all four a `transform-origin` — fields
+   and cal from the top RIGHT, shelf and help from the top LEFT — and only
+   `.cal-pop` keeps one now, because it is the only one of the four that still
+   scales (D-PR4-10, immediately below). Canon's ≤1320 block sets no `transform`
+   on any of them, so nothing here fights a width rule. */
+/* ⚠ D-PR4-10 — THE THREE SURFACES THAT MEASURE THEMSELVES GET NO SCALE, and this
+   is a MEASUREMENT, not a caution. Four placement effects on this screen read a
+   popover's OWN `getBoundingClientRect()` inside a `useLayoutEffect` on the
+   commit that mounts it, and decide where it goes from the width: 表示設定
+   (`fieldsPopAnchor` — the width is used twice, for the side flip AND the right
+   clamp), the 配置の相談 popover and its block-advice twin (`pinInViewport`,
+   ⚖ flag 35), and the 仮押さえ confirm (`holdPopAnchor`, ⚖ flag 48 — it decides
+   which side of the card can hold the pill and falls back to `.pinned` when none
+   can). `getBoundingClientRect()` returns the TRANSFORMED border box.
+   Measured in Chromium on this tip's sheet, insert and read in ONE synchronous
+   task, exactly as the product does (evidence/STARTING-STYLE-RECT-1207966ce.txt):
+     .fields-pop      rect 276.48  offsetWidth 288   −11.52px  (4.00%)
+     .sell-shelf      rect 276.48  offsetWidth 288   −11.52px  (4.00%)
+     .help-pop        rect 276.48  offsetWidth 288   −11.52px  (4.00%)
+     .hold-pop        rect 368.60  offsetWidth 380   −11.40px  (3.00%) + 4px down
+     .guard-pop       rect 252.20  offsetWidth 260   − 7.80px  (3.00%) + 4px down
+   So the from-value IS in the box the placement reads. The screen's own stated
+   tolerance for this class of error is 0.33px («the RECT, not offsetWidth:
+   offsetWidth is rounded to an integer, and a surface measured 0.33px narrower
+   than it paints lands that far past the margin»), and none of the four effects
+   re-measures after the entrance — a wrong first placement lasts the life of the
+   popover. Placement correctness under ⚖ 35 / ⚖ 48 outranks a 140ms scale on
+   three surfaces, so these three enter on OPACITY ALONE.
+   `.cal-pop` KEEPS its scale: read at source, it carries no ref and no effect
+   measures it (it is CSS-placed inside `.time-nav`), and the measurement above
+   confirms the 4% is harmless there because nobody reads it. */
+.biz .page-today .fields-pop {
+  transition: opacity 140ms cubic-bezier(.2, .7, .2, 1);
+}
 .biz .page-today .cal-pop {
   transition: opacity 140ms cubic-bezier(.2, .7, .2, 1), transform 140ms cubic-bezier(.2, .7, .2, 1);
   transform-origin: top right;
 }
-.biz .page-today .fields-pop.sell-shelf,
-.biz .page-today .fields-pop.help-pop { transform-origin: top left; }
 @starting-style {
-  .biz .page-today .fields-pop,
+  .biz .page-today .fields-pop { opacity: 0; }
   .biz .page-today .cal-pop { opacity: 0; transform: scale(.96); }
 }
-/* The two board answers rise from the card. ⚖ V4-1 — 120ms, so the confirm
-   lands with the card rather than trailing it. */
+/* The two board answers. ⚖ V4-1 — 120ms, so the confirm lands with the card
+   rather than trailing it; D-PR4-10 takes the rise away and leaves the fade. */
 .biz .page-today .hold-pop,
-.biz .page-today .guard-pop { transition: opacity 120ms ease-out, transform 120ms ease-out; }
+.biz .page-today .guard-pop { transition: opacity 120ms ease-out; }
 @starting-style {
   .biz .page-today .hold-pop,
-  .biz .page-today .guard-pop { opacity: 0; transform: translateY(4px) scale(.97); }
+  .biz .page-today .guard-pop { opacity: 0; }
   /* ⚖ STATE-CLASS LAW — the PINNED answers are centred with `translateX(-50%)`
-     (canon :1029 / :1176), so their starting transform has to carry it or the
-     pill starts half its own width off-centre and slides sideways into place. */
+     (canon `.biz .guard-pop.pinned` / `.biz .hold-pop.pinned`), so their
+     starting rule has to carry it even now that nothing else moves: without it
+     the non-pinned rule above would apply `transform`'s initial `none` at the
+     start and the pill would slide in from half its own width off-centre. */
   .biz .page-today .hold-pop.pinned,
-  .biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%) translateY(4px) scale(.97); }
+  .biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%); }
 }
 /* …and the RESTING transform restated after them, at 0,4,0.
    ⚠ CORRECTED BY ITS OWN MUTANT (red-run V4 / V4b). This comment first said the
@@ -3031,10 +3060,13 @@
      now, and neither did the press face. Same 0,3,0 / 0,5,0 shapes. */
   .biz .page-today .event { transition: none; }
   .biz .page-today .event:not(.dragging):not(.resizing):active { filter: none; }
+  /* D-PR4-10 — the three MEASURED surfaces never carry a transform now, in any
+     state, so their answer here is the duration alone; only `.cal-pop`, which
+     nothing measures, still has a scale to cancel. */
   .biz .page-today .fields-pop,
-  .biz .page-today .cal-pop,
   .biz .page-today .hold-pop,
-  .biz .page-today .guard-pop { transition: opacity 100ms linear; transform: none; }
+  .biz .page-today .guard-pop { transition: opacity 100ms linear; }
+  .biz .page-today .cal-pop { transition: opacity 100ms linear; transform: none; }
   .biz .page-today .hold-pop.pinned,
   .biz .page-today .guard-pop.pinned { transform: translateX(-50%); }
   .biz .page-today .inspector > * { transition: opacity 100ms linear; transform: none; }
@@ -3047,9 +3079,9 @@
      keeps `translateX(-50%)` here too — it is centring, not travel. */
   @starting-style {
     .biz .page-today .fields-pop,
-    .biz .page-today .cal-pop,
     .biz .page-today .hold-pop,
-    .biz .page-today .guard-pop { opacity: 0; transform: none; }
+    .biz .page-today .guard-pop { opacity: 0; }
+    .biz .page-today .cal-pop { opacity: 0; transform: none; }
     .biz .page-today .hold-pop.pinned,
     .biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%); }
     .biz .page-today .inspector > * { opacity: 0; transform: none; }
