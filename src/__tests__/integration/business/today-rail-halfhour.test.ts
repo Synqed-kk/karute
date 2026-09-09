@@ -64,6 +64,7 @@ import {
   heldDrawnFor,
   landingVerdict,
   onlineOffers,
+  reservedClause,
   restCueStarts,
   sellDrawnFor,
   sellLayerFor,
@@ -957,5 +958,55 @@ describe('§F1 — the WORD rides empty track, exactly like the mark', () => {
     expect(asked).not.toContain(780)
     expect(asked.length).toBeGreaterThan(0)
     expect(said.word).toBeNull()
+  })
+})
+
+describe('§F2 — the store’s own hold outranks the bed fact, and displaces nothing else', () => {
+  /** All three rooms busy 13:00〜14:00, the staff lane wide open, and the guard
+   *  holding 13:00〜14:30 for a 新規. The rooms refuse; the STORE is why the
+   *  half hour is empty. */
+  const heldScene = () => [
+    handLane({ key: 'p-01', group: 'staff', label: '見本 あずさ' }),
+    handLane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [handItem({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)] }),
+  ]
+  const HELD = [{ laneKey: 'p-01', protectedCount: 1, spans: [{ start: 780, end: 870, windowStart: 780 }] }]
+
+  it('a bed-refused half hour INSIDE a 確保 window says 新規用, not 満室 — and grows no mark', () => {
+    const plain = explainHand(heldScene()).get('p-01')!.get(780)!
+    expect(plain.word).toBe('満室')
+    const held = explainHand(heldScene(), { held: HELD }).get('p-01')!.get(780)!
+    expect(held.word).toBe('新規用')
+    expect(held.wordReason).toBe('guard')
+    // No mark: the 確保 chip E3b paints is what explains that emptiness.
+    expect(held.cue).toBeNull()
+    // …and the sentence is the bed refusal with the law's own clause after it —
+    // the CLAUSE is unchanged by this fix, only the word moved.
+    expect(held.sentence).toBe(`${plain.sentence}。${reservedClause(90)}`)
+  })
+
+  it('…and a PLACEABLE half hour inside the same window keeps its own face', () => {
+    // ⚠ THE INVERSION GUARD. 新規用 means 「this start is being held and cannot be
+    // sold」. On a start the operator CAN take it says the opposite of the truth
+    // — the same category inversion bare 新規 was (Liam, 8/30) — so the hold
+    // displaces the BED WORD and nothing else. The E3b clause is a different
+    // budget and still rides every state.
+    const free = [
+      handLane({ key: 'p-01', group: 'staff', label: '見本 あずさ' }),
+      handLane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+    ]
+    const per = explainHand(free, { held: HELD }).get('p-01')!
+    const cells = new Map(handRails(free)[0].cells.map((c) => [c.start, c]))
+    for (const [start, said] of per) {
+      // The guard's OWN refusals keep 新規用 — that is 8/30's ruling and it is
+      // untouched. What may not happen is a word arriving on a start the board
+      // said yes to, which is every other chip inside the window.
+      if (cells.get(start)!.reason === 'guard') continue
+      expect({ at: clock(start), word: said.word }).toEqual({ at: clock(start), word: null })
+    }
+    // …and the window really does contain placeable starts, or the sweep above
+    // would be vacuous.
+    expect([...per].filter(([start]) => cells.get(start)!.state !== 'blocked' && start >= 780 && start < 870).length).toBeGreaterThan(0)
+    // The clause is still there, on the chips whose window the hold overlaps.
+    expect(per.get(780)!.sentence).toContain('新規のお客様のための90分枠として確保しています')
   })
 })

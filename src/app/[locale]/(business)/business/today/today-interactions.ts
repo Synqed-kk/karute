@@ -2703,6 +2703,13 @@ export function railExplain(
      *  ABSENT is a chip with no re-seat to offer, which is every chip on every
      *  board that shipped before this round. */
     reseat?: { tone: 'safe' | 'degraded'; lines: readonly string[]; caution: string | null } | null
+    /** ⚖ FIX ROUND 1 (F2) — IS THE HALF HOUR ITSELF INSIDE A 新規用に確保 EXTENT?
+     *
+     *  Kept apart from `reservedDur`, which is the CLAUSE's input and is about
+     *  the chip's whole judged window: a 60-minute start can overlap a held span
+     *  by a minute and be perfectly placeable, and the sentence says so while
+     *  the word must not. The word is about the 30 minutes it is drawn over. */
+    reservedHalf?: boolean
   } = {},
 ): { word: string | null; wordReason: RailReason | null; sentence: string; cue: RailCue | null; mark: RailMark | null } {
   // ⚖ NATIVE PASS (2026-08-26) — 〜, NOT AN EN DASH. The bed branch's own
@@ -2768,7 +2775,20 @@ export function railExplain(
         // bare 「—」 everywhere else, whose blocker (a booking, a 予定ブロック, a
         // shift wall) is DRAWN on the row directly above it.
         ? (cell.reason === 'bed' ? roomWord : null)
-        : halfWord
+        // ⚖ FIX ROUND 1 (F2, Fable on the build's §Open 2) — AND THE STORE'S OWN
+        // HOLD OUTRANKS THE BED FACT. A half hour the guard is keeping empty for
+        // a 新規 is empty because the STORE decided it, and the 確保 chip E3b
+        // paints over it is what explains that; 満室 there names the rooms for a
+        // decision the rooms did not make. It displaces the bed word and NOTHING
+        // ELSE: a chip that is placeable inside a held window keeps its ✓ or its
+        // △, because 新規用 means 「this start is being held and cannot be sold」
+        // and putting it on a start the operator CAN take is the same category
+        // inversion bare 新規 was (Liam, 8/30). ⚠ The E3b CLAUSE is a different
+        // budget and still rides every state — a sentence may explain a window
+        // the word has no room to name.
+        : halfWord != null && opts.reservedHalf === true
+          ? '新規用'
+          : halfWord
   const base =
     cell.reason === 'bed' && opts.room?.refusal
       ? opts.room.refusal
@@ -2816,7 +2836,7 @@ export function railExplain(
   // A marked chip carries no word and no lane mark: it is not a refusal. The
   // precedence above has already answered — the mark can only be reached where
   // the half hour has a free bed, so no 満室 is being suppressed here.
-  if (opts.reseat != null) {
+  if (opts.reseat != null && word == null && opts.reservedDur == null) {
     const moved = `ここに置くと、ほかのお客様のベッドを入れ替えて収めます（${opts.reseat.lines.join('、')}）`
     const caution = opts.reseat.caution != null ? `。${opts.reseat.caution}` : ''
     return {
@@ -3133,6 +3153,10 @@ export function explainRails(
       // needed; a box merely drawn on somebody else's row over the same window
       // is not that proof, and a name is not something to guess at.
       const takerKey = taker?.takerLaneKey ?? null
+      const halfEnd = c.start + RAIL_STEP_MIN
+      // ⚖ FIX ROUND 1 (F2) — the SAME extents, asked of the mark's own span. One
+      // `find` more, on a list of at most a handful of windows per lane.
+      const reservedHalf = heldExtents.some((h) => c.start < h.end && h.start < halfEnd)
       // ⚖ LIAM RULING 1 (2026-09-09) — THIS CHIP'S OWN HALF HOUR, asked once and
       // only as far as the answer can change a word. The book answers the COUNT
       // from the frame's own cache; only a count of zero pays for the allocator's
@@ -3197,6 +3221,7 @@ export function explainRails(
         railExplain(c, opts.dur, {
           room: c.reason === 'bed' && staff ? allocate(lanes, askOn(staff, c.start, end)) : null,
           halfHour,
+          reservedHalf,
           reseat,
           adless: !advertised && reserved == null && opts.sellDisplayed,
           takerLabel: takerKey != null ? (lanes.find((l) => l.key === takerKey)?.label ?? null) : null,
