@@ -46,12 +46,17 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { STORE_A } from '@/business/lib/fixtures'
 import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
+import type { SellCell } from '@/business/lib/canon-logic/availability'
 import { heldCommittedFor } from '@/app/[locale]/(business)/business/today/held-committed'
 import { fallbackCellsFor } from '@/app/[locale]/(business)/business/today/fallback-cells'
 import { reservedOffersFor } from '@/app/[locale]/(business)/business/today/capacity-ledger'
 import {
+  allocateBed,
+  applyBedMoves,
   applyBlockMoves,
   applyMoves,
+  companionLines,
+  companionsFor,
   explainRails,
   gapLayerFor,
   gapPackingDials,
@@ -74,7 +79,7 @@ import {
   type TodayProps,
 } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
-import { minuteOf, place, type BoardLane } from '@/business/lib/today-board'
+import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
@@ -195,7 +200,10 @@ const boards = (): Array<{ name: string; lanes: BoardLane[] }> => [
 type ChipRow = { start: number; face: string; state: string; reason: string | null; word: string | null; sentence: string }
 type CueRow = { start: number; end: number; kind: string | null; label: readonly string[] }
 type LaneRead = { chips: ChipRow[]; cues: CueRow[] }
-type BoardRead = { counter: string; lanes: Record<string, LaneRead> }
+/** …plus every span the board DREW on a staff row — the boxes and the 確保
+ *  windows §R-F asserts no mark ever sits on top of. Not part of the baseline
+ *  comparison: it is the board's own paint, which this round never touches. */
+type BoardRead = { counter: string; lanes: Record<string, LaneRead>; drawn: Array<{ laneKey: string; s: number; e: number }> }
 
 /** The strip as the screen builds it at rest, on any board — both guard doors
  *  out of the ONE book, the hand lifted out of nothing. */
@@ -367,17 +375,29 @@ function readBoard(lanes: BoardLane[]): BoardRead {
         start: c.start,
         face: mark ? `⇄${clock(c.start)}` : (word ?? c.label),
         state: mark ? 'reseat' : c.state,
-        reason: word && !mark ? (c.reason ?? null) : null,
+        // ⚖ 44 + ruling 1 — the dot's class is the WORD's class, decided where
+        // the word is: a chip refused for its pocket can wear 満室, and the
+        // attribute has to be about the beds it names (TodayScreen `data-reason`).
+        reason: mark ? null : (said.wordReason ?? null),
         word: mark ? null : word,
         sentence: said.sentence,
       }
     })
     const cellsHere = drawn.cells.filter((s) => s.group === 'staff' && s.laneKey === rail.laneKey)
     const gapHere = drawnClaims.filter((g) => g.group === 'staff' && g.laneKey === rail.laneKey)
-    const cues: CueRow[] = restCueStarts(per, cellsHere, gapHere, heldByLane.get(rail.laneKey) ?? [])
+    const laneHere = lanes.find((l) => l.key === rail.laneKey && l.group === 'staff')
+    const cues: CueRow[] = restCueStarts(per, cellsHere, gapHere, heldByLane.get(rail.laneKey) ?? [], laneHere?.items ?? [])
     out[rail.laneKey] = { chips, cues }
   }
-  return { counter, lanes: out }
+  return {
+    counter,
+    lanes: out,
+    drawn: [
+      ...drawn.cells.filter((c) => c.group === 'staff').map((c) => ({ laneKey: c.laneKey, s: c.h, e: c.h + 60 })),
+      ...drawnClaims.filter((g) => g.group === 'staff').map((g) => ({ laneKey: g.laneKey, s: g.s, e: g.e })),
+      ...heldDrawn.flatMap((m) => m.spans.map((h) => ({ laneKey: m.laneKey, s: h.start, e: h.end }))),
+    ],
+  }
 }
 
 // ── §OBSERVATIONAL — NOTHING ELSE MAY CHANGE ───────────────────────────────
@@ -440,14 +460,14 @@ const WORDED: Record<string, Record<string, number[]>> = {
  *  mark: this is the one start on Liam's own scenes that fits only by moving. */
 const MARKED: Record<string, Record<string, number[]>> = { C: { 'p-05': [840] } }
 
-/** …and the lane tracks whose mark list changed with any of the above. A lane
- *  whose bed-less half hour sits under a drawn box keeps no mark — ⚖ flag 88 —
- *  which is why B/p-05 carries the word and no cue. Scene C is absent: its one
- *  moving track belongs to ruling 2, which is not in this slice. */
-const HATCHED: Record<string, string[]> = {
-  A: ['c-03', 'p-01', 'p-04', 'p-05', 'p-06'],
-  B: ['c-03', 'p-01', 'p-04', 'p-06'],
-}
+/** …and the lane tracks whose mark list changed with any of the above — ONE
+ *  of the eleven lanes on the four boards, because ⚖ flag 88 keeps the mark to
+ *  genuinely empty track and most of these newly-worded half hours have a card,
+ *  a break or an absence drawn across them. さぶろう's is the one Liam pointed
+ *  at: an empty 14:30〜15:30 with no bed behind it, now one mark reading 満室.
+ *  The other two tracks he named — しろう's quiet hour and ごろう's — belong to
+ *  ruling 2, and they arrive with the bed door's own slice. */
+const HATCHED: Record<string, string[]> = { A: ['c-03'] }
 
 const keysFor = (by: Record<string, Record<string, number[]>>, fields: string[]) =>
   Object.entries(by).flatMap(([scene, lanes]) =>
@@ -477,5 +497,401 @@ describe('§OBSERVATIONAL — the round moves exactly what it says it moves', ()
     // here with both readings, so a surprise is legible rather than a count.
     expect(moved.map((k) => (MAY_MOVE.includes(k) ? k : `${k}\n   was: ${then.get(k)}\n   now: ${now.get(k)}`)))
       .toEqual([...MAY_MOVE].sort())
+  })
+})
+
+// ── §R-A…§R-F — WHAT A STAFFER NOW SEES, ON LIAM'S OWN THREE SCENES ────────
+//
+// The observational pin above says WHERE the board moved. These say WHAT it
+// moved to, in the operator's own words, on the boards his shots were taken on.
+
+const laneOf = (lanes: BoardLane[], key: string) => lanes.find((l) => l.key === key && l.group === 'staff')!
+
+describe('§R-A — さぶろう’s 14:30 AND 15:00 both say 満室, under ONE hatch (shot 1.55.15)', () => {
+  it('the chip he could read and the chip he could not now say the same thing', () => {
+    const c03 = readBoard(sceneA()).lanes['c-03']
+    const at = (m: number) => c03.chips.find((x) => x.start === m)!
+    // 14:30 — the start the ROOMS refuse, which already said 満室.
+    expect(at(870).face).toBe('満室')
+    expect(at(870).reason).toBe('bed')
+    // 15:00 — the start his 15:30 break refuses, which used to say 「—」 while
+    // all three beds were busy through it. ⚖ ruling 1: 「every box that is 満室
+    // should say 満室 … A 30-min gap with no bed is not a gap」.
+    expect(at(900).face).toBe('満室')
+    expect(at(900).reason).toBe('bed')
+    // ⚖ WORDS-FINAL — and its sentence is the HALF HOUR's bed refusal ALONE.
+    // The break that refuses the 60 is drawn on the row above it; saying it
+    // twice is the same refusal said twice (mock fix round 2, item D).
+    expect(at(900).sentence).toBe(
+      '15:00〜15:30はベッドに空きがありません。ベッド1（見本 きり様）、ベッド2（見本 かえる様 14:30〜15:30）、ベッド3（見本 さくら様 15:00〜16:00）が使用中です',
+    )
+    expect(at(900).sentence).not.toContain('60分の連続した空きがありません')
+    // …while 14:30's sentence is the 60-minute refusal, byte-unchanged: that
+    // chip was already answering about the beds.
+    expect(at(870).sentence).toBe(
+      '14:30〜15:30はベッドに空きがありません。ベッド1（テスト えいた様 14:00〜15:00・見本 きり様 15:00〜15:30）、ベッド2（見本 かえる様）、ベッド3（テスト なぎ様 14:05〜15:00・見本 さくら様 15:00〜16:00）が使用中です',
+    )
+  })
+
+  it('the lane carries ONE mark 14:30〜15:30 reading 満室 — not two with a seam', () => {
+    const cues = readBoard(sceneA()).lanes['c-03'].cues
+    expect(cues).toContainEqual({ start: 870, end: 930, kind: 'bed', label: ['満室'] })
+    // 14:00 is bed-less too and it is a SEPARATE mark, because かえる's card is
+    // drawn over 13:00〜14:30 and the run does not survive a drawn box… on this
+    // lane it does run on, so the honest assertion is the merge law itself:
+    // every mark on this lane is a contiguous run of one label.
+    for (const cue of cues) expect((cue.end - cue.start) % 30).toBe(0)
+    // …and no two marks touch, or they would have been merged.
+    for (let i = 1; i < cues.length; i += 1) {
+      expect(cues[i].start === cues[i - 1].end && cues[i].label.join('') === cues[i - 1].label.join('')).toBe(false)
+    }
+  })
+})
+
+describe('§R-B — しろう’s quiet 14:30: the chip is untouched (shot 1.38.20)', () => {
+  it('the half hour HAS a bed, so nothing about the chip moves', () => {
+    const p04 = readBoard(sceneB()).lanes['p-04']
+    const chip = p04.chips.find((x) => x.start === 870)!
+    // ⚖ ruling 3's other half — this half hour HAS a bed, so nothing about the
+    // chip changes: it is the same △ the board always gave it.
+    expect(chip.face).toBe('△14:30')
+    expect(chip.word).toBeNull()
+    expect(chip.state).toBe('degraded')
+    // ⚖ RULING 2, THE HALF THAT IS NOT HERE. The note 「別の枠で販売中」 and its
+    // clause are wired in this slice, but they can only speak where the board
+    // KNOWS a promise took the room — a room drop carrying a taker (⚖ 75(i)),
+    // proved at today-explains.test.ts §7. On しろう's own scene the sell layer
+    // simply hands the hour's one free bed to the first free staff in lane order
+    // and drops nothing, so there is nothing here to name and the lane stays
+    // quiet. Reading the bed book itself — 「is EVERY free bed standing under
+    // somebody else's box」 — needs the ledger door, and it arrives with its own
+    // slice; §R-B grows the note and the two ⚖ 75(i) gates there.
+    expect(p04.cues.filter((c) => c.kind === 'sold')).toEqual([])
+    expect(chip.sentence).toContain('この開始には販売可能枠が出ていません')
+  })
+})
+
+describe('§R-C — ごろう’s 14:00 fits by moving さくら one bed over (shot 1.43.41)', () => {
+  it('the chip is ⇄14:00, with no word, no dot and no lane mark', () => {
+    const chip = readBoard(sceneC()).lanes['p-05'].chips.find((x) => x.start === 840)!
+    expect(chip.face).toBe('⇄14:00')
+    expect(chip.state).toBe('reseat')
+    // Not a refusal: no micro-word, so no 3px dot rides `data-reason`.
+    expect(chip.word).toBeNull()
+    expect(chip.reason).toBeNull()
+    // And nothing on the track: the half hour is not full, so there is no
+    // 満室 to hatch, and the box drawn over it would contradict one anyway.
+    expect(readBoard(sceneC()).lanes['p-05'].cues.some((c) => c.start <= 840 && 840 < c.end)).toBe(false)
+  })
+
+  it('the press names who moves, where to, and what it costs — every clause product-composed', () => {
+    const chip = readBoard(sceneC()).lanes['p-05'].chips.find((x) => x.start === 840)!
+    expect(chip.sentence).toBe(
+      '14:00〜15:00はベッドに空きがありません。ベッド1（見本 さくら様 14:30〜15:30）、ベッド2（見本 かえる様 13:00〜14:30）、ベッド3（テスト なぎ様 14:05〜15:05）が使用中です' +
+        '。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（見本 さくら様 ベッド1 → ベッド2）' +
+        '。ここに置くと13:30〜15:00の新規（90分）が入らなくなります',
+    )
+    // ⛔ the OPERATOR's own gesture verbs stay out of a sentence about what the
+    // board does by itself (WORDS §Do-not-say).
+    expect(chip.sentence).not.toContain('移動')
+    expect(chip.sentence).not.toContain('移せば')
+  })
+
+  it('⚖ flag 54 — the strip promises exactly what the drop stages, on the same board', () => {
+    const lanes = sceneC()
+    const dur = REAL.guard.standardSessionMin
+    const q = {
+      staffLane: 'p-05', bedLane: null, solveRoom: true, id: null, requiresPrivate: false,
+      start: 840, end: 840 + dur, span: place(840, 840 + dur, REAL.hours),
+      foreignRefusal: null, hasPrice: false, locked: [] as string[],
+      minutesOf: (x: number) => minuteOf(x, REAL.hours),
+      stagedId: null, now: REAL.sell.nowMinute, cleanupMinutesByBed: REAL.bedCleanupMinutes,
+    }
+    const cell = railsOn(lanes).find((r) => r.laneKey === 'p-05')!.cells.find((x) => x.start === 840)!
+    const drop = landingVerdict(lanes, { ...q, pack: true }, cell)
+    // The drop moves exactly one person, and the mark named that person.
+    expect(drop.reseats).toEqual([{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }])
+    expect(companionLines(lanes, companionsFor(lanes, drop.reseats))).toEqual(['見本 さくら様 ベッド1 → ベッド2'])
+    // …and the amber the chip wears is the drop's own verdict on the board the
+    // shuffle leaves — never the guard read a second way.
+    const after = applyBedMoves(lanes, companionsFor(lanes, drop.reseats), REAL.hours, REAL.bedCleanupMinutes)
+    const afterCell = railsOn(after).find((r) => r.laneKey === 'p-05')!.cells.find((x) => x.start === 840)!
+    const staged = landingVerdict(after, q, afterCell)
+    expect(staged.kind).toBe('caution')
+    expect(readBoard(lanes).lanes['p-05'].chips.find((x) => x.start === 840)!.sentence).toContain(staged.reason!)
+  })
+})
+
+// ── §R-D — the precedence, on scenes built to hold each rung ───────────────
+
+const HOURS = { open: 600, close: 1140 }
+const HAND_GUARD = {
+  services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+  newClientSessionMin: 90,
+  protectedLabel: '新規',
+  gapFillMinMin: 30,
+  leadTimeMin: 0,
+  mode: 'standard' as const,
+}
+
+function handItem(over: Partial<BoardItem> & Pick<BoardItem, 'key' | 'caseId'>, start: number, end: number): BoardItem {
+  return {
+    kind: 'booking', state: 'confirmed', category: 'repeat', ...place(start, end, HOURS),
+    title: '見本 はなこ', tag: '', time: '', ticketCat: '単発', ticketCore: null, held: false, micro: false,
+    label: '', ...over,
+  }
+}
+function handLane(over: Partial<BoardLane> & Pick<BoardLane, 'key' | 'group'>): BoardLane {
+  return {
+    label: over.key, sub: '', absentNote: null, mine: false, items: [],
+    window: over.group === 'staff' ? { from: HOURS.open, until: HOURS.close } : null,
+    untilLabel: over.group === 'staff' ? '19:00' : null,
+    listPrice: over.group === 'staff' ? 7000 : 0,
+    stores: ['store-a'],
+    roomClass: over.group === 'staff' ? null : 'standard',
+    ...over,
+  }
+}
+
+/** The screen's composition on a hand-built board: the round's door out of the
+ *  book, and nothing else supplied, so each rung of the precedence is the only
+ *  thing the scene varies. */
+function explainHand(lanes: BoardLane[]) {
+  const frame = { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }
+  const views = bedViewsFor(lanes, frame, null)
+  const bedFree = bedDoor(views, lanes, null)
+  const rails = guardRailsFor(lanes, {
+    open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+    nowMinute: null, locked: [], guard: HAND_GUARD, excludeId: null,
+    placementFeasible: bedFree, protectedWindowFeasible: bedFree, resting: null,
+  })
+  return explainRails(rails, lanes, {
+    dur: 60, handId: null, stagedId: null, sellCells: [], claims: [], drops: [],
+    inHand: false, sellDisplayed: true,
+    halfHourFree: (laneKey, start) => {
+      const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
+      if (!lane) return null
+      const asker = { stores: lane.stores, requiresPrivate: false }
+      return views.world.bedFor(start, start + 30, asker).compatibleRoomsExist
+        ? views.world.freeBedCount(start, start + 30, asker)
+        : null
+    },
+  })
+}
+
+describe('§R-D — the precedence Liam approved, rung by rung', () => {
+  it('a half hour whose every blocker is a turnaround says 清掃, not 満室', () => {
+    // ⚖ 8/26 — a window being turned over is not a busy house. The class is read
+    // off the walk `allocateBed` already did for the HALF HOUR, never re-derived.
+    const lanes = [
+      handLane({ key: 'p-01', group: 'staff', label: '見本 あずさ' }),
+      handLane({
+        key: 'bed-01', group: 'beds', label: 'ベッド1',
+        items: [{ ...handItem({ key: 'cl', caseId: null }, 780, 810), kind: 'cleanup' as const, state: null, category: null, title: '清掃' }],
+      }),
+    ]
+    const said = explainHand(lanes).get('p-01')!.get(780)!
+    expect(said.word).toBe('清掃')
+    expect(said.cue).toEqual({ kind: 'bed', label: ['清掃'] })
+  })
+
+  it('新規用 keeps its word and grows no mark — and the two rungs can never actually contend', () => {
+    // The precedence Liam approved puts 新規用 above 満室, so this pin is about
+    // the rung UNDER it: a 確保 chip keeps its word, carries no mark (the 確保
+    // chip E3b paints is what explains that emptiness — ⚖ 8/30 + flag 88)…
+    const rest = readBoard(REAL.lanes)
+    const guarded = Object.values(rest.lanes).flatMap((l) => l.chips.filter((c) => c.word === '新規用'))
+    expect(guarded.length).toBeGreaterThan(0)
+    for (const c of guarded) expect(c.reason).toBe('guard')
+    for (const [laneKey, lane] of Object.entries(rest.lanes)) {
+      for (const c of lane.chips.filter((x) => x.word === '新規用')) {
+        expect({ at: `${laneKey}@${clock(c.start)}`, marked: lane.cues.some((q) => q.start <= c.start && c.start < q.end) })
+          .toEqual({ at: `${laneKey}@${clock(c.start)}`, marked: false })
+      }
+    }
+    // …and the two rungs cannot meet at all, which is worth knowing rather than
+    // guessing: a guard refusal means the ENGINE got past the rooms, and it only
+    // does that when a bed is free for the whole judged window — so every half
+    // hour inside one has a bed. FOUND BY THIS ROUND's red-run, on all four
+    // boards; a scene built to hold the contention could not be built.
+    for (const b of boards()) {
+      const views = bedViewsFor(b.lanes, DAY_FRAME(), null)
+      for (const rail of railsOn(b.lanes)) {
+        const lane = laneOf(b.lanes, rail.laneKey)
+        for (const cell of rail.cells.filter((x) => x.reason === 'guard')) {
+          const asker = { stores: lane.stores, requiresPrivate: false }
+          expect({ at: `${b.name}/${rail.laneKey}@${clock(cell.start)}`, free: views.world.freeBedCount(cell.start, cell.start + 30, asker) > 0 })
+            .toEqual({ at: `${b.name}/${rail.laneKey}@${clock(cell.start)}`, free: true })
+        }
+      }
+    }
+  })
+
+  it('a lane sharing no store with any room keeps the bare 「—」 and the no-rooms sentence — never 満室 (#777)', () => {
+    const lanes = [
+      handLane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-z'] }),
+      handLane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+    ]
+    const said = explainHand(lanes).get('p-01')!.get(780)!
+    expect(said.word).toBeNull()
+    expect(said.cue).toBeNull()
+    expect(said.sentence).toBe('この店舗には使えるベッドがありません')
+    expect(said.sentence).not.toContain('満室')
+  })
+})
+
+// ── §R-E / §R-F — the number, and the law about where a mark may sit ───────
+
+describe('§R-E — the 「one number」 counter is untouched on every board', () => {
+  it('オンライン販売中 N窓 reads exactly what it read on main', () => {
+    for (const b of boards()) expect(readBoard(b.lanes).counter).toBe(BASELINE[b.name].counter)
+  })
+})
+
+describe('§R-F — ⚖ flag 88: a mark never sits on top of something the board drew', () => {
+  it('no cue on any lane of any board overlaps a drawn box or a 確保 span', () => {
+    for (const b of boards()) {
+      const read = readBoard(b.lanes)
+      const boxes = read.drawn
+      for (const [laneKey, lane] of Object.entries(read.lanes)) {
+        for (const cue of lane.cues) {
+          for (const box of boxes.filter((x) => x.laneKey === laneKey)) {
+            expect({ at: `${b.name}/${laneKey}@${clock(cue.start)}`, over: box.s < cue.end && cue.start < box.e })
+              .toEqual({ at: `${b.name}/${laneKey}@${clock(cue.start)}`, over: false })
+          }
+        }
+      }
+    }
+  })
+})
+
+// ── §BEHAVIOURAL — WHAT THE STRIP ASKS, COUNTED, IN EACH STATE ─────────────
+//
+// ⚖ THE KICKOFF'S OWN INSTRUCTION: 「fence it BEHAVIOURALLY (count allocator
+// calls per frame in a test that drives the surface), not by grep — the 9/8
+// grep pin missed a positional `true`」. today-bed-packing R9 counts the
+// literal; this counts the ASKS, which is the thing the fence is actually
+// about. The allocator is handed in, so every question `explainRails` puts and
+// the shape of each one is readable here.
+
+type Ask = Parameters<typeof allocateBed>[1]
+
+function counting() {
+  const asks: Ask[] = []
+  const allocate: typeof allocateBed = (lanes, opts) => {
+    asks.push(opts)
+    return allocateBed(lanes, opts)
+  }
+  return { asks, allocate, packs: () => asks.filter((a) => a.pack === true) }
+}
+
+/** The screen's rest-layer composition on any board, with the round's two doors
+ *  and a caller-supplied allocator — the same arguments `railExplained` builds.
+ *  `handId` also picks the rails' own world, exactly as the screen does. */
+function explainWith(lanes: BoardLane[], allocate: typeof allocateBed, over: { handId?: string | null; inHand?: boolean } = {}) {
+  const handId = over.handId ?? null
+  const views = bedViewsFor(lanes, DAY_FRAME(), handId)
+  const dur = REAL.guard.standardSessionMin
+  const rails = guardRailsFor(lanes, {
+    open: REAL.hours.open, close: REAL.hours.close, stepMin: 30, dur,
+    protectedDur: REAL.guard.protectedDurationMin, nowMinute: REAL.sell.nowMinute,
+    locked: [], guard: REAL.guard.config, excludeId: handId,
+    placementFeasible: bedDoor(views, lanes, handId),
+    protectedWindowFeasible: bedDoor(views, lanes, null),
+    resting: null,
+  })
+  return explainRails(rails, lanes, {
+    dur, handId, stagedId: null, sellCells: [], claims: [], drops: [],
+    inHand: over.inHand ?? false, sellDisplayed: true,
+    allocate,
+    halfHourFree: (laneKey, start) => {
+      const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
+      if (!lane) return null
+      const asker = { stores: lane.stores, requiresPrivate: false }
+      return views.world.bedFor(start, start + 30, asker).compatibleRoomsExist
+        ? views.world.freeBedCount(start, start + 30, asker)
+        : null
+    },
+    reseat: {
+      hours: REAL.hours,
+      nowMinute: REAL.sell.nowMinute,
+      cleanupMinutesByBed: REAL.bedCleanupMinutes,
+      landingOn: (after, laneKey, start) =>
+        landingVerdict(
+          after,
+          {
+            staffLane: laneKey, bedLane: null, solveRoom: true, id: null, requiresPrivate: false,
+            start, end: start + dur, span: place(start, start + dur, REAL.hours),
+            foreignRefusal: null, hasPrice: false, locked: [],
+            minutesOf: (x: number) => minuteOf(x, REAL.hours),
+            stagedId: null, now: REAL.sell.nowMinute, cleanupMinutesByBed: REAL.bedCleanupMinutes,
+          },
+          railsOn(after).find((r) => r.laneKey === laneKey)?.cells.find((x) => x.start === start) ?? null,
+        ),
+    },
+  })
+}
+
+describe('§BEHAVIOURAL — the packing search never runs per frame', () => {
+  it('(i) thirty frames of an ordinary drag: ZERO asks of any kind', () => {
+    // The commonest gesture — a card carried along its own staff row. The map
+    // is not composed at all while it is in flight, so nothing is asked and
+    // nothing is thrown away (⚖ 44 fix round, blind lens 4).
+    const spy = counting()
+    for (let f = 0; f < 30; f += 1) expect(explainWith(sceneC(), spy.allocate, { inHand: true, handId: 'apt-26' }).size).toBe(0)
+    expect({ frames: 30, asks: spy.asks.length }).toEqual({ frames: 30, asks: 0 })
+  })
+
+  it('(ii) thirty frames of a BED-LANE drag: the room probes run, and not ONE of them packs', () => {
+    // The three gestures that get past `inHand` — a bed-row drag, a resize and a
+    // drag over the shelf — reach this map with a card in hand. They pay what
+    // they always paid (one room probe per bed-refused chip) and nothing more:
+    // a backtracking search on a pointer frame is the exact cost design §3
+    // forbids, and the mark is a fact about a placement nobody has made.
+    //
+    // The hand is テスト くらら's 10:30 card, deliberately NOT one of the three
+    // occupants of the 14:00 hour: lifting a blocker out (⚖ R3) frees the room
+    // and the refusal simply vanishes, which would prove nothing about cost.
+    const spy = counting()
+    for (let f = 0; f < 30; f += 1) explainWith(sceneC(), spy.allocate, { handId: 'apt-22' })
+    expect(spy.asks.length).toBeGreaterThan(0)
+    expect({ frames: 30, packs: spy.packs().length }).toEqual({ frames: 30, packs: 0 })
+    // …and the ordinary drag above pays nothing at all, so the two states are
+    // told apart by the counts rather than by the wiring being trusted.
+    expect(spy.asks.every((a) => a.pack !== true)).toBe(true)
+  })
+
+  it('(iii) at REST the pack runs once per marker candidate — no more, no fewer', () => {
+    const lanes = sceneC()
+    const spy = counting()
+    explainWith(lanes, spy.allocate)
+    // The candidates, counted a second way and independently: a start the rooms
+    // refused for the strip's own length whose first half hour still has a bed.
+    const views = bedViewsFor(lanes, DAY_FRAME(), null)
+    const candidates = railsOn(lanes).flatMap((rail) =>
+      rail.cells.filter(
+        (c) =>
+          c.reason === 'bed' &&
+          views.world.freeBedCount(c.start, c.start + 30, { stores: laneOf(lanes, rail.laneKey).stores, requiresPrivate: false }) > 0,
+      ),
+    )
+    expect(candidates.length).toBeGreaterThan(0)
+    expect({ candidates: candidates.length, packs: spy.packs().length })
+      .toEqual({ candidates: candidates.length, packs: candidates.length })
+    // …and every packing ask carries the two facts it cannot be honest without.
+    for (const a of spy.packs()) {
+      expect(a.now).toBe(REAL.sell.nowMinute)
+      expect(a.cleanupMinutesByBed).toBe(REAL.bedCleanupMinutes)
+      expect(a.end - a.start).toBe(REAL.guard.standardSessionMin)
+    }
+  })
+
+  it('(iv) a board with nothing to re-seat pays nothing — main’s own day asks zero packs', () => {
+    // REST has no bed-refused chip at all, so the marker never even reaches its
+    // search: the cost of this round on the board a store looks at all day is
+    // one extra half-hour question per chip, and no packing at all.
+    const spy = counting()
+    explainWith(REAL.lanes, spy.allocate)
+    expect(spy.packs()).toHaveLength(0)
   })
 })

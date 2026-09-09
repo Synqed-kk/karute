@@ -5777,7 +5777,11 @@ export function TodayScreen(props: TodayProps) {
           // and the visible result was flag 88's artifact: a rest hatch under a
           // 確保 chip, or a suppressed cue where no chip is drawn. `heldHere` is
           // that same committed list, already in hand one line above.
-          restCueStarts(explainedHere, cells, gapHere, heldHere)
+          // ⚖ FLAG 88, WHOLE (2026-09-09) — …and this lane's own drawn cards.
+          // Ruling 1 puts the word on half hours the engine refused for their
+          // POCKET, which are the ones with a card on them; the chip still says
+          // 満室 and the track keeps its「empty track only」rule.
+          restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items)
         : []
     // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
     // the lane's SIBLING, not its child. A `.lane` is a two-column grid, so a
@@ -6251,7 +6255,7 @@ export function TodayScreen(props: TodayProps) {
                 // and the word can never appear without each other: both are
                 // set from the same `word`, which is why the paint has no second
                 // condition to drift from.
-                data-reason={word && !mark ? (c.reason ?? undefined) : undefined}
+                data-reason={!v && !mark ? (explained?.wordReason ?? undefined) : undefined}
                 aria-label={`${rail.laneLabel}、${hhmm(c.start)}。${sentence}`}
                 // ⚖ flag 44 (3) — CANON'S OWN PRESS-ANSWERS-WITH-A-SENTENCE, the
                 // absence hatch's (:4249). The strip was a `role="img"` that

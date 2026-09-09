@@ -2669,7 +2669,7 @@ export function railExplain(
      *  board that shipped before this round. */
     reseat?: { tone: 'safe' | 'degraded'; lines: readonly string[]; caution: string | null } | null
   } = {},
-): { word: string | null; sentence: string; cue: RailCue | null; mark: RailMark | null } {
+): { word: string | null; wordReason: RailReason | null; sentence: string; cue: RailCue | null; mark: RailMark | null } {
   // ⚖ NATIVE PASS (2026-08-26) — 〜, NOT AN EN DASH. The bed branch's own
   // sentence, two chips away on the same strip, spells the identical window
   // 「13:30〜14:30」; one strip may not punctuate one fact two ways. The ⚖-ruled
@@ -2762,6 +2762,13 @@ export function railExplain(
   // already named (mock fix round 2, item C — it overturns WORDS §S2's first
   // pick). 新規用 never rides here: the 確保 chip is drawn over that emptiness
   // and `restCueStarts` stands the cue down under it (⚖ E3b + flag 88).
+  // ⚖ 44 + RULING 1 (2026-09-09) — WHICH CLASS THE WORD IS ABOUT, decided where
+  // the word is. It is NOT `cell.reason` any more: under ruling 1 the word can
+  // be about the BEDS on a chip the ENGINE refused for a pocket reason
+  // (さぶろう's 15:00, whose 60 minutes run into his break while all three rooms
+  // are busy through the half hour), and an attribute reading 'fit' beside 満室
+  // is flag 44's own disease — two readings of one answer, free to disagree.
+  const wordReason: RailReason | null = word == null ? null : word === '新規用' ? 'guard' : 'bed'
   const bedCue: RailCue | null = word === '満室' || word === '清掃' ? { kind: 'bed', label: [word] } : null
   // ⚖ LIAM RULING 3 (2026-09-09) — 「ここに置くと、ほかのお客様のベッドを入れ替えて
   // 収めます（…）」. Two accepted strings joined and nothing coined: the clause is
@@ -2779,15 +2786,16 @@ export function railExplain(
     const caution = opts.reseat.caution != null ? `。${opts.reseat.caution}` : ''
     return {
       word: null,
+      wordReason: null,
       sentence: `${base}。${moved}${caution}`,
       cue: null,
       mark: { face: 'reseat', tone: opts.reseat.tone },
     }
   }
-  if (opts.reservedDur != null) return { word, sentence: `${base}。${reservedClause(opts.reservedDur)}`, cue: bedCue, mark: null }
+  if (opts.reservedDur != null) return { word, wordReason, sentence: `${base}。${reservedClause(opts.reservedDur)}`, cue: bedCue, mark: null }
   // A refused chip is already answering; ⚖ 75(i)'s clause is about a start the
   // board said YES to and then advertised nothing at.
-  if (cell.state === 'blocked' || opts.adless !== true) return { word, sentence: base, cue: bedCue, mark: null }
+  if (cell.state === 'blocked' || opts.adless !== true) return { word, wordReason, sentence: base, cue: bedCue, mark: null }
   // ⚖ NATIVE PASS (2026-08-26) — BOTH CLAUSES NAMED THE WRONG THING.
   //   · the taker read 「ベッドは別の販売枠（…）が使っています」, but what took
   //     the room is a 詰め込み／スキマ box, not a 販売枠, and the label in the
@@ -2801,6 +2809,7 @@ export function railExplain(
     : 'この開始には販売可能枠が出ていません'
   return {
     word,
+    wordReason,
     sentence: `${base}。${clause}`,
     // ⚖ RULING 2 IS NOT HERE. A quiet hour on a free person whose bed went to
     // somebody else's row does carry its reason — in the SENTENCE, exactly as
@@ -2815,7 +2824,7 @@ export function railExplain(
 }
 
 /** What one chip wears and says: `railExplain`'s answer, keyed lane → start. */
-export type RailExplained = Map<string, Map<number, { word: string | null; sentence: string; cue: RailCue | null; mark: RailMark | null }>>
+export type RailExplained = Map<string, Map<number, { word: string | null; wordReason: RailReason | null; sentence: string; cue: RailCue | null; mark: RailMark | null }>>
 
 /** ⚖ 44 + rider 75(i) — EVERY CHIP'S WORD AND ITS SENTENCE, worked out once per
  *  frame instead of once per press.
@@ -3041,7 +3050,7 @@ export function explainRails(
       }
       return { start, end, dur: h.end - h.start }
     })
-    const per = new Map<number, { word: string | null; sentence: string; cue: RailCue | null; mark: RailMark | null }>()
+    const per = new Map<number, { word: string | null; wordReason: RailReason | null; sentence: string; cue: RailCue | null; mark: RailMark | null }>()
     for (const c of rail.cells) {
       const end = c.start + opts.dur
       const advertised =
@@ -3192,13 +3201,29 @@ export function restCueStarts(
    *  the same reason it stands down over a price box. EMPTY = the round gate is
    *  off and the cue is byte-identical to today's. */
   heldHere: readonly ReservedSpan[] = [],
+  /** ⚖ FLAG 88, WHOLE (2026-09-09) — …AND ITS OWN DRAWN CARDS.
+   *
+   *  Until ruling 1 this argument would have been dead weight: a chip only wore
+   *  a word when the ROOMS refused it, and a room-refused start has an empty
+   *  pocket by construction, so the track under a worded chip was always blank.
+   *  Ruling 1 puts the word on a half hour the engine refused for its POCKET
+   *  too — さぶろう's 15:00, 見本 はなこ's whole 勤務不可 afternoon — and those
+   *  are exactly the half hours with a card, a break or an absence drawn across
+   *  them. A wash under a drawn card is flag 88's artifact with a different
+   *  thing on top, and the label would be hidden behind the card besides.
+   *
+   *  So the chip says 満室 (ruling 1) and the LANE keeps its own rule: empty
+   *  track only. EMPTY = the caller has nothing drawn, or has not adopted this
+   *  argument, and the cue is byte-identical to the one it painted before. */
+  itemsHere: readonly { startMin: number; endMin: number }[] = [],
 ): RestCue[] {
   // `RAIL_STEP_MIN` is the rail's own step and so the cue's own width — the same
   // span `renderLane` gives the mark it paints from each start returned here.
   const covered = (start: number) =>
     sellHere.some((s) => s.h < start + RAIL_STEP_MIN && start < s.h + SELL_SLOT_MIN) ||
     gapHere.some((g) => g.s < start + RAIL_STEP_MIN && start < g.e) ||
-    heldHere.some((h) => h.start < start + RAIL_STEP_MIN && start < h.end)
+    heldHere.some((h) => h.start < start + RAIL_STEP_MIN && start < h.end) ||
+    itemsHere.some((i) => i.startMin < start + RAIL_STEP_MIN && start < i.endMin)
   const kept = [...explained]
     .filter(([, e]) => e.cue != null)
     .filter(([start]) => !covered(start))

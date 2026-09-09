@@ -797,6 +797,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
       sentence: '13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）が使用中です',
       cue: { kind: 'bed', label: ['満室'] },
       mark: null,
+      wordReason: 'bed',
     })
     // …and a chip of any other class never grew a room answer, so it can never
     // wear a room word.
@@ -810,7 +811,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // The engine judged the whole board, so the chip is `bed`; the sentence is
     // asked with `handId` lifted out, which is the booking in the way — case (a).
     const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
-    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)).toEqual({ word: null, sentence: expect.any(String), cue: null, mark: null })
+    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)).toEqual({ word: null, wordReason: null, sentence: expect.any(String), cue: null, mark: null })
     expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)!.sentence).not.toContain('ベッド1（見本 かえる様')
   })
 
@@ -905,7 +906,7 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     expect(SRC).toContain('<i>{face}</i>')
     // …the dot rides `data-reason`, which is set from that SAME value — and it
     // stands down on a marked chip, which is not a refusal and carries no dot.
-    expect(SRC).toContain('data-reason={word && !mark ? (c.reason ?? undefined) : undefined}')
+    expect(SRC).toContain('data-reason={!v && !mark ? (explained?.wordReason ?? undefined) : undefined}')
     // …and the hatch starts from the same filter, now inside `restCueStarts`
     // (⚖ flag 88): the SOURCE of all three is still one value, and what the
     // helper adds is a narrowing of the PAINT, never a second reading of the
@@ -925,7 +926,12 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // from the committed mask. Idle they coincide; mid-gesture they diverge, and
     // the divergence paints flag 88's artifact. `heldHere` is that committed
     // list, already in hand one line above in the renderer.
-    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere)')
+    // ⚖ FLAG 88, WHOLE (2026-09-09) — a FIFTH argument, and the same narrowing
+    // for the same reason: ruling 1 puts the word on half hours the engine
+    // refused for their POCKET, which are exactly the ones with a card, a break
+    // or an absence drawn across them. The chip keeps its word; the LANE keeps
+    // 「empty track only」. Nothing about 「one source, three faces」 moved.
+    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items)')
     // ⚖ LIAM RULING 1 (2026-09-09) — the filter is the CUE now. The source of
     // the three faces is still ONE value per chip: `railExplain` decides the
     // word and the mark together, in one return, so they cannot drift apart —
