@@ -2606,6 +2606,41 @@ export interface RestCue extends RailCue {
   end: number
 }
 
+/** ⚖ WORDS-FINAL (2026-09-09, after the mock's native lens) — 別の…枠 is the
+ *  taker clause's own wording (「ベッドは別のスタッフ（…）の枠が使う」) and 販売中
+ *  is this board's own status word; nothing is coined. The break is at the noun
+ *  boundary, so a cue too narrow for one line still reads. Bare 「販売中」 is
+ *  never used alone here — on this board that is what a blue box says about the
+ *  slot it sits on, and the label would state the opposite of the fact. */
+const SOLD_ELSEWHERE_LABEL: readonly string[] = ['別の枠で', '販売中']
+
+/** ⚖ FIX ROUND 1 (2026-09-09, Fable on the build's §Open 1) — IS THIS HALF HOUR
+ *  EMPTY TRACK ON THIS ROW? One predicate, two readers.
+ *
+ *  Liam's ruling 1 is about a 「30-min GAP with no bed」, and a gap is empty
+ *  track: a half hour with a booking, a break, 勤務不可 or a 予定ブロック drawn
+ *  across it already shows the operator what is in the way, so the strip keeps
+ *  the bare 「—」 it always wore there — which is also the picture he approved
+ *  (見本 はなこ's 勤務不可 afternoon stayed 「—」 in the mock's Scene A). The WORD
+ *  narrows to the same track the MARK does, and the two ask one question.
+ *
+ *  The exclusions are `allocateBed`'s own (`blockersOn`): the card in hand and
+ *  its own trailing 清掃 travel WITH the booking rather than blocking it, so a
+ *  gesture cannot make a row look busy with the very card being lifted out of
+ *  it. Half-open on both sides, like every other span comparison here. */
+const laneCovers = (
+  items: readonly { key?: string; caseId?: string | null; startMin: number; endMin: number }[],
+  start: number,
+  end: number,
+  excludeId: string | null = null,
+): boolean =>
+  items.some(
+    (i) =>
+      (excludeId == null || (i.caseId !== excludeId && i.key !== `${excludeId}-cleanup`)) &&
+      i.startMin < end &&
+      start < i.endMin,
+  )
+
 /** THE RAIL'S OWN STEP — the width of one chip, the width of one lane cue, and
  *  (⚖ LIAM ruling 1, 2026-09-09) the HALF HOUR the strip's word is now about.
  *  One home for the number the screen spells as `stepMin` where the cells are
@@ -3013,6 +3048,24 @@ export function explainRails(
     end: to,
     stagedId: opts.stagedId,
   })
+  /** ⚖ FIX ROUND 1 (F6) — THE BED-LESS OCCUPANT WALK, ONCE PER (STORES, START).
+   *
+   *  It is a HYPOTHETICAL ask — no booking id, no current room, and the 個室
+   *  need is the hand's, which is one value for the whole call — so two lanes
+   *  sharing a store set get the identical answer at the identical start, and
+   *  on a full board that is every lane in the store. The book already memoises
+   *  the free-bed COUNT; this is the walk that names the occupants, which the
+   *  book does not hand out. Per call, thrown away with it. */
+  const halfWalks = new Map<string, ReturnType<typeof allocate>>()
+  const halfWalk = (lane: BoardLane, start: number) => {
+    const key = `${(lane.stores ?? ['*']).join('|')}|${start}`
+    let hit = halfWalks.get(key)
+    if (hit === undefined) {
+      hit = allocate(lanes, askOn(lane, start, start + RAIL_STEP_MIN))
+      halfWalks.set(key, hit)
+    }
+    return hit
+  }
   for (const rail of rails) {
     const staff = lanes.find((l) => l.key === rail.laneKey && l.group === 'staff')
     // Per lane, once — the ad-less test below is asked per cell and these three
@@ -3073,6 +3126,7 @@ export function explainRails(
       // keeps taking the first, which is the same honest ceiling the taker
       // lookup already declares, and both windows quote the same dial anyway.
       const reserved = heldExtents.find((h) => c.start < h.end && h.start < end)
+      const halfEmpty = staff != null && !laneCovers(staff.items, c.start, c.start + RAIL_STEP_MIN, opts.handId)
       const taker = advertised || reserved ? undefined : roomDrops.find((d) => overlaps(d.h, d.h + SELL_SLOT_MIN, c.start, end))
       // ⚖ 75(i) — THE DROP'S OWN TAKER, and nothing else. A drop is the one
       // record that KNOWS which promise took the room this lane would have
@@ -3085,14 +3139,18 @@ export function explainRails(
       // occupant walk, which is what tells 満室 from 清掃. A lane with no
       // compatible room comes back `null` and can wear no bed word at all
       // (⚖ #777). Absent door ⇒ `undefined` ⇒ the gate is off in `railExplain`.
-      const halfFree = opts.halfHourFree && staff ? opts.halfHourFree(rail.laneKey, c.start) : undefined
+      // ⚖ FIX ROUND 1 (F1) — AND ONLY ON EMPTY TRACK. A half hour with something
+      // drawn across it on THIS row is not a gap, so it keeps the face it always
+      // had: `null` here is the round's answer for 「there is nothing to say」,
+      // and it composes today's word and today's sentence, byte for byte.
+      const halfFree = opts.halfHourFree && staff && halfEmpty ? opts.halfHourFree(rail.laneKey, c.start) : undefined
       const halfHour =
-        halfFree === undefined || staff == null
+        opts.halfHourFree == null || staff == null
           ? undefined
-          : halfFree === null
+          : halfFree === undefined || halfFree === null
             ? null
             : halfFree === 0
-              ? { free: 0, ...allocate(lanes, askOn(staff, c.start, c.start + RAIL_STEP_MIN)) }
+              ? { free: 0, ...halfWalk(staff, c.start) }
               : { free: halfFree, refusal: null, blockers: [] as readonly BoardItem[] }
       // ⚖ LIAM RULING 3 (2026-09-09) — THE ONE PACKING ASK ON THIS LAYER.
       //
@@ -3223,7 +3281,7 @@ export function restCueStarts(
     sellHere.some((s) => s.h < start + RAIL_STEP_MIN && start < s.h + SELL_SLOT_MIN) ||
     gapHere.some((g) => g.s < start + RAIL_STEP_MIN && start < g.e) ||
     heldHere.some((h) => h.start < start + RAIL_STEP_MIN && start < h.end) ||
-    itemsHere.some((i) => i.startMin < start + RAIL_STEP_MIN && start < i.endMin)
+    laneCovers(itemsHere, start, start + RAIL_STEP_MIN)
   const kept = [...explained]
     .filter(([, e]) => e.cue != null)
     .filter(([start]) => !covered(start))

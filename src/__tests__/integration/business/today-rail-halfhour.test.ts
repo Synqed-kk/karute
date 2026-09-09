@@ -441,15 +441,17 @@ function flatten(read: Record<string, BoardRead>): Map<string, string> {
  *  half hour is bed-less and not one start needs a re-seat, so the round adds
  *  nothing to it at all. Everything below is on a board Liam FILLED. */
 
-/** ⚖ RULING 1 — the chips whose word the half hour now decides. Every room on
- *  these boards is busy right across the listed half hours, and the ruling is
- *  about the HALF HOUR rather than about one person, so it is every lane's
- *  chip. A/c-03@14:30 is absent on purpose: it already said 満室, and its
+/** ⚖ RULING 1, as ⚖ FIX ROUND 1 (F1) narrows it — the chips whose word the half
+ *  hour now decides. ONE chip on the four boards: さぶろう's 15:00, the exact
+ *  half hour Liam could not read.
+ *
+ *  The word rides EMPTY TRACK, like the mark: a 「30-min GAP with no bed」 is a
+ *  gap on the row, and a half hour with a booking, a break or 勤務不可 drawn
+ *  across it already shows the operator what is in the way. That is what keeps
+ *  見本 はなこ's 勤務不可 afternoon at 「—」 — and it is the picture he approved.
+ *  A/c-03@14:30 is absent for the other reason: it already said 満室, and its
  *  sentence — the 60-minute refusal — is untouched. */
-const WORDED: Record<string, Record<string, number[]>> = {
-  A: { 'c-03': [840, 900], 'p-01': [840, 870, 900], 'p-04': [840, 870, 900], 'p-05': [840, 870, 900], 'p-06': [840, 870, 900] },
-  B: { 'c-03': [840], 'p-01': [840], 'p-04': [840], 'p-05': [840], 'p-06': [840] },
-}
+const WORDED: Record<string, Record<string, number[]>> = { A: { 'c-03': [900] } }
 
 /** ⚖ RULING 3 — and the one chip that LOSES the word: ごろう's 14:00, whose
  *  half hour has ベッド1 free while the 60-minute start does not. It stops
@@ -656,15 +658,20 @@ function handLane(over: Partial<BoardLane> & Pick<BoardLane, 'key' | 'group'>): 
 /** The screen's composition on a hand-built board: the round's door out of the
  *  book, and nothing else supplied, so each rung of the precedence is the only
  *  thing the scene varies. */
-function explainHand(lanes: BoardLane[]) {
-  const frame = { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }
-  const views = bedViewsFor(lanes, frame, null)
+function handRails(lanes: BoardLane[]) {
+  const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null)
   const bedFree = bedDoor(views, lanes, null)
-  const rails = guardRailsFor(lanes, {
+  return guardRailsFor(lanes, {
     open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
     nowMinute: null, locked: [], guard: HAND_GUARD, excludeId: null,
     placementFeasible: bedFree, protectedWindowFeasible: bedFree, resting: null,
   })
+}
+
+function explainHand(lanes: BoardLane[], over: Partial<Parameters<typeof explainRails>[2]> = {}) {
+  const frame = { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }
+  const views = bedViewsFor(lanes, frame, null)
+  const rails = handRails(lanes)
   return explainRails(rails, lanes, {
     dur: 60, handId: null, stagedId: null, sellCells: [], claims: [], drops: [],
     inHand: false, sellDisplayed: true,
@@ -676,6 +683,7 @@ function explainHand(lanes: BoardLane[]) {
         ? views.world.freeBedCount(start, start + 30, asker)
         : null
     },
+    ...over,
   })
 }
 
@@ -893,5 +901,61 @@ describe('§BEHAVIOURAL — the packing search never runs per frame', () => {
     const spy = counting()
     explainWith(REAL.lanes, spy.allocate)
     expect(spy.packs()).toHaveLength(0)
+  })
+})
+
+// ── §FIX1 — Fable's rulings on the build's §Open, each with its own scene ───
+
+describe('§F1 — the WORD rides empty track, exactly like the mark', () => {
+  it('見本 はなこ’s 勤務不可 afternoon keeps 「—」, while さぶろう’s empty 15:00 says 満室', () => {
+    // Liam's ruling is about a 「30-min GAP with no bed」, and a gap is empty
+    // track on the row. はなこ is not working at all from 13:00: every one of
+    // her afternoon half hours is bed-less on the store's rooms, and every one
+    // of them already shows the operator a 勤務不可 card. The strip says nothing
+    // it cannot add. さぶろう's 15:00 is the opposite — genuinely empty track,
+    // and the beds behind it are what the operator could not see.
+    const a = readBoard(sceneA()).lanes
+    for (const start of [840, 870, 900]) {
+      const chip = a['p-01'].chips.find((c) => c.start === start)!
+      expect({ at: clock(start), face: chip.face, word: chip.word }).toEqual({ at: clock(start), face: '—', word: null })
+    }
+    expect(a['p-01'].cues).toEqual([])
+    expect(a['c-03'].chips.find((c) => c.start === 900)!.face).toBe('満室')
+  })
+
+  it('on ALL FOUR boards, no chip whose own row is busy over its half hour wears a bed word', () => {
+    // The law, swept rather than sampled: 満室 and 清掃 are facts about an empty
+    // 30 minutes, so a card, a break, a 予定ブロック or a shift wall across them
+    // stands the word down — the same predicate `restCueStarts` applies to the
+    // mark, asked once and used by both.
+    for (const b of boards()) {
+      const read = readBoard(b.lanes)
+      for (const [laneKey, lane] of Object.entries(read.lanes)) {
+        const items = laneOf(b.lanes, laneKey).items
+        for (const chip of lane.chips.filter((c) => c.word === '満室' || c.word === '清掃')) {
+          const busy = items.some((i) => i.startMin < chip.start + 30 && chip.start < i.endMin)
+          expect({ at: `${b.name}/${laneKey}@${clock(chip.start)}`, busy }).toEqual({ at: `${b.name}/${laneKey}@${clock(chip.start)}`, busy: false })
+        }
+      }
+    }
+  })
+
+  it('a chip whose row is busy asks the book NOTHING — the narrowing is a cost cut too', () => {
+    // One staff lane with a booking straight across 13:00〜14:00 and one room
+    // busy all day: without the gate this chip pays a half-hour count AND the
+    // allocator's occupant walk, for a word it may not wear.
+    const lanes = [
+      handLane({ key: 'p-01', group: 'staff', label: '見本 あずさ', items: [handItem({ key: 's1', caseId: 'y1' }, 780, 840)] }),
+      handLane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [handItem({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 600, 1140)] }),
+    ]
+    const asked: number[] = []
+    const said = explainHand(lanes, {
+      halfHourFree: (_lane, start) => { asked.push(start); return 0 },
+    }).get('p-01')!.get(780)!
+    // 13:00 is under the booking, so the door is never opened for it — and the
+    // rest of the strip, which IS empty track, is asked exactly as before.
+    expect(asked).not.toContain(780)
+    expect(asked.length).toBeGreaterThan(0)
+    expect(said.word).toBeNull()
   })
 })
