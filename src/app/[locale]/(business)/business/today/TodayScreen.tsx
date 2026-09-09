@@ -125,6 +125,7 @@ import {
   priceFactSets,
   proxyTimeLabel,
   restCueStarts,
+  type HalfHourBeds,
   RAIL_STEP_MIN,
   railChipClass,
   restingSpanFor,
@@ -1955,36 +1956,57 @@ export function TodayScreen(props: TodayProps) {
    *  disagree about one board. `null` is the ⚖ #777 answer: this lane shares a
    *  store with no room at all, and a store with no rooms is never 満室.
    *
-   *  ⚖ FIX ROUND 2 (D, L2-m6) — 「FULL」 IS ONE SEARCH, NOT A COUNT. The lens
-   *  measured the door's cost per pointer frame on a 30×10 board and the waste
-   *  was `freeBedCount`, which walks EVERY candidate room to count them while
-   *  the question is only 「is there one?」. `bedFor` stops at the first free
-   *  room — and it is the SAME answer this door already asks for
-   *  `compatibleRoomsExist`, so the two questions become one cached row.
-   *  Measured on the lens's own board, 20 frames with a card in hand:
-   *  5.80 → 4.90 ms/frame.
+   *  ⚖ FIX ROUND 2 (D, L2-m6) — 「FULL」 IS ONE SEARCH, NOT A COUNT. The question
+   *  is 「is there a free room?」 and `freeBedCount` answered it by walking EVERY
+   *  candidate to count them; `bedFor` stops at the first, and it is the SAME
+   *  answer this door already asks for `compatibleRoomsExist`, so two questions
+   *  become one cached row. ⚠ That number (5.80 → 4.90 ms/frame on the lens's
+   *  30×10 board) is the swap ALONE and not the round: the delta lens measured
+   *  the round end to end at +59% book calls on a board with no sell layer, and
+   *  fix round 3's early-out below is what gives that back (D1-m3).
    *
-   *  ⚠ The ruled route was `fullRuns` membership. It is SLOWER here and the
-   *  report says so with the numbers (7.30 ms/frame): that walk covers the whole
-   *  5-minute lattice — 132 slots on an 11-hour day — where the strip asks about
-   *  22 half-hour starts, and the book already shares every one of those answers
-   *  across the lanes of a store set. `fullRuns` wins when the asks outnumber the
-   *  lattice; on a strip they never do. Recorded for Fable rather than shipped.
+   *  ⚖ FIX ROUND 3 (H1, D1-M1 MAJOR) — AND IT ANSWERS ON THE BOARD THE CHIP IS
+   *  JUDGED ON. Every other bed answer this strip composes is asked with the
+   *  card in hand LIFTED — `explainRails`'s `askOn` passes `id: handId` to
+   *  `allocateBed`, which self-excludes, and the rails are built through
+   *  `bedDoorFor(handId)`. This door asked `ledger.world`, the board with the
+   *  dragged card still standing in its room, so on the three gestures that get
+   *  past `inHand` (a bed-lane drag, a resize, a drag over the shelf) the strip
+   *  hatched the operator's own 13:00 half hour 「別の枠で販売中」 and named a
+   *  stranger for an emptiness that was their own card. Same law as `bedDoor`
+   *  at :275, spelled the same way.
    *
-   *  ⚖ FIX ROUND 2 (L2-N2) — and the asker carries the HAND's own 個室のみ tag,
-   *  like `askOn` in the composer does. Latent today (the marks are drawn at
-   *  rest, where there is no hand) and aligned so it cannot drift.
+   *  ⚖ FIX ROUND 3 (H4, D1-m1) — AND THE HYPOTHETICAL CARRIES NO 個室のみ TAG.
+   *  Fix round 2 threaded the hand's tag onto an asker with no `id`, which the
+   *  book reads as a NewClient and whose `queryOf` hard-codes `requiresPrivate:
+   *  false` — the field was a no-op that read as protection. It is a real fact
+   *  on the SUBJECT branch above (the hand is a booking, and its tag is a rule
+   *  about what the treatment needs), and it is absent on the hypothetical for
+   *  the reason `bedDoor` states: a placement nobody has made needs no 個室.
    *
-   *  `keys` is a thunk: only the 「was it the ONLY bed?」 test reads it. */
+   *  `null` is the ⚖ #777 answer: this lane shares a store with no room at all,
+   *  and a store with no rooms is never 満室. `keys` is a thunk — only the
+   *  「was it the ONLY bed?」 test reads it. */
   const bedsOver = useCallback(
-    (laneKey: string, start: number, end: number) => {
+    (laneKey: string, start: number, end: number): HalfHourBeds | null => {
       const lane = boardLanes.find((l) => l.key === laneKey && l.group === 'staff')
       if (!lane) return null
-      const held = handId == null ? null : boardLanes.flatMap((l) => l.items).find((i) => i.caseId === handId)
-      const asker = { stores: lane.stores, requiresPrivate: held?.requiresPrivateRoom === true }
-      const answer = ledger.world.bedFor(start, end, asker)
+      // ⚖ FIX ROUND 3 (H1) — THE BOARD THE CHIP IS JUDGED ON. `bedDoor`'s own
+      // law, :275, spelled the same way: while the operator is holding a card
+      // the questions this strip asks are asked with that card lifted out.
+      const book = handId != null && handId === ledger.handId && ledger.worldMinusHand ? ledger.worldMinusHand : ledger.world
+      // ⚖ FIX ROUND 3 (H4) — and the asker is the HYPOTHETICAL one, on both
+      // worlds. A new placement nobody has made needs no 個室 (`bedDoor` says
+      // so at :253), the book's `queryOf` fixes `requiresPrivate: false` for a
+      // NewClient anyway — fix round 2 threaded the hand's tag onto an asker
+      // with no `id`, where it was a silent no-op that read as protection — and
+      // it is the asker the book CACHES, keyed (length, stores, slot). The
+      // Subject shape would carry the tag and be answered uncached: measured
+      // 5,518 book calls per pointer frame on a 30×10 board against 542 here.
+      const asker = { stores: lane.stores }
+      const answer = book.bedFor(start, end, asker)
       if (!answer.compatibleRoomsExist) return null
-      return { full: answer.laneKey === null, keys: () => ledger.world.freeBedKeys(start, end, asker) }
+      return { full: answer.laneKey === null, keys: () => book.freeBedKeys(start, end, asker) }
     },
     [boardLanes, ledger, handId],
   )

@@ -2225,6 +2225,9 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       // ⚖ LIAM RULING 1 (2026-09-09) — the rail's own step, as a name: the half
       // hour the strip's word is now about, the cue's own width, and the number
       // `restCueStarts` used to spell inline.
+      // ⚖ FIX ROUND 3 (H1/H4) — the strip's bed door returns this shape, and the
+      // screen names it so the door's world choice can be read at a glance.
+      "type HalfHourBeds,",
       "RAIL_STEP_MIN,",
       // ⚖ FIX ROUND 2 (G1) — the chip's class composition, lifted out of the JSX
       // into a pure helper so the ⇄ palette mapping can be unit-pinned.
@@ -12064,11 +12067,14 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     // `companionRoomStillFree` (today-interactions), where it is unit-tested
     // rather than text-pinned; the tag is read there now. The engine-side count
     // is pinned in `today-bed-packing.test.ts` beside that helper's own tests.
-    // ⚖ FIX ROUND 2 (L2-N2) — SEVENTEEN: the strip's half-hour bed door carries
-    // the HAND's own 個室のみ tag now, exactly as `askOn` in the composer does.
-    // Latent today (the marks are drawn at rest, where there is no hand) and
-    // aligned so the door and the composer cannot answer two questions.
-    expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(17)
+    // ⚖ FIX ROUND 3 (H4, delta lens D1-m1) — BACK TO SIXTEEN. Fix round 2 threaded
+    // the hand's 個室のみ tag onto the strip's bed door, and the lens proved the
+    // book discards it: `isSubject` needs all three of id/currentBed/
+    // requiresPrivate, so that object is a NewClient and `queryOf` hard-codes
+    // `requiresPrivate: false` for one. The field was a no-op that read as
+    // protection. The door asks the HYPOTHETICAL — a placement nobody has made
+    // needs no 個室, which is the law `bedDoor` already states.
+    expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(16)
     // …and the board model is where the field is born, in ONE place per shape.
     // Six mentions: the two type declarations, the read off the appointment row,
     // the carry onto the item (which names it twice), and — ⚖ FIX ROUND 1, blind

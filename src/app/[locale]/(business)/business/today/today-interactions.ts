@@ -2908,9 +2908,16 @@ export function railExplain(
   // verbs on this surface, and the board does this by itself, so the sentence
   // says what WILL happen rather than handing out an instruction (WORDS §S4(ii)).
   //
-  // A marked chip carries no word and no lane mark: it is not a refusal. The
-  // precedence above has already answered — the mark can only be reached where
-  // the half hour has a free bed, so no 満室 is being suppressed here.
+  // ⚖ FIX ROUND 3 (H2, D1-M2 MAJOR) — A MARKED CHIP CARRIES NO WORD AND NO LANE
+  // MARK. This comment said so and the code did not: `cue` fell through to the
+  // sold mark, and the two are reachable together — ⇄ needs a bed free in the
+  // half hour and the sold mark needs every free bed claimed elsewhere, which
+  // ONE free claimed bed satisfies at once. The chip then promised the board
+  // would make room by moving somebody while the mark under it said the bed was
+  // being sold on another row: two answers about the same 30 minutes, in the
+  // same return. The ruled precedence puts ⇄ above 別の枠で販売中, so the mark
+  // is the one that goes. (Round 1's §Open-4 asked whether the two reading
+  // together would be confusing; this closes it by decision.)
   if (opts.reseat != null && word == null && opts.reservedDur == null) {
     const moved = `ここに置くと、ほかのお客様のベッドを入れ替えて収めます（${opts.reseat.lines.join('、')}）`
     const caution = opts.reseat.caution != null ? `。${opts.reseat.caution}` : ''
@@ -2918,7 +2925,7 @@ export function railExplain(
       word: null,
       wordReason: null,
       sentence: `${base}。${moved}${caution}`,
-      cue,
+      cue: null,
       mark: { face: 'reseat', tone: opts.reseat.tone },
     }
   }
@@ -3229,13 +3236,21 @@ export function explainRails(
      *  one gate (§C). */
     const soldElsewhere = (from: number, to: number): string | null => {
       if (opts.bedsOver == null || staff == null) return null
+      // ⚖ FIX ROUND 3 (H3, D1-m2) — THE CHEAP HALF OF THE QUESTION FIRST. With
+      // nothing drawn on anybody else's row over this window the answer is
+      // always 「nobody took it」, and asking the book first paid a search per
+      // candidate room to learn that. The delta lens measured the cost: +59%
+      // book calls per pointer frame on a 30×10 board with no sell layer, all
+      // of it this call. Reading a list the loop already has is free.
+      const claims = boxesElsewhere.filter((b) => overlaps(b.s, b.e, from, to))
+      if (claims.length === 0) return null
       const beds = opts.bedsOver(rail.laneKey, from, to)
       if (beds == null) return null
       const free = beds.keys()
       if (free.length === 0) return null
       let taker: string | null = null
       for (const key of free) {
-        const box = boxesElsewhere.find((b) => b.resourceKey === key && overlaps(b.s, b.e, from, to))
+        const box = claims.find((b) => b.resourceKey === key)
         if (box == null) return null
         taker ??= box.laneKey
       }

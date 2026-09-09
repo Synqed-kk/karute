@@ -1387,3 +1387,107 @@ describe('§G2 — 新規用 beats 満室 at the composer, where the only road t
     expect(held.sentence).toBe(`${room.refusal}。${reservedClause(90)}`)
   })
 })
+
+// ── §FIX3 — the delta round's two MAJORs, the breaker's survivor, one invariant
+
+describe('§H1 — the door answers on the board the chip is judged on (D1-M1)', () => {
+  /** The lens's own scene: p-01 holds a 13:00〜14:00 card on ベッド1, ベッド2 is
+   *  free and advertised on p-02's row, and p-01's card is the one in hand. */
+  const draggedScene = (): BoardLane[] => [
+    handLane({ key: 'p-01', group: 'staff', label: '見本 あずさ', items: [handItem({ key: 'h', caseId: 'apt-hand' }, 780, 840)] }),
+    handLane({ key: 'p-02', group: 'staff', label: '見本 かおる' }),
+    handLane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [handItem({ key: 'hb', caseId: 'apt-hand' }, 780, 840)] }),
+    handLane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
+  ]
+  const box: SellCell = { laneKey: 'p-02', resourceKey: 'bed-02', group: 'staff', staff: 'p-02', bed: 'ベッド2', h: 780, price: 7000, tier: 2 }
+
+  /** The strip as the SCREEN builds it mid-gesture: the rails lift the card in
+   *  hand (`excludeId`, `placementFeasible: bedDoorFor(handId)`), and the
+   *  composer is told about the same hand. Without that lift the engine still
+   *  sees the card on the row and refuses the pocket, and the question this
+   *  scene is about — what the DOOR says — never gets asked. */
+  const explainDrag = (lanes: BoardLane[], handId: string | null, over: Partial<Parameters<typeof explainRails>[2]>) => {
+    const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, handId)
+    const door = bedDoor(views, lanes, handId)
+    const rails = guardRailsFor(lanes, {
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+      nowMinute: null, locked: [], guard: HAND_GUARD, excludeId: handId,
+      placementFeasible: door, protectedWindowFeasible: bedDoor(views, lanes, null), resting: null,
+    })
+    return explainRails(rails, lanes, {
+      dur: 60, handId, stagedId: null, sellCells: [], claims: [], drops: [],
+      inHand: false, sellDisplayed: true, ...over,
+    })
+  }
+
+  /** The screen's own door, both worlds, exactly as `bedsOver` picks them. */
+  const doorOn = (lanes: BoardLane[], handId: string | null) => {
+    const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, handId)
+    return (laneKey: string, start: number, end: number) => {
+      const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
+      if (!lane) return null
+      const book = handId != null && handId === views.handId && views.worldMinusHand ? views.worldMinusHand : views.world
+      const asker = { stores: lane.stores }
+      const answer = book.bedFor(start, end, asker)
+      if (!answer.compatibleRoomsExist) return null
+      return { full: answer.laneKey === null, keys: () => book.freeBedKeys(start, end, asker) }
+    }
+  }
+
+  it('a bed-lane drag of the operator’s OWN card never blames a stranger for their own card', () => {
+    // ⚠ THE MAJOR. `explainRails` returns early on the ordinary staff-row move,
+    // but a BED-LANE drag, a RESIZE and a drag OVER THE SHELF reach it with
+    // `handId` set — the three gestures this round went to the trouble of
+    // handling. The chip's own room question lifts that card out (`askOn` passes
+    // `id: handId` and `allocateBed` self-excludes); the door did not, so it saw
+    // ベッド1 as busy, decided ベッド2 was the ONLY free room, found かおる's box
+    // on it, and hatched 「別の枠で販売中」 over the operator's own 13:00 — naming
+    // a stranger for an emptiness that is the card in their hand.
+    const lanes = draggedScene()
+    const said = explainDrag(lanes, 'apt-hand', { sellCells: [box], bedsOver: doorOn(lanes, 'apt-hand') })
+      .get('p-01')!.get(780)!
+    expect(said.cue).toBeNull()
+    expect(said.sentence).not.toContain('別のスタッフ')
+    expect(said.sentence).toContain('この開始には販売可能枠が出ていません')
+  })
+
+  it('…and at rest the same half hour says nothing at all — the card is drawn on the row', () => {
+    // The mirror, stated honestly: put the card down and that half hour stops
+    // being a gap (⚖ F1), so the strip adds nothing to what the operator can
+    // already see. The first assertion is therefore about the WORLD the door
+    // reads, not about the predicate — which the free-bed lists below make exact.
+    const lanes = draggedScene()
+    const said = explainDrag(lanes, null, { sellCells: [box], bedsOver: doorOn(lanes, null) }).get('p-01')!.get(780)!
+    expect({ word: said.word, cue: said.cue }).toEqual({ word: null, cue: null })
+    expect(said.sentence).not.toContain('別のスタッフ')
+  })
+
+  it('and the SCREEN picks that world — the door reads the book the hand lifted', () => {
+    // The predicate above is provable here; WHICH BOOK the screen hands it is
+    // not — `bedsOver` lives inside the component and this folder's import
+    // fence keeps a renderer out. So the choice is pinned at its source, the
+    // same way every other wiring on this strip is, and in the same words
+    // `bedDoor` uses at TodayScreen:275.
+    const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    expect(SRC).toContain(
+      "const book = handId != null && handId === ledger.handId && ledger.worldMinusHand ? ledger.worldMinusHand : ledger.world",
+    )
+    expect(SRC).toContain('const answer = book.bedFor(start, end, asker)')
+    expect(SRC).toContain('keys: () => book.freeBedKeys(start, end, asker)')
+    // ⚖ FIX ROUND 3 (H4) — and the asker carries no 個室のみ tag on either world.
+    // A placement nobody has made needs no 個室 (`bedDoor` states the same law),
+    // the book discards the field for a NewClient anyway, and it is the shape
+    // the book CACHES — the Subject alternative measured 5,518 book calls per
+    // pointer frame on a 30×10 board against 542.
+    expect(SRC).toContain('const asker = { stores: lane.stores }')
+    expect(SRC).not.toContain('requiresPrivate: held?.requiresPrivateRoom === true, stores: lane.stores')
+  })
+
+  it('the two worlds really do differ here — the free-bed list is the whole of it', () => {
+    const lanes = draggedScene()
+    const rest = doorOn(lanes, null)('p-01', 780, 810)!
+    const dragging = doorOn(lanes, 'apt-hand')('p-01', 780, 810)!
+    expect([...rest.keys()].sort()).toEqual(['bed-02'])
+    expect([...dragging.keys()].sort()).toEqual(['bed-01', 'bed-02'])
+  })
+})
