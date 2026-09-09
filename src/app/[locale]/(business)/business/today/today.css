@@ -984,6 +984,11 @@
 .biz .guard-band .degraded-key::before { border-color: #cf8427; background: #fff0d9; }
 .biz .guard-band .blocked-key { color: #686871; }
 .biz .guard-band .blocked-key::before { border-color: #d7d7dc; background: #f2f2f4; }
+/* ⚖ LIAM RULING 3 (2026-09-09) — the ⇄ key's own swatch: the ✓ purple with the
+   chip's own dashed edge, so the band shows the reader the exact mark the strip
+   draws. No new colour — the tone decides purple or amber on the chip, and the
+   key says so in words rather than painting a second swatch for it. */
+.biz .guard-band .reseat-key::before { border-style: dashed; }
 .biz .guard-band .protected-key { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 7px; background: var(--guard-soft); color: var(--guard-dark); font-weight: 800; }
 .biz .guard-band .guard-band-note { font-weight: 500; color: var(--ink-2); }
 /* ⚖ fresh-eyes finding 8/30, Fable default (overturnable) — a guard-off store

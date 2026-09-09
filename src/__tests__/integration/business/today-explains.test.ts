@@ -1134,9 +1134,24 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
   })
 
   it('the tour sentence teaches the third face — flag 25c’s one-sentence precedent', () => {
-    const guide = SRC.slice(SRC.indexOf("'data-guide':"), SRC.indexOf("'data-guide':") + 1400)
+    // ⚖ GUIDED-TOUR LAW (2026-09-09) — the window grew with the sentence. Two
+    // sentences were added under Liam's rulings 1 and 2 (満室 is about the half
+    // hour; the hatch carries words, and appears on a placeable half hour whose
+    // bed is sold on another row), and the last of the pinned phrases now sits
+    // 1521 characters past the key. The window is a REACH, not a budget — what
+    // it exists to stop is prose pushing the sentence out of sight, and every
+    // phrase below is still asserted inside it.
+    const guide = SRC.slice(SRC.indexOf("'data-guide':"), SRC.indexOf("'data-guide':") + 1800)
     expect(guide).toContain('どのコマも押すと、何時から何時までを判定したかと、その理由を表示します')
     expect(guide).toContain('薄い斜線')
+    // ⚖ RULING 1 (2026-09-09) — the 満室 change is DECLARED, in the tour's own
+    // words: it is about the 30 minutes, not about whether the session fits.
+    expect(guide).toContain(`「満室」はその30分にベッドの空きがないという意味で、\${railDur}分の予約が置けるかどうかとは関係なく付きます`)
+    // ⚖ RULING 2 (2026-09-09) — the quiet-hour mark's own sentence is NOT here.
+    // The tour may only teach what the board can do, and ruling 2's mark needs
+    // the ledger's bed door to be honest about itself; the sentence arrives with
+    // that door, in its own slice. Pinned dead so it cannot drift in early.
+    expect(guide).not.toContain('そちらで販売中のため空いている30分')
     // ⚖ LIAM RULING (2026-08-30) — the tour quotes the chips' OWN labels, so the
     // guard one moved with the chip. Bare 「新規」 is pinned dead in the quoted
     // list: a tour that teaches a word the board no longer wears is worse than

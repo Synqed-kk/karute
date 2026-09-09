@@ -6118,6 +6118,17 @@ export function TodayScreen(props: TodayProps) {
               // 注意して配置 places exactly what the × sat on. The passed wording
               // is true on both: the drop does not land, and the board says why.
               //
+              // ⚖ GUIDED-TOUR LAW (8/23) — THREE MEANING CHANGES DECLARED
+              // (2026-09-09), which is why the sentence below grew: 満室 now
+              // rides a half hour whose 60-minute start is refused for another
+              // reason; the hatch carries words; and a hatch also appears on a
+              // PLACEABLE half hour whose bed is being sold on another row. The
+              // ⇄ mark is deliberately NOT here — it is a 記号, and sentence 2
+              // of this very tour sends 記号 to the 帯, which is where its key
+              // now is. Two sentences added, one rewritten (「そのとき」 had the
+              // new 満室 sentence between it and its referent, so it names the
+              // chip instead); everything else is byte-identical. This note
+              // sits above the 8/30 one for the reason that one gives.
               // ⚖ LIAM RULING (2026-08-30) — the quoted chip label below is 新規用
               // now, for the reason `railExplain` records: bare 新規 is this board's
               // own カテゴリー word and it inverted on him live. This note sits ABOVE
@@ -6138,7 +6149,7 @@ export function TodayScreen(props: TodayProps) {
                 // plain untruth about it. 置けない is true of all three, and the
                 // hatch is now its own sentence: it APPEARS, it is not a
                 // standing mark the operator should hunt for.
-                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「満室」「清掃」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。そのときは、すぐ上の行に薄い斜線が出て、その30分を示します。`,
+                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「満室」「清掃」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。「満室」はその30分にベッドの空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます。小さな文字が付いたコマでは、すぐ上の行に薄い斜線が出て、その30分と理由を短い言葉で示します。`,
             }
           : {})}
       >
@@ -6776,7 +6787,7 @@ export function TodayScreen(props: TodayProps) {
                           : '細い配置ガイドを隠します。表示だけの個人設定で、保護ルールは停止しません。'}
                     </span>
                     <div className="guard-guide-key" aria-label="配置ガイドの記号の意味">
-                      <b>紫 ✓ 空きを減らさない</b><b>橙 △ 空きが減るが置ける</b><b>灰 — 置けない</b>
+                      <b>紫 ✓ 空きを減らさない</b><b>橙 △ 空きが減るが置ける</b><b>灰 — 置けない</b><b>⇄ ベッドを入れ替えれば置ける</b>
                     </div>
                     <span className="guard-guide-copy">非表示にしても、店舗のスキマガード保護ルールは変わりません。</span>
                     <div className="guard-guide-policy">
@@ -6888,6 +6899,14 @@ export function TodayScreen(props: TodayProps) {
                 <span className="guard-key">紫 ✓ = 空きを減らさない</span>
                 <span className="guard-key degraded-key">橙 △ = 空きが減るが置ける（損を減らす）</span>
                 <span className="guard-key blocked-key">灰 — = 置けません</span>
+                {/* ⚖ LIAM RULING 3 (2026-09-09) — the fourth 記号 needs an entry
+                    HERE, and the strip's own tour is why: it promises 「記号の
+                    意味は、上の『スキマガード』の帯に書いてあります」, so a glyph
+                    that is not in the band makes that promise false. No colour
+                    word: the mark borrows the ✓ or the △ palette by what the
+                    drop would say, and those two keys beside it already carry
+                    the colour vocabulary. */}
+                <span className="guard-key reseat-key">⇄ = ベッドを入れ替えれば置ける</span>
                 <span className="guard-band-note">
                   {guideMode === 'selected'
                     ? `下の「${railDur}分配置」で、ドラッグ前に全開始を確認できます。`
