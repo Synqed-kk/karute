@@ -1343,8 +1343,18 @@ export function TodayScreen(props: TodayProps) {
       segW.current!.set(w)
     }
     seat(false)
+    // ⚠ F-3 — AND AGAIN WHEN THE JAPANESE FACE LANDS. The app loads Noto Sans JP
+    // through `next/font/google`, and the swap changes the width of all three
+    // labels after first layout — so without this the thumb sits at pre-font
+    // geometry until the operator presses a tab or resizes, on a board that is
+    // left open all day. Two siblings already answer it and one wrote down why:
+    // AnalyticsScreen 「Both `jump` on layout, resize and `fonts.ready`, because
+    // a spring that animates from 0 on first paint is a page that looks like it
+    // is still loading」; ReservationsScreen carries the same line verbatim.
+    // `jump`, never `set`: a font swap is not a state change the operator made.
+    document.fonts?.ready?.then(() => seat(true)).catch(() => {})
     // canon's own answer to a resize everywhere else on this screen: re-place,
-    // never re-animate (the mock's `reseat()`, :3286–3287).
+    // never re-animate (the mock's `reseat()`).
     const reseat = () => seat(true)
     window.addEventListener('resize', reseat)
     return () => window.removeEventListener('resize', reseat)
