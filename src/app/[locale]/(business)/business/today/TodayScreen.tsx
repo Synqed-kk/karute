@@ -5912,13 +5912,13 @@ export function TodayScreen(props: TodayProps) {
             const span = place(cue.start, cue.end, hours)
             return (
               <span
-                // ⚖ LIAM RULING 1 (2026-09-09) — the mark carries WORDS now,
-                // so it is information rather than decoration: it stops being
-                // `aria-hidden` and announces the same label a sighted operator
-                // reads. It stays `pointer-events: none` — the answer in full is
-                // one press away on the chip below it, which is where every
-                // sentence on this strip lives.
-                className="cell-rest-cue"
+                // ⚖ LIAM RULINGS 1 + 2 (2026-09-09) — the mark carries WORDS
+                // now, so it is information rather than decoration: it stops
+                // being `aria-hidden` and announces the same label a sighted
+                // operator reads. It stays `pointer-events: none` — the answer
+                // in full is one press away on the chip below it, which is
+                // where every sentence on this strip lives.
+                className={`cell-rest-cue${cue.kind === 'sold' ? ' sold-elsewhere' : ''}`}
                 key={`cue-${cue.start}`}
                 role="note"
                 aria-label={cue.label.join('')}
@@ -6133,6 +6133,10 @@ export function TodayScreen(props: TodayProps) {
               // new 満室 sentence between it and its referent, so it names the
               // chip instead); everything else is byte-identical. This note
               // sits above the 8/30 one for the reason that one gives.
+              // ⚖ FIX ROUND 1 (F5) — and the hatch sentence names the two words
+              // it is actually true of. 新規用 carries a word and NO hatch (the
+              // 確保 chip is drawn over that emptiness), so 「小さな文字が付いた
+              // コマでは」 promised a mark on a chip that never grows one.
               // ⚖ LIAM RULING (2026-08-30) — the quoted chip label below is 新規用
               // now, for the reason `railExplain` records: bare 新規 is this board's
               // own カテゴリー word and it inverted on him live. This note sits ABOVE
@@ -6153,7 +6157,7 @@ export function TodayScreen(props: TodayProps) {
                 // plain untruth about it. 置けない is true of all three, and the
                 // hatch is now its own sentence: it APPEARS, it is not a
                 // standing mark the operator should hunt for.
-                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「満室」「清掃」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。「満室」はその30分にベッドの空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます。小さな文字が付いたコマでは、すぐ上の行に薄い斜線が出て、その30分と理由を短い言葉で示します。`,
+                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「満室」「清掃」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。「満室」はその30分にベッドの空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます。「満室」「清掃」のコマでは、すぐ上の行に薄い斜線が出て、その30分と理由を短い言葉で示します。ベッドを別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます。`,
             }
           : {})}
       >

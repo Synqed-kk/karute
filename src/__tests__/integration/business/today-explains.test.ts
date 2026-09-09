@@ -932,12 +932,12 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // or an absence drawn across them. The chip keeps its word; the LANE keeps
     // 「empty track only」. Nothing about 「one source, three faces」 moved.
     expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items)')
-    // ⚖ LIAM RULING 1 (2026-09-09) — the filter is the CUE now. The source of
-    // the three faces is still ONE value per chip: `railExplain` decides the
+    // ⚖ LIAM RULING 1 + 2 (2026-09-09) — the filter is the CUE now. The source
+    // of the three faces is still ONE value per chip: `railExplain` decides the
     // word and the mark together, in one return, so they cannot drift apart —
-    // what moved is that 新規用 keeps a word with no mark (⚖ E3b), which the old
-    // `word != null` filter could not say, and that a mark with no word becomes
-    // sayable at all (ruling 2's own mark arrives with the bed door's slice).
+    // what moved is that a quiet hour sold on another row earns a mark with no
+    // word (ruling 2) and 新規用 keeps a word with no mark (⚖ E3b), which the
+    // old `word != null` filter could say neither of.
     expect(INT).toContain('.filter(([, e]) => e.cue != null)')
     // Both cues stand down while a card is in hand — the strip is answering a
     // different question then, and the chip wears the verdict's × instead.
@@ -960,11 +960,10 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
   // box overlaps: the paired-appearance pin for empty spans is the first
   // assertion below and may never weaken.
   // ⚖ LIAM RULING 1 (2026-09-09) — the helper is keyed on the CUE the composer
-  // returned, not on the word: 新規用 carries a word and no mark, and a mark
-  // with no word becomes sayable at all (ruling 2's own mark arrives with the
-  // bed door's slice). What flag 88 is about is unchanged — it is the PAINT
-  // that narrows — and every scene below is stated in the vocabulary the
-  // helper now reads.
+  // returned, not on the word: a quiet hour whose bed is sold on another row
+  // now carries a mark and no word at all, and 新規用 carries a word and no
+  // mark. What flag 88 is about is unchanged — it is the PAINT that narrows —
+  // and every scene below is stated in the vocabulary the helper now reads.
   const BED_CUE = { kind: 'bed' as const, label: ['満室'] }
   const worded = (...starts: number[]): ReadonlyMap<number, { cue: RailCue | null }> =>
     new Map(starts.map((s) => [s, { cue: BED_CUE }] as [number, { cue: RailCue | null }]))
@@ -1150,14 +1149,16 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     const guide = SRC.slice(SRC.indexOf("'data-guide':"), SRC.indexOf("'data-guide':") + 1800)
     expect(guide).toContain('どのコマも押すと、何時から何時までを判定したかと、その理由を表示します')
     expect(guide).toContain('薄い斜線')
+    // ⚖ FIX ROUND 1 (F5, 2026-09-09) — and it names the two words it is TRUE of.
+    // 新規用 carries a word and no hatch, so the old 「小さな文字が付いたコマでは」
+    // promised a mark on a chip that never grows one.
+    expect(guide).toContain('「満室」「清掃」のコマでは、すぐ上の行に薄い斜線が出て')
+    expect(guide).not.toContain('小さな文字が付いたコマでは')
     // ⚖ RULING 1 (2026-09-09) — the 満室 change is DECLARED, in the tour's own
     // words: it is about the 30 minutes, not about whether the session fits.
     expect(guide).toContain(`「満室」はその30分にベッドの空きがないという意味で、\${railDur}分の予約が置けるかどうかとは関係なく付きます`)
-    // ⚖ RULING 2 (2026-09-09) — the quiet-hour mark's own sentence is NOT here.
-    // The tour may only teach what the board can do, and ruling 2's mark needs
-    // the ledger's bed door to be honest about itself; the sentence arrives with
-    // that door, in its own slice. Pinned dead so it cannot drift in early.
-    expect(guide).not.toContain('そちらで販売中のため空いている30分')
+    // ⚖ RULING 2 (2026-09-09) — and so is the quiet-hour mark.
+    expect(guide).toContain('ベッドを別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます')
     // ⚖ LIAM RULING (2026-08-30) — the tour quotes the chips' OWN labels, so the
     // guard one moved with the chip. Bare 「新規」 is pinned dead in the quoted
     // list: a tour that teaches a word the board no longer wears is worse than
