@@ -1299,6 +1299,9 @@ export function TodayScreen(props: TodayProps) {
   const segW = useRef<ReturnType<typeof makeSpring> | null>(null)
   const segGeom = useRef({ x: 0, w: 0 })
   const segSeated = useRef(false)
+  /** the current seat, published for the mount-scoped `fonts.ready` waiter below
+   *  (ReservationsScreen holds its mover the same way, for the same reason) */
+  const segSeatRef = useRef<((instant: boolean) => void) | null>(null)
   const [segReduced, setSegReduced] = useState(false)
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -1343,23 +1346,43 @@ export function TodayScreen(props: TodayProps) {
       segW.current!.set(w)
     }
     seat(false)
-    // ⚠ F-3 — AND AGAIN WHEN THE JAPANESE FACE LANDS. The app loads Noto Sans JP
-    // through `next/font/google`, and the swap changes the width of all three
-    // labels after first layout — so without this the thumb sits at pre-font
-    // geometry until the operator presses a tab or resizes, on a board that is
-    // left open all day. Two siblings already answer it and one wrote down why:
-    // AnalyticsScreen 「Both `jump` on layout, resize and `fonts.ready`, because
-    // a spring that animates from 0 on first paint is a page that looks like it
-    // is still loading」; ReservationsScreen carries the same line verbatim.
-    // `jump`, never `set`: a font swap is not a state change the operator made.
-    document.fonts?.ready?.then(() => seat(true)).catch(() => {})
+    // ⚠ F-3 lives in the MOUNT effect below, not here — see the note there.
+    segSeatRef.current = seat
     // canon's own answer to a resize everywhere else on this screen: re-place,
     // never re-animate (the mock's `reseat()`).
     const reseat = () => seat(true)
     window.addEventListener('resize', reseat)
-    return () => window.removeEventListener('resize', reseat)
+    return () => {
+      window.removeEventListener('resize', reseat)
+      segSeatRef.current = null
+    }
   }, [view, segReduced])
-  useEffect(() => () => { segX.current?.stop(); segW.current?.stop() }, [])
+  /** ⚠ F-3 — RE-SEAT WHEN THE JAPANESE FACE LANDS, AND ONLY FROM HERE.
+   *
+   *  The app loads Noto Sans JP through `next/font/google`, and the swap changes
+   *  the width of all three labels after first layout — so without this the
+   *  thumb sits at pre-font geometry until the operator presses a tab or
+   *  resizes, on a board that is left open all day. AnalyticsScreen wrote the
+   *  reason down: 「Both `jump` on layout, resize and `fonts.ready`, because a
+   *  spring that animates from 0 on first paint is a page that looks like it is
+   *  still loading」. `jump`, never `set`: a font swap is not a state change the
+   *  operator made.
+   *
+   *  ⚠ AND THE EFFECT IT LIVES IN IS THE WHOLE POINT. The first cut put this
+   *  line in the seat effect above, whose deps are `[view, segReduced]` — so it
+   *  re-registered on every tab press, and `document.fonts.ready` STAYS resolved
+   *  once the font has loaded. Every press then queued a microtask `jump` that
+   *  cancelled the travel the same press had just started: the thumb stopped
+   *  animating at all, for the rest of the session. Caught by the behavioural
+   *  harness the moment its `cancelAnimationFrame` became real.
+   *  Both siblings already scope it this way and neither re-runs on selection —
+   *  ReservationsScreen keys its builder on `[reduced]` and holds the mover in a
+   *  ref for the press effect to call, AnalyticsScreen the same. This is that
+   *  shape: the seat is published to a ref, and the font waits here, once. */
+  useEffect(() => {
+    document.fonts?.ready?.then(() => segSeatRef.current?.(true)).catch(() => {})
+    return () => { segX.current?.stop(); segW.current?.stop() }
+  }, [])
 
   /** THE BOARD, twice. `boardLanes` is the truth every derivation reads — the
    *  dragged card is already on the lane it is heading for, which is what makes
