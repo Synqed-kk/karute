@@ -2892,15 +2892,42 @@
    loses. Its own pair carries the centring in both states instead. */
 .biz .page-today .lock-toggle { transition: transform 160ms ease-out; }
 .biz .page-today .lock-toggle:active:not(:disabled) { transform: translateY(-50%) scale(.97); transition-duration: 100ms; }
-/* Cards never scale — the mock gave them their own path (:3051, plus a second
-   pointerdown listener) and this is that rule, on the transition R-6 already
-   declares (`filter 100ms ease-out`, :2470). GUARDED exactly like ③'s hover
-   heads (fix round F-2): the proxy is `pointer-events: none`, so the element
-   under the pointer for a whole MOVE is the ⚖ flag-19 husk, and the resize
-   grips live inside the card, so the element under the pointer for a whole
-   RESIZE is the `.resizing` card. Both are ruled surfaces; neither takes a
-   press face. */
-.biz .page-today .event:not(.dragging):not(.resizing):active { filter: brightness(.97); }
+/* Cards never scale — the mock gave them their own path (a second pointerdown
+   listener, no transform) and this is that rule, riding the transition R-6
+   already declares on `.biz .page-today .event` (`filter 100ms ease-out`).
+   GUARDED exactly like ③'s hover heads (③'s fix round F-2): the proxy is
+   `pointer-events: none`, so the element under the pointer for a whole MOVE is
+   the ⚖ flag-19 husk, and the resize grips live inside the card, so the element
+   under the pointer for a whole RESIZE is the `.resizing` card. Both are ruled
+   surfaces; neither takes a press face.
+
+   ⚠ F-7 — AND THE HEADS ARE ③'s OWN SHAPES, because the first version of this
+   rule never painted on a single card. It was written as
+   `.biz .page-today .event:not(.dragging):not(.resizing):active` = (0,6,0), and
+   ③ answers the same element in the state that is ALWAYS co-present with a
+   press: `button.event[data-cat]:not(.dragging):not(.resizing):hover` (0,7,1)
+   and `.event.block/.cleanup:not(.dragging):not(.resizing):hover` (0,7,0), both
+   declaring `filter: none` — ③'s deliberate answer to canon's brightness(.98).
+   On a mouse, `:hover` is true for the whole time the button is down, so both
+   ③ heads out-specified the press and won. Measured on the tip, real pointer
+   down: `none` on 27 of 27 board cards. This is the layer's own STATE-CLASS LAW
+   in the other direction — a state rule that loses on the element it names — so
+   the answer is the same one the law always gives: restate at the shape that
+   beats it, standing later. Each head declares `filter` ONLY, so ③'s hover lift
+   (`box-shadow`, `z-index`, the border tints) is untouched and a pressed card
+   keeps its lift and gains the dim.
+
+   ⚠ AND THE GENERIC (0,6,0) HEAD IS GONE rather than kept 「for an uncategorised
+   booking」. Read at source, the one thing it still reached is not a booking at
+   all: `.event.absence` is a `<span class="event absence" role="note">` (five of
+   them in every render on this route) — no `data-cat`, not `.block`, not a
+   button, and not pressable. So the only surface the generic head could paint
+   was a NOTE that says 「not available」, which is the opposite of press
+   feedback. A booking's `category` is non-null by type, so there is no
+   uncategorised card for it to serve either. Two precise heads, no third. */
+.biz .page-today button.event[data-cat]:not(.dragging):not(.resizing):active { filter: brightness(.97); }
+.biz .page-today .event.block:not(.dragging):not(.resizing):active,
+.biz .page-today .event.cleanup:not(.dragging):not(.resizing):active { filter: brightness(.97); }
 /* ⚖ F-5 — canon gives `.decision-row` no hover at all (:1566–1583), so the
    transition ① declared for it had nothing to transition. R-9's table gives the
    row the wash every sibling row on this page already wears — canon's own
@@ -3094,7 +3121,13 @@
   /* ⚖ PR-3's L1 NOTE — R-6's card transition had no reduced-motion escape until
      now, and neither did the press face. Same 0,3,0 / 0,5,0 shapes. */
   .biz .page-today .event { transition: none; }
-  .biz .page-today .event:not(.dragging):not(.resizing):active { filter: none; }
+  /* F-7 — mirrored at the SAME two shapes the press now uses. The old (0,6,0)
+     mirror went with the head it answered: at (0,6,0) it could not reach the new
+     (0,7,1) / (0,7,0) heads, so it would have been a reduced-motion answer that
+     answers nothing — the exact shape of bug F-7 itself. */
+  .biz .page-today button.event[data-cat]:not(.dragging):not(.resizing):active { filter: none; }
+  .biz .page-today .event.block:not(.dragging):not(.resizing):active,
+  .biz .page-today .event.cleanup:not(.dragging):not(.resizing):active { filter: none; }
   /* D-PR4-10 — the three MEASURED surfaces never carry a transform now, in any
      state, so their answer here is the duration alone; only `.cal-pop`, which
      nothing measures, still has a scale to cancel. */
