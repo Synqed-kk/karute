@@ -12050,7 +12050,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     // `companionRoomStillFree` (today-interactions), where it is unit-tested
     // rather than text-pinned; the tag is read there now. The engine-side count
     // is pinned in `today-bed-packing.test.ts` beside that helper's own tests.
-    expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(16)
+    expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(17)
     // …and the board model is where the field is born, in ONE place per shape.
     // Six mentions: the two type declarations, the read off the appointment row,
     // the carry onto the item (which names it twice), and — ⚖ FIX ROUND 1, blind

@@ -1945,29 +1945,47 @@ export function TodayScreen(props: TodayProps) {
     [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
-  /** ⚖ LIAM RULING 1 (2026-09-09) — HOW MANY ROOMS ARE FREE FOR ONE HALF HOUR.
+  /** ⚖ LIAM RULING 1 (2026-09-09) — THE BED TRUTH FOR ONE WINDOW ON ONE LANE.
    *
    *  His words: 「every box that is 満室 should say 満室」. The strip's word is a
    *  fact about the HALF HOUR the chip sits on from this round on, and this is
    *  that fact — out of the frame's own book, which is where every other bed
    *  question on this screen is answered, so the word and the marks cannot
-   *  disagree about one board.
+   *  disagree about one board. `null` is the ⚖ #777 answer: this lane shares a
+   *  store with no room at all, and a store with no rooms is never 満室.
    *
-   *  The asker is the HYPOTHETICAL one `bedDoor(…, null)` binds for the marks
-   *  themselves — a new placement nobody has made yet, so no 個室のみ tag and no
-   *  card lifted. `null` is the #777 answer: this lane shares a store with no
-   *  room at all, and a store with no rooms is never 満室. */
-  const halfHourFree = useCallback(
-    (laneKey: string, start: number): number | null => {
+   *  ⚖ FIX ROUND 2 (D, L2-m6) — 「FULL」 IS ONE SEARCH, NOT A COUNT. The lens
+   *  measured the door's cost per pointer frame on a 30×10 board and the waste
+   *  was `freeBedCount`, which walks EVERY candidate room to count them while
+   *  the question is only 「is there one?」. `bedFor` stops at the first free
+   *  room — and it is the SAME answer this door already asks for
+   *  `compatibleRoomsExist`, so the two questions become one cached row.
+   *  Measured on the lens's own board, 20 frames with a card in hand:
+   *  5.80 → 4.90 ms/frame.
+   *
+   *  ⚠ The ruled route was `fullRuns` membership. It is SLOWER here and the
+   *  report says so with the numbers (7.30 ms/frame): that walk covers the whole
+   *  5-minute lattice — 132 slots on an 11-hour day — where the strip asks about
+   *  22 half-hour starts, and the book already shares every one of those answers
+   *  across the lanes of a store set. `fullRuns` wins when the asks outnumber the
+   *  lattice; on a strip they never do. Recorded for Fable rather than shipped.
+   *
+   *  ⚖ FIX ROUND 2 (L2-N2) — and the asker carries the HAND's own 個室のみ tag,
+   *  like `askOn` in the composer does. Latent today (the marks are drawn at
+   *  rest, where there is no hand) and aligned so it cannot drift.
+   *
+   *  `keys` is a thunk: only the 「was it the ONLY bed?」 test reads it. */
+  const bedsOver = useCallback(
+    (laneKey: string, start: number, end: number) => {
       const lane = boardLanes.find((l) => l.key === laneKey && l.group === 'staff')
       if (!lane) return null
-      const asker = { stores: lane.stores, requiresPrivate: false }
-      const end = start + RAIL_STEP_MIN
-      return ledger.world.bedFor(start, end, asker).compatibleRoomsExist
-        ? ledger.world.freeBedCount(start, end, asker)
-        : null
+      const held = handId == null ? null : boardLanes.flatMap((l) => l.items).find((i) => i.caseId === handId)
+      const asker = { stores: lane.stores, requiresPrivate: held?.requiresPrivateRoom === true }
+      const answer = ledger.world.bedFor(start, end, asker)
+      if (!answer.compatibleRoomsExist) return null
+      return { full: answer.laneKey === null, keys: () => ledger.world.freeBedKeys(start, end, asker) }
     },
-    [boardLanes, ledger],
+    [boardLanes, ledger, handId],
   )
   /** ⚖ GREPTILE RE-REVIEW (2026-08-30) — THE OTHER HALF OF THE ROVING PATTERN.
    *  ←/→ moved focus from the first round, but the tab stop was hard-wired to
@@ -2341,8 +2359,10 @@ export function TodayScreen(props: TodayProps) {
         // a committed slot, bounded by one slot either way, and no number moves.
         withheld: sell.cells.filter(isHeldBound),
         // ⚖ LIAM RULING 1 (2026-09-09) — the half hour's own bed truth, so the
-        // word on a chip is about the 30 minutes it is drawn over.
-        halfHourFree,
+        // word on a chip is about the 30 minutes it is drawn over. ⚖ FIX ROUND 2
+        // (§C): this ONE door is the round's gate — absent, nothing new is
+        // derived anywhere in `explainRails`.
+        bedsOver,
         // ⚖ LIAM RULING 3 (2026-09-09) — and the two facts a packing search
         // cannot be honest without, plus the verdict door it re-judges through.
         // The same values `verdictAtLanding` passes, from the same props.
@@ -2355,7 +2375,7 @@ export function TodayScreen(props: TodayProps) {
       }),
     [
       rails, boardLanes, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode,
-      heldBoard, halfHourFree, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt,
+      heldBoard, bedsOver, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt,
     ],
   )
 

@@ -66,6 +66,8 @@ import {
   sellLayerFor,
   type GuardRail,
   type Move,
+  type RailCell,
+  type RailCue,
   type Moves,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
@@ -335,15 +337,15 @@ function readBoard(lanes: BoardLane[]): BoardRead {
           railsOn(after).find((r) => r.laneKey === laneKey)?.cells.find((x) => x.start === start) ?? null,
         ),
     },
-    // ⚖ ruling 1 — the screen's own door (TodayScreen `halfHourFree`), out of
+    // ⚖ ruling 1 — the screen's own door (TodayScreen `bedsOver`), out of
     // the same book, with the same hypothetical asker.
-    halfHourFree: (laneKey, start) => {
+    bedsOver: (laneKey, start, end) => {
       const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
       if (!lane) return null
       const asker = { stores: lane.stores, requiresPrivate: false }
-      return views.world.bedFor(start, start + 30, asker).compatibleRoomsExist
-        ? views.world.freeBedCount(start, start + 30, asker)
-        : null
+      const answer = views.world.bedFor(start, end, asker)
+      if (!answer.compatibleRoomsExist) return null
+      return { full: answer.laneKey === null, keys: () => views.world.freeBedKeys(start, end, asker) }
     },
   })
   // ⚖ 8/30 「one number」 — R-E lives here rather than in a pin of its own: the
@@ -590,13 +592,13 @@ describe('§R-B — しろう’s quiet 14:30 says where the sale went (shot 1.3
     const ask = (over: Partial<Parameters<typeof explainRails>[2]>) =>
       explainRails(rails, lanes, {
         dur, handId: null, stagedId: null, sellCells: [], claims: [], drops: [], inHand: false, sellDisplayed: true,
-        halfHourFree: (laneKey, start) => {
+        bedsOver: (laneKey, start, end) => {
           const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
           if (!lane) return null
           const asker = { stores: lane.stores, requiresPrivate: false }
-          return views.world.bedFor(start, start + 30, asker).compatibleRoomsExist
-            ? views.world.freeBedCount(start, start + 30, asker)
-            : null
+          const answer = views.world.bedFor(start, end, asker)
+          if (!answer.compatibleRoomsExist) return null
+          return { full: answer.laneKey === null, keys: () => views.world.freeBedKeys(start, end, asker) }
         },
         ...over,
       })
@@ -718,13 +720,13 @@ function explainHand(lanes: BoardLane[], over: Partial<Parameters<typeof explain
   return explainRails(rails, lanes, {
     dur: 60, handId: null, stagedId: null, sellCells: [], claims: [], drops: [],
     inHand: false, sellDisplayed: true,
-    halfHourFree: (laneKey, start) => {
+    bedsOver: (laneKey, start, end) => {
       const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
       if (!lane) return null
       const asker = { stores: lane.stores, requiresPrivate: false }
-      return views.world.bedFor(start, start + 30, asker).compatibleRoomsExist
-        ? views.world.freeBedCount(start, start + 30, asker)
-        : null
+      const answer = views.world.bedFor(start, end, asker)
+      if (!answer.compatibleRoomsExist) return null
+      return { full: answer.laneKey === null, keys: () => views.world.freeBedKeys(start, end, asker) }
     },
     ...over,
   })
@@ -855,13 +857,13 @@ function explainWith(lanes: BoardLane[], allocate: typeof allocateBed, over: { h
     dur, handId, stagedId: null, sellCells: [], claims: [], drops: [],
     inHand: over.inHand ?? false, sellDisplayed: true,
     allocate,
-    halfHourFree: (laneKey, start) => {
+    bedsOver: (laneKey, start, end) => {
       const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
       if (!lane) return null
       const asker = { stores: lane.stores, requiresPrivate: false }
-      return views.world.bedFor(start, start + 30, asker).compatibleRoomsExist
-        ? views.world.freeBedCount(start, start + 30, asker)
-        : null
+      const answer = views.world.bedFor(start, end, asker)
+      if (!answer.compatibleRoomsExist) return null
+      return { full: answer.laneKey === null, keys: () => views.world.freeBedKeys(start, end, asker) }
     },
     reseat: {
       hours: REAL.hours,
@@ -991,14 +993,17 @@ describe('§F1 — the WORD rides empty track, exactly like the mark', () => {
       handLane({ key: 'p-01', group: 'staff', label: '見本 あずさ', items: [handItem({ key: 's1', caseId: 'y1' }, 780, 840)] }),
       handLane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [handItem({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 600, 1140)] }),
     ]
-    const asked: number[] = []
+    const asked: Array<{ start: number; dur: number }> = []
     const said = explainHand(lanes, {
-      halfHourFree: (_lane, start) => { asked.push(start); return 0 },
+      bedsOver: (_lane, start, end) => { asked.push({ start, dur: end - start }); return { full: true, keys: () => [] } },
     }).get('p-01')!.get(780)!
-    // 13:00 is under the booking, so the door is never opened for it — and the
-    // rest of the strip, which IS empty track, is asked exactly as before.
-    expect(asked).not.toContain(780)
-    expect(asked.length).toBeGreaterThan(0)
+    // 13:00 is under the booking, so the HALF HOUR is never asked about — and
+    // the rest of the strip, which IS empty track, is asked exactly as before.
+    // (The chip's own 60-minute window is a different question, ⚖ 75(i)'s, and
+    // it is asked wherever that clause can fire.)
+    const halves = asked.filter((a) => a.dur === 30).map((a) => a.start)
+    expect(halves).not.toContain(780)
+    expect(halves.length).toBeGreaterThan(0)
     expect(said.word).toBeNull()
   })
 })
@@ -1075,13 +1080,13 @@ describe('§F3 — the sold mark is a HALF-HOUR fact, not the 60-minute verdict�
     const ask = (over: Partial<Parameters<typeof explainRails>[2]>) =>
       explainRails(rails, lanes, {
         dur, handId: null, stagedId: null, sellCells: [box], claims: [], drops: [], inHand: false, sellDisplayed: true,
-        halfHourFree: (laneKey, start) => {
+        bedsOver: (laneKey, start, end) => {
           const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
           if (!lane) return null
           const asker = { stores: lane.stores, requiresPrivate: false }
-          return views.world.bedFor(start, start + 30, asker).compatibleRoomsExist
-            ? views.world.freeBedCount(start, start + 30, asker)
-            : null
+          const answer = views.world.bedFor(start, end, asker)
+          if (!answer.compatibleRoomsExist) return null
+          return { full: answer.laneKey === null, keys: () => views.world.freeBedKeys(start, end, asker) }
         },
         ...over,
       }).get('p-04')!
@@ -1131,5 +1136,75 @@ describe('§F4 — the ⇄ mark’s tone and caution are the CREATE path’s own
     // Tone and clause, both of them the verdict's own — never a second reading.
     expect(mark.mark!.tone).toBe('degraded')
     expect(mark.sentence.endsWith(`。${create.reason}`)).toBe(true)
+  })
+})
+
+// ── §FIX2 — the blind code round's three MAJORs, and the breaker's two ─────
+
+/** The screen's own bed door on a hand-built board, so §A's scenes can vary the
+ *  rooms rather than the wiring. */
+const handDoor = (lanes: BoardLane[]) => {
+  const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null)
+  return (laneKey: string, start: number, end: number) => {
+    const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
+    if (!lane) return null
+    const asker = { stores: lane.stores, requiresPrivate: false }
+    const answer = views.world.bedFor(start, end, asker)
+    if (!answer.compatibleRoomsExist) return null
+    return { full: answer.laneKey === null, keys: () => views.world.freeBedKeys(start, end, asker) }
+  }
+}
+
+describe('§A — 別の枠で販売中 means the ONLY free bed went elsewhere (L2-M1)', () => {
+  /** Two staff, THREE rooms, nothing booked — and one box on the other person's
+   *  row. Lens 2's own scene: nothing took p-05's bed, two of the three are
+   *  still free, and round 1 painted the mark and named a taker anyway. */
+  const spare = (rooms: number): BoardLane[] => [
+    handLane({ key: 'p-05', group: 'staff', label: '見本 あずさ' }),
+    handLane({ key: 'p-06', group: 'staff', label: '見本 かおる' }),
+    ...Array.from({ length: rooms }, (_, i) => handLane({ key: `bed-0${i + 1}`, group: 'beds', label: `ベッド${i + 1}` })),
+  ]
+  const boxOn = (laneKey: string, resourceKey: string, h: number): SellCell => ({
+    laneKey, resourceKey, group: 'staff', staff: laneKey, bed: resourceKey, h, price: 7000, tier: 2,
+  })
+  const askSpare = (lanes: BoardLane[], sellCells: SellCell[]) =>
+    explainHand(lanes, { sellCells, bedsOver: handDoor(lanes) }).get('p-05')!.get(720)!
+
+  it('with beds to spare the board names nobody — the bare clause, and no mark', () => {
+    // ⚠ THE MAJOR. Ruling 2 is 「a free person whose hour's ONLY bed is being
+    // sold on another lane」. One box on かおる's row over ベッド1 leaves ベッド2
+    // and ベッド3 free for あずさ: nothing was taken from her, so a mark and a
+    // named taker would both be inventions — and ⚖ 75(i)'s bare clause exists
+    // precisely to state an absence WITHOUT inventing a cause.
+    const said = askSpare(spare(3), [boxOn('p-06', 'bed-01', 720)])
+    expect(said.cue).toBeNull()
+    expect(said.sentence).toContain('この開始には販売可能枠が出ていません')
+    expect(said.sentence).not.toContain('別のスタッフ')
+  })
+
+  it('…and when every free bed IS claimed elsewhere, it says so and names them', () => {
+    // The same board with ONE room: かおる's box is standing on the only bed
+    // あずさ could have used, which is Liam's own scene in miniature.
+    const said = askSpare(spare(1), [boxOn('p-06', 'bed-01', 720)])
+    expect(said.cue).toEqual({ kind: 'sold', label: ['別の枠で', '販売中'] })
+    expect(said.sentence).toContain('ベッドは別のスタッフ（見本 かおる）の枠が使うため、ここには販売可能枠を出していません')
+    // Three rooms, all three claimed on the other row: still every bed, still true.
+    const all = askSpare(spare(3), [boxOn('p-06', 'bed-01', 720), boxOn('p-06', 'bed-02', 720), boxOn('p-06', 'bed-03', 720)])
+    expect(all.cue).toEqual({ kind: 'sold', label: ['別の枠で', '販売中'] })
+    // …and ONE of the three left unclaimed is enough to take the claim back.
+    const two = askSpare(spare(3), [boxOn('p-06', 'bed-01', 720), boxOn('p-06', 'bed-02', 720)])
+    expect(two.cue).toBeNull()
+    expect(two.sentence).toContain('この開始には販売可能枠が出ていません')
+    // A box standing on a room this lane could NOT have used proves nothing:
+    // the key has to match a bed the book says was free for this person.
+    const wrong = askSpare(spare(1), [boxOn('p-06', 'bed-09', 720)])
+    expect(wrong.cue).toBeNull()
+  })
+
+  it('Liam’s own scene B still says it — the narrowing keeps what the ruling is about', () => {
+    const p04 = readBoard(sceneB()).lanes['p-04']
+    expect(p04.cues).toEqual([{ start: 870, end: 930, kind: 'sold', label: ['別の枠で', '販売中'] }])
+    expect(p04.chips.find((c) => c.start === 870)!.sentence)
+      .toContain('ベッドは別のスタッフ（テスト さぶろう）の枠が使うため、ここには販売可能枠を出していません')
   })
 })

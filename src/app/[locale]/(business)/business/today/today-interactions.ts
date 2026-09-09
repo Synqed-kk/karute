@@ -2576,20 +2576,34 @@ export const reservedClause = (dur: number): string =>
 export const reservedSentence = (start: number, end: number): string =>
   `新規用に確保（${clockOf(start)}〜${clockOf(end)}）。${reservedClause(end - start)}`
 
-/** ⚖ LIAM RULING 1 (2026-09-09) — WHAT THE LANE TRACK SAYS UNDER A CHIP.
+/** ⚖ FIX ROUND 2 (A + D, 2026-09-09) — THE BED TRUTH FOR ONE WINDOW.
+ *
+ *  ONE door, asked over two windows: the chip's own half hour (the WORD) and
+ *  the chip's judged length (the taker in the SENTENCE). `full` is 「not one
+ *  compatible room is free over this window」, answered for the half hour out of
+ *  the book's own `fullRuns` walk — one walk per (length, store set), cached.
+ *  `keys` names the rooms that ARE free and is a thunk on purpose: §A's 「was it
+ *  the ONLY bed?」 test is its only reader, and it is reached on a handful of
+ *  chips per board. `null` from the door is ⚖ #777 — this lane shares a store
+ *  with no room at all, so it can be neither full nor sold out from under. */
+export interface HalfHourBeds {
+  readonly full: boolean
+  keys(): readonly string[]
+}
+
+/** ⚖ LIAM RULINGS 1 + 2 (2026-09-09) — WHAT THE LANE TRACK SAYS UNDER A CHIP.
  *
  *  The hatch used to be a wash with no words: 「this 30 minutes is refused and
- *  what refuses it is not drawn on this row」. Liam read a hole through it and
- *  asked for it to be SAID — the half hour with no bed. The `kind` is a union
- *  of one on purpose: ruling 2's own mark (a quiet half hour whose bed is being
- *  sold on somebody else's row) needs the ledger's bed door to be honest about
- *  itself, and it arrives with that door in its own slice.
+ *  what refuses it is not drawn on this row」. Liam read two different holes
+ *  through it and asked for both to be SAID — the half hour with no bed
+ *  (ruling 1) and the quiet half hour on a free person whose bed is being sold
+ *  on somebody else's row (ruling 2).
  *
  *  `label` is authored in LINES, never wrapped by the browser: the cue is
  *  41–65px wide at the board widths this store runs at (measured, WORDS §Width),
  *  so where the break falls is a decision and not an accident. One line that
  *  fits stays one line. */
-export type RailCue = { kind: 'bed'; label: readonly string[] }
+export type RailCue = { kind: 'bed' | 'sold'; label: readonly string[] }
 
 /** ⚖ LIAM RULING 3 (2026-09-09) — THE FACE A CHIP WEARS INSTEAD OF ITS VERDICT.
  *
@@ -2834,10 +2848,6 @@ export function railExplain(
   // is flag 44's own disease — two readings of one answer, free to disagree.
   const wordReason: RailReason | null = word == null ? null : word === '新規用' ? 'guard' : 'bed'
   const bedCue: RailCue | null = word === '満室' || word === '清掃' ? { kind: 'bed', label: [word] } : null
-  // ⚖ FIX ROUND 1 (F3) — ONE mark per half hour, composed once for every branch
-  // below. A bed-less half hour says so first: 満室 is why nothing is offered
-  // here, and 「別の枠で販売中」 under it would be a second, softer answer to a
-  // question the first one already closed.
   const cue: RailCue | null = bedCue ?? (opts.soldCue === true ? { kind: 'sold', label: SOLD_ELSEWHERE_LABEL } : null)
   // ⚖ LIAM RULING 3 (2026-09-09) — 「ここに置くと、ほかのお客様のベッドを入れ替えて
   // 収めます（…）」. Two accepted strings joined and nothing coined: the clause is
@@ -3003,9 +3013,18 @@ export function explainRails(
      *  asked per CHIP and the book memoises it; a map would be this file
      *  deciding which starts the screen should have pre-computed.
      *
-     *  ABSENT is the round gate off: every word and every sentence this
-     *  function composes is byte-identical to the board that shipped before it. */
-    halfHourFree?: (laneKey: string, start: number) => number | null
+     *  ⚖ FIX ROUND 2 (C, L2-m1) — AND IT IS THE ROUND'S ONE GATE. Absent, this
+     *  function derives NOTHING new: no half-hour word, no mark, no lane mark
+     *  and no taker found off a drawn box. Every answer is byte-identical to the
+     *  board that shipped before this round — which is what the gate-off pin
+     *  asserts, on all four boards.
+     *
+     *  ⚖ FIX ROUND 2 (D, L2-m6) — `full` rather than a count: the kickoff's own
+     *  predicate is 「this half hour lies inside a 満室 run」, and the book walks
+     *  those ONCE per (length, store set) and caches them. `keys` is a thunk
+     *  because only §A's box-elsewhere test needs the room names, and that test
+     *  is reached on a handful of chips. */
+    bedsOver?: (laneKey: string, start: number, end: number) => HalfHourBeds | null
     /** ⚖ LIAM RULING 3 (2026-09-09) — WHAT THE BOARD WOULD DO TO FIT A START THE
      *  ROOMS REFUSE, and what the drop would then say about it.
      *
@@ -3106,6 +3125,18 @@ export function explainRails(
     // lists do not change between them.
     const sellHere = opts.sellCells.filter((s) => s.group === 'staff' && s.laneKey === rail.laneKey)
     const gapHere = opts.claims.filter((g) => g.group === 'staff' && g.laneKey === rail.laneKey)
+    // …and the same two layers on EVERYBODY ELSE's rows, as one list of boxes
+    // carrying the ROOM each one stands on. Staff rows only: the bed row is the
+    // same offer drawn a second time. `resourceKey` is what makes §A's question
+    // a real check rather than a heuristic — the box says which bed it took.
+    const boxesElsewhere: Array<{ laneKey: string; resourceKey: string; s: number; e: number }> = [
+      ...opts.sellCells
+        .filter((s) => s.group === 'staff' && s.laneKey !== rail.laneKey)
+        .map((s) => ({ laneKey: s.laneKey, resourceKey: s.resourceKey, s: s.h, e: s.h + SELL_SLOT_MIN })),
+      ...opts.claims
+        .filter((g) => g.group === 'staff' && g.laneKey !== rail.laneKey)
+        .map((g) => ({ laneKey: g.laneKey, resourceKey: g.resourceKey, s: g.s, e: g.e })),
+    ]
     // ⚖ 75(i) — only a ROOM drop explains an empty window. A `lane` drop means
     // this person's own promise beat the offer, and that promise is a box drawn
     // on this very row, so the window is not ad-less in the first place.
@@ -3121,6 +3152,44 @@ export function explainRails(
     const roomDrops = opts.drops.filter(
       (d) => d.laneKey === rail.laneKey && d.kind === 'room' && d.takerLaneKey != null && d.takerLaneKey !== rail.laneKey,
     )
+    /** ⚠ MOCK FINDING 1 (2026-09-09) — THE TAKER, FOUND FROM WHAT IS DRAWN.
+     *
+     *  `drops` only carries a taker where a lane HAD a sellable window and LOST
+     *  its room, and on Liam's own quiet-hour scene しろう never had one:
+     *  `deriveSellableCells` hands the hour's single free bed to the FIRST free
+     *  staff in lane order (availability.ts:89-138) and drops nothing at all, so
+     *  the press ended in the BARE clause and named nobody. The fact the
+     *  operator can see is a BOX on somebody else's row over this very window.
+     *
+     *  ⚖ FIX ROUND 2 (A, L2-M1 MAJOR) — AND IT ASKS 「WAS IT THE ONLY BED?」.
+     *  Ruling 2 is about a person whose hour's ONE bed went to somebody else.
+     *  Round 1 asked only whether SOME box stood somewhere else over the window,
+     *  so on a board with three rooms free the strip named a taker who had taken
+     *  nothing — the exact thing ⚖ 75(i)'s bare clause exists to avoid («states
+     *  the absence WITHOUT inventing a cause»). The honest question is the one
+     *  the book can answer: take the rooms that are FREE over this window, and
+     *  require that EVERY one of them is standing under a box on another staff
+     *  row. One free room nobody claimed ⇒ nothing was taken from this person,
+     *  and the sentence goes back to stating the absence.
+     *
+     *  Returns the lane that took the FIRST such room, which is the same honest
+     *  ceiling `roomDrops` declares below: every candidate it can name is a sale
+     *  standing on a room this person needed. Absent door ⇒ null ⇒ the round's
+     *  one gate (§C). */
+    const soldElsewhere = (from: number, to: number): string | null => {
+      if (opts.bedsOver == null || staff == null) return null
+      const beds = opts.bedsOver(rail.laneKey, from, to)
+      if (beds == null) return null
+      const free = beds.keys()
+      if (free.length === 0) return null
+      let taker: string | null = null
+      for (const key of free) {
+        const box = boxesElsewhere.find((b) => b.resourceKey === key && overlaps(b.s, b.e, from, to))
+        if (box == null) return null
+        taker ??= box.laneKey
+      }
+      return taker
+    }
     const withheldHere = (opts.withheld ?? []).filter((s) => s.group === 'staff' && s.laneKey === rail.laneKey)
     const heldHere = heldLanes.get(rail.laneKey)
     // ⚖ FIX ROUND F1 — the held spans widened to the extent the WITHHOLDING
@@ -3162,11 +3231,10 @@ export function explainRails(
       const reserved = heldExtents.find((h) => c.start < h.end && h.start < end)
       const halfEmpty = staff != null && !laneCovers(staff.items, c.start, c.start + RAIL_STEP_MIN, opts.handId)
       const taker = advertised || reserved ? undefined : roomDrops.find((d) => overlaps(d.h, d.h + SELL_SLOT_MIN, c.start, end))
-      // ⚖ 75(i) — THE DROP'S OWN TAKER, and nothing else. A drop is the one
-      // record that KNOWS which promise took the room this lane would have
-      // needed; a box merely drawn on somebody else's row over the same window
-      // is not that proof, and a name is not something to guess at.
-      const takerKey = taker?.takerLaneKey ?? null
+      // The drop's own taker first — it is the one case where the board KNOWS
+      // which promise took the room — then the box the operator can see.
+      const takerKey =
+        taker?.takerLaneKey ?? (advertised || reserved ? null : soldElsewhere(c.start, end))
       const halfEnd = c.start + RAIL_STEP_MIN
       // ⚖ FIX ROUND 1 (F2) — the SAME extents, asked of the mark's own span. One
       // `find` more, on a list of at most a handful of windows per lane.
@@ -3183,7 +3251,7 @@ export function explainRails(
         opts.sellDisplayed &&
         !sellHere.some((s) => overlaps(s.h, s.h + SELL_SLOT_MIN, c.start, halfEnd)) &&
         !gapHere.some((g) => overlaps(g.s, g.e, c.start, halfEnd)) &&
-        drawnTaker(c.start, halfEnd) != null
+        soldElsewhere(c.start, halfEnd) != null
       // ⚖ LIAM RULING 1 (2026-09-09) — THIS CHIP'S OWN HALF HOUR, asked once and
       // only as far as the answer can change a word. The book answers the COUNT
       // from the frame's own cache; only a count of zero pays for the allocator's
@@ -3194,15 +3262,19 @@ export function explainRails(
       // drawn across it on THIS row is not a gap, so it keeps the face it always
       // had: `null` here is the round's answer for 「there is nothing to say」,
       // and it composes today's word and today's sentence, byte for byte.
-      const halfFree = opts.halfHourFree && staff && halfEmpty ? opts.halfHourFree(rail.laneKey, c.start) : undefined
+      // ⚖ FIX ROUND 2 (D, L2-m6) — asked as 「is this half hour inside a 満室
+      // run?」, which is the kickoff's own predicate and one cached walk per
+      // (length, store set) instead of one search per chip.
+      const halfBeds = opts.bedsOver && staff && halfEmpty ? opts.bedsOver(rail.laneKey, c.start, halfEnd) : undefined
+      const halfFull = halfBeds === undefined || halfBeds === null ? null : halfBeds.full
       const halfHour =
-        opts.halfHourFree == null || staff == null
+        opts.bedsOver == null || staff == null
           ? undefined
-          : halfFree === undefined || halfFree === null
+          : halfBeds === undefined || halfBeds === null
             ? null
-            : halfFree === 0
+            : halfBeds.full
               ? { free: 0, ...halfWalk(staff, c.start) }
-              : { free: halfFree, refusal: null, blockers: [] as readonly BoardItem[] }
+              : { free: 1, refusal: null, blockers: [] as readonly BoardItem[] }
       // ⚖ LIAM RULING 3 (2026-09-09) — THE ONE PACKING ASK ON THIS LAYER.
       //
       // Three gates before it runs, and each one is a rule rather than a guard:
@@ -3216,7 +3288,7 @@ export function explainRails(
       //     exists to forbid. A mark is a fact about a placement nobody has made.
       const packed =
         opts.reseat != null && staff != null && opts.handId == null && reserved == null &&
-        c.reason === 'bed' && typeof halfFree === 'number' && halfFree > 0
+        c.reason === 'bed' && halfFull === false
           ? allocate(lanes, {
               ...askOn(staff, c.start, end),
               pack: true,
@@ -3287,7 +3359,7 @@ export function explainRails(
  *  paints there — so `covered()` drops those half hours and the chip keeps its
  *  word. Under the new predicate a BED-LESS half hour can never sit under a
  *  box or a 確保 span honestly, but the rule is kept rather than argued away:
- *  it is the LAW about this layer, and every cue on it answers to the same rule.
+ *  it is the LAW about this layer, and a sold-elsewhere cue reaches it too.
  *
  *  Half-open on both sides, the same `overlaps` grammar as everything else that
  *  compares spans on this board: a box that ENDS at the cue's start is not over
@@ -3327,7 +3399,7 @@ export function restCueStarts(
    *  So the chip says 満室 (ruling 1) and the LANE keeps its own rule: empty
    *  track only. EMPTY = the caller has nothing drawn, or has not adopted this
    *  argument, and the cue is byte-identical to the one it painted before. */
-  itemsHere: readonly { startMin: number; endMin: number }[] = [],
+  itemsHere: readonly { key?: string; caseId?: string | null; startMin: number; endMin: number }[] = [],
 ): RestCue[] {
   // `RAIL_STEP_MIN` is the rail's own step and so the cue's own width — the same
   // span `renderLane` gives the mark it paints from each start returned here.

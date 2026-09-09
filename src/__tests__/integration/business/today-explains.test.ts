@@ -754,11 +754,14 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     expect(ask(lanes, { sellCells: [sellAt('p-05', start)] }).get('p-05')!.get(start)!.sentence)
       .not.toContain('販売可能枠')
     // A box on the OTHER person's row is not this row's advertisement, and it is
-    // not the reason either. ⚖ 75(i) lets the clause name somebody only where the
-    // board KNOWS which promise took the room this person needed, and a room drop
-    // is the only record that carries that. A box merely drawn over the same
-    // window is not that proof, so the clause stays the bare one — it states the
-    // absence and invents no cause (§4's own law).
+    // not automatically the reason either. ⚖ FIX ROUND 2 (L2-M1): naming a taker
+    // is a claim that somebody TOOK the bed this person needed, so it is made
+    // only when the board can support it — the round's own door answers which
+    // rooms are free, and every one of them has to be standing under a box
+    // somewhere else. Here `twoStaff()` has ONE room and no door is handed in,
+    // so the clause stays the bare one that states the absence and invents no
+    // cause (§4's own law). The named form is proved at its own scene in
+    // today-rail-halfhour.test.ts §A, where the door is wired.
     expect(ask(lanes, { sellCells: [sellAt('p-06', start)] }).get('p-05')!.get(start)!.sentence)
       .toContain('この開始には販売可能枠が出ていません')
     // …and with NOTHING drawn anywhere, likewise.
