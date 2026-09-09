@@ -3303,8 +3303,14 @@ export function explainRails(
       const taker = advertised || reserved ? undefined : roomDrops.find((d) => overlaps(d.h, d.h + SELL_SLOT_MIN, c.start, end))
       // The drop's own taker first — it is the one case where the board KNOWS
       // which promise took the room — then the box the operator can see.
-      const takerKey =
-        taker?.takerLaneKey ?? (advertised || reserved ? null : soldElsewhere(c.start, end))
+      // ⚖ FIX ROUND 4 (H10, MD1-MINOR-2) — ASKED ONLY WHERE IT IS READ. The
+      // taker's name reaches exactly one branch of `railExplain`: the last one,
+      // past `cell.state === 'blocked' || opts.adless !== true`. On a refused
+      // chip — 261 of 509 taker asks per frame on the lens's 30×10 board — the
+      // answer was computed and thrown away. Same four conditions the clause
+      // itself needs, asked before the walk instead of after it.
+      const clauseReads = c.state !== 'blocked' && !advertised && reserved == null && opts.sellDisplayed
+      const takerKey = taker?.takerLaneKey ?? (clauseReads ? soldElsewhere(c.start, end) : null)
       const halfEnd = c.start + RAIL_STEP_MIN
       // ⚖ FIX ROUND 1 (F2) — the SAME extents, asked of the mark's own span. One
       // `find` more, on a list of at most a handful of windows per lane.
