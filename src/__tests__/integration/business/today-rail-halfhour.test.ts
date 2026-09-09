@@ -1618,3 +1618,120 @@ describe('§H5 — the invariant the F1 comment rests on (D1-m6)', () => {
     }
   })
 })
+
+// ── §FIX4 — the mini-delta lens's MAJOR, on its own scene ──────────────────
+
+describe('§H9 — a 個室のみ card in hand is asked about ITS OWN rooms (MD1-MAJOR-1)', () => {
+  /** The lens's board: one 個室 and one standard room. The 個室 is busy right
+   *  across 13:00〜14:00 with a stranger; the standard room is free. The
+   *  operator is dragging a 個室のみ card by its bed row, so `inHand` is false
+   *  and `handId` is set — one of the three gestures that reach the composer. */
+  const privateScene = (): BoardLane[] => [
+    handLane({
+      key: 'p-01', group: 'staff', label: '見本 あずさ',
+      items: [{ ...handItem({ key: 'h', caseId: 'apt-hand', title: 'テスト なぎ' }, 660, 720), requiresPrivateRoom: true }],
+    }),
+    handLane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+    handLane({
+      key: 'bed-09', group: 'beds', label: '個室', roomClass: 'private',
+      items: [handItem({ key: 's', caseId: 'apt-s', title: '見本 そら' }, 600, 1140)],
+    }),
+  ]
+
+  /** The screen's own door: the hand-lifted world, the hypothetical asker. */
+  const doorOn = (lanes: BoardLane[], handId: string | null) => {
+    const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, handId)
+    return (laneKey: string, start: number, end: number) => {
+      const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
+      if (!lane) return null
+      const book = handId != null && handId === views.handId && views.worldMinusHand ? views.worldMinusHand : views.world
+      const asker = { stores: lane.stores }
+      const answer = book.bedFor(start, end, asker)
+      if (!answer.compatibleRoomsExist) return null
+      return { full: answer.laneKey === null, keys: () => book.freeBedKeys(start, end, asker) }
+    }
+  }
+
+  const dragging = (lanes: BoardLane[], handId: string | null, over: Partial<Parameters<typeof explainRails>[2]> = {}) => {
+    const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, handId)
+    const rails = guardRailsFor(lanes, {
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+      nowMinute: null, locked: [], guard: HAND_GUARD, excludeId: handId,
+      placementFeasible: bedDoor(views, lanes, handId), protectedWindowFeasible: bedDoor(views, lanes, null), resting: null,
+    })
+    return explainRails(rails, lanes, {
+      dur: 60, handId, stagedId: null, sellCells: [], claims: [], drops: [],
+      inHand: false, sellDisplayed: true, bedsOver: doorOn(lanes, handId), ...over,
+    }).get('p-01')!
+  }
+
+  it('the word comes back — 満室 over a half hour that is full FOR THAT CARD', () => {
+    // ⚠ THE MAJOR. The sentence was already right: it is asked as the hand's own
+    // Subject (`askOn` carries the 個室のみ tag). The WORD was asked of the
+    // door's hypothetical, which the book answers with `requiresPrivate: false`,
+    // so 「a standard bed is free」 silenced the chip under a sentence saying the
+    // 個室 is full. A word the board HAD on main, lost on a reachable gesture.
+    const said = dragging(privateScene(), 'apt-hand').get(780)!
+    expect(said.word).toBe('満室')
+    expect(said.wordReason).toBe('bed')
+    expect(said.cue).toEqual({ kind: 'bed', label: ['満室'] })
+    expect(said.sentence).toBe('13:00〜14:00は個室に空きがありません。個室（見本 そら様 10:00〜19:00）が使用中です')
+  })
+
+  it('…and the word and the sentence are now one question, not two', () => {
+    // The point of the fix is not the word, it is that both halves are asked of
+    // the same asker: `halfWalk` IS `askOn`'s Subject. So the room the sentence
+    // names and the room the word is about can never come apart.
+    const said = dragging(privateScene(), 'apt-hand').get(780)!
+    expect(said.sentence).toContain('個室に空きがありません')
+    expect(said.word).toBe('満室')
+  })
+
+  it('a PLAIN card in hand is untouched — only a 個室のみ hand pays the walk', () => {
+    // With no tag the hypothetical and the Subject agree (the hand-lifted world
+    // has already taken that card out), so nothing about this drag changes and
+    // nothing extra is asked. Same board, same gesture, the tag removed.
+    const plain = privateScene().map((l) =>
+      l.key === 'p-01' ? { ...l, items: l.items.map((i) => ({ ...i, requiresPrivateRoom: false })) } : l,
+    )
+    const said = dragging(plain, 'apt-hand').get(780)!
+    // 標準 room is free for an untagged card, so the half hour is not full…
+    expect(said.word).toBeNull()
+    // …and the sentence agrees, because both halves ask the same untagged thing.
+    expect(said.sentence).not.toContain('個室に空きがありません')
+  })
+
+  it('and at REST the tag plays no part — the door keeps its cached hypothetical', () => {
+    // The fix is gated on a hand, so with nothing in hand the board reads the
+    // same whether that card is 個室のみ or not: every chip, byte for byte.
+    // (⚖ #777's own law says why the tag must not ride the resting question —
+    // the marks are drawn for a placement nobody has made.)
+    const priv = privateScene()
+    const plain = priv.map((l) =>
+      l.key === 'p-01' ? { ...l, items: l.items.map((i) => ({ ...i, requiresPrivateRoom: false })) } : l,
+    )
+    const a = dragging(priv, null)
+    const b = dragging(plain, null)
+    for (const [start, said] of a) {
+      expect({ at: clock(start), said }).toEqual({ at: clock(start), said: b.get(start)! })
+    }
+  })
+
+  it('the extra walk is paid ONLY by a 個室のみ hand, and once per start', () => {
+    // The cost the fix accepts, counted: `halfWalk` is memoised per (store set,
+    // start) for the whole call, so a 個室のみ drag pays one allocator ask per
+    // EMPTY start and a plain drag pays what it paid before.
+    const count = (lanes: BoardLane[], handId: string | null) => {
+      let n = 0
+      const allocate: typeof allocateBed = (l, o) => { n += 1; return allocateBed(l, o) }
+      dragging(lanes, handId, { allocate })
+      return n
+    }
+    const priv = privateScene()
+    const plain = priv.map((l) =>
+      l.key === 'p-01' ? { ...l, items: l.items.map((i) => ({ ...i, requiresPrivateRoom: false })) } : l,
+    )
+    expect(count(priv, 'apt-hand')).toBeGreaterThan(count(plain, 'apt-hand'))
+    expect(count(priv, null)).toBe(count(plain, null))
+  })
+})

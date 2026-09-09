@@ -2897,11 +2897,6 @@ export function railExplain(
   // below. A bed-less half hour says so first: 満室 is why nothing is offered
   // here, and 「別の枠で販売中」 under it would be a second, softer answer to a
   // question the first one already closed.
-  // …and the word's mark ALWAYS wins: a chip that says something about its own
-  // half hour may not also carry somebody else's sale (⚖ L2-M3). `wordCue` is
-  // non-null for exactly the chips that wear a word, so this IS the 「gated on
-  // `word == null`」 the ruling asks for, spelled once.
-  const cue: RailCue | null = wordCue ?? (opts.soldCue === true ? { kind: 'sold', label: SOLD_ELSEWHERE_LABEL } : null)
   // ⚖ LIAM RULING 3 (2026-09-09) — 「ここに置くと、ほかのお客様のベッドを入れ替えて
   // 収めます（…）」. Two accepted strings joined and nothing coined: the clause is
   // the board's own tour wording for the packing landing (TodayScreen :7592,
@@ -2920,6 +2915,11 @@ export function railExplain(
   // same return. The ruled precedence puts ⇄ above 別の枠で販売中, so the mark
   // is the one that goes. (Round 1's §Open-4 asked whether the two reading
   // together would be confusing; this closes it by decision.)
+  // …and the word's mark ALWAYS wins: a chip that says something about its own
+  // half hour may not also carry somebody else's sale (⚖ L2-M3). `wordCue` is
+  // non-null for exactly the chips that wear a word, so this IS the 「gated on
+  // `word == null`」 the ruling asks for, spelled once.
+  const cue: RailCue | null = wordCue ?? (opts.soldCue === true ? { kind: 'sold', label: SOLD_ELSEWHERE_LABEL } : null)
   if (opts.reseat != null && word == null && opts.reservedDur == null) {
     const moved = `ここに置くと、ほかのお客様のベッドを入れ替えて収めます（${opts.reseat.lines.join('、')}）`
     const caution = opts.reseat.caution != null ? `。${opts.reseat.caution}` : ''
@@ -3079,6 +3079,7 @@ export function explainRails(
      *  and no taker found off a drawn box. Every answer is byte-identical to the
      *  board that shipped before this round — which is what the gate-off pin
      *  asserts, on all four boards.
+     *
      *
      *  ⚖ FIX ROUND 2 (D, L2-m6) — `full` rather than a count: the kickoff's own
      *  predicate is 「this half hour lies inside a 満室 run」, and the book walks
@@ -3334,15 +3335,37 @@ export function explainRails(
       // ⚖ FIX ROUND 2 (D, L2-m6) — asked as 「is this half hour inside a 満室
       // run?」, which is the kickoff's own predicate and one cached walk per
       // (length, store set) instead of one search per chip.
+      // ⚖ FIX ROUND 4 (H9, MD1-MAJOR-1 MAJOR) — A 個室のみ CARD IN HAND IS ASKED
+      // ABOUT ITS OWN ROOMS.
+      //
+      // The door answers the HYPOTHETICAL — a placement nobody has made, which
+      // needs no 個室 — because that is the shape the book caches. At rest that
+      // is exactly the right question. On the three gestures that reach here
+      // with a hand it is not: there IS a placement being made, it is the card
+      // the operator is carrying, and `askOn` two hundred lines up carries its
+      // 個室のみ tag for the very same window. So over a half hour where the
+      // only free room is a STANDARD one, the door said 「a bed is free」 and the
+      // chip went silent while the sentence under one press said 「…は個室に
+      // 空きがありません」 — a word the board HAD before this round, lost on a
+      // reachable gesture, and ⚖ ruling 1's own sentence left unfulfilled.
+      //
+      // Only a 個室のみ hand pays for it, and it pays with a walk this file has
+      // already memoised per (store set, start): for every other hand the two
+      // askers agree, because the hand-lifted world has already taken that card
+      // out. `halfWalk` is `askOn`'s own Subject — the same question the
+      // sentence is asked — so the word and the sentence cannot come apart.
+      const privateHand = opts.handId != null && handItem?.requiresPrivateRoom === true
       const halfBeds = opts.bedsOver && staff && halfEmpty ? opts.bedsOver(rail.laneKey, c.start, halfEnd) : undefined
-      const halfFull = halfBeds === undefined || halfBeds === null ? null : halfBeds.full
+      const halfPrivate = privateHand && staff && halfBeds != null ? halfWalk(staff, c.start) : null
+      const halfFull =
+        halfBeds == null ? null : halfPrivate != null ? halfPrivate.laneKey === null : halfBeds.full
       const halfHour =
         opts.bedsOver == null || staff == null
           ? undefined
-          : halfBeds === undefined || halfBeds === null
+          : halfBeds == null
             ? null
-            : halfBeds.full
-              ? { full: true, ...halfWalk(staff, c.start) }
+            : halfFull
+              ? { full: true, ...(halfPrivate ?? halfWalk(staff, c.start)) }
               : { full: false, refusal: null, blockers: [] as readonly BoardItem[] }
       // ⚖ LIAM RULING 3 (2026-09-09) — THE ONE PACKING ASK ON THIS LAYER.
       //
