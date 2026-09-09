@@ -12050,6 +12050,10 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     // `companionRoomStillFree` (today-interactions), where it is unit-tested
     // rather than text-pinned; the tag is read there now. The engine-side count
     // is pinned in `today-bed-packing.test.ts` beside that helper's own tests.
+    // ⚖ FIX ROUND 2 (L2-N2) — SEVENTEEN: the strip's half-hour bed door carries
+    // the HAND's own 個室のみ tag now, exactly as `askOn` in the composer does.
+    // Latent today (the marks are drawn at rest, where there is no hand) and
+    // aligned so the door and the composer cannot answer two questions.
     expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(17)
     // …and the board model is where the field is born, in ONE place per shape.
     // Six mentions: the two type declarations, the read off the appointment row,

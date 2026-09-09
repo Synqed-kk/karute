@@ -5801,7 +5801,7 @@ export function TodayScreen(props: TodayProps) {
           // Ruling 1 puts the word on half hours the engine refused for their
           // POCKET, which are the ones with a card on them; the chip still says
           // 満室 and the track keeps its「empty track only」rule.
-          restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items)
+          restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items, handId)
         : []
     // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
     // the lane's SIBLING, not its child. A `.lane` is a two-column grid, so a
@@ -5940,14 +5940,18 @@ export function TodayScreen(props: TodayProps) {
                 // where every sentence on this strip lives.
                 className={`cell-rest-cue${cue.kind === 'sold' ? ' sold-elsewhere' : ''}`}
                 key={`cue-${cue.start}`}
-                role="note"
-                aria-label={cue.label.join('')}
+                // ⚖ FIX ROUND 2 (L2-N1) — BACK TO `aria-hidden`. The chip directly
+                // under this mark announces the whole sentence, so a `role=note`
+                // here made a screen reader read the word twice before the
+                // sentence that explains it. The VISIBLE label stays: it is the
+                // reason the mark exists.
+                aria-hidden="true"
                 style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
               >
                 {/* Authored lines, never a browser wrap: the cue is 41–65px
                     wide at this store's board widths, so where the break falls
                     is a decision. One line that fits stays one line. */}
-                <i>{cue.label.map((line) => <span key={line}>{line}</span>)}</i>
+                <i>{cue.label.map((line, i) => <span key={i}>{line}</span>)}</i>
               </span>
             )
           })}
@@ -6815,7 +6819,7 @@ export function TodayScreen(props: TodayProps) {
                           : '細い配置ガイドを隠します。表示だけの個人設定で、保護ルールは停止しません。'}
                     </span>
                     <div className="guard-guide-key" aria-label="配置ガイドの記号の意味">
-                      <b>紫 ✓ 空きを減らさない</b><b>橙 △ 空きが減るが置ける</b><b>灰 — 置けない</b><b>⇄ ベッドを入れ替えれば置ける</b>
+                      <b>紫 ✓ 空きを減らさない</b><b>橙 △ 空きが減るが置ける</b><b>灰 — 置けない</b><b>⇄ ベッドを入れ替えて置ける</b>
                     </div>
                     <span className="guard-guide-copy">非表示にしても、店舗のスキマガード保護ルールは変わりません。</span>
                     <div className="guard-guide-policy">
@@ -6934,7 +6938,7 @@ export function TodayScreen(props: TodayProps) {
                     word: the mark borrows the ✓ or the △ palette by what the
                     drop would say, and those two keys beside it already carry
                     the colour vocabulary. */}
-                <span className="guard-key reseat-key">⇄ = ベッドを入れ替えれば置ける</span>
+                <span className="guard-key reseat-key">⇄ = ベッドを入れ替えて置ける</span>
                 <span className="guard-band-note">
                   {guideMode === 'selected'
                     ? `下の「${railDur}分配置」で、ドラッグ前に全開始を確認できます。`

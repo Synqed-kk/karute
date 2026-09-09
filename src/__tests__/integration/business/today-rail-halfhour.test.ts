@@ -385,7 +385,7 @@ function readBoard(lanes: BoardLane[]): BoardRead {
     const cellsHere = drawn.cells.filter((s) => s.group === 'staff' && s.laneKey === rail.laneKey)
     const gapHere = drawnClaims.filter((g) => g.group === 'staff' && g.laneKey === rail.laneKey)
     const laneHere = lanes.find((l) => l.key === rail.laneKey && l.group === 'staff')
-    const cues: CueRow[] = restCueStarts(per, cellsHere, gapHere, heldByLane.get(rail.laneKey) ?? [], laneHere?.items ?? [])
+    const cues: CueRow[] = restCueStarts(per, cellsHere, gapHere, heldByLane.get(rail.laneKey) ?? [], laneHere?.items ?? [], null)
     out[rail.laneKey] = { chips, cues }
   }
   return {
@@ -1238,7 +1238,7 @@ describe('§B — 新規用 keeps its hatch, labelled, and never carries somebod
     }).get(laneKey)!
     const spans = drawHeld ? new Map(heldDrawnFor(held, lanes, []).map((m) => [m.laneKey, m.spans])) : new Map()
     const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')!
-    return { explained, cues: restCueStarts(explained, [], [], spans.get(laneKey) ?? [], lane.items) }
+    return { explained, cues: restCueStarts(explained, [], [], spans.get(laneKey) ?? [], lane.items, null) }
   }
 
   it('a guard-refused start with NO 確保 span drawn over it keeps the hatch base painted — now labelled', () => {
@@ -1290,8 +1290,8 @@ describe('§B — 新規用 keeps its hatch, labelled, and never carries somebod
   it('⚖ flag 88 still stands it down under a DRAWN 確保 span, so the mock’s boards do not move', () => {
     const lanes = REAL.lanes
     const worded: ReadonlyMap<number, { cue: RailCue | null }> = new Map([[960, { cue: { kind: 'guard' as const, label: ['新規用'] } }]])
-    expect(restCueStarts(worded, [], [], [{ start: 960, end: 1050, windowStart: 960 }], [])).toEqual([])
-    expect(restCueStarts(worded, [], [], [], [])).toEqual([{ start: 960, end: 990, kind: 'guard', label: ['新規用'] }])
+    expect(restCueStarts(worded, [], [], [{ start: 960, end: 1050, windowStart: 960 }], [], null)).toEqual([])
+    expect(restCueStarts(worded, [], [], [], [], null)).toEqual([{ start: 960, end: 990, kind: 'guard', label: ['新規用'] }])
     expect(lanes.length).toBeGreaterThan(0)
   })
 })

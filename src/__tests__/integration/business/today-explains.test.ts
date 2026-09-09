@@ -929,12 +929,15 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // from the committed mask. Idle they coincide; mid-gesture they diverge, and
     // the divergence paints flag 88's artifact. `heldHere` is that committed
     // list, already in hand one line above in the renderer.
+    // ⚖ FIX ROUND 2 (L2-m4) — …and a SIXTH, the card in hand: `explainRails`
+    // already lifts it out of the identical question, and without this the word
+    // and the mark disagreed for the length of a bed-lane drag.
     // ⚖ FLAG 88, WHOLE (2026-09-09) — a FIFTH argument, and the same narrowing
     // for the same reason: ruling 1 puts the word on half hours the engine
     // refused for their POCKET, which are exactly the ones with a card, a break
     // or an absence drawn across them. The chip keeps its word; the LANE keeps
     // 「empty track only」. Nothing about 「one source, three faces」 moved.
-    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items)')
+    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items, handId)')
     // ⚖ LIAM RULING 1 + 2 (2026-09-09) — the filter is the CUE now. The source
     // of the three faces is still ONE value per chip: `railExplain` decides the
     // word and the mark together, in one return, so they cannot drift apart —

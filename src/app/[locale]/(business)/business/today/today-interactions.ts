@@ -3420,6 +3420,13 @@ export function restCueStarts(
    *  track only. EMPTY = the caller has nothing drawn, or has not adopted this
    *  argument, and the cue is byte-identical to the one it painted before. */
   itemsHere: readonly { key?: string; caseId?: string | null; startMin: number; endMin: number }[] = [],
+  /** ⚖ FIX ROUND 2 (L2-m4) — THE CARD IN THE OPERATOR'S HAND, lifted out here
+   *  too. `explainRails` already excludes it from the same question, so without
+   *  this the word and the mark could disagree for the length of a bed-lane
+   *  drag: the chip judged the row with the dragged card gone and the mark
+   *  judged it with the card still standing in its ORIGINAL slot. One question,
+   *  one answer, on both layers. */
+  handId: string | null = null,
 ): RestCue[] {
   // `RAIL_STEP_MIN` is the rail's own step and so the cue's own width — the same
   // span `renderLane` gives the mark it paints from each start returned here.
@@ -3427,7 +3434,7 @@ export function restCueStarts(
     sellHere.some((s) => s.h < start + RAIL_STEP_MIN && start < s.h + SELL_SLOT_MIN) ||
     gapHere.some((g) => g.s < start + RAIL_STEP_MIN && start < g.e) ||
     heldHere.some((h) => h.start < start + RAIL_STEP_MIN && start < h.end) ||
-    laneCovers(itemsHere, start, start + RAIL_STEP_MIN)
+    laneCovers(itemsHere, start, start + RAIL_STEP_MIN, handId)
   const kept = [...explained]
     .filter(([, e]) => e.cue != null)
     .filter(([start]) => !covered(start))
@@ -4270,9 +4277,11 @@ export function allocateBed(
      *  and the reserved mask, which is the one place it must never be (design §3;
      *  pinned in the suite against `capacity-ledger.ts`' own `search()`).
      *
-     *  Only a gesture END asks with it: `landingVerdict`'s solve arm through
-     *  `verdictAtLanding`, and `solveBed`, which stages the answer. The word at
-     *  the cursor during a drag does not. */
+     *  THREE CALLERS (⚖ FIX ROUND 2, L1-m1 — the count was stale): `landingVerdict`'s
+     *  solve arm through `verdictAtLanding`, `solveBed`, which stages the answer,
+     *  and — since ⚖ LIAM RULING 3 (2026-09-09) — the strip's REST layer, once
+     *  per 「moves someone」 candidate in `explainRails`, never while a card is
+     *  in hand. The word at the cursor during a drag still does not. */
     pack?: boolean
     /** Minutes on the day shown; `null` = a future day, where nothing has
      *  started. REQUIRED when `pack` is true — a re-seat search that cannot tell
