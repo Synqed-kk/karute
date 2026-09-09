@@ -2915,11 +2915,6 @@ export function railExplain(
   // same return. The ruled precedence puts ⇄ above 別の枠で販売中, so the mark
   // is the one that goes. (Round 1's §Open-4 asked whether the two reading
   // together would be confusing; this closes it by decision.)
-  // …and the word's mark ALWAYS wins: a chip that says something about its own
-  // half hour may not also carry somebody else's sale (⚖ L2-M3). `wordCue` is
-  // non-null for exactly the chips that wear a word, so this IS the 「gated on
-  // `word == null`」 the ruling asks for, spelled once.
-  const cue: RailCue | null = wordCue ?? (opts.soldCue === true ? { kind: 'sold', label: SOLD_ELSEWHERE_LABEL } : null)
   if (opts.reseat != null && word == null && opts.reservedDur == null) {
     const moved = `ここに置くと、ほかのお客様のベッドを入れ替えて収めます（${opts.reseat.lines.join('、')}）`
     const caution = opts.reseat.caution != null ? `。${opts.reseat.caution}` : ''
@@ -2931,6 +2926,11 @@ export function railExplain(
       mark: { face: 'reseat', tone: opts.reseat.tone },
     }
   }
+  // …and the word's mark ALWAYS wins: a chip that says something about its own
+  // half hour may not also carry somebody else's sale (⚖ L2-M3). `wordCue` is
+  // non-null for exactly the chips that wear a word, so this IS the 「gated on
+  // `word == null`」 the ruling asks for, spelled once.
+  const cue: RailCue | null = wordCue ?? (opts.soldCue === true ? { kind: 'sold', label: SOLD_ELSEWHERE_LABEL } : null)
   if (opts.reservedDur != null) return { word, wordReason, sentence: `${base}。${reservedClause(opts.reservedDur)}`, cue, mark: null }
   // A refused chip is already answering; ⚖ 75(i)'s clause is about a start the
   // board said YES to and then advertised nothing at.
@@ -3076,10 +3076,17 @@ export function explainRails(
      *
      *  ⚖ FIX ROUND 2 (C, L2-m1) — AND IT IS THE ROUND'S ONE GATE. Absent, this
      *  function derives NOTHING new: no half-hour word, no mark, no lane mark
-     *  and no taker found off a drawn box. Every answer is byte-identical to the
-     *  board that shipped before this round — which is what the gate-off pin
-     *  asserts, on all four boards.
+     *  and no taker found off a drawn box. Every WORD and every SENTENCE is
+     *  byte-identical to the board that shipped before this round — which is
+     *  what the gate-off pin asserts, on all four boards.
      *
+     *  ⚖ FIX ROUND 4 (H11, MD1-MINOR-1) — WORDS AND SENTENCES, and not the lane
+     *  paint, which has a gate of its own. `restCueStarts` grew `itemsHere` and
+     *  `handId` this round and the screen passes them unconditionally, so a
+     *  worded half hour with a card drawn over it loses its hatch whatever this
+     *  door does — ⚖ FLAG 88, WHOLE, a ruled change pinned on its own and not a
+     *  leak through here. That layer's gate is an EMPTY `itemsHere`, which is
+     *  what its own jsdoc promises.
      *
      *  ⚖ FIX ROUND 2 (D, L2-m6) — `full` rather than a count: the kickoff's own
      *  predicate is 「this half hour lies inside a 満室 run」, and the book walks
@@ -3496,7 +3503,12 @@ export function restCueStarts(
    *
    *  So the chip says 満室 (ruling 1) and the LANE keeps its own rule: empty
    *  track only. EMPTY = the caller has nothing drawn, or has not adopted this
-   *  argument, and the cue is byte-identical to the one it painted before. */
+   *  argument, and the cue is byte-identical to the one it painted before.
+   *
+   *  ⚖ FIX ROUND 4 (H11, MD1-MINOR-1) — AND THIS IS THE LANE PAINT'S OWN GATE.
+   *  The screen passes it unconditionally, with no reference to `explainRails`'
+   *  door, so the round's one gate promises WORDS and SENTENCES and this
+   *  argument promises the paint. Two gates because they are two decisions. */
   itemsHere: readonly { key?: string; caseId?: string | null; startMin: number; endMin: number }[] = [],
   /** ⚖ FIX ROUND 2 (L2-m4) — THE CARD IN THE OPERATOR'S HAND, lifted out here
    *  too. `explainRails` already excludes it from the same question, so without
