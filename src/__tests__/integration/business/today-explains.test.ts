@@ -68,6 +68,7 @@ import {
   type Move,
   type Moves,
   type RailCell,
+  type RailCue,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
@@ -460,6 +461,9 @@ describe('§3 — every sentence names the window it judged', () => {
     expect(said).not.toContain('この時間帯に空いているベッドがいません')
     expect(said).not.toContain('空きベッドなし')
     expect(said).not.toContain('満室')
+    // ⚖ 9/9 — this pin is about the SENTENCE and stays exactly that. 満室 also
+    // rides the lane's rest cue from this round on, and that is paint (the
+    // chip's own word, on the track under it), which no assertion here covers.
   })
 
   it('every other class appends its own 「（HH:MM〜HH:MM）」', () => {
@@ -749,9 +753,16 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // by the board itself — the operator can see the offer.
     expect(ask(lanes, { sellCells: [sellAt('p-05', start)] }).get('p-05')!.get(start)!.sentence)
       .not.toContain('販売可能枠')
-    // A box on the OTHER person's row is not this row's advertisement.
+    // A box on the OTHER person's row is not this row's advertisement, and it is
+    // not the reason either. ⚖ 75(i) lets the clause name somebody only where the
+    // board KNOWS which promise took the room this person needed, and a room drop
+    // is the only record that carries that. A box merely drawn over the same
+    // window is not that proof, so the clause stays the bare one — it states the
+    // absence and invents no cause (§4's own law).
     expect(ask(lanes, { sellCells: [sellAt('p-06', start)] }).get('p-05')!.get(start)!.sentence)
       .toContain('この開始には販売可能枠が出ていません')
+    // …and with NOTHING drawn anywhere, likewise.
+    expect(ask(lanes).get('p-05')!.get(start)!.sentence).toContain('この開始には販売可能枠が出ていません')
   })
 
   it('a room-drop names the TAKER by their label — and never this lane itself', () => {
@@ -778,7 +789,14 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     const per = ask(busy).get('p-01')!
     // `fullRoomsRefusal`'s sentence, whole — the composer was handed a real
     // `allocateBed` answer for this chip's own window.
-    expect(per.get(780)).toEqual({ word: '満室', sentence: '13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）が使用中です' })
+    // ⚖ LIAM RULING 1 (2026-09-09) — and the mark for the lane track comes back
+    // in the SAME answer as the word, which is what makes the two unable to
+    // drift apart (§6's own claim, now provable at the composer).
+    expect(per.get(780)).toEqual({
+      word: '満室',
+      sentence: '13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）が使用中です',
+      cue: { kind: 'bed', label: ['満室'] },
+    })
     // …and a chip of any other class never grew a room answer, so it can never
     // wear a room word.
     for (const [start, said] of per) {
@@ -791,7 +809,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // The engine judged the whole board, so the chip is `bed`; the sentence is
     // asked with `handId` lifted out, which is the booking in the way — case (a).
     const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
-    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)).toEqual({ word: null, sentence: expect.any(String) })
+    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)).toEqual({ word: null, sentence: expect.any(String), cue: null })
     expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)!.sentence).not.toContain('ベッド1（見本 かえる様')
   })
 
@@ -901,7 +919,13 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // the divergence paints flag 88's artifact. `heldHere` is that committed
     // list, already in hand one line above in the renderer.
     expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere)')
-    expect(INT).toContain('.filter(([, e]) => e.word != null)')
+    // ⚖ LIAM RULING 1 (2026-09-09) — the filter is the CUE now. The source of
+    // the three faces is still ONE value per chip: `railExplain` decides the
+    // word and the mark together, in one return, so they cannot drift apart —
+    // what moved is that 新規用 keeps a word with no mark (⚖ E3b), which the old
+    // `word != null` filter could not say, and that a mark with no word becomes
+    // sayable at all (ruling 2's own mark arrives with the bed door's slice).
+    expect(INT).toContain('.filter(([, e]) => e.cue != null)')
     // Both cues stand down while a card is in hand — the strip is answering a
     // different question then, and the chip wears the verdict's × instead.
     expect(SRC).toContain('const word = v ? null : (explained?.word ?? null)')
@@ -922,8 +946,20 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
   // word-without-hatch is legal from this round on, and legal EXACTLY where a
   // box overlaps: the paired-appearance pin for empty spans is the first
   // assertion below and may never weaken.
-  const worded = (...starts: number[]): ReadonlyMap<number, { word: string | null }> =>
-    new Map(starts.map((s) => [s, { word: '満室' }] as [number, { word: string | null }]))
+  // ⚖ LIAM RULING 1 (2026-09-09) — the helper is keyed on the CUE the composer
+  // returned, not on the word: 新規用 carries a word and no mark, and a mark
+  // with no word becomes sayable at all (ruling 2's own mark arrives with the
+  // bed door's slice). What flag 88 is about is unchanged — it is the PAINT
+  // that narrows — and every scene below is stated in the vocabulary the
+  // helper now reads.
+  const BED_CUE = { kind: 'bed' as const, label: ['満室'] }
+  const worded = (...starts: number[]): ReadonlyMap<number, { cue: RailCue | null }> =>
+    new Map(starts.map((s) => [s, { cue: BED_CUE }] as [number, { cue: RailCue | null }]))
+  /** The merged spans `restCueStarts` returns, as the starts these pins are
+   *  written about: same-kind neighbours are ONE mark now, so a run is spelled
+   *  by its own two ends and a list of starts is what the reader wants back. */
+  const startsOf = (cues: readonly { start: number; end: number }[]): number[] =>
+    cues.flatMap((c) => Array.from({ length: (c.end - c.start) / 30 }, (_, i) => c.start + i * 30))
   const sellAt = (h: number): SellCell => ({
     laneKey: 'p-01', resourceKey: 'bed-01', group: 'staff', staff: 'p-01', bed: 'ベッド1', h, price: 7000, tier: 2,
   })
@@ -934,34 +970,44 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
   it('⚖ 88 — a cue under an advertised box is dropped; a cue on empty track stands', () => {
     const cues = worded(600, 630, 660, 690)
     // NOTHING ADVERTISED: every worded start keeps its hatch, which is §6's own
-    // pairing and the assertion this whole section exists for.
-    expect(restCueStarts(cues, [], [])).toEqual([600, 630, 660, 690])
-    // One 販売可能枠 covers TWO half hours — the box is a standard hour wide.
-    expect(restCueStarts(cues, [sellAt(630)], [])).toEqual([600, 690])
+    // pairing and the assertion this whole section exists for. ⚖ 9/9: the four
+    // are contiguous and the same kind, so they come back as ONE mark 10:00〜
+    // 12:00 — the merge is asserted here, and the starts under it below.
+    expect(restCueStarts(cues, [], [])).toEqual([{ start: 600, end: 720, kind: 'bed', label: ['満室'] }])
+    expect(startsOf(restCueStarts(cues, [], []))).toEqual([600, 630, 660, 690])
+    // One 販売可能枠 covers TWO half hours — the box is a standard hour wide —
+    // and the box BREAKS the run, so what is left is two marks, not one.
+    expect(restCueStarts(cues, [sellAt(630)], [])).toEqual([
+      { start: 600, end: 630, kind: 'bed', label: ['満室'] },
+      { start: 690, end: 720, kind: 'bed', label: ['満室'] },
+    ])
     // A 詰め込み／スキマ枠 promise advertises the span it draws, no more: an
     // offer is an offer, whichever layer drew it.
-    expect(restCueStarts(cues, [], [gapAt(660, 690)])).toEqual([600, 630, 690])
+    expect(startsOf(restCueStarts(cues, [], [gapAt(660, 690)]))).toEqual([600, 630, 690])
     // Both layers at once, and what survives is the genuinely empty start.
-    expect(restCueStarts(cues, [sellAt(600)], [gapAt(690, 720)])).toEqual([660])
+    expect(startsOf(restCueStarts(cues, [sellAt(600)], [gapAt(690, 720)]))).toEqual([660])
   })
 
   it('⚖ 88 — the WORD is not narrowed with the paint, and the overlap is half-open', () => {
     // A start the engine did not word never grows a cue, box or no box: the
     // source of all three faces is still the one value.
-    const mixed: ReadonlyMap<number, { word: string | null }> = new Map([
-      [600, { word: null }],
-      [630, { word: '新規用' }],
+    // A start the composer gave no CUE never grows one, box or no box — and the
+    // 新規用 chip is exactly that start: it wears a word and carries no mark,
+    // because the 確保 chip is already drawn over that emptiness (⚖ E3b).
+    const mixed: ReadonlyMap<number, { cue: RailCue | null }> = new Map([
+      [600, { cue: null }],
+      [630, { cue: BED_CUE }],
     ])
-    expect(restCueStarts(mixed, [], [])).toEqual([630])
+    expect(startsOf(restCueStarts(mixed, [], []))).toEqual([630])
     // A box that ENDS at the cue's start is not over it…
-    expect(restCueStarts(worded(660), [], [gapAt(630, 660)])).toEqual([660])
+    expect(startsOf(restCueStarts(worded(660), [], [gapAt(630, 660)]))).toEqual([660])
     // …and one that BEGINS at the cue's end is not either.
-    expect(restCueStarts(worded(660), [], [gapAt(690, 720)])).toEqual([660])
+    expect(startsOf(restCueStarts(worded(660), [], [gapAt(690, 720)]))).toEqual([660])
     // One minute of overlap on either side IS overlap.
     expect(restCueStarts(worded(660), [], [gapAt(630, 661)])).toEqual([])
     expect(restCueStarts(worded(660), [], [gapAt(689, 720)])).toEqual([])
     // The sell box's hour at both of its edges, so the 60 cannot drift to 30.
-    expect(restCueStarts(worded(570, 600, 630, 660), [sellAt(600)], [])).toEqual([570, 660])
+    expect(startsOf(restCueStarts(worded(570, 600, 630, 660), [sellAt(600)], []))).toEqual([570, 660])
   })
 
   it('the hatch never outlives the strip that explains it, and the marks are the price boxes’ own', () => {

@@ -2222,6 +2222,10 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "priceFactSets,",
       "proxyTimeLabel,",
       "restCueStarts,",
+      // ⚖ LIAM RULING 1 (2026-09-09) — the rail's own step, as a name: the half
+      // hour the strip's word is now about, the cue's own width, and the number
+      // `restCueStarts` used to spell inline.
+      "RAIL_STEP_MIN,",
       "restingSpanFor,",
       "warnFaceFor,",
       "holdClock,",

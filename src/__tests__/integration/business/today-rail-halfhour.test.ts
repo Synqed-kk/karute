@@ -8,9 +8,13 @@
 //   3. a half hour WITH a free bed never says 満室 — a start that fits only by
 //      moving somebody wears a 「moves someone」 mark instead of a plain ✓.
 //
+// This slice carries ruling 1 alone. Ruling 3's mark and ruling 2's own mark
+// arrive above it, each with the machinery that makes it honest, and each with
+// its own red-runs (§R-A…§R-F) in this same file.
+//
 // And his two gates on the round, which is what most of this file is:
-//   · THE FIX MUST BE CLEAR — §R-A…§R-D pin, on his own three scenes, exactly
-//     what a staffer now sees and reads.
+//   · THE FIX MUST BE CLEAR — the red-runs pin, on his own three scenes,
+//     exactly what a staffer now sees and reads.
 //   · NOTHING ELSE MAY CHANGE — §OBSERVATIONAL reads EVERY chip and EVERY lane
 //     cue of the whole board on all four scenes and compares them against a
 //     baseline taken at `origin/main` 5108b554d, BEFORE a line of this round
@@ -329,12 +333,7 @@ function readBoard(lanes: BoardLane[]): BoardRead {
     })
     const cellsHere = drawn.cells.filter((s) => s.group === 'staff' && s.laneKey === rail.laneKey)
     const gapHere = drawnClaims.filter((g) => g.group === 'staff' && g.laneKey === rail.laneKey)
-    const cues: CueRow[] = restCueStarts(per, cellsHere, gapHere, heldByLane.get(rail.laneKey) ?? []).map((start) => ({
-      start,
-      end: start + 30,
-      kind: null,
-      label: [],
-    }))
+    const cues: CueRow[] = restCueStarts(per, cellsHere, gapHere, heldByLane.get(rail.laneKey) ?? [])
     out[rail.laneKey] = { chips, cues }
   }
   return { counter, lanes: out }
@@ -396,26 +395,28 @@ const WORDED: Record<string, Record<string, number[]>> = {
  *  is unchanged (the 60-minute refusal is still what a press answers with). */
 const UNWORDED: Record<string, Record<string, number[]>> = { C: { 'p-05': [840] } }
 
-/** …and the lane tracks whose hatch list changed with those words. A lane whose
- *  bed-less half hour sits under a drawn box keeps no hatch — ⚖ flag 88 — which
- *  is why B/p-05 carries the word and no cue. */
+/** …and the lane tracks whose mark list changed with any of the above. A lane
+ *  whose bed-less half hour sits under a drawn box keeps no mark — ⚖ flag 88 —
+ *  which is why B/p-05 carries the word and no cue. Scene C is absent: its one
+ *  moving track belongs to ruling 2, which is not in this slice. */
 const HATCHED: Record<string, string[]> = {
   A: ['c-03', 'p-01', 'p-04', 'p-05', 'p-06'],
   B: ['c-03', 'p-01', 'p-04', 'p-06'],
 }
 
+const keysFor = (by: Record<string, Record<string, number[]>>, fields: string[]) =>
+  Object.entries(by).flatMap(([scene, lanes]) =>
+    Object.entries(lanes).flatMap(([lane, starts]) =>
+      starts.flatMap((s) => fields.map((f) => `${scene}/${lane}@${clock(s)}#${f}`)),
+    ),
+  )
+
 const MAY_MOVE: readonly string[] = [
-  ...Object.entries(WORDED).flatMap(([scene, lanes]) =>
-    Object.entries(lanes).flatMap(([lane, starts]) =>
-      starts.flatMap((s) => ['face', 'reason', 'word', 'sentence'].map((f) => `${scene}/${lane}@${clock(s)}#${f}`)),
-    ),
-  ),
-  ...Object.entries(UNWORDED).flatMap(([scene, lanes]) =>
-    Object.entries(lanes).flatMap(([lane, starts]) =>
-      starts.flatMap((s) => ['face', 'reason', 'word'].map((f) => `${scene}/${lane}@${clock(s)}#${f}`)),
-    ),
-  ),
-  ...Object.entries(HATCHED).flatMap(([scene, lanes]) => lanes.map((lane) => `${scene}/${lane}#cues`)),
+  ...new Set([
+    ...keysFor(WORDED, ['face', 'reason', 'word', 'sentence']),
+    ...keysFor(UNWORDED, ['face', 'reason', 'word']),
+    ...Object.entries(HATCHED).flatMap(([scene, lanes]) => lanes.map((lane) => `${scene}/${lane}#cues`)),
+  ]),
 ]
 
 describe('§OBSERVATIONAL — the round moves exactly what it says it moves', () => {

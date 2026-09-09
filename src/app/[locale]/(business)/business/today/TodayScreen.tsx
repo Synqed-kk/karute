@@ -1919,7 +1919,7 @@ export function TodayScreen(props: TodayProps) {
         ? guardRailsFor(boardLanes, {
             open: hours.open,
             close: hours.close,
-            stepMin: RAIL_STEP_MIN,
+            stepMin: 30,
             dur: railDur,
             protectedDur: props.guard.protectedDurationMin,
             nowMinute: props.sell.nowMinute,
@@ -2233,7 +2233,7 @@ export function TodayScreen(props: TodayProps) {
         ? guardVerdictAt(lanes, laneKey, start, {
             open: hours.open,
             close: hours.close,
-            stepMin: RAIL_STEP_MIN,
+            stepMin: 30,
             dur,
             protectedDur: props.guard.protectedDurationMin,
             nowMinute: props.sell.nowMinute,
@@ -5852,15 +5852,27 @@ export function TodayScreen(props: TodayProps) {
               empty may never sit on top of an offer. `--x`/`--w` is the same
               positioning grammar `.cell-price` uses; 30 is the rail's own step
               (`stepMin`, where the cells are built). */}
-          {restCues.map((start) => {
-            const span = place(start, start + 30, hours)
+          {restCues.map((cue) => {
+            const span = place(cue.start, cue.end, hours)
             return (
               <span
+                // ⚖ LIAM RULING 1 (2026-09-09) — the mark carries WORDS now,
+                // so it is information rather than decoration: it stops being
+                // `aria-hidden` and announces the same label a sighted operator
+                // reads. It stays `pointer-events: none` — the answer in full is
+                // one press away on the chip below it, which is where every
+                // sentence on this strip lives.
                 className="cell-rest-cue"
-                key={`cue-${start}`}
-                aria-hidden="true"
+                key={`cue-${cue.start}`}
+                role="note"
+                aria-label={cue.label.join('')}
                 style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
-              />
+              >
+                {/* Authored lines, never a browser wrap: the cue is 41–65px
+                    wide at this store's board widths, so where the break falls
+                    is a decision. One line that fits stays one line. */}
+                <i>{cue.label.map((line) => <span key={line}>{line}</span>)}</i>
+              </span>
             )
           })}
           {!isLocked &&
