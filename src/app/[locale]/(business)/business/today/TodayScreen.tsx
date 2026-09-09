@@ -125,6 +125,7 @@ import {
   priceFactSets,
   proxyTimeLabel,
   restCueStarts,
+  RAIL_STEP_MIN,
   restingSpanFor,
   warnFaceFor,
   holdClock,
@@ -1918,7 +1919,7 @@ export function TodayScreen(props: TodayProps) {
         ? guardRailsFor(boardLanes, {
             open: hours.open,
             close: hours.close,
-            stepMin: 30,
+            stepMin: RAIL_STEP_MIN,
             dur: railDur,
             protectedDur: props.guard.protectedDurationMin,
             nowMinute: props.sell.nowMinute,
@@ -1944,6 +1945,30 @@ export function TodayScreen(props: TodayProps) {
     [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
+  /** ⚖ LIAM RULING 1 (2026-09-09) — HOW MANY ROOMS ARE FREE FOR ONE HALF HOUR.
+   *
+   *  His words: 「every box that is 満室 should say 満室」. The strip's word is a
+   *  fact about the HALF HOUR the chip sits on from this round on, and this is
+   *  that fact — out of the frame's own book, which is where every other bed
+   *  question on this screen is answered, so the word and the marks cannot
+   *  disagree about one board.
+   *
+   *  The asker is the HYPOTHETICAL one `bedDoor(…, null)` binds for the marks
+   *  themselves — a new placement nobody has made yet, so no 個室のみ tag and no
+   *  card lifted. `null` is the #777 answer: this lane shares a store with no
+   *  room at all, and a store with no rooms is never 満室. */
+  const halfHourFree = useCallback(
+    (laneKey: string, start: number): number | null => {
+      const lane = boardLanes.find((l) => l.key === laneKey && l.group === 'staff')
+      if (!lane) return null
+      const asker = { stores: lane.stores, requiresPrivate: false }
+      const end = start + RAIL_STEP_MIN
+      return ledger.world.bedFor(start, end, asker).compatibleRoomsExist
+        ? ledger.world.freeBedCount(start, end, asker)
+        : null
+    },
+    [boardLanes, ledger],
+  )
   /** ⚖ GREPTILE RE-REVIEW (2026-08-30) — THE OTHER HALF OF THE ROVING PATTERN.
    *  ←/→ moved focus from the first round, but the tab stop was hard-wired to
    *  chip 0, so tabbing away and back always threw the operator back to the
@@ -2061,8 +2086,11 @@ export function TodayScreen(props: TodayProps) {
         // only by `liveMoves`); mid-gesture the widening is a no-op or snaps off
         // a committed slot, bounded by one slot either way, and no number moves.
         withheld: sell.cells.filter(isHeldBound),
+        // ⚖ LIAM RULING 1 (2026-09-09) — the half hour's own bed truth, so the
+        // word on a chip is about the 30 minutes it is drawn over.
+        halfHourFree,
       }),
-    [rails, boardLanes, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode, heldBoard],
+    [rails, boardLanes, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode, heldBoard, halfHourFree],
   )
 
   const openCards = props.cards.filter((c) => c.state === 'open' && !resolved.includes(c.id))
@@ -2205,7 +2233,7 @@ export function TodayScreen(props: TodayProps) {
         ? guardVerdictAt(lanes, laneKey, start, {
             open: hours.open,
             close: hours.close,
-            stepMin: 30,
+            stepMin: RAIL_STEP_MIN,
             dur,
             protectedDur: props.guard.protectedDurationMin,
             nowMinute: props.sell.nowMinute,

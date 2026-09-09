@@ -293,6 +293,16 @@ function readBoard(lanes: BoardLane[]): BoardRead {
     inHand: false,
     sellDisplayed: true,
     held,
+    // ⚖ ruling 1 — the screen's own door (TodayScreen `halfHourFree`), out of
+    // the same book, with the same hypothetical asker.
+    halfHourFree: (laneKey, start) => {
+      const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
+      if (!lane) return null
+      const asker = { stores: lane.stores, requiresPrivate: false }
+      return views.world.bedFor(start, start + 30, asker).compatibleRoomsExist
+        ? views.world.freeBedCount(start, start + 30, asker)
+        : null
+    },
   })
   // ⚖ 8/30 「one number」 — R-E lives here rather than in a pin of its own: the
   // counter is part of every board's reading, so a round that moved it moves
@@ -364,8 +374,49 @@ function flatten(read: Record<string, BoardRead>): Map<string, string> {
 
 /** ⚖ LIAM 9/9 gate 2 — THE ENUMERATION. Every key this round is allowed to
  *  move, and nothing else. Each one is pinned to its exact new value by the
- *  red-run that owns it (§R-A…§R-D). */
-const MAY_MOVE: readonly string[] = []
+ *  red-run that owns it (§R-A…§R-D).
+ *
+ *  REST — main's own fixture day — is not in any list below, and that is the
+ *  first thing to read here: on the board a store looks at all day, not one
+ *  half hour is bed-less and not one start needs a re-seat, so the round adds
+ *  nothing to it at all. Everything below is on a board Liam FILLED. */
+
+/** ⚖ RULING 1 — the chips whose word the half hour now decides. Every room on
+ *  these boards is busy right across the listed half hours, and the ruling is
+ *  about the HALF HOUR rather than about one person, so it is every lane's
+ *  chip. A/c-03@14:30 is absent on purpose: it already said 満室, and its
+ *  sentence — the 60-minute refusal — is untouched. */
+const WORDED: Record<string, Record<string, number[]>> = {
+  A: { 'c-03': [840, 900], 'p-01': [840, 870, 900], 'p-04': [840, 870, 900], 'p-05': [840, 870, 900], 'p-06': [840, 870, 900] },
+  B: { 'c-03': [840], 'p-01': [840], 'p-04': [840], 'p-05': [840], 'p-06': [840] },
+}
+
+/** ⚖ RULING 3 — and the one chip that LOSES the word: ごろう's 14:00, whose
+ *  half hour has ベッド1 free while the 60-minute start does not. Its sentence
+ *  is unchanged (the 60-minute refusal is still what a press answers with). */
+const UNWORDED: Record<string, Record<string, number[]>> = { C: { 'p-05': [840] } }
+
+/** …and the lane tracks whose hatch list changed with those words. A lane whose
+ *  bed-less half hour sits under a drawn box keeps no hatch — ⚖ flag 88 — which
+ *  is why B/p-05 carries the word and no cue. */
+const HATCHED: Record<string, string[]> = {
+  A: ['c-03', 'p-01', 'p-04', 'p-05', 'p-06'],
+  B: ['c-03', 'p-01', 'p-04', 'p-06'],
+}
+
+const MAY_MOVE: readonly string[] = [
+  ...Object.entries(WORDED).flatMap(([scene, lanes]) =>
+    Object.entries(lanes).flatMap(([lane, starts]) =>
+      starts.flatMap((s) => ['face', 'reason', 'word', 'sentence'].map((f) => `${scene}/${lane}@${clock(s)}#${f}`)),
+    ),
+  ),
+  ...Object.entries(UNWORDED).flatMap(([scene, lanes]) =>
+    Object.entries(lanes).flatMap(([lane, starts]) =>
+      starts.flatMap((s) => ['face', 'reason', 'word'].map((f) => `${scene}/${lane}@${clock(s)}#${f}`)),
+    ),
+  ),
+  ...Object.entries(HATCHED).flatMap(([scene, lanes]) => lanes.map((lane) => `${scene}/${lane}#cues`)),
+]
 
 describe('§OBSERVATIONAL — the round moves exactly what it says it moves', () => {
   it('every other chip, cue and sentence on all four boards is byte-identical to main', () => {
