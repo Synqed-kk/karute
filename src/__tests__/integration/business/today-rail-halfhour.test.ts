@@ -1491,3 +1491,86 @@ describe('§H1 — the door answers on the board the chip is judged on (D1-M1)',
     expect([...dragging.keys()].sort()).toEqual(['bed-01', 'bed-02'])
   })
 })
+
+describe('§H2 — a ⇄ chip carries no row note (D1-M2)', () => {
+  /** The lens's own dual scene, built so BOTH predicates fire on one chip:
+   *  ベッド1 is the ONLY room free over 13:00〜13:30 (so the sold note qualifies)
+   *  and it is busy 13:30〜14:00, so the 60-minute start is bed-refused; ベッド3
+   *  is free exactly where that occupant needs to go, so the pack finds a
+   *  re-seat (so the ⇄ mark qualifies). One box on p-06's row stands on ベッド1
+   *  over the half hour. */
+  const dualScene = (): BoardLane[] => [
+    handLane({ key: 'p-01', group: 'staff', label: '見本 あずさ' }),
+    // The movers stand on a staff row too, the way the board really carries
+    // them — the packing search reads each one's own lane for the store rule.
+    handLane({
+      key: 'p-06', group: 'staff', label: '見本 かおる',
+      items: [
+        handItem({ key: 'xs', caseId: 'apt-x', title: '見本 きり' }, 810, 840),
+        handItem({ key: 'ys', caseId: 'apt-y', title: '見本 そら' }, 600, 1140),
+        handItem({ key: 'zs', caseId: 'apt-z', title: '見本 かえる' }, 600, 810),
+      ],
+    }),
+    handLane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [handItem({ key: 'x', caseId: 'apt-x', title: '見本 きり' }, 810, 840)] }),
+    handLane({ key: 'bed-02', group: 'beds', label: 'ベッド2', items: [handItem({ key: 'y', caseId: 'apt-y', title: '見本 そら' }, 600, 1140)] }),
+    handLane({ key: 'bed-03', group: 'beds', label: 'ベッド3', items: [handItem({ key: 'z', caseId: 'apt-z', title: '見本 かえる' }, 600, 810)] }),
+  ]
+  const dualBox: SellCell = { laneKey: 'p-06', resourceKey: 'bed-01', group: 'staff', staff: 'p-06', bed: 'ベッド1', h: 780, price: 7000, tier: 2 }
+  const dual = () => {
+    const lanes = dualScene()
+    return explainHand(lanes, {
+      sellCells: [dualBox],
+      bedsOver: handDoor(lanes),
+      reseat: {
+        hours: HOURS, nowMinute: null, cleanupMinutesByBed: {},
+        landingOn: () => ({ kind: 'caution' as const, reason: 'ここに置くと13:00〜14:30の新規（90分）が入らなくなります' }),
+      },
+    }).get('p-01')!.get(780)!
+  }
+
+  it('a chip that qualifies for BOTH wears the mark and nothing on the lane', () => {
+    // ⚠ THE MAJOR, on the scene where the two really do meet. Round 2 returned
+    // whatever the sold predicate said from the re-seat branch, so this chip
+    // promised the board would make room by moving somebody WHILE the mark
+    // under it said the bed was already sold on another row.
+    const said = dual()
+    expect(said.mark).toEqual({ face: 'reseat', tone: 'degraded' })
+    expect(said.cue).toBeNull()
+    expect(said.sentence).toContain('ここに置くと、ほかのお客様のベッドを入れ替えて収めます')
+  })
+
+  it('…and the sold note really would have fired there, or the pin proves nothing', () => {
+    // The same board with the re-seat door withheld: the chip loses its mark and
+    // the note appears, which is what makes the assertion above about PRECEDENCE
+    // rather than about a scene that never qualified.
+    const lanes = dualScene()
+    const without = explainHand(lanes, { sellCells: [dualBox], bedsOver: handDoor(lanes) }).get('p-01')!.get(780)!
+    expect(without.mark).toBeNull()
+    expect(without.cue).toEqual({ kind: 'sold', label: ['別の枠で', '販売中'] })
+  })
+
+  it('the ⇄ chip on Liam’s own scene C is unchanged by this', () => {
+    // ⚠ THE OTHER MAJOR, and the composer's own comment already promised it.
+    // The two are reachable together: ⇄ needs a bed free in the half hour, the
+    // sold note needs every free bed claimed elsewhere — ONE free claimed bed
+    // satisfies both. The chip promised the board would make room by moving
+    // somebody while the note under it said the bed was sold on another row.
+    const chip = readBoard(sceneC()).lanes['p-05'].chips.find((c) => c.start === 840)!
+    expect(chip.face).toBe('⇄14:00')
+    const marked = explainWith(sceneC(), allocateBed).get('p-05')!.get(840)!
+    expect(marked.mark).toEqual({ face: 'reseat', tone: 'degraded' })
+    expect(marked.cue).toBeNull()
+  })
+
+  it('…on every board, and by construction: no chip has both a mark and a cue', () => {
+    for (const b of boards()) {
+      const explained = explainWith(b.lanes, allocateBed)
+      for (const [laneKey, per] of explained) {
+        for (const [start, said] of per) {
+          expect({ at: `${b.name}/${laneKey}@${clock(start)}`, both: said.mark != null && said.cue != null })
+            .toEqual({ at: `${b.name}/${laneKey}@${clock(start)}`, both: false })
+        }
+      }
+    }
+  })
+})
