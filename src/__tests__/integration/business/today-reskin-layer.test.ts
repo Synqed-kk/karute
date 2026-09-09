@@ -258,7 +258,7 @@ describe('今日の運営 reskin layer — the seeds', () => {
     expect(INT).toContain('export const LABEL_MAX = 240')
   })
 
-  it('the page root declares the four tokens slice ① consumes, and no others', () => {
+  it('the page root declares exactly the tokens the layer consumes, and no others', () => {
     // ⚖ GREPTILE G-1 — three tokens (--control / --line / --line-2) were removed
     // from PR-1's block because nothing in PR-1 read them; leaving them in
     // repainted 22 toolbar/popover/dialog borders and both hairlines of the
@@ -619,12 +619,24 @@ describe('今日の運営 reskin layer — slice ④ (motion · the sliding thum
     // …and REDUCED MOTION IS LAST, of the whole layer and not just of ④. A
     // reduced answer that some later rule stands after is not an answer: at
     // equal specificity the later rule wins, which is the entire reason this
-    // block needs no `!important`.
-    expect(LAYER_CODE.indexOf('@media (prefers-reduced-motion: reduce)')).toBeGreaterThan(-1)
-    const afterReduced = LAYER_CODE.slice(LAYER_CODE.indexOf('@media (prefers-reduced-motion: reduce)'))
-    expect(afterReduced.trimEnd().endsWith('}')).toBe(true)
-    expect(selectorsOf(afterReduced).length).toBeGreaterThan(10)
+    // block needs no `!important`. Pinned by BALANCING its braces and requiring
+    // nothing but whitespace after them, so an appended rule is caught wherever
+    // it lands.
     expect(LAYER_CODE.split('@media (prefers-reduced-motion: reduce)')).toHaveLength(2)
+    const at = LAYER_CODE.indexOf('@media (prefers-reduced-motion: reduce)')
+    expect(at).toBeGreaterThan(-1)
+    let depth = 0
+    let end = -1
+    for (let k = LAYER_CODE.indexOf('{', at); k < LAYER_CODE.length; k += 1) {
+      if (LAYER_CODE[k] === '{') depth += 1
+      else if (LAYER_CODE[k] === '}') {
+        depth -= 1
+        if (depth === 0) { end = k; break }
+      }
+    }
+    expect(end).toBeGreaterThan(-1)
+    expect(LAYER_CODE.slice(end + 1).trim()).toBe('')
+    expect(selectorsOf(LAYER_CODE.slice(at)).length).toBeGreaterThan(10)
   })
 
   it('the three press rules share ONE list, and it names no shell selector and no card', () => {
