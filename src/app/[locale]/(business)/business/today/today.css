@@ -2749,10 +2749,14 @@
    pill gone the only thing telling them apart is colour — and the thumb is
    placed by a `useLayoutEffect` inside an 8,000-line client component, so it
    has no geometry until that hydrates (and none at all if it never does). The
-   family already answered this: `settings.css` keeps
-   `.st-opt[aria-pressed="true"] { color: var(--st-accent); font-weight: 700 }`
-   so its selection survives with weight AND colour while its own thumb is
-   unplaced. A 100-weight departure from the mock's uniform 600, on the SELECTED
+   family already answered this: `settings.css` gives its own pressed option
+   `font-weight: 700` beside the accent colour, so its selection survives with
+   weight AND colour while its own thumb is
+   unplaced. (Its selector is not spelled here on purpose: `settings-room.test.ts`
+   forbids any `st-` / `sp-` class name from appearing in another room's sheet,
+   and that guard reads the raw bytes — a comment quoting one trips it. Named by
+   what it does, which is what a comment is for.)
+   A 100-weight departure from the mock's uniform 600, on the SELECTED
    label only; the thumb still lands under it and the seat reads the bolder
    width (which is also why F-3 re-seats on `document.fonts.ready`). */
 .biz .page-today .segmented button[aria-pressed="true"] {
