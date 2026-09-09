@@ -2581,14 +2581,17 @@
    upper band, the labels are bottom-aligned in the lower one, and the two can
    never share a row at ANY width. The dot still marks the exact minute — it
    sits on the line at the ruler's bottom edge (centre y = 36px).
-   ⚖ PRECISELY, 9/9 (the number below is a CONTENT height, and the box is one
-   pixel taller): `min-height: 36px` is the content box, and under the shell's
-   `.biz * { box-sizing: border-box }` (business-shell.css :103) plus canon's
-   own `border-bottom: 1px solid var(--section)` (:287) the ruler's BORDER BOX
-   measures 37px once R-7's 19px label padding fills the content to 36. So the
-   line and the wash, both `top: 36px`, start ON the border row, and the dot's
-   centre (36 − 4.5 + 4.5) sits on that same row — which is what the mock shows
-   and what the pixels measure. 36 is the right number here; 37 is the box.
+   ⚖ PRECISELY, 9/9 (Greptile's second read corrected the wording, the
+   measurement stands): under the shell's `.biz * { box-sizing: border-box }`
+   (business-shell.css :103) `min-height: 36px` is a BORDER-BOX minimum — 35px
+   of content plus canon's own `border-bottom: 1px solid var(--section)` (:287).
+   It does not govern here: R-7's `.hours span` (19px padding-top + the 11.5px
+   line, ≈17px) fills 36px of CONTENT, so the ruler's border box measures 37px
+   — probed at 1280/1440/1920 by the blind cascade lens and confirmed by the
+   delta lens. The line and the wash, both `top: 36px`, therefore start ON the
+   border row, and the dot's centre (36 − 4.5 + 4.5) sits on that same row —
+   which is what the mock shows and what the pixels measure. 36 is the right
+   value for `top`; 37 is the measured box.
    ⚖ STATE-CLASS LAW — checked and there is nothing to answer here: no canon
    rule carrying a state token declares anything on `.time-head`, `.hours`,
    `.elapsed-wash` or `.now-line`. `.biz.board-compact` (:1084–1087) touches
