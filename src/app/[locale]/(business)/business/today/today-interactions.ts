@@ -3328,9 +3328,17 @@ export function explainRails(
       // store's own hold, with the layer on screen, and whose bed is visibly on
       // sale on somebody else's row: every clause is the same fact the sentence
       // uses, narrowed to the mark's own span.
+      // ⚖ FIX ROUND 5 (J1, Greptile #871 P1) — AND THE HOLD IS ASKED OF THE HALF
+      // HOUR TOO. This gate read `reserved`, the chip's whole judged window, so
+      // a 60-minute chip at 14:30 whose 確保 window starts at 15:00 lost the
+      // mark over a 14:30〜15:00 that the store is not holding at all. Ruling 2's
+      // mark is about the 30 minutes it is drawn over — every other clause here
+      // already is — and `reservedHalf` is that same fact, computed one line up.
+      // The SENTENCE's E3b clause keeps `reserved`: it quotes the held span's
+      // own dial and is about the window it judged.
       const soldCue =
         halfEmpty &&
-        reserved == null &&
+        !reservedHalf &&
         opts.sellDisplayed &&
         !sellHere.some((s) => overlaps(s.h, s.h + SELL_SLOT_MIN, c.start, halfEnd)) &&
         !gapHere.some((g) => overlaps(g.s, g.e, c.start, halfEnd)) &&

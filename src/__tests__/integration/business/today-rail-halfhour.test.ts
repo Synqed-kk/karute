@@ -1735,3 +1735,48 @@ describe('§H9 — a 個室のみ card in hand is asked about ITS OWN rooms (MD1
     expect(count(priv, null)).toBe(count(plain, null))
   })
 })
+
+// ── §FIX5 — Greptile's read of the open stack ─────────────────────────────
+
+describe('§J1 — the sold note’s hold gate is the HALF HOUR’s (Greptile #871 P1)', () => {
+  /** Greptile's scene: a 60-minute chip at 14:30 whose 確保 window opens at
+   *  15:00. The chip's judged hour overlaps the hold; its FIRST HALF HOUR does
+   *  not, and that half hour is the one the mark is drawn over. */
+  const scene = (): BoardLane[] => [
+    handLane({ key: 'p-01', group: 'staff', label: '見本 あずさ' }),
+    handLane({ key: 'p-02', group: 'staff', label: '見本 かおる' }),
+    handLane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+  ]
+  const box: SellCell = { laneKey: 'p-02', resourceKey: 'bed-01', group: 'staff', staff: 'p-02', bed: 'ベッド1', h: 870, price: 7000, tier: 2 }
+  /** 15:00〜16:30 held on あずさ — after the 14:30 chip's own half hour, inside
+   *  the hour it judges. */
+  const HELD = [{ laneKey: 'p-01', protectedCount: 1, spans: [{ start: 900, end: 990, windowStart: 900 }] }]
+
+  const at = (over: Partial<Parameters<typeof explainRails>[2]>) => {
+    const lanes = scene()
+    return explainHand(lanes, { sellCells: [box], bedsOver: handDoor(lanes), ...over }).get('p-01')!.get(870)!
+  }
+
+  it('a hold that opens AFTER the half hour does not take the note away', () => {
+    // ⚠ THE FINDING. `reserved` is the chip's whole 14:30〜15:30; the store is
+    // holding 15:00〜16:30. Gating the mark on the window meant the note vanished
+    // over 14:30〜15:00 — 30 minutes the store is not holding, where ベッド1 is
+    // the only free room and it is being sold on かおる's row.
+    const held = at({ held: HELD })
+    expect(held.cue).toEqual({ kind: 'sold', label: ['別の枠で', '販売中'] })
+    // …and the SENTENCE keeps the window's own answer: the E3b clause quotes the
+    // held span's dial, so it is right to be about the hour that overlaps it.
+    expect(held.sentence).toContain('新規のお客様のための90分枠として確保しています')
+  })
+
+  it('a hold that covers the half hour ITSELF still takes it away', () => {
+    // The gate is narrowed, not removed — ⚖ E3b's 確保 chip is drawn over that
+    // emptiness and a second, softer answer under it is what flag 88 forbids.
+    const over = [{ laneKey: 'p-01', protectedCount: 1, spans: [{ start: 870, end: 960, windowStart: 870 }] }]
+    expect(at({ held: over }).cue).toBeNull()
+  })
+
+  it('with no hold at all the note is there either way — the scene is about the hold', () => {
+    expect(at({}).cue).toEqual({ kind: 'sold', label: ['別の枠で', '販売中'] })
+  })
+})
