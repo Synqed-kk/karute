@@ -2872,11 +2872,21 @@
    Restated once, at the same shape, with both properties. */
 .biz .page-today .biz-dialog .cust-row:hover,
 .biz .page-today .biz-dialog .course-row:hover { transition: transform 160ms ease-out, background-color 120ms ease-out; }
+/* ⚠ F-8 — BOTH SPELLINGS OF DISABLED. `:not(:disabled)` covers the seven real
+   `disabled` buttons on this route, but the shell has its own convention for a
+   control that is off without being a disabled form element:
+   `.biz .btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed }`
+   (business-shell.css). Nothing inside `.page-today` uses it TODAY — the render's
+   only `aria-disabled` is a shell nav link outside the page — so this clause
+   changes no pixel now; it is here so the first `.btn[aria-disabled]` written
+   inside this page does not get a press animation on a control that refuses.
+   The head becomes (0,7,0), which still ties nothing: the two dialog-row hover
+   heads above it are transition-only and declare no transform. */
 .biz .page-today :is(.btn, .segmented button, .density-seg button, .register-cell.act, .ops-decisions,
     .decision-card, .decision-row, .cal-cell, .guard-rail-cell, .cell-held,
     .help-toggle, .online-chip, .cust-row, .course-row, .stepper button,
     .time-nav > button, .time-nav > a, .cal-tools button, .cal-tools a, .park-x,
-    .spot-foot button, .toast-undo, .group-label, .biz-dialog .close, .inspector-close):active:not(:disabled) {
+    .spot-foot button, .toast-undo, .group-label, .biz-dialog .close, .inspector-close):active:not(:disabled):not([aria-disabled="true"]) {
   transform: scale(.97);
   transition-duration: 100ms;
 }
@@ -2891,7 +2901,7 @@
    head is 0,6,0, so a `.page-today .lock-toggle:active` restatement at 0,5,0
    loses. Its own pair carries the centring in both states instead. */
 .biz .page-today .lock-toggle { transition: transform 160ms ease-out; }
-.biz .page-today .lock-toggle:active:not(:disabled) { transform: translateY(-50%) scale(.97); transition-duration: 100ms; }
+.biz .page-today .lock-toggle:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-50%) scale(.97); transition-duration: 100ms; }
 /* Cards never scale — the mock gave them their own path (a second pointerdown
    listener, no transform) and this is that rule, riding the transition R-6
    already declares on `.biz .page-today .event` (`filter 100ms ease-out`).
@@ -3107,14 +3117,14 @@
       .decision-card, .decision-row, .cal-cell, .guard-rail-cell, .cell-held,
       .help-toggle, .online-chip, .cust-row, .course-row, .stepper button,
       .time-nav > button, .time-nav > a, .cal-tools button, .cal-tools a, .park-x,
-      .spot-foot button, .toast-undo, .group-label, .biz-dialog .close, .inspector-close):active:not(:disabled) {
+      .spot-foot button, .toast-undo, .group-label, .biz-dialog .close, .inspector-close):active:not(:disabled):not([aria-disabled="true"]) {
     transform: none;
   }
   /* ⚠ the lock toggle keeps its CENTRING. `translateY(-50%)` is layout, not
      motion: `transform: none` here would drop the toggle 11px for every
      reduced-motion reader, permanently. */
   .biz .page-today .lock-toggle { transition: none; }
-  .biz .page-today .lock-toggle:active:not(:disabled) { transform: translateY(-50%); }
+  .biz .page-today .lock-toggle:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-50%); }
   /* ①'s two dialog-row hover heads are 0,5,0 and need the same shape back. */
   .biz .page-today .biz-dialog .cust-row:hover,
   .biz .page-today .biz-dialog .course-row:hover { transition: none; }
