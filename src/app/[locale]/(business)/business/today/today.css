@@ -2983,11 +2983,13 @@
    cross-fades (3105–3110) are SKIPPED: the product writes no such classes. */
 .biz .page-today .spot-card { transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1); }
 /* ⚖ V4-1 — the landing preview JUMPS lattice to lattice; the 120ms ease-out
-   softened the one thing the operator aims with. This is the mock's line and it
-   adds no motion. ⚠ Honestly: canon moves the ghost with `left`/`width`
-   (:451), never a transform, so this hint promotes a layer rather than
-   smoothing anything. Built as the mock has it, and said out loud. */
-.biz .page-today .drop-ghost { will-change: transform; }
+   softened the one thing the operator aims with, and nothing here softens it
+   again. The mock also carried `.drop-ghost { will-change: transform }` and this
+   slice built it, disclosed as inert — F-1 deletes it. Canon moves the ghost
+   with `left` / `width` (`.biz .drop-ghost`, the rule that gives it
+   `position: absolute` and `--x` / `--w`), never a transform, so the hint bought
+   a permanent compositor layer for a property the element never animates. Same
+   one-truth deletion slice ③ made with its own F-3. */
 
 /* ── R · Reduced motion — LAST, same selector shapes, no !important ───────── */
 
