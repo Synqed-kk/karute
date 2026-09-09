@@ -778,11 +778,14 @@ describe('今日の運営 reskin layer — slice ④ (motion · the sliding thum
     // both springs are stopped on unmount, and the old pair is stopped before a
     // rebuild — `makeSpring` captures `reduced` at construction, so a spring
     // that is never rebuilt is a spring that lies.
-    expect(SRC_CODE).toContain('useEffect(() => () => { segX.current?.stop(); segW.current?.stop() }, [])')
+    expect(SRC_CODE).toContain('return () => { segX.current?.stop(); segW.current?.stop() }')
     expect(SRC_CODE).toContain('segX.current?.stop()\n    segW.current?.stop()')
     // the resize re-seat is added AND removed
     expect(SRC_CODE).toContain("window.addEventListener('resize', reseat)")
-    expect(SRC_CODE).toContain("return () => window.removeEventListener('resize', reseat)")
+    expect(SRC_CODE).toContain("window.removeEventListener('resize', reseat)")
+    // the cleanup also drops the published seat, so a `fonts.ready` that lands
+    // after unmount cannot call into a dead tree
+    expect(SRC_CODE).toContain('segSeatRef.current = null')
     // first layout jumps, later layouts travel
     expect(SRC_CODE).toContain('segX.current!.jump(x)')
     expect(SRC_CODE).toContain('segX.current!.set(x)')
@@ -791,7 +794,23 @@ describe('今日の運営 reskin layer — slice ④ (motion · the sliding thum
     // ⚖ F-3 — and the seat runs again when the Japanese face lands. Without it
     // the thumb sits at pre-font geometry until a press or a resize, on a board
     // left open all day. Two siblings already carry this line.
-    expect(SRC_CODE).toContain('document.fonts?.ready?.then(() => seat(true)).catch(() => {})')
+    // ⚠ AND IT MUST NOT LIVE IN THE SEAT EFFECT. `fonts.ready` stays resolved
+    // once the font has loaded, so a registration keyed on `[view, segReduced]`
+    // fires a microtask `jump` on EVERY tab press and cancels the travel that
+    // press just started — the thumb stops animating for the rest of the
+    // session. Both siblings scope it to an effect selection does not re-run;
+    // this pins that the seat is published to a ref and the wait is mount-only.
+    expect(SRC_CODE).toContain('document.fonts?.ready?.then(() => segSeatRef.current?.(true)).catch(() => {})')
+    expect(SRC_CODE).toContain('segSeatRef.current = seat')
+    // the wait sits in the `[]` effect — the one that also stops the springs
+    const fontsAt = SRC_CODE.indexOf('document.fonts?.ready')
+    const stopAt = SRC_CODE.indexOf('return () => { segX.current?.stop(); segW.current?.stop() }')
+    expect(fontsAt).toBeGreaterThan(-1)
+    expect(stopAt).toBeGreaterThan(fontsAt)
+    expect(SRC_CODE.slice(fontsAt, stopAt)).not.toContain('useEffect')
+    // …and NOT in the effect keyed on the selection
+    const seatEffect = SRC_CODE.slice(SRC_CODE.indexOf('const seat = (instant: boolean)'), SRC_CODE.indexOf('}, [view, segReduced])'))
+    expect(seatEffect).not.toContain('document.fonts')
     // ⚖ W10 (H-d) — THE FIRST SEAT JUMPS. `seat(false)` must still jump the
     // first time, or the thumb travels in from the left edge on page load —
     // the one animation this board is not allowed to have. The condition IS
