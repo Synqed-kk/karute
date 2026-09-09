@@ -2922,10 +2922,17 @@
   .biz .page-today .hold-pop.pinned,
   .biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%) translateY(4px) scale(.97); }
 }
-/* …and the RESTING transform restated after them, at 0,4,0. The transition rule
-   above declares no `transform`, so canon's own centring would in fact stand on
-   its own; this line is the belt the checker measures, and it is what keeps the
-   pinned answer centred under the reduced-motion block below as well. */
+/* …and the RESTING transform restated after them, at 0,4,0.
+   ⚠ CORRECTED BY ITS OWN MUTANT (red-run V4 / V4b). This comment first said the
+   line was a belt 「because the layer declares no resting transform」 — which
+   forgot block R, further down, which answers `.hold-pop` / `.guard-pop` with
+   `transform: none` at 0,3,0. That is EXACTLY canon's `.biz .hold-pop.pinned`
+   (:1176) and `.biz .guard-pop.pinned` (:1029), and it stands later, so without
+   a restatement a reduced-motion reader's pinned confirm loses its centring and
+   sits half its own width off the middle. This line and its twin inside block R
+   are BOTH 0,4,0 and either one alone holds it up — cutting one is green (V4b),
+   cutting both is red (V4). Two lines, deliberately, because a reader deleting
+   either half has to be told the other is carrying it. */
 .biz .page-today .hold-pop.pinned,
 .biz .page-today .guard-pop.pinned { transform: translateX(-50%); }
 /* The drawer: the COLUMN appears instantly (layout is never animated) and only
