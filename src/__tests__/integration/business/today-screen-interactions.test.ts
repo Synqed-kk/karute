@@ -11208,6 +11208,7 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // else, and named in `foundation.test.ts`'s sealed inventory with the same
     // reason.
     "import { settingsHref } from '@/business/lib/settings-link'",
+    "import { makeSpring } from '@/business/lib/spring'",
     "import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'",
     // ⚖ two entries below are split with `+` at the SAME runtime value —
     // business-isolation.test.ts (phone-safety lock 3) scans raw TEXT for
