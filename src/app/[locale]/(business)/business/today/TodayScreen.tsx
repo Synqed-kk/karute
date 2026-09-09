@@ -59,6 +59,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 // behaviour, new address; nothing about this room's tour changed with it.
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
+import { makeSpring } from '@/business/lib/spring'
 import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
@@ -1268,6 +1269,87 @@ export function TodayScreen(props: TodayProps) {
     window.addEventListener('resize', place)
     return () => window.removeEventListener('resize', place)
   }, [pop])
+
+  /** ⚖ 見た目の層 ④ — THE SEGMENTED CONTROL'S SLIDING THUMB (PKT-PR4 §3).
+   *
+   *  One decorative `<i>` under the three labels, moved by the family's own
+   *  integrator. The STRUCTURE mirrors `SettingsScreen`'s `Segment` (:2233–2282)
+   *  exactly — two springs rebuilt in an effect keyed on `reduced`, a `seated`
+   *  ref so the FIRST layout jumps and every later one travels, `opacity: 0`
+   *  when nothing is pressed, `stop()` on unmount — because a second shape for
+   *  the same widget is how the two drift apart.
+   *
+   *  ⚠ THE CONSTANTS ARE THIS BOARD'S, NOT SETTINGS'. `response: 0.22` /
+   *  `eps: 0.3` are the approved mock's own values (TODAY-RESKIN-MOCK-v1
+   *  :3276–3277); SettingsScreen uses `.3` / `.4` for THEIR thumb. This control
+   *  is pressed tens of times a day and was tuned faster on purpose.
+   *
+   *  ⚠ NO `if (ref.current)` GUARD ON THE BUILD, and that is the fix rather than
+   *  a style choice: `makeSpring` captures `reduced` at construction, so a guard
+   *  that builds once pins the first answer forever. Built unconditionally in an
+   *  effect keyed on the answer, the old pair is stopped and replaced.
+   *
+   *  Reduced motion is read the way this screen already reads it — `holdReduced()`,
+   *  a plain `matchMedia` — and refreshed by the query's own `change` event, so
+   *  a reader who flips the OS switch mid-session gets the new answer on the
+   *  next rebuild rather than at the next reload. */
+  const segWrapRef = useRef<HTMLDivElement | null>(null)
+  const segThumbRef = useRef<HTMLElement | null>(null)
+  const segX = useRef<ReturnType<typeof makeSpring> | null>(null)
+  const segW = useRef<ReturnType<typeof makeSpring> | null>(null)
+  const segGeom = useRef({ x: 0, w: 0 })
+  const segSeated = useRef(false)
+  const [segReduced, setSegReduced] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const apply = () => setSegReduced(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
+  useLayoutEffect(() => {
+    const paint = () => {
+      const thumb = segThumbRef.current
+      if (!thumb) return
+      thumb.style.transform = `translateX(${segGeom.current.x.toFixed(2)}px)`
+      thumb.style.width = `${Math.max(0, segGeom.current.w).toFixed(2)}px`
+    }
+    segX.current?.stop()
+    segW.current?.stop()
+    const reduced = holdReduced()
+    segX.current = makeSpring((v) => { segGeom.current.x = v; paint() }, { response: 0.22, damping: 1.0, eps: 0.3, reduced })
+    segW.current = makeSpring((v) => { segGeom.current.w = v; paint() }, { response: 0.22, damping: 1.0, eps: 0.3, reduced })
+    // A rebuilt spring starts at 0, so the thumb is re-SEATED at its place
+    // rather than travelling there from the left edge.
+    segSeated.current = false
+  }, [segReduced])
+  useLayoutEffect(() => {
+    const seat = (instant: boolean) => {
+      const wrap = segWrapRef.current
+      const thumb = segThumbRef.current
+      if (!wrap || !thumb) return
+      const on = wrap.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
+      if (!on) { thumb.style.opacity = '0'; return }
+      thumb.style.opacity = ''
+      const x = on.offsetLeft
+      const w = on.offsetWidth
+      if (instant || !segSeated.current) {
+        segSeated.current = true
+        segX.current!.jump(x)
+        segW.current!.jump(w)
+        return
+      }
+      segX.current!.set(x)
+      segW.current!.set(w)
+    }
+    seat(false)
+    // canon's own answer to a resize everywhere else on this screen: re-place,
+    // never re-animate (the mock's `reseat()`, :3286–3287).
+    const reseat = () => seat(true)
+    window.addEventListener('resize', reseat)
+    return () => window.removeEventListener('resize', reseat)
+  }, [view, segReduced])
+  useEffect(() => () => { segX.current?.stop(); segW.current?.stop() }, [])
 
   /** THE BOARD, twice. `boardLanes` is the truth every derivation reads — the
    *  dragged card is already on the lane it is heading for, which is what makes
@@ -6915,7 +6997,12 @@ export function TodayScreen(props: TodayProps) {
                 aria-label="ボード表示"
                 data-guide-title="表示の切替"
                 data-guide="スタッフだけ・設備だけ・両方の表示を切り替えます。"
+                ref={segWrapRef}
               >
+                {/* the thumb — decorative, aria-hidden, never in the
+                    accessibility tree; the buttons above it are what a reader
+                    hears and what `aria-pressed` says. */}
+                <i className="seg-thumb" aria-hidden="true" ref={segThumbRef} />
                 {([['both', '両方'], ['staff', 'スタッフ'], ['beds', '設備']] as const).map(([k, label]) => (
                   <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}>{label}</button>
                 ))}
