@@ -690,13 +690,39 @@ describe('R9 — the fence, in the source', () => {
     expect(src).not.toContain('reseats')
   })
 
-  it('nor do the sell layer, the reserved mask or the parity oracle', () => {
-    // The three `allocateBed` callers inside today-interactions.ts are the sell
-    // offer builder (:1045), the rail explain path (:2812) and `bedFeasibility`
-    // (the parity oracle) — none of them may ask to pack. `landingVerdict` is
-    // the one call that CAN, and it only ever passes the question through.
+  it('nor does the sell layer, the reserved mask or the parity oracle — and the rest layer asks ONCE', () => {
+    // The `allocateBed` callers inside today-interactions.ts are the sell offer
+    // builder, the rail explain path and `bedFeasibility` (the parity oracle).
+    // `landingVerdict` is the one call that CAN pack, and it only ever passes
+    // the question through.
+    //
+    // ⚖ LIAM RULING 3 (2026-09-09) — AND `explainRails` NOW ASKS TOO, once, for
+    // the 「moves someone」 mark: a start the rooms refused whose half hour still
+    // has a bed free. That is a legitimate SECOND site and this pin says so out
+    // loud rather than being grep-dodged — the literal is counted INSIDE that
+    // one function and banned everywhere else in the file, so a packing ask
+    // cannot appear on the sell layer, the mask, the parity oracle or any
+    // per-frame path without turning this red.
+    //
+    // ⚠ AND THE COUNT IS NOT THE FENCE. A source count cannot tell a resting
+    // ask from a per-frame one — the 9/8 round lost a positional `true` to
+    // exactly that blindness. What actually holds the line is the BEHAVIOURAL
+    // pin in today-rail-halfhour.test.ts §BEHAVIOURAL, which drives the surface
+    // with a counting allocator and reads how many asks each state makes. This
+    // is the cheap belt beside it.
     const interactions = read('today-interactions.ts')
-    expect([...interactions.matchAll(/pack: true/g)]).toHaveLength(0)
+    // Both anchors are asserted UNIQUE first: a slice taken on a repeated
+    // anchor is a slice of the wrong thing, and it would pass quietly.
+    const open = 'export function explainRails('
+    const close = 'export function restCueStarts('
+    expect(interactions.split(open)).toHaveLength(2)
+    expect(interactions.split(close)).toHaveLength(2)
+    const from = interactions.indexOf(open)
+    const to = interactions.indexOf(close)
+    expect(to).toBeGreaterThan(from)
+    const explain = interactions.slice(from, to)
+    expect([...explain.matchAll(/pack: true/g)]).toHaveLength(1)
+    expect([...interactions.replace(explain, '').matchAll(/pack: true/g)]).toHaveLength(0)
     expect(read('reserved-mask.ts')).not.toMatch(/pack\s*:/)
     expect(read('fallback-cells.ts')).not.toMatch(/pack\s*:/)
   })

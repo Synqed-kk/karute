@@ -2591,6 +2591,14 @@ export const reservedSentence = (start: number, end: number): string =>
  *  fits stays one line. */
 export type RailCue = { kind: 'bed'; label: readonly string[] }
 
+/** ⚖ LIAM RULING 3 (2026-09-09) — THE FACE A CHIP WEARS INSTEAD OF ITS VERDICT.
+ *
+ *  One member today: a start that fits only by re-seating somebody. `tone` is
+ *  the ✓／△ the DROP will give once the shuffle is staged, so the chip borrows
+ *  the palette the operator already knows rather than minting a fourth colour
+ *  (Liam on the mock: 「色の意味は ✓／△ と同じ」). */
+export type RailMark = { face: 'reseat'; tone: 'safe' | 'degraded' }
+
 /** One mark on a lane's track: a cue, and the stretch of the day it covers
  *  after neighbouring half hours of the same kind have been merged. */
 export interface RestCue extends RailCue {
@@ -2646,8 +2654,22 @@ export function railExplain(
      *  ABSENT (`undefined`) is the round gate off: every word and every
      *  sentence below is byte-identical to the board that shipped before it. */
     halfHour?: { free: number | null; refusal: string | null; blockers: readonly BoardItem[] } | null
+    /** ⚖ LIAM RULING 3 (2026-09-09) — THE FEWEST-MOVES ANSWER FOR THIS START,
+     *  when the board has one and the half hour under the chip is not full.
+     *
+     *  His words: 「A start of the strip's length that fits only by MOVING
+     *  someone gets a small 『moves someone』 marker instead of a plain ✓」. The
+     *  search, the synthetic board and the re-judged verdict are `explainRails`'
+     *  work — this composes what they found. `tone` is the verdict the DROP will
+     *  give once the shuffle is staged, so the mark promises exactly what the
+     *  release does (⚖ flag 54, both ways); `caution` is that verdict's own
+     *  sentence when it costs a protected window, never a second wording of it.
+     *
+     *  ABSENT is a chip with no re-seat to offer, which is every chip on every
+     *  board that shipped before this round. */
+    reseat?: { tone: 'safe' | 'degraded'; lines: readonly string[]; caution: string | null } | null
   } = {},
-): { word: string | null; sentence: string; cue: RailCue | null } {
+): { word: string | null; sentence: string; cue: RailCue | null; mark: RailMark | null } {
   // ⚖ NATIVE PASS (2026-08-26) — 〜, NOT AN EN DASH. The bed branch's own
   // sentence, two chips away on the same strip, spells the identical window
   // 「13:30〜14:30」; one strip may not punctuate one fact two ways. The ⚖-ruled
@@ -2741,10 +2763,31 @@ export function railExplain(
   // pick). 新規用 never rides here: the 確保 chip is drawn over that emptiness
   // and `restCueStarts` stands the cue down under it (⚖ E3b + flag 88).
   const bedCue: RailCue | null = word === '満室' || word === '清掃' ? { kind: 'bed', label: [word] } : null
-  if (opts.reservedDur != null) return { word, sentence: `${base}。${reservedClause(opts.reservedDur)}`, cue: bedCue }
+  // ⚖ LIAM RULING 3 (2026-09-09) — 「ここに置くと、ほかのお客様のベッドを入れ替えて
+  // 収めます（…）」. Two accepted strings joined and nothing coined: the clause is
+  // the board's own tour wording for the packing landing (TodayScreen :7592,
+  // native-passed 9/8) and the parenthesis is `companionLines`' own line, byte
+  // for byte. 移す／移動 is deliberately absent — those are the OPERATOR's gesture
+  // verbs on this surface, and the board does this by itself, so the sentence
+  // says what WILL happen rather than handing out an instruction (WORDS §S4(ii)).
+  //
+  // A marked chip carries no word and no lane mark: it is not a refusal. The
+  // precedence above has already answered — the mark can only be reached where
+  // the half hour has a free bed, so no 満室 is being suppressed here.
+  if (opts.reseat != null) {
+    const moved = `ここに置くと、ほかのお客様のベッドを入れ替えて収めます（${opts.reseat.lines.join('、')}）`
+    const caution = opts.reseat.caution != null ? `。${opts.reseat.caution}` : ''
+    return {
+      word: null,
+      sentence: `${base}。${moved}${caution}`,
+      cue: null,
+      mark: { face: 'reseat', tone: opts.reseat.tone },
+    }
+  }
+  if (opts.reservedDur != null) return { word, sentence: `${base}。${reservedClause(opts.reservedDur)}`, cue: bedCue, mark: null }
   // A refused chip is already answering; ⚖ 75(i)'s clause is about a start the
   // board said YES to and then advertised nothing at.
-  if (cell.state === 'blocked' || opts.adless !== true) return { word, sentence: base, cue: bedCue }
+  if (cell.state === 'blocked' || opts.adless !== true) return { word, sentence: base, cue: bedCue, mark: null }
   // ⚖ NATIVE PASS (2026-08-26) — BOTH CLAUSES NAMED THE WRONG THING.
   //   · the taker read 「ベッドは別の販売枠（…）が使っています」, but what took
   //     the room is a 詰め込み／スキマ box, not a 販売枠, and the label in the
@@ -2767,11 +2810,12 @@ export function railExplain(
     // name a taker is one carrying a room drop, which ordinary selling never
     // leaves, so the mark would be a promise this layer cannot keep.
     cue: null,
+    mark: null,
   }
 }
 
 /** What one chip wears and says: `railExplain`'s answer, keyed lane → start. */
-export type RailExplained = Map<string, Map<number, { word: string | null; sentence: string; cue: RailCue | null }>>
+export type RailExplained = Map<string, Map<number, { word: string | null; sentence: string; cue: RailCue | null; mark: RailMark | null }>>
 
 /** ⚖ 44 + rider 75(i) — EVERY CHIP'S WORD AND ITS SENTENCE, worked out once per
  *  frame instead of once per press.
@@ -2884,10 +2928,45 @@ export function explainRails(
      *  ABSENT is the round gate off: every word and every sentence this
      *  function composes is byte-identical to the board that shipped before it. */
     halfHourFree?: (laneKey: string, start: number) => number | null
+    /** ⚖ LIAM RULING 3 (2026-09-09) — WHAT THE BOARD WOULD DO TO FIT A START THE
+     *  ROOMS REFUSE, and what the drop would then say about it.
+     *
+     *  His words: 「A start of the strip's length that fits only by MOVING
+     *  someone gets a small 『moves someone』 marker instead of a plain ✓」. THIS
+     *  IS THE ONE PACKING ASK ON THE REST LAYER and the only one in this file
+     *  (design §3's fence, amended honestly rather than grep-dodged — see
+     *  today-bed-packing R9). It is asked at REST only, per MARKER CANDIDATE
+     *  only: a chip the rooms refused for the strip's own length whose first
+     *  half hour still has a bed free. Everything else on the board pays
+     *  nothing, and a gesture pays nothing at all (`inHand` returns above, and
+     *  `handId` stands this down for the three gestures that reach past it).
+     *
+     *  `landingOn` is the SCREEN's own verdict, asked on the board the shuffle
+     *  would leave — the same `applyBedMoves` world `verdictAtLanding` builds
+     *  (DESIGN §5). The strip may only promise what the release will do, so the
+     *  tone and the caution clause are the release's own answer and never a
+     *  second reading of the guard (⚖ flag 54).
+     *
+     *  ABSENT is the round gate off: no chip wears a mark and no pack runs. */
+    reseat?: {
+      hours: Hours
+      nowMinute: number | null
+      cleanupMinutesByBed: Record<string, number>
+      landingOn: (lanes: BoardLane[], laneKey: string, start: number) => Pick<LandingVerdict, 'kind' | 'reason'>
+    }
+    /** ponytail / ⚖ 9/9 BEHAVIOURAL FENCE — the allocator, so a suite can COUNT
+     *  the asks this function makes and read the shape of each one. The
+     *  precedent is `companionRoomStillFree`'s own last parameter; the default
+     *  is the one import, so no caller and no answer moves. A source count of
+     *  the packing option cannot tell a per-frame ask from a resting one, and
+     *  the 9/8 round already lost a positional `true` to exactly that blind
+     *  spot — so the count is the belt and this is the braces. */
+    allocate?: typeof allocateBed
   },
 ): RailExplained {
   const out: RailExplained = new Map()
   if (opts.inHand) return out
+  const allocate = opts.allocate ?? allocateBed
   const overlaps = (aS: number, aE: number, bS: number, bE: number) => aS < bE && bS < aE
   const heldLanes = heldByLane(opts.held)
   // ⚖ FIX ROUND 1 (blind lens 1 F3) — THE HAND'S OWN TAG, when there IS a hand.
@@ -2962,7 +3041,7 @@ export function explainRails(
       }
       return { start, end, dur: h.end - h.start }
     })
-    const per = new Map<number, { word: string | null; sentence: string; cue: RailCue | null }>()
+    const per = new Map<number, { word: string | null; sentence: string; cue: RailCue | null; mark: RailMark | null }>()
     for (const c of rail.cells) {
       const end = c.start + opts.dur
       const advertised =
@@ -3004,13 +3083,54 @@ export function explainRails(
           : halfFree === null
             ? null
             : halfFree === 0
-              ? { free: 0, ...allocateBed(lanes, askOn(staff, c.start, c.start + RAIL_STEP_MIN)) }
+              ? { free: 0, ...allocate(lanes, askOn(staff, c.start, c.start + RAIL_STEP_MIN)) }
               : { free: halfFree, refusal: null, blockers: [] as readonly BoardItem[] }
+      // ⚖ LIAM RULING 3 (2026-09-09) — THE ONE PACKING ASK ON THIS LAYER.
+      //
+      // Three gates before it runs, and each one is a rule rather than a guard:
+      //   · the rooms refused this start for the strip's own length (`bed`);
+      //   · its first half hour still has a bed free, so no 満室 is being
+      //     suppressed — the precedence has already answered above;
+      //   · NOTHING IS IN THE OPERATOR'S HAND. `opts.inHand` returns before any
+      //     of this for the ordinary staff-row move, but a BED-LANE drag, a
+      //     RESIZE and a drag OVER THE SHELF reach here with `handId` set, and a
+      //     backtracking search on those would be the per-frame cost design §3
+      //     exists to forbid. A mark is a fact about a placement nobody has made.
+      const packed =
+        opts.reseat != null && staff != null && opts.handId == null && c.reason === 'bed' && typeof halfFree === 'number' && halfFree > 0
+          ? allocate(lanes, {
+              ...askOn(staff, c.start, end),
+              pack: true,
+              now: opts.reseat.nowMinute,
+              cleanupMinutesByBed: opts.reseat.cleanupMinutesByBed,
+            })
+          : null
+      // …and the loss axis is kept. The search answers 「a room can be freed」;
+      // it does not answer 「and the store is no worse off」, and on Liam's own
+      // 14:00 scene it is not — moving さくら costs a protected 新規 window, and
+      // the drop says so. So the guard is re-asked on the board the shuffle
+      // would leave and the mark carries THAT verdict: ✓ when nothing is lost,
+      // △ when something is, and NO MARK AT ALL when the release would refuse —
+      // the strip never promises a start the drop turns down (⚖ flag 54).
+      const reseat = (() => {
+        if (packed == null || packed.laneKey == null || packed.reseats.length === 0) return null
+        const companions = companionsFor(lanes, packed.reseats)
+        if (companions.length === 0) return null
+        const after = applyBedMoves(lanes, companions, opts.reseat!.hours, opts.reseat!.cleanupMinutesByBed)
+        const v = opts.reseat!.landingOn(after, rail.laneKey, c.start)
+        if (v.kind === 'blocked') return null
+        return {
+          tone: v.kind === 'caution' ? ('degraded' as const) : ('safe' as const),
+          lines: companionLines(lanes, companions),
+          caution: v.kind === 'caution' ? v.reason : null,
+        }
+      })()
       per.set(
         c.start,
         railExplain(c, opts.dur, {
-          room: c.reason === 'bed' && staff ? allocateBed(lanes, askOn(staff, c.start, end)) : null,
+          room: c.reason === 'bed' && staff ? allocate(lanes, askOn(staff, c.start, end)) : null,
           halfHour,
+          reseat,
           adless: !advertised && reserved == null && opts.sellDisplayed,
           takerLabel: takerKey != null ? (lanes.find((l) => l.key === takerKey)?.label ?? null) : null,
           reservedDur: reserved ? reserved.dur : null,

@@ -57,6 +57,7 @@ import {
   gapPackingDials,
   guardRailsFor,
   heldDrawnFor,
+  landingVerdict,
   onlineOffers,
   restCueStarts,
   sellDrawnFor,
@@ -73,7 +74,7 @@ import {
   type TodayProps,
 } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
-import { place, type BoardLane } from '@/business/lib/today-board'
+import { minuteOf, place, type BoardLane } from '@/business/lib/today-board'
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
@@ -196,16 +197,16 @@ type CueRow = { start: number; end: number; kind: string | null; label: readonly
 type LaneRead = { chips: ChipRow[]; cues: CueRow[] }
 type BoardRead = { counter: string; lanes: Record<string, LaneRead> }
 
-function readBoard(lanes: BoardLane[]): BoardRead {
-  const frame = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
-  const views = bedViewsFor(lanes, frame, null)
-  const dur = REAL.guard.standardSessionMin
+/** The strip as the screen builds it at rest, on any board — both guard doors
+ *  out of the ONE book, the hand lifted out of nothing. */
+function railsOn(lanes: BoardLane[]): GuardRail[] {
+  const views = bedViewsFor(lanes, DAY_FRAME(), null)
   const bedFree = bedDoor(views, lanes, null)
-  const rails: GuardRail[] = guardRailsFor(lanes, {
+  return guardRailsFor(lanes, {
     open: REAL.hours.open,
     close: REAL.hours.close,
     stepMin: 30,
-    dur,
+    dur: REAL.guard.standardSessionMin,
     protectedDur: REAL.guard.protectedDurationMin,
     nowMinute: REAL.sell.nowMinute,
     locked: [],
@@ -215,6 +216,19 @@ function readBoard(lanes: BoardLane[]): BoardRead {
     protectedWindowFeasible: bedFree,
     resting: null,
   })
+}
+
+const DAY_FRAME = () => ({
+  openMin: REAL.hours.open,
+  closeMin: REAL.hours.close,
+  nowMin: REAL.sell.nowMinute ?? REAL.hours.open,
+})
+
+function readBoard(lanes: BoardLane[]): BoardRead {
+  const frame = DAY_FRAME()
+  const views = bedViewsFor(lanes, frame, null)
+  const dur = REAL.guard.standardSessionMin
+  const rails: GuardRail[] = railsOn(lanes)
   const held = heldCommittedFor({
     gateOn: true,
     lanes,
@@ -297,6 +311,25 @@ function readBoard(lanes: BoardLane[]): BoardRead {
     inHand: false,
     sellDisplayed: true,
     held,
+    // ⚖ ruling 3 — the screen's own re-seat door, on the same two props
+    // `verdictAtLanding` passes and through the same one verdict.
+    reseat: {
+      hours: REAL.hours,
+      nowMinute: REAL.sell.nowMinute,
+      cleanupMinutesByBed: REAL.bedCleanupMinutes,
+      landingOn: (after, laneKey, start) =>
+        landingVerdict(
+          after,
+          {
+            staffLane: laneKey, bedLane: null, solveRoom: true, id: null, requiresPrivate: false,
+            start, end: start + dur, span: place(start, start + dur, REAL.hours),
+            foreignRefusal: null, hasPrice: false, locked: [],
+            minutesOf: (x: number) => minuteOf(x, REAL.hours),
+            stagedId: null, now: REAL.sell.nowMinute, cleanupMinutesByBed: REAL.bedCleanupMinutes,
+          },
+          railsOn(after).find((r) => r.laneKey === laneKey)?.cells.find((x) => x.start === start) ?? null,
+        ),
+    },
     // ⚖ ruling 1 — the screen's own door (TodayScreen `halfHourFree`), out of
     // the same book, with the same hypothetical asker.
     halfHourFree: (laneKey, start) => {
@@ -329,7 +362,15 @@ function readBoard(lanes: BoardLane[]): BoardRead {
       const word = said.word ?? null
       // The renderer's own face, at rest: the micro-word replaces the bare
       // label, and `data-reason` rides that same word (TodayScreen :6113-6140).
-      return { start: c.start, face: word ?? c.label, state: c.state, reason: word ? (c.reason ?? null) : null, word, sentence: said.sentence }
+      const mark = said.mark ?? null
+      return {
+        start: c.start,
+        face: mark ? `⇄${clock(c.start)}` : (word ?? c.label),
+        state: mark ? 'reseat' : c.state,
+        reason: word && !mark ? (c.reason ?? null) : null,
+        word: mark ? null : word,
+        sentence: said.sentence,
+      }
     })
     const cellsHere = drawn.cells.filter((s) => s.group === 'staff' && s.laneKey === rail.laneKey)
     const gapHere = drawnClaims.filter((g) => g.group === 'staff' && g.laneKey === rail.laneKey)
@@ -391,9 +432,13 @@ const WORDED: Record<string, Record<string, number[]>> = {
 }
 
 /** ⚖ RULING 3 — and the one chip that LOSES the word: ごろう's 14:00, whose
- *  half hour has ベッド1 free while the 60-minute start does not. Its sentence
- *  is unchanged (the 60-minute refusal is still what a press answers with). */
-const UNWORDED: Record<string, Record<string, number[]>> = { C: { 'p-05': [840] } }
+ *  half hour has ベッド1 free while the 60-minute start does not. It stops
+ *  saying 満室 (「a half hour WITH a free bed never says 満室」) and wears the
+ *  「moves someone」 mark instead, because the board can fit the hour by putting
+ *  さくら one bed over — which is what the drop already does. Its sentence grows
+ *  the two clauses that say so. Nothing else on any of the four boards earns a
+ *  mark: this is the one start on Liam's own scenes that fits only by moving. */
+const MARKED: Record<string, Record<string, number[]>> = { C: { 'p-05': [840] } }
 
 /** …and the lane tracks whose mark list changed with any of the above. A lane
  *  whose bed-less half hour sits under a drawn box keeps no mark — ⚖ flag 88 —
@@ -414,7 +459,7 @@ const keysFor = (by: Record<string, Record<string, number[]>>, fields: string[])
 const MAY_MOVE: readonly string[] = [
   ...new Set([
     ...keysFor(WORDED, ['face', 'reason', 'word', 'sentence']),
-    ...keysFor(UNWORDED, ['face', 'reason', 'word']),
+    ...keysFor(MARKED, ['face', 'state', 'reason', 'word', 'sentence']),
     ...Object.entries(HATCHED).flatMap(([scene, lanes]) => lanes.map((lane) => `${scene}/${lane}#cues`)),
   ]),
 ]

@@ -796,6 +796,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
       word: '満室',
       sentence: '13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）が使用中です',
       cue: { kind: 'bed', label: ['満室'] },
+      mark: null,
     })
     // …and a chip of any other class never grew a room answer, so it can never
     // wear a room word.
@@ -809,7 +810,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // The engine judged the whole board, so the chip is `bed`; the sentence is
     // asked with `handId` lifted out, which is the booking in the way — case (a).
     const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
-    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)).toEqual({ word: null, sentence: expect.any(String), cue: null })
+    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)).toEqual({ word: null, sentence: expect.any(String), cue: null, mark: null })
     expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)!.sentence).not.toContain('ベッド1（見本 かえる様')
   })
 
@@ -896,9 +897,15 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
 
   it('the word, the dot and the hatch are all read off the same `word`', () => {
     // The chip prints the word instead of the bare 「—」…
-    expect(SRC).toContain('<i>{word ?? label}</i>')
-    // …the dot rides `data-reason`, which is set from that SAME value…
-    expect(SRC).toContain('data-reason={word ? (c.reason ?? undefined) : undefined}')
+    // ⚖ LIAM RULING 3 (2026-09-09) — …or the 「moves someone」 face, which is the
+    // same one value read one step earlier: `face` is composed from the mark and
+    // the word together, so there is still exactly ONE expression deciding what
+    // this chip says.
+    expect(SRC).toContain('const face = mark ? `⇄${hhmm(c.start)}` : (word ?? label)')
+    expect(SRC).toContain('<i>{face}</i>')
+    // …the dot rides `data-reason`, which is set from that SAME value — and it
+    // stands down on a marked chip, which is not a refusal and carries no dot.
+    expect(SRC).toContain('data-reason={word && !mark ? (c.reason ?? undefined) : undefined}')
     // …and the hatch starts from the same filter, now inside `restCueStarts`
     // (⚖ flag 88): the SOURCE of all three is still one value, and what the
     // helper adds is a narrowing of the PAINT, never a second reading of the

@@ -11229,6 +11229,11 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     ['hasPrice: hasPriceFor(id),', 1],
     ['{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, requiresPrivate: NEXT_VISIT_REQUIRES_PRIVATE, foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },', 1],
     ['{ staffLane: lane.key, bedLane: null, solveRoom: false, id: null, requiresPrivate: false, foreignRefusal: null, hasPrice: false, span: slot },', 1],
+    // ⚖ LIAM RULING 3 (2026-09-09) — the strip's 「moves someone」 mark asks the
+    // ONE verdict what the drop would say once the re-seat is staged. It is a
+    // HYPOTHETICAL placement — no booking, so no price for a 保持 row to be
+    // about — which is the same reason the create-form ask above answers false.
+    ['hasPrice: false,', 1],
   ]
 
   const rows = (): Check[] => [
@@ -11430,10 +11435,12 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     expect(solveRooms).toBeGreaterThan(0)
     expect({ solveRooms, hasPrices }).toEqual({ solveRooms, hasPrices: solveRooms })
     // The screen's answer is always DERIVED — never the literal `true` that
-    // would put canon's row back on a price-less booking (banned above), and
-    // never a bare `false` anywhere but the create-form ask, which opens the
-    // dialog where the price is still to be chosen.
-    expect((code.match(/hasPrice: false/g) ?? []).length).toBe(1)
+    // would put canon's row back on a price-less booking (banned above), and a
+    // bare `false` only where there is no booking to have a price: the
+    // create-form ask, which opens the dialog where the price is still to be
+    // chosen, and (⚖ 9/9) the strip's re-seat mark, which asks about a
+    // placement nobody has made. Both are enumerated by their own lines below.
+    expect((code.match(/hasPrice: false/g) ?? []).length).toBe(2)
   })
 
   // ⚖ FIX ROUND 3 (BREAKER-828 F4) — AND EACH ASK SITE BY ITS OWN LINE.

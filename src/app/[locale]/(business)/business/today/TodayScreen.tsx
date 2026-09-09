@@ -2025,73 +2025,6 @@ export function TodayScreen(props: TodayProps) {
     return null
   }, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])
 
-  /** ⚖ LIAM flag 44 + rider 75(i) — EVERY CHIP'S WORD AND ITS SENTENCE, worked
-   *  out once per frame instead of once per press.
-   *
-   *  The rail is the one surface on this board that states a refusal and names
-   *  nothing, and two of the three things that cause one are invisible on the
-   *  row it sits under (a full house lives on the bed rows; the guard is a rule
-   *  and has no card at all). `explainRails` is what makes them sayable — the
-   *  10px word the chip wears at rest and the whole sentence it answers a press
-   *  with — and it lives beside its own composer rather than here, for the
-   *  reason that file states: this answer is asked across twelve dial
-   *  combinations on boards whose sell layer is empty, and a DOM test would
-   *  prove nothing about any of them.
-   *
-   *  Everything below is the board's own inputs to it. It sits AFTER `inHand`
-   *  because the gesture is one of them: while a card is in hand the strip is
-   *  answering a different question and this map is not read at all (⚖ 44 fix
-   *  round, blind lens 4). */
-  const railExplained = useMemo(
-    () =>
-      explainRails(rails, boardLanes, {
-        dur: railDur,
-        handId,
-        // ⚖ R3 one world — the operator's own staged card is named as theirs
-        // rather than as a stranger's.
-        stagedId: pending?.id ?? null,
-        // ⚖ FIX ROUND F1 — THE PUBLISHED LAYER, because 75(i)'s whole job is to
-        // explain EMPTY BOARD SPACE and empty board space is decided by the
-        // paint, not by the derivation. Fed `sell.cells` this map went silent
-        // over stretches the law had emptied, on the strength of boxes nobody
-        // could see.
-        sellCells: sellDrawn.cells,
-        claims: drawnClaims,
-        drops: sellDrops,
-        inHand: inHand != null,
-        sellDisplayed: sellMode !== 'off',
-        // ⚖ spec §2(c) — the held set is FIRST-CLASS here: a 新規用に確保 window
-        // is not an unexplained hole, so 75(i)'s clauses stand down over it.
-        // THIS WORLD's instance, which is what the parameter says it is
-        // (`explainRails`, today-interactions.ts:2026): every chip on this strip
-        // was judged on the board world with the hand lifted, and after
-        // ⚖ MICROFIX N1 the mask is cut from that same occupancy — so the
-        // sentence and the chip it hangs under are one answer about one board.
-        held: heldBoard,
-        // ⚖ FIX ROUND F1 — …over exactly the extent the withholding reached.
-        // ⚖ MICROFIX N2 — AND THIS ONE IS THE SALES DOOR'S, which is a DIFFERENT
-        // world; the line that stood here claimed the two inputs were "two
-        // halves of one fact rather than two worlds", and that was not true at
-        // this call site. The withheld hours exist in exactly one place on this
-        // screen — the committed derivation `sellDrawnFor` published from (§4.2
-        // Q4: a rank-opened store or a release sells them) — because there is no
-        // board-world sell layer and there must not be one (feeding the layers
-        // `boardLanes` made prices flicker under a moving card, :1198-1213).
-        //
-        // WHY THE PAIRING IS SOUND rather than merely unavoidable: `withheld`
-        // never reaches the sentence, only its REACH. It widens a held span out
-        // to the sell slots the publication emptied and does nothing else —
-        // `dur` stays the span's own length, so the store's dial is quoted from
-        // the held set alone. At rest the two worlds ARE one board (they differ
-        // only by `liveMoves`); mid-gesture the widening is a no-op or snaps off
-        // a committed slot, bounded by one slot either way, and no number moves.
-        withheld: sell.cells.filter(isHeldBound),
-        // ⚖ LIAM RULING 1 (2026-09-09) — the half hour's own bed truth, so the
-        // word on a chip is about the 30 minutes it is drawn over.
-        halfHourFree,
-      }),
-    [rails, boardLanes, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode, heldBoard, halfHourFree],
-  )
 
   const openCards = props.cards.filter((c) => c.state === 'open' && !resolved.includes(c.id))
   const unresolved = openCards.length
@@ -2305,6 +2238,125 @@ export function TodayScreen(props: TodayProps) {
         cell,
       ),
     [boardLanes, hours, locked, pending?.id, props.overrideLevel, props.sell.nowMinute, props.bedCleanupMinutes],
+  )
+
+  // ⚖ LIAM RULING 3 (2026-09-09) — THE TWO MEMOS BELOW SIT HERE, under the one
+  // verdict, rather than up beside the rails they belong to: the 「moves
+  // someone」 mark takes its ✓／△ from `verdictFor`, so the answer the strip
+  // composes and the answer the drop gives are one function asked twice.
+  // Nothing else about either memo moved.
+  /** ⚖ LIAM RULING 3 (2026-09-09) — WHAT THE DROP WOULD SAY ONCE THE RE-SEAT IS
+   *  MADE, asked on the board the shuffle would leave.
+   *
+   *  The strip may only promise what the release does, so the 「moves someone」
+   *  mark takes its ✓／△ from the ONE verdict rather than from the guard alone:
+   *  the same `verdictFor` every other consumer on this board goes through,
+   *  handed the synthetic world `explainRails` built with `applyBedMoves` — the
+   *  same helper `verdictAtLanding` uses for the identical purpose (DESIGN §5).
+   *
+   *  `pack: false` on purpose, and it costs nothing: on that board the room the
+   *  shuffle freed IS free, so the allocator answers at step 0 and a packing
+   *  search would find the same lane with no moves. Passing `false` keeps the
+   *  round's packing ask to exactly one site, which is the fence.
+   *
+   *  The ask is the HYPOTHETICAL one the marks are drawn for: a new placement
+   *  of the strip's own length, no card, no 個室のみ tag, no price to hold. */
+  const reseatLandingAt = useCallback(
+    (lanes: BoardLane[], laneKey: string, start: number) => {
+      const ask: LandingAsk = {
+        staffLane: laneKey,
+        bedLane: null,
+        solveRoom: true,
+        id: null,
+        requiresPrivate: false,
+        foreignRefusal: null,
+        hasPrice: false,
+        span: place(start, start + railDur, hours),
+      }
+      const v = verdictFor(ask, verdictAt(laneKey, start, railDur, null, lanes), false, lanes)
+      return { kind: v.kind, reason: v.reason }
+    },
+    [verdictFor, verdictAt, railDur, hours],
+  )
+
+  /** ⚖ LIAM flag 44 + rider 75(i) — EVERY CHIP'S WORD AND ITS SENTENCE, worked
+   *  out once per frame instead of once per press.
+   *
+   *  The rail is the one surface on this board that states a refusal and names
+   *  nothing, and two of the three things that cause one are invisible on the
+   *  row it sits under (a full house lives on the bed rows; the guard is a rule
+   *  and has no card at all). `explainRails` is what makes them sayable — the
+   *  10px word the chip wears at rest and the whole sentence it answers a press
+   *  with — and it lives beside its own composer rather than here, for the
+   *  reason that file states: this answer is asked across twelve dial
+   *  combinations on boards whose sell layer is empty, and a DOM test would
+   *  prove nothing about any of them.
+   *
+   *  Everything below is the board's own inputs to it. It sits AFTER `inHand`
+   *  because the gesture is one of them: while a card is in hand the strip is
+   *  answering a different question and this map is not read at all (⚖ 44 fix
+   *  round, blind lens 4). */
+  const railExplained = useMemo(
+    () =>
+      explainRails(rails, boardLanes, {
+        dur: railDur,
+        handId,
+        // ⚖ R3 one world — the operator's own staged card is named as theirs
+        // rather than as a stranger's.
+        stagedId: pending?.id ?? null,
+        // ⚖ FIX ROUND F1 — THE PUBLISHED LAYER, because 75(i)'s whole job is to
+        // explain EMPTY BOARD SPACE and empty board space is decided by the
+        // paint, not by the derivation. Fed `sell.cells` this map went silent
+        // over stretches the law had emptied, on the strength of boxes nobody
+        // could see.
+        sellCells: sellDrawn.cells,
+        claims: drawnClaims,
+        drops: sellDrops,
+        inHand: inHand != null,
+        sellDisplayed: sellMode !== 'off',
+        // ⚖ spec §2(c) — the held set is FIRST-CLASS here: a 新規用に確保 window
+        // is not an unexplained hole, so 75(i)'s clauses stand down over it.
+        // THIS WORLD's instance, which is what the parameter says it is
+        // (`explainRails`, today-interactions.ts:2026): every chip on this strip
+        // was judged on the board world with the hand lifted, and after
+        // ⚖ MICROFIX N1 the mask is cut from that same occupancy — so the
+        // sentence and the chip it hangs under are one answer about one board.
+        held: heldBoard,
+        // ⚖ FIX ROUND F1 — …over exactly the extent the withholding reached.
+        // ⚖ MICROFIX N2 — AND THIS ONE IS THE SALES DOOR'S, which is a DIFFERENT
+        // world; the line that stood here claimed the two inputs were "two
+        // halves of one fact rather than two worlds", and that was not true at
+        // this call site. The withheld hours exist in exactly one place on this
+        // screen — the committed derivation `sellDrawnFor` published from (§4.2
+        // Q4: a rank-opened store or a release sells them) — because there is no
+        // board-world sell layer and there must not be one (feeding the layers
+        // `boardLanes` made prices flicker under a moving card, :1198-1213).
+        //
+        // WHY THE PAIRING IS SOUND rather than merely unavoidable: `withheld`
+        // never reaches the sentence, only its REACH. It widens a held span out
+        // to the sell slots the publication emptied and does nothing else —
+        // `dur` stays the span's own length, so the store's dial is quoted from
+        // the held set alone. At rest the two worlds ARE one board (they differ
+        // only by `liveMoves`); mid-gesture the widening is a no-op or snaps off
+        // a committed slot, bounded by one slot either way, and no number moves.
+        withheld: sell.cells.filter(isHeldBound),
+        // ⚖ LIAM RULING 1 (2026-09-09) — the half hour's own bed truth, so the
+        // word on a chip is about the 30 minutes it is drawn over.
+        halfHourFree,
+        // ⚖ LIAM RULING 3 (2026-09-09) — and the two facts a packing search
+        // cannot be honest without, plus the verdict door it re-judges through.
+        // The same values `verdictAtLanding` passes, from the same props.
+        reseat: {
+          hours,
+          nowMinute: props.sell.nowMinute,
+          cleanupMinutesByBed: props.bedCleanupMinutes,
+          landingOn: reseatLandingAt,
+        },
+      }),
+    [
+      rails, boardLanes, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode,
+      heldBoard, halfHourFree, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt,
+    ],
   )
 
   /** The same question when the guard has NOT already been asked — a gesture
@@ -6153,14 +6205,27 @@ export function TodayScreen(props: TodayProps) {
             const explained = railExplained.get(rail.laneKey)?.get(c.start) ?? null
             const word = v ? null : (explained?.word ?? null)
             const sentence = v?.reason ?? explained?.sentence ?? c.sentence
+            // ⚖ LIAM RULING 3 (2026-09-09) — 「a start that fits only by MOVING
+            // someone gets a small 『moves someone』 marker instead of a plain
+            // ✓」. It is a REST face like the word beside it: `explainRails`
+            // hands back an empty map for the whole of a gesture, so the mark
+            // cannot survive into a drag and the verdict's ×/△/✓ keeps the chip
+            // to itself. ⇄ is the companion line's own 「→」 said twice, so it
+            // reads as 入れ替え and is confusable with none of ✓ △ × —.
+            const mark = explained?.mark ?? null
+            const face = mark ? `⇄${hhmm(c.start)}` : (word ?? label)
             return (
               <button
                 // ⚖ flag 50(c) — canon's `.aimed`, in sync with the dashed landing.
-                className={`guard-rail-cell ${state === 'safe' ? 'guard-slot safe' : state}${v?.kind === 'blocked' ? ' inert' : ''}${aimed?.laneKey === rail.laneKey && aimed.start === c.start ? ' aimed' : ''}`}
+                // ⚖ 9/9 — a marked chip borrows the ✓ or △ palette by tone and
+                // wears a DASHED edge: placeable, at the cost the tone names,
+                // and not without moving somebody.
+                className={`guard-rail-cell ${mark ? `reseat ${mark.tone === 'degraded' ? 'degraded' : 'guard-slot'}` : state === 'safe' ? 'guard-slot safe' : state}${v?.kind === 'blocked' ? ' inert' : ''}${aimed?.laneKey === rail.laneKey && aimed.start === c.start ? ' aimed' : ''}`}
                 key={c.start}
                 type="button"
                 data-start={c.start}
-                data-state={state}
+                data-state={mark ? 'reseat' : state}
+                data-tone={mark ? mark.tone : undefined}
                 // The roving half of the toolbar pattern above: ONE chip on
                 // this strip is its tab stop and the rest are reached with ←/→.
                 tabIndex={c.start === stop ? 0 : -1}
@@ -6175,7 +6240,7 @@ export function TodayScreen(props: TodayProps) {
                 // and the word can never appear without each other: both are
                 // set from the same `word`, which is why the paint has no second
                 // condition to drift from.
-                data-reason={word ? (c.reason ?? undefined) : undefined}
+                data-reason={word && !mark ? (c.reason ?? undefined) : undefined}
                 aria-label={`${rail.laneLabel}、${hhmm(c.start)}。${sentence}`}
                 // ⚖ flag 44 (3) — CANON'S OWN PRESS-ANSWERS-WITH-A-SENTENCE, the
                 // absence hatch's (:4249). The strip was a `role="img"` that
@@ -6214,7 +6279,7 @@ export function TodayScreen(props: TodayProps) {
                   show(sentence)
                 }}
               >
-                <i>{word ?? label}</i>
+                <i>{face}</i>
               </button>
             )
           })}
