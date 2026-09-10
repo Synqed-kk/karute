@@ -76,15 +76,25 @@ afterEach(() => {
 
 /** Mock global fetch and hand back the headers it was called with. */
 function captureFetch() {
-  const spy = jest.fn(async () =>
-    new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }),
-  )
+  // The parameters must be declared: jest infers mock.calls from the
+  // implementation's signature, and a zero-arg one types calls as [], so
+  // reading calls[0][1] is a type error.
+  // The parameters must be declared: jest infers mock.calls from the
+  // implementation's signature, and a zero-arg one types calls as [], so
+  // reading calls[0][1] is a type error. They are named for the shape only.
+  const spy = jest.fn((url: string, init?: RequestInit) => {
+    void url
+    void init
+    return Promise.resolve(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+  })
   global.fetch = spy as unknown as typeof fetch
   return () => {
-    const init = spy.mock.calls[0]?.[1] as RequestInit | undefined
+    const init = spy.mock.calls[0]?.[1]
     return (init?.headers ?? {}) as Record<string, string>
   }
 }
