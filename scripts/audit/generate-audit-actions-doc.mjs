@@ -26,6 +26,10 @@ const LITERAL_ONLY_CATEGORY = {
   'booking.restore': 'booking',
   'booking.update': 'booking',
   'karute.save': 'karute',
+  // Choke emit: src/actions/karute.ts#deleteKaruteRecord (PR B2 §1) — no
+  // facade route covers karute deletion, so this is a web-only, literal-only
+  // door, same doctrine as karute.save above.
+  'karute.delete': 'karute',
   'karute.entry_edit': 'karute',
   // Choke emit: src/actions/karute.ts#updateKaruteDetailSummaryWithClient
   // (facade key karute.summary.update is a skip row — same doctrine as
