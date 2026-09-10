@@ -152,11 +152,12 @@ export async function listAuditLogWithClient(
       (synqed as any).audit.list(q)
     // T1 strip-count probes (page_size 1, total only) — skipped under the
     // SAME condition as the break-glass probe below (I7 actorId scope) plus
-    // breakGlass on (that feed IS the count strip then) plus the ③
-    // severity:'warnings' virtual filter (the filtered feed IS the count then
-    // too — no double query).
-    const skipStripProbes =
-      Boolean(filters.breakGlass) || Boolean(filters.actorId) || filters.severity === 'warnings'
+    // breakGlass on (that feed IS the count strip then). The ③
+    // severity:'warnings' virtual filter does NOT skip these: the probes use
+    // baseQuery (no severity) and are cheap page_size-1 reads, so the exact
+    // 警告/変更 totals stay exact while the lens is on (F1, round-2 line-audit
+    // — the strip must not fall back to the loaded page's client count).
+    const skipStripProbes = Boolean(filters.breakGlass) || Boolean(filters.actorId)
 
     const [res, breakGlassRes, warnAllRes, critAllRes, nvWarnRes, nvCritRes, nvAllRes, criticalRes] =
       await Promise.all([

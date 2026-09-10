@@ -1186,22 +1186,33 @@ describe('listAuditLog — ③ severity:"warnings" virtual filter (round-2 packe
     )
   }
 
-  it('the main call carries severity "warn"; the T1 strip probes are skipped (no double query) — only main + critical + the break-glass count probe run', async () => {
-    list.mockImplementation(async (opts: ProbeOpts) => {
-      if (opts.page_size === 100 && opts.severity === 'warn')
-        return { events: [coreEvent({ severity: 'warn' })], total: 1, page: 1, page_size: 100 }
-      if (opts.page_size === 100 && opts.severity === 'critical')
-        return { events: [], total: 0, page: 1, page_size: 100 }
-      if (opts.break_glass) return { events: [], total: 0, page: 1, page_size: 1 }
-      throw new Error('unexpected probe call: ' + JSON.stringify(opts))
-    })
+  it('the main call carries severity "warn"; the T1 strip probes STILL run under the lens — warningsTotal/changesTotal come back exact, not null (F1)', async () => {
+    list.mockImplementation(
+      async (opts: ProbeOpts & { exclude_views?: boolean }) => {
+        if (opts.page_size === 100 && opts.severity === 'warn')
+          return { events: [coreEvent({ severity: 'warn' })], total: 1, page: 1, page_size: 100 }
+        if (opts.page_size === 100 && opts.severity === 'critical')
+          return { events: [], total: 0, page: 1, page_size: 100 }
+        if (opts.break_glass) return { events: [], total: 0, page: 1, page_size: 1 }
+        if (opts.exclude_views && opts.severity === 'warn')
+          return { events: [], total: 3, page: 1, page_size: 1 } // nvWarn
+        if (opts.exclude_views && opts.severity === 'critical')
+          return { events: [], total: 2, page: 1, page_size: 1 } // nvCrit
+        if (opts.exclude_views) return { events: [], total: 20, page: 1, page_size: 1 } // nvAll
+        if (opts.severity === 'warn') return { events: [], total: 8, page: 1, page_size: 1 } // warnAll
+        if (opts.severity === 'critical') return { events: [], total: 4, page: 1, page_size: 1 } // critAll
+        throw new Error('unexpected probe call: ' + JSON.stringify(opts))
+      },
+    )
     const res = await listAuditLog({ severity: 'warnings' })
     if (!res.ok) throw new Error('expected ok')
     expect(mainWarnCall().severity).toBe('warn')
-    // T1 probes skipped → both totals fall back to null (client approx).
-    expect(res.warningsTotal).toBeNull()
-    expect(res.changesTotal).toBeNull()
-    expect(list).toHaveBeenCalledTimes(3)
+    // T1 probes run under the lens too (baseQuery has no severity) → exact
+    // totals, matching the no-lens T1 describe block above.
+    expect(res.warningsTotal).toBe(3 + 2)
+    expect(res.changesTotal).toBe(20 - 3 - 2)
+    // main(warn) + critical + break-glass + warnAll + critAll + nvWarn + nvCrit + nvAll
+    expect(list).toHaveBeenCalledTimes(8)
   })
 
   it('the critical read is issued once, page 1, page_size 100', async () => {
