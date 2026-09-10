@@ -270,12 +270,24 @@ export const AUDITED_CORES: {
       // PR B2 §1: the only writer of karute.delete — no facade route exists
       // for a karute delete (verified at source), so this is a web-only door.
       'deleteKaruteRecord',
+      // PR B2 §2: the WEB manual-create wrapper's own emit — the facade twin
+      // auto-emits via FACADE_AUDIT_MAP['karute.manualCreate'] and stays
+      // registered separately (it calls logFacadeAudit, not audit() directly,
+      // so it never trips this scan). The shared body
+      // createManualKaruteRecordWithClient stays audit-free (deliberately,
+      // PHONEWIRE-2A) — do not add it here.
+      'createManualKaruteRecord',
     ],
     unproven: [
       {
         symbol: 'reassignKaruteCustomer',
         reason:
           "the requiresConfirm (preview) branch is `return result` — a plain identifier (discriminated-union variable), not an object literal or call — un-provable by the lexical/AST walker without type information, the SAME mechanical-proof ceiling as customers.ts#updateCustomer above. The preview phase deliberately emits NOTHING (success-only audit pin ⚖ HELD — only the confirmed:true write is audited); the success branch DOES lexically dominate its own return via the auditWeb() call that precedes it in the same block.",
+      },
+      {
+        symbol: 'createManualKaruteRecord',
+        reason:
+          "the shared body's error branch is `if ('error' in result) return result` — `result` is a plain identifier (the createManualKaruteRecordWithClient discriminated-union return), not an object literal or call — the SAME mechanical-proof ceiling as reassignKaruteCustomer above. Emits nothing (error path, nothing to audit); the success path DOES lexically dominate its own implicit tail return via the top-level audit() call between the try/catch and the redirect (PR B2 §2).",
       },
     ],
   },
@@ -505,7 +517,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'karuteRecords.create',
     symbols: ['createOrUpdateKaruteRecord', 'createManualKaruteRecordWithClient'],
     justification:
-      'createOrUpdateKaruteRecord (AUDITED_CORES — this specific call site is its own fresh-record branch, dominated by its emitSave call-through, already proven by CP2/CP7) and createManualKaruteRecordWithClient (PHONEWIRE-2A: the "+ 新規カルテ" manual-entry create body, moved into a WithClient twin so the web action and the new facade POST run ONE body — the same Core/WithClient split as createCustomerWithClient. The shared body stays audit-free; the FACADE door IS now covered — karute.manualCreate is a LIVE FACADE_AUDIT_MAP mutation row emitting karute.manual_create with the target from ctx.auditTargetId. The WEB wrapper createManualKaruteRecord remains genuinely untracked, exactly as it was before this refactor — a pre-existing gap this build narrows rather than widens, not pendingWave).',
+      'createOrUpdateKaruteRecord (AUDITED_CORES — this specific call site is its own fresh-record branch, dominated by its emitSave call-through, already proven by CP2/CP7) and createManualKaruteRecordWithClient (PHONEWIRE-2A: the "+ 新規カルテ" manual-entry create body, moved into a WithClient twin so the web action and the new facade POST run ONE body — the same Core/WithClient split as createCustomerWithClient. The shared body stays audit-free; the FACADE door is covered — karute.manualCreate is a LIVE FACADE_AUDIT_MAP mutation row emitting karute.manual_create with the target from ctx.auditTargetId. PR B2 §2 (2026-09-11) closed the last gap: the WEB wrapper createManualKaruteRecord now emits its own karute.manual_create row (AUDITED_CORES) — the write call here still sits one level below that emit, in the shared WithClient body, so this allowlist entry stays).',
     dated: '2026-09-01',
   },
   {

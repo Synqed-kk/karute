@@ -1052,6 +1052,32 @@ export async function createManualKaruteRecord(input: {
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
 
+  // Audit (packet PR B2 §2): the WEB "+ 新規カルテ" door was genuinely
+  // untracked — only the facade twin auto-emitted via
+  // FACADE_AUDIT_MAP['karute.manualCreate']. Never in the shared body
+  // (createManualKaruteRecordWithClient stays audit-free, PHONEWIRE-2A) —
+  // that body also runs under the facade door, and an emit there would
+  // double-write on the phone. Manual creation has no linked appointment
+  // (see resolveKaruteStoreId(synqed, null) above), so appointment_id is
+  // always null here.
+  const { actorId, businessId } = await resolveWebAuditContext()
+  audit({
+    category: 'karute',
+    action: 'karute.manual_create',
+    actorId,
+    actorType: 'staff',
+    businessId,
+    targetType: 'karute',
+    targetId: recordId,
+    detail: {
+      customer_id: input.customerId,
+      staff_id: input.staffId,
+      appointment_id: null,
+    },
+    requestId: crypto.randomUUID(),
+    source: 'web',
+  })
+
   // revalidate + redirect outside try/catch — redirect() throws a
   // control-flow exception that try/catch would swallow.
   revalidatePath(`/customers/${input.customerId}`)

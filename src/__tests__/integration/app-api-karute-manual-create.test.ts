@@ -270,6 +270,24 @@ describe('POST /api/app/v1/karute/manual (＋新規カルテ)', () => {
     )
   })
 
+  // PR B2 §2: the facade door carries the same detail ids as the web
+  // wrapper's own emit (ctx.auditDetail — the manual door has no linked
+  // appointment). Still exactly ONE row — this is the SAME emit the test
+  // above pins, not a second writer.
+  it('carries customer_id/staff_id/appointment_id:null in detail (PR B2 §2)', async () => {
+    await POST(post(BODY), route)
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.objectContaining({
+          customer_id: 'cust-1',
+          staff_id: 'auth-user-1',
+          appointment_id: null,
+        }),
+      }),
+    )
+  })
+
   it('a core write failure → 502 (never a 400), and no audit row', async () => {
     create.mockRejectedValueOnce(new Error('core exploded'))
     const res = await POST(post(BODY), route)
