@@ -2416,7 +2416,8 @@
           "summary_edit": "詳細記録を編集",
           "outcome_set": "セッション結果を記録",
           "customer_reassign": "カルテの顧客を変更",
-          "manual_create": "カルテを手動で作成"
+          "manual_create": "カルテを手動で作成",
+          "delete": "カルテを削除"
         },
         "staff": {
           "add": "スタッフを追加",

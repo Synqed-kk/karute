@@ -540,9 +540,37 @@ export async function deleteKaruteRecord(karuteId: string): Promise<{ success: t
     await requireCapability('records.delete')
 
     const synqed = await getSynqedClient()
+    // Read BEFORE the delete — a deleted karute leaves no row of its own, so
+    // this is the only chance to capture the ids the audit row carries
+    // (packet PR B2 §1: without a row here, a deleted karute vanishes with
+    // no trace at all).
+    const record = await synqed.karuteRecords.get(karuteId)
     await synqed.karuteRecords.delete(karuteId)
     revalidatePath('/dashboard')
     updateTag('dashboard')
+
+    const { actorId, businessId } = await resolveWebAuditContext()
+    audit({
+      category: 'karute',
+      action: 'karute.delete',
+      actorId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'karute',
+      targetId: karuteId,
+      // ids only (PII rule) — staff_id here is the record's OWN 担当
+      // (who the karute was attributed to), not the deleter; the deleter is
+      // actorId above.
+      detail: {
+        customer_id: record.customer_id,
+        recording_session_id: record.recording_session_id,
+        appointment_id: record.appointment_id,
+        staff_id: record.staff_id,
+      },
+      requestId: crypto.randomUUID(),
+      source: 'web',
+    })
+
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }

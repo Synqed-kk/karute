@@ -57,6 +57,7 @@ export const AUDIT_ACTIONS = [
   'customer.reengagement_view',
   'customer.view',
   'karute.customer_reassign',
+  'karute.delete',
   'karute.entries_regenerate',
   'karute.entry_edit',
   'karute.entry_edits_view',
@@ -266,6 +267,9 @@ export const AUDITED_CORES: {
       // deliberately NOT listed here (Core/WithClient split, see its own
       // SDK_WRITE_ALLOWLIST entry below).
       'reassignKaruteCustomer',
+      // PR B2 §1: the only writer of karute.delete — no facade route exists
+      // for a karute delete (verified at source), so this is a web-only door.
+      'deleteKaruteRecord',
     ],
     unproven: [
       {
@@ -487,14 +491,6 @@ export const SDK_WRITE_ALLOWLIST: {
     justification:
       'customer.consent_revoke is a LIVE FACADE_AUDIT_MAP row as of Wave W3 (facade auto-emit); the web wrapper revokeCustomerConsent emits its own auditWeb (AUDITED_CORES). revokeCustomerConsentWithClient itself stays audit-free, matching the Core/WithClient split convention.',
     dated: '2026-07-28',
-  },
-  {
-    file: 'src/actions/karute.ts',
-    call: 'karuteRecords.delete',
-    symbols: ['deleteKaruteRecord'],
-    justification:
-      'deleteKaruteRecord — no FacadeEndpointKey covers karute deletion and no audit() call exists on this path today. Genuinely untracked, not pendingWave (no wave has claimed it). Flagged here rather than silently passing.',
-    dated: '2026-07-27',
   },
   {
     file: 'src/actions/karute.ts',
