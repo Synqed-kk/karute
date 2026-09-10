@@ -314,6 +314,7 @@ async function processJob(job: RecordingJob): Promise<string> {
     businessId: job.business_id,
     targetType: 'karute',
     targetId: record,
+    storeId: payload.store_id ?? undefined,
     detail: {
       via: 'job_pipeline',
       recording_session_id: job.recording_session_id,

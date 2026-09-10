@@ -2417,7 +2417,7 @@
           "outcome_set": "Recorded session outcome",
           "customer_reassign": "Reassigned karute customer",
           "manual_create": "Manually created karute record",
-          "delete": "Karute deleted"
+          "delete": "Deleted karute record"
         },
         "staff": {
           "add": "Added staff",

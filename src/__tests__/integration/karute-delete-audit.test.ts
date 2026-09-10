@@ -46,6 +46,7 @@ interface DeletedRecordShape {
   recording_session_id: string | null
   appointment_id: string | null
   staff_id: string
+  store_id: string | null
 }
 const karuteRecordsGet = jest.fn(
   async (): Promise<DeletedRecordShape> => ({
@@ -53,6 +54,7 @@ const karuteRecordsGet = jest.fn(
     recording_session_id: 'rec-1',
     appointment_id: 'appt-1',
     staff_id: 'staff-7',
+    store_id: 'store-1',
   }),
 )
 const karuteRecordsDelete = jest.fn(async () => ({}))
@@ -71,6 +73,7 @@ beforeEach(() => {
     recording_session_id: 'rec-1',
     appointment_id: 'appt-1',
     staff_id: 'staff-7',
+    store_id: 'store-1',
   })
   karuteRecordsDelete.mockResolvedValue({})
 })
@@ -79,7 +82,9 @@ describe('karute.delete — deleteKaruteRecord emits exactly once, success-only'
   it('reads the record BEFORE the delete and emits karute.delete with its ids', async () => {
     const result = await deleteKaruteRecord('kar-1')
     expect(result).toEqual({ success: true })
-    expect(karuteRecordsGet).toHaveBeenCalledWith('kar-1')
+    // F5 — include_entries: false: a metadata-only read, per the repo's
+    // convention (src/actions/audit-log.ts:437).
+    expect(karuteRecordsGet).toHaveBeenCalledWith('kar-1', { include_entries: false })
     expect(karuteRecordsDelete).toHaveBeenCalledWith('kar-1')
     // Read must precede the delete — the delete could remove the only source
     // of the ids the audit row needs.
@@ -97,6 +102,10 @@ describe('karute.delete — deleteKaruteRecord emits exactly once, success-only'
         targetType: 'karute',
         targetId: 'kar-1',
         source: 'web',
+        // F2 — a deleted clinical record is a 警告 row.
+        severity: 'warning',
+        // F3 — the store the deleted record was in.
+        storeId: 'store-1',
         detail: {
           customer_id: 'cust-1',
           recording_session_id: 'rec-1',
@@ -107,21 +116,38 @@ describe('karute.delete — deleteKaruteRecord emits exactly once, success-only'
     )
   })
 
-  it('a record with no recording/appointment carries null, not undefined', async () => {
+  it('a record with no recording/appointment/store carries null/undefined, not undefined ids', async () => {
     karuteRecordsGet.mockResolvedValueOnce({
       customer_id: 'cust-2',
       recording_session_id: null,
       appointment_id: null,
       staff_id: 'staff-3',
+      store_id: null,
     })
     await deleteKaruteRecord('kar-2')
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
+        storeId: undefined,
         detail: {
           customer_id: 'cust-2',
           recording_session_id: null,
           appointment_id: null,
           staff_id: 'staff-3',
+        },
+      }),
+    )
+  })
+
+  it('F1 — a record whose ids come back missing (not explicit null) still carries null, never undefined', async () => {
+    karuteRecordsGet.mockResolvedValueOnce({} as DeletedRecordShape)
+    await deleteKaruteRecord('kar-5')
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: {
+          customer_id: null,
+          recording_session_id: null,
+          appointment_id: null,
+          staff_id: null,
         },
       }),
     )

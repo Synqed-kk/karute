@@ -152,6 +152,7 @@ export async function createOrUpdateKaruteRecord(
       businessId: actor.businessId,
       targetType: 'karute',
       targetId: result.id,
+      storeId: payload.store_id ?? undefined,
       // customer_id rides in detail (ids only, PII rule) so the audit-log
       // viewer can resolve a name for this karute row — see AuditLogSection
       // §4 target-label join off detail.customer_id. recording_session_id +
@@ -547,12 +548,17 @@ export async function deleteKaruteRecord(karuteId: string): Promise<{ success: t
     // Read BEFORE the delete — a deleted karute leaves no row of its own, so
     // this is the only chance to capture the ids the audit row carries
     // (packet PR B2 §1: without a row here, a deleted karute vanishes with
-    // no trace at all).
-    const record = await synqed.karuteRecords.get(karuteId)
+    // no trace at all). ruling 9/11: no delete without its evidence row — a
+    // failed read (fail-closed) refuses the delete rather than losing the
+    // ids; include_entries: false keeps it to metadata (repo convention,
+    // src/actions/audit-log.ts:437) so the full clinical text never ships
+    // over the wire just to read four ids.
+    const record = await synqed.karuteRecords.get(karuteId, { include_entries: false })
     await synqed.karuteRecords.delete(karuteId)
-    revalidatePath('/dashboard')
-    updateTag('dashboard')
 
+    // Emit BEFORE revalidatePath/updateTag (F6) — if either throws after a
+    // successful delete, the row still landed; audit() itself never throws
+    // (src/lib/audit.ts:77-92), so the reverse risk does not exist.
     const { actorId, businessId } = await resolveWebAuditContext()
     audit({
       category: 'karute',
@@ -562,18 +568,25 @@ export async function deleteKaruteRecord(karuteId: string): Promise<{ success: t
       businessId,
       targetType: 'karute',
       targetId: karuteId,
+      // A deleted clinical record is a 警告 row, same tier as scheduling a
+      // customer deletion (src/actions/customers.ts:388) — F2.
+      severity: 'warning',
+      storeId: record.store_id ?? undefined,
       // ids only (PII rule) — staff_id here is the record's OWN 担当
       // (who the karute was attributed to), not the deleter; the deleter is
       // actorId above.
       detail: {
-        customer_id: record.customer_id,
-        recording_session_id: record.recording_session_id,
-        appointment_id: record.appointment_id,
-        staff_id: record.staff_id,
+        customer_id: record.customer_id ?? null,
+        recording_session_id: record.recording_session_id ?? null,
+        appointment_id: record.appointment_id ?? null,
+        staff_id: record.staff_id ?? null,
       },
       requestId: crypto.randomUUID(),
       source: 'web',
     })
+
+    revalidatePath('/dashboard')
+    updateTag('dashboard')
 
     return { success: true }
   } catch (err) {
@@ -1019,6 +1032,7 @@ export async function createManualKaruteRecord(input: {
   service: string
 }): Promise<{ error: string } | void> {
   let recordId: string
+  let storeId: string | null
 
   try {
     // Creating a karute = records.write (owner / manager / senior / practitioner
@@ -1044,7 +1058,7 @@ export async function createManualKaruteRecord(input: {
 
     // Manual creation has no linked appointment — store resolution falls
     // straight to the viewer's active-store cookie.
-    const { storeId } = await resolveKaruteStoreId(synqed, null)
+    ;({ storeId } = await resolveKaruteStoreId(synqed, null))
 
     const result = await createManualKaruteRecordWithClient(synqed, { ...input, storeId })
     // The shared body's catch already produced this door's exact { error }
@@ -1073,6 +1087,7 @@ export async function createManualKaruteRecord(input: {
     businessId,
     targetType: 'karute',
     targetId: recordId,
+    storeId: storeId ?? undefined,
     detail: {
       customer_id: input.customerId,
       staff_id: input.staffId,
