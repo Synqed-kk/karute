@@ -499,10 +499,17 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // does not move). R1, R2, R4, R5 and R6 are server-side or comment and weigh
 // nothing here.
 //
+// Round-2 audit line-audit (F2) is +257 B over that ceiling — measured cold:
+// en 130,918 · index 985,596 · vendor 937,743 = 2,054,257 B. Every byte of it
+// is the 監査ログ page the phone can now read more of: the 警告 tile's server
+// filter reaching the strip probes, the two 重大な記録 notice lines, and the
+// 復元行 の担当 suffix — all three text/logic additions land in the `index`
+// chunk (`en` and `vendor` are unmoved from the prior tip). 543 B headroom.
+//
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits
 // non-zero against whatever ceiling stands here.
-const BUDGET_BYTES = 2_054_000
+const BUDGET_BYTES = 2_054_800
 
 let dir
 try {
