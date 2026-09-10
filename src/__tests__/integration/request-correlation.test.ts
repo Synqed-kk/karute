@@ -6,6 +6,10 @@
  * failure was logged under two unrelated keys. During the 2026-09-04 outage
  * that made a Karute 500 impossible to tie to the core request behind it.
  */
+// resolveBearerIdentity eagerly builds the revocation client and throws
+// 'config' without the anon key, turning every facade assertion into a 500.
+// CI has no .env, so default it like the sibling app-api-* suites do.
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 import {
   withRequestId,
   getRequestId,
@@ -61,8 +65,20 @@ jest.mock('@synqed-kk/client', () => {
 })
 
 import { newSynqedClient } from '@/lib/synqed/client'
+import { facadeHandler, ok } from '@/lib/app-api/handler'
+import { AppApiError } from '@/lib/app-api/errors'
+import type { VerifierConfig } from '@/lib/auth/verify-bearer'
+import { createHmac } from 'node:crypto'
+
+jest.mock('@/lib/staff', () => ({
+  businessIdForUser: jest.fn(async () => 'business-1'),
+}))
+jest.mock('@/lib/auth/require-permission', () => ({
+  capabilitiesForUser: jest.fn(async () => new Set(['customers.view'])),
+}))
 
 const ORIGINAL_ENV = { ...process.env }
+const ORIGINAL_FETCH = global.fetch
 
 beforeEach(() => {
   process.env.SYNQED_CORE_URL = 'https://core.test'
@@ -71,6 +87,10 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV }
+  // captureFetch ASSIGNS to global.fetch, and restoreAllMocks does not undo a
+  // direct assignment. Without this a later case silently inherits the
+  // previous one's transport and the suite becomes order-dependent.
+  global.fetch = ORIGINAL_FETCH
   jest.restoreAllMocks()
 })
 
@@ -202,5 +222,107 @@ describe('outbound core calls carry the id', () => {
     })
 
     expect(headers()['x-request-id']).toBe('req-raw')
+  })
+})
+
+/** The seam itself.
+ *
+ *  Everything above proves the two halves work in isolation. None of it would
+ *  fail if the withRequestId wrapper were deleted from facadeHandler — and
+ *  that one line is what makes the feature real. These go through the actual
+ *  handler. */
+describe('facadeHandler wires the mint to the outbound call', () => {
+  const ISSUER = 'https://testproj.supabase.co/auth/v1'
+  const SECRET = 'test-jwt-secret-do-not-use-in-prod'
+  const HS_CONFIG: VerifierConfig = {
+    issuer: ISSUER,
+    audience: 'authenticated',
+    hs256Secret: SECRET,
+    algorithms: ['HS256'],
+  }
+  const route = { params: Promise.resolve({}) }
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
+
+  function hs256Token() {
+    const now = Math.floor(Date.now() / 1000)
+    const header = b64({ alg: 'HS256', typ: 'JWT' })
+    const payload = b64({
+      sub: 'u1',
+      iss: ISSUER,
+      aud: 'authenticated',
+      exp: now + 3600,
+      iat: now,
+    })
+    const sig = createHmac('sha256', SECRET)
+      .update(`${header}.${payload}`)
+      .digest('base64url')
+    return `${header}.${payload}.${sig}`
+  }
+
+  function request(extra: Record<string, string> = {}) {
+    return new Request('https://s/api/app/v1/x', {
+      headers: { authorization: `Bearer ${hs256Token()}`, ...extra },
+    })
+  }
+
+  it('sends the SAME id it hands the caller back', async () => {
+    const headers = captureFetch()
+    const handler = facadeHandler(
+      'customer.read',
+      async (ctx) => {
+        const client = newSynqedClient('biz-1')
+        await client.fetch('/customers')
+        return ok(ctx, { done: true })
+      },
+      { config: HS_CONFIG },
+    )
+
+    const res = await handler(request(), route)
+    expect(res.status).toBe(200)
+
+    const minted = res.headers.get('request-id')
+    expect(minted).toMatch(/^[0-9a-f-]{36}$/)
+    // The link: one id on the response AND on the core call.
+    expect(headers()['x-request-id']).toBe(minted)
+  })
+
+  it('forwards the SERVER mint, never a client-supplied header', async () => {
+    // The facade deliberately refuses to let an untrusted client header become
+    // the canonical id. Forwarding must honour that, or a caller could forge
+    // the key that ties core's logs together.
+    const headers = captureFetch()
+    const handler = facadeHandler(
+      'customer.read',
+      async (ctx) => {
+        const client = newSynqedClient('biz-1')
+        await client.fetch('/customers')
+        return ok(ctx, { done: true })
+      },
+      { config: HS_CONFIG },
+    )
+
+    const res = await handler(request({ 'request-id': 'forged-by-client' }), route)
+
+    expect(headers()['x-request-id']).not.toBe('forged-by-client')
+    expect(headers()['x-request-id']).toBe(res.headers.get('request-id'))
+  })
+
+  it('correlates a call made on the way to an ERROR response', async () => {
+    // The failing request is the one most in need of correlation, which is why
+    // the wrapper encloses the whole try/catch rather than the success path.
+    const headers = captureFetch()
+    const handler = facadeHandler(
+      'customer.read',
+      async () => {
+        const client = newSynqedClient('biz-1')
+        await client.fetch('/customers')
+        throw new AppApiError('internal', 'boom')
+      },
+      { config: HS_CONFIG },
+    )
+
+    const res = await handler(request(), route)
+    expect(res.status).toBe(500)
+    expect(headers()['x-request-id']).toBe(res.headers.get('request-id'))
   })
 })
