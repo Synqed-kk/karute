@@ -316,6 +316,30 @@ describe('POST /api/app/v1/karute (save) — karute.save choke-point audit (pack
       }),
     )
   })
+
+  // PR B2 §3: recording_session_id + appointment_id let the per-recording
+  // thread page (PR D) join a karute back to its recording/appointment.
+  it('detail carries recording_session_id + appointment_id when the save has them', async () => {
+    await savePOST(
+      post({ ...auth, ...idem }, { ...validSave, recordingSessionId: 'rs-1', appointmentId: 'ap-1' }),
+      noRoute,
+    )
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.objectContaining({
+          recording_session_id: 'rs-1',
+          appointment_id: 'ap-1',
+        }),
+      }),
+    )
+  })
+
+  it('detail carries null (never undefined) when the save has neither', async () => {
+    await savePOST(post({ ...auth, ...idem }, validSave), noRoute)
+    const [call] = audit.mock.calls[0] as [{ detail: Record<string, unknown> }]
+    expect(call.detail).toHaveProperty('recording_session_id', null)
+    expect(call.detail).toHaveProperty('appointment_id', null)
+  })
 })
 
 describe('POST /api/app/v1/packs/redemptions/[id]/undo', () => {

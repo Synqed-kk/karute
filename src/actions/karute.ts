@@ -154,11 +154,15 @@ export async function createOrUpdateKaruteRecord(
       targetId: result.id,
       // customer_id rides in detail (ids only, PII rule) so the audit-log
       // viewer can resolve a name for this karute row — see AuditLogSection
-      // §4 target-label join off detail.customer_id.
+      // §4 target-label join off detail.customer_id. recording_session_id +
+      // appointment_id (PR B2 §3) let the per-recording thread page (PR D)
+      // join a karute back to its recording/appointment.
       detail: {
         fresh: result.fresh,
         transcript_changed: result.transcriptChanged,
         customer_id: payload.customer_id ?? null,
+        recording_session_id: payload.recording_session_id ?? null,
+        appointment_id: payload.appointment_id ?? null,
       },
       requestId: actor.requestId,
       source: actor.source,

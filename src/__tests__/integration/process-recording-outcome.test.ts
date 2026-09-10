@@ -302,6 +302,32 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
     expect(staffGet).toHaveBeenCalledWith('staff-1')
   })
 
+  // PR B2 §3: appointment_id joins the recording thread page (PR D) to its
+  // booking — null (never undefined) when the job has none.
+  it('no appointment on the job → detail.appointment_id is null, not undefined', async () => {
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    const [call] = audit.mock.calls[0] as [{ detail: Record<string, unknown> }]
+    expect(call.detail).toHaveProperty('appointment_id', null)
+  })
+
+  it('appointment-linked job → detail.appointment_id carries the payload id', async () => {
+    claim
+      .mockResolvedValueOnce({
+        ...baseJob,
+        payload: { ...baseJob.payload, appointment_id: 'ap-1', duration_seconds: 3070 },
+      })
+      .mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: expect.objectContaining({ appointment_id: 'ap-1' }) }),
+    )
+  })
+
   it('an UNWIRED recorder (card has no login) → actorId null, emit and job still complete', async () => {
     staffGet.mockResolvedValueOnce({ id: 'staff-1', user_id: null as unknown as string })
     claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)

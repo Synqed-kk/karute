@@ -319,6 +319,9 @@ async function processJob(job: RecordingJob): Promise<string> {
       recording_session_id: job.recording_session_id,
       customer_id: payload.customer_id,
       staff_id: payload.staff_id,
+      // PR B2 §3: the thread page's join key — the payload carries it
+      // straight from the enqueue door.
+      appointment_id: payload.appointment_id ?? null,
     },
     // PR-M5 piece ④: job/system paths use the job id as requestId (no HTTP
     // request scope exists here — the job id is the correlating identifier).

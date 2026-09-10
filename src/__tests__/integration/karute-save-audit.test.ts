@@ -73,6 +73,10 @@ beforeEach(() => {
   karuteRecords.getByRecordingSession.mockRejectedValue(
     Object.assign(new Error('nf'), { status: 404 }),
   )
+  // PR B2 §3's appointmentId test is the first in this file to exercise the
+  // appointment fetch (resolveKaruteStoreId) — a resolved default so it
+  // doesn't need every OTHER test in this file to know about it too.
+  appointments.get.mockResolvedValue({ staff_id: 'staff-1', store_id: null, title: null })
   customers.getConsent.mockResolvedValue({
     consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION, granted_at: '2026-07-01T00:00:00Z' },
   })
@@ -99,6 +103,27 @@ describe('karute.save — web saveKaruteRecord emits exactly once', () => {
         }),
       }),
     )
+  })
+
+  // PR B2 §3: recording_session_id + appointment_id let the per-recording
+  // thread page (PR D) join a karute back to its recording/appointment.
+  it('detail carries recording_session_id + appointment_id when the save has them', async () => {
+    await saveKaruteRecord({ ...baseInput, recordingSessionId: 'rs-fresh', appointmentId: 'appt-1' })
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.objectContaining({
+          recording_session_id: 'rs-fresh',
+          appointment_id: 'appt-1',
+        }),
+      }),
+    )
+  })
+
+  it('detail carries null (never undefined) when the save has neither', async () => {
+    await saveKaruteRecord({ ...baseInput })
+    const [call] = audit.mock.calls[0] as [{ detail: Record<string, unknown> }]
+    expect(call.detail).toHaveProperty('recording_session_id', null)
+    expect(call.detail).toHaveProperty('appointment_id', null)
   })
 })
 
