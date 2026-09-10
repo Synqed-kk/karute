@@ -51,6 +51,10 @@ function parseFilters(ctx: FacadeContext): AuditLogFilters {
     targetId: q.get('targetId') ?? undefined,
     includeViews: q.get('includeViews') === '1',
     breakGlass: q.get('breakGlass') === '1',
+    // ③ (round-2 packet): only this one literal is recognized — anything
+    // else (a stale/unknown value) is ignored, matching this route's
+    // never-400s contract for every other filter.
+    severity: q.get('severity') === 'warnings' ? 'warnings' : undefined,
     page: rawPage > 0 ? rawPage : 1,
   }
 }

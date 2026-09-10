@@ -51,6 +51,12 @@ export const AuditLogListResultDTO = z.discriminatedUnion('ok', [
     warningsTotal: z.number().nullable(),
     changesTotal: z.number().nullable(),
     targetLabels: z.record(z.string(), z.string()),
+    // ③ severity:'warnings' virtual filter (round-2 packet) — additive, plain
+    // optional (never emitted outside that filter, same idiom as
+    // reassign_customer_line above): the critical half's read overflowed
+    // page_size or failed outright.
+    criticalTruncated: z.boolean().optional(),
+    criticalUnavailable: z.boolean().optional(),
   }),
   z.object({
     ok: z.literal(false),

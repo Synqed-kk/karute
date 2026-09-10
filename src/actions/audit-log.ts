@@ -53,6 +53,12 @@ export interface AuditLogFilters {
   /** Default feed hides view events (they outnumber changes ~10:1). */
   includeViews?: boolean
   breakGlass?: boolean
+  /** ③ (round-2 packet): virtual OR filter over warn+critical severity — core
+   *  filters ONE severity per call (ListAuditOptions.severity), so
+   *  listAuditLogWithClient issues a second 'critical' read and merges it
+   *  into page 1 only. Only this literal is recognized; the facade twin
+   *  (route.ts parseFilters) ignores any other value. */
+  severity?: 'warnings'
   page?: number
 }
 
@@ -94,6 +100,11 @@ type ListAuditLogResult =
        *  resolve client-side off the roster; this map is the fallback for ids
        *  the roster can't key (historical id-space rows, departed staff). */
       targetLabels: Record<string, string>
+      /** ③ severity:'warnings' virtual filter only — the critical half's read
+       *  came back with more than PAGE_SIZE rows (rare; narrow the window) or
+       *  failed outright. Default absent everywhere else. */
+      criticalTruncated?: boolean
+      criticalUnavailable?: boolean
     }
   | { ok: false; error: 'forbidden' | 'failed' }
 
@@ -141,15 +152,19 @@ export async function listAuditLogWithClient(
       (synqed as any).audit.list(q)
     // T1 strip-count probes (page_size 1, total only) — skipped under the
     // SAME condition as the break-glass probe below (I7 actorId scope) plus
-    // breakGlass on (that feed IS the count strip then).
-    const skipStripProbes = Boolean(filters.breakGlass) || Boolean(filters.actorId)
+    // breakGlass on (that feed IS the count strip then) plus the ③
+    // severity:'warnings' virtual filter (the filtered feed IS the count then
+    // too — no double query).
+    const skipStripProbes =
+      Boolean(filters.breakGlass) || Boolean(filters.actorId) || filters.severity === 'warnings'
 
-    const [res, breakGlassRes, warnAllRes, critAllRes, nvWarnRes, nvCritRes, nvAllRes] =
+    const [res, breakGlassRes, warnAllRes, critAllRes, nvWarnRes, nvCritRes, nvAllRes, criticalRes] =
       await Promise.all([
         synqed.audit.list({
           ...baseQuery,
           exclude_views: filters.includeViews ? undefined : true,
           break_glass: filters.breakGlass ? true : undefined,
+          severity: filters.severity === 'warnings' ? 'warn' : undefined,
           page,
           page_size: PAGE_SIZE,
         }),
@@ -199,6 +214,25 @@ export async function listAuditLogWithClient(
           : auditListProbe({ ...baseQuery, exclude_views: true, page: 1, page_size: 1 }).catch(
               () => null,
             ),
+        // ③ virtual severity:'warnings' filter (round-2 packet): core filters
+        // ONE severity per call, so the critical half needs its own read —
+        // page 1 only (critical rows are rare; later pages just keep
+        // appending warn rows, same as today). A direct synqed.audit.list
+        // call, same style as breakGlassRes two probes up — no bare method
+        // extraction, so no receiver-loss risk. ponytail: two reads under the
+        // lens is a named ceiling — upgrade path is core accepting a
+        // severity SET, which collapses this back to one call.
+        filters.severity === 'warnings' && page === 1
+          ? synqed.audit
+              .list({
+                ...baseQuery,
+                exclude_views: filters.includeViews ? undefined : true,
+                severity: 'critical',
+                page: 1,
+                page_size: PAGE_SIZE,
+              })
+              .catch(() => null)
+          : null,
       ])
 
     // Reading the 監査ログ is itself a privileged read — ONE row per
@@ -228,9 +262,31 @@ export async function listAuditLogWithClient(
     // hasMore are exact and no view row of either era reaches this filter in
     // the default feed. The belt stays as pure defense-in-depth against a
     // core-side regression, mirroring isViewAction's doc above.
-    const events = (res.events as AuditLogEvent[]).filter(
+    let events = (res.events as AuditLogEvent[]).filter(
       (e) => filters.includeViews || !isViewAction(e.action),
     )
+    // ③ virtual severity:'warnings' filter — merge the critical read into
+    // page 1's feed, newest-first (a plain concat-then-sort: cheap at ≤200
+    // rows, and doesn't assume the two feeds already interleave correctly).
+    // Page 2+ never merges — the warn feed keeps paging alone, matching
+    // hasMore below (which stays the warn feed's own). A failed critical
+    // read never silently drops rows: it surfaces as criticalUnavailable
+    // instead of a quietly-incomplete page.
+    let criticalTruncated: true | undefined
+    let criticalUnavailable: true | undefined
+    if (filters.severity === 'warnings' && page === 1) {
+      if (criticalRes === null) {
+        criticalUnavailable = true
+      } else {
+        const criticalEvents = (criticalRes.events as AuditLogEvent[]).filter(
+          (e) => filters.includeViews || !isViewAction(e.action),
+        )
+        events = [...events, ...criticalEvents].sort(
+          (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime(),
+        )
+        if (criticalRes.total > PAGE_SIZE) criticalTruncated = true
+      }
+    }
     // 警告 is exact in BOTH view states: views hidden → count only non-'.view'
     // warn/crit (nvWarn/nvCrit, matching what the feed shows); views shown →
     // count all warn/crit (warnAll/critAll). Pair must be complete — never a
@@ -285,6 +341,8 @@ export async function listAuditLogWithClient(
           ? Math.max(0, nvAllRes.total - nvWarnRes.total - nvCritRes.total)
           : null,
       targetLabels,
+      ...(criticalTruncated ? { criticalTruncated } : {}),
+      ...(criticalUnavailable ? { criticalUnavailable } : {}),
     }
   } catch {
     return { ok: false, error: 'failed' }

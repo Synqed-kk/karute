@@ -107,4 +107,30 @@ describe('thin actions port — audit-log transport contract', () => {
 
     await expect(listAuditLog({})).resolves.toEqual({ ok: false, error: 'failed' })
   })
+
+  // ③ round-2 packet: the 警告 tile's server filter needs the phone transport
+  // to actually forward severity, or the facade's new parseFilters support
+  // (route.ts) never gets exercised from the phone — the "same reader path"
+  // the packet describes.
+  it('severity:"warnings" is serialized as severity=warnings', async () => {
+    const apiFetch = jest.fn(async (path: string) => {
+      expect(path).toBe('/api/app/v1/audit-log?severity=warnings&page=1')
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          events: [],
+          total: 0,
+          page: 1,
+          hasMore: false,
+          breakGlassTotal: null,
+          targetLabels: {},
+        }),
+        { status: 200 },
+      )
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await listAuditLog({ severity: 'warnings' })
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+  })
 })

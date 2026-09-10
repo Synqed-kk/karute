@@ -2378,6 +2378,8 @@
       "errorLoad": "監査ログを読み込めませんでした。",
       "errorForbidden": "監査ログへのアクセス権がありません。",
       "loadMore": "さらに読み込む",
+      "criticalTruncated": "重大な記録が100件を超えています。期間を狭めてください",
+      "criticalUnavailable": "重大な記録を読み込めませんでした",
       "systemActor": "システム",
       "unknownActor": "不明",
       "actions": {

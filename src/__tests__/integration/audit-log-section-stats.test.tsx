@@ -367,3 +367,48 @@ describe('AuditLogSection — karute.entry_edit labeling (W2 one-sheet §4)', ()
     expect(row.textContent).not.toContain('karute.entry_edit')
   })
 })
+
+// Round-2 packet ③: warnOnly is now a SERVER filter, not the old client-side
+// re-filter lens — tapping the tile must send severity:'warnings' to
+// listAuditLog, and whatever the server returns must render AS-IS (proving
+// there's no second, client-side severity filter still sitting on top).
+describe('AuditLogSection — ③ round-2: warnOnly is a server filter, not a client lens', () => {
+  it('tapping 警告 sends severity:"warnings" and renders the server response unfiltered', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [coreEvent()],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 1,
+      targetLabels: {},
+    })
+    const { container, getByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+
+    // The next response carries an INFO-severity row — a real server would
+    // never return one under severity:'warnings', but the mock proves the
+    // component has no client-side severity re-filter of its own: if it did,
+    // this row would be filtered back out of the DOM.
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [coreEvent({ id: 'info-row', severity: 'info' })],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 0,
+      targetLabels: {},
+    })
+    fireEvent.click(getByText('statsWarnings'))
+
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
+    expect(listAuditLog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ severity: 'warnings' }),
+    )
+    await waitFor(() => expect(container.querySelectorAll('li')).toHaveLength(1))
+  })
+})

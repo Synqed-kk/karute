@@ -2378,6 +2378,8 @@
       "errorLoad": "Couldn't load the audit log.",
       "errorForbidden": "You don't have access to the audit log.",
       "loadMore": "Load more",
+      "criticalTruncated": "There are more than 100 critical records. Narrow the date range.",
+      "criticalUnavailable": "Couldn't load the critical records.",
       "systemActor": "System",
       "unknownActor": "Unknown",
       "actions": {

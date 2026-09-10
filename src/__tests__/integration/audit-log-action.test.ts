@@ -1156,3 +1156,151 @@ describe('listAuditLogWithClient — per-invocation privacy.audit_log.view (cont
     expect(audit).not.toHaveBeenCalled()
   })
 })
+
+// Round-2 packet ③: the 警告 tile is now a real server filter. Core only
+// filters ONE severity per call, so severity:'warnings' fans out into a
+// warn-severity main call plus a page-1-only critical read, merged
+// newest-first. The T1 strip probes skip under this filter (same reasoning
+// as breakGlass/actorId — the filtered feed IS the count then); the
+// break-glass COUNT probe is untouched (a different dimension entirely).
+describe('listAuditLog — ③ severity:"warnings" virtual filter (round-2 packet)', () => {
+  type ProbeOpts = {
+    page_size?: number
+    page?: number
+    severity?: string
+    break_glass?: boolean
+  }
+
+  function mainWarnCall() {
+    const call = list.mock.calls.find(
+      ([opts]) => (opts as ProbeOpts).page_size === 100 && (opts as ProbeOpts).severity === 'warn',
+    )
+    if (!call) throw new Error('expected a page_size:100 severity:warn call')
+    return call[0] as ProbeOpts
+  }
+
+  function criticalCalls() {
+    return list.mock.calls.filter(
+      ([opts]) =>
+        (opts as ProbeOpts).page_size === 100 && (opts as ProbeOpts).severity === 'critical',
+    )
+  }
+
+  it('the main call carries severity "warn"; the T1 strip probes are skipped (no double query) — only main + critical + the break-glass count probe run', async () => {
+    list.mockImplementation(async (opts: ProbeOpts) => {
+      if (opts.page_size === 100 && opts.severity === 'warn')
+        return { events: [coreEvent({ severity: 'warn' })], total: 1, page: 1, page_size: 100 }
+      if (opts.page_size === 100 && opts.severity === 'critical')
+        return { events: [], total: 0, page: 1, page_size: 100 }
+      if (opts.break_glass) return { events: [], total: 0, page: 1, page_size: 1 }
+      throw new Error('unexpected probe call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ severity: 'warnings' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(mainWarnCall().severity).toBe('warn')
+    // T1 probes skipped → both totals fall back to null (client approx).
+    expect(res.warningsTotal).toBeNull()
+    expect(res.changesTotal).toBeNull()
+    expect(list).toHaveBeenCalledTimes(3)
+  })
+
+  it('the critical read is issued once, page 1, page_size 100', async () => {
+    list.mockImplementation(async (opts: ProbeOpts) => {
+      if (opts.page_size === 100 && opts.severity === 'warn')
+        return { events: [coreEvent({ severity: 'warn' })], total: 1, page: 1, page_size: 100 }
+      if (opts.page_size === 100 && opts.severity === 'critical')
+        return { events: [], total: 0, page: 1, page_size: 100 }
+      if (opts.break_glass) return { events: [], total: 0, page: 1, page_size: 1 }
+      throw new Error('unexpected probe call: ' + JSON.stringify(opts))
+    })
+    await listAuditLog({ severity: 'warnings' })
+    const crit = criticalCalls()
+    expect(crit).toHaveLength(1)
+    expect(crit[0][0]).toEqual(
+      expect.objectContaining({ severity: 'critical', page: 1, page_size: 100 }),
+    )
+  })
+
+  it('merges warn + critical newest-first', async () => {
+    list.mockImplementation(async (opts: ProbeOpts) => {
+      if (opts.page_size === 100 && opts.severity === 'warn')
+        return {
+          events: [coreEvent({ id: 'w-old', severity: 'warn', at: '2026-07-18T08:00:00.000Z' })],
+          total: 1,
+          page: 1,
+          page_size: 100,
+        }
+      if (opts.page_size === 100 && opts.severity === 'critical')
+        return {
+          events: [
+            coreEvent({ id: 'c-new', severity: 'critical', at: '2026-07-18T12:00:00.000Z' }),
+          ],
+          total: 1,
+          page: 1,
+          page_size: 100,
+        }
+      if (opts.break_glass) return { events: [], total: 0, page: 1, page_size: 1 }
+      throw new Error('unexpected probe call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ severity: 'warnings' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['c-new', 'w-old'])
+  })
+
+  it('the critical read failing → criticalUnavailable true, events stay the warn page (never silently incomplete)', async () => {
+    list.mockImplementation(async (opts: ProbeOpts) => {
+      if (opts.page_size === 100 && opts.severity === 'warn')
+        return { events: [coreEvent({ id: 'w-1', severity: 'warn' })], total: 1, page: 1, page_size: 100 }
+      if (opts.page_size === 100 && opts.severity === 'critical') throw new Error('core down')
+      if (opts.break_glass) return { events: [], total: 0, page: 1, page_size: 1 }
+      throw new Error('unexpected probe call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ severity: 'warnings' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.criticalUnavailable).toBe(true)
+    expect(res.events.map((e) => e.id)).toEqual(['w-1'])
+    expect(res.criticalTruncated).toBeUndefined()
+  })
+
+  it('a critical total over page_size → criticalTruncated true', async () => {
+    list.mockImplementation(async (opts: ProbeOpts) => {
+      if (opts.page_size === 100 && opts.severity === 'warn')
+        return { events: [coreEvent({ id: 'w-1', severity: 'warn' })], total: 1, page: 1, page_size: 100 }
+      if (opts.page_size === 100 && opts.severity === 'critical')
+        return {
+          events: [coreEvent({ id: 'c-1', severity: 'critical' })],
+          total: 150,
+          page: 1,
+          page_size: 100,
+        }
+      if (opts.break_glass) return { events: [], total: 0, page: 1, page_size: 1 }
+      throw new Error('unexpected probe call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ severity: 'warnings' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.criticalTruncated).toBe(true)
+    expect(res.criticalUnavailable).toBeUndefined()
+  })
+
+  it('page 2+ never re-issues the critical read — no criticalTruncated/criticalUnavailable, warn rows keep paging alone', async () => {
+    list.mockImplementation(async (opts: ProbeOpts) => {
+      if (opts.page_size === 100 && opts.severity === 'warn')
+        return {
+          events: [coreEvent({ id: `w-${opts.page}`, severity: 'warn' })],
+          total: 250,
+          page: opts.page ?? 1,
+          page_size: 100,
+        }
+      if (opts.page_size === 100 && opts.severity === 'critical')
+        return { events: [], total: 0, page: 1, page_size: 100 }
+      if (opts.break_glass) return { events: [], total: 0, page: 1, page_size: 1 }
+      throw new Error('unexpected probe call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ severity: 'warnings', page: 2 })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['w-2'])
+    expect(criticalCalls()).toHaveLength(0)
+    expect(res.criticalTruncated).toBeUndefined()
+    expect(res.criticalUnavailable).toBeUndefined()
+  })
+})

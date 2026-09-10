@@ -335,4 +335,22 @@ describe('GET /api/app/v1/audit-log', () => {
     const body = (await res.json()) as { ok: true; events: { reassign_customer_line?: string }[] }
     expect(body.events[0].reassign_customer_line).toBeUndefined()
   })
+
+  // ③ round-2 packet: the facade twin accepts severity=warnings (only that
+  // literal) so the phone gets the same server-filtered reader path as web.
+  it('severity=warnings reaches synqed.audit.list as severity "warn" on the main call', async () => {
+    const res = await GET(getReq({ severity: 'warnings' }), noParams)
+    expect(res.status).toBe(200)
+    const mainCall = auditList.mock.calls.find(
+      ([opts]) => opts.page_size === 100 && opts.severity === 'warn',
+    )
+    expect(mainCall).toBeDefined()
+  })
+
+  it('an unrecognized severity value (e.g. "info") is ignored — no severity reaches core', async () => {
+    const res = await GET(getReq({ severity: 'info' }), noParams)
+    expect(res.status).toBe(200)
+    const mainCall = auditList.mock.calls.find(([opts]) => opts.page_size === 100)
+    expect(mainCall?.[0].severity).toBeUndefined()
+  })
 })

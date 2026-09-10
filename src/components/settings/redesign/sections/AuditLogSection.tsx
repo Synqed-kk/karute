@@ -113,9 +113,15 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   const [targetId, setTargetId] = useState(initialTargetId ?? null)
   const [includeViews, setIncludeViews] = useState(Boolean(initialTargetId))
   const [breakGlass, setBreakGlass] = useState(false)
-  // Display-side lens from tapping the 警告 stat (core has no severity filter
-  // yet — Anthony ask; until then this narrows the loaded window client-side).
+  // ③ (round-2 packet): tapping the 警告 stat is now a SERVER filter (core's
+  // severity param, joined into a warn∪critical virtual filter — see
+  // listAuditLogWithClient). No client-side re-filter lens anymore; `days`
+  // below reads `events` directly.
   const [warnOnly, setWarnOnly] = useState(false)
+  // ③: the virtual filter's critical half degraded (overflowed page_size, or
+  // the read failed outright) — page-1-only flags, absent otherwise.
+  const [criticalTruncated, setCriticalTruncated] = useState(false)
+  const [criticalUnavailable, setCriticalUnavailable] = useState(false)
   // karute.entry_edit expansion — one row open at a time (§11 accordion).
   const [expandedEditId, setExpandedEditId] = useState<string | null>(null)
   const [editTrails, setEditTrails] = useState<Record<string, EntryEditTrailState>>({})
@@ -158,6 +164,9 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           targetId: targetId ?? undefined,
           includeViews,
           breakGlass: breakGlass || undefined,
+          // ③ round-2: server filter now — see the `days` useMemo below,
+          // which no longer re-filters the loaded events.
+          severity: warnOnly ? 'warnings' : undefined,
           page: nextPage,
         })
       } catch {
@@ -189,11 +198,16 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       setWarningsTotal((prev) => (append && res.warningsTotal === null ? prev : res.warningsTotal))
       setChangesTotal((prev) => (append && res.changesTotal === null ? prev : res.changesTotal))
       setTargetLabels((prev) => (append ? { ...prev, ...res.targetLabels } : res.targetLabels))
+      // ③: additive, page-1-only flags — an append (page N+1, same filters)
+      // never recomputes them server-side, so keep whatever page 1 set
+      // (same "don't downgrade a known signal" idiom as the totals above).
+      setCriticalTruncated((prev) => (append ? prev : Boolean(res.criticalTruncated)))
+      setCriticalUnavailable((prev) => (append ? prev : Boolean(res.criticalUnavailable)))
       setPage(res.page)
       setHasMore(res.hasMore)
       setLoading(false)
     },
-    [category, actorId, range, targetId, includeViews, breakGlass],
+    [category, actorId, range, targetId, includeViews, breakGlass, warnOnly],
   )
 
   useEffect(() => {
@@ -212,11 +226,12 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   // ends at <html>, whose scrollTop IS the window scroll in standards mode;
   // thin's ends at its own overflow container). useLayoutEffect, not effect,
   // so the reset lands before paint. Keyed on every state that REPLACES the
-  // feed: the six `load(1, false)` deps (category/actorId/range/targetId/
-  // includeViews/breakGlass) plus warnOnly — a client-side lens over already-
-  // loaded events that shrinks the visible list exactly the same way, even
-  // though it never calls load(). Deliberately NOT keyed on page/events, so a
-  // load-more append (same filters, next page) never fires this.
+  // feed: the seven `load(1, false)` deps (category/actorId/range/targetId/
+  // includeViews/breakGlass/warnOnly — ③ round-2: warnOnly is now itself a
+  // server filter, not a client-side lens, but this effect's own dependency
+  // array is independent of load's identity, so it's listed here too).
+  // Deliberately NOT keyed on page/events, so a load-more append (same
+  // filters, next page) never fires this.
   const rootRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     for (let el = rootRef.current?.parentElement ?? null; el; el = el.parentElement) {
@@ -267,13 +282,12 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   }, [events, changesTotal, warningsTotal, hasMore])
 
   // Day-grouped feed (device-local dates, same zone the timestamps render in).
+  // ③ round-2: warnOnly is now a server filter (see load() above) — `events`
+  // already IS the filtered set, so no client-side re-filter here.
   const days = useMemo(() => {
-    const visible = warnOnly
-      ? events.filter((e) => e.severity === 'warn' || e.severity === 'critical')
-      : events
     const groups: { key: string; date: Date; events: AuditLogEvent[] }[] = []
     const byKey = new Map<string, { key: string; date: Date; events: AuditLogEvent[] }>()
-    for (const e of visible) {
+    for (const e of events) {
       const d = new Date(e.at)
       const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
       let group = byKey.get(key)
@@ -285,7 +299,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       group.events.push(e)
     }
     return groups
-  }, [events, warnOnly])
+  }, [events])
 
   function actionLabel(action: string): string {
     // Known actions get a JP label; anything new renders as its raw key so a
@@ -630,6 +644,17 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
             </span>
             <span className="text-xs">{t('statsBreakGlass')}</span>
           </button>
+        </div>
+      )}
+
+      {!error && criticalTruncated && (
+        <div className="rounded-lg border border-dashed border-border/50 bg-card/30 px-3 py-2 text-xs text-muted-foreground">
+          {t('criticalTruncated')}
+        </div>
+      )}
+      {!error && criticalUnavailable && (
+        <div className="rounded-lg border border-dashed border-border/50 bg-card/30 px-3 py-2 text-xs text-muted-foreground">
+          {t('criticalUnavailable')}
         </div>
       )}
 
