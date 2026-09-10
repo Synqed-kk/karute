@@ -112,9 +112,17 @@ describe('thin actions port — audit-log transport contract', () => {
   // to actually forward severity, or the facade's new parseFilters support
   // (route.ts) never gets exercised from the phone — the "same reader path"
   // the packet describes.
-  it('severity:"warnings" is serialized as severity=warnings', async () => {
+  //
+  // R3 (round-2 line-audit): the assertion MUST live outside the mock
+  // callback — facadeListAuditLog wraps the apiFetch call in its own
+  // try/catch, which swallows a throw from inside the mock and leaves the
+  // test's only real check (`toHaveBeenCalledTimes`) passing regardless of
+  // what path was actually requested. Recording the path into a variable and
+  // asserting on it after the `await` closes that hole.
+  it('severity:"warnings" is serialized as severity=warnings, exactly once, under no other key', async () => {
+    let capturedPath: string | undefined
     const apiFetch = jest.fn(async (path: string) => {
-      expect(path).toBe('/api/app/v1/audit-log?severity=warnings&page=1')
+      capturedPath = path
       return new Response(
         JSON.stringify({
           ok: true,
@@ -132,5 +140,30 @@ describe('thin actions port — audit-log transport contract', () => {
 
     await listAuditLog({ severity: 'warnings' })
     expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(capturedPath).toBe('/api/app/v1/audit-log?severity=warnings&page=1')
+  })
+
+  it('no severity in filters → no severity param', async () => {
+    let capturedPath: string | undefined
+    const apiFetch = jest.fn(async (path: string) => {
+      capturedPath = path
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          events: [],
+          total: 0,
+          page: 1,
+          hasMore: false,
+          breakGlassTotal: null,
+          targetLabels: {},
+        }),
+        { status: 200 },
+      )
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await listAuditLog({})
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(capturedPath).toBe('/api/app/v1/audit-log?page=1')
   })
 })
