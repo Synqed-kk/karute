@@ -7,6 +7,7 @@ import { listStores, getActiveStoreId } from '@/actions/stores'
 import { listMenus } from '@/actions/menus'
 import { getEntitlement } from '@/actions/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
+import { canReadAuditLog } from '@/lib/auth/audit-read'
 import { resolveStoreScope, menuStoresForScope, viewerStaffRoster } from '@/lib/auth/store-scope'
 import { getBusinessAiPersona, resolvePersonaTokens } from '@/lib/karute/business-ai-tokens'
 import type { Capability } from '@/lib/auth/permissions'
@@ -97,8 +98,11 @@ export default async function SettingsPage({
   const canViewAllStores = caps.has('stores.viewAll')
   const canManageStaff = caps.has('staff.manage')
   const canInviteStaff = caps.has('staff.invite')
-  // 監査ログ: owner always; a manager only via the explicit audit.view grant.
-  const canViewAudit = isOwner || caps.has('audit.view')
+  // 監査ログ: audit.view AND stores.viewAll (PR B2 §4, canReadAuditLog) — the
+  // SAME predicate the read boundary enforces, so a viewer who sees this
+  // section never then hits `forbidden` opening it. Audit rows carry no
+  // store yet (⚖ 8/17 STORE ISOLATION LAW), so audit.view alone isn't enough.
+  const canViewAudit = canReadAuditLog(caps)
   // 予約同期: owner always; a manager only via the explicit sync.view grant —
   // same posture as canViewAudit (PR-M2 fix round: the tab had no filter at
   // all, so every non-owner staff could open it and hit a 403 from the

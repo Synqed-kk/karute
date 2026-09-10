@@ -84,7 +84,11 @@ function coreEvent(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks()
-  getMyCapabilities.mockImplementation(async () => new Set(['audit.view']))
+  // PR B2 §4: the read gate is audit.view AND stores.viewAll now — the
+  // default fixture carries both so every OTHER test in this file (feed
+  // filtering, paging, the privacy row) keeps exercising what it always
+  // tested. The authz describe block below overrides this per case.
+  getMyCapabilities.mockImplementation(async () => new Set(['audit.view', 'stores.viewAll']))
   newSynqedClient.mockImplementation(() => ({ audit: mockAudit() }))
   list.mockImplementation(async () => ({
     events: [coreEvent()],
@@ -101,6 +105,24 @@ describe('listAuditLog — authz', () => {
     expect(res).toEqual({ ok: false, error: 'forbidden' })
     expect(list).not.toHaveBeenCalled()
     expect(audit).not.toHaveBeenCalled()
+  })
+
+  // PR B2 §4 (⚖ 8/17 STORE ISOLATION LAW): audit.view ALONE is no longer
+  // enough — rows carry no store yet, so a branch-restricted audit.view
+  // holder must not read every store's log.
+  it('denies with audit.view but WITHOUT stores.viewAll (store isolation law) and never queries core', async () => {
+    getMyCapabilities.mockImplementation(async () => new Set(['audit.view']))
+    const res = await listAuditLog({})
+    expect(res).toEqual({ ok: false, error: 'forbidden' })
+    expect(list).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it('allows with BOTH audit.view and stores.viewAll', async () => {
+    getMyCapabilities.mockImplementation(async () => new Set(['audit.view', 'stores.viewAll']))
+    const res = await listAuditLog({})
+    expect(res.ok).toBe(true)
+    expect(list).toHaveBeenCalled()
   })
 })
 
