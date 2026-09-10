@@ -1266,8 +1266,37 @@ describe('listAuditLog — ③ severity:"warnings" virtual filter (round-2 packe
     await listAuditLog({ severity: 'warnings' })
     const crit = criticalCalls()
     expect(crit).toHaveLength(1)
+    // R2 (round-2 line-audit): exclude_views must ride the critical read too
+    // — includeViews defaults to false here, so exclude_views is true.
     expect(crit[0][0]).toEqual(
-      expect.objectContaining({ severity: 'critical', page: 1, page_size: 100 }),
+      expect.objectContaining({
+        severity: 'critical',
+        page: 1,
+        page_size: 100,
+        exclude_views: true,
+      }),
+    )
+  })
+
+  it('the critical read carries exclude_views: undefined when includeViews is true (R2)', async () => {
+    list.mockImplementation(async (opts: ProbeOpts) => {
+      if (opts.page_size === 100 && opts.severity === 'warn')
+        return { events: [coreEvent({ severity: 'warn' })], total: 1, page: 1, page_size: 100 }
+      if (opts.page_size === 100 && opts.severity === 'critical')
+        return { events: [], total: 0, page: 1, page_size: 100 }
+      if (opts.break_glass) return { events: [], total: 0, page: 1, page_size: 1 }
+      throw new Error('unexpected probe call: ' + JSON.stringify(opts))
+    })
+    await listAuditLog({ severity: 'warnings', includeViews: true })
+    const crit = criticalCalls()
+    expect(crit).toHaveLength(1)
+    expect(crit[0][0]).toEqual(
+      expect.objectContaining({
+        severity: 'critical',
+        page: 1,
+        page_size: 100,
+        exclude_views: undefined,
+      }),
     )
   })
 
