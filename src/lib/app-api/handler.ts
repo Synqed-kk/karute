@@ -14,6 +14,7 @@ import { corsHeaders, preflightResponse } from './cors'
 import { AppApiError, toAppApiError, errorBody } from './errors'
 import { resolveBearerIdentity, type RequestIdentity } from './identity'
 import { audit, FACADE_AUDIT_MAP, type FacadeEndpointKey } from '@/lib/audit'
+import { withRequestId } from '@/lib/observability/request-context'
 import type { VerifierConfig } from '@/lib/auth/verify-bearer'
 import type { GetUserFn } from '@/lib/auth/revocation'
 
@@ -133,29 +134,35 @@ export function facadeHandler<P = Record<string, string>>(
 
     if (req.method === 'OPTIONS') return preflightResponse(origin)
 
-    try {
-      const identity = await resolveBearerIdentity(req, endpoint, deps)
-      const ctx: FacadeContext<P> = { req, identity, origin, route, meta }
-      const res = await fn(ctx)
-      await logFacadeAudit(
-        endpoint,
-        res,
-        identity,
-        route,
-        meta,
-        clientRequestId,
-        ctx.auditDetail,
-        ctx.auditStoreId,
-        ctx.auditTargetId,
-        ctx.auditSuppress,
-        ctx.auditSeverity,
-      )
-      return res
-    } catch (err) {
-      const apiErr = toAppApiError(err)
-      logFacadeError(endpoint, apiErr, meta)
-      return jsonResponse(errorBody(apiErr), apiErr.status, origin, requestId)
-    }
+    // The SERVER mint becomes the ambient id for everything this request
+    // awaits, so outbound core calls carry it as x-request-id and both halves
+    // of the stack log the same key. Wraps the whole try/catch: a request that
+    // FAILS is the one most in need of correlation.
+    return withRequestId(requestId, async () => {
+      try {
+        const identity = await resolveBearerIdentity(req, endpoint, deps)
+        const ctx: FacadeContext<P> = { req, identity, origin, route, meta }
+        const res = await fn(ctx)
+        await logFacadeAudit(
+          endpoint,
+          res,
+          identity,
+          route,
+          meta,
+          clientRequestId,
+          ctx.auditDetail,
+          ctx.auditStoreId,
+          ctx.auditTargetId,
+          ctx.auditSuppress,
+          ctx.auditSeverity,
+        )
+        return res
+      } catch (err) {
+        const apiErr = toAppApiError(err)
+        logFacadeError(endpoint, apiErr, meta)
+        return jsonResponse(errorBody(apiErr), apiErr.status, origin, requestId)
+      }
+    })
   }
 }
 

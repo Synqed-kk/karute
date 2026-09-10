@@ -1,5 +1,6 @@
 import { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId, getCurrentAccessToken } from '@/lib/staff'
+import { getRequestId } from '@/lib/observability/request-context'
 
 function headersToRecord(headers?: HeadersInit): Record<string, string> {
   if (!headers) return {}
@@ -16,15 +17,21 @@ class ActorSynqedClient extends SynqedClient {
     super(config)
   }
 
+  /** Attaches the actor bearer token and the correlation id.
+   *
+   *  x-request-id is the link between Karute's audit rows and core's logs.
+   *  Core echoes it back and stamps it on its own lines, so one id spans the
+   *  stack. Outside a request (cron, script, test) there is no ambient id and
+   *  no header is sent — core mints its own. */
   private withActorHeaders<T extends { headers?: HeadersInit }>(init?: T): T | undefined {
-    if (!this.accessToken) return init
-    return {
-      ...init,
-      headers: {
-        ...headersToRecord(init?.headers),
-        Authorization: `Bearer ${this.accessToken}`,
-      },
-    } as unknown as T
+    const requestId = getRequestId()
+    if (!this.accessToken && !requestId) return init
+
+    const headers: Record<string, string> = headersToRecord(init?.headers)
+    if (this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`
+    if (requestId) headers['x-request-id'] = requestId
+
+    return { ...init, headers } as unknown as T
   }
 
   override fetch<T>(path: string, init?: RequestInit): Promise<T> {
