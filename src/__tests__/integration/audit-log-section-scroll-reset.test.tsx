@@ -99,7 +99,7 @@ describe('AuditLogSection — filter-change scroll reset (#595 mechanism)', () =
     expect(container.scrollTop).toBe(250)
   })
 
-  it('the 警告 tile (③ round-2: a server filter now) also resets scroll', async () => {
+  it('the 警告 tile (a server filter) also resets scroll', async () => {
     listAuditLog.mockResolvedValue(
       page({ events: [coreEvent({ severity: 'warn' })], warningsTotal: 1, changesTotal: 0 }),
     )
@@ -110,8 +110,8 @@ describe('AuditLogSection — filter-change scroll reset (#595 mechanism)', () =
     fireEvent.click(screen.getByText('statsWarnings'))
 
     expect(container.scrollTop).toBe(0)
-    // ③ round-2: warnOnly now joins load()'s deps (a server filter, not the
-    // old client-side lens), so tapping the tile fires a SECOND call.
+    // G2 (round-4): lens joins load()'s deps (a server filter), so tapping
+    // the tile fires a SECOND call.
     await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
   })
 })

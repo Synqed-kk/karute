@@ -54,9 +54,11 @@ function coreEvent(overrides: Record<string, unknown> = {}) {
   }
 }
 
-// The three strip tiles (changes/warnings/breakGlass) all share this class —
-// DOM order matches source order, so index into it rather than matching by
-// text (the count + approx '+' render as adjacent text nodes in one span).
+// The strip tiles (changes/warnings/[重大 chip, only when it renders]/
+// breakGlass) all share this class — DOM order matches source order, so
+// index into it rather than matching by text (the count + approx '+' render
+// as adjacent text nodes in one span). The 重大 chip is conditional (G2,
+// round-4) — tests that never render it keep the original 3-index shape.
 function statSpans(container: HTMLElement) {
   return Array.from(container.querySelectorAll('.tabular-nums')).map((n) => n.textContent)
 }
@@ -368,12 +370,11 @@ describe('AuditLogSection — karute.entry_edit labeling (W2 one-sheet §4)', ()
   })
 })
 
-// Round-2 packet ③: warnOnly is now a SERVER filter, not the old client-side
-// re-filter lens — tapping the tile must send severity:'warnings' to
-// listAuditLog, and whatever the server returns must render AS-IS (proving
-// there's no second, client-side severity filter still sitting on top).
-describe('AuditLogSection — ③ round-2: warnOnly is a server filter, not a client lens', () => {
-  it('tapping 警告 sends severity:"warnings" and renders the server response unfiltered', async () => {
+// G2 (round-4 line-audit): lens is a real SERVER filter (severity 'warn' or
+// 'critical', straight through to core) — no client-side re-filter, no
+// merge, no group. Each tile shows exactly what its tap opens.
+describe('AuditLogSection — G2 round-4: two single-severity feeds + 重大 chip', () => {
+  it('tapping 警告 sends severity:"warn" (never the deleted virtual "warnings") and renders the server response unfiltered (mutant pin g3)', async () => {
     listAuditLog.mockResolvedValue({
       ok: true,
       events: [coreEvent()],
@@ -383,13 +384,14 @@ describe('AuditLogSection — ③ round-2: warnOnly is a server filter, not a cl
       breakGlassTotal: 0,
       warningsTotal: 0,
       changesTotal: 1,
+      criticalTotal: 0,
       targetLabels: {},
     })
     const { container, getByText } = render(<AuditLogSection staffList={[]} />)
     await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
 
     // The next response carries an INFO-severity row — a real server would
-    // never return one under severity:'warnings', but the mock proves the
+    // never return one under severity:'warn', but the mock proves the
     // component has no client-side severity re-filter of its own: if it did,
     // this row would be filtered back out of the DOM.
     listAuditLog.mockResolvedValue({
@@ -401,71 +403,101 @@ describe('AuditLogSection — ③ round-2: warnOnly is a server filter, not a cl
       breakGlassTotal: 0,
       warningsTotal: 0,
       changesTotal: 0,
+      criticalTotal: 0,
       targetLabels: {},
     })
     fireEvent.click(getByText('statsWarnings'))
 
     await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
-    expect(listAuditLog).toHaveBeenLastCalledWith(
-      expect.objectContaining({ severity: 'warnings' }),
-    )
+    expect(listAuditLog).toHaveBeenLastCalledWith(expect.objectContaining({ severity: 'warn' }))
     await waitFor(() => expect(container.querySelectorAll('li')).toHaveLength(1))
   })
-})
 
-// G1 (round-3 line-audit): the critical half no longer merges into `events`
-// — it renders as its own group ABOVE the day groups, never interleaved, so
-// paging can never misorder them.
-describe('AuditLogSection — G1 round-3: criticalEvents render as their own group above the day groups', () => {
-  // Both the criticalGroup header and each day-group header share this exact
-  // class string (AuditLogSection.tsx) — querySelectorAll returns them in
-  // DOM order, so index 0 being the critical group proves it renders ABOVE
-  // the day groups (a mutant that swaps the two blocks' order fails here).
-  const HEADER_SELECTOR = '.mb-2.flex.items-baseline'
-
-  it('with warnOnly and two critical rows, the criticalGroup header renders above the day header; warn rows keep their day groups', async () => {
+  it('the 重大 chip renders when criticalTotal > 0, and tapping it sends severity:"critical"', async () => {
     listAuditLog.mockResolvedValue({
       ok: true,
-      events: [coreEvent({ id: 'info-1', severity: 'info' })],
+      events: [coreEvent()],
       total: 1,
       page: 1,
       hasMore: false,
       breakGlassTotal: 0,
       warningsTotal: 0,
       changesTotal: 1,
+      criticalTotal: 3,
       targetLabels: {},
     })
-    const { container, getByText } = render(<AuditLogSection staffList={[]} />)
-    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+    const { getByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(getByText('statsCritical')).toBeInTheDocument())
 
     listAuditLog.mockResolvedValue({
       ok: true,
-      events: [coreEvent({ id: 'w-1', severity: 'warn' })],
+      events: [coreEvent({ id: 'c-1', severity: 'critical' })],
       total: 1,
       page: 1,
       hasMore: false,
       breakGlassTotal: 0,
-      warningsTotal: 1,
+      warningsTotal: 0,
       changesTotal: 0,
+      criticalTotal: 3,
       targetLabels: {},
-      criticalEvents: [
-        coreEvent({ id: 'c-1', severity: 'critical' }),
-        coreEvent({ id: 'c-2', severity: 'critical' }),
-      ],
     })
-    fireEvent.click(getByText('statsWarnings'))
+    fireEvent.click(getByText('statsCritical'))
 
     await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
-    await waitFor(() => expect(getByText('criticalGroup')).toBeInTheDocument())
-
-    const headers = container.querySelectorAll(HEADER_SELECTOR)
-    expect(headers).toHaveLength(2)
-    expect(headers[0].textContent).toContain('criticalGroup')
-    // 2 critical rows (above) + 1 warn row (its own day group, below).
-    expect(container.querySelectorAll('li')).toHaveLength(3)
+    expect(listAuditLog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ severity: 'critical' }),
+    )
   })
 
-  it('zero critical rows → no criticalGroup header renders', async () => {
+  it('the 重大 chip stays hidden when criticalTotal is 0 — never shown on a zero count (mutant pin g4)', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [coreEvent()],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 1,
+      criticalTotal: 0,
+      targetLabels: {},
+    })
+    const { queryByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalled())
+    expect(queryByText('statsCritical')).toBeNull()
+  })
+
+  it('probes degraded (both totals null) → the 警告 tile and 重大 chip count their OWN severity only — a critical row never inflates the 警告 tile (mutant pin g5)', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [
+        coreEvent({ id: 'w-1', severity: 'warn' }),
+        coreEvent({ id: 'w-2', severity: 'warn' }),
+        coreEvent({ id: 'c-1', severity: 'critical' }),
+      ],
+      total: 3,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: null,
+      changesTotal: null,
+      criticalTotal: null,
+      targetLabels: {},
+    })
+    const { container } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => {
+      // The strip tiles render before the day rows, so indices 0-3 are
+      // stable regardless of how many row timestamps (same .tabular-nums
+      // class) follow them in the DOM.
+      const spans = statSpans(container)
+      expect(spans[0]).toBe('0') // changes
+      expect(spans[1]).toBe('2') // warnings — warn rows only
+      expect(spans[2]).toBe('1') // 重大 chip — critical rows only
+      expect(spans[3]).toBe('0') // breakGlass
+    })
+  })
+
+  it('no 「重大な記録」 group exists anywhere — a stale-shaped response (old criticalEvents field) is never read', async () => {
     listAuditLog.mockResolvedValue({
       ok: true,
       events: [coreEvent({ id: 'w-1', severity: 'warn' })],
@@ -475,20 +507,21 @@ describe('AuditLogSection — G1 round-3: criticalEvents render as their own gro
       breakGlassTotal: 0,
       warningsTotal: 1,
       changesTotal: 0,
+      criticalTotal: 2,
+      // Defensive: an old/stray field must never resurrect the deleted
+      // merge/group — the component doesn't read this key at all.
+      criticalEvents: [coreEvent({ id: 'c-1', severity: 'critical' })],
       targetLabels: {},
-      criticalEvents: [],
     })
-    const { container, getByText, queryByText } = render(<AuditLogSection staffList={[]} />)
+    const { container, queryByText } = render(<AuditLogSection staffList={[]} />)
     await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
-    fireEvent.click(getByText('statsWarnings'))
-
-    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
-    await waitFor(() => expect(container.querySelectorAll('li')).toHaveLength(1))
     expect(queryByText('criticalGroup')).toBeNull()
-    expect(container.querySelectorAll(HEADER_SELECTOR)).toHaveLength(1)
+    // ONE day-group header only — the day groups render whichever single
+    // feed load() fetched, never a second group above them.
+    expect(container.querySelectorAll('.mb-2.flex.items-baseline')).toHaveLength(1)
+    expect(container.querySelectorAll('li')).toHaveLength(1)
   })
 })
-
 // Round-2 packet ④: a filtered page that comes back empty used to render a
 // blank screen (the empty card was suppressed while hasMore, leaving only
 // さらに読み込む on nothing) — now it always shows a message, worded by
