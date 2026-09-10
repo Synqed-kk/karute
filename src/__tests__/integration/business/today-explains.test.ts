@@ -796,6 +796,8 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
       word: '満室',
       sentence: '13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）が使用中です',
       cue: { kind: 'bed', label: ['満室'] },
+      mark: null,
+      wordReason: 'bed',
     })
     // …and a chip of any other class never grew a room answer, so it can never
     // wear a room word.
@@ -809,7 +811,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // The engine judged the whole board, so the chip is `bed`; the sentence is
     // asked with `handId` lifted out, which is the booking in the way — case (a).
     const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
-    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)).toEqual({ word: null, sentence: expect.any(String), cue: null })
+    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)).toEqual({ word: null, wordReason: null, sentence: expect.any(String), cue: null, mark: null })
     expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)!.sentence).not.toContain('ベッド1（見本 かえる様')
   })
 
@@ -896,9 +898,15 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
 
   it('the word, the dot and the hatch are all read off the same `word`', () => {
     // The chip prints the word instead of the bare 「—」…
-    expect(SRC).toContain('<i>{word ?? label}</i>')
-    // …the dot rides `data-reason`, which is set from that SAME value…
-    expect(SRC).toContain('data-reason={word ? (c.reason ?? undefined) : undefined}')
+    // ⚖ LIAM RULING 3 (2026-09-09) — …or the 「moves someone」 face, which is the
+    // same one value read one step earlier: `face` is composed from the mark and
+    // the word together, so there is still exactly ONE expression deciding what
+    // this chip says.
+    expect(SRC).toContain('const face = mark ? `⇄${hhmm(c.start)}` : (word ?? label)')
+    expect(SRC).toContain('<i>{face}</i>')
+    // …the dot rides `data-reason`, which is set from that SAME value — and it
+    // stands down on a marked chip, which is not a refusal and carries no dot.
+    expect(SRC).toContain('data-reason={!v && !mark ? (explained?.wordReason ?? undefined) : undefined}')
     // …and the hatch starts from the same filter, now inside `restCueStarts`
     // (⚖ flag 88): the SOURCE of all three is still one value, and what the
     // helper adds is a narrowing of the PAINT, never a second reading of the
@@ -918,7 +926,12 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // from the committed mask. Idle they coincide; mid-gesture they diverge, and
     // the divergence paints flag 88's artifact. `heldHere` is that committed
     // list, already in hand one line above in the renderer.
-    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere)')
+    // ⚖ FLAG 88, WHOLE (2026-09-09) — a FIFTH argument, and the same narrowing
+    // for the same reason: ruling 1 puts the word on half hours the engine
+    // refused for their POCKET, which are exactly the ones with a card, a break
+    // or an absence drawn across them. The chip keeps its word; the LANE keeps
+    // 「empty track only」. Nothing about 「one source, three faces」 moved.
+    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items)')
     // ⚖ LIAM RULING 1 (2026-09-09) — the filter is the CUE now. The source of
     // the three faces is still ONE value per chip: `railExplain` decides the
     // word and the mark together, in one return, so they cannot drift apart —
@@ -1127,9 +1140,24 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
   })
 
   it('the tour sentence teaches the third face — flag 25c’s one-sentence precedent', () => {
-    const guide = SRC.slice(SRC.indexOf("'data-guide':"), SRC.indexOf("'data-guide':") + 1400)
+    // ⚖ GUIDED-TOUR LAW (2026-09-09) — the window grew with the sentence. Two
+    // sentences were added under Liam's rulings 1 and 2 (満室 is about the half
+    // hour; the hatch carries words, and appears on a placeable half hour whose
+    // bed is sold on another row), and the last of the pinned phrases now sits
+    // 1521 characters past the key. The window is a REACH, not a budget — what
+    // it exists to stop is prose pushing the sentence out of sight, and every
+    // phrase below is still asserted inside it.
+    const guide = SRC.slice(SRC.indexOf("'data-guide':"), SRC.indexOf("'data-guide':") + 1800)
     expect(guide).toContain('どのコマも押すと、何時から何時までを判定したかと、その理由を表示します')
     expect(guide).toContain('薄い斜線')
+    // ⚖ RULING 1 (2026-09-09) — the 満室 change is DECLARED, in the tour's own
+    // words: it is about the 30 minutes, not about whether the session fits.
+    expect(guide).toContain(`「満室」はその30分にベッドの空きがないという意味で、\${railDur}分の予約が置けるかどうかとは関係なく付きます`)
+    // ⚖ RULING 2 (2026-09-09) — the quiet-hour mark's own sentence is NOT here.
+    // The tour may only teach what the board can do, and ruling 2's mark needs
+    // the ledger's bed door to be honest about itself; the sentence arrives with
+    // that door, in its own slice. Pinned dead so it cannot drift in early.
+    expect(guide).not.toContain('そちらで販売中のため空いている30分')
     // ⚖ LIAM RULING (2026-08-30) — the tour quotes the chips' OWN labels, so the
     // guard one moved with the chip. Bare 「新規」 is pinned dead in the quoted
     // list: a tour that teaches a word the board no longer wears is worse than

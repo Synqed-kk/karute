@@ -1646,7 +1646,10 @@ describe('7 — the fix round: the publication boundary', () => {
     // The screen hands it `heldHere`, which is the committed list the chip on
     // the line above is drawn from…
     const screen = SRC('TodayScreen.tsx')
-    expect(screen).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere)')
+    // ⚖ FLAG 88, WHOLE (2026-09-09) — a FIFTH argument, the lane's own drawn
+    // cards. What F5 is about is untouched: `heldHere` is still the COMMITTED
+    // list the chip above the cue is drawn from, in the same position.
+    expect(screen).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items)')
     // …and the board world's per-lane index is GONE, not merely unused: a second
     // held index on this screen is how the two worlds get mixed again.
     expect(screen).not.toContain('heldByLane')

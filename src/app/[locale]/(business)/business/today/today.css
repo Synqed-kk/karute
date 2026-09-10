@@ -906,6 +906,15 @@
    cursor sweep is R8's; this is the rail's own half, and it is here because the
    press it advertises exists.) */
 .biz .guard-rail-cell.blocked { border: 1px solid #e0e0e5; background: #f2f2f4; color: #8a8a93; cursor: pointer; }
+/* ⚖ LIAM RULING 3 (2026-09-09) — 「a start that fits only by MOVING someone」.
+   NO NEW COLOUR: the chip wears `guard-slot` or `degraded` by the verdict the
+   drop will give once the shuffle is staged, so the 帯's own ✓／△ vocabulary
+   carries the meaning unchanged (Liam: 「色の意味は ✓／△ と同じ」). The one
+   thing that differs is the EDGE — dashed, because the fit is conditional on
+   the board rearranging itself — and it is `border-style` alone so each palette
+   keeps its own 1px border colour. No 3px dot: the dot rides `data-reason`, and
+   this chip is not a refusal. */
+.biz .guard-rail-cell.reseat { border-style: dashed; }
 /* ⚖ flag 44 (1)+(2) — THE ENTIRE REST BUDGET: a 10px word and a 3px dot.
    ⚖ big-tech simplicity — calm at rest, explanation on demand. No new colour on
    either: the word is the blocked family's own grey (`currentColor`, #8a8a93)
@@ -975,6 +984,11 @@
 .biz .guard-band .degraded-key::before { border-color: #cf8427; background: #fff0d9; }
 .biz .guard-band .blocked-key { color: #686871; }
 .biz .guard-band .blocked-key::before { border-color: #d7d7dc; background: #f2f2f4; }
+/* ⚖ LIAM RULING 3 (2026-09-09) — the ⇄ key's own swatch: the ✓ purple with the
+   chip's own dashed edge, so the band shows the reader the exact mark the strip
+   draws. No new colour — the tone decides purple or amber on the chip, and the
+   key says so in words rather than painting a second swatch for it. */
+.biz .guard-band .reseat-key::before { border-style: dashed; }
 .biz .guard-band .protected-key { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 7px; background: var(--guard-soft); color: var(--guard-dark); font-weight: 800; }
 .biz .guard-band .guard-band-note { font-weight: 500; color: var(--ink-2); }
 /* ⚖ fresh-eyes finding 8/30, Fable default (overturnable) — a guard-off store
