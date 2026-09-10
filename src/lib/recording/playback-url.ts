@@ -137,6 +137,7 @@ export async function mintPlaybackUrlWithClient(
     staff_id?: string | null
     store_id?: string | null
     recording_session_id?: string | null
+    customer_id?: string | null
   }
   try {
     karute = await synqed.karuteRecords.get(input.karuteId)
@@ -314,7 +315,17 @@ export async function mintPlaybackUrlWithClient(
     // says the bytes signed were the nightly job's rebuild rather than the
     // device's own take — which is what makes a shorter-than-expected listen
     // explainable afterwards without putting a storage path in an audit row.
-    detail: { karute_id: input.karuteId, ttl_s: PLAYBACK_URL_TTL_S, rescued: resolved.rescued },
+    detail: {
+      karute_id: input.karuteId,
+      ttl_s: PLAYBACK_URL_TTL_S,
+      rescued: resolved.rescued,
+      // customer_id/staff_id (2026-09-10 widen, §v2): off the karute row
+      // already fetched above — never a second lookup. staff_id is the
+      // TRANSLATED owner id (ownerStaffId, same id space the ACL compare and
+      // the roster resolver use), not the raw core staff card id.
+      ...(karute.customer_id ? { customer_id: karute.customer_id } : {}),
+      ...(ownerStaffId ? { staff_id: ownerStaffId } : {}),
+    },
     requestId: actor.requestId,
     source: actor.source,
   })

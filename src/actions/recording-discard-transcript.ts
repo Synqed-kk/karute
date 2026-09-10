@@ -476,6 +476,8 @@ export async function transcribeAndPersistDiscardWithClient(
         businessId: actor.businessId,
         door: 'discard',
         recordingSessionId: input.recordingSessionId,
+        customerId: recording?.customer_id ?? null,
+        staffId,
         takeId: parsedAudio && 'takeId' in parsedAudio ? parsedAudio.takeId : null,
       },
       {

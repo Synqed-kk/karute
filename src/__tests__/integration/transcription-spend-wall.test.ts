@@ -324,6 +324,8 @@ import { estimateTranscriptionCostCents } from '@/lib/ai-rate-limit'
 import { AI_SPEND_LIMIT } from '@/lib/recording/job-errors'
 import { POST as webTranscribePOST } from '@/app/api/ai/transcribe/route'
 import { POST as facadeTranscribePOST } from '@/app/api/app/v1/ai/transcribe/route'
+import { getCurrentUserStaffId } from '@/lib/staff'
+import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { conformingKey, rescueKey } from './helpers/recording-key-fixtures'
 
 const OWN_KEY = conformingKey('biz-1')
@@ -438,6 +440,8 @@ describe('the job worker — the phone’s normal save path', () => {
         cost_used_cents: 3000,
         cost_cap_cents: 3000,
         recording_session_id: 'sess-1',
+        customer_id: 'cust-1',
+        staff_id: 'staff-1',
       },
     })
   })
@@ -477,6 +481,8 @@ describe('the job worker — the phone’s normal save path', () => {
         cents_reserved: 45,
         debit_recorded: true,
         recording_session_id: 'sess-1',
+        customer_id: 'cust-1',
+        staff_id: 'staff-1',
         attempt: 1,
         rescued: false,
       },
@@ -740,7 +746,11 @@ describe('the discard-words door', () => {
     expect(recordUsage).not.toHaveBeenCalled()
     expect(upsertSegments).not.toHaveBeenCalled()
     expect(rows('recording.transcribe_refused')).toHaveLength(1)
-    expect(rows('recording.transcribe_refused')[0].detail).toMatchObject({ door: 'discard' })
+    expect(rows('recording.transcribe_refused')[0].detail).toMatchObject({
+      door: 'discard',
+      customer_id: 'cust-1',
+      staff_id: 'staff-A',
+    })
   })
 
   it('allowed → the words land, the minutes are debited once, and ONE receipt says door discard', async () => {
@@ -758,6 +768,8 @@ describe('the discard-words door', () => {
       cost_cents: 45,
       cents_reserved: 45,
       recording_session_id: 'sess-1',
+      customer_id: 'cust-1',
+      staff_id: 'staff-A',
     })
   })
 })
@@ -829,6 +841,25 @@ describe('the web route (cookie door)', () => {
     // This door carries no recording session, so the row names none rather
     // than inventing one.
     expect(refusals[0].targetId).toBeUndefined()
+    // This door has no customer in scope either (a raw upload, no session
+    // binding) — the meter was never given one, so the row omits the key
+    // rather than writing null.
+    expect(refusals[0].detail).not.toHaveProperty('customer_id')
+    // §v2 (2026-09-10 widen) — no signed-in staffer on this mock (the default
+    // getCurrentUserStaffId() below resolves null) → the key is omitted too.
+    expect(refusals[0].detail).not.toHaveProperty('staff_id')
+  })
+
+  it('t7 refused, signed in → the wrapper carries staff_id (already resolved for the reference)', async () => {
+    ;(getCurrentUserStaffId as jest.Mock).mockResolvedValueOnce('staff-web-1')
+    consume.mockResolvedValueOnce(REFUSED)
+
+    await webTranscribePOST(
+      post({ audioUrl: 'https://test-local.supabase.co/storage/audio.webm', locale: 'ja' }),
+    )
+
+    const refusals = rows('recording.transcribe_refused')
+    expect(refusals[0].detail).toMatchObject({ staff_id: 'staff-web-1' })
   })
 
   it('t7 the route files ONE receipt, carrying the numbers the meter debited AND whether it landed', async () => {
@@ -857,6 +888,25 @@ describe('the web route (cookie door)', () => {
     // …and the receipt is SERVER-SIDE ONLY: the client's body is the provider's,
     // unchanged, with no accounting field bolted onto it.
     expect(Object.keys(await res.json()).sort()).toEqual(['confidence', 'durationSec', 'transcript'])
+  })
+
+  // G1 (Greptile 4/5, fix round 2): the wrapper stays silent for this door, so
+  // the SUCCESS row above only ever carried the four receipt fields — never
+  // staff_id, even though the refusal row (t7 above) already does. The route
+  // already holds the id (the same meter.staffId the refusal row reads); this
+  // proves the success row carries it too.
+  it('g1 signed in → the success row carries staff_id (already resolved for the reference)', async () => {
+    ;(getCurrentUserStaffId as jest.Mock).mockResolvedValueOnce('staff-web-1')
+
+    await webTranscribePOST(
+      post({ audioUrl: 'https://test-local.supabase.co/storage/audio.webm', locale: 'ja' }),
+    )
+
+    const detail = (auditWeb as jest.Mock).mock.calls[0][0].detail as Record<string, unknown>
+    expect(detail).toMatchObject({ staff_id: 'staff-web-1' })
+    // This door has no customer in scope (a raw upload, no session binding) —
+    // never invented, never null.
+    expect(detail).not.toHaveProperty('customer_id')
   })
 
   it('t8 the true-up is lost → the route’s OWN row says so (debit_recorded false), and the caller still gets its words', async () => {
@@ -946,6 +996,22 @@ describe('the facade route (Bearer door)', () => {
         cost_cap_cents: 3000,
       },
     })
+    // The facade route names a storage path, never a customer — the meter
+    // was never given one, so the row omits the key rather than null.
+    expect(refusals[0].detail).not.toHaveProperty('customer_id')
+    // §v2 (2026-09-10 widen) — this mock's resolveSelfStaffId() resolves null
+    // by default → the key is omitted too.
+    expect(refusals[0].detail).not.toHaveProperty('staff_id')
+  })
+
+  it('t7 refused, resolved caller → the wrapper carries staff_id (already resolved for the reference)', async () => {
+    ;(resolveSelfStaffId as jest.Mock).mockResolvedValueOnce('staff-app-1')
+    consume.mockResolvedValueOnce(REFUSED)
+
+    await facadeTranscribePOST(post(), noRoute)
+
+    const refusals = rows('recording.transcribe_refused')
+    expect(refusals[0].detail).toMatchObject({ staff_id: 'staff-app-1' })
   })
 
   it('the ledger will not take the reserve → 502, and the row says ledger_unavailable', async () => {
@@ -991,6 +1057,23 @@ describe('the facade route (Bearer door)', () => {
     // A landed debit is an ordinary row (fix round 3 — same default as every
     // other route the hook serves).
     expect(receipts[0].severity).toBeUndefined()
+  })
+
+  // G1 (Greptile 4/5, fix round 2): same claim as the web door's g1 test above
+  // — the hook's success row only ever carried the four receipt fields, never
+  // staff_id, though the refusal row (t7 above) already does. selfStaffId is
+  // already resolved for the voice reference; no new lookup.
+  it('g1 resolved caller → the hook’s success row carries staff_id (already resolved for the reference)', async () => {
+    ;(resolveSelfStaffId as jest.Mock).mockResolvedValueOnce('staff-app-1')
+
+    const res = await facadeTranscribePOST(post(), noRoute)
+
+    expect(res.status).toBe(200)
+    const receipts = rows('recording.transcribe')
+    expect(receipts).toHaveLength(1)
+    expect(receipts[0].detail).toMatchObject({ staff_id: 'staff-app-1' })
+    // This door names a storage path, never a customer — never invented.
+    expect(receipts[0].detail).not.toHaveProperty('customer_id')
   })
 
   it('t8 the true-up is lost → the hook’s OWN row is severity warning too (fix round 3)', async () => {

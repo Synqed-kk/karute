@@ -373,17 +373,17 @@ async function findPriorReceipt(
         page: 1,
         page_size: 50,
       })
-      const rows = (res?.events ?? []) as { id?: unknown; action?: unknown; detail?: unknown }[]
+      const rows = (res?.events ?? []) as { id?: unknown; action?: unknown; request_id?: unknown }[]
       const hit = rows.find((r) => r.action === 'recording.discard')
       if (!hit) continue
-      const detailRequestId = (hit.detail as { request_id?: unknown } | null)?.request_id
+      const fallbackRequestId = hit.request_id
       return {
         found: true,
         receiptId:
           typeof hit.id === 'string'
             ? hit.id
-            : typeof detailRequestId === 'string'
-              ? detailRequestId
+            : typeof fallbackRequestId === 'string'
+              ? fallbackRequestId
               : null,
       }
     } catch (err) {
@@ -449,7 +449,9 @@ async function writeDiscardReceipt(
       recording_session_id: data.recordingSessionId ?? null,
       take_id: data.takeId ?? null,
       staff_id: actor.staffId,
-      customer_id: data.customerId ?? null,
+      // customer_id (§v2, 2026-09-10 widen — fixed): a walk-in take has none,
+      // so this omits the key rather than writing null (⚖ 8/17 ids-only law).
+      ...(data.customerId ? { customer_id: data.customerId } : {}),
       appointment_id: data.appointmentId ?? null,
       category: data.source === 'SYSTEM' ? 'abandoned' : null,
       duration_sec: Math.round(data.durationSeconds),
@@ -479,6 +481,7 @@ async function writeDiscardReceipt(
   await stampRecordingDuration(synqed, data)
 
   // Core's row id when it hands one back, else the boundary-minted request id
-  // that rode into detail.request_id — either way the row is findable.
+  // that rode in the request_id column (⑦, 2026-09-10) — either way the row
+  // is findable.
   return { ok: true, receiptId: receipt.rowId ?? actor.requestId ?? null, duplicate: false }
 }

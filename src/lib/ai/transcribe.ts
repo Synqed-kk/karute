@@ -341,6 +341,10 @@ export interface TranscriptionMeter {
   businessId: string
   door: TranscriptionDoor
   recordingSessionId?: string | null
+  customerId?: string | null
+  /** §v2 (2026-09-10 widen) — the staffer this receipt is attributable to,
+   *  when the door already has one in scope (never a second lookup). */
+  staffId?: string | null
   takeId?: string | null
   /** The job's attempt number, so a repeating spend is visible in the log. */
   attempt?: number | null
@@ -408,6 +412,8 @@ function auditTranscriptionReceipt(
       door: meter.door,
       ...receipt,
       ...(meter.recordingSessionId ? { recording_session_id: meter.recordingSessionId } : {}),
+      ...(meter.customerId ? { customer_id: meter.customerId } : {}),
+      ...(meter.staffId ? { staff_id: meter.staffId } : {}),
       ...(meter.takeId ? { take_id: meter.takeId } : {}),
       ...(meter.attempt != null ? { attempt: meter.attempt } : {}),
       ...(meter.rescued != null ? { rescued: meter.rescued } : {}),
@@ -436,6 +442,8 @@ function auditTranscriptionRefused(meter: TranscriptionMeter, err: AppApiError):
       cost_used_cents: detailNumber(err.detail?.cost_used_cents),
       cost_cap_cents: detailNumber(err.detail?.cost_cap_cents),
       ...(meter.recordingSessionId ? { recording_session_id: meter.recordingSessionId } : {}),
+      ...(meter.customerId ? { customer_id: meter.customerId } : {}),
+      ...(meter.staffId ? { staff_id: meter.staffId } : {}),
     },
     requestId: meter.requestId,
     source: 'system',

@@ -93,11 +93,14 @@ export async function POST(request: Request) {
         ? null
         : await loadStaffReferenceForStaff(orgSettings, await getCurrentUserStaffId())
     // Both request-cached: getSynqedClient already resolved the business id, so
-    // this second read is the same lookup, not a second round-trip.
+    // this second read is the same lookup, not a second round-trip. Same for
+    // getCurrentUserStaffId() below (React cache(), same wrapper the
+    // reference read above already called) — never a second lookup.
     const meter = {
       synqed: await getSynqedClient(),
       businessId: await getBusinessId(),
       door: 'web' as const,
+      staffId: await getCurrentUserStaffId(),
     }
 
     if (contentType.includes('application/json')) {
@@ -123,11 +126,15 @@ export async function POST(request: Request) {
       // spend wall's numbers ride THIS row rather than a second one from the
       // meter: one call, one receipt. The receipt itself never leaves the
       // server — the client gets `body`, exactly as before.
+      // staff_id: meter.staffId, already resolved above for the voice
+      // reference — never a second lookup. This door has no customer in
+      // scope (a raw upload, no session binding), so the key is omitted
+      // rather than written null (§v2, matches the refusal row's rule).
       await auditWeb({
         category: 'recording',
         action: 'recording.transcribe',
         ...(receipt.debit_recorded ? {} : { severity: 'warning' as const }),
-        detail: { ...receipt },
+        detail: { ...receipt, ...(meter.staffId ? { staff_id: meter.staffId } : {}) },
         requestId: crypto.randomUUID(),
       })
       return NextResponse.json(body)
@@ -154,7 +161,7 @@ export async function POST(request: Request) {
       category: 'recording',
       action: 'recording.transcribe',
       ...(receipt.debit_recorded ? {} : { severity: 'warning' as const }),
-      detail: { ...receipt },
+      detail: { ...receipt, ...(meter.staffId ? { staff_id: meter.staffId } : {}) },
       requestId: crypto.randomUUID(),
     })
     return NextResponse.json(body)

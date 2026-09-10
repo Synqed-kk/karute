@@ -53,6 +53,7 @@ type Row = {
   id: string
   business_id: string
   staff_id: string
+  customer_id: string | null
   status: string
   audio_storage_path: string | null
   duration_seconds: number | null
@@ -68,6 +69,7 @@ const row = (over: Partial<Row> = {}): Row => ({
   id: SESSION,
   business_id: BIZ,
   staff_id: 'staff-1',
+  customer_id: 'cust-1',
   status: 'UPLOADING',
   audio_storage_path: KEY,
   duration_seconds: null,
@@ -155,6 +157,8 @@ describe('finalizeTakeWithClient — the happy path', () => {
       bytes: 1024,
       duration_seconds: 42,
       ext: 'webm',
+      customer_id: 'cust-1',
+      staff_id: 'staff-1',
       size_verified: true,
     })
     // ⚖ 8/17: the detail carries no free text at all.
@@ -167,6 +171,17 @@ describe('finalizeTakeWithClient — the happy path', () => {
     const [event] = auditFn.mock.calls[0] as [{ detail: Record<string, unknown> }]
     expect(event.detail.size_verified).toBe(false)
     expect(update).toHaveBeenCalled()
+  })
+
+  // §v2 (2026-09-10 widen) — customer_id rides off the Recording row when it
+  // has one; a walk-in take (no customer on the row) omits the key entirely,
+  // never a null.
+  it('a walk-in take (no customer on the row) → the receipt omits customer_id (absent, not null)', async () => {
+    get.mockResolvedValue(row({ customer_id: null }))
+    await finalizeTakeWithClient(synqed, actor(), input)
+    const [event] = auditFn.mock.calls[0] as [{ detail: Record<string, unknown> }]
+    expect(event.detail).not.toHaveProperty('customer_id')
+    expect(event.detail.staff_id).toBe('staff-1')
   })
 })
 
@@ -220,6 +235,8 @@ describe('finalizeTakeWithClient — only the row that RESERVED the key may fina
         row_take_id: OLD_TAKE,
         bytes: 1024,
         ext: 'webm',
+        customer_id: 'cust-1',
+        staff_id: 'staff-1',
         // ⚖ PR4 rider: FALSE, always, on this branch. The superseded row's key
         // is CLIENT-NAMED and this row does not point at it, so finalize never
         // asks storage about it (see the next test) — and a row that cannot
@@ -230,6 +247,18 @@ describe('finalizeTakeWithClient — only the row that RESERVED the key may fina
       })
     },
   )
+
+  // §v2 (2026-09-10 widen) — same omit-when-absent rule on the capture_unlinked
+  // row as the happy path's emitFinalized above (row.customer_id, never null).
+  it('a walk-in take (no customer on the row) → the capture_unlinked receipt omits customer_id (absent, not null)', async () => {
+    get.mockResolvedValue(
+      row({ status: 'PROCESSING', audio_storage_path: OLD_KEY, duration_seconds: 30, customer_id: null }),
+    )
+    await finalizeTakeWithClient(synqed, actor(), input)
+    const [event] = auditFn.mock.calls[0] as [{ detail: Record<string, unknown> }]
+    expect(event.detail).not.toHaveProperty('customer_id')
+    expect(event.detail.staff_id).toBe('staff-1')
+  })
 
   // ⚖ PR4 RIDER — NO EXISTENCE ORACLE FOR A CALLER-NAMED KEY. Fix round 7 (J4)
   // moved the probe AHEAD of capture_unlinked so an unlinked row could never

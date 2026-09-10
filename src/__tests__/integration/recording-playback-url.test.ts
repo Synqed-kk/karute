@@ -450,6 +450,7 @@ describe('mintPlaybackUrlWithClient — the device’s object first, the rescue 
       karute_id: KARUTE_ID,
       ttl_s: 3600,
       rescued: false,
+      staff_id: 'auth-user-1',
     })
   })
 
@@ -465,6 +466,7 @@ describe('mintPlaybackUrlWithClient — the device’s object first, the rescue 
       karute_id: KARUTE_ID,
       ttl_s: 3600,
       rescued: true,
+      staff_id: 'auth-user-1',
     })
   })
 
@@ -551,6 +553,39 @@ describe('mintPlaybackUrlWithClient — ONE row per mint (claim 4)', () => {
     KAR.current = { ...KAR.current, staff_id: null }
     const lines = await auditLines(() => mint({ staffId: 'anyone' }))
     expect(plays(lines)[0].break_glass).toBe(false)
+  })
+
+  // §v2 (2026-09-10 widen) — customer_id/staff_id ride in detail off the
+  // karute row already fetched. staff_id is the TRANSLATED owner id
+  // (ownerStaffId), the same id space the ACL/roster use — never the raw core
+  // staff card id.
+  it('the karute names a customer → detail.customer_id carries it', async () => {
+    KAR.current = { ...KAR.current, customer_id: 'cust-1' }
+    const lines = await auditLines(() => mint())
+    expect((plays(lines)[0].detail as Record<string, unknown>).customer_id).toBe('cust-1')
+  })
+
+  it('an ownerless record (no owning staffer) → detail omits staff_id (absent, not null)', async () => {
+    KAR.current = { ...KAR.current, staff_id: null }
+    const lines = await auditLines(() => mint({ staffId: 'anyone' }))
+    expect(plays(lines)[0].detail).not.toHaveProperty('staff_id')
+  })
+
+  // B2: a card-id-stamped owner (the Recorder-lock split above) must audit
+  // under the TRANSLATED profile id, never the raw core staff card id —
+  // proving it for the AUDIT RECORD, not just the ACL compare the existing
+  // "recorder hears her own take" test above already covers.
+  it('a card-id-stamped owner → detail.staff_id carries the TRANSLATED profile id, never the raw card id (B2)', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'staff-card-1' }
+    cardLookup.current = 'staff-profile-1'
+    const lines = await auditLines(() => mint({ staffId: 'staff-profile-1' }))
+    expect((plays(lines)[0].detail as Record<string, unknown>).staff_id).toBe('staff-profile-1')
+    expect((plays(lines)[0].detail as Record<string, unknown>).staff_id).not.toBe('staff-card-1')
+  })
+
+  it('a karute with no customer → detail omits customer_id (absent, not null)', async () => {
+    const lines = await auditLines(() => mint())
+    expect(plays(lines)[0].detail).not.toHaveProperty('customer_id')
   })
 
   // FIX ROUND 2 — a caller who is not on this roster has a null staffId, and an

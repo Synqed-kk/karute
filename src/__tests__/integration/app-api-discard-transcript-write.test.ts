@@ -545,6 +545,8 @@ describe('POST … — the staged shape (nothing transcribed yet)', () => {
         businessId: 'business-1',
         door: 'discard',
         recordingSessionId: 'rs-1',
+        customerId: 'cust-1',
+        staffId: 'card-auth-user-1',
         takeId: '11111111-2222-3333-4444-555555555555',
       }),
       {
@@ -595,6 +597,8 @@ describe('POST … — the staged shape (nothing transcribed yet)', () => {
         businessId: 'business-1',
         door: 'discard',
         recordingSessionId: 'rs-1',
+        customerId: 'cust-1',
+        staffId: 'card-auth-user-1',
         takeId: '11111111-2222-3333-4444-555555555555',
       }),
       {
