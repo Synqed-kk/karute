@@ -2222,13 +2222,12 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "priceFactSets,",
       "proxyTimeLabel,",
       "restCueStarts,",
-      // ⚖ LIAM RULING 1 (2026-09-09) — the rail's own step, as a name: the half
-      // hour the strip's word is now about, the cue's own width, and the number
-      // `restCueStarts` used to spell inline.
       // ⚖ FIX ROUND 3 (H1/H4) — the strip's bed door returns this shape, and the
       // screen names it so the door's world choice can be read at a glance.
+      // ⚖ FIX ROUND 6 (K2) — and `RAIL_STEP_MIN` is NOT here: the door carries
+      // its own half hour now, so the screen stopped spelling the number and the
+      // import went with it. Pinned by absence so it cannot drift back unused.
       "type HalfHourBeds,",
-      "RAIL_STEP_MIN,",
       // ⚖ FIX ROUND 2 (G1) — the chip's class composition, lifted out of the JSX
       // into a pure helper so the ⇄ palette mapping can be unit-pinned.
       "railChipClass,",

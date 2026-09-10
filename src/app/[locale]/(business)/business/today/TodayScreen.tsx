@@ -126,7 +126,6 @@ import {
   proxyTimeLabel,
   restCueStarts,
   type HalfHourBeds,
-  RAIL_STEP_MIN,
   railChipClass,
   restingSpanFor,
   warnFaceFor,
