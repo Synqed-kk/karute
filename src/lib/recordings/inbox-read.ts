@@ -246,8 +246,11 @@ export interface InboxReadDeps {
     SynqedClient,
     'recordings' | 'karuteRecords' | 'recordingJobs' | 'recordingDiscards'
   >
-  /** The AUTHENTICATED actor's staff id. Never a caller-supplied parameter. */
-  staffId: string
+  /** The AUTHENTICATED actor's staff id — never a client-supplied parameter.
+   *  `null` = the WHOLE business (the audit-watch cron, which has no single
+   *  staffer to scope to): omits `staff_id` from the list call entirely
+   *  rather than filtering by one. */
+  staffId: string | null
   /** Tenant key for the name fill below — the cookie arm resolves it with
    *  getBusinessId(), the Bearer arm from its verified token identity. */
   businessId: string
@@ -319,7 +322,7 @@ export async function readRecordingsInbox({
   const [sessions, records, discardLedger] = await Promise.all([
     paginateDedupe((page) =>
       synqed.recordings
-        .list({ staff_id: staffId, from, page, page_size: PAGE_SIZE })
+        .list({ ...(staffId ? { staff_id: staffId } : {}), from, page, page_size: PAGE_SIZE })
         .then((r) => ({ items: r.recordings, total: r.total })),
     ),
     paginateDedupe((page) =>
