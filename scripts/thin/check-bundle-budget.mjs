@@ -499,10 +499,32 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // does not move). R1, R2, R4, R5 and R6 are server-side or comment and weigh
 // nothing here.
 //
+// Round-2 audit line-audit (F2) is +257 B over that ceiling — measured cold:
+// en 130,918 · index 985,596 · vendor 937,743 = 2,054,257 B. Every byte of it
+// is the 監査ログ page the phone can now read more of: the 警告 tile's server
+// filter reaching the strip probes, the two 重大な記録 notice lines, and the
+// 復元行 の担当 suffix — all three text/logic additions land in the `index`
+// chunk (`en` and `vendor` are unmoved from the prior tip). 543 B headroom.
+//
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits
 // non-zero against whatever ceiling stands here.
-const BUDGET_BYTES = 2_054_000
+//
+// Round-4 Greptile-2 fix (G2/G3): G2 is a NET DELETION — the round-2/3 virtual
+// 'warnings' filter, the second critical read, the merge, the 重大な記録 group
+// and its two notice lines are gone; a single 重大 chip + criticalTotal replace
+// them. CI measured 2007.0 KB raw on tip 9aa6817c2 (≈2,055,168 B) vs 2,054,751 B
+// measured locally at that SAME tip — CI runs ≈ +417 B heavier than this
+// machine on this branch (fonts/toolchain delta, not code). After G2, rebuilt
+// and measured cold on this machine (twice, byte-identical both times):
+// en 130,798 · index 985,698 · vendor 937,743 = 2,054,239 B — 512 B LIGHTER
+// than the prior local measurement, matching a net deletion. The ceiling is
+// set from THIS local number plus the observed CI delta, not the old
+// ≤600 B-headroom convention alone: 2,054,239 + 1,000 = 2,055,239 (the
+// ≤600 B convention's headroom plus the +417 B CI-vs-local delta measured
+// above, rounded up) — enough for CI's own build of the exact same source to
+// pass without masking a real regression on a future round.
+const BUDGET_BYTES = 2_055_239
 
 let dir
 try {

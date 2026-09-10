@@ -54,9 +54,11 @@ function coreEvent(overrides: Record<string, unknown> = {}) {
   }
 }
 
-// The three strip tiles (changes/warnings/breakGlass) all share this class —
-// DOM order matches source order, so index into it rather than matching by
-// text (the count + approx '+' render as adjacent text nodes in one span).
+// The strip tiles (changes/warnings/[重大 chip, only when it renders]/
+// breakGlass) all share this class — DOM order matches source order, so
+// index into it rather than matching by text (the count + approx '+' render
+// as adjacent text nodes in one span). The 重大 chip is conditional (G2,
+// round-4) — tests that never render it keep the original 3-index shape.
 function statSpans(container: HTMLElement) {
   return Array.from(container.querySelectorAll('.tabular-nums')).map((n) => n.textContent)
 }
@@ -365,5 +367,201 @@ describe('AuditLogSection — karute.entry_edit labeling (W2 one-sheet §4)', ()
     const row = container.querySelector('ul') as HTMLElement
     expect(row.textContent).toContain('カルテ項目を編集')
     expect(row.textContent).not.toContain('karute.entry_edit')
+  })
+})
+
+// G2 (round-4 line-audit): lens is a real SERVER filter (severity 'warn' or
+// 'critical', straight through to core) — no client-side re-filter, no
+// merge, no group. Each tile shows exactly what its tap opens.
+describe('AuditLogSection — G2 round-4: two single-severity feeds + 重大 chip', () => {
+  it('tapping 警告 sends severity:"warn" (never the deleted virtual "warnings") and renders the server response unfiltered (mutant pin g3)', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [coreEvent()],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 1,
+      criticalTotal: 0,
+      targetLabels: {},
+    })
+    const { container, getByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+
+    // The next response carries an INFO-severity row — a real server would
+    // never return one under severity:'warn', but the mock proves the
+    // component has no client-side severity re-filter of its own: if it did,
+    // this row would be filtered back out of the DOM.
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [coreEvent({ id: 'info-row', severity: 'info' })],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 0,
+      criticalTotal: 0,
+      targetLabels: {},
+    })
+    fireEvent.click(getByText('statsWarnings'))
+
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
+    expect(listAuditLog).toHaveBeenLastCalledWith(expect.objectContaining({ severity: 'warn' }))
+    await waitFor(() => expect(container.querySelectorAll('li')).toHaveLength(1))
+  })
+
+  it('the 重大 chip renders when criticalTotal > 0, and tapping it sends severity:"critical"', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [coreEvent()],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 1,
+      criticalTotal: 3,
+      targetLabels: {},
+    })
+    const { getByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(getByText('statsCritical')).toBeInTheDocument())
+
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [coreEvent({ id: 'c-1', severity: 'critical' })],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 0,
+      criticalTotal: 3,
+      targetLabels: {},
+    })
+    fireEvent.click(getByText('statsCritical'))
+
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
+    expect(listAuditLog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ severity: 'critical' }),
+    )
+  })
+
+  it('the 重大 chip stays hidden when criticalTotal is 0 — never shown on a zero count (mutant pin g4)', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [coreEvent()],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 1,
+      criticalTotal: 0,
+      targetLabels: {},
+    })
+    const { queryByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalled())
+    expect(queryByText('statsCritical')).toBeNull()
+  })
+
+  it('probes degraded (both totals null) → the 警告 tile and 重大 chip count their OWN severity only — a critical row never inflates the 警告 tile (mutant pin g5)', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [
+        coreEvent({ id: 'w-1', severity: 'warn' }),
+        coreEvent({ id: 'w-2', severity: 'warn' }),
+        coreEvent({ id: 'c-1', severity: 'critical' }),
+      ],
+      total: 3,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: null,
+      changesTotal: null,
+      criticalTotal: null,
+      targetLabels: {},
+    })
+    const { container } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => {
+      // The strip tiles render before the day rows, so indices 0-3 are
+      // stable regardless of how many row timestamps (same .tabular-nums
+      // class) follow them in the DOM.
+      const spans = statSpans(container)
+      expect(spans[0]).toBe('0') // changes
+      expect(spans[1]).toBe('2') // warnings — warn rows only
+      expect(spans[2]).toBe('1') // 重大 chip — critical rows only
+      expect(spans[3]).toBe('0') // breakGlass
+    })
+  })
+
+  it('no 「重大な記録」 group exists anywhere — a stale-shaped response (old criticalEvents field) is never read', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [coreEvent({ id: 'w-1', severity: 'warn' })],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 1,
+      changesTotal: 0,
+      criticalTotal: 2,
+      // Defensive: an old/stray field must never resurrect the deleted
+      // merge/group — the component doesn't read this key at all.
+      criticalEvents: [coreEvent({ id: 'c-1', severity: 'critical' })],
+      targetLabels: {},
+    })
+    const { container, queryByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+    expect(queryByText('criticalGroup')).toBeNull()
+    // ONE day-group header only — the day groups render whichever single
+    // feed load() fetched, never a second group above them.
+    expect(container.querySelectorAll('.mb-2.flex.items-baseline')).toHaveLength(1)
+    expect(container.querySelectorAll('li')).toHaveLength(1)
+  })
+})
+// Round-2 packet ④: a filtered page that comes back empty used to render a
+// blank screen (the empty card was suppressed while hasMore, leaving only
+// さらに読み込む on nothing) — now it always shows a message, worded by
+// whether more pages might hold a match.
+describe('AuditLogSection — ④ round-2: honest empty state even while hasMore', () => {
+  it('an empty page with hasMore true renders emptyPage (never the terminal empty message), load-more stays the CTA', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [],
+      total: 50,
+      page: 1,
+      hasMore: true,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 0,
+      targetLabels: {},
+    })
+    const { getByText, queryByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalled())
+    await waitFor(() => expect(getByText('emptyPage')).toBeInTheDocument())
+    expect(queryByText('empty')).toBeNull()
+    expect(getByText('loadMore')).toBeInTheDocument()
+  })
+
+  it('a terminal empty result (hasMore false) still renders the original empty message', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [],
+      total: 0,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 0,
+      targetLabels: {},
+    })
+    const { getByText, queryByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalled())
+    await waitFor(() => expect(getByText('empty')).toBeInTheDocument())
+    expect(queryByText('emptyPage')).toBeNull()
+    expect(queryByText('loadMore')).toBeNull()
   })
 })

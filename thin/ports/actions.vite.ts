@@ -1566,6 +1566,9 @@ type AuditLogFilters = {
   targetId?: string
   includeViews?: boolean
   breakGlass?: boolean
+  // G2 (round-4 line-audit): the real core severity values — mirrors
+  // AuditLogFilters.severity (src/actions/audit-log.ts).
+  severity?: 'warn' | 'critical'
   page?: number
 }
 type AuditLogListResult =
@@ -1580,6 +1583,11 @@ type AuditLogListResult =
       warningsTotal: number | null
       changesTotal: number | null
       targetLabels: Record<string, string>
+      // G2 (round-4 line-audit): exact 重大 total — mirrors
+      // ListAuditLogResult.criticalTotal (src/actions/audit-log.ts).
+      // Replaces the round-3 criticalEvents/criticalTruncated/
+      // criticalUnavailable trio, which are DELETED.
+      criticalTotal: number | null
     }
   | { ok: false; error: 'forbidden' | 'failed' }
 
@@ -1597,6 +1605,7 @@ async function facadeListAuditLog(filters: AuditLogFilters): Promise<AuditLogLis
   if (filters.targetId) q.set('targetId', filters.targetId)
   if (filters.includeViews) q.set('includeViews', '1')
   if (filters.breakGlass) q.set('breakGlass', '1')
+  if (filters.severity) q.set('severity', filters.severity)
   q.set('page', String(filters.page ?? 1))
 
   try {

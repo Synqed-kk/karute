@@ -262,9 +262,10 @@ describe('GET /api/app/v1/audit-log', () => {
   // twin's count probes must survive the DTO boundary as numbers — this is
   // the assertion that goes null-and-red if a probe ever loses its receiver
   // again, independent of audit-log-action.test.ts's pins on the twin.
-  it('exact strip totals ride the DTO: 警告 = severity-pair sum, 緊急 = break-glass total, 変更 = nvAll − nvWarn − nvCrit (Wave V restore)', async () => {
+  it('exact strip totals ride the DTO: 警告 = nvWarn, 重大 = nvCrit (G2, round-4: counted separately), 緊急 = break-glass total, 変更 = nvAll − nvWarn − nvCrit (Wave V restore)', async () => {
     // exclude_views-sensitive totals so the assertion also proves the twin
-    // picked the HIDDEN-state pair (nv 3+2=5), not the shown pair (8+4=12).
+    // picked the HIDDEN-state pair (nvWarn 3 / nvCrit 2), not the shown pair
+    // (warnAll 8 / critAll 4).
     auditList.mockImplementation(async (opts: Record<string, unknown>) => {
       const total =
         opts.severity === 'warn'
@@ -285,10 +286,12 @@ describe('GET /api/app/v1/audit-log', () => {
     const body = (await res.json()) as {
       ok: true
       warningsTotal: number | null
+      criticalTotal: number | null
       breakGlassTotal: number | null
       changesTotal: number | null
     }
-    expect(body.warningsTotal).toBe(3 + 2)
+    expect(body.warningsTotal).toBe(3)
+    expect(body.criticalTotal).toBe(2)
     expect(body.breakGlassTotal).toBe(4)
     // nvAll (exclude_views, no severity → the mock's 9) minus the nv pair.
     expect(body.changesTotal).toBe(9 - 3 - 2)
@@ -334,5 +337,48 @@ describe('GET /api/app/v1/audit-log', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as { ok: true; events: { reassign_customer_line?: string }[] }
     expect(body.events[0].reassign_customer_line).toBeUndefined()
+  })
+
+  // G2 (round-4 line-audit): the facade twin accepts the two real core
+  // literals — 'warn' and 'critical' — straight through; the round-2/3
+  // virtual 'warnings' literal is deleted and now falls into "unrecognized".
+  it('severity=warn reaches synqed.audit.list as severity "warn" on the main call', async () => {
+    const res = await GET(getReq({ severity: 'warn' }), noParams)
+    expect(res.status).toBe(200)
+    const mainCall = auditList.mock.calls.find(
+      ([opts]) => opts.page_size === 100 && opts.severity === 'warn',
+    )
+    expect(mainCall).toBeDefined()
+  })
+
+  it('severity=critical reaches synqed.audit.list as severity "critical" on the main call', async () => {
+    const res = await GET(getReq({ severity: 'critical' }), noParams)
+    expect(res.status).toBe(200)
+    const mainCall = auditList.mock.calls.find(
+      ([opts]) => opts.page_size === 100 && opts.severity === 'critical',
+    )
+    expect(mainCall).toBeDefined()
+  })
+
+  it('an unrecognized severity value (e.g. the deleted "warnings" literal, or "info") is ignored — no severity reaches core', async () => {
+    for (const value of ['warnings', 'info']) {
+      auditList.mockClear()
+      const res = await GET(getReq({ severity: value }), noParams)
+      expect(res.status).toBe(200)
+      const mainCall = auditList.mock.calls.find(([opts]) => opts.page_size === 100)
+      expect(mainCall?.[0].severity).toBeUndefined()
+    }
+  })
+
+  // R1 (round-2 line-audit): the query string is a legal combination even
+  // though the shipped UI never produces it — breakGlass wins, mirroring the
+  // twin's own normalization.
+  it('breakGlass=1 & severity=critical together → severity is ignored, one core read only', async () => {
+    const res = await GET(getReq({ breakGlass: '1', severity: 'critical' }), noParams)
+    expect(res.status).toBe(200)
+    expect(auditList).toHaveBeenCalledTimes(1)
+    expect(auditList).toHaveBeenCalledWith(
+      expect.objectContaining({ break_glass: true, severity: undefined }),
+    )
   })
 })

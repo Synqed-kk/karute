@@ -51,6 +51,11 @@ export const AuditLogListResultDTO = z.discriminatedUnion('ok', [
     warningsTotal: z.number().nullable(),
     changesTotal: z.number().nullable(),
     targetLabels: z.record(z.string(), z.string()),
+    // G2 (round-4 line-audit): exact 重大 total — same null-together-with-
+    // warningsTotal contract as changesTotal above. Replaces the round-3
+    // criticalEvents/criticalTruncated/criticalUnavailable trio (the merged
+    // critical read + group), which are DELETED.
+    criticalTotal: z.number().nullable(),
   }),
   z.object({
     ok: z.literal(false),

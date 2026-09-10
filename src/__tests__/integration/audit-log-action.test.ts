@@ -231,6 +231,7 @@ describe('listAuditLog — person filter (§10 cause-based, raw events only)', (
     expect(res.breakGlassTotal).toBeNull()
     expect(res.warningsTotal).toBeNull()
     expect(res.changesTotal).toBeNull()
+    expect(res.criticalTotal).toBeNull()
   })
 })
 
@@ -264,6 +265,7 @@ describe('listAuditLog — summary strip count', () => {
     expect(list).toHaveBeenCalledTimes(1)
     expect(res.warningsTotal).toBeNull()
     expect(res.changesTotal).toBeNull()
+    expect(res.criticalTotal).toBeNull()
   })
 
   it('a failed strip query degrades to null — the feed itself survives', async () => {
@@ -298,16 +300,18 @@ describe('listAuditLog — T1 exact strip-count probes (severity/exclude_views)'
     })
   }
 
-  it('警告 exact per view state: views hidden → nvWarn + nvCrit (matches the visible feed); views shown → warnAll + critAll', async () => {
+  it('警告/重大 exact per view state, counted SEPARATELY (G2, round-4): views hidden → nvWarn/nvCrit (matches the visible feed); views shown → warnAll/critAll', async () => {
     mockProbes()
     const hidden = await listAuditLog({})
     if (!hidden.ok) throw new Error('expected ok')
-    expect(hidden.warningsTotal).toBe(3 + 2)
+    expect(hidden.warningsTotal).toBe(3)
+    expect(hidden.criticalTotal).toBe(2)
 
     mockProbes()
     const shown = await listAuditLog({ includeViews: true })
     if (!shown.ok) throw new Error('expected ok')
-    expect(shown.warningsTotal).toBe(8 + 4)
+    expect(shown.warningsTotal).toBe(8)
+    expect(shown.criticalTotal).toBe(4)
   })
 
   it('変更 exact (Wave V restore): nvAll − nvWarn − nvCrit, identical in both view-toggle states — views are never 変更', async () => {
@@ -371,7 +375,7 @@ describe('listAuditLog — T1 exact strip-count probes (severity/exclude_views)'
     expect(shown.events.map((e) => e.id)).toContain('evt-open')
   })
 
-  it('ONE probe failing (nvCrit) nulls BOTH totals — never a partial sum, even though warnAll/critAll both succeeded', async () => {
+  it('ONE probe failing (nvCrit) nulls ALL THREE totals — never a partial read, even though warnAll/critAll both succeeded', async () => {
     list.mockImplementation(async (opts: {
       page_size?: number
       break_glass?: boolean
@@ -386,6 +390,7 @@ describe('listAuditLog — T1 exact strip-count probes (severity/exclude_views)'
     const res = await listAuditLog({})
     if (!res.ok) throw new Error('expected ok')
     expect(res.warningsTotal).toBeNull() // warnAll+critAll both succeeded — still null
+    expect(res.criticalTotal).toBeNull()
     expect(res.changesTotal).toBeNull()
   })
 
@@ -722,6 +727,45 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     const res = await listAuditLog({})
     if (!res.ok) throw new Error('expected ok')
     expect(res.targetLabels).toEqual({})
+  })
+
+  // F3 (round-2 line-audit): #865 put staff_id into recording.capture_resumed's
+  // detail — resolveTargetLabels must widen the SAME staff batch to include it
+  // (same idiom as the customer_id widen two tests up), or a departed staffer
+  // (not in the component's live roster, and no OTHER row on the page has
+  // target_type:'staff' to trigger the batch) never resolves at all.
+  it("a recording row's detail.staff_id resolves via the SAME staff batch, even with no target_type:'staff' row on the page (departed staffer)", async () => {
+    const staffList = jest.fn(async () => ({
+      staff: [{ id: 'staff-42', user_id: null, name: 'departed staffer', is_active: false }],
+      total: 1,
+      page: 1,
+      page_size: 200,
+    }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+      staff: { list: staffList },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-rec-staff',
+          category: 'recording',
+          action: 'recording.capture_resumed',
+          target_type: 'recording',
+          target_id: 'sess-3',
+          detail: { staff_id: 'staff-42', had_audio_path: true },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    // ONE batch call for the whole page, not a per-row lookup.
+    expect(staffList).toHaveBeenCalledTimes(1)
+    expect(res.targetLabels['staff-42']).toBe('departed staffer')
   })
 
   it('resolves staff targets in BOTH id spaces (synqed staff.id + linked profiles.id) incl. deactivated staff — one unfiltered list call', async () => {
@@ -1154,5 +1198,80 @@ describe('listAuditLogWithClient — per-invocation privacy.audit_log.view (cont
     const res = await listAuditLogWithClient(fakeSynqed(), actor, {})
     expect(res).toEqual({ ok: false, error: 'failed' })
     expect(audit).not.toHaveBeenCalled()
+  })
+})
+
+// G2 (round-4 line-audit): the 警告/重大 tiles are two real server filters —
+// core's severity param passed straight through, ONE feed at a time. No
+// merge, no virtual OR, no second read: Greptile round 2's chronology
+// finding (an older critical row from page 1 outliving newer warn rows once
+// paging continued) is gone because there is nothing left to merge. The T1
+// strip probes still run under either lens (F1 stands); the break-glass
+// COUNT probe is untouched (a different dimension entirely).
+describe('listAuditLog — G2 severity filter (round-4: two single-severity feeds)', () => {
+  type ProbeOpts = {
+    page_size?: number
+    page?: number
+    severity?: string
+    break_glass?: boolean
+  }
+
+  function mainCall() {
+    const call = list.mock.calls.find(([opts]) => (opts as ProbeOpts).page_size === 100)
+    if (!call) throw new Error('expected a page_size:100 main call')
+    return call[0] as ProbeOpts
+  }
+
+  function mockProbesAnd(mainEvent: ReturnType<typeof coreEvent>) {
+    list.mockImplementation(async (opts: ProbeOpts & { exclude_views?: boolean }) => {
+      if (opts.page_size === 100) return { events: [mainEvent], total: 1, page: 1, page_size: 100 }
+      if (opts.break_glass) return { events: [], total: 0, page: 1, page_size: 1 }
+      if (opts.exclude_views && opts.severity === 'warn')
+        return { events: [], total: 3, page: 1, page_size: 1 } // nvWarn
+      if (opts.exclude_views && opts.severity === 'critical')
+        return { events: [], total: 2, page: 1, page_size: 1 } // nvCrit
+      if (opts.exclude_views) return { events: [], total: 20, page: 1, page_size: 1 } // nvAll
+      if (opts.severity === 'warn') return { events: [], total: 8, page: 1, page_size: 1 } // warnAll
+      if (opts.severity === 'critical') return { events: [], total: 4, page: 1, page_size: 1 } // critAll
+      throw new Error('unexpected probe call: ' + JSON.stringify(opts))
+    })
+  }
+
+  it('severity:"warn" — the main call carries severity "warn", NO second read, warningsTotal = nvWarn, criticalTotal = nvCrit', async () => {
+    mockProbesAnd(coreEvent({ severity: 'warn' }))
+    const res = await listAuditLog({ severity: 'warn' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(mainCall().severity).toBe('warn')
+    expect(res.warningsTotal).toBe(3)
+    expect(res.criticalTotal).toBe(2)
+    // main(warn) + break-glass + warnAll + critAll + nvWarn + nvCrit + nvAll
+    // — no second severity read (the round-3 critical read is deleted).
+    expect(list).toHaveBeenCalledTimes(7)
+  })
+
+  it('severity:"critical" — the main call carries severity "critical" straight through, same T1 pairing', async () => {
+    mockProbesAnd(coreEvent({ severity: 'critical' }))
+    const res = await listAuditLog({ severity: 'critical' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(mainCall().severity).toBe('critical')
+    expect(res.warningsTotal).toBe(3)
+    expect(res.criticalTotal).toBe(2)
+    expect(list).toHaveBeenCalledTimes(7)
+  })
+
+  it('breakGlass + a severity filter together — severity is normalized away, breakGlassTotal is the main total (R1 stands)', async () => {
+    list.mockImplementation(async () => ({
+      events: [coreEvent({ break_glass: true })],
+      total: 7,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({ breakGlass: true, severity: 'critical' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(list).toHaveBeenCalledTimes(1)
+    const [call] = list.mock.calls[0] as [ProbeOpts]
+    expect(call.break_glass).toBe(true)
+    expect(call.severity).toBeUndefined()
+    expect(res.breakGlassTotal).toBe(7)
   })
 })

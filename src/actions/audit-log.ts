@@ -53,6 +53,14 @@ export interface AuditLogFilters {
   /** Default feed hides view events (they outnumber changes ~10:1). */
   includeViews?: boolean
   breakGlass?: boolean
+  /** G2 (round-4 line-audit): the real core severity values, passed straight
+   *  through to ListAuditOptions.severity — ONE feed at a time. Each tile
+   *  shows exactly what its tap opens; warn and critical never share a
+   *  screen (simplifies away Greptile round-2's chronology finding rather
+   *  than patching it — no merge, no group). The facade twin (route.ts
+   *  parseFilters) recognizes the same two literals; anything else is
+   *  ignored. */
+  severity?: 'warn' | 'critical'
   page?: number
 }
 
@@ -94,6 +102,11 @@ type ListAuditLogResult =
        *  resolve client-side off the roster; this map is the fallback for ids
        *  the roster can't key (historical id-space rows, departed staff). */
       targetLabels: Record<string, string>
+      /** Exact 重大 total — same probe pairing as warningsTotal (nvCrit, or
+       *  critAll when views are included), null together with warningsTotal
+       *  on any probe failure (G2, round-4 line-audit — replaces the second
+       *  critical read + merge with an honest single-severity count). */
+      criticalTotal: number | null
     }
   | { ok: false; error: 'forbidden' | 'failed' }
 
@@ -119,6 +132,11 @@ export async function listAuditLogWithClient(
 ): Promise<ListAuditLogResult> {
   try {
     const page = Math.max(1, Math.trunc(filters.page ?? 1))
+    // R1 (round-2 line-audit): breakGlass wins when both are set. The
+    // break-glass feed IS the strip's count contract (breakGlassTotal below
+    // falls back to res.total) — a severity lens on top would leave the
+    // critical half ignoring break_glass and undercount it.
+    const severity = filters.breakGlass ? undefined : filters.severity
     const baseQuery = {
       category: filters.category || undefined,
       actor_id: filters.actorId || undefined,
@@ -141,7 +159,11 @@ export async function listAuditLogWithClient(
       (synqed as any).audit.list(q)
     // T1 strip-count probes (page_size 1, total only) — skipped under the
     // SAME condition as the break-glass probe below (I7 actorId scope) plus
-    // breakGlass on (that feed IS the count strip then).
+    // breakGlass on (that feed IS the count strip then). A severity lens
+    // does NOT skip these: the probes use baseQuery (no severity) and are
+    // cheap page_size-1 reads, so the exact 警告/重大/変更 totals stay exact
+    // while a lens is on (F1, round-2 line-audit — the strip must not fall
+    // back to the loaded page's client count).
     const skipStripProbes = Boolean(filters.breakGlass) || Boolean(filters.actorId)
 
     const [res, breakGlassRes, warnAllRes, critAllRes, nvWarnRes, nvCritRes, nvAllRes] =
@@ -150,6 +172,7 @@ export async function listAuditLogWithClient(
           ...baseQuery,
           exclude_views: filters.includeViews ? undefined : true,
           break_glass: filters.breakGlass ? true : undefined,
+          severity,
           page,
           page_size: PAGE_SIZE,
         }),
@@ -231,12 +254,16 @@ export async function listAuditLogWithClient(
     const events = (res.events as AuditLogEvent[]).filter(
       (e) => filters.includeViews || !isViewAction(e.action),
     )
-    // 警告 is exact in BOTH view states: views hidden → count only non-'.view'
-    // warn/crit (nvWarn/nvCrit, matching what the feed shows); views shown →
-    // count all warn/crit (warnAll/critAll). Pair must be complete — never a
-    // partial sum from a failed probe (T1). Exactness in the hidden state
-    // additionally rests on no '_view'-suffix action ever carrying warn/crit
-    // severity (the only rows ever written with that spelling — historical
+    // 警告/重大 are each exact in BOTH view states: views hidden → count only
+    // non-'.view' warn (nvWarn) / crit (nvCrit) rows, matching what the feed
+    // shows; views shown → count all warn (warnAll) / crit (critAll). The
+    // pair is read together and must be complete — never a partial read from
+    // a failed probe (T1); G2 (round-4 line-audit) reports the two counts
+    // separately instead of summing them (the 警告 tile no longer includes
+    // 重大 rows) but keeps the SAME completeness gate — both null together on
+    // any probe failure. Exactness in the hidden state additionally rests on
+    // no '_view'-suffix action ever carrying warn/crit severity (the only
+    // rows ever written with that spelling — historical
     // privacy.audit_log_view — are always info) — if the audit taxonomy ever
     // grows one, it shares the same core-side exclude_views dependency the
     // 変更 subtraction below leans on (both exact only while the server's
@@ -271,7 +298,7 @@ export async function listAuditLogWithClient(
         : filters.breakGlass
           ? res.total
           : null,
-      warningsTotal: warnPairOk ? warnPair[0]!.total + warnPair[1]!.total : null,
+      warningsTotal: warnPairOk ? warnPair[0]!.total : null,
       // 変更 is exact (Wave V restore; the #56 widen made nvAll view-clean):
       // nvAll − nvWarn − nvCrit, i.e. non-view rows that aren't warn/crit —
       // matching the component's client lens exactly, in BOTH view-toggle
@@ -285,6 +312,7 @@ export async function listAuditLogWithClient(
           ? Math.max(0, nvAllRes.total - nvWarnRes.total - nvCritRes.total)
           : null,
       targetLabels,
+      criticalTotal: warnPairOk ? warnPair[1]!.total : null,
     }
   } catch {
     return { ok: false, error: 'failed' }
@@ -381,6 +409,14 @@ async function resolveTargetLabels(
   const recordingCustomerIds = events
     .filter((e) => e.target_type === 'recording')
     .map((e) => (e.detail as { customer_id?: unknown } | null)?.customer_id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  // F3 (round-2 line-audit): recording.capture_resumed rows carry detail.staff_id
+  // (#865) — the departed-staffer case (not in the component's live roster)
+  // must still resolve a name, same idiom as the customer id two lines up.
+  // Widens the SAME staff batch below, never a second resolver.
+  const recordingStaffIds = events
+    .filter((e) => e.target_type === 'recording')
+    .map((e) => (e.detail as { staff_id?: unknown } | null)?.staff_id)
     .filter((id): id is string => typeof id === 'string' && id.length > 0)
   const unresolvedKaruteIds = idsOf('karute')
     .filter((id) => !detailKaruteIds.has(id))
@@ -504,7 +540,7 @@ async function resolveTargetLabels(
   // spelling to a name. The component still prefers its live roster; this
   // fills what the roster can't key. Hard-deleted core rows simply don't
   // resolve — the id stands, same honest state as purged customers.
-  const staffIds = idsOf('staff')
+  const staffIds = [...new Set([...idsOf('staff'), ...recordingStaffIds])]
   if (staffIds.length > 0) {
     try {
       const staffNameById = new Map<string, string>()

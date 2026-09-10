@@ -2375,6 +2375,7 @@
       "targetFilter": "Showing this customer's records only (views included)",
       "clearTarget": "Clear",
       "empty": "No events match these filters.",
+      "emptyPage": "No records on this page. Select \"Load more\" to keep going.",
       "errorLoad": "Couldn't load the audit log.",
       "errorForbidden": "You don't have access to the audit log.",
       "loadMore": "Load more",
@@ -2500,6 +2501,7 @@
       "staffAll": "Everyone",
       "statsChanges": "changes",
       "statsWarnings": "warnings",
+      "statsCritical": "critical",
       "statsBreakGlass": "break-glass",
       "eventsCount": "{count, plural, one {# event} other {# events}}",
       "storesCount": "{count, plural, one {# store} other {# stores}}",
@@ -2514,6 +2516,7 @@
       "recordingNoCustomer": "No customer selected",
       "recordingUnresolved": "Recording",
       "durationSuffix": " · {n}s",
+      "recordingStaff": "Staff: {name}",
       "menuUpdate": {
         "duration": "Duration",
         "price": "Price",
