@@ -699,11 +699,18 @@
    `::before` is where they live, and nothing else about the mark moved. */
 .biz .cell-rest-cue { position: absolute; z-index: 0; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; pointer-events: none; }
 .biz .cell-rest-cue::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); opacity: .25; }
-/* The label: the chip's own word (満室 / 清掃). Authored lines wrap at their own
-   boundary
+/* The label: the chip's own word (満室 / 清掃), or 別の枠で販売中 on a quiet hour
+   whose bed is sold on another row. Authored lines wrap at their own boundary
    when the cue is too narrow for one — `flex-wrap` is the whole mechanism, so a
    wide board reads one line and a 1180px one reads two, with no measurement. */
-.biz .cell-rest-cue i { position: absolute; inset: 0; z-index: 1; display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 0 2px; padding: 0 2px; font-family: inherit; font-size: 9px; font-style: normal; font-weight: 800; line-height: 1.15; letter-spacing: -.4px; color: #52525b; text-align: center; overflow: hidden; }
+.biz .cell-rest-cue i { position: absolute; inset: 0; z-index: 1; display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 0; padding: 0 2px; font-family: inherit; font-size: 9px; font-style: normal; font-weight: 800; line-height: 1.15; letter-spacing: -.4px; color: #52525b; text-align: center; overflow: hidden; }
+/* ⚖ RULING 2's own mark — a FLAT card, not the 清掃 diagonal: nothing here is
+   being turned over or refused, the half hour is free and the bed it needs is
+   on sale one row up. The dashed edge is the board's own 「this is not a box you
+   can sell」 grammar, and it is the one thing telling the two marks apart at a
+   glance. */
+.biz .cell-rest-cue.sold-elsewhere { box-sizing: border-box; border: 1px dashed #d4d4d8; }
+.biz .cell-rest-cue.sold-elsewhere::before { background: #f4f4f6; opacity: 1; }
 .biz .timeline.sell-drag .cell-price { opacity: 0; }
 .biz .timeline.sell-off .cell-price { display: none; }
 /* ⚖ Liam 2026-08-20 — LENGTH-MATCHED EMPHASIS, superseding canon's uniform

@@ -2222,10 +2222,15 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "priceFactSets,",
       "proxyTimeLabel,",
       "restCueStarts,",
-      // ⚖ LIAM RULING 1 (2026-09-09) — the rail's own step, as a name: the half
-      // hour the strip's word is now about, the cue's own width, and the number
-      // `restCueStarts` used to spell inline.
-      "RAIL_STEP_MIN,",
+      // ⚖ FIX ROUND 3 (H1/H4) — the strip's bed door returns this shape, and the
+      // screen names it so the door's world choice can be read at a glance.
+      // ⚖ FIX ROUND 6 (K2) — and `RAIL_STEP_MIN` is NOT here: the door carries
+      // its own half hour now, so the screen stopped spelling the number and the
+      // import went with it. Pinned by absence so it cannot drift back unused.
+      "type HalfHourBeds,",
+      // ⚖ FIX ROUND 2 (G1) — the chip's class composition, lifted out of the JSX
+      // into a pure helper so the ⇄ palette mapping can be unit-pinned.
+      "railChipClass,",
       "restingSpanFor,",
       "warnFaceFor,",
       "holdClock,",
@@ -6056,7 +6061,8 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     // canon :7599-7606 + the `.aimed` half of its :667 rule, which the
     // transplant dropped.
     expect(CSS).toContain('.biz .guard-rail-cell.aimed { outline: 0;')
-    expect(SRC).toContain("aimed?.laneKey === rail.laneKey && aimed.start === c.start ? ' aimed' : ''")
+    // ⚖ FIX ROUND 2 (G1) — same lift: the aimed pairing is now an argument.
+    expect(SRC).toContain("aimed: aimed?.laneKey === rail.laneKey && aimed.start === c.start,")
     // Floored to the rail's own 30-minute lattice, never rounded: an off-lattice
     // landing belongs to the cell it starts INSIDE (flag 48's rule).
     expect(SRC).toContain('start: Math.floor(minuteOf(landing.x, hours) / 30) * 30')
@@ -6363,7 +6369,12 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(SRC).toContain('    return null\n  }, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])')
     // ⚖ 52 — the mark that means "this stops you" appears exactly where release
     // is inert, and its class comes off the blocked verdict alone.
-    expect(SRC).toContain("${v?.kind === 'blocked' ? ' inert' : ''}")
+    // ⚖ FIX ROUND 2 (G1, 2026-09-09) — the class composition was LIFTED out of the
+    // JSX into `railChipClass` (today-interactions.ts), because the breaker
+    // swapped the ⇄ mark's two palettes inside the template literal and all
+    // 10,687 tests stayed green. The wiring is pinned here, the mapping itself is
+    // unit-pinned at the helper (today-rail-halfhour.test.ts §G1).
+    expect(SRC).toContain("inert: v?.kind === 'blocked',")
     expect(CSS).toContain('.biz .guard-rail-cell.inert {')
     // A block drag carries no booking, so it marks nothing (canon has no guard
     // for 休憩 either) — and neither does a bed-row drag, which can never land
@@ -6991,7 +7002,12 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     const state = v.kind === 'blocked' ? 'blocked' : v.kind === 'caution' ? 'degraded' : 'safe'
     expect(state).toBe('degraded')
     expect(SRC).toContain("const state = v ? (v.kind === 'blocked' ? 'blocked' : v.kind === 'caution' ? 'degraded' : 'safe') : c.state")
-    expect(SRC).toContain("${v?.kind === 'blocked' ? ' inert' : ''}")
+    // ⚖ FIX ROUND 2 (G1, 2026-09-09) — the class composition was LIFTED out of the
+    // JSX into `railChipClass` (today-interactions.ts), because the breaker
+    // swapped the ⇄ mark's two palettes inside the template literal and all
+    // 10,687 tests stayed green. The wiring is pinned here, the mapping itself is
+    // unit-pinned at the helper (today-rail-halfhour.test.ts §G1).
+    expect(SRC).toContain("inert: v?.kind === 'blocked',")
     // Release: only `blocked` is inert, so this landing STAGES — and the
     // explain popover is the blocked branch's, unchanged. (⚖ flag 57: the
     // branch's ⚖47 restore is gone; it was a no-op write and it was the
@@ -12050,6 +12066,13 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     // `companionRoomStillFree` (today-interactions), where it is unit-tested
     // rather than text-pinned; the tag is read there now. The engine-side count
     // is pinned in `today-bed-packing.test.ts` beside that helper's own tests.
+    // ⚖ FIX ROUND 3 (H4, delta lens D1-m1) — BACK TO SIXTEEN. Fix round 2 threaded
+    // the hand's 個室のみ tag onto the strip's bed door, and the lens proved the
+    // book discards it: `isSubject` needs all three of id/currentBed/
+    // requiresPrivate, so that object is a NewClient and `queryOf` hard-codes
+    // `requiresPrivate: false` for one. The field was a no-op that read as
+    // protection. The door asks the HYPOTHETICAL — a placement nobody has made
+    // needs no 個室, which is the law `bedDoor` already states.
     expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(16)
     // …and the board model is where the field is born, in ONE place per shape.
     // Six mentions: the two type declarations, the read off the appointment row,

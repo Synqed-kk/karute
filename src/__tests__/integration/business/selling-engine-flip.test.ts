@@ -1635,9 +1635,9 @@ describe('7 — the fix round: the publication boundary', () => {
     // it paints a quarter-strength 清掃 hatch under the chip, which is flag 88's
     // artifact one layer along.
     // ⚖ 9/9 — the cue is keyed on the CUE the composer returned rather than on
-    // the word, because the two are no longer the same list. 新規用 never rides
-    // a cue here (the 確保 chip is drawn over that emptiness), so the scene is
-    // stated in the vocabulary the helper now reads:
+    // the word, because a quiet hour sold on another row now carries a mark and
+    // no word at all. 新規用 never rides a cue (the 確保 chip is drawn over that
+    // emptiness), so the scene is stated in the vocabulary the helper now reads:
     // a bed-less half hour, which is what flag 88's artifact was painted under.
     const worded = new Map([[600, { cue: { kind: 'bed' as const, label: ['満室'] } }]])
     const committed = [{ start: 600, end: 690, windowStart: 600 }]
@@ -1649,7 +1649,7 @@ describe('7 — the fix round: the publication boundary', () => {
     // ⚖ FLAG 88, WHOLE (2026-09-09) — a FIFTH argument, the lane's own drawn
     // cards. What F5 is about is untouched: `heldHere` is still the COMMITTED
     // list the chip above the cue is drawn from, in the same position.
-    expect(screen).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items)')
+    expect(screen).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items, handId)')
     // …and the board world's per-lane index is GONE, not merely unused: a second
     // held index on this screen is how the two worlds get mixed again.
     expect(screen).not.toContain('heldByLane')

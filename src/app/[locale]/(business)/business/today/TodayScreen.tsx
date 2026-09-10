@@ -125,7 +125,8 @@ import {
   priceFactSets,
   proxyTimeLabel,
   restCueStarts,
-  RAIL_STEP_MIN,
+  type HalfHourBeds,
+  railChipClass,
   restingSpanFor,
   warnFaceFor,
   holdClock,
@@ -1945,29 +1946,68 @@ export function TodayScreen(props: TodayProps) {
     [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
-  /** ⚖ LIAM RULING 1 (2026-09-09) — HOW MANY ROOMS ARE FREE FOR ONE HALF HOUR.
+  /** ⚖ LIAM RULING 1 (2026-09-09) — THE BED TRUTH FOR ONE WINDOW ON ONE LANE.
    *
    *  His words: 「every box that is 満室 should say 満室」. The strip's word is a
    *  fact about the HALF HOUR the chip sits on from this round on, and this is
    *  that fact — out of the frame's own book, which is where every other bed
    *  question on this screen is answered, so the word and the marks cannot
-   *  disagree about one board.
+   *  disagree about one board. `null` is the ⚖ #777 answer: this lane shares a
+   *  store with no room at all, and a store with no rooms is never 満室.
    *
-   *  The asker is the HYPOTHETICAL one `bedDoor(…, null)` binds for the marks
-   *  themselves — a new placement nobody has made yet, so no 個室のみ tag and no
-   *  card lifted. `null` is the #777 answer: this lane shares a store with no
-   *  room at all, and a store with no rooms is never 満室. */
-  const halfHourFree = useCallback(
-    (laneKey: string, start: number): number | null => {
+   *  ⚖ FIX ROUND 2 (D, L2-m6) — 「FULL」 IS ONE SEARCH, NOT A COUNT. The question
+   *  is 「is there a free room?」 and `freeBedCount` answered it by walking EVERY
+   *  candidate to count them; `bedFor` stops at the first, and it is the SAME
+   *  answer this door already asks for `compatibleRoomsExist`, so two questions
+   *  become one cached row. ⚠ That number (5.80 → 4.90 ms/frame on the lens's
+   *  30×10 board) is the swap ALONE and not the round: the delta lens measured
+   *  the round end to end at +59% book calls on a board with no sell layer, and
+   *  fix round 3's early-out below is what gives that back (D1-m3).
+   *
+   *  ⚖ FIX ROUND 3 (H1, D1-M1 MAJOR) — AND IT ANSWERS ON THE BOARD THE CHIP IS
+   *  JUDGED ON. Every other bed answer this strip composes is asked with the
+   *  card in hand LIFTED — `explainRails`'s `askOn` passes `id: handId` to
+   *  `allocateBed`, which self-excludes, and the rails are built through
+   *  `bedDoorFor(handId)`. This door asked `ledger.world`, the board with the
+   *  dragged card still standing in its room, so on the three gestures that get
+   *  past `inHand` (a bed-lane drag, a resize, a drag over the shelf) the strip
+   *  hatched the operator's own 13:00 half hour 「別の枠で販売中」 and named a
+   *  stranger for an emptiness that was their own card. Same law as `bedDoor`
+   *  at :275, spelled the same way.
+   *
+   *  ⚖ FIX ROUND 3 (H4, D1-m1) — AND THE HYPOTHETICAL CARRIES NO 個室のみ TAG.
+   *  Fix round 2 threaded the hand's tag onto an asker with no `id`, which the
+   *  book reads as a NewClient and whose `queryOf` hard-codes `requiresPrivate:
+   *  false` — the field was a no-op that read as protection. It is a real fact
+   *  on the SUBJECT branch above (the hand is a booking, and its tag is a rule
+   *  about what the treatment needs), and it is absent on the hypothetical for
+   *  the reason `bedDoor` states: a placement nobody has made needs no 個室.
+   *
+   *  `null` is the ⚖ #777 answer: this lane shares a store with no room at all,
+   *  and a store with no rooms is never 満室. `keys` is a thunk — only the
+   *  「was it the ONLY bed?」 test reads it. */
+  const bedsOver = useCallback(
+    (laneKey: string, start: number, end: number): HalfHourBeds | null => {
       const lane = boardLanes.find((l) => l.key === laneKey && l.group === 'staff')
       if (!lane) return null
-      const asker = { stores: lane.stores, requiresPrivate: false }
-      const end = start + RAIL_STEP_MIN
-      return ledger.world.bedFor(start, end, asker).compatibleRoomsExist
-        ? ledger.world.freeBedCount(start, end, asker)
-        : null
+      // ⚖ FIX ROUND 3 (H1) — THE BOARD THE CHIP IS JUDGED ON. `bedDoor`'s own
+      // law, :275, spelled the same way: while the operator is holding a card
+      // the questions this strip asks are asked with that card lifted out.
+      const book = handId != null && handId === ledger.handId && ledger.worldMinusHand ? ledger.worldMinusHand : ledger.world
+      // ⚖ FIX ROUND 3 (H4) — and the asker is the HYPOTHETICAL one, on both
+      // worlds. A new placement nobody has made needs no 個室 (`bedDoor` says
+      // so at :253), the book's `queryOf` fixes `requiresPrivate: false` for a
+      // NewClient anyway — fix round 2 threaded the hand's tag onto an asker
+      // with no `id`, where it was a silent no-op that read as protection — and
+      // it is the asker the book CACHES, keyed (length, stores, slot). The
+      // Subject shape would carry the tag and be answered uncached: measured
+      // 5,518 book calls per pointer frame on a 30×10 board against 542 here.
+      const asker = { stores: lane.stores }
+      const answer = book.bedFor(start, end, asker)
+      if (!answer.compatibleRoomsExist) return null
+      return { full: answer.laneKey === null, keys: () => book.freeBedKeys(start, end, asker) }
     },
-    [boardLanes, ledger],
+    [boardLanes, ledger, handId],
   )
   /** ⚖ GREPTILE RE-REVIEW (2026-08-30) — THE OTHER HALF OF THE ROVING PATTERN.
    *  ←/→ moved focus from the first round, but the tab stop was hard-wired to
@@ -2341,8 +2381,10 @@ export function TodayScreen(props: TodayProps) {
         // a committed slot, bounded by one slot either way, and no number moves.
         withheld: sell.cells.filter(isHeldBound),
         // ⚖ LIAM RULING 1 (2026-09-09) — the half hour's own bed truth, so the
-        // word on a chip is about the 30 minutes it is drawn over.
-        halfHourFree,
+        // word on a chip is about the 30 minutes it is drawn over. ⚖ FIX ROUND 2
+        // (§C): this ONE door is the round's gate — absent, nothing new is
+        // derived anywhere in `explainRails`.
+        bedsOver,
         // ⚖ LIAM RULING 3 (2026-09-09) — and the two facts a packing search
         // cannot be honest without, plus the verdict door it re-judges through.
         // The same values `verdictAtLanding` passes, from the same props.
@@ -2355,7 +2397,7 @@ export function TodayScreen(props: TodayProps) {
       }),
     [
       rails, boardLanes, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode,
-      heldBoard, halfHourFree, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt,
+      heldBoard, bedsOver, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt,
     ],
   )
 
@@ -5781,7 +5823,7 @@ export function TodayScreen(props: TodayProps) {
           // Ruling 1 puts the word on half hours the engine refused for their
           // POCKET, which are the ones with a card on them; the chip still says
           // 満室 and the track keeps its「empty track only」rule.
-          restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items)
+          restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items, handId)
         : []
     // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
     // the lane's SIBLING, not its child. A `.lane` is a two-column grid, so a
@@ -5912,22 +5954,26 @@ export function TodayScreen(props: TodayProps) {
             const span = place(cue.start, cue.end, hours)
             return (
               <span
-                // ⚖ LIAM RULING 1 (2026-09-09) — the mark carries WORDS now,
-                // so it is information rather than decoration: it stops being
-                // `aria-hidden` and announces the same label a sighted operator
-                // reads. It stays `pointer-events: none` — the answer in full is
-                // one press away on the chip below it, which is where every
-                // sentence on this strip lives.
-                className="cell-rest-cue"
+                // ⚖ LIAM RULINGS 1 + 2 (2026-09-09) — the mark carries WORDS
+                // now, so it is information rather than decoration: it stops
+                // being `aria-hidden` and announces the same label a sighted
+                // operator reads. It stays `pointer-events: none` — the answer
+                // in full is one press away on the chip below it, which is
+                // where every sentence on this strip lives.
+                className={`cell-rest-cue${cue.kind === 'sold' ? ' sold-elsewhere' : ''}`}
                 key={`cue-${cue.start}`}
-                role="note"
-                aria-label={cue.label.join('')}
+                // ⚖ FIX ROUND 2 (L2-N1) — BACK TO `aria-hidden`. The chip directly
+                // under this mark announces the whole sentence, so a `role=note`
+                // here made a screen reader read the word twice before the
+                // sentence that explains it. The VISIBLE label stays: it is the
+                // reason the mark exists.
+                aria-hidden="true"
                 style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
               >
                 {/* Authored lines, never a browser wrap: the cue is 41–65px
                     wide at this store's board widths, so where the break falls
                     is a decision. One line that fits stays one line. */}
-                <i>{cue.label.map((line) => <span key={line}>{line}</span>)}</i>
+                <i>{cue.label.map((line, i) => <span key={i}>{line}</span>)}</i>
               </span>
             )
           })}
@@ -6133,6 +6179,10 @@ export function TodayScreen(props: TodayProps) {
               // new 満室 sentence between it and its referent, so it names the
               // chip instead); everything else is byte-identical. This note
               // sits above the 8/30 one for the reason that one gives.
+              // ⚖ FIX ROUND 1 (F5) — and the hatch sentence names the two words
+              // it is actually true of. 新規用 carries a word and NO hatch (the
+              // 確保 chip is drawn over that emptiness), so 「小さな文字が付いた
+              // コマでは」 promised a mark on a chip that never grows one.
               // ⚖ LIAM RULING (2026-08-30) — the quoted chip label below is 新規用
               // now, for the reason `railExplain` records: bare 新規 is this board's
               // own カテゴリー word and it inverted on him live. This note sits ABOVE
@@ -6153,7 +6203,7 @@ export function TodayScreen(props: TodayProps) {
                 // plain untruth about it. 置けない is true of all three, and the
                 // hatch is now its own sentence: it APPEARS, it is not a
                 // standing mark the operator should hunt for.
-                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「満室」「清掃」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。「満室」はその30分にベッドの空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます。小さな文字が付いたコマでは、すぐ上の行に薄い斜線が出て、その30分と理由を短い言葉で示します。`,
+                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「満室」「清掃」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。「満室」はその30分にベッドの空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます。「満室」「清掃」のコマでは、すぐ上の行に薄い斜線が出て、その30分と理由を短い言葉で示します。ベッドを別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます。`,
             }
           : {})}
       >
@@ -6235,7 +6285,16 @@ export function TodayScreen(props: TodayProps) {
                 // ⚖ 9/9 — a marked chip borrows the ✓ or △ palette by tone and
                 // wears a DASHED edge: placeable, at the cost the tone names,
                 // and not without moving somebody.
-                className={`guard-rail-cell ${mark ? `reseat ${mark.tone === 'degraded' ? 'degraded' : 'guard-slot'}` : state === 'safe' ? 'guard-slot safe' : state}${v?.kind === 'blocked' ? ' inert' : ''}${aimed?.laneKey === rail.laneKey && aimed.start === c.start ? ' aimed' : ''}`}
+                // ⚖ FIX ROUND 2 (G1) — the mapping lives in `railChipClass` now,
+                // where a test can ask it: the breaker swapped this chip's two
+                // palettes inside the template literal and the whole battery
+                // stayed green. Same string, one home.
+                className={railChipClass({
+                  mark,
+                  state,
+                  inert: v?.kind === 'blocked',
+                  aimed: aimed?.laneKey === rail.laneKey && aimed.start === c.start,
+                })}
                 key={c.start}
                 type="button"
                 data-start={c.start}
@@ -6791,7 +6850,7 @@ export function TodayScreen(props: TodayProps) {
                           : '細い配置ガイドを隠します。表示だけの個人設定で、保護ルールは停止しません。'}
                     </span>
                     <div className="guard-guide-key" aria-label="配置ガイドの記号の意味">
-                      <b>紫 ✓ 空きを減らさない</b><b>橙 △ 空きが減るが置ける</b><b>灰 — 置けない</b><b>⇄ ベッドを入れ替えれば置ける</b>
+                      <b>紫 ✓ 空きを減らさない</b><b>橙 △ 空きが減るが置ける</b><b>灰 — 置けない</b><b>⇄ ベッドを入れ替えて置ける</b>
                     </div>
                     <span className="guard-guide-copy">非表示にしても、店舗のスキマガード保護ルールは変わりません。</span>
                     <div className="guard-guide-policy">
@@ -6910,7 +6969,7 @@ export function TodayScreen(props: TodayProps) {
                     word: the mark borrows the ✓ or the △ palette by what the
                     drop would say, and those two keys beside it already carry
                     the colour vocabulary. */}
-                <span className="guard-key reseat-key">⇄ = ベッドを入れ替えれば置ける</span>
+                <span className="guard-key reseat-key">⇄ = ベッドを入れ替えて置ける</span>
                 <span className="guard-band-note">
                   {guideMode === 'selected'
                     ? `下の「${railDur}分配置」で、ドラッグ前に全開始を確認できます。`
