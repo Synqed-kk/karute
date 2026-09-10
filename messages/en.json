@@ -2517,6 +2517,7 @@
       "recordingNoCustomer": "No customer selected",
       "recordingUnresolved": "Recording",
       "durationSuffix": " · {n}s",
+      "recordingStaff": "Staff: {name}",
       "menuUpdate": {
         "duration": "Duration",
         "price": "Price",

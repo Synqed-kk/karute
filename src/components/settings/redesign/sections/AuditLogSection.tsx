@@ -447,7 +447,17 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
         typeof detail.duration_seconds === 'number'
           ? t('durationSuffix', { n: detail.duration_seconds })
           : ''
-      return `${base}${duration}`
+      // #865 (merged 9/9) put staff_id into the assembler's detail — resolve
+      // it the same way targetName above resolves a staff target_id (live
+      // roster first, then the server's targetLabels fallback for ids the
+      // roster can't key). Unresolvable → append nothing, never a raw uuid
+      // (same rule the customer branch above follows).
+      const staffName =
+        typeof detail.staff_id === 'string'
+          ? (staffNames.get(detail.staff_id) ?? targetLabels[detail.staff_id])
+          : undefined
+      const staffSuffix = staffName ? ` · ${t('recordingStaff', { name: staffName })}` : ''
+      return `${base}${duration}${staffSuffix}`
     }
     return targetName
   }

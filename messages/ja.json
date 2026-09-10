@@ -2517,6 +2517,7 @@
       "recordingNoCustomer": "顧客未選択の録音",
       "recordingUnresolved": "録音",
       "durationSuffix": "（{n}秒）",
+      "recordingStaff": "担当: {name}",
       "menuUpdate": {
         "duration": "所要時間",
         "price": "料金",

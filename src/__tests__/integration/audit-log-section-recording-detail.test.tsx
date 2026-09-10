@@ -7,6 +7,7 @@
 // Same harness as audit-log-section-menu-autostart-detail.test.tsx: renders
 // the REAL component with only the server-action boundary mocked.
 import { render, waitFor } from '@testing-library/react'
+import type { StaffMember } from '@/lib/staff'
 import en from '../../../messages/en.json'
 import ja from '../../../messages/ja.json'
 
@@ -14,6 +15,7 @@ const DICT: Record<string, string> = {
   recordingNoCustomer: '顧客未選択の録音',
   recordingUnresolved: '録音',
   durationSuffix: '（{n}秒）',
+  recordingStaff: '担当: {name}',
 }
 
 jest.mock('next-intl', () => ({
@@ -21,6 +23,7 @@ jest.mock('next-intl', () => ({
     Object.assign(
       (k: string, vals?: Record<string, unknown>) => {
         if (k === 'durationSuffix') return `（${(vals as { n?: unknown })?.n}秒）`
+        if (k === 'recordingStaff') return `担当: ${(vals as { name?: unknown })?.name}`
         if (k in DICT) return DICT[k]
         return vals ? `${k}:${JSON.stringify(vals)}` : k
       },
@@ -66,6 +69,7 @@ function coreEvent(overrides: Record<string, unknown> = {}) {
 async function renderWithEvents(
   events: Array<Record<string, unknown>>,
   targetLabels: Record<string, string> = {},
+  staffList: Array<{ id: string; full_name: string }> = [],
 ) {
   listAuditLog.mockResolvedValue({
     ok: true,
@@ -78,7 +82,9 @@ async function renderWithEvents(
     changesTotal: events.length,
     targetLabels,
   })
-  const { container } = render(<AuditLogSection staffList={[]} />)
+  const { container } = render(
+    <AuditLogSection staffList={staffList as unknown as StaffMember[]} />,
+  )
   await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
   return container
 }
@@ -146,6 +152,52 @@ describe('AuditLogSection — recording.session_cleanup rows never show the raw 
   })
 })
 
+// Round-2 packet, item 3: #865 (merged 9/9) put staff_id into the recording
+// assembler's detail — the page never rendered it. Same honest-state rule as
+// the customer branch above: resolvable → append the name, unresolvable →
+// append nothing, never a raw uuid.
+describe('AuditLogSection — recording.session_cleanup rows now name the staffer', () => {
+  const STAFF_ID = 'staff-42'
+
+  it('a staff_id resolvable via the live roster appends " · 担当: <name>"', async () => {
+    const container = await renderWithEvents(
+      [coreEvent({ detail: { customer_id: 'cus-1', had_audio_path: true, staff_id: STAFF_ID } })],
+      { [RAW_UUID]: '鈴木 一郎' },
+      [{ id: STAFF_ID, full_name: '田中 美香' }],
+    )
+    expect(container.textContent).toContain('鈴木 一郎 · 担当: 田中 美香')
+  })
+
+  it('a staff_id NOT on the live roster still resolves via the server targetLabels fallback', async () => {
+    const container = await renderWithEvents(
+      [coreEvent({ detail: { customer_id: 'cus-1', had_audio_path: true, staff_id: STAFF_ID } })],
+      { [RAW_UUID]: '鈴木 一郎', [STAFF_ID]: 'departed staffer' },
+      [],
+    )
+    expect(container.textContent).toContain('鈴木 一郎 · 担当: departed staffer')
+  })
+
+  it('an unresolvable staff_id appends NOTHING — never a raw uuid', async () => {
+    const container = await renderWithEvents(
+      [coreEvent({ detail: { customer_id: 'cus-1', had_audio_path: true, staff_id: STAFF_ID } })],
+      { [RAW_UUID]: '鈴木 一郎' },
+      [],
+    )
+    expect(container.textContent).toContain('鈴木 一郎')
+    expect(container.textContent).not.toContain('担当')
+    expect(container.textContent).not.toContain(STAFF_ID)
+  })
+
+  it('no staff_id in detail at all — the customer branch renders exactly as before', async () => {
+    const container = await renderWithEvents(
+      [coreEvent({ detail: { customer_id: 'cus-1', had_audio_path: true } })],
+      { [RAW_UUID]: '鈴木 一郎' },
+    )
+    expect(container.textContent).toContain('鈴木 一郎')
+    expect(container.textContent).not.toContain('担当')
+  })
+})
+
 describe('recording-labels fix — pinned dictionary strings (ja + en)', () => {
   it('the exact ja + en values landed as specified', () => {
     expect(ja.settings.auditLog.recordingNoCustomer).toBe('顧客未選択の録音')
@@ -156,5 +208,7 @@ describe('recording-labels fix — pinned dictionary strings (ja + en)', () => {
     expect(en.settings.auditLog.durationSuffix).toBe(' · {n}s')
     expect(ja.settings.auditLog.actions.recording.session_cleanup).toBe('録音を破棄')
     expect(en.settings.auditLog.actions.recording.session_cleanup).toBe('Recording discarded')
+    expect(ja.settings.auditLog.recordingStaff).toBe('担当: {name}')
+    expect(en.settings.auditLog.recordingStaff).toBe('Staff: {name}')
   })
 })
