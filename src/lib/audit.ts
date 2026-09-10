@@ -146,19 +146,6 @@ const CORE_SEVERITY: Record<AuditSeverity, 'info' | 'warn' | 'critical'> = {
   warning: 'critical',
 }
 
-// Contract §7 / PR-M5 piece ①: core's AuditEventInput has no request_id
-// column yet (ask A4, sent/undelivered) — until it lands, a short id rides in
-// `detail.request_id` (detail is capped ~2KB server-side, so this always
-// fits). Never overwrite a caller-supplied detail.request_id.
-function detailWithRequestId(
-  detail: AuditEvent['detail'],
-  requestId: string | undefined,
-): AuditEvent['detail'] | undefined {
-  if (!requestId) return detail ?? undefined
-  if (detail && Object.prototype.hasOwnProperty.call(detail, 'request_id')) return detail
-  return { ...(detail ?? {}), request_id: requestId }
-}
-
 // Drop counter — every swallowed forwardToCore failure increments this (PR-M5
 // piece ⑤ / contract §5's "failure is never silent"). The console line above
 // (audit_sink_error) is the primary alert net; this is a cheap in-process
@@ -194,7 +181,8 @@ async function forwardToCore(e: AuditEvent, businessId: string): Promise<{ ok: b
       action: e.action,
       target_type: e.targetType ?? null,
       target_id: e.targetId ?? null,
-      detail: detailWithRequestId(e.detail, e.requestId),
+      detail: e.detail ?? undefined,
+      request_id: e.requestId ?? null,
       store_id: e.storeId ?? null,
       break_glass: e.breakGlass ?? false,
       severity: CORE_SEVERITY[e.severity ?? 'info'],
