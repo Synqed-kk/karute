@@ -43,6 +43,7 @@ export const runtime = 'nodejs'
 function parseFilters(ctx: FacadeContext): AuditLogFilters {
   const q = new URL(ctx.req.url).searchParams
   const rawPage = Number.parseInt(q.get('page') ?? '', 10)
+  const breakGlass = q.get('breakGlass') === '1'
   return {
     category: q.get('category') ?? undefined,
     actorId: q.get('actorId') ?? undefined,
@@ -50,11 +51,14 @@ function parseFilters(ctx: FacadeContext): AuditLogFilters {
     to: q.get('to') ?? undefined,
     targetId: q.get('targetId') ?? undefined,
     includeViews: q.get('includeViews') === '1',
-    breakGlass: q.get('breakGlass') === '1',
+    breakGlass,
     // ③ (round-2 packet): only this one literal is recognized — anything
     // else (a stale/unknown value) is ignored, matching this route's
-    // never-400s contract for every other filter.
-    severity: q.get('severity') === 'warnings' ? 'warnings' : undefined,
+    // never-400s contract for every other filter. R1 (round-2 line-audit):
+    // breakGlass wins when both are set — mirrors the twin's own
+    // normalization so the phone never sends the combination in the first
+    // place.
+    severity: !breakGlass && q.get('severity') === 'warnings' ? 'warnings' : undefined,
     page: rawPage > 0 ? rawPage : 1,
   }
 }

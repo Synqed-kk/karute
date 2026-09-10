@@ -130,6 +130,11 @@ export async function listAuditLogWithClient(
 ): Promise<ListAuditLogResult> {
   try {
     const page = Math.max(1, Math.trunc(filters.page ?? 1))
+    // R1 (round-2 line-audit): breakGlass wins when both are set. The
+    // break-glass feed IS the strip's count contract (breakGlassTotal below
+    // falls back to res.total) — a severity lens on top would leave the
+    // critical half ignoring break_glass and undercount it.
+    const severity = filters.breakGlass ? undefined : filters.severity
     const baseQuery = {
       category: filters.category || undefined,
       actor_id: filters.actorId || undefined,
@@ -165,7 +170,7 @@ export async function listAuditLogWithClient(
           ...baseQuery,
           exclude_views: filters.includeViews ? undefined : true,
           break_glass: filters.breakGlass ? true : undefined,
-          severity: filters.severity === 'warnings' ? 'warn' : undefined,
+          severity: severity === 'warnings' ? 'warn' : undefined,
           page,
           page_size: PAGE_SIZE,
         }),
@@ -223,7 +228,7 @@ export async function listAuditLogWithClient(
         // extraction, so no receiver-loss risk. ponytail: two reads under the
         // lens is a named ceiling — upgrade path is core accepting a
         // severity SET, which collapses this back to one call.
-        filters.severity === 'warnings' && page === 1
+        severity === 'warnings' && page === 1
           ? synqed.audit
               .list({
                 ...baseQuery,
@@ -275,7 +280,7 @@ export async function listAuditLogWithClient(
     // instead of a quietly-incomplete page.
     let criticalTruncated: true | undefined
     let criticalUnavailable: true | undefined
-    if (filters.severity === 'warnings' && page === 1) {
+    if (severity === 'warnings' && page === 1) {
       if (criticalRes === null) {
         criticalUnavailable = true
       } else {

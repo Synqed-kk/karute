@@ -353,4 +353,16 @@ describe('GET /api/app/v1/audit-log', () => {
     const mainCall = auditList.mock.calls.find(([opts]) => opts.page_size === 100)
     expect(mainCall?.[0].severity).toBeUndefined()
   })
+
+  // R1 (round-2 line-audit): the query string is a legal combination even
+  // though the shipped UI never produces it — breakGlass wins, mirroring the
+  // twin's own normalization.
+  it('breakGlass=1 & severity=warnings together → severity is ignored, one core read only', async () => {
+    const res = await GET(getReq({ breakGlass: '1', severity: 'warnings' }), noParams)
+    expect(res.status).toBe(200)
+    expect(auditList).toHaveBeenCalledTimes(1)
+    expect(auditList).toHaveBeenCalledWith(
+      expect.objectContaining({ break_glass: true, severity: undefined }),
+    )
+  })
 })

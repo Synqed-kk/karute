@@ -1353,4 +1353,21 @@ describe('listAuditLog — ③ severity:"warnings" virtual filter (round-2 packe
     expect(res.criticalTruncated).toBeUndefined()
     expect(res.criticalUnavailable).toBeUndefined()
   })
+
+  it('breakGlass + severity:"warnings" together — severity is normalized away, no critical read, breakGlassTotal is the main total (R1)', async () => {
+    list.mockImplementation(async () => ({
+      events: [coreEvent({ break_glass: true })],
+      total: 7,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({ breakGlass: true, severity: 'warnings' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(list).toHaveBeenCalledTimes(1)
+    const [call] = list.mock.calls[0] as [ProbeOpts]
+    expect(call.break_glass).toBe(true)
+    expect(call.severity).toBeUndefined()
+    expect(criticalCalls()).toHaveLength(0)
+    expect(res.breakGlassTotal).toBe(7)
+  })
 })
