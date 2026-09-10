@@ -103,10 +103,12 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
   )
   // The spend wall's numbers ride the hook's OWN recording.transcribe row
   // (FACADE_AUDIT_MAP['ai.transcribe']) rather than a second one from the
-  // meter: one call, one receipt. Four keys, well inside the hook's cap of 8.
-  // The receipt is server-side only — the client is answered with `result`,
-  // the provider body, exactly as before.
-  ctx.auditDetail = { ...receipt }
+  // meter: one call, one receipt. Five keys with staff_id, still well inside
+  // the hook's cap of 8. The receipt is server-side only — the client is
+  // answered with `result`, the provider body, exactly as before.
+  // staff_id: selfStaffId, already resolved above — never a second lookup.
+  // This door names a storage path, never a customer, so no customer_id key.
+  ctx.auditDetail = { ...receipt, ...(selfStaffId ? { staff_id: selfStaffId } : {}) }
   if (!receipt.debit_recorded) ctx.auditSeverity = 'warning'
   return ok(ctx, result)
 })

@@ -890,6 +890,25 @@ describe('the web route (cookie door)', () => {
     expect(Object.keys(await res.json()).sort()).toEqual(['confidence', 'durationSec', 'transcript'])
   })
 
+  // G1 (Greptile 4/5, fix round 2): the wrapper stays silent for this door, so
+  // the SUCCESS row above only ever carried the four receipt fields — never
+  // staff_id, even though the refusal row (t7 above) already does. The route
+  // already holds the id (the same meter.staffId the refusal row reads); this
+  // proves the success row carries it too.
+  it('g1 signed in → the success row carries staff_id (already resolved for the reference)', async () => {
+    ;(getCurrentUserStaffId as jest.Mock).mockResolvedValueOnce('staff-web-1')
+
+    await webTranscribePOST(
+      post({ audioUrl: 'https://test-local.supabase.co/storage/audio.webm', locale: 'ja' }),
+    )
+
+    const detail = (auditWeb as jest.Mock).mock.calls[0][0].detail as Record<string, unknown>
+    expect(detail).toMatchObject({ staff_id: 'staff-web-1' })
+    // This door has no customer in scope (a raw upload, no session binding) —
+    // never invented, never null.
+    expect(detail).not.toHaveProperty('customer_id')
+  })
+
   it('t8 the true-up is lost → the route’s OWN row says so (debit_recorded false), and the caller still gets its words', async () => {
     const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {})
     // Reserve lands (5 ¢ from a 3 MB object), the 40 ¢ true-up does not.
@@ -1038,6 +1057,23 @@ describe('the facade route (Bearer door)', () => {
     // A landed debit is an ordinary row (fix round 3 — same default as every
     // other route the hook serves).
     expect(receipts[0].severity).toBeUndefined()
+  })
+
+  // G1 (Greptile 4/5, fix round 2): same claim as the web door's g1 test above
+  // — the hook's success row only ever carried the four receipt fields, never
+  // staff_id, though the refusal row (t7 above) already does. selfStaffId is
+  // already resolved for the voice reference; no new lookup.
+  it('g1 resolved caller → the hook’s success row carries staff_id (already resolved for the reference)', async () => {
+    ;(resolveSelfStaffId as jest.Mock).mockResolvedValueOnce('staff-app-1')
+
+    const res = await facadeTranscribePOST(post(), noRoute)
+
+    expect(res.status).toBe(200)
+    const receipts = rows('recording.transcribe')
+    expect(receipts).toHaveLength(1)
+    expect(receipts[0].detail).toMatchObject({ staff_id: 'staff-app-1' })
+    // This door names a storage path, never a customer — never invented.
+    expect(receipts[0].detail).not.toHaveProperty('customer_id')
   })
 
   it('t8 the true-up is lost → the hook’s OWN row is severity warning too (fix round 3)', async () => {

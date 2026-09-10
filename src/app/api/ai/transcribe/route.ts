@@ -126,11 +126,15 @@ export async function POST(request: Request) {
       // spend wall's numbers ride THIS row rather than a second one from the
       // meter: one call, one receipt. The receipt itself never leaves the
       // server — the client gets `body`, exactly as before.
+      // staff_id: meter.staffId, already resolved above for the voice
+      // reference — never a second lookup. This door has no customer in
+      // scope (a raw upload, no session binding), so the key is omitted
+      // rather than written null (§v2, matches the refusal row's rule).
       await auditWeb({
         category: 'recording',
         action: 'recording.transcribe',
         ...(receipt.debit_recorded ? {} : { severity: 'warning' as const }),
-        detail: { ...receipt },
+        detail: { ...receipt, ...(meter.staffId ? { staff_id: meter.staffId } : {}) },
         requestId: crypto.randomUUID(),
       })
       return NextResponse.json(body)
@@ -157,7 +161,7 @@ export async function POST(request: Request) {
       category: 'recording',
       action: 'recording.transcribe',
       ...(receipt.debit_recorded ? {} : { severity: 'warning' as const }),
-      detail: { ...receipt },
+      detail: { ...receipt, ...(meter.staffId ? { staff_id: meter.staffId } : {}) },
       requestId: crypto.randomUUID(),
     })
     return NextResponse.json(body)
