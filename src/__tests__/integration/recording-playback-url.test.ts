@@ -571,6 +571,18 @@ describe('mintPlaybackUrlWithClient — ONE row per mint (claim 4)', () => {
     expect(plays(lines)[0].detail).not.toHaveProperty('staff_id')
   })
 
+  // B2: a card-id-stamped owner (the Recorder-lock split above) must audit
+  // under the TRANSLATED profile id, never the raw core staff card id —
+  // proving it for the AUDIT RECORD, not just the ACL compare the existing
+  // "recorder hears her own take" test above already covers.
+  it('a card-id-stamped owner → detail.staff_id carries the TRANSLATED profile id, never the raw card id (B2)', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'staff-card-1' }
+    cardLookup.current = 'staff-profile-1'
+    const lines = await auditLines(() => mint({ staffId: 'staff-profile-1' }))
+    expect((plays(lines)[0].detail as Record<string, unknown>).staff_id).toBe('staff-profile-1')
+    expect((plays(lines)[0].detail as Record<string, unknown>).staff_id).not.toBe('staff-card-1')
+  })
+
   it('a karute with no customer → detail omits customer_id (absent, not null)', async () => {
     const lines = await auditLines(() => mint())
     expect(plays(lines)[0].detail).not.toHaveProperty('customer_id')
