@@ -2379,9 +2379,6 @@
       "errorLoad": "監査ログを読み込めませんでした。",
       "errorForbidden": "監査ログへのアクセス権がありません。",
       "loadMore": "さらに読み込む",
-      "criticalTruncated": "重大な記録が100件を超えています。期間を絞り込んでください。",
-      "criticalUnavailable": "重大な記録を読み込めませんでした。",
-      "criticalGroup": "重大な記録 {count}件",
       "systemActor": "システム",
       "unknownActor": "不明",
       "actions": {
@@ -2504,6 +2501,7 @@
       "staffAll": "全員",
       "statsChanges": "変更",
       "statsWarnings": "警告",
+      "statsCritical": "重大",
       "statsBreakGlass": "緊急アクセス",
       "eventsCount": "{count}件",
       "storesCount": "{count}店舗",

@@ -2379,9 +2379,6 @@
       "errorLoad": "Couldn't load the audit log.",
       "errorForbidden": "You don't have access to the audit log.",
       "loadMore": "Load more",
-      "criticalTruncated": "There are more than 100 critical records. Narrow the date range.",
-      "criticalUnavailable": "Couldn't load the critical records.",
-      "criticalGroup": "Critical records ({count})",
       "systemActor": "System",
       "unknownActor": "Unknown",
       "actions": {
@@ -2504,6 +2501,7 @@
       "staffAll": "Everyone",
       "statsChanges": "changes",
       "statsWarnings": "warnings",
+      "statsCritical": "critical",
       "statsBreakGlass": "break-glass",
       "eventsCount": "{count, plural, one {# event} other {# events}}",
       "storesCount": "{count, plural, one {# store} other {# stores}}",

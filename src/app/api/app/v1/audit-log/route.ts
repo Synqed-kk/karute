@@ -52,13 +52,15 @@ function parseFilters(ctx: FacadeContext): AuditLogFilters {
     targetId: q.get('targetId') ?? undefined,
     includeViews: q.get('includeViews') === '1',
     breakGlass,
-    // ③ (round-2 packet): only this one literal is recognized — anything
-    // else (a stale/unknown value) is ignored, matching this route's
-    // never-400s contract for every other filter. R1 (round-2 line-audit):
-    // breakGlass wins when both are set — mirrors the twin's own
-    // normalization so the phone never sends the combination in the first
-    // place.
-    severity: !breakGlass && q.get('severity') === 'warnings' ? 'warnings' : undefined,
+    // G2 (round-4 line-audit): only these two real core literals are
+    // recognized (a stale 'warnings' or any other unknown value is ignored),
+    // matching this route's never-400s contract for every other filter. R1
+    // (round-2 line-audit): breakGlass wins when both are set — mirrors the
+    // twin's own normalization so the phone never sends the combination in
+    // the first place.
+    severity: !breakGlass && (q.get('severity') === 'warn' || q.get('severity') === 'critical')
+      ? (q.get('severity') as 'warn' | 'critical')
+      : undefined,
     page: rawPage > 0 ? rawPage : 1,
   }
 }

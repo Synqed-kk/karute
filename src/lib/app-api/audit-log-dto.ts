@@ -51,21 +51,11 @@ export const AuditLogListResultDTO = z.discriminatedUnion('ok', [
     warningsTotal: z.number().nullable(),
     changesTotal: z.number().nullable(),
     targetLabels: z.record(z.string(), z.string()),
-    // G1 (round-3 line-audit): the critical read's own rows, page 1 of the
-    // lens only — rendered as their own group above the warn feed. Optional
-    // on the wire (an old cached response predates this field), normalized
-    // to an empty array so every consumer sees AuditLogEvent[], never
-    // undefined (same idiom as actor_label above).
-    criticalEvents: z
-      .array(AuditLogEventSchema)
-      .optional()
-      .transform((v) => v ?? []),
-    // ③ severity:'warnings' virtual filter (round-2 packet) — additive, plain
-    // optional (never emitted outside that filter, same idiom as
-    // reassign_customer_line above): the critical half's read overflowed
-    // page_size or failed outright.
-    criticalTruncated: z.boolean().optional(),
-    criticalUnavailable: z.boolean().optional(),
+    // G2 (round-4 line-audit): exact 重大 total — same null-together-with-
+    // warningsTotal contract as changesTotal above. Replaces the round-3
+    // criticalEvents/criticalTruncated/criticalUnavailable trio (the merged
+    // critical read + group), which are DELETED.
+    criticalTotal: z.number().nullable(),
   }),
   z.object({
     ok: z.literal(false),

@@ -1566,9 +1566,9 @@ type AuditLogFilters = {
   targetId?: string
   includeViews?: boolean
   breakGlass?: boolean
-  // ③ (round-2 packet): virtual warn+critical filter — mirrors
+  // G2 (round-4 line-audit): the real core severity values — mirrors
   // AuditLogFilters.severity (src/actions/audit-log.ts).
-  severity?: 'warnings'
+  severity?: 'warn' | 'critical'
   page?: number
 }
 type AuditLogListResult =
@@ -1583,13 +1583,11 @@ type AuditLogListResult =
       warningsTotal: number | null
       changesTotal: number | null
       targetLabels: Record<string, string>
-      // G1 (round-3 line-audit): the critical read's own rows, page 1 of the
-      // lens only — add-only, mirrors ListAuditLogResult.criticalEvents
-      // (src/actions/audit-log.ts).
-      criticalEvents?: AuditLogEvent[]
-      // ③ severity:'warnings' virtual filter (round-2 packet) — add-only.
-      criticalTruncated?: boolean
-      criticalUnavailable?: boolean
+      // G2 (round-4 line-audit): exact 重大 total — mirrors
+      // ListAuditLogResult.criticalTotal (src/actions/audit-log.ts).
+      // Replaces the round-3 criticalEvents/criticalTruncated/
+      // criticalUnavailable trio, which are DELETED.
+      criticalTotal: number | null
     }
   | { ok: false; error: 'forbidden' | 'failed' }
 
