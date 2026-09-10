@@ -724,6 +724,45 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     expect(res.targetLabels).toEqual({})
   })
 
+  // F3 (round-2 line-audit): #865 put staff_id into recording.capture_resumed's
+  // detail — resolveTargetLabels must widen the SAME staff batch to include it
+  // (same idiom as the customer_id widen two tests up), or a departed staffer
+  // (not in the component's live roster, and no OTHER row on the page has
+  // target_type:'staff' to trigger the batch) never resolves at all.
+  it("a recording row's detail.staff_id resolves via the SAME staff batch, even with no target_type:'staff' row on the page (departed staffer)", async () => {
+    const staffList = jest.fn(async () => ({
+      staff: [{ id: 'staff-42', user_id: null, name: 'departed staffer', is_active: false }],
+      total: 1,
+      page: 1,
+      page_size: 200,
+    }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+      staff: { list: staffList },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-rec-staff',
+          category: 'recording',
+          action: 'recording.capture_resumed',
+          target_type: 'recording',
+          target_id: 'sess-3',
+          detail: { staff_id: 'staff-42', had_audio_path: true },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    // ONE batch call for the whole page, not a per-row lookup.
+    expect(staffList).toHaveBeenCalledTimes(1)
+    expect(res.targetLabels['staff-42']).toBe('departed staffer')
+  })
+
   it('resolves staff targets in BOTH id spaces (synqed staff.id + linked profiles.id) incl. deactivated staff — one unfiltered list call', async () => {
     const staffList = jest.fn(async () => ({
       staff: [

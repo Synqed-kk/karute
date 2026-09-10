@@ -441,6 +441,14 @@ async function resolveTargetLabels(
     .filter((e) => e.target_type === 'recording')
     .map((e) => (e.detail as { customer_id?: unknown } | null)?.customer_id)
     .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  // F3 (round-2 line-audit): recording.capture_resumed rows carry detail.staff_id
+  // (#865) — the departed-staffer case (not in the component's live roster)
+  // must still resolve a name, same idiom as the customer id two lines up.
+  // Widens the SAME staff batch below, never a second resolver.
+  const recordingStaffIds = events
+    .filter((e) => e.target_type === 'recording')
+    .map((e) => (e.detail as { staff_id?: unknown } | null)?.staff_id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
   const unresolvedKaruteIds = idsOf('karute')
     .filter((id) => !detailKaruteIds.has(id))
     .slice(0, 30)
@@ -563,7 +571,7 @@ async function resolveTargetLabels(
   // spelling to a name. The component still prefers its live roster; this
   // fills what the roster can't key. Hard-deleted core rows simply don't
   // resolve — the id stands, same honest state as purged customers.
-  const staffIds = idsOf('staff')
+  const staffIds = [...new Set([...idsOf('staff'), ...recordingStaffIds])]
   if (staffIds.length > 0) {
     try {
       const staffNameById = new Map<string, string>()

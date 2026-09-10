@@ -450,8 +450,11 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       // #865 (merged 9/9) put staff_id into the assembler's detail — resolve
       // it the same way targetName above resolves a staff target_id (live
       // roster first, then the server's targetLabels fallback for ids the
-      // roster can't key). Unresolvable → append nothing, never a raw uuid
-      // (same rule the customer branch above follows).
+      // roster can't key — F3, round-2 line-audit: resolveTargetLabels now
+      // widens its staff batch to include detail.staff_id off recording rows,
+      // same idiom as the customer_id widen two branches up, so a departed
+      // staffer's row still names them). Unresolvable → append nothing, never
+      // a raw uuid (same rule the customer branch above follows).
       const staffName =
         typeof detail.staff_id === 'string'
           ? (staffNames.get(detail.staff_id) ?? targetLabels[detail.staff_id])
