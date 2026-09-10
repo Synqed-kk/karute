@@ -42,6 +42,7 @@ interface CoreRow {
   actor_id: string | null
   actor_type: string
   store_id: string | null
+  request_id?: string | null
 }
 const coreRows: CoreRow[] = []
 const logFails = { next: false }
@@ -483,6 +484,17 @@ describe('idempotency on the take key', () => {
 
     expect(res).toMatchObject({ ok: true, duplicate: false })
     expect(discardRows().filter((r) => r.target_id === 'rs-1')).toHaveLength(1)
+  })
+
+  // B1: the probe's rowId-fallback reads the column core actually writes to
+  // (`request_id`, top-level on AuditEvent), not a `detail.request_id` field
+  // this branch stopped populating.
+  it('a prior row with no `id` but a `request_id` still resolves through the fallback (B1)', async () => {
+    seedRow({ action: 'recording.discard', target_id: 'rs-1', id: undefined, request_id: 'req-fallback-1' })
+
+    const res = await staffReceipt()
+
+    expect(res).toEqual({ ok: true, receiptId: 'req-fallback-1', duplicate: true })
   })
 
   it('a pre-mint receipt filed under takeId dedupes the post-mint retry carrying BOTH ids', async () => {

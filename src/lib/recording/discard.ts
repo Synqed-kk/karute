@@ -373,17 +373,17 @@ async function findPriorReceipt(
         page: 1,
         page_size: 50,
       })
-      const rows = (res?.events ?? []) as { id?: unknown; action?: unknown; detail?: unknown }[]
+      const rows = (res?.events ?? []) as { id?: unknown; action?: unknown; request_id?: unknown }[]
       const hit = rows.find((r) => r.action === 'recording.discard')
       if (!hit) continue
-      const detailRequestId = (hit.detail as { request_id?: unknown } | null)?.request_id
+      const fallbackRequestId = hit.request_id
       return {
         found: true,
         receiptId:
           typeof hit.id === 'string'
             ? hit.id
-            : typeof detailRequestId === 'string'
-              ? detailRequestId
+            : typeof fallbackRequestId === 'string'
+              ? fallbackRequestId
               : null,
       }
     } catch (err) {
