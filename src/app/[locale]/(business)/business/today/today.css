@@ -692,7 +692,18 @@
    and poking 1px past both edges of the boxes it sits under — a second geometry
    on a layer whose whole point is that it is the same layer. The signed-off mock
    is discrete rounded marks; these are those. */
-.biz .cell-rest-cue { position: absolute; z-index: 0; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); opacity: .25; pointer-events: none; }
+/* ⚖ LIAM RULINGS 1 + 2 (2026-09-09) — THE MARK CARRIES WORDS NOW, so the wash
+   moves off the element and onto a layer of its own: quarter-strength paint
+   under a label at full strength, instead of a label faded to a quarter with
+   the diagonal it is sitting on. Same gradient, same .25, same two colours —
+   `::before` is where they live, and nothing else about the mark moved. */
+.biz .cell-rest-cue { position: absolute; z-index: 0; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; pointer-events: none; }
+.biz .cell-rest-cue::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); opacity: .25; }
+/* The label: the chip's own word (満室 / 清掃). Authored lines wrap at their own
+   boundary
+   when the cue is too narrow for one — `flex-wrap` is the whole mechanism, so a
+   wide board reads one line and a 1180px one reads two, with no measurement. */
+.biz .cell-rest-cue i { position: absolute; inset: 0; z-index: 1; display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 0 2px; padding: 0 2px; font-family: inherit; font-size: 9px; font-style: normal; font-weight: 800; line-height: 1.15; letter-spacing: -.4px; color: #52525b; text-align: center; overflow: hidden; }
 .biz .timeline.sell-drag .cell-price { opacity: 0; }
 .biz .timeline.sell-off .cell-price { display: none; }
 /* ⚖ Liam 2026-08-20 — LENGTH-MATCHED EMPHASIS, superseding canon's uniform

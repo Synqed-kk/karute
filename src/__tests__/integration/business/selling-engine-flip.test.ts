@@ -1139,8 +1139,11 @@ describe('5 — a 確保 window answers with the law', () => {
         [...on.gapDrawn.packed, ...on.gapDrawn.scraps].filter((g) => g.group === 'staff' && g.laneKey === rail.laneKey),
         byLane.get(rail.laneKey),
       )
-      for (const start of cues) {
-        expect((byLane.get(rail.laneKey) ?? []).some((h) => h.start < start + 30 && start < h.end)).toBe(false)
+      // ⚖ 9/9 — `restCueStarts` returns the merged SPANS now (a run of same-kind
+      // half hours is one mark), so the overlap is asked of the span's own two
+      // ends rather than of one start plus the step.
+      for (const cue of cues) {
+        expect((byLane.get(rail.laneKey) ?? []).some((h) => h.start < cue.end && cue.start < h.end)).toBe(false)
       }
     }
     // ⚖ 44's precedent: a state that answers a press is a button wearing no
@@ -1631,10 +1634,15 @@ describe('7 — the fix round: the publication boundary', () => {
     // diverges mid-gesture whenever a drag writes `live` with nothing in hand —
     // it paints a quarter-strength 清掃 hatch under the chip, which is flag 88's
     // artifact one layer along.
-    const worded = new Map([[600, { word: '新規用' }]])
+    // ⚖ 9/9 — the cue is keyed on the CUE the composer returned rather than on
+    // the word, because the two are no longer the same list. 新規用 never rides
+    // a cue here (the 確保 chip is drawn over that emptiness), so the scene is
+    // stated in the vocabulary the helper now reads:
+    // a bed-less half hour, which is what flag 88's artifact was painted under.
+    const worded = new Map([[600, { cue: { kind: 'bed' as const, label: ['満室'] } }]])
     const committed = [{ start: 600, end: 690, windowStart: 600 }]
     expect(restCueStarts(worded, [], [], committed)).toEqual([])
-    expect(restCueStarts(worded, [], [], [])).toEqual([600])
+    expect(restCueStarts(worded, [], [], [])).toEqual([{ start: 600, end: 630, kind: 'bed', label: ['満室'] }])
     // The screen hands it `heldHere`, which is the committed list the chip on
     // the line above is drawn from…
     const screen = SRC('TodayScreen.tsx')

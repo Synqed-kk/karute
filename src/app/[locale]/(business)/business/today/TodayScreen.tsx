@@ -125,6 +125,7 @@ import {
   priceFactSets,
   proxyTimeLabel,
   restCueStarts,
+  RAIL_STEP_MIN,
   restingSpanFor,
   warnFaceFor,
   holdClock,
@@ -1944,6 +1945,30 @@ export function TodayScreen(props: TodayProps) {
     [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
+  /** ⚖ LIAM RULING 1 (2026-09-09) — HOW MANY ROOMS ARE FREE FOR ONE HALF HOUR.
+   *
+   *  His words: 「every box that is 満室 should say 満室」. The strip's word is a
+   *  fact about the HALF HOUR the chip sits on from this round on, and this is
+   *  that fact — out of the frame's own book, which is where every other bed
+   *  question on this screen is answered, so the word and the marks cannot
+   *  disagree about one board.
+   *
+   *  The asker is the HYPOTHETICAL one `bedDoor(…, null)` binds for the marks
+   *  themselves — a new placement nobody has made yet, so no 個室のみ tag and no
+   *  card lifted. `null` is the #777 answer: this lane shares a store with no
+   *  room at all, and a store with no rooms is never 満室. */
+  const halfHourFree = useCallback(
+    (laneKey: string, start: number): number | null => {
+      const lane = boardLanes.find((l) => l.key === laneKey && l.group === 'staff')
+      if (!lane) return null
+      const asker = { stores: lane.stores, requiresPrivate: false }
+      const end = start + RAIL_STEP_MIN
+      return ledger.world.bedFor(start, end, asker).compatibleRoomsExist
+        ? ledger.world.freeBedCount(start, end, asker)
+        : null
+    },
+    [boardLanes, ledger],
+  )
   /** ⚖ GREPTILE RE-REVIEW (2026-08-30) — THE OTHER HALF OF THE ROVING PATTERN.
    *  ←/→ moved focus from the first round, but the tab stop was hard-wired to
    *  chip 0, so tabbing away and back always threw the operator back to the
@@ -2061,8 +2086,11 @@ export function TodayScreen(props: TodayProps) {
         // only by `liveMoves`); mid-gesture the widening is a no-op or snaps off
         // a committed slot, bounded by one slot either way, and no number moves.
         withheld: sell.cells.filter(isHeldBound),
+        // ⚖ LIAM RULING 1 (2026-09-09) — the half hour's own bed truth, so the
+        // word on a chip is about the 30 minutes it is drawn over.
+        halfHourFree,
       }),
-    [rails, boardLanes, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode, heldBoard],
+    [rails, boardLanes, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode, heldBoard, halfHourFree],
   )
 
   const openCards = props.cards.filter((c) => c.state === 'open' && !resolved.includes(c.id))
@@ -5824,15 +5852,27 @@ export function TodayScreen(props: TodayProps) {
               empty may never sit on top of an offer. `--x`/`--w` is the same
               positioning grammar `.cell-price` uses; 30 is the rail's own step
               (`stepMin`, where the cells are built). */}
-          {restCues.map((start) => {
-            const span = place(start, start + 30, hours)
+          {restCues.map((cue) => {
+            const span = place(cue.start, cue.end, hours)
             return (
               <span
+                // ⚖ LIAM RULING 1 (2026-09-09) — the mark carries WORDS now,
+                // so it is information rather than decoration: it stops being
+                // `aria-hidden` and announces the same label a sighted operator
+                // reads. It stays `pointer-events: none` — the answer in full is
+                // one press away on the chip below it, which is where every
+                // sentence on this strip lives.
                 className="cell-rest-cue"
-                key={`cue-${start}`}
-                aria-hidden="true"
+                key={`cue-${cue.start}`}
+                role="note"
+                aria-label={cue.label.join('')}
                 style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
-              />
+              >
+                {/* Authored lines, never a browser wrap: the cue is 41–65px
+                    wide at this store's board widths, so where the break falls
+                    is a decision. One line that fits stays one line. */}
+                <i>{cue.label.map((line) => <span key={line}>{line}</span>)}</i>
+              </span>
             )
           })}
           {!isLocked &&
