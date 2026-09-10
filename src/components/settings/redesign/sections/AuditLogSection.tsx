@@ -113,19 +113,10 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   const [targetId, setTargetId] = useState(initialTargetId ?? null)
   const [includeViews, setIncludeViews] = useState(Boolean(initialTargetId))
   const [breakGlass, setBreakGlass] = useState(false)
-  // ③ (round-2 packet): tapping the 警告 stat is now a SERVER filter (core's
-  // severity param, joined into a warn∪critical virtual filter — see
-  // listAuditLogWithClient). No client-side re-filter lens anymore; `days`
-  // below reads `events` directly.
-  const [warnOnly, setWarnOnly] = useState(false)
-  // ③: the virtual filter's critical half degraded (overflowed page_size, or
-  // the read failed outright) — page-1-only flags, absent otherwise.
-  const [criticalTruncated, setCriticalTruncated] = useState(false)
-  const [criticalUnavailable, setCriticalUnavailable] = useState(false)
-  // G1 (round-3 line-audit): the critical read's own rows — page-1-only,
-  // rendered as their own group ABOVE the day groups (never merged into
-  // `events`, so paging can never misorder them).
-  const [criticalEvents, setCriticalEvents] = useState<AuditLogEvent[]>([])
+  // G2 (round-4 line-audit): tapping 警告 or 重大 is a SERVER filter (core's
+  // real severity param) — ONE feed at a time, never both. `days` below
+  // reads `events` directly, whichever single feed load() last fetched.
+  const [lens, setLens] = useState<'warn' | 'critical' | null>(null)
   // karute.entry_edit expansion — one row open at a time (§11 accordion).
   const [expandedEditId, setExpandedEditId] = useState<string | null>(null)
   const [editTrails, setEditTrails] = useState<Record<string, EntryEditTrailState>>({})
@@ -134,6 +125,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   const [breakGlassTotal, setBreakGlassTotal] = useState<number | null>(null)
   const [warningsTotal, setWarningsTotal] = useState<number | null>(null)
   const [changesTotal, setChangesTotal] = useState<number | null>(null)
+  const [criticalTotal, setCriticalTotal] = useState<number | null>(null)
   const [targetLabels, setTargetLabels] = useState<Record<string, string>>({})
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
@@ -168,9 +160,9 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           targetId: targetId ?? undefined,
           includeViews,
           breakGlass: breakGlass || undefined,
-          // ③ round-2: server filter now — see the `days` useMemo below,
-          // which no longer re-filters the loaded events.
-          severity: warnOnly ? 'warnings' : undefined,
+          // G2 round-4: one real severity value at a time — see the `days`
+          // useMemo below, which never re-filters the loaded events.
+          severity: lens ?? undefined,
           page: nextPage,
         })
       } catch {
@@ -201,20 +193,13 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       )
       setWarningsTotal((prev) => (append && res.warningsTotal === null ? prev : res.warningsTotal))
       setChangesTotal((prev) => (append && res.changesTotal === null ? prev : res.changesTotal))
+      setCriticalTotal((prev) => (append && res.criticalTotal === null ? prev : res.criticalTotal))
       setTargetLabels((prev) => (append ? { ...prev, ...res.targetLabels } : res.targetLabels))
-      // ③: additive, page-1-only flags — an append (page N+1, same filters)
-      // never recomputes them server-side, so keep whatever page 1 set
-      // (same "don't downgrade a known signal" idiom as the totals above).
-      setCriticalTruncated((prev) => (append ? prev : Boolean(res.criticalTruncated)))
-      setCriticalUnavailable((prev) => (append ? prev : Boolean(res.criticalUnavailable)))
-      // G1: page-1-only, same "keep whatever page 1 set" idiom as the two
-      // flags above — an append (page N+1) never recomputes it server-side.
-      setCriticalEvents((prev) => (append ? prev : (res.criticalEvents ?? [])))
       setPage(res.page)
       setHasMore(res.hasMore)
       setLoading(false)
     },
-    [category, actorId, range, targetId, includeViews, breakGlass, warnOnly],
+    [category, actorId, range, targetId, includeViews, breakGlass, lens],
   )
 
   useEffect(() => {
@@ -234,9 +219,9 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   // thin's ends at its own overflow container). useLayoutEffect, not effect,
   // so the reset lands before paint. Keyed on every state that REPLACES the
   // feed: the seven `load(1, false)` deps (category/actorId/range/targetId/
-  // includeViews/breakGlass/warnOnly — ③ round-2: warnOnly is now itself a
-  // server filter, not a client-side lens, but this effect's own dependency
-  // array is independent of load's identity, so it's listed here too).
+  // includeViews/breakGlass/lens — G2 round-4: lens is a server filter, not
+  // a client-side re-filter, but this effect's own dependency array is
+  // independent of load's identity, so it's listed here too).
   // Deliberately NOT keyed on page/events, so a load-more append (same
   // filters, next page) never fires this.
   const rootRef = useRef<HTMLDivElement>(null)
@@ -244,7 +229,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     for (let el = rootRef.current?.parentElement ?? null; el; el = el.parentElement) {
       el.scrollTop = 0
     }
-  }, [category, actorId, range, targetId, includeViews, breakGlass, warnOnly])
+  }, [category, actorId, range, targetId, includeViews, breakGlass, lens])
 
   const dayFmt = useMemo(
     () =>
@@ -269,15 +254,19 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   )
 
   // Summary strip. 緊急アクセス is server-exact for the whole filter window;
-  // 変更/警告 now prefer the server-exact totals (packet 18 T1 — severity/
+  // 変更/警告/重大 now prefer the server-exact totals (packet 18 T1 — severity/
   // exclude_views probes) when the server returned them (non-null); the +
   // only appears on the fallback path (probes failed/skipped), same as
-  // before this packet.
+  // before this packet. G2 (round-4): 警告 and 重大 are counted SEPARATELY —
+  // a critical row never counts toward the 警告 tile, even on the client
+  // fallback path.
   const stats = useMemo(() => {
     let changes = 0
     let warnings = 0
+    let critical = 0
     for (const e of events) {
-      if (e.severity === 'warn' || e.severity === 'critical') warnings++
+      if (e.severity === 'critical') critical++
+      else if (e.severity === 'warn') warnings++
       else if (!isViewEvent(e.action)) changes++
     }
     return {
@@ -285,11 +274,13 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       changesApprox: changesTotal === null && hasMore ? '+' : '',
       warnings: warningsTotal ?? warnings,
       warningsApprox: warningsTotal === null && hasMore ? '+' : '',
+      critical: criticalTotal ?? critical,
+      criticalApprox: criticalTotal === null && hasMore ? '+' : '',
     }
-  }, [events, changesTotal, warningsTotal, hasMore])
+  }, [events, changesTotal, warningsTotal, criticalTotal, hasMore])
 
   // Day-grouped feed (device-local dates, same zone the timestamps render in).
-  // ③ round-2: warnOnly is now a server filter (see load() above) — `events`
+  // G2 (round-4): lens is a server filter (see load() above) — `events`
   // already IS the filtered set, so no client-side re-filter here.
   const days = useMemo(() => {
     const groups: { key: string; date: Date; events: AuditLogEvent[] }[] = []
@@ -600,7 +591,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                 type="button"
                 onClick={() => {
                   setActorId(e.actor_id)
-                  setWarnOnly(false)
+                  setLens(null)
                 }}
                 className={`border-b border-dotted border-muted-foreground/50 text-xs hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 ${
                   isView ? 'text-muted-foreground' : 'text-foreground'
@@ -756,7 +747,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           value={actorId ?? ''}
           onChange={(v) => {
             setActorId(v || null)
-            setWarnOnly(false)
+            setLens(null)
           }}
           options={[
             { value: '', label: t('staffAll') },
@@ -792,10 +783,10 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
         <FilterChip
           active={breakGlass}
           onClick={() => {
-            // Entering break-glass view clears the 警告 display lens by every
+            // Entering break-glass view clears any severity lens by every
             // path (tile AND chip): info-severity break-glass rows would be
             // lens-filtered into a count-above-empty-feed contradiction.
-            if (!breakGlass) setWarnOnly(false)
+            if (!breakGlass) setLens(null)
             setBreakGlass(!breakGlass)
           }}
           icon={<ShieldAlert className="size-3.5" />}
@@ -819,13 +810,14 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
             type="button"
             onClick={() => {
               // Mutual exclusion with break-glass (both directions, all
-              // paths): the 警告 lens over a break-glass feed would hide its
-              // info-severity rows under a nonzero count.
-              if (!warnOnly) setBreakGlass(false)
-              setWarnOnly(!warnOnly)
+              // paths): a severity lens over a break-glass feed would hide
+              // its info-severity rows under a nonzero count.
+              const next = lens === 'warn' ? null : 'warn'
+              if (next) setBreakGlass(false)
+              setLens(next)
             }}
             className={`inline-flex items-baseline gap-1.5 rounded-lg px-3.5 py-2 text-amber-700 transition-colors dark:text-amber-400 ${
-              warnOnly ? 'bg-amber-500/25 ring-1 ring-amber-500/40' : 'bg-amber-500/10 hover:bg-amber-500/20'
+              lens === 'warn' ? 'bg-amber-500/25 ring-1 ring-amber-500/40' : 'bg-amber-500/10 hover:bg-amber-500/20'
             }`}
           >
             <span className="text-lg font-semibold leading-none tabular-nums">
@@ -834,10 +826,34 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
             </span>
             <span className="text-xs">{t('statsWarnings')}</span>
           </button>
+          {/* G2 (round-4 line-audit): each tile shows exactly what its tap
+           *  opens — warn and critical never share a screen. Shown only when
+           *  there's something to show (server-exact criticalTotal, or the
+           *  client fallback count while probes are degraded), same idiom
+           *  as the 警告/変更 tiles' own fallback. */}
+          {stats.critical > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                const next = lens === 'critical' ? null : 'critical'
+                if (next) setBreakGlass(false)
+                setLens(next)
+              }}
+              className={`inline-flex items-baseline gap-1.5 rounded-lg px-3.5 py-2 text-red-700 transition-colors dark:text-red-400 ${
+                lens === 'critical' ? 'bg-red-500/25 ring-1 ring-red-500/40' : 'bg-red-500/10 hover:bg-red-500/20'
+              }`}
+            >
+              <span className="text-lg font-semibold leading-none tabular-nums">
+                {stats.critical}
+                {stats.criticalApprox}
+              </span>
+              <span className="text-xs">{t('statsCritical')}</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
-              setWarnOnly(false)
+              setLens(null)
               setBreakGlass(true)
             }}
             className="inline-flex items-baseline gap-1.5 rounded-lg bg-red-500/10 px-3.5 py-2 text-red-700 transition-colors hover:bg-red-500/20 dark:text-red-400"
@@ -847,31 +863,6 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
             </span>
             <span className="text-xs">{t('statsBreakGlass')}</span>
           </button>
-        </div>
-      )}
-
-      {!error && criticalTruncated && (
-        <div className="rounded-lg border border-dashed border-border/50 bg-card/30 px-3 py-2 text-xs text-muted-foreground">
-          {t('criticalTruncated')}
-        </div>
-      )}
-      {!error && criticalUnavailable && (
-        <div className="rounded-lg border border-dashed border-border/50 bg-card/30 px-3 py-2 text-xs text-muted-foreground">
-          {t('criticalUnavailable')}
-        </div>
-      )}
-
-      {/* G1: the critical half's own rows, as one group ABOVE the day
-       *  groups — never interleaved into `events`, so paging can never
-       *  misorder them. */}
-      {!error && warnOnly && criticalEvents.length > 0 && (
-        <div>
-          <div className="mb-2 flex items-baseline gap-2 text-xs font-semibold text-muted-foreground">
-            {t('criticalGroup', { count: criticalEvents.length })}
-          </div>
-          <ul className="divide-y divide-border/60 rounded-xl border border-border bg-card">
-            {criticalEvents.map((e) => renderEventRow(e))}
-          </ul>
         </div>
       )}
 
