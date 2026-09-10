@@ -662,11 +662,14 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
         <div className="rounded-lg border border-dashed border-border/50 bg-card/30 px-6 py-10 text-center text-sm text-muted-foreground">
           {t(error === 'forbidden' ? 'errorForbidden' : 'errorLoad')}
         </div>
-      ) : days.length === 0 && !loading && !hasMore ? (
-        // Suppressed while hasMore: a page can view-filter to empty though
-        // older non-view rows remain — the load-more button stays the CTA.
+      ) : days.length === 0 && !loading ? (
+        // ④ round-2: ALWAYS shows now (not suppressed while hasMore) — a
+        // filtered page that came back blank used to read as broken, with
+        // only さらに読み込む on an otherwise-empty screen. hasMore picks the
+        // honest wording; the load-more button (below, unconditional on
+        // hasMore) stays the CTA either way.
         <div className="rounded-lg border border-dashed border-border/50 bg-card/30 px-6 py-10 text-center text-sm text-muted-foreground">
-          {t('empty')}
+          {t(hasMore ? 'emptyPage' : 'empty')}
         </div>
       ) : (
         days.map((day) => (

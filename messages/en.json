@@ -2375,6 +2375,7 @@
       "targetFilter": "Showing this customer's records only (views included)",
       "clearTarget": "Clear",
       "empty": "No events match these filters.",
+      "emptyPage": "No records on this page. Select \"Load more\" to keep going.",
       "errorLoad": "Couldn't load the audit log.",
       "errorForbidden": "You don't have access to the audit log.",
       "loadMore": "Load more",

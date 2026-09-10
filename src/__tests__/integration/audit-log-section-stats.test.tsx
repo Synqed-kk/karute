@@ -412,3 +412,47 @@ describe('AuditLogSection — ③ round-2: warnOnly is a server filter, not a cl
     await waitFor(() => expect(container.querySelectorAll('li')).toHaveLength(1))
   })
 })
+
+// Round-2 packet ④: a filtered page that comes back empty used to render a
+// blank screen (the empty card was suppressed while hasMore, leaving only
+// さらに読み込む on nothing) — now it always shows a message, worded by
+// whether more pages might hold a match.
+describe('AuditLogSection — ④ round-2: honest empty state even while hasMore', () => {
+  it('an empty page with hasMore true renders emptyPage (never the terminal empty message), load-more stays the CTA', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [],
+      total: 50,
+      page: 1,
+      hasMore: true,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 0,
+      targetLabels: {},
+    })
+    const { getByText, queryByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalled())
+    await waitFor(() => expect(getByText('emptyPage')).toBeInTheDocument())
+    expect(queryByText('empty')).toBeNull()
+    expect(getByText('loadMore')).toBeInTheDocument()
+  })
+
+  it('a terminal empty result (hasMore false) still renders the original empty message', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [],
+      total: 0,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 0,
+      targetLabels: {},
+    })
+    const { getByText, queryByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalled())
+    await waitFor(() => expect(getByText('empty')).toBeInTheDocument())
+    expect(queryByText('emptyPage')).toBeNull()
+    expect(queryByText('loadMore')).toBeNull()
+  })
+})
