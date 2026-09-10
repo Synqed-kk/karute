@@ -122,6 +122,10 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   // the read failed outright) — page-1-only flags, absent otherwise.
   const [criticalTruncated, setCriticalTruncated] = useState(false)
   const [criticalUnavailable, setCriticalUnavailable] = useState(false)
+  // G1 (round-3 line-audit): the critical read's own rows — page-1-only,
+  // rendered as their own group ABOVE the day groups (never merged into
+  // `events`, so paging can never misorder them).
+  const [criticalEvents, setCriticalEvents] = useState<AuditLogEvent[]>([])
   // karute.entry_edit expansion — one row open at a time (§11 accordion).
   const [expandedEditId, setExpandedEditId] = useState<string | null>(null)
   const [editTrails, setEditTrails] = useState<Record<string, EntryEditTrailState>>({})
@@ -203,6 +207,9 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       // (same "don't downgrade a known signal" idiom as the totals above).
       setCriticalTruncated((prev) => (append ? prev : Boolean(res.criticalTruncated)))
       setCriticalUnavailable((prev) => (append ? prev : Boolean(res.criticalUnavailable)))
+      // G1: page-1-only, same "keep whatever page 1 set" idiom as the two
+      // flags above — an append (page N+1) never recomputes it server-side.
+      setCriticalEvents((prev) => (append ? prev : (res.criticalEvents ?? [])))
       setPage(res.page)
       setHasMore(res.hasMore)
       setLoading(false)
@@ -523,6 +530,189 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     })()
   }
 
+  function renderEventRow(e: AuditLogEvent) {
+    const Icon = CATEGORY_ICONS[e.category] ?? Activity
+    const sub = eventSub(e)
+    // Mock 840dd1d1 note 3: view rows mix into the feed as
+    // muted gray lines, so 変更 rows stay the eye's anchor when
+    // 閲覧を含む is ON. Severity coloring still wins on the icon.
+    const isView = isViewEvent(e.action)
+    // Durable label wins (packet 18 T3, SDK 1.14 write-time
+    // snapshot) — the live roster is only a fallback for rows
+    // written before core started sending it; 不明 last. System
+    // rows keep their own distinct label (unaffected — core
+    // never resolves a label for a null actor_id).
+    // || not ?? — an empty-string snapshot must fall through to
+    // the roster/不明 chain, never render a blank (Greptile #581 P2).
+    const actorName =
+      e.actor_type === 'system'
+        ? t('systemActor')
+        : e.actor_label ||
+          ((e.actor_id && staffNames.get(e.actor_id)) || t('unknownActor'))
+    const isEntryEdit =
+      e.action === 'karute.entry_edit' || e.action === 'karute.summary_edit'
+    const isOpen = isEntryEdit && expandedEditId === e.id
+    const trail = isEntryEdit ? editTrails[e.id] : undefined
+    return (
+      <li key={e.id} className="flex flex-col px-4 py-2.5">
+        <div className="flex items-center gap-3">
+          <span
+            className={`flex size-8 shrink-0 items-center justify-center rounded-full ${
+              e.severity === 'critical'
+                ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                : e.severity === 'warn'
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                  : 'bg-muted text-muted-foreground'
+            }`}
+            aria-hidden
+          >
+            <Icon className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span
+                className={
+                  isView
+                    ? 'text-sm text-muted-foreground'
+                    : 'text-sm font-medium text-foreground'
+                }
+              >
+                {actionLabel(e.action)}
+              </span>
+              {e.break_glass && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300">
+                  <ShieldAlert className="size-3" />
+                  {t('breakGlassChip')}
+                </span>
+              )}
+            </div>
+            {sub && <p className="truncate text-xs text-muted-foreground">{sub}</p>}
+          </div>
+          <div className="shrink-0 text-right">
+            {e.actor_type === 'system' || !e.actor_id ? (
+              <div className={`text-xs ${isView ? 'text-muted-foreground' : 'text-foreground'}`}>
+                {actorName}
+              </div>
+            ) : (
+              // §10 cause-based investigation: an actor name is a
+              // one-tap person filter. Raw events only — never stats.
+              <button
+                type="button"
+                onClick={() => {
+                  setActorId(e.actor_id)
+                  setWarnOnly(false)
+                }}
+                className={`border-b border-dotted border-muted-foreground/50 text-xs hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 ${
+                  isView ? 'text-muted-foreground' : 'text-foreground'
+                }`}
+              >
+                {actorName}
+              </button>
+            )}
+            <div className="text-[11px] text-muted-foreground tabular-nums">
+              {timeFmt.format(new Date(e.at))}
+            </div>
+          </div>
+          {isEntryEdit && (
+            // §11 expand: what was edited, not just that an edit
+            // happened. Same onClick idiom as the actor-name
+            // button above — a dedicated control, not the whole
+            // row (the actor button already lives inside it).
+            <button
+              type="button"
+              onClick={() => toggleEntryEditTrail(e)}
+              aria-label={t('entryEditToggle')}
+              className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted"
+            >
+              <ChevronDown
+                className={`size-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+          )}
+        </div>
+        {isOpen && (
+          <div className="ml-11 mt-2 rounded-lg border border-border/60 bg-muted/30 p-3">
+            {/* Greptile P1, superseded 2026-08-19: the karute.entry_edit
+                emit now carries detail.entry_edit_id (app-side fix, this
+                PR — rows emitted before it lack the field, and a degraded
+                core response writes null), so exact per-event pairing IS
+                possible. This panel still deliberately shows the ENTRY's
+                whole trail, not just this audit row's own change; wiring
+                the precise entry_edit_id filter is a queued follow-up. */}
+            {trail?.status === 'ok' && (
+              <p className="mb-2 text-[11px] text-muted-foreground">
+                {t(
+                  e.action === 'karute.summary_edit'
+                    ? 'summaryEditTrailTitle'
+                    : 'entryEditTrailTitle',
+                  { count: trail.rows.length },
+                )}
+              </p>
+            )}
+            {(!trail || trail.status === 'loading') && (
+              <p className="text-xs text-muted-foreground">{tc('loading')}</p>
+            )}
+            {trail?.status === 'error' && (
+              <p className="text-xs text-red-500">{t('entryEditError')}</p>
+            )}
+            {trail?.status === 'ok' && trail.rows.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {/* Truncated + zero-match means rows may sit past
+                    the cap — never claim the record was deleted.
+                    Non-truncated zero-match: entryEditDeleted's
+                    copy states the RULE (a deleted karute's
+                    history dies with it) without asserting THIS
+                    is that case — the read has a documented
+                    offset-drift gap (listEntryEditHistoryWithClient,
+                    src/actions/karute.ts) that can also return
+                    empty for an intact record, and this is a
+                    dispute-investigation surface. */}
+                {trail.truncated ? t('entryEditPartial') : t('entryEditDeleted')}
+              </p>
+            )}
+            {trail?.status === 'ok' && trail.rows.length > 0 && (
+              <>
+                <ul className="flex flex-col gap-2">
+                  {trail.rows.map((row) => {
+                    const ts = formatEditTrailTimestamp(row.createdAt, editTrailDateFmt)
+                    return (
+                      <li
+                        key={row.id}
+                        className="flex flex-col gap-1 rounded-md border border-border/60 bg-background p-2.5"
+                      >
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            {row.actorName ?? t('unknownActor')}
+                          </span>
+                          {ts && <span className="tabular-nums">{ts}</span>}
+                        </div>
+                        {row.contentBefore !== null && (
+                          <p className="text-xs leading-relaxed text-muted-foreground line-through">
+                            {row.contentBefore}
+                          </p>
+                        )}
+                        {row.contentAfter !== null && (
+                          <p className="text-xs leading-relaxed text-foreground">
+                            {row.contentAfter}
+                          </p>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+                {trail.truncated && (
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    {t('entryEditPartial')}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </li>
+    )
+  }
+
   return (
     <div ref={rootRef} className="space-y-4">
       <div>
@@ -671,6 +861,20 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
         </div>
       )}
 
+      {/* G1: the critical half's own rows, as one group ABOVE the day
+       *  groups — never interleaved into `events`, so paging can never
+       *  misorder them. */}
+      {!error && warnOnly && criticalEvents.length > 0 && (
+        <div>
+          <div className="mb-2 flex items-baseline gap-2 text-xs font-semibold text-muted-foreground">
+            {t('criticalGroup', { count: criticalEvents.length })}
+          </div>
+          <ul className="divide-y divide-border/60 rounded-xl border border-border bg-card">
+            {criticalEvents.map((e) => renderEventRow(e))}
+          </ul>
+        </div>
+      )}
+
       {error ? (
         <div className="rounded-lg border border-dashed border-border/50 bg-card/30 px-6 py-10 text-center text-sm text-muted-foreground">
           {t(error === 'forbidden' ? 'errorForbidden' : 'errorLoad')}
@@ -694,188 +898,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
               </span>
             </div>
             <ul className="divide-y divide-border/60 rounded-xl border border-border bg-card">
-              {day.events.map((e) => {
-                const Icon = CATEGORY_ICONS[e.category] ?? Activity
-                const sub = eventSub(e)
-                // Mock 840dd1d1 note 3: view rows mix into the feed as
-                // muted gray lines, so 変更 rows stay the eye's anchor when
-                // 閲覧を含む is ON. Severity coloring still wins on the icon.
-                const isView = isViewEvent(e.action)
-                // Durable label wins (packet 18 T3, SDK 1.14 write-time
-                // snapshot) — the live roster is only a fallback for rows
-                // written before core started sending it; 不明 last. System
-                // rows keep their own distinct label (unaffected — core
-                // never resolves a label for a null actor_id).
-                // || not ?? — an empty-string snapshot must fall through to
-                // the roster/不明 chain, never render a blank (Greptile #581 P2).
-                const actorName =
-                  e.actor_type === 'system'
-                    ? t('systemActor')
-                    : e.actor_label ||
-                      ((e.actor_id && staffNames.get(e.actor_id)) || t('unknownActor'))
-                const isEntryEdit =
-                  e.action === 'karute.entry_edit' || e.action === 'karute.summary_edit'
-                const isOpen = isEntryEdit && expandedEditId === e.id
-                const trail = isEntryEdit ? editTrails[e.id] : undefined
-                return (
-                  <li key={e.id} className="flex flex-col px-4 py-2.5">
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`flex size-8 shrink-0 items-center justify-center rounded-full ${
-                          e.severity === 'critical'
-                            ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-                            : e.severity === 'warn'
-                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                              : 'bg-muted text-muted-foreground'
-                        }`}
-                        aria-hidden
-                      >
-                        <Icon className="size-4" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                          <span
-                            className={
-                              isView
-                                ? 'text-sm text-muted-foreground'
-                                : 'text-sm font-medium text-foreground'
-                            }
-                          >
-                            {actionLabel(e.action)}
-                          </span>
-                          {e.break_glass && (
-                            <span className="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300">
-                              <ShieldAlert className="size-3" />
-                              {t('breakGlassChip')}
-                            </span>
-                          )}
-                        </div>
-                        {sub && <p className="truncate text-xs text-muted-foreground">{sub}</p>}
-                      </div>
-                      <div className="shrink-0 text-right">
-                        {e.actor_type === 'system' || !e.actor_id ? (
-                          <div className={`text-xs ${isView ? 'text-muted-foreground' : 'text-foreground'}`}>
-                            {actorName}
-                          </div>
-                        ) : (
-                          // §10 cause-based investigation: an actor name is a
-                          // one-tap person filter. Raw events only — never stats.
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActorId(e.actor_id)
-                              setWarnOnly(false)
-                            }}
-                            className={`border-b border-dotted border-muted-foreground/50 text-xs hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 ${
-                              isView ? 'text-muted-foreground' : 'text-foreground'
-                            }`}
-                          >
-                            {actorName}
-                          </button>
-                        )}
-                        <div className="text-[11px] text-muted-foreground tabular-nums">
-                          {timeFmt.format(new Date(e.at))}
-                        </div>
-                      </div>
-                      {isEntryEdit && (
-                        // §11 expand: what was edited, not just that an edit
-                        // happened. Same onClick idiom as the actor-name
-                        // button above — a dedicated control, not the whole
-                        // row (the actor button already lives inside it).
-                        <button
-                          type="button"
-                          onClick={() => toggleEntryEditTrail(e)}
-                          aria-label={t('entryEditToggle')}
-                          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted"
-                        >
-                          <ChevronDown
-                            className={`size-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                          />
-                        </button>
-                      )}
-                    </div>
-                    {isOpen && (
-                      <div className="ml-11 mt-2 rounded-lg border border-border/60 bg-muted/30 p-3">
-                        {/* Greptile P1, superseded 2026-08-19: the karute.entry_edit
-                            emit now carries detail.entry_edit_id (app-side fix, this
-                            PR — rows emitted before it lack the field, and a degraded
-                            core response writes null), so exact per-event pairing IS
-                            possible. This panel still deliberately shows the ENTRY's
-                            whole trail, not just this audit row's own change; wiring
-                            the precise entry_edit_id filter is a queued follow-up. */}
-                        {trail?.status === 'ok' && (
-                          <p className="mb-2 text-[11px] text-muted-foreground">
-                            {t(
-                              e.action === 'karute.summary_edit'
-                                ? 'summaryEditTrailTitle'
-                                : 'entryEditTrailTitle',
-                              { count: trail.rows.length },
-                            )}
-                          </p>
-                        )}
-                        {(!trail || trail.status === 'loading') && (
-                          <p className="text-xs text-muted-foreground">{tc('loading')}</p>
-                        )}
-                        {trail?.status === 'error' && (
-                          <p className="text-xs text-red-500">{t('entryEditError')}</p>
-                        )}
-                        {trail?.status === 'ok' && trail.rows.length === 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            {/* Truncated + zero-match means rows may sit past
-                                the cap — never claim the record was deleted.
-                                Non-truncated zero-match: entryEditDeleted's
-                                copy states the RULE (a deleted karute's
-                                history dies with it) without asserting THIS
-                                is that case — the read has a documented
-                                offset-drift gap (listEntryEditHistoryWithClient,
-                                src/actions/karute.ts) that can also return
-                                empty for an intact record, and this is a
-                                dispute-investigation surface. */}
-                            {trail.truncated ? t('entryEditPartial') : t('entryEditDeleted')}
-                          </p>
-                        )}
-                        {trail?.status === 'ok' && trail.rows.length > 0 && (
-                          <>
-                            <ul className="flex flex-col gap-2">
-                              {trail.rows.map((row) => {
-                                const ts = formatEditTrailTimestamp(row.createdAt, editTrailDateFmt)
-                                return (
-                                  <li
-                                    key={row.id}
-                                    className="flex flex-col gap-1 rounded-md border border-border/60 bg-background p-2.5"
-                                  >
-                                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                                      <span className="font-medium text-foreground">
-                                        {row.actorName ?? t('unknownActor')}
-                                      </span>
-                                      {ts && <span className="tabular-nums">{ts}</span>}
-                                    </div>
-                                    {row.contentBefore !== null && (
-                                      <p className="text-xs leading-relaxed text-muted-foreground line-through">
-                                        {row.contentBefore}
-                                      </p>
-                                    )}
-                                    {row.contentAfter !== null && (
-                                      <p className="text-xs leading-relaxed text-foreground">
-                                        {row.contentAfter}
-                                      </p>
-                                    )}
-                                  </li>
-                                )
-                              })}
-                            </ul>
-                            {trail.truncated && (
-                              <p className="mt-2 text-[11px] text-muted-foreground">
-                                {t('entryEditPartial')}
-                              </p>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </li>
-                )
-              })}
+              {day.events.map((e) => renderEventRow(e))}
             </ul>
           </div>
         ))

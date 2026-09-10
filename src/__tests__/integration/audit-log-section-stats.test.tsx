@@ -413,6 +413,82 @@ describe('AuditLogSection — ③ round-2: warnOnly is a server filter, not a cl
   })
 })
 
+// G1 (round-3 line-audit): the critical half no longer merges into `events`
+// — it renders as its own group ABOVE the day groups, never interleaved, so
+// paging can never misorder them.
+describe('AuditLogSection — G1 round-3: criticalEvents render as their own group above the day groups', () => {
+  // Both the criticalGroup header and each day-group header share this exact
+  // class string (AuditLogSection.tsx) — querySelectorAll returns them in
+  // DOM order, so index 0 being the critical group proves it renders ABOVE
+  // the day groups (a mutant that swaps the two blocks' order fails here).
+  const HEADER_SELECTOR = '.mb-2.flex.items-baseline'
+
+  it('with warnOnly and two critical rows, the criticalGroup header renders above the day header; warn rows keep their day groups', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [coreEvent({ id: 'info-1', severity: 'info' })],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 1,
+      targetLabels: {},
+    })
+    const { container, getByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [coreEvent({ id: 'w-1', severity: 'warn' })],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 1,
+      changesTotal: 0,
+      targetLabels: {},
+      criticalEvents: [
+        coreEvent({ id: 'c-1', severity: 'critical' }),
+        coreEvent({ id: 'c-2', severity: 'critical' }),
+      ],
+    })
+    fireEvent.click(getByText('statsWarnings'))
+
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(getByText('criticalGroup')).toBeInTheDocument())
+
+    const headers = container.querySelectorAll(HEADER_SELECTOR)
+    expect(headers).toHaveLength(2)
+    expect(headers[0].textContent).toContain('criticalGroup')
+    // 2 critical rows (above) + 1 warn row (its own day group, below).
+    expect(container.querySelectorAll('li')).toHaveLength(3)
+  })
+
+  it('zero critical rows → no criticalGroup header renders', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [coreEvent({ id: 'w-1', severity: 'warn' })],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 1,
+      changesTotal: 0,
+      targetLabels: {},
+      criticalEvents: [],
+    })
+    const { container, getByText, queryByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+    fireEvent.click(getByText('statsWarnings'))
+
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(container.querySelectorAll('li')).toHaveLength(1))
+    expect(queryByText('criticalGroup')).toBeNull()
+    expect(container.querySelectorAll(HEADER_SELECTOR)).toHaveLength(1)
+  })
+})
+
 // Round-2 packet ④: a filtered page that comes back empty used to render a
 // blank screen (the empty card was suppressed while hasMore, leaving only
 // さらに読み込む on nothing) — now it always shows a message, worded by

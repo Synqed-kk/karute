@@ -1583,6 +1583,10 @@ type AuditLogListResult =
       warningsTotal: number | null
       changesTotal: number | null
       targetLabels: Record<string, string>
+      // G1 (round-3 line-audit): the critical read's own rows, page 1 of the
+      // lens only — add-only, mirrors ListAuditLogResult.criticalEvents
+      // (src/actions/audit-log.ts).
+      criticalEvents?: AuditLogEvent[]
       // ③ severity:'warnings' virtual filter (round-2 packet) — add-only.
       criticalTruncated?: boolean
       criticalUnavailable?: boolean

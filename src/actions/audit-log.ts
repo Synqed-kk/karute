@@ -100,6 +100,12 @@ type ListAuditLogResult =
        *  resolve client-side off the roster; this map is the fallback for ids
        *  the roster can't key (historical id-space rows, departed staff). */
       targetLabels: Record<string, string>
+      /** ③ severity:'warnings' virtual filter only — the critical read's own
+       *  rows, page 1 of the lens only (empty array on every other page, and
+       *  whenever the filter is off). Rendered as its own group ABOVE the
+       *  warn feed's day groups — never merged into `events`, so paging can
+       *  never misorder them (G1, round-3 line-audit). */
+      criticalEvents: AuditLogEvent[]
       /** ③ severity:'warnings' virtual filter only — the critical half's read
        *  came back with more than PAGE_SIZE rows (rare; narrow the window) or
        *  failed outright. Default absent everywhere else. */
@@ -268,27 +274,22 @@ export async function listAuditLogWithClient(
     // hasMore are exact and no view row of either era reaches this filter in
     // the default feed. The belt stays as pure defense-in-depth against a
     // core-side regression, mirroring isViewAction's doc above.
-    let events = (res.events as AuditLogEvent[]).filter(
+    const events = (res.events as AuditLogEvent[]).filter(
       (e) => filters.includeViews || !isViewAction(e.action),
     )
-    // ③ virtual severity:'warnings' filter — merge the critical read into
-    // page 1's feed, newest-first (a plain concat-then-sort: cheap at ≤200
-    // rows, and doesn't assume the two feeds already interleave correctly).
-    // Page 2+ never merges — the warn feed keeps paging alone, matching
-    // hasMore below (which stays the warn feed's own). A failed critical
-    // read never silently drops rows: it surfaces as criticalUnavailable
-    // instead of a quietly-incomplete page.
+    // ③ virtual severity:'warnings' filter — critical rows are shown as
+    // their own group above the warn feed — never interleaved, so paging
+    // can never misorder them; the structural fix is core accepting a
+    // severity SET (Anthony ticket), which collapses this to one read.
+    let criticalEvents: AuditLogEvent[] = []
     let criticalTruncated: true | undefined
     let criticalUnavailable: true | undefined
     if (severity === 'warnings' && page === 1) {
       if (criticalRes === null) {
         criticalUnavailable = true
       } else {
-        const criticalEvents = (criticalRes.events as AuditLogEvent[]).filter(
+        criticalEvents = (criticalRes.events as AuditLogEvent[]).filter(
           (e) => filters.includeViews || !isViewAction(e.action),
-        )
-        events = [...events, ...criticalEvents].sort(
-          (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime(),
         )
         if (criticalRes.total > PAGE_SIZE) criticalTruncated = true
       }
@@ -305,13 +306,17 @@ export async function listAuditLogWithClient(
     // view-suffix exclusion — the #56 widen — matches isViewAction).
     const warnPair = filters.includeViews ? [warnAllRes, critAllRes] : [nvWarnRes, nvCritRes]
     const warnPairOk = warnPair.every((r) => r !== null)
-    const targetLabels = await resolveTargetLabels(synqed, events)
+    // G1: the label batch (and the reassign-line loop below) must see the
+    // critical group's rows too — they render through the SAME row
+    // component as the warn feed, so an id only a critical row references
+    // (a target, a reassign from/to id) still needs to resolve.
+    const targetLabels = await resolveTargetLabels(synqed, [...events, ...criticalEvents])
     // R7-1: build the reassign display line ONCE here, off the SAME
     // (now-extended) targetLabels map — shared by the web action AND the
     // facade route (both call this twin), so neither needs its own copy of
     // this template. Set only for karute.customer_reassign rows with both
     // ids present; every other row leaves the field undefined.
-    for (const e of events) {
+    for (const e of [...events, ...criticalEvents]) {
       if (e.action !== 'karute.customer_reassign') continue
       const d = e.detail as { from_customer_id?: unknown; to_customer_id?: unknown } | null
       const fromId = d?.from_customer_id
@@ -347,6 +352,7 @@ export async function listAuditLogWithClient(
           ? Math.max(0, nvAllRes.total - nvWarnRes.total - nvCritRes.total)
           : null,
       targetLabels,
+      criticalEvents,
       ...(criticalTruncated ? { criticalTruncated } : {}),
       ...(criticalUnavailable ? { criticalUnavailable } : {}),
     }

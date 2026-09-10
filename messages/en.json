@@ -2381,6 +2381,7 @@
       "loadMore": "Load more",
       "criticalTruncated": "There are more than 100 critical records. Narrow the date range.",
       "criticalUnavailable": "Couldn't load the critical records.",
+      "criticalGroup": "Critical records ({count})",
       "systemActor": "System",
       "unknownActor": "Unknown",
       "actions": {

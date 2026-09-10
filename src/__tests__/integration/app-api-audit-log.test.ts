@@ -365,4 +365,35 @@ describe('GET /api/app/v1/audit-log', () => {
       expect.objectContaining({ break_glass: true, severity: undefined }),
     )
   })
+
+  // G1 (round-3 line-audit): criticalEvents (the critical read's own rows,
+  // never merged into `events`) rides the DTO parse boundary verbatim.
+  it('criticalEvents rides the DTO for severity=warnings', async () => {
+    auditList.mockImplementation(async (opts: Record<string, unknown>) => {
+      if (opts.page_size === 100 && opts.severity === 'warn')
+        return {
+          events: [coreEvent({ id: 'w-1', severity: 'warn' })],
+          total: 1,
+          page: 1,
+          page_size: 100,
+        }
+      if (opts.page_size === 100 && opts.severity === 'critical')
+        return {
+          events: [coreEvent({ id: 'c-1', severity: 'critical' })],
+          total: 1,
+          page: 1,
+          page_size: 100,
+        }
+      return { events: [], total: 0, page: 1, page_size: (opts.page_size as number) ?? 1 }
+    })
+    const res = await GET(getReq({ severity: 'warnings' }), noParams)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      ok: true
+      events: { id: string }[]
+      criticalEvents: { id: string }[]
+    }
+    expect(body.events.map((e) => e.id)).toEqual(['w-1'])
+    expect(body.criticalEvents.map((e) => e.id)).toEqual(['c-1'])
+  })
 })

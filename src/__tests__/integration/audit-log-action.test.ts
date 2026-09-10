@@ -1300,7 +1300,7 @@ describe('listAuditLog — ③ severity:"warnings" virtual filter (round-2 packe
     )
   })
 
-  it('merges warn + critical newest-first', async () => {
+  it('events = warn page only (server order untouched); criticalEvents = the critical read\'s own rows (G1, round-3 line-audit)', async () => {
     list.mockImplementation(async (opts: ProbeOpts) => {
       if (opts.page_size === 100 && opts.severity === 'warn')
         return {
@@ -1323,10 +1323,14 @@ describe('listAuditLog — ③ severity:"warnings" virtual filter (round-2 packe
     })
     const res = await listAuditLog({ severity: 'warnings' })
     if (!res.ok) throw new Error('expected ok')
-    expect(res.events.map((e) => e.id)).toEqual(['c-new', 'w-old'])
+    // G1: never interleaved — the warn feed stays server-ordered on its own,
+    // and the critical read's rows come back as their own array, not merged
+    // into `events` (a re-merge would make this ['c-new', 'w-old']).
+    expect(res.events.map((e) => e.id)).toEqual(['w-old'])
+    expect(res.criticalEvents.map((e) => e.id)).toEqual(['c-new'])
   })
 
-  it('the critical read failing → criticalUnavailable true, events stay the warn page (never silently incomplete)', async () => {
+  it('the critical read failing → criticalUnavailable true, criticalEvents empty, events stay the warn page (never silently incomplete)', async () => {
     list.mockImplementation(async (opts: ProbeOpts) => {
       if (opts.page_size === 100 && opts.severity === 'warn')
         return { events: [coreEvent({ id: 'w-1', severity: 'warn' })], total: 1, page: 1, page_size: 100 }
@@ -1337,6 +1341,7 @@ describe('listAuditLog — ③ severity:"warnings" virtual filter (round-2 packe
     const res = await listAuditLog({ severity: 'warnings' })
     if (!res.ok) throw new Error('expected ok')
     expect(res.criticalUnavailable).toBe(true)
+    expect(res.criticalEvents).toEqual([])
     expect(res.events.map((e) => e.id)).toEqual(['w-1'])
     expect(res.criticalTruncated).toBeUndefined()
   })
@@ -1361,7 +1366,7 @@ describe('listAuditLog — ③ severity:"warnings" virtual filter (round-2 packe
     expect(res.criticalUnavailable).toBeUndefined()
   })
 
-  it('page 2+ never re-issues the critical read — no criticalTruncated/criticalUnavailable, warn rows keep paging alone', async () => {
+  it('page 2+ never re-issues the critical read — no criticalTruncated/criticalUnavailable, criticalEvents empty, warn rows keep paging alone', async () => {
     list.mockImplementation(async (opts: ProbeOpts) => {
       if (opts.page_size === 100 && opts.severity === 'warn')
         return {
@@ -1381,6 +1386,7 @@ describe('listAuditLog — ③ severity:"warnings" virtual filter (round-2 packe
     expect(criticalCalls()).toHaveLength(0)
     expect(res.criticalTruncated).toBeUndefined()
     expect(res.criticalUnavailable).toBeUndefined()
+    expect(res.criticalEvents).toEqual([])
   })
 
   it('breakGlass + severity:"warnings" together — severity is normalized away, no critical read, breakGlassTotal is the main total (R1)', async () => {
