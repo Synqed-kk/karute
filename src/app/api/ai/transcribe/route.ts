@@ -93,11 +93,14 @@ export async function POST(request: Request) {
         ? null
         : await loadStaffReferenceForStaff(orgSettings, await getCurrentUserStaffId())
     // Both request-cached: getSynqedClient already resolved the business id, so
-    // this second read is the same lookup, not a second round-trip.
+    // this second read is the same lookup, not a second round-trip. Same for
+    // getCurrentUserStaffId() below (React cache(), same wrapper the
+    // reference read above already called) — never a second lookup.
     const meter = {
       synqed: await getSynqedClient(),
       businessId: await getBusinessId(),
       door: 'web' as const,
+      staffId: await getCurrentUserStaffId(),
     }
 
     if (contentType.includes('application/json')) {

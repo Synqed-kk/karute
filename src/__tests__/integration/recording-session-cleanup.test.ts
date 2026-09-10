@@ -100,8 +100,29 @@ describe('deleteRecordingSessionWithClient — ownership', () => {
     // Deliberately widened (recording-labels fix): duration_seconds rides
     // along ids-and-flags-safe — it feeds the 監査ログ subtitle since the
     // session row itself is hard-deleted at cleanup time.
-    expect(detail).toEqual({ customer_id: 'cust-1', had_audio_path: false, duration_seconds: 137 })
+    expect(detail).toEqual({
+      customer_id: 'cust-1',
+      staff_id: ME,
+      had_audio_path: false,
+      duration_seconds: 137,
+    })
     expect(JSON.stringify(detail)).not.toContain('app_business-1')
+  })
+
+  // §v2 (2026-09-10 widen) — staff_id rides in detail too (the actor above is
+  // already the same fact via actor_id, but every recording-target row now
+  // carries it in detail as well, one shape a reader can rely on). There is no
+  // "absent" case for this emitter: the function's own guard
+  // (`!actor.staffId → forbidden`) refuses before any audit row is ever filed,
+  // so staff_id is unconditionally present whenever this row exists — proven
+  // above by the exact toEqual.
+
+  it('a walk-in session (no customer on the row) → detail omits customer_id (absent, not null)', async () => {
+    get.mockImplementation(async () => ({ ...MY_ROW, customer_id: null }))
+    await deleteRecordingSessionWithClient(client, actor, 'sess-1')
+    const detail = (auditSpy.mock.calls[0][0] as { detail: Record<string, unknown> }).detail
+    expect(detail).not.toHaveProperty('customer_id')
+    expect(detail.staff_id).toBe(ME)
   })
 
   it('⚖ a row whose reserved object HOLDS BYTES is refused — the pointer is the only way back', async () => {

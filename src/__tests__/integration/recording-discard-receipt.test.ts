@@ -341,6 +341,18 @@ describe('one discard = exactly one recording.discard row', () => {
     })
   })
 
+  // §v2 (2026-09-10 widen) — a walk-in take has no customer on the discard
+  // body (schema: `customerId` is `.nullish()`); the row omits the key rather
+  // than writing null (⚖ 8/17 ids-only law).
+  it('a walk-in discard (no customer) → the row omits customer_id (absent, not null)', async () => {
+    const res = await staffReceipt({ customerId: undefined })
+
+    expect(res).toEqual({ ok: true, receiptId: 'row-1', duplicate: false })
+    const detail = (auditLog.mock.calls[0][0] as { detail: Record<string, unknown> }).detail
+    expect(detail).not.toHaveProperty('customer_id')
+    expect(detail.staff_id).toBe('auth-user-1')
+  })
+
   it('the FACADE route writes one row — the on-2xx hook does NOT add a second', async () => {
     const res = await post(WITH_REASON)
     const body = await res.json()
@@ -372,13 +384,15 @@ describe('one discard = exactly one recording.discard row', () => {
 
   it('the facade row carries the SERVER-minted requestId, not a client-supplied one', async () => {
     const res = await post(WITH_REASON, { ...auth, 'request-id': 'forged-by-client' })
-    const detail = auditLog.mock.calls[0][0].detail as Record<string, unknown>
+    // core's own request_id column (⑦, 2026-09-10) — top-level on the payload
+    // forwardToCore sends, never stuffed into detail any more.
+    const call = auditLog.mock.calls[0][0] as Record<string, unknown>
     // Pinned to the ACTUAL ctx.meta.requestId, which the handler echoes on the
     // response — "not the forged one" alone would pass on any random value.
     const minted = res.headers.get('request-id')
     expect(minted).toBeTruthy()
-    expect(detail.request_id).toBe(minted)
-    expect(detail.request_id).not.toBe('forged-by-client')
+    expect(call.request_id).toBe(minted)
+    expect(call.request_id).not.toBe('forged-by-client')
   })
 
   it('scopes the core client to the CALLER’s business, never a body-supplied one', async () => {
@@ -652,7 +666,7 @@ describe('detail carries ids/flags/counts only — never record content', () => 
     }
   })
 
-  it('the detail key set is exactly spec §10.3 (plus the request_id correlation key)', async () => {
+  it('the detail key set is exactly spec §10.3 — request_id rides its own column now (⑦, 2026-09-10), never detail', async () => {
     await staffReceipt()
     const detail = discardRows()[0].detail as Record<string, unknown>
 
@@ -668,7 +682,6 @@ describe('detail carries ids/flags/counts only — never record content', () => 
         'job_state',
         'pipeline',
         'recording_session_id',
-        'request_id',
         'route',
         'staff_id',
         'system_emitted',

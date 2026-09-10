@@ -197,6 +197,8 @@ async function processJob(job: RecordingJob): Promise<string> {
         businessId: job.business_id,
         door: rescued ? 'from_session' : 'job',
         recordingSessionId: job.recording_session_id,
+        customerId: payload.customer_id,
+        staffId: payload.staff_id,
         takeId: parsedKey && 'takeId' in parsedKey ? parsedKey.takeId : null,
         attempt: job.attempts,
         rescued,

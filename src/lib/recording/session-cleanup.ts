@@ -211,7 +211,15 @@ export async function deleteRecordingSessionWithClient(
     targetId: recordingSessionId,
     severity: 'notice',
     detail: {
-      customer_id: row.customer_id ?? null,
+      // customer_id (§v2, 2026-09-10 widen — fixed): a walk-in take has none,
+      // so this omits the key rather than writing null (⚖ 8/17 ids-only law).
+      ...(row.customer_id ? { customer_id: row.customer_id } : {}),
+      // staff_id (2026-09-10 widen, §v2): the actor is already this take's
+      // owning staffer (actor_id above, and always non-null here — the
+      // function's own guard refuses before this point otherwise), but every
+      // other recording-target row carries the same fact in detail too — one
+      // shape a reader can rely on without special-casing this action.
+      staff_id: actor.staffId,
       had_audio_path: !!row.audio_storage_path,
       // Ids-and-flags-safe (no PII): lets the 監査ログ subtitle carry how
       // long the take ran, since the session row itself is hard-deleted.

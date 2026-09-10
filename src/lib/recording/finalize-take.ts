@@ -309,6 +309,7 @@ export async function finalizeTakeWithClient(
         composed.ext,
         parsedPointer && parsedPointer.kind !== 'staged' ? parsedPointer.takeId : null,
         { size_verified: false },
+        row,
       )
     }
 
@@ -337,6 +338,7 @@ export async function finalizeTakeWithClient(
       // size, so the byte match is unverified for this row.
       { size_verified: verdict === 'ok' },
       { ok: true, recordingSessionId: row.id },
+      row,
     )
   } catch (err) {
     console.warn('[finalize-take] failed:', err)
@@ -347,8 +349,10 @@ export async function finalizeTakeWithClient(
 /**
  * The take's ONE audit row for a finalize that actually landed a pointer or a
  * duration write. ⚖ 8/17 doc law — IDS, NUMBERS AND FLAGS ONLY. No key, no
- * path, no customer: the storage key embeds the take id, which the ids below
- * already carry honestly.
+ * path: the storage key embeds the take id, which the ids below already carry
+ * honestly. `customer_id`/`staff_id` (2026-09-10 widen, §v2) ride off the
+ * Recording ROW the caller already fetched — never a second lookup, omitted
+ * when the row genuinely carries none.
  *
  * `extra` carries `size_verified` — was the byte match actually proved, or
  * did the listing just not carry a size? (Fix round 6, I2: the superseded
@@ -367,6 +371,7 @@ function emitFinalized(
   ext: string,
   extra: Record<string, unknown>,
   result: FinalizeTakeResult,
+  row: Pick<Recording, 'customer_id' | 'staff_id'>,
 ): FinalizeTakeResult {
   audit({
     category: 'recording',
@@ -383,6 +388,8 @@ function emitFinalized(
       bytes: input.byteLength,
       duration_seconds: Math.floor(input.durationSeconds),
       ext,
+      ...(row.customer_id ? { customer_id: row.customer_id } : {}),
+      staff_id: row.staff_id,
       ...extra,
     },
     requestId: actor.requestId,
@@ -411,6 +418,8 @@ function emitFinalized(
  * carry a size?
  *
  * EMITS AND RETURNS, same emitSave idiom as emitFinalized above.
+ * `customer_id`/`staff_id` (2026-09-10 widen, §v2) ride off the Recording ROW
+ * the caller already fetched, same as emitFinalized — never a second lookup.
  */
 function emitCaptureUnlinked(
   actor: FinalizeTakeActor,
@@ -419,6 +428,7 @@ function emitCaptureUnlinked(
   ext: string,
   rowTakeId: string | null,
   extra: Record<string, unknown>,
+  row: Pick<Recording, 'customer_id' | 'staff_id'>,
 ): FinalizeTakeResult {
   audit({
     category: 'recording',
@@ -435,6 +445,8 @@ function emitCaptureUnlinked(
       row_take_id: rowTakeId,
       bytes: input.byteLength,
       ext,
+      ...(row.customer_id ? { customer_id: row.customer_id } : {}),
+      staff_id: row.staff_id,
       ...extra,
     },
     requestId: actor.requestId,

@@ -85,8 +85,11 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
     throw new AppApiError('upstream_unavailable', 'could not read the recording')
   }
 
+  // staffId: selfStaffId, already resolved above (voice reference) — never a
+  // second lookup. This door names a storage path, never a customer, so the
+  // meter carries no customerId.
   const { result, receipt } = await runMeteredTranscription(
-    { synqed, businessId: ctx.identity.businessId, door: 'app' },
+    { synqed, businessId: ctx.identity.businessId, door: 'app', staffId: selfStaffId },
     {
       audio: { url: signed.signedUrl },
       locale: parsed.data.locale === 'en' ? 'en' : 'ja',
