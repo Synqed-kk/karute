@@ -1578,10 +1578,13 @@ export function TodayScreen(props: TodayProps) {
    *
    *  ⚠ `eps: 0.02`, NOT THE MOCK'S `0.003`, AND THAT IS THE 「faster close」.
    *  On a 0→1 opacity the tail below 0.02 is two percent of nothing: it is
-   *  invisible on the way in, and on the way OUT it is ~100ms of an already
-   *  invisible popover holding the mount open. Cutting it there unmounts the
-   *  element that much sooner with no frame a reader can tell apart — one
-   *  integrator, one response, and the close still feels quicker than the open.
+   *  invisible on the way in, and on the way OUT it is an already invisible
+   *  popover holding its own mount open. MEASURED, at 60Hz, both directions:
+   *  533ms at 0.003 against 383ms at 0.02 — 150ms of tail, cut, with no frame a
+   *  reader can tell apart. It shortens the entrance by the same 150ms, and
+   *  that is the honest half of it; what a reader NOTICES is the exit, because
+   *  a popover that looks arrived and a popover that looks gone are not
+   *  equally patient. One integrator, one response.
    *  (D-S1: `makeSpring` fixes `w` at construction, so a genuinely faster close
    *  would need a SECOND integrator, and spring.ts's header forbids that.)
    *
