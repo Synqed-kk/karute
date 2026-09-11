@@ -2486,7 +2486,7 @@
           "take_named": "Recording upload address issued (existing session)",
           "transcribe": "Transcribed recording",
           "transcribe_refused": "Recording transcription declined (usage limit)",
-          "transcribe_storm": "Same recording transcribed {n} times"
+          "transcribe_storm": "Recording transcribed repeatedly"
         }
       },
       "burnError": {
