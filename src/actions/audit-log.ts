@@ -183,6 +183,37 @@ async function walkAuditQuery(
   }
 }
 
+/** G3 (Greptile round-2 P1, ACCEPTED): does a joined row (from either inner
+ *  walk) still belong inside the CALLER's requested window? The inner walks
+ *  themselves stay hard-coded to (category, recording.created_at) — they
+ *  find candidates — this is the second gate, applied the same predicates
+ *  `res`'s own core query already applies to the target rows, so a joined
+ *  row can never widen the thread past what the ordinary feed would show.
+ *  `severity` is the ALREADY-NORMALIZED value (breakGlass wins, R1) — same
+ *  value `res`'s own query used, never `filters.severity` raw. */
+function passesThreadFilters(
+  e: AuditLogEvent,
+  filters: AuditLogFilters,
+  severity: 'warn' | 'critical' | undefined,
+): boolean {
+  if (filters.actorId && e.actor_id !== filters.actorId) return false
+  // VERIFY (source: node_modules/@synqed-kk/client/dist/types.d.ts,
+  // ListAuditOptions.severity doc comment): "Exact-match severity" — a
+  // floor would need >=, core's is ===.
+  if (severity && e.severity !== severity) return false
+  // VERIFY (source: same file, AuditEvent.break_glass /
+  // ListAuditOptions.break_glass — "Owner/dev cross-access flag"): a
+  // per-ROW flag, so the filter selects rows flagged break-glass, not a
+  // request-level mode. Mirrors res's own break_glass:true param.
+  if (filters.breakGlass && !e.break_glass) return false
+  // VERIFY (source: unknowable — core (synqed-core) is a separate repo, not
+  // vendored here, and ListAuditOptions carries no doc comment on from/to):
+  // inclusive both ends, stated here rather than guessed silently.
+  if (filters.from && Date.parse(e.at) < Date.parse(filters.from)) return false
+  if (filters.to && Date.parse(e.at) > Date.parse(filters.to)) return false
+  return true
+}
+
 /** Amendment 1 F6: a recording thread joins the rows that RESOLVE it —
  *  karute.save / karute.delete rows whose detail.recording_session_id is
  *  this recording, OR whose detail.appointment_id matches the recording's
@@ -201,12 +232,19 @@ async function walkAuditQuery(
  *  3 / D1-3: a retried karute.save is exactly the row this thread joins, so
  *  it must fold here too), re-sorts newest-first, and re-pages client-side
  *  with the SAME PAGE_SIZE — the thread is small by construction (one
- *  recording's story). */
+ *  recording's story).
+ *  Fix round 2, G3: thread mode honours every feed filter; the thread is
+ *  the recording's story WITHIN the requested window — `filters.category`
+ *  (when set and not the walk's own category) skips that whole inner walk
+ *  (a category-filtered thread joins only that category), and every joined
+ *  row additionally passes `passesThreadFilters` above. */
 async function joinRecordingThread(
   synqed: ReturnType<typeof newSynqedClient>,
   recordingId: string,
   targetEvents: AuditLogEvent[],
   page: number,
+  filters: AuditLogFilters,
+  severity: 'warn' | 'critical' | undefined,
 ): Promise<{
   events: AuditLogEvent[]
   total: number
@@ -225,24 +263,37 @@ async function joinRecordingThread(
     }
   })()
 
-  let joined: AuditLogEvent[] = []
+  const joined: AuditLogEvent[] = []
   let threadPartial = false
   if (recording) {
     const appointmentId = recording.appointment_id
-    const karuteWalk = await walkAuditCategoryFrom(synqed, 'karute', recording.created_at)
-    joined = karuteWalk.events.filter((e) => {
-      const d = e.detail as { recording_session_id?: unknown; appointment_id?: unknown } | null
-      if (d?.recording_session_id === recordingId) return true
-      return appointmentId != null && d?.appointment_id === appointmentId
-    })
-    threadPartial = karuteWalk.truncated
+    // G3(c): a category-filtered thread joins ONLY that category — skip the
+    // WHOLE walk (never even queries it), not just its rows.
+    const walkKarute = !filters.category || filters.category === 'karute'
+    const walkCustomer = !filters.category || filters.category === 'customer'
 
-    if (appointmentId != null) {
+    if (walkKarute) {
+      const karuteWalk = await walkAuditCategoryFrom(synqed, 'karute', recording.created_at)
+      joined.push(
+        ...karuteWalk.events.filter((e) => {
+          const d = e.detail as { recording_session_id?: unknown; appointment_id?: unknown } | null
+          const isJoinTarget =
+            d?.recording_session_id === recordingId ||
+            (appointmentId != null && d?.appointment_id === appointmentId)
+          return isJoinTarget && passesThreadFilters(e, filters, severity)
+        }),
+      )
+      threadPartial = karuteWalk.truncated
+    }
+
+    if (appointmentId != null && walkCustomer) {
       const customerWalk = await walkAuditCategoryFrom(synqed, 'customer', recording.created_at)
       for (const e of customerWalk.events) {
         if (e.action !== 'customer.pack_redeem') continue
         const d = e.detail as { appointment_id?: unknown } | null
-        if (d?.appointment_id === appointmentId) joined.push(e)
+        if (d?.appointment_id === appointmentId && passesThreadFilters(e, filters, severity)) {
+          joined.push(e)
+        }
       }
       threadPartial = threadPartial || customerWalk.truncated
     }
@@ -469,11 +520,13 @@ export async function listAuditLogWithClient(
       // Fix round 1, subject 1 (D1-1): walk ALL of the thread's own target
       // rows to completion — a single `res` page (below) is exactly the bug
       // this replaces (page 2 would re-merge the full joined set with the
-      // WRONG target slice). Same exclude_views/severity/break_glass shape
-      // `res`'s own query uses, just walked instead of one-paged.
+      // WRONG target slice). G3(a) (fix round 2): the query is `res`'s OWN
+      // query object, mirrored field for field — `baseQuery` already carries
+      // target_type/target_id (plus category/actor_id/from/to, which the old
+      // hand-typed copy here dropped), so this is `{ ...baseQuery, ... }`,
+      // never a second hand-typed literal that can drift from `res`'s.
       const targetWalk = await walkAuditQuery(synqed, {
-        target_type: targetType,
-        target_id: filters.targetId,
+        ...baseQuery,
         exclude_views: filters.includeViews ? undefined : true,
         break_glass: filters.breakGlass ? true : undefined,
         severity,
@@ -493,7 +546,14 @@ export async function listAuditLogWithClient(
       // Subject 3 (D1-3): the belt runs ONCE, inside joinRecordingThread,
       // over the merged (target ∪ joined) set — folding target rows here
       // too would just be redundant work ahead of the same fold.
-      const thread = await joinRecordingThread(synqed, filters.targetId!, targetRows, page)
+      const thread = await joinRecordingThread(
+        synqed,
+        filters.targetId!,
+        targetRows,
+        page,
+        filters,
+        severity,
+      )
       finalEvents = thread.events
       total = thread.total
       hasMore = thread.hasMore

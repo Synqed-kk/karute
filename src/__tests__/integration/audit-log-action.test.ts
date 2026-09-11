@@ -1881,4 +1881,151 @@ describe('listAuditLog — PR D1 recording thread join (amendment 1 F6)', () => 
     expect(new Set([...ids1, ...ids2])).toEqual(allIds)
     expect(ids1.length + ids2.length).toBe(allIds.size)
   })
+
+  // Fix round 2, G3 (Greptile round-2 P1, ACCEPTED): thread mode must honour
+  // every feed filter the caller sent — a joined row from another actor,
+  // outside the window, of another severity, or from the wrong category must
+  // never widen the thread past what the ordinary feed itself would show.
+  describe('G3: thread mode honours every feed filter', () => {
+    it('actorId filter drops a joined row by another actor', async () => {
+      mockClientWithRecording({ appointment_id: null })
+      list.mockImplementation(
+        async (opts: { target_type?: string; category?: string }) => {
+          if (opts.target_type === 'recording') {
+            return { events: [], total: 0, page: 1, page_size: 200 }
+          }
+          if (opts.category === 'karute') {
+            return {
+              events: [
+                coreEvent({
+                  id: 'k-other-actor',
+                  actor_id: 'staff-OTHER',
+                  category: 'karute',
+                  action: 'karute.save',
+                  target_type: 'karute',
+                  target_id: 'kar-1',
+                  detail: { recording_session_id: RECORDING_ID },
+                }),
+              ],
+              total: 1,
+              page: 1,
+              page_size: 200,
+            }
+          }
+          throw new Error('unexpected call: ' + JSON.stringify(opts))
+        },
+      )
+      const res = await listAuditLog({
+        targetId: RECORDING_ID,
+        targetType: 'recording',
+        actorId: 'staff-1',
+      })
+      if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res))
+      expect(res.events.map((e) => e.id)).toEqual([])
+    })
+
+    it("a `from` bound after the joined row's `at` drops it", async () => {
+      mockClientWithRecording({ appointment_id: null })
+      list.mockImplementation(
+        async (opts: { target_type?: string; category?: string }) => {
+          if (opts.target_type === 'recording') {
+            return { events: [], total: 0, page: 1, page_size: 200 }
+          }
+          if (opts.category === 'karute') {
+            return {
+              events: [
+                coreEvent({
+                  id: 'k-early',
+                  at: '2026-09-01T00:00:00.000Z',
+                  category: 'karute',
+                  action: 'karute.save',
+                  target_type: 'karute',
+                  target_id: 'kar-1',
+                  detail: { recording_session_id: RECORDING_ID },
+                }),
+              ],
+              total: 1,
+              page: 1,
+              page_size: 200,
+            }
+          }
+          throw new Error('unexpected call: ' + JSON.stringify(opts))
+        },
+      )
+      const res = await listAuditLog({
+        targetId: RECORDING_ID,
+        targetType: 'recording',
+        from: '2026-09-01T00:05:00.000Z',
+      })
+      if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res))
+      expect(res.events.map((e) => e.id)).toEqual([])
+    })
+
+    it("category:'karute' skips the customer walk entirely (spy: no customer-category call)", async () => {
+      mockClientWithRecording() // default appointment_id set — customer walk would normally run
+      // A thrown response inside the walk isn't a usable spy — walkAuditQuery
+      // catches it internally (D1-2's own resilience) and degrades quietly.
+      // Track the call directly instead.
+      let customerWalkCalled = false
+      list.mockImplementation(
+        async (opts: { target_type?: string; category?: string }) => {
+          if (opts.target_type === 'recording') {
+            return { events: [], total: 0, page: 1, page_size: 200 }
+          }
+          if (opts.category === 'karute') {
+            return { events: [], total: 0, page: 1, page_size: 200 }
+          }
+          if (opts.category === 'customer') {
+            customerWalkCalled = true
+            return { events: [], total: 0, page: 1, page_size: 200 }
+          }
+          throw new Error('unexpected call: ' + JSON.stringify(opts))
+        },
+      )
+      const res = await listAuditLog({
+        targetId: RECORDING_ID,
+        targetType: 'recording',
+        category: 'karute',
+      })
+      if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res))
+      expect(customerWalkCalled).toBe(false)
+    })
+
+    it('severity filter drops a joined row of another severity', async () => {
+      mockClientWithRecording({ appointment_id: null })
+      list.mockImplementation(
+        async (opts: { target_type?: string; category?: string }) => {
+          if (opts.target_type === 'recording') {
+            return { events: [], total: 0, page: 1, page_size: 200 }
+          }
+          if (opts.category === 'karute') {
+            return {
+              events: [
+                coreEvent({
+                  id: 'k-info',
+                  severity: 'info',
+                  category: 'karute',
+                  action: 'karute.save',
+                  target_type: 'karute',
+                  target_id: 'kar-1',
+                  detail: { recording_session_id: RECORDING_ID },
+                }),
+              ],
+              total: 1,
+              page: 1,
+              page_size: 200,
+            }
+          }
+          throw new Error('unexpected call: ' + JSON.stringify(opts))
+        },
+      )
+      const res = await listAuditLog({
+        targetId: RECORDING_ID,
+        targetType: 'recording',
+        severity: 'warn',
+      })
+      if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res))
+      expect(res.events.map((e) => e.id)).toEqual([])
+    })
+  })
 })
