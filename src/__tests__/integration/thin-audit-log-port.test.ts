@@ -190,4 +190,53 @@ describe('thin actions port — audit-log transport contract', () => {
     expect(apiFetch).toHaveBeenCalledTimes(1)
     expect(capturedPath).toBe('/api/app/v1/audit-log?page=1')
   })
+
+  // PR D1 (amendment 4 F5): the thread deep-link's own filter — mirrors the
+  // severity tests above (R3, round-2 line-audit: assert outside the mock
+  // callback, a throw from inside it would be swallowed by facadeListAuditLog's
+  // own try/catch).
+  it("targetType:'recording' is serialized as targetType=recording, exactly once", async () => {
+    let capturedPath: string | undefined
+    const apiFetch = jest.fn(async (path: string) => {
+      capturedPath = path
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          events: [],
+          total: 0,
+          page: 1,
+          hasMore: false,
+          breakGlassTotal: null,
+          targetLabels: {},
+          folded: 0,
+        }),
+        { status: 200 },
+      )
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await listAuditLog({ targetId: 'sess-1', targetType: 'recording' })
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(capturedPath).toBe('/api/app/v1/audit-log?targetId=sess-1&targetType=recording&page=1')
+  })
+
+  // PR D1 §2/§4: folded/threadPartial ride the 2xx body VERBATIM, same
+  // forwarding contract as every other field on this union.
+  it('2xx body carrying folded/threadPartial is forwarded VERBATIM', async () => {
+    const body = {
+      ok: true,
+      events: [],
+      total: 0,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: null,
+      targetLabels: {},
+      folded: 2,
+      threadPartial: true,
+    }
+    const apiFetch = jest.fn(async () => new Response(JSON.stringify(body), { status: 200 }))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(listAuditLog({})).resolves.toEqual(body)
+  })
 })

@@ -1297,3 +1297,288 @@ describe('listAuditLog — G2 severity filter (round-4: two single-severity feed
     expect(res.breakGlassTotal).toBe(7)
   })
 })
+
+// PR D1 §1: request_id/store_id are pure pass-through from the SDK event —
+// same actor_label idiom (T3) as the existing describe block above.
+describe('listAuditLog — PR D1 wire fields (request_id/store_id pass-through)', () => {
+  it('request_id and store_id ride the event through verbatim when core sends them', async () => {
+    list.mockImplementation(async () => ({
+      events: [coreEvent({ request_id: 'req-1', store_id: 'store-9' })],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events[0].request_id).toBe('req-1')
+    expect(res.events[0].store_id).toBe('store-9')
+  })
+
+  it('an old cached response missing request_id/store_id entirely does not crash the read', async () => {
+    list.mockImplementation(async () => ({
+      events: [coreEvent()], // coreEvent() never sets these — key absent
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events[0].request_id).toBeUndefined()
+    expect(res.events[0].store_id).toBeUndefined()
+  })
+})
+
+// PR D1 §2 (amendment 1 F3): the reader-side belt. Core has no
+// Idempotency-Key yet (CORE-19 item 3), so a retried write can land twice
+// sharing (action, target_type, target_id, request_id) — fold to the
+// earliest `at`, never touch a null request_id, and report the drop count.
+describe('listAuditLog — PR D1 belt (dedupe retried writes on request_id)', () => {
+  it('two rows sharing (action, target, request_id) fold to the EARLIER row; folded counts the drop', async () => {
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'e-late',
+          at: '2026-07-18T00:05:00.000Z',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-1',
+          request_id: 'req-dup',
+        }),
+        coreEvent({
+          id: 'e-early',
+          at: '2026-07-18T00:00:00.000Z',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-1',
+          request_id: 'req-dup',
+        }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['e-early'])
+    expect(res.folded).toBe(1)
+  })
+
+  it('a different request_id on an otherwise-matching pair keeps BOTH rows — folded stays 0', async () => {
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({ id: 'e1', action: 'karute.save', target_type: 'karute', target_id: 'kar-1', request_id: 'req-a' }),
+        coreEvent({ id: 'e2', action: 'karute.save', target_type: 'karute', target_id: 'kar-1', request_id: 'req-b' }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['e1', 'e2'])
+    expect(res.folded).toBe(0)
+  })
+
+  it('a null request_id is NEVER folded, even against an otherwise-identical sibling', async () => {
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({ id: 'e1', action: 'karute.save', target_type: 'karute', target_id: 'kar-1', request_id: null }),
+        coreEvent({ id: 'e2', action: 'karute.save', target_type: 'karute', target_id: 'kar-1', request_id: null }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['e1', 'e2'])
+    expect(res.folded).toBe(0)
+  })
+
+  it('a normal single-row page reports folded:0', async () => {
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.folded).toBe(0)
+  })
+})
+
+// PR D1 §3 (amendment 4 F5): targetType defaults to 'customer' — byte-
+// identical to today's behaviour — and types both the core query and the
+// view receipt when set explicitly.
+describe('listAuditLog — PR D1 targetType (amendment 4 F5)', () => {
+  it("defaults to 'customer' when targetId is set and targetType is absent", async () => {
+    await listAuditLog({ targetId: 'cus-9' })
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ target_type: 'customer', target_id: 'cus-9' }),
+    )
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({ targetType: 'customer', targetId: 'cus-9' }),
+    )
+  })
+
+  it("targetType:'recording' reaches core AND types the view receipt 'recording' — never 'customer'", async () => {
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      recordings: { get: jest.fn(async () => { throw new Error('not needed for this pin') }) },
+    }))
+    list.mockImplementation(async () => ({
+      events: [coreEvent({ target_type: 'recording', target_id: 'sess-1' })],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    await listAuditLog({ targetId: 'sess-1', targetType: 'recording' })
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ target_type: 'recording', target_id: 'sess-1' }),
+    )
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({ targetType: 'recording', targetId: 'sess-1' }),
+    )
+  })
+})
+
+// PR D1 §4 (amendment 1 F6): the recording thread join. Core has no detail
+// filter, so the reader walks category:'karute' (+ 'customer' pack_redeem
+// once an appointment is known) client-side and merges with the recording's
+// own target rows.
+describe('listAuditLog — PR D1 recording thread join (amendment 1 F6)', () => {
+  const RECORDING_ID = 'sess-1'
+  const APPOINTMENT_ID = 'appt-1'
+  const CREATED_AT = '2026-09-01T00:00:00.000Z'
+
+  function mockClientWithRecording(overrides: Record<string, unknown> = {}) {
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      recordings: {
+        get: jest.fn(async () => ({
+          appointment_id: APPOINTMENT_ID,
+          created_at: CREATED_AT,
+          ...overrides,
+        })),
+      },
+    }))
+  }
+
+  it("merges the recording's own rows with a karute.save (detail.recording_session_id) and a pack_redeem (detail.appointment_id), sorted newest-first", async () => {
+    mockClientWithRecording()
+    list.mockImplementation(async (opts: { target_type?: string; category?: string }) => {
+      if (opts.target_type === 'recording') {
+        return {
+          events: [
+            coreEvent({
+              id: 'e-own',
+              at: '2026-09-01T00:01:00.000Z',
+              category: 'recording',
+              action: 'recording.session_cleanup',
+              target_type: 'recording',
+              target_id: RECORDING_ID,
+              detail: { customer_id: null },
+            }),
+          ],
+          total: 1,
+          page: 1,
+          page_size: 100,
+        }
+      }
+      if (opts.category === 'karute') {
+        return {
+          events: [
+            coreEvent({
+              id: 'e-save',
+              at: '2026-09-01T00:02:00.000Z',
+              category: 'karute',
+              action: 'karute.save',
+              target_type: 'karute',
+              target_id: 'kar-1',
+              detail: { recording_session_id: RECORDING_ID, appointment_id: null },
+            }),
+          ],
+          total: 1,
+          page: 1,
+          page_size: 200,
+        }
+      }
+      if (opts.category === 'customer') {
+        return {
+          events: [
+            coreEvent({
+              id: 'e-redeem',
+              at: '2026-09-01T00:00:30.000Z',
+              category: 'customer',
+              action: 'customer.pack_redeem',
+              target_type: 'customer',
+              target_id: 'cus-1',
+              detail: { appointment_id: APPOINTMENT_ID },
+            }),
+          ],
+          total: 1,
+          page: 1,
+          page_size: 200,
+        }
+      }
+      throw new Error('unexpected call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['e-save', 'e-own', 'e-redeem'])
+    expect(res.total).toBe(3)
+    expect(res.hasMore).toBe(false)
+    expect(res.threadPartial).toBe(false)
+  })
+
+  it('a failed recordings.get degrades to target rows only, with threadPartial:true', async () => {
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      recordings: { get: jest.fn(async () => { throw new Error('404') }) },
+    }))
+    list.mockImplementation(async (opts: { target_type?: string }) => {
+      if (opts.target_type === 'recording') {
+        return {
+          events: [
+            coreEvent({
+              id: 'e-own',
+              category: 'recording',
+              action: 'recording.session_cleanup',
+              target_type: 'recording',
+              target_id: RECORDING_ID,
+            }),
+          ],
+          total: 1,
+          page: 1,
+          page_size: 100,
+        }
+      }
+      throw new Error('unexpected call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['e-own'])
+    expect(res.threadPartial).toBe(true)
+  })
+
+  it('a walk hitting its page cap reports threadPartial:true even though the merge otherwise succeeds', async () => {
+    mockClientWithRecording()
+    list.mockImplementation(async (opts: { target_type?: string; category?: string; page?: number }) => {
+      if (opts.target_type === 'recording') {
+        return { events: [], total: 0, page: 1, page_size: 100 }
+      }
+      if (opts.category === 'karute') {
+        // 10 full pages of 200 (MAX_THREAD_PAGES), total says there's more —
+        // the walk stops at the cap, never seeing the rest.
+        return {
+          events: Array.from({ length: 200 }, (_, i) => coreEvent({ id: `k-${opts.page}-${i}`, category: 'karute' })),
+          total: 999_999,
+          page: opts.page,
+          page_size: 200,
+        }
+      }
+      if (opts.category === 'customer') {
+        return { events: [], total: 0, page: opts.page, page_size: 200 }
+      }
+      throw new Error('unexpected call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.threadPartial).toBe(true)
+  })
+})
