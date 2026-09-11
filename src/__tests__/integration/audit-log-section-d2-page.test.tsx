@@ -315,6 +315,34 @@ describe('AuditLogSection — I1 fold repeats', () => {
     const container = await renderWithEvents([coreEvent({ id: 'e1', actor_id: 'staff-1', actor_type: 'staff' })])
     expect(container.textContent).not.toContain('×1')
   })
+
+  it('fix round 3 (P1): A → X → A renders three separate rows and never logs a duplicate-key warning — the <li> key is the representative event id, not the fold key', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const container = await renderWithEvents([
+        coreEvent({ id: 'a1', action: 'recording.transcribe' }),
+        coreEvent({ id: 'x', action: 'customer.view', target_type: 'customer', target_id: 'cus-1' }),
+        coreEvent({ id: 'a2', action: 'recording.transcribe' }),
+      ])
+      // (a) three rows in original order, neither A carries a ×n chip —
+      // consecutive-only folding (fix round 2) never merges these two A's
+      // across the interrupting X.
+      expect(container.querySelectorAll('li').length).toBe(3)
+      expect(container.textContent).not.toContain('×2')
+      // (b) React never warns about a duplicate key — the two separated A
+      // groups share the same FoldGroup.key (fix round 2 leaves that key
+      // as-is for fold comparison), so the <li> key must be something
+      // else unique: the representative event's id.
+      const duplicateKeyWarning = errorSpy.mock.calls.find(
+        (args) =>
+          typeof args[0] === 'string' &&
+          (args[0].includes('same key') || args[0].includes('unique "key"')),
+      )
+      expect(duplicateKeyWarning).toBeUndefined()
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
 })
 
 // ---- I4: the recording thread page ----------------------------------------

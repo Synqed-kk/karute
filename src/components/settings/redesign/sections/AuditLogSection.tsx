@@ -675,7 +675,12 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     const isOpen = isEntryEdit && expandedEditId === e.id
     const trail = isEntryEdit ? editTrails[e.id] : undefined
     return (
-      <li key={group.key} className="flex flex-col px-4 py-2.5">
+      // Fix round 3 (P1): keyed on the representative event's id, NOT
+      // group.key — consecutive-only folding (fix round 2) can produce two
+      // SEPARATE groups sharing the same fold key (an A/X/A day), and a
+      // React key must be unique across the whole <ul>, not just unique per
+      // fold. e.id is unique by construction (every AuditLogEvent has one).
+      <li key={e.id} className="flex flex-col px-4 py-2.5">
         <div className="flex items-center gap-3">
           <span
             className={`flex size-8 shrink-0 items-center justify-center rounded-full ${
