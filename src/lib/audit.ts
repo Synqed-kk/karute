@@ -986,4 +986,25 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
     dated: '2026-09-06',
     coveredBy: 'src/lib/recording/assembler.ts#assembleStrandedTake',
   },
+  // The audit-watch cron (監査ログ round 2 PR C) — CRON_SECRET-gated like its
+  // siblings, and NOT a skip: it writes recording.karute_missing and
+  // recording.transcribe_storm rows, one per NEW candidate the run actually
+  // finds, with no staff in the loop.
+  'audit-watch': {
+    kind: 'mutation',
+    // No structured `coveredBy` (deliberately, like AUDITED_CORES's
+    // `unproven` marker elsewhere in this file): watchOneBusiness's two
+    // audit() emits (recording.karute_missing, recording.transcribe_storm)
+    // are conditional on a NEW candidate existing — the common run finds
+    // zero (or every candidate already has a row) and returns unemitted,
+    // which is correct, not an unaudited write, but it is not a symbol CP2's
+    // walker can prove dominates every return — same mechanical-proof
+    // ceiling as src/lib/audit-policy.ts's AUDITED_CORES entry for this same
+    // file/symbol (see its own `unproven` note). Verified at source; CP4's
+    // literal scan already proves both action strings are correctly
+    // registered independent of this row.
+    justification:
+      "watchOneBusiness (src/lib/audit-watch/run.ts) emits recording.karute_missing and recording.transcribe_storm — one row per NEW candidate actually written. Conditional by design, same shape as the auto-burn/assemble rows above (return unemitted when there is nothing to do), except the emit sits inline in the driver rather than a downstream helper, so it cannot be handed a dominated coveredBy citation the way those two are.",
+    dated: '2026-09-11',
+  },
 }
