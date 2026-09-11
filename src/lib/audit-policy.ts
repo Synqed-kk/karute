@@ -81,6 +81,7 @@ export const AUDIT_ACTIONS = [
   'recording.session_cleanup',
   'recording.take_named',
   'recording.transcribe',
+  'recording.transcribe_failed',
   'recording.transcribe_refused',
   'recording.transcribe_storm',
   'settings.menu_create',
@@ -158,7 +159,35 @@ export const AUDITED_CORES: {
   // unconditionally, so it resolves and proves clean. Registered so the
   // real writer is provably covered, not left off as "not required."
   { file: 'src/lib/auth/pin-throttle.ts', symbols: ['auditLockout'] },
-  { file: 'src/lib/jobs/process-recording.ts', symbols: ['processJob'] },
+  // recording.transcribe_failed (監査ログ round 2 PR C, subject 6) —
+  // emitTranscribeFailedIfExhausted is a PRIVATE helper called from
+  // processRecordingJobs' catch (not lexically inside processJob or
+  // processRecordingJobs itself, so the registry-reality scan — exported
+  // symbols only — would never ask for this entry on its own; registered
+  // anyway per the same "provably covered, not left off as not required"
+  // discipline as auditLockout/processJob just above). Kept in ONE entry with
+  // processJob (not a second { file: ... } row for this same file) because
+  // check-audit-weakening.mjs's findAuditedCoresWeakenings keys removed-
+  // symbol detection by FILE (headCoresByFile = Map<file, Set<symbols>>) — a
+  // second entry for an already-registered file collapses in that Map and
+  // reads as processJob's own symbol having been silently removed.
+  // `unproven`: the ONE audit() call inside emitTranscribeFailedIfExhausted
+  // is conditional on three things at once (the exhausted round, AND not a
+  // discard refusal, AND not a spend-limit refusal) — most failures return
+  // without ever reaching it (an earlier-attempt failure, or the two
+  // excluded refusal reasons), same mechanical-proof ceiling as
+  // watchOneBusiness below. processJob itself stays proven (unconditional).
+  {
+    file: 'src/lib/jobs/process-recording.ts',
+    symbols: ['processJob', 'emitTranscribeFailedIfExhausted'],
+    unproven: [
+      {
+        symbol: 'emitTranscribeFailedIfExhausted',
+        reason:
+          'Emits only when job.attempts >= job.max_attempts (this is the round that exhausts the job) AND the failure message is neither DISCARDED_BY_STAFF/the discard-ledger-unreadable message (the discard\'s own recording.discard row is the record — council amendment 4 F3) nor AI_SPEND_LIMIT (recording.transcribe_refused already filed that row — src/lib/ai/transcribe.ts#auditTranscriptionRefused). Every other call returns with no emit at all.',
+      },
+    ],
+  },
   // The audit-watch cron (監査ログ round 2 PR C) — the two audit() calls sit
   // directly inside watchOneBusiness's own two candidate loops, so the
   // registry-reality scan finds them and requires this entry. `unproven`
@@ -728,8 +757,8 @@ export const SDK_WRITE_ALLOWLIST: {
     file: 'src/lib/jobs/process-recording.ts',
     call: 'recordingJobs.fail',
     symbols: ['processRecordingJobs'],
-    justification: 'Job-queue status transition on failure (attempts→FAILED) — infrastructure bookkeeping, not a business mutation; nothing was committed to audit.',
-    dated: '2026-07-27',
+    justification: 'Job-queue status transition on failure (attempts→FAILED) — infrastructure bookkeeping, not a business mutation; the fail() call itself commits nothing to audit. UPDATED 2026-09-11 (監査ログ round 2 PR C, subject 6): the catch beside this call now conditionally emits recording.transcribe_failed via a separate helper (emitTranscribeFailedIfExhausted, AUDITED_CORES) ONLY on the round that exhausts the job — that emit is its own registered writer, not this SDK status-transition write.',
+    dated: '2026-09-11',
   },
   {
     file: 'src/lib/karute/outcome.ts',

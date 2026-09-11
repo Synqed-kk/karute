@@ -441,6 +441,55 @@ async function upsertKaruteRecord(
   return { id: record.id, storeId: record.store_id ?? payload.store_id ?? null }
 }
 
+/** 監査ログ round 2 PR C, subject 6 (PACKET-AUDITLOG-PR-C-SERVER-WATCH-
+ *  2026-09-11.md item 6): recording.transcribe_failed, once per exhausted
+ *  round — never on a requeued (non-final) attempt.
+ *
+ *  ATTEMPTS SEMANTICS, PINNED AT SOURCE (the packet asked which: core
+ *  increments `attempts` ON CLAIM, not on fail. Evidence: the SDK's own
+ *  status-transition fixtures (global-pipeline-server-job.test.ts) show
+ *  QUEUED at attempts:0, the FIRST RUNNING claim already at attempts:1, and
+ *  the terminal FAILED row at attempts === max_attempts (never
+ *  max_attempts+1) — e.g. lines pinning `{status:'QUEUED', attempts:0}` →
+ *  `{status:'RUNNING', attempts:1}` and `{status:'FAILED', attempts:3,
+ *  maxAttempts:3}`. So the `job` object claim() handed processJob already
+ *  carries THIS run's attempt number for its whole lifetime, and the round
+ *  that will exhaust the job (core FAILs it instead of requeueing) is simply
+ *  `job.attempts >= job.max_attempts` — no +1, no second read.
+ *
+ *  Never on a discard refusal (its own recording.discard row IS the record —
+ *  council amendment 4 F3) and never on a spend-limit refusal
+ *  (recording.transcribe_refused already filed the row —
+ *  src/lib/ai/transcribe.ts#auditTranscriptionRefused; emitting here too
+ *  would double-log the same event under two actions). */
+function emitTranscribeFailedIfExhausted(job: RecordingJob, message: string): void {
+  if (job.attempts < job.max_attempts) return
+  if (message === DISCARDED_BY_STAFF || message === AI_SPEND_LIMIT) return
+  if (message === 'discard ledger row unreadable — refusing to write') return
+  const payload = job.payload as unknown as RecordingJobPayload | undefined
+  audit({
+    category: 'recording',
+    action: 'recording.transcribe_failed',
+    actorId: null,
+    actorType: 'system',
+    businessId: job.business_id,
+    targetType: 'recording',
+    targetId: job.recording_session_id,
+    severity: 'notice',
+    detail: {
+      recording_session_id: job.recording_session_id,
+      customer_id: payload?.customer_id ?? null,
+      staff_id: payload?.staff_id ?? null,
+      appointment_id: payload?.appointment_id ?? null,
+      attempt: job.attempts,
+      max_attempts: job.max_attempts,
+      reason: message === 'EMPTY_TRANSCRIPT' ? 'empty_transcript' : 'other',
+    },
+    requestId: `job:${job.id}:failed`,
+    source: 'system',
+  })
+}
+
 /** Claim-and-process loop with a wall-clock budget (the route's maxDuration
  *  minus headroom). Returns counts for the tick's log line. */
 export async function processRecordingJobs(budgetMs: number): Promise<{
@@ -466,6 +515,7 @@ export async function processRecordingJobs(budgetMs: number): Promise<{
       await worker.recordingJobs.fail(job.id, message).catch(() => {})
       failed++
       console.error(`[jobs] recording job ${job.id} failed:`, message)
+      emitTranscribeFailedIfExhausted(job, message)
     }
   }
   return { processed, failed }
