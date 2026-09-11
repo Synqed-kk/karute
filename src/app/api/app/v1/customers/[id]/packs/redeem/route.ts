@@ -13,6 +13,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { redeemSessionActionWithClient } from '@/actions/packs'
 import {
+  proveAppointmentForCustomer,
   proveCustomerInBusiness,
   provePackForCustomer,
   requireIdempotencyKey,
@@ -77,6 +78,14 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
 
   // Pack tenancy: the packId must belong to THIS customer (in this business).
   await provePackForCustomer(synqed, id, parsed.data.packId)
+
+  // G5 (audit round 2, Greptile P1, ACCEPTED): an EXPLICIT client-sent
+  // appointmentId must be proven to belong to this customer before it can
+  // burn — same idiom as provePackForCustomer just above. null/absent skips
+  // this (core derives the pairing server-side, today's path unchanged).
+  if (typeof parsed.data.appointmentId === 'string') {
+    await proveAppointmentForCustomer(synqed, id, parsed.data.appointmentId)
+  }
 
   const staffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
   const result = await redeemSessionActionWithClient(synqed, staffId, {
