@@ -868,10 +868,12 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
 
       {/* Toolbar (§11 filters, owner-vocabulary form): category + person
        *  dropdowns, 期間 segments, the two on/off filters as icon chips.
-       *  Hidden inside a thread — the mock's sub-page carries no toolbar of
-       *  its own; the underlying filter STATE still applies server-side
-       *  (D1's passesThreadFilters), only the chrome is hidden. */}
-      {!targetId && (
+       *  F3 fix (blind lens finding 3): ALWAYS visible, exactly as on main
+       *  e478c2500 — a targetId (customer dispute OR a tapped recording
+       *  thread) never hides it; the title row above is additive, never a
+       *  replacement. For a recording thread the toolbar's category/staff/
+       *  severity controls stay visible for continuity but the thread's own
+       *  read ignores them (F5, load() below) — only 期間/閲覧を含む apply. */}
       <div className="flex flex-wrap items-center gap-2">
         <ToolbarSelect
           label={t('categoryLabel')}
@@ -934,12 +936,13 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           {t('breakGlass')}
         </FilterChip>
       </div>
-      )}
 
       {/* Summary strip — 「何か問題は？」 answered before the rows. Amber and
-       *  red are one-tap filters straight to those events. Hidden inside a
-       *  thread, same as the toolbar above. */}
-      {!error && !actorId && !targetId && (
+       *  red are one-tap filters straight to those events. F3 fix: no longer
+       *  hidden by targetId — same visibility rule as main e478c2500
+       *  (actorId only; a person filter hides the strip everywhere, thread
+       *  or not, since it never showed per-staff counts). */}
+      {!error && !actorId && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-baseline gap-1.5 rounded-lg border border-border bg-background px-3.5 py-2">
             <span className="text-lg font-semibold leading-none tabular-nums">
@@ -1009,8 +1012,11 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       )}
 
       {/* I5 — one muted line naming the filter window, under the strip.
-       *  Hidden with it (same actorId/targetId gates). */}
-      {!error && !actorId && !targetId && (
+       *  F3/F5 fix: renders in thread mode too (LENS finding 5 — the scope
+       *  line is the one honest statement of the window a recording thread
+       *  is drawn from; hiding it while silently narrowing the read was the
+       *  bug). Hidden only with the strip (actorId — same as main). */}
+      {!error && !actorId && (
         <p className="text-xs text-muted-foreground/70">{scopeLineText()}</p>
       )}
 

@@ -277,17 +277,43 @@ describe('AuditLogSection — I5 scope line', () => {
     expect(container.textContent).toContain('過去30日間 ・ 全店舗')
   })
 
-  it('the all-time range shows 全期間 ・ 全店舗', async () => {
+  it('the all-time range shows 全期間 ・ 全店舗 — F7(d): unconditional, never inside an if(button) guard', async () => {
     const container = await renderWithEvents([coreEvent()])
-    fireEvent.click(container.querySelector('[data-range="all"]') ?? document.createElement('div'))
-    // range buttons render as plain <button> with the preset text — fall back
-    // to text lookup since data-range isn't part of the real markup.
-    const allBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'range.all')
-    if (allBtn) {
-      listAuditLog.mockResolvedValue(page([coreEvent()]))
-      fireEvent.click(allBtn)
-      await waitFor(() => expect(container.textContent).toContain('全期間 ・ 全店舗'))
-    }
+    // The range presets render as plain <button>s with their REAL ja.json
+    // text (this file no longer hand-types a DICT, so a raw 'range.all'
+    // lookup would never match) — find it by its actual rendered label.
+    const allBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent === '全期間',
+    )
+    expect(allBtn).toBeTruthy()
+    listAuditLog.mockResolvedValue(page([coreEvent()]))
+    fireEvent.click(allBtn!)
+    await waitFor(() => expect(container.textContent).toContain('全期間 ・ 全店舗'))
+  })
+})
+
+// ---- F3: a targetId never hides the toolbar/strip/scope --------------------
+describe('AuditLogSection — F3 the customer dispute deep-link keeps its chrome', () => {
+  it('with initialTargetId set, 期間 (全期間), 閲覧を含む, the summary strip and the scope line all stay reachable', async () => {
+    listAuditLog.mockResolvedValue(page([coreEvent({ target_id: 'c-1', target_type: 'customer' })]))
+    const { container } = render(
+      <AuditLogSection staffList={[] as unknown as StaffMember[]} initialTargetId="c-1" />,
+    )
+    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+    // 全期間 button reachable (LENS finding 3: "select count 0, no range.7d" pre-fix)
+    const allBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent === '全期間',
+    )
+    expect(allBtn).toBeTruthy()
+    // 閲覧を含む chip reachable
+    const viewsChip = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('閲覧を含む'),
+    )
+    expect(viewsChip).toBeTruthy()
+    // Summary strip (変更 tile) present
+    expect(container.querySelectorAll('.tabular-nums').length).toBeGreaterThan(0)
+    // Scope line present
+    expect(container.textContent).toContain('過去30日間 ・ 全店舗')
   })
 })
 
