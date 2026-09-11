@@ -142,8 +142,8 @@ export async function createOrUpdateKaruteRecord(
     requestId?: string
   },
   entriesMode: 'replace' | 'fill-if-empty',
-): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean }> {
-  const emitSave = (result: { id: string; fresh: boolean; transcriptChanged: boolean }) => {
+): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }> {
+  const emitSave = (result: { id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }) => {
     audit({
       category: 'karute',
       action: 'karute.save',
@@ -152,7 +152,11 @@ export async function createOrUpdateKaruteRecord(
       businessId: actor.businessId,
       targetType: 'karute',
       targetId: result.id,
-      storeId: payload.store_id ?? undefined,
+      // The PERSISTED store (fix round 2, Greptile P1): on the converge branch
+      // the update keeps the existing record's ORIGINAL store_id (CEILING
+      // F-7 above) rather than payload.store_id, so the audit row must name
+      // that store too — else it can name a store the record isn't in.
+      storeId: result.storeId ?? undefined,
       // customer_id rides in detail (ids only, PII rule) so the audit-log
       // viewer can resolve a name for this karute row — see AuditLogSection
       // §4 target-label join off detail.customer_id. recording_session_id +
@@ -232,11 +236,15 @@ export async function createOrUpdateKaruteRecord(
         // The retry EDITED the transcript → there's genuinely new material
         // for memory ingest; an identical transcript is just a resend.
         transcriptChanged: existing.transcript !== payload.transcript,
+        // CEILING (F-7 above): store_id does NOT move with this update, so
+        // the persisted store is still the EXISTING record's — already in
+        // hand from the lookup, no second read.
+        storeId: existing.store_id,
       })
     }
   }
   const record = await synqed.karuteRecords.create(payload)
-  return emitSave({ id: record.id, fresh: true, transcriptChanged: true })
+  return emitSave({ id: record.id, fresh: true, transcriptChanged: true, storeId: record.store_id ?? payload.store_id ?? null })
 }
 
 /**

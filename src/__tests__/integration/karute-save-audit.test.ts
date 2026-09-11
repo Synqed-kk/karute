@@ -158,6 +158,25 @@ describe('karute.save — update/retry path (recording session already saved)', 
       }),
     )
   })
+
+  // Fix round 2 (Greptile P1): the update keeps the EXISTING record's
+  // store_id (CEILING F-7 in createOrUpdateKaruteRecord) — a payload store
+  // that differs (staff switched active store between the partial save and
+  // this retry) must not appear in the audit row for the persisted record.
+  it('emits the EXISTING record store_id, not payload.store_id, when they differ', async () => {
+    appointments.get.mockResolvedValue({ staff_id: 'staff-1', store_id: 'store-B', title: null })
+    karuteRecords.getByRecordingSession.mockResolvedValueOnce({
+      id: 'kar-x',
+      transcript: 'old',
+      store_id: 'store-A',
+    } as never)
+    await saveKaruteRecord({
+      ...baseInput,
+      recordingSessionId: 'rs-1',
+      appointmentId: 'appt-1',
+    })
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ storeId: 'store-A' }))
+  })
 })
 
 describe('karute.save — a FAILED write emits nothing (pins emit-after-write)', () => {
@@ -174,6 +193,14 @@ describe('karute.save — a FAILED write emits nothing (pins emit-after-write)',
     const res = await saveKaruteRecord({ ...baseInput, recordingSessionId: 'rs-1' })
     expect(res).toHaveProperty('error')
     expect(audit).not.toHaveBeenCalled()
+  })
+})
+
+describe('karute.save — fresh create emits the payload store', () => {
+  it('emits payload.store_id when there is no existing record to converge on', async () => {
+    appointments.get.mockResolvedValue({ staff_id: 'staff-1', store_id: 'store-B', title: null })
+    await saveKaruteRecord({ ...baseInput, appointmentId: 'appt-1' })
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ storeId: 'store-B' }))
   })
 })
 
