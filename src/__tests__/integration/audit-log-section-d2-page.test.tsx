@@ -514,6 +514,28 @@ describe('AuditLogSection — I5 scope line', () => {
     fireEvent.click(allBtn!)
     await waitFor(() => expect(container.textContent).toContain('全期間 ・ 全店舗'))
   })
+
+  it('fix round 2 (G3/P2): with actorId set, the scope line renders and the summary strip does not — the scope line is filter context, not a per-staff tally', async () => {
+    listAuditLog.mockResolvedValue(page([coreEvent()]))
+    const { container } = render(
+      <AuditLogSection
+        staffList={[{ id: 'staff-1', full_name: '田中 美香' }] as unknown as StaffMember[]}
+      />,
+    )
+    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+    const staffSelect = container.querySelector('select[aria-label="スタッフ"]') as HTMLSelectElement
+    expect(staffSelect).toBeTruthy()
+    listAuditLog.mockResolvedValue(page([coreEvent()]))
+    fireEvent.change(staffSelect, { target: { value: 'staff-1' } })
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
+    // The scope line still renders under a staff filter.
+    expect(container.textContent).toContain('過去30日間 ・ 全店舗')
+    // The summary strip stays hidden — its counts WOULD be a per-staff
+    // tally under actorId (⚖ F13/F14), unlike the scope line above. Its
+    // 緊急アクセス tile label is unique to the strip (unlike .tabular-nums,
+    // which the day-header count and fold badges also carry).
+    expect(container.textContent).not.toContain('緊急アクセス')
+  })
 })
 
 // ---- F3: a targetId never hides the toolbar/strip/scope --------------------

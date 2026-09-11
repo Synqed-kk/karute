@@ -1060,8 +1060,11 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
        *  F3/F5 fix: renders in thread mode too (LENS finding 5 — the scope
        *  line is the one honest statement of the window a recording thread
        *  is drawn from; hiding it while silently narrowing the read was the
-       *  bug). Hidden only with the strip (actorId — same as main). */}
-      {!error && !actorId && (
+       *  bug). Fix round 2 (G3/P2): NOT hidden by actorId — unlike the strip
+       *  above, this line is filter context (「過去n日間 ・ 全店舗」), never a
+       *  per-staff tally, so the F13/F14 reason the strip hides under a
+       *  staff filter does not apply here. */}
+      {!error && (
         <p className="text-xs text-muted-foreground/70">{scopeLineText()}</p>
       )}
 
