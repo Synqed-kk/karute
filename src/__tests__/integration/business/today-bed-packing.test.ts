@@ -1845,12 +1845,30 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // per distinct set of moves that both callers of `composeSlot` share.
     // ⚖ FIX ROUND 1B (FX-D) — …and the BOARD those shuffles were built from, which
     // the store now carries so it can notice the board changing under the card.
-    expect(SCREEN).toContain('toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>(), base: boardLanes }')
-    expect(SCREEN).toContain('const toneRef = useRef<{ slots: Map<string, LandingClass>; shuffledFor: Map<string, BoardLane[]>; base: BoardLane[] } | null>(null)')
-    // …and the compare that spends it. Without these three lines an on-demand
+    // ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — …and the THIRD thing a set of
+    // moves decides rides on the same store: the companion LINES the ⇄ chip's
+    // sentence names.
+    expect(SCREEN).toContain(
+      'toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>(), linesFor: new Map<string, readonly string[]>(), base: boardLanes }',
+    )
+    expect(SCREEN).toContain(
+      'const toneRef = useRef<{\n    slots: Map<string, LandingClass>\n    shuffledFor: Map<string, BoardLane[]>\n    linesFor: Map<string, readonly string[]>\n    base: BoardLane[]\n  } | null>(null)',
+    )
+    // …and the compare that spends it. Without these lines an on-demand
     // compose after a staged card / refresh / turnaround re-uses a shuffle of the
     // OLD world and its guard re-read misses what the world just gained.
-    expect(SCREEN).toContain('    if (store.base !== boardLanes) {\n      store.base = boardLanes\n      store.shuffledFor.clear()\n    }')
+    // ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — ONE COMPARE, TWO CACHES, AND IT
+    // SITS IN `gestureStore()` RATHER THAN IN THE COMPOSER. The renderer's chip
+    // line calls the composer only when the slot is MISSING, so on a frame where
+    // every ⇄ slot hits a compare inside the composer never runs — and the
+    // companion lines would go on being served from a board that has moved.
+    // Both readers go through this one door.
+    expect(SCREEN).toContain(
+      '    if (store.base !== boardLanes) {\n      store.base = boardLanes\n      store.shuffledFor.clear()\n      store.linesFor.clear()\n    }',
+    )
+    expect(SCREEN).toContain('  function gestureStore() {\n    const store = toneRef.current\n    if (store == null) return null\n')
+    // …one definition and the TWO readers that may not diverge.
+    expect((SCREEN.match(/gestureStore\(\)/g) ?? [])).toHaveLength(3)
     // …and the SLOTS are not dropped with the shuffles: that was fix round 1's
     // measured 33 rebuilds and p95 114.5 ms, ruled out.
     expect(SCREEN).not.toContain('store.slots.clear()')
@@ -1884,7 +1902,10 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // because three sites ask for it: the composer (for the shuffled-board
     // cache and for the key), the chip map, and the aimed chip's own refresh.
     expect(SCREEN).toContain('export function moveSetOf(reseats: readonly Reseat[]): string {\n  return reseats.map((r) => `${r.id}>${r.to}`).join(\',\')\n}')
-    expect((SCREEN.match(/moveSetOf\(/g) ?? [])).toHaveLength(4)
+    // ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — …and a FOURTH asks: the ⇄ chip's
+    // own companion lines, cached under the same key as the shuffle they are
+    // read off.
+    expect((SCREEN.match(/moveSetOf\(/g) ?? [])).toHaveLength(5)
     // …and the two renderer lines ⚖ M-6(a) never got, byte for byte. `drop` is
     // the read; `mark` is what the read decides.
     // ⚖ FIX ROUND 2 (FX-B) — …and the read now COMPOSES what it does not find.
@@ -1902,9 +1923,28 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // byte. Reverting this to the bare chain leaves a screen reader hearing the
     // guard's rest-time capacity sentence on a chip whose face says 「this start
     // needs a swap」.
+    // ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — …and the LINES that sentence names
+    // are composed ONCE PER SET OF MOVES. Spelled at the renderer, the two board
+    // walks (`companionsFor`'s find-per-reseat and `companionLines`' `flatMap`
+    // of every item on the board per companion) ran for every marked chip on
+    // every pointer frame — priced at nothing in round 1 because the slots were
+    // then empty on every board measured, a premise round 2 deleted when it
+    // admitted the candidates.
     expect(SCREEN).toContain(
-      'const sentence =\n              v && chip?.mark\n                ? reseatSentence(v.reason ?? c.sentence, companionLines(boardLanes, companionsFor(boardLanes, v.reseats)), null)\n                : (v?.reason ?? explained?.sentence ?? c.sentence)',
+      'const sentence =\n              v && chip?.mark\n                ? reseatSentence(v.reason ?? c.sentence, linesFor(v), null)\n                : (v?.reason ?? explained?.sentence ?? c.sentence)',
     )
+    expect(SCREEN).not.toContain('companionLines(boardLanes, companionsFor(boardLanes, v.reseats)), null)')
+    // …and the composer is ONE line, in ONE place, behind the cache: the
+    // gesture's own `linesFor`, keyed by the set of moves and dropped by the
+    // board compare above. Bypassing it — composing at the chip again — fails
+    // the count below.
+    expect(SCREEN).toContain(
+      '  function linesFor(v: LandingVerdict): readonly string[] {\n    const store = gestureStore()\n    const moveSet = moveSetOf(v.reseats)\n    const had = store?.linesFor.get(moveSet)\n    if (had !== undefined) return had\n    const lines = companionLines(boardLanes, companionsFor(boardLanes, v.reseats))\n    store?.linesFor.set(moveSet, lines)\n    return lines\n  }',
+    )
+    // TWO calls in the whole screen: the 仮押さえ box's own summary (a rest
+    // surface, one per staged card) and this one. A third is a per-frame walk
+    // of the board wherever it lands.
+    expect((SCREEN.match(/companionLines\(/g) ?? [])).toHaveLength(2)
     // …and there is exactly ONE spelling of the clause in the whole product:
     // the engine's own helper. A literal on the screen would be the same defect
     // one round later. (The screen's single mention is a COMMENT naming this

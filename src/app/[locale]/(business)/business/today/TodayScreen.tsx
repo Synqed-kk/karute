@@ -2206,8 +2206,18 @@ export function TodayScreen(props: TodayProps) {
    *
    *  `shuffledFor` is the gesture's one board per distinct set of moves — the
    *  expensive half — shared by the pick-up burst and every on-demand compose,
-   *  so a shuffle is built once however many chips ask for it. */
-  const toneRef = useRef<{ slots: Map<string, LandingClass>; shuffledFor: Map<string, BoardLane[]>; base: BoardLane[] } | null>(null)
+   *  so a shuffle is built once however many chips ask for it.
+   *
+   *  ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — `linesFor` is the second thing a
+   *  set of moves decides: the companion LINES the ⇄ chip's sentence names
+   *  (「さくら様 ベッド1 → ベッド2」). Same key, same lifetime, dropped by the
+   *  same board compare — one invalidation, two caches. */
+  const toneRef = useRef<{
+    slots: Map<string, LandingClass>
+    shuffledFor: Map<string, BoardLane[]>
+    linesFor: Map<string, readonly string[]>
+    base: BoardLane[]
+  } | null>(null)
   /** The whole of what a gesture leaves behind, released in one place. */
   function freeGesture() {
     gestureMemoRef.current?.free()
@@ -2708,40 +2718,31 @@ export function TodayScreen(props: TodayProps) {
    *  in this render, and the memo's board-family gate compares against
    *  `boardLanesRef.current` — written two statements above.
    *
-   *  ⚖ FIX ROUND 1 (F2 — Fable, blind lenses 1 and 2) — AND THE SLOTS SHARE THE
-   *  MEMO'S LIFETIME. They are a VIEW of the memo's answers, so they may not
-   *  outlive them. `gestureAllocator` empties itself on exactly two conditions
-   *  (its own two `memo.clear()` sites): the world stamp's identity changed, or
-   *  the hand-row string changed. So the view records the PAIR it was built
-   *  under and is rebuilt when either differs — same inputs, one home on the
-   *  screen, and the rebuild is SYNC on the first render after a clear. The 4.6%
-   *  above is the ceiling on a STALE slot; a MISSING slot is what this closes:
-   *  without it, a chip that BECOMES a ⇄ candidate after a clear has no slot,
-   *  composes its face from the UN-shuffled verdict, and can wear ⇄ on a landing
-   *  the release would refuse — ⚖ RULING 3's third arm, which `liveChipFace`
-   *  claims holds by construction. */
+   *  ⚖ FIX ROUND 2 (FX-B) + 1B (FX-D) — AND THE SLOTS OUTLIVE THE MEMO, ON
+   *  PURPOSE. Fix round 1 tied them to the memo's own two invalidators and
+   *  rebuilt the whole view on every clear; measured on the 30-lane board that
+   *  is 33 rebuilds in one gesture and p95 114.5 ms against today's 106.9 ms, so
+   *  it was ruled out and this is the fallback the ruling named. ONE map per
+   *  gesture, dropped only at `freeGesture`, and the staleness a clear can cause
+   *  is answered two other ways instead: the SET OF MOVES is the key's fourth
+   *  field, so a candidate whose rescue changed misses and is composed fresh;
+   *  and a candidate with no slot at all is composed AT THE CHIP SITE, in the
+   *  same render that draws it, so no chip is ever drawn from an un-shuffled
+   *  verdict (⚖ RULING 3's third arm, which `liveChipFace` claims holds by
+   *  construction). What FX-D adds is the BOARD: the shuffles — and the
+   *  companion lines built from them — are views of the world as it was, so the
+   *  store carries the board it was built on and `gestureStore` drops both
+   *  caches when that board is a different object. What is left is a non-aimed
+   *  ⇄ preview whose rescue is unchanged under a moved world: the 4.6% class
+   *  above, ruled acceptable, and never the chip under the cursor
+   *  (`paintProxyVerdict` rewrites that one on every aim change). */
   function composeSlot(laneKey: string, start: number, v: LandingVerdict): LandingClass | undefined {
-    const store = toneRef.current
+    const store = gestureStore()
     // Both callers stand under a hand and under the store's own existence, and
     // TypeScript's narrowing does not cross a function boundary. It is also a
     // real guard: a composer asked outside a gesture answers 「nothing」 rather
     // than inventing a face.
     if (inHand == null || store == null) return undefined
-    // ⚖ FIX ROUND 1B (FX-D) — THE GESTURE'S SHUFFLED BOARDS FOLLOW THE BOARD THEY
-    // WERE BUILT FROM. `shuffledFor` caches one shuffled board per set of moves for
-    // the whole gesture, each built below from `boardLanes`, and `boardLanes` itself
-    // can change under the card mid-gesture (a staged card, a server refresh, a
-    // room's turnaround, `now` — the world stamp's own deps). A candidate composed
-    // ON DEMAND after such a change would otherwise be judged on a shuffle of the
-    // OLD world, so its guard re-read can miss exactly what the world has just
-    // gained. The rule: when the board is a different object, the shuffles it
-    // produced are dropped and the next ask rebuilds them. The SLOTS are
-    // deliberately not dropped with them — that is fix round 2's measured decision,
-    // and the set of moves in the key already makes a changed rescue miss.
-    if (store.base !== boardLanes) {
-      store.base = boardLanes
-      store.shuffledFor.clear()
-    }
     const moveSet = moveSetOf(v.reseats)
     let shuffled = store.shuffledFor.get(moveSet)
     if (!shuffled) {
@@ -2753,11 +2754,68 @@ export function TodayScreen(props: TodayProps) {
     store.slots.set(slotKey(laneKey, start, railDur, moveSet), final.kind)
     return final.kind
   }
+  /** ⚖ FIX ROUND 1B (FX-D) — THE GESTURE'S CACHES FOLLOW THE BOARD THEY WERE
+   *  BUILT FROM, AND ONE COMPARE SPENDS THEM BOTH.
+   *
+   *  `shuffledFor` caches one shuffled board per set of moves for the whole
+   *  gesture, and `linesFor` caches the companion lines composed from it — both
+   *  built from `boardLanes`, and `boardLanes` itself can change under the card
+   *  mid-gesture (a staged card, a server refresh, a room's turnaround, `now` —
+   *  the world stamp's own deps). A candidate composed ON DEMAND after such a
+   *  change would otherwise be judged on a shuffle of the OLD world, so its
+   *  guard re-read can miss exactly what the world has just gained, and a
+   *  sentence composed then would name a companion the board may no longer
+   *  carry. The rule: when the board is a different object, everything built
+   *  from the old one is dropped and the next ask rebuilds it. The SLOTS are
+   *  deliberately not dropped with them — that is fix round 2's measured
+   *  decision, and the set of moves in the key already makes a changed rescue
+   *  miss.
+   *
+   *  ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — IT LIVES HERE, NOT INSIDE
+   *  `composeSlot`, because the renderer's chip line calls the composer only
+   *  when the slot is MISSING: on a frame where every ⇄ chip's slot hits, a
+   *  compare that sat inside the composer would never run, and `linesFor` would
+   *  go on serving lines built from a board that has moved. Both readers pass
+   *  through here, so the invalidation has one home and cannot be half-applied. */
+  function gestureStore() {
+    const store = toneRef.current
+    if (store == null) return null
+    if (store.base !== boardLanes) {
+      store.base = boardLanes
+      store.shuffledFor.clear()
+      store.linesFor.clear()
+    }
+    return store
+  }
+  /** ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — THE ⇄ CHIP'S COMPANION LINES, ONCE
+   *  PER SET OF MOVES INSTEAD OF ONCE PER CHIP PER FRAME.
+   *
+   *  The sentence a ⇄ chip gives a screen reader is composed from these lines,
+   *  and composing them walks the board twice — `companionsFor` finds each moved
+   *  card, and `companionLines` does a `flatMap` of every item on the board per
+   *  companion to read its name. That ran inside `rail.cells.map`, for every
+   *  marked chip, on every pointer frame. It was disclosed in round 1 as costing
+   *  nothing 「because the slots are empty on every board measured」 — a premise
+   *  fix round 2 deleted when it admitted the candidates.
+   *
+   *  The lines depend on exactly what the shuffled board beside them depends on:
+   *  the set of moves, and the board. So they are kept on the same store, under
+   *  the same key, and dropped by the same compare. A gesture composes one set
+   *  of lines per distinct rescue, however many chips wear it. */
+  function linesFor(v: LandingVerdict): readonly string[] {
+    const store = gestureStore()
+    const moveSet = moveSetOf(v.reseats)
+    const had = store?.linesFor.get(moveSet)
+    if (had !== undefined) return had
+    const lines = companionLines(boardLanes, companionsFor(boardLanes, v.reseats))
+    store?.linesFor.set(moveSet, lines)
+    return lines
+  }
   function fillToneSlots(): void {
     // The gate below is what proves this, and TypeScript's narrowing does not
     // cross a function boundary: a fill with no hand has nothing to ask about.
     if (inHand == null) return
-    toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>(), base: boardLanes }
+    toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>(), linesFor: new Map<string, readonly string[]>(), base: boardLanes }
     for (const rail of rails) {
       for (const c of rail.cells) {
         const ask = { ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }
@@ -6702,9 +6760,15 @@ export function TodayScreen(props: TodayProps) {
             // and mid-drag the slots carry that verdict's KIND alone. Naming a
             // cost we have not asked for would be the invention this board does
             // not make; the △ palette the chip already wears is what says it.
+            //
+            // ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — …and the LINES it names
+            // are composed once per set of moves, not once per chip per frame:
+            // `linesFor` is the gesture's own cache, dropped with the shuffles
+            // when the board moves. Spelling the two board walks here again is
+            // the cost this round priced and removed.
             const sentence =
               v && chip?.mark
-                ? reseatSentence(v.reason ?? c.sentence, companionLines(boardLanes, companionsFor(boardLanes, v.reseats)), null)
+                ? reseatSentence(v.reason ?? c.sentence, linesFor(v), null)
                 : (v?.reason ?? explained?.sentence ?? c.sentence)
             // ⚖ LIAM RULING 3 (2026-09-09) — 「a start that fits only by MOVING
             // someone gets a small 『moves someone』 marker instead of a plain
