@@ -14565,8 +14565,41 @@ describe('⚖ STUDIO 2026-09-12 — 月カレンダー enters AND leaves on the 
     expect(CODE).toContain('eps: 0.02,')
     expect(CODE).toContain('reduced: segReduced,')
     expect(CODE).toContain("onRest: (v) => { if (v === 0) setCalPhase('shut') }")
-    expect(CODE).toContain('return () => { spring.stop(); calSpring.current = null }')
-    // every close path is served from the ONE state seam, never per call site
-    expect(CODE).toContain("if (spring) calPopMotion(calPopRef.current, spring, pop === 'cal')")
+
+    // ── ⚖ COLD READ 2026-09-12 · B2-B4, B6 — THE REACT WIRING ITSELF ─────────
+    // The behaviour tests above drive the two helpers directly, so they never
+    // touch the wiring AROUND them: which effect type builds the spring, when
+    // the seat is written, what each dep array holds. A blind round mutated
+    // four of those and the whole battery stayed green, so the four lines that
+    // cannot be driven from this folder are pinned as text instead.
+
+    // B2 — THE ONE SEAM, AND THE DEP ARRAY THAT MAKES IT ONE. `[pop]` → `[]`
+    // and the popover opens and never closes again: nothing re-runs, so nothing
+    // ever calls `spring.set(0)`; the card sits at full opacity, still
+    // pressable, `aria-hidden` never written, `calPhase` stuck at `closing`,
+    // and ⚖ F2 never fires again for the life of the page.
+    expect(CODE).toContain("if (spring) calPopMotion(calPopRef.current, spring, pop === 'cal')\n  }, [pop])")
+
+    // B3 — THE NO-FLASH CONTRACT, which is now held by these two lines ALONE:
+    // the `@starting-style` rule that used to guarantee it was taken out of the
+    // sheet in this same change. A passive effect runs AFTER paint, so
+    // `useEffect` here paints the popover at full opacity and full size for one
+    // frame and only then seats it at 0; deleting `jump(0)` reaches the same
+    // flash by the other route, because a fresh spring starts at x = 0 without
+    // writing anything to the element.
+    expect(CODE).toContain('  useLayoutEffect(() => {\n    if (!calOnScreen) return')
+    expect(CODE).toContain('    calSpring.current = spring\n    spring.jump(0)')
+
+    // B4 — THE REBUILD CARRIES THE DIRECTION, never a hardcoded `true`. A
+    // rebuild mid-close (the operator flips the OS reduced-motion switch while
+    // the card fades) must carry on closing rather than re-open the thing they
+    // just dismissed. The cleanup rides the same pin so the pair cannot drift.
+    expect(CODE).toContain("    calPopMotion(el, spring, pop === 'cal')\n    return () => { spring.stop(); calSpring.current = null }")
+
+    // B6 — …and `segReduced` is IN those deps, which is the only reason that
+    // rebuild happens at all. `makeSpring` captures `reduced` at construction,
+    // so a spring that is never rebuilt is a spring that lies — the seg thumb
+    // carries the same note for the same reason.
+    expect(CODE).toContain('  }, [calOnScreen, segReduced])')
   })
 })
