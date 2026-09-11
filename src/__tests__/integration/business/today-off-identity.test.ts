@@ -141,14 +141,13 @@ async function buildWorld(lens: StoreLens): Promise<World> {
 function cellsFor(world: World): Record<(typeof PATHS)[number], unknown> {
   const { input, bookings, lanes, hours, opsConfig, pricingRule } = world
 
-  // 3 — cleanupBlocks. The packet's "opsConfig" note does not hold: opsConfig
-  // carries no cleanup-minute field, and the sibling call at :251 reads
-  // `r.cleanup_minutes` off each RESOURCE row. Uses the first resource's own
-  // cleanup_minutes (fixed, fixture-derived) against every booking of the day.
-  const firstResource = input.resources[0]
+  // 3 — cleanupBlocks. The fixture's beds all carry 0 cleanup, so the cell
+  // applies a fixed 15-minute turnaround to the day's real bookings;
+  // buildLanes' own derived 清掃 blocks stay covered through the buildLanes
+  // cell.
   const cleanupBlocksValue = cleanupBlocks(
     bookings.map((b) => ({ id: b.id, start: b.startMinute, end: b.endMinute })),
-    firstResource?.cleanup_minutes ?? 0,
+    15,
     hours,
   )
 
