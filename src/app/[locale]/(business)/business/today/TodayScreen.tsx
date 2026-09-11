@@ -7530,6 +7530,7 @@ export function TodayScreen(props: TodayProps) {
                           aria-label="前の月"
                           disabled={!monthCovered(-1)}
                           title={monthCovered(-1) ? undefined : calendarRangeHint}
+                          aria-describedby={monthCovered(-1) ? undefined : 'cal-range-hint'}
                           onClick={() => setCalMonth((m) => m - 1)}
                         >‹</button>
                         <button
@@ -7537,8 +7538,13 @@ export function TodayScreen(props: TodayProps) {
                           aria-label="次の月"
                           disabled={!monthCovered(1)}
                           title={monthCovered(1) ? undefined : calendarRangeHint}
+                          aria-describedby={monthCovered(1) ? undefined : 'cal-range-hint'}
                           onClick={() => setCalMonth((m) => m + 1)}
                         >›</button>
+                        {/* ⚖ nit — the range hint above was mouse-only (`title`
+                            never reaches a screen reader). One hidden span, read
+                            by whichever disabled button points at it. */}
+                        <span id="cal-range-hint" className="sr-only">{calendarRangeHint}</span>
                       </span>
                     </div>
                     <div
