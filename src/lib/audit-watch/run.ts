@@ -70,7 +70,17 @@ function detailDay(detail: unknown): unknown {
 /** ONE per-target dedupe read (CP2): true when NO existing row shares this
  *  action (and, for a storm, the same detail.day). No action filter exists on
  *  ListAuditOptions yet (Anthony ticket item 2), so this scans the target's
- *  small `recording`-category page client-side. */
+ *  small `recording`-category page client-side.
+ *
+ * F-d: THE CEILING, named. This reads only ONE page of DEDUPE_PAGE_SIZE rows —
+ * a target with more `recording`-category rows than that could hide an older
+ * watch row past the page and re-write it. Two things stand behind this,
+ * neither of them this scan: the deterministic `request_id`
+ * (`audit-watch:<action>:<target>:<day>`) and the reader's own belt-dedupe
+ * fold on (action, target, request_id) — a re-write lands as a harmless
+ * duplicate, never a second candidate a human has to re-triage. CORE-19 item
+ * 2 (an `action` filter on ListAuditOptions) removes the ceiling outright,
+ * once it lands. */
 async function isNewCandidate(
   synqed: ReturnType<typeof newSynqedClient>,
   targetId: string,
