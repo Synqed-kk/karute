@@ -184,7 +184,8 @@ export interface InboxServerSession {
   serverAudio?: 'segments' | 'object' | null
   /**
    * THIS READ could not fully judge the session — a job probe past
-   * MAX_JOB_PROBES, an audio candidate dropped by maxAudioProbes, a storage
+   * MAX_JOB_PROBES, a job probe that THREW instead of answering (alongside
+   * `jobProbeFailed`), an audio candidate dropped by maxAudioProbes, a storage
    * probe that threw or answered 'unknown', a degraded discard ledger, or a
    * truncated sessions/records read (inbox-read.ts; the last two, PR C2a's
    * P1-1 / P3-11). Such a row reads `failed`/`processing` shape-identically

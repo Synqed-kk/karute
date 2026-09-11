@@ -442,6 +442,7 @@ export async function readRecordingsInbox({
               err,
             )
             row.jobProbeFailed = true
+            row.probeIncomplete = true
             return null
           })
         if (!job) continue

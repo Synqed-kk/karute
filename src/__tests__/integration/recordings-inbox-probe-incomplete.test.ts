@@ -18,7 +18,7 @@ import {
   type SegmentsProbe,
   type TakeAudioProbe,
 } from '@/lib/recordings/inbox-read'
-import { SESSION_UNSETTLED_GRACE_MS } from '@/lib/recordings/inbox'
+import { SESSION_UNSETTLED_GRACE_MS, deriveInboxRows } from '@/lib/recordings/inbox'
 
 const NOW = new Date('2026-08-25T04:00:00.000Z')
 const MIN = 60_000
@@ -173,6 +173,22 @@ describe('probeIncomplete — a row this read could not fully judge', () => {
     })
     const [row] = await read()
     expect(row.probeIncomplete).toBe(true)
+    warn.mockRestore()
+  })
+
+  it('a job probe that THROWS (not a 404) is marked both jobProbeFailed AND probeIncomplete; the fold still reads it as unsettled, unchanged', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    recordings.current = [rec({ id: 's1' })]
+    jobProbe.mockRejectedValue(Object.assign(new Error('boom'), { status: 500 }))
+    const [row] = await read()
+    expect(row.jobProbeFailed).toBe(true)
+    expect(row.probeIncomplete).toBe(true)
+    // Sixth cause (LENS-PR-C2A-BLIND-2026-09-11 finding 2): the throw sets
+    // BOTH flags, but the fold's own `jobProbeFailed` branch already sends
+    // the row to processing/unsettled — prove that read is unchanged.
+    const [derived] = deriveInboxRows({ sessions: [row], takes: [], now: NOW.getTime() })
+    expect(derived.state).toBe('processing')
+    expect(derived.reason).toBe('unsettled')
     warn.mockRestore()
   })
 
