@@ -69,6 +69,7 @@ const customersGet = jest.fn(async () => ({ name: 'customer' }))
 const getByRecordingSession = jest.fn(
   async (): Promise<{
     id: string
+    store_id?: string | null
     entries?: Array<{
       id: string
       category: string
@@ -408,6 +409,41 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
 
     expect(fail).not.toHaveBeenCalled()
     expect(complete).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Fix round 3 (mirrors round 2's karute.ts fix, karute-save-audit.test.ts):
+// upsertKaruteRecord's converge branch keeps the EXISTING record's store_id
+// (CEILING F-7) rather than payload.store_id, so the worker's karute.save
+// emit must name that store too — else it can name a store the record isn't
+// in.
+describe('process-recording worker — persisted store_id in the karute.save emit (fix round 3)', () => {
+  it('emits the EXISTING record store_id, not payload.store_id, when they differ', async () => {
+    getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing' })
+    claim
+      .mockResolvedValueOnce({
+        ...baseJob,
+        payload: { ...baseJob.payload, store_id: 'store-B' },
+      })
+      .mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ storeId: 'store-A' }))
+  })
+
+  it('emits payload.store_id when there is no existing record to converge on', async () => {
+    claim
+      .mockResolvedValueOnce({
+        ...baseJob,
+        payload: { ...baseJob.payload, store_id: 'store-B' },
+      })
+      .mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ storeId: 'store-B' }))
   })
 })
 
