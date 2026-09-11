@@ -598,7 +598,17 @@ export function nextCalendarIndex(
 export function calPopFrame(el: HTMLElement | null, v: number, reduced: boolean): void {
   if (!el) return
   el.style.opacity = String(v)
+  // ⚖ COLD READ 2026-09-12 · C1 — THE REDUCED BRANCH IS AN ANSWER, NOT AN
+  // OMISSION. Writing nothing here left the LAST NON-REDUCED FRAME'S transform
+  // on the element: flip the OS switch while the calendar is up, the spring is
+  // rebuilt with `reduced: true`, and the card keeps whatever scale it had
+  // reached — a blind round drove the real helpers through that sequence and
+  // read back `scale(0.9699604898035411)`, there for the rest of the page's
+  // life. The reduced block's `.cal-pop { transform: none }` cannot beat an
+  // inline style, so the one case that rule is written about was the one case
+  // it lost. Clearing the property hands it back to the sheet.
   if (!reduced) el.style.transform = `scale(${0.96 + 0.04 * v})`
+  else el.style.transform = ''
 }
 
 /** ONE STATE CHANGE — open, or begin to close — and THE ONLY PLACE THE EXIT IS

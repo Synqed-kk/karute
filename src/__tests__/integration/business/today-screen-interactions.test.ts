@@ -14526,6 +14526,28 @@ describe('⚖ STUDIO 2026-09-12 — 月カレンダー enters AND leaves on the 
     expect(document.querySelector('.cal-pop')).toBe(el)
   })
 
+  it('⚖ COLD READ · C1 — a reduced frame CLEARS the transform a non-reduced frame left', () => {
+    // The reader flips the OS switch while the calendar is up. The screen
+    // rebuilds the spring with `reduced: true` (that is what `segReduced` is in
+    // the layout effect's deps for), and the very next frame is a reduced one —
+    // written onto an element that is still wearing the last animated scale.
+    //
+    // The first cut wrote NOTHING on the reduced branch, so that scale stayed:
+    // a blind round drove these two helpers through this exact sequence and
+    // read back `scale(0.9699604898035411)`. The sheet's reduced answer
+    // (`.biz .page-today .cal-pop { transform: none }`) cannot beat an inline
+    // style, so the one case that rule exists for was the one case it lost.
+    document.body.innerHTML = '<div class="cal-pop"></div>'
+    const el = document.querySelector<HTMLElement>('.cal-pop')!
+    calPopFrame(el, 0.85, false)
+    expect(el.style.transform).toBe('scale(0.994)')
+    calPopFrame(el, 1, true)
+    expect(el.style.transform).toBe('')
+    expect(el.style.opacity).toBe('1')
+    // an omission would leave the old value standing; an answer takes it away
+    expect(el.getAttribute('style')).not.toContain('scale')
+  })
+
   it('under reduced motion it lands instantly and NEVER writes a transform', () => {
     const { el, spring, c, rests } = mount(true)
     // no frames were ever asked for: `reduced` lands every `set` where it stands.
