@@ -36,11 +36,8 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { canReadAuditLog } from '@/lib/auth/audit-read'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import {
-  listAuditLogWithClient,
-  type AuditLogFilters,
-  AUDIT_TARGET_TYPES,
-} from '@/actions/audit-log'
+import { listAuditLogWithClient, type AuditLogFilters } from '@/actions/audit-log'
+import { AUDIT_TARGET_TYPES } from '@/lib/audit-target-types'
 import { AuditLogListResultDTO } from '@/lib/app-api/audit-log-dto'
 
 export const runtime = 'nodejs'

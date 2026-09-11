@@ -8,6 +8,7 @@ import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { canReadAuditLog } from '@/lib/auth/audit-read'
 import { audit } from '@/lib/audit'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { AUDIT_TARGET_TYPES } from '@/lib/audit-target-types'
 
 /** Mirror of core's audit row (SDK 1.13 ListAuditResponse.events[]). Local
  *  mirror instead of the SDK type so this file types against the pinned local
@@ -77,16 +78,6 @@ export interface AuditLogFilters {
 }
 
 const PAGE_SIZE = 100
-
-/** Fix round 1, subject 6 (D1-6): the same four literals the facade route
- *  validates — checked HERE too, in the twin BOTH doors call, so web and
- *  facade can never diverge. `AuditLogFilters`'s union type is erased at
- *  this 'use server' action boundary, so a stale build or a bypassed caller
- *  can still send anything; an unrecognized value is ignored, matching the
- *  facade's own never-400s contract, never a throw. Subject 10: exported —
- *  route.ts imports this instead of keeping its own copy, one source of
- *  truth for both doors. */
-export const AUDIT_TARGET_TYPES = new Set<string>(['customer', 'recording', 'karute', 'staff'])
 
 /** View-kind actions (customer.view, privacy.audit_log.view, …) stay out of
  *  the default feed by naming convention. Core's exclude_views excludes BOTH
