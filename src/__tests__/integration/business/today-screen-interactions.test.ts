@@ -1566,7 +1566,13 @@ describe('the window layers price the committed board, never the card in flight'
     expect(src).not.toContain('gapLayerFor(boardLanes')
     // …and the live board is still what the guard and the drop target read,
     // because those DO have to answer where the card is heading.
-    expect(src).toContain('guardRailsFor(boardLanes')
+    // ⚖ FRAME-SEAM (2026-09-12) — spelled `handBoard` now: `handBoardFor` applied
+    // to the card in hand, which is `boardLanes` ITSELF by reference for every
+    // gesture but a staged card's re-drag (and always at rest). The rule this
+    // clause guards — the guard reads the LIVE board, never the committed one —
+    // is unchanged; the window layers below still read `committedLanes`.
+    expect(src).toContain('guardRailsFor(handBoard')
+    expect(src).not.toContain('guardRailsFor(committedLanes')
   })
 
   it('the スキマ枠 layer disagrees too — an off-grid landing opens a 55-minute tail', () => {
@@ -1812,9 +1818,15 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // round measures. A pinned line has to BE a line now.
     for (const line of [
       'const handId = live?.id ?? null',
-      'placementFeasible: bedDoorFor(handId),',
+      // ⚖ FRAME-SEAM (2026-09-12) — THE RAIL'S TWO DOORS ANSWER ON THE HAND'S
+      // BOARD. Each already accepted a foreign board through the escape hatch it
+      // was built with, so this is the existing `bookFor` arm and not a new door;
+      // the VERDICT's two sibling lines below are byte-unchanged (their `lanes`
+      // default is what the caller decides, not their text), and neither helper
+      // BODY gains or loses a character — the 9/3 exact-line pin holds.
+      'placementFeasible: bedDoorFor(handId, handBoard),',
       'placementFeasible: bedDoorFor(excludeId, lanes),',
-      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, handBoard) : undefined,',
       'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
@@ -1840,12 +1852,16 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       return s
     }
     const CODE = codeOnly(SRC)
-    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],')
+    // ⚖ FRAME-SEAM (2026-09-12) — the rail's call and its dep-array anchor name the
+    // HAND's board; the verdict's slice below is byte-unchanged.
+    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],')
     const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus],')
     const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
     for (const [where, call, line] of [
-      ['rail', rail.text, 'placementFeasible: bedDoorFor(handId),'],
-      ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,'],
+      // ⚖ FRAME-SEAM (2026-09-12) — the RAIL's two doors answer on the hand's
+      // board; the VERDICT's two are byte-unchanged (their board is the caller's).
+      ['rail', rail.text, 'placementFeasible: bedDoorFor(handId, handBoard),'],
+      ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, handBoard) : undefined,'],
       ['verdict', verdict.text, 'placementFeasible: bedDoorFor(excludeId, lanes),'],
       ['verdict', verdict.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,'],
     ] as const) {
@@ -2091,12 +2107,14 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     ])
 
     // 2 · THE RAIL'S INPUT — the dials, the exclusion, and both doors.
+    // ⚖ FRAME-SEAM (2026-09-12) — the call and the dep-array anchor both name the
+    // HAND's board; every other line of the slice is byte-unchanged.
     const rail = sliceLines(
-      '? guardRailsFor(boardLanes, {',
-      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],',
+      'guardRailsFor(handBoard, {',
+      '[guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],',
     )
     expect(rail.lines).toEqual([
-      '? guardRailsFor(boardLanes, {',
+      'guardRailsFor(handBoard, {',
       'open: hours.open,',
       'close: hours.close,',
       'stepMin: 30,',
@@ -2106,10 +2124,12 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       'locked,',
       'guard: props.guard.config,',
       'excludeId: handId,',
-      'placementFeasible: bedDoorFor(handId),',
-      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
+      'placementFeasible: bedDoorFor(handId, handBoard),',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, handBoard) : undefined,',
+      // `restingFor` is NOT given the hand's board: it reads `committedLanes`,
+      // the store's settled day, which is a rest question with no hand in it.
       'resting: restingFor(handId),',
-      'restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId) : undefined,',
+      'restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId, handBoard) : undefined,',
       '})',
       ': [],',
     ])
@@ -6137,7 +6157,13 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     // transplant dropped.
     expect(CSS).toContain('.biz .guard-rail-cell.aimed { outline: 0;')
     // ⚖ FIX ROUND 2 (G1) — same lift: the aimed pairing is now an argument.
-    expect(SRC).toContain("aimed: aimed?.laneKey === rail.laneKey && aimed.start === c.start,")
+    // ⚖ FRAME-SEAM (2026-09-12) — …and the pairing is NAMED, because the chip's
+    // own answer now depends on it: the chip under the cursor takes the card's
+    // verdict when the two questions coincide instead of reading a cache written
+    // one commit early. One spelling, two readers.
+    expect(SRC).toContain('const isAimed = aimed?.laneKey === rail.laneKey && aimed.start === c.start')
+    expect(SRC).toContain('aimed: isAimed,')
+    expect((SRC.match(/aimed\?\.laneKey === rail\.laneKey/g) ?? [])).toHaveLength(1)
     // Floored to the rail's own 30-minute lattice, never rounded: an off-lattice
     // landing belongs to the cell it starts INSIDE (flag 48's rule).
     expect(SRC).toContain('start: Math.floor(minuteOf(landing.x, hours) / 30) * 30')
@@ -6424,7 +6450,12 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // one (`livePack().pack` — one token, one home), and the ×/△/✓ mapping moved
     // out of the JSX into `liveChipFace`, where the whole table is unit-pinned
     // without a renderer. The 満室 answer above is unchanged either way.
-    expect(SRC).toContain('const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c, livePack().pack) : null')
+    // ⚖ FRAME-SEAM (2026-09-12) — …ON THE HAND'S BOARD, passed explicitly. The
+    // strip judged every chip on `boardLanes` while the drop judged on the
+    // companions-restored board; for a staged card's re-drag those are two days
+    // and the two answers parted company (Liam's 9/11 finding). `verdictFor`'s
+    // default stays `boardLanes`, so every rest surface is byte-unchanged.
+    expect(SRC).toContain('const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c, livePack().pack, handBoard) : null')
     // ⚖ FIX ROUND 5 (Greptile #885 4/5) — the slot is an object now, so the
     // chip's `final` takes its kind AND its reason. `liveChipFace` reads the
     // kind only; the reason is what the chip's own sentence says out loud.
@@ -6488,7 +6519,18 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // RENEGOTIATED (batch-10, ⚖ 61): the memo key carries the OFF-LANE answer
     // too, so the word repaints when the pointer leaves every row without the
     // span having changed.
-    expect(SRC).toContain("const key = `${ctx.offLane ? '' : ctx.targetLane}|${span.x}|${span.w}`\n    if (key === ctx.aimKey) return")
+    // ⚖ FRAME-SEAM (2026-09-12) — THE CARD'S MEMO MOVED HOME; the shelf chip's did
+    // not. The card's word used to be memoised on `ctx.aimKey` INSIDE the rAF,
+    // which is where the seam was: an answer asked there is answered on the
+    // PREVIOUS commit's board while the strip is drawn from the new one. Same key,
+    // same three fields, same OFF-LANE clause — it is the `liveWord` memo's dep
+    // now, read off `live` instead of off the pointer context, and the world stamp
+    // joins it so a board that moves UNDER a held pointer still repaints. The
+    // shelf chip keeps its own: `live` is null for a chip drag, so `boardLanes`
+    // holds one reference across every frame and there is no stale world to be
+    // against.
+    expect(SRC).toContain("const liveAimKey =\n    live && live.mode === 'move' && !live.overShelf ? `${live.offLane ? '' : live.targetLane}|${live.x}|${live.w}` : null")
+    expect(SRC).toContain('[liveAimKey, worldStamp],')
     expect(SRC).toContain('const key = `${ctx.laneKey}|${span.x}`\n    if (key === ctx.aimKey) return')
     // The frame reads the CURRENT board through a ref: its listeners were bound
     // at pointerdown and hold that render's closure.
@@ -7279,7 +7321,13 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     expect(SRC.match(/!live\.overShelf && !live\.offLane/g)).toHaveLength(2)
     // …and the cursor wears the release's OWN sentence, from the one verdict,
     // by asking it the same question the release will ask (staffLane null).
-    expect(SRC).toContain("staffLane: ctx.offLane ? null : sides.staffLane,")
+    // ⚖ FRAME-SEAM (2026-09-12) — the ask is read off the RENDER now (`askOfLive`)
+    // rather than off the pointer context: its two pointer-path callers were the
+    // pre-commit word and the pre-commit aimed re-judge, both deleted, so there is
+    // one spelling left. `live.staffLane` is the very `sidesAt` pair `setLive`
+    // resolved, so the sentence cannot resolve it differently.
+    expect(SRC).toContain("staffLane: live.offLane ? null : live.staffLane,")
+    expect(SRC).not.toContain('function askOf(ctx: DragCtx')
     // …which `landingVerdict` answers with exactly that sentence.
     const v = landingVerdict([lane({ key: 'p-01', group: 'staff' })], {
       staffLane: null, bedLane: null, solveRoom: true, id: null, requiresPrivate: false,
@@ -7341,9 +7389,14 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     // gesture memo it is the import, byte for byte.
     expect(solve).toContain('const solved = (gestureMemoRef.current?.allocate ?? allocateBed)(board, {')
     expect(solve).not.toContain('allocateBed(boardLanes,')
+    // ⚖ FRAME-SEAM (2026-09-12) — the rule moved into the exported pure
+    // `handBoardFor` so the STRIP can ask it too (it could not before, which is
+    // why the strip and the drop judged two different boards); this body is one of
+    // its two callers, and the HAND's arm is the array this render already built.
     const which = SRC.slice(SRC.indexOf('function solveLanes('), SRC.indexOf('\n  }', SRC.indexOf('function solveLanes(')))
-    expect(which).toContain('lanesWithCompanionsRestored(boardLanesRef.current, pending.companions, hours, props.bedCleanupMinutes)')
-    expect(which).toContain(': boardLanesRef.current')
+    expect(which).toContain('handBoardFor(boardLanesRef.current, pending, id, hours, props.bedCleanupMinutes)')
+    expect(which).toContain('? handBoardRef.current')
+    expect(which).not.toContain('lanesWithCompanionsRestored(')
   })
 
   // ── the applyMoves extra pass (study §61 bonus) ──────────────────────────
@@ -7456,7 +7509,10 @@ describe('BATCH-10b ⚖ flag 57 — the pending-override ghost', () => {
     expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)')
     // Every judge of the board still reads the UN-overlaid one. If a future
     // round feeds any of them `drawnLanes`, a refusal starts changing things.
-    expect(SRC).toContain('guardRailsFor(boardLanes')
+    // ⚖ FRAME-SEAM (2026-09-12) — the strip's own board is `handBoard`, which is
+    // `boardLanes` by reference except during a staged card's re-drag; either way
+    // it is never the DRAWN board, which is what this clause is about.
+    expect(SRC).toContain('guardRailsFor(handBoard')
     expect(SRC).toContain('sellLayerFor(committedLanes')
     expect(SRC).toContain('gapLayerFor(committedLanes')
     expect(SRC).not.toContain('sellLayerFor(drawnLanes')
@@ -11199,7 +11255,11 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
   const COMPUTECHECKS_SRC: readonly string[] = [
     "computeChecks,",
     "*  A `BoardItem` has no price (today-board.ts), and canon's `computeChecks`",
-    "*  ledger and `computeChecks` are never run per pixel. */",
+    // ⚖ FRAME-SEAM (2026-09-12) — one PROSE line left with `DragCtx.aimKey`'s doc
+    // comment («…the guard engine, the bed ledger and `computeChecks` are never
+    // run per pixel»): the word is no longer computed inside the pointer frame, so
+    // the field that memoised it there is gone. 12 → 11 raw mentions; the live
+    // reader count is still 1.
     "/** canon `computeChecks` fed from the board as it currently stands. The sell",
     "computeChecks(at, {",
     "// ⚖ PLAN F10 — the hold bar's rows are a `computeChecks` walk over the whole",
@@ -11315,7 +11375,10 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // reason.
     "import { settingsHref } from '@/business/lib/settings-link'",
     "import { makeSpring } from '@/business/lib/spring'",
-    "import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'",
+    // ⚖ FRAME-SEAM (2026-09-12) — `type Hours` joins it: `handBoardFor` is a
+    // module-level exported pure function now (the re-landing rule, spelled once
+    // so the strip can ask it too) and its signature names the day's hours.
+    "import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type Hours } from '@/business/lib/today-board'",
     // ⚖ two entries below are split with `+` at the SAME runtime value —
     // business-isolation.test.ts (phone-safety lock 3) scans raw TEXT for
     // `from '…'` across every file in its own territory, this test file
@@ -11467,7 +11530,12 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
       // second `computeChecks` mention and this number moves. A legitimate
       // new use of the name anywhere in the file — even in a comment — must
       // update it.
-      expect({ where, rawIdents: (src.match(/\bcomputeChecks\b/g) ?? []).length }).toEqual({ where, rawIdents: 12 })
+      // ⚖ FRAME-SEAM (2026-09-12) — 12 → 11, and it is PROSE that moved, exactly as
+      // this pin warns. The deleted mention sat in `DragCtx.aimKey`'s doc comment
+      // (「…the guard engine, the bed ledger and `computeChecks` are never run per
+      // pixel」); `aimKey` went with the ask it fenced when the word stopped being
+      // computed inside the pointer frame. The live reader count below is still 1.
+      expect({ where, rawIdents: (src.match(/\bcomputeChecks\b/g) ?? []).length }).toEqual({ where, rawIdents: where === 'checksFor (screen)' ? 11 : 12 })
       // ⚖ BREAKER-828 DELTA 4 J1 — AND `rawIdents` ABOVE IS A WHOLE-FILE
       // TOTAL THAT PROSE AND CODE SHARE. Ten of `computeChecks`'s twelve raw
       // mentions in this file are prose; a mutant that adds one live reader
