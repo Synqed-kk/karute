@@ -284,6 +284,12 @@ export async function watchOneBusiness(
         })
         // F-c: `written` counts only real writes — dry mode leaves it at 0
         // (`candidates` is the count, `list` the content).
+        // P3-8: "real write" means HANDED to the writer, not landed —
+        // audit() returns void and forwards the core write via after()
+        // (src/lib/audit.ts:18-33), so a forwarding failure is swallowed
+        // into a drop counter there, invisible here. Not a correctness gap:
+        // a dropped write leaves no prior row, so the next hourly run's
+        // isNewCandidate check re-writes it.
         result.written++
       }
     }
@@ -332,6 +338,8 @@ export async function watchOneBusiness(
           requestId: `audit-watch:recording.transcribe_storm:${storm.targetId}:${storm.day}`,
           source: 'system',
         })
+        // P3-8: same "handed to the writer, not landed" semantics as the
+        // karute_missing counter above.
         result.written++
       }
     }
