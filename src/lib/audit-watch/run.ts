@@ -165,9 +165,13 @@ export async function watchOneBusiness(
     result.truncated = true
     return result
   }
-  const synqed = newSynqedClient(businessId)
-
   try {
+    // P2-4: constructed INSIDE the try — a missing-env throw here is the
+    // same class of failure as any other read, and must reach the same
+    // catch (F-b) so this business's error doesn't kill the route's loop
+    // over every OTHER business (route.ts has no try of its own).
+    const synqed = newSynqedClient(businessId)
+
     // (a) recording.karute_missing candidates.
     const sessions = await readRecordingsInbox({ synqed, staffId: null, businessId, now })
     const allRows = deriveInboxRows({ sessions, takes: [], now: now.getTime() })

@@ -224,6 +224,16 @@ describe('watchOneBusiness — recording.karute_missing', () => {
     expect(auditMock).not.toHaveBeenCalled()
   })
 
+  it('P2-4: a throwing client constructor sets error: true instead of an uncaught throw', async () => {
+    ;(newSynqedClient as jest.Mock).mockImplementation(() => {
+      throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
+    })
+    const result = await watchOneBusiness('biz-1', NOW, 'write', FAR_DEADLINE)
+    expect(result.error).toBe(true)
+    expect(result.truncated).toBe(false)
+    expect(auditMock).not.toHaveBeenCalled()
+  })
+
   it('F-e: a session past the job-probe cap (probeIncomplete) never reaches the candidate list, though its shape reads failed', async () => {
     // No audio_storage_path anywhere here — this exercises the JOB-probe cap
     // (inbox-read.ts's MAX_JOB_PROBES residue) exclusively, never storage.
