@@ -224,6 +224,22 @@ describe('watchOneBusiness — recording.karute_missing', () => {
     expect(auditMock).not.toHaveBeenCalled()
   })
 
+  it('P2-5: a deadline inside the per-business reserve is not admitted — no read, truncated', async () => {
+    const result = await watchOneBusiness('biz-1', NOW, 'write', Date.now() + 20_000)
+    expect(result).toEqual({
+      businessId: 'biz-1',
+      candidates: 0,
+      written: 0,
+      skipped: 0,
+      truncated: true,
+      error: false,
+      unchecked: 0,
+      list: [],
+    })
+    expect(auditMock).not.toHaveBeenCalled()
+    expect(newSynqedClient).not.toHaveBeenCalled()
+  })
+
   it('P2-4: a throwing client constructor sets error: true instead of an uncaught throw', async () => {
     ;(newSynqedClient as jest.Mock).mockImplementation(() => {
       throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')

@@ -27,6 +27,13 @@ const AUDIT_PAGE_SIZE = 200
 const MAX_AUDIT_PAGES = 50
 /** Per-candidate idempotency-check page size (packet item 4c). */
 const DEDUPE_PAGE_SIZE = 50
+/** P2-5: never START a business's un-budgeted read (up to 50 pages of
+ *  sessions + 50 of karute records, 20 of discards, ~100 job/audio probes —
+ *  none of it sees the deadline once begun) with less than this much of the
+ *  wall left. The assembler's own idiom for the exact same law — "never
+ *  START what the wall will interrupt" — is TAKE_RESERVE_MS,
+ *  src/lib/recording/assembler.ts:157. */
+const BUSINESS_RESERVE_MS = 30_000
 
 type Detail = Record<string, string | number | boolean | null>
 
@@ -161,7 +168,7 @@ export async function watchOneBusiness(
     unchecked: 0,
     list: [],
   }
-  if (Date.now() >= deadline) {
+  if (Date.now() + BUSINESS_RESERVE_MS > deadline) {
     result.truncated = true
     return result
   }
