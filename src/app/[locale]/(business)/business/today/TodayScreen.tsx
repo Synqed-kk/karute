@@ -85,6 +85,8 @@ import {
   calendarCellFace,
   calendarMonth,
   calendarMonthAt,
+  calPopFrame,
+  calPopMotion,
   nextCalendarIndex,
   CALENDAR_TIGHT_MAX,
   cardNodes,
@@ -1046,6 +1048,26 @@ export function TodayScreen(props: TodayProps) {
    *  identity. */
   const [released, setReleased] = useState<readonly ReleasedWindow[]>([])
   const [calMonth, setCalMonth] = useState(0)
+  /** ⚖ STUDIO 2026-09-12 — THE POPOVER OUTLIVES `pop` BY THE LENGTH OF ITS
+   *  SPRING. It now LEAVES on the Studio spring rather than being unmounted out
+   *  from under itself, so 「on screen」 and 「the day button is toggled on」 have
+   *  stopped being the same question and get a state of their own.
+   *
+   *  THREE PHASES AND NOT A `calClosing` BOOLEAN BESIDE `pop`, which is what the
+   *  packet asked for — measured, not preferred (probes/render-phase-staleness):
+   *  a render-phase `setCalClosing(true)` is NOT visible to a later line of the
+   *  SAME pass, so `pop !== 'cal' && !calClosing` reads `false` on the very pass
+   *  where the popover starts closing and F2 below fires anyway. React's own
+   *  answer, printed: `pop='' calClosing=false calMonth=3 → resets=true`, and
+   *  the committed markup is a visible popover showing the wrong month. One
+   *  phase carries the fact instead, and on the leaving pass it still reads
+   *  `open` — so the guard holds on the pass that matters.
+   *
+   *  Both branches are idempotent, which is what lets React re-invoke this
+   *  render as many times as it likes. */
+  const [calPhase, setCalPhase] = useState<'shut' | 'open' | 'closing'>('shut')
+  if (pop === 'cal' && calPhase !== 'open') setCalPhase('open')
+  else if (pop !== 'cal' && calPhase === 'open') setCalPhase('closing')
   // ⚖ F2 — THE PAGED MONTH BELONGS TO THE OPEN POPOVER. There is no single
   // close path (a day, 今日, Escape, a click outside, and any sibling popover
   // all close it), so the reset is stated once where the two states meet rather
@@ -1054,7 +1076,11 @@ export function TodayScreen(props: TodayProps) {
   // with no covered day in it — lead 0, every date one column out of place.
   // React's own 「adjust state while rendering」: the re-render happens before
   // anything is painted, so the wrong month is never on screen.
-  if (pop !== 'cal' && calMonth !== 0) setCalMonth(0)
+  // ⚖ STUDIO 2026-09-12 — and 「not open」 is now `shut`, not `pop !== 'cal'`:
+  // a popover that is still visibly fading out is still being read, and a month
+  // paged to 11月 snapping back to the current one in front of the reader is
+  // the same bug this line exists to prevent, moved 300ms later.
+  if (calPhase === 'shut' && calMonth !== 0) setCalMonth(0)
   /** ⚖ Liam flag 47 (2026-08-21) — A REFUSAL HAS TO BE READABLE. Every message
    *  on this board dwelt for the same 3.2s, which is right for 「置きました」 —
    *  the operator can see the result and the sentence only confirms it — and
@@ -1538,6 +1564,66 @@ export function TodayScreen(props: TodayProps) {
     document.fonts?.ready?.then(() => segSeatRef.current?.(true)).catch(() => {})
     return () => { segX.current?.stop(); segW.current?.stop() }
   }, [])
+
+  /** ⚖ STUDIO 2026-09-12 — THE MONTH POPOVER ENTERS AND LEAVES ON THE SAME
+   *  SPRING AS EVERYTHING ELSE ON THIS BOARD.
+   *
+   *  It used to enter on a 140ms CSS bezier and leave by being deleted. The
+   *  approved Studio mock gives it ONE critically-damped spring for both
+   *  directions, opacity and scale together from the day button's own corner,
+   *  and turns it around from its live value if the button is pressed again
+   *  mid-flight (MOCK-STUDIO.html :127, :226-238). The CSS keeps only the
+   *  `transform-origin` now; a `transition` left on the same two properties
+   *  would put a 140ms lag behind every frame the spring writes.
+   *
+   *  ⚠ `eps: 0.02`, NOT THE MOCK'S `0.003`, AND THAT IS THE 「faster close」.
+   *  On a 0→1 opacity the tail below 0.02 is two percent of nothing: it is
+   *  invisible on the way in, and on the way OUT it is ~100ms of an already
+   *  invisible popover holding the mount open. Cutting it there unmounts the
+   *  element that much sooner with no frame a reader can tell apart — one
+   *  integrator, one response, and the close still feels quicker than the open.
+   *  (D-S1: `makeSpring` fixes `w` at construction, so a genuinely faster close
+   *  would need a SECOND integrator, and spring.ts's header forbids that.)
+   *
+   *  ⚠ A LAYOUT EFFECT, because a passive one runs after paint: the first
+   *  painted frame has to be the `jump(0)`, or the popover flashes at full
+   *  opacity for one frame before the spring takes it. */
+  const calPopRef = useRef<HTMLDivElement | null>(null)
+  const calSpring = useRef<ReturnType<typeof makeSpring> | null>(null)
+  const calOnScreen = calPhase !== 'shut'
+  useLayoutEffect(() => {
+    if (!calOnScreen) return
+    const el = calPopRef.current
+    if (!el) return
+    const spring = makeSpring((v) => calPopFrame(el, v, segReduced), {
+      response: 0.3,
+      damping: 1.0,
+      eps: 0.02,
+      reduced: segReduced,
+      // ⚠ ONLY the arrival at 0 unmounts. `onRest` fires at both ends, and an
+      // arrival at 1 is the popover finishing its ENTRANCE.
+      onRest: (v) => { if (v === 0) setCalPhase('shut') },
+    })
+    calSpring.current = spring
+    spring.jump(0)
+    // …and the direction comes from `pop`, not from `true`: rebuilding mid-close
+    // (an operator who flips the OS reduced-motion switch while it fades) must
+    // carry on closing rather than re-open the thing they just dismissed.
+    calPopMotion(el, spring, pop === 'cal')
+    return () => { spring.stop(); calSpring.current = null }
+    // `pop` is deliberately NOT a dep — it is read for the rebuild's direction
+    // only, and the effect below is what answers a change in it. Keyed on `pop`
+    // this would tear the spring down mid-flight on every open and close.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calOnScreen, segReduced])
+  // Every close path on this board ends in `setPop('')`, so ONE effect on that
+  // one seam serves a day click, 今日, Escape, a click outside and any sibling
+  // popover opening — and the reopen-mid-close is the same line, which is why
+  // it reverses from the live value instead of restarting.
+  useEffect(() => {
+    const spring = calSpring.current
+    if (spring) calPopMotion(calPopRef.current, spring, pop === 'cal')
+  }, [pop])
 
   /** THE BOARD, twice. `boardLanes` is the truth every derivation reads — the
    *  dragged card is already on the lane it is heading for, which is what makes
@@ -7519,8 +7605,13 @@ export function TodayScreen(props: TodayProps) {
                   {props.dayLabel}
                 </button>
                 <Link href={dayHref(props.dayOffset + 1)} aria-label="次の日へ" prefetch={false}>›</Link>
-                {pop === 'cal' && (
-                  <div className="cal-pop">
+                {/* ⚖ STUDIO 2026-09-12 — mounted while it is ON SCREEN, which
+                    outlasts `pop` by the length of the exit spring. `aria-hidden`
+                    and `pointer-events` are written by `calPopMotion` the moment
+                    the close starts, so the fading card is neither pressable nor
+                    readable. */}
+                {calOnScreen && (
+                  <div className="cal-pop" ref={calPopRef}>
                     <div className="cal-head">
                       <strong>{monthCells.y}年{monthCells.m}月</strong>
                       <span className="cal-tools">
