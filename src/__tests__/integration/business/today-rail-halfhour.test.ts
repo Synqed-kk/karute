@@ -1134,8 +1134,42 @@ function liveRig(rest: BoardLane[], hand: { id: string; bed: string }) {
  *  rule now, in one sentence: a candidate whose (lane · start · length · SET OF
  *  MOVES) is already in the map is REUSED; anything else is composed on the
  *  spot, on one shuffled board per distinct set of moves for the whole gesture. */
+/** ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — ONE COMPARE, TWO CACHES. Mirrors the
+ *  screen's own `gestureStore()`: the board compare that drops the gesture's
+ *  shuffled boards drops the companion LINES composed from them with it, because
+ *  both are views of the world as it was. It sits in its own door for the same
+ *  reason it does on the screen — a chip whose slot HITS never reaches the
+ *  composer, so a compare that lived only there could not protect the lines. */
+function spendCaches(
+  store: { shuffledFor: Map<string, number>; linesFor?: Map<string, number>; base?: unknown },
+  base: unknown,
+): void {
+  if (store.base !== base) {
+    store.base = base
+    store.shuffledFor.clear()
+    store.linesFor?.clear()
+  }
+}
+
+/** ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — THE ⇄ CHIP'S COMPANION LINES, AS A
+ *  RULE THAT CAN BE ASKED: composed once per SET OF MOVES, reused by every chip
+ *  wearing that rescue, and dropped when the board underneath moves. Before it,
+ *  the renderer walked the board twice per marked chip per pointer frame. */
+function linesRule(
+  store: { shuffledFor: Map<string, number>; linesFor: Map<string, number>; base?: unknown },
+  moveSet: string,
+  compose: () => number,
+  base: unknown = store.base,
+): { composed: boolean; entries: number } {
+  spendCaches(store, base)
+  const had = store.linesFor.get(moveSet)
+  if (had !== undefined) return { composed: false, entries: store.linesFor.size }
+  store.linesFor.set(moveSet, compose())
+  return { composed: true, entries: store.linesFor.size }
+}
+
 function slotRule(
-  store: { slots: Map<string, LandingClass>; shuffledFor: Map<string, number>; base?: unknown },
+  store: { slots: Map<string, LandingClass>; shuffledFor: Map<string, number>; linesFor?: Map<string, number>; base?: unknown },
   laneKey: string,
   start: number,
   dur: number,
@@ -1153,10 +1187,7 @@ function slotRule(
   // sits below the hit above: a slot that is found is never composed, so a hit
   // never asks about the board. `boardLanes` is memoised and changes identity
   // exactly when its inputs do, so a different object IS a different world.
-  if (store.base !== base) {
-    store.base = base
-    store.shuffledFor.clear()
-  }
+  spendCaches(store, base)
   if (!store.shuffledFor.has(moveSet)) store.shuffledFor.set(moveSet, store.shuffledFor.size + 1)
   const kind = compose()
   store.slots.set(key, kind)
@@ -1371,7 +1402,12 @@ describe('§BEHAVIOURAL (v) — a live drag pays for each question ONCE, and the
     // card (a staged card, a refresh, a room's turnaround), and a candidate
     // composed on demand afterwards would otherwise be judged on the old one.
     {
-      const store = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, number>(), base: undefined as unknown }
+      const store = {
+        slots: new Map<string, LandingClass>(),
+        shuffledFor: new Map<string, number>(),
+        linesFor: new Map<string, number>(),
+        base: undefined as unknown,
+      }
       let composes = 0
       const compose = (): LandingClass => { composes += 1; return 'caution' }
       const boardA: unknown = { world: 'A' }
@@ -1387,6 +1423,24 @@ describe('§BEHAVIOURAL (v) — a live drag pays for each question ONCE, and the
       // …while the SLOTS composed before it all survive: dropping those is fix
       // round 1's rebuild, measured at p95 114.5 ms and ruled out.
       expect({ composes, keys: store.slots.size }).toEqual({ composes: 4, keys: 4 })
+      // ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — …AND THE ⇄ CHIP'S COMPANION
+      // LINES RIDE ON EXACTLY THE SAME TWO RULES: one composition per set of
+      // moves however many chips wear it, and dropped when the board moves.
+      // Spelled at the chip, this was two board walks per marked chip per
+      // pointer frame; the rule below is what the cache has to keep true.
+      let lineComposes = 0
+      const composeLines = (): number => { lineComposes += 1; return lineComposes }
+      // The board here is `boardB` — the one the block above left the store on.
+      expect(linesRule(store, 'a>r2', composeLines, boardB)).toEqual({ composed: true, entries: 1 })
+      // …a second chip under the SAME rescue reuses it and composes nothing…
+      expect(linesRule(store, 'a>r2', composeLines, boardB)).toEqual({ composed: false, entries: 1 })
+      // …a DIFFERENT rescue is a different sentence, composed on its own…
+      expect(linesRule(store, 'a>r3', composeLines, boardB)).toEqual({ composed: true, entries: 2 })
+      // …and the board MOVING drops them with the shuffles, so the very same
+      // rescue is read off the board that stands now — a line naming a
+      // companion the board no longer carries is the defect this closes.
+      expect(linesRule(store, 'a>r2', composeLines, boardA)).toEqual({ composed: true, entries: 1 })
+      expect({ lineComposes, shuffles: store.shuffledFor.size }).toEqual({ lineComposes: 3, shuffles: 0 })
     }
     // …and the hand's OWN room row is the third: a tail that clips or re-grows
     // under the card changes what `allocateBed`'s step-0 arm sees, which is the
