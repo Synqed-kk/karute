@@ -2338,12 +2338,16 @@ export function TodayScreen(props: TodayProps) {
    *  ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — `linesFor` is the second thing a
    *  set of moves decides: the companion LINES the ⇄ chip's sentence names
    *  (「さくら様 ベッド1 → ベッド2」). Same key, same lifetime, dropped by the
-   *  same board compare — one invalidation, two caches. */
+   *  same board compare — one invalidation, two caches.
+   *
+   *  ⚖ FIX ROUND 4 (Greptile #884 4/5) — `world` is the WORLD the slots above
+   *  were composed under, and it is the one change that DOES drop them. */
   const toneRef = useRef<{
     slots: Map<string, LandingClass>
     shuffledFor: Map<string, BoardLane[]>
     linesFor: Map<string, readonly string[]>
     base: BoardLane[]
+    world: object
   } | null>(null)
   /** The whole of what a gesture leaves behind, released in one place. */
   function freeGesture() {
@@ -2903,10 +2907,36 @@ export function TodayScreen(props: TodayProps) {
    *  when the slot is MISSING: on a frame where every ⇄ chip's slot hits, a
    *  compare that sat inside the composer would never run, and `linesFor` would
    *  go on serving lines built from a board that has moved. Both readers pass
-   *  through here, so the invalidation has one home and cannot be half-applied. */
+   *  through here, so the invalidation has one home and cannot be half-applied.
+   *
+   *  ⚖ FIX ROUND 4 (Greptile #884 4/5) — …AND WHEN THE WORLD MOVES, THE ⇄
+   *  PREVIEWS GO WITH THE SHUFFLES. Two different things change under a held
+   *  card and they do not deserve the same answer. The HAND moving is every
+   *  frame of the gesture — `boardLanes` is a new object each time because the
+   *  live claim is in it — and dropping the slots on that is fix round 1's
+   *  refill: 33 rebuilds and p95 114.5 ms on the 30-lane board, ruled out,
+   *  because a preview one live-claim old is exactly the class §5b declares and
+   *  the chip under the cursor is corrected on every aim change anyway. The
+   *  WORLD moving is rare and is not a preview at all: a staged or confirmed
+   *  card, a server refresh, a room's turnaround, `now` crossing a lead-time
+   *  pin — the `worldStamp` memo's own inputs, the board MINUS the hand. A slot
+   *  composed before one of those is an answer about a board nobody is looking
+   *  at any more, and the set of moves in the key cannot see it: an UNCHANGED
+   *  rescue under a CHANGED world carries the same key and was being reused.
+   *  So the world's identity joins the store and a different object drops all
+   *  three caches. Measured: ≈0 per gesture on every board the rig builds (the
+   *  stamp's inputs do not move while a card is held); the 2.47% of frames in
+   *  the design's table is the HAND-ROW half's rate on random boards, and that
+   *  half is deliberately not here. */
   function gestureStore() {
     const store = toneRef.current
     if (store == null) return null
+    if (store.world !== worldStampRef.current) {
+      store.world = worldStampRef.current
+      store.slots.clear()
+      store.shuffledFor.clear()
+      store.linesFor.clear()
+    }
     if (store.base !== boardLanes) {
       store.base = boardLanes
       store.shuffledFor.clear()
@@ -2942,7 +2972,7 @@ export function TodayScreen(props: TodayProps) {
     // The gate below is what proves this, and TypeScript's narrowing does not
     // cross a function boundary: a fill with no hand has nothing to ask about.
     if (inHand == null) return
-    toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>(), linesFor: new Map<string, readonly string[]>(), base: boardLanes }
+    toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>(), linesFor: new Map<string, readonly string[]>(), base: boardLanes, world: worldStampRef.current }
     for (const rail of rails) {
       for (const c of rail.cells) {
         const ask = { ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }
@@ -2964,6 +2994,23 @@ export function TodayScreen(props: TodayProps) {
     }
   }
   if (inHand != null && livePack().pack && toneRef.current == null) fillToneSlots()
+  /** ⚖ FIX ROUND 4 (Greptile #884 4/5) — AND THE STORE IS SWEPT ONCE, HERE,
+   *  BEFORE ANYTHING READS A SLOT.
+   *
+   *  `gestureStore` is where the invalidation lives, and until this round every
+   *  caller reached it LAZILY: `composeSlot` runs only when the chip line's own
+   *  `toneRef.current.slots.get(…)` has already MISSED, and `linesFor` only for
+   *  a chip that is already wearing the mark. That was sound while the compare
+   *  could not touch `slots` — a hit read a map the compare would not have
+   *  changed. It stops being sound the moment a world change drops the slots:
+   *  the first ⇄ chip of the render would read its stale entry, draw a face
+   *  from a board nobody is looking at, and only THEN would a later miss run
+   *  the compare and clear the map for its neighbours. One ordering, one clear,
+   *  no half-swept frame — so the sweep runs here, under the three refs
+   *  (`worldStampRef.current` is written above) and above the strips, and every
+   *  reader below finds a store that already agrees with this frame. On a frame
+   *  with nothing to drop it is one identity compare. */
+  gestureStore()
 
   /** ⚖ Liam flag 58 RIDER — THE ONE PLACE AN ENGINE START BECOMES AN OFFER.
    *
@@ -4486,6 +4533,19 @@ export function TodayScreen(props: TodayProps) {
     // It lands before the render that draws the chips: `applyDragFrame` calls
     // `setLive` above this, React 18 flushes the batched state only after the
     // rAF callback returns, and this write is synchronous inside it.
+    // ⚖ FIX ROUND 4 (Greptile #884 4/5) — AND THIS ONE READS THE REF DIRECTLY,
+    // ON PURPOSE. The map it writes into is always the CURRENT world's, because
+    // `store.world` and `worldStampRef.current` only ever change inside a
+    // render — the sweep beside the fill copies one into the other — so between
+    // two renders they cannot disagree, and this write happens between two
+    // renders. Calling `gestureStore` here would be the WRONG door: the
+    // listeners are bound once per gesture (see the closure note below), so the
+    // `gestureStore` reachable from here is the POINTERDOWN render's, and its
+    // `boardLanes` is the board as it stood when the card was picked up. Its
+    // base compare would therefore fire on every aim change, drop the shuffles
+    // and the lines the render had just built, and set `store.base` BACKWARDS
+    // to a board that no longer exists — a cache thrash on the busiest path in
+    // the gesture, in exchange for nothing the sweep does not already give.
     const slots = toneRef.current?.slots ?? null
     if (slots != null && !ctx.offLane) {
       const from = minuteOf(span.x, hours)

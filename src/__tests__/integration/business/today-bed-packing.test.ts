@@ -1848,11 +1848,13 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — …and the THIRD thing a set of
     // moves decides rides on the same store: the companion LINES the ⇄ chip's
     // sentence names.
+    // ⚖ FIX ROUND 4 (Greptile #884 4/5) — …and the WORLD those slots were
+    // composed under, which is the one change that does drop them.
     expect(SCREEN).toContain(
-      'toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>(), linesFor: new Map<string, readonly string[]>(), base: boardLanes }',
+      'toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>(), linesFor: new Map<string, readonly string[]>(), base: boardLanes, world: worldStampRef.current }',
     )
     expect(SCREEN).toContain(
-      'const toneRef = useRef<{\n    slots: Map<string, LandingClass>\n    shuffledFor: Map<string, BoardLane[]>\n    linesFor: Map<string, readonly string[]>\n    base: BoardLane[]\n  } | null>(null)',
+      'const toneRef = useRef<{\n    slots: Map<string, LandingClass>\n    shuffledFor: Map<string, BoardLane[]>\n    linesFor: Map<string, readonly string[]>\n    base: BoardLane[]\n    world: object\n  } | null>(null)',
     )
     // …and the compare that spends it. Without these lines an on-demand
     // compose after a staged card / refresh / turnaround re-uses a shuffle of the
@@ -1867,11 +1869,39 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
       '    if (store.base !== boardLanes) {\n      store.base = boardLanes\n      store.shuffledFor.clear()\n      store.linesFor.clear()\n    }',
     )
     expect(SCREEN).toContain('  function gestureStore() {\n    const store = toneRef.current\n    if (store == null) return null\n')
-    // …one definition and the TWO readers that may not diverge.
-    expect((SCREEN.match(/gestureStore\(\)/g) ?? [])).toHaveLength(3)
-    // …and the SLOTS are not dropped with the shuffles: that was fix round 1's
-    // measured 33 rebuilds and p95 114.5 ms, ruled out.
-    expect(SCREEN).not.toContain('store.slots.clear()')
+    // ⚖ FIX ROUND 4 (Greptile #884 4/5) — AND THE COMPARE THE BOARD ONE CANNOT
+    // MAKE. `boardLanes` is a new object on every frame of a gesture (the hand's
+    // live claim is in it), so the compare above is the HAND moving and must
+    // never touch the slots — that is fix round 1's refill, 33 rebuilds and p95
+    // 114.5 ms on the 30-lane board, ruled out. `worldStampRef.current` is the
+    // board MINUS the hand (a staged card, a server refresh, a room's
+    // turnaround, `now`), it is stable for the whole of an ordinary gesture, and
+    // a slot composed before it moved is an answer about a board nobody is
+    // looking at. The set of moves in the key cannot see that case: an UNCHANGED
+    // rescue under a CHANGED world has the SAME key. This block is the finding's
+    // whole cure, and a compare spelled on `boardLanes` instead — which would
+    // clear on every frame — fails this text.
+    expect(SCREEN).toContain(
+      '    if (store.world !== worldStampRef.current) {\n      store.world = worldStampRef.current\n      store.slots.clear()\n      store.shuffledFor.clear()\n      store.linesFor.clear()\n    }',
+    )
+    // …the slots are dropped at EXACTLY that one site. `freeGesture` nulls the
+    // whole ref and does not clear, and no second home may grow one.
+    expect((SCREEN.match(/\.slots\.clear\(\)/g) ?? [])).toHaveLength(1)
+    // …one definition, the two composers that may not diverge, and — ⚖ FIX
+    // ROUND 4 — the render body's own unconditional SWEEP. This counts CALL
+    // SITES, so prose about the door writes `gestureStore` without the parens.
+    expect((SCREEN.match(/gestureStore\(\)/g) ?? [])).toHaveLength(4)
+    // ⚖ FIX ROUND 4 — AND THE SWEEP'S POSITION IS THE PIN. Every other caller
+    // reaches `gestureStore()` lazily: `composeSlot` runs only after the chip
+    // line's own `slots.get(…)` has MISSED, and `linesFor` only for a chip
+    // already wearing the mark. With a compare that can drop SLOTS, a lazy
+    // sweep means the first ⇄ chip of the render reads its stale entry and only
+    // a later miss clears the map for its neighbours — half a swept frame. So
+    // the sweep sits between the fill's gate and the strips, under the three
+    // refs, and every reader below finds a store that agrees with this frame.
+    expect(SCREEN.indexOf(TONE_CALL)).toBeLessThan(SCREEN.indexOf('\n  gestureStore()\n'))
+    expect(SCREEN.indexOf('\n  gestureStore()\n')).toBeGreaterThan(-1)
+    expect(SCREEN.indexOf('\n  gestureStore()\n')).toBeLessThan(SCREEN.indexOf('const drop = v && v.reseats.length > 0'))
     // …and the composer itself: ONE definition, TWO callers — the pick-up burst
     // and the chip map. A third caller, or a second spelling of the shuffle,
     // fails here.

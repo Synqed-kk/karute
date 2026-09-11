@@ -1140,10 +1140,26 @@ function liveRig(rest: BoardLane[], hand: { id: string; bed: string }) {
  *  both are views of the world as it was. It sits in its own door for the same
  *  reason it does on the screen — a chip whose slot HITS never reaches the
  *  composer, so a compare that lived only there could not protect the lines. */
+/** ⚖ FIX ROUND 4 (Greptile #884 4/5) — TWO COMPARES, AND ONLY ONE OF THEM MAY
+ *  TOUCH THE SLOTS. The BOARD changes on every frame of a gesture because the
+ *  hand's own live claim is in it, so dropping the previews on that compare is
+ *  fix round 1's refill — 33 rebuilds and p95 114.5 ms on the 30-lane board,
+ *  measured and ruled out. The WORLD (the board MINUS the hand: a staged card,
+ *  a server refresh, a room's turnaround, `now`) is rare and is not a preview
+ *  question at all — a slot composed before it moved describes a board nobody
+ *  is looking at, and the set of moves in the key cannot catch it because an
+ *  UNCHANGED rescue under a CHANGED world carries the SAME key. */
 function spendCaches(
-  store: { shuffledFor: Map<string, number>; linesFor?: Map<string, number>; base?: unknown },
+  store: { slots?: Map<string, LandingClass>; shuffledFor: Map<string, number>; linesFor?: Map<string, number>; base?: unknown; world?: unknown },
   base: unknown,
+  world: unknown = store.world,
 ): void {
+  if (store.world !== world) {
+    store.world = world
+    store.slots?.clear()
+    store.shuffledFor.clear()
+    store.linesFor?.clear()
+  }
   if (store.base !== base) {
     store.base = base
     store.shuffledFor.clear()
@@ -1156,12 +1172,13 @@ function spendCaches(
  *  wearing that rescue, and dropped when the board underneath moves. Before it,
  *  the renderer walked the board twice per marked chip per pointer frame. */
 function linesRule(
-  store: { shuffledFor: Map<string, number>; linesFor: Map<string, number>; base?: unknown },
+  store: { shuffledFor: Map<string, number>; linesFor: Map<string, number>; base?: unknown; world?: unknown },
   moveSet: string,
   compose: () => number,
   base: unknown = store.base,
+  world: unknown = store.world,
 ): { composed: boolean; entries: number } {
-  spendCaches(store, base)
+  spendCaches(store, base, world)
   const had = store.linesFor.get(moveSet)
   if (had !== undefined) return { composed: false, entries: store.linesFor.size }
   store.linesFor.set(moveSet, compose())
@@ -1169,7 +1186,7 @@ function linesRule(
 }
 
 function slotRule(
-  store: { slots: Map<string, LandingClass>; shuffledFor: Map<string, number>; linesFor?: Map<string, number>; base?: unknown },
+  store: { slots: Map<string, LandingClass>; shuffledFor: Map<string, number>; linesFor?: Map<string, number>; base?: unknown; world?: unknown },
   laneKey: string,
   start: number,
   dur: number,
@@ -1179,15 +1196,23 @@ function slotRule(
    *  defaults to the one the store already holds, so a caller that does not care
    *  about the world moving is asking exactly the question it asked before. */
   base: unknown = store.base,
+  /** ⚖ FIX ROUND 4 — the WORLD the slots were composed under: the board MINUS
+   *  the hand. It defaults to the one the store already holds, so every caller
+   *  written before this round is asking exactly the question it asked before. */
+  world: unknown = store.world,
 ): { kind: LandingClass; composed: boolean; shuffles: number } {
+  // ⚖ FIX ROUND 1B (FX-D) — the compare that spends the caches…
+  // ⚖ FIX ROUND 4 — …and it runs BEFORE the hit, not after it. It sat below the
+  // hit while it could not touch the SLOTS: a found slot read a map the compare
+  // would not have changed, so a hit never needed to ask. The world compare can
+  // drop slots, and a lazy sweep would let the first chip of a render read a
+  // stale entry and only clear the map for its neighbours — half a swept frame.
+  // The screen spells the same ordering: the store's door is called once in the
+  // render body, above the strips, and not only from inside the composer.
+  spendCaches(store, base, world)
   const key = `${laneKey}|${start}|${dur}|${moveSet}`
   const had = store.slots.get(key)
   if (had !== undefined) return { kind: had, composed: false, shuffles: store.shuffledFor.size }
-  // ⚖ FIX ROUND 1B (FX-D) — and this is the composer's FIRST act, which is why it
-  // sits below the hit above: a slot that is found is never composed, so a hit
-  // never asks about the board. `boardLanes` is memoised and changes identity
-  // exactly when its inputs do, so a different object IS a different world.
-  spendCaches(store, base)
   if (!store.shuffledFor.has(moveSet)) store.shuffledFor.set(moveSet, store.shuffledFor.size + 1)
   const kind = compose()
   store.slots.set(key, kind)
@@ -1441,6 +1466,49 @@ describe('§BEHAVIOURAL (v) — a live drag pays for each question ONCE, and the
       // companion the board no longer carries is the defect this closes.
       expect(linesRule(store, 'a>r2', composeLines, boardA)).toEqual({ composed: true, entries: 1 })
       expect({ lineComposes, shuffles: store.shuffledFor.size }).toEqual({ lineComposes: 3, shuffles: 0 })
+    }
+    // ⚖ FIX ROUND 4 (Greptile #884 4/5) — …and the FIFTH case, which is the
+    // whole of this round: A CHANGED WORLD DROPS EVERY SLOT; AN UNCHANGED WORLD
+    // WITH A CHANGED BOARD KEEPS THEM.
+    //
+    // The two are not the same event. The BOARD is a different object on every
+    // frame of a gesture because the hand's own live claim is in it, so the
+    // board compare above is the hand moving, and dropping the previews on it is
+    // fix round 1's refill — 33 rebuilds and p95 114.5 ms on the 30-lane board,
+    // measured and ruled out (the chip under the cursor is corrected on every
+    // aim change, which is what makes the rest a declared preview). The WORLD is
+    // the board MINUS the hand — a staged or confirmed card, a server refresh, a
+    // room's turnaround, `now` — and a slot composed before one of those moved
+    // is not a stale preview but an answer about a board nobody is looking at.
+    // The set of moves in the key cannot catch it: an UNCHANGED rescue under a
+    // CHANGED world carries the SAME key and was being handed straight back.
+    {
+      const store = {
+        slots: new Map<string, LandingClass>(),
+        shuffledFor: new Map<string, number>(),
+        linesFor: new Map<string, number>(),
+        base: undefined as unknown,
+        world: undefined as unknown,
+      }
+      let composes = 0
+      const compose = (): LandingClass => { composes += 1; return 'clean' }
+      const boardA: unknown = { board: 'A' }
+      const boardB: unknown = { board: 'B' }
+      const w1: unknown = { world: 1 }
+      const w2: unknown = { world: 2 }
+      // Two chips under one world and one board…
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r2', compose, boardA, w1)).toEqual({ kind: 'clean', composed: true, shuffles: 1 })
+      expect(slotRule(store, 'p-02', 840, 60, 'a>r2', compose, boardA, w1)).toEqual({ kind: 'clean', composed: true, shuffles: 1 })
+      // …the BOARD moving under the card drops the shuffles and KEEPS the
+      // previews — this is the frame-by-frame case, and it is the one round 1
+      // paid 114.5 ms for.
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r2', compose, boardB, w1)).toEqual({ kind: 'clean', composed: false, shuffles: 0 })
+      expect({ keptAcrossTheHandMoving: store.slots.size }).toEqual({ keptAcrossTheHandMoving: 2 })
+      // …and the WORLD moving drops every one of them, so the very same chip
+      // with the very same rescue is composed again on the board that stands
+      // now — and its neighbour's preview is gone too, not just its own.
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r2', compose, boardB, w2)).toEqual({ kind: 'clean', composed: true, shuffles: 1 })
+      expect({ composes, keys: store.slots.size }).toEqual({ composes: 3, keys: 1 })
     }
     // …and the hand's OWN room row is the third: a tail that clips or re-grows
     // under the card changes what `allocateBed`'s step-0 arm sees, which is the
