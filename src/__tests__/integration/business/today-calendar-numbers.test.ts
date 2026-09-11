@@ -10,10 +10,46 @@
  * The import fence for this folder allows react / next / node specifiers only
  * (today-screen-interactions.test.ts :1-10) — everything here is in-repo, and
  * no DOM is needed, so it runs on jest's default `node` environment.
+ *
+ * The ⚖ P1 suite at the foot DOES render the page (it is the only way to ask
+ * the loop what it emits for a day the roster door has no answer for), so this
+ * file carries the same three door stubs today-board.test.ts uses. No DOM is
+ * needed even there: the page hands back an element tree and the props are read
+ * off it, exactly as that suite does.
  */
+jest.mock('@/lib/supabase/service', () => ({ createServiceClient: jest.fn() }))
+jest.mock('@/lib/supabase/server', () => ({ createClient: jest.fn() }))
+jest.mock('next/navigation', () => ({
+  notFound: jest.fn(() => {
+    throw new Error('NEXT_NOT_FOUND')
+  }),
+}))
+
+/** THE ROSTER DOOR WITH HOLES IN IT. The fixture door answers for every day of
+ *  the window (data.ts :284) — which is the one world this fix is not about.
+ *  The real door returns only the days it actually holds, so a suite that wants
+ *  that world names the day keys here and they are dropped on the way out.
+ *  Everything else is the real module. */
+const mockMissingRosterDays = new Set<number>()
+jest.mock('@/business/lib/data', () => {
+  const actual: typeof import('@/business/lib/data') = jest.requireActual('@/business/lib/data')
+  return {
+    ...actual,
+    listShiftsByDay: async (...args: Parameters<typeof actual.listShiftsByDay>) => {
+      const byDay = await actual.listShiftsByDay(...args)
+      for (const key of mockMissingRosterDays) byDay.delete(key)
+      return byDay
+    },
+  }
+})
+
 import { readFileSync } from 'node:fs'
 
-import { jstDayKey } from '@/business/lib/clock'
+import { createServiceClient } from '@/lib/supabase/service'
+import { createClient } from '@/lib/supabase/server'
+import TodayPage from '@/app/[locale]/(business)/business/today/page'
+import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { jstDayKey, jstYmd } from '@/business/lib/clock'
 import { STORE_A, STORE_B } from '@/business/lib/fixtures'
 import {
   listAbsenceByDay,
@@ -290,5 +326,130 @@ describe('⚖ P1-2 — the month the calendar opens on is the SHOWN day’s mont
     expect(monthOf({ y: 2026, m: 9 }, 0)).toEqual({ y: 2026, m: 9 })
     expect(monthOf({ y: 2026, m: 12 }, 1)).toEqual({ y: 2027, m: 1 })
     expect(monthOf({ y: 2026, m: 1 }, -1)).toEqual({ y: 2025, m: 12 })
+  })
+})
+
+
+describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an absent row', () => {
+  // WHAT WENT WRONG: `listShiftsByDay` answers only for the days it holds, so a
+  // day it has no roster for used to be dropped from the calendar array
+  // entirely. Two surfaces then lied in different directions — the month grid
+  // printed a September that began on the 22nd, and `?? []` (the other tempting
+  // fix) would have painted 満, a capacity of zero nobody computed.
+  //
+  // THE RULE: the day still comes through, dated by the server's own clock read
+  // and carrying `covered: false` — which is a row with NO `free` and NO
+  // `closed` on it, so no surface can read a capacity off it by accident.
+  const DAY_MS = 86_400_000
+  const service = createServiceClient as jest.Mock
+  const supabase = createClient as jest.Mock
+
+  /** The props the screen is handed. The page returns an element tree and no
+   *  renderer exists in territory, so the tree is walked for them. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function screenProps(node: any): TodayProps | null {
+    if (!node || typeof node !== 'object') return null
+    if (node.type === TodayScreen) return node.props
+    const kids = node.props?.children
+    for (const kid of Array.isArray(kids) ? kids.flat() : [kids]) {
+      const hit = screenProps(kid)
+      if (hit) return hit
+    }
+    return null
+  }
+
+  const calendar = async () =>
+    screenProps(
+      await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE_A }) }),
+    )!.calendar
+
+  beforeEach(() => {
+    mockMissingRosterDays.clear()
+    supabase.mockResolvedValue({
+      auth: { getUser: async () => ({ data: { user: { id: 'u1', email: 'o@x.jp' } }, error: null }) },
+    })
+    service.mockReturnValue({
+      from: (table: string) => {
+        const row =
+          table === 'business_workspace_grants'
+            ? { data: { workspace_id: 'business_admin', granted_by: 'u1' }, error: null }
+            : table === 'profiles'
+              ? { data: { customer_id: 'biz-1', is_management: false }, error: null }
+              : { data: null, error: null }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const chain = (): any => ({ select: chain, eq: chain, maybeSingle: async () => row })
+        return chain()
+      },
+    })
+  })
+  afterEach(() => mockMissingRosterDays.clear())
+
+  it('the window keeps EVERY date — a missing roster shortens no month', async () => {
+    const todayKey = jstDayKey(renderNow())
+    mockMissingRosterDays.add(todayKey + 3).add(todayKey - 30)
+    const rows = await calendar()
+    expect(rows).toHaveLength(WINDOW * 2 + 1)
+    expect(rows.map((c) => c.offset)).toEqual(Array.from({ length: WINDOW * 2 + 1 }, (_, i) => i - WINDOW))
+  })
+
+  it('the unknown day is DATED by the server, and carries no numbers at all', async () => {
+    const todayKey = jstDayKey(renderNow())
+    mockMissingRosterDays.add(todayKey + 3)
+    const row = (await calendar()).find((c) => c.offset === 3)!
+    // y/m/d/wd are the server's own, from the same clock read every other row
+    // is dated from — the grid can lay the date out without asking the browser.
+    expect(row).toEqual({ offset: 3, ...jstYmd(new Date(renderNow().getTime() + 3 * DAY_MS)), covered: false })
+    // …and that is the whole row. 満 is a count, 定休 is a decision the store
+    // made; neither is knowable here, so neither field exists to be read.
+    expect('free' in row).toBe(false)
+    expect('closed' in row).toBe(false)
+  })
+
+  it('its neighbours are untouched — one hole is one hole', async () => {
+    const todayKey = jstDayKey(renderNow())
+    mockMissingRosterDays.add(todayKey + 3)
+    const rows = await calendar()
+    for (const offset of [2, 4]) {
+      const near = rows.find((c) => c.offset === offset)!
+      expect(near.covered).not.toBe(false)
+      if (near.covered === false) throw new Error('unreachable')
+      expect(near.free).toBeGreaterThanOrEqual(0)
+    }
+  })
+
+  it('the whole window is covered when the door answers for every day', async () => {
+    const rows = await calendar()
+    expect(rows.filter((c) => c.covered === false)).toEqual([])
+  })
+
+  // A SOURCE PIN for the cell, in the same spirit as the P1-2 pin above: the
+  // rule is one branch inside the JSX, and #891 rewrites that JSX. So the pin is
+  // on WHAT THE BRANCH MUST BE — a span, not a link, with nothing to press —
+  // never on one spelling of the className or the sentence.
+  const SCREEN_SRC = readFileSync('src/app/[locale]/(business)/business/today/TodayScreen.tsx', 'utf8')
+  const CELLS_AT = SCREEN_SRC.indexOf('{monthCells.days.map(')
+  const CELLS = SCREEN_SRC.slice(CELLS_AT, SCREEN_SRC.indexOf('</div>', CELLS_AT))
+
+  it('the uncovered day is drawn as a dated, unpressable cell — never a link', () => {
+    expect(CELLS_AT).toBeGreaterThan(-1)
+    expect(CELLS).toContain('d.covered === false')
+    // The uncovered branch is everything before the covered day's <Link>.
+    const [blank] = CELLS.split('<Link')
+    expect(blank).toContain('<span')
+    expect(blank).toContain('cal-cell unknown')
+    expect(blank).not.toContain('href')
+    expect(blank).not.toContain('dayHref')
+  })
+
+  it('and it says 表示範囲外 out loud', () => {
+    // The sentence is authored wherever the cell's face is — in the JSX today,
+    // in today-interactions.ts once #891 lifts it into `calendarCellFace`.
+    const FACE = SCREEN_SRC + readFileSync('src/app/[locale]/(business)/business/today/today-interactions.ts', 'utf8')
+    expect(FACE).toContain('表示範囲外')
+  })
+
+  it('the cell has a paint of its own, paler than 定休', () => {
+    const CSS = readFileSync('src/app/[locale]/(business)/business/today/today.css', 'utf8')
+    expect(CSS).toContain('.biz .cal-cell.unknown {')
   })
 })

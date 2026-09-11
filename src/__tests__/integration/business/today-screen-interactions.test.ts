@@ -2275,6 +2275,11 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "unparkOutcome,",
       "withPriceFact,",
       "foreignStoreRefusal,",
+      // ⚖ P1 (#890) — the calendar row's own type. A day the roster door has no
+      // answer for is a row that says so (`covered: false`), so the row shape is
+      // a union now and both ends of it are named in one place. Added, nothing
+      // renamed or removed.
+      "type CalendarWindowDay,",
       "type GuardRail,",
       "type LandingFloor,",
       "type LandingQuestion,",
