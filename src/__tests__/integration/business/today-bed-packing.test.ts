@@ -1705,7 +1705,10 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // on the board with its companions put back, so memoising its chips on the
     // board on screen would be a NEW disagreement.
     expect(SCREEN).toContain("if (ctx.origin.mode === 'move' && ctx.group !== 'beds' && pending?.id !== ctx.id) {\n      gestureMemoRef.current = gestureAllocator({")
-    expect((SCREEN.match(/gestureMemoRef\.current = gestureAllocator\(/g) ?? [])).toHaveLength(1)
+    // ⚖ ADJUDICATION L2 MINOR 4 — tolerant of whitespace and of `??=`, because
+    // this pin's whole job is to be the one thing between the product and a
+    // second creation site, and `gestureAllocator (` would have walked past it.
+    expect((SCREEN.match(/gestureMemoRef\.current\s*(?:\?\?)?=\s*gestureAllocator\s*\(/g) ?? [])).toHaveLength(1)
     // …and every exit of the release frees it, through one `finally`.
     expect(SCREEN).toContain('    try {\n      finishDragAt(clientX, clientY, upAt)\n    } finally {\n      freeGesture()\n    }')
     expect(SCREEN).toContain('function freeGesture() {\n    gestureMemoRef.current?.free()\n    gestureMemoRef.current = null\n    toneRef.current = null\n  }')
@@ -1750,6 +1753,11 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     for (const site of [
       'const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c, livePack().pack) : null',
       'const v = verdictFor(ask, verdictAt(laneKey, start, railDur, null, lanes), false, lanes)',
+      // ⚖ ADJUDICATION L2 MINOR 2 — the ⇄ fill's own first ask, inside
+      // `fillToneSlots`. Five of the six sites were named and this was the one
+      // left out: the only site that could grow a bare positional `true`
+      // unnoticed, and the one F1 has just moved.
+      'const v = verdictFor(ask, c, livePack().pack)',
       'const v = verdictFor(q, cellOn(base), opts.pack, base)',
       'return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }',
       'const final = verdictFor(ask, verdictAt(rail.laneKey, c.start, railDur, inHand.id, shuffled), false, shuffled)',
