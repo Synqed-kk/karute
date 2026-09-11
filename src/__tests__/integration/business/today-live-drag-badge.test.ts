@@ -108,7 +108,12 @@ describe('⚖ 9/11 — `dressBadge`: the icon always, the word only when the car
     // and the word simply never appears.
     expect(CSS).toContain('.biz .drag-proxy.chip { container-type: inline-size; }')
     expect(CSS).toContain('.biz .proxy-verdict > span { display: none; }')
-    expect(CSS).toContain('@container (min-width: 92px) { .biz .proxy-verdict > span { display: inline; } }')
+    // 82px, not 92: a container query is asked in the container's CONTENT box and
+    // the card is `box-sizing: border-box` with a 1px border and 2px/6px side
+    // padding, so 82px here IS the 92px CARD the rule is written about. Measured,
+    // not assumed — at 92px of card the word appears and at 91px it does not
+    // (harness/badge-1b).
+    expect(CSS).toContain('@container (min-width: 82px) { .biz .proxy-verdict > span { display: inline; } }')
     // …and the icon is never hidden with it: the rule names `> span` alone.
     expect(CSS).not.toContain('.biz .proxy-verdict > b { display: none; }')
   })
