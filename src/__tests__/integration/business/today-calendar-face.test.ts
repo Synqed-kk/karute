@@ -241,6 +241,7 @@ describe('⚖ F4 — the month at the WINDOW EDGE: whole month, honest holes', (
         offset: i - half,
         closed: false,
         free: 6,
+        booked: 0,
       }
     })
   const upto = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i)
@@ -292,5 +293,29 @@ describe('⚖ F4 — the month at the WINDOW EDGE: whole month, honest holes', (
     // a shape fallback, NOT a correct month. TodayScreen's `monthCovered`
     // disables ‹ › on exactly this case, which is why it is unreachable.
     expect(dec.lead).toBe(0)
+  })
+
+  // ⚖ #890 — THE TWO WAYS A DAY CAN HAVE NO NUMBERS MEET IN ONE CELL. The read
+  // window falling short of a date and the roster door having no answer for it
+  // are different upstream facts, and the operator has no use for the
+  // difference: both are 「we cannot tell you about this day」. page.tsx now
+  // sends the second kind as a real row (`covered: false`), so this pins that
+  // it arrives at the SAME face as a blank calendarMonth filled in itself —
+  // otherwise one of the two would drift into a count nobody computed.
+  it('a covered:false ROW draws exactly like a gap-filled blank', () => {
+    // 2026年10月10日, inside the window, but with no roster behind it.
+    const holed = calendar.map((c) =>
+      c.m === 10 && c.d === 10 ? { y: c.y, m: c.m, d: c.d, wd: c.wd, offset: c.offset, covered: false as const } : c,
+    )
+    const oct = calendarMonth(holed, anchor, 1)
+    const fromRow = oct.days[9]
+    const fromGap = oct.days[30] // the 31st: never covered, filled in by the grid
+    expect(fromRow.covered).toBe(false)
+    expect(fromGap.covered).toBe(false)
+    expect(calendarCellFace(fromRow)).toEqual({ ...calendarCellFace(fromGap), aria: '10月10日、表示範囲外' })
+    // …and the month is still whole, still led correctly: one unknown day does
+    // not shorten October or move a column.
+    expect(oct.days).toHaveLength(31)
+    expect(oct.lead).toBe(4)
   })
 })
