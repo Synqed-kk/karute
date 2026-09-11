@@ -14633,5 +14633,33 @@ describe('⚖ STUDIO 2026-09-12 — 月カレンダー enters AND leaves on the 
     // so a spring that is never rebuilt is a spring that lies — the seg thumb
     // carries the same note for the same reason.
     expect(CODE).toContain('  }, [calOnScreen, segReduced])')
+
+    // ⚖ COLD READ 2026-09-12 · C3 — THE WHOLE MONTH IS HELD THROUGH THE EXIT,
+    // not half of it. The month drawn is a pair: `calMonth` (the steps the
+    // operator paged) and `props.shownYm` (the day the board stands on). ⚖ F2
+    // above holds the first through the fade; the second is the server's and
+    // stays live, so a `<Link>` landing 100-300ms after the fade starts used to
+    // repaint the leaving card as another month (11月 + the preserved offset =
+    // 1月). This is that defect's sibling reached through the other input, and
+    // it is answered the same way: capture on every `open` pass, render the
+    // capture through `closing`.
+    expect(CODE).toContain('  const monthCellsHeld = useRef(monthCells)\n'
+      + "  if (calPhase === 'open') monthCellsHeld.current = monthCells\n"
+      + "  const monthShown = calPhase === 'closing' ? monthCellsHeld.current : monthCells")
+    // …and the popover renders the HELD answer, never the live memo — all four
+    // reads, the arrows' own `monthCovered` included, or the card's title and
+    // its grid could name two different months for the length of the exit.
+    // ⚠ the end anchor is searched FROM the start, not from 0: three
+    // `.fields-pop-wrap` siblings stand on this toolbar and the FIRST one is
+    // ABOVE the calendar, so a plain `indexOf` handed back an empty slice that
+    // passed `not.toContain` and failed nothing it should have caught.
+    const cardAt = CODE.indexOf('{calOnScreen && (')
+    expect(cardAt).toBeGreaterThan(-1)
+    const card = CODE.slice(cardAt, CODE.indexOf('<div className="fields-pop-wrap"', cardAt))
+    expect(card.length).toBeGreaterThan(500)
+    expect(card).toContain('<strong>{monthShown.y}年{monthShown.m}月</strong>')
+    expect(card).toContain('{monthShown.days.map((d) => {')
+    expect(card).not.toContain('monthCells')
+    expect(CODE).toContain('const { y, m } = calendarMonthAt(monthShown.y, monthShown.m, delta)')
   })
 })

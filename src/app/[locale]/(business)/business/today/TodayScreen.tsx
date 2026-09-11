@@ -6630,15 +6630,37 @@ export function TodayScreen(props: TodayProps) {
     [props.calendar, props.shownYm.y, props.shownYm.m, calMonth],
   )
 
+  /** ⚖ COLD READ 2026-09-12 · C3 — THE MONTH ON THE CARD IS FROZEN THROUGH THE
+   *  EXIT, and this is the SIBLING of the ⚖ F2 reset above, reached through the
+   *  other input.
+   *
+   *  The month drawn is a pair — `calMonth` (how many steps the operator paged)
+   *  and `props.shownYm` (the day the board stands on). ⚖ F2 now holds the first
+   *  one through the fade; the second is the server's and is still live. So:
+   *  page to 11月, press a day, and the popover starts fading at 11月 while the
+   *  `<Link>` navigation lands 100-300ms later — `props.shownYm` becomes 11月,
+   *  the preserved offset is added on top, and the card the operator is watching
+   *  leave redraws itself as 1月. 今日 does the same thing.
+   *
+   *  Holding half a pair is not holding it. The whole answer is captured on
+   *  every `open` pass and rendered through `closing`, so nothing that lands
+   *  mid-fade can repaint a card that is on its way out. The ref write is
+   *  idempotent — the same value on every pass of the same render — which is
+   *  what makes it safe beside React's own 「adjust state while rendering」. */
+  const monthCellsHeld = useRef(monthCells)
+  if (calPhase === 'open') monthCellsHeld.current = monthCells
+  const monthShown = calPhase === 'closing' ? monthCellsHeld.current : monthCells
+
   /** Does the month `delta` steps from the one on screen hold ANY day the
    *  server dated? The ‹ › buttons disable on 「no」 rather than paging into an
-   *  all-blank month. */
+   *  all-blank month. Asked of the month the card is SHOWING, so the arrows
+   *  cannot disagree with the grid under them during the exit. */
   const monthCovered = useCallback(
     (delta: number) => {
-      const { y, m } = calendarMonthAt(monthCells.y, monthCells.m, delta)
+      const { y, m } = calendarMonthAt(monthShown.y, monthShown.m, delta)
       return props.calendar.some((c) => c.y === y && c.m === m)
     },
-    [props.calendar, monthCells.y, monthCells.m],
+    [props.calendar, monthShown.y, monthShown.m],
   )
 
   // The hint quotes the window the SERVER actually sent — `calendar[0].offset`
@@ -7800,7 +7822,7 @@ export function TodayScreen(props: TodayProps) {
                 {calOnScreen && (
                   <div className="cal-pop" ref={calPopRef}>
                     <div className="cal-head">
-                      <strong>{monthCells.y}年{monthCells.m}月</strong>
+                      <strong>{monthShown.y}年{monthShown.m}月</strong>
                       <span className="cal-tools">
                         <Link href={dayHref(0)} onClick={() => setPop('')}>今日</Link>
                         <button
@@ -7849,8 +7871,8 @@ export function TodayScreen(props: TodayProps) {
                       {WD.map((w, i) => (
                         <span className={`wd${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`} key={w}>{w}</span>
                       ))}
-                      {Array.from({ length: monthCells.lead }, (_, i) => <span key={`lead-${i}`} />)}
-                      {monthCells.days.map((d) => {
+                      {Array.from({ length: monthShown.lead }, (_, i) => <span key={`lead-${i}`} />)}
+                      {monthShown.days.map((d) => {
                         const face = calendarCellFace(d)
                         if (d.covered === false) {
                           // ⚖ F5 — an aria-label on a bare <span> names nothing:
@@ -7867,7 +7889,7 @@ export function TodayScreen(props: TodayProps) {
                         }
                         return (
                           <Link
-                            key={`${monthCells.y}-${monthCells.m}-${d.d}`}
+                            key={`${monthShown.y}-${monthShown.m}-${d.d}`}
                             href={dayHref(d.offset)}
                             className={`${face.className}${d.offset === props.dayOffset ? ' cur' : ''}${d.offset === 0 ? ' today' : ''}`}
                             aria-label={face.aria}
