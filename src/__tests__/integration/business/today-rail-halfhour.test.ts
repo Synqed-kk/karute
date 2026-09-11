@@ -71,6 +71,7 @@ import {
   sellDrawnFor,
   sellLayerFor,
   type GuardRail,
+  type LandingClass,
   type LandingVerdict,
   type Move,
   type RailCell,
@@ -1118,19 +1119,36 @@ function liveRig(rest: BoardLane[], hand: { id: string; bed: string }) {
   }
 }
 
-/** ⚖ FIX ROUND 1 (F2) — THE SCREEN'S ⇄ FILL GATE, AS A RULE THAT CAN BE ASKED.
+/** ⚖ FIX ROUND 2 (FX-B — ADDENDUM STOP 1) — THE ON-DEMAND COMPOSER'S RULE, AS
+ *  SOMETHING THAT CAN BE ASKED.
  *
- *  `fillToneSlots()` lives in TodayScreen's render body and NO SUITE IN THIS
- *  REPO RENDERS TodayScreen, so the rule is driven here against hand-built
- *  values and the LINE that spells it in the product is pinned as text in
- *  today-bed-packing §B. The two together are the armour: a rule nobody can
+ *  `composeSlot()` lives in TodayScreen's render body and NO SUITE IN THIS REPO
+ *  RENDERS TodayScreen, so the rule is driven here against a hand-built store
+ *  and the LINES that spell it in the product are pinned as text in
+ *  today-bed-packing §B. Neither half is armour on its own: a rule nobody can
  *  execute proves nothing, and a pinned line nobody exercised proves nothing
  *  either.
  *
- *  The rule, in one sentence: rebuild the slots when there are none, or when
- *  either of the memo's own two invalidators has moved since they were built. */
-function toneGate(tone: { world: object; row: string } | null, world: object, row: string): boolean {
-  return tone == null || tone.world !== world || tone.row !== row
+ *  It replaces fix round 1's refill-on-clear gate, which was correct and cost
+ *  33 rebuilds and p95 114.5 ms of a 68-frame gesture on the 30-lane board. The
+ *  rule now, in one sentence: a candidate whose (lane · start · length · SET OF
+ *  MOVES) is already in the map is REUSED; anything else is composed on the
+ *  spot, on one shuffled board per distinct set of moves for the whole gesture. */
+function slotRule(
+  store: { slots: Map<string, LandingClass>; shuffledFor: Map<string, number> },
+  laneKey: string,
+  start: number,
+  dur: number,
+  moveSet: string,
+  compose: () => LandingClass,
+): { kind: LandingClass; composed: boolean; shuffles: number } {
+  const key = `${laneKey}|${start}|${dur}|${moveSet}`
+  const had = store.slots.get(key)
+  if (had !== undefined) return { kind: had, composed: false, shuffles: store.shuffledFor.size }
+  if (!store.shuffledFor.has(moveSet)) store.shuffledFor.set(moveSet, store.shuffledFor.size + 1)
+  const kind = compose()
+  store.slots.set(key, kind)
+  return { kind, composed: true, shuffles: store.shuffledFor.size }
 }
 
 /** ⚖ FIX ROUND 2 (FX-A) — THE ⇄ FILL'S OWN FENCE, AS A RULE THAT CAN BE ASKED.
@@ -1291,37 +1309,49 @@ describe('§BEHAVIOURAL (v) — a live drag pays for each question ONCE, and the
       rig.reset()
       rig.verdictFor(keys[0], 840, null, true)
       expect({ name, beforeDisturbance: rig.packs() }).toEqual({ name, beforeDisturbance: 0 })
-      // ⚖ FIX ROUND 1 (F2) — AND THE ⇄ TONE SLOTS GO WITH IT. They are a VIEW
-      // of the answers this memo just threw away, so a view that survives the
-      // clear is a chip wearing a mark composed from a verdict the board no
-      // longer gives. Before the disturbance the gate says 「keep them」; after
-      // it, 「rebuild」 — on each of the three, one at a time.
-      const built = { world: rig.worldStamp(), row: rig.rowStamp() }
-      expect({ name, refillBefore: toneGate(built, rig.worldStamp(), rig.rowStamp()) })
-        .toEqual({ name, refillBefore: false })
+      // ⚖ FIX ROUND 2 (FX-B) — AND THE ⇄ TONE SLOTS DO **NOT** GO WITH IT.
+      // Fix round 1 rebuilt the whole view on every one of these clears, which
+      // is correct and costs 33 rebuilds and p95 114.5 ms of a 68-frame gesture
+      // on the 30-lane board. So the slots now outlive the memo on purpose, and
+      // the staleness a clear can cause is answered in the KEY and at the CHIP:
+      // the same start with the SAME rescue is reused (the design's declared
+      // preview class), and the same start with a DIFFERENT rescue misses and is
+      // composed fresh in that render.
+      const store = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, number>() }
+      let composes = 0
+      const compose = (): LandingClass => { composes += 1; return 'clean' }
+      expect({ name, beforeTheDisturbance: slotRule(store, keys[0], 840, 60, 'a>r2', compose).composed })
+        .toEqual({ name, beforeTheDisturbance: true })
       disturb(rig)
       rig.frameAt(keys[0], 840)
       rig.verdictFor(keys[0], 840, null, true)
       expect({ name, afterDisturbance: rig.packs() }).toEqual({ name, afterDisturbance: 1 })
       expect({ name, entries: rig.memo.size() }).toEqual({ name, entries: 1 })
-      expect({ name, refillAfter: toneGate(built, rig.worldStamp(), rig.rowStamp()) })
-        .toEqual({ name, refillAfter: true })
-      // …and the rebuilt view records the pair it was built under, so the very
-      // next render does NOT refill again.
-      const rebuilt = { world: rig.worldStamp(), row: rig.rowStamp() }
-      expect({ name, refillTwice: toneGate(rebuilt, rig.worldStamp(), rig.rowStamp()) })
-        .toEqual({ name, refillTwice: false })
+      expect({ name, sameRescueStillReused: slotRule(store, keys[0], 840, 60, 'a>r2', compose).composed })
+        .toEqual({ name, sameRescueStillReused: false })
+      expect({ name, changedRescueComposesFresh: slotRule(store, keys[0], 840, 60, 'a>r3', compose).composed })
+        .toEqual({ name, changedRescueComposesFresh: true })
+      expect({ name, composes, shuffles: store.shuffledFor.size }).toEqual({ name, composes: 2, shuffles: 2 })
     }
-    // …and each half of the gate is load-bearing on its own: dropping either
-    // compare leaves a disturbance the slots never notice. These are mutants (2)
-    // and (3) of the fix round, written as the rule rather than as an edit.
+    // …and the three cases the rule exists for, hand-built and named, plus the
+    // gesture's one shuffled board per set of moves. These are mutants (2), (5)
+    // and (7) of the fix round, written as the rule rather than as an edit.
     {
-      const w1 = {}
-      const w2 = {}
-      expect(toneGate({ world: w1, row: 'r' }, w2, 'r')).toBe(true)   // world only
-      expect(toneGate({ world: w1, row: 'r' }, w1, 'r2')).toBe(true)  // row only
-      expect(toneGate(null, w1, 'r')).toBe(true)                      // never filled
-      expect(toneGate({ world: w1, row: 'r' }, w1, 'r')).toBe(false)  // nothing moved
+      const store = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, number>() }
+      let composes = 0
+      const compose = (): LandingClass => { composes += 1; return 'caution' }
+      // A candidate WITHOUT a slot is composed at the site…
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r2', compose)).toEqual({ kind: 'caution', composed: true, shuffles: 1 })
+      // …a candidate WITH one is reused and composes nothing…
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r2', compose)).toEqual({ kind: 'caution', composed: false, shuffles: 1 })
+      // …and a CHANGED set of moves is a different question, composed fresh on
+      // its own board.
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r3', compose)).toEqual({ kind: 'caution', composed: true, shuffles: 2 })
+      // …while a second chip under the SAME set of moves composes its own slot
+      // but REUSES the gesture's board — the cache without which composing on
+      // demand costs a whole shuffled board per missing chip.
+      expect(slotRule(store, 'p-02', 840, 60, 'a>r2', compose)).toEqual({ kind: 'caution', composed: true, shuffles: 2 })
+      expect({ composes, keys: store.slots.size }).toEqual({ composes: 3, keys: 3 })
     }
     // …and the hand's OWN room row is the third: a tail that clips or re-grows
     // under the card changes what `allocateBed`'s step-0 arm sees, which is the

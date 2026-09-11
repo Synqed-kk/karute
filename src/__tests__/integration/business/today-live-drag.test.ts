@@ -33,7 +33,7 @@ import {
   type LandingVerdict,
   type Moves,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
-import { bookFor, slotKey, type BookCache } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { bookFor, moveSetOf, slotKey, type BookCache } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import type { DayFrame } from '@/app/[locale]/(business)/business/today/capacity-ledger'
 
 const HOURS: Hours = { open: 540, close: 1200 }
@@ -557,19 +557,47 @@ describe('`slotKey` — the ⇄ tone slot\u2019s ONE spelling, and every field s
    *  three shipped the whole battery green: every chip loses its slot, falls
    *  back to the UN-shuffled verdict, and ⚖ RULING 3's third arm 「no mark when
    *  the release would refuse」 stops holding with no test to say so. */
-  it('the lane, the start and the LENGTH each separate two keys', () => {
-    expect(slotKey('p-01', 840, 60)).toBe(slotKey('p-01', 840, 60))
-    expect(slotKey('p-01', 840, 60)).not.toBe(slotKey('p-02', 840, 60))
-    expect(slotKey('p-01', 840, 60)).not.toBe(slotKey('p-01', 870, 60))
+  it('the lane, the start, the LENGTH and the SET OF MOVES each separate two keys', () => {
+    expect(slotKey('p-01', 840, 60, 'a>r2')).toBe(slotKey('p-01', 840, 60, 'a>r2'))
+    expect(slotKey('p-01', 840, 60, 'a>r2')).not.toBe(slotKey('p-02', 840, 60, 'a>r2'))
+    expect(slotKey('p-01', 840, 60, 'a>r2')).not.toBe(slotKey('p-01', 870, 60, 'a>r2'))
     // …and the one the mutant dropped. The strip's length follows the gesture
     // (⚖ 50), so one lane and one start are two different questions at two
     // lengths — inert while a gesture holds one length, a landmine the moment
     // the queued resize / shelf-chip rounds land.
-    expect(slotKey('p-01', 840, 60)).not.toBe(slotKey('p-01', 840, 90))
+    expect(slotKey('p-01', 840, 60, 'a>r2')).not.toBe(slotKey('p-01', 840, 90, 'a>r2'))
+    // ⚖ FIX ROUND 2 (FX-B) — …and the FOURTH, which is what lets the slots
+    // outlive the memo at all. The board can move under the card mid-gesture
+    // and the pack can then rescue the same start a different way; a key blind
+    // to that would hand the chip a face composed on a board nobody is looking
+    // at any more. With the moves in the key that answer simply misses, and a
+    // miss is composed fresh at the chip.
+    expect(slotKey('p-01', 840, 60, 'a>r2')).not.toBe(slotKey('p-01', 840, 60, 'a>r3'))
+    expect(slotKey('p-01', 840, 60, '')).not.toBe(slotKey('p-01', 840, 60, 'a>r2'))
   })
 
-  it('the three fields are all that is in it, in that order', () => {
-    expect(slotKey('p-01', 840, 60)).toBe('p-01|840|60')
+  it('the four fields are all that is in it, in that order', () => {
+    expect(slotKey('p-01', 840, 60, 'a>r2')).toBe('p-01|840|60|a>r2')
+  })
+})
+
+describe('`moveSetOf` — the set of moves a landing would make, spelled ONCE', () => {
+  /** ⚖ FIX ROUND 2 (FX-B). Three sites ask for this string — the composer (for
+   *  the shuffled-board cache AND the key), the chip map, and the aimed chip's
+   *  own refresh — so it has a home rather than three spellings, which is the
+   *  same lesson `slotKey` above exists for. */
+  it('carries the booking and the room it moves to, in the search’s own order', () => {
+    expect(moveSetOf([{ id: 'a', from: 'r1', to: 'r2' }])).toBe('a>r2')
+    expect(moveSetOf([{ id: 'a', from: 'r1', to: 'r2' }, { id: 'b', from: 'r3', to: 'r4' }])).toBe('a>r2,b>r4')
+  })
+
+  it('a landing with no companions is the empty string, and that is a key like any other', () => {
+    expect(moveSetOf([])).toBe('')
+    expect(slotKey('p-01', 840, 60, moveSetOf([]))).toBe('p-01|840|60|')
+  })
+
+  it('the ROOM is in it, not only the booking — a different rescue of the same booking is a different answer', () => {
+    expect(moveSetOf([{ id: 'a', from: 'r1', to: 'r2' }])).not.toBe(moveSetOf([{ id: 'a', from: 'r1', to: 'r3' }]))
   })
 })
 
