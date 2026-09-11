@@ -1404,6 +1404,40 @@ describe('listAuditLog — PR D1 belt (dedupe retried writes on request_id)', ()
     if (!res.ok) throw new Error('expected ok')
     expect(res.folded).toBe(0)
   })
+
+  // Fix round 1, subject 7 (D1-7/F-4): "earliest" must compare the actual
+  // INSTANT (Date.parse), not the raw string. '2026-07-18T00:30:00.000Z' is
+  // 00:30 UTC; '2026-07-18T09:00:00.000+09:00' is 00:00 UTC — an hour+
+  // EARLIER instant, but a LEXICALLY LARGER string ('09' > '00' at the hour
+  // digits), so a naive string compare picks the wrong row.
+  it('picks the EARLIER instant under mixed UTC-offset serialisation, not the lexically smaller string', async () => {
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'e-utc-0030',
+          at: '2026-07-18T00:30:00.000Z',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-1',
+          request_id: 'req-dup',
+        }),
+        coreEvent({
+          id: 'e-offset-earlier',
+          at: '2026-07-18T09:00:00.000+09:00', // = 00:00 UTC, actually earlier
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-1',
+          request_id: 'req-dup',
+        }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['e-offset-earlier'])
+  })
 })
 
 // PR D1 §3 (amendment 4 F5): targetType defaults to 'customer' — byte-

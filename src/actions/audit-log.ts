@@ -123,7 +123,11 @@ function foldDuplicateAuditEvents(events: AuditLogEvent[]): {
     if (idxs.length < 2) continue
     let keepIdx = idxs[0]!
     for (const i of idxs) {
-      if (events[i]!.at < events[keepIdx]!.at) keepIdx = i
+      // Fix round 1, subject 7 (D1-7/F-4): compare the actual INSTANT, not
+      // the raw string — under mixed UTC-offset serialisation a lexically
+      // smaller string can be the LATER instant (e.g. '00:30Z' sorts before
+      // '09:00+09:00', which is actually an hour earlier at 00:00 UTC).
+      if (Date.parse(events[i]!.at) < Date.parse(events[keepIdx]!.at)) keepIdx = i
     }
     for (const i of idxs) if (i !== keepIdx) drop.add(i)
   }
