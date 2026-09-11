@@ -371,6 +371,24 @@ export function moveSetOf(reseats: readonly Reseat[]): string {
   return reseats.map((r) => `${r.id}>${r.to}`).join(',')
 }
 
+/** ⚖ Liam 2026-09-11 — the ⇄ badge is the ICON always and the WORD only when the card
+ *  has room: the icon and the word are two nodes so the CSS can hide the word by the
+ *  card's own width (`@container`, today.css). `cursorWord` still composes the whole
+ *  text (the engine's spelling, the H8 identity, the tests' truth) — this only decides
+ *  how much of it is on screen. `node.textContent` stays byte-equal to `text`. */
+export function dressBadge(node: HTMLElement, text: string, kind: ReturnType<typeof cursorWord>['kind']): void {
+  if (kind === 'reseat' || kind === 'reseat-caution') {
+    const mark = document.createElement('b')
+    mark.textContent = text.slice(0, 1) // '⇄' — one UTF-16 unit (U+21C4)
+    const word = document.createElement('span')
+    word.textContent = text.slice(1) // ' 入れ替え' / ' 要確認' — the space rides with the word
+    node.replaceChildren(mark, word)
+  } else {
+    node.textContent = text // 置けない / 要確認 / '' — byte-unchanged behaviour
+  }
+  node.dataset.verdict = kind
+}
+
 /** ⚖ 51 / Greptile #827 — WHAT THE NEXT VISIT'S CATEGORY IS.
  *
  *  `BookingCategory` is a per-BOOKING word, not a customer's badge:
@@ -4335,8 +4353,7 @@ export function TodayScreen(props: TodayProps) {
     // Three of them are byte-unchanged (silence on a clean landing, 要確認,
     // 置けない); the two new ones are the landings that move other customers.
     const { text, kind } = cursorWord(v)
-    node.textContent = text
-    node.dataset.verdict = kind
+    dressBadge(node, text, kind)
     if (proxyRef.current) proxyRef.current.dataset.verdict = kind
   }
 

@@ -563,6 +563,23 @@
    the treatment its rank already earned: a costly landing is still dotted, and a
    clean one — even one that moves somebody — still paints nothing at all. */
 .biz .drag-proxy[data-verdict="reseat-caution"] { outline: 2px dotted var(--guard-dark); outline-offset: -1px; }
+/* ⚖ Liam 2026-09-11 — THE WORD STEPS ASIDE ON A NARROW CARD. The badge is always
+   the ⇄ icon; the word joins it only when the card in hand has room. The room is
+   the proxy's OWN inline size (`@container`, unnamed → the nearest container = the
+   proxy), not a viewport breakpoint: a 30分 card on a wide screen is still narrow.
+   92px = the badge's measured 「⇄ 入れ替え」 ≈81px + its 3px offset + 8px of air
+   (DESIGN-LIVE-DRAG §5a's table); a 60分 card is 101px at the 1180 shell floor,
+   129px at 1440; a 30分 card is 51px → icon alone. Containment is SAFE here and
+   was checked, as analytics.css :79 checks it: the proxy is already
+   `position: fixed; z-index: 120; will-change: transform` (its own containing
+   block and stacking context), its width is written by JS from the grabbed card,
+   and its only children are the card face (strong/small) and this badge.
+   ponytail: width stands in for text width (a query cannot measure glyphs); if a
+   fallback face for ⇄ ever widens the badge past 89px, raise the number here. */
+.biz .event.drag-proxy,
+.biz .drag-proxy.chip { container-type: inline-size; }
+.biz .proxy-verdict > span { display: none; }
+@container (min-width: 92px) { .biz .proxy-verdict > span { display: inline; } }
 
 /* ── 仮置きエリア (canon :1493–1507) ──────────────────────────────────────
    The WHOLE bar is the drop zone, so the whole bar is drawn as the receptacle;
