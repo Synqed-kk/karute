@@ -303,6 +303,28 @@ describe('watchOneBusiness — recording.transcribe_storm', () => {
     detail: { cost_cents: 10, cents_reserved: 12, customer_id: 'cust-2', staff_id: 'staff-2' },
   }))
 
+  it('P2-7: a storm dated TODAY is absent from the list and writes nothing — it waits for tomorrow', async () => {
+    // Same shape as `stormEvents`, but every receipt lands today (JST) —
+    // 2026-09-11T0n:00 UTC is 2026-09-11 (today), inside the read window
+    // (from = yesterday start JST, to = NOW = 2026-09-11T05:00 UTC).
+    const todayStormEvents = [1, 2, 3, 4].map((n) => ({
+      id: `t${n}`,
+      at: `2026-09-11T0${n}:00:00.000Z`,
+      action: 'recording.transcribe',
+      target_id: 'sess-storm-today',
+      detail: { cost_cents: 10, cents_reserved: 12, customer_id: 'cust-2', staff_id: 'staff-2' },
+    }))
+    const client = {
+      ...makeClient({ stormEvents: todayStormEvents }),
+      recordings: { list: jest.fn(async () => ({ recordings: [], total: 0 })), get: jest.fn() },
+    }
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+
+    const result = await watchOneBusiness('biz-1', NOW, 'write', FAR_DEADLINE)
+    expect(result).toMatchObject({ candidates: 0, written: 0, skipped: 0, list: [] })
+    expect(auditMock).not.toHaveBeenCalled()
+  })
+
   it('writes a storm row whose request_id carries the STORM day, not today', async () => {
     // Isolate the storm path: an empty inbox (no recording.karute_missing candidate).
     const client = {

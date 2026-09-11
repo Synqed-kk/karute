@@ -214,7 +214,15 @@ export async function watchOneBusiness(
       deadline,
     )
     if (pagesTruncated) result.truncated = true
-    const storms = findTranscribeStorms({ events, truncated: pagesTruncated })
+    // P2-7: closed days only — a day still in progress can only ever grow
+    // (more receipts may land before midnight), so listing/writing it now
+    // would freeze a count and cost that are not yet whole. This is
+    // evidence, not a real-time alarm: the spend wall
+    // (src/lib/ai/transcribe.ts) is the actual brake against runaway
+    // transcription cost. Today's storm waits for tomorrow's first run.
+    const storms = findTranscribeStorms({ events, truncated: pagesTruncated }).filter(
+      (s) => s.day < ymdInJst(now),
+    )
 
     result.candidates = missing.length + storms.length
 
