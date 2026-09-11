@@ -387,6 +387,10 @@ export async function readRecordingsInbox({
    *  as "definitively no job" and offer 保存する over audio a live job may
    *  already be processing. */
   const probedSessions = new Set(probes.map((r) => r.recordingSessionId))
+  // F-e (監査ログ round 2 PR C2): a row past the cap was never asked at all —
+  // mark it so the audit-watch cron never treats its shape-identical "no job"
+  // look as a judged miss.
+  for (const row of residue.slice(maxJobProbes)) row.probeIncomplete = true
   let next = 0
   await Promise.all(
     Array.from({ length: Math.min(PROBE_CONCURRENCY, probes.length) }, async () => {
@@ -549,9 +553,10 @@ async function deriveServerAudio(
   }
   // `rows` is the server list's own order, so re-sort to the residue's
   // newest-first rule before the cap decides who is dropped.
-  const probeList = candidates
-    .sort((a, b) => Date.parse(b.row.createdAt) - Date.parse(a.row.createdAt))
-    .slice(0, deps.maxAudioProbes)
+  candidates.sort((a, b) => Date.parse(b.row.createdAt) - Date.parse(a.row.createdAt))
+  const probeList = candidates.slice(0, deps.maxAudioProbes)
+  // F-e: the oldest candidates the cap itself drops were never probed either.
+  for (const c of candidates.slice(deps.maxAudioProbes)) c.row.probeIncomplete = true
   let next = 0
   await Promise.all(
     Array.from({ length: Math.min(PROBE_CONCURRENCY, probeList.length) }, async () => {
@@ -572,12 +577,19 @@ async function deriveServerAudio(
           // no segments behind it. Only a proven 'absent' buys the listing, and
           // the listing now gates the RESCUE half alone.
           const audio = await deps.takeAudioProbe(businessId, takeId, ext)
-          if (audio === 'unknown') continue
+          if (audio === 'unknown') {
+            // F-e: a blip is not an answer — the row keeps today's behaviour,
+            // but this pass could not judge it either way.
+            row.probeIncomplete = true
+            continue
+          }
           if (audio !== 'absent') {
             row.serverAudio = 'object'
             continue
           }
-          if ((await deps.segmentsProbe(businessId, key)) === true) row.serverAudio = 'segments'
+          const segments = await deps.segmentsProbe(businessId, key)
+          if (segments === true) row.serverAudio = 'segments'
+          else if (segments === 'unknown') row.probeIncomplete = true
         } catch (err) {
           // A probe we could not ask is not an answer: the row keeps today's
           // behaviour and the next render asks again.
@@ -585,6 +597,7 @@ async function deriveServerAudio(
             `[recordings-inbox] server-audio probe failed for ${row.recordingSessionId}:`,
             err,
           )
+          row.probeIncomplete = true
           continue
         }
       }
