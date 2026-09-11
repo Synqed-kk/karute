@@ -2385,9 +2385,18 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     expect(legend).toContain('<span>満＝もう入らない ・</span>')
     expect(legend).toContain('<span>定休＝定休日（{props.closedWeekdayLabel}）</span>')
     // The hover sentence explains a 枠 in one line, off the same prop.
+    //
+    // ⚖ FIX ROUND 1 — 「連続した空き時間」, not 「続いた」. The register is this
+    // surface's own accepted sibling line: the placement rail already says
+    // 「この開始には60分の連続した空きがありません」 (today-interactions.ts, pinned
+    // below in this file). One screen, one way of saying 「unbroken free time」.
     expect(SRC).toContain(
-      'title={`あとN枠 = 担当ごとの続いた空き時間に、標準セッション（${props.calendarSessionMin}分）の予約をあと何件入れられるか`}',
+      'title={`あとN枠 = 担当ごとの連続した空き時間に、標準セッション（${props.calendarSessionMin}分）の予約をあと何件入れられるか`}',
     )
+    expect(SRC).not.toContain('担当ごとの続いた空き時間')
+    // …and the sibling it borrows the register from is really there.
+    const RAIL = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+    expect(RAIL).toContain('分の連続した空きがありません')
     // ⚠ NO SESSION LITERAL anywhere in the legend, and no 空き vocabulary left
     // in the clauses the operator reads. (The hover sentence DOES say
     // 「続いた空き時間」 — it is describing the raw pockets the count is packed

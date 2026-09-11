@@ -7810,7 +7810,7 @@ export function TodayScreen(props: TodayProps) {
                     </div>
                     <div
                       className="cal-legend"
-                      title={`あとN枠 = 担当ごとの続いた空き時間に、標準セッション（${props.calendarSessionMin}分）の予約をあと何件入れられるか`}
+                      title={`あとN枠 = 担当ごとの連続した空き時間に、標準セッション（${props.calendarSessionMin}分）の予約をあと何件入れられるか`}
                     >
                       <span>あと＝その日にまだ入る予約の数（{props.calendarSessionMin}分） ・</span>
                       {/* ⚖ F7 — 「残り2枠以下」 includes 0, and 0 is painted 満,
