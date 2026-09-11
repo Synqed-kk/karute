@@ -436,16 +436,18 @@ describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an 
     // The uncovered branch is everything before the covered day's <Link>.
     const [blank] = CELLS.split('<Link')
     expect(blank).toContain('<span')
-    expect(blank).toContain('cal-cell unknown')
     expect(blank).not.toContain('href')
     expect(blank).not.toContain('dayHref')
   })
 
-  it('and it says 表示範囲外 out loud', () => {
-    // The sentence is authored wherever the cell's face is — in the JSX today,
-    // in today-interactions.ts once #891 lifts it into `calendarCellFace`.
+  it('and it says 表示範囲外 out loud, in its own paint', () => {
+    // The face is authored wherever the face lives — in the JSX today, in
+    // today-interactions.ts once #891 lifts it into `calendarCellFace`. So the
+    // pin is on the pair existing SOMEWHERE in the月カレンダー's own sources,
+    // never on which file holds them or how they are spelt into the element.
     const FACE = SCREEN_SRC + readFileSync('src/app/[locale]/(business)/business/today/today-interactions.ts', 'utf8')
     expect(FACE).toContain('表示範囲外')
+    expect(FACE).toContain('cal-cell unknown')
   })
 
   it('the cell has a paint of its own, paler than 定休', () => {
