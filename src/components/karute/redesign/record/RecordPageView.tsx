@@ -1072,8 +1072,12 @@ export function RecordPageView({
   // Ordering (⚖ 8/17 / packet P5-A A-2): the photos confirm still comes first
   // where it applies — it decides what happens to the PHOTOS — and this dialog
   // is always LAST, the final commitment gate for the discard itself.
+  // ⚖ 9/12: under the accidental-tap floor the gate still commits, but the
+  // dialog itself is skipped — the app supplies the reason, the same reason
+  // row + receipt land, and the dialog opens only if that one-tap attempt
+  // fails (the fallback surface, never a second decision site).
 
-  function openDiscardReason(origin: 'recorder' | 'review' | 'pipeline-error' | 'banner') {
+  async function openDiscardReason(origin: 'recorder' | 'review' | 'pipeline-error' | 'banner') {
     // Latch WHICH take this gate is for, at the moment it opens. Only the
     // recorder chokepoint can race 使用 — the review take was handed to the
     // pipeline long before, so there is nothing left to invalidate there.
@@ -1091,6 +1095,41 @@ export function RecordPageView({
             durationSec: offerDurationSec,
           }
         : null
+
+    // ⚖ 9/12 ONE-TAP: a take under BELOW_FLOOR_SEC skips the dialog entirely.
+    // Read AFTER the latches above — they are what makes runDiscardWithReason's
+    // takeChanged guards work, on this path exactly as on the dialog's. Applies
+    // to all four origins alike: the banner offer wires onDiscard ONLY for a
+    // below-floor take, so every banner discard is one-tap by that fact alone.
+    if (discardSubjectDurationSec(origin) < BELOW_FLOOR_SEC) {
+      // Same re-entry guard confirmDiscardReason has, needed here because
+      // (unlike the dialog path) a double tap of the TRIGGER BUTTON itself
+      // must still file exactly one discard — nothing else gates re-entry
+      // before the dialog would normally open.
+      if (discardReasonSubmittingRef.current) return
+      discardReasonSubmittingRef.current = true
+      setDiscardReasonSubmitting(true)
+      setDiscardReasonError(null)
+      try {
+        const outcome = await runDiscardWithReason(origin, t('discardReason.autoReasonBelowFloor'))
+        if (outcome === 'ok') {
+          toast.success(t('discardReason.oneTapDone'))
+        } else {
+          // Fails closed like the dialog does: nothing was discarded, so the
+          // dialog opens as the fallback — same error, empty reason field, the
+          // staff member's normal retry/cancel.
+          setDiscardReasonError(
+            outcome === 'takeChanged' ? t('discardReason.takeChanged') : t('discardReason.failed'),
+          )
+          setDiscardReasonFor(origin)
+        }
+      } finally {
+        discardReasonSubmittingRef.current = false
+        setDiscardReasonSubmitting(false)
+      }
+      return
+    }
+
     setDiscardReasonError(null)
     setDiscardReasonFor(origin)
   }

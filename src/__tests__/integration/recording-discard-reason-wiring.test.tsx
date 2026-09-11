@@ -829,8 +829,10 @@ describe('the empty-transcript refusal card (pipeline-error origin)', () => {
 // ── 6. ⚖ 8/26 rider — a below-floor take offered at the banner ────────────
 // Ruled case (b): its own snapshot-at-open latch (bannerDiscardSnapshotRef),
 // its own mint-retry params, and its own cleanup (deleteTake — no pipeline to
-// reset, nothing is running).
-
+// reset, nothing is running). ⚖ 9/12: onDiscard is wired ONLY for a
+// below-floor take, so every banner discard is now a ONE-TAP — the tap IS the
+// attempt, no dialog first. The dialog only ever appears here as the one-tap
+// attempt's OWN failure fallback (below).
 describe('a below-floor take offered at the banner (banner origin)', () => {
   const BELOW_FLOOR_TAKE = {
     takeId: 'take-bf',
@@ -851,21 +853,24 @@ describe('a below-floor take offered at the banner (banner origin)', () => {
     mockRecState = 'idle'
   })
 
-  it('a session id already on the take: no mint-retry, and the payload + cleanup are honest', async () => {
+  it('a session id already on the take: ONE TAP — no dialog, no mint-retry, and the payload + cleanup are honest', async () => {
     mockRecoverableTake = BELOW_FLOOR_TAKE
     await renderPage()
     await waitFor(() => screen.getByText('discardTakeAction'))
     await tapDiscard('discardTakeAction')
-    await writeReason()
-    await confirmReason()
 
+    expect(reasonGate()).toBeNull()
     expect(mockRetryMint).not.toHaveBeenCalled()
     expect(mockAwaitSession).not.toHaveBeenCalled()
     expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
     expect(mockDiscardWithReason.mock.calls[0][0]).toMatchObject({
       recordingSessionId: 'sess-bf',
       takeId: 'take-bf',
-      reason: REASON,
+      // The app-written reason (⚖ 9/12) — next-intl is mocked identity here,
+      // so this IS the real translation key, proving the source calls t()
+      // rather than inventing its own vocabulary (never-list: no second
+      // reason vocabulary).
+      reason: 'discardReason.autoReasonBelowFloor',
       durationSeconds: 5,
       customerId: 'cust-bf',
       appointmentId: 'appt-bf',
@@ -877,16 +882,16 @@ describe('a below-floor take offered at the banner (banner origin)', () => {
     expect(deleteTake).toHaveBeenCalledWith('take-bf')
     expect(mockPipelineReset).not.toHaveBeenCalled()
     expect(screen.queryByText('recoverBannerTitle')).toBeNull()
+    const { toast } = jest.requireMock('sonner') as { toast: { success: jest.Mock } }
+    expect(toast.success).toHaveBeenCalledWith('discardReason.oneTapDone')
   })
 
-  it('no session id on the take: ONE mint-retry with the snapshot, then the discard goes through', async () => {
+  it('no session id on the take: ONE mint-retry with the snapshot, then the one-tap discard goes through', async () => {
     mockRecoverableTake = { ...BELOW_FLOOR_TAKE, recordingSessionId: null }
     mockRetryMint.mockImplementationOnce(async () => 'sess-bf-reminted')
     await renderPage()
     await waitFor(() => screen.getByText('discardTakeAction'))
     await tapDiscard('discardTakeAction')
-    await writeReason()
-    await confirmReason()
 
     expect(mockRetryMint).toHaveBeenCalledTimes(1)
     expect(mockRetryMint).toHaveBeenCalledWith({
@@ -899,55 +904,58 @@ describe('a below-floor take offered at the banner (banner origin)', () => {
     })
   })
 
-  it('no session id and the re-mint fails too: fails closed, honestly — nothing is discarded', async () => {
+  it('no session id and the re-mint fails too: fails closed, honestly — nothing is discarded, and the dialog opens as the fallback', async () => {
     mockRecoverableTake = { ...BELOW_FLOOR_TAKE, recordingSessionId: null }
     // mockRetryMint's default (set at module scope) already answers null —
     // the recorder never owned this session either.
     await renderPage()
     await waitFor(() => screen.getByText('discardTakeAction'))
     await tapDiscard('discardTakeAction')
-    await writeReason()
-    await confirmReason()
 
     expect(mockRetryMint).toHaveBeenCalledTimes(1)
     expect(mockDiscardWithReason).not.toHaveBeenCalled()
     const { deleteTake } = jest.requireMock('@/lib/karute/take-store') as { deleteTake: jest.Mock }
     expect(deleteTake).not.toHaveBeenCalled()
+    // ⚖ 9/12: the one-tap attempt FAILED, so the dialog opens as the
+    // fallback surface — the staff member's normal retry/cancel, reason
+    // field empty (never the auto text they never typed).
     expect(screen.getByRole('alert')).toHaveTextContent('discardReason.failed')
+    expect(screen.getByRole('textbox')).toHaveValue('')
     expect(reasonGate()).not.toBeNull()
   })
 
   // BLOCKER-2 (line-audit 8/30): the discard gate had no latch against a
   // recovery save racing it. The auto-finish effect can start a save with NO
   // tap at all, and the reason dialog outlives the banner (it renders from
-  // the main return, independent of the banner's `{offer && ...}` guard) — so
-  // tap the exit, then a save starts and completes while the dialog is still
-  // open, then confirm: the take the pipeline just transcribed/saved/deleted
-  // would receive a 破棄 receipt it has no business getting (a discard row on
-  // a SAVED session outranks the record in the inbox fold — evidence
-  // corruption). Fixed with a refusal at the top of confirmDiscardReason,
-  // BEFORE any await, keyed on recoverySavingRef.current and a takeId
-  // mismatch between the live recoveredTake and the frozen snapshot.
-  //
-  // Both cases below are REACHABLE (replaces the deleted null-snapshot
-  // theatre test — that guard stays, but nothing could exercise it without
-  // reaching into a private ref; these two can, and cover the actual race
-  // BLOCKER-2 describes).
-  describe('BLOCKER-2 — refuses when a recovery save races the open dialog', () => {
-    it('recoverySavingRef true (a save is in flight): refuses, no discard call', async () => {
+  // the main return, independent of the banner's `{offer && ...}` guard). The
+  // guard lives in runDiscardWithReason's pre-await checks, so it protects
+  // BOTH doors onto that function — the one-tap trigger itself, and the
+  // dialog's own confirm when the one-tap fell back to it.
+  describe('BLOCKER-2 — refuses when a recovery save races the discard', () => {
+    // ⚖ 9/12: the banner's OWN discard button is `disabled={saving}` (same
+    // component, the save button's sibling) — so once a save is genuinely in
+    // flight, a second tap of the ONE-TAP trigger is a DOM no-op, same as any
+    // other disabled button. This race is therefore reached the same way its
+    // recoveredTake-mismatch sibling below is: force the one-tap attempt to
+    // fail first (opening the dialog as the fallback, which is a SEPARATE
+    // overlay the banner's `disabled` state cannot touch), then hold a save
+    // open, then confirm through the dialog's own button.
+    it('recoverySavingRef true (a save is in flight): the fallback dialog’s own confirm refuses', async () => {
       mockRecoverableTake = BELOW_FLOOR_TAKE
+      mockDiscardWithReason.mockImplementationOnce(
+        async () => ({ ok: false, error: 'failed' }) as never,
+      )
       await renderPage()
       await waitFor(() => screen.getByText('discardTakeAction'))
-      // The mount's own auto-finish attempt already stood down (default
-      // not-granted consent) by the time renderPage's flush settles — the
-      // exit is enabled here, same as every sibling test in this block.
-      await tapDiscard('discardTakeAction')
+      await tapDiscard('discardTakeAction') // one-tap fails closed → dialog opens as fallback
+      expect(reasonGate()).not.toBeNull()
       await writeReason()
 
-      // A save starts WHILE the dialog is open — the field case is the
-      // auto-finish effect; holding 保存する's OWN consent read open here
-      // reproduces the same state (recoverySavingRef true, dialog still
-      // open) deterministically instead of racing a real effect's timing.
+      // A save starts and is held open — the field case is the auto-finish
+      // effect; holding 保存する's OWN consent read open here reproduces the
+      // same state (recoverySavingRef true) deterministically instead of
+      // racing a real effect's timing. The dialog is a separate overlay, so
+      // the banner disabling ITS OWN buttons underneath does not touch it.
       const { getCustomerConsent } = jest.requireMock('@/actions/customers') as {
         getCustomerConsent: jest.Mock
       }
@@ -959,7 +967,9 @@ describe('a below-floor take offered at the banner (banner origin)', () => {
 
       await confirmReason()
 
-      expect(mockDiscardWithReason).not.toHaveBeenCalled()
+      // Only the earlier (deliberately-failed) one-tap attempt ever called
+      // through — this confirm's own attempt is refused before it repeats.
+      expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
       const { deleteTake } = jest.requireMock('@/lib/karute/take-store') as {
         deleteTake: jest.Mock
       }
@@ -968,11 +978,22 @@ describe('a below-floor take offered at the banner (banner origin)', () => {
       expect(reasonGate()).not.toBeNull()
     })
 
-    it('the live recoveredTake no longer matches the snapshot: refuses, no discard call', async () => {
+    // ⚖ 9/12: the OTHER half of BLOCKER-2 (a save landing mid-typing) needs a
+    // window long enough for the staff member to write a reason — which only
+    // exists once the dialog is open. A banner-origin dialog now opens ONLY
+    // as the one-tap's own failure fallback, so this test reaches it that
+    // way first, then reproduces the exact race the ORIGINAL test pinned
+    // (a save completing WHILE the dialog is open) against the SAME
+    // runDiscardWithReason body, now entered via confirmDiscardReason.
+    it('the live recoveredTake no longer matches the snapshot: the fallback dialog’s own confirm still refuses', async () => {
       mockRecoverableTake = BELOW_FLOOR_TAKE
+      mockDiscardWithReason.mockImplementationOnce(
+        async () => ({ ok: false, error: 'failed' }) as never,
+      )
       await renderPage()
       await waitFor(() => screen.getByText('discardTakeAction'))
-      await tapDiscard('discardTakeAction')
+      await tapDiscard('discardTakeAction') // one-tap fails closed → dialog opens as fallback
+      expect(reasonGate()).not.toBeNull()
       await writeReason()
 
       // A save GRANTED consent this time — it runs to completion (tickets
@@ -997,7 +1018,9 @@ describe('a below-floor take offered at the banner (banner origin)', () => {
 
       await confirmReason()
 
-      expect(mockDiscardWithReason).not.toHaveBeenCalled()
+      // Only the earlier (deliberately-failed) one-tap attempt ever called
+      // through — this confirm's own attempt is refused before it repeats.
+      expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
       const { deleteTake } = jest.requireMock('@/lib/karute/take-store') as {
         deleteTake: jest.Mock
       }
@@ -1011,9 +1034,10 @@ describe('a below-floor take offered at the banner (banner origin)', () => {
     // (the discardRecordingWithReason network call itself) is invisible to
     // BOTH of the checks above. startRecoveryFlow now refuses while
     // discardReasonSubmittingRef.current is true — proven directly against
-    // its own entry guard, the same way the two tests above prove the
-    // discard side.
-    it('a save entry refuses to start while a discard is submitting (reverse direction)', async () => {
+    // its own entry guard. ⚖ 9/12: the hold is now the ONE-TAP's own network
+    // call, dispatched straight off the trigger button — no dialog needed to
+    // reach it.
+    it('a save entry refuses to start while the one-tap discard is submitting (reverse direction)', async () => {
       mockRecoverableTake = BELOW_FLOOR_TAKE
       let releaseDiscard: (v: unknown) => void = () => {}
       mockDiscardWithReason.mockImplementationOnce(
@@ -1024,12 +1048,10 @@ describe('a below-floor take offered at the banner (banner origin)', () => {
       )
       await renderPage()
       await waitFor(() => screen.getByText('discardTakeAction'))
-      await tapDiscard('discardTakeAction')
-      await writeReason()
-      // Confirm dispatches the discard's own network call and holds there —
+      // THE TAP — dispatches the discard's own network call and holds there;
       // discardReasonSubmittingRef.current is true for the whole hold.
       await act(async () => {
-        fireEvent.click(screen.getByText('discardReason.confirm'))
+        fireEvent.click(screen.getByText('discardTakeAction'))
         for (let i = 0; i < 4; i++) await Promise.resolve()
       })
 
@@ -1057,7 +1079,7 @@ describe('a below-floor take offered at the banner (banner origin)', () => {
     })
   })
 
-  it('the shared submitting latch guards this origin too — a same-tick double tap files ONE discard', async () => {
+  it('the shared submitting latch guards this origin too — a same-tick double tap on the ONE-TAP trigger files ONE discard', async () => {
     mockRecoverableTake = BELOW_FLOOR_TAKE
     let release: (v: unknown) => void = () => {}
     mockDiscardWithReason.mockImplementationOnce(
@@ -1068,11 +1090,9 @@ describe('a below-floor take offered at the banner (banner origin)', () => {
     )
     await renderPage()
     await waitFor(() => screen.getByText('discardTakeAction'))
-    await tapDiscard('discardTakeAction')
-    await writeReason()
 
-    const confirm = screen.getByText('discardReason.confirm')
-    const tap = () => confirm.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    const trigger = screen.getByText('discardTakeAction')
+    const tap = () => trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await act(async () => {
       tap()
       tap()
@@ -1084,6 +1104,142 @@ describe('a below-floor take offered at the banner (banner origin)', () => {
       for (let i = 0; i < 8; i++) await Promise.resolve()
     })
     expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── 6b. ⚖ 9/12 — the one-tap discard, recorder origin ────────────────────
+// A deliberate discard under BELOW_FLOOR_SEC skips the written-reason dialog
+// entirely: the app supplies the reason text, the SAME discardRecordingWithReason
+// call files it, and the dialog opens only as the failure fallback. The
+// banner origin's version (always below the floor, by the fact that onDiscard
+// only wires for one) is pinned in section 6 above; this section pins the
+// recorder origin, the one chokepoint whose duration genuinely varies, plus a
+// regression pin that review at a normal length is untouched.
+describe('⚖ 9/12 — the one-tap discard, recorder origin', () => {
+  it('9.9s: no dialog, ONE call with the app-written reason, the take is marked, and a toast confirms it', async () => {
+    recorderTake.takeId = 'take-1'
+    mockDurationMs = 9_900
+    await renderPage()
+    await tapDiscard('discard')
+
+    expect(reasonGate()).toBeNull()
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+    expect(mockDiscardWithReason.mock.calls[0][0]).toMatchObject({
+      recordingSessionId: RECORDER_SESSION,
+      // The app-written reason (⚖ 9/12) — next-intl is mocked identity here,
+      // so this IS the real translation key, proving the source calls t()
+      // rather than a second reason vocabulary (never-list).
+      reason: 'discardReason.autoReasonBelowFloor',
+    })
+    expect(
+      (mockDiscardWithReason.mock.calls[0][0] as { durationSeconds: number }).durationSeconds,
+    ).toBeLessThan(10)
+    expect(mockStampDiscardPending).toHaveBeenCalledTimes(1)
+    expect(mockStampDiscardPending.mock.calls[0][1]).toMatchObject({ belowFloor: true })
+    expect(mockMarkDiscardTranscriptDone).toHaveBeenCalledWith('take-1')
+    expect(mockDiscardRecording).toHaveBeenCalledWith({ keepTake: false })
+    const { toast } = jest.requireMock('sonner') as { toast: { success: jest.Mock } }
+    expect(toast.success).toHaveBeenCalledWith('discardReason.oneTapDone')
+  })
+
+  // SHOULD-FIX-6 twin (the banner suite pins the same boundary for `<`):
+  // BELOW_FLOOR_SEC=10, the predicate is strictly `<` — the floor itself is
+  // NOT below it.
+  it('exactly 10.0s (the boundary): the dialog opens, nothing filed until confirm', async () => {
+    recorderTake.takeId = 'take-1'
+    mockDurationMs = 10_000
+    await renderPage()
+    await tapDiscard('discard')
+
+    expect(reasonGate()).not.toBeNull()
+    expect(mockDiscardWithReason).not.toHaveBeenCalled()
+
+    await writeReason()
+    await confirmReason()
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+  })
+
+  it('core refusing the one-tap attempt: the dialog opens as the fallback, empty reason, retry works', async () => {
+    recorderTake.takeId = 'take-1'
+    mockDurationMs = 5_000
+    mockDiscardWithReason.mockImplementationOnce(
+      async () => ({ ok: false, error: 'discard_row_failed' }) as never,
+    )
+    await renderPage()
+    await tapDiscard('discard')
+
+    expect(screen.getByRole('alert')).toHaveTextContent('discardReason.failed')
+    expect(screen.getByRole('textbox')).toHaveValue('')
+    expect(reasonGate()).not.toBeNull()
+
+    // Retry — a real staff-typed reason this time, and it lands.
+    await writeReason()
+    await confirmReason()
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(2)
+    expect(mockDiscardWithReason.mock.calls[1][0]).toMatchObject({ reason: REASON })
+    expect(mockDiscardRecording).toHaveBeenCalledTimes(1)
+  })
+
+  // The 使用/破棄 race, one-tap flavour: the window is now the one-tap's OWN
+  // internal await (the session-id mint) rather than a dialog left open for
+  // the staff member to type in — same guard (discardIntentRef vs the live
+  // recorder singleton), same failure surface.
+  it('使用 wins the race during the one-tap attempt: the dialog opens with takeChanged, nothing filed', async () => {
+    recorderTake.takeId = 'take-1'
+    mockDurationMs = 5_000
+    let releaseMint: (v: string | null) => void = () => {}
+    mockAwaitSession.mockImplementationOnce(() => new Promise((res) => { releaseMint = res }))
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('discard'))
+      for (let i = 0; i < 2; i++) await Promise.resolve()
+    })
+    // 使用 won the race while the one-tap attempt was mid-flight.
+    recorderTake.takeId = 'take-2'
+    await act(async () => {
+      releaseMint(RECORDER_SESSION)
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+
+    expect(mockDiscardWithReason).not.toHaveBeenCalled()
+    expect(mockDiscardRecording).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent('discardReason.takeChanged')
+    expect(reasonGate()).not.toBeNull()
+  })
+
+  it('double tap on 破棄 under the floor files exactly ONE discard', async () => {
+    recorderTake.takeId = 'take-1'
+    mockDurationMs = 5_000
+    let release: (v: unknown) => void = () => {}
+    mockDiscardWithReason.mockImplementationOnce(
+      () => new Promise((res) => { release = res }) as never,
+    )
+    await renderPage()
+
+    const trigger = screen.getByText('discard')
+    const tap = () => trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await act(async () => {
+      tap()
+      tap()
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      release({ ok: true, receiptId: 'row-1', duplicate: false })
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+    expect(mockDiscardRecording).toHaveBeenCalledTimes(1)
+  })
+
+  it('review origin at 60s (≥ the floor): unchanged — the dialog still opens, no one-tap', async () => {
+    mockPipelineState = 'review'
+    await renderPage()
+    await tapDiscard('review-discard')
+
+    expect(reasonGate()).not.toBeNull()
+    expect(mockDiscardWithReason).not.toHaveBeenCalled()
   })
 })
 
@@ -1136,14 +1292,20 @@ describe('A2-2 — persisting the words at discard', () => {
     // never-delete guard began refusing an unsecured take, a below-floor
     // discard left the take ALIVE with no stamp at all, and the recovery banner
     // offered the staffer back the very recording they had just thrown away.
-    it('BELOW the floor: no words are collected, but the take is MARKED so it is never re-offered', async () => {
+    it('BELOW the floor: ONE TAP — no dialog, no words collected, and the take is MARKED so it is never re-offered', async () => {
       recorderTake.takeId = 'take-1'
       mockDurationMs = 5_000 // an accidental tap — under BELOW_FLOOR_SEC
       await renderPage()
       await tapDiscard('discard')
-      await writeReason()
-      await confirmReason()
 
+      // ⚖ 9/12: below the floor this is now one tap — no dialog, ever.
+      expect(reasonGate()).toBeNull()
+      expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+      expect(mockDiscardWithReason.mock.calls[0][0]).toMatchObject({
+        reason: 'discardReason.autoReasonBelowFloor',
+      })
+      const { toast } = jest.requireMock('sonner') as { toast: { success: jest.Mock } }
+      expect(toast.success).toHaveBeenCalledWith('discardReason.oneTapDone')
       // ⚖ the spend gate: an accidental tap never reaches a transcription bill.
       expect(mockRunDiscardTranscript).not.toHaveBeenCalled()
       // …and the stamp says exactly that — marked below-floor, and SETTLED in
@@ -1170,9 +1332,7 @@ describe('A2-2 — persisting the words at discard', () => {
       mockDurationMs = 5_000
       mockStampDiscardPending.mockImplementationOnce(async () => false)
       await renderPage()
-      await tapDiscard('discard')
-      await writeReason()
-      await confirmReason()
+      await tapDiscard('discard') // ⚖ 9/12: one tap, no dialog
 
       // Nothing to settle: the take is gone or another staffer's, and marking a
       // row that is not there would say something untrue about it.
@@ -1342,9 +1502,7 @@ describe('A2-2 — persisting the words at discard', () => {
       }
       await renderPage()
       await waitFor(() => screen.getByText('discardTakeAction'))
-      await tapDiscard('discardTakeAction')
-      await writeReason()
-      await confirmReason()
+      await tapDiscard('discardTakeAction') // ⚖ 9/12: one tap, no dialog
 
       expect(mockPersistReviewDiscard).not.toHaveBeenCalled()
       expect(mockRunDiscardTranscript).not.toHaveBeenCalled()

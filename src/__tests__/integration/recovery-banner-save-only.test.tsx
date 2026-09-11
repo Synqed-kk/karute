@@ -30,8 +30,17 @@ jest.mock('@/actions/recordings', () => ({
   startRecordingSession: (i: unknown) => mockStartRecordingSession(i as never),
 }))
 // P5-A: RecordPageView imports the written-reason discard action; unmocked it
-// pulls the ESM SDK into this suite. Not exercised here.
-jest.mock('@/actions/recording-discard', () => ({ discardRecordingWithReason: jest.fn() }))
+// pulls the ESM SDK into this suite. ⚖ 9/12: a below-floor banner offer is now
+// a ONE-TAP discard, so a tap on the exit DOES reach this — resolved 'ok' by
+// default so the one test below that exercises it isn't left awaiting undefined.
+const mockDiscardWithReason = jest.fn(async (_input: unknown) => ({
+  ok: true,
+  receiptId: 'row-1',
+  duplicate: false,
+}))
+jest.mock('@/actions/recording-discard', () => ({
+  discardRecordingWithReason: (input: unknown) => mockDiscardWithReason(input),
+}))
 
 const mockSaveInline = jest.fn(async (_i: unknown) => ({ id: 'karute-1' }) as
   | { id: string }
@@ -439,14 +448,22 @@ describe('the banner offers ONE action and no way to destroy the recording', () 
     expect(screen.queryByText('discardTakeAction')).toBeNull()
   })
 
-  it('the below-floor discard exit opens the written-reason gate', async () => {
+  // ⚖ 9/12: a below-floor take is now a ONE-TAP discard — the tap IS the
+  // attempt, filed straight through the same discardRecordingWithReason call
+  // the dialog used to file after a written reason. No dialog renders for
+  // this (the full wiring, including the app-written reason text, the
+  // mutants, and the failure fallback that STILL opens this exact dialog, are
+  // pinned in recording-discard-reason-wiring.test.tsx); this suite only
+  // pins that the banner's exit reaches the discard action at all.
+  it('the below-floor discard exit is a one-tap discard — no dialog, one call', async () => {
     takeOverride = { ...TAKE, updatedAt: TAKE.startedAt + 5_000 }
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('discardTakeAction'))
       await Promise.resolve()
     })
-    expect(screen.getByText('discardReason.title')).toBeTruthy()
+    expect(screen.queryByText('discardReason.title')).toBeNull()
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
   })
 
   // SHOULD-FIX-6 — the boundary itself: BELOW_FLOOR_SEC=10, gate is `<`, not

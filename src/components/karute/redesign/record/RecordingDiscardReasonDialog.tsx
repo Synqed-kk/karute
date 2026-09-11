@@ -10,9 +10,13 @@ import { Button } from '@synqed-kk/ui'
 //
 // Three things here are contract, not styling choices:
 //   1. A REQUIRED WRITTEN reason, no menu (⚖ 8/17). Discarding a recording is
-//      abnormal by definition — there is no one-tap out, and `belowFloor`
-//      pre-selection died with the vocabulary (below_floor survives only as a
-//      server-derived data flag on the receipt).
+//      abnormal by definition — there is no one-tap out of THIS dialog, and
+//      `belowFloor` pre-selection died with the vocabulary (below_floor
+//      survives only as a server-derived data flag on the receipt). ⚖ 9/12
+//      amendment: UNDER the accidental-tap floor a deliberate discard now IS
+//      one tap — it skips this dialog entirely and files the same reason row
+//      with an app-written reason; this dialog opens for that case only as
+//      the failure fallback, where contract 1 still holds in full.
 //   2. The disclosure line is always visible, never behind a tap, and states
 //      exactly what P5-A delivers: a receipt plus the written reason. The
 //      Phase-B sentence about CONTENT being kept ships in B1, WITH the
