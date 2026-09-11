@@ -1892,10 +1892,20 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // verdict cells moved (10 safe → blocked, 12 degraded → safe) — the block
     // advisor answering off a board it has NOT taken the block out of, which is
     // ⚖ 39's whole reason for existing.
+    //
+    // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-5 — THE ESCAPE HATCH'S BOOK IS
+    // SHARED NOW, AND THE LINE MOVED BY EXACTLY ONE CALL. `verdictAt(..., lanes)`
+    // hands the same foreign board to three doors and each built its own book for
+    // it — 180 books for one re-judge of the strip on the board a re-seat would
+    // leave. `bookFor` is that build, keyed on the array's own identity, and it
+    // is a module-level helper precisely so this line and the sibling inside
+    // `newClientDoorMinus` each move by ONE call and no other line of either
+    // exact-line body moves. ⚖ 39's hatch is untouched: the identity check, the
+    // fallback and the frame's own `ledger` are still one decision.
     for (const line of [
       '() => bedViewsFor(boardLanes, ledgerFrame, handId),',
       '[boardLanes, ledgerFrame, handId],',
-      'bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, ledgerFrame, handId), lanes, askerId),',
+      'bedDoor(lanes === boardLanes ? ledger : bookFor(lanes, ledgerFrame, handId, FOREIGN_BOOKS), lanes, askerId),',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
     }
@@ -2074,7 +2084,10 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     ).toEqual([
       'const bedDoorFor = useCallback(',
       '(askerId: string | null, lanes: BoardLane[] = boardLanes) =>',
-      'bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, ledgerFrame, handId), lanes, askerId),',
+      // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-5 — one call changed on this
+      // line and nothing else in the body. The lift is still the FRAME's hand,
+      // which is what lets ONE book serve both of this door's asks.
+      'bedDoor(lanes === boardLanes ? ledger : bookFor(lanes, ledgerFrame, handId, FOREIGN_BOOKS), lanes, askerId),',
     ])
 
     // 2 · THE RAIL'S INPUT — the dials, the exclusion, and both doors.
@@ -2231,6 +2244,18 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       // ⚖ FIX ROUND 2 (G1) — the chip's class composition, lifted out of the JSX
       // into a pure helper so the ⇄ palette mapping can be unit-pinned.
       "railChipClass,",
+      // ⚖ LIVE-WHILE-DRAGGING (2026-09-11) — the strip and the cursor ask the
+      // packing question now, so four more engine names arrive: the gesture's own
+      // memo behind the allocator seam, the hand-row fingerprint that keeps it
+      // honest across frames, and the two pure faces (`cursorWord` for the badge
+      // on the card in hand, `liveChipFace` for the chip). Each is unit-pinned at
+      // its own layer in today-live-drag.test.ts.
+      "gestureAllocator,",
+      "handRowStamp,",
+      "cursorWord,",
+      "liveChipFace,",
+      "type GestureMemo,",
+      "type LandingClass,",
       "restingSpanFor,",
       "warnFaceFor,",
       "holdClock,",
@@ -2321,7 +2346,11 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       'const lifted =',
       'lanes === boardLanes && excludeId === ledger.handId',
       '? ledger.worldMinusHand',
-      ': bedViewsFor(lanes, ledgerFrame, excludeId).worldMinusHand',
+      // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-5 — the SAME one-call change as
+      // the sibling door above, and the lift is still this door's OWN: the id it
+      // was asked to lift, never the frame's hand, so a caller asking about
+      // nobody keeps today's `undefined` door instead of somebody's lifted world.
+      ': bookFor(lanes, ledgerFrame, excludeId, FOREIGN_BOOKS).worldMinusHand',
       'return lifted === null ? undefined : bedDoor({ world: lifted, worldMinusHand: null, handId: null }, lanes, null)',
       '}',
       'return (excludeId: string | null, lanes: BoardLane[] = boardLanes) => {',
@@ -2439,10 +2468,18 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // record per board array). At this commit nothing calls `bookFor` yet —
     // PR-B's two doors will, and PR-B re-pins the count at 3 once those doors
     // go through it. Named here so the invariant (one door, every walk named)
-    // holds at every commit on main.
-    expect(SRC.split('bedViewsFor(').length - 1).toBe(5)
-    expect({ liftedWalk: pinnedLines(SRC, ': bedViewsFor(lanes, ledgerFrame, excludeId).worldMinusHand') }).toEqual({ liftedWalk: 1 })
-    expect({ bookForWalk: pinnedLines(SRC, 'const views = bedViewsFor(lanes, frame, liftedId)') }).toEqual({ bookForWalk: 1 })
+    // holds at every commit on main. PR-B: the two door walks go through
+    // `bookFor` now — 5 → 3, the definition and `bookFor`'s own remain.
+    expect(SRC.split('bedViewsFor(').length - 1).toBe(3)
+    expect({ liftedWalk: pinnedLines(SRC, ': bookFor(lanes, ledgerFrame, excludeId, FOREIGN_BOOKS).worldMinusHand') }).toEqual({ liftedWalk: 1 })
+    // …and the shared walk is ONE expression, with BOTH the frame and the lift in
+    // the record, so neither door can be served a book built for the other.
+    expect(SRC).toContain('const hit = cache.get(lanes)')
+    expect(SRC).toContain('if (hit && hit.frameKey === frameKey && hit.liftedId === liftedId) return hit.views')
+    expect(SRC).toContain('const views = bedViewsFor(lanes, frame, liftedId)')
+    // Three mentions of `bookFor(`: the definition and the two NAMED doors — the
+    // same 「a call nobody named is a second door」 rule as `bedDoor(` above.
+    expect(SRC.split('bookFor(').length - 1).toBe(3)
     expect(SRC).not.toContain('bedViewsFor(committedLanes')
     expect(SRC).toContain('gateOn: SELLING_ENGINE_LAW,')
     expect(SRC).toContain('bookOf: bedViewsFor,')
@@ -6351,8 +6388,15 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(v.kind).toBe('blocked')
     expect(v.reason).toContain('に空きがありません')
     // …and the strip's face comes from THAT, never from the guard cell alone.
-    expect(SRC).toContain('const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c) : null')
-    expect(SRC).toContain("const state = v ? (v.kind === 'blocked' ? 'blocked' : v.kind === 'caution' ? 'degraded' : 'safe') : c.state")
+    // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-2 — THE SAME RULE, ASKING THE
+    // DROP'S OWN QUESTION. The face still comes from the ONE verdict and never
+    // from the guard cell alone; what changed is that the verdict is the PACKING
+    // one (`livePack().pack` — one token, one home), and the ×/△/✓ mapping moved
+    // out of the JSX into `liveChipFace`, where the whole table is unit-pinned
+    // without a renderer. The 満室 answer above is unchanged either way.
+    expect(SRC).toContain('const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c, livePack().pack) : null')
+    expect(SRC).toContain('const chip = v ? liveChipFace({ v, final: drop ? { ...v, kind: drop } : v, start: c.start }) : null')
+    expect(SRC).toContain('const state = chip ? chip.state : c.state')
   })
 
   it('⚖ FLAG 54, the other half — the strip answers for the CARD’S length, not canon’s 60', () => {
@@ -6370,7 +6414,12 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
 
   // ── item 4b — the × on the spot itself ───────────────────────────────────
   it('⚖ item 4b — the × marks the inert spots, only mid-drag, only where release is inert', () => {
-    expect(SRC).toContain("? (v.kind === 'blocked' ? '×' : v.kind === 'caution' ? `△${hhmm(c.start)}` : `✓${hhmm(c.start)}`)")
+    // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-2 — the three glyphs belong to
+    // `liveChipFace` now (today-interactions.ts), where the table can be asked
+    // without a renderer and the ⇄ fourth comes out of the same one expression.
+    // The WIRING is pinned here, the MAPPING at the helper — the same split
+    // `railChipClass` already has.
+    expect(SRC).toContain('const face = chip ? chip.face : (mark ? `⇄${hhmm(c.start)}` : (word ?? c.label))')
     // `inHand` is null with nothing in flight → the strip keeps canon's resting
     // face (✓/△/—) and no × exists anywhere on the board (⚖ 37, no leak).
     expect(SRC).toContain('const inHand = useMemo<LandingAsk | null>(() => {')
@@ -6382,7 +6431,11 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // swapped the ⇄ mark's two palettes inside the template literal and all
     // 10,687 tests stayed green. The wiring is pinned here, the mapping itself is
     // unit-pinned at the helper (today-rail-halfhour.test.ts §G1).
-    expect(SRC).toContain("inert: v?.kind === 'blocked',")
+    // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-2 — ⚖ 52 unchanged, read off the
+    // DROP's own answer: `chip.state` is `blocked` exactly where the release
+    // would refuse. With nothing to shuffle it IS `v.kind`, which is every chip
+    // on the board today.
+    expect(SRC).toContain("inert: chip?.state === 'blocked',")
     expect(CSS).toContain('.biz .guard-rail-cell.inert {')
     // A block drag carries no booking, so it marks nothing (canon has no guard
     // for 休憩 either) — and neither does a bed-row drag, which can never land
@@ -7009,13 +7062,21 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     // off, moves with it.
     const state = v.kind === 'blocked' ? 'blocked' : v.kind === 'caution' ? 'degraded' : 'safe'
     expect(state).toBe('degraded')
-    expect(SRC).toContain("const state = v ? (v.kind === 'blocked' ? 'blocked' : v.kind === 'caution' ? 'degraded' : 'safe') : c.state")
+    // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-2 — the same mapping, lifted out
+    // of the JSX into `liveChipFace` (today-interactions.ts) so the whole table —
+    // the three glyphs, the ⇄ fourth and the tone it borrows — can be asked
+    // without a renderer. The wiring is pinned here, the mapping at the helper.
+    expect(SRC).toContain('const state = chip ? chip.state : c.state')
     // ⚖ FIX ROUND 2 (G1, 2026-09-09) — the class composition was LIFTED out of the
     // JSX into `railChipClass` (today-interactions.ts), because the breaker
     // swapped the ⇄ mark's two palettes inside the template literal and all
     // 10,687 tests stayed green. The wiring is pinned here, the mapping itself is
     // unit-pinned at the helper (today-rail-halfhour.test.ts §G1).
-    expect(SRC).toContain("inert: v?.kind === 'blocked',")
+    // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-2 — ⚖ 52 unchanged, read off the
+    // DROP's own answer: `chip.state` is `blocked` exactly where the release
+    // would refuse. With nothing to shuffle it IS `v.kind`, which is every chip
+    // on the board today.
+    expect(SRC).toContain("inert: chip?.state === 'blocked',")
     // Release: only `blocked` is inert, so this landing STAGES — and the
     // explain popover is the blocked branch's, unchanged. (⚖ flag 57: the
     // branch's ⚖47 restore is gone; it was a no-op write and it was the
@@ -7241,7 +7302,11 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     // BEFORE this change's own companions were moved; `solveLanes` is the single
     // place that answers which board that is, and it is still the ref.
     const solve = SRC.slice(SRC.indexOf('function solveBed('), SRC.indexOf('function solveLanes('))
-    expect(solve).toContain('const solved = allocateBed(board, {')
+    // ⚖ LIVE-WHILE-DRAGGING §6 — and it goes through the GESTURE's own memo, so
+    // the room this stages is the very entry the cursor's word and the chip's
+    // mark were read out of rather than a second search of one question. With no
+    // gesture memo it is the import, byte for byte.
+    expect(solve).toContain('const solved = (gestureMemoRef.current?.allocate ?? allocateBed)(board, {')
     expect(solve).not.toContain('allocateBed(boardLanes,')
     const which = SRC.slice(SRC.indexOf('function solveLanes('), SRC.indexOf('\n  }', SRC.indexOf('function solveLanes(')))
     expect(which).toContain('lanesWithCompanionsRestored(boardLanesRef.current, pending.companions, hours, props.bedCleanupMinutes)')

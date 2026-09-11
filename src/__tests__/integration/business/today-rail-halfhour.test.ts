@@ -53,7 +53,11 @@ import {
   applyMoves,
   companionLines,
   companionsFor,
+  cursorWord,
   explainRails,
+  gestureAllocator,
+  handRowStamp,
+  liveChipFace,
   gapLayerFor,
   gapPackingDials,
   guardRailsFor,
@@ -948,6 +952,369 @@ describe('§BEHAVIOURAL — the packing search never runs per frame', () => {
     const spy = counting()
     explainWith(REAL.lanes, spy.allocate)
     expect(spy.packs()).toHaveLength(0)
+  })
+})
+
+// ── §BEHAVIOURAL (v) — WHAT A LIVE DRAG ASKS, COUNTED, NOW THAT IT PACKS ────
+//
+// ⚖ LIVE-WHILE-DRAGGING (2026-09-11). Clauses (i)–(iv) above answer for a board
+// whose strip does NOT pack per frame. This one answers for the board that does:
+// while an unstaged card is in hand the strip and the cursor ask the DROP's own
+// question on every frame, and what makes that affordable is that one gesture's
+// answers are one small set. So the fence here is not 「zero packs」 any more —
+// it is 「one search per distinct question, and the drop pays none of them
+// twice」, which is a thing only a counting allocator can say.
+//
+// It drives the REAL functions: `applyMoves` builds each frame's board exactly
+// as the screen does (both copies at the live span), `gestureAllocator` is the
+// product's, and every ask goes through `landingVerdict`'s own seam.
+//
+// ⚠ THE MUTANT (i) AND (ii) CANNOT SEE, named here because clause (b) is what
+// catches it: moving `boardLanesRef.current = boardLanes` out of the render body
+// and into an effect leaves the ref one frame stale, so every chip fails the
+// memo's board-family gate and passes straight through. Every ANSWER stays
+// correct and only the COST changes — a grep and a green battery are both blind
+// to it, and 「a second sweep of the same lattice asks the allocator nothing」
+// goes red on it immediately.
+//
+// ⚠ THE ORDER AT THE DROP, assumed and stated: `applyDragFrame` calls `setLive`
+// before `paintProxyVerdict`, and React 18 flushes the batched state only after
+// the rAF callback returns — so the aimed chip's slot is always written before
+// the render that reads it. `clearDrag()` runs before the release's own verdict
+// for the same reason. If a render ever did flush between the two, the hand-row
+// stamp is the guard: the board it would re-derive is the board the memo keys on.
+
+/** The screen's own live chain for ONE ordinary staff-row move (G1), rebuilt
+ *  from the props. Every ask it makes is counted, and the allocator the memo
+ *  falls back to is the spy, so 「how many searches did this frame pay?」 is a
+ *  number rather than an argument. */
+function liveRig(rest: BoardLane[], hand: { id: string; bed: string }) {
+  const asks: Array<{ lanes: BoardLane[]; opts: Ask }> = []
+  const base: typeof allocateBed = (lanes, opts) => {
+    asks.push({ lanes, opts })
+    return allocateBed(lanes, opts)
+  }
+  let boardLanes = rest
+  let cleanup = REAL.bedCleanupMinutes
+  // THE SCREEN'S OWN WORLD STAMP, modelled rather than faked: `useMemo` hands
+  // back the SAME object until one of its dependencies changes identity, so the
+  // three mid-gesture disturbances below reach the memo exactly the way they
+  // reach it on the board — through the dep list, which is pinned by exact text
+  // in today-bed-packing §B.
+  let placedLanes: unknown = rest
+  let pending: unknown = null
+  // The four the screen also lists and this rig never moves — they are in the
+  // tuple so the dep list under test is the SCREEN's, not a shortened copy.
+  const parked: unknown[] = []
+  const addedHere: unknown[] = []
+  const moves: object = {}
+  const bedMoves: object = {}
+  let depsAt: unknown[] = []
+  let stamp: object = {}
+  const world = () => {
+    const deps = [placedLanes, parked, addedHere, moves, bedMoves, pending, REAL.hours, REAL.sell.nowMinute, cleanup]
+    if (deps.some((d, i) => d !== depsAt[i]) || deps.length !== depsAt.length) {
+      depsAt = deps
+      stamp = {}
+    }
+    return stamp
+  }
+  const memo = gestureAllocator({
+    handId: hand.id,
+    stamp: world,
+    board: () => boardLanes,
+    rowStamp: () => handRowStamp(boardLanes, hand.id, hand.bed),
+    base,
+  })
+  const dur = REAL.guard.standardSessionMin
+  /** One pointer frame: the hand's card written onto BOTH rows at the live span,
+   *  exactly as `liveMoves`/`liveBedMoves` do it (TodayScreen :1279-1290). */
+  const frameAt = (laneKey: string, start: number) => {
+    const span = place(start, start + dur, REAL.hours)
+    boardLanes = applyMoves(
+      rest,
+      { [hand.id]: { laneKey, ...span } },
+      [],
+      [],
+      REAL.hours,
+      { [hand.id]: { laneKey: hand.bed, ...span } },
+      cleanup,
+    )
+    return span
+  }
+  /** `TodayScreen.verdictFor` — the board's own inputs to `landingVerdict`, with
+   *  the gesture's memo on the question every consumer already builds. */
+  const verdictFor = (laneKey: string | null, start: number, cell: RailCell | null, pack: boolean, lanes = boardLanes) =>
+    landingVerdict(
+      lanes,
+      {
+        staffLane: laneKey,
+        bedLane: hand.bed,
+        solveRoom: true,
+        id: hand.id,
+        requiresPrivate: false,
+        foreignRefusal: null,
+        hasPrice: true,
+        start,
+        end: start + dur,
+        span: place(start, start + dur, REAL.hours),
+        locked: [],
+        minutesOf: (x: number) => minuteOf(x, REAL.hours),
+        stagedId: null,
+        now: REAL.sell.nowMinute,
+        cleanupMinutesByBed: cleanup,
+        pack,
+        allocate: memo.allocate,
+      },
+      cell,
+    )
+  /** `verdictAtLanding` — the gesture END, whole: the solve, and the guard's
+   *  re-read on the board the shuffle would leave. */
+  const dropAt = (laneKey: string, start: number) => {
+    const v = verdictFor(laneKey, start, cellAt(boardLanes, laneKey, start, hand.id), true)
+    if (v.reseats.length === 0) return v
+    const shuffled = applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), REAL.hours, cleanup)
+    return { ...verdictFor(laneKey, start, cellAt(shuffled, laneKey, start, hand.id), true, shuffled), reseats: v.reseats }
+  }
+  /** `solveBed` — the second door, which STAGES the answer. */
+  const solveBed = (laneKey: string, start: number) =>
+    memo.allocate(boardLanes, {
+      id: hand.id,
+      currentBed: hand.bed,
+      stores: boardLanes.find((l) => l.key === laneKey)?.stores ?? null,
+      requiresPrivate: false,
+      start,
+      end: start + dur,
+      stagedId: null,
+      pack: true,
+      now: REAL.sell.nowMinute,
+      cleanupMinutesByBed: cleanup,
+    })
+  return {
+    memo,
+    dur,
+    frameAt,
+    verdictFor,
+    dropAt,
+    solveBed,
+    board: () => boardLanes,
+    /** Packing searches this frame's board actually paid — asks that reached the
+     *  allocator itself, on THIS board family. A re-judge on a shuffled board is
+     *  a different family by design and is counted separately where it matters. */
+    packsOn: (lanes: BoardLane[]) => asks.filter((a) => a.opts.pack === true && a.lanes === lanes).length,
+    packs: () => asks.filter((a) => a.opts.pack === true).length,
+    reset: () => { asks.length = 0 },
+    /** The operator stages or confirms a card mid-gesture. */
+    changePending: () => { pending = { id: 'somebody' } },
+    /** A server refresh hands the board a new `placedLanes` identity. */
+    refreshServer: () => { placedLanes = [...(placedLanes as unknown[])] },
+    /** A room's turnaround changes under the card. */
+    changeCleanup: (next: Record<string, number>) => { cleanup = next },
+  }
+}
+
+/** The guard's cell for one chip, the way `verdictAt` builds it. */
+function cellAt(lanes: BoardLane[], laneKey: string, start: number, excludeId: string | null): RailCell | null {
+  return railsOnFor(lanes, excludeId).find((r) => r.laneKey === laneKey)?.cells.find((c) => c.start === start) ?? null
+}
+
+/** `railsOn` with a hand lifted out — the strip's own input mid-drag. */
+function railsOnFor(lanes: BoardLane[], excludeId: string | null): GuardRail[] {
+  const views = bedViewsFor(lanes, DAY_FRAME(), excludeId)
+  return guardRailsFor(lanes, {
+    open: REAL.hours.open,
+    close: REAL.hours.close,
+    stepMin: 30,
+    dur: REAL.guard.standardSessionMin,
+    protectedDur: REAL.guard.protectedDurationMin,
+    nowMinute: REAL.sell.nowMinute,
+    locked: [],
+    guard: REAL.guard.config,
+    excludeId,
+    placementFeasible: bedDoor(views, lanes, excludeId),
+    protectedWindowFeasible: bedDoor(views, lanes, null),
+    resting: null,
+  })
+}
+
+describe('§BEHAVIOURAL (v) — a live drag pays for each question ONCE, and the drop pays for none', () => {
+  const HAND = { id: 'apt-22', bed: 'bed-02' }
+  const LATTICE = () => {
+    const out: number[] = []
+    for (let s = REAL.hours.open; s + REAL.guard.standardSessionMin <= REAL.hours.close; s += 30) out.push(s)
+    return out
+  }
+
+  /** One sweep of every chip on every strip, at one pointer frame. */
+  function sweep(rig: ReturnType<typeof liveRig>, laneKeys: string[], starts: number[]) {
+    for (const lk of laneKeys) {
+      const rails = railsOnFor(rig.board(), HAND.id)
+      const rail = rails.find((r) => r.laneKey === lk)
+      if (!rail) continue
+      for (const s of starts) {
+        rig.verdictFor(lk, s, rail.cells.find((c) => c.start === s) ?? null, true)
+      }
+    }
+  }
+
+  const staffKeys = () => REAL.lanes.filter((l) => l.group === 'staff').map((l) => l.key)
+
+  it('(a)+(b) thirty frames sweeping the lattice pay one search per QUESTION; a second sweep pays none', () => {
+    const rig = liveRig(sceneC(), HAND)
+    const starts = LATTICE()
+    const keys = staffKeys()
+    // Frame 1 — the pick-up burst. Every distinct question is searched once and
+    // never again, however many lanes ask it: the answer depends on the staff
+    // lane only through its store.
+    rig.frameAt(keys[0], 840)
+    const board1 = rig.board()
+    sweep(rig, keys, starts)
+    const firstBurst = rig.packsOn(board1)
+    expect(firstBurst).toBeGreaterThan(0)
+    // ONE SEARCH PER ENTRY, and the entries are the QUESTIONS: a lattice start
+    // times a store binding. `allocateBed`'s answer depends on the staff lane
+    // only through `stores`, so six lanes asking the same start on one binding
+    // are one question — which is the whole design in one number. On this day
+    // that is 17 starts across the bindings the roster actually has.
+    const bindings = new Set(REAL.lanes.filter((l) => l.group === 'staff').map((l) => JSON.stringify(l.stores))).size
+    expect({ burst: firstBurst, entries: rig.memo.size() }).toEqual({ burst: rig.memo.size(), entries: rig.memo.size() })
+    expect(firstBurst).toBeLessThanOrEqual(starts.length * bindings)
+    // …against the chips that asked, which is the ratio the round is built on.
+    expect(firstBurst).toBeLessThan(starts.length * keys.length)
+    // …and the lanes that share a binding were already being served out of it
+    // inside this very first sweep.
+    expect(rig.memo.hits()).toBeGreaterThan(0)
+
+    // Frames 2-30 — the card travels. Nothing about the board MINUS the hand
+    // changed, so the same lattice is answered without one more search.
+    rig.reset()
+    for (let f = 1; f < 30; f += 1) {
+      rig.frameAt(keys[f % keys.length], 840 + 5 * (f % 12))
+      sweep(rig, keys, starts)
+    }
+    expect({ frames: 29, searches: rig.packs() }).toEqual({ frames: 29, searches: 0 })
+    expect({ passes: rig.memo.passes(), rowClears: rig.memo.rowClears() }).toEqual({ passes: 0, rowClears: 0 })
+    // Over the whole gesture the answers are overwhelmingly served, not searched
+    // — which is the sentence the round's cost rests on.
+    expect(rig.memo.hits()).toBeGreaterThan(rig.memo.misses() * 10)
+  })
+
+  it('(c) the DROP at a start the strip already answered pays nothing — same key, same board, same object', () => {
+    const rig = liveRig(sceneC(), HAND)
+    const keys = staffKeys()
+    rig.frameAt(keys[0], 840)
+    sweep(rig, keys, LATTICE())
+    rig.reset()
+    const board = rig.board()
+    const v = rig.dropAt(keys[0], 840)
+    // Zero fresh searches on the board the release is judged against. A landing
+    // that carries companions also re-reads the guard on the board the shuffle
+    // would leave — a DIFFERENT board family, which the gate sends to its own
+    // deterministic search on purpose; it is not on this board's bill.
+    expect({ onThisBoard: rig.packsOn(board), kind: typeof v.kind }).toEqual({ onThisBoard: 0, kind: 'string' })
+  })
+
+  it('(d) `solveBed`’s own ask is the SAME ENTRY the cursor read — object identity, not a re-derivation', () => {
+    const rig = liveRig(sceneC(), HAND)
+    const keys = staffKeys()
+    rig.frameAt(keys[0], 840)
+    const first = rig.solveBed(keys[0], 840)
+    rig.reset()
+    const again = rig.solveBed(keys[0], 840)
+    expect({ searches: rig.packs(), same: again === first, frozen: Object.isFrozen(first) })
+      .toEqual({ searches: 0, same: true, frozen: true })
+  })
+
+  it('(e)+(f) the BOOK and the RAILS never reach the gesture’s allocator at all', () => {
+    const rig = liveRig(sceneC(), HAND)
+    rig.frameAt(staffKeys()[0], 840)
+    // The frame's own book and its four-door strip, built exactly as the screen
+    // builds them. Neither is handed the memo and neither may find it: the book
+    // imports `allocateBed` directly (R9) and the rails are handed doors.
+    bedViewsFor(rig.board(), DAY_FRAME(), HAND.id)
+    railsOnFor(rig.board(), HAND.id)
+    expect({ hits: rig.memo.hits(), misses: rig.memo.misses(), passes: rig.memo.passes(), searches: rig.packs() })
+      .toEqual({ hits: 0, misses: 0, passes: 0, searches: 0 })
+  })
+
+  it('(g) the world moving under the card MISSES the memo — three ways it can', () => {
+    // ⚖ AUDIT A5. The memo's contract is that the screen owns invalidation, so
+    // the three things that can genuinely change mid-gesture each have to empty
+    // it: a card staged or confirmed, a server refresh, and a room's turnaround.
+    for (const [name, disturb] of [
+      ['the operator stages a card (`pending`)', (r: ReturnType<typeof liveRig>) => r.changePending()],
+      ['a server refresh (`placedLanes` identity)', (r: ReturnType<typeof liveRig>) => r.refreshServer()],
+      ['a room’s turnaround (`bedCleanupMinutes`)', (r: ReturnType<typeof liveRig>) => r.changeCleanup({ ...REAL.bedCleanupMinutes, 'bed-01': 45 })],
+    ] as const) {
+      const rig = liveRig(sceneC(), HAND)
+      const keys = staffKeys()
+      rig.frameAt(keys[0], 840)
+      rig.verdictFor(keys[0], 840, null, true)
+      rig.reset()
+      rig.verdictFor(keys[0], 840, null, true)
+      expect({ name, beforeDisturbance: rig.packs() }).toEqual({ name, beforeDisturbance: 0 })
+      disturb(rig)
+      rig.frameAt(keys[0], 840)
+      rig.verdictFor(keys[0], 840, null, true)
+      expect({ name, afterDisturbance: rig.packs() }).toEqual({ name, afterDisturbance: 1 })
+      expect({ name, entries: rig.memo.size() }).toEqual({ name, entries: 1 })
+    }
+    // …and the hand's OWN room row is the third: a tail that clips or re-grows
+    // under the card changes what `allocateBed`'s step-0 arm sees, which is the
+    // defect M1b exists for. The stamp says so on its own counter.
+    const rig = liveRig(sceneC(), HAND)
+    const rows = [
+      handRowStamp(rig.board(), HAND.id, HAND.bed),
+      (rig.frameAt(staffKeys()[0], 840), handRowStamp(rig.board(), HAND.id, HAND.bed)),
+    ]
+    expect(rows.every((r) => typeof r === 'string')).toBe(true)
+  })
+
+  it('(h) ⚖ AUDIT A1 — the chip under the cursor, the badge and the release are ONE answer', () => {
+    // The chips sit on the 30-minute lattice and the card does not, so the two
+    // are asking about two starts. Both answers are exact; the identity the round
+    // must hold is that the chip shows ITS OWN start's drop answer and the badge
+    // shows the landing's, and that on an ON-LATTICE frame — where the two
+    // questions coincide — they are the same answer, written once.
+    const rig = liveRig(sceneC(), HAND)
+    const keys = staffKeys()
+    const starts = LATTICE()
+    rig.frameAt(keys[0], starts[0])
+    sweep(rig, keys, starts)
+
+    let checked = 0
+    // ⚖ ADJUDICATION L2 M-1 — three booking lattices, because `bookingStepMin` is
+    // a live dial and the 30-minute chip lattice is not the one the card snaps to.
+    for (const step of [5, 15, 30]) {
+      for (const lk of keys) {
+        for (const s of starts) {
+          for (const off of [0, step]) {
+            const live = s + off
+            if (live + rig.dur > REAL.hours.close) continue
+            rig.frameAt(lk, live)
+            const chipStart = Math.floor(live / 30) * 30
+            const badge = rig.dropAt(lk, live)
+            const chipDrop = rig.dropAt(lk, chipStart)
+            const chipV = rig.verdictFor(lk, chipStart, cellAt(rig.board(), lk, chipStart, HAND.id), true)
+            const face = liveChipFace({ v: chipV, final: chipDrop, start: chipStart })
+            // The chip's face is the drop's answer AT THE CHIP'S OWN START…
+            expect({ at: `${lk}@${chipStart}`, blocked: face.state === 'blocked' })
+              .toEqual({ at: `${lk}@${chipStart}`, blocked: chipDrop.kind === 'blocked' })
+            expect({ at: `${lk}@${chipStart}`, mark: face.mark != null })
+              .toEqual({ at: `${lk}@${chipStart}`, mark: chipDrop.kind !== 'blocked' && chipV.reseats.length > 0 })
+            // …and the badge is the drop's answer at the LANDING, said in words.
+            expect({ at: `${lk}@${live}`, word: cursorWord(badge).kind })
+              .toEqual({ at: `${lk}@${live}`, word: cursorWord(rig.dropAt(lk, live)).kind })
+            // …and where the two coincide they are literally one answer.
+            if (live === chipStart) {
+              expect({ at: `${lk}@${live}`, same: badge.kind }).toEqual({ at: `${lk}@${live}`, same: chipDrop.kind })
+            }
+            checked += 1
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0)
   })
 })
 

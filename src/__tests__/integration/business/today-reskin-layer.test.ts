@@ -350,7 +350,11 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
     // swapped the ⇄ mark's two palettes inside the template literal and all
     // 10,687 tests stayed green. The wiring is pinned here, the mapping itself is
     // unit-pinned at the helper (today-rail-halfhour.test.ts §G1).
-    expect(SRC).toContain("inert: v?.kind === 'blocked',")
+    // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-2 — same wiring, read off the
+    // DROP's own answer (`liveChipFace`'s `state`), so a chip whose shuffle the
+    // release would refuse still goes red. With nothing to shuffle it is exactly
+    // `v.kind`, which is every chip today.
+    expect(SRC).toContain("inert: chip?.state === 'blocked',")
     after(
       '.biz .page-today .guard-rail-cell.blocked.inert {',
       '.biz .page-today .guard-rail-cell.blocked {',

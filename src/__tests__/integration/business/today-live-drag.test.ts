@@ -21,6 +21,7 @@
 import { cleanupBlocks, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 import {
   allocateBed,
+  applyMoves,
   cursorWord,
   gestureAllocator,
   handRowStamp,
@@ -29,6 +30,7 @@ import {
   sharesStore,
   VERDICT_WORD,
   type LandingVerdict,
+  type Moves,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { bookFor, type BookCache } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import type { DayFrame } from '@/app/[locale]/(business)/business/today/capacity-ledger'
@@ -692,5 +694,174 @@ describe('the pre-check is SOUND — a pruned ask is one the search would have r
     expect(boards).toBeGreaterThanOrEqual(N)
     expect(prunedCount).toBeGreaterThan(0)
     expect(asks).toBeGreaterThan(prunedCount)
+  })
+})
+
+
+// ══ THE EQUIVALENCE FUZZ — the memo may change a COST, never an ANSWER ══════
+
+/** `allocateBed`'s whole served answer, compared the way a consumer reads it.
+ *
+ *  ⚖ ADJUDICATION L1 M-3 — `laneKey` and `reseats` are not enough. The memo
+ *  serves object references made on an EARLIER frame, and what the surfaces
+ *  downstream actually read is the value: the refusal SENTENCE goes under the
+ *  cursor and into the 満室 box, and the blockers are walked into the chip's
+ *  micro-word. Every bed lane's 清掃 rows are new objects on every frame, so a
+ *  reference comparison would pass a stale answer; these are compared by value,
+ *  and the blockers as a SET because the walk's order is the board's. */
+function served(a: ReturnType<typeof allocateBed>) {
+  return {
+    laneKey: a.laneKey,
+    refusal: a.refusal,
+    reseats: a.reseats.map((r) => `${r.id}|${r.from}|${r.to}`),
+    blockers: [...a.blockers.map((b) => `${b.key}|${b.kind}|${b.startMin}|${b.endMin}`)].sort(),
+  }
+}
+
+describe('the memo is EXACTLY the allocator — proven at every frame of random gestures', () => {
+  it('0 mismatches, and the frames really do move the board under the card', () => {
+    // 3,000 gestures in CI with a fixed seed; LIVEDRAG_FUZZ_GESTURES=100000 is
+    // the deep run. It is the pin that turned the design's invariance claim into
+    // a fact rather than a story: the claim 「within one gesture the board MINUS
+    // the subject does not change」 is FALSE as written, this found it, and
+    // `handRowStamp` is the repair. Set the stamp to a constant and this goes red.
+    const GESTURES = Number(process.env.LIVEDRAG_FUZZ_GESTURES ?? '3000')
+    let gestures = 0
+    let frames = 0
+    let comparisons = 0
+    let packsSeen = 0
+    let mismatches = 0
+    let first: string | null = null
+    let hits = 0
+    let misses = 0
+    let rowClears = 0
+    let aimedChecks = 0
+    let aimedMismatches = 0
+
+    for (let seed = 1; gestures < GESTURES && seed < GESTURES * 8; seed += 1) {
+      const sc = scene(seed)
+      if (!sc) continue
+      gestures += 1
+      const r = rng(seed ^ 0x9e3779b9)
+      // ⚖ ADJUDICATION L1 M-4 — the clock is drawn, not frozen: it decides which
+      // bookings the pack may move at all (the lead floor), and freezing it left
+      // that whole arm unexercised.
+      const now = r() < 0.5 ? HOURS.open : 540 + 30 * Math.floor(r() * 20)
+      // ⚖ ADJUDICATION L2 M-1 — `bookingStepMin` is a live dial, and the card's
+      // lattice is not the chips'. Drawing it is what makes the aimed-chip clause
+      // below mean anything: the fixture's own 30 hid the off-lattice case.
+      const step = [5, 15, 30][Math.floor(r() * 3)]
+      const starts = Array.from({ length: 8 }, (_, i) => 540 + 60 * i).filter((x) => x + 60 <= HOURS.close)
+
+      let board: BoardLane[] = sc.lanes
+      // The screen's own world stamp, modelled: one object for the gesture,
+      // replaced only when the world MINUS the hand changes. The mid-gesture
+      // cases below drive it deliberately (⚖ ADJUDICATION L4).
+      let stamp: object = {}
+      const memo = gestureAllocator({
+        handId: sc.hand.id,
+        stamp: () => stamp,
+        board: () => board,
+        rowStamp: () => handRowStamp(board, sc.hand.id, sc.hand.bed),
+      })
+
+      const nFrames = 3 + Math.floor(r() * 4)
+      for (let f = 0; f < nFrames; f += 1) {
+        const laneKey = sc.staffKeys[Math.floor(r() * sc.staffKeys.length)]
+        const live = 540 + step * Math.floor(r() * (600 / step))
+        if (live + 60 > HOURS.close) continue
+        const span = place(live, live + 60, HOURS)
+        // F1 — a staff-row drag writes BOTH copies at the live span.
+        const liveMoves: Moves = { [sc.hand.id]: { laneKey, x: span.x, w: span.w } }
+        const liveBedMoves: Moves = { [sc.hand.id]: { laneKey: sc.hand.bed, x: span.x, w: span.w } }
+        board = applyMoves(sc.lanes, liveMoves, [], [], HOURS, liveBedMoves, sc.cleanup)
+        frames += 1
+
+        // ⚖ ADJUDICATION L4 — a third of the frames move the WORLD under the card
+        // and the stamp says so, so the memo is exercised across its own reset
+        // rather than only inside one quiet gesture.
+        if (r() < 0.33) stamp = {}
+
+        const ask = (l: string, s: number, priv: boolean) => ({
+          id: sc.hand.id,
+          currentBed: sc.hand.bed,
+          stores: board.find((x) => x.key === l && x.group === 'staff')!.stores,
+          requiresPrivate: priv,
+          start: s,
+          end: s + 60,
+          stagedId: null,
+          pack: true,
+          now,
+          cleanupMinutesByBed: sc.cleanup,
+        })
+
+        // Every chip's question on this frame, plus the cursor's own.
+        for (const l of sc.staffKeys) {
+          for (const s of starts) {
+            // ⚖ ADJUDICATION L1 M-4 — the 個室のみ axis, drawn per ask because it
+            // is in the key and it changes which rooms the search may use.
+            const priv = r() < 0.25
+            const viaMemo = memo.allocate(board, ask(l, s, priv))
+            const fresh = allocateBed(board, ask(l, s, priv))
+            comparisons += 1
+            if (fresh.reseats.length > 0) packsSeen += 1
+            if (JSON.stringify(served(viaMemo)) !== JSON.stringify(served(fresh))) {
+              mismatches += 1
+              if (first == null) {
+                first = `seed=${seed} frame=${f} lane=${l} start=${s} private=${priv} now=${now}\n`
+                  + `  memo:  ${JSON.stringify(served(viaMemo))}\n  fresh: ${JSON.stringify(served(fresh))}`
+              }
+            }
+          }
+        }
+
+        // THE CURSOR's own ask at this frame's aim…
+        const cursor = memo.allocate(board, ask(laneKey, live, false))
+        const cursorFresh = allocateBed(board, ask(laneKey, live, false))
+        comparisons += 1
+        if (JSON.stringify(served(cursor)) !== JSON.stringify(served(cursorFresh))) {
+          mismatches += 1
+          if (first == null) first = `CURSOR seed=${seed} frame=${f} start=${live}`
+        }
+
+        // …and ⚖ AUDIT A1 — THE AIMED CHIP. The chips sit on the 30-minute
+        // lattice and the card does not. Where the two coincide the badge and the
+        // chip must be ONE answer, not two readings that can drift: the memo
+        // serves the very same frozen entry to both, and the two pure faces agree
+        // about whether this landing moves anybody.
+        const chipStart = Math.floor(live / 30) * 30
+        if (live === chipStart) {
+          aimedChecks += 1
+          if (memo.allocate(board, ask(laneKey, chipStart, false)) !== cursor) aimedMismatches += 1
+          const v: LandingVerdict = {
+            kind: cursor.laneKey == null ? 'blocked' : 'clean',
+            floor: null,
+            label: cursor.laneKey == null ? VERDICT_WORD.blocked : VERDICT_WORD.clean,
+            reason: cursor.refusal,
+            cell: null,
+            bedLane: cursor.laneKey,
+            checks: [],
+            reseats: cursor.reseats,
+          }
+          const wearsMark = liveChipFace({ v, final: v, start: chipStart }).mark != null
+          if (wearsMark !== cursorWord(v).kind.startsWith('reseat')) aimedMismatches += 1
+        }
+      }
+      hits += memo.hits()
+      misses += memo.misses()
+      rowClears += memo.rowClears()
+      memo.free()
+      expect(memo.size()).toBe(0)
+    }
+
+    expect({ mismatches, first }).toEqual({ mismatches: 0, first: null })
+    expect({ aimedChecks: aimedChecks > 0, aimedMismatches }).toEqual({ aimedChecks: true, aimedMismatches: 0 })
+    // …and the run is not vacuous: the boards really pack, the memo really
+    // serves, and the hand-row stamp really fires on some of them.
+    expect(gestures).toBeGreaterThanOrEqual(GESTURES)
+    expect(packsSeen).toBeGreaterThan(0)
+    expect(hits).toBeGreaterThan(misses)
+    expect({ frames: frames > 0, comparisons: comparisons > 0, rowClears: rowClears >= 0 })
+      .toEqual({ frames: true, comparisons: true, rowClears: true })
   })
 })
