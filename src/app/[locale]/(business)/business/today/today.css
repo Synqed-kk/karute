@@ -544,11 +544,25 @@
 .biz .proxy-verdict[data-verdict="caution"] { display: block; }
 .biz .proxy-verdict[data-verdict="blocked"] { border: 1px dashed var(--red); background: var(--red-soft); color: var(--red-dark); }
 .biz .proxy-verdict[data-verdict="caution"] { border: 1px dotted var(--guard-dark); background: var(--guard-soft); color: var(--guard-dark); }
+/* ⚖ LIVE-WHILE-DRAGGING §5a — THE TWO LANDINGS THAT MOVE OTHER CUSTOMERS. No
+   new colour: the badge borrows the very palettes the ⇄ chip on the strip
+   already wears — `.guard-rail-cell.guard-slot`'s purple for a clean swap and
+   `.degraded`'s amber for a costly one (Liam: 「色の意味は ✓／△ と同じ」) — and
+   the EDGE is dashed for `.guard-rail-cell.reseat`'s own reason: the fit is
+   conditional on the board rearranging itself. */
+.biz .proxy-verdict[data-verdict="reseat"],
+.biz .proxy-verdict[data-verdict="reseat-caution"] { display: block; }
+.biz .proxy-verdict[data-verdict="reseat"] { border: 1px dashed #7656a8; background: var(--guard-soft); color: var(--guard-dark); }
+.biz .proxy-verdict[data-verdict="reseat-caution"] { border: 1px dashed #cf8427; background: #fff0d9; color: #8b4e06; }
 /* THE BOX GOES RED — canon's `.guard-ghost.refused` on the whole footprint,
    `.snap-degraded`'s dashed edge on the costly one. `!important` only where the
    `.event ${state}` classes already own the same property two classes deep. */
 .biz .drag-proxy[data-verdict="blocked"] { outline: 2px dashed var(--red); outline-offset: -1px; background: var(--red-soft) !important; }
 .biz .drag-proxy[data-verdict="caution"] { outline: 2px dotted var(--guard-dark); outline-offset: -1px; }
+/* ⇄ says the COST and the guard's word says the RANK, so the CARD keeps exactly
+   the treatment its rank already earned: a costly landing is still dotted, and a
+   clean one — even one that moves somebody — still paints nothing at all. */
+.biz .drag-proxy[data-verdict="reseat-caution"] { outline: 2px dotted var(--guard-dark); outline-offset: -1px; }
 
 /* ── 仮置きエリア (canon :1493–1507) ──────────────────────────────────────
    The WHOLE bar is the drop zone, so the whole bar is drawn as the receptacle;
