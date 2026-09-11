@@ -454,6 +454,134 @@ export function guardCheckRowBesideOffer(cell: RailCell | null): { label: string
 
 // ── E8 · the month calendar's day cells ────────────────────────────────────
 
+/** 「残りわずか」 の境目 — 空きがこの数以下の日は緑ではなく橙で塗る。
+ *
+ *  ⚖ MISTAKE-PROOFING (Liam 2026-08-21) — this is a DEFAULT, not a rule about
+ *  anyone's business: how few is 「わずか」 is the manager's judgement, so it
+ *  becomes a store setting with this as its default and a guardrail, never a
+ *  per-業種 hardcode. Until then it has exactly one home, so the cell paint,
+ *  the legend sentence and the tests can never quote different numbers. */
+export const CALENDAR_TIGHT_MAX = 2
+
+export interface CalendarCellFace {
+  tone: 'unknown' | 'past' | 'closed' | 'full' | 'tight' | 'open'
+  className: string
+  small: string | null
+  aria: string
+}
+
+/** One cell's day. A COVERED day is a row of page.tsx's `calendar` array; an
+ *  UNCOVERED one is a date the read window never reached — the grid still draws
+ *  it, because a month with holes in it is a lie about the month. */
+export type CalendarCellDay =
+  | { m: number; d: number; offset: number; closed: boolean; free: number; covered?: true }
+  | { m: number; d: number; covered: false }
+
+/** ONE day cell's whole face — the paint, the word under the date, and the
+ *  sentence a screen reader says — from the day record page.tsx already builds.
+ *
+ *  It is one function because these three used to be three separate ternaries
+ *  over the same three fields, inline in the JSX, and they disagreed: a day
+ *  that is already over still advertised 「空き6」 and still said 「空き枠6件」
+ *  out loud, for a day nobody can book. PAST WINS for that reason — the paint
+ *  stays (a past 満 is still grey, a past 定休 still closed-grey) but the count
+ *  and its sentence are gone, and `.dim` says the day is behind us.
+ *
+ *  `.cur` and `.today` are deliberately NOT here: they say where the board is
+ *  standing, not what the day is, so the JSX keeps them. */
+export function calendarCellFace(
+  day: CalendarCellDay,
+  tightMax: number = CALENDAR_TIGHT_MAX,
+): CalendarCellFace {
+  const date = `${day.m}月${day.d}日`
+  // ⚖ ADDENDUM V2 — A DAY WITH NO DATA SAYS SO. The read window is ±45 days
+  // (page.tsx's WINDOW), so paging ‹ › to the far edge reaches dates the server
+  // never sent. Drawing those as 満 would be a count nobody computed, and
+  // dropping them would print a September that ends on the 22nd. They render
+  // as a dated blank the operator cannot press.
+  if (day.covered === false) return { tone: 'unknown', className: 'cal-cell unknown', small: null, aria: `${date}、表示範囲外` }
+  // 定休日 is read before the count, not after it. page.tsx already forces
+  // `free` to 0 on a closed day (「a closed day showing free slots is the
+  // impossible state」), and this order means the cell still reads 定休 rather
+  // than 満 if that ever stops being true upstream.
+  const paint = day.closed ? 'closedday' : day.free === 0 ? 'full' : day.free <= tightMax ? 'tight' : 'open'
+  if (day.offset < 0) return { tone: 'past', className: `cal-cell ${paint} dim`, small: null, aria: date }
+  if (paint === 'closedday') return { tone: 'closed', className: 'cal-cell closedday', small: '定休', aria: `${date}、定休日` }
+  if (paint === 'full') return { tone: 'full', className: 'cal-cell full', small: '満', aria: `${date}、空きなし` }
+  return { tone: paint, className: `cal-cell ${paint}`, small: `空き${day.free}`, aria: `${date}、空き枠${day.free}件` }
+}
+
+/** ⚖ F6 — a Map, not an object literal: `e.key` is a string the USER supplies,
+ *  and an object is indexed by its PROTOTYPE too. 「constructor」 is a real key
+ *  press to reach (any key whose name happens to collide), and it handed back a
+ *  function, which `current + step` then turned into a string index. A Map has
+ *  no inherited keys, so 「not one of ours」 is the only other answer. */
+const CALENDAR_STEP = new Map<string, number>([
+  ['ArrowLeft', -1],
+  ['ArrowRight', 1],
+  ['ArrowUp', -7],
+  ['ArrowDown', 7],
+])
+
+/** Arrow keys inside the month grid: ←/→ one day, ↑/↓ one week, Home/End the
+ *  shown month's first/last cell. `null` means 「not ours」 — either the key is
+ *  another key, or the move would walk off the month — and the caller then does
+ *  nothing at all, so the key keeps whatever the browser already does with it
+ *  (Enter and Space are the link's own navigation; Tab still leaves the grid).
+ *
+ *  ⚖ FIX (Greptile, #891) — the grid is NOT all links. A 表示範囲外 day is a
+ *  <span> with nothing to press, and the handler used to collect only the
+ *  anchors, so an unknown day sitting between two covered ones simply was not
+ *  there: ←/→ skipped TWO dates in one press, and ↑/↓ landed a column off for
+ *  the rest of the month. So the indices here are EVERY drawn day cell in grid
+ *  order, links and unknown spans alike, and `focusable` says which of them can
+ *  actually take focus — `focusable.length` IS the count, so the two can never
+ *  disagree about how long the month is.
+ *
+ *  The two directions answer differently on purpose:
+ *  ←/→ read 「the next day I can open」, so they walk PAST the unknown ones;
+ *  ↑/↓ read 「this weekday, a week away」, which is ONE exact cell. Sliding off
+ *  it to find something pressable would quietly move the operator into another
+ *  weekday column, so an unknown cell there is 「no move」 instead. */
+export function nextCalendarIndex(
+  current: number,
+  key: string,
+  focusable: readonly boolean[],
+): number | null {
+  const count = focusable.length
+  const step = CALENDAR_STEP.get(key)
+  if (step === undefined) {
+    const end = key === 'Home' ? focusable.indexOf(true) : key === 'End' ? focusable.lastIndexOf(true) : -1
+    return end < 0 ? null : end
+  }
+  const next = current + step
+  if (next < 0 || next >= count) return null
+  if (Math.abs(step) === 7) return focusable[next] ? next : null
+  for (let i = next; i >= 0 && i < count; i += step) if (focusable[i]) return i
+  return null
+}
+
+/** The month `delta` months from y/m, counted in whole months rather than by
+ *  adding to a Date — a Date would resolve 1月31日 + 1か月 to 3月3日 and the
+ *  grid would skip February entirely. */
+export function calendarMonthAt(y: number, m: number, delta: number): { y: number; m: number } {
+  const months = y * 12 + (m - 1) + delta
+  return { y: Math.floor(months / 12), m: (months % 12) + 1 }
+}
+
+/** How many days that month holds. Day 0 of month m+1 is the last day of m, and
+ *  the whole read is in UTC so the runner's own zone cannot shift it. */
+export function calendarMonthDays(y: number, m: number): number {
+  return new Date(Date.UTC(y, m, 0)).getUTCDate()
+}
+
+/** The blank cells before day 1 of the month, derived from ANY day the SERVER
+ *  already dated — 7 days is exactly one column, so d and wd carry the answer
+ *  and the browser's own clock and timezone never enter the grid. */
+export function calendarLead(day: { d: number; wd: number }): number {
+  return (((day.wd - (day.d - 1)) % 7) + 7) % 7
+}
+
 /** One row of page.tsx's `calendar` array — ONE PER DAY of the ±45-day read
  *  window, whether or not the roster door knows that day.
  *
@@ -471,6 +599,53 @@ export function guardCheckRowBesideOffer(cell: RailCell | null): { label: string
 export type CalendarWindowDay =
   | { y: number; m: number; d: number; wd: number; offset: number; closed: boolean; free: number; booked: number; covered?: true }
   | { y: number; m: number; d: number; wd: number; offset: number; covered: false }
+
+/** THE MONTH THE GRID DRAWS — the whole month `delta` steps from the anchor,
+ *  with the read window's days filled in and the rest left as dated blanks.
+ *
+ *  ⚖ ADDENDUM V2 — it used to be the covered days ALONE, so paging ‹ › to the
+ *  edge of the ±45-day window printed a September that began on the 22nd and
+ *  still called itself 2026年9月. A month is a calendar fact; a month with
+ *  holes cut out of it is a lie about the month.
+ *
+ *  Every DATE in here is the server's own (`y/m/d/wd`, from its one clock read).
+ *  The only things derived are how many boxes the month needs and how many
+ *  blanks open it — arithmetic on those same server fields, so the browser's
+ *  clock and timezone never touch the grid. */
+export function calendarMonth(
+  calendar: readonly CalendarWindowDay[],
+  anchor: { y: number; m: number },
+  delta: number,
+): { y: number; m: number; lead: number; days: CalendarCellDay[] } {
+  const { y, m } = calendarMonthAt(anchor.y, anchor.m, delta)
+  // THE ROWS THE WINDOW SENT, whether or not the roster door had numbers for
+  // them (#890). An uncovered row is already a `{ …, covered: false }` day, so
+  // it needs no translation here — it lands in the grid and `calendarCellFace`
+  // draws it exactly like a blank this function filled in itself. The two reach
+  // the same cell by design: 「a day we have no numbers for」 is ONE fact,
+  // whether the read window fell short of the date or the roster door simply
+  // had no answer for it.
+  const byDay = new Map(calendar.filter((c) => c.y === y && c.m === m).map((c) => [c.d, c]))
+  // …and the gap-fill below still covers dates with NO row at all: the ±45-day
+  // window ends mid-month, and a month drawn only to the 22nd is a lie about
+  // the month.
+  //
+  // `ref` is null only for a month the window never reached. Two things keep the
+  // product off it — the ‹ › buttons disable on exactly that case, and the paged
+  // month resets when the popover closes — and the second of those was missing
+  // until 2026-09-12, which is how an all-blank month with `lead: 0` reached the
+  // screen with every date a column out of place. So this fallback is a SHAPE
+  // guard against a crash, never a claim that a 0 lead draws the month correctly.
+  // ponytail: first row, any row — BOTH ends of the union carry d and wd, which
+  // is all calendarLead reads.
+  const ref = byDay.values().next().value ?? null
+  return {
+    y,
+    m,
+    lead: ref ? calendarLead(ref) : 0,
+    days: Array.from({ length: calendarMonthDays(y, m) }, (_, i) => byDay.get(i + 1) ?? { m, d: i + 1, covered: false }),
+  }
+}
 
 // ── the board's own state transitions ──────────────────────────────────────
 

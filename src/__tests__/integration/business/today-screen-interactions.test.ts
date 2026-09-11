@@ -2191,6 +2191,14 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "blockEdgeZones,",
       "blockStepPct,",
       "BLOCK_STEP_MIN_DEFAULT,",
+      // ⚖ STUDIO 2026-09-12 — the month calendar's own family: the day cell's
+      // whole face, the grid's month arithmetic, the arrow-key move, and the
+      // 残りわずか default the legend quotes. Added, nothing renamed or removed.
+      "calendarCellFace,",
+      "calendarMonth,",
+      "calendarMonthAt,",
+      "nextCalendarIndex,",
+      "CALENDAR_TIGHT_MAX,",
       "cardNodes,",
       "chipProxySize,",
       "clampLabelWidth,",
@@ -2295,6 +2303,19 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "type SellDrop,",
       "type WarnCardModel,",
     ])
+  })
+
+  /** ⚖ STUDIO F2 — THE PAGED MONTH RESETS WHEN ITS OWN POPOVER CLOSES, pinned
+   *  whole-line. `pop !== 'cal'` is what makes the reset fire on every OTHER
+   *  popover's close path (a day, 今日, Escape, a click outside, any sibling
+   *  popover) and stay quiet on the calendar's own — a mutant that widens or
+   *  narrows that guard (`pop === ''`, say) either resets on the wrong closes
+   *  or stops resetting at all, and a paged month then survives to the next
+   *  open with no covered day in it (the ADDENDUM V2 defect this line exists
+   *  to prevent). */
+  it('the paged month reset is keyed to any popover other than the calendar', () => {
+    const line = "if (pop !== 'cal' && calMonth !== 0) setCalMonth(0)"
+    expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
   })
 
   /** ⚖ NUDGE-GUARD FIX 2, BREAKER-NUDGE-5fab5076b.md §F1 (MAJOR) + §F2 — THE TWO

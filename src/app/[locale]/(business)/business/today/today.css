@@ -252,7 +252,11 @@
   right: 0;
   top: calc(100% + 6px);
   z-index: 40;
-  width: 312px;
+  /* ⚖ STUDIO 2026-09-12 — 340, not 312: at 312 the 定休 cell's own word was
+     20.2px wide in a 39.1px column and 「空き12」 had nowhere to go. The clamp is
+     what keeps a right-anchored 340px card inside a 393px phone. */
+  width: 340px;
+  max-width: calc(100vw - 32px);
   padding: 12px;
   border: 1px solid var(--control);
   border-radius: 12px;
@@ -268,24 +272,56 @@
 .biz .cal-tools button:hover { background: #f4f4f5; }
 .biz .cal-tools a { display: inline-flex; align-items: center; min-width: 30px; padding: 0 8px; border-radius: 6px; color: var(--ink-2); font-size: 12px; font-weight: 600; text-decoration: none; }
 .biz .cal-tools a:hover { background: #f4f4f5; }
-.biz .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.biz .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .biz .cal-grid .wd { padding: 3px 0 5px; text-align: center; color: var(--quiet); font-size: 11px; font-weight: 700; }
 .biz .cal-grid .wd.sun { color: var(--red-dark); }
 .biz .cal-grid .wd.sat { color: #3d6ab8; }
 .biz .cal-cell { display: grid; justify-items: center; align-content: center; gap: 1px; min-height: 44px; padding: 3px 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); }
-.biz .cal-cell b { font-size: 12.5px; font-weight: 600; }
-.biz .cal-cell small { font-size: 10.5px; line-height: 1.1; }
+/* ⚖ STUDIO S1 — the DATE is what the eye is hunting, so it leads and the count
+   sits under it a point smaller and a weight lighter. */
+.biz .cal-cell b { font-size: 13px; font-weight: 700; line-height: 1.1; }
+.biz .cal-cell small { font-size: 10px; font-weight: 500; line-height: 1.1; }
 .biz .cal-cell.open { background: var(--green-soft); color: var(--green-dark); }
+/* The count's ink is quieter than the date's but still AA at 10px. MEASURED on
+   this page's own tokens: #3b7352 on --green-soft = 4.69:1 (the mock's own
+   `opacity: .72` would have put every count near 3:1, so it is not ported, and
+   #3f7a57 — the first value tried — measures 4.27:1, under the bar). */
+.biz .cal-cell.open small { color: #3b7352; }
 .biz .cal-cell.open:hover { box-shadow: inset 0 0 0 1.5px #8ecbad; }
-.biz .cal-cell.full { background: #f4f4f5; color: var(--muted); }
-/* ⚖ A day the roster door never answered for — outside the ±45-day read window.
-   A dated blank, not a link, and deliberately paler than 定休 so the two cannot
-   be confused: one is a decision the store made, the other is data we lack. */
+/* ⚖ STUDIO S4 — 残りわずか. The boundary is `CALENDAR_TIGHT_MAX` in
+   today-interactions.ts, never a number written here. #8a5a00 on #fff4e0 =
+   5.44:1, the count's #946315 = 4.75:1. An amber WASH under a pressable is the
+   legal wash tier of the R13 law — no solid fill, no black. */
+.biz .cal-cell.tight { background: #fff4e0; color: #8a5a00; }
+.biz .cal-cell.tight small { color: #946315; }
+.biz .cal-cell.tight:hover { box-shadow: inset 0 0 0 1.5px #e5be7c; }
+/* 満 sits on the darkest of the three washes, and the page's --muted (#6b7280)
+   measures 4.40:1 on it — under AA for BOTH the 13px date and the 10px 「満」,
+   neither of which is large text. One step down the same blue-grey ramp:
+   #5f6672 on #f4f4f5 = 5.26:1. The token is not touched, because the shortfall
+   is this wash's, not the page's. */
+.biz .cal-cell.full { background: #f4f4f5; color: #5f6672; }
+/* ⚖ STUDIO S2 — 定休日 is FILLED, not left as a hole in the month: an empty
+   cell reads as a day nobody has data for, which is what `.unknown` below
+   actually means. #6b7280 (the page's --muted) on #f7f7f8 = 4.52:1. */
+.biz .cal-cell.closedday { background: #f7f7f8; color: var(--muted); }
+/* ⚖ ADDENDUM V2 — a day we have no numbers for: outside the ±45-day read
+   window, or inside it with no roster behind it (#890). A dated blank, not a
+   link, and deliberately paler than 定休 so the two cannot be confused — one is
+   a decision the store made, the other is data we lack. */
 .biz .cal-cell.unknown { background: transparent; color: var(--quiet); opacity: .45; }
 .biz .cal-cell.dim { opacity: .35; }
+/* ⚖ F3 — a PAST day that is also the day on screen is not a day to forget.
+   .35 over the indigo wash measured 1.60:1 — the selection disappeared, on the
+   one cell that has to say where the board is standing. The selection outranks
+   the dimming; `aria-current="date"` carries the same fact to a screen reader. */
+.biz .cal-cell.dim.cur { opacity: 1; }
 .biz .cal-cell.today { box-shadow: inset 0 0 0 1.5px var(--indigo); }
 .biz .cal-cell.cur { background: var(--indigo-soft); color: var(--indigo); }
-.biz .cal-legend { margin-top: 9px; color: var(--muted); font-size: 11px; }
+/* ⚖ STUDIO D2 — the legend wraps by PHRASE: each clause is its own nowrap span,
+   so a wrapped line can never open with 「・」. */
+.biz .cal-legend { display: flex; flex-wrap: wrap; gap: 1px 5px; margin-top: 9px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.biz .cal-legend span { white-space: nowrap; }
 
 /* ═══ F — board body + timeline ═══ */
 .biz .board-body { display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -2150,6 +2186,7 @@
 .biz .page-today .hours span,
 .biz .page-today .now-line span,
 .biz .page-today .cal-cell b,
+.biz .page-today .cal-cell small,
 .biz .page-today .spot-foot .count { font-variant-numeric: tabular-nums; }
 
 /* ── R-3 · Board head → a toolbar ───────────────────────────────────────── */
