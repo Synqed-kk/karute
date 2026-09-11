@@ -2191,6 +2191,14 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "blockEdgeZones,",
       "blockStepPct,",
       "BLOCK_STEP_MIN_DEFAULT,",
+      // ⚖ STUDIO 2026-09-12 — the month calendar's own family: the day cell's
+      // whole face, the grid's month arithmetic, the arrow-key move, and the
+      // 残りわずか default the legend quotes. Added, nothing renamed or removed.
+      "calendarCellFace,",
+      "calendarMonth,",
+      "calendarMonthAt,",
+      "nextCalendarIndex,",
+      "CALENDAR_TIGHT_MAX,",
       "cardNodes,",
       "chipProxySize,",
       "clampLabelWidth,",
