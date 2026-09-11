@@ -460,7 +460,15 @@ async function upsertKaruteRecord(
  *  council amendment 4 F3) and never on a spend-limit refusal
  *  (recording.transcribe_refused already filed the row —
  *  src/lib/ai/transcribe.ts#auditTranscriptionRefused; emitting here too
- *  would double-log the same event under two actions). */
+ *  would double-log the same event under two actions).
+ *
+ *  KNOWN GAP, ACCEPTED AS DESIGNED (Q2, fix round 1 subject 3): core re-arms
+ *  a FAILED job with `attempts = 0` on its next enqueue (job-errors.ts's
+ *  AI_SPEND_LIMIT comment), so a second exhaustion of the same job id writes
+ *  a second row under the same requestId — a genuinely new failure round,
+ *  not a duplicate of this one. The reader folds rows sharing (action,
+ *  target, request_id) in PR D, and core's Idempotency-Key (CORE-19) will
+ *  make it one row at the source later; neither exists yet. */
 function emitTranscribeFailedIfExhausted(job: RecordingJob, message: string): void {
   if (message === DISCARDED_BY_STAFF || message === AI_SPEND_LIMIT) return
   if (message === DISCARD_LEDGER_UNREADABLE) return
