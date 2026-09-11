@@ -14269,7 +14269,12 @@ describe('月カレンダー day cell — display resolves through the real casc
   it('the day cell resolves to display: grid, not the more specific/edited forms a text fence would miss', () => {
     const css = stripAtRules(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''))
     document.head.innerHTML = `<style>${css}</style>`
-    document.body.innerHTML = '<div class="biz"><div class="time-nav date-nav"><a></a><button class="day-label"></button><a></a><div class="cal-pop"><div class="cal-grid"><a class="cal-cell open"><b>1</b><small>9</small></a></div></div></div></div>'
+    // The real page wraps everything in `page-today` too (TodayScreen.tsx's
+    // root `<div className="page page-today">`, line 7273) — a reskin
+    // regression written as `.biz .page-today .cal-cell { display:
+    // inline-flex; }` ties/beats `.biz .cal-cell`'s specificity and would
+    // stay invisible to this probe if the stand-in DOM lacked that class.
+    document.body.innerHTML = '<div class="biz"><div class="page page-today"><div class="time-nav date-nav"><a></a><button class="day-label"></button><a></a><div class="cal-pop"><div class="cal-grid"><a class="cal-cell open"><b>1</b><small>9</small></a></div></div></div></div></div>'
     const cell = document.querySelector('.cal-cell')!
     let winner: { spec: [number, number, number]; display: string } | null = null
     for (const rule of Array.from(document.styleSheets[0].cssRules) as CSSStyleRule[]) {
