@@ -1636,16 +1636,27 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
    *  So the fence is now asked of the CALL SITES: every one of them names its
    *  own answer, and the two per-frame paints name OFF. */
   it('every landing question names its own `pack`, and the two per-frame words say no', () => {
-    // ⚖ flag 54's asymmetry, kept: the strip and the cursor promise only
-    // no-shuffle fits; the drop may accept a start the strip did not promise.
+    // ⚖ LIVE-WHILE-DRAGGING (2026-09-11) — AND NOW ONE OF THEM SAYS 「whatever
+    // this gesture is」. The cursor's word asks the packing question while an
+    // UNSTAGED board card is in hand, because the gesture's own memo made it
+    // affordable — measured NEGATIVE against today's frame on both stress
+    // boards. So ⚖ flag 54's asymmetry closes rather than being kept: the word
+    // promises exactly what the release will do. The fence is unchanged in
+    // shape — every call site still names its own answer out loud — and the one
+    // new spelling, `livePack()`, has ONE home and is pinned to it below.
     //
-    // Twelve call sites, each carrying its answer as the second argument. The
+    // Thirteen call sites, each carrying its answer as the second argument. The
     // regex matches a CALL (`(`), so a comment naming the function is not one.
+    // The thirteenth is the aimed chip's own re-judge inside
+    // `paintProxyVerdict` (⚖ ADJUDICATION L2 M-1).
     const calls = [...SCREEN.matchAll(/verdict(?:Ref\.current|AtLanding)\(/g)].map((m) => m.index ?? -1)
-    expect(calls).toHaveLength(12)
+    expect(calls).toHaveLength(13)
     for (let i = 0; i < calls.length; i += 1) {
       const seg = SCREEN.slice(calls[i], calls[i + 1] ?? SCREEN.length)
-      const answers = seg.match(/\{ pack: (?:true|false) \}/g) ?? []
+      // `, livePack())` rather than a bare `livePack()`: the switch is ALSO read
+      // as `livePack().pack` at the `verdictFor(` sites two layers down, and an
+      // answer is the one that sits in this call's own argument position.
+      const answers = seg.match(/\{ pack: (?:true|false) \}|, livePack\(\)\)/g) ?? []
       // Exactly one answer between this call and the next: no call is silent,
       // and none of them is answered twice.
       expect({ at: seg.slice(0, 48), answers: answers.length }).toEqual({ at: seg.slice(0, 48), answers: 1 })
@@ -1660,16 +1671,44 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // reachable with a card pending, every other drag door refuses while
     // `pending` is set) — so it used to run the packed search on every frame of
     // that gesture. FIX ROUND 2's own count (ten ON, two OFF) missed it.
+    //
+    // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-4 — `{ pack: false }` goes 3 → 2,
+    // NOT 3 → 1: the shelf chip is out of this round's scope and
+    // `paintChipVerdict` is byte-unchanged. Its landing lattice is
+    // `shelfLanding(fractionIn(track, clientX), …)`, a different geometry from the
+    // card's `nextSpan`, so wiring it is a round of its own (queued). Nine ON is
+    // unchanged.
     expect((SCREEN.match(/\{ pack: true \}/g) ?? [])).toHaveLength(9)
-    expect((SCREEN.match(/\{ pack: false \}/g) ?? [])).toHaveLength(3)
-    // …and the two per-frame paints are named OFF. `paintProxyVerdict` is the
-    // card's, `paintChipVerdict` the shelf chip's; both are called from the
-    // coalesced pointer-move frame.
-    for (const fn of ['function paintProxyVerdict(', 'function paintChipVerdict(']) {
-      const body = SCREEN.slice(SCREEN.indexOf(fn), SCREEN.indexOf('\n  }\n', SCREEN.indexOf(fn)))
-      expect({ fn, off: body.includes('{ pack: false }') }).toEqual({ fn, off: true })
-      expect({ fn, on: body.includes('{ pack: true }') }).toEqual({ fn, on: false })
-    }
+    expect((SCREEN.match(/\{ pack: false \}/g) ?? [])).toHaveLength(2)
+    // …and the card's per-frame paint answers with the GESTURE's own switch while
+    // the shelf chip's stays OFF. Both are called from the coalesced pointer-move
+    // frame; only one of them has a memo behind it.
+    const proxyBody = SCREEN.slice(SCREEN.indexOf('function paintProxyVerdict('), SCREEN.indexOf('\n  }\n', SCREEN.indexOf('function paintProxyVerdict(')))
+    expect({ fn: 'paintProxyVerdict', live: proxyBody.includes('livePack()') }).toEqual({ fn: 'paintProxyVerdict', live: true })
+    expect({ fn: 'paintProxyVerdict', on: proxyBody.includes('{ pack: true }') }).toEqual({ fn: 'paintProxyVerdict', on: false })
+    expect({ fn: 'paintProxyVerdict', off: proxyBody.includes('{ pack: false }') }).toEqual({ fn: 'paintProxyVerdict', off: false })
+    const chipBody = SCREEN.slice(SCREEN.indexOf('function paintChipVerdict('), SCREEN.indexOf('\n  }\n', SCREEN.indexOf('function paintChipVerdict(')))
+    expect({ fn: 'paintChipVerdict', off: chipBody.includes('{ pack: false }') }).toEqual({ fn: 'paintChipVerdict', off: true })
+    expect({ fn: 'paintChipVerdict', on: chipBody.includes('{ pack: true }') }).toEqual({ fn: 'paintChipVerdict', on: false })
+    expect({ fn: 'paintChipVerdict', live: chipBody.includes('livePack()') }).toEqual({ fn: 'paintChipVerdict', live: false })
+    //
+    // ⚖ THE SWITCH HAS ONE HOME, AND IT READS ONE THING. A `livePack` that
+    // consulted anything else — a prop, a dial, a second ref — would be a second
+    // answer to 「is this gesture packing?」, which is the disease the whole fence
+    // exists to prevent.
+    expect(SCREEN).toContain('const livePack = () => ({ pack: gestureMemoRef.current != null })')
+    expect((SCREEN.match(/const livePack = /g) ?? [])).toHaveLength(1)
+    // …and the ref it reads is OPENED in exactly one place, under exactly one
+    // condition: an unstaged MOVE of a board card. A bed-row drag, a resize and a
+    // staged card's re-drag each keep today's path byte for byte, and the last of
+    // those is a correctness rule rather than a cost one — a staged re-drag solves
+    // on the board with its companions put back, so memoising its chips on the
+    // board on screen would be a NEW disagreement.
+    expect(SCREEN).toContain("if (ctx.origin.mode === 'move' && ctx.group !== 'beds' && pending?.id !== ctx.id) {\n      gestureMemoRef.current = gestureAllocator({")
+    expect((SCREEN.match(/gestureMemoRef\.current = gestureAllocator\(/g) ?? [])).toHaveLength(1)
+    // …and every exit of the release frees it, through one `finally`.
+    expect(SCREEN).toContain('    try {\n      finishDragAt(clientX, clientY, upAt)\n    } finally {\n      freeGesture()\n    }')
+    expect(SCREEN).toContain('function freeGesture() {\n    gestureMemoRef.current?.free()\n    gestureMemoRef.current = null\n    toneRef.current = null\n  }')
     // …and `pendingGuardRow`'s own memo body is the third OFF site — the FIX
     // ROUND 3 (G1) mutant: reverting its gate to `{ pack: true }` must fail
     // this pin.
@@ -1687,6 +1726,48 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // `solveBed`'s own keyword form is the ONE remaining spelling — the other
     // door design §3 allows, and the only `pack:` field written anywhere.
     expect((SCREEN.match(/pack: true,/g) ?? [])).toHaveLength(1)
+    //
+    // ⚖ ADJUDICATION L2 M-6 — THE THREE `verdictFor(` CALL SITES, ENUMERATED BY
+    // TEXT, because a count cannot tell a per-frame ask from a gesture-end one
+    // and the 9/8 round lost a positional `true` to exactly that blindness. The
+    // renderer names the gesture's switch, `reseatLandingAt` names `false`, and
+    // `verdictAtLanding` passes its own argument through on both legs.
+    const verdictForCalls = [...SCREEN.matchAll(/verdictFor\(/g)]
+    expect(verdictForCalls).toHaveLength(6)
+    for (const site of [
+      'const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c, livePack().pack) : null',
+      'const v = verdictFor(ask, verdictAt(laneKey, start, railDur, null, lanes), false, lanes)',
+      'const v = verdictFor(q, cellOn(base), opts.pack, base)',
+      'return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }',
+      'const final = verdictFor(ask, verdictAt(rail.laneKey, c.start, railDur, inHand.id, shuffled), false, shuffled)',
+    ]) {
+      expect({ site, present: SCREEN.includes(site) }).toEqual({ site, present: true })
+    }
+    // …and the ONE literal `true` in that set is `verdictAtLanding`'s own re-judge
+    // on the shuffled board — the drop's second leg, pinned line by line in §A
+    // above. No per-frame site may grow one.
+    expect([...SCREEN.matchAll(/verdictFor\([\s\S]{0,200}?,\s*true[,)]/g)]).toHaveLength(1)
+    //
+    // ⚖ ADJUDICATION L2 M-3 — THE MEMO'S TWO STAMPS ARE WRITTEN IN THE RENDER
+    // BODY, ADJACENT TO THE BOARD REF AND ABOVE THE CHIPS THAT READ THEM. The
+    // mutant this exists for leaves every ANSWER correct and only changes COST:
+    // move either assignment into an effect and the ref is one frame stale, every
+    // chip fails the memo's board-family gate, and the memo is silently dead. No
+    // suite renders TodayScreen, so the behavioural clause cannot see the wiring —
+    // the ordering and the ADJACENCY are the text that can.
+    expect(SCREEN).toContain('const boardLanesRef = useRef(boardLanes)\n  boardLanesRef.current = boardLanes')
+    expect(SCREEN).toContain("const rowStampRef = useRef('')\n  rowStampRef.current = handRowStamp(boardLanes, handId ?? '', live?.bedLane ?? null)")
+    expect(SCREEN.indexOf('boardLanesRef.current = boardLanes')).toBeLessThan(SCREEN.indexOf('const v = inHand ? verdictFor('))
+    expect(SCREEN.indexOf('rowStampRef.current = handRowStamp(')).toBeLessThan(SCREEN.indexOf('const v = inHand ? verdictFor('))
+    //
+    // ⚖ ADJUDICATION L4 — AND THE WORLD STAMP'S DEP LIST IS PINNED BY EXACT TEXT.
+    // The memo has no self-check that its caller's stamp is complete: a dropped
+    // dependency serves a stale answer in silence. Each name is an invalidator in
+    // its own right — a server refresh or a block move (`placedLanes`), the shelf
+    // (`parked`), this session's own cards (`addedHere`), committed moves
+    // (`moves`/`bedMoves`), staging (`pending`), the day (`hours`), the clock the
+    // pack's lead floor reads, and each room's turnaround.
+    expect(SCREEN).toContain('[placedLanes, parked, addedHere, moves, bedMoves, pending, hours, props.sell.nowMinute, props.bedCleanupMinutes],')
     // No default on the landing question, so a new call site cannot forget.
     expect(SCREEN).toContain('(q: LandingAsk, opts: { pack: boolean }): LandingVerdict => {')
     expect(SCREEN).not.toContain('opts: { pack: boolean } = ')

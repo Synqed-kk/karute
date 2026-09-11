@@ -905,7 +905,13 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // same one value read one step earlier: `face` is composed from the mark and
     // the word together, so there is still exactly ONE expression deciding what
     // this chip says.
-    expect(SRC).toContain('const face = mark ? `⇄${hhmm(c.start)}` : (word ?? label)')
+    // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-2 — STILL ONE EXPRESSION, and it
+    // now answers for BOTH states in one line: at rest the mark and the word
+    // compose the face exactly as before; with a card in hand `liveChipFace` has
+    // already composed the chip's whole face from the DROP's verdict, so the ⇄ it
+    // may wear mid-drag comes out of the same single decision rather than a
+    // second one beside it.
+    expect(SRC).toContain('const face = chip ? chip.face : (mark ? `⇄${hhmm(c.start)}` : (word ?? c.label))')
     expect(SRC).toContain('<i>{face}</i>')
     // …the dot rides `data-reason`, which is set from that SAME value — and it
     // stands down on a marked chip, which is not a refusal and carries no dot.
