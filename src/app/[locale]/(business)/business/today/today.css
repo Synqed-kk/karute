@@ -2739,11 +2739,15 @@
 /* ⚖ STATE-CLASS LAW — AN OVERRIDE ON PURPOSE, and the licence is that this rule
    carries the state token and declares every value it takes. Canon's
    `.biz .segmented button[aria-pressed="true"]` (:168, 0,3,1) draws the selected
-   tab as a white pill with a shadow; this rule (0,4,1) takes all three
-   properties away because THE THUMB IS THAT PILL NOW — the same white card,
-   moved by a spring instead of jumping between three static rules. The accent is
-   written as the shell's own `--select-ink` (`--indigo` #3f5be8, the mock's own
-   literal), per the one-way accent law: this is a pressable's selected state. */
+   tab with three things: the light accent wash `var(--select-bg)`, the accent
+   ink `var(--select-ink)`, and an inset accent ring. This rule (0,4,1) takes the
+   wash and the ring off the TAB — and the selection does not lose them, because
+   THE THUMB IS THAT SURFACE NOW: the wash moved from the tab to the pill that
+   slides under it (see the thumb's own rule below). The ink stays here, on the
+   label, written as the shell's own `--select-ink` (`--indigo` #3f5be8, the
+   mock's own literal), per the one-way accent law: this is a pressable's
+   selected state. So the selected surface is still wash + accent ink + 700 —
+   R13 and Liam's 8/6 rule — it is simply drawn by two elements instead of one. */
 /* ⚠ D-PR4-11 — AND THE LABEL GOES BOLD, because ink alone is not a selection
    before hydration. The three tabs share `font-weight: 600` above, so with the
    pill gone the only thing telling them apart is colour — and the thumb is
@@ -2767,11 +2771,25 @@
 }
 /* The thumb's REST state, and only that: the effect writes `transform`, `width`
    and `opacity` inline.
+   ⚖ D-PR4-14 — THE PILL IS THE ACCENT WASH, NOT THE MOCK'S WHITE. Greptile's P2
+   on #879, upheld: the repo's R13 and Liam's 8/6 rule both say a selected
+   surface carries a light accent wash, and the mock's ④ layer had taken canon's
+   `var(--select-bg)` off the tab (the rule above) and put a WHITE card in its
+   place — which leaves the selection with no wash anywhere. So the wash follows
+   the pill: `var(--select-bg)` is the same token, at the same value, that canon
+   painted the pressed tab with at :168, and `settings.css` — the room this whole
+   thumb pattern was copied from — already paints ITS thumb with that room's own
+   accent wash rather than white. (Its selector is not spelled here on purpose:
+   `settings-room.test.ts` forbids that room's class names from appearing in
+   another room's sheet, and the guard reads the raw bytes.)
+   A VISIBLE DEPARTURE FROM THE MOCK, disclosed and Liam's to overturn: the pill
+   reads pale indigo instead of white. Reverting it is one declaration —
+   `background: #fff` on this rule — and nothing else moves.
    ⚠ THE CEILING IS WIDER THAN jsdom, and D-PR4-11 is the answer to it. The
    element ships with `width: 0`, and the effect that gives it geometry is a
    `useLayoutEffect` — so a static render, a harness render AND ANY PAINT BEFORE
    HYDRATION all show no thumb. The bold accent label is the selection until the
-   thumb arrives; the white pill's own pixels are on the Vercel preview.
+   thumb arrives; the pill's own pixels are on the Vercel preview.
    ⚠ Naming note: this is an `<i class="seg-thumb">` — the mock's element and the
    mock's name. The family's four siblings are `<span>`s with page-prefixed
    classes (`st-` settings, `an-` analytics, `rv-` reservations, `rc-` recording),
@@ -2785,7 +2803,7 @@
   left: 0;
   width: 0;
   border-radius: 8px;
-  background: #fff;
+  background: var(--select-bg);
   box-shadow: 0 1px 2px rgba(16, 24, 40, .12);
   transform: translateX(0);
   pointer-events: none;
