@@ -24,7 +24,7 @@
 // one day. Same soft navigation, one day's data.
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { jstDayKey } from '@/business/lib/clock'
+import { jstDayKey, jstYmd } from '@/business/lib/clock'
 import { bedSecuredProof } from '@/business/lib/fixtures-today'
 import {
   defaultStoreId,
@@ -33,6 +33,8 @@ import {
   listMenus,
   listResources,
   listStaff,
+  listAbsenceByDay,
+  listShiftsByDay,
   listStoreOptions,
   readDayPlanes,
   readShellIdentity,
@@ -41,6 +43,7 @@ import {
   type StoreLens,
 } from '@/business/lib/data'
 import {
+  absenceForDay,
   buildLanes,
   dayBookings,
   dayTotals,
@@ -48,12 +51,13 @@ import {
   hhmm,
   laneMinutes,
   openDecisions,
+  rosterAvailableMinutes,
   utilization,
   yen,
   type BoardBooking,
   type BuildInput,
 } from '@/business/lib/today-board'
-import { canReleaseHeld, overrideLevelFor } from './today-interactions'
+import { canReleaseHeld, overrideLevelFor, type CalendarWindowDay } from './today-interactions'
 import { TodayScreen, type DecisionCard, type InspectorCase, type TodayProps } from './TodayScreen'
 import './today.css'
 
@@ -95,17 +99,6 @@ export function bookingProofs(resourceProof: string | null, priced: boolean): st
  *  month either way, small enough that the per-day sums are free. */
 const WINDOW = 45
 
-/** Y/M/D/weekday of an instant, read in JST — the calendar grid's coordinates.
- *  Built from Intl rather than getMonth() so the server's own timezone never
- *  shifts a cell into the wrong week. */
-function jstParts(at: Date): { y: number; m: number; d: number; wd: number } {
-  const p = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', ...JST })
-    .formatToParts(at)
-  const get = (t: string) => p.find((x) => x.type === t)!.value
-  const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  return { y: Number(get('year')), m: Number(get('month')), d: Number(get('day')), wd: WD.indexOf(get('weekday')) }
-}
-
 export default async function TodayPage({
   params,
   searchParams,
@@ -141,7 +134,8 @@ export default async function TodayPage({
   const from = new Date(now.getTime() + (-WINDOW - 1) * DAY_MS).toISOString()
   const to = new Date(now.getTime() + (WINDOW + 1) * DAY_MS).toISOString()
 
-  const [customers, appointments, menus, staff, resources, planes, shell] = await Promise.all([
+  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay, absenceByDay] =
+    await Promise.all([
     listCustomers(lens),
     listAppointments(lens, { from, to }),
     listMenus(lens),
@@ -152,6 +146,10 @@ export default async function TodayPage({
     // empty for a day the operator is only viewing — see readDayPlanes.
     readDayPlanes(lens, shownKey),
     readShellIdentity(),
+    // The calendar's capacity is a PER-DAY question, so both halves of it are
+    // asked per day. Inclusive on both ends, exactly the window the grid draws.
+    listShiftsByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
+    listAbsenceByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
   ])
   const staffStores = await readStaffStores(lens)
 
@@ -193,13 +191,13 @@ export default async function TodayPage({
   const slotById = new Map(planes.sellSlots.map((s) => [s.id, s]))
 
   const shownAt = new Date(now.getTime() + dayOffset * DAY_MS)
+  const shownYmd = jstYmd(shownAt)
   const hourCount = (planes.operatingHours.close - planes.operatingHours.open) / 60
   const hourLabels = Array.from({ length: hourCount }, (_, i) => String(planes.operatingHours.open / 60 + i))
 
   // ── the day index behind the calendar (E8) and the date nav ───────────────
   // Free slots and 稼働率 come from the SAME two sums, so a day that reads 満
   // cannot also read as under-utilised.
-  const rosterMinutes = minutes.filter((m) => m.treats).reduce((n, m) => n + m.availableMinutes, 0)
   const bookedByDay = new Map<number, number>()
   const countByDay = new Map<number, number>()
   for (const a of appointments) {
@@ -211,15 +209,35 @@ export default async function TodayPage({
       (bookedByDay.get(key) ?? 0) + (new Date(a.ends_at).getTime() - new Date(a.starts_at).getTime()) / 60_000,
     )
   }
-  const calendar = Array.from({ length: WINDOW * 2 + 1 }, (_, i) => {
-    const offset = i - WINDOW
-    const at = new Date(now.getTime() + offset * DAY_MS)
-    const p = jstParts(at)
+  const calendar: CalendarWindowDay[] = Array.from({ length: WINDOW * 2 + 1 }, (_, i) => i - WINDOW).map((offset) => {
+    const dayKey = todayKey + offset
+    const p = jstYmd(new Date(now.getTime() + offset * DAY_MS))
+    // ⚠ A DAY THE DOOR HAS NO ROSTER FOR STILL GETS A ROW — one that says it has
+    // no numbers. `listShiftsByDay` returns only the days it actually holds, and
+    // `?? []` here would have turned 「we do not know」 into an empty roster: the
+    // cell then painted 満, a capacity of zero nobody computed. Dropping the row
+    // instead (what this loop did until 2026-09-12) cut the date out of the
+    // month entirely, and a month with holes in it is a lie about the month.
+    //
+    // WHAT THE OPERATOR SEES, on THIS PR alone: the date is drawn in its own
+    // box, greyed and unpressable, reading 表示範囲外 — no count, no 定休, no
+    // link. The face PR (#891) gives that same row its studio paint.
+    const shifts = shiftsByDay.get(dayKey)
+    if (!shifts) return { offset, ...p, covered: false }
     // 定休日 has no capacity to advertise — a closed day showing free slots is
     // the impossible state, not a rounding question.
     const closed = p.wd === planes.closedWeekday
-    const free = closed ? 0 : freeSlots(rosterMinutes, bookedByDay.get(todayKey + offset) ?? 0)
-    return { offset, ...p, closed, free, booked: countByDay.get(todayKey + offset) ?? 0 }
+    // ⚠ 勤務不可 belongs to ONE day, and to that day WHATEVER DAY IS ON SCREEN.
+    // The absence comes from its own per-day door rather than from the shown
+    // day's planes, so today's cell carries today's incident while the operator
+    // is standing on next Tuesday — which is the whole point of a month grid.
+    const free = closed
+      ? 0
+      : freeSlots(
+          rosterAvailableMinutes(staff, shifts, planes.staffQualifications, absenceForDay(dayKey, absenceByDay)),
+          bookedByDay.get(dayKey) ?? 0,
+        )
+    return { offset, ...p, closed, free, booked: countByDay.get(dayKey) ?? 0 }
   })
 
   // ── C: ops strip ──────────────────────────────────────────────────────────
@@ -453,6 +471,12 @@ export default async function TodayPage({
     lensLabel: clamped ? (storeNames.get(storeId!) ?? 'この店舗') : 'すべての店舗',
     dayOffset,
     dayLabel: fmtDayFull.format(shownAt),
+    // The month the calendar popover opens on. It is a FACT ABOUT THE SHOWN
+    // DAY, not something to be found among the calendar rows: the grid used to
+    // anchor by searching `calendar` for the shown offset and falling back to
+    // its first row, so a shown day the roster door had no entry for opened the
+    // window's FIRST month instead of the one the operator is looking at.
+    shownYm: { y: shownYmd.y, m: shownYmd.m },
     monthLabel: fmtMonth.format(shownAt),
     isToday: dayOffset === 0,
     windowDays: WINDOW,

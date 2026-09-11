@@ -452,6 +452,26 @@ export function guardCheckRowBesideOffer(cell: RailCell | null): { label: string
   return row && { ...row, label: row.label.split('。')[0] }
 }
 
+// ── E8 · the month calendar's day cells ────────────────────────────────────
+
+/** One row of page.tsx's `calendar` array — ONE PER DAY of the ±45-day read
+ *  window, whether or not the roster door knows that day.
+ *
+ *  ⚖ A DAY THE DOOR DOES NOT KNOW IS DATA, NOT AN ABSENT ROW. `listShiftsByDay`
+ *  returns only the days it actually holds. Two wrong answers were available
+ *  and both were taken at some point: `?? []` turned 「we do not know」 into an
+ *  empty roster, so the cell painted 満 — a capacity of zero nobody computed;
+ *  dropping the row instead printed a September that began on the 22nd, which
+ *  is a lie about the month. So the day still comes through, dated by the
+ *  server's own clock read, and says of itself that it carries no numbers.
+ *
+ *  `covered: false` is the whole discriminator: an uncovered row has NO
+ *  `closed` and NO `free`, so no surface can read a capacity off a day the
+ *  door never answered for. */
+export type CalendarWindowDay =
+  | { y: number; m: number; d: number; wd: number; offset: number; closed: boolean; free: number; booked: number; covered?: true }
+  | { y: number; m: number; d: number; wd: number; offset: number; covered: false }
+
 // ── the board's own state transitions ──────────────────────────────────────
 
 /** The board as it currently stands: the server's lanes, plus staged moves,

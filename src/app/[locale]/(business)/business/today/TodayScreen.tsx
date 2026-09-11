@@ -156,6 +156,7 @@ import {
   unparkOutcome,
   withPriceFact,
   foreignStoreRefusal,
+  type CalendarWindowDay,
   type GuardRail,
   type LandingFloor,
   type LandingQuestion,
@@ -493,6 +494,13 @@ export interface TodayProps {
   lensLabel: string
   dayOffset: number
   dayLabel: string
+  /** THE MONTH THE CALENDAR OPENS ON — the shown day's own year/month, in JST,
+   *  from the server's one clock read. The grid used to find its anchor by
+   *  searching `calendar` for the shown offset and falling back to `calendar[0]`
+   *  when that failed, so a shown day the roster door has no row for opened the
+   *  window's first month instead of the one on screen. A month is a fact about
+   *  the day being shown, so the day being shown carries it. */
+  shownYm: { y: number; m: number }
   monthLabel: string
   isToday: boolean
   windowDays: number
@@ -608,7 +616,7 @@ export interface TodayProps {
   cases: Record<string, InspectorCase>
   kpi: { count: string; revenue: string; utilization: string; note: string }
   hold: { summary: string; checks: string[]; bookingId: string } | null
-  calendar: Array<{ offset: number; y: number; m: number; d: number; wd: number; closed: boolean; free: number; booked: number }>
+  calendar: readonly CalendarWindowDay[]
   dialogs: {
     recovery: { rows: Array<[string, string]> } | null
     checkout: { title: string; sub: string; amount: string; rows: Array<[string, string]>; bookingId: string } | null
@@ -6346,9 +6354,10 @@ export function TodayScreen(props: TodayProps) {
   }
 
   // The month grid the calendar popover draws: the loaded window, grouped by
-  // the month the ‹ › buttons are standing on.
+  // the month the ‹ › buttons are standing on — counted from the SHOWN DAY's
+  // own month, which the server sends, rather than hunted for in the rows.
   const monthCells = useMemo(() => {
-    const anchor = props.calendar.find((c) => c.offset === props.dayOffset) ?? props.calendar[0]
+    const anchor = props.shownYm
     let y = anchor.y
     let m = anchor.m + calMonth
     while (m > 12) { m -= 12; y += 1 }
@@ -6356,7 +6365,7 @@ export function TodayScreen(props: TodayProps) {
     const days = props.calendar.filter((c) => c.y === y && c.m === m).sort((a, b) => a.d - b.d)
     const lead = days.length > 0 ? days[0].wd : 0
     return { y, m, days, lead }
-  }, [props.calendar, props.dayOffset, calMonth])
+  }, [props.calendar, props.shownYm.y, props.shownYm.m, calMonth])
 
   const timelineClasses = [
     'timeline',
@@ -7486,18 +7495,34 @@ export function TodayScreen(props: TodayProps) {
                         <span className={`wd${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`} key={w}>{w}</span>
                       ))}
                       {Array.from({ length: monthCells.lead }, (_, i) => <span key={`lead-${i}`} />)}
-                      {monthCells.days.map((d) => (
-                        <Link
-                          key={`${d.y}-${d.m}-${d.d}`}
-                          href={dayHref(d.offset)}
-                          className={`cal-cell ${d.closed ? 'closedday' : d.free > 0 ? 'open' : 'full'}${d.offset === props.dayOffset ? ' cur' : ''}${d.offset === 0 ? ' today' : ''}`}
-                          aria-label={`${d.m}月${d.d}日${d.closed ? '、定休日' : d.free === 0 ? '、空きなし' : `、空き枠${d.free}件`}`}
-                          onClick={() => setPop('')}
-                        >
-                          <b>{d.d}</b>
-                          <small>{d.closed ? '定休' : d.free > 0 ? d.free : '満'}</small>
-                        </Link>
-                      ))}
+                      {monthCells.days.map((d) =>
+                        // A day the roster door never answered for. It is DATED
+                        // and it is DRAWN — dropping it printed a month with
+                        // holes — but it is not a link and it carries no count,
+                        // because there is no count. `role="img"` is what makes
+                        // a bare <span> announce its label at all.
+                        d.covered === false ? (
+                          <span
+                            key={`${d.y}-${d.m}-${d.d}`}
+                            className="cal-cell unknown"
+                            role="img"
+                            aria-label={`${d.m}月${d.d}日、表示範囲外`}
+                          >
+                            <b>{d.d}</b>
+                          </span>
+                        ) : (
+                          <Link
+                            key={`${d.y}-${d.m}-${d.d}`}
+                            href={dayHref(d.offset)}
+                            className={`cal-cell ${d.closed ? 'closedday' : d.free > 0 ? 'open' : 'full'}${d.offset === props.dayOffset ? ' cur' : ''}${d.offset === 0 ? ' today' : ''}`}
+                            aria-label={`${d.m}月${d.d}日${d.closed ? '、定休日' : d.free === 0 ? '、空きなし' : `、空き枠${d.free}件`}`}
+                            onClick={() => setPop('')}
+                          >
+                            <b>{d.d}</b>
+                            <small>{d.closed ? '定休' : d.free > 0 ? d.free : '満'}</small>
+                          </Link>
+                        ),
+                      )}
                     </div>
                     <div className="cal-legend">数字＝その日の空き枠 ・ 満＝空きなし ・ 定休＝定休日（{props.closedWeekdayLabel}）</div>
                   </div>

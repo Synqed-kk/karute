@@ -62,7 +62,9 @@ import {
   shifts,
   staffListPrice,
   staffQualifications,
+  type FixtureAbsence,
   type FixtureResource,
+  type FixtureShift,
 } from './fixtures-today'
 
 export type StoreLens = string | { viewAll: true }
@@ -241,6 +243,76 @@ export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, 
 export async function listResources(lens: StoreLens): Promise<FixtureResource[]> {
   assertLens(lens)
   return inLens(resources, lens, false)
+}
+
+/** THE ROSTER, BY DAY, ACROSS A RANGE — the month calendar's capacity read.
+ *
+ *  `readDayPlanes` hands back `shifts` as the store's STANDING arrangement,
+ *  「true of every open day」, and for ONE day that is the honest answer. The
+ *  month calendar asks a different question — 「how much room does each of the
+ *  91 days in the window have?」 — and the page used to answer it by summing the
+ *  SHOWN day's roster once and applying that single number to all 91. With a
+ *  fixture roster that never varies the numbers came out right; with a real one
+ *  every day but the one on screen would have been quietly wrong. That is a
+ *  SHAPE defect, so it is fixed at the door rather than in the arithmetic.
+ *
+ *  The play-phase answer is the standing roster repeated for each day in range
+ *  — which is exactly what the fixture world holds, and why no number on the
+ *  board moves — but the page now has to ask per day and can no longer collapse
+ *  91 answers into one.
+ *
+ *  Inclusive on both ends, in `jstDayKey` units (whole JST days since the
+ *  epoch), the same key `listAppointments`' callers group by.
+ *
+ *  ⚠ RECONNECT: the real door queries shifts BY DAY over [from, to] and returns
+ *  only the days it actually has rows for. A day MISSING from the map is a day
+ *  with no known roster, and the calendar renders it as 表示範囲外 rather than
+ *  inventing a capacity for it — see `calendarCellFace`'s `unknown` tone.
+ *  page.tsx holds up that end: a key this map has no entry for never becomes a
+ *  `calendar` row at all (page.tsx :208-238), so nothing downstream can invent
+ *  a count for it. */
+export async function listShiftsByDay(
+  lens: StoreLens,
+  range: { from: number; to: number },
+): Promise<Map<number, FixtureShift[]>> {
+  // VALIDATED, not applied: a shift is keyed to a staff member and never to a
+  // store, so the roster read is what decides who the lens can see — the same
+  // rule readDayPlanes states below, and clamping twice would drop the floating
+  // card that legitimately works in every store.
+  assertLens(lens)
+  const byDay = new Map<number, FixtureShift[]>()
+  for (let key = range.from; key <= range.to; key += 1) byDay.set(key, shifts)
+  return byDay
+}
+
+/** 勤務不可, BY DAY, ACROSS A RANGE — the month calendar's absence read.
+ *
+ *  `readDayPlanes` answers about ONE day and hands the incident back only when
+ *  that day is today, which is the honest answer for the board. The month grid
+ *  draws 91 days at once, and it used to shorten a day's roster by「the absence
+ *  the SHOWN day happens to hold」: stand on any day but today and today's own
+ *  cell lost its 勤務不可 and advertised 空き for hours nobody is working.
+ *
+ *  A calendar number must not depend on which day is being LOOKED at, so the
+ *  absence is asked for by day, exactly as `listShiftsByDay` asks the roster.
+ *
+ *  Inclusive on both ends, in `jstDayKey` units. The map is SPARSE: a key it
+ *  has no entry for is a day with no 勤務不可 — see `absenceForDay`.
+ *
+ *  ⚠ RECONNECT: the real door returns the absences it holds per day over
+ *  [from, to]. The fixture world holds exactly ONE incident and it is today's,
+ *  so today's key is the only one that can ever carry anything. */
+export async function listAbsenceByDay(
+  lens: StoreLens,
+  range: { from: number; to: number },
+): Promise<Map<number, FixtureAbsence | null>> {
+  assertLens(lens)
+  const byDay = new Map<number, FixtureAbsence | null>()
+  const todayKey = jstDayKey(renderNow())
+  // The same store clamp `readDayPlanes` applies below: a 勤務不可 carries a
+  // store, so a lens that cannot see that store must not see the incident.
+  if (todayKey >= range.from && todayKey <= range.to) byDay.set(todayKey, inLens([absence], lens, false)[0] ?? null)
+  return byDay
 }
 
 /** The three board planes core does not expose (asks T-01…T-08, T-15), read as

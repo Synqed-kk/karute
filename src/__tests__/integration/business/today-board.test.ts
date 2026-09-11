@@ -954,13 +954,19 @@ describe('今日の運営 screen', () => {
     expect(p.calendar.length).toBe(91)
     expect(p.calendar.some((c) => c.offset === 0)).toBe(true)
     for (const c of p.calendar) {
-      expect(c.free).toBeGreaterThanOrEqual(0)
       expect(c.wd).toBeGreaterThanOrEqual(0)
       expect(c.wd).toBeLessThanOrEqual(6)
     }
+    // …and in the fixture world the roster door answers for EVERY day of the
+    // window, so every one of the 91 carries numbers. A `covered: false` row is
+    // a real shape (a day the door has no roster for) but not one this world
+    // produces — see today-calendar-numbers.test.ts for that half.
+    const known = p.calendar.filter((c) => c.covered !== false)
+    expect(known).toHaveLength(91)
+    for (const c of known) expect(c.free).toBeGreaterThanOrEqual(0)
     // The busiest day has fewer free slots than an empty one — the number moves.
-    const empty = p.calendar.find((c) => c.booked === 0)!
-    const busy = p.calendar.find((c) => c.offset === 0)!
+    const empty = known.find((c) => c.booked === 0)!
+    const busy = known.find((c) => c.offset === 0)!
     expect(busy.free).toBeLessThan(empty.free)
   })
 
