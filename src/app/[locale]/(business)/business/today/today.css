@@ -2749,8 +2749,8 @@
    selected state. So the selected surface is still wash + accent ink + 700 —
    R13 and Liam's 8/6 rule — it is simply drawn by two elements instead of one. */
 /* ⚠ D-PR4-11 — AND THE LABEL GOES BOLD, because ink alone is not a selection
-   before hydration. The three tabs share `font-weight: 600` above, so with the
-   pill gone the only thing telling them apart is colour — and the thumb is
+   before hydration. The three tabs share `font-weight: 600` above, so without
+   this rule's 700 only colour would tell them apart until the thumb arrives — and the thumb is
    placed by a `useLayoutEffect` inside an 8,000-line client component, so it
    has no geometry until that hydrates (and none at all if it never does). The
    family already answered this: `settings.css` gives its own pressed option
