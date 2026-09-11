@@ -218,15 +218,26 @@ export async function watchOneBusiness(
       deadline,
     )
     if (pagesTruncated) result.truncated = true
+    // Greptile round 3 finding 1: never derive a storm from a truncated walk
+    // (deadline or the 50-page cap) — a partial page can undercount a storm,
+    // or miss one crossing the cap entirely, and the prior-row check then
+    // blocks any later correction once the day IS whole (a closed day's
+    // count/cost frozen low forever). findTranscribeStorms' own `truncated`
+    // field stays part of its contract; a WRITTEN row here always comes from
+    // a whole walk. The day is closed either way, so waiting for a fresh,
+    // un-truncated budget next hour costs nothing.
+    //
     // P2-7: closed days only — a day still in progress can only ever grow
     // (more receipts may land before midnight), so listing/writing it now
     // would freeze a count and cost that are not yet whole. This is
     // evidence, not a real-time alarm: the spend wall
     // (src/lib/ai/transcribe.ts) is the actual brake against runaway
     // transcription cost. Today's storm waits for tomorrow's first run.
-    const storms = findTranscribeStorms({ events, truncated: pagesTruncated }).filter(
-      (s) => s.day < ymdInJst(now),
-    )
+    const storms = pagesTruncated
+      ? []
+      : findTranscribeStorms({ events, truncated: pagesTruncated }).filter(
+          (s) => s.day < ymdInJst(now),
+        )
 
     result.candidates = missing.length + storms.length
 
