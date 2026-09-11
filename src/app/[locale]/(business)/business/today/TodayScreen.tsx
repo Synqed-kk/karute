@@ -2977,7 +2977,19 @@ export function TodayScreen(props: TodayProps) {
    *  asks over 84 frames for zero information. Off-lane frames, where the key
    *  collapses the lane to `''` while the board still moves, are answered by the
    *  verdict itself: `askOfLive` gives `staffLane: null` and the answer is the
-   *  board-independent stop 「予約を置く行の中で離してください」. */
+   *  board-independent stop 「予約を置く行の中で離してください」.
+   *
+   *  ⚖ FIX-1 (L1 MINOR-4) — AND IT IS EXACTLY SUFFICIENT FOR THE BOARD, WHICH IS
+   *  NOT THE WHOLE ANSWER. `verdictFor` also closes over `locked` and
+   *  `props.overrideLevel`, and `askOfLive` reads `hasPriceFor` (whose inputs are
+   *  `props.pricedIds` and `parkChips`) — none of the three is in `liveAimKey` or
+   *  in `worldStamp`, so a mid-gesture change to one of them would leave this memo
+   *  serving the previous answer. It is the same hole the pointer-side `aimKey` it
+   *  replaces had (that key carried no world term at all), so this is a narrowing
+   *  of the claim and strictly no worse than what shipped; and none of the three
+   *  can move while a pointer is down — a lane lock and an override level are
+   *  UI/permission state, and `props.pricedIds` moves with a server refresh, which
+   *  also moves `placedLanes`, which IS in the stamp. */
   const liveAimKey =
     live && live.mode === 'move' && !live.overShelf ? `${live.offLane ? '' : live.targetLane}|${live.x}|${live.w}` : null
   const liveWord = useMemo(
@@ -4752,7 +4764,19 @@ export function TodayScreen(props: TodayProps) {
    *  round): a MOVE, not over the shelf. A BED-ROW move is INCLUDED — the word
    *  has always been painted for one (`solveRoom` goes false and the room is
    *  NAMED, ⚖ 51) — which is why this is not `inHand`: `inHand` is the STRIP's
-   *  ask and is null for a bed-row drag on purpose. */
+   *  ask and is null for a bed-row drag on purpose.
+   *
+   *  ⚖ FIX ROUND 4 (Greptile #884 4/5), KEPT AS HISTORY — THE POINTER PATH MUST
+   *  NEVER CALL `gestureStore` (written without its parens on purpose: the round-4
+   *  pin counts CALL SITES). The write this rule was written for (the
+   *  pre-commit aimed slot write) is gone, and the rule stands for whoever writes
+   *  from a pointer-path closure next: the listeners are bound ONCE per gesture,
+   *  so the `gestureStore` reachable from there is the POINTERDOWN render's, and
+   *  its base compare would fire on every aim change, drop the shuffles and the
+   *  lines the current render had just built, and set `store.base` BACKWARDS to a
+   *  board that no longer exists — a cache thrash on the busiest path in the
+   *  gesture. Read the ref directly, or ask from the render body as this round
+   *  now does. */
   function askOfLive(): LandingAsk | null {
     const ctx = dragRef.current
     if (!ctx || !live || live.mode !== 'move' || live.overShelf) return null
