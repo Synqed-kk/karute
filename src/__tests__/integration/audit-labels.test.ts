@@ -140,15 +140,44 @@ describe('foldRepeats (I1 — same action/target_type/target_id/actor_id folds)'
     expect(groups[0]!.events.length).toBe(1)
   })
 
-  it('a retry run interleaved with an unrelated row still folds to one group (NOT merely-adjacent)', () => {
+  it('fix round 2 (G1/P1): a retry run interleaved with an unrelated row no longer folds — CONSECUTIVE ONLY, the interruption breaks it', () => {
     const groups = foldRepeats([
       ev({ id: 'a', action: 'recording.transcribe' }),
       ev({ id: 'x', action: 'customer.view', target_type: 'customer', target_id: 'cus-1' }),
       ev({ id: 'b', action: 'recording.transcribe' }),
     ])
-    expect(groups.length).toBe(2)
-    const transcribeGroup = groups.find((g) => g.events[0]!.action === 'recording.transcribe')
-    expect(transcribeGroup?.events.length).toBe(2)
+    expect(groups.length).toBe(3)
+    expect(groups.every((g) => g.events.length === 1)).toBe(true)
+  })
+
+  it('fix round 2 (G1/P1): A X A → three groups in original order (A, X, A), none folded', () => {
+    const groups = foldRepeats([
+      ev({ id: 'a1', action: 'recording.transcribe' }),
+      ev({ id: 'x', action: 'customer.view', target_type: 'customer', target_id: 'cus-1' }),
+      ev({ id: 'a2', action: 'recording.transcribe' }),
+    ])
+    expect(groups.length).toBe(3)
+    expect(groups.map((g) => g.events[0]!.action)).toEqual([
+      'recording.transcribe',
+      'customer.view',
+      'recording.transcribe',
+    ])
+    expect(groups.every((g) => g.events.length === 1)).toBe(true)
+  })
+
+  it('fix round 2 (G1/P1): A A X A → groups [A×2, X, A]', () => {
+    const groups = foldRepeats([
+      ev({ id: 'a1', action: 'recording.transcribe' }),
+      ev({ id: 'a2', action: 'recording.transcribe' }),
+      ev({ id: 'x', action: 'customer.view', target_type: 'customer', target_id: 'cus-1' }),
+      ev({ id: 'a3', action: 'recording.transcribe' }),
+    ])
+    expect(groups.length).toBe(3)
+    expect(groups[0]!.events.length).toBe(2)
+    expect(groups[1]!.events.length).toBe(1)
+    expect(groups[1]!.events[0]!.action).toBe('customer.view')
+    expect(groups[2]!.events.length).toBe(1)
+    expect(groups[2]!.events[0]!.action).toBe('recording.transcribe')
   })
 })
 

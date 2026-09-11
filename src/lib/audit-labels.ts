@@ -60,18 +60,21 @@ export function formatStormCostUsd(costCents: number): string {
  *  actor_id) AND an identical `detail` collapse into one group, held at the
  *  position of its FIRST occurrence in `events` — the caller always passes
  *  one DAY's worth, already newest-first, so "first occurrence" IS the
- *  newest member's position. NOT merely-adjacent grouping (matches the
- *  approved mock's own documented rule): a retry run interleaved with
- *  unrelated rows must still fold to one line, not split at every
- *  interruption. The `detail` term is a documented deviation from the
- *  packet's bare 4-tuple — see the key's own comment below. */
+ *  newest member's position. CONSECUTIVE ONLY (fix round 2, G1/P1: the
+ *  packet always said consecutive — a day-wide Map here was a deviation
+ *  that let a non-adjacent repeat interleaved with an unrelated row fold
+ *  into one group, moving the older member out of its chronological
+ *  position and stretching the displayed time range across the
+ *  interruption). Each event compares against only the LAST group's key;
+ *  an interruption starts a fresh group even if the same key reappears
+ *  later. The `detail` term is a documented deviation from the packet's
+ *  bare 4-tuple — see the key's own comment below. */
 export interface FoldGroup {
   key: string
   events: AuditLogEvent[]
 }
 export function foldRepeats(events: AuditLogEvent[]): FoldGroup[] {
   const out: FoldGroup[] = []
-  const byKey = new Map<string, FoldGroup>()
   for (const e of events) {
     // Packet deviation, documented (BUILD-REPORT-PR-D2-2026-09-11.md): the
     // packet's literal key is the bare 4-tuple. `detail` joins it because
@@ -85,14 +88,12 @@ export function foldRepeats(events: AuditLogEvent[]): FoldGroup[] {
     // widening the key for every caller — never-destroy-information wins
     // over fold aggressiveness.
     const key = `${e.action}|${e.target_type}|${e.target_id}|${e.actor_id}|${JSON.stringify(e.detail)}`
-    const existing = byKey.get(key)
-    if (existing) {
-      existing.events.push(e)
+    const last = out[out.length - 1]
+    if (last && last.key === key) {
+      last.events.push(e)
       continue
     }
-    const group: FoldGroup = { key, events: [e] }
-    byKey.set(key, group)
-    out.push(group)
+    out.push({ key, events: [e] })
   }
   return out
 }
