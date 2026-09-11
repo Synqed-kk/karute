@@ -946,9 +946,23 @@ describe('今日の運営 reskin layer — slice ④ (motion · the sliding thum
       expect(LAYER_CODE.slice(at, end)).not.toContain('.cal-pop')
     }
     expect(LAYER_CODE).toContain('.biz .page-today .cal-pop {\n  transform-origin: top right;\n}')
-    // …and no `transition` on it anywhere in the layer: one on these two
-    // properties would lag every frame the spring writes by its own duration.
-    expect(LAYER_CODE).not.toMatch(/\.cal-pop[^{}]*\{[^{}]*transition:\s*opacity/)
+    // …and no `transition` on it ANYWHERE in the layer: one on either of these
+    // two properties would lag every frame the spring writes by its own
+    // duration.
+    //
+    // ⚖ COLD READ 2026-09-12 · B5 — the first cut of this line read
+    // `transition:\s*opacity`, which is two holes at once: it says nothing
+    // about `transition: transform`, and a SEPARATE later `.cal-pop` rule
+    // carrying either one slipped past it while the pinned block above stayed
+    // byte-identical (a blind round's M7b, green). Any `transition` on this
+    // selector is wrong now except the reduced block's own honest `none`.
+    //
+    // ⚠ THE LOOKAHEAD SITS BEFORE `\s*`, NOT AFTER IT. Written
+    // `transition:\s*(?!none)` the engine backtracks `\s*` to zero width, the
+    // lookahead then reads the SPACE rather than the word, and the reduced
+    // block's `transition: none` reports a false hit.
+    const LAYER_RULES = LAYER_CODE.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(LAYER_RULES).not.toMatch(/\.cal-pop[^{}]*\{[^{}]*transition:(?!\s*none)/)
   })
 
   it('the dialogs enter and leave the way the popovers do (F-6), and the scrim has a reduced answer (F-5)', () => {
