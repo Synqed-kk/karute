@@ -137,7 +137,11 @@ async function walkAuditCategoryFrom(
   category: string,
   from: string,
 ): Promise<{ events: AuditLogEvent[]; truncated: boolean }> {
-  return walkAuditQuery(synqed, { category, from })
+  // Fix round 1, subject 5 (D1-5): exclude_views:true on BOTH inner walks —
+  // a view row is never a valid join key, and the karute category is
+  // view-dominated (one row per record open), so leaving views in burns the
+  // walk's own MAX_THREAD_PAGES cap on rows that can never join.
+  return walkAuditQuery(synqed, { category, from, exclude_views: true })
 }
 
 /** Shared walk primitive — every page of `query`, to completion or

@@ -1637,6 +1637,42 @@ describe('listAuditLog — PR D1 recording thread join (amendment 1 F6)', () => 
     expect(res.folded).toBe(1)
   })
 
+  // Fix round 1, subject 5 (D1-5): both inner walks (karute AND customer)
+  // must pass exclude_views:true — a view row is never a valid join key, and
+  // the karute category is view-dominated (one row per record open), eating
+  // the walk's own page cap otherwise.
+  it('a karute.view row carrying the join key is NOT joined — both inner walks pass exclude_views:true', async () => {
+    mockClientWithRecording({ appointment_id: null })
+    list.mockImplementation(
+      async (opts: { target_type?: string; category?: string; exclude_views?: boolean }) => {
+        if (opts.target_type === 'recording') {
+          return { events: [], total: 0, page: 1, page_size: 200 }
+        }
+        if (opts.category === 'karute') {
+          // Mirrors core's own exclude_views filtering (same idiom as the
+          // main-feed test above) — a view row only survives when the walk
+          // omits the param.
+          const rows = [
+            coreEvent({
+              id: 'k-view',
+              category: 'karute',
+              action: 'karute.view',
+              target_type: 'karute',
+              target_id: 'kar-1',
+              detail: { recording_session_id: RECORDING_ID },
+            }),
+          ]
+          const filtered = opts.exclude_views ? [] : rows
+          return { events: filtered, total: filtered.length, page: 1, page_size: 200 }
+        }
+        throw new Error('unexpected call: ' + JSON.stringify(opts))
+      },
+    )
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual([])
+  })
+
   it('a walk hitting its page cap reports threadPartial:true even though the merge otherwise succeeds', async () => {
     mockClientWithRecording()
     list.mockImplementation(async (opts: { target_type?: string; category?: string; page?: number }) => {
