@@ -3196,6 +3196,16 @@ export function RecordPageView({
 
   // Which flow the 録音を使用 tap runs, once it's cleared to run at all.
   function runStopFlow() {
+    // ⚖ FIX ROUND 4: THE money seal, in its one home. Every route to a paid
+    // side effect from a live take passes through here — handleAutoFlow's
+    // redeemSessionAction (:3050, called only from the auto-redeem branch
+    // below) and openOutcomeDialog's own eventual redeemSessionAction
+    // (:3673, reached only via the dialog branch below) — so guarding here
+    // covers both. This is NOT reached only from handleUseRecordingTap's
+    // guarded branch: the supersede dialog's confirm button (:4023) calls
+    // runStopFlow() directly, which is exactly the second route fix round 3
+    // missed and fix round 4 closes.
+    if (discardReasonSubmittingRef.current) return
     // Tickets off OR the pack data on screen isn't this session's customer
     // (mismatch/anonymous): straight save — no burn, no 成約/回数券 dialog
     // (resolveStopFlow's contract).
@@ -3232,14 +3242,16 @@ export function RecordPageView({
   // the dialog-hygiene effect above has to span 'autosaving' too (fix round 6)
   // — narrower, it clears the flag this tap just set.
   function handleUseRecordingTap() {
-    // ⚖ FIX ROUND 3 (Greptile P1): the ONE entry every 使用 tap goes through
-    // (runStopFlow/handleAutoFlow/openOutcomeDialog/the supersede confirm are
-    // all reached only from here — setShowSupersedeDialog(true) is written
-    // nowhere else). Before the dialog path lost the modal to the one-tap
-    // gate, that modal WAS this fence: it covered 使用する for the whole
-    // discard round-trip. A below-floor take's one-tap discard leaves the
-    // button live, so without this check an auto-redeem customer's tap here
-    // could burn a prepaid session for audio that is mid-discard.
+    // ⚖ FIX ROUND 3, corrected FIX ROUND 4 (Greptile P1 + the money seal
+    // moved to its one home, runStopFlow): this guard's job here is narrower
+    // than fix round 3 claimed — it stops the SUPERSEDE DIALOG from opening
+    // mid-discard (setShowSupersedeDialog(true) is written only at the two
+    // lines below, both inside this function). It does NOT, by itself, seal
+    // every route to a paid side effect: the supersede dialog's own confirm
+    // button (:4023, below) calls runStopFlow() directly, bypassing this
+    // function entirely — that is why the real money seal now lives at the
+    // top of runStopFlow instead. Kept here anyway: a discard-in-flight tap
+    // must not pop a dialog on top of it either.
     if (discardReasonSubmittingRef.current) return
     if (pipeline.state === 'processing') {
       // The old run survives server-side — say so, don't ask.
@@ -4002,6 +4014,10 @@ export function RecordPageView({
                 variant="default"
                 size="md"
                 className="flex-1"
+                // ⚖ FIX ROUND 4: belt-and-braces twin of the 使用 button — the
+                // real seal is runStopFlow's own guard (this onClick calls it
+                // directly), this is the visible half.
+                disabled={discardReasonSubmitting}
                 onClick={() => {
                   setShowSupersedeDialog(false)
                   runStopFlow()

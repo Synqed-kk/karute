@@ -1484,6 +1484,96 @@ describe('⚖ FIX ROUND 3 (Greptile P1) — 使用 is sealed while a one-tap dis
   })
 })
 
+// ⚖ FIX ROUND 4 (fresh-read finding, verified at source): fix round 3's guard
+// sat at the TOP of handleUseRecordingTap, which stops that function's own
+// call to runStopFlow() — but the supersede dialog's confirm button calls
+// runStopFlow() DIRECTLY, never going through handleUseRecordingTap at all.
+// So the round-3 shape alone leaves a second, unguarded route to the same
+// money call. The seal now lives at the top of runStopFlow itself — the one
+// function every paid side effect (handleAutoFlow's redeem, the outcome
+// dialog's eventual redeem) and both UI entries (使用 / the supersede
+// confirm) actually share.
+describe('⚖ FIX ROUND 4 — the supersede confirm reaches runStopFlow directly, and is sealed there too', () => {
+  /** Common setup: a below-floor recorded take, a PRIOR take's pipeline job
+   *  still processing (not server-owned — the field condition the supersede
+   *  dialog exists for, set BEFORE render since `pipeline` is read off the
+   *  mocked hook and captured per-render), and an auto-redeem customer.
+   *  Returns the confirm button once the dialog is open. */
+  async function openSupersedeDialogOnBelowFloorTake() {
+    mockTarget = { customerId: 'cust-A', customerName: 'テスト花子' }
+    recorderTake.takeId = 'take-1'
+    mockDurationMs = 5_000 // under the floor — 破棄 one-taps
+    mockPipelineState = 'processing'
+    await renderPage({
+      ticketsEnabled: true,
+      targetPack: { id: 'p1', remaining: 5, size: 10 }, // auto-redeem mode
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('useRecording'))
+    })
+    return screen.getByText('supersedeConfirm')
+  }
+
+  it('the confirm button becomes visibly disabled while a discard is submitting (the belt)', async () => {
+    await openSupersedeDialogOnBelowFloorTake()
+    let releaseDiscard: (v: unknown) => void = () => {}
+    mockDiscardWithReason.mockImplementationOnce(
+      () => new Promise((res) => { releaseDiscard = res }) as never,
+    )
+    // Normal, sequential tap — React gets to re-render before this check.
+    await act(async () => {
+      fireEvent.click(screen.getByText('discard'))
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+
+    expect(screen.getByText('supersedeConfirm').closest('button')).toBeDisabled()
+
+    await act(async () => {
+      releaseDiscard({ ok: true, receiptId: 'row-1', duplicate: false })
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+  })
+
+  it('tapping the confirm in the same tick as an in-flight one-tap discard burns nothing and hands off nothing (the braces)', async () => {
+    await openSupersedeDialogOnBelowFloorTake()
+
+    // A one-tap discard starts, held pending, and THE TAP — the supersede
+    // confirm — lands in the SAME tick, no render between (the same idiom
+    // the double-tap tests use). Deliberate: a normal sequential tap would
+    // already be blocked by the *state*-driven `disabled` once React
+    // re-renders (proven above), which would test the belt, not the ref
+    // guard underneath it. Dispatched raw so both handlers fire on the same
+    // stale render, before the confirm button's own `disabled` prop commits.
+    let releaseDiscard: (v: unknown) => void = () => {}
+    mockDiscardWithReason.mockImplementationOnce(
+      () => new Promise((res) => { releaseDiscard = res }) as never,
+    )
+    const discardBtn = screen.getByText('discard')
+    const confirmBtn = screen.getByText('supersedeConfirm')
+    await act(async () => {
+      discardBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      confirmBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+
+    // THE MONEY ASSERTION: runStopFlow's own guard caught it before
+    // resolveStopFlow ever ran — no burn, no handoff. (The confirm's onClick
+    // always calls setShowSupersedeDialog(false) before runStopFlow(), so
+    // the dialog is gone either way — that's pre-existing, unrelated to the
+    // guard, and not what this test is pinning.)
+    expect(mockRedeemSessionAction).not.toHaveBeenCalled()
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+
+    // Release the held discard — it completes normally.
+    await act(async () => {
+      releaseDiscard({ ok: true, receiptId: 'row-1', duplicate: false })
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+    expect(mockDiscardRecording).toHaveBeenCalledTimes(1)
+  })
+})
+
 // ── 7. A2-2 — the WORDS of a reasoned discard ────────────────────────────
 // ⚖ 8/20: a reasoned discard above the accidental-tap floor keeps what was
 // said, so a manager reads the transcript beside the claim. The property under
