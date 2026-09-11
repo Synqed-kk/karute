@@ -322,7 +322,7 @@ export async function readRecordingsInbox({
   const [sessions, records, discardLedger] = await Promise.all([
     paginateDedupe((page) =>
       synqed.recordings
-        .list({ ...(staffId ? { staff_id: staffId } : {}), from, page, page_size: PAGE_SIZE })
+        .list({ ...(staffId !== null ? { staff_id: staffId } : {}), from, page, page_size: PAGE_SIZE })
         .then((r) => ({ items: r.recordings, total: r.total })),
     ),
     paginateDedupe((page) =>

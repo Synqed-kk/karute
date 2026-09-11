@@ -47,4 +47,10 @@ describe('readRecordingsInbox — staffId widened to string | null', () => {
     const call = listRecordings.mock.calls[0][0] as Record<string, unknown>
     expect(call.staff_id).toBe('staff-1')
   })
+
+  it('staffId: "" is NOT null — scopes to the empty id, never widens to the whole business', async () => {
+    await readRecordingsInbox({ synqed: client, staffId: '', businessId: 'biz-1', now: NOW })
+    const call = listRecordings.mock.calls[0][0] as Record<string, unknown>
+    expect(call.staff_id).toBe('')
+  })
 })
