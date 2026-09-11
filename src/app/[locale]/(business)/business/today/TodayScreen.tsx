@@ -87,6 +87,7 @@ import {
   calendarMonthAt,
   calPopFrame,
   calPopMotion,
+  calPopSeat,
   nextCalendarIndex,
   calendarTightLegend,
   cardNodes,
@@ -1634,12 +1635,32 @@ export function TodayScreen(props: TodayProps) {
    *  opacity for one frame before the spring takes it. */
   const calPopRef = useRef<HTMLDivElement | null>(null)
   const calSpring = useRef<ReturnType<typeof makeSpring> | null>(null)
+  /** ⚖ GREPTILE P2 (#895, fix round 2) — WHERE THE CARD ACTUALLY IS, kept across
+   *  the springs that come and go under it. The effect below rebuilds its spring
+   *  whenever `segReduced` changes, and a new spring starts at 0: flip the OS
+   *  reduced-motion switch with the calendar open and a settled card dropped to
+   *  nothing and played its whole entrance again, over a change that was not
+   *  about this card at all.
+   *
+   *  Written by the apply callback, which is the one place a value is ever
+   *  painted, so it cannot disagree with the pixels. `null` means 「no card on
+   *  screen」 — see `calPopSeat`, which is where that answer is turned back into
+   *  a seat. */
+  const calLast = useRef<number | null>(null)
   const calOnScreen = calPhase !== 'shut'
   useLayoutEffect(() => {
-    if (!calOnScreen) return
+    // ⚖ THE RESET LIVES HERE, IN THE BRANCH THAT ALREADY MEANS 「no card」, and
+    // not in the cleanup: a cleanup runs on EVERY dep change and cannot tell a
+    // reduced-motion rebuild (the element stays) from a real exit (it goes)
+    // without being told twice. This branch is reached on exactly one
+    // transition — `calOnScreen` turning false — so it is the one true leave,
+    // whatever future path reaches it. `onRest(0)` would work today for the
+    // same reason, but it is the only path to `shut` only for as long as it
+    // stays the only path.
+    if (!calOnScreen) { calLast.current = null; return }
     const el = calPopRef.current
     if (!el) return
-    const spring = makeSpring((v) => calPopFrame(el, v, segReduced), {
+    const spring = makeSpring((v) => { calPopFrame(el, v, segReduced); calLast.current = v }, {
       response: 0.3,
       damping: 1.0,
       eps: 0.02,
@@ -1649,7 +1670,10 @@ export function TodayScreen(props: TodayProps) {
       onRest: (v) => { if (v === 0) setCalPhase('shut') },
     })
     calSpring.current = spring
-    spring.jump(0)
+    // A FRESH MOUNT SEATS AT 0 — the no-flash contract, now stated by
+    // `calPopSeat(null)` rather than by a literal. A REBUILD seats where the
+    // card already is, so nothing replays.
+    spring.jump(calPopSeat(calLast.current))
     // …and the direction comes from `pop`, not from `true`: rebuilding mid-close
     // (an operator who flips the OS reduced-motion switch while it fades) must
     // carry on closing rather than re-open the thing they just dismissed.

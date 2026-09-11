@@ -691,6 +691,32 @@ export function calPopMotion(el: HTMLElement | null, spring: Spring, open: boole
   spring.set(open ? 1 : 0)
 }
 
+/** WHERE A NEWLY BUILT SPRING IS SEATED — the whole of it, so the question has
+ *  one answer and a test can ask it.
+ *
+ *  ⚖ GREPTILE P2 (#895, fix round 2) — A REBUILD IS NOT A MOUNT. The screen
+ *  rebuilds this spring whenever the reader's `prefers-reduced-motion` answer
+ *  changes, because `makeSpring` captures `reduced` at construction and a spring
+ *  that is never rebuilt is a spring that lies. But the old build seated every
+ *  new spring at 0, so flipping the OS switch while the calendar was open
+ *  dropped a settled card to nothing and replayed its whole entrance — an
+ *  animation announcing a change to a card whose state had not changed at all.
+ *
+ *  `null` is 「there is no card on screen」, which is the fresh-mount case and
+ *  the ONLY one that may start at 0 — that is the no-flash contract, and it is
+ *  stated here rather than left to whatever the caller happens to hold. Any
+ *  number is a card that is already somewhere, and the rebuild picks it up.
+ *
+ *  ⚠ POSITION, NOT VELOCITY. `jump` re-seats with zero velocity and `spring.ts`
+ *  offers no way to hand back a speed (its header forbids adding one), so a
+ *  rebuild caught MID-flight resumes from the right place at rest rather than
+ *  at its old pace. That is a change of speed in one frame, not a replay, and it
+ *  only happens in the sliver where the reader flips the OS switch during the
+ *  ~380ms the card is actually moving. */
+export function calPopSeat(last: number | null): number {
+  return last ?? 0
+}
+
 /** The month `delta` months from y/m, counted in whole months rather than by
  *  adding to a Date — a Date would resolve 1月31日 + 1か月 to 3月3日 and the
  *  grid would skip February entirely. */

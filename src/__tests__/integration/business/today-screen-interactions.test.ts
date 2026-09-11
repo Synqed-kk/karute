@@ -44,6 +44,7 @@ import {
   LABEL_MIN,
   calPopFrame,
   calPopMotion,
+  calPopSeat,
   clickClosesPopover,
   dragModeAt,
   deltaPctIn,
@@ -2236,6 +2237,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       // renamed or removed.
       "calPopFrame,",
       "calPopMotion,",
+      "calPopSeat,",
       "nextCalendarIndex,",
       "calendarTightLegend,",
       "cardNodes,",
@@ -14565,6 +14567,82 @@ describe('⚖ STUDIO 2026-09-12 — 月カレンダー enters AND leaves on the 
     expect(document.querySelector('.cal-pop')).toBe(el)
   })
 
+  it('⚖ GREPTILE P2 (#895) — a rebuild resumes where the card is; only a fresh mount starts at 0', () => {
+    // The screen rebuilds this spring whenever the reader's reduced-motion
+    // answer changes, because `makeSpring` captures `reduced` at construction.
+    // The first build seated EVERY new spring at 0, so flipping the OS switch
+    // with the calendar open dropped a settled card to nothing and replayed its
+    // whole entrance — an animation announcing a change that was not about this
+    // card. `calPopSeat` is the decision, and this drives it through the real
+    // integrator exactly as the layout effect does.
+    document.body.innerHTML = '<div class="cal-pop"></div>'
+    const el = document.querySelector<HTMLElement>('.cal-pop')!
+    const c = clock()
+    const last: { v: number | null } = { v: null }
+    const painted: number[] = []
+    /** the layout effect's own four steps, and nothing else */
+    const build = (reduced: boolean) => {
+      const spring = makeSpring((v) => {
+        calPopFrame(el, v, reduced)
+        last.v = v
+        painted.push(v)
+      }, { response: 0.3, damping: 1.0, eps: 0.02, reduced, raf: c.raf, cancel: c.cancel })
+      spring.jump(calPopSeat(last.v))
+      calPopMotion(el, spring, true)
+      return spring
+    }
+
+    // 1 · a FRESH mount — nothing has been painted, so the seat is 0 and the
+    // no-flash contract stands.
+    expect(last.v).toBeNull()
+    const first = build(false)
+    expect(el.style.opacity).toBe('0')
+    c.settle()
+    expect(el.style.opacity).toBe('1')
+
+    // 2 · the reader flips reduced motion ON. The card is settled and its state
+    // has not changed, so NOTHING may move.
+    first.stop()
+    painted.length = 0
+    build(true)
+    for (const v of painted) expect(v).toBe(1)
+    expect(el.style.opacity).toBe('1')
+    expect(el.style.transform).toBe('')
+    expect(c.running()).toBe(false)
+
+    // 3 · …and back OFF again, which is the same claim in the other direction:
+    // not one frame below 1, and the card is still fully open at the end.
+    painted.length = 0
+    const third = build(false)
+    c.settle()
+    for (const v of painted) expect(v).toBe(1)
+    expect(el.style.opacity).toBe('1')
+    expect(el.style.transform).toBe('scale(1)')
+    third.stop()
+
+    // 4 · the exit is what makes the NEXT mount fresh. The screen nulls
+    // `calLast` in the layout effect's `!calOnScreen` branch — the one
+    // transition that means the card has left — and without that a reopened
+    // popover would seat at 1 and appear fully open instead of entering.
+    last.v = null
+    painted.length = 0
+    build(false)
+    expect(el.style.opacity).toBe('0')
+  })
+
+  it('⚖ GREPTILE P2 (#895) — calPopSeat: null is the only seat that may be 0', () => {
+    // `null` is 「no card on screen」, which is the fresh mount. Every number is
+    // a card that is already somewhere.
+    expect(calPopSeat(null)).toBe(0)
+    expect(calPopSeat(0)).toBe(0)
+    expect(calPopSeat(1)).toBe(1)
+    expect(calPopSeat(0.4)).toBe(0.4)
+    // ⚠ `?? 0`, never `|| 0`: a card resting at 0 is a card the exit has not
+    // finished unmounting, and `||` would answer it the same as `null` — which
+    // is right by accident here and wrong the moment the seat is anything else.
+    expect(calPopSeat(0)).not.toBeNull()
+  })
+
   it('⚖ COLD READ · C1 — a reduced frame CLEARS the transform a non-reduced frame left', () => {
     // The reader flips the OS switch while the calendar is up. The screen
     // rebuilds the spring with `reduced: true` (that is what `segReduced` is in
@@ -14648,14 +14726,37 @@ describe('⚖ STUDIO 2026-09-12 — 月カレンダー enters AND leaves on the 
     // frame and only then seats it at 0; deleting `jump(0)` reaches the same
     // flash by the other route, because a fresh spring starts at x = 0 without
     // writing anything to the element.
-    expect(CODE).toContain('  useLayoutEffect(() => {\n    if (!calOnScreen) return')
-    expect(CODE).toContain('    calSpring.current = spring\n    spring.jump(0)')
+    // ⚠ THE PINS BELOW READ THE EFFECT WITH ITS BLANK LINES COLLAPSED. `CODE`
+    // blanks each `//` line rather than deleting it, so a pin written as two
+    // adjacent statements breaks the moment a sentence of prose is written
+    // between them — which is a pin about the comments, not about the code.
+    const calAt = CODE.indexOf("const calOnScreen = calPhase !== 'shut'")
+    expect(calAt).toBeGreaterThan(-1)
+    const calEffect = CODE
+      .slice(calAt, CODE.indexOf('}, [calOnScreen, segReduced])', calAt))
+      .replace(/(?:\n[ \t]*)+\n/g, '\n')
+    expect(calEffect.length).toBeGreaterThan(200)
+    expect(calEffect).toContain('useLayoutEffect(() => {\n    if (!calOnScreen) { calLast.current = null; return }')
+    expect(calEffect).toContain('    calSpring.current = spring\n    spring.jump(calPopSeat(calLast.current))')
+
+    // ⚖ GREPTILE P2 (#895) — THE LAST PAINTED VALUE IS WRITTEN BY THE PAINTER.
+    // The apply callback is the one place a value ever reaches the element, so
+    // recording it there is the only spelling that cannot disagree with the
+    // pixels; anywhere else is a second opinion about what is on screen.
+    expect(CODE).toContain('const calLast = useRef<number | null>(null)')
+    expect(calEffect).toContain('const spring = makeSpring((v) => { calPopFrame(el, v, segReduced); calLast.current = v }, {')
+    // …and it is reset in the branch that already means 「no card」 — reached on
+    // exactly one transition (`calOnScreen` turning false), whatever future path
+    // gets there. Without the reset a reopened popover seats at 1 and appears
+    // fully open instead of entering.
+    expect(CODE).toContain('if (!calOnScreen) { calLast.current = null; return }')
+    expect(CODE).not.toContain('spring.jump(0)')
 
     // B4 — THE REBUILD CARRIES THE DIRECTION, never a hardcoded `true`. A
     // rebuild mid-close (the operator flips the OS reduced-motion switch while
     // the card fades) must carry on closing rather than re-open the thing they
     // just dismissed. The cleanup rides the same pin so the pair cannot drift.
-    expect(CODE).toContain("    calPopMotion(el, spring, pop === 'cal')\n    return () => { spring.stop(); calSpring.current = null }")
+    expect(calEffect).toContain("    calPopMotion(el, spring, pop === 'cal')\n    return () => { spring.stop(); calSpring.current = null }")
 
     // B6 — …and `segReduced` is IN those deps, which is the only reason that
     // rebuild happens at all. `makeSpring` captures `reduced` at construction,
