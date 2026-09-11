@@ -2485,6 +2485,7 @@
           "session_cleanup": "録音を破棄",
           "take_named": "録音のアップロード先を発行（既存セッション）",
           "transcribe": "録音を文字起こし",
+          "transcribe_failed": "文字起こしに失敗",
           "transcribe_refused": "録音の文字起こしを見送り（利用上限）",
           "transcribe_storm": "同じ録音を連続文字起こし"
         }
