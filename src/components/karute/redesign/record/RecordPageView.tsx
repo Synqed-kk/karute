@@ -1113,7 +1113,13 @@ export function RecordPageView({
     // never covers) from filing a karute while this discard is still in
     // flight; a one-tap would unmount that fence for a below-floor take.
     // ⚖ FIX ROUND 1: unknown length is not "under 10 s" — the dialog asks.
-    const oneTapDurationSec = discardSubjectDurationSec(origin)
+    // `ctx: null` — only recorder/banner ever reach this gate (F1), and
+    // neither reads `ctx`; `bannerSnap` is the ref this function's own latch
+    // above JUST set, captured here, at open, matching F7's rule.
+    const oneTapDurationSec = discardSubjectDurationSec(origin, {
+      ctx: null,
+      bannerSnap: bannerDiscardSnapshotRef.current,
+    })
     if (
       (origin === 'recorder' || origin === 'banner') &&
       oneTapDurationSec !== null &&
@@ -1162,16 +1168,26 @@ export function RecordPageView({
     setDiscardReasonError(null)
   }
 
-  /** ⚖ 9/12 — ONE HOME for "how long was this take", read off the same live
-   *  sources runDiscardWithReason always reads below: the ctx-keyed origins
-   *  (review/pipeline-error) key on the pipeline's own captured duration, the
-   *  banner keys on its frozen snapshot, and the recorder keys on the hook's
-   *  live result. Feeds both the one-tap gate (openDiscardReason) and the
-   *  receipt payload below — the same number, so the UI's decision and the
-   *  server's own below_floor flag (discard.ts) can never disagree.
+  /** ⚖ 9/12 — ONE HOME for "how long was this take". Feeds both the one-tap
+   *  gate (openDiscardReason) and the receipt payload below — the same
+   *  number, so the UI's decision and the server's own below_floor flag
+   *  (discard.ts) can never disagree.
+   *
+   *  ⚖ FIX ROUND 2 (F7): pure over `captured` — the ctx-keyed origins
+   *  (review/pipeline-error) and the banner read whatever `ctx`/`bannerSnap`
+   *  the CALLER captured, never `globalPipeline.context` /
+   *  `bannerDiscardSnapshotRef.current` live. `globalPipeline.context` is a
+   *  getter on a mutable singleton — reading it fresh a second time, after
+   *  an await, could return a different value than the pre-await read the
+   *  rest of this function already relies on (the "live singleton across
+   *  awaits" rule this file otherwise obeys everywhere else actually means:
+   *  capture ONCE, reuse the capture). The recorder keys on the hook's
+   *  `result`, which is already a stable render-closure value with no such
+   *  risk, so it still reads directly.
    */
   function discardSubjectDurationSec(
     origin: 'recorder' | 'review' | 'pipeline-error' | 'banner',
+    captured: { ctx: { duration?: number } | null; bannerSnap: { durationSec: number } | null },
   ): number | null {
     // ⚖ 9/12 FIX ROUND 1: `null` for an UNKNOWN duration (never `0`) — 0 would
     // read as "under the floor" and file the auto reason for a take that may
@@ -1179,9 +1195,9 @@ export function RecordPageView({
     // `?? 0` fallback (unchanged, server-side behaviour); only this gate's
     // decision needs to tell "unknown" apart from "short".
     if (origin === 'review' || origin === 'pipeline-error') {
-      return globalPipeline.context?.duration ?? null
+      return captured.ctx?.duration ?? null
     }
-    if (origin === 'banner') return bannerDiscardSnapshotRef.current?.durationSec ?? null
+    if (origin === 'banner') return captured.bannerSnap?.durationSec ?? null
     return result ? result.durationMs / 1000 : null
   }
 
@@ -1322,7 +1338,10 @@ export function RecordPageView({
         // on its own account. This is a pre-existing fact about the receipt,
         // not this gate's decision (which now tells "unknown" apart from
         // "short" — see discardSubjectDurationSec).
-        durationSeconds: discardSubjectDurationSec(origin) ?? 0,
+        // ⚖ FIX ROUND 2 (F7): `{ ctx, bannerSnap }` — the SAME pre-await
+        // captures a few lines above, never a fresh live read here after the
+        // mint/retry awaits.
+        durationSeconds: discardSubjectDurationSec(origin, { ctx, bannerSnap }) ?? 0,
         // `|| null`: a walk-in target carries id='' — the same coercion the
         // save binding does, so the receipt records null rather than ''.
         customerId:

@@ -238,6 +238,10 @@ let mockServerOwned = false
  *  banner only). 60 s (well above the floor) is the default every existing
  *  test relies on. */
 let mockCtxDuration = 60
+/** ⚖ FIX ROUND 2 (F7) — settable to null so a test can force the ctx-keyed
+ *  retry-mint AWAIT (the race window F7 protects): `sess-reviewed` (present)
+ *  is every existing test's default and skips that await entirely. */
+let mockCtxSessionId: string | null = 'sess-reviewed'
 const mockPipelineReset = jest.fn()
 jest.mock('@/lib/global-pipeline', () => ({
   globalPipeline: {
@@ -256,7 +260,7 @@ jest.mock('@/lib/global-pipeline', () => ({
       // ⚖ 8/26 rider: 'error' carries the same ctx shape as 'review' — the
       // pipeline-error origin keys off it the identical way.
       return mockPipelineState === 'review' || mockPipelineState === 'error'
-        ? { customers: [], duration: mockCtxDuration, recordingSessionId: 'sess-reviewed', takeId: 'take-1' }
+        ? { customers: [], duration: mockCtxDuration, recordingSessionId: mockCtxSessionId, takeId: 'take-1' }
         : null
     },
     get serverOwned() {
@@ -278,7 +282,7 @@ jest.mock('@/hooks/use-global-pipeline', () => ({
       mockPipelineState === 'review' ? { transcript: 't', entries: [], summary: 's' } : null,
     context:
       mockPipelineState === 'review' || mockPipelineState === 'error'
-        ? { customers: [], duration: mockCtxDuration, recordingSessionId: 'sess-reviewed', takeId: 'take-1' }
+        ? { customers: [], duration: mockCtxDuration, recordingSessionId: mockCtxSessionId, takeId: 'take-1' }
         : null,
     start: jest.fn(),
     retry: jest.fn(),
@@ -348,6 +352,7 @@ beforeEach(() => {
   mockPipelineState = 'idle'
   mockPipelineErrorCode = 'empty-transcript'
   mockCtxDuration = 60
+  mockCtxSessionId = 'sess-reviewed'
   mockServerOwned = false
   mockRecoverableTake = null
   mockAwaitSession.mockImplementation(async () => RECORDER_SESSION)
@@ -1378,6 +1383,46 @@ describe('⚖ 9/12 — the one-tap discard, recorder origin', () => {
     expect(reasonGate()).not.toBeNull()
     expect(mockDiscardWithReason).not.toHaveBeenCalled()
     expect(mockPipelineReset).not.toHaveBeenCalled()
+  })
+})
+
+// ⚖ FIX ROUND 2 (F7, lens finding + mutant m5 survivor): the receipt's
+// duration must come from the SAME pre-await `ctx` capture the rest of
+// runDiscardWithReason already uses for takeId/customerId/appointmentId —
+// never a fresh live read of globalPipeline.context after an await, which
+// could disagree with what the rest of the payload describes.
+describe('⚖ FIX ROUND 2 (F7) — the receipt duration is captured pre-await, never re-read live', () => {
+  it('a pipeline reset during the mint-retry await must not erase the captured duration', async () => {
+    mockPipelineState = 'review'
+    mockCtxDuration = 45
+    mockCtxSessionId = null // no session id on the ctx forces the retry-mint await
+    let releaseMint: (v: string | null) => void = () => {}
+    mockRetryMint.mockImplementationOnce(() => new Promise((res) => { releaseMint = res }))
+    await renderPage()
+    await tapDiscard('review-discard')
+    await writeReason()
+
+    // Confirm captures ctx (duration 45, no session id) synchronously, THEN
+    // awaits the retry mint. Hold there.
+    await act(async () => {
+      fireEvent.click(screen.getByText('discardReason.confirm'))
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+
+    // The pipeline "resets" WHILE the mint is in flight — a live read of
+    // globalPipeline.context now returns null.
+    mockPipelineState = 'idle'
+
+    await act(async () => {
+      releaseMint('sess-reminted')
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+    expect(mockDiscardWithReason.mock.calls[0][0]).toMatchObject({
+      recordingSessionId: 'sess-reminted',
+      durationSeconds: 45,
+    })
   })
 })
 
