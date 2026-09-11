@@ -25,6 +25,7 @@ import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { isOwnAudioKey, parseRecordingKey } from '@/lib/recording/key-grammar'
 import { readStaffDiscard } from '@/lib/recording/staff-discard'
+import { hasRememberedEmptyTranscript } from '@/lib/jobs/empty-transcript-memory'
 import {
   AI_SPEND_LIMIT,
   DISCARDED_BY_STAFF,
@@ -153,6 +154,32 @@ async function processJob(job: RecordingJob): Promise<string> {
   // all five doors share one place, and a refusal leaves here as AI_SPEND_LIMIT.
   const { consent } = await synqed.customers.getConsent(payload.customer_id)
   if (!isConsentCurrent(consent)) throw new Error(CONSENT_REQUIRED_ERROR)
+
+  // Layer A memory (PACKET-MIC-SILENCE-LAYER-A-2026-09-11.md subject 2): the
+  // FIRST empty transcript on THIS audio object is remembered on its own
+  // recording.transcribe_failed row (subject 1's audio_path key) — a re-arm
+  // of the SAME object skips the paid call entirely and re-throws the exact
+  // literal below so the owner's 警告 row keeps reason empty_transcript. Only
+  // this worker guards; no enqueue door refuses (a refusal would make the
+  // phone fall back to its own in-tab PAID pipeline, global-pipeline.ts:534).
+  // One page, 50 rows, newest first (the SDK's own list() contract) — CORE-19's
+  // action filter removes that ceiling later. A read failure (network, or a
+  // fixture with no audit client at all) must never cost a karute, so it just
+  // falls through to the paid call exactly as today.
+  let remembered: Awaited<ReturnType<typeof synqed.audit.list>> | null = null
+  try {
+    remembered = await synqed.audit.list({
+      target_type: 'recording',
+      target_id: job.recording_session_id,
+      category: 'recording',
+      page_size: 50,
+    })
+  } catch {
+    remembered = null
+  }
+  if (remembered && hasRememberedEmptyTranscript(remembered.events, payload.audio_path)) {
+    throw new Error('EMPTY_TRANSCRIPT')
+  }
 
   // Signed READ url for Deepgram — server-minted from the storage path, same
   // by-construction SSRF posture as the facade transcribe twin.
