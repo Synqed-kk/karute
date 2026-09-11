@@ -118,7 +118,9 @@ describe('watchOneBusiness — recording.karute_missing', () => {
         targetId: 'sess-old',
         severity: 'notice',
         source: 'system',
-        requestId: 'audit-watch:recording.karute_missing:sess-old:2026-09-11',
+        // P2-2: no day suffix — one fact per target, ever (the run's day is
+        // not the session's day, so a day suffix here was never stable).
+        requestId: 'audit-watch:recording.karute_missing:sess-old',
         detail: expect.objectContaining({
           recording_session_id: 'sess-old',
           customer_id: 'cust-1',

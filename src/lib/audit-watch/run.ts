@@ -82,12 +82,15 @@ function detailDay(detail: unknown): unknown {
  * F-d: THE CEILING, named. This reads only ONE page of DEDUPE_PAGE_SIZE rows —
  * a target with more `recording`-category rows than that could hide an older
  * watch row past the page and re-write it. Two things stand behind this,
- * neither of them this scan: the deterministic `request_id`
- * (`audit-watch:<action>:<target>:<day>`) and the reader's own belt-dedupe
- * fold on (action, target, request_id) — a re-write lands as a harmless
- * duplicate, never a second candidate a human has to re-triage. CORE-19 item
- * 2 (an `action` filter on ListAuditOptions) removes the ceiling outright,
- * once it lands. */
+ * neither of them this scan: the deterministic `request_id` — P2-2:
+ * `audit-watch:<action>:<target>` for karute_missing (one fact per target,
+ * ever — the RUN's day is not the SESSION's day, so a day suffix here was
+ * never actually stable across runs), `audit-watch:<action>:<target>:<day>`
+ * for a storm (one fact per target per storm-day, `storm.day` itself fixed
+ * once the storm exists) — and the reader's own belt-dedupe fold on (action,
+ * target, request_id) — a re-write lands as a harmless duplicate, never a
+ * second candidate a human has to re-triage. CORE-19 item 2 (an `action`
+ * filter on ListAuditOptions) removes the ceiling outright, once it lands. */
 async function isNewCandidate(
   synqed: ReturnType<typeof newSynqedClient>,
   targetId: string,
@@ -253,7 +256,11 @@ export async function watchOneBusiness(
           targetId,
           severity: 'notice',
           detail: await karuteMissingDetail(synqed, row, redemptions),
-          requestId: `audit-watch:recording.karute_missing:${targetId}:${ymdInJst(now)}`,
+          // P2-2: no day suffix — deterministic across runs (was ymdInJst(now),
+          // the RUN's day, which changes daily for the same never-resolved
+          // session; the packet's ceiling comment above assumed this already
+          // held).
+          requestId: `audit-watch:recording.karute_missing:${targetId}`,
           source: 'system',
         })
         // F-c: `written` counts only real writes — dry mode leaves it at 0
