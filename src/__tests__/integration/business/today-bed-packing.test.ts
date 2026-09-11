@@ -1813,6 +1813,22 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
       'const drop = v && v.reseats.length > 0 ? toneRef.current?.slots.get(slotKey(rail.laneKey, c.start, railDur)) : undefined',
     )
     expect(SCREEN).toContain('const mark = chip ? chip.mark : (explained?.mark ?? null)')
+    // ⚖ ADJUDICATION L3 MAJOR — …and the chip's own SENTENCE, which is its
+    // `aria-label` and what pressing it shows. A ⇄ chip reaches for the rest
+    // layer's one clause; every other chip keeps the fallback chain byte for
+    // byte. Reverting this to the bare chain leaves a screen reader hearing the
+    // guard's rest-time capacity sentence on a chip whose face says 「this start
+    // needs a swap」.
+    expect(SCREEN).toContain(
+      'const sentence =\n              v && chip?.mark\n                ? reseatSentence(v.reason ?? c.sentence, companionLines(boardLanes, companionsFor(boardLanes, v.reseats)), null)\n                : (v?.reason ?? explained?.sentence ?? c.sentence)',
+    )
+    // …and there is exactly ONE spelling of the clause in the whole product:
+    // the engine's own helper. A literal on the screen would be the same defect
+    // one round later. (The screen's single mention is a COMMENT naming this
+    // helper — the regex below is anchored on the template's own opening, which
+    // no comment carries.)
+    expect((SCREEN.match(/ここに置くと、ほかのお客様のベッドを入れ替えて収めます/g) ?? [])).toHaveLength(0)
+    expect((INTERACTIONS.match(/ここに置くと、ほかのお客様のベッドを入れ替えて収めます/g) ?? [])).toHaveLength(1)
     expect(SCREEN).toContain('slots.set(slotKey(rail.laneKey, c.start, railDur), final.kind)')
     // …and the aimed chip's own refresh keys on the length it DERIVES from the
     // frame's span, never on the render body's `railDur`: this function is

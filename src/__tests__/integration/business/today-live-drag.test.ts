@@ -27,6 +27,7 @@ import {
   handRowStamp,
   liveChipFace,
   packImpossible,
+  reseatSentence,
   sharesStore,
   VERDICT_WORD,
   type LandingVerdict,
@@ -569,6 +570,31 @@ describe('`slotKey` — the ⇄ tone slot\u2019s ONE spelling, and every field s
 
   it('the three fields are all that is in it, in that order', () => {
     expect(slotKey('p-01', 840, 60)).toBe('p-01|840|60')
+  })
+})
+
+describe('`reseatSentence` — the swap said once, for both layers', () => {
+  /** ⚖ ADJUDICATION L3 MAJOR. The rest layer composed this inline and the
+   *  mid-drag chip never reached for it, so a chip wearing ⇄ announced the
+   *  guard's rest-time capacity sentence to a screen reader. One home, two
+   *  callers, and the wording is the board's own — 入れ替え is the legend's noun
+   *  (`⇄ = ベッドを入れ替えて置ける`) and the parenthesis is `companionLines`'. */
+  it('the ⇄ clause, with the companion lines in the parenthesis', () => {
+    expect(reseatSentence('この30分はベッドが空いています', ['見本 さくら様 ベッド1 → ベッド2'], null)).toBe(
+      'この30分はベッドが空いています。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（見本 さくら様 ベッド1 → ベッド2）',
+    )
+  })
+
+  it('several companions ride one parenthesis, joined the surface’s own way', () => {
+    expect(reseatSentence('あ', ['い', 'う'], null)).toBe('あ。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（い、う）')
+  })
+
+  it('the DEGRADED tone appends the shuffle’s own sentence, never a second wording of it', () => {
+    expect(reseatSentence('あ', ['い'], '新規用の枠が1つ減ります')).toBe(
+      'あ。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（い）。新規用の枠が1つ減ります',
+    )
+    // …and `null` adds nothing at all, which is what a clean shuffle costs.
+    expect(reseatSentence('あ', ['い'], null).endsWith('（い）')).toBe(true)
   })
 })
 

@@ -142,6 +142,7 @@ import {
   holdResumeAt,
   HOLD_MS,
   explainRails,
+  reseatSentence,
   reservedSentence,
   sameStore,
   sharesStore,
@@ -6589,7 +6590,27 @@ export function TodayScreen(props: TodayProps) {
             // the verdict's own reason outranks it while one exists.
             const explained = railExplained.get(rail.laneKey)?.get(c.start) ?? null
             const word = v ? null : (explained?.word ?? null)
-            const sentence = v?.reason ?? explained?.sentence ?? c.sentence
+            // ⚖ ADJUDICATION L3 MAJOR (2026-09-11) — AND A ⇄ CHIP SAYS THE SWAP
+            // IT SHOWS. This line is the chip's `aria-label` (below) and the
+            // sentence pressing it displays, and it never carried the reseat:
+            // `landingVerdict` returns `reason: null` on a clean landing and the
+            // cell's own sentence on a caution one, and `explainRails` is empty
+            // for the whole of a gesture — so a screen reader on a chip wearing
+            // ⇄ heard the REST-time capacity guard's words and nothing about
+            // moving another customer's bed. The mark promised; the name did
+            // not. The clause is the rest layer's own (`reseatSentence`), never
+            // a second spelling, laid on top of exactly the sentence this chip
+            // would have carried anyway. Every non-⇄ chip is byte-unchanged.
+            //
+            // ⚠ The caution tail is `null` here and that is honest, not an
+            // omission: at rest it is the SHUFFLED board's own verdict sentence,
+            // and mid-drag the slots carry that verdict's KIND alone. Naming a
+            // cost we have not asked for would be the invention this board does
+            // not make; the △ palette the chip already wears is what says it.
+            const sentence =
+              v && chip?.mark
+                ? reseatSentence(v.reason ?? c.sentence, companionLines(boardLanes, companionsFor(boardLanes, v.reseats)), null)
+                : (v?.reason ?? explained?.sentence ?? c.sentence)
             // ⚖ LIAM RULING 3 (2026-09-09) — 「a start that fits only by MOVING
             // someone gets a small 『moves someone』 marker instead of a plain
             // ✓」. It is a REST face like the word beside it: `explainRails`

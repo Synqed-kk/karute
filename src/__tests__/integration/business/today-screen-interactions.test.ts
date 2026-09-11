@@ -2262,6 +2262,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "holdResumeAt,",
       "HOLD_MS,",
       "explainRails,",
+      "reseatSentence,",
       "reservedSentence,",
       "sameStore,",
       "sharesStore,",
