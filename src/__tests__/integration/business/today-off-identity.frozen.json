@@ -1,0 +1,463 @@
+{
+  "emittedAt": "a7d10dc3a",
+  "instant": "2026-08-19T00:00:00Z",
+  "cells": {
+    "STORE_A": {
+      "dayBookings": {
+        "sha256": "8dfa634d3d6d2d0b90df25aaa9f554b12712b5d2def2d88ed7631483978f82d2",
+        "bytes": 5179,
+        "n": 11
+      },
+      "buildLanes": {
+        "sha256": "d5b927d03c0173d4b5976dee4fee3cd63498845f1bc93dc28b1853004f13ac07",
+        "bytes": 12634,
+        "n": 9
+      },
+      "cleanupBlocks": {
+        "sha256": "d15d1006bbb9ab7bfec6c5ac0950f9aaf8a386e787d0d8cf9c51a24faa098b7b",
+        "bytes": 37,
+        "n": 3
+      },
+      "laneMinutes": {
+        "sha256": "5bb617f14b5e7f4d1db1978d580a8ac5c9c77c30e552588014d7ddab86f2dac8",
+        "bytes": 453,
+        "n": 6
+      },
+      "utilization": {
+        "sha256": "b799ae02569f4640f5685b924957ec55a3f7e4e5520ce7d71a2d54c385c33346",
+        "bytes": 46,
+        "n": 3
+      },
+      "computeChecks": {
+        "sha256": "1f993261de7840b215790502ec5f78e8127fcf3255f6c6fe97cc6160dffeb1da",
+        "bytes": 161,
+        "n": 4
+      },
+      "laneSpans": {
+        "sha256": "669a5275940b6a015303685fdd94f0111150ce4b594dbed24edc6765b840a520",
+        "bytes": 1376,
+        "n": 9
+      },
+      "roomAllocation": {
+        "sha256": "0abd1afb3a6aa34c6816af49062d2a17c6f81b6e91a84a9ba4d3065cf69cb48d",
+        "bytes": 1660,
+        "n": 6
+      },
+      "sellLayerFor": {
+        "sha256": "45fda3093c175f6ba6bc7d4f24a8559ef4a8fbf14c0b6be631650a6e756c0667",
+        "bytes": 7190,
+        "n": 2
+      },
+      "bedTruthViews": {
+        "sha256": "07b575ae5c4875b11522cc8963ede904eae3c8ee0f7a013642739cebc6c0ea9b",
+        "bytes": 1087,
+        "n": 2
+      },
+      "fitsDrag": {
+        "sha256": "a4c73e64c28cc2b5dd30e0ea7649ada872e271f6c819e1ddfc38e4b947b1f91a",
+        "bytes": 47,
+        "n": 8
+      }
+    },
+    "STORE_B": {
+      "dayBookings": {
+        "sha256": "99637f334a2ffc48e173b125cb7bc3642af8324e5af814920d39250e5b9486a8",
+        "bytes": 945,
+        "n": 2
+      },
+      "buildLanes": {
+        "sha256": "6f47a239618f4ca269fcbefd1ea49f373f856a25d330c938fe041ed1c222e27b",
+        "bytes": 3856,
+        "n": 4
+      },
+      "cleanupBlocks": {
+        "sha256": "92c70b68c26ec2dc446e8a874711c1a8d57850448d3c7a543ecd78eeccdef8e5",
+        "bytes": 13,
+        "n": 1
+      },
+      "laneMinutes": {
+        "sha256": "c7f736eae5eb92ef667297a7ac885ecdb4e4f65cf5d0b5571f0a47d19abb09c6",
+        "bytes": 225,
+        "n": 3
+      },
+      "utilization": {
+        "sha256": "4eb972d47198ff6e6f35aa8138cb3296d680bd2180513f928ec1a8b47a1e20b1",
+        "bytes": 44,
+        "n": 3
+      },
+      "computeChecks": {
+        "sha256": "04ad2d0a9b7017ef2cff0252ae307c9a7f25b048d4d15cf3b1146319be4fa4ce",
+        "bytes": 160,
+        "n": 4
+      },
+      "laneSpans": {
+        "sha256": "19e9d5f11133435a5016b9cbef0108c0d68b9d84231844071a8c61d908e71a44",
+        "bytes": 398,
+        "n": 4
+      },
+      "roomAllocation": {
+        "sha256": "b1396d04c2cecbff39aac7f0fe6dc6b725073bb596e66fb6dd0490d981b0e6bb",
+        "bytes": 831,
+        "n": 6
+      },
+      "sellLayerFor": {
+        "sha256": "9d3ad43173f0499a0d95acdb898d570526e5610c183f701fcd91bcfe9f790e89",
+        "bytes": 5056,
+        "n": 2
+      },
+      "bedTruthViews": {
+        "sha256": "c17d5fb553e5aa879ef423a47f89f968fec17cf88e2762a027cd1811a1995037",
+        "bytes": 942,
+        "n": 2
+      },
+      "fitsDrag": {
+        "sha256": "a4c73e64c28cc2b5dd30e0ea7649ada872e271f6c819e1ddfc38e4b947b1f91a",
+        "bytes": 47,
+        "n": 8
+      }
+    },
+    "viewAll": {
+      "dayBookings": {
+        "sha256": "6ecb9b394c47b680a60fa61f7b7beeee5453a730edeb7d708cb64a4e2a956581",
+        "bytes": 6123,
+        "n": 13
+      },
+      "buildLanes": {
+        "sha256": "e16349fa29471c5432e42b09a462b006b194b56e704555788a5b354c805cfd05",
+        "bytes": 14890,
+        "n": 11
+      },
+      "cleanupBlocks": {
+        "sha256": "a7a0923ced7add311701c787a7db0871691d0ec42da1ca6ee026da0b1fb9af02",
+        "bytes": 49,
+        "n": 4
+      },
+      "laneMinutes": {
+        "sha256": "f1efe59e791da3dc72f9a0e339c9effa220ce2db2fa702b646ce807683fb45ec",
+        "bytes": 529,
+        "n": 7
+      },
+      "utilization": {
+        "sha256": "1cb8d5f40d591c4c1d9fd801f7db582b6e21c863008fc33687755c52969af0cb",
+        "bytes": 46,
+        "n": 3
+      },
+      "computeChecks": {
+        "sha256": "1f993261de7840b215790502ec5f78e8127fcf3255f6c6fe97cc6160dffeb1da",
+        "bytes": 161,
+        "n": 4
+      },
+      "laneSpans": {
+        "sha256": "5ff8301f45e433b3623ddfcfb4b94c3cdcbdc58a38c3fe32595743bbd9985e26",
+        "bytes": 1595,
+        "n": 11
+      },
+      "roomAllocation": {
+        "sha256": "238b12a3f42283b6f87889a42659b319b48a193c3bcd5049ffc5d0b22372da85",
+        "bytes": 515,
+        "n": 6
+      },
+      "sellLayerFor": {
+        "sha256": "cb7b3a0328ced9a58341ed371a04f406afa744d7cfb87cfb8acd637efd9fa1d5",
+        "bytes": 10536,
+        "n": 2
+      },
+      "bedTruthViews": {
+        "sha256": "25a772bc922a73ab0786228ec830e1fed6c4943e52c2faafa52b81da19cce7c7",
+        "bytes": 1164,
+        "n": 2
+      },
+      "fitsDrag": {
+        "sha256": "a4c73e64c28cc2b5dd30e0ea7649ada872e271f6c819e1ddfc38e4b947b1f91a",
+        "bytes": 47,
+        "n": 8
+      }
+    }
+  },
+  "literals": {
+    "laneMinutes": {
+      "STORE_A": [
+        {
+          "staffId": "p-01",
+          "treats": true,
+          "availableMinutes": 150,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "c-03",
+          "treats": true,
+          "availableMinutes": 420,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-04",
+          "treats": true,
+          "availableMinutes": 420,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-05",
+          "treats": true,
+          "availableMinutes": 360,
+          "bookedMinutes": 80
+        },
+        {
+          "staffId": "p-06",
+          "treats": true,
+          "availableMinutes": 510,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-09",
+          "treats": false,
+          "availableMinutes": 0,
+          "bookedMinutes": 0
+        }
+      ],
+      "STORE_B": [
+        {
+          "staffId": "p-02",
+          "treats": true,
+          "availableMinutes": 480,
+          "bookedMinutes": 45
+        },
+        {
+          "staffId": "c-03",
+          "treats": true,
+          "availableMinutes": 420,
+          "bookedMinutes": 0
+        },
+        {
+          "staffId": "p-05",
+          "treats": true,
+          "availableMinutes": 360,
+          "bookedMinutes": 45
+        }
+      ],
+      "viewAll": [
+        {
+          "staffId": "p-01",
+          "treats": true,
+          "availableMinutes": 150,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-02",
+          "treats": true,
+          "availableMinutes": 480,
+          "bookedMinutes": 45
+        },
+        {
+          "staffId": "c-03",
+          "treats": true,
+          "availableMinutes": 420,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-04",
+          "treats": true,
+          "availableMinutes": 420,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-05",
+          "treats": true,
+          "availableMinutes": 360,
+          "bookedMinutes": 125
+        },
+        {
+          "staffId": "p-06",
+          "treats": true,
+          "availableMinutes": 510,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-09",
+          "treats": false,
+          "availableMinutes": 0,
+          "bookedMinutes": 0
+        }
+      ]
+    },
+    "computeChecks": {
+      "STORE_A": [
+        {
+          "ok": false,
+          "label": "時間帯が重複: 休憩・見本 あかり"
+        },
+        {
+          "ok": true,
+          "label": "テスト さぶろうの勤務時間内（〜19:00）"
+        },
+        {
+          "ok": true,
+          "label": "整体資格 一致"
+        },
+        {
+          "ok": true,
+          "label": "予約時価格を保持（動的価格は適用しません）"
+        }
+      ],
+      "STORE_B": [
+        {
+          "ok": false,
+          "label": "時間帯が重複: 休憩・テスト くらら"
+        },
+        {
+          "ok": true,
+          "label": "見本 たろうの勤務時間内（〜19:00）"
+        },
+        {
+          "ok": true,
+          "label": "整体資格 一致"
+        },
+        {
+          "ok": true,
+          "label": "予約時価格を保持（動的価格は適用しません）"
+        }
+      ],
+      "viewAll": [
+        {
+          "ok": false,
+          "label": "時間帯が重複: 休憩・見本 あかり"
+        },
+        {
+          "ok": true,
+          "label": "テスト さぶろうの勤務時間内（〜19:00）"
+        },
+        {
+          "ok": true,
+          "label": "整体資格 一致"
+        },
+        {
+          "ok": true,
+          "label": "予約時価格を保持（動的価格は適用しません）"
+        }
+      ]
+    },
+    "cleanup15": {
+      "STORE_A": {
+        "bed-01": [
+          {
+            "id": "apt-12-cleanup",
+            "start": 660,
+            "end": 675
+          },
+          {
+            "id": "apt-26-cleanup",
+            "start": 930,
+            "end": 945
+          }
+        ],
+        "bed-02": [
+          {
+            "id": "apt-22-cleanup",
+            "start": 690,
+            "end": 705
+          },
+          {
+            "id": "apt-14-cleanup",
+            "start": 870,
+            "end": 885
+          },
+          {
+            "id": "apt-33-cleanup",
+            "start": 1092,
+            "end": 1107
+          }
+        ],
+        "bed-03": [
+          {
+            "id": "apt-25-cleanup",
+            "start": 720,
+            "end": 735
+          },
+          {
+            "id": "apt-29-cleanup",
+            "start": 905,
+            "end": 920
+          },
+          {
+            "id": "apt-28-cleanup",
+            "start": 990,
+            "end": 1005
+          }
+        ]
+      },
+      "STORE_B": {
+        "bed-04": [
+          {
+            "id": "apt-13-cleanup",
+            "start": 705,
+            "end": 720
+          },
+          {
+            "id": "apt-34-cleanup",
+            "start": 990,
+            "end": 1005
+          }
+        ]
+      },
+      "viewAll": {
+        "bed-01": [
+          {
+            "id": "apt-12-cleanup",
+            "start": 660,
+            "end": 675
+          },
+          {
+            "id": "apt-26-cleanup",
+            "start": 930,
+            "end": 945
+          }
+        ],
+        "bed-02": [
+          {
+            "id": "apt-22-cleanup",
+            "start": 690,
+            "end": 705
+          },
+          {
+            "id": "apt-14-cleanup",
+            "start": 870,
+            "end": 885
+          },
+          {
+            "id": "apt-33-cleanup",
+            "start": 1092,
+            "end": 1107
+          }
+        ],
+        "bed-03": [
+          {
+            "id": "apt-25-cleanup",
+            "start": 720,
+            "end": 735
+          },
+          {
+            "id": "apt-29-cleanup",
+            "start": 905,
+            "end": 920
+          },
+          {
+            "id": "apt-28-cleanup",
+            "start": 990,
+            "end": 1005
+          }
+        ],
+        "bed-04": [
+          {
+            "id": "apt-13-cleanup",
+            "start": 705,
+            "end": 720
+          },
+          {
+            "id": "apt-34-cleanup",
+            "start": 990,
+            "end": 1005
+          }
+        ]
+      }
+    }
+  }
+}
