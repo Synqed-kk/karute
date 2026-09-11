@@ -1105,16 +1105,366 @@ export function RecordPageView({
     setDiscardReasonError(null)
   }
 
+  /** ⚖ 9/12 — ONE HOME for "how long was this take", read off the same live
+   *  sources runDiscardWithReason always reads below: the ctx-keyed origins
+   *  (review/pipeline-error) key on the pipeline's own captured duration, the
+   *  banner keys on its frozen snapshot, and the recorder keys on the hook's
+   *  live result. Feeds both the one-tap gate (openDiscardReason) and the
+   *  receipt payload below — the same number, so the UI's decision and the
+   *  server's own below_floor flag (discard.ts) can never disagree.
+   */
+  function discardSubjectDurationSec(
+    origin: 'recorder' | 'review' | 'pipeline-error' | 'banner',
+  ): number {
+    if (origin === 'review' || origin === 'pipeline-error') {
+      return globalPipeline.context?.duration ?? 0
+    }
+    if (origin === 'banner') return bannerDiscardSnapshotRef.current?.durationSec ?? 0
+    return (result?.durationMs ?? 0) / 1000
+  }
+
   /**
-   * The one confirm handler for every chokepoint.
+   * The one discard body for every chokepoint (⚖ 9/12 extract, behaviour-
+   * neutral off the prior confirmDiscardReason): confirmDiscardReason below is
+   * now a thin wrapper around this, and openDiscardReason's one-tap branch
+   * (under the accidental-tap floor) calls it directly, with no dialog ever
+   * mounting. Takes `origin` as a parameter rather than reading
+   * `discardReasonFor` state, since the one-tap caller never sets that state.
    *
    * FAILS CLOSED, deliberately. A deliberate discard is the one recording
    * event that leaves no trace anywhere else, so if the trace cannot be
    * written — no session id to key the reason row on, or core refusing the row
    * or the receipt — the discard does NOT happen. The take stays exactly where
-   * it was, the typed reason stays in the field, and the staff member can
-   * retry or cancel. Both server steps are idempotent, so a retry never files
+   * it was; the CALLER decides what the staff member sees for a non-'ok'
+   * outcome (an already-open dialog's inline error, or the dialog opening for
+   * the first time). Both server steps are idempotent, so a retry never files
    * anything twice.
+   */
+  async function runDiscardWithReason(
+    origin: 'recorder' | 'review' | 'pipeline-error' | 'banner',
+    reason: string,
+  ): Promise<'ok' | 'failed' | 'takeChanged'> {
+    // A banner gate with no frozen snapshot must fail closed HERE — never
+    // fall through to the recorder arm below, which would act on the LIVE
+    // recorder singleton (awaitRecordingSessionId/globalRecorder.takeId/
+    // result/saveBinding) for a take that gate was never opened for. Not
+    // reachable through today's wiring (onDiscard only wires for a
+    // below-floor take, and openDiscardReason snapshots in the same
+    // closure), but a wrong-subject fall-through is exactly what every
+    // other latch in this function guards against.
+    if (origin === 'banner' && !bannerDiscardSnapshotRef.current) {
+      return 'failed'
+    }
+    // Line-audit BLOCKER-2: the auto-finish effect can start a recovery
+    // save with NO tap at all, and this dialog outlives the banner (it
+    // renders from the main return, independent of the banner's `{offer &&
+    // ...}` guard). A take the pipeline is already processing — or has
+    // already saved and deleted — must never receive a reason row: a
+    // discard row filed against a SAVED session would outrank the record
+    // in the inbox fold (evidence corruption). `recoveredTake` is read
+    // here, pre-await, off THIS render's closure — the same freshness the
+    // shipped takeChanged check gets from reading globalRecorder.takeId
+    // live; no new ref needed.
+    //
+    // THE FULL SEAL (Greptile P1, resolved): this check alone does not
+    // cover a save that starts DURING the awaits below (the mint retry).
+    // It doesn't need to — the awaits are protected from the OTHER side.
+    // discardReasonSubmittingRef.current is set true above, before any
+    // await, and startRecoveryFlow refuses to start ANY save (tap, inbox,
+    // auto-finish, repoint continuation — every entry routes through it)
+    // while that ref is true. Since build 23 slice ③ there is a SECOND entry
+    // that does not route through startRecoveryFlow — startServerSave, for a
+    // row whose audio is on the server and not on this device — and it reads
+    // the same ref for the same reason (fix round 1, R5) AND re-reads it
+    // after EACH of the two awaits it makes before the door — its own consent
+    // round trip (fix round 2, R2) and, on the dialog path, the consent GRANT
+    // (fix round 3, R4). So the sentence above holds across
+    // both. So a save can exist at this gate only if it
+    // started BEFORE this confirm call began, which this pre-await check
+    // already catches on the live ref. A dedicated post-await recheck was
+    // built and mutation-tested here first; the mutation run proved it
+    // vacuous (removing it changed no test outcome), because the reverse
+    // guard already makes its precondition unreachable. Removed rather
+    // than shipped as armor that cannot fire.
+    if (
+      origin === 'banner' &&
+      (recoverySavingRef.current ||
+        recoveredTake?.takeId !== bannerDiscardSnapshotRef.current?.takeId)
+    ) {
+      return 'takeChanged'
+    }
+    // Live singleton, not the render snapshot — same rule the rest of this
+    // component follows for anything read across an await.
+    const ctx = globalPipeline.context
+    // ⚖ 8/26 rider: 'pipeline-error' mirrors 'review' EXACTLY — both key off
+    // the pipeline's captured context, because in both cases the take was
+    // handed to the pipeline long before this gate opened.
+    const ctxKeyed = origin === 'review' || origin === 'pipeline-error'
+    const bannerSnap = origin === 'banner' ? bannerDiscardSnapshotRef.current : null
+    // The recorder mints its session id in parallel with getUserMedia, so a
+    // fast discard can beat it (G14). Bounded await, exactly as the save
+    // path does; the ctx-keyed arms' take was already handed off with
+    // whatever id it had, and the banner arm reads its own frozen snapshot —
+    // neither has anything left to wait for on the LIVE recorder.
+    let recordingSessionId = ctxKeyed
+      ? (ctx?.recordingSessionId ?? null)
+      : bannerSnap
+        ? bannerSnap.recordingSessionId
+        : await awaitRecordingSessionId()
+    if (!recordingSessionId) {
+      // Not "slow" — FAILED. The mint runs once at start() and its promise
+      // stays settled, so awaiting it again can only ever return null again;
+      // without this the gate dead-ends forever and its retry copy lies. ONE
+      // re-mint, bounded the same way, then fail closed honestly. The
+      // ctx-keyed arms key off the pipeline context because the recorder was
+      // reset at hand-off and no longer knows this take's customer or take
+      // id; the banner arm keys off its own snapshot for the same reason —
+      // its take is not the recorder's live one either.
+      recordingSessionId = ctxKeyed
+        ? await globalRecorder.retryRecordingSessionMint({
+            customerId: ctx?.appointmentCustomerId ?? null,
+            appointmentId: ctx?.appointmentId ?? null,
+            takeId: ctx?.takeId ?? null,
+          })
+        : bannerSnap
+          ? await globalRecorder.retryRecordingSessionMint({
+              customerId: bannerSnap.customerId,
+              appointmentId: bannerSnap.appointmentId,
+              takeId: bannerSnap.takeId,
+            })
+          : await globalRecorder.retryRecordingSessionMint()
+    }
+    if (!recordingSessionId) {
+      return 'failed'
+    }
+    // The take must still be the one this gate was opened for. If 使用 won the
+    // race while the dialog was open, that take is already in transcription —
+    // discarding it here would file a reason for audio the pipeline still
+    // owns. Say so instead of failing silently or acting on the wrong take.
+    // Read ONCE, here, and reused by everything below that acts on the
+    // recorder's take: this line is where the live singleton is proven to
+    // still be this gate's subject, so a second read further down would be a
+    // value nothing checked.
+    const liveTakeId = globalRecorder.takeId
+    if (origin === 'recorder' && liveTakeId !== discardIntentRef.current?.takeId) {
+      return 'takeChanged'
+    }
+    const res = await discardRecordingWithReason({
+      recordingSessionId,
+      takeId:
+        (ctxKeyed ? ctx?.takeId : bannerSnap ? bannerSnap.takeId : liveTakeId) ?? null,
+      reason,
+      durationSeconds: discardSubjectDurationSec(origin),
+      // `|| null`: a walk-in target carries id='' — the same coercion the
+      // save binding does, so the receipt records null rather than ''.
+      customerId:
+        (ctxKeyed
+          ? ctx?.appointmentCustomerId
+          : bannerSnap
+            ? bannerSnap.customerId
+            : saveBinding.customerId) || null,
+      appointmentId:
+        (ctxKeyed
+          ? ctx?.appointmentId
+          : bannerSnap
+            ? bannerSnap.appointmentId
+            : saveBinding.appointmentId) || null,
+      pipeline: ctxKeyed && globalPipeline.serverOwned ? 'server' : 'in_tab',
+      jobState: null,
+    })
+    if (!res.ok) {
+      return 'failed'
+    }
+    // The review arm closes its own dialog, in its tail — see below. Every
+    // other arm keeps the close-then-act order it always had.
+    if (origin !== 'review') setDiscardReasonFor(null)
+    // ⚖ MARK, NEVER DELETE — for the two arms that owe NO WORDS (fix round 4,
+    // G5), the same shape G2 gave the below-floor recorder discard. Both of
+    // them end in `void deleteTake(takeId)`, which the never-delete guard
+    // refuses for a take the server does not have: the take then survived
+    // with nothing on it, listOwnTakes' A2-2 exclusion never fired, and the
+    // recovery banner offered the staffer back the recording they had just
+    // thrown away. The stamp is that exclusion; marking it done in the same
+    // breath is what keeps the mount sweep from ever transcribing a take
+    // whose words are settled by construction. The delete calls stay exactly
+    // as they are — refused for an unsecured take (the stamp is then what
+    // hides it), and for a finalized one the rows go with the stamp on them,
+    // which is the same answer.
+    // `sessionId` rather than the outer `let`: this closure would otherwise
+    // read it un-narrowed, and it is the id the RECEIPT above was filed
+    // against — the only one the words could ever have belonged to.
+    const sessionId = recordingSessionId
+    const markDiscardedNoWords = async (
+      takeId: string,
+      durationSeconds: number,
+      belowFloor?: true,
+    ) => {
+      const stamped = await stampDiscardPending(takeId, {
+        recordingSessionId: sessionId,
+        durationSeconds,
+        locale,
+        stampedAt: Date.now(),
+        belowFloor,
+      })
+      if (stamped) await markDiscardTranscriptDone(takeId)
+    }
+    // Ids read BEFORE the await, handed in — the same read-it-first rule
+    // proceedDiscard obeys for the recorder singleton.
+    if (origin === 'review') {
+      // A2-2: the words are already IN HAND — this take was transcribed in-tab
+      // long before the gate opened, and globalPipeline only resets inside
+      // finishReviewDiscard below. Persist them BEFORE anything deletes the
+      // audio; on a failure the take is stamped and kept back instead, so
+      // finishReviewDiscard is handed no take id to delete and the audio
+      // retry can still run.
+      //
+      // THE DIALOG STAYS UP FOR THE WHOLE ROUND-TRIP. globalPipeline.reset()
+      // lives inside finishReviewDiscard, so until it runs the page is still
+      // rendering ReviewScreen — and ReviewScreen's 保存 is a SECOND save
+      // writer that knows nothing about discardReasonSubmittingRef (the
+      // reverse guard covers startRecoveryFlow, not it). Closing the modal
+      // first left that 保存 live for the length of the persist: a tap there
+      // filed a real karute against a session that already carries a staff
+      // discard row (evidence corruption, doctrine R2) and raced onSaved's
+      // deleteTake against the stamp, losing the audio either way. The
+      // submitting-locked, backdrop-sealed dialog is the fence.
+      const pending: DiscardPending = {
+        recordingSessionId,
+        durationSeconds: ctx?.duration ?? 0,
+        locale,
+        stampedAt: Date.now(),
+      }
+      const keepTake = !(await persistReviewDiscardTranscript(
+        ctx?.takeId,
+        pending,
+        globalPipeline.result?.transcript ?? '',
+      ))
+      setDiscardReasonFor(null)
+      finishReviewDiscard(recordingSessionId, keepTake ? null : ctx?.takeId)
+      // The kept take is stamped, and reset() above is a re-render, not a
+      // remount — the mount sweep will not run again in this page life. Kick
+      // the audio retry now, exactly as the recorder arm does: waiting for a
+      // navigation away and back risks the 7-day TTL pruning words that were
+      // in hand and free at the moment of failure.
+      if (keepTake && ctx?.takeId) void runDiscardTranscript(ctx.takeId, pending)
+    } else if (origin === 'pipeline-error') {
+      // Line-audit BLOCKER-1: this origin never owns a draft.
+      // finishReviewDiscard's clearDraft() is correct for 'review' — draft.ts
+      // is single-slot, and ReviewScreen (saveDraft's only caller in the
+      // repo) has just written THIS run's draft, so the clear can only ever
+      // hit its own. A pipeline-error run never reached 'review' (the run
+      // threw, or the server job never had a client-side result at all), so
+      // it never wrote a draft — clearDraft() here could only destroy a
+      // FOREIGN crash-surviving draft from an unrelated earlier session.
+      // Inline cleanup, scoped to this run's own take only.
+      //
+      // G5: no words are owed here — this origin IS the transcript already
+      // refused, so there is nothing a sweep could collect. Deliberately NOT
+      // marked `belowFloor`: such a take can be an hour long, and that field
+      // says what it says. The settle is `markDiscardTranscriptDone` itself.
+      if (ctx?.takeId) {
+        await markDiscardedNoWords(ctx.takeId, ctx.duration ?? 0)
+        void deleteTake(ctx.takeId)
+      }
+      setRecoveredTake((prev) => (prev && prev.takeId === ctx?.takeId ? null : prev))
+      globalPipeline.reset()
+    } else if (bannerSnap) {
+      // ⚖ 8/26 rider case (b): idle cleanup only — no pipeline reset (nothing
+      // is running); harmless if added, but pointless, so it stays out.
+      //
+      // G5: this offer is BELOW the floor by construction — onDiscard is
+      // wired only when `belowFloor` is true — so it is marked as such, and
+      // no words were ever owed for it.
+      await markDiscardedNoWords(bannerSnap.takeId, bannerSnap.durationSec, true)
+      void deleteTake(bannerSnap.takeId)
+      // SHOULD-FIX-3: keyed to the snapshot, not unconditional — a take
+      // swap during the awaits above (handleInboxSaveTake promoting a
+      // different take into recoveredTake) must clear THAT offer, never a
+      // take this confirm never touched. Defense in depth behind the
+      // BLOCKER-2 guard above, which already refuses a swap caught before
+      // the awaits; this covers one that lands during them.
+      setRecoveredTake((prev) => (prev && prev.takeId === bannerSnap.takeId ? null : prev))
+      setRepointed(null)
+    } else {
+      // A2-2 (⚖ 8/20): ABOVE the accidental-tap floor a reasoned discard keeps
+      // its words. Nothing here has been transcribed yet, so the audio is what
+      // the words have to come from — stamp the take BEFORE anything can
+      // delete it (the stamp is what survives a crash, and what keeps a
+      // discarded take out of every recovery offer), then hold it back from
+      // proceedDiscard until the persist run lands.
+      //
+      // BELOW the floor nothing is transcribed (⚖ spend gate): an accidental
+      // tap has no words worth a Deepgram call. The take is still MARKED
+      // there — see the round-4 note below the payload. Same on the phone,
+      // which since PHONEWIRE-2C persists through the facade twin of these
+      // actions — the floor, not the world, is what decides here now.
+      //
+      // The stamp's span, honestly: it is written AFTER core accepted the
+      // discard, so a crash in that window leaves the discard filed and the
+      // take unstamped — offered back as a normal recovery. Pre-existing
+      // shape, not closed here; closing it means stamping before the server
+      // call and unstamping on refusal.
+      //
+      // takeId is the id proven live at the takeChanged guard above — the
+      // same read the payload used, never a second look at the singleton.
+      const takeId = liveTakeId
+      const durationSeconds = (result?.durationMs ?? 0) / 1000
+      const pending: DiscardPending = {
+        recordingSessionId,
+        durationSeconds,
+        locale,
+        stampedAt: Date.now(),
+      }
+      // ⚖ AND BELOW THE FLOOR THE STAMP IS STILL OWED (fix round 4). Nothing
+      // is transcribed down there — an accidental tap has no words worth a
+      // Deepgram call — but the STAMP is not about words: it is the recovery
+      // exclusion (listOwnTakes' A2-2 filter). Since the never-delete guard
+      // began refusing an unsecured take, a below-floor discard left the take
+      // alive with NO stamp, and the recovery banner offered the staffer back
+      // the very recording they had just thrown away. So it goes through the
+      // SAME door the other two word-less arms use (markDiscardedNoWords
+      // above): marked `belowFloor`, settled in the same breath, because
+      // 「録音が10秒未満のため、文字起こしは行っていません」 is the ruled
+      // state, not a pending one. The audio itself stays (mark, never
+      // delete); proceedDiscard's own deleteTake below is unchanged —
+      // refused for an unsecured take, and for a finalized one the rows go
+      // with the stamp on them, which is the same answer.
+      const belowFloor = durationSeconds < BELOW_FLOOR_SEC
+      if (belowFloor && takeId) await markDiscardedNoWords(takeId, durationSeconds, true)
+      // ABOVE the floor the words ARE owed, so the stamp is a promise the
+      // persist run below has to keep — never settled here.
+      const keepTake =
+        takeId !== null &&
+        !belowFloor &&
+        discardTranscriptSupported() &&
+        (await stampDiscardPending(takeId, pending))
+      // The photos die HERE, past the gate — never before it. Still ahead of
+      // proceedDiscard() because its discardRecording() wipes the strip these
+      // reads depend on (the ordering constraint that was always in this
+      // file; only the starting line moved).
+      await runPendingPhotoDelete()
+      proceedDiscard(keepTake)
+      if (keepTake && takeId) void runDiscardTranscript(takeId, pending)
+    }
+    // Latch released LAST — after proceedDiscard, never before it (fix round
+    // 2). It used to clear the moment core accepted the discard, i.e. ahead
+    // of the awaited photo deletion: the dialog was closed, the phase was
+    // still 'recorded' and useRecordingGen had not moved yet, so for the
+    // whole deletion window a 使用 tap passed every guard and handed
+    // transcription a take the SERVER HAD ALREADY DISCARDED. The latch has
+    // to outlive the window it was built to cover. (The review/pipeline-
+    // error/banner arms never had a latch to release — openDiscardReason
+    // sets null for all three — so this is a no-op there, kept on the
+    // shared line so the arms cannot drift.)
+    discardIntentRef.current = null
+    return 'ok'
+  }
+
+  /**
+   * confirmDiscardReason — the dialog's own confirm handler. Thin wrapper
+   * around runDiscardWithReason (⚖ 9/12 extract): reads `discardReasonFor`
+   * for the origin, owns the submitting ref/state exactly as before, and maps
+   * a non-'ok' outcome to the same inline error the dialog has always shown.
    */
   async function confirmDiscardReason(reason: string) {
     const origin = discardReasonFor
@@ -1123,328 +1473,9 @@ export function RecordPageView({
     setDiscardReasonSubmitting(true)
     setDiscardReasonError(null)
     try {
-      // A banner gate with no frozen snapshot must fail closed HERE — never
-      // fall through to the recorder arm below, which would act on the LIVE
-      // recorder singleton (awaitRecordingSessionId/globalRecorder.takeId/
-      // result/saveBinding) for a take that gate was never opened for. Not
-      // reachable through today's wiring (onDiscard only wires for a
-      // below-floor take, and openDiscardReason snapshots in the same
-      // closure), but a wrong-subject fall-through is exactly what every
-      // other latch in this function guards against.
-      if (origin === 'banner' && !bannerDiscardSnapshotRef.current) {
-        setDiscardReasonError(t('discardReason.failed'))
-        return
-      }
-      // Line-audit BLOCKER-2: the auto-finish effect can start a recovery
-      // save with NO tap at all, and this dialog outlives the banner (it
-      // renders from the main return, independent of the banner's `{offer &&
-      // ...}` guard). A take the pipeline is already processing — or has
-      // already saved and deleted — must never receive a reason row: a
-      // discard row filed against a SAVED session would outrank the record
-      // in the inbox fold (evidence corruption). `recoveredTake` is read
-      // here, pre-await, off THIS render's closure — the same freshness the
-      // shipped takeChanged check gets from reading globalRecorder.takeId
-      // live; no new ref needed.
-      //
-      // THE FULL SEAL (Greptile P1, resolved): this check alone does not
-      // cover a save that starts DURING the awaits below (the mint retry).
-      // It doesn't need to — the awaits are protected from the OTHER side.
-      // discardReasonSubmittingRef.current is set true above, before any
-      // await, and startRecoveryFlow refuses to start ANY save (tap, inbox,
-      // auto-finish, repoint continuation — every entry routes through it)
-      // while that ref is true. Since build 23 slice ③ there is a SECOND entry
-      // that does not route through startRecoveryFlow — startServerSave, for a
-      // row whose audio is on the server and not on this device — and it reads
-      // the same ref for the same reason (fix round 1, R5) AND re-reads it
-      // after EACH of the two awaits it makes before the door — its own consent
-      // round trip (fix round 2, R2) and, on the dialog path, the consent GRANT
-      // (fix round 3, R4). So the sentence above holds across
-      // both. So a save can exist at this gate only if it
-      // started BEFORE this confirm call began, which this pre-await check
-      // already catches on the live ref. A dedicated post-await recheck was
-      // built and mutation-tested here first; the mutation run proved it
-      // vacuous (removing it changed no test outcome), because the reverse
-      // guard already makes its precondition unreachable. Removed rather
-      // than shipped as armor that cannot fire.
-      if (
-        origin === 'banner' &&
-        (recoverySavingRef.current ||
-          recoveredTake?.takeId !== bannerDiscardSnapshotRef.current?.takeId)
-      ) {
-        setDiscardReasonError(t('discardReason.takeChanged'))
-        return
-      }
-      // Live singleton, not the render snapshot — same rule the rest of this
-      // component follows for anything read across an await.
-      const ctx = globalPipeline.context
-      // ⚖ 8/26 rider: 'pipeline-error' mirrors 'review' EXACTLY — both key off
-      // the pipeline's captured context, because in both cases the take was
-      // handed to the pipeline long before this gate opened.
-      const ctxKeyed = origin === 'review' || origin === 'pipeline-error'
-      const bannerSnap = origin === 'banner' ? bannerDiscardSnapshotRef.current : null
-      // The recorder mints its session id in parallel with getUserMedia, so a
-      // fast discard can beat it (G14). Bounded await, exactly as the save
-      // path does; the ctx-keyed arms' take was already handed off with
-      // whatever id it had, and the banner arm reads its own frozen snapshot —
-      // neither has anything left to wait for on the LIVE recorder.
-      let recordingSessionId = ctxKeyed
-        ? (ctx?.recordingSessionId ?? null)
-        : bannerSnap
-          ? bannerSnap.recordingSessionId
-          : await awaitRecordingSessionId()
-      if (!recordingSessionId) {
-        // Not "slow" — FAILED. The mint runs once at start() and its promise
-        // stays settled, so awaiting it again can only ever return null again;
-        // without this the gate dead-ends forever and its retry copy lies. ONE
-        // re-mint, bounded the same way, then fail closed honestly. The
-        // ctx-keyed arms key off the pipeline context because the recorder was
-        // reset at hand-off and no longer knows this take's customer or take
-        // id; the banner arm keys off its own snapshot for the same reason —
-        // its take is not the recorder's live one either.
-        recordingSessionId = ctxKeyed
-          ? await globalRecorder.retryRecordingSessionMint({
-              customerId: ctx?.appointmentCustomerId ?? null,
-              appointmentId: ctx?.appointmentId ?? null,
-              takeId: ctx?.takeId ?? null,
-            })
-          : bannerSnap
-            ? await globalRecorder.retryRecordingSessionMint({
-                customerId: bannerSnap.customerId,
-                appointmentId: bannerSnap.appointmentId,
-                takeId: bannerSnap.takeId,
-              })
-            : await globalRecorder.retryRecordingSessionMint()
-      }
-      if (!recordingSessionId) {
-        setDiscardReasonError(t('discardReason.failed'))
-        return
-      }
-      // The take must still be the one this gate was opened for. If 使用 won the
-      // race while the dialog was open, that take is already in transcription —
-      // discarding it here would file a reason for audio the pipeline still
-      // owns. Say so instead of failing silently or acting on the wrong take.
-      // Read ONCE, here, and reused by everything below that acts on the
-      // recorder's take: this line is where the live singleton is proven to
-      // still be this gate's subject, so a second read further down would be a
-      // value nothing checked.
-      const liveTakeId = globalRecorder.takeId
-      if (origin === 'recorder' && liveTakeId !== discardIntentRef.current?.takeId) {
-        setDiscardReasonError(t('discardReason.takeChanged'))
-        return
-      }
-      const res = await discardRecordingWithReason({
-        recordingSessionId,
-        takeId:
-          (ctxKeyed ? ctx?.takeId : bannerSnap ? bannerSnap.takeId : liveTakeId) ?? null,
-        reason,
-        durationSeconds: ctxKeyed
-          ? (ctx?.duration ?? 0)
-          : bannerSnap
-            ? bannerSnap.durationSec
-            : (result?.durationMs ?? 0) / 1000,
-        // `|| null`: a walk-in target carries id='' — the same coercion the
-        // save binding does, so the receipt records null rather than ''.
-        customerId:
-          (ctxKeyed
-            ? ctx?.appointmentCustomerId
-            : bannerSnap
-              ? bannerSnap.customerId
-              : saveBinding.customerId) || null,
-        appointmentId:
-          (ctxKeyed
-            ? ctx?.appointmentId
-            : bannerSnap
-              ? bannerSnap.appointmentId
-              : saveBinding.appointmentId) || null,
-        pipeline: ctxKeyed && globalPipeline.serverOwned ? 'server' : 'in_tab',
-        jobState: null,
-      })
-      if (!res.ok) {
-        setDiscardReasonError(t('discardReason.failed'))
-        return
-      }
-      // The review arm closes its own dialog, in its tail — see below. Every
-      // other arm keeps the close-then-act order it always had.
-      if (origin !== 'review') setDiscardReasonFor(null)
-      // ⚖ MARK, NEVER DELETE — for the two arms that owe NO WORDS (fix round 4,
-      // G5), the same shape G2 gave the below-floor recorder discard. Both of
-      // them end in `void deleteTake(takeId)`, which the never-delete guard
-      // refuses for a take the server does not have: the take then survived
-      // with nothing on it, listOwnTakes' A2-2 exclusion never fired, and the
-      // recovery banner offered the staffer back the recording they had just
-      // thrown away. The stamp is that exclusion; marking it done in the same
-      // breath is what keeps the mount sweep from ever transcribing a take
-      // whose words are settled by construction. The delete calls stay exactly
-      // as they are — refused for an unsecured take (the stamp is then what
-      // hides it), and for a finalized one the rows go with the stamp on them,
-      // which is the same answer.
-      // `sessionId` rather than the outer `let`: this closure would otherwise
-      // read it un-narrowed, and it is the id the RECEIPT above was filed
-      // against — the only one the words could ever have belonged to.
-      const sessionId = recordingSessionId
-      const markDiscardedNoWords = async (
-        takeId: string,
-        durationSeconds: number,
-        belowFloor?: true,
-      ) => {
-        const stamped = await stampDiscardPending(takeId, {
-          recordingSessionId: sessionId,
-          durationSeconds,
-          locale,
-          stampedAt: Date.now(),
-          belowFloor,
-        })
-        if (stamped) await markDiscardTranscriptDone(takeId)
-      }
-      // Ids read BEFORE the await, handed in — the same read-it-first rule
-      // proceedDiscard obeys for the recorder singleton.
-      if (origin === 'review') {
-        // A2-2: the words are already IN HAND — this take was transcribed in-tab
-        // long before the gate opened, and globalPipeline only resets inside
-        // finishReviewDiscard below. Persist them BEFORE anything deletes the
-        // audio; on a failure the take is stamped and kept back instead, so
-        // finishReviewDiscard is handed no take id to delete and the audio
-        // retry can still run.
-        //
-        // THE DIALOG STAYS UP FOR THE WHOLE ROUND-TRIP. globalPipeline.reset()
-        // lives inside finishReviewDiscard, so until it runs the page is still
-        // rendering ReviewScreen — and ReviewScreen's 保存 is a SECOND save
-        // writer that knows nothing about discardReasonSubmittingRef (the
-        // reverse guard covers startRecoveryFlow, not it). Closing the modal
-        // first left that 保存 live for the length of the persist: a tap there
-        // filed a real karute against a session that already carries a staff
-        // discard row (evidence corruption, doctrine R2) and raced onSaved's
-        // deleteTake against the stamp, losing the audio either way. The
-        // submitting-locked, backdrop-sealed dialog is the fence.
-        const pending: DiscardPending = {
-          recordingSessionId,
-          durationSeconds: ctx?.duration ?? 0,
-          locale,
-          stampedAt: Date.now(),
-        }
-        const keepTake = !(await persistReviewDiscardTranscript(
-          ctx?.takeId,
-          pending,
-          globalPipeline.result?.transcript ?? '',
-        ))
-        setDiscardReasonFor(null)
-        finishReviewDiscard(recordingSessionId, keepTake ? null : ctx?.takeId)
-        // The kept take is stamped, and reset() above is a re-render, not a
-        // remount — the mount sweep will not run again in this page life. Kick
-        // the audio retry now, exactly as the recorder arm does: waiting for a
-        // navigation away and back risks the 7-day TTL pruning words that were
-        // in hand and free at the moment of failure.
-        if (keepTake && ctx?.takeId) void runDiscardTranscript(ctx.takeId, pending)
-      } else if (origin === 'pipeline-error') {
-        // Line-audit BLOCKER-1: this origin never owns a draft.
-        // finishReviewDiscard's clearDraft() is correct for 'review' — draft.ts
-        // is single-slot, and ReviewScreen (saveDraft's only caller in the
-        // repo) has just written THIS run's draft, so the clear can only ever
-        // hit its own. A pipeline-error run never reached 'review' (the run
-        // threw, or the server job never had a client-side result at all), so
-        // it never wrote a draft — clearDraft() here could only destroy a
-        // FOREIGN crash-surviving draft from an unrelated earlier session.
-        // Inline cleanup, scoped to this run's own take only.
-        //
-        // G5: no words are owed here — this origin IS the transcript already
-        // refused, so there is nothing a sweep could collect. Deliberately NOT
-        // marked `belowFloor`: such a take can be an hour long, and that field
-        // says what it says. The settle is `markDiscardTranscriptDone` itself.
-        if (ctx?.takeId) {
-          await markDiscardedNoWords(ctx.takeId, ctx.duration ?? 0)
-          void deleteTake(ctx.takeId)
-        }
-        setRecoveredTake((prev) => (prev && prev.takeId === ctx?.takeId ? null : prev))
-        globalPipeline.reset()
-      } else if (bannerSnap) {
-        // ⚖ 8/26 rider case (b): idle cleanup only — no pipeline reset (nothing
-        // is running); harmless if added, but pointless, so it stays out.
-        //
-        // G5: this offer is BELOW the floor by construction — onDiscard is
-        // wired only when `belowFloor` is true — so it is marked as such, and
-        // no words were ever owed for it.
-        await markDiscardedNoWords(bannerSnap.takeId, bannerSnap.durationSec, true)
-        void deleteTake(bannerSnap.takeId)
-        // SHOULD-FIX-3: keyed to the snapshot, not unconditional — a take
-        // swap during the awaits above (handleInboxSaveTake promoting a
-        // different take into recoveredTake) must clear THAT offer, never a
-        // take this confirm never touched. Defense in depth behind the
-        // BLOCKER-2 guard above, which already refuses a swap caught before
-        // the awaits; this covers one that lands during them.
-        setRecoveredTake((prev) => (prev && prev.takeId === bannerSnap.takeId ? null : prev))
-        setRepointed(null)
-      } else {
-        // A2-2 (⚖ 8/20): ABOVE the accidental-tap floor a reasoned discard keeps
-        // its words. Nothing here has been transcribed yet, so the audio is what
-        // the words have to come from — stamp the take BEFORE anything can
-        // delete it (the stamp is what survives a crash, and what keeps a
-        // discarded take out of every recovery offer), then hold it back from
-        // proceedDiscard until the persist run lands.
-        //
-        // BELOW the floor nothing is transcribed (⚖ spend gate): an accidental
-        // tap has no words worth a Deepgram call. The take is still MARKED
-        // there — see the round-4 note below the payload. Same on the phone,
-        // which since PHONEWIRE-2C persists through the facade twin of these
-        // actions — the floor, not the world, is what decides here now.
-        //
-        // The stamp's span, honestly: it is written AFTER core accepted the
-        // discard, so a crash in that window leaves the discard filed and the
-        // take unstamped — offered back as a normal recovery. Pre-existing
-        // shape, not closed here; closing it means stamping before the server
-        // call and unstamping on refusal.
-        //
-        // takeId is the id proven live at the takeChanged guard above — the
-        // same read the payload used, never a second look at the singleton.
-        const takeId = liveTakeId
-        const durationSeconds = (result?.durationMs ?? 0) / 1000
-        const pending: DiscardPending = {
-          recordingSessionId,
-          durationSeconds,
-          locale,
-          stampedAt: Date.now(),
-        }
-        // ⚖ AND BELOW THE FLOOR THE STAMP IS STILL OWED (fix round 4). Nothing
-        // is transcribed down there — an accidental tap has no words worth a
-        // Deepgram call — but the STAMP is not about words: it is the recovery
-        // exclusion (listOwnTakes' A2-2 filter). Since the never-delete guard
-        // began refusing an unsecured take, a below-floor discard left the take
-        // alive with NO stamp, and the recovery banner offered the staffer back
-        // the very recording they had just thrown away. So it goes through the
-        // SAME door the other two word-less arms use (markDiscardedNoWords
-        // above): marked `belowFloor`, settled in the same breath, because
-        // 「録音が10秒未満のため、文字起こしは行っていません」 is the ruled
-        // state, not a pending one. The audio itself stays (mark, never
-        // delete); proceedDiscard's own deleteTake below is unchanged —
-        // refused for an unsecured take, and for a finalized one the rows go
-        // with the stamp on them, which is the same answer.
-        const belowFloor = durationSeconds < BELOW_FLOOR_SEC
-        if (belowFloor && takeId) await markDiscardedNoWords(takeId, durationSeconds, true)
-        // ABOVE the floor the words ARE owed, so the stamp is a promise the
-        // persist run below has to keep — never settled here.
-        const keepTake =
-          takeId !== null &&
-          !belowFloor &&
-          discardTranscriptSupported() &&
-          (await stampDiscardPending(takeId, pending))
-        // The photos die HERE, past the gate — never before it. Still ahead of
-        // proceedDiscard() because its discardRecording() wipes the strip these
-        // reads depend on (the ordering constraint that was always in this
-        // file; only the starting line moved).
-        await runPendingPhotoDelete()
-        proceedDiscard(keepTake)
-        if (keepTake && takeId) void runDiscardTranscript(takeId, pending)
-      }
-      // Latch released LAST — after proceedDiscard, never before it (fix round
-      // 2). It used to clear the moment core accepted the discard, i.e. ahead
-      // of the awaited photo deletion: the dialog was closed, the phase was
-      // still 'recorded' and useRecordingGen had not moved yet, so for the
-      // whole deletion window a 使用 tap passed every guard and handed
-      // transcription a take the SERVER HAD ALREADY DISCARDED. The latch has
-      // to outlive the window it was built to cover. (The review/pipeline-
-      // error/banner arms never had a latch to release — openDiscardReason
-      // sets null for all three — so this is a no-op there, kept on the
-      // shared line so the arms cannot drift.)
-      discardIntentRef.current = null
+      const outcome = await runDiscardWithReason(origin, reason)
+      if (outcome === 'failed') setDiscardReasonError(t('discardReason.failed'))
+      else if (outcome === 'takeChanged') setDiscardReasonError(t('discardReason.takeChanged'))
     } finally {
       discardReasonSubmittingRef.current = false
       setDiscardReasonSubmitting(false)
