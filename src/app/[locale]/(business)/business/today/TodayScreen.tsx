@@ -7405,9 +7405,18 @@ export function TodayScreen(props: TodayProps) {
             // itself the same round), written from the board's own words — the ⇄
             // key here, `railExplain`'s 入れ替えて収めます, and the 仮押さえ tour's
             // 「入れ替えたお客様はここに表示されます」. No new page, no new step.
+            // ⚖ FIX ROUND 3 (DELTA-CODE-D2 MAJOR, 2026-09-11) — AND IT DESCRIBES
+            // THE MARK, NOT THE RENDERED STRING. The clause quoted the card's own
+            // text (「⇄ 入れ替え」), and round 1B gave that word a width rule: below
+            // 82px of card content box the word steps aside and the badge is the
+            // ⇄ alone (today.css :583-586), which is every 30分 card — the
+            // commonest one on the board. A tour that promises a string the
+            // ordinary card does not show is ⚖ RULING 3's defect with the halves
+            // swapped. So the sentence now says what the ⇄ MEANS, exactly as the
+            // ⇄ key below it does, and it is true at every width a card can take.
             data-guide={
               guardOn
-                ? `新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。ボードのカードをドラッグしている間は、ベッドを入れ替えれば置ける開始に ⇄ が付き、いま持っているカードにも「⇄ 入れ替え」と出ます（入れ替えたお客様は、仮押さえの確認に表示されます）。各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。${LAYER_LEGEND_GUIDE}`
+                ? `新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。ボードのカードをドラッグしている間は、ベッドを入れ替えれば置ける開始に ⇄ が付き、いま持っているカードにも ⇄ の印が付きます（入れ替えたお客様は、仮押さえの確認に表示されます）。各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。${LAYER_LEGEND_GUIDE}`
                 : LAYER_LEGEND_GUIDE
             }
           >

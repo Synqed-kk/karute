@@ -1890,6 +1890,17 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // no comment carries.)
     expect((SCREEN.match(/ここに置くと、ほかのお客様のベッドを入れ替えて収めます/g) ?? [])).toHaveLength(0)
     expect((INTERACTIONS.match(/ここに置くと、ほかのお客様のベッドを入れ替えて収めます/g) ?? [])).toHaveLength(1)
+    // ⚖ FIX ROUND 3 (DELTA-CODE-D2 MAJOR) — AND THE ?-TOUR'S OWN SENTENCE
+    // DESCRIBES THE MARK, NEVER THE RENDERED STRING. The スキマガード band's
+    // tour told the operator the card in hand would read 「⇄ 入れ替え」; round
+    // 1B then gave that word a width rule (today.css :583-586 — below 82px of
+    // content box the badge is the ⇄ alone), so on a 30分 card, the commonest
+    // on the board, the tour promised a string the card does not show. The ⇄
+    // ICON is never hidden, so the mark is what the sentence may speak of —
+    // the same shape the ⇄ key beside it already uses. The old clause growing
+    // back is what the second line holds.
+    expect(SCREEN).toContain('いま持っているカードにも ⇄ の印が付きます（入れ替えたお客様は、仮押さえの確認に表示されます）')
+    expect(SCREEN).not.toContain('いま持っているカードにも「⇄ 入れ替え」')
     expect(SCREEN).toContain('store.slots.set(slotKey(laneKey, start, railDur, moveSet), final.kind)')
     // …and the aimed chip's own refresh keys on the length it DERIVES from the
     // frame's span, never on the render body's `railDur`: this function is
