@@ -4,7 +4,9 @@
  * What it is: the eleven board calculations at three store views (STORE_A,
  * STORE_B, viewAll) must produce byte-identical answers to the frozen file
  * below; a change here is a change to what every store sees on 今日の運営 with
- * no class feature switched on.
+ * no class feature switched on. The fixture's beds all carry 0 cleanup, so
+ * the cleanupBlocks cell applies a fixed 15-minute turnaround instead of the
+ * fixture's own (vacuous) value.
  *
  * The frozen file is EMITTED by this suite
  * (`EMIT_OFF_IDENTITY=<sha> npx jest today-off-identity`), never typed by
@@ -167,17 +169,21 @@ function cellsFor(world: World): Record<(typeof PATHS)[number], unknown> {
   // 5 — utilization.
   const utilizationValue = utilization(laneMinutesValue)
 
-  // 6 — computeChecks (also literal B). ctx.spans built from lane.items
-  // directly — the real production idiom (TodayScreen.tsx checksFor,
-  // today-interactions.ts verdictAtLanding), not `laneSpans()`: laneSpans
-  // returns {start,end,isBreak} in MINUTES with no id/title/derived field,
-  // which CheckSpan needs. `now` is the first booking of the first staff
-  // lane that has one, shifted +30 min — long enough that the shift still
-  // overlaps its own original span, producing a real 時間帯が重複.
+  // 6 — computeChecks (also literal B). ctx.spans built from ONLY the chosen
+  // booking's own two lanes — its staff lane and, if it has one, its bed lane
+  // — never the whole board: both production callers restrict the pool this
+  // way. TodayScreen.tsx:2687 `const onLanes = boardLanes.filter((l) =>
+  // l.items.some((i) => i.caseId === id))`; today-interactions.ts:5269 `for
+  // (const lane of [staff, bed])`. `now` is the first booking of the first
+  // staff lane that has one, shifted +30 min — long enough that the shift
+  // still overlaps its own original span, producing a real 時間帯が重複.
   const staffLaneWithBooking = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.kind === 'booking'))!
   const firstStaffBookingItem = staffLaneWithBooking.items.find((i) => i.kind === 'booking')!
   const checkNow = place(firstStaffBookingItem.startMin + 30, firstStaffBookingItem.endMin + 30, hours)
-  const spans: CheckSpan[] = lanes
+  const chosenBooking = bookings.find((b) => b.id === firstStaffBookingItem.caseId)!
+  const bookingBedLane = bedLanes.find((l) => l.key === chosenBooking.resourceId) ?? null
+  const onLanes = [staffLaneWithBooking, ...(bookingBedLane ? [bookingBedLane] : [])]
+  const spans: CheckSpan[] = onLanes
     .flatMap((l) => l.items)
     .map((i) => ({ id: i.caseId ?? i.key, x: i.x, w: i.w, title: i.title, derived: i.kind === 'cleanup', parked: false }))
   const ctx: CheckContext = {
@@ -194,16 +200,24 @@ function cellsFor(world: World): Record<(typeof PATHS)[number], unknown> {
   const laneSpansValue = Object.fromEntries(lanes.map((l) => [l.key, laneSpans(l)]))
 
   // 8 — roomFitsNeed / orderRooms / allocateBed, for the day's first booking.
-  // `bedLanes` reused from cell 3 above.
+  // `bedLanes` reused from cell 3 above. `fits` probes BOTH needs (not just
+  // the first booking's own, which is `false` and short-circuits `roomFitsNeed`
+  // before it ever reads `lane.roomClass` — STORE_A's bed-03 is the real
+  // private room, fixtures-today.ts:142, and was otherwise never exercised).
   const firstBooking = bookings[0]
   const need = firstBooking.requiresPrivateRoom
   const bookingStaffLane = lanes.find((l) => l.group === 'staff' && l.key === firstBooking.staffId) ?? null
   const roomAllocationValue = {
-    fits: bedLanes.map((l) => [l.key, roomFitsNeed(l, need)]),
+    fits: {
+      standard: bedLanes.map((l) => [l.key, roomFitsNeed(l, false)]),
+      private: bedLanes.map((l) => [l.key, roomFitsNeed(l, true)]),
+    },
     order: orderRooms(bedLanes).map((l) => l.key),
+    // `currentBed: null` (not the booking's own resourceId) so the search
+    // runs the ordered walk instead of returning early on keep-your-room.
     alloc: allocateBed(lanes, {
       id: firstBooking.id,
-      currentBed: firstBooking.resourceId,
+      currentBed: null,
       stores: bookingStaffLane?.stores ?? null,
       requiresPrivate: need,
       start: firstBooking.startMinute,
@@ -237,16 +251,18 @@ function cellsFor(world: World): Record<(typeof PATHS)[number], unknown> {
   const runs = bedWorld.fullRuns(dur, null)
   const maskLane = lanes.find((l) => l.group === 'staff')!
   const mask = bedWorld.newClientMask(maskLane, dur)
-  const bedTruthViewsValue: Array<{ t: number; free: readonly string[]; count: number; runs: unknown; mask: boolean }> = []
+  // `runs` does not vary per slot (fullRuns is asked once, on (dur, stores)
+  // alone) — a sibling field beside `slots`, not repeated inside every entry.
+  const slots: Array<{ t: number; free: readonly string[]; count: number; mask: boolean }> = []
   for (let t = hours.open; t < hours.close; t += 30) {
-    bedTruthViewsValue.push({
+    slots.push({
       t,
       free: bedWorld.freeBedKeys(t, t + dur, asker),
       count: bedWorld.freeBedCount(t, t + dur, asker),
-      runs,
       mask: mask(t),
     })
   }
+  const bedTruthViewsValue = { runs, slots }
 
   // 11 — fitsDrag.
   const fitsDragValue = ([[15, 15], [30, 15], [30, 30], [45, 30], [60, 90], [90, 60], [0, 15], [15, 0]] as const).map(
@@ -292,6 +308,12 @@ beforeAll(async () => {
 })
 
 const EMIT_SHA = process.env.EMIT_OFF_IDENTITY
+// A stray/unset-by-accident value here would otherwise skip every real
+// assertion and exit 0 — validated at module load so that can never pass
+// silently, in CI or anywhere else.
+if (EMIT_SHA !== undefined && !/^[0-9a-f]{7,40}$/.test(EMIT_SHA)) {
+  throw new Error(`EMIT_OFF_IDENTITY must be a lowercase hex git sha (7-40 chars); got ${JSON.stringify(EMIT_SHA)}`)
+}
 const itNormal = EMIT_SHA ? it.skip : it
 const itEmit = EMIT_SHA ? it : it.skip
 
@@ -307,52 +329,55 @@ if (!EMIT_SHA) {
   FROZEN = JSON.parse(readFileSync(FROZEN_PATH, 'utf8')) as FrozenFile
 }
 
-// ── the 33 cells ─────────────────────────────────────────────────────────
-for (const [lensName] of LENSES) {
-  for (const path of PATHS) {
-    itNormal(`${lensName}/${path} is unchanged`, () => {
-      const { sha256, bytes, n } = hashOf(CELLS[lensName][path])
-      expect({ lens: lensName, path, sha256, bytes, n }).toEqual({
-        lens: lensName,
-        path,
-        ...FROZEN!.cells[lensName][path],
-      })
-    })
-  }
-}
-
-// ── the two literals ─────────────────────────────────────────────────────
-for (const [lensName] of LENSES) {
-  itNormal(`${lensName} laneMinutes literal is unchanged`, () => {
-    const { input, bookings } = WORLDS[lensName]
-    expect(laneMinutes(input, bookings)).toEqual(FROZEN!.literals.laneMinutes[lensName])
-  })
-
-  itNormal(`${lensName} computeChecks literal is unchanged, and proves a real conflict`, () => {
-    const value = CELLS[lensName].computeChecks as Check[]
-    expect(value).toEqual(FROZEN!.literals.computeChecks[lensName])
-    expect(value.some((c) => !c.ok)).toBe(true)
-  })
-}
-
-// ── emit mode ────────────────────────────────────────────────────────────
-itEmit('emits the frozen file', () => {
-  const cells: FrozenFile['cells'] = {}
-  const literals: FrozenFile['literals'] = { laneMinutes: {}, computeChecks: {} }
+describe('the 33 cells', () => {
   for (const [lensName] of LENSES) {
-    cells[lensName] = {}
     for (const path of PATHS) {
-      cells[lensName][path] = hashOf(CELLS[lensName][path])
+      itNormal(`${lensName}/${path} is unchanged`, () => {
+        const { sha256, bytes, n } = hashOf(CELLS[lensName][path])
+        expect({ lens: lensName, path, sha256, bytes, n }).toEqual({
+          lens: lensName,
+          path,
+          ...FROZEN!.cells[lensName][path],
+        })
+      })
     }
-    literals.laneMinutes[lensName] = laneMinutes(WORLDS[lensName].input, WORLDS[lensName].bookings)
-    literals.computeChecks[lensName] = CELLS[lensName].computeChecks
   }
-  const frozen: FrozenFile = { emittedAt: EMIT_SHA as string, instant: FROZEN_INSTANT, cells, literals }
-  writeFileSync(FROZEN_PATH, `${JSON.stringify(frozen, null, 2)}\n`)
+
+  // ── emit mode ──────────────────────────────────────────────────────────
+  itEmit('emits the frozen file', () => {
+    const cells: FrozenFile['cells'] = {}
+    const literals: FrozenFile['literals'] = { laneMinutes: {}, computeChecks: {} }
+    for (const [lensName] of LENSES) {
+      cells[lensName] = {}
+      for (const path of PATHS) {
+        cells[lensName][path] = hashOf(CELLS[lensName][path])
+      }
+      literals.laneMinutes[lensName] = laneMinutes(WORLDS[lensName].input, WORLDS[lensName].bookings)
+      literals.computeChecks[lensName] = CELLS[lensName].computeChecks
+    }
+    const frozen: FrozenFile = { emittedAt: EMIT_SHA as string, instant: FROZEN_INSTANT, cells, literals }
+    writeFileSync(FROZEN_PATH, `${JSON.stringify(frozen, null, 2)}\n`)
+  })
 })
 
-// ── the dial pin ─────────────────────────────────────────────────────────
-it('buildLanes carries no class-slot dial', () => {
-  // buildLanes keys on rows, never on the master dial (ADJUDICATION §3); the runtime half of this pin lands with the class fields.
-  expect(String(buildLanes)).not.toMatch(/class_slots_enabled|classSlotsEnabled/)
+describe('the two literals', () => {
+  for (const [lensName] of LENSES) {
+    itNormal(`${lensName} laneMinutes literal is unchanged`, () => {
+      const { input, bookings } = WORLDS[lensName]
+      expect(laneMinutes(input, bookings)).toEqual(FROZEN!.literals.laneMinutes[lensName])
+    })
+
+    itNormal(`${lensName} computeChecks literal is unchanged, and proves a real conflict`, () => {
+      const value = CELLS[lensName].computeChecks as Check[]
+      expect(value).toEqual(FROZEN!.literals.computeChecks[lensName])
+      expect(value.some((c) => !c.ok)).toBe(true)
+    })
+  }
+})
+
+describe('the dial pin', () => {
+  it('buildLanes carries no class-slot dial', () => {
+    // buildLanes keys on rows, never on the master dial (ADJUDICATION §3); the runtime half of this pin lands with the class fields.
+    expect(String(buildLanes)).not.toMatch(/class_slots_enabled|classSlotsEnabled/)
+  })
 })

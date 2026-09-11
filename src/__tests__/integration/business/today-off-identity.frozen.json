@@ -29,8 +29,8 @@
         "n": 3
       },
       "computeChecks": {
-        "sha256": "5e4d31c42247f62b53e5b30ee27e9749c144a6d89f411bd5d063b75c92e9a766",
-        "bytes": 178,
+        "sha256": "ad414bafe411e072bd08e757bb16fef4050330eb71af119703f640b9ef8c7fc3",
+        "bytes": 157,
         "n": 4
       },
       "laneSpans": {
@@ -39,8 +39,8 @@
         "n": 9
       },
       "roomAllocation": {
-        "sha256": "894e7c0dcddea3236470b328a53849e4a93452d3fe61495b0bde63a6a56dd0e3",
-        "bytes": 166,
+        "sha256": "3c8757213b7c90b584e0c3ec402dc633a204e330d8a16419853bef6979f33afb",
+        "bytes": 241,
         "n": 3
       },
       "sellLayerFor": {
@@ -49,9 +49,9 @@
         "n": 7
       },
       "bedTruthViews": {
-        "sha256": "193d582f8485a479cec09b1cf06e60de44d0228fc46aa151cf2c0a0218275c24",
-        "bytes": 2250,
-        "n": 18
+        "sha256": "07b575ae5c4875b11522cc8963ede904eae3c8ee0f7a013642739cebc6c0ea9b",
+        "bytes": 1087,
+        "n": 2
       },
       "fitsDrag": {
         "sha256": "a4c73e64c28cc2b5dd30e0ea7649ada872e271f6c819e1ddfc38e4b947b1f91a",
@@ -96,8 +96,8 @@
         "n": 4
       },
       "roomAllocation": {
-        "sha256": "2fab9228395794154b12cc8fc45147511d9a828f66c5d0a2f888e60413b495d2",
-        "bytes": 116,
+        "sha256": "e74ba5e01bc4d6eff39841811152f8cc04a3c7e620c4bf0abf3504a3d85a56d0",
+        "bytes": 158,
         "n": 3
       },
       "sellLayerFor": {
@@ -106,9 +106,9 @@
         "n": 7
       },
       "bedTruthViews": {
-        "sha256": "4de9931da0de82c12ff3a036e70e0eaf41353b08d841458867c7cbbcaf1884ff",
-        "bytes": 2105,
-        "n": 18
+        "sha256": "c17d5fb553e5aa879ef423a47f89f968fec17cf88e2762a027cd1811a1995037",
+        "bytes": 942,
+        "n": 2
       },
       "fitsDrag": {
         "sha256": "a4c73e64c28cc2b5dd30e0ea7649ada872e271f6c819e1ddfc38e4b947b1f91a",
@@ -143,8 +143,8 @@
         "n": 3
       },
       "computeChecks": {
-        "sha256": "d2b17b285008a684aef519ed0d7e46f356d32d4595fa18d9df6894ee514f063c",
-        "bytes": 184,
+        "sha256": "ad414bafe411e072bd08e757bb16fef4050330eb71af119703f640b9ef8c7fc3",
+        "bytes": 157,
         "n": 4
       },
       "laneSpans": {
@@ -153,8 +153,8 @@
         "n": 11
       },
       "roomAllocation": {
-        "sha256": "4e6ff2ce24599104d5aee4af9d3e84b458ad1e349fc8837045b4b982ddb8e0fb",
-        "bytes": 191,
+        "sha256": "d2dcb22098aabecea8ca3e7b98db924fe396a85cfc9ebb8845078f243411ec39",
+        "bytes": 283,
         "n": 3
       },
       "sellLayerFor": {
@@ -163,9 +163,9 @@
         "n": 7
       },
       "bedTruthViews": {
-        "sha256": "2ebcd5319f6689e9ec3ab8d8c159a182696f17134550c5bb63103e95d8afd698",
-        "bytes": 1817,
-        "n": 18
+        "sha256": "25a772bc922a73ab0786228ec830e1fed6c4943e52c2faafa52b81da19cce7c7",
+        "bytes": 1164,
+        "n": 2
       },
       "fitsDrag": {
         "sha256": "a4c73e64c28cc2b5dd30e0ea7649ada872e271f6c819e1ddfc38e4b947b1f91a",
@@ -283,7 +283,7 @@
       "STORE_A": [
         {
           "ok": false,
-          "label": "時間帯が重複: テスト くらら・見本 そら・テスト えいた・本日勤務なし"
+          "label": "時間帯が重複: テスト くらら"
         },
         {
           "ok": true,
@@ -319,7 +319,7 @@
       "viewAll": [
         {
           "ok": false,
-          "label": "時間帯が重複: テスト くらら・見本 うみ・見本 そら・テスト えいた・本日勤務なし"
+          "label": "時間帯が重複: テスト くらら"
         },
         {
           "ok": true,
