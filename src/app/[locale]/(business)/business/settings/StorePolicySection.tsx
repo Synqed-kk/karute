@@ -41,7 +41,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { commitNumberField } from '@/business/lib/settings'
-import { overrideLevelFor, warnFaceFor, type OverrideLevel, type RailCell } from '../today/today-interactions'
+import { CALENDAR_TIGHT_RANGE, clampCalendarTight, overrideLevelFor, warnFaceFor, type OverrideLevel, type RailCell } from '../today/today-interactions'
 import type { PriceFrame } from '@/business/lib/canon-logic/pricing'
 import { Collapse, DetailToggle } from './Collapse'
 import { MINUTE_CHOICES, sceneKeyFor, type GapGuardMode, type NewClientMinutes } from './store-policy-seam'
@@ -86,6 +86,10 @@ export interface StorePolicyProps {
     minSellableMin: number
     /** ⚠SETTINGS-BATCH — `opsConfig.bookingStepMin`, 予約のドラッグ刻み. */
     bookingStepMin: number
+    /** ⚠SETTINGS-BATCH — `storeBookingPolicy.calendarTightMax`, 残りわずかの目安.
+     *  Clamped on the server by `clampCalendarTight`, the same one call the
+     *  今日の運営 page makes: one clamp, two readers. */
+    calendarTightMax: number
   }
   scenes: Record<string, StorePolicyScene>
   sample: {
@@ -181,6 +185,7 @@ export const STORE_POLICY_HEADINGS: ReadonlyArray<string> = [
   '新規のお客様の確保',
   '確保枠の会員ランク開放',
   '予約の刻み',
+  '残りわずかの目安',
   '保存',
 ]
 
@@ -248,6 +253,12 @@ const RANK_OPTIONS: Array<[Rank, string]> = [
 const SLOT_MIN = 5
 const SLOT_MAX = 60
 
+/** 残りわずかの目安's bounds — READ FROM THE DIAL'S OWN HOME, never spelled here
+ *  (⚖ Liam 9/12). The board's paint, this room's stepper and its blur commit all
+ *  hold the same guardrail because there is only one of it. 0 is inside it on
+ *  purpose: it is how a store turns the 橙 tier off. */
+const { min: TIGHT_MIN, max: TIGHT_MAX } = CALENDAR_TIGHT_RANGE
+
 /** The mock's own honest note for a dial core has no field for yet
  *  (⚠SETTINGS-BATCH). ONE sentence, reused, so eight rows cannot drift into
  *  eight different promises. */
@@ -281,6 +292,16 @@ export function StorePolicySection(props: StorePolicySectionProps) {
    *  rewrites the field are remembered the same way typing is. */
   const [slotMsg, setSlotMsg] = useState<string | null>(null)
   const lastGoodSlot = useRef(clampSlot(Number(slotText)))
+  /** ⚖ Liam 9/12 — 残りわずかの目安, held exactly like 予約の刻み above it: TEXT
+   *  while it is being typed (a half-typed 「1」 on the way to 「4」 must not
+   *  commit itself under the operator's fingers), committed on blur, with the
+   *  last accepted value remembered so an emptied box is handed back rather than
+   *  becoming the floor — and this field's floor is 0, which would switch the
+   *  橙 tier off without anyone choosing that. */
+  const [tightText, setTightText] = useState(String(policy.calendarTightMax))
+  const [tightWarn, setTightWarn] = useState(false)
+  const [tightMsg, setTightMsg] = useState<string | null>(null)
+  const lastGoodTight = useRef(clampCalendarTight(policy.calendarTightMax))
   const [locks, setLocks] = useState<string[]>(policy.lockedOut)
   const [lockPick, setLockPick] = useState('')
   /** ⚖ S17 fix round 1 · F15 — WHICH DIALS HAVE THEIR 詳しく OPEN.
@@ -335,6 +356,11 @@ export function StorePolicySection(props: StorePolicySectionProps) {
     const n = Number(slotText.trim())
     if (slotText.trim() !== '' && Number.isFinite(n) && n >= SLOT_MIN && n <= SLOT_MAX) lastGoodSlot.current = Math.round(n)
   }, [slotText])
+
+  useEffect(() => {
+    const n = Number(tightText.trim())
+    if (tightText.trim() !== '' && Number.isFinite(n) && n >= TIGHT_MIN && n <= TIGHT_MAX) lastGoodTight.current = Math.round(n)
+  }, [tightText])
 
   const dials: Dials = { perm, hold, mode, gaps, minutes, rank, slot: Number(slotText) }
   const activePreset =
@@ -926,6 +952,69 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                 : (slotMsg ?? '数字以外は保存されません')}
             </p>
             <Collapse open={detOpen['slot'] === true} id="st-det-bg.slot" reduced={props.reduced}>
+              <ul className="st-det">
+                <li className="st-det-src"><span className="st-chip">準備中</span>{PENDING_NOTE}</li>
+              </ul>
+            </Collapse>
+          </section>
+
+          {/* i. 残りわずかの目安 — ⚖ Liam 2026-09-12. 月カレンダーの橙の境目。
+              予約の刻み の作りをそのまま借りている（テキスト保持 → blur で確定、
+              ± は1枠ずつ、拒否は声にも出す）。違うのは二点だけ:
+              ・ガードレールは CALENDAR_TIGHT_RANGE から読む。この画面には数字を
+                書かない — 盤面の塗りと同じ住所を見る。
+              ・0 が合法で、しかも「効かなくなる」設定なので、その一行を面に出す。
+                黙って効かなくなるつまみが、まさに ⚖ 8/21 の失敗。
+              プリセットの3つには入れていない（名指しロックと同じ理由: お店ごとの
+              判断であって、おまかせ／任せる／しっかり見る のどれかに従属する値では
+              ない）。 */}
+          <section
+            className="st-row st-dial"
+            aria-labelledby="stTightLabel"
+            data-guide-title="残りわずかの目安"
+            data-guide="月カレンダーで「残りわずか」として橙で示す空き枠数の上限です。2なら、空きが1〜2枠の日が橙になります。0にすると橙は出ません。"
+          >
+            <div className="st-dial-what">
+              <div className="st-dial-label"><h3 id="stTightLabel">残りわずかの目安</h3></div>
+              <p className="st-dial-desc">月カレンダーで、空きがこの数以下の日を橙で示します</p>
+              <DetailToggle open={detOpen['tight'] === true} controls="st-det-bg.tight" onToggle={() => toggleDet('tight')} />
+            </div>
+            <div className="st-dial-ctl">
+              <div className="st-step">
+                <div className="st-step-g">
+                  <button type="button" aria-label="1枠減らす" onClick={() => setTightText(String(clampCalendarTight(Number(tightText) - 1)))}>−</button>
+                  <input
+                    id="stTight"
+                    type="text"
+                    inputMode="numeric"
+                    aria-labelledby="stTightLabel"
+                    value={tightText}
+                    onChange={(e) => {
+                      setTightMsg(null)
+                      const clean = e.target.value.replace(/[^0-9]/g, '')
+                      setTightWarn(clean !== e.target.value)
+                      setTightText(clean)
+                    }}
+                    onBlur={() => {
+                      const commit = commitNumberField(tightText, lastGoodTight.current, TIGHT_MIN, TIGHT_MAX, '枠')
+                      setTightText(String(commit.value))
+                      setTightWarn(false)
+                      setTightMsg(commit.message)
+                    }}
+                  />
+                  <button type="button" aria-label="1枠増やす" onClick={() => setTightText(String(clampCalendarTight(Number(tightText) + 1)))}>＋</button>
+                </div>
+                <span className="st-step-u">枠</span>
+            </div>
+            </div>
+            {/* ⚖ F10 の同じ生き領域。⚠ そして 0 のときは「効かない」ことを言う:
+                オフ状態を黙っているつまみは、ミス防止の失敗そのもの（⚖ 8/21）。 */}
+            <p className={`st-ctrl-d${tightWarn || tightMsg !== null ? ' warn' : ' dim'}`} aria-live="polite">
+              {tightWarn
+                ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'
+                : (tightMsg ?? (tightText.trim() === '0' ? '0では橙は出ません' : '数字以外は保存されません'))}
+            </p>
+            <Collapse open={detOpen['tight'] === true} id="st-det-bg.tight" reduced={props.reduced}>
               <ul className="st-det">
                 <li className="st-det-src"><span className="st-chip">準備中</span>{PENDING_NOTE}</li>
               </ul>
