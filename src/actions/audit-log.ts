@@ -170,23 +170,34 @@ async function walkAuditQuery(
 }
 
 /** Amendment 1 F6: a recording thread joins the rows that RESOLVE it —
- *  karute.save / karute.manual_create / karute.delete rows whose
- *  detail.recording_session_id is this recording, OR whose
- *  detail.appointment_id matches the recording's own appointment; plus, once
- *  the appointment is known, customer.pack_redeem rows carrying that
- *  appointment id. A failed recording lookup degrades to the target rows
- *  alone (threadPartial:true) — never a crash. `targetEvents` is ALL of this
+ *  karute.save / karute.delete rows whose detail.recording_session_id is
+ *  this recording, OR whose detail.appointment_id matches the recording's
+ *  own appointment; plus, once the appointment is known, customer.pack_redeem
+ *  rows carrying that appointment id (karute.manual_create is NEVER joined —
+ *  D1-9/subject 4: it has no linked appointment by construction and never
+ *  carries recording_session_id either, so it structurally cannot match this
+ *  filter). A failed recording lookup degrades to the target rows alone
+ *  (threadPartial:true) — never a crash. `targetEvents` is ALL of this
  *  thread's own target rows (fix round 1, subject 1: walked to completion by
  *  the caller via walkAuditQuery, same bounded idiom as the joins below —
- *  never just one core page) — merges with the join, re-sorts newest-first,
- *  and re-pages client-side with the SAME PAGE_SIZE — the thread is small by
- *  construction (one recording's story). */
+ *  never just one core page) — merges with the join, folds the MERGED set
+ *  through the SAME dedupe belt the ordinary feed uses (fix round 1, subject
+ *  3 / D1-3: a retried karute.save is exactly the row this thread joins, so
+ *  it must fold here too), re-sorts newest-first, and re-pages client-side
+ *  with the SAME PAGE_SIZE — the thread is small by construction (one
+ *  recording's story). */
 async function joinRecordingThread(
   synqed: ReturnType<typeof newSynqedClient>,
   recordingId: string,
   targetEvents: AuditLogEvent[],
   page: number,
-): Promise<{ events: AuditLogEvent[]; total: number; hasMore: boolean; threadPartial: boolean }> {
+): Promise<{
+  events: AuditLogEvent[]
+  total: number
+  hasMore: boolean
+  threadPartial: boolean
+  folded: number
+}> {
   // async wrapper (not a bare .then/.catch chain): a SYNCHRONOUS throw — a
   // client without the recordings surface — must degrade to target rows
   // only, same idiom as resolveTargetLabels' karuteRecords fallback below.
@@ -197,33 +208,42 @@ async function joinRecordingThread(
       return null
     }
   })()
-  if (!recording) {
-    return { events: targetEvents, total: targetEvents.length, hasMore: false, threadPartial: true }
-  }
-  const appointmentId = recording.appointment_id
 
-  const karuteWalk = await walkAuditCategoryFrom(synqed, 'karute', recording.created_at)
-  const joined = karuteWalk.events.filter((e) => {
-    const d = e.detail as { recording_session_id?: unknown; appointment_id?: unknown } | null
-    if (d?.recording_session_id === recordingId) return true
-    return appointmentId != null && d?.appointment_id === appointmentId
-  })
-  let threadPartial = karuteWalk.truncated
+  let joined: AuditLogEvent[] = []
+  let threadPartial = false
+  if (recording) {
+    const appointmentId = recording.appointment_id
+    const karuteWalk = await walkAuditCategoryFrom(synqed, 'karute', recording.created_at)
+    joined = karuteWalk.events.filter((e) => {
+      const d = e.detail as { recording_session_id?: unknown; appointment_id?: unknown } | null
+      if (d?.recording_session_id === recordingId) return true
+      return appointmentId != null && d?.appointment_id === appointmentId
+    })
+    threadPartial = karuteWalk.truncated
 
-  if (appointmentId != null) {
-    const customerWalk = await walkAuditCategoryFrom(synqed, 'customer', recording.created_at)
-    for (const e of customerWalk.events) {
-      if (e.action !== 'customer.pack_redeem') continue
-      const d = e.detail as { appointment_id?: unknown } | null
-      if (d?.appointment_id === appointmentId) joined.push(e)
+    if (appointmentId != null) {
+      const customerWalk = await walkAuditCategoryFrom(synqed, 'customer', recording.created_at)
+      for (const e of customerWalk.events) {
+        if (e.action !== 'customer.pack_redeem') continue
+        const d = e.detail as { appointment_id?: unknown } | null
+        if (d?.appointment_id === appointmentId) joined.push(e)
+      }
+      threadPartial = threadPartial || customerWalk.truncated
     }
-    threadPartial = threadPartial || customerWalk.truncated
+  } else {
+    threadPartial = true
   }
 
   const merged = new Map<string, AuditLogEvent>()
   for (const e of targetEvents) merged.set(e.id, e)
   for (const e of joined) merged.set(e.id, e)
-  const sorted = [...merged.values()].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
+  // Subject 3 (D1-3): the belt covers the MERGED set, not just the target
+  // half — the earlier per-target-page fold (in listAuditLogWithClient)
+  // still runs first, but a retried write can land as one target row plus
+  // one joined row (or two joined rows) sharing a request_id, which only
+  // this second pass over the merge can catch.
+  const { events: belted, folded } = foldDuplicateAuditEvents([...merged.values()])
+  const sorted = belted.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
 
   const start = (page - 1) * PAGE_SIZE
   return {
@@ -231,6 +251,7 @@ async function joinRecordingThread(
     total: sorted.length,
     hasMore: page * PAGE_SIZE < sorted.length,
     threadPartial,
+    folded,
   }
 }
 
@@ -439,13 +460,15 @@ export async function listAuditLogWithClient(
       const targetRows = targetWalk.events.filter(
         (e) => filters.includeViews || !isViewAction(e.action),
       )
-      const targetBelt = foldDuplicateAuditEvents(targetRows)
-      const thread = await joinRecordingThread(synqed, filters.targetId!, targetBelt.events, page)
+      // Subject 3 (D1-3): the belt runs ONCE, inside joinRecordingThread,
+      // over the merged (target ∪ joined) set — folding target rows here
+      // too would just be redundant work ahead of the same fold.
+      const thread = await joinRecordingThread(synqed, filters.targetId!, targetRows, page)
       finalEvents = thread.events
       total = thread.total
       hasMore = thread.hasMore
       threadPartial = thread.threadPartial || targetWalk.truncated
-      folded = targetBelt.folded
+      folded = thread.folded
     } else {
       // BELT on top of server exclude_views (packet-18 fix round): the
       // server now excludes BOTH view spellings — '.view' (SDK 1.14) and

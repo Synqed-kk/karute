@@ -1590,6 +1590,53 @@ describe('listAuditLog — PR D1 recording thread join (amendment 1 F6)', () => 
     expect(res.threadPartial).toBe(true)
   })
 
+  // Fix round 1, subject 3 (D1-3): the dedupe belt must cover the MERGED set
+  // (target rows ∪ joined rows) — a retried karute.save is exactly the row
+  // the thread joins, and it must fold there too, not just in the ordinary
+  // feed.
+  it('two karute.save rows sharing request_id in the JOINED set fold to one row; folded counts it', async () => {
+    mockClientWithRecording({ appointment_id: null })
+    list.mockImplementation(async (opts: { target_type?: string; category?: string }) => {
+      if (opts.target_type === 'recording') {
+        return { events: [], total: 0, page: 1, page_size: 200 }
+      }
+      if (opts.category === 'karute') {
+        return {
+          events: [
+            coreEvent({
+              id: 'k-late',
+              at: '2026-09-01T00:05:00.000Z',
+              category: 'karute',
+              action: 'karute.save',
+              target_type: 'karute',
+              target_id: 'kar-1',
+              request_id: 'req-dup',
+              detail: { recording_session_id: RECORDING_ID },
+            }),
+            coreEvent({
+              id: 'k-early',
+              at: '2026-09-01T00:00:00.000Z',
+              category: 'karute',
+              action: 'karute.save',
+              target_type: 'karute',
+              target_id: 'kar-1',
+              request_id: 'req-dup',
+              detail: { recording_session_id: RECORDING_ID },
+            }),
+          ],
+          total: 2,
+          page: 1,
+          page_size: 200,
+        }
+      }
+      throw new Error('unexpected call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['k-early'])
+    expect(res.folded).toBe(1)
+  })
+
   it('a walk hitting its page cap reports threadPartial:true even though the merge otherwise succeeds', async () => {
     mockClientWithRecording()
     list.mockImplementation(async (opts: { target_type?: string; category?: string; page?: number }) => {
