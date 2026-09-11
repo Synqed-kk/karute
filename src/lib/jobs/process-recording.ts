@@ -25,7 +25,12 @@ import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { isOwnAudioKey, parseRecordingKey } from '@/lib/recording/key-grammar'
 import { readStaffDiscard } from '@/lib/recording/staff-discard'
-import { AI_SPEND_LIMIT, DISCARDED_BY_STAFF, DISCARD_LEDGER_UNREADABLE } from '@/lib/recording/job-errors'
+import {
+  AI_SPEND_LIMIT,
+  DISCARDED_BY_STAFF,
+  DISCARD_LEDGER_UNREADABLE,
+  TRANSCRIPTION_LEDGER_UNAVAILABLE,
+} from '@/lib/recording/job-errors'
 import { AppApiError } from '@/lib/app-api/errors'
 import { audit } from '@/lib/audit'
 import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
@@ -457,10 +462,11 @@ async function upsertKaruteRecord(
  *  'FAILED'`; this function no longer recomputes attempts itself.
  *
  *  Never on a discard refusal (its own recording.discard row IS the record —
- *  council amendment 4 F3) and never on a spend-limit refusal
- *  (recording.transcribe_refused already filed the row —
+ *  council amendment 4 F3), never on a spend-limit refusal, and never on a
+ *  spend-ledger-unavailable refusal (both already filed the row —
+ *  recording.transcribe_refused via
  *  src/lib/ai/transcribe.ts#auditTranscriptionRefused; emitting here too
- *  would double-log the same event under two actions).
+ *  would double-log the same event under two actions, Greptile PR #881).
  *
  *  KNOWN GAP, ACCEPTED AS DESIGNED (Q2, fix round 1 subject 3): core re-arms
  *  a FAILED job with `attempts = 0` on its next enqueue (job-errors.ts's
@@ -472,6 +478,7 @@ async function upsertKaruteRecord(
 function emitTranscribeFailedIfExhausted(job: RecordingJob, message: string): void {
   if (message === DISCARDED_BY_STAFF || message === AI_SPEND_LIMIT) return
   if (message === DISCARD_LEDGER_UNREADABLE) return
+  if (message === TRANSCRIPTION_LEDGER_UNAVAILABLE) return
   const payload = job.payload as unknown as RecordingJobPayload | undefined
   audit({
     category: 'recording',

@@ -10,8 +10,8 @@
  * when core instead QUEUEs the job for another attempt; never when the
  * fail() call itself rejects (the job stays RUNNING for the stale-claim
  * reclaim, which decides on its own later round); never on a discard refusal,
- * an unreadable discard-ledger read, or a spend-limit refusal (each already
- * has its own row elsewhere).
+ * an unreadable discard-ledger read, a spend-limit refusal, or a
+ * spend-ledger-unavailable refusal (each already has its own row elsewhere).
  */
 process.env.SYNQED_CORE_URL ??= 'https://core.test'
 process.env.SYNQED_CORE_API_KEY ??= 'test-key'
@@ -230,6 +230,19 @@ describe('process-recording worker — recording.transcribe_failed (subject 6, f
     await processRecordingJobs(10_000)
 
     expect(fail).toHaveBeenCalledWith('job-1', 'AI_SPEND_LIMIT')
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it('exhausted round + a spend-ledger-unavailable refusal → no emit (recording.transcribe_refused already filed the row, Greptile PR #881)', async () => {
+    runMeteredTranscription.mockRejectedValueOnce(
+      new AppApiError('upstream_unavailable', 'transcription ledger unavailable', { reason: 'ledger_unavailable' }),
+    )
+    claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).toHaveBeenCalledWith('job-1', 'transcription ledger unavailable')
     expect(audit).not.toHaveBeenCalled()
   })
 

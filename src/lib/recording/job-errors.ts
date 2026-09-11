@@ -31,3 +31,11 @@ export const AI_SPEND_LIMIT = 'AI_SPEND_LIMIT'
  *  see (fix round 6, R1 fail-closed extension of DISCARDED_BY_STAFF above).
  *  RETRYABLE: a later attempt re-reads the ledger fresh. */
 export const DISCARD_LEDGER_UNREADABLE = 'discard ledger row unreadable — refusing to write'
+
+/** Core's spend ledger would not confirm the reserve write after three
+ *  attempts, so the transcription never ran and no yen moved (the reserve,
+ *  before any money moves) — auditTranscriptionRefused already filed the
+ *  spend ledger's own refusal row (recording.transcribe_refused) for this
+ *  exact throw. It is a refusal, not a failure: never a second row under
+ *  recording.transcribe_failed for the same event. */
+export const TRANSCRIPTION_LEDGER_UNAVAILABLE = 'transcription ledger unavailable'
