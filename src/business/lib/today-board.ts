@@ -647,18 +647,22 @@ export function shiftAvailableMinutes(shift: FixtureShift | undefined, absence: 
   return shift ? availableMinutes(effectiveShift(shift, absence)) : 0
 }
 
-/** The 勤務不可 a given day's roster may be shortened by — its own day's, or
- *  none. `readDayPlanes` hands the incident back only when the day it was asked
- *  for is today (「the 勤務不可 incident is happening NOW」, data.ts :301-307),
- *  so the plane the page holds belongs to the day on screen and to no other.
- *  Handing it to all 91 calendar days shortened a whole month's capacity
- *  whenever the operator happened to be standing on today. */
+/** The 勤務不可 that shortens day K's roster: the door's answer FOR K, and
+ *  nothing else. A day the door holds no incident for has none.
+ *
+ *  ONE HOME, and deliberately blind to which day is on screen. It used to read
+ *  `dayKey === shownKey ? planes.absence : null` over the single plane
+ *  `readDayPlanes` returns, and that made a calendar number depend on where the
+ *  operator was STANDING: the door only hands the incident back when the day it
+ *  was asked about is today, so viewing ANY other day left today's own cell
+ *  computed from the full roster and advertising 空き it does not have. The
+ *  absence now comes from `listAbsenceByDay`, which answers per day, so the
+ *  shown day cannot enter this arithmetic at all. */
 export function absenceForDay(
   dayKey: number,
-  shownKey: number,
-  absence: FixtureAbsence | null,
+  byDay: ReadonlyMap<number, FixtureAbsence | null>,
 ): FixtureAbsence | null {
-  return dayKey === shownKey ? absence : null
+  return byDay.get(dayKey) ?? null
 }
 
 /** The treatment minutes ONE DAY'S roster leaves — the denominator behind both

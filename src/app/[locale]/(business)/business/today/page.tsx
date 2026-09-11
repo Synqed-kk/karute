@@ -33,6 +33,7 @@ import {
   listMenus,
   listResources,
   listStaff,
+  listAbsenceByDay,
   listShiftsByDay,
   listStoreOptions,
   readDayPlanes,
@@ -133,7 +134,8 @@ export default async function TodayPage({
   const from = new Date(now.getTime() + (-WINDOW - 1) * DAY_MS).toISOString()
   const to = new Date(now.getTime() + (WINDOW + 1) * DAY_MS).toISOString()
 
-  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay] = await Promise.all([
+  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay, absenceByDay] =
+    await Promise.all([
     listCustomers(lens),
     listAppointments(lens, { from, to }),
     listMenus(lens),
@@ -144,9 +146,10 @@ export default async function TodayPage({
     // empty for a day the operator is only viewing — see readDayPlanes.
     readDayPlanes(lens, shownKey),
     readShellIdentity(),
-    // The calendar's capacity is a PER-DAY question, so it is asked per day.
-    // Inclusive on both ends, exactly the window the grid draws.
+    // The calendar's capacity is a PER-DAY question, so both halves of it are
+    // asked per day. Inclusive on both ends, exactly the window the grid draws.
     listShiftsByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
+    listAbsenceByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
   ])
   const staffStores = await readStaffStores(lens)
 
@@ -219,19 +222,14 @@ export default async function TodayPage({
     // 定休日 has no capacity to advertise — a closed day showing free slots is
     // the impossible state, not a rounding question.
     const closed = p.wd === planes.closedWeekday
-    // ⚠ 勤務不可 belongs to ONE day. readDayPlanes hands the incident back only
-    // when the day asked for IS today (data.ts :301-307), so the absence this
-    // page holds is the shown day's: today's own cell carries it, every other
-    // cell does not, and on any other shown day no cell does.
+    // ⚠ 勤務不可 belongs to ONE day, and to that day WHATEVER DAY IS ON SCREEN.
+    // The absence comes from its own per-day door rather than from the shown
+    // day's planes, so today's cell carries today's incident while the operator
+    // is standing on next Tuesday — which is the whole point of a month grid.
     const free = closed
       ? 0
       : freeSlots(
-          rosterAvailableMinutes(
-            staff,
-            shifts,
-            planes.staffQualifications,
-            absenceForDay(dayKey, shownKey, planes.absence),
-          ),
+          rosterAvailableMinutes(staff, shifts, planes.staffQualifications, absenceForDay(dayKey, absenceByDay)),
           bookedByDay.get(dayKey) ?? 0,
         )
     return [{ offset, ...p, closed, free, booked: countByDay.get(dayKey) ?? 0 }]

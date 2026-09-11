@@ -12,8 +12,9 @@
  * no DOM is needed, so it runs on jest's default `node` environment.
  */
 import { jstDayKey } from '@/business/lib/clock'
-import { STORE_A } from '@/business/lib/fixtures'
+import { STORE_A, STORE_B } from '@/business/lib/fixtures'
 import {
+  listAbsenceByDay,
   listAppointments,
   listCustomers,
   listMenus,
@@ -162,45 +163,78 @@ describe('listShiftsByDay — the door answers for EVERY day in the range', () =
   })
 })
 
-describe('⚖ V5 — 勤務不可 shortens its OWN day and no other', () => {
+describe('⚖ V5 — 勤務不可 shortens its OWN day, on EVERY shown day', () => {
   /** The absence each of the 91 cells is built with, for a given shown day —
-   *  the door's answer and the page's selection together, because the rule
-   *  only holds if BOTH halves hold. */
+   *  the door's answer and the page's lookup together, because the rule only
+   *  holds if BOTH halves hold. */
   const absencesAcrossTheMonth = async (shownOffset: number) => {
     const todayKey = jstDayKey(renderNow())
-    const shownKey = todayKey + shownOffset
-    const planes = await readDayPlanes(STORE_A, shownKey)
-    return Array.from({ length: WINDOW * 2 + 1 }, (_, i) => ({
+    // BOTH reads the page holds for a shown day: the board's own planes, which
+    // legitimately depend on it, and the calendar's absence door, which asks for
+    // the WINDOW and so cannot.
+    const [planes, byDay] = await Promise.all([
+      readDayPlanes(STORE_A, todayKey + shownOffset),
+      listAbsenceByDay(STORE_A, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
+    ])
+    const cells = Array.from({ length: WINDOW * 2 + 1 }, (_, i) => ({
       offset: i - WINDOW,
-      absence: absenceForDay(todayKey + i - WINDOW, shownKey, planes.absence),
+      absence: absenceForDay(todayKey + i - WINDOW, byDay),
     }))
+    return { planesAbsence: planes.absence, cells }
   }
 
-  it('shown = today: exactly one cell — today’s own — carries the absence', async () => {
-    const cells = await absencesAcrossTheMonth(0)
-    const carrying = cells.filter((c) => c.absence != null)
-    expect(carrying.map((c) => c.offset)).toEqual([0])
+  it.each([0, 3, -3, 45])('shown = %s: today’s own cell carries the absence, and no other cell does', async (shown) => {
+    // THE BUG THIS PINS: the absence used to arrive on `readDayPlanes(shownKey)`,
+    // which hands it back only when the day asked for is today — so standing on
+    // any other date left today's cell computed from the FULL roster and
+    // advertising 空き for hours p-01 is not working. A calendar number cannot
+    // depend on which day is being looked at.
+    const { planesAbsence, cells } = await absencesAcrossTheMonth(shown)
+    expect(cells.filter((c) => c.absence != null).map((c) => c.offset)).toEqual([0])
+    // The board plane is UNCHANGED by this fix and still today-only — which is
+    // exactly why the calendar could not keep reading it.
+    expect(planesAbsence != null).toBe(shown === 0)
   })
 
-  it('shown = +3: no cell carries one, because the door has none to give', async () => {
-    const cells = await absencesAcrossTheMonth(3)
-    expect(cells.filter((c) => c.absence != null)).toEqual([])
-    // The door's half of the rule, stated so a regression names itself.
-    expect((await readDayPlanes(STORE_A, jstDayKey(renderNow()) + 3)).absence).toBeNull()
+  it('the door answers under TODAY’s key only, and only when today is in range', async () => {
+    const todayKey = jstDayKey(renderNow())
+    const inRange = await listAbsenceByDay(STORE_A, { from: todayKey - WINDOW, to: todayKey + WINDOW })
+    expect([...inRange.keys()]).toEqual([todayKey])
+    expect(inRange.get(todayKey)).not.toBeNull()
+    // …and it is the same incident the board's own planes hand the lanes, so
+    // the calendar cell and the band under it cannot describe two absences.
+    expect(inRange.get(todayKey)).toEqual((await readDayPlanes(STORE_A, todayKey)).absence)
+    // A window that does not contain today holds nothing at all — the door
+    // never invents a day, and `absenceForDay` reads 「missing」 as 「none」.
+    const future = await listAbsenceByDay(STORE_A, { from: todayKey + 1, to: todayKey + WINDOW })
+    expect([...future.keys()]).toEqual([])
+    expect(absenceForDay(todayKey, future)).toBeNull()
+  })
+
+  it('the store clamp still applies — another store’s lens sees no incident', async () => {
+    // `readDayPlanes` clamps the 勤務不可 by store; a second door that forgot to
+    // would leak STORE_A's absence into STORE_B's month.
+    const todayKey = jstDayKey(renderNow())
+    const byDay = await listAbsenceByDay(STORE_B, { from: todayKey - WINDOW, to: todayKey + WINDOW })
+    expect(absenceForDay(todayKey, byDay)).toBeNull()
+    expect((await readDayPlanes(STORE_B, todayKey)).absence).toBeNull()
   })
 
   it('a shortened roster is shorter than the same day’s unshortened one', async () => {
-    // Without this the two tests above would still pass if the absence stopped
+    // Without this the tests above would still pass if the absence stopped
     // shortening anything at all.
     const todayKey = jstDayKey(renderNow())
-    const planes = await readDayPlanes(STORE_A, todayKey)
-    const [staff, shiftsByDay] = await Promise.all([
+    const [staff, quals, shiftsByDay, absenceByDay] = await Promise.all([
       listStaff(STORE_A),
+      readDayPlanes(STORE_A, todayKey).then((p) => p.staffQualifications),
       listShiftsByDay(STORE_A, { from: todayKey, to: todayKey }),
+      listAbsenceByDay(STORE_A, { from: todayKey, to: todayKey }),
     ])
     const shifts = shiftsByDay.get(todayKey) ?? []
-    const withAbsence = rosterAvailableMinutes(staff, shifts, planes.staffQualifications, planes.absence)
-    const without = rosterAvailableMinutes(staff, shifts, planes.staffQualifications, null)
+    const withAbsence = rosterAvailableMinutes(staff, shifts, quals, absenceForDay(todayKey, absenceByDay))
+    const without = rosterAvailableMinutes(staff, shifts, quals, null)
     expect(withAbsence).toBeLessThan(without)
+    // …and TOMORROW's cell keeps the full roster on the very same read.
+    expect(rosterAvailableMinutes(staff, shifts, quals, absenceForDay(todayKey + 1, absenceByDay))).toBe(without)
   })
 })

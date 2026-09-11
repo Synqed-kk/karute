@@ -62,6 +62,7 @@ import {
   shifts,
   staffListPrice,
   staffQualifications,
+  type FixtureAbsence,
   type FixtureResource,
   type FixtureShift,
 } from './fixtures-today'
@@ -281,6 +282,36 @@ export async function listShiftsByDay(
   assertLens(lens)
   const byDay = new Map<number, FixtureShift[]>()
   for (let key = range.from; key <= range.to; key += 1) byDay.set(key, shifts)
+  return byDay
+}
+
+/** 勤務不可, BY DAY, ACROSS A RANGE — the month calendar's absence read.
+ *
+ *  `readDayPlanes` answers about ONE day and hands the incident back only when
+ *  that day is today, which is the honest answer for the board. The month grid
+ *  draws 91 days at once, and it used to shorten a day's roster by「the absence
+ *  the SHOWN day happens to hold」: stand on any day but today and today's own
+ *  cell lost its 勤務不可 and advertised 空き for hours nobody is working.
+ *
+ *  A calendar number must not depend on which day is being LOOKED at, so the
+ *  absence is asked for by day, exactly as `listShiftsByDay` asks the roster.
+ *
+ *  Inclusive on both ends, in `jstDayKey` units. The map is SPARSE: a key it
+ *  has no entry for is a day with no 勤務不可 — see `absenceForDay`.
+ *
+ *  ⚠ RECONNECT: the real door returns the absences it holds per day over
+ *  [from, to]. The fixture world holds exactly ONE incident and it is today's,
+ *  so today's key is the only one that can ever carry anything. */
+export async function listAbsenceByDay(
+  lens: StoreLens,
+  range: { from: number; to: number },
+): Promise<Map<number, FixtureAbsence | null>> {
+  assertLens(lens)
+  const byDay = new Map<number, FixtureAbsence | null>()
+  const todayKey = jstDayKey(renderNow())
+  // The same store clamp `readDayPlanes` applies below: a 勤務不可 carries a
+  // store, so a lens that cannot see that store must not see the incident.
+  if (todayKey >= range.from && todayKey <= range.to) byDay.set(todayKey, inLens([absence], lens, false)[0] ?? null)
   return byDay
 }
 
