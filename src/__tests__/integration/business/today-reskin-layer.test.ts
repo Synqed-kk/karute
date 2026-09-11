@@ -28,10 +28,18 @@
  * So: if you edit the layer and only this file is green, the cascade has NOT
  * been re-proved — run the checker, or say in the PR that you did not.
  *
- * Territory's import fence: node specifiers only, so this is text on the file.
+ * Territory's import fence: node specifiers only, so this is text on the file —
+ * with ONE exception, added by G-1 and named here rather than left to be found.
+ * `@/business/lib/spring` is imported below, because the last pin in this file
+ * is not a claim about text at all: it DRIVES the real integrator at the frame
+ * length that breaks it. The fence exists to keep DOM renderers and testing
+ * libraries out of this folder; the spring is a pure module that reads no
+ * element, touches no `window` and is already on this screen's own sealed
+ * import inventory (foundation.test.ts). Nothing else crosses.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { makeSpring } from '@/business/lib/spring'
 
 const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
 const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
@@ -819,6 +827,65 @@ describe('今日の運営 reskin layer — slice ④ (motion · the sliding thum
     // the one animation this board is not allowed to have. The condition IS
     // the behaviour, so the condition is what is pinned.
     expect(SRC_CODE).toContain('if (instant || !segSeated.current) {')
+  })
+
+  it('the thumb\'s springs do not diverge on the shared integrator\'s 1/30 s step (G-1)', () => {
+    // ⚖ G-1 — Greptile's P1 on #879, upheld. Every other pin in this file reads
+    // text; this one DRIVES `spring.ts` itself, because the defect it guards is
+    // not visible in any string: `response: 0.22` is a perfectly ordinary-looking
+    // number that makes the integrator BLOW UP at the one frame length it clamps
+    // to. `makeSpring` clamps `dt` to 1/30 s and steps with semi-implicit Euler,
+    // so at critical damping it is stable only while `2π·dt/response < 0.828`;
+    // 0.22 sits at 0.95 (eigenvalues 0.63 / −1.44 — sign-flipping growth), 0.3
+    // at 0.70. The clamp is reached by any frame of 33 ms or more: a 30 Hz
+    // display, the first frame after a background tab wakes, this board's own
+    // heavy drag frames. So: read what the screen actually passes, then run it.
+    const SRC_CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    const calls = [...SRC_CODE.matchAll(/segGeom\.current\.[xw] = v; paint\(\) \}, \{ response: ([\d.]+), damping: [\d.]+, eps: ([\d.]+), reduced \}/g)]
+    expect(calls).toHaveLength(2)
+    for (const [, response, eps] of calls) {
+      // 0.26 is where the family's own press value lands (a = 0.805, λ = −0.92):
+      // stable, but only just. Anything below it is a spring that can diverge.
+      expect(Number(response)).toBeGreaterThanOrEqual(0.26)
+      // …and the same numbers, driven. 90 frames handed to the spring exactly
+      // 1000/30 ms apart — the clamp's own step, and the worst case the clamp
+      // was written for. `raf`/`cancel` are injected, so no timer runs and the
+      // frames are ours; `reduced: false`, or `set` would land instantly and
+      // prove nothing.
+      const STEP = 1000 / 30
+      const TARGET = 120
+      let queued: ((t: number) => void) | null = null
+      let rested: number | null = null
+      const seen: number[] = []
+      const s = makeSpring((v) => seen.push(v), {
+        response: Number(response),
+        damping: 1.0,
+        eps: Number(eps),
+        reduced: false,
+        raf: (cb) => { queued = cb; return 1 },
+        cancel: () => { queued = null },
+        onRest: (v) => { rested = v },
+      })
+      s.set(TARGET)
+      let frames = 0
+      // ⚠ the first timestamp is deliberately NOT 0: `frame` seeds `last` with
+      // `if (!last) last = t`, so a run starting at t=0 would seed twice and
+      // hand the second frame a dt of 0 as well.
+      while (queued && frames < 90) {
+        const cb: (t: number) => void = queued
+        queued = null
+        cb(1000 + frames * STEP)
+        frames += 1
+      }
+      // it ARRIVED — a diverging spring never satisfies the rest test, so it
+      // would still be queued at frame 90 with `onRest` never called
+      expect(rested).toBe(TARGET)
+      expect(frames).toBeLessThan(90)
+      // …and it never threw itself past the far side on the way. The travel is
+      // 0 → 120, so 130 allows a 10px overshoot and nothing like a divergence:
+      // at 0.22 the fourth frame alone lands 147px away and then doubles.
+      for (const v of seen) expect(Math.abs(v - TARGET)).toBeLessThanOrEqual(130)
+    }
   })
 
   it('the entrances of the three surfaces that measure themselves carry no scale (F-2)', () => {
