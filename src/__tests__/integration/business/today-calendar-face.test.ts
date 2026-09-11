@@ -16,9 +16,17 @@
 import { readFileSync } from 'node:fs'
 
 import { jstYmd } from '@/business/lib/clock'
+// ⚖ Liam 9/12 — the STORE's own 残りわずかの目安. A pure data module (its only
+// import is the store ids), which is how today-screen-interactions.test.ts
+// reaches the same world: no door, no mocks, nothing for this node-environment
+// suite to stub.
+import { opsConfig, storeBookingPolicy } from '@/business/lib/fixtures-today'
 import {
   CALENDAR_TIGHT_MAX,
+  CALENDAR_TIGHT_RANGE,
   calendarCellFace,
+  calendarTightLegend,
+  clampCalendarTight,
   calendarLead,
   calendarMonth,
   calendarMonthAt,
@@ -122,6 +130,113 @@ describe('calendarCellFace — one answer for paint, word and sentence', () => {
     for (const free of [1, 2, 3, 12]) {
       expect(calendarCellFace(day({ free })).small).toBe(`空き${free}`)
     }
+  })
+})
+
+// ── ⚖ Liam 9/12 — 「残りわずか」 の境目 is a STORE SETTING ─────────────────────
+//
+// The default did not move; what changed is that it is now a default. A store
+// dials its own number (設定 → 予約と確保 → 残りわずかの目安, guardrail 0–5), the
+// page clamps it once and hands it to the month, and the legend sentence is
+// written from the same number the cells are painted from.
+
+describe('clampCalendarTight — what a stored bound is allowed to be', () => {
+  it('the guardrail is 0–5, and it is stated ONCE', () => {
+    // The 設定 row's ± stepper and its blur commit both read this object, so a
+    // bound written anywhere else would be a second home for the same rule.
+    expect(CALENDAR_TIGHT_RANGE).toEqual({ min: 0, max: 5 })
+    expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.min)).toBe(0)
+    expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.max)).toBe(5)
+  })
+
+  it('a number inside the guardrail arrives as itself, and outside it is held', () => {
+    expect(clampCalendarTight(2)).toBe(2)
+    expect(clampCalendarTight(0)).toBe(0)
+    expect(clampCalendarTight(5)).toBe(5)
+    expect(clampCalendarTight(6)).toBe(5)
+    expect(clampCalendarTight(-1)).toBe(0)
+    // A fraction is a whole number of 枠 or it is nothing — and it rounds the
+    // way every other count on this board rounds.
+    expect(clampCalendarTight(2.6)).toBe(3)
+    expect(clampCalendarTight(2.4)).toBe(2)
+  })
+
+  it('⚠ A NON-NUMBER FALLS BACK TO THE DEFAULT, NEVER TO THE FLOOR', () => {
+    // THE WHOLE POINT of this clamp. The floor is 0 and 0 MEANS 「no 橙 tier」, so
+    // a clamp that answered the low end for a missing value would quietly delete
+    // a tone from the month for every store whose column has not landed yet —
+    // the dial harming the store in silence (⚖ 8/21). The honest answer for
+    // 「this is not a number」 is the shipped default.
+    for (const bad of [Number.NaN, undefined, null, '', '3', {}, [], Infinity, -Infinity]) {
+      expect({ bad: String(bad), got: clampCalendarTight(bad) }).toEqual({ bad: String(bad), got: CALENDAR_TIGHT_MAX })
+    }
+    expect(CALENDAR_TIGHT_MAX).not.toBe(CALENDAR_TIGHT_RANGE.min)
+  })
+
+  it('the fixture store writes its own value, and it agrees with the default', () => {
+    // ⚠ THE FIXTURE DOES NOT IMPORT THE SCREEN'S CONSTANT — territory runs one
+    // way (an app screen reads the lib, never the reverse), so the two numbers
+    // are written in two places on purpose and pinned equal here. D-T2: because
+    // they agree, nothing on 今日の運営 moves a pixel on this round.
+    expect(storeBookingPolicy.calendarTightMax).toBe(CALENDAR_TIGHT_MAX)
+    // …and the alias `readDayPlanes` hands the page is the same number, not a
+    // second value that happens to look like it.
+    expect(opsConfig.calendarTightMax).toBe(storeBookingPolicy.calendarTightMax)
+    expect(clampCalendarTight(opsConfig.calendarTightMax)).toBe(CALENDAR_TIGHT_MAX)
+  })
+})
+
+describe('calendarTightLegend — the 橙 clause says exactly what the tier is', () => {
+  it('names the range at 2–5, the single number at 1, and nothing at 0', () => {
+    expect(calendarTightLegend(0)).toBeNull()
+    // 「橙＝残り1〜1枠」 is a range nobody writes.
+    expect(calendarTightLegend(1)).toBe('橙＝残り1枠')
+    expect(calendarTightLegend(2)).toBe('橙＝残り1〜2枠')
+    expect(calendarTightLegend(5)).toBe('橙＝残り1〜5枠')
+  })
+
+  it('and the sentence matches the paint, at every legal setting', () => {
+    // The legend is a PROMISE about the cells. Driven rather than asserted: at
+    // each bound, every day the clause names is really painted 橙 and the first
+    // day outside it is not.
+    for (let tightMax = CALENDAR_TIGHT_RANGE.min; tightMax <= CALENDAR_TIGHT_RANGE.max; tightMax += 1) {
+      const clause = calendarTightLegend(tightMax)
+      const amber = [1, 2, 3, 4, 5, 6].filter((free) => calendarCellFace(day({ free }), tightMax).tone === 'tight')
+      if (clause === null) {
+        expect({ tightMax, amber }).toEqual({ tightMax, amber: [] })
+        continue
+      }
+      expect({ tightMax, amber }).toEqual({ tightMax, amber: [1, 2, 3, 4, 5].slice(0, tightMax) })
+      expect(clause.startsWith('橙＝残り1')).toBe(true)
+      expect(clause.endsWith(`${tightMax}枠`)).toBe(true)
+    }
+  })
+})
+
+describe('⚖ 9/11 LAYER-OFF — the 橙 tier switched off changes nothing else', () => {
+  it('tightMax 0 removes the tier and its legend entry, and NOTHING else moves', () => {
+    // The layer-off arm of the matrix, both surfaces in one test: with the dial
+    // at 0 there is no `.tight` cell anywhere and no clause to print — and every
+    // other day draws byte-identical to the same month at the shipped 2, as long
+    // as no day is inside that 2. A degraded state that stayed honest.
+    const off = 0
+    const on = CALENDAR_TIGHT_MAX
+    for (const d of [day({ free: 3 }), day({ free: 9 }), day({ free: 0 }), day({ closed: true, free: 0 }),
+      day({ offset: -1, d: 10, free: 6 }), { m: 12, d: 1, covered: false as const }]) {
+      expect(calendarCellFace(d, off)).toEqual(calendarCellFace(d, on))
+    }
+    // …and the days the tier WOULD have claimed are plain 空き, not a fourth tone.
+    for (const free of [1, 2]) {
+      expect(calendarCellFace(day({ free }), off)).toEqual({
+        tone: 'open',
+        className: 'cal-cell open',
+        small: `空き${free}`,
+        aria: `9月12日、空き枠${free}件`,
+      })
+      expect(calendarCellFace(day({ free }), on).className).toContain('tight')
+    }
+    expect(calendarTightLegend(off)).toBeNull()
+    expect(calendarTightLegend(on)).not.toBeNull()
   })
 })
 

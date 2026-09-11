@@ -462,12 +462,54 @@ export function guardCheckRowBesideOffer(cell: RailCell | null): { label: string
 
 /** 「残りわずか」 の境目 — 空きがこの数以下の日は緑ではなく橙で塗る。
  *
- *  ⚖ MISTAKE-PROOFING (Liam 2026-08-21) — this is a DEFAULT, not a rule about
- *  anyone's business: how few is 「わずか」 is the manager's judgement, so it
- *  becomes a store setting with this as its default and a guardrail, never a
- *  per-業種 hardcode. Until then it has exactly one home, so the cell paint,
- *  the legend sentence and the tests can never quote different numbers. */
+ *  ⚖ MISTAKE-PROOFING (Liam 2026-08-21), ANSWERED 2026-09-12 — this is now the
+ *  DEFAULT of the store setting `storeBookingPolicy.calendarTightMax`, and the
+ *  guardrail that setting is held inside is `CALENDAR_TIGHT_RANGE` below. How
+ *  few is 「わずか」 is the manager's judgement, so it is a dial with a default
+ *  and a guardrail rather than a per-業種 hardcode.
+ *
+ *  ⚠ The fixture store writes its own 2 (fixtures-today.ts) — this file is not
+ *  imported there, because the app reads the lib and never the reverse. The two
+ *  numbers agreeing is pinned by a test, not by an import. */
 export const CALENDAR_TIGHT_MAX = 2
+
+/** The dial's guardrail, stated ONCE — the 設定 row's ± stepper, its blur commit
+ *  and this file's own clamp all read it, so no screen writes a bound of its
+ *  own. 0 is a legal setting: it turns the 橙 tier off, which is why the floor
+ *  is not 1. */
+export const CALENDAR_TIGHT_RANGE = { min: 0, max: 5 } as const
+
+/** A stored 「残りわずか」 bound, made safe to paint with.
+ *
+ *  ⚠ A MISSING OR GARBAGE VALUE FALLS BACK TO THE DEFAULT, NOT TO THE FLOOR.
+ *  The floor here is 0, and 0 means 「no amber tier」 — so a clamp that answered
+ *  the low end for `undefined` would silently switch a whole tone off the month
+ *  for any store whose column has not landed yet. The honest answer for 「this
+ *  is not a number」 is the shipped default (`commitNumberField`'s own rule for
+ *  an emptied field, same reasoning, one layer up).
+ *
+ *  `!(Number.isFinite(value) && …)` rather than a `<` chain for the one reason
+ *  that spelling exists in this codebase: NaN fails EVERY comparison, so `<`
+ *  would let a non-number through (clampSlot :1047 in StorePolicySection.tsx
+ *  carries the same note). A numeric STRING is not a number either — core hands
+ *  this column across as an int and a '3' arriving here would mean the seam is
+ *  wrong, not that the store wants 3. */
+export function clampCalendarTight(value: unknown): number {
+  if (!(Number.isFinite(value) && typeof value === 'number')) return CALENDAR_TIGHT_MAX
+  return Math.min(CALENDAR_TIGHT_RANGE.max, Math.max(CALENDAR_TIGHT_RANGE.min, Math.round(value)))
+}
+
+/** The legend's 橙 clause, from the store's own bound.
+ *
+ *  ⚖ F7 — 「残り2枠以下」 includes 0, and 0 is painted 満, not 橙; the clause is a
+ *  RANGE for that reason. At 1 the range would read 「1〜1枠」, which is a
+ *  sentence no one writes, so it collapses to the single number. At 0 there is
+ *  no 橙 tier at all and the honest answer is NO CLAUSE — a legend entry for a
+ *  colour the month cannot paint is the degraded state lying about itself. */
+export function calendarTightLegend(tightMax: number): string | null {
+  if (tightMax <= 0) return null
+  return tightMax === 1 ? '橙＝残り1枠' : `橙＝残り1〜${tightMax}枠`
+}
 
 export interface CalendarCellFace {
   tone: 'unknown' | 'past' | 'closed' | 'full' | 'tight' | 'open'

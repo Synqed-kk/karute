@@ -22,7 +22,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
-import { overrideLevelFor, protectedCapacityOf, warnFaceFor, type RailCell } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { CALENDAR_TIGHT_RANGE, clampCalendarTight, overrideLevelFor, protectedCapacityOf, warnFaceFor, type RailCell } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { commitNumberField } from '@/business/lib/settings'
 import { createGapGuard } from '@/business/lib/canon-logic/gap-guard'
 import { freePockets } from '@/business/lib/canon-logic/availability'
 import type { BoardLane } from '@/business/lib/today-board'
@@ -188,13 +189,16 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
     expect(new Set(DECLARATIONS.map((d) => d.title)).size).toBe(DECLARATIONS.length)
   })
 
-  it('EVERY DIAL IS EXPLAINED — the eight dials plus 保存 each declare their own step', () => {
+  it('EVERY DIAL IS EXPLAINED — the nine dials plus 保存 each declare their own step', () => {
     // The room's whole subject is dials, so a dial the walk skips is a setting a
     // manager is left to guess at. Named here because these are the ROOM's
     // contract with Liam's 8/23 law, not a list the code derives.
+    // ⚖ Liam 9/12 — 残りわずかの目安 joined the list the round it landed, which is
+    // what that law asks of every new function.
     for (const title of [
       '上書きの権限', '名指しロック', '長押しで確定', '店長のみでも警告を止める',
-      'すき間の販売', '新規のお客様の確保', '確保枠の会員ランク開放', '予約の刻み', '保存',
+      'すき間の販売', '新規のお客様の確保', '確保枠の会員ランク開放', '予約の刻み',
+      '残りわずかの目安', '保存',
     ]) {
       expect(DECLARATIONS.map((d) => d.title)).toContain(title)
     }
@@ -256,8 +260,8 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
   it('⚖ F12 — a COLLAPSED 詳細設定 does not silently shorten the walk', () => {
     // THE MECHANISM, driven: `spotTargets` drops zero-sized nodes, which is the
     // right law (a hidden dial is not explained) and is exactly what a closed
-    // `<details>` does to all nine dials inside it. A manager who folded the
-    // section away and then pressed ? was walked through 3 steps instead of 12,
+    // `<details>` does to all ten dials inside it. A manager who folded the
+    // section away and then pressed ? was walked through 3 steps instead of 13,
     // with the counter reading 「1 / 3」 as though that were the page.
     const root = document.createElement('div')
     const box = (h: number) => () => ({ left: 0, top: 0, width: h === 0 ? 0 : 100, height: h, right: 100, bottom: h, x: 0, y: 0, toJSON: () => ({}) })
@@ -417,11 +421,16 @@ describe('⚖ 1b RULED — 新規のお客様の確保 is three fixed choices, a
 
   it('the chips are RENDERED from that enum, never from three literals', () => {
     expect(SCREEN_CODE).toContain('MINUTE_CHOICES.map(')
-    // …and the room never mints a stepper for this dial: 予約の刻み is the only
-    // number field on the page, which is also what the ⛔ NaN riders guard.
+    // …and the room never mints a stepper for THIS dial. The room's number
+    // fields are named rather than counted blind, so a stepper growing here —
+    // the thing 1b rules out — is a red whatever else the page has gained.
+    // ⚖ Liam 9/12 — the second one is 残りわずかの目安, and it is a free number
+    // for the opposite reason: 0–5 枠 is a store's own judgement with no wire
+    // enum behind it, so a stepper is the honest control (⛔ the NaN riders below
+    // cover both fields).
     const inputs = openingTags(SCREEN_CODE, 'input')
-    expect(inputs.length).toBe(1)
-    expect(inputs[0]).toContain('id="stSlot"')
+    expect(inputs.map((t) => /id="(\w+)"/.exec(t)?.[1])).toEqual(['stSlot', 'stTight'])
+    expect(SCREEN_CODE).not.toContain('id="stMinutes"')
   })
 
   it('a stored value off the ladder is READ, and never silently re-saved as itself', () => {
@@ -969,6 +978,66 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // answering the third state too (⚖ D-37 — a restored value is a warning as
     // much as a stripped character is).
     expect(SCREEN_CODE).toContain("`st-ctrl-d${slotWarn || slotMsg !== null ? ' warn' : ' dim'}`")
+  })
+
+  /** ⚖ Liam 9/12 — 残りわずかの目安 IS 予約の刻み'S GRAMMAR, AND ITS GUARDRAIL IS
+   *  THE BOARD'S. The row was built by mirroring the field above it, so it is
+   *  pinned the same way — but with one thing the older field does not need: its
+   *  bounds are READ from the dial's own home rather than spelled here. A second
+   *  literal is how 「橙＝残り1〜5枠」 and a stepper that stops at 4 come to
+   *  disagree, and neither surface would be wrong on its own. */
+  it('⚖ 9/12 — the 残りわずかの目安 field reads ONE guardrail, and 0 is a real setting', () => {
+    // 1 · THE BOUNDS ARE THE BOARD'S, destructured once, never re-typed.
+    expect(SCREEN_CODE).toContain('const { min: TIGHT_MIN, max: TIGHT_MAX } = CALENDAR_TIGHT_RANGE')
+    expect(SCREEN_CODE).not.toMatch(/TIGHT_(MIN|MAX)\s*=\s*\d/)
+    expect(SCREEN_CODE).toContain("const commit = commitNumberField(tightText, lastGoodTight.current, TIGHT_MIN, TIGHT_MAX, '枠')")
+    // …and the ± stepper reaches for the SAME clamp the page clamps with, so a
+    // press can never land on a value the month would refuse to paint — and each
+    // press CLEARS the commit sentence (⚖ COLD-READ C4), or a stale
+    // 「0枠から5枠のあいだで…」 from an earlier blur sits over the 0 state.
+    expect(SCREEN_CODE).toContain('onClick={() => { setTightMsg(null); setTightText(String(clampCalendarTight(Number(tightText) - 1))) }}')
+    expect(SCREEN_CODE).toContain('onClick={() => { setTightMsg(null); setTightText(String(clampCalendarTight(Number(tightText) + 1))) }}')
+    expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.max + 1)).toBe(CALENDAR_TIGHT_RANGE.max)
+    expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.min - 1)).toBe(CALENDAR_TIGHT_RANGE.min)
+
+    // …and the row OPENS on the store's own value, never on a literal (⚖ COLD-READ
+    // B1: a row that ignored the store would show one number while the month
+    // painted another, and neither surface would be wrong on its own).
+    expect(SCREEN_CODE).toContain('const [tightText, setTightText] = useState(String(policy.calendarTightMax))')
+    expect(SCREEN_CODE).toContain('const lastGoodTight = useRef(clampCalendarTight(policy.calendarTightMax))')
+    // ⚠ AND 0 IS A VALUE THE FIELD REMEMBERS. `n > TIGHT_MIN` here would mean a
+    // store that dialled the tier OFF and then emptied the box is handed 2 back —
+    // the tier switched back on without anyone choosing that.
+    expect(SCREEN_CODE).toContain('n >= TIGHT_MIN && n <= TIGHT_MAX')
+
+    // 2 · THE BLUR RULE, DRIVEN — the room's one rule for a number field, with
+    // this field's unit and this field's bounds.
+    const commit = (raw: string, prev: number) =>
+      commitNumberField(raw, prev, CALENDAR_TIGHT_RANGE.min, CALENDAR_TIGHT_RANGE.max, '枠')
+    expect(commit('3', 2)).toEqual({ value: 3, message: null })
+    // ⚠ 0 IS A SETTING, not a rejected value: it is how a store turns the 橙 tier
+    // off, so it commits in silence like any accepted number.
+    expect(commit('0', 2)).toEqual({ value: 0, message: null })
+    expect(commit('9', 2)).toEqual({ value: 5, message: '0枠から5枠のあいだで設定できます。5枠にしました' })
+    // …and an EMPTIED box goes back to what was there, never to the floor —
+    // which here would silently switch the tier off (⚖ 8/21).
+    expect(commit('', 2)).toEqual({ value: 2, message: '数字を入れてください。前の値の2枠に戻しました' })
+
+    // 3 · THE SAME LIVE REGION, AND IT SAYS THE OFF-STATE OUT LOUD. A dial whose
+    // 効かない state is silent is the mistake-proofing failure this room exists
+    // to prevent, so 0 is explained on the face rather than left to be noticed
+    // on the calendar.
+    expect(SCREEN_CODE).toContain('setTightWarn(clean !== e.target.value)')
+    expect(SCREEN_CODE).toContain("`st-ctrl-d${tightWarn || tightMsg !== null ? ' warn' : ' dim'}`")
+    expect(SCREEN_CODE).toContain("? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'")
+    // ⚖ COLD-READ C6 — ONE FACT, ONE SENTENCE: the live line and the ?-tour step
+    // say the off-state in the SAME words (the room's own ⚖ R3-2 rule).
+    expect(SCREEN_CODE).toContain(": (tightMsg ?? (tightText.trim() === '0' ? '0にすると橙は出ません' : '数字以外は保存されません'))}")
+    expect(SCREEN_CODE).toContain('0にすると橙は出ません。"')
+    expect(SCREEN_CODE).not.toContain('0では橙は出ません')
+    // …and the ± are named in 枠, the unit the number is in.
+    expect(SCREEN_CODE).toContain('aria-label="1枠減らす"')
+    expect(SCREEN_CODE).toContain('aria-label="1枠増やす"')
   })
 
   it('and its two siblings in the engine now refuse the same inputs', () => {

@@ -88,7 +88,7 @@ import {
   calPopFrame,
   calPopMotion,
   nextCalendarIndex,
-  CALENDAR_TIGHT_MAX,
+  calendarTightLegend,
   cardNodes,
   chipProxySize,
   clampLabelWidth,
@@ -628,6 +628,13 @@ export interface TodayProps {
    *  law sentence alone, managers see it with the one action beside it. */
   canReleaseHeld: boolean
   closedWeekdayLabel: string
+  /** ⚠SETTINGS-BATCH — ⚖ Liam 9/12. 月カレンダーで橙になる空き枠数の上限, the
+   *  store's own dial (`storeBookingPolicy.calendarTightMax`, default 2,
+   *  guardrail 0–5), clamped on the server like every other authority this
+   *  screen is handed. The cells and the legend both read THIS, so the paint and
+   *  the sentence under it can never quote different numbers — and at 0 the
+   *  legend's 橙 clause disappears with the tier. */
+  calendarTightMax: number
   ops: {
     total: string
     settled: string
@@ -6651,6 +6658,12 @@ export function TodayScreen(props: TodayProps) {
   if (calPhase === 'open') monthCellsHeld.current = monthCells
   const monthShown = calPhase === 'closing' ? monthCellsHeld.current : monthCells
 
+  /** ⚖ Liam 9/12 — the legend's 橙 clause, AUTHORED BY THE HELPER from the
+   *  store's own 残りわずかの目安. `null` at 0 (the tier is off, so the clause has
+   *  nothing to name and is not rendered), and the cells above it read the same
+   *  number, so the paint and the sentence cannot drift. */
+  const tightLegend = calendarTightLegend(props.calendarTightMax)
+
   /** Does the month `delta` steps from the one on screen hold ANY day the
    *  server dated? The ‹ › buttons disable on 「no」 rather than paging into an
    *  all-blank month. Asked of the month the card is SHOWING, so the arrows
@@ -7873,7 +7886,7 @@ export function TodayScreen(props: TodayProps) {
                       ))}
                       {Array.from({ length: monthShown.lead }, (_, i) => <span key={`lead-${i}`} />)}
                       {monthShown.days.map((d) => {
-                        const face = calendarCellFace(d)
+                        const face = calendarCellFace(d, props.calendarTightMax)
                         if (d.covered === false) {
                           // ⚖ F5 — an aria-label on a bare <span> names nothing:
                           // the element has no role, so assistive tech has no
@@ -7908,8 +7921,11 @@ export function TodayScreen(props: TodayProps) {
                     <div className="cal-legend" title="空き枠 = スタッフの空き時間を60分単位で数えたもの">
                       <span>空き＝その日の空き枠数 ・</span>
                       {/* ⚖ F7 — 「残り2枠以下」 includes 0, and 0 is painted 満,
-                          not 橙. The range says exactly what the tier is. */}
-                      <span>橙＝残り1〜{CALENDAR_TIGHT_MAX}枠 ・</span>
+                          not 橙. The range says exactly what the tier is, and
+                          the helper writes it from the STORE's own bound: at 1
+                          it collapses (never 「1〜1枠」) and at 0 the clause is
+                          gone entirely, because the month has no 橙 to explain. */}
+                      {tightLegend !== null && <span>{tightLegend} ・</span>}
                       <span>満＝空きなし ・</span>
                       <span>定休＝定休日（{props.closedWeekdayLabel}）</span>
                     </div>

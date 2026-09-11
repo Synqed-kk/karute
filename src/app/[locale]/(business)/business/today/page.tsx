@@ -57,7 +57,7 @@ import {
   type BoardBooking,
   type BuildInput,
 } from '@/business/lib/today-board'
-import { canReleaseHeld, overrideLevelFor, type CalendarWindowDay } from './today-interactions'
+import { canReleaseHeld, clampCalendarTight, overrideLevelFor, type CalendarWindowDay } from './today-interactions'
 import { TodayScreen, type DecisionCard, type InspectorCase, type TodayProps } from './TodayScreen'
 import './today.css'
 
@@ -568,6 +568,12 @@ export default async function TodayPage({
     // staff member is never shown an action they would only be refused for.
     canReleaseHeld: canReleaseHeld(planes.opsConfig.releaseHeldRoles, shell.operator),
     closedWeekdayLabel: WEEKDAY_WORD[planes.closedWeekday],
+    // ⚠SETTINGS-BATCH — ⚖ Liam 9/12. 「残りわずか」 の境目, the store's own dial,
+    // read ONCE here and clamped once: the board is handed the answer, never the
+    // policy, exactly like `holdToConfirm` and `canReleaseHeld` above. The
+    // calendar LOOP is untouched — which day is tight is a paint question the
+    // cell's face helper answers, not a number the day record carries.
+    calendarTightMax: clampCalendarTight(planes.opsConfig.calendarTightMax),
     ops: {
       total: yen(totals.total),
       settled: `${totals.settled}件`,
