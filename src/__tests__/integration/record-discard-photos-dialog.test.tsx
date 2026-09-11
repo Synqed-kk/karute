@@ -206,13 +206,7 @@ beforeEach(() => {
   mockUploadCustomerPhoto.mockImplementation(async () => ({ photo: { id: 'p1' } }))
   mockDeleteCustomerPhoto.mockImplementation(async () => ({ success: true }))
   mockRecState = 'recorded'
-  // ⚖ 9/12: this suite is about the D3 photos-then-reason-gate flow, not the
-  // accidental-tap floor — a null result reads as 0s of audio, which is now a
-  // ONE-TAP discard that skips the reason gate entirely (the mount sweep this
-  // suite pins would never see it). An above-floor duration keeps every
-  // discard here on the gate path these tests actually exercise; the one test
-  // that deliberately wants result:null (the SAVE early-return) sets it back.
-  mockResult = { blob: new Blob(['x']), mimeType: 'audio/webm', durationMs: 60_000 }
+  mockResult = null
   mockTarget = {
     customerId: 'cust-A',
     customerName: 'テスト花子',
@@ -534,14 +528,11 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
   it('SAVE path with result:null (not yet stopped) never shows the discard-photos dialog', () => {
     sessionPhotoStore.photos = [donePhoto()]
     // ticketsEnabled=false routes useRecording straight to handleUseRecording
-    // (skips the outcome dialog); result is null here (⚖ 9/12: the beforeEach
-    // default is now above-floor for the discard tests, so this ONE test
-    // overrides it back), so it returns immediately (`if (!result) return`) —
-    // handleUseRecording never references
-    // showDiscardPhotosDialog/sessionPhotosForDiscardDialog/
+    // (skips the outcome dialog); result stays null (default), so it returns
+    // immediately (`if (!result) return`) — handleUseRecording never
+    // references showDiscardPhotosDialog/sessionPhotosForDiscardDialog/
     // deleteCustomerPhoto anywhere in its body, structurally distinct from
     // handleDiscard.
-    mockResult = null
     render(<RecordPageView {...baseProps} ticketsEnabled={false} />)
     fireEvent.click(screen.getByText('useRecording'))
     expect(screen.queryByRole('dialog')).toBeNull()

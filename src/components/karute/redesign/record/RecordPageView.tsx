@@ -1101,7 +1101,9 @@ export function RecordPageView({
     // takeChanged guards work, on this path exactly as on the dialog's. Applies
     // to all four origins alike: the banner offer wires onDiscard ONLY for a
     // below-floor take, so every banner discard is one-tap by that fact alone.
-    if (discardSubjectDurationSec(origin) < BELOW_FLOOR_SEC) {
+    // ⚖ FIX ROUND 1: unknown length is not "under 10 s" — the dialog asks.
+    const oneTapDurationSec = discardSubjectDurationSec(origin)
+    if (oneTapDurationSec !== null && oneTapDurationSec < BELOW_FLOOR_SEC) {
       // Same re-entry guard confirmDiscardReason has, needed here because
       // (unlike the dialog path) a double tap of the TRIGGER BUTTON itself
       // must still file exactly one discard — nothing else gates re-entry
@@ -1154,12 +1156,17 @@ export function RecordPageView({
    */
   function discardSubjectDurationSec(
     origin: 'recorder' | 'review' | 'pipeline-error' | 'banner',
-  ): number {
+  ): number | null {
+    // ⚖ 9/12 FIX ROUND 1: `null` for an UNKNOWN duration (never `0`) — 0 would
+    // read as "under the floor" and file the auto reason for a take that may
+    // be an hour long. The receipt's own `durationSeconds` keeps its existing
+    // `?? 0` fallback (unchanged, server-side behaviour); only this gate's
+    // decision needs to tell "unknown" apart from "short".
     if (origin === 'review' || origin === 'pipeline-error') {
-      return globalPipeline.context?.duration ?? 0
+      return globalPipeline.context?.duration ?? null
     }
-    if (origin === 'banner') return bannerDiscardSnapshotRef.current?.durationSec ?? 0
-    return (result?.durationMs ?? 0) / 1000
+    if (origin === 'banner') return bannerDiscardSnapshotRef.current?.durationSec ?? null
+    return result ? result.durationMs / 1000 : null
   }
 
   /**
@@ -1293,7 +1300,12 @@ export function RecordPageView({
       takeId:
         (ctxKeyed ? ctx?.takeId : bannerSnap ? bannerSnap.takeId : liveTakeId) ?? null,
       reason,
-      durationSeconds: discardSubjectDurationSec(origin),
+      // `?? 0`: the receipt's own fallback, unchanged from before the one-tap
+      // gate existed — the server flags an unknown/zero duration below_floor
+      // on its own account. This is a pre-existing fact about the receipt,
+      // not this gate's decision (which now tells "unknown" apart from
+      // "short" — see discardSubjectDurationSec).
+      durationSeconds: discardSubjectDurationSec(origin) ?? 0,
       // `|| null`: a walk-in target carries id='' — the same coercion the
       // save binding does, so the receipt records null rather than ''.
       customerId:

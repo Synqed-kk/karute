@@ -182,8 +182,11 @@ jest.mock('@/lib/global-recorder', () => ({
 }))
 let mockRecState: 'idle' | 'recording' | 'paused' | 'recorded' = 'recorded'
 /** A2-2: the recorder take's length. 60 s (well above BELOW_FLOOR_SEC) unless a
- *  test asks for an accidental tap. */
-let mockDurationMs = 60_000
+ *  test asks for an accidental tap. ⚖ FIX ROUND 1: `null` drives `result` to
+ *  null while still 'recorded' — the recorder-arm twin of "no offer yet" —
+ *  proving an UNKNOWN length falls through to the dialog rather than reading
+ *  as under-floor. */
+let mockDurationMs: number | null = 60_000
 /** The bound customer. null for every case except the photo-deletion window —
  *  session photos only exist for a take bound to a customer. */
 let mockTarget: { customerId: string; customerName: string } | null = null
@@ -194,7 +197,10 @@ const mockAwaitSession = jest.fn(async (): Promise<string | null> => 'sess-live'
 jest.mock('@/hooks/use-global-recorder', () => ({
   useGlobalRecorder: () => ({
     state: mockRecState,
-    result: mockRecState === 'recorded' ? { blob: new Blob(['a']), durationMs: mockDurationMs } : null,
+    result:
+      mockRecState === 'recorded' && mockDurationMs !== null
+        ? { blob: new Blob(['a']), durationMs: mockDurationMs }
+        : null,
     error: null,
     stream: null,
     startedAt: mockRecState === 'idle' ? null : Date.now(),
@@ -1140,6 +1146,30 @@ describe('⚖ 9/12 — the one-tap discard, recorder origin', () => {
     expect(mockDiscardRecording).toHaveBeenCalledWith({ keepTake: false })
     const { toast } = jest.requireMock('sonner') as { toast: { success: jest.Mock } }
     expect(toast.success).toHaveBeenCalledWith('discardReason.oneTapDone')
+  })
+
+  // ⚖ FIX ROUND 1 (Fable line-read of cd2a61c67): an UNKNOWN duration must
+  // never read as "under 10 s" — that would file the auto reason
+  // 「誤操作（10秒未満の録音のため自動記録）」 for a take that might be an hour
+  // long, a possible lie in the manager's ledger. `result` null (the recorder
+  // has nothing yet) is the recorder arm's own "we don't know" — the dialog
+  // asks instead, exactly as it does at or over the floor.
+  it('unknown length (result null): the dialog opens, nothing filed, no toast', async () => {
+    recorderTake.takeId = 'take-1'
+    mockDurationMs = null
+    await renderPage()
+    await tapDiscard('discard')
+
+    expect(reasonGate()).not.toBeNull()
+    expect(mockDiscardWithReason).not.toHaveBeenCalled()
+    expect(mockDiscardRecording).not.toHaveBeenCalled()
+    const { toast } = jest.requireMock('sonner') as { toast: { success: jest.Mock } }
+    expect(toast.success).not.toHaveBeenCalled()
+
+    // The dialog still works normally from here.
+    await writeReason()
+    await confirmReason()
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
   })
 
   // SHOULD-FIX-6 twin (the banner suite pins the same boundary for `<`):

@@ -199,7 +199,7 @@ const mockPipelineStart = jest.fn()
 const pipe = {
   state: 'idle' as string,
   error: null as string | null,
-  context: null as { takeId: string; recordingSessionId: string; duration?: number } | null,
+  context: null as { takeId: string; recordingSessionId: string } | null,
 }
 jest.mock('@/lib/global-pipeline', () => ({
   globalPipeline: {
@@ -750,11 +750,7 @@ describe('録音履歴 — the server save’s gates (③ fix round 1)', () => {
     // discard-reason gate, so the pin holds the SHARED ref, not a copy.
     pipe.state = 'error'
     pipe.error = 'empty-transcript'
-    // duration: 60 (⚖ 9/12) — these R2/R4/R5 pins are about the SAVE-gating
-    // seal, not the accidental-tap floor; an unset duration reads as 0s and
-    // the discard is now a one-tap that skips this dialog entirely, so an
-    // above-floor duration keeps the dialog the pin actually needs.
-    pipe.context = { takeId: 'take-1', recordingSessionId: 'sess-other', duration: 60 }
+    pipe.context = { takeId: 'take-1', recordingSessionId: 'sess-other' }
     serverSessions = [serverRow()]
     await renderPage()
 
@@ -928,11 +924,7 @@ describe('録音履歴 — the server save’s latch (③ fix round 2)', () => {
     // half of that sentence the server save was missing.
     pipe.state = 'error'
     pipe.error = 'empty-transcript'
-    // duration: 60 (⚖ 9/12) — these R2/R4/R5 pins are about the SAVE-gating
-    // seal, not the accidental-tap floor; an unset duration reads as 0s and
-    // the discard is now a one-tap that skips this dialog entirely, so an
-    // above-floor duration keeps the dialog the pin actually needs.
-    pipe.context = { takeId: 'take-1', recordingSessionId: 'sess-other', duration: 60 }
+    pipe.context = { takeId: 'take-1', recordingSessionId: 'sess-other' }
     serverSessions = [serverRow()]
     await renderPage()
 
@@ -1119,11 +1111,7 @@ describe('録音履歴 — the server save’s latch, card-wide (③ fix round 3
     // and a post-await recheck was deleted there on that claim's strength.
     pipe.state = 'error'
     pipe.error = 'empty-transcript'
-    // duration: 60 (⚖ 9/12) — these R2/R4/R5 pins are about the SAVE-gating
-    // seal, not the accidental-tap floor; an unset duration reads as 0s and
-    // the discard is now a one-tap that skips this dialog entirely, so an
-    // above-floor duration keeps the dialog the pin actually needs.
-    pipe.context = { takeId: 'take-1', recordingSessionId: 'sess-other', duration: 60 }
+    pipe.context = { takeId: 'take-1', recordingSessionId: 'sess-other' }
     mockGetConsent.mockResolvedValue({ consent: null })
     serverSessions = [serverRow('sess-srv')]
     await renderPage()
