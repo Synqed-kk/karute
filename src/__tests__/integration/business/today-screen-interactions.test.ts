@@ -14484,10 +14484,16 @@ describe('⚖ STUDIO 2026-09-12 — 月カレンダー enters AND leaves on the 
 
     calPopMotion(el, spring, false)
     // STILL THERE — that is the whole point of the exit; and neither pressable
-    // nor readable, because `pop` has already left and `aria-expanded` with it.
+    // nor reachable nor readable, because `pop` has already left and
+    // `aria-expanded` with it.
     expect(document.querySelector('.cal-pop')).toBe(el)
     expect(el.style.pointerEvents).toBe('none')
     expect(el.getAttribute('aria-hidden')).toBe('true')
+    // ⚖ COLD READ · C2 — and Tab cannot reach the 34 controls inside it either.
+    // `pointer-events` is a mouse answer; `inert` is the one that also takes
+    // the card out of the focus order and the a11y tree, which is what makes
+    // the `aria-hidden` above legal rather than an `aria-hidden-focus` breach.
+    expect(el.hasAttribute('inert')).toBe(true)
 
     const falling: number[] = []
     for (let i = 0; i < 5; i += 1) { c.tick(); falling.push(opacity()) }
@@ -14516,6 +14522,10 @@ describe('⚖ STUDIO 2026-09-12 — 月カレンダー enters AND leaves on the 
     expect(opacity()).toBe(mid)
     expect(el.style.pointerEvents).toBe('')
     expect(el.getAttribute('aria-hidden')).toBeNull()
+    // …and every one of the three answers comes back, not just the two that
+    // are easy to see: a card the operator has reopened is pressable, Tab-able
+    // and readable again.
+    expect(el.hasAttribute('inert')).toBe(false)
 
     c.tick()
     c.tick()

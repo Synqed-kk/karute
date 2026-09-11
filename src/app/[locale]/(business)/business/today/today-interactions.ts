@@ -623,14 +623,26 @@ export function calPopFrame(el: HTMLElement | null, v: number, reduced: boolean)
  *  opacity instead of turning it around from where it actually is, which is the
  *  one thing the mock's interruptibility clause names.
  *
- *  ⚠ AND A CLOSING POPOVER IS NOT PRESSABLE. It is still painted and still in
- *  the tree for the length of its spring, so without these two lines it would
- *  swallow the click aimed at whatever is underneath it and read its whole month
- *  out to a screen reader that has already been told the popover is shut
- *  (`aria-expanded` follows `pop`, which has already left). */
+ *  ⚠ AND A CLOSING POPOVER IS NOT PRESSABLE, NOT REACHABLE AND NOT READABLE.
+ *  It is still painted and still in the tree for the length of its spring, so
+ *  without these lines it would swallow the click aimed at whatever is
+ *  underneath it and read its whole month out to a screen reader that has
+ *  already been told the popover is shut (`aria-expanded` follows `pop`, which
+ *  has already left).
+ *
+ *  ⚖ COLD READ 2026-09-12 · C2 — `inert`, BECAUSE `pointer-events` STOPS THE
+ *  MOUSE AND NOTHING ELSE. For the ~380ms of the exit the card still holds 今日,
+ *  two month arrows and up to 31 day cells, all of them Tab-reachable — and
+ *  `aria-hidden="true"` over a subtree containing the focused element is an axe
+ *  `aria-hidden-focus` violation, which is also exactly how a reader ends up
+ *  with focus parked on a node that is about to vanish (Escape from a focused
+ *  day cell does it). `inert` covers pointer events, focus AND the a11y tree in
+ *  one attribute. The `aria-hidden` write stays beside it as the older-browser
+ *  answer; `inert` is what closes the focus half. */
 export function calPopMotion(el: HTMLElement | null, spring: Spring, open: boolean): void {
   if (el) {
     el.style.pointerEvents = open ? '' : 'none'
+    el.toggleAttribute('inert', !open)
     if (open) el.removeAttribute('aria-hidden')
     else el.setAttribute('aria-hidden', 'true')
   }
