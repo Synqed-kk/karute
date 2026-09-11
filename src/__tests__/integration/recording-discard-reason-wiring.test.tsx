@@ -1244,6 +1244,47 @@ describe('⚖ 9/12 — the one-tap discard, recorder origin', () => {
     expect(reasonGate()).not.toBeNull()
   })
 
+  // ⚖ FIX ROUND 2 (F2, lens finding): the re-entry guard must sit BEFORE the
+  // latch writes. A second tap of 破棄 WHILE the first one-tap attempt is
+  // still mid-flight must be a total no-op — re-writing discardIntentRef
+  // against the NEW live take (使用 having won the race in between) would
+  // re-latch onto it and defeat the takeChanged guard the latch exists to
+  // prove, filing a discard against a take this gate was never opened for.
+  it('a second tap of 破棄 during an in-flight one-tap does not re-latch onto the new take', async () => {
+    recorderTake.takeId = 'take-1'
+    mockDurationMs = 5_000
+    let releaseMint: (v: string | null) => void = () => {}
+    mockAwaitSession.mockImplementationOnce(() => new Promise((res) => { releaseMint = res }))
+    await renderPage()
+
+    // First tap: starts the one-tap attempt, suspends on the mint.
+    await act(async () => {
+      fireEvent.click(screen.getByText('discard'))
+      for (let i = 0; i < 2; i++) await Promise.resolve()
+    })
+
+    // 使用 wins the race while the first attempt is still in flight.
+    recorderTake.takeId = 'take-2'
+    // THE SECOND TAP — must do nothing: discardReasonSubmittingRef is
+    // already true from the first tap.
+    await act(async () => {
+      fireEvent.click(screen.getByText('discard'))
+      for (let i = 0; i < 2; i++) await Promise.resolve()
+    })
+
+    await act(async () => {
+      releaseMint(RECORDER_SESSION)
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+
+    // The latch (still take-1, never re-written) caught the race — nothing
+    // filed against either take.
+    expect(mockDiscardWithReason).not.toHaveBeenCalled()
+    expect(mockDiscardRecording).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent('discardReason.takeChanged')
+    expect(reasonGate()).not.toBeNull()
+  })
+
   it('double tap on 破棄 under the floor files exactly ONE discard', async () => {
     recorderTake.takeId = 'take-1'
     mockDurationMs = 5_000

@@ -1078,6 +1078,14 @@ export function RecordPageView({
   // fails (the fallback surface, never a second decision site).
 
   async function openDiscardReason(origin: 'recorder' | 'review' | 'pipeline-error' | 'banner') {
+    // ⚖ FIX ROUND 2 (F2): checked BEFORE the latches below, not after. A
+    // second tap while a confirm (dialog or one-tap) is already submitting
+    // must bail out doing NOTHING — re-writing discardIntentRef /
+    // bannerDiscardSnapshotRef against whatever the live take/offer has
+    // become by then would re-latch onto a NEW subject and defeat the very
+    // takeChanged guard those latches exist to prove. Same guard
+    // cancelDiscardReason already has; the dialog path gains it here too.
+    if (discardReasonSubmittingRef.current) return
     // Latch WHICH take this gate is for, at the moment it opens. Only the
     // recorder chokepoint can race 使用 — the review take was handed to the
     // pipeline long before, so there is nothing left to invalidate there.
@@ -1111,11 +1119,6 @@ export function RecordPageView({
       oneTapDurationSec !== null &&
       oneTapDurationSec < BELOW_FLOOR_SEC
     ) {
-      // Same re-entry guard confirmDiscardReason has, needed here because
-      // (unlike the dialog path) a double tap of the TRIGGER BUTTON itself
-      // must still file exactly one discard — nothing else gates re-entry
-      // before the dialog would normally open.
-      if (discardReasonSubmittingRef.current) return
       discardReasonSubmittingRef.current = true
       setDiscardReasonSubmitting(true)
       setDiscardReasonError(null)
