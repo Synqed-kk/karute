@@ -11,6 +11,7 @@ const auditMock = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditMock(e) }))
 
 import { watchOneBusiness } from '@/lib/audit-watch/run'
+import { rotateBusinessIds } from '@/lib/audit-watch/rotate-business-ids'
 import { newSynqedClient } from '@/lib/synqed/client'
 
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: jest.fn() }))
@@ -406,6 +407,38 @@ describe('watchOneBusiness — recording.transcribe_storm', () => {
     expect(pageCall.from).toBe('2026-01-03T15:00:00.000Z') // JST start of 2026-01-04
     expect(pageCall.to).toBe(injectedNow.toISOString())
   })
+
+  it('Greptile round 3 finding 1: a truncated event walk never writes or lists a storm', async () => {
+    // Never signals "done" (total stays far ahead of any page returned), so
+    // pageRecordingEvents keeps paging — forced to truncate by the deadline
+    // check, not by exhausting MAX_AUDIT_PAGES, but the real storm events are
+    // genuinely read into `events` on page 1 before that happens.
+    const client = {
+      ...makeClient(),
+      recordings: { list: jest.fn(async () => ({ recordings: [], total: 0 })), get: jest.fn() },
+      audit: {
+        list: jest.fn(async (args: AuditListArgs & { page?: number; page_size?: number }) => {
+          if ('target_id' in args) return { events: [], total: 0, page: 1, page_size: 50 }
+          return { events: stormEvents, total: 1000, page: args.page, page_size: 200 }
+        }),
+      },
+    }
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+
+    const nowSpy = jest.spyOn(Date, 'now')
+    nowSpy.mockReturnValueOnce(1_000) // admission
+    nowSpy.mockReturnValueOnce(2_000) // pageRecordingEvents' page-1 check
+    nowSpy.mockReturnValue(999_999_999) // page-2 check: deadline hit → truncated
+
+    const result = await watchOneBusiness('biz-1', NOW, 'write', 100_000)
+    expect(result.truncated).toBe(true)
+    expect(result.candidates).toBe(0)
+    expect(result.written).toBe(0)
+    expect(result.list).toEqual([])
+    expect(auditMock).not.toHaveBeenCalled()
+
+    nowSpy.mockRestore()
+  })
 })
 
 // P3-14/m7: both in-loop deadline checks (missing candidates, storm
@@ -456,5 +489,29 @@ describe('watchOneBusiness — in-loop deadline checks (P3-14/m7)', () => {
     expect(result.candidates).toBe(1) // one storm, computed before the loop runs
     expect(result.written).toBe(0)
     expect(auditMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('rotateBusinessIds (Greptile round 3 finding 2)', () => {
+  const ids = ['biz-a', 'biz-b', 'biz-c']
+
+  it('at 00:xx UTC the walk starts at the first business (no rotation)', () => {
+    expect(rotateBusinessIds(ids, new Date('2026-09-11T00:45:00.000Z'))).toEqual([
+      'biz-a',
+      'biz-b',
+      'biz-c',
+    ])
+  })
+
+  it('at 01:xx UTC the walk starts at the second business', () => {
+    expect(rotateBusinessIds(ids, new Date('2026-09-11T01:15:00.000Z'))).toEqual([
+      'biz-b',
+      'biz-c',
+      'biz-a',
+    ])
+  })
+
+  it('an empty list rotates to itself, never throws', () => {
+    expect(rotateBusinessIds([], new Date('2026-09-11T01:15:00.000Z'))).toEqual([])
   })
 })

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { watchOneBusiness } from '@/lib/audit-watch/run'
+import { rotateBusinessIds } from '@/lib/audit-watch/rotate-business-ids'
 
 // The audit-watch cron (監査ログ round 2 PR C) — hourly, writes what did NOT
 // happen: a recording that never became a karute (recording.karute_missing)
@@ -44,8 +45,11 @@ export async function GET(request: Request) {
 
   const deadline = Date.now() + BUDGET_MS
   const now = new Date()
+  // Greptile round 3 finding 2: rotate the starting business per run so one
+  // slow early business can't starve the tail of the allowlist every hour
+  // (see rotateBusinessIds in run.ts).
   const results = []
-  for (const businessId of businessIds) {
+  for (const businessId of rotateBusinessIds(businessIds, now)) {
     results.push(await watchOneBusiness(businessId, now, mode, deadline))
   }
 
