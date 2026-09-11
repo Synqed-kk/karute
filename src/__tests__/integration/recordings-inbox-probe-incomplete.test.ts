@@ -47,6 +47,7 @@ function rec(over: Partial<Rec> & { id: string }): Rec {
 }
 
 const recordings = { current: [] as Rec[] }
+const karuteRecords = { current: [] as { id: string; recording_session_id: string }[] }
 const jobProbe = jest.fn(
   async (_id?: string): Promise<{ status: string; last_error: string | null }> => {
     throw Object.assign(new Error('no job'), { status: 404 })
@@ -57,7 +58,9 @@ const client = {
   recordings: {
     list: jest.fn(async () => ({ recordings: recordings.current, total: recordings.current.length })),
   },
-  karuteRecords: { list: jest.fn(async () => ({ karute_records: [], total: 0 })) },
+  karuteRecords: {
+    list: jest.fn(async () => ({ karute_records: karuteRecords.current, total: karuteRecords.current.length })),
+  },
   recordingJobs: { getByRecordingSession: (id: string) => jobProbe(id) },
   recordingDiscards: { list: jest.fn(async () => ({ events: [], total: 0, page: 1, page_size: 200 })) },
 } as unknown as Parameters<typeof readRecordingsInbox>[0]['synqed']
@@ -81,6 +84,7 @@ const read = (over: Partial<Parameters<typeof readRecordingsInbox>[0]> = {}) =>
 beforeEach(() => {
   jest.clearAllMocks()
   recordings.current = []
+  karuteRecords.current = []
   probe.mockImplementation(async () => true)
   takeAudio.mockImplementation(async () => 'absent')
   jobProbe.mockImplementation(async () => {
@@ -178,5 +182,37 @@ describe('probeIncomplete — a row this read could not fully judge', () => {
     probe.mockResolvedValue(false)
     const [row] = await read()
     expect(row.probeIncomplete).toBeUndefined()
+  })
+})
+
+describe('probeIncomplete — P1-1 a degraded discard ledger', () => {
+  it('marks every record-less row when recordingDiscards.list throws; a row WITH a karute record is untouched; nothing else about the rows changes', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    recordings.current = [rec({ id: 's0' }), rec({ id: 's1' })]
+    karuteRecords.current = [{ id: 'kr-1', recording_session_id: 's1' }]
+
+    const control = await read()
+    ;(client.recordingDiscards.list as jest.Mock).mockImplementationOnce(async () => {
+      throw new Error('ledger down')
+    })
+    const degraded = await read()
+
+    const find = (rows: typeof control, id: string) => rows.find((r) => r.recordingSessionId === id)!
+    const c0 = find(control, 's0')
+    const c1 = find(control, 's1')
+    const d0 = find(degraded, 's0')
+    const d1 = find(degraded, 's1')
+
+    expect(c0.probeIncomplete).toBeUndefined()
+    expect(d0.probeIncomplete).toBe(true)
+    // s1 carries a karute record — the degraded pass must not touch it.
+    expect(c1.probeIncomplete).toBeUndefined()
+    expect(d1.probeIncomplete).toBeUndefined()
+
+    // Nothing else about the rows changes.
+    expect({ ...d0, probeIncomplete: undefined }).toEqual({ ...c0, probeIncomplete: undefined })
+    expect(d1).toEqual(c1)
+
+    warn.mockRestore()
   })
 })

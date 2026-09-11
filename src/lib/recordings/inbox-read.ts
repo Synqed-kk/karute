@@ -433,6 +433,12 @@ export async function readRecordingsInbox({
     console.warn(
       '[recordings-inbox] discard ledger degraded — server-audio derivation skipped for this read',
     )
+    // P1-1 (監査ログ round 2 lens): on this pass every discarded session in
+    // the window reads discardedByStaff: false, so a real discard falls
+    // through the fold shape-identically to a genuine miss. Mark every
+    // record-less row so the audit-watch cron stands down too (R9b already
+    // stands the screen down for the same reason).
+    for (const r of rows) if (!r.karuteRecordId) r.probeIncomplete = true
   } else {
     await deriveServerAudio(rows, pointerBySession, probedSessions, businessId, now.getTime(), {
       takeAudioProbe,
