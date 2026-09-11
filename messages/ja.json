@@ -2339,7 +2339,7 @@
       "empty": "破棄の記録はまだありません。",
       "truncated": "件数が多いため、古い記録は表示していません。",
       "detailTruncated": "一部の記録は詳細を読み込めていません。",
-      "reasonLabel": "理由（スタッフ記入）",
+      "reasonLabel": "理由",
       "transcriptShow": "文字起こしを表示",
       "transcriptHide": "文字起こしを隠す",
       "transcriptMinutes": "{n}分",

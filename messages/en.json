@@ -2339,7 +2339,7 @@
       "empty": "No discards have been recorded yet.",
       "truncated": "Older records are not shown — there are too many to list.",
       "detailTruncated": "Details could not be loaded for some records.",
-      "reasonLabel": "Reason (written by the staff member)",
+      "reasonLabel": "Reason",
       "transcriptShow": "Show the transcript",
       "transcriptHide": "Hide the transcript",
       "transcriptMinutes": "{n} min",
