@@ -275,14 +275,14 @@ function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number],
   // sibling's call at :786; gridMin/hi/hqMin read off the same fixture door
   // (readDayPlanes) the page itself reads them from, since this suite never
   // renders the page.
-  const sellLayerOpts = {
+  const sellLayerOpts: Omit<Parameters<typeof sellLayerFor>[2], 'nowMinute'> = {
     gridMin: opsConfig.reserveStartGridMin,
     locked: [],
     showPrice: true,
     hi: pricingRule.hq_max,
     hqMin: pricingRule.hq_min,
     depth: 9,
-  } as const
+  }
   // `atOpen` alone leaves 「過ぎた時間は売れない」 untested: NOW_MIN (09:00) sits
   // before `hours.open` (10:00), so `Math.max(open, …)` is always dominated by
   // `open` and the now-clamp never bites; `midDay` (a fixed mid-day instant
