@@ -1098,12 +1098,19 @@ export function RecordPageView({
 
     // ⚖ 9/12 ONE-TAP: a take under BELOW_FLOOR_SEC skips the dialog entirely.
     // Read AFTER the latches above — they are what makes runDiscardWithReason's
-    // takeChanged guards work, on this path exactly as on the dialog's. Applies
-    // to all four origins alike: the banner offer wires onDiscard ONLY for a
-    // below-floor take, so every banner discard is one-tap by that fact alone.
+    // takeChanged guards work, on this path exactly as on the dialog's.
+    // ⚖ FIX ROUND 2 (F1): recorder + banner ONLY. review and pipeline-error
+    // keep the dialog ALWAYS, at any duration — their dialog IS the fence
+    // that keeps ReviewScreen's 保存 (a second save writer the reverse guard
+    // never covers) from filing a karute while this discard is still in
+    // flight; a one-tap would unmount that fence for a below-floor take.
     // ⚖ FIX ROUND 1: unknown length is not "under 10 s" — the dialog asks.
     const oneTapDurationSec = discardSubjectDurationSec(origin)
-    if (oneTapDurationSec !== null && oneTapDurationSec < BELOW_FLOOR_SEC) {
+    if (
+      (origin === 'recorder' || origin === 'banner') &&
+      oneTapDurationSec !== null &&
+      oneTapDurationSec < BELOW_FLOOR_SEC
+    ) {
       // Same re-entry guard confirmDiscardReason has, needed here because
       // (unlike the dialog path) a double tap of the TRIGGER BUTTON itself
       // must still file exactly one discard — nothing else gates re-entry

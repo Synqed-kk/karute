@@ -233,6 +233,11 @@ let mockPipelineErrorCode: 'empty-transcript' | 'consent-required' | 'unknown' =
  *  confirmDiscardReason reads it straight off the singleton, not the hook —
  *  live here for the same reason. Defaults false (in-tab); a test flips it. */
 let mockServerOwned = false
+/** ⚖ FIX ROUND 2 (F1) — settable so a test can prove a below-floor review/
+ *  pipeline-error take still gets the dialog (the one-tap gate is recorder +
+ *  banner only). 60 s (well above the floor) is the default every existing
+ *  test relies on. */
+let mockCtxDuration = 60
 const mockPipelineReset = jest.fn()
 jest.mock('@/lib/global-pipeline', () => ({
   globalPipeline: {
@@ -251,7 +256,7 @@ jest.mock('@/lib/global-pipeline', () => ({
       // ⚖ 8/26 rider: 'error' carries the same ctx shape as 'review' — the
       // pipeline-error origin keys off it the identical way.
       return mockPipelineState === 'review' || mockPipelineState === 'error'
-        ? { customers: [], duration: 60, recordingSessionId: 'sess-reviewed', takeId: 'take-1' }
+        ? { customers: [], duration: mockCtxDuration, recordingSessionId: 'sess-reviewed', takeId: 'take-1' }
         : null
     },
     get serverOwned() {
@@ -273,7 +278,7 @@ jest.mock('@/hooks/use-global-pipeline', () => ({
       mockPipelineState === 'review' ? { transcript: 't', entries: [], summary: 's' } : null,
     context:
       mockPipelineState === 'review' || mockPipelineState === 'error'
-        ? { customers: [], duration: 60, recordingSessionId: 'sess-reviewed', takeId: 'take-1' }
+        ? { customers: [], duration: mockCtxDuration, recordingSessionId: 'sess-reviewed', takeId: 'take-1' }
         : null,
     start: jest.fn(),
     retry: jest.fn(),
@@ -342,6 +347,7 @@ beforeEach(() => {
   mockPersistReviewDiscard.mockImplementation(async () => true)
   mockPipelineState = 'idle'
   mockPipelineErrorCode = 'empty-transcript'
+  mockCtxDuration = 60
   mockServerOwned = false
   mockRecoverableTake = null
   mockAwaitSession.mockImplementation(async () => RECORDER_SESSION)
@@ -1270,6 +1276,34 @@ describe('⚖ 9/12 — the one-tap discard, recorder origin', () => {
 
     expect(reasonGate()).not.toBeNull()
     expect(mockDiscardWithReason).not.toHaveBeenCalled()
+  })
+
+  // ⚖ FIX ROUND 2 (F1, lens finding): the one-tap gate is recorder + banner
+  // ONLY. review and pipeline-error carry no duration exemption at all — the
+  // dialog is the fence that stops ReviewScreen's own 保存 (a second save
+  // writer the reverse guard never covers) from running while a discard is
+  // still in flight, so a below-floor take there must open the dialog the
+  // exact same way a 60s one does.
+  it('a below-floor take at review (5s): the dialog opens, no one-tap — the fence holds', async () => {
+    mockPipelineState = 'review'
+    mockCtxDuration = 5
+    await renderPage()
+    await tapDiscard('review-discard')
+
+    expect(reasonGate()).not.toBeNull()
+    expect(mockDiscardWithReason).not.toHaveBeenCalled()
+    expect(mockPipelineReset).not.toHaveBeenCalled()
+  })
+
+  it('a below-floor take at pipeline-error (5s): the dialog opens, no one-tap', async () => {
+    mockPipelineState = 'error'
+    mockCtxDuration = 5
+    await renderPage()
+    await tapDiscard('discardTakeAction')
+
+    expect(reasonGate()).not.toBeNull()
+    expect(mockDiscardWithReason).not.toHaveBeenCalled()
+    expect(mockPipelineReset).not.toHaveBeenCalled()
   })
 })
 
