@@ -98,7 +98,14 @@ const FAR_DEADLINE = Date.now() + 60_000
 describe('watchOneBusiness — recording.karute_missing', () => {
   it('mode "write": writes one row with the deterministic request_id and honest detail', async () => {
     const result = await watchOneBusiness('biz-1', NOW, 'write', FAR_DEADLINE)
-    expect(result).toMatchObject({ businessId: 'biz-1', candidates: 1, written: 1, skipped: 0, truncated: false })
+    expect(result).toMatchObject({
+      businessId: 'biz-1',
+      candidates: 1,
+      written: 1,
+      skipped: 0,
+      truncated: false,
+      list: [{ action: 'recording.karute_missing', targetId: 'sess-old', reason: 'genericFailure' }],
+    })
     expect(auditMock).toHaveBeenCalledTimes(1)
     expect(auditMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -137,6 +144,8 @@ describe('watchOneBusiness — recording.karute_missing', () => {
     )
     const result = await watchOneBusiness('biz-1', NOW, 'write', FAR_DEADLINE)
     expect(result).toMatchObject({ candidates: 1, written: 0, skipped: 1 })
+    // F-a: a skipped candidate is not new information — absent from the list.
+    expect(result.list).toEqual([])
     expect(auditMock).not.toHaveBeenCalled()
     const client = (newSynqedClient as jest.Mock).mock.results[0].value
     // One target-scoped dedupe read for THIS candidate, never retried — the
@@ -147,9 +156,52 @@ describe('watchOneBusiness — recording.karute_missing', () => {
 
   it('a budget already past its deadline returns immediately, truncated, nothing processed', async () => {
     const result = await watchOneBusiness('biz-1', NOW, 'write', Date.now() - 1)
-    expect(result).toEqual({ businessId: 'biz-1', candidates: 0, written: 0, skipped: 0, truncated: true })
+    expect(result).toEqual({
+      businessId: 'biz-1',
+      candidates: 0,
+      written: 0,
+      skipped: 0,
+      truncated: true,
+      list: [],
+    })
     expect(auditMock).not.toHaveBeenCalled()
     expect(newSynqedClient).not.toHaveBeenCalled()
+  })
+
+  it('F-a: dry run with two NEW candidates lists both; a third with a prior row is skipped and absent from the list', async () => {
+    const SECOND: typeof OLD = OLD // same age, distinct session
+    const client = makeClient()
+    // Per-target dedupe: only 'sess-skip' already has a row.
+    client.audit.list = jest.fn(async (args: AuditListArgs) => {
+      if ('target_id' in args) {
+        const hasPriorRow = args.target_id === 'sess-skip'
+        const events = hasPriorRow ? [{ id: 'e1', action: 'recording.karute_missing', detail: {} }] : []
+        return { events, total: events.length, page: 1, page_size: 50 }
+      }
+      return { events: [], total: 0, page: 1, page_size: 200 }
+    })
+    client.recordings.list = jest.fn(async () => ({
+      recordings: [
+        { id: 'sess-old', business_id: 'biz-1', customer_id: 'cust-1', store_id: 'store-1', staff_id: 'staff-1', appointment_id: null, audio_storage_path: null, duration_seconds: 300, status: 'RECORDED', created_at: OLD, updated_at: OLD },
+        { id: 'sess-old-2', business_id: 'biz-1', customer_id: 'cust-2', store_id: 'store-1', staff_id: 'staff-1', appointment_id: null, audio_storage_path: null, duration_seconds: 300, status: 'RECORDED', created_at: SECOND, updated_at: SECOND },
+        { id: 'sess-skip', business_id: 'biz-1', customer_id: 'cust-3', store_id: 'store-1', staff_id: 'staff-1', appointment_id: null, audio_storage_path: null, duration_seconds: 300, status: 'RECORDED', created_at: OLD, updated_at: OLD },
+      ],
+      total: 3,
+    }))
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+
+    const result = await watchOneBusiness('biz-1', NOW, 'dry', FAR_DEADLINE)
+    expect(result.candidates).toBe(3)
+    expect(result.skipped).toBe(1)
+    expect(auditMock).not.toHaveBeenCalled()
+    expect(result.list).toEqual(
+      expect.arrayContaining([
+        { action: 'recording.karute_missing', targetId: 'sess-old', reason: 'genericFailure' },
+        { action: 'recording.karute_missing', targetId: 'sess-old-2', reason: 'genericFailure' },
+      ]),
+    )
+    expect(result.list).toHaveLength(2)
+    expect(result.list.some((c) => c.targetId === 'sess-skip')).toBe(false)
   })
 })
 

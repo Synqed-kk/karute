@@ -30,12 +30,27 @@ const DEDUPE_PAGE_SIZE = 50
 
 type Detail = Record<string, string | number | boolean | null>
 
+/** F-a: the `?dry=1` door's whole point is for the OWNER to read the list
+ *  before the writer ever flips — ids and codes only, never a name, never a
+ *  raw error. Filled in BOTH modes (in write mode it is what was written),
+ *  only for candidates that passed the prior-row check: a skipped candidate
+ *  (a prior row already exists) is not new information and is not listed. */
+export interface WatchCandidate {
+  action: string
+  targetId: string
+  day?: string
+  reason?: string
+  count?: number
+  costCentsEstimate?: number
+}
+
 export interface BusinessWatchResult {
   businessId: string
   candidates: number
   written: number
   skipped: number
   truncated: boolean
+  list: WatchCandidate[]
 }
 
 function detailDay(detail: unknown): unknown {
@@ -116,7 +131,14 @@ export async function watchOneBusiness(
   mode: 'dry' | 'write',
   deadline: number,
 ): Promise<BusinessWatchResult> {
-  const result: BusinessWatchResult = { businessId, candidates: 0, written: 0, skipped: 0, truncated: false }
+  const result: BusinessWatchResult = {
+    businessId,
+    candidates: 0,
+    written: 0,
+    skipped: 0,
+    truncated: false,
+    list: [],
+  }
   if (Date.now() >= deadline) {
     result.truncated = true
     return result
@@ -169,6 +191,13 @@ export async function watchOneBusiness(
         result.skipped++
         continue
       }
+      // F-a: listed in BOTH modes, ids and codes only — never before the
+      // dedupe check above (a skipped candidate is not new information).
+      result.list.push({
+        action: 'recording.karute_missing',
+        targetId,
+        reason: row.reason ?? undefined,
+      })
       if (mode === 'write') {
         audit({
           category: 'recording',
@@ -197,6 +226,13 @@ export async function watchOneBusiness(
         result.skipped++
         continue
       }
+      result.list.push({
+        action: 'recording.transcribe_storm',
+        targetId: storm.targetId,
+        day: storm.day,
+        count: storm.count,
+        costCentsEstimate: storm.costCentsEstimate,
+      })
       if (mode === 'write') {
         audit({
           category: 'recording',
