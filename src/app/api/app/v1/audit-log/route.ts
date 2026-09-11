@@ -36,12 +36,14 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { canReadAuditLog } from '@/lib/auth/audit-read'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { listAuditLogWithClient, type AuditLogFilters } from '@/actions/audit-log'
+import {
+  listAuditLogWithClient,
+  type AuditLogFilters,
+  AUDIT_TARGET_TYPES,
+} from '@/actions/audit-log'
 import { AuditLogListResultDTO } from '@/lib/app-api/audit-log-dto'
 
 export const runtime = 'nodejs'
-
-const TARGET_TYPES = new Set(['customer', 'recording', 'karute', 'staff'])
 
 function parseFilters(ctx: FacadeContext): AuditLogFilters {
   const q = new URL(ctx.req.url).searchParams
@@ -58,7 +60,7 @@ function parseFilters(ctx: FacadeContext): AuditLogFilters {
     // else (a stale/typo'd param) is ignored, matching this route's
     // never-400s contract for every other filter (severity's own comment).
     targetType:
-      rawTargetType && TARGET_TYPES.has(rawTargetType)
+      rawTargetType && AUDIT_TARGET_TYPES.has(rawTargetType)
         ? (rawTargetType as AuditLogFilters['targetType'])
         : undefined,
     includeViews: q.get('includeViews') === '1',
