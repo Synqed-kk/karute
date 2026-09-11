@@ -253,16 +253,16 @@ describe('what REPLACED them', () => {
     // window in which a crash leaves the take alive and offerable again.
     expect(view).toContain(
       [
-        '      if (ctx?.takeId) {',
-        '        await markDiscardedNoWords(ctx.takeId, ctx.duration ?? 0)',
-        '        void deleteTake(ctx.takeId)',
-        '      }',
+        '        if (ctx?.takeId) {',
+        '          await markDiscardedNoWords(ctx.takeId, ctx.duration ?? 0)',
+        '          void deleteTake(ctx.takeId)',
+        '        }',
       ].join('\n'),
     )
     expect(view).toContain(
       [
-        '      await markDiscardedNoWords(bannerSnap.takeId, bannerSnap.durationSec, true)',
-        '      void deleteTake(bannerSnap.takeId)',
+        '        await markDiscardedNoWords(bannerSnap.takeId, bannerSnap.durationSec, true)',
+        '        void deleteTake(bannerSnap.takeId)',
       ].join('\n'),
     )
     // Arm 3 takes its take id as a PARAMETER, so its mark is at its one call
@@ -275,13 +275,13 @@ describe('what REPLACED them', () => {
     )
     expect(view).toContain(
       [
-        '      const keepTake = !(await persistReviewDiscardTranscript(',
-        '        ctx?.takeId,',
-        '        pending,',
-        "        globalPipeline.result?.transcript ?? '',",
-        '      ))',
-        '      setDiscardReasonFor(null)',
-        '      finishReviewDiscard(recordingSessionId, keepTake ? null : ctx?.takeId)',
+        '        const keepTake = !(await persistReviewDiscardTranscript(',
+        '          ctx?.takeId,',
+        '          pending,',
+        "          globalPipeline.result?.transcript ?? '',",
+        '        ))',
+        '        setDiscardReasonFor(null)',
+        '        finishReviewDiscard(recordingSessionId, keepTake ? null : ctx?.takeId)',
       ].join('\n'),
     )
     // …and that IS its only call site, so the pin above is the whole story
