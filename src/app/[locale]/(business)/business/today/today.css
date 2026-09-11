@@ -278,6 +278,10 @@
 .biz .cal-cell.open { background: var(--green-soft); color: var(--green-dark); }
 .biz .cal-cell.open:hover { box-shadow: inset 0 0 0 1.5px #8ecbad; }
 .biz .cal-cell.full { background: #f4f4f5; color: var(--muted); }
+/* ⚖ A day the roster door never answered for — outside the ±45-day read window.
+   A dated blank, not a link, and deliberately paler than 定休 so the two cannot
+   be confused: one is a decision the store made, the other is data we lack. */
+.biz .cal-cell.unknown { background: transparent; color: var(--quiet); opacity: .45; }
 .biz .cal-cell.dim { opacity: .35; }
 .biz .cal-cell.today { box-shadow: inset 0 0 0 1.5px var(--indigo); }
 .biz .cal-cell.cur { background: var(--indigo-soft); color: var(--indigo); }
