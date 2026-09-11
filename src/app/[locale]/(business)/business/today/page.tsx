@@ -220,7 +220,7 @@ export default async function TodayPage({
     // the impossible state, not a rounding question.
     const closed = p.wd === planes.closedWeekday
     // ⚠ 勤務不可 belongs to ONE day. readDayPlanes hands the incident back only
-    // when the day asked for IS today (data.ts :271-300), so the absence this
+    // when the day asked for IS today (data.ts :301-307), so the absence this
     // page holds is the shown day's: today's own cell carries it, every other
     // cell does not, and on any other shown day no cell does.
     const free = closed

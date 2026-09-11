@@ -649,7 +649,7 @@ export function shiftAvailableMinutes(shift: FixtureShift | undefined, absence: 
 
 /** The 勤務不可 a given day's roster may be shortened by — its own day's, or
  *  none. `readDayPlanes` hands the incident back only when the day it was asked
- *  for is today (「the 勤務不可 incident is happening NOW」, data.ts :271-300),
+ *  for is today (「the 勤務不可 incident is happening NOW」, data.ts :301-307),
  *  so the plane the page holds belongs to the day on screen and to no other.
  *  Handing it to all 91 calendar days shortened a whole month's capacity
  *  whenever the operator happened to be standing on today. */
