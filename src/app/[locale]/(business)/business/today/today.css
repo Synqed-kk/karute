@@ -3055,7 +3055,9 @@
 .biz .page-today .decision-row:hover { background: #fafafb; }
 
 /* D-B · ENTRANCES ARE `@starting-style`; EXITS ARE INSTANT — React unmounts the
-   popovers, and F-6 makes the dialogs instant too.
+   popovers, EXCEPT `.cal-pop`, WHICH STAYS MOUNTED THROUGH ITS SPRING EXIT
+   (⚖ STUDIO 2026-09-12, immediately below); and F-6 makes the dialogs instant
+   too.
    Popovers first. `.sell-shelf` (`<div className="fields-pop sell-shelf">`) and
    `.help-pop` (`<div className="fields-pop help-pop">`) share the `.fields-pop`
    base and come with it. The mock gave all four a `transform-origin` — fields
@@ -3086,19 +3088,26 @@
    re-measures after the entrance — a wrong first placement lasts the life of the
    popover. Placement correctness under ⚖ 35 / ⚖ 48 outranks a 140ms scale on
    three surfaces, so these three enter on OPACITY ALONE.
-   `.cal-pop` KEEPS its scale: read at source, it carries no ref and no effect
-   measures it (it is CSS-placed inside `.time-nav`), and the measurement above
-   confirms the 4% is harmless there because nobody reads it. */
+   `.cal-pop` STILL SCALES, and the measurement argument for it is UNCHANGED:
+   read at source, no placement effect measures it (it is CSS-placed inside
+   `.time-nav`; the `calPopRef` it now carries is the spring's paint target and
+   reads nothing), so the 4% is harmless there because nobody reads it.
+   ⚖ STUDIO 2026-09-12 — WHAT CHANGED IS WHO DRIVES IT. `.cal-pop` now ENTERS
+   AND LEAVES on the Studio spring (src/business/lib/spring.ts), driven from the
+   screen: one critically-damped spring, opacity and scale together, reversible
+   from its live value mid-flight — which is the one thing `@starting-style` and
+   a `transition` cannot do, since a popover that leaves by being unmounted has
+   no exit to interrupt. So this sheet declares only the ORIGIN it turns about;
+   a `transition` left on the same two properties would lag every rAF frame the
+   spring writes by 140ms, and a starting rule would fight the `jump(0)`. */
 .biz .page-today .fields-pop {
   transition: opacity 140ms cubic-bezier(.2, .7, .2, 1);
 }
 .biz .page-today .cal-pop {
-  transition: opacity 140ms cubic-bezier(.2, .7, .2, 1), transform 140ms cubic-bezier(.2, .7, .2, 1);
   transform-origin: top right;
 }
 @starting-style {
   .biz .page-today .fields-pop { opacity: 0; }
-  .biz .page-today .cal-pop { opacity: 0; transform: scale(.96); }
 }
 /* The two board answers. ⚖ V4-1 — 120ms, so the confirm lands with the card
    rather than trailing it; D-PR4-10 takes the rise away and leaves the fade. */
@@ -3247,12 +3256,18 @@
   .biz .page-today .event.block:not(.dragging):not(.resizing):active,
   .biz .page-today .event.cleanup:not(.dragging):not(.resizing):active { filter: none; }
   /* D-PR4-10 — the three MEASURED surfaces never carry a transform now, in any
-     state, so their answer here is the duration alone; only `.cal-pop`, which
-     nothing measures, still has a scale to cancel. */
+     state, so their answer here is the duration alone.
+     ⚖ STUDIO 2026-09-12 — `.cal-pop` is answered HONESTLY rather than by a
+     duration it does not use: its motion is a spring the screen builds with
+     `reduced: segReduced`, so for this reader it LANDS INSTANTLY and writes
+     opacity and nothing else — there is no transition to shorten and no
+     transform to cancel, and saying `none` twice is the only true thing this
+     block can say about it. The selector stays so that a reader looking for
+     this surface's reduced-motion answer finds one. */
   .biz .page-today .fields-pop,
   .biz .page-today .hold-pop,
   .biz .page-today .guard-pop { transition: opacity 100ms linear; }
-  .biz .page-today .cal-pop { transition: opacity 100ms linear; transform: none; }
+  .biz .page-today .cal-pop { transition: none; transform: none; }
   .biz .page-today .hold-pop.pinned,
   .biz .page-today .guard-pop.pinned { transform: translateX(-50%); }
   .biz .page-today .inspector > * { transition: opacity 100ms linear; transform: none; }
@@ -3275,7 +3290,9 @@
     .biz .page-today .fields-pop,
     .biz .page-today .hold-pop,
     .biz .page-today .guard-pop { opacity: 0; }
-    .biz .page-today .cal-pop { opacity: 0; transform: none; }
+    /* ⚖ STUDIO 2026-09-12 — `.cal-pop` is gone from here too: the spring seats
+       it at 0 with `jump(0)` in a LAYOUT effect, before the first paint, so a
+       starting rule would be a second answer to a question already answered. */
     .biz .page-today .hold-pop.pinned,
     .biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%); }
     .biz .page-today .inspector > * { opacity: 0; transform: none; }

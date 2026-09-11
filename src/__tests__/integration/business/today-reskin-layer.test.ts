@@ -904,8 +904,9 @@ describe('今日の運営 reskin layer — slice ④ (motion · the sliding thum
     // `getBoundingClientRect()` on the mount commit — and a starting transform
     // IS in that box (measured: 276.48 vs 288, 368.60 vs 380, 252.20 vs 260).
     // So their starting rules may declare `opacity` and, for `.pinned`, the
-    // centring translate — nothing else. `.cal-pop`, which nothing measures,
-    // keeps its scale, so this is not a blanket ban on entrance transforms.
+    // centring translate — nothing else. This is a rule about the three
+    // MEASURED surfaces, never a blanket ban on entrance transforms: `.cal-pop`
+    // still scales, it simply does it on a spring now rather than in this sheet.
     const starts = [...LAYER_CODE.matchAll(/@starting-style\s*\{/g)].map((m) => m.index ?? -1)
     expect(starts.length).toBeGreaterThanOrEqual(4)
     for (const at of starts) {
@@ -930,8 +931,24 @@ describe('今日の運営 reskin layer — slice ④ (motion · the sliding thum
     // and their transition lists no longer name `transform` at all
     expect(LAYER_CODE).toContain('.biz .page-today .fields-pop {\n  transition: opacity 140ms cubic-bezier(.2, .7, .2, 1);\n}')
     expect(LAYER_CODE).toContain('.biz .page-today .guard-pop { transition: opacity 120ms ease-out; }')
-    // `.cal-pop` keeps its own scale — nothing measures it (no ref in the screen)
-    expect(LAYER_CODE).toContain('.biz .page-today .cal-pop { opacity: 0; transform: scale(.96); }')
+    // ⚖ STUDIO 2026-09-12 — `.cal-pop` HAS LEFT THIS SHEET'S ENTRANCE MACHINERY
+    // ENTIRELY: it enters AND leaves on the screen's spring now, so it may
+    // appear in NO `@starting-style` body at all (a starting rule would fight
+    // the spring's pre-paint `jump(0)`), and this sheet's whole contribution to
+    // its motion is the corner it turns about.
+    for (const at of starts) {
+      let depth = 0
+      let end = -1
+      for (let k = LAYER_CODE.indexOf('{', at); k < LAYER_CODE.length; k += 1) {
+        if (LAYER_CODE[k] === '{') depth += 1
+        else if (LAYER_CODE[k] === '}') { depth -= 1; if (depth === 0) { end = k; break } }
+      }
+      expect(LAYER_CODE.slice(at, end)).not.toContain('.cal-pop')
+    }
+    expect(LAYER_CODE).toContain('.biz .page-today .cal-pop {\n  transform-origin: top right;\n}')
+    // …and no `transition` on it anywhere in the layer: one on these two
+    // properties would lag every frame the spring writes by its own duration.
+    expect(LAYER_CODE).not.toMatch(/\.cal-pop[^{}]*\{[^{}]*transition:\s*opacity/)
   })
 
   it('the dialogs enter and leave the way the popovers do (F-6), and the scrim has a reduced answer (F-5)', () => {
