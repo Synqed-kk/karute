@@ -285,6 +285,46 @@ export function bedDoor(
   }
 }
 
+/** ⚖ LIVE-WHILE-DRAGGING §5b — ONE BOOK PER FOREIGN BOARD, keyed on the array's
+ *  own identity.
+ *
+ *  `verdictAt(..., lanes)` hands the SAME non-`boardLanes` board to three doors —
+ *  `bedDoorFor(excludeId, lanes)`, `bedDoorFor(null, lanes)` and
+ *  `newClientDoorMinus(excludeId, lanes)` — and each of them built a fresh
+ *  `bedViewsFor` for it. Re-judging a whole strip on the board a re-seat would
+ *  leave therefore paid one book per door per lane. Measured on the stress
+ *  board: 180 books for one fill, and the book is the cost.
+ *
+ *  ONE RECORD PER ARRAY, hit iff the frame AND the lift both match, else rebuilt
+ *  and replaced (⚖ ADJUDICATION L2 M-5). It is deliberately not a per-lift map:
+ *  the shuffled boards die with the fill, a `WeakMap` entry dies with its key,
+ *  and each door keeps its OWN lift — `bedDoorFor` the frame's hand (which is
+ *  what lets one book serve both of its asks), `newClientDoorMinus` the id it
+ *  was asked to lift, so a caller asking about nobody still gets today's
+ *  `undefined` door rather than somebody else's lifted world.
+ *
+ *  It is consulted ONLY when `lanes !== boardLanes`: the board on screen has the
+ *  frame's own `ledger` memo, which is a better cache than this one.
+ *
+ *  It lives here, module-level and exported, rather than inside either door's
+ *  memo body — the two doors are exact-line pinned (⚖ 9/3, BREAKER-827) and a
+ *  `WeakMap` spelled inside one of them would move every line of the other. */
+export type BookCache = WeakMap<BoardLane[], { frameKey: string; liftedId: string | null; views: BedViews }>
+
+/** The screen's own instance. Module-level is safe and is the point: the keys
+ *  are per-render arrays, so two boards — or two screens — can never collide,
+ *  and an entry is collected the moment its board is. */
+const FOREIGN_BOOKS: BookCache = new WeakMap()
+
+export function bookFor(lanes: BoardLane[], frame: DayFrame, liftedId: string | null, cache: BookCache): BedViews {
+  const frameKey = `${frame.openMin}|${frame.closeMin}|${frame.nowMin}`
+  const hit = cache.get(lanes)
+  if (hit && hit.frameKey === frameKey && hit.liftedId === liftedId) return hit.views
+  const views = bedViewsFor(lanes, frame, liftedId)
+  cache.set(lanes, { frameKey, liftedId, views })
+  return views
+}
+
 /** ⚖ 51 / Greptile #827 — WHAT THE NEXT VISIT'S CATEGORY IS.
  *
  *  `BookingCategory` is a per-BOOKING word, not a customer's badge:
