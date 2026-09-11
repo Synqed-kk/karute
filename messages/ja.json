@@ -2381,6 +2381,13 @@
       "loadMore": "さらに読み込む",
       "systemActor": "システム",
       "unknownActor": "不明",
+      "automation": {
+        "transcribe": "自動文字起こし",
+        "rescue": "自動復元",
+        "watch": "自動チェック",
+        "autoburn": "自動消化",
+        "cleanup": "自動破棄"
+      },
       "actions": {
         "customer": {
           "view": "顧客記録を閲覧",
@@ -2521,6 +2528,27 @@
       "recordingUnresolved": "録音",
       "durationSuffix": "（{n}秒）",
       "recordingStaff": "担当: {name}",
+      "reason": {
+        "empty_transcript": "文字起こし結果なし",
+        "job_failed": "処理エラー",
+        "not_transcribed": "文字起こし未実施",
+        "other": "その他"
+      },
+      "recording": {
+        "ticketBurned": "回数券消化済み"
+      },
+      "storm": {
+        "sub": "文字起こし{n}回 · 約{cost} · {day}"
+      },
+      "thread": {
+        "title": "この録音に関する記録",
+        "customerTitle": "このお客様に関する記録",
+        "partial": "一部の記録を読み込めませんでした。"
+      },
+      "strip": {
+        "scope": "過去{days}日間 ・ {store}",
+        "scopeAll": "全期間 ・ {store}"
+      },
       "menuUpdate": {
         "duration": "所要時間",
         "price": "料金",

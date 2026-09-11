@@ -2381,6 +2381,13 @@
       "loadMore": "Load more",
       "systemActor": "System",
       "unknownActor": "Unknown",
+      "automation": {
+        "transcribe": "Auto-transcribe",
+        "rescue": "Auto-restore",
+        "watch": "Auto-check",
+        "autoburn": "Auto-redeem",
+        "cleanup": "Auto-discard"
+      },
       "actions": {
         "customer": {
           "view": "Viewed customer record",
@@ -2521,6 +2528,27 @@
       "recordingUnresolved": "Recording",
       "durationSuffix": " · {n}s",
       "recordingStaff": "Staff: {name}",
+      "reason": {
+        "empty_transcript": "No transcript produced",
+        "job_failed": "Processing error",
+        "not_transcribed": "Not transcribed yet",
+        "other": "Other"
+      },
+      "recording": {
+        "ticketBurned": "Pack already redeemed"
+      },
+      "storm": {
+        "sub": "Transcribed {n} times · ~{cost} · {day}"
+      },
+      "thread": {
+        "title": "Records for this recording",
+        "customerTitle": "Records for this customer",
+        "partial": "Some records could not be loaded."
+      },
+      "strip": {
+        "scope": "Past {days} days · {store}",
+        "scopeAll": "All time · {store}"
+      },
       "menuUpdate": {
         "duration": "Duration",
         "price": "Price",
