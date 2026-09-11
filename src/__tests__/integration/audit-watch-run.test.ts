@@ -368,4 +368,28 @@ describe('watchOneBusiness — recording.transcribe_storm', () => {
       expect.objectContaining({ action: 'recording.transcribe_storm', storeId: undefined }),
     )
   })
+
+  it('P3-9/m10a: the storm window\'s `from` derives from the injected now, not the wall clock', async () => {
+    const auditListCalls: AuditListArgs[] = []
+    const client = {
+      ...makeClient(),
+      recordings: { list: jest.fn(async () => ({ recordings: [], total: 0 })), get: jest.fn() },
+      audit: {
+        list: jest.fn(async (args: AuditListArgs) => {
+          auditListCalls.push(args)
+          return { events: [], total: 0, page: 1, page_size: 200 }
+        }),
+      },
+    }
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+
+    // 2026-01-05T03:00 UTC = 2026-01-05 12:00 JST — an arbitrary date far
+    // from the real wall clock, to prove the window follows THIS value.
+    const injectedNow = new Date('2026-01-05T03:00:00.000Z')
+    await watchOneBusiness('biz-1', injectedNow, 'dry', Date.now() + 60_000)
+
+    const pageCall = auditListCalls.find((a) => !('target_id' in a)) as { from: string; to: string }
+    expect(pageCall.from).toBe('2026-01-03T15:00:00.000Z') // JST start of 2026-01-04
+    expect(pageCall.to).toBe(injectedNow.toISOString())
+  })
 })

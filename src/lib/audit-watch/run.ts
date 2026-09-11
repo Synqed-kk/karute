@@ -19,7 +19,7 @@ import { deriveInboxRows, INBOX_WINDOW_MS, type InboxRow } from '@/lib/recording
 import { findKaruteMissing, lastAssemblerPassAt } from '@/lib/audit-watch/find-karute-missing'
 import { ASSEMBLE_AFTER_MS } from '@/lib/recording/assembler'
 import { findTranscribeStorms } from '@/lib/audit-watch/find-transcribe-storms'
-import { ymdInJst, jstStartOfToday } from '@/lib/date/jst'
+import { ymdInJst, jstWallTimeToDate } from '@/lib/date/jst'
 
 const AUDIT_PAGE_SIZE = 200
 /** Safety stop on the category:'recording' page walk (mirrors /api/cleanup's
@@ -205,8 +205,12 @@ export async function watchOneBusiness(
 
     // (b) recording.transcribe_storm candidates — since the start of
     // yesterday JST, so a storm spanning the JST midnight boundary is never
-    // split across two runs.
-    const from = new Date(jstStartOfToday().getTime() - 24 * 60 * 60 * 1000)
+    // split across two runs. P3-9: derived from the injected `now`, not the
+    // wall clock (jstStartOfToday() takes no argument and always reads the
+    // real clock) — same jst helpers jstStartOfToday itself is built from,
+    // parameterized here so the window is testable and never inverts under
+    // an injected past `now`.
+    const from = new Date(jstWallTimeToDate(ymdInJst(now), '00:00').getTime() - 24 * 60 * 60 * 1000)
     const { events, truncated: pagesTruncated } = await pageRecordingEvents(
       synqed,
       from.toISOString(),
