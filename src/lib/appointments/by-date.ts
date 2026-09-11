@@ -30,14 +30,16 @@ export async function getAppointmentsByDateWithClient(
   const dayEndUTC = new Date(`${dateStr}T23:59:59.999+09:00`)
   const { storeId, nameById, includeCancelled } = opts
 
-  const list = await synqed.appointments.list({
-    from: dayStartUTC.toISOString(),
-    to: dayEndUTC.toISOString(),
-    page_size: 200,
-    store_id: storeId ?? undefined,
-  })
-
-  const [karuteList, staffList] = await Promise.all([
+  // These three reads are independent. Keeping appointments in front of the
+  // enrichment reads made every day view pay two network round trips even
+  // though neither enrichment query depends on the booking list.
+  const [list, karuteList, staffList] = await Promise.all([
+    synqed.appointments.list({
+      from: dayStartUTC.toISOString(),
+      to: dayEndUTC.toISOString(),
+      page_size: 200,
+      store_id: storeId ?? undefined,
+    }),
     synqed.karuteRecords.list({
       from: dayStartUTC.toISOString(),
       to: dayEndUTC.toISOString(),
