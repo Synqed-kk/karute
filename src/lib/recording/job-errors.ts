@@ -24,3 +24,10 @@ export const DISCARDED_BY_STAFF = 'DISCARDED_BY_STAFF'
  *  attempts = 0 on the next enqueue — so 再試行 genuinely works once the window
  *  frees. ⚖ THE AUDIO STAYS, so nothing is lost while it waits. */
 export const AI_SPEND_LIMIT = 'AI_SPEND_LIMIT'
+
+/** The staff discard ledger read came back ambiguous (neither a clean
+ *  'discarded' nor a clean 'not discarded' verdict) — the worker refuses to
+ *  write a karute record rather than risk overwriting a decision it can't
+ *  see (fix round 6, R1 fail-closed extension of DISCARDED_BY_STAFF above).
+ *  RETRYABLE: a later attempt re-reads the ledger fresh. */
+export const DISCARD_LEDGER_UNREADABLE = 'discard ledger row unreadable — refusing to write'

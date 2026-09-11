@@ -205,6 +205,19 @@ describe('process-recording worker — recording.transcribe_failed (subject 6, f
     expect(audit).not.toHaveBeenCalled()
   })
 
+  it('exhausted round + an unreadable discard ledger → no emit (fail-closed, not this row)', async () => {
+    listDiscards.mockResolvedValue({
+      events: [{ recording_session_id: null, source: 'STAFF' }],
+    })
+    claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).toHaveBeenCalledWith('job-1', 'discard ledger row unreadable — refusing to write')
+    expect(audit).not.toHaveBeenCalled()
+  })
+
   it('exhausted round + a spend-limit refusal → no emit (recording.transcribe_refused already filed the row)', async () => {
     runMeteredTranscription.mockRejectedValueOnce(new AppApiError('rate_limited', 'over cap'))
     claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)

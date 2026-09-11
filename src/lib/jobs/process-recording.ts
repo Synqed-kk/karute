@@ -25,7 +25,7 @@ import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { isOwnAudioKey, parseRecordingKey } from '@/lib/recording/key-grammar'
 import { readStaffDiscard } from '@/lib/recording/staff-discard'
-import { AI_SPEND_LIMIT, DISCARDED_BY_STAFF } from '@/lib/recording/job-errors'
+import { AI_SPEND_LIMIT, DISCARDED_BY_STAFF, DISCARD_LEDGER_UNREADABLE } from '@/lib/recording/job-errors'
 import { AppApiError } from '@/lib/app-api/errors'
 import { audit } from '@/lib/audit'
 import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
@@ -96,7 +96,7 @@ function coreClient(businessId: string): SynqedClient {
  *  the review screen), parked with Liam, not this round's. */
 async function assertNotDiscardedByStaff(synqed: SynqedClient, recordingSessionId: string): Promise<void> {
   const verdict = await readStaffDiscard(synqed, recordingSessionId)
-  if (verdict === 'unreadable') throw new Error('discard ledger row unreadable — refusing to write')
+  if (verdict === 'unreadable') throw new Error(DISCARD_LEDGER_UNREADABLE)
   if (verdict === 'discarded') throw new Error(DISCARDED_BY_STAFF)
 }
 
@@ -463,7 +463,7 @@ async function upsertKaruteRecord(
  *  would double-log the same event under two actions). */
 function emitTranscribeFailedIfExhausted(job: RecordingJob, message: string): void {
   if (message === DISCARDED_BY_STAFF || message === AI_SPEND_LIMIT) return
-  if (message === 'discard ledger row unreadable — refusing to write') return
+  if (message === DISCARD_LEDGER_UNREADABLE) return
   const payload = job.payload as unknown as RecordingJobPayload | undefined
   audit({
     category: 'recording',
