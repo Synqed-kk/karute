@@ -303,6 +303,66 @@ describe('AuditLogSection — I4 recording thread page', () => {
     expect(container.textContent).not.toContain('カルテを保存')
     expect(container.textContent).not.toContain('k-9')
   })
+
+  it('F5: category and severity active on the feed are NEVER sent for a recording thread request', async () => {
+    const container = await renderWithEvents([
+      coreEvent({ id: 'rec-row', action: 'recording.play', target_id: 'rec-9' }),
+    ])
+    const categorySelect = container.querySelector('select[aria-label="カテゴリ"]') as HTMLSelectElement
+    expect(categorySelect).toBeTruthy()
+    listAuditLog.mockResolvedValue(page([coreEvent({ id: 'rec-row', action: 'recording.play', target_id: 'rec-9' })]))
+    fireEvent.change(categorySelect, { target: { value: 'karute' } })
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
+    // 警告 tile (severity lens) — the strip stays visible since actorId is
+    // unset (F3); clicking it sets the server-side severity filter.
+    const warnBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('警告'),
+    )
+    expect(warnBtn).toBeTruthy()
+    listAuditLog.mockResolvedValue(page([coreEvent({ id: 'rec-row', action: 'recording.play', target_id: 'rec-9' })]))
+    fireEvent.click(warnBtn!)
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(3))
+    expect(listAuditLog.mock.calls[2]![0]).toMatchObject({ category: 'karute', severity: 'warn' })
+
+    const subButtons = Array.from(container.querySelectorAll('button')).filter((b) =>
+      b.textContent?.includes('録音'),
+    )
+    listAuditLog.mockResolvedValue(page([coreEvent({ id: 'thread-1', target_id: 'rec-9' })]))
+    fireEvent.click(subButtons[0]!)
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(4))
+    const threadCall = listAuditLog.mock.calls[3]![0] as Record<string, unknown>
+    expect(threadCall.targetType).toBe('recording')
+    expect(threadCall.category).toBeUndefined()
+    expect(threadCall.severity).toBeUndefined()
+  })
+
+  it('F5: an active person filter (actorId) is NEVER sent for a recording thread request', async () => {
+    listAuditLog.mockResolvedValue(
+      page([coreEvent({ id: 'rec-row', action: 'recording.play', target_id: 'rec-9' })]),
+    )
+    const { container } = render(
+      <AuditLogSection
+        staffList={[{ id: 'staff-1', full_name: '田中 美香' }] as unknown as StaffMember[]}
+      />,
+    )
+    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+    const staffSelect = container.querySelector('select[aria-label="スタッフ"]') as HTMLSelectElement
+    expect(staffSelect).toBeTruthy()
+    listAuditLog.mockResolvedValue(page([coreEvent({ id: 'rec-row', action: 'recording.play', target_id: 'rec-9' })]))
+    fireEvent.change(staffSelect, { target: { value: 'staff-1' } })
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
+    expect(listAuditLog.mock.calls[1]![0]).toMatchObject({ actorId: 'staff-1' })
+
+    const subButtons = Array.from(container.querySelectorAll('button')).filter((b) =>
+      b.textContent?.includes('録音'),
+    )
+    listAuditLog.mockResolvedValue(page([coreEvent({ id: 'thread-1', target_id: 'rec-9' })]))
+    fireEvent.click(subButtons[0]!)
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(3))
+    const threadCall = listAuditLog.mock.calls[2]![0] as Record<string, unknown>
+    expect(threadCall.targetType).toBe('recording')
+    expect(threadCall.actorId).toBeUndefined()
+  })
 })
 
 // ---- I5: the scope line -----------------------------------------------------

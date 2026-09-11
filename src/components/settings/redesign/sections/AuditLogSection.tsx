@@ -175,11 +175,23 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     async (nextPage: number, append: boolean) => {
       const myGeneration = ++generation.current
       setLoading(true)
+      // F5 fix (blind lens finding 5): a recording thread is one recording's
+      // WHOLE story within the chosen period — category and actorId don't
+      // just narrow it, they structurally break it (audit-log.ts's baseQuery
+      // applies both to the target walk too: a category other than
+      // 'recording' zeroes even the target's own rows since target_type is
+      // fixed to 'recording'; an actorId filter would hide legitimate rows
+      // written by OTHER actors — the recorder, a resolver, an automated
+      // process). severity is dropped for the same "whole story" reason. The
+      // toolbar's category/staff/severity controls stay visible (F3) but are
+      // inert for this one read; breakGlass and the period/includeViews
+      // still apply, per the packet's own enumerated list.
+      const isRecordingThread = Boolean(targetId) && targetType === 'recording'
       let res: Awaited<ReturnType<typeof listAuditLog>>
       try {
         res = await listAuditLog({
-          category: category ?? undefined,
-          actorId: actorId ?? undefined,
+          category: isRecordingThread ? undefined : category ?? undefined,
+          actorId: isRecordingThread ? undefined : actorId ?? undefined,
           from: presetFrom(range),
           targetId: targetId ?? undefined,
           // I4: 'recording' triggers D1's thread join server-side; absent
@@ -189,7 +201,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           breakGlass: breakGlass || undefined,
           // G2 round-4: one real severity value at a time — see the `days`
           // useMemo below, which never re-filters the loaded events.
-          severity: lens ?? undefined,
+          severity: isRecordingThread ? undefined : lens ?? undefined,
           page: nextPage,
         })
       } catch {
