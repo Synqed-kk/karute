@@ -4,7 +4,8 @@
 // Owner-only by default; a manager reaches it only via the explicit audit.view
 // grant — enforced HERE (the tab filter is exposure reduction, not security).
 import { newSynqedClient } from '@/lib/synqed/client'
-import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
+import { canReadAuditLog } from '@/lib/auth/audit-read'
 import { audit } from '@/lib/audit'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 
@@ -329,9 +330,10 @@ export async function listAuditLogWithClient(
  *  null) — single-sourcing makes that structurally impossible, matching how
  *  the facade route builds both from one ctx.identity.businessId. */
 export async function listAuditLog(filters: AuditLogFilters): Promise<ListAuditLogResult> {
-  try {
-    ensureCapability(await getMyCapabilities(), 'audit.view')
-  } catch {
+  // PR B2 §4: audit.view AND stores.viewAll (canReadAuditLog) — audit rows
+  // carry no store yet, so audit.view alone would let a branch-restricted
+  // holder read every store's rows (⚖ 8/17 STORE ISOLATION LAW).
+  if (!canReadAuditLog(await getMyCapabilities())) {
     return { ok: false, error: 'forbidden' }
   }
   // A failed session/business resolve or client construction must keep

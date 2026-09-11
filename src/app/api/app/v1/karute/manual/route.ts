@@ -136,6 +136,16 @@ export const POST = facadeHandler('karute.manualCreate', async (ctx) => {
   }
 
   ctx.auditTargetId = result.id
+  // F3 — the clamp's store is already in hand (used for the write above);
+  // carry it onto the audit row too.
+  ctx.auditStoreId = clamp.storeId ?? undefined
+  // PR B2 §2: same detail ids the web wrapper's own emit carries — manual
+  // creation has no linked appointment, so appointment_id is always null.
+  ctx.auditDetail = {
+    customer_id: input.customerId,
+    staff_id: input.staffId,
+    appointment_id: null,
+  }
   return ok(ctx, ManualKaruteCreatedDTO.parse(result), 201)
 })
 

@@ -260,7 +260,7 @@ async function processJob(job: RecordingJob): Promise<string> {
   // 4. ONE short write — the same idempotent by-recording-session upsert the
   // interactive path uses (core #38): a reclaimed/retried job converges on the
   // same record instead of duplicating it.
-  const record = await upsertKaruteRecord(synqed, job, payload, {
+  const { id: record, storeId: persistedStoreId } = await upsertKaruteRecord(synqed, job, payload, {
     transcript,
     summary: summary.result.summary,
     entries: extraction.result.entries,
@@ -314,11 +314,19 @@ async function processJob(job: RecordingJob): Promise<string> {
     businessId: job.business_id,
     targetType: 'karute',
     targetId: record,
+    // The PERSISTED store (fix round 3, mirrors karute.ts fix round 2): the
+    // converge branch below keeps the existing record's ORIGINAL store_id
+    // rather than payload.store_id, so the audit row must name that store
+    // too — else it can name a store the record isn't in.
+    storeId: persistedStoreId ?? undefined,
     detail: {
       via: 'job_pipeline',
       recording_session_id: job.recording_session_id,
       customer_id: payload.customer_id,
       staff_id: payload.staff_id,
+      // PR B2 §3: the thread page's join key — the payload carries it
+      // straight from the enqueue door.
+      appointment_id: payload.appointment_id ?? null,
     },
     // PR-M5 piece ④: job/system paths use the job id as requestId (no HTTP
     // request scope exists here — the job id is the correlating identifier).
@@ -347,7 +355,7 @@ async function upsertKaruteRecord(
   job: RecordingJob,
   payload: RecordingJobPayload,
   result: { transcript: string; summary: string; entries: ExtractedEntry[] },
-): Promise<string> {
+): Promise<{ id: string; storeId: string | null }> {
   const entries = result.entries.map((e) => ({
     category: e.category.toUpperCase() as
       | 'SYMPTOM' | 'TREATMENT' | 'BODY_AREA' | 'PREFERENCE'
@@ -407,7 +415,10 @@ async function upsertKaruteRecord(
       entries: [...entries, ...carriedHumanEntries],
       appointment_id: payload.appointment_id ?? null,
     })
-    return existing.id
+    // CEILING (mirrors actions/karute.ts fix round 2): store_id does NOT move
+    // with this update, so the persisted store is still the EXISTING record's
+    // — already in hand from the lookup, no second read.
+    return { id: existing.id, storeId: existing.store_id }
   }
   // 施術メニュー from the linked booking — best-effort: a missing/deleted
   // booking just leaves service null and the カルテ list shows its honest '—'.
@@ -427,7 +438,7 @@ async function upsertKaruteRecord(
     duration_minutes: durationMinutesFromSeconds(payload.duration_seconds),
     entries,
   })
-  return record.id
+  return { id: record.id, storeId: record.store_id ?? payload.store_id ?? null }
 }
 
 /** Claim-and-process loop with a wall-clock budget (the route's maxDuration

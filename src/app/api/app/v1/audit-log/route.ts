@@ -3,10 +3,10 @@
 // (listAuditLogWithClient, src/actions/audit-log.ts) — the P-B pattern this
 // design-parity effort standardizes on.
 //
-// Gate: 'audit.view', same predicate web enforces (ensureCapability against
-// getMyCapabilities() there, against the Bearer-resolved capability set
-// here) — owner-vs-grant is already resolved inside the capability set, so
-// no extra owner check is needed on this path.
+// Gate: 'audit.view' AND 'stores.viewAll' (PR B2 §4, canReadAuditLog —
+// src/lib/auth/audit-read.ts), same predicate web enforces. Audit rows
+// carry no store yet (⚖ 8/17 STORE ISOLATION LAW), so audit.view alone
+// would let a branch-restricted holder read every store's rows.
 //
 // Query never 400s: this route's only client is the thin port, which always
 // sends a well-formed query — a malformed/absent param degrades to its
@@ -32,7 +32,8 @@
 // (app-api-revocation-coverage.test.ts), same registry stores.list closes.
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
-import { ensureCapability } from '@/lib/auth/require-permission'
+import { AppApiError } from '@/lib/app-api/errors'
+import { canReadAuditLog } from '@/lib/auth/audit-read'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { listAuditLogWithClient, type AuditLogFilters } from '@/actions/audit-log'
@@ -66,7 +67,9 @@ function parseFilters(ctx: FacadeContext): AuditLogFilters {
 }
 
 export const GET = facadeHandler('audit.list', async (ctx) => {
-  ensureCapability(ctx.identity.capabilities, 'audit.view')
+  if (!canReadAuditLog(ctx.identity.capabilities)) {
+    throw new AppApiError('forbidden', 'Missing capability: audit.view + stores.viewAll')
+  }
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
   const filters = parseFilters(ctx)

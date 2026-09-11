@@ -79,6 +79,14 @@ const appointments = {
 const karuteRecords = {
   create: jest.fn(),
   delete: jest.fn(),
+  // Read BEFORE the delete (PR B2 §1) — the audit row's only chance to
+  // capture the deleted karute's ids.
+  get: jest.fn(async () => ({
+    customer_id: 'cust-1',
+    recording_session_id: null,
+    appointment_id: null,
+    staff_id: TEST_STAFF_PROFILE_ID,
+  })),
   addEntry: jest.fn(),
   deleteEntry: jest.fn(),
   list: jest.fn(),

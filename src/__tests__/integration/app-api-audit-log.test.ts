@@ -1,7 +1,8 @@
 // Facade: 監査ログ list (design-parity packet 17 §S3). Pins: the route shares
 // the SAME twin the web listAuditLog() action delegates to
 // (listAuditLogWithClient, src/actions/audit-log.ts) · gate is 'audit.view'
-// (checked BEFORE any read) · the client is scoped to the Bearer identity's
+// AND 'stores.viewAll' (PR B2 §4, canReadAuditLog — checked BEFORE any
+// read) · the client is scoped to the Bearer identity's
 // businessId · query filters reach synqed.audit.list with the web action's
 // exact mapping · every call fires exactly one privacy.audit_log.view row
 // (source:'facade', actorId = roster self-row id, target stamped only when
@@ -29,7 +30,7 @@ jest.mock('@synqed-kk/client', () => ({
   SynqedError: class extends Error {},
 }))
 
-const mockCapabilities = jest.fn(async () => new Set(['audit.view']))
+const mockCapabilities = jest.fn(async () => new Set(['audit.view', 'stores.viewAll']))
 jest.mock('@/lib/auth/require-permission', () => {
   const actual = jest.requireActual('@/lib/auth/require-permission')
   return { ...actual, capabilitiesForUser: () => mockCapabilities() }
@@ -112,7 +113,10 @@ const getReq = (query: Record<string, string> = {}, headers: Record<string, stri
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockCapabilities.mockResolvedValue(new Set(['audit.view']))
+  // PR B2 §4: the gate is audit.view AND stores.viewAll now — the default
+  // fixture carries both so every OTHER test in this file keeps exercising
+  // what it always tested. The authz block below overrides this per case.
+  mockCapabilities.mockResolvedValue(new Set(['audit.view', 'stores.viewAll']))
   staffListByBusinessOrThrow.mockResolvedValue([
     { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'owner' },
   ])
@@ -134,6 +138,26 @@ describe('GET /api/app/v1/audit-log', () => {
     })
     expect(auditList).not.toHaveBeenCalled()
     expect(lines).toHaveLength(0)
+  })
+
+  // PR B2 §4 (⚖ 8/17 STORE ISOLATION LAW): audit.view ALONE is no longer
+  // enough — rows carry no store yet, so a branch-restricted audit.view
+  // holder must not read every store's log.
+  it('audit.view WITHOUT stores.viewAll → 403, zero core reads, zero audit() calls', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['audit.view']))
+    const lines = await auditLines(async () => {
+      const res = await GET(getReq(), noParams)
+      expect(res.status).toBe(403)
+    })
+    expect(auditList).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('audit.view AND stores.viewAll → 200', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['audit.view', 'stores.viewAll']))
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(auditList).toHaveBeenCalled()
   })
 
   it('constructs the synqed client scoped to the Bearer identity\'s businessId', async () => {

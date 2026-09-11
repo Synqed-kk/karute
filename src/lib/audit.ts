@@ -361,11 +361,12 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // ＋新規カルテ manual create (PHONEWIRE-2A). A LIVE row, and deliberately
   // unlike 'karute.save' directly below: manual create does NOT pass through
   // the createOrUpdateKaruteRecord choke point — it calls karuteRecords.create
-  // directly — so there is no other writer and no double-log risk. This is the
-  // ONE emit for the action, and it CLOSES a real gap: the web action emits
-  // nothing at all (SDK_WRITE_ALLOWLIST has recorded createManualKaruteRecord
-  // as "genuinely untracked" since 2026-07-27). The route has no path param,
-  // so the target id comes from ctx.auditTargetId.
+  // directly — so this facade row and the web wrapper's own emit
+  // (createManualKaruteRecord, PR B2 §2, 2026-09-11) are two INDEPENDENT
+  // writers on two independent doors, not a double-log risk (the web action
+  // used to emit nothing at all here — SDK_WRITE_ALLOWLIST recorded it as
+  // "genuinely untracked" from 2026-07-27 until PR B2 closed it). The route
+  // has no path param, so the target id comes from ctx.auditTargetId.
   'karute.manualCreate': { kind: 'mutation', category: 'karute', action: 'karute.manual_create', targetType: 'karute' },
   // karute.save is NOT a row here (deliberately, packet 30 §3): it logs at
   // the shared choke point createOrUpdateKaruteRecord (src/actions/karute.ts)

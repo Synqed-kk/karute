@@ -42,6 +42,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `customer.reengagement_view` | customer | live | `settings.auditLog.actions.customer.reengagement_view` |
 | `customer.view` | customer | live | `settings.auditLog.actions.customer.view` |
 | `karute.customer_reassign` | karute | live | `settings.auditLog.actions.karute.customer_reassign` |
+| `karute.delete` | karute | live | `settings.auditLog.actions.karute.delete` |
 | `karute.entries_regenerate` | karute | live | `settings.auditLog.actions.karute.entries_regenerate` |
 | `karute.entry_edit` | karute | live | `settings.auditLog.actions.karute.entry_edit` |
 | `karute.entry_edits_view` | karute | live | `settings.auditLog.actions.karute.entry_edits_view` |
