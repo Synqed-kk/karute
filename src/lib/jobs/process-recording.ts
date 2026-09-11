@@ -442,20 +442,19 @@ async function upsertKaruteRecord(
 }
 
 /** 監査ログ round 2 PR C, subject 6 (PACKET-AUDITLOG-PR-C-SERVER-WATCH-
- *  2026-09-11.md item 6): recording.transcribe_failed, once per exhausted
- *  round — never on a requeued (non-final) attempt.
+ *  2026-09-11.md item 6), fix round 1 (PACKET-PR-C3-FIX-ROUND1-2026-09-11.md
+ *  subject 1): recording.transcribe_failed, once per round CORE ITSELF
+ *  declares exhausted — never a local guess computed from the job object the
+ *  worker was handed at claim time.
  *
- *  ATTEMPTS SEMANTICS, PINNED AT SOURCE (the packet asked which: core
- *  increments `attempts` ON CLAIM, not on fail. Evidence: the SDK's own
- *  status-transition fixtures (global-pipeline-server-job.test.ts) show
- *  QUEUED at attempts:0, the FIRST RUNNING claim already at attempts:1, and
- *  the terminal FAILED row at attempts === max_attempts (never
- *  max_attempts+1) — e.g. lines pinning `{status:'QUEUED', attempts:0}` →
- *  `{status:'RUNNING', attempts:1}` and `{status:'FAILED', attempts:3,
- *  maxAttempts:3}`. So the `job` object claim() handed processJob already
- *  carries THIS run's attempt number for its whole lifetime, and the round
- *  that will exhaust the job (core FAILs it instead of requeueing) is simply
- *  `job.attempts >= job.max_attempts` — no +1, no second read.
+ *  ATTEMPTS SEMANTICS, PINNED AT SOURCE (core's own service —
+ *  Synqed-kk/synqed-core src/services/recording-job.service.ts, fetched
+ *  2026-09-11): claimNext increments `attempts` ON CLAIM (:102); fail() sets
+ *  `status = spent ? 'FAILED' : 'QUEUED'` where `spent = job.attempts >=
+ *  job.maxAttempts` (:130-138) and RETURNS the updated job. So core's fail()
+ *  response IS the exhaustion verdict — the caller below only reaches this
+ *  function once it has already confirmed that response's `status ===
+ *  'FAILED'`; this function no longer recomputes attempts itself.
  *
  *  Never on a discard refusal (its own recording.discard row IS the record —
  *  council amendment 4 F3) and never on a spend-limit refusal
@@ -463,7 +462,6 @@ async function upsertKaruteRecord(
  *  src/lib/ai/transcribe.ts#auditTranscriptionRefused; emitting here too
  *  would double-log the same event under two actions). */
 function emitTranscribeFailedIfExhausted(job: RecordingJob, message: string): void {
-  if (job.attempts < job.max_attempts) return
   if (message === DISCARDED_BY_STAFF || message === AI_SPEND_LIMIT) return
   if (message === 'discard ledger row unreadable — refusing to write') return
   const payload = job.payload as unknown as RecordingJobPayload | undefined
@@ -512,10 +510,19 @@ export async function processRecordingJobs(budgetMs: number): Promise<{
       processed++
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      await worker.recordingJobs.fail(job.id, message).catch(() => {})
+      // Core's own verdict decides, not a local guess (fix round 1, subject
+      // 1): a rejected fail() call leaves the job RUNNING for the
+      // stale-claim reclaim to pick up — that later round decides, so no
+      // row here.
+      const failResult = await worker.recordingJobs.fail(job.id, message).then(
+        (r) => r,
+        () => null,
+      )
       failed++
       console.error(`[jobs] recording job ${job.id} failed:`, message)
-      emitTranscribeFailedIfExhausted(job, message)
+      if (failResult !== null && failResult.status === 'FAILED') {
+        emitTranscribeFailedIfExhausted(failResult, message)
+      }
     }
   }
   return { processed, failed }

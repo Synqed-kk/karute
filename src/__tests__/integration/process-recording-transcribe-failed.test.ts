@@ -1,13 +1,17 @@
 /**
  * 監査ログ round 2 PR C, subject 6 (PACKET-AUDITLOG-PR-C-SERVER-WATCH-
- * 2026-09-11.md item 6) — the worker's recording.transcribe_failed emit.
- * Pins: fires ONLY on the round that exhausts the job's retries
- * (job.attempts >= job.max_attempts, attempts incremented AT CLAIM — see the
- * long comment on emitTranscribeFailedIfExhausted in process-recording.ts for
- * the source evidence); reason mapping (EMPTY_TRANSCRIPT → 'empty_transcript',
- * anything else → 'other'); never on an earlier attempt; never on a discard
- * refusal or a spend-limit refusal (both already have their own row
- * elsewhere).
+ * 2026-09-11.md item 6), fix round 1 (PACKET-PR-C3-FIX-ROUND1-2026-09-11.md
+ * subject 1) — the worker's recording.transcribe_failed emit.
+ * Pins: fires ONLY when core's OWN fail() response says `status === 'FAILED'`
+ * (never a local recomputation of the job object claim() handed the worker —
+ * see the long comment on emitTranscribeFailedIfExhausted in
+ * process-recording.ts for the source evidence); reason mapping
+ * (EMPTY_TRANSCRIPT → 'empty_transcript', anything else → 'other'); never
+ * when core instead QUEUEs the job for another attempt; never when the
+ * fail() call itself rejects (the job stays RUNNING for the stale-claim
+ * reclaim, which decides on its own later round); never on a discard refusal,
+ * an unreadable discard-ledger read, or a spend-limit refusal (each already
+ * has its own row elsewhere).
  */
 process.env.SYNQED_CORE_URL ??= 'https://core.test'
 process.env.SYNQED_CORE_API_KEY ??= 'test-key'
@@ -116,10 +120,11 @@ beforeEach(() => {
   })
 })
 
-describe('process-recording worker — recording.transcribe_failed (subject 6)', () => {
-  it('exhausted round (attempts === max_attempts) + a generic failure → emits reason "other"', async () => {
+describe('process-recording worker — recording.transcribe_failed (subject 6, fix round 1)', () => {
+  it('core\'s fail() verdict says FAILED + a generic failure → emits reason "other"', async () => {
     runMeteredTranscription.mockRejectedValueOnce(new Error('provider timeout'))
     claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
 
     await processRecordingJobs(10_000)
 
@@ -150,12 +155,13 @@ describe('process-recording worker — recording.transcribe_failed (subject 6)',
     )
   })
 
-  it('exhausted round + an EMPTY_TRANSCRIPT failure → reason "empty_transcript"', async () => {
+  it('core\'s fail() verdict says FAILED + an EMPTY_TRANSCRIPT failure → reason "empty_transcript"', async () => {
     runMeteredTranscription.mockResolvedValueOnce({
       result: { transcript: '   ', paragraphs: [], words: [], confidence: 1 },
       receipt: { duration_seconds: 60, cost_cents: 1, debit_recorded: true },
     })
     claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
 
     await processRecordingJobs(10_000)
 
@@ -164,9 +170,21 @@ describe('process-recording worker — recording.transcribe_failed (subject 6)',
     )
   })
 
-  it('NOT the exhausted round (attempts < max_attempts) → no emit, even though the job still fails', async () => {
+  it('core\'s fail() verdict says QUEUED (attempts remain) → no emit, even though this attempt threw', async () => {
     runMeteredTranscription.mockRejectedValueOnce(new Error('provider timeout'))
-    claim.mockResolvedValueOnce({ ...baseJob, attempts: 1 }).mockResolvedValueOnce(null)
+    claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'QUEUED', attempts: 2 })
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).toHaveBeenCalledWith('job-1', 'provider timeout')
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it('the fail() call itself REJECTS → no emit (the stale-claim reclaim decides on a later round)', async () => {
+    runMeteredTranscription.mockRejectedValueOnce(new Error('provider timeout'))
+    claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockRejectedValueOnce(new Error('core unreachable'))
 
     await processRecordingJobs(10_000)
 
@@ -179,6 +197,7 @@ describe('process-recording worker — recording.transcribe_failed (subject 6)',
       events: [{ recording_session_id: 'sess-1', source: 'STAFF' }],
     })
     claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
 
     await processRecordingJobs(10_000)
 
@@ -189,6 +208,7 @@ describe('process-recording worker — recording.transcribe_failed (subject 6)',
   it('exhausted round + a spend-limit refusal → no emit (recording.transcribe_refused already filed the row)', async () => {
     runMeteredTranscription.mockRejectedValueOnce(new AppApiError('rate_limited', 'over cap'))
     claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
 
     await processRecordingJobs(10_000)
 
