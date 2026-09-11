@@ -2730,7 +2730,7 @@ export function TodayScreen(props: TodayProps) {
         const ask = { ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }
         const v = verdictFor(ask, c, livePack().pack)
         // ⚖ FIX ROUND 2 (FX-A — ADDENDUM STOP 2) — THE FENCE IS `reseats`, AND
-        // ONLY `reseats`. `landingVerdict` sets `reseats` before its stops and
+        // ONLY `reseats`. `landingVerdict` fills `reseats` before its stops and
         // refuses a rescued start on the REST cell it is handed
         // (today-interactions.ts :5802, `cell?.state === 'blocked' &&
         // !cell.ackAllowed`), so the FIRST-LEG verdict of every ⇄ candidate is
