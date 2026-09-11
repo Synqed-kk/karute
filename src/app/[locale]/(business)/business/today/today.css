@@ -2667,3 +2667,536 @@
   font-variant-numeric: tabular-nums;
   transform: translateX(-50%);
 }
+
+/* ── T · The page's last two grey tokens ────────────────────────────────── */
+
+/* ⚖ THE TOKEN CORRECTION (PKT §RIDERS, 9/8) LANDS HERE, in the slice that owns
+   most of the surfaces the pair paints. Both resolve to the shell's #e4e4e9
+   today; the page's own hairline is #e4e7ec, and 「one hairline grey on every
+   edge」 was the mock's whole reason for asking.
+
+   ⚠ THE MAP IS RE-GREPPED AT THIS TIP rather than carried from the packet, and
+   the packet's own map had one dead entry, kept here as the correction.
+
+   --control, 22 canon readers in this sheet:
+     :129 .help-toggle · :146 .session-chip · :156 .segmented (this slice's own
+     track) · :170 .time-nav · :191 .fields-pop · :225 .density-seg button ·
+     :254 .cal-pop · :262 .cal-tools button ·
+     :360 .lane.mine .lane-label::after — the 自分 pill, NOT the lock toggle the
+       packet names. `.biz .lock-toggle` (:368–382) declares `border: 0` and
+       reads no token at all; and slice ① already restates the pill with
+       `border: 0` (:1940), so this reader is dead on arrival and the token
+       repaints nothing there.
+     :975 .guard-band.legend-only · :984 .layer-legend · :1031 .guard-pop
+     .gp-cancel · :1618 .biz-dialog .close · :1639 .biz-dialog
+     input/select/textarea · :1646 .range-value · :1653 .cust-results ·
+     :1667 .biz-dialog .stepper · :1671 .course-list · :1693 .cc-field textarea ·
+     :1705 .toast · :1762 .spot-card · :1774 .spot-foot button.
+     The dialogs, the tour, the toast and the segmented track are this slice's
+     room outright; the rest are ② and ③'s, already wearing #e4e7ec literally.
+   --line, two readers:
+     today.css :1005 .guard-pop .gp-facts, and business-shell.css :199
+     `.biz .btn` — EVERY button on this page. That second one IS the ask: it is
+     what puts the page's own hairline on every button edge instead of the
+     shell's.
+
+   THE SHELL CANNOT BE REACHED, read in the DOM rather than reasoned: the screen
+   is ONE `<div className="page page-today">` (TodayScreen :6375 → :7918), so
+   the shell's own readers — `--line` at business-shell :316 .fx-cols-pop and
+   :439 .store-pop, `--control` at :375 .rail-toggle, :393 .business, :413
+   .store-context, :473 .store-chip, :503 .nav .badge.flag — are ANCESTORS of
+   the element below and keep #e4e4e9. Every dialog, every popover, the tour and
+   the toast are DESCENDANTS and take the new value.
+
+   `--line-2` is never declared, by this slice or any other: its only two
+   readers (:1271 / :1463) are the ruled H2 warn face, which stays to the pixel. */
+.biz .page.page-today {
+  --control: #e4e7ec;
+  --line: #e4e7ec;
+}
+
+/* ── S · The segmented control gets a thumb; the dialogs' 密度 family joins the popover's ── */
+
+/* mock 2705–2742 — a track, and a white thumb that travels under the labels. */
+.biz .page-today .segmented {
+  position: relative;
+  padding: 3px;
+  border: 0;
+  border-radius: 10px;
+  background: #f1f3f7;
+}
+.biz .page-today .segmented button {
+  position: relative;
+  z-index: 1;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: transparent;
+  color: #3f3f46;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+/* ⚖ STATE-CLASS LAW — AN OVERRIDE ON PURPOSE, and the licence is that this rule
+   carries the state token and declares every value it takes. Canon's
+   `.biz .segmented button[aria-pressed="true"]` (:168, 0,3,1) draws the selected
+   tab with three things: the light accent wash `var(--select-bg)`, the accent
+   ink `var(--select-ink)`, and an inset accent ring. This rule (0,4,1) takes the
+   wash and the ring off the TAB — and the selection does not lose them, because
+   THE THUMB IS THAT SURFACE NOW: the wash moved from the tab to the pill that
+   slides under it (see the thumb's own rule below). The ink stays here, on the
+   label, written as the shell's own `--select-ink` (`--indigo` #3f5be8, the
+   mock's own literal), per the one-way accent law: this is a pressable's
+   selected state. So the selected surface is still wash + accent ink + 700 —
+   R13 and Liam's 8/6 rule — it is simply drawn by two elements instead of one. */
+/* ⚠ D-PR4-11 — AND THE LABEL GOES BOLD, because ink alone is not a selection
+   before hydration. The three tabs share `font-weight: 600` above, so without
+   this rule's 700 only colour would tell them apart until the thumb arrives — and the thumb is
+   placed by a `useLayoutEffect` inside an 8,000-line client component, so it
+   has no geometry until that hydrates (and none at all if it never does). The
+   family already answered this: `settings.css` gives its own pressed option
+   `font-weight: 700` beside the accent colour, so its selection survives with
+   weight AND colour while its own thumb is
+   unplaced. (Its selector is not spelled here on purpose: `settings-room.test.ts`
+   forbids any `st-` / `sp-` class name from appearing in another room's sheet,
+   and that guard reads the raw bytes — a comment quoting one trips it. Named by
+   what it does, which is what a comment is for.)
+   A 100-weight departure from the mock's uniform 600, on the SELECTED
+   label only; the thumb still lands under it and the seat reads the bolder
+   width (which is also why F-3 re-seats on `document.fonts.ready`). */
+.biz .page-today .segmented button[aria-pressed="true"] {
+  background: transparent;
+  color: var(--select-ink);
+  box-shadow: none;
+  font-weight: 700;
+}
+/* The thumb's REST state, and only that: the effect writes `transform`, `width`
+   and `opacity` inline.
+   ⚖ D-PR4-14 — THE PILL IS THE ACCENT WASH, NOT THE MOCK'S WHITE. Greptile's P2
+   on #879, upheld: the repo's R13 and Liam's 8/6 rule both say a selected
+   surface carries a light accent wash, and the mock's ④ layer had taken canon's
+   `var(--select-bg)` off the tab (the rule above) and put a WHITE card in its
+   place — which leaves the selection with no wash anywhere. So the wash follows
+   the pill: `var(--select-bg)` is the same token, at the same value, that canon
+   painted the pressed tab with at :168, and `settings.css` — the room this whole
+   thumb pattern was copied from — already paints ITS thumb with that room's own
+   accent wash rather than white. (Its selector is not spelled here on purpose:
+   `settings-room.test.ts` forbids that room's class names from appearing in
+   another room's sheet, and the guard reads the raw bytes.)
+   A VISIBLE DEPARTURE FROM THE MOCK, disclosed and Liam's to overturn: the pill
+   reads pale indigo instead of white. Reverting it is one declaration —
+   `background: #fff` on this rule — and nothing else moves.
+   ⚠ THE CEILING IS WIDER THAN jsdom, and D-PR4-11 is the answer to it. The
+   element ships with `width: 0`, and the effect that gives it geometry is a
+   `useLayoutEffect` — so a static render, a harness render AND ANY PAINT BEFORE
+   HYDRATION all show no thumb. The bold accent label is the selection until the
+   thumb arrives; the pill's own pixels are on the Vercel preview.
+   ⚠ Naming note: this is an `<i class="seg-thumb">` — the mock's element and the
+   mock's name. The family's four siblings are `<span>`s with page-prefixed
+   classes (`st-` settings, `an-` analytics, `rv-` reservations, `rc-` recording),
+   so `seg-thumb` is the one unprefixed member. `.segmented` exists nowhere else
+   in the repo and the rule is page-scoped, so nothing collides. */
+.biz .page-today .segmented > .seg-thumb {
+  position: absolute;
+  z-index: 0;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  width: 0;
+  border-radius: 8px;
+  background: var(--select-bg);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .12);
+  transform: translateX(0);
+  pointer-events: none;
+}
+
+/* ⚖ RIDER (k) — THE DIALOGS' 密度 FAMILY, unified with the popover's.
+   Slice ② scoped its three rules to `.fields-pop .density-seg` and said this
+   slice owns the other six groups: 価格の見せ方 · 登録の種類 · 性別・任意 ·
+   予約経路 · ブロックの種類 · ブロックの長さ. The same three declarations, read
+   out of ②'s block rather than re-invented, at the dialogs' own scope. */
+.biz .page-today .biz-dialog .density-seg button {
+  min-height: 28px;
+  border-radius: 8px;
+  border-color: #e4e7ec;
+  color: #3f3f46;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+/* ⚖ STATE-CLASS LAW — the same two answers ② gave, at this scope. The hover
+   excludes the pressed state (a bare hover at 0,6,1 would wash canon's accent
+   off the selected option), and the base rule above (0,4,1) beats canon's
+   `[aria-pressed="true"]` (:227, 0,3,1), so the accent ink and border are
+   restated after it at 0,5,1. `background` is NOT restated: the base rule
+   declares none, so canon's `var(--select-bg)` wash was never in danger. */
+.biz .page-today .biz-dialog .density-seg button:not([aria-pressed="true"]):hover { background: #f1f3f7; }
+.biz .page-today .biz-dialog .density-seg button[aria-pressed="true"] { color: var(--select-ink); border-color: var(--select-line); }
+
+/* ── M · Motion (R-9, rewritten for the product) ─────────────────────────── */
+
+/* D-A · THE PRESS IS `:active`. The mock's `data-press` + `.is-pressed` script
+   exists only because the mock has no framework; the platform's own `:active`
+   IS pointer-down. The list is the mock's PRESSABLE list (:3248–3252) minus the
+   shell entries (`.nav a` `.rail-toggle` `.store-context`), minus `.event`
+   (which the mock gave its own no-scale path), and with three corrections the
+   DOM forced:
+
+     · `.close` is TEN elements here, not the nine dialogs the packet assumed:
+       the tenth is `<button className="close inspector-close">`, the
+       INSPECTOR's close, outside every dialog. Both are named by their own
+       room, so the bare `.close` — a shell name this route sheet may not own —
+       never appears.
+     · `.time-nav button` / `.time-nav a` are written as ②'s ruled CHILD form.
+       The pressed set is IDENTICAL, read in the DOM (the
+       `<div className="time-nav date-nav" data-pop="cal">` group): `.time-nav`'s
+       only button/link descendants are its three direct children plus the
+       calendar's `.cal-tools a`, `.cal-tools button` ×2 and the `.cal-cell`
+       links — every one of them separately named below. The descendant form
+       would only re-open the reach ② measured at 1537 computed differences.
+     · `.lock-toggle` is NOT in this family. It is centred with a transform, and
+       its own two rules are below.
+
+   ⚠ `:active` matches ANCESTORS too, and a transform on an ancestor scales its
+   children. Read at source, element by element: NOT ONE member of this list
+   contains another. The containers that do nest a pressable — `.stepper`,
+   `.cal-tools`, `.spot-foot`, `.park-chip`, `.toast`, `.time-nav`,
+   `.fields-pop`, `.inspector-actions`, `.section-tools`, `.ops-right`,
+   `.dialog-foot`, `.session-chip` — are none of them members. (`.ops-decisions`
+   is a `<button className="register-cell ops-decisions">` that does NOT carry
+   `.act`, so it and `.register-cell.act` are never the same element either.)
+   The checker asserts this in the page rather than trusting the paragraph. */
+.biz .page-today :is(.btn, .segmented button, .density-seg button, .register-cell.act, .ops-decisions,
+    .decision-card, .decision-row, .cal-cell, .guard-rail-cell, .cell-held,
+    .help-toggle, .online-chip, .cust-row, .course-row, .stepper button,
+    .time-nav > button, .time-nav > a, .cal-tools button, .cal-tools a, .park-x,
+    .spot-foot button, .toast-undo, .group-label, .biz-dialog .close, .inspector-close) {
+  transition: transform 160ms ease-out;
+}
+/* ⚠ AND THE FIVE THAT ALSO FADE A BACKGROUND, which is ONE decision with the
+   press and not a second rule beside it. A `transition` shorthand replaces the
+   whole list, and the family head above computes to 0,4,0 (the `:is()` takes
+   `.register-cell.act`'s 0,2,0), which BEATS slice ①'s
+   `.biz .page-today .cal-cell { transition: background-color 120ms ease-out }`
+   (:2065, 0,3,0) and TIES ①'s `.decision-card:hover` (:1997) and
+   `.decision-row:hover` (:2062) — so written as two competing rules, one of the
+   two behaviours is always lost. Restated together, after, at the same 0,4,0
+   (via `.biz-dialog .cust-row`'s own 0,2,0). This is also F-4's fix: ① declared
+   those transitions INSIDE `:hover`, so the wash faded in and snapped back;
+   declared at base level the LEAVE path fades too.
+   The whole list does NOT get a background transition on purpose: it would put
+   a 120ms fade on `.guard-rail-cell` and `.cell-held`, and the 60分配置 rail is
+   a ruled surface whose live verdict has to stay crisp (⚖ V4-1). */
+.biz .page-today :is(.cal-cell, .decision-card, .decision-row, .biz-dialog .cust-row, .biz-dialog .course-row) {
+  transition: transform 160ms ease-out, background-color 120ms ease-out;
+}
+/* ⚖ F-4, the half a base rule cannot reach. ①'s two dialog-row hover heads
+   (:2063–2064) declare `transition` inside `:hover` at 0,5,0, which beats the
+   family above at 0,4,0 — so while the pointer is ON the row (which it always
+   is, during a press) the transform had no transition and the press snapped.
+   Restated once, at the same shape, with both properties. */
+.biz .page-today .biz-dialog .cust-row:hover,
+.biz .page-today .biz-dialog .course-row:hover { transition: transform 160ms ease-out, background-color 120ms ease-out; }
+/* ⚠ F-8 — BOTH SPELLINGS OF DISABLED. `:not(:disabled)` covers the seven real
+   `disabled` buttons on this route, but the shell has its own convention for a
+   control that is off without being a disabled form element:
+   `.biz .btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed }`
+   (business-shell.css). Nothing inside `.page-today` uses it TODAY — the render's
+   only `aria-disabled` is a shell nav link outside the page — so this clause
+   changes no pixel now; it is here so the first `.btn[aria-disabled]` written
+   inside this page does not get a press animation on a control that refuses.
+   The head becomes (0,7,0), which still ties nothing: the two dialog-row hover
+   heads above it are transition-only and declare no transform. */
+.biz .page-today :is(.btn, .segmented button, .density-seg button, .register-cell.act, .ops-decisions,
+    .decision-card, .decision-row, .cal-cell, .guard-rail-cell, .cell-held,
+    .help-toggle, .online-chip, .cust-row, .course-row, .stepper button,
+    .time-nav > button, .time-nav > a, .cal-tools button, .cal-tools a, .park-x,
+    .spot-foot button, .toast-undo, .group-label, .biz-dialog .close, .inspector-close):active:not(:disabled):not([aria-disabled="true"]) {
+  transform: scale(.97);
+  transition-duration: 100ms;
+}
+/* ⚠ THE LOCK TOGGLE IS CENTRED WITH A TRANSFORM, so it cannot take the family's
+   bare `scale(.97)`: canon :368–372 gives it `position: absolute; top: 50%;
+   transform: translateY(-50%)`, and a bare scale REPLACES that — the toggle
+   would drop 11px on every press. It is the ONLY member of the mock's list with
+   a canon resting transform (grepped whole: :372 here, :384 its own svg, :531
+   .proxy-verdict, :1029/:1176 the pinned answers, :1062 .now-line span,
+   :1405/:1411 the wc-hold family, :1712/:1715 the toast — and none of those is
+   a pressable). A restatement could not fix it either: the family's `:active`
+   head is 0,6,0, so a `.page-today .lock-toggle:active` restatement at 0,5,0
+   loses. Its own pair carries the centring in both states instead. */
+.biz .page-today .lock-toggle { transition: transform 160ms ease-out; }
+.biz .page-today .lock-toggle:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-50%) scale(.97); transition-duration: 100ms; }
+/* Cards never scale — the mock gave them their own path (a second pointerdown
+   listener, no transform) and this is that rule, riding the transition R-6
+   already declares on `.biz .page-today .event` (`filter 100ms ease-out`).
+   GUARDED exactly like ③'s hover heads (③'s fix round F-2): the proxy is
+   `pointer-events: none`, so the element under the pointer for a whole MOVE is
+   the ⚖ flag-19 husk, and the resize grips live inside the card, so the element
+   under the pointer for a whole RESIZE is the `.resizing` card. Both are ruled
+   surfaces; neither takes a press face.
+
+   ⚠ F-7 — AND THE HEADS ARE ③'s OWN SHAPES, because the first version of this
+   rule never painted on a single card. It was written as
+   `.biz .page-today .event:not(.dragging):not(.resizing):active` = (0,6,0), and
+   ③ answers the same element in the state that is ALWAYS co-present with a
+   press: `button.event[data-cat]:not(.dragging):not(.resizing):hover` (0,7,1)
+   and `.event.block/.cleanup:not(.dragging):not(.resizing):hover` (0,7,0), both
+   declaring `filter: none` — ③'s deliberate answer to canon's brightness(.98).
+   On a mouse, `:hover` is true for the whole time the button is down, so both
+   ③ heads out-specified the press and won. Measured on the tip, real pointer
+   down: `none` on 27 of 27 board cards. This is the layer's own STATE-CLASS LAW
+   in the other direction — a state rule that loses on the element it names — so
+   the answer is the same one the law always gives: restate at the shape that
+   beats it, standing later. Each head declares `filter` ONLY, so ③'s hover lift
+   (`box-shadow`, `z-index`, the border tints) is untouched and a pressed card
+   keeps its lift and gains the dim.
+
+   ⚠ AND THE GENERIC (0,6,0) HEAD IS GONE rather than kept 「for an uncategorised
+   booking」. Read at source, the one thing it still reached is not a booking at
+   all: `.event.absence` is a `<span class="event absence" role="note">` (five of
+   them in every render on this route) — no `data-cat`, not `.block`, not a
+   button, and not pressable. So the only surface the generic head could paint
+   was a NOTE that says 「not available」, which is the opposite of press
+   feedback. A booking's `category` is non-null by type, so there is no
+   uncategorised card for it to serve either. Two precise heads, no third. */
+.biz .page-today button.event[data-cat]:not(.dragging):not(.resizing):active { filter: brightness(.97); }
+.biz .page-today .event.block:not(.dragging):not(.resizing):active,
+.biz .page-today .event.cleanup:not(.dragging):not(.resizing):active { filter: brightness(.97); }
+/* ⚖ F-5 — canon gives `.decision-row` no hover at all (:1566–1583), so the
+   transition ① declared for it had nothing to transition. R-9's table gives the
+   row the wash every sibling row on this page already wears — canon's own
+   `.biz-dialog .course-row:hover` value (:1674), not a new colour. Read at
+   source first: the row is a `<button className="decision-row">` inside the
+   判断と閉店阻害 dialog's `<div className="decision-rows">` (both call sites), a
+   real pressable, and canon writes no state class or `[aria-current]`
+   on it, so there is no state for the wash to erase. */
+.biz .page-today .decision-row:hover { background: #fafafb; }
+
+/* D-B · ENTRANCES ARE `@starting-style`; EXITS ARE INSTANT — React unmounts the
+   popovers, and F-6 makes the dialogs instant too.
+   Popovers first. `.sell-shelf` (`<div className="fields-pop sell-shelf">`) and
+   `.help-pop` (`<div className="fields-pop help-pop">`) share the `.fields-pop`
+   base and come with it. The mock gave all four a `transform-origin` — fields
+   and cal from the top RIGHT, shelf and help from the top LEFT — and only
+   `.cal-pop` keeps one now, because it is the only one of the four that still
+   scales (D-PR4-10, immediately below). Canon's ≤1320 block sets no `transform`
+   on any of them, so nothing here fights a width rule. */
+/* ⚠ D-PR4-10 — THE THREE SURFACES THAT MEASURE THEMSELVES GET NO SCALE, and this
+   is a MEASUREMENT, not a caution. Four placement effects on this screen read a
+   popover's OWN `getBoundingClientRect()` inside a `useLayoutEffect` on the
+   commit that mounts it, and decide where it goes from the width: 表示設定
+   (`fieldsPopAnchor` — the width is used twice, for the side flip AND the right
+   clamp), the 配置の相談 popover and its block-advice twin (`pinInViewport`,
+   ⚖ flag 35), and the 仮押さえ confirm (`holdPopAnchor`, ⚖ flag 48 — it decides
+   which side of the card can hold the pill and falls back to `.pinned` when none
+   can). `getBoundingClientRect()` returns the TRANSFORMED border box.
+   Measured in Chromium on this tip's sheet, insert and read in ONE synchronous
+   task, exactly as the product does (evidence/STARTING-STYLE-RECT-1207966ce.txt):
+     .fields-pop      rect 276.48  offsetWidth 288   −11.52px  (4.00%)
+     .sell-shelf      rect 276.48  offsetWidth 288   −11.52px  (4.00%)
+     .help-pop        rect 276.48  offsetWidth 288   −11.52px  (4.00%)
+     .hold-pop        rect 368.60  offsetWidth 380   −11.40px  (3.00%) + 4px down
+     .guard-pop       rect 252.20  offsetWidth 260   − 7.80px  (3.00%) + 4px down
+   So the from-value IS in the box the placement reads. The screen's own stated
+   tolerance for this class of error is 0.33px («the RECT, not offsetWidth:
+   offsetWidth is rounded to an integer, and a surface measured 0.33px narrower
+   than it paints lands that far past the margin»), and none of the four effects
+   re-measures after the entrance — a wrong first placement lasts the life of the
+   popover. Placement correctness under ⚖ 35 / ⚖ 48 outranks a 140ms scale on
+   three surfaces, so these three enter on OPACITY ALONE.
+   `.cal-pop` KEEPS its scale: read at source, it carries no ref and no effect
+   measures it (it is CSS-placed inside `.time-nav`), and the measurement above
+   confirms the 4% is harmless there because nobody reads it. */
+.biz .page-today .fields-pop {
+  transition: opacity 140ms cubic-bezier(.2, .7, .2, 1);
+}
+.biz .page-today .cal-pop {
+  transition: opacity 140ms cubic-bezier(.2, .7, .2, 1), transform 140ms cubic-bezier(.2, .7, .2, 1);
+  transform-origin: top right;
+}
+@starting-style {
+  .biz .page-today .fields-pop { opacity: 0; }
+  .biz .page-today .cal-pop { opacity: 0; transform: scale(.96); }
+}
+/* The two board answers. ⚖ V4-1 — 120ms, so the confirm lands with the card
+   rather than trailing it; D-PR4-10 takes the rise away and leaves the fade. */
+.biz .page-today .hold-pop,
+.biz .page-today .guard-pop { transition: opacity 120ms ease-out; }
+@starting-style {
+  .biz .page-today .hold-pop,
+  .biz .page-today .guard-pop { opacity: 0; }
+  /* ⚖ STATE-CLASS LAW — the PINNED answers are centred with `translateX(-50%)`
+     (canon `.biz .guard-pop.pinned` / `.biz .hold-pop.pinned`), so their
+     starting rule has to carry it even now that nothing else moves: without it
+     the non-pinned rule above would apply `transform`'s initial `none` at the
+     start and the pill would slide in from half its own width off-centre. */
+  .biz .page-today .hold-pop.pinned,
+  .biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%); }
+}
+/* …and the RESTING transform restated after them, at 0,4,0.
+   ⚠ CORRECTED BY ITS OWN MUTANT (red-run V4 / V4b). This comment first said the
+   line was a belt 「because the layer declares no resting transform」 — which
+   forgot block R, further down, which answers `.hold-pop` / `.guard-pop` with
+   `transform: none` at 0,3,0. That is EXACTLY canon's `.biz .hold-pop.pinned`
+   (:1176) and `.biz .guard-pop.pinned` (:1029), and it stands later, so without
+   a restatement a reduced-motion reader's pinned confirm loses its centring and
+   sits half its own width off the middle. This line and its twin inside block R
+   are BOTH 0,4,0 and either one alone holds it up — cutting one is green (V4b),
+   cutting both is red (V4). Two lines, deliberately, because a reader deleting
+   either half has to be told the other is carrying it. */
+.biz .page-today .hold-pop.pinned,
+.biz .page-today .guard-pop.pinned { transform: translateX(-50%); }
+/* The drawer: the COLUMN appears instantly (layout is never animated) and only
+   the panel's content travels. The inspector is conditionally mounted
+   (`{currentCase && <aside className="panel inspector" aria-labelledby="caseTitle">}`)
+   AND display-toggled by canon's `.biz.drawer-open
+   .inspector` (:1099), so this fires on OPEN and never on page load — nothing
+   here animates when the board is opened. `> *` is `.inspector-head` and
+   `.inspector-body`; canon declares nothing on `.inspector > *`. */
+.biz .page-today .inspector > * { transition: opacity 180ms ease-out, transform 180ms ease-out; }
+@starting-style {
+  .biz .page-today .inspector > * { opacity: 0; transform: translateX(10px); }
+}
+/* The modal family — ENTRANCE ONLY, scoped to the page (mock 3064–3077). All
+   nine dialogs are descendants of `.page.page-today`, and a `showModal()` dialog
+   in the top layer still matches a descendant selector (the top layer changes
+   paint order, not the tree). Canon's `.biz-dialog` and its `::backdrop` are
+   0,1,0; these are 0,3,0 and beat them outright.
+   ⚠ THE BACKDROP CHANGES BOTH HUE AND ALPHA: canon is rgba(24, 24, 27, .48) and
+   this is rgba(16, 24, 40, .45). Disclosed rather than slipped in — 16,24,40 is
+   the reskin layer's own shadow tint since ② (`.fields-pop`'s box-shadow), so
+   this is a recalibration into the layer's established family, not a new
+   colour.
+   ⚠ D-PR4-12 — THE EXIT IS INSTANT, and the mock's 「both ways」 yields to what
+   the exit actually costs. `overlay 120ms allow-discrete` keeps a closed dialog
+   PAINTED for those 120ms, and a dialog that has been `close()`d is no longer
+   modal: for that window the page behind it is live while a click aimed at the
+   page still lands on the fading dialog. Worse on the two `close(); showModal()`
+   hops this screen performs (判断と閉店阻害 → 決済端末, and the close that opens
+   the inspector): two dialogs sit in the top layer at once and the old one is
+   visible UNDER the new backdrop for 120ms — a ghost on a routine hop. Liam's
+   #9 keep named the materialize, not the exit, and every popover on this page
+   already exits instantly because React unmounts it. So the dialogs match them:
+   `@starting-style` entrance stays, `overlay` / `display` `allow-discrete` go. */
+.biz .page-today .biz-dialog {
+  opacity: 0;
+  transform: scale(.96);
+  transition: opacity 120ms cubic-bezier(.2, .7, .2, 1), transform 120ms cubic-bezier(.2, .7, .2, 1);
+}
+.biz .page-today .biz-dialog[open] { opacity: 1; transform: scale(1); transition-duration: 180ms; }
+.biz .page-today .biz-dialog::backdrop {
+  background: rgba(16, 24, 40, .45);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.biz .page-today .biz-dialog[open]::backdrop { opacity: 1; transition-duration: 180ms; }
+@starting-style {
+  .biz .page-today .biz-dialog[open] { opacity: 0; transform: scale(.96); }
+  .biz .page-today .biz-dialog[open]::backdrop { opacity: 0; }
+}
+/* Canon's own toast rule (:1697) is already page-scoped and already declares
+   `transition: opacity .16s ease, transform .16s ease` at the same 0,3,0 shape,
+   so this one wins by standing later. `.toast.show` (:1715) declares opacity
+   and transform only, so the duration below ties nothing. */
+.biz .page-today .toast { transition: opacity 140ms cubic-bezier(.2, .7, .2, 1), transform 140ms cubic-bezier(.2, .7, .2, 1); }
+.biz .page-today .toast.show { transition-duration: 180ms; }
+/* The tour card rides the hole's own curve. Canon animates the HOLE (:1753) and
+   gives the CARD no transition at all (:1757), so this is a rule to build
+   rather than one to restate. The mock's `step-fade` / `tour-fade` text
+   cross-fades (3105–3110) are SKIPPED: the product writes no such classes. */
+.biz .page-today .spot-card { transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1); }
+/* ⚖ V4-1 — the landing preview JUMPS lattice to lattice; the 120ms ease-out
+   softened the one thing the operator aims with, and nothing here softens it
+   again. The mock also carried `.drop-ghost { will-change: transform }` and this
+   slice built it, disclosed as inert — F-1 deletes it. Canon moves the ghost
+   with `left` / `width` (`.biz .drop-ghost`, the rule that gives it
+   `position: absolute` and `--x` / `--w`), never a transform, so the hint bought
+   a permanent compositor layer for a property the element never animates. Same
+   one-truth deletion slice ③ made with its own F-3. */
+
+/* ── R · Reduced motion — LAST, same selector shapes, no !important ───────── */
+
+/* ⚠ THE SHELL ALREADY OWNS THE DURATIONS, and this block does not fight it.
+   business-shell.css :681–683 sets `transition-duration: .01ms !important` on
+   `.biz *` under this very query, so every duration written below is already
+   .01ms before this block is read, and `!important` is forbidden in this layer
+   (rightly). What this block actually contributes is the TRANSFORMS — the
+   press scale, the card's press face, the two entrance transforms D-PR4-10
+   leaves standing — which no shell rule touches. The durations stay because they
+   are what the page MEANS: if the shell's blanket rule ever goes, these are the
+   answers.
+   ⚠ AND THE BLANKET DOES NOT REACH EVERYTHING. Read at source, the shell's rule
+   is `.biz *, .biz *::before, .biz *::after` — `::backdrop` is in none of the
+   three, and `transition` is not inherited from the originating element. So the
+   dialog's scrim is the ONE surface on this page whose reduced-motion answer has
+   to be written here rather than assumed; F-5 below is that line. (Dialog exits
+   need no answer at all any more: D-PR4-12 made them instant for everyone.) */
+@media (prefers-reduced-motion: reduce) {
+  .biz .page-today :is(.btn, .segmented button, .density-seg button, .register-cell.act, .ops-decisions,
+      .decision-card, .decision-row, .cal-cell, .guard-rail-cell, .cell-held,
+      .help-toggle, .online-chip, .cust-row, .course-row, .stepper button,
+      .time-nav > button, .time-nav > a, .cal-tools button, .cal-tools a, .park-x,
+      .spot-foot button, .toast-undo, .group-label, .biz-dialog .close, .inspector-close) {
+    transition: none;
+  }
+  .biz .page-today :is(.btn, .segmented button, .density-seg button, .register-cell.act, .ops-decisions,
+      .decision-card, .decision-row, .cal-cell, .guard-rail-cell, .cell-held,
+      .help-toggle, .online-chip, .cust-row, .course-row, .stepper button,
+      .time-nav > button, .time-nav > a, .cal-tools button, .cal-tools a, .park-x,
+      .spot-foot button, .toast-undo, .group-label, .biz-dialog .close, .inspector-close):active:not(:disabled):not([aria-disabled="true"]) {
+    transform: none;
+  }
+  /* ⚠ the lock toggle keeps its CENTRING. `translateY(-50%)` is layout, not
+     motion: `transform: none` here would drop the toggle 11px for every
+     reduced-motion reader, permanently. */
+  .biz .page-today .lock-toggle { transition: none; }
+  .biz .page-today .lock-toggle:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-50%); }
+  /* ①'s two dialog-row hover heads are 0,5,0 and need the same shape back. */
+  .biz .page-today .biz-dialog .cust-row:hover,
+  .biz .page-today .biz-dialog .course-row:hover { transition: none; }
+  /* ⚖ PR-3's L1 NOTE — R-6's card transition had no reduced-motion escape until
+     now, and neither did the press face. Same 0,3,0 / 0,5,0 shapes. */
+  .biz .page-today .event { transition: none; }
+  /* F-7 — mirrored at the SAME two shapes the press now uses. The old (0,6,0)
+     mirror went with the head it answered: at (0,6,0) it could not reach the new
+     (0,7,1) / (0,7,0) heads, so it would have been a reduced-motion answer that
+     answers nothing — the exact shape of bug F-7 itself. */
+  .biz .page-today button.event[data-cat]:not(.dragging):not(.resizing):active { filter: none; }
+  .biz .page-today .event.block:not(.dragging):not(.resizing):active,
+  .biz .page-today .event.cleanup:not(.dragging):not(.resizing):active { filter: none; }
+  /* D-PR4-10 — the three MEASURED surfaces never carry a transform now, in any
+     state, so their answer here is the duration alone; only `.cal-pop`, which
+     nothing measures, still has a scale to cancel. */
+  .biz .page-today .fields-pop,
+  .biz .page-today .hold-pop,
+  .biz .page-today .guard-pop { transition: opacity 100ms linear; }
+  .biz .page-today .cal-pop { transition: opacity 100ms linear; transform: none; }
+  .biz .page-today .hold-pop.pinned,
+  .biz .page-today .guard-pop.pinned { transform: translateX(-50%); }
+  .biz .page-today .inspector > * { transition: opacity 100ms linear; transform: none; }
+  .biz .page-today .biz-dialog,
+  .biz .page-today .biz-dialog[open] { transition: opacity 120ms linear; transform: none; }
+  /* F-5 — the scrim, the one surface the shell's blanket cannot reach (see the
+     ⚠ above). Without this line a reduced-motion reader got an instant dialog
+     over a backdrop still running the layer's 120ms / 180ms fade — the longest
+     fade left on the page, beside neighbours this very block answers at 100ms.
+     `.01ms` rather than `none`, so it matches what the shell gives everything
+     else instead of inventing a second convention. */
+  .biz .page-today .biz-dialog::backdrop,
+  .biz .page-today .biz-dialog[open]::backdrop { transition: opacity .01ms linear; }
+  .biz .page-today .toast { transition: opacity 120ms linear; }
+  .biz .page-today .spot-card { transition: none; }
+  /* The entrances, answered at the SAME selector shapes and written AFTER the
+     normal ones, which is what makes `!important` unnecessary. The pinned pair
+     keeps `translateX(-50%)` here too — it is centring, not travel. */
+  @starting-style {
+    .biz .page-today .fields-pop,
+    .biz .page-today .hold-pop,
+    .biz .page-today .guard-pop { opacity: 0; }
+    .biz .page-today .cal-pop { opacity: 0; transform: none; }
+    .biz .page-today .hold-pop.pinned,
+    .biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%); }
+    .biz .page-today .inspector > * { opacity: 0; transform: none; }
+    .biz .page-today .biz-dialog[open] { opacity: 0; transform: none; }
+    .biz .page-today .biz-dialog[open]::backdrop { opacity: 0; }
+  }
+}

@@ -28,10 +28,18 @@
  * So: if you edit the layer and only this file is green, the cascade has NOT
  * been re-proved — run the checker, or say in the PR that you did not.
  *
- * Territory's import fence: node specifiers only, so this is text on the file.
+ * Territory's import fence: node specifiers only, so this is text on the file —
+ * with ONE exception, added by G-1 and named here rather than left to be found.
+ * `@/business/lib/spring` is imported below, because the last pin in this file
+ * is not a claim about text at all: it DRIVES the real integrator at the frame
+ * length that breaks it. The fence exists to keep DOM renderers and testing
+ * libraries out of this folder; the spring is a pure module that reads no
+ * element, touches no `window` and is already on this screen's own sealed
+ * import inventory (foundation.test.ts). Nothing else crosses.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { makeSpring } from '@/business/lib/spring'
 
 const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
 const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
@@ -56,6 +64,17 @@ const LAYER_CODE = LAYER.replace(/\/\*[\s\S]*?\*\//g, '')
  * `{` and split on commas, so the fence sees what the browser sees. `@media`
  * heads are stepped INTO rather than counted; any other at-rule is skipped
  * whole.
+ *
+ * ⚖ C-7 (slice ④'s cold read) — AND `@starting-style` IS STEPPED INTO TOO.
+ * Slice ④ is the first to write one, and the old scanner skipped it WHOLE: the
+ * `i = j` below jumps an at-rule's entire body, so every selector inside
+ * `@starting-style { … }` walked past BOTH fences at once — the page fence and
+ * the shell-name fence — and a shell selector hidden in an entrance block would
+ * have shipped with nothing to catch it. Slice ④ also needs the nested
+ * `@media { @starting-style { … } }` form for its reduced-motion answers, so
+ * the counter is a GROUP depth now rather than a media depth: both group
+ * at-rules step in, both are closed by the same trailing-`}` walk, and a rule
+ * inside two of them is still read exactly once. Probed on decoys below.
  */
 const selectorsOf = (css: string): string[] => {
   // ⚖ GREPTILE G-3 — the scan is STRING-AWARE and PAREN-AWARE. Counting raw
@@ -100,13 +119,15 @@ const selectorsOf = (css: string): string[] => {
     return parts.map((x) => x.trim()).filter(Boolean)
   }
   let i = 0
-  let mediaDepth = 0
+  let groupDepth = 0
   while (i < css.length) {
     const brace = scanTo(i, (c) => c === '{')
     if (brace < 0) break
     const head = css.slice(i, brace).trim()
-    if (head.startsWith('@media')) {
-      mediaDepth += 1
+    // (C-7) the two group at-rules the layer writes: both hold ordinary style
+    // rules, so both are stepped into and neither may hide a selector.
+    if (head.startsWith('@media') || head.startsWith('@starting-style')) {
+      groupDepth += 1
       i = brace + 1
       continue
     }
@@ -120,11 +141,11 @@ const selectorsOf = (css: string): string[] => {
     }
     if (head && !head.startsWith('@')) out.push(...splitHead(head))
     i = j
-    while (mediaDepth > 0) {
+    while (groupDepth > 0) {
       const close = scanTo(i, (c) => !/\s/.test(c))
       if (close < 0 || css[close] !== '}') break
       i = close + 1
-      mediaDepth -= 1
+      groupDepth -= 1
     }
   }
   return out
@@ -185,6 +206,42 @@ describe('今日の運営 reskin layer — the append shape', () => {
     expect(selectorsOf(decoyNot)).toEqual(['.biz .page-today .x:not(.a, .b)'])
     expect(selectorsOf(decoyNot).filter((s) => !/^\.biz \.page(\.page-today|-today)(\s|$)/.test(s))).toEqual([])
   })
+
+  it('an `@starting-style` block cannot hide a selector from either fence (C-7)', () => {
+    // ⚖ C-7. Slice ④ is the first to write an entrance block, and the scanner
+    // used to skip every at-rule that is not `@media` WHOLE — body and all — so
+    // a shell selector inside one walked past the page fence and the shell-name
+    // fence together. Both shapes the layer actually writes are probed: the
+    // top-level entrance, and the reduced-motion one nested inside `@media`.
+    const decoyStart = [
+      '.biz .page-today .fields-pop { transition: opacity 140ms ease; }',
+      '@starting-style {',
+      '  .biz .page-today .fields-pop { opacity: 0; }',
+      '  .topbar .brand { opacity: 0; }',
+      '}',
+      '.biz .page-today .toast { transition: opacity 140ms ease; }',
+    ].join('\n')
+    expect(selectorsOf(decoyStart)).toEqual([
+      '.biz .page-today .fields-pop',
+      '.biz .page-today .fields-pop',
+      '.topbar .brand',
+      '.biz .page-today .toast',
+    ])
+    expect(selectorsOf(decoyStart).filter((s) => !/^\.biz \.page(\.page-today|-today)(\s|$)/.test(s))).toEqual(['.topbar .brand'])
+
+    // …and nested one level deeper, which is exactly the shape block R writes:
+    // the rule after the two closing braces must still be read, i.e. BOTH
+    // groups have to be closed by the trailing-`}` walk.
+    const decoyNested = [
+      '@media (prefers-reduced-motion: reduce) {',
+      '  @starting-style {',
+      '    .sidebar .x { transform: none; }',
+      '  }',
+      '}',
+      '.biz .page-today .spot-card { transition: none; }',
+    ].join('\n')
+    expect(selectorsOf(decoyNested)).toEqual(['.sidebar .x', '.biz .page-today .spot-card'])
+  })
 })
 
 describe('今日の運営 reskin layer — the seeds', () => {
@@ -209,7 +266,7 @@ describe('今日の運営 reskin layer — the seeds', () => {
     expect(INT).toContain('export const LABEL_MAX = 240')
   })
 
-  it('the page root declares the four tokens slice ① consumes, and no others', () => {
+  it('the page root declares exactly the tokens the layer consumes, and no others', () => {
     // ⚖ GREPTILE G-1 — three tokens (--control / --line / --line-2) were removed
     // from PR-1's block because nothing in PR-1 read them; leaving them in
     // repainted 22 toolbar/popover/dialog borders and both hairlines of the
@@ -223,6 +280,12 @@ describe('今日の運営 reskin layer — the seeds', () => {
     // construction. PR-4 declares it, with `--line`, and owns the map. The pin
     // still reads EVERY `.biz .page.page-today` block, because the layer is
     // append-only and a later slice adds a second one rather than editing this.
+    // ⚖ SLICE ④ — and that is what happened: the ladder is SIX now. `--control`
+    // and `--line` are declared in ④'s own page-root block, with the 22-reader
+    // map in its comment, because ④ owns the dialogs, the tour, the toast and
+    // the segmented track — most of what the pair paints. `--line-2` is still
+    // declared by nobody: its only two readers (:1271 / :1463) are the ruled H2
+    // warn face. The list below is the whole ladder, not this slice's half.
     const ROOT = '.biz .page.page-today {'
     const blocks: string[] = []
     for (let at = LAYER_CODE.indexOf(ROOT); at > -1; at = LAYER_CODE.indexOf(ROOT, at + 1)) {
@@ -230,13 +293,18 @@ describe('今日の運営 reskin layer — the seeds', () => {
     }
     expect(blocks.length).toBeGreaterThan(0)
     const declared = blocks.flatMap((b) => b.split(';').map((d) => d.split(':')[0].trim()).filter(Boolean))
-    expect([...new Set(declared.filter((d) => d.startsWith('--')))].sort()).toEqual(['--card', '--muted', '--row', '--section'])
+    expect([...new Set(declared.filter((d) => d.startsWith('--')))].sort()).toEqual([
+      '--card', '--control', '--line', '--muted', '--row', '--section',
+    ])
     // The page root's non-token declarations, across every block including the
     // two inside media queries: the canvas, its gutters, and the 1760px cap.
     expect([...new Set(declared.filter((d) => !d.startsWith('--')))].sort()).toEqual(['background', 'margin', 'max-width', 'padding'])
-    // …and nowhere else in the layer either — a page-scoped rule further down
-    // would reach exactly the same descendants (the delta lens's MXb mutant).
-    expect(LAYER_CODE).not.toMatch(/--(control|line|line-2)\s*:/)
+    // …and `--line-2` nowhere else in the layer either — a page-scoped rule
+    // further down would reach exactly the same descendants (the delta lens's
+    // MXb mutant). ⚖ SLICE ④ narrowed this from the three names to the ONE that
+    // no PR may ever declare: the other two now live in ④'s page-root block,
+    // and the token-set pin above is what holds THEM to one home.
+    expect(LAYER_CODE).not.toMatch(/--line-2\s*:/)
   })
 
   it('the two tint calibrations keep their grammar and change only the paint', () => {
@@ -332,12 +400,20 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
     // excluding the pressed state, however it is spelled.
     expect(LAYER_CODE).toContain('.biz .page-today .fields-pop .density-seg button:not([aria-pressed="true"]):hover { background: #f1f3f7; }')
     expect(LAYER_CODE).not.toMatch(/\.density-seg button(?!:not\(\[aria-pressed="true"\]\)):hover/)
-    // ⚖ FIX ROUND 1 (L1 #1) — and the family stays in the 表示設定 popover.
-    // Nine controls on this page wear `.density-seg`; six are dialog controls
-    // PR-4 owns, and the first version restyled all nine. Every rule the layer
-    // writes for this control must go through `.fields-pop`.
+    // ⚖ FIX ROUND 1 (L1 #1) — and the family stays IN A ROOM. Nine controls on
+    // this page wear `.density-seg`: three are the 表示設定 popover's (②'s) and
+    // six are dialog controls (④'s, rider (k)). ②'s first version restyled all
+    // nine and the ruling is that a slice paints its own room, so every rule
+    // that PAINTS this family goes through `.fields-pop` or `.biz-dialog`.
+    // ⚖ SLICE ④ — with ONE named exception, and it is named rather than left as
+    // a hole: the press family declares `transition` / `transform` and nothing
+    // else. Motion is not paint, all nine groups press the same way, and
+    // scoping the entry would drag `.fields-pop .density-seg button`'s 0,2,1
+    // into the `:is()` and raise the whole family's specificity for every other
+    // member. So the exception is exactly the bare `.density-seg button` entry
+    // inside an `:is()` list, and any other unroomed spelling still fails.
     for (const m of LAYER_CODE.match(/[^\n]*\.density-seg[^\n]*/g) ?? []) {
-      expect(m).toContain('.fields-pop .density-seg')
+      expect(m).toMatch(/\.fields-pop \.density-seg|\.biz-dialog \.density-seg|^\s*\.biz \.page-today :is\(\.btn, \.segmented button, \.density-seg button,/)
     }
   })
 
@@ -391,8 +467,11 @@ describe('今日の運営 reskin layer — slice ③ (money bar · card faces ·
     // canon's own `--label`, which the layer only re-seeds on `.timeline`.
     // (`var(--x)` is a READ and has no colon after the name, so this matches
     // declarations only.)
+    // ⚖ SLICE ④ — the ladder gained `--control` and `--line` in ④'s own block,
+    // which is the ruled home for the pair; this slice still declares none of
+    // its own, which is what the assertion above and this list together say.
     const declared = [...new Set(LAYER_CODE.match(/--[a-z0-9-]+(?=\s*:)/g) ?? [])].sort()
-    expect(declared).toEqual(['--card', '--label', '--muted', '--row', '--section'])
+    expect(declared).toEqual(['--card', '--control', '--label', '--line', '--muted', '--row', '--section'])
   })
 
   it('the 清掃 and 無断キャンセル hatches survive the card faces', () => {
@@ -526,5 +605,351 @@ describe('今日の運営 reskin layer — slice ③ (money bar · card faces ·
     // canon's own 32px pair is still canon's — the layer beats it on
     // specificity (0,3,0 over 0,2,0), it does not edit it.
     expect(CSS.indexOf(HEADER)).toBeGreaterThan(CSS.indexOf('.biz .time-head { min-height: 32px; border-bottom: 1px solid var(--section); }'))
+  })
+})
+
+describe('今日の運営 reskin layer — slice ④ (motion · the sliding thumb)', () => {
+  /** The press family's `:is()` list, taken from the sheet rather than retyped —
+   *  three rules share it (base, `:active`, and the reduced-motion pair) and a
+   *  pin that retyped it would pass while the three drifted apart. */
+  const isLists = (LAYER_CODE.match(/:is\(\.btn,[\s\S]*?\)/g) ?? []).map((s) => s.replace(/\s+/g, ' '))
+
+  it('is four blocks, in order, after slice ③', () => {
+    const heads = ['── T · The page', '── S · The segmented control', '── M · Motion', '── R · Reduced motion']
+    for (const h of heads) {
+      expect(LAYER.indexOf(h)).toBeGreaterThan(-1)
+      expect(LAYER.split(h)).toHaveLength(2)
+    }
+    expect(LAYER.indexOf(heads[0])).toBeGreaterThan(LAYER.indexOf('── R-7 · Time axis'))
+    expect(LAYER.indexOf(heads[1])).toBeGreaterThan(LAYER.indexOf(heads[0]))
+    expect(LAYER.indexOf(heads[2])).toBeGreaterThan(LAYER.indexOf(heads[1]))
+    expect(LAYER.indexOf(heads[3])).toBeGreaterThan(LAYER.indexOf(heads[2]))
+    // …and REDUCED MOTION IS LAST, of the whole layer and not just of ④. A
+    // reduced answer that some later rule stands after is not an answer: at
+    // equal specificity the later rule wins, which is the entire reason this
+    // block needs no `!important`. Pinned by BALANCING its braces and requiring
+    // nothing but whitespace after them, so an appended rule is caught wherever
+    // it lands.
+    expect(LAYER_CODE.split('@media (prefers-reduced-motion: reduce)')).toHaveLength(2)
+    const at = LAYER_CODE.indexOf('@media (prefers-reduced-motion: reduce)')
+    expect(at).toBeGreaterThan(-1)
+    let depth = 0
+    let end = -1
+    for (let k = LAYER_CODE.indexOf('{', at); k < LAYER_CODE.length; k += 1) {
+      if (LAYER_CODE[k] === '{') depth += 1
+      else if (LAYER_CODE[k] === '}') {
+        depth -= 1
+        if (depth === 0) { end = k; break }
+      }
+    }
+    expect(end).toBeGreaterThan(-1)
+    expect(LAYER_CODE.slice(end + 1).trim()).toBe('')
+    expect(selectorsOf(LAYER_CODE.slice(at)).length).toBeGreaterThan(10)
+  })
+
+  it('the three press rules share ONE list, and it names no shell selector and no card', () => {
+    // The list is written three times (base · `:active` · the reduced pair, which
+    // repeats it twice), so the pin is that they are the SAME text. A member
+    // added to one and not the others is the failure this catches. (Whitespace
+    // is normalised first: two of the four sit inside the media block and carry
+    // its indent, and an indent is not a member.)
+    expect(isLists).toHaveLength(4)
+    expect(new Set(isLists).size).toBe(1)
+    // `.event` is NOT a member: the mock gave cards their own no-scale path, and
+    // a scaling card is the one thing this family may never do.
+    expect(isLists[0]).not.toMatch(/\.event(?![\w-])/)
+    // the shell entries the mock's own list carries and this page may not own
+    for (const shell of ['.nav a', '.rail-toggle', '.store-context']) {
+      expect(isLists[0]).not.toContain(shell)
+    }
+    // ⚖ C-1 — `.close` is TEN elements here (nine dialogs + the inspector's at
+    // TodayScreen :6924), so both are named by their ROOM and the bare `.close`
+    // — a shell name — never appears.
+    expect(isLists[0]).toContain('.biz-dialog .close')
+    expect(isLists[0]).toContain('.inspector-close')
+    expect(isLists[0]).not.toMatch(/[(,]\s*\.close[,)]/)
+    // ⚖ C-5 — ②'s ruled CHILD form, never the mock's descendant one: the
+    // descendant version reaches every calendar day cell, which ② measured at
+    // 1537 computed differences, and all of those controls are named separately
+    // in this list anyway.
+    expect(isLists[0]).toContain('.time-nav > button')
+    expect(isLists[0]).toContain('.time-nav > a')
+    expect(LAYER_CODE).not.toMatch(/\.time-nav (button|a)[\s,{:.]/)
+    // ⚖ C-2 — and the lock toggle is NOT a member. It is centred with canon's
+    // `transform: translateY(-50%)` (:372), so the family's bare `scale(.97)`
+    // would replace the centring and drop it 11px on every press.
+    expect(isLists[0]).not.toContain('.lock-toggle')
+    expect(LAYER_CODE).toContain('.biz .page-today .lock-toggle:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-50%) scale(.97); transition-duration: 100ms; }')
+  })
+
+  it('the lock toggle keeps its centring under reduced motion — never `none`', () => {
+    // The whole reason it left the family. `transform: none` here is not 「no
+    // motion」, it is 「11px lower, for every reduced-motion reader, forever」.
+    const reduced = LAYER_CODE.slice(LAYER_CODE.indexOf('@media (prefers-reduced-motion: reduce)'))
+    expect(reduced).toContain('.biz .page-today .lock-toggle:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-50%); }')
+    expect(reduced).not.toMatch(/\.lock-toggle:active[^{]*\{ transform: none/)
+  })
+
+  it('a card in a gesture never takes the press face either', () => {
+    // The same law ③'s hover heads obey, on the new axis: the proxy is
+    // `pointer-events: none` so the pointer sits on the ⚖ flag-19 husk for a
+    // whole move, and the resize grips live inside the card so it sits on the
+    // `.resizing` card for a whole resize. Pinned as a RULE over every `.event`
+    // `:hover` OR `:active` head the layer writes, however it is spelled.
+    const heads = selectorsOf(LAYER_CODE).filter((s) => /\.event(?![\w-])[^{]*(:hover|:active)/.test(s))
+    expect(heads.length).toBeGreaterThan(5)
+    for (const s of heads) {
+      for (const guard of [':not(.dragging)', ':not(.resizing)']) {
+        expect(s).toContain(guard)
+        expect(s.indexOf(guard)).toBeLessThan(Math.max(s.indexOf(':hover'), s.indexOf(':active')))
+      }
+    }
+    // …and the press face is a FILTER, never a scale: a scaling card would
+    // re-draw its own lane geometry under the operator's finger.
+    expect(LAYER_CODE).not.toMatch(/\.event[^{]*:active[^}]*transform:\s*scale/)
+    // ⚖ F-7 — AND THE PRESS HEADS ARE ③'s HOVER SHAPES, which is the whole fix.
+    // A mouse press is always also a hover, so a press head that does not
+    // out-specify ③'s `filter: none` hover heads never paints. Pinned as the
+    // PAIR, at the two shapes ③ wrote, and as a RULE: no `:active` head on a
+    // card may be weaker than the `:hover` head that answers the same family.
+    expect(LAYER_CODE).toContain('.biz .page-today button.event[data-cat]:not(.dragging):not(.resizing):active { filter: brightness(.97); }')
+    expect(LAYER_CODE).toContain('.biz .page-today .event.block:not(.dragging):not(.resizing):active,\n.biz .page-today .event.cleanup:not(.dragging):not(.resizing):active { filter: brightness(.97); }')
+    // the generic (0,6,0) head is GONE: its only live target was
+    // `<span class="event absence" role="note">`, which is not pressable.
+    expect(LAYER_CODE).not.toContain('.biz .page-today .event:not(.dragging):not(.resizing):active')
+    // every card `:active` head carries a qualifier that lifts it past a bare
+    // `.event…:hover` — either the `button…[data-cat]` shape or a state class.
+    for (const s of selectorsOf(LAYER_CODE).filter((x) => /\.event(?![\w-])[^{]*:active/.test(x))) {
+      expect(s).toMatch(/button\.event\[data-cat\]|\.event\.(block|cleanup)/)
+    }
+  })
+
+  it('nothing transitions the four properties a gesture writes every frame', () => {
+    // `left` / `top` / `width` / `height` are what the drag, the resize and the
+    // `--label` handle write directly; a transition on any of them turns a
+    // 1:1 gesture into a lagging one.
+    for (const rule of LAYER_CODE.split('}')) {
+      if (!/transition\s*:/.test(rule)) continue
+      if (!/\.event(?![\w-])|\.drag-proxy|\.label-resize|\.track(?![\w-])/.test(rule)) continue
+      expect(rule).not.toMatch(/transition\s*:[^;]*\b(left|top|width|height)\b/)
+    }
+  })
+
+  it('the pinned answers stay centred — at rest, entering, and under reduced motion', () => {
+    // canon centres both with `translateX(-50%)` (:1029 / :1176). The entrance
+    // declares a transform, so every place that declares one has to carry the
+    // centring too or the pill slides in from half its own width off-centre.
+    const pinned = '.biz .page-today .hold-pop.pinned,\n.biz .page-today .guard-pop.pinned { transform: translateX(-50%); }'
+    expect(LAYER_CODE).toContain(pinned)
+    expect(LAYER_CODE).toContain('.biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%); }')
+    const reduced = LAYER_CODE.slice(LAYER_CODE.indexOf('@media (prefers-reduced-motion: reduce)'))
+    expect(reduced).toContain('.biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%); }')
+    // …and canon's own two lines are untouched above the header.
+    expect(CSS.indexOf(HEADER)).toBeGreaterThan(CSS.indexOf('.biz .guard-pop.pinned { left: 50%; bottom: 18px; top: auto; transform: translateX(-50%); }'))
+  })
+
+  it('every entrance has a reduced-motion answer at the same shape', () => {
+    // The answers are ordering, not `!important`: same selectors, written later.
+    // ⚠ The DURATIONS below are documentary — business-shell.css :681-683 already
+    // sets `transition-duration: .01ms !important` on `.biz *` under this query.
+    // What this block really contributes is the transforms, which is what these
+    // pins hold.
+    const reduced = LAYER_CODE.slice(LAYER_CODE.indexOf('@media (prefers-reduced-motion: reduce)'))
+    expect(reduced).not.toContain('!important')
+    for (const sel of ['.fields-pop', '.cal-pop', '.hold-pop', '.guard-pop', '.inspector > *', '.biz-dialog', '.toast', '.spot-card', '.event']) {
+      expect(reduced).toContain(`.biz .page-today ${sel}`)
+    }
+    // both `@starting-style` blocks exist, and the reduced one is the later of
+    // the two — which is the whole mechanism.
+    const starts = [...LAYER_CODE.matchAll(/@starting-style/g)].map((m) => m.index ?? -1)
+    expect(starts.length).toBeGreaterThanOrEqual(4)
+    expect(reduced).toContain('@starting-style')
+    expect(starts[starts.length - 1]).toBeGreaterThan(LAYER_CODE.indexOf('@media (prefers-reduced-motion: reduce)'))
+  })
+
+  it('the thumb is wired the way SettingsScreen wires its own', () => {
+    // TEXT pins, because the territory's import fence keeps a DOM renderer out
+    // of this folder — the BEHAVIOURAL proof (mount, press スタッフ, watch the
+    // transform travel, reduced = one frame) lives outside the repo in
+    // build/harness/today-thumb.harness.test.tsx and is filed as evidence.
+    const SRC_CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    // ONE decorative element, and it is the FIRST child of the group — the
+    // thumb paints under the labels, so it may not come after them.
+    expect((SRC_CODE.match(/<i className="seg-thumb" aria-hidden="true" ref=\{segThumbRef\} \/>/g) ?? [])).toHaveLength(1)
+    const group = SRC_CODE.slice(SRC_CODE.indexOf('aria-label="ボード表示"'))
+    expect(group.indexOf('<i className="seg-thumb"')).toBeLessThan(group.indexOf('.map('))
+    expect(group.indexOf('ref={segWrapRef}')).toBeLessThan(group.indexOf('<i className="seg-thumb"'))
+    // THE EPSILON IS THE BOARD'S (`.3`, the mock's, finer than SettingsScreen's
+    // `.4`); THE RESPONSE IS THE FAMILY'S `.3` and may not go back to the mock's
+    // `.22` — the shared integrator's clamped step diverges there (G-1, and the
+    // behavioural pin below drives it rather than reading it).
+    expect((SRC_CODE.match(/\{ response: 0\.3, damping: 1\.0, eps: 0\.3, reduced \}/g) ?? [])).toHaveLength(2)
+    // reduced motion comes from the screen's own reader, never a second one.
+    expect(SRC_CODE).toContain('const reduced = holdReduced()')
+    // both springs are stopped on unmount, and the old pair is stopped before a
+    // rebuild — `makeSpring` captures `reduced` at construction, so a spring
+    // that is never rebuilt is a spring that lies.
+    expect(SRC_CODE).toContain('return () => { segX.current?.stop(); segW.current?.stop() }')
+    expect(SRC_CODE).toContain('segX.current?.stop()\n    segW.current?.stop()')
+    // the resize re-seat is added AND removed
+    expect(SRC_CODE).toContain("window.addEventListener('resize', reseat)")
+    expect(SRC_CODE).toContain("window.removeEventListener('resize', reseat)")
+    // the cleanup also drops the published seat, so a `fonts.ready` that lands
+    // after unmount cannot call into a dead tree
+    expect(SRC_CODE).toContain('segSeatRef.current = null')
+    // first layout jumps, later layouts travel
+    expect(SRC_CODE).toContain('segX.current!.jump(x)')
+    expect(SRC_CODE).toContain('segX.current!.set(x)')
+    // nothing pressed → no thumb at all
+    expect(SRC_CODE).toContain("if (!on) { thumb.style.opacity = '0'; return }")
+    // ⚖ F-3 — and the seat runs again when the Japanese face lands. Without it
+    // the thumb sits at pre-font geometry until a press or a resize, on a board
+    // left open all day. Two siblings already carry this line.
+    // ⚠ AND IT MUST NOT LIVE IN THE SEAT EFFECT. `fonts.ready` stays resolved
+    // once the font has loaded, so a registration keyed on `[view, segReduced]`
+    // fires a microtask `jump` on EVERY tab press and cancels the travel that
+    // press just started — the thumb stops animating for the rest of the
+    // session. Both siblings scope it to an effect selection does not re-run;
+    // this pins that the seat is published to a ref and the wait is mount-only.
+    expect(SRC_CODE).toContain('document.fonts?.ready?.then(() => segSeatRef.current?.(true)).catch(() => {})')
+    expect(SRC_CODE).toContain('segSeatRef.current = seat')
+    // the wait sits in the `[]` effect — the one that also stops the springs
+    const fontsAt = SRC_CODE.indexOf('document.fonts?.ready')
+    const stopAt = SRC_CODE.indexOf('return () => { segX.current?.stop(); segW.current?.stop() }')
+    expect(fontsAt).toBeGreaterThan(-1)
+    expect(stopAt).toBeGreaterThan(fontsAt)
+    expect(SRC_CODE.slice(fontsAt, stopAt)).not.toContain('useEffect')
+    // …and NOT in the effect keyed on the selection
+    const seatEffect = SRC_CODE.slice(SRC_CODE.indexOf('const seat = (instant: boolean)'), SRC_CODE.indexOf('}, [view, segReduced])'))
+    expect(seatEffect).not.toContain('document.fonts')
+    // ⚖ W10 (H-d) — THE FIRST SEAT JUMPS. `seat(false)` must still jump the
+    // first time, or the thumb travels in from the left edge on page load —
+    // the one animation this board is not allowed to have. The condition IS
+    // the behaviour, so the condition is what is pinned.
+    expect(SRC_CODE).toContain('if (instant || !segSeated.current) {')
+  })
+
+  it('the thumb\'s springs do not diverge on the shared integrator\'s 1/30 s step (G-1)', () => {
+    // ⚖ G-1 — Greptile's P1 on #879, upheld. Every other pin in this file reads
+    // text; this one DRIVES `spring.ts` itself, because the defect it guards is
+    // not visible in any string: `response: 0.22` is a perfectly ordinary-looking
+    // number that makes the integrator BLOW UP at the one frame length it clamps
+    // to. `makeSpring` clamps `dt` to 1/30 s and steps with semi-implicit Euler,
+    // so at critical damping it is stable only while `2π·dt/response < 0.828`;
+    // 0.22 sits at 0.95 (eigenvalues 0.63 / −1.44 — sign-flipping growth), 0.3
+    // at 0.70. The clamp is reached by any frame of 33 ms or more: a 30 Hz
+    // display, the first frame after a background tab wakes, this board's own
+    // heavy drag frames. So: read what the screen actually passes, then run it.
+    const SRC_CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    const calls = [...SRC_CODE.matchAll(/segGeom\.current\.[xw] = v; paint\(\) \}, \{ response: ([\d.]+), damping: [\d.]+, eps: ([\d.]+), reduced \}/g)]
+    expect(calls).toHaveLength(2)
+    for (const [, response, eps] of calls) {
+      // 0.26 is where the family's own press value lands (a = 0.805, λ = −0.92):
+      // stable, but only just. Anything below it is a spring that can diverge.
+      expect(Number(response)).toBeGreaterThanOrEqual(0.26)
+      // …and the same numbers, driven. 90 frames handed to the spring exactly
+      // 1000/30 ms apart — the clamp's own step, and the worst case the clamp
+      // was written for. `raf`/`cancel` are injected, so no timer runs and the
+      // frames are ours; `reduced: false`, or `set` would land instantly and
+      // prove nothing.
+      const STEP = 1000 / 30
+      const TARGET = 120
+      let queued: ((t: number) => void) | null = null
+      let rested: number | null = null
+      const seen: number[] = []
+      const s = makeSpring((v) => seen.push(v), {
+        response: Number(response),
+        damping: 1.0,
+        eps: Number(eps),
+        reduced: false,
+        raf: (cb) => { queued = cb; return 1 },
+        cancel: () => { queued = null },
+        onRest: (v) => { rested = v },
+      })
+      s.set(TARGET)
+      let frames = 0
+      // ⚠ the first timestamp is deliberately NOT 0: `frame` seeds `last` with
+      // `if (!last) last = t`, so a run starting at t=0 would seed twice and
+      // hand the second frame a dt of 0 as well.
+      while (queued && frames < 90) {
+        const cb: (t: number) => void = queued
+        queued = null
+        cb(1000 + frames * STEP)
+        frames += 1
+      }
+      // it ARRIVED — a diverging spring never satisfies the rest test, so it
+      // would still be queued at frame 90 with `onRest` never called
+      expect(rested).toBe(TARGET)
+      expect(frames).toBeLessThan(90)
+      // …and it never threw itself past the far side on the way. The travel is
+      // 0 → 120, so 130 allows a 10px overshoot and nothing like a divergence:
+      // at 0.22 the fourth frame alone lands 147px away and then doubles.
+      for (const v of seen) expect(Math.abs(v - TARGET)).toBeLessThanOrEqual(130)
+    }
+  })
+
+  it('the entrances of the three surfaces that measure themselves carry no scale (F-2)', () => {
+    // ⚖ D-PR4-10. `.fields-pop` (with its `.sell-shelf` / `.help-pop` variants),
+    // `.hold-pop` and `.guard-pop` have their placement computed from their OWN
+    // `getBoundingClientRect()` on the mount commit — and a starting transform
+    // IS in that box (measured: 276.48 vs 288, 368.60 vs 380, 252.20 vs 260).
+    // So their starting rules may declare `opacity` and, for `.pinned`, the
+    // centring translate — nothing else. `.cal-pop`, which nothing measures,
+    // keeps its scale, so this is not a blanket ban on entrance transforms.
+    const starts = [...LAYER_CODE.matchAll(/@starting-style\s*\{/g)].map((m) => m.index ?? -1)
+    expect(starts.length).toBeGreaterThanOrEqual(4)
+    for (const at of starts) {
+      // the block's own body, brace-balanced
+      let depth = 0
+      let end = -1
+      for (let k = LAYER_CODE.indexOf('{', at); k < LAYER_CODE.length; k += 1) {
+        if (LAYER_CODE[k] === '{') depth += 1
+        else if (LAYER_CODE[k] === '}') { depth -= 1; if (depth === 0) { end = k; break } }
+      }
+      expect(end).toBeGreaterThan(-1)
+      const body = LAYER_CODE.slice(at, end)
+      for (const rule of body.split('}')) {
+        if (!/transform\s*:/.test(rule)) continue
+        const measured = /\.fields-pop|\.hold-pop|\.guard-pop/.test(rule)
+        if (!measured) continue
+        // the only transform a measured surface may start with is the centring
+        expect(rule).toMatch(/transform:\s*translateX\(-50%\);/)
+        expect(rule).not.toMatch(/scale\(|translateY\(/)
+      }
+    }
+    // and their transition lists no longer name `transform` at all
+    expect(LAYER_CODE).toContain('.biz .page-today .fields-pop {\n  transition: opacity 140ms cubic-bezier(.2, .7, .2, 1);\n}')
+    expect(LAYER_CODE).toContain('.biz .page-today .guard-pop { transition: opacity 120ms ease-out; }')
+    // `.cal-pop` keeps its own scale — nothing measures it (no ref in the screen)
+    expect(LAYER_CODE).toContain('.biz .page-today .cal-pop { opacity: 0; transform: scale(.96); }')
+  })
+
+  it('the dialogs enter and leave the way the popovers do (F-6), and the scrim has a reduced answer (F-5)', () => {
+    // ⚖ D-PR4-12 — `overlay … allow-discrete` kept a CLOSED dialog painted and
+    // hit-testable for 120ms while no longer being modal, and stacked a visible
+    // ghost under the next dialog's backdrop on this screen's two
+    // `close(); showModal()` hops. Exits are instant now, as every popover's is.
+    expect(LAYER_CODE).not.toContain('allow-discrete')
+    expect(LAYER_CODE).not.toContain('overlay ')
+    // the entrance itself is untouched
+    expect(LAYER_CODE).toContain('.biz .page-today .biz-dialog[open] { opacity: 1; transform: scale(1); transition-duration: 180ms; }')
+    expect(LAYER_CODE).toContain('.biz .page-today .biz-dialog[open] { opacity: 0; transform: scale(.96); }')
+    // ⚖ F-5 — the scrim is the one surface the shell's blanket cannot reach:
+    // that rule is `.biz *, .biz *::before, .biz *::after`, and `::backdrop` is
+    // none of the three (nor does `transition` inherit onto it).
+    const reduced = LAYER_CODE.slice(LAYER_CODE.indexOf('@media (prefers-reduced-motion: reduce)'))
+    expect(reduced).toContain('.biz .page-today .biz-dialog::backdrop,\n  .biz .page-today .biz-dialog[open]::backdrop { transition: opacity .01ms linear; }')
+  })
+
+  it('the selected tab is legible before the thumb exists (F-4), and the ghost buys nothing (F-1)', () => {
+    // ⚖ D-PR4-11 — the thumb is placed by a `useLayoutEffect` inside an
+    // 8,000-line client component, so there is no pill until hydration. Weight
+    // carries the selection until then, exactly as `settings.css` does for its
+    // own pressed option.
+    expect(LAYER_CODE).toContain('.biz .page-today .segmented button[aria-pressed="true"] {\n  background: transparent;\n  color: var(--select-ink);\n  box-shadow: none;\n  font-weight: 700;\n}')
+    // ⚖ F-1 — canon moves the ghost with `left` / `width`, never a transform,
+    // so `will-change: transform` bought a permanent compositor layer for a
+    // property the element never animates.
+    expect(LAYER_CODE).not.toContain('will-change')
   })
 })

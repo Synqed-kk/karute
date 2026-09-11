@@ -2433,8 +2433,16 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // Liam photographed. The invariant is what it always was: ONE door, and
     // every walk through it named. This one is named here and anchored to the
     // memo it lives in.
-    expect(SRC.split('bedViewsFor(').length - 1).toBe(4)
+    //
+    // ⚠ MIGRATED AGAIN at LIVE-DRAG PR-A, 4 → 5: the fifth walk is `bookFor`'s
+    // own (⚖ M-5 — one book per shuffled board; `FOREIGN_BOOKS` keeps one
+    // record per board array). At this commit nothing calls `bookFor` yet —
+    // PR-B's two doors will, and PR-B re-pins the count at 3 once those doors
+    // go through it. Named here so the invariant (one door, every walk named)
+    // holds at every commit on main.
+    expect(SRC.split('bedViewsFor(').length - 1).toBe(5)
     expect({ liftedWalk: pinnedLines(SRC, ': bedViewsFor(lanes, ledgerFrame, excludeId).worldMinusHand') }).toEqual({ liftedWalk: 1 })
+    expect({ bookForWalk: pinnedLines(SRC, 'const views = bedViewsFor(lanes, frame, liftedId)') }).toEqual({ bookForWalk: 1 })
     expect(SRC).not.toContain('bedViewsFor(committedLanes')
     expect(SRC).toContain('gateOn: SELLING_ENGINE_LAW,')
     expect(SRC).toContain('bookOf: bedViewsFor,')
@@ -11208,6 +11216,7 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // else, and named in `foundation.test.ts`'s sealed inventory with the same
     // reason.
     "import { settingsHref } from '@/business/lib/settings-link'",
+    "import { makeSpring } from '@/business/lib/spring'",
     "import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'",
     // ⚖ two entries below are split with `+` at the SAME runtime value —
     // business-isolation.test.ts (phone-safety lock 3) scans raw TEXT for
