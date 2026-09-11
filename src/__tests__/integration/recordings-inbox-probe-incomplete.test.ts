@@ -216,3 +216,30 @@ describe('probeIncomplete — P1-1 a degraded discard ledger', () => {
     warn.mockRestore()
   })
 })
+
+describe('probeIncomplete — P3-11 truncated reads', () => {
+  it('a truncated karute-records read marks every record-less row; the readable, complete control marks none', async () => {
+    recordings.current = [rec({ id: 's0' })]
+
+    // Control: readable, complete karute-records read.
+    const [controlRow] = await read()
+    expect(controlRow.probeIncomplete).toBeUndefined()
+
+    // Truncated: `total` claims far more than 50 pages of 1 item each can
+    // return, so paginateDedupe stops at its own page cap with byId.size <
+    // total — the same "records read truncated" the lens flagged as a false
+    // miss (a dropped record makes a saved session look record-less).
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    ;(client.karuteRecords.list as jest.Mock).mockImplementation(async (opts: { page: number }) => ({
+      karute_records: [{ id: `kr-${opts.page}`, recording_session_id: 'nonexistent' }],
+      total: 100_000,
+    }))
+    const [truncatedRow] = await read()
+    expect(truncatedRow.probeIncomplete).toBe(true)
+    // P3-11's other half: the read names itself instead of falling back to
+    // the paginateDedupe default ('customers cache'), which the lens found
+    // pointed triage at the wrong subsystem.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('recordings inbox records'))
+    warn.mockRestore()
+  })
+})

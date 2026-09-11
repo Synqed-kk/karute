@@ -319,16 +319,35 @@ export async function readRecordingsInbox({
 }: InboxReadDeps): Promise<InboxServerSession[]> {
   const from = new Date(now.getTime() - INBOX_WINDOW_MS).toISOString()
 
+  // P3-11: neither call named itself, so a truncated page fell back to
+  // paginateDedupe's 'customers cache' default and pointed triage at the
+  // wrong subsystem. A truncated records read is also worse than a log line:
+  // a dropped karute record makes a saved session look record-less (a false
+  // miss), and a truncated sessions read means the window itself isn't whole
+  // — either one marks every record-less row below.
+  let readTruncated = false
+  const onTruncated = () => {
+    readTruncated = true
+  }
+
   const [sessions, records, discardLedger] = await Promise.all([
-    paginateDedupe((page) =>
-      synqed.recordings
-        .list({ ...(staffId !== null ? { staff_id: staffId } : {}), from, page, page_size: PAGE_SIZE })
-        .then((r) => ({ items: r.recordings, total: r.total })),
+    paginateDedupe(
+      (page) =>
+        synqed.recordings
+          .list({ ...(staffId !== null ? { staff_id: staffId } : {}), from, page, page_size: PAGE_SIZE })
+          .then((r) => ({ items: r.recordings, total: r.total })),
+      50,
+      'recordings inbox sessions',
+      onTruncated,
     ),
-    paginateDedupe((page) =>
-      synqed.karuteRecords
-        .list({ from, page, page_size: PAGE_SIZE })
-        .then((r) => ({ items: r.karute_records, total: r.total })),
+    paginateDedupe(
+      (page) =>
+        synqed.karuteRecords
+          .list({ from, page, page_size: PAGE_SIZE })
+          .then((r) => ({ items: r.karute_records, total: r.total })),
+      50,
+      'recordings inbox records',
+      onTruncated,
     ),
     readStaffDiscardedSessions(synqed),
   ])
@@ -360,6 +379,13 @@ export async function readRecordingsInbox({
     jobLastError: null,
     discardedByStaff: discardLedger.discarded.has(s.id),
   }))
+
+  // P3-11: a truncated sessions or records page means this pass cannot swear
+  // to any record-less row — mark them all, same idiom as the degraded-ledger
+  // branch below.
+  if (readTruncated) {
+    for (const r of rows) if (!r.karuteRecordId) r.probeIncomplete = true
+  }
 
   // Residue = the only sessions whose job state can still matter.
   const residue = rows
