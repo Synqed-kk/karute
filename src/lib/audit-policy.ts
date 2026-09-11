@@ -76,11 +76,13 @@ export const AUDIT_ACTIONS = [
   'recording.capture_resumed',
   'recording.capture_unlinked',
   'recording.discard',
+  'recording.karute_missing',
   'recording.play',
   'recording.session_cleanup',
   'recording.take_named',
   'recording.transcribe',
   'recording.transcribe_refused',
+  'recording.transcribe_storm',
   'settings.menu_create',
   'settings.menu_reactivate',
   'settings.menu_retire',
@@ -157,6 +159,27 @@ export const AUDITED_CORES: {
   // real writer is provably covered, not left off as "not required."
   { file: 'src/lib/auth/pin-throttle.ts', symbols: ['auditLockout'] },
   { file: 'src/lib/jobs/process-recording.ts', symbols: ['processJob'] },
+  // The audit-watch cron (監査ログ round 2 PR C) — the two audit() calls sit
+  // directly inside watchOneBusiness's own two candidate loops, so the
+  // registry-reality scan finds them and requires this entry. `unproven`
+  // because most returns are NOT dominated by an emit at all: the common run
+  // has zero candidates (or every candidate already has a row), which
+  // returns without ever calling audit() — the same shape as
+  // auto-burn.ts#autoBurnForBusiness / assembler.ts#runAssembler
+  // (deliberately unemitted when there is nothing to do), except the emit
+  // lives inside THIS symbol rather than a downstream one, so it cannot be
+  // left off the registry the way those batch drivers are.
+  {
+    file: 'src/lib/audit-watch/run.ts',
+    symbols: ['watchOneBusiness'],
+    unproven: [
+      {
+        symbol: 'watchOneBusiness',
+        reason:
+          'Both audit() calls are conditional on a NEW candidate existing (found via the per-target dedupe read) — the common case (no candidates, or every candidate already recorded) returns with no emit at all, and a truncated/errored run also returns unemitted. Real writes still happen on every path that finds something new: not a missing writer, a mechanical-proof ceiling on a batch driver whose emit is inline rather than in a downstream function.',
+      },
+    ],
+  },
   // The transcription SPEND WALL (2026-09-08). Both emitters are PRIVATE
   // helpers inside runMeteredTranscription's file, the same shape
   // auditLockout above has: each emits unconditionally on its own single path,
