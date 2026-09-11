@@ -550,6 +550,14 @@ export function calendarCellFace(
   if (day.offset < 0) return { tone: 'past', className: `cal-cell ${paint} dim`, small: null, aria: date }
   if (paint === 'closedday') return { tone: 'closed', className: 'cal-cell closedday', small: '定休', aria: `${date}、定休日` }
   if (paint === 'full') return { tone: 'full', className: 'cal-cell full', small: '満', aria: `${date}、もう入りません` }
+  // ⚠ RIDER (fix round 1, measured) — THIS FORMAT HAS A CEILING AND IT IS THREE
+  // DIGITS. 「あとNN枠」 renders 43.81px; the 380px popover leaves a 47.14px
+  // column, and at 393 the phone clamp (`max-width: calc(100vw - 32px)`) cuts
+  // that to 44.42px — 0.30px of gutter. A third digit does not fit either, and
+  // widening the panel cannot rescue the phone, where the clamp decides. The day
+  // a store's roster reaches 「あと100枠」 this needs a different WORD (a bare
+  // 「100」 under a 枠 header, say), not a different width. No code change now:
+  // the sample store's own maximum is 35 and no real store is near it.
   return { tone: paint, className: `cal-cell ${paint}`, small: `あと${day.fits}枠`, aria: `${date}、あと${day.fits}枠入ります` }
 }
 
