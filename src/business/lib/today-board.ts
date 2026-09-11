@@ -638,22 +638,59 @@ export function treatsPatients(qualifications: string[] | undefined): boolean {
   return (qualifications ?? []).some((q) => q !== '受付' && q !== '会計')
 }
 
+/** The minutes ONE member's shift leaves for treatment on a day, after the
+ *  day's 勤務不可 has shortened it. Zero when they are not on that roster.
+ *
+ *  One home for the term, so the per-lane sums behind 稼働率 and the per-day
+ *  roster the month calendar reads can never become two formulas that drift. */
+export function shiftAvailableMinutes(shift: FixtureShift | undefined, absence: FixtureAbsence | null): number {
+  return shift ? availableMinutes(effectiveShift(shift, absence)) : 0
+}
+
+/** The 勤務不可 a given day's roster may be shortened by — its own day's, or
+ *  none. `readDayPlanes` hands the incident back only when the day it was asked
+ *  for is today (「the 勤務不可 incident is happening NOW」, data.ts :271-300),
+ *  so the plane the page holds belongs to the day on screen and to no other.
+ *  Handing it to all 91 calendar days shortened a whole month's capacity
+ *  whenever the operator happened to be standing on today. */
+export function absenceForDay(
+  dayKey: number,
+  shownKey: number,
+  absence: FixtureAbsence | null,
+): FixtureAbsence | null {
+  return dayKey === shownKey ? absence : null
+}
+
+/** The treatment minutes ONE DAY'S roster leaves — the denominator behind both
+ *  稼働率 and the month calendar's 空き count, for ANY day rather than only the
+ *  day on screen. Only staff who can take a treatment count, exactly as
+ *  `utilization` reads `laneMinutes`: a receptionist is not idle capacity. */
+export function rosterAvailableMinutes(
+  staff: readonly { id: string }[],
+  shifts: readonly FixtureShift[],
+  qualifications: Record<string, string[] | undefined>,
+  absence: FixtureAbsence | null,
+): number {
+  const shiftByStaff = new Map(shifts.map((s) => [s.staff_id, s]))
+  return staff.reduce(
+    (n, member) =>
+      treatsPatients(qualifications[member.id]) ? n + shiftAvailableMinutes(shiftByStaff.get(member.id), absence) : n,
+    0,
+  )
+}
+
 /** Per-lane minute sums — the one pair of numbers behind 稼働率 AND the
  *  calendar's free-slot count. */
 export function laneMinutes(input: BuildInput, bookings: BoardBooking[]) {
   const shiftByStaff = new Map(input.shifts.map((s) => [s.staff_id, s]))
-  return input.staff.map((member) => {
-    const raw = shiftByStaff.get(member.id)
-    const shift = raw ? effectiveShift(raw, input.absence) : null
-    return {
-      staffId: member.id,
-      treats: treatsPatients(input.qualifications[member.id]),
-      availableMinutes: shift ? availableMinutes(shift) : 0,
-      bookedMinutes: bookings
-        .filter((b) => b.staffId === member.id && b.state !== 'noshow')
-        .reduce((n, b) => n + (b.endMinute - b.startMinute), 0),
-    }
-  })
+  return input.staff.map((member) => ({
+    staffId: member.id,
+    treats: treatsPatients(input.qualifications[member.id]),
+    availableMinutes: shiftAvailableMinutes(shiftByStaff.get(member.id), input.absence),
+    bookedMinutes: bookings
+      .filter((b) => b.staffId === member.id && b.state !== 'noshow')
+      .reduce((n, b) => n + (b.endMinute - b.startMinute), 0),
+  }))
 }
 
 /** The count that has to be the same number in four places: the nav badge, the
