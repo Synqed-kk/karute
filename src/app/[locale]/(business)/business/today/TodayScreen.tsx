@@ -165,6 +165,7 @@ import {
   type OverrideLevel,
   type PairLanes,
   type RailCell,
+  type Reseat,
   type SellDrop,
   type WarnCardModel,
 } from './today-interactions'
@@ -351,8 +352,24 @@ export function bookFor(lanes: BoardLane[], frame: DayFrame, liftedId: string | 
  *  the strip's length follows the gesture (⚖ 50), so one lane and one start can
  *  be two different questions inside one day. It is inert while a gesture holds
  *  one length and a landmine the moment one does not. */
-export function slotKey(laneKey: string, start: number, dur: number): string {
-  return `${laneKey}|${start}|${dur}`
+export function slotKey(laneKey: string, start: number, dur: number, moveSet: string): string {
+  return `${laneKey}|${start}|${dur}|${moveSet}`
+}
+
+/** ⚖ FIX ROUND 2 (FX-B) — THE SET OF MOVES A LANDING WOULD MAKE, AS ONE STRING.
+ *
+ *  It is the fourth field of the key above and the cache key for the shuffled
+ *  board, so it is asked at three sites and spelled at one. A slot composed
+ *  under one set of moves is not an answer about a different set: the world can
+ *  move under the card mid-gesture, the pack can then find a different rescue
+ *  for the same start, and a key blind to that would hand the chip a face
+ *  composed on a board nobody is looking at any more. With the moves in the key
+ *  a changed rescue simply misses, and the missing slot is composed on the spot
+ *  (`composeSlot`). An UNCHANGED rescue under a changed world is reused, and
+ *  that is the design's declared preview class — the chip under the cursor is
+ *  corrected the moment the operator aims at it. */
+export function moveSetOf(reseats: readonly Reseat[]): string {
+  return reseats.map((r) => `${r.id}>${r.to}`).join(',')
 }
 
 /** ⚖ 51 / Greptile #827 — WHAT THE NEXT VISIT'S CATEGORY IS.
@@ -2286,12 +2303,20 @@ export function TodayScreen(props: TodayProps) {
    *  no ⇄ anywhere pays the walk once rather than once a frame. Only ⇄ candidates
    *  are in here — every other chip's own verdict IS the drop's.
    *
-   *  ⚖ FIX ROUND 1 (F2) — `world` and `row` are the memo's own two invalidators,
-   *  recorded beside the answers they were built from, so the slots cannot
-   *  outlive the answers they are a view of. `object` is the engine's own
-   *  spelling for the world stamp (`gestureAllocator`'s `stamp: () => object`),
-   *  not a widening of it. */
-  const toneRef = useRef<{ world: object; row: string; slots: Map<string, LandingClass> } | null>(null)
+   *  ⚖ FIX ROUND 2 (FX-B — ADDENDUM STOP 1) — ONE MAP PER GESTURE, DROPPED ONLY
+   *  AT `freeGesture`. Fix round 1 tied the slots to the memo's own two
+   *  invalidators and rebuilt them on every clear; measured on the 30-lane
+   *  board that is 33 rebuilds in one gesture and p95 114.5 ms against today's
+   *  106.9 ms, so the rebuild was ruled out and this is the fallback the ruling
+   *  named. The slots now OUTLIVE the memo on purpose and the staleness a clear
+   *  can cause is answered two other ways: the set of moves is IN the key (so a
+   *  changed rescue misses and is composed fresh), and a candidate with no slot
+   *  at all is composed at the chip site in the same render.
+   *
+   *  `shuffledFor` is the gesture's one board per distinct set of moves — the
+   *  expensive half — shared by the pick-up burst and every on-demand compose,
+   *  so a shuffle is built once however many chips ask for it. */
+  const toneRef = useRef<{ slots: Map<string, LandingClass>; shuffledFor: Map<string, BoardLane[]> } | null>(null)
   /** The whole of what a gesture leaves behind, released in one place. */
   function freeGesture() {
     gestureMemoRef.current?.free()
@@ -2804,12 +2829,29 @@ export function TodayScreen(props: TodayProps) {
    *  composes its face from the UN-shuffled verdict, and can wear ⇄ on a landing
    *  the release would refuse — ⚖ RULING 3's third arm, which `liveChipFace`
    *  claims holds by construction. */
+  function composeSlot(laneKey: string, start: number, v: LandingVerdict): LandingClass | undefined {
+    const store = toneRef.current
+    // Both callers stand under a hand and under the store's own existence, and
+    // TypeScript's narrowing does not cross a function boundary. It is also a
+    // real guard: a composer asked outside a gesture answers 「nothing」 rather
+    // than inventing a face.
+    if (inHand == null || store == null) return undefined
+    const moveSet = moveSetOf(v.reseats)
+    let shuffled = store.shuffledFor.get(moveSet)
+    if (!shuffled) {
+      shuffled = applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), hours, props.bedCleanupMinutes)
+      store.shuffledFor.set(moveSet, shuffled)
+    }
+    const ask = { ...inHand, staffLane: laneKey, span: place(start, start + railDur, hours) }
+    const final = verdictFor(ask, verdictAt(laneKey, start, railDur, inHand.id, shuffled), false, shuffled)
+    store.slots.set(slotKey(laneKey, start, railDur, moveSet), final.kind)
+    return final.kind
+  }
   function fillToneSlots(): void {
     // The gate below is what proves this, and TypeScript's narrowing does not
     // cross a function boundary: a fill with no hand has nothing to ask about.
     if (inHand == null) return
-    const slots = new Map<string, LandingClass>()
-    const shuffledFor = new Map<string, BoardLane[]>()
+    toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>() }
     for (const rail of rails) {
       for (const c of rail.cells) {
         const ask = { ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }
@@ -2826,19 +2868,11 @@ export function TodayScreen(props: TodayProps) {
         // alone, and so does this: the shuffled `final` is what decides the face,
         // and a start the shuffle cannot rescue comes back `blocked` from it.
         if (v.reseats.length === 0) continue
-        const moveSet = v.reseats.map((r) => `${r.id}>${r.to}`).join(',')
-        let shuffled = shuffledFor.get(moveSet)
-        if (!shuffled) {
-          shuffled = applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), hours, props.bedCleanupMinutes)
-          shuffledFor.set(moveSet, shuffled)
-        }
-        const final = verdictFor(ask, verdictAt(rail.laneKey, c.start, railDur, inHand.id, shuffled), false, shuffled)
-        slots.set(slotKey(rail.laneKey, c.start, railDur), final.kind)
+        composeSlot(rail.laneKey, c.start, v)
       }
     }
-    toneRef.current = { world: worldStampRef.current, row: rowStampRef.current, slots }
   }
-  if (inHand != null && livePack().pack && (toneRef.current == null || toneRef.current.world !== worldStampRef.current || toneRef.current.row !== rowStampRef.current)) fillToneSlots()
+  if (inHand != null && livePack().pack && toneRef.current == null) fillToneSlots()
 
   /** ⚖ Liam flag 58 RIDER — THE ONE PLACE AN ENGINE START BECOMES AN OFFER.
    *
@@ -4377,15 +4411,21 @@ export function TodayScreen(props: TodayProps) {
       // `span` is the very object `applyDragFrame` has just handed `setLive`,
       // so this expression is `aimDur`'s own (TodayScreen `const aimDur =`) on
       // the same values, and the next render's `railDur` is the same number.
-      const slot = slotKey(ctx.targetLane, chipStart, dur)
-      if (slots.has(slot)) {
-        slots.set(
-          slot,
-          from === chipStart
-            ? v.kind
-            : verdictRef.current({ ...askOf(ctx, sides, span), span: place(chipStart, chipStart + dur, hours) }, livePack()).kind,
-        )
-      }
+      // ⚖ FIX ROUND 2 (FX-B) — AND THE WRITE IS UNCONDITIONAL. It used to be
+      // gated on the map already HAVING that key, which made the aimed chip's
+      // identity depend on the pick-up burst having already composed it — and
+      // after a mid-gesture clear, or for a chip whose rescue changed, it had
+      // not. The chip under
+      // the cursor is the one that may NEVER disagree with the badge and the
+      // drop (⚖ AUDIT A1), so it is written every aim change whether or not the
+      // burst knew about it. A landing with no companions writes an entry the
+      // renderer never reads (its chip fences on `reseats` before it looks) —
+      // bounded by aim changes, and cheaper than a gate that can be wrong.
+      const aimed =
+        from === chipStart
+          ? v
+          : verdictRef.current({ ...askOf(ctx, sides, span), span: place(chipStart, chipStart + dur, hours) }, livePack())
+      slots.set(slotKey(ctx.targetLane, chipStart, dur, moveSetOf(aimed.reseats)), aimed.kind)
     }
   }
 
@@ -6718,7 +6758,19 @@ export function TodayScreen(props: TodayProps) {
             const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c, livePack().pack) : null
             // The DROP's own kind for a chip that fits only by moving somebody.
             // Every other chip's verdict IS the drop's, so it is its own `final`.
-            const drop = v && v.reseats.length > 0 ? toneRef.current?.slots.get(slotKey(rail.laneKey, c.start, railDur)) : undefined
+            //
+            // ⚖ FIX ROUND 2 (FX-B) — AND A MISSING SLOT IS COMPOSED HERE, IN
+            // THIS RENDER. A chip that BECAME a ⇄ candidate after the board
+            // moved under the card was not in the pick-up burst, so it has no
+            // slot; without this it would draw its face from the UN-shuffled
+            // verdict and could wear ⇄ on a landing the release refuses (⚖
+            // RULING 3's third arm). Composing it at the site costs one shuffled
+            // board per distinct set of moves for the whole gesture and one
+            // re-judge for this chip. A slot that IS present under a changed
+            // world is reused, and that is the design's declared preview class —
+            // the chip under the cursor is rewritten by `paintProxyVerdict` on
+            // every aim change, so the one chip that may never disagree does not.
+            const drop = v && v.reseats.length > 0 && toneRef.current ? (toneRef.current.slots.get(slotKey(rail.laneKey, c.start, railDur, moveSetOf(v.reseats))) ?? composeSlot(rail.laneKey, c.start, v)) : undefined
             const chip = v ? liveChipFace({ v, final: drop ? { ...v, kind: drop } : v, start: c.start }) : null
             const state = chip ? chip.state : c.state
             // ⚖ flag 44 — the chip's own reading of itself. The WORD is a

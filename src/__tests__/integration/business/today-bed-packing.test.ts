@@ -1760,7 +1760,10 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
       'const v = verdictFor(ask, c, livePack().pack)',
       'const v = verdictFor(q, cellOn(base), opts.pack, base)',
       'return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }',
-      'const final = verdictFor(ask, verdictAt(rail.laneKey, c.start, railDur, inHand.id, shuffled), false, shuffled)',
+      // ⚖ FIX ROUND 2 (FX-B) — the same site, now inside `composeSlot`, which
+      // is the ONE place a ⇄ face is composed (the burst and the chip map both
+      // go through it).
+      'const final = verdictFor(ask, verdictAt(laneKey, start, railDur, inHand.id, shuffled), false, shuffled)',
     ]) {
       expect({ site, present: SCREEN.includes(site) }).toEqual({ site, present: true })
     }
@@ -1805,16 +1808,35 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     expect(SCREEN).toContain('        if (v.reseats.length === 0) continue')
     expect(SCREEN).not.toContain("v.kind === 'blocked' || v.reseats.length === 0")
     //
-    // ⚖ FIX ROUND 1 (F2) — THE SLOTS' LIFETIME IS THE MEMO'S, SPELLED ON THE
-    // SCREEN. The memo empties on exactly two conditions; the view of its
-    // answers is rebuilt on the same two. Dropping either compare from this
-    // gate leaves a chip that becomes a ⇄ candidate after a mid-gesture clear
-    // with no slot at all — it then wears ⇄ composed from the UN-shuffled
-    // verdict, which is a promise the release can refuse.
+    // ⚖ FIX ROUND 2 (FX-B — ADDENDUM STOP 1) — THE SLOTS OUTLIVE THE MEMO, AND
+    // THE GATE IS ONCE PER GESTURE AGAIN. Fix round 1 rebuilt the whole view on
+    // every memo clear; measured on the 30-lane board that is 33 rebuilds in one
+    // gesture and p95 114.5 ms against today's 106.9 ms, so the rebuild was ruled
+    // out. What replaces it is NOT 「live with stale slots」: the set of moves is
+    // in the key (a changed rescue misses) and a candidate with no slot is
+    // composed at the chip site in the same render. A stamp compare growing back
+    // onto this line is the regression this holds.
+    expect(SCREEN).toContain('if (inHand != null && livePack().pack && toneRef.current == null) fillToneSlots()')
+    expect(SCREEN).not.toContain('toneRef.current.world !==')
+    expect(SCREEN).not.toContain('toneRef.current.row !==')
+    // …and the store the burst creates: the slots, and the ONE shuffled board
+    // per distinct set of moves that both callers of `composeSlot` share.
+    expect(SCREEN).toContain('toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>() }')
+    expect(SCREEN).toContain('const toneRef = useRef<{ slots: Map<string, LandingClass>; shuffledFor: Map<string, BoardLane[]> } | null>(null)')
+    // …and the composer itself: ONE definition, TWO callers — the pick-up burst
+    // and the chip map. A third caller, or a second spelling of the shuffle,
+    // fails here.
+    expect(SCREEN).toContain('function composeSlot(laneKey: string, start: number, v: LandingVerdict): LandingClass | undefined {')
+    expect((SCREEN.match(/composeSlot\(/g) ?? [])).toHaveLength(3)
+    // …and the shuffled board is CACHED per set of moves for the whole gesture,
+    // which is what makes composing on demand affordable at all: without this
+    // block every missing chip rebuilds the board the shuffle would leave.
     expect(SCREEN).toContain(
-      'if (inHand != null && livePack().pack && (toneRef.current == null || toneRef.current.world !== worldStampRef.current || toneRef.current.row !== rowStampRef.current)) fillToneSlots()',
+      '    let shuffled = store.shuffledFor.get(moveSet)\n    if (!shuffled) {\n      shuffled = applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), hours, props.bedCleanupMinutes)\n      store.shuffledFor.set(moveSet, shuffled)\n    }',
     )
-    expect(SCREEN).toContain('toneRef.current = { world: worldStampRef.current, row: rowStampRef.current, slots }')
+    // …and there are exactly two places on this screen that build a shuffled
+    // board at all: `verdictAtLanding`'s own second leg, and the composer.
+    expect((SCREEN.match(/applyBedMoves\(/g) ?? [])).toHaveLength(2)
     // …and the gate reads the packing switch through its ONE home rather than
     // spelling `gestureMemoRef.current != null` a second time (⚖ L2 MINOR 1).
     // Six reads of the ref in all: `livePack`, the two in `freeGesture`, the two
@@ -1825,12 +1847,22 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // ⚖ ADJUDICATION L2 MAJOR 2 — THE ⇄ SLOT KEY HAS ONE HOME AND THREE CALLERS.
     // Three spellings of one string agreement, none of them pinned: the
     // breaker's mutant (k) dropped `dur` from all three and shipped green.
-    expect(SCREEN).toContain('export function slotKey(laneKey: string, start: number, dur: number): string {\n  return `${laneKey}|${start}|${dur}`\n}')
+    expect(SCREEN).toContain('export function slotKey(laneKey: string, start: number, dur: number, moveSet: string): string {\n  return `${laneKey}|${start}|${dur}|${moveSet}`\n}')
     expect((SCREEN.match(/slotKey\(/g) ?? [])).toHaveLength(4)
+    // ⚖ FIX ROUND 2 (FX-B) — …and the FOURTH FIELD has a home of its own,
+    // because three sites ask for it: the composer (for the shuffled-board
+    // cache and for the key), the chip map, and the aimed chip's own refresh.
+    expect(SCREEN).toContain('export function moveSetOf(reseats: readonly Reseat[]): string {\n  return reseats.map((r) => `${r.id}>${r.to}`).join(\',\')\n}')
+    expect((SCREEN.match(/moveSetOf\(/g) ?? [])).toHaveLength(4)
     // …and the two renderer lines ⚖ M-6(a) never got, byte for byte. `drop` is
     // the read; `mark` is what the read decides.
+    // ⚖ FIX ROUND 2 (FX-B) — …and the read now COMPOSES what it does not find.
+    // Dropping the `?? composeSlot(…)` half leaves a chip that became a ⇄
+    // candidate after the board moved drawing its face from the UN-shuffled
+    // verdict — the exact promise ⚖ RULING 3's third arm makes and the release
+    // can refuse.
     expect(SCREEN).toContain(
-      'const drop = v && v.reseats.length > 0 ? toneRef.current?.slots.get(slotKey(rail.laneKey, c.start, railDur)) : undefined',
+      'const drop = v && v.reseats.length > 0 && toneRef.current ? (toneRef.current.slots.get(slotKey(rail.laneKey, c.start, railDur, moveSetOf(v.reseats))) ?? composeSlot(rail.laneKey, c.start, v)) : undefined',
     )
     expect(SCREEN).toContain('const mark = chip ? chip.mark : (explained?.mark ?? null)')
     // ⚖ ADJUDICATION L3 MAJOR — …and the chip's own SENTENCE, which is its
@@ -1849,7 +1881,7 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // no comment carries.)
     expect((SCREEN.match(/ここに置くと、ほかのお客様のベッドを入れ替えて収めます/g) ?? [])).toHaveLength(0)
     expect((INTERACTIONS.match(/ここに置くと、ほかのお客様のベッドを入れ替えて収めます/g) ?? [])).toHaveLength(1)
-    expect(SCREEN).toContain('slots.set(slotKey(rail.laneKey, c.start, railDur), final.kind)')
+    expect(SCREEN).toContain('store.slots.set(slotKey(laneKey, start, railDur, moveSet), final.kind)')
     // …and the aimed chip's own refresh keys on the length it DERIVES from the
     // frame's span, never on the render body's `railDur`: this function is
     // reached only through the listeners `beginDrag` binds once per gesture, so
@@ -1857,9 +1889,17 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // both null and `railDur` is `props.guard.standardSessionMin`. `span` is the
     // object `applyDragFrame` has just handed `setLive`, so this expression is
     // `aimDur`'s own on the same values (see §Deviations, FIX-REPORT-1).
-    expect(SCREEN).toContain('      const dur = minuteOf(span.x + span.w, hours) - minuteOf(span.x, hours)\n')
-    expect(SCREEN).toContain('const slot = slotKey(ctx.targetLane, chipStart, dur)')
+    expect(SCREEN).toContain('      const from = minuteOf(span.x, hours)\n      const dur = minuteOf(span.x + span.w, hours) - from\n')
     expect(SCREEN).toContain('const slots = toneRef.current?.slots ?? null')
+    // ⚖ FIX ROUND 2 (FX-B) — …and the aimed chip's slot is written WHETHER OR
+    // NOT the burst ever saw that chip. The `if (slots.has(slot))` gate this
+    // replaces made ⚖ AUDIT A1's identity — the chip under the cursor, the
+    // badge and the release are ONE answer — depend on the pick-up burst having
+    // already composed that exact key, which after a changed rescue it had not.
+    expect(SCREEN).toContain(
+      '      const aimed =\n        from === chipStart\n          ? v\n          : verdictRef.current({ ...askOf(ctx, sides, span), span: place(chipStart, chipStart + dur, hours) }, livePack())\n      slots.set(slotKey(ctx.targetLane, chipStart, dur, moveSetOf(aimed.reseats)), aimed.kind)',
+    )
+    expect(SCREEN).not.toContain('slots.has(')
     //
     // ⚖ ADJUDICATION L4 — AND THE WORLD STAMP'S DEP LIST IS PINNED BY EXACT TEXT.
     // The memo has no self-check that its caller's stamp is complete: a dropped
