@@ -2284,6 +2284,9 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "type OverrideLevel,",
       "type PairLanes,",
       "type RailCell,",
+      // ⚖ FIX ROUND 2 (FX-B) — `moveSetOf` takes the search’s own `Reseat[]`
+      // rather than a hand-copied shape, so the type rides in with it.
+      "type Reseat,",
       "type SellDrop,",
       "type WarnCardModel,",
     ])
