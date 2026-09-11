@@ -8,52 +8,44 @@
 import { fireEvent, render, waitFor } from '@testing-library/react'
 import type { StaffMember } from '@/lib/staff'
 
-// Real interpolated strings (not identity passthrough) — several assertions
-// below need the actual formatted text, not the raw key. Every value here is
-// copied verbatim from messages/ja.json (never typed independently).
-const DICT: Record<string, string> = {
-  systemActor: 'システム',
-  'automation.transcribe': '自動文字起こし',
-  'automation.watch': '自動チェック',
-  'automation.rescue': '自動復元',
-  'automation.autoburn': '自動消化',
-  'automation.cleanup': '自動破棄',
-  'reason.empty_transcript': '文字起こし結果なし',
-  'reason.job_failed': '処理エラー',
-  'reason.not_transcribed': '文字起こし未実施',
-  'reason.other': 'その他',
-  'recording.ticketBurned': '回数券消化済み',
-  'storm.sub': '文字起こし{n}回 · 約{cost} · {day}',
-  'fold.count': '×{n}',
-  'fold.range': '{from}〜{to}',
-  'thread.title': 'この録音に関する記録',
-  'thread.customerTitle': 'このお客様に関する記録',
-  'thread.partial': '一部の記録を読み込めませんでした。',
-  'strip.scope': '過去{days}日間 ・ {store}',
-  'strip.scopeAll': '全期間 ・ {store}',
-  'menuUpdate.allStores': '全店舗',
-  recordingNoCustomer: '顧客未選択の録音',
-  recordingUnresolved: '録音',
-  durationSuffix: '（{n}秒）',
-  recordingStaff: '担当: {name}',
-  eventsCount: '{count}件',
-  clearTarget: '解除',
-}
-
-function fmt(s: string, vals?: Record<string, unknown>): string {
-  if (!vals) return s
-  return s.replace(/\{(\w+)\}/g, (_, k: string) => String(vals[k] ?? ''))
-}
-
-jest.mock('next-intl', () => ({
-  useTranslations: () =>
-    Object.assign(
-      (k: string, vals?: Record<string, unknown>) =>
-        k in DICT ? fmt(DICT[k], vals) : vals ? `${k}:${JSON.stringify(vals)}` : k,
-      { has: (k: string) => k in DICT },
-    ),
-  useLocale: () => 'ja',
-}))
+// F2(a) fix (blind lens finding 2): render against the REAL messages/ja.json
+// — a hand-typed DICT (the original version of this file) can silently drift
+// from the shipped dictionary and mask a missing-key bug (exactly what
+// happened: fold.count/fold.range were used in the component and in this
+// file's old DICT, but never added to ja.json/en.json — see
+// BUILD-REPORT-PR-D2-FIX1-2026-09-11.md F1). Same dotted-path-resolver
+// pattern as the sibling settings test photos-tab-upload-guard.test.tsx:12-48
+// (next-intl/use-intl ship ESM-only and can't be required directly under
+// jest even with transformIgnorePatterns — this bypasses that entirely by
+// reading the real JSON straight, never next-intl's own runtime). A missing
+// key THROWS (louder than production's silent dotted-key-path render, and
+// exactly what the sibling pattern does) rather than rendering wrong text.
+jest.mock('next-intl', () => {
+  const ja = jest.requireActual('../../../messages/ja.json')
+  function resolve(ns: string, key: string): unknown {
+    let cur: unknown = ja
+    for (const part of `${ns}.${key}`.split('.')) {
+      cur = (cur as Record<string, unknown> | undefined)?.[part]
+    }
+    return cur
+  }
+  return {
+    useTranslations: (ns: string) => {
+      const t = (key: string, vars?: Record<string, unknown>) => {
+        const cur = resolve(ns, key)
+        if (typeof cur !== 'string') {
+          throw new Error(`missing ja.json key: ${ns}.${key}`)
+        }
+        return cur.replace(/\{(\w+)\}/g, (_, v: string) =>
+          String((vars as Record<string, unknown> | undefined)?.[v] ?? `{${v}}`),
+        )
+      }
+      t.has = (key: string) => typeof resolve(ns, key) === 'string'
+      return t
+    },
+    useLocale: () => 'ja',
+  }
+})
 
 const listAuditLog = jest.fn()
 jest.mock('@/actions/audit-log', () => ({
