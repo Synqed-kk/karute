@@ -41,6 +41,10 @@ import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-regis
 import { AUDIT_CATEGORIES, businessProfiles, rulebook, storeDials } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { closedWeekday, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
+// ⚖ 9/12 — the dial's own home. Already in this suite's graph (`store-policy-props`
+// imports it to build 予約と確保's payload); named here so the room's clamp can be
+// driven against the same guardrail the board paints with.
+import { CALENDAR_TIGHT_MAX, CALENDAR_TIGHT_RANGE, clampCalendarTight } from '@/app/[locale]/(business)/business/today/today-interactions'
 import {
   accessFor,
   addToCollection,
@@ -264,6 +268,9 @@ describe('⚖ ONE TRUTH — every value this room shows is READ from the room th
       'overridePolicy',
       'releaseHeldRoles',
       'heldRankAccess',
+      // ⚖ Liam 9/12 — 残りわずかの目安 is a WORLD value (`storeBookingPolicy`), so
+      // the ADD-ONLY plane may never restate it either.
+      'calendarTightMax',
       'newClientSessionMinutes',
       'reserveStartGridMin',
       'gapFillMinMin',
@@ -291,7 +298,7 @@ describe('⚖ ONE TRUTH — every value this room shows is READ from the room th
     // `opsConfig.bookingStepMin` and `opsConfig.minSellableMin` left this file
     // with the controls they fed; they are read by 予約と確保's own assembly now,
     // and the pin follows them there rather than being dropped.
-    for (const source of ['gapGuardMode', 'bookingStepMin', 'minSellableMin', 'heldRankAccess', 'newClientSessionMin']) {
+    for (const source of ['gapGuardMode', 'bookingStepMin', 'minSellableMin', 'heldRankAccess', 'newClientSessionMin', 'calendarTightMax']) {
       expect({ source, read: SECTION_PROPS_CODE.includes(source) }).toEqual({ source, read: true })
     }
     for (const source of [
@@ -567,8 +574,8 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     }
     // ⚖ S17 FOLD — AND 予約と確保 IS THE OPPOSITE OF A STUB, proven where its
     // substance actually lives. Its section head carries a real kicker, title,
-    // lead and tour declaration; its payload carries the store's own eight dial
-    // values, its roster and its save answer; and its screen renders eight dial
+    // lead and tour declaration; its payload carries the store's own nine dial
+    // values, its roster and its save answer; and its screen renders nine dial
     // rows plus the presets, the live card and 保存.
     const head = sectionOf(props, 'booking-guard')
     expect(head.title).toBe('予約と確保')
@@ -580,11 +587,32 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     // すき間の販売 row can print the length behind its switch as a RECEIPT
     // (「販売可能な最小の長さ 30分（今日の運営の値）」) rather than the room growing
     // a second control for a value core has no int field for yet.
-    expect(Object.keys(section.policy)).toHaveLength(10)
+    // ⚖ Liam 9/12 — ELEVEN now: 残りわずかの目安 (`calendarTightMax`) joined the
+    // payload with its own dial row, the ninth.
+    expect(Object.keys(section.policy)).toHaveLength(11)
     expect(Object.keys(section.policy)).toContain('minSellableMin')
+    expect(Object.keys(section.policy)).toContain('calendarTightMax')
+    // ⚖ 9/12 (COLD-READ B1) — the ROOM clamps the same value the board clamps,
+    // DRIVEN rather than read: a fixture already sitting on the default proves no
+    // clamp at all, and three separate breaks of this seam — the clamp dropped,
+    // the clamp kept but pointed at `bookingStepMin`, the row opening on a
+    // literal — passed the whole battery before this block existed. The failure
+    // it fences is the room saying 「残りわずかの目安 5枠」 while the month it
+    // describes paints at 2, with neither surface wrong on its own.
+    expect(section.policy.calendarTightMax).toBe(clampCalendarTight(opsConfig.calendarTightMax))
+    const dial = opsConfig as { calendarTightMax: unknown }
+    const before = dial.calendarTightMax
+    try {
+      dial.calendarTightMax = 9
+      expect((await policyOf({ store: STORE_A })).policy.calendarTightMax).toBe(CALENDAR_TIGHT_RANGE.max)
+      dial.calendarTightMax = undefined
+      expect((await policyOf({ store: STORE_A })).policy.calendarTightMax).toBe(CALENDAR_TIGHT_MAX)
+    } finally {
+      dial.calendarTightMax = before
+    }
     expect(SECTION_CODE).toContain('販売可能な最小の長さ {props.policy.minSellableMin}分（今日の運営の値）')
     expect(section.save.roles.length).toBeGreaterThan(0)
-    for (const dial of ['上書きの権限', '名指しロック', '長押しで確定', '店長のみでも警告を止める', 'すき間の販売', '新規のお客様の確保', '確保枠の会員ランク開放', '予約の刻み', '保存']) {
+    for (const dial of ['上書きの権限', '名指しロック', '長押しで確定', '店長のみでも警告を止める', 'すき間の販売', '新規のお客様の確保', '確保枠の会員ランク開放', '予約の刻み', '残りわずかの目安', '保存']) {
       expect({ dial, declared: SECTION_CODE.includes(`data-guide-title="${dial}"`) }).toEqual({ dial, declared: true })
     }
   })
@@ -1051,21 +1079,23 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     expect(SCREEN_CODE).toContain('<h3 id={`st-blkh-${block.id}`} tabIndex={-1}>{block.title}</h3>')
   })
 
-  it('⚖ F15 — the eight dials are the room’s two-track row, with 詳しく and <h3> sub-headings', () => {
+  it('⚖ F15 — the nine dials are the room’s two-track row, with 詳しく and <h3> sub-headings', () => {
+    // ⚖ Liam 9/12 — NINE, not eight: 残りわずかの目安 joined the room, built on
+    // 予約の刻み's own grammar, so every count in this pin moves by exactly one.
     const rows = [...SECTION_CODE.matchAll(/className="st-row st-dial"/g)]
-    expect(rows).toHaveLength(8)
+    expect(rows).toHaveLength(9)
     // …the room's own two tracks, its label block and its description class…
-    expect((SECTION_CODE.match(/className="st-dial-what"/g) ?? []).length).toBe(8)
-    expect((SECTION_CODE.match(/className="st-dial-ctl(?: st-dial-ctl-stack)?"/g) ?? []).length).toBe(8)
-    expect((SECTION_CODE.match(/className="st-dial-desc"/g) ?? []).length).toBe(8)
+    expect((SECTION_CODE.match(/className="st-dial-what"/g) ?? []).length).toBe(9)
+    expect((SECTION_CODE.match(/className="st-dial-ctl(?: st-dial-ctl-stack)?"/g) ?? []).length).toBe(9)
+    expect((SECTION_CODE.match(/className="st-dial-desc"/g) ?? []).length).toBe(9)
     // …every dial title is an <h3> inside the room's label block (L1: the eight
     // appeared in no heading outline at all), and none is a bare <p> any more…
-    expect((SECTION_CODE.match(/<div className="st-dial-label"><h3 id="st[A-Za-z]+Label">/g) ?? []).length).toBe(8)
-    expect(SECTION_CODE).not.toMatch(/<p className="st-ctrl-l" id="st(Perm|Lock|Hold|Strict|Gaps|Minutes|Rank|Slot)Label">/)
+    expect((SECTION_CODE.match(/<div className="st-dial-label"><h3 id="st[A-Za-z]+Label">/g) ?? []).length).toBe(9)
+    expect(SECTION_CODE).not.toMatch(/<p className="st-ctrl-l" id="st(Perm|Lock|Hold|Strict|Gaps|Minutes|Rank|Slot|Tight)Label">/)
     // …the caveat lines fold behind the room's own disclosure rather than
     // standing between two dials…
     const folded = (SECTION_CODE.match(/<Collapse open=\{detOpen\['[a-z]+'\] === true\}/g) ?? []).length
-    expect(folded).toBe(6)
+    expect(folded).toBe(7)
     expect((SECTION_CODE.match(/<DetailToggle open=\{detOpen\['[a-z]+'\] === true\}/g) ?? []).length).toBe(folded)
     // …and the room's disclosure, not a second one: same component, same spring.
     expect(SECTION_CODE).toContain("from './Collapse'")
@@ -1082,7 +1112,7 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     // END of the section's column, under the last dial, where a manager arrives
     // when they go looking for 保存 — the claim 「said ONCE, on the face」 is
     // unchanged and the pin still holds one copy, on the face, in the section.
-    expect((SECTION_CODE.match(/\{PENDING_NOTE\}/g) ?? []).length).toBe(7)
+    expect((SECTION_CODE.match(/\{PENDING_NOTE\}/g) ?? []).length).toBe(8)
     const foot = SECTION_CODE.slice(SECTION_CODE.indexOf('<div className="st-foots">'))
     expect(foot.slice(0, foot.indexOf('</div>'))).toContain('{PENDING_NOTE}</p>')
     /* ⚖ S17 fix round 3 · R3-2 — AND IT IS SAID ONCE PER FACE, NOT TWICE. The
@@ -1759,7 +1789,10 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // next assertion checks every entry against a declaration in that same file.
     const headBlock = SECTION_CODE.slice(SECTION_CODE.indexOf('export const STORE_POLICY_HEADINGS'))
     const headings = [...headBlock.slice(headBlock.indexOf('= ['), headBlock.indexOf(']')).matchAll(/'([^']+)'/g)].map((m) => m[1])
-    expect(headings.length).toBe(12)
+    // ⚖ Liam 9/12 — THIRTEEN: 残りわずかの目安 is the ninth dial, and a heading the
+    // section draws but this list forgot would be a setting a reader cannot type
+    // the name of (the loop under this line is what says so).
+    expect(headings.length).toBe(13)
     // …and the list COVERS everything that section declares, which is the
     // direction that matters: a heading it draws and this list forgets is a
     // setting a reader cannot type the name of. (詳細設定 declares nothing — it

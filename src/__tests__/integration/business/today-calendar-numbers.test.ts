@@ -49,8 +49,10 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { CALENDAR_TIGHT_MAX, CALENDAR_TIGHT_RANGE, clampCalendarTight } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { jstDayKey, jstYmd } from '@/business/lib/clock'
 import { STORE_A, STORE_B } from '@/business/lib/fixtures'
+import { opsConfig } from '@/business/lib/fixtures-today'
 import {
   listAbsenceByDay,
   listAppointments,
@@ -358,10 +360,14 @@ describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an 
     return null
   }
 
-  const calendar = async () =>
+  /** Everything the page hands the screen for this store — the calendar array
+   *  below is one of its fields, and ⚖ 9/12's tight bound is another. */
+  const pageProps = async () =>
     screenProps(
       await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE_A }) }),
-    )!.calendar
+    )!
+
+  const calendar = async () => (await pageProps()).calendar
 
   beforeEach(() => {
     mockMissingRosterDays.clear()
@@ -420,6 +426,46 @@ describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an 
   it('the whole window is covered when the door answers for every day', async () => {
     const rows = await calendar()
     expect(rows.filter((c) => c.covered === false)).toEqual([])
+  })
+
+  /** ⚖ Liam 9/12 — 「残りわずか」 の境目 IS THE STORE'S, AND THE PAGE CLAMPS IT ONCE.
+   *
+   *  The same discipline as `holdToConfirm` and `canReleaseHeld` beside it: the
+   *  board is handed the ANSWER, never the policy. Asserted through the real
+   *  page so the whole chain is covered — `storeBookingPolicy` → `opsConfig` →
+   *  `readDayPlanes` → this prop — because a page that read the raw value, or
+   *  clamped it in the screen instead, would still type-check. */
+  it('⚖ 9/12 — the month is handed the store’s tight bound, already clamped', async () => {
+    const props = await pageProps()
+    expect(props.calendarTightMax).toBe(clampCalendarTight(opsConfig.calendarTightMax))
+    // …and the fixture store sits on the default, which is why no pixel of
+    // 今日の運営 moves on this round (D-T2).
+    expect(props.calendarTightMax).toBe(CALENDAR_TIGHT_MAX)
+    // The LOOP is untouched: which day is tight is a paint question the face
+    // helper answers, so no calendar row carries a threshold of its own.
+    const rows = await calendar()
+    for (const row of rows) expect('calendarTightMax' in row).toBe(false)
+  })
+
+  /** ⚠ DRIVEN, not read — a fixture that already sits on the default proves
+   *  nothing about a clamp. The store's own value is moved out of the guardrail
+   *  and then away from being a number at all, and the prop is read back each
+   *  time: an unclamped page hands 9 and `undefined` straight through, and a
+   *  page that clamped to the FLOOR would answer 0 for the second one and
+   *  silently delete the 橙 tier from that store's month. */
+  it('⚖ 9/12 — and a value outside the guardrail never reaches the month', async () => {
+    const dial = opsConfig as { calendarTightMax: unknown }
+    const before = dial.calendarTightMax
+    try {
+      dial.calendarTightMax = 9
+      expect((await pageProps()).calendarTightMax).toBe(CALENDAR_TIGHT_RANGE.max)
+      dial.calendarTightMax = -3
+      expect((await pageProps()).calendarTightMax).toBe(CALENDAR_TIGHT_RANGE.min)
+      dial.calendarTightMax = undefined
+      expect((await pageProps()).calendarTightMax).toBe(CALENDAR_TIGHT_MAX)
+    } finally {
+      dial.calendarTightMax = before
+    }
   })
 
   // A SOURCE PIN for the cell, in the same spirit as the P1-2 pin above: the

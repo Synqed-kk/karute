@@ -288,8 +288,9 @@
    #3f7a57 — the first value tried — measures 4.27:1, under the bar). */
 .biz .cal-cell.open small { color: #3b7352; }
 .biz .cal-cell.open:hover { box-shadow: inset 0 0 0 1.5px #8ecbad; }
-/* ⚖ STUDIO S4 — 残りわずか. The boundary is `CALENDAR_TIGHT_MAX` in
-   today-interactions.ts, never a number written here. #8a5a00 on #fff4e0 =
+/* ⚖ STUDIO S4 — 残りわずか. The boundary is the store's own 残りわずかの目安
+   (`props.calendarTightMax`), never a number written here; `CALENDAR_TIGHT_MAX`
+   in today-interactions.ts is only its default. #8a5a00 on #fff4e0 =
    5.44:1, the count's #946315 = 4.75:1. An amber WASH under a pressable is the
    legal wash tier of the R13 law — no solid fill, no black. */
 .biz .cal-cell.tight { background: #fff4e0; color: #8a5a00; }

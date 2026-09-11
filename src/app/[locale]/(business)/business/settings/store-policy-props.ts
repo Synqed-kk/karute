@@ -49,7 +49,7 @@ import {
   type StoreLens,
 } from '@/business/lib/data'
 import { buildLanes, dayBookings, hhmm, minuteOf, place, type BoardLane, type BuildInput, type Hours } from '@/business/lib/today-board'
-import { guardVerdictAt, lossOf, protectedCapacityOf, type RailCell } from '../today/today-interactions'
+import { clampCalendarTight, guardVerdictAt, lossOf, protectedCapacityOf, type RailCell } from '../today/today-interactions'
 import { liveFieldsFrom, MINUTE_CHOICES, saveRefusal, sceneKeyFor } from './store-policy-seam'
 import { type StorePolicyProps, type StorePolicyScene } from './StorePolicySection'
 
@@ -321,6 +321,13 @@ export async function storePolicyProps({
       // a value the store cannot save.
       minSellableMin: planes.opsConfig.minSellableMin,
       bookingStepMin: planes.opsConfig.bookingStepMin,
+      // ⚖ Liam 9/12 — 残りわずかの目安, THROUGH THE SAME CLAMP THE BOARD USES.
+      // One clamp, two readers: a room that opened on the raw stored value could
+      // show a dial at 9 while the month it describes paints at 5, and a missing
+      // column would open the dial on 0 — the 橙 tier off — without anyone
+      // choosing that. The clamp answers the default for a non-number, so the
+      // row opens on the shipped 2 instead.
+      calendarTightMax: clampCalendarTight(planes.opsConfig.calendarTightMax),
     },
     scenes,
     sample:

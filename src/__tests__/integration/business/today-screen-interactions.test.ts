@@ -2213,12 +2213,21 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "BLOCK_STEP_MIN_DEFAULT,",
       // ⚖ STUDIO 2026-09-12 — the month calendar's own family: the day cell's
       // whole face, the grid's month arithmetic, the arrow-key move, and the
-      // 残りわずか default the legend quotes. Added, nothing renamed or removed.
+      // legend's 橙 clause. Added, nothing renamed or removed.
+      //
+      // ⚖ TIGHT SETTING 2026-09-12 — `CALENDAR_TIGHT_MAX` CAME OFF THIS LIST,
+      // and the reason is the point of that round: 「残りわずか」 の境目 is a store
+      // setting now, so the screen is handed the store's own number
+      // (`props.calendarTightMax`) and no longer quotes the default at all. What
+      // arrives in its place is the helper that writes the legend sentence from
+      // whatever that number is — including the 0 case, where there is no
+      // sentence. A screen that imported the default again would be reading past
+      // its own props.
       "calendarCellFace,",
       "calendarMonth,",
       "calendarMonthAt,",
       "nextCalendarIndex,",
-      "CALENDAR_TIGHT_MAX,",
+      "calendarTightLegend,",
       "cardNodes,",
       "chipProxySize,",
       "clampLabelWidth,",
@@ -2336,6 +2345,26 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
   it('the paged month reset is keyed to any popover other than the calendar', () => {
     const line = "if (pop !== 'cal' && calMonth !== 0) setCalMonth(0)"
     expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
+  })
+
+  /** ⚖ Liam 9/12 — THE MONTH READS THE STORE'S OWN 「残りわずか」, NOT THE DEFAULT.
+   *
+   *  `calendarCellFace`'s second parameter has a default, which is exactly what
+   *  makes this droppable in silence: a screen that calls it with one argument
+   *  type-checks, renders, and paints every store's month on the shipped 2 while
+   *  the 設定 dial above it says 4. The call is pinned whole-line for that
+   *  reason, and the legend is pinned by ABSENCE — the clause is authored from
+   *  the same prop now, so the constant must not appear in this file at all. */
+  it('the day cells and the legend both read the STORE’s tight bound', () => {
+    const call = 'const face = calendarCellFace(d, props.calendarTightMax)'
+    expect({ call, has: pinnedLine(SRC, call) }).toEqual({ call, has: true })
+    expect(SRC).not.toContain('{CALENDAR_TIGHT_MAX}')
+    expect(SRC).not.toContain('CALENDAR_TIGHT_MAX')
+    // …and the 橙 clause is the helper's answer, rendered only when there is one
+    // (at 0 the tier is off and the legend says nothing about a colour the month
+    // cannot paint).
+    expect(SRC).toContain('const tightLegend = calendarTightLegend(props.calendarTightMax)')
+    expect(SRC).toContain('{tightLegend !== null && <span>{tightLegend} ・</span>}')
   })
 
   /** ⚖ NUDGE-GUARD FIX 2, BREAKER-NUDGE-5fab5076b.md §F1 (MAJOR) + §F2 — THE TWO
