@@ -184,11 +184,13 @@ export interface InboxServerSession {
   serverAudio?: 'segments' | 'object' | null
   /**
    * THIS READ could not fully judge the session — a job probe past
-   * MAX_JOB_PROBES, an audio candidate dropped by maxAudioProbes, or a
-   * storage probe that threw or answered 'unknown' (inbox-read.ts). Such a
-   * row reads `failed`/`processing` shape-identically to a real miss, so the
-   * audit-watch cron (PR C2) drops it before treating it as evidence — a row
-   * this pass could not fully check is not proof of one.
+   * MAX_JOB_PROBES, an audio candidate dropped by maxAudioProbes, a storage
+   * probe that threw or answered 'unknown', a degraded discard ledger, or a
+   * truncated sessions/records read (inbox-read.ts; the last two, PR C2a's
+   * P1-1 / P3-11). Such a row reads `failed`/`processing` shape-identically
+   * to a real miss, so the audit-watch cron (PR C2) drops it before treating
+   * it as evidence — a row this pass could not fully check is not proof of
+   * one.
    *
    * Optional/additive, the `discardedByStaff` idiom: this fold never reads
    * it (absence = "fully checked", which is every row before this build),
