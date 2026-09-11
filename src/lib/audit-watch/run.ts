@@ -330,6 +330,10 @@ export async function watchOneBusiness(
             recording_session_id: storm.targetId,
             customer_id: storm.customerId,
             staff_id: storm.staffId,
+            // second-order delta-verify finding: consistent with
+            // karuteMissingDetail's own store_id field (same recordings.get
+            // result feeds both this and the row-level storeId above).
+            store_id: recording?.store_id ?? null,
             count: storm.count,
             cost_cents_estimate: storm.costCentsEstimate,
             truncated: storm.truncated,

@@ -350,7 +350,10 @@ describe('watchOneBusiness — recording.transcribe_storm', () => {
         severity: 'notice',
         actorType: 'system',
         source: 'system',
-        detail: expect.objectContaining({ count: 4, day: '2026-09-10' }),
+        // second-order delta-verify finding: karute_missing's detail always
+        // carries store_id (even null on a failed get) — the storm emit's
+        // detail did not carry the field at all. Consistent shape now.
+        detail: expect.objectContaining({ count: 4, day: '2026-09-10', store_id: 'store-9' }),
       }),
     )
   })
@@ -370,7 +373,13 @@ describe('watchOneBusiness — recording.transcribe_storm', () => {
     const result = await watchOneBusiness('biz-1', NOW, 'write', FAR_DEADLINE)
     expect(result).toMatchObject({ candidates: 1, written: 1, skipped: 0 })
     expect(auditMock).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'recording.transcribe_storm', storeId: undefined }),
+      expect.objectContaining({
+        action: 'recording.transcribe_storm',
+        storeId: undefined,
+        // same shape as karuteMissingDetail: a failed get still writes the
+        // row, with detail.store_id explicitly null, not merely absent.
+        detail: expect.objectContaining({ store_id: null }),
+      }),
     )
   })
 
