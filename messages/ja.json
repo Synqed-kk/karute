@@ -2480,11 +2480,13 @@
           "capture_resumed": "録音の音声をサーバーで復元",
           "capture_unlinked": "録音の音声が記録に紐付かず",
           "discard": "録音を破棄",
+          "karute_missing": "録音からカルテ未保存",
           "play": "録音を再生",
           "session_cleanup": "録音を破棄",
           "take_named": "録音のアップロード先を発行（既存セッション）",
           "transcribe": "録音を文字起こし",
-          "transcribe_refused": "録音の文字起こしを見送り（利用上限）"
+          "transcribe_refused": "録音の文字起こしを見送り（利用上限）",
+          "transcribe_storm": "同じ録音を{n}回文字起こし"
         }
       },
       "burnError": {

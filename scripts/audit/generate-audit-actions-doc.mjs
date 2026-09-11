@@ -44,6 +44,11 @@ const LITERAL_ONLY_CATEGORY = {
   // transcription spend wall, 2026-09-08) — the refusal has no route of its
   // own: every door reaches it through the one metered wrapper.
   'recording.transcribe_refused': 'recording',
+  // Choke emit: src/lib/audit-watch/run.ts#watchOneBusiness (the audit-watch
+  // cron, 監査ログ round 2 PR C) — literal-only by construction: only the
+  // hourly cron writes these, no endpoint.
+  'recording.karute_missing': 'recording',
+  'recording.transcribe_storm': 'recording',
   'privacy.customer_delete_canceled': 'privacy',
   'privacy.customer_delete_scheduled': 'privacy',
   'settings.permissions_change': 'settings',
