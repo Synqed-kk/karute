@@ -37,6 +37,7 @@ import { canReadAuditLog } from '@/lib/auth/audit-read'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { listAuditLogWithClient, type AuditLogFilters } from '@/actions/audit-log'
+import { AUDIT_TARGET_TYPES } from '@/lib/audit-target-types'
 import { AuditLogListResultDTO } from '@/lib/app-api/audit-log-dto'
 
 export const runtime = 'nodejs'
@@ -45,12 +46,20 @@ function parseFilters(ctx: FacadeContext): AuditLogFilters {
   const q = new URL(ctx.req.url).searchParams
   const rawPage = Number.parseInt(q.get('page') ?? '', 10)
   const breakGlass = q.get('breakGlass') === '1'
+  const rawTargetType = q.get('targetType')
   return {
     category: q.get('category') ?? undefined,
     actorId: q.get('actorId') ?? undefined,
     from: q.get('from') ?? undefined,
     to: q.get('to') ?? undefined,
     targetId: q.get('targetId') ?? undefined,
+    // Amendment 4 F5: only the four real values are recognized — anything
+    // else (a stale/typo'd param) is ignored, matching this route's
+    // never-400s contract for every other filter (severity's own comment).
+    targetType:
+      rawTargetType && AUDIT_TARGET_TYPES.has(rawTargetType)
+        ? (rawTargetType as AuditLogFilters['targetType'])
+        : undefined,
     includeViews: q.get('includeViews') === '1',
     breakGlass,
     // G2 (round-4 line-audit): only these two real core literals are

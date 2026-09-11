@@ -32,7 +32,17 @@ jest.mock('@/lib/auth/require-permission', () => ({
   capabilitiesForUser: jest.fn(async () => capabilities.current),
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
 }))
-jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => ({}), getSynqedClient: async () => ({}) }))
+// G5 (audit round 2, PR D1 fix round 2): the redeem route now proves an
+// explicit appointmentId via synqed.appointments.get before it can burn —
+// this file's client had no `appointments` surface at all, which broke the
+// "explicit appointmentId" happy path below (proveAppointmentForCustomer's
+// own try/catch turned the missing surface into a 404). Every test here
+// posts to 'cust-1', so a fixed customer_id keeps every existing case
+// (including this one) at its original expectation.
+jest.mock('@/lib/synqed/client', () => ({
+  newSynqedClient: () => ({ appointments: { get: jest.fn(async () => ({ customer_id: 'cust-1' })) } }),
+  getSynqedClient: async () => ({}),
+}))
 jest.mock('@/lib/customers/queries', () => ({
   getCustomerWithClient: jest.fn(async (_c: unknown, id: string) => {
     if (id !== 'cust-1') throw new Error('404')

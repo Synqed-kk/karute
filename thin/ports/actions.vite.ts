@@ -1557,6 +1557,10 @@ type AuditLogEvent = {
   // SDK 1.14 write-time snapshot name (packet 18 T3) — optional/nullable so
   // an old cached response (missing the key entirely) still parses.
   actor_label?: string | null
+  // PR D1 (amendment 1 F6/F9): additive pass-through — optional/nullable,
+  // same idiom as actor_label above, so an old cached response still parses.
+  request_id?: string | null
+  store_id?: string | null
 }
 type AuditLogFilters = {
   category?: string
@@ -1564,6 +1568,8 @@ type AuditLogFilters = {
   from?: string
   to?: string
   targetId?: string
+  // Amendment 4 F5: mirrors AuditLogFilters.targetType (src/actions/audit-log.ts).
+  targetType?: 'customer' | 'recording' | 'karute' | 'staff'
   includeViews?: boolean
   breakGlass?: boolean
   // G2 (round-4 line-audit): the real core severity values — mirrors
@@ -1588,6 +1594,10 @@ type AuditLogListResult =
       // Replaces the round-3 criticalEvents/criticalTruncated/
       // criticalUnavailable trio, which are DELETED.
       criticalTotal: number | null
+      // PR D1 (amendment 1 F3): the reader-side dedupe belt's drop count.
+      folded: number
+      // PR D1 (amendment 1 F6): set only for a targetType:'recording' read.
+      threadPartial?: boolean
     }
   | { ok: false; error: 'forbidden' | 'failed' }
 
@@ -1603,6 +1613,7 @@ async function facadeListAuditLog(filters: AuditLogFilters): Promise<AuditLogLis
   if (filters.from) q.set('from', filters.from)
   if (filters.to) q.set('to', filters.to)
   if (filters.targetId) q.set('targetId', filters.targetId)
+  if (filters.targetType) q.set('targetType', filters.targetType)
   if (filters.includeViews) q.set('includeViews', '1')
   if (filters.breakGlass) q.set('breakGlass', '1')
   if (filters.severity) q.set('severity', filters.severity)

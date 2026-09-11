@@ -405,4 +405,57 @@ describe('GET /api/app/v1/audit-log', () => {
       expect.objectContaining({ break_glass: true, severity: undefined }),
     )
   })
+
+  // PR D1 amendment 4 F5: targetType reaches synqed.audit.list AND the DTO
+  // never widens past the four recognized values.
+  it('targetType=recording reaches synqed.audit.list as target_type "recording"', async () => {
+    const res = await GET(getReq({ targetId: 'sess-1', targetType: 'recording' }), noParams)
+    expect(res.status).toBe(200)
+    const mainCall = auditList.mock.calls.find(([opts]) => opts.page_size === 100)
+    expect(mainCall?.[0]).toEqual(
+      expect.objectContaining({ target_type: 'recording', target_id: 'sess-1' }),
+    )
+  })
+
+  it('an unrecognized targetType value (e.g. "order") is ignored — falls back to the customer default', async () => {
+    const res = await GET(getReq({ targetId: 'cus-9', targetType: 'order' }), noParams)
+    expect(res.status).toBe(200)
+    const mainCall = auditList.mock.calls.find(([opts]) => opts.page_size === 100)
+    expect(mainCall?.[0]).toEqual(
+      expect.objectContaining({ target_type: 'customer', target_id: 'cus-9' }),
+    )
+  })
+
+  // PR D1 §1: request_id/store_id are additive wire fields — same
+  // nullable+optional parse-boundary contract as actor_label (T3) above.
+  it('request_id/store_id ride the DTO verbatim when core sends them', async () => {
+    auditList.mockResolvedValue({
+      events: [coreEvent({ request_id: 'req-1', store_id: 'store-9' })],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    })
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; events: { request_id: string | null; store_id: string | null }[] }
+    expect(body.events[0].request_id).toBe('req-1')
+    expect(body.events[0].store_id).toBe('store-9')
+  })
+
+  it('the DTO parse boundary normalizes an absent request_id/store_id to null (old cached shape)', async () => {
+    auditList.mockResolvedValue({ events: [coreEvent()], total: 1, page: 1, page_size: 100 })
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; events: { request_id: string | null; store_id: string | null }[] }
+    expect(body.events[0].request_id).toBeNull()
+    expect(body.events[0].store_id).toBeNull()
+  })
+
+  // PR D1 §2: the belt's own drop count rides the DTO as a plain number.
+  it('folded rides the DTO as a number (0 on an ordinary page)', async () => {
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; folded: number }
+    expect(body.folded).toBe(0)
+  })
 })

@@ -36,7 +36,11 @@ jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'biz-1'),
 }))
 
-import { listAuditLog, listAuditLogWithClient } from '@/actions/audit-log'
+import {
+  listAuditLog,
+  listAuditLogWithClient,
+  type AuditLogFilters,
+} from '@/actions/audit-log'
 import { getMyCapabilities as getMyCapabilitiesImport } from '@/lib/auth/require-permission'
 import { newSynqedClient as newSynqedClientImport } from '@/lib/synqed/client'
 import { audit as auditImport } from '@/lib/audit'
@@ -1295,5 +1299,780 @@ describe('listAuditLog — G2 severity filter (round-4: two single-severity feed
     expect(call.break_glass).toBe(true)
     expect(call.severity).toBeUndefined()
     expect(res.breakGlassTotal).toBe(7)
+  })
+})
+
+// PR D1 §1: request_id/store_id are pure pass-through from the SDK event —
+// same actor_label idiom (T3) as the existing describe block above.
+describe('listAuditLog — PR D1 wire fields (request_id/store_id pass-through)', () => {
+  it('request_id and store_id ride the event through verbatim when core sends them', async () => {
+    list.mockImplementation(async () => ({
+      events: [coreEvent({ request_id: 'req-1', store_id: 'store-9' })],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events[0].request_id).toBe('req-1')
+    expect(res.events[0].store_id).toBe('store-9')
+  })
+
+  it('an old cached response missing request_id/store_id entirely does not crash the read', async () => {
+    list.mockImplementation(async () => ({
+      events: [coreEvent()], // coreEvent() never sets these — key absent
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events[0].request_id).toBeUndefined()
+    expect(res.events[0].store_id).toBeUndefined()
+  })
+})
+
+// PR D1 §2 (amendment 1 F3): the reader-side belt. Core has no
+// Idempotency-Key yet (CORE-19 item 3), so a retried write can land twice
+// sharing (action, target_type, target_id, request_id) — fold to the
+// earliest `at`, never touch a null request_id, and report the drop count.
+describe('listAuditLog — PR D1 belt (dedupe retried writes on request_id)', () => {
+  it('two rows sharing (action, target, request_id) fold to the EARLIER row; folded counts the drop', async () => {
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'e-late',
+          at: '2026-07-18T00:05:00.000Z',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-1',
+          request_id: 'req-dup',
+        }),
+        coreEvent({
+          id: 'e-early',
+          at: '2026-07-18T00:00:00.000Z',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-1',
+          request_id: 'req-dup',
+        }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['e-early'])
+    expect(res.folded).toBe(1)
+  })
+
+  it('a different request_id on an otherwise-matching pair keeps BOTH rows — folded stays 0', async () => {
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({ id: 'e1', action: 'karute.save', target_type: 'karute', target_id: 'kar-1', request_id: 'req-a' }),
+        coreEvent({ id: 'e2', action: 'karute.save', target_type: 'karute', target_id: 'kar-1', request_id: 'req-b' }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['e1', 'e2'])
+    expect(res.folded).toBe(0)
+  })
+
+  it('a null request_id is NEVER folded, even against an otherwise-identical sibling', async () => {
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({ id: 'e1', action: 'karute.save', target_type: 'karute', target_id: 'kar-1', request_id: null }),
+        coreEvent({ id: 'e2', action: 'karute.save', target_type: 'karute', target_id: 'kar-1', request_id: null }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['e1', 'e2'])
+    expect(res.folded).toBe(0)
+  })
+
+  it('a normal single-row page reports folded:0', async () => {
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.folded).toBe(0)
+  })
+
+  // Fix round 1, subject 7 (D1-7/F-4): "earliest" must compare the actual
+  // INSTANT (Date.parse), not the raw string. '2026-07-18T00:30:00.000Z' is
+  // 00:30 UTC; '2026-07-18T09:00:00.000+09:00' is 00:00 UTC — an hour+
+  // EARLIER instant, but a LEXICALLY LARGER string ('09' > '00' at the hour
+  // digits), so a naive string compare picks the wrong row.
+  it('picks the EARLIER instant under mixed UTC-offset serialisation, not the lexically smaller string', async () => {
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'e-utc-0030',
+          at: '2026-07-18T00:30:00.000Z',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-1',
+          request_id: 'req-dup',
+        }),
+        coreEvent({
+          id: 'e-offset-earlier',
+          at: '2026-07-18T09:00:00.000+09:00', // = 00:00 UTC, actually earlier
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-1',
+          request_id: 'req-dup',
+        }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['e-offset-earlier'])
+  })
+})
+
+// PR D1 §3 (amendment 4 F5): targetType defaults to 'customer' — byte-
+// identical to today's behaviour — and types both the core query and the
+// view receipt when set explicitly.
+describe('listAuditLog — PR D1 targetType (amendment 4 F5)', () => {
+  it("defaults to 'customer' when targetId is set and targetType is absent", async () => {
+    await listAuditLog({ targetId: 'cus-9' })
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ target_type: 'customer', target_id: 'cus-9' }),
+    )
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({ targetType: 'customer', targetId: 'cus-9' }),
+    )
+  })
+
+  it("targetType:'recording' reaches core AND types the view receipt 'recording' — never 'customer'", async () => {
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      recordings: { get: jest.fn(async () => { throw new Error('not needed for this pin') }) },
+    }))
+    list.mockImplementation(async () => ({
+      events: [coreEvent({ target_type: 'recording', target_id: 'sess-1' })],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    await listAuditLog({ targetId: 'sess-1', targetType: 'recording' })
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ target_type: 'recording', target_id: 'sess-1' }),
+    )
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({ targetType: 'recording', targetId: 'sess-1' }),
+    )
+  })
+
+  // Fix round 1, subject 6 (D1-6): the union type is erased at the 'use
+  // server' boundary — a caller (or a future refactor) can still send
+  // something outside the four literals. The web action must reject it the
+  // SAME way the facade already does (route.ts's TARGET_TYPES): ignore →
+  // default 'customer', never let it reach core or the receipt.
+  it("an unrecognized targetType (e.g. 'order') never reaches core or the receipt — falls back to the customer default", async () => {
+    await listAuditLog({ targetId: 'cus-9', targetType: 'order' as AuditLogFilters['targetType'] })
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ target_type: 'customer', target_id: 'cus-9' }),
+    )
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({ targetType: 'customer', targetId: 'cus-9' }),
+    )
+  })
+})
+
+// PR D1 §4 (amendment 1 F6): the recording thread join. Core has no detail
+// filter, so the reader walks category:'karute' (+ 'customer' pack_redeem
+// once an appointment is known) client-side and merges with the recording's
+// own target rows.
+describe('listAuditLog — PR D1 recording thread join (amendment 1 F6)', () => {
+  const RECORDING_ID = 'sess-1'
+  const APPOINTMENT_ID = 'appt-1'
+  const CREATED_AT = '2026-09-01T00:00:00.000Z'
+
+  function mockClientWithRecording(overrides: Record<string, unknown> = {}) {
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      recordings: {
+        get: jest.fn(async () => ({
+          appointment_id: APPOINTMENT_ID,
+          created_at: CREATED_AT,
+          ...overrides,
+        })),
+      },
+    }))
+  }
+
+  it("merges the recording's own rows with a karute.save (detail.recording_session_id) and a pack_redeem (detail.appointment_id), sorted newest-first", async () => {
+    mockClientWithRecording()
+    list.mockImplementation(async (opts: { target_type?: string; category?: string }) => {
+      if (opts.target_type === 'recording') {
+        return {
+          events: [
+            coreEvent({
+              id: 'e-own',
+              at: '2026-09-01T00:01:00.000Z',
+              category: 'recording',
+              action: 'recording.session_cleanup',
+              target_type: 'recording',
+              target_id: RECORDING_ID,
+              detail: { customer_id: null },
+            }),
+          ],
+          total: 1,
+          page: 1,
+          page_size: 100,
+        }
+      }
+      if (opts.category === 'karute') {
+        return {
+          events: [
+            coreEvent({
+              id: 'e-save',
+              at: '2026-09-01T00:02:00.000Z',
+              category: 'karute',
+              action: 'karute.save',
+              target_type: 'karute',
+              target_id: 'kar-1',
+              detail: { recording_session_id: RECORDING_ID, appointment_id: null },
+            }),
+          ],
+          total: 1,
+          page: 1,
+          page_size: 200,
+        }
+      }
+      if (opts.category === 'customer') {
+        return {
+          events: [
+            coreEvent({
+              id: 'e-redeem',
+              at: '2026-09-01T00:00:30.000Z',
+              category: 'customer',
+              action: 'customer.pack_redeem',
+              target_type: 'customer',
+              target_id: 'cus-1',
+              detail: { appointment_id: APPOINTMENT_ID },
+            }),
+          ],
+          total: 1,
+          page: 1,
+          page_size: 200,
+        }
+      }
+      throw new Error('unexpected call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['e-save', 'e-own', 'e-redeem'])
+    expect(res.total).toBe(3)
+    expect(res.hasMore).toBe(false)
+    expect(res.threadPartial).toBe(false)
+    // Fix round 1, subject 8 (lens m9b): the one-receipt-per-thread-read
+    // property, pinned with a RUNTIME spy across a full read that exercises
+    // BOTH inner walks (karute + customer) — the inner reads call
+    // synqed.audit.list directly (source-pinned separately), never a nested
+    // listAuditLogWithClient that would mint its own receipt per call.
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'privacy.audit_log.view',
+        targetType: 'recording',
+        targetId: RECORDING_ID,
+      }),
+    )
+  })
+
+  it('a failed recordings.get degrades to target rows only, with threadPartial:true', async () => {
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      recordings: { get: jest.fn(async () => { throw new Error('404') }) },
+    }))
+    list.mockImplementation(async (opts: { target_type?: string }) => {
+      if (opts.target_type === 'recording') {
+        return {
+          events: [
+            coreEvent({
+              id: 'e-own',
+              category: 'recording',
+              action: 'recording.session_cleanup',
+              target_type: 'recording',
+              target_id: RECORDING_ID,
+            }),
+          ],
+          total: 1,
+          page: 1,
+          page_size: 100,
+        }
+      }
+      throw new Error('unexpected call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['e-own'])
+    expect(res.threadPartial).toBe(true)
+  })
+
+  // Fix round 2, G2 (Greptile round-2 P1, ACCEPTED): the TARGET walk itself
+  // (walkAuditQuery over target_type:'recording') can throw/reject — that
+  // degrades to { events: [], truncated: true } internally — and losing the
+  // recording's own rows entirely is worse than the inner-walk case above.
+  // Falls back to THIS page's already-fetched `res.events` (the plain
+  // single-page read that always runs alongside the thread read, via the
+  // same Promise.all every other invocation of this function uses).
+  it('G2: a target walk that throws falls back to res.events — the recording still shows its own rows, threadPartial:true', async () => {
+    mockClientWithRecording({ appointment_id: null })
+    list.mockImplementation(
+      async (opts: { target_type?: string; category?: string; page_size?: number }) => {
+        if (opts.target_type === 'recording') {
+          // walkAuditQuery's internal paging always asks THREAD_PAGE_SIZE
+          // (200); res's own single-page read always asks PAGE_SIZE (100) —
+          // that's the only thing distinguishing the two callers now that
+          // G3 mirrors the target walk's query onto baseQuery.
+          if (opts.page_size === 200) throw new Error('core unavailable')
+          return {
+            events: [
+              coreEvent({
+                id: 'e-own',
+                category: 'recording',
+                action: 'recording.session_cleanup',
+                target_type: 'recording',
+                target_id: RECORDING_ID,
+              }),
+            ],
+            total: 1,
+            page: 1,
+            page_size: 100,
+          }
+        }
+        if (opts.category === 'karute') {
+          return { events: [], total: 0, page: 1, page_size: 200 }
+        }
+        throw new Error('unexpected call: ' + JSON.stringify(opts))
+      },
+    )
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res))
+    expect(res.events.map((e) => e.id)).toEqual(['e-own'])
+    expect(res.threadPartial).toBe(true)
+  })
+
+  // Fix round 1, subject 2 (D1-2): a throwing inner walk must degrade the
+  // THREAD, not the whole read — the target rows already fetched (and any
+  // sibling walk) must still come back, with threadPartial:true, never
+  // { ok: false }.
+  it('the karute walk throwing degrades to target rows + threadPartial:true, never ok:false', async () => {
+    mockClientWithRecording({ appointment_id: null })
+    list.mockImplementation(async (opts: { target_type?: string; category?: string }) => {
+      if (opts.target_type === 'recording') {
+        return {
+          events: [
+            coreEvent({
+              id: 'e-own',
+              category: 'recording',
+              action: 'recording.session_cleanup',
+              target_type: 'recording',
+              target_id: RECORDING_ID,
+            }),
+          ],
+          total: 1,
+          page: 1,
+          page_size: 200,
+        }
+      }
+      if (opts.category === 'karute') {
+        throw new Error('core unavailable')
+      }
+      throw new Error('unexpected call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res))
+    expect(res.events.map((e) => e.id)).toEqual(['e-own'])
+    expect(res.threadPartial).toBe(true)
+  })
+
+  // Fix round 1, subject 3 (D1-3): the dedupe belt must cover the MERGED set
+  // (target rows ∪ joined rows) — a retried karute.save is exactly the row
+  // the thread joins, and it must fold there too, not just in the ordinary
+  // feed.
+  it('two karute.save rows sharing request_id in the JOINED set fold to one row; folded counts it', async () => {
+    mockClientWithRecording({ appointment_id: null })
+    list.mockImplementation(async (opts: { target_type?: string; category?: string }) => {
+      if (opts.target_type === 'recording') {
+        return { events: [], total: 0, page: 1, page_size: 200 }
+      }
+      if (opts.category === 'karute') {
+        return {
+          events: [
+            coreEvent({
+              id: 'k-late',
+              at: '2026-09-01T00:05:00.000Z',
+              category: 'karute',
+              action: 'karute.save',
+              target_type: 'karute',
+              target_id: 'kar-1',
+              request_id: 'req-dup',
+              detail: { recording_session_id: RECORDING_ID },
+            }),
+            coreEvent({
+              id: 'k-early',
+              at: '2026-09-01T00:00:00.000Z',
+              category: 'karute',
+              action: 'karute.save',
+              target_type: 'karute',
+              target_id: 'kar-1',
+              request_id: 'req-dup',
+              detail: { recording_session_id: RECORDING_ID },
+            }),
+          ],
+          total: 2,
+          page: 1,
+          page_size: 200,
+        }
+      }
+      throw new Error('unexpected call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual(['k-early'])
+    expect(res.folded).toBe(1)
+  })
+
+  // Fix round 1, subject 5 (D1-5): both inner walks (karute AND customer)
+  // must pass exclude_views:true — a view row is never a valid join key, and
+  // the karute category is view-dominated (one row per record open), eating
+  // the walk's own page cap otherwise.
+  it('a karute.view row carrying the join key is NOT joined — both inner walks pass exclude_views:true', async () => {
+    mockClientWithRecording({ appointment_id: null })
+    list.mockImplementation(
+      async (opts: { target_type?: string; category?: string; exclude_views?: boolean }) => {
+        if (opts.target_type === 'recording') {
+          return { events: [], total: 0, page: 1, page_size: 200 }
+        }
+        if (opts.category === 'karute') {
+          // Mirrors core's own exclude_views filtering (same idiom as the
+          // main-feed test above) — a view row only survives when the walk
+          // omits the param.
+          const rows = [
+            coreEvent({
+              id: 'k-view',
+              category: 'karute',
+              action: 'karute.view',
+              target_type: 'karute',
+              target_id: 'kar-1',
+              detail: { recording_session_id: RECORDING_ID },
+            }),
+          ]
+          const filtered = opts.exclude_views ? [] : rows
+          return { events: filtered, total: filtered.length, page: 1, page_size: 200 }
+        }
+        throw new Error('unexpected call: ' + JSON.stringify(opts))
+      },
+    )
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).toEqual([])
+  })
+
+  it('a walk hitting its page cap reports threadPartial:true even though the merge otherwise succeeds', async () => {
+    mockClientWithRecording()
+    list.mockImplementation(async (opts: { target_type?: string; category?: string; page?: number }) => {
+      if (opts.target_type === 'recording') {
+        return { events: [], total: 0, page: 1, page_size: 100 }
+      }
+      if (opts.category === 'karute') {
+        // 10 full pages of 200 (MAX_THREAD_PAGES), total says there's more —
+        // the walk stops at the cap, never seeing the rest.
+        return {
+          events: Array.from({ length: 200 }, (_, i) => coreEvent({ id: `k-${opts.page}-${i}`, category: 'karute' })),
+          total: 999_999,
+          page: opts.page,
+          page_size: 200,
+        }
+      }
+      if (opts.category === 'customer') {
+        return { events: [], total: 0, page: opts.page, page_size: 200 }
+      }
+      throw new Error('unexpected call: ' + JSON.stringify(opts))
+    })
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.threadPartial).toBe(true)
+  })
+
+  // Fix round 1, subject 1 (D1-1 / lens m8): the reader must walk ALL of the
+  // thread's OWN target rows to completion, not just the core page matching
+  // this call's `page` — otherwise page 2 re-merges the FULL joined set with
+  // an EMPTY (or wrong) target page and `total`/reachability shift under the
+  // reader. 150 target rows + 20 joined = 170 merged rows; PAGE_SIZE=100
+  // means two client pages must be disjoint, cover every row exactly once,
+  // and report the SAME total both times.
+  it('walks ALL target rows to completion (not one core page) so paging a large thread stays complete and total stays stable (subject 1)', async () => {
+    mockClientWithRecording()
+    const baseMs = Date.parse(CREATED_AT)
+    const targetEvents = Array.from({ length: 150 }, (_, i) =>
+      coreEvent({
+        id: `t-${i}`,
+        at: new Date(baseMs + i * 1000).toISOString(),
+        category: 'recording',
+        action: 'recording.session_cleanup',
+        target_type: 'recording',
+        target_id: RECORDING_ID,
+        detail: { customer_id: null },
+      }),
+    )
+    const joinedEvents = Array.from({ length: 20 }, (_, i) =>
+      coreEvent({
+        id: `k-${i}`,
+        at: new Date(baseMs + (150 + i) * 1000).toISOString(),
+        category: 'karute',
+        action: 'karute.save',
+        target_type: 'karute',
+        target_id: `kar-${i}`,
+        detail: { recording_session_id: RECORDING_ID },
+      }),
+    )
+    list.mockImplementation(
+      async (opts: { target_type?: string; category?: string; page?: number; page_size?: number }) => {
+        // Respects the REQUESTED page/page_size like a real core would — the
+        // old code asked for one PAGE_SIZE=100 page of target rows per call
+        // (via `res`); only a full walk-to-completion (page_size=THREAD_PAGE_SIZE)
+        // returns everything in one shot.
+        if (opts.target_type === 'recording') {
+          const p = opts.page ?? 1
+          const ps = opts.page_size ?? 100
+          const start = (p - 1) * ps
+          return { events: targetEvents.slice(start, start + ps), total: 150, page: p, page_size: ps }
+        }
+        if (opts.category === 'karute') {
+          return { events: joinedEvents, total: 20, page: 1, page_size: 200 }
+        }
+        if (opts.category === 'customer') {
+          return { events: [], total: 0, page: 1, page_size: 200 }
+        }
+        throw new Error('unexpected call: ' + JSON.stringify(opts))
+      },
+    )
+    const allIds = new Set([...targetEvents, ...joinedEvents].map((e) => e.id))
+
+    const page1 = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording', page: 1 })
+    const page2 = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording', page: 2 })
+    if (!page1.ok || !page2.ok) throw new Error('expected ok')
+
+    expect(page1.events).toHaveLength(100)
+    expect(page2.events).toHaveLength(70)
+    expect(page1.total).toBe(170)
+    expect(page2.total).toBe(170)
+
+    const ids1 = page1.events.map((e) => e.id)
+    const ids2 = page2.events.map((e) => e.id)
+    // disjoint
+    expect(ids1.filter((id) => ids2.includes(id))).toEqual([])
+    // full coverage, no duplicates, every row reachable exactly once
+    expect(new Set([...ids1, ...ids2])).toEqual(allIds)
+    expect(ids1.length + ids2.length).toBe(allIds.size)
+  })
+
+  // Fix round 2, G4 (Greptile round-2 P1, ACCEPTED, reviewer's line
+  // verbatim): the thread's own sort compared raw timestamp STRINGS, so
+  // mixed UTC-offset serialisation could show rows in the wrong order —
+  // '00:30Z' sorts lexically before '09:00+09:00' even though the latter is
+  // the EARLIER instant (00:00 UTC). Newest-first must mean by instant.
+  it('G4: sorts by the actual instant, not the raw string — mixed UTC offsets', async () => {
+    mockClientWithRecording({ appointment_id: null })
+    list.mockImplementation(
+      async (opts: { target_type?: string; category?: string }) => {
+        if (opts.target_type === 'recording') {
+          return {
+            events: [
+              coreEvent({
+                id: 'e-utc',
+                at: '2026-09-01T00:30:00.000Z',
+                category: 'recording',
+                action: 'recording.session_cleanup',
+                target_type: 'recording',
+                target_id: RECORDING_ID,
+              }),
+              coreEvent({
+                id: 'e-offset',
+                at: '2026-09-01T09:00:00.000+09:00',
+                category: 'recording',
+                action: 'recording.session_cleanup',
+                target_type: 'recording',
+                target_id: RECORDING_ID,
+              }),
+            ],
+            total: 2,
+            page: 1,
+            page_size: 200,
+          }
+        }
+        if (opts.category === 'karute') {
+          return { events: [], total: 0, page: 1, page_size: 200 }
+        }
+        throw new Error('unexpected call: ' + JSON.stringify(opts))
+      },
+    )
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res))
+    // e-utc = 00:30 UTC (the LATER instant); e-offset = 09:00+09:00 = 00:00
+    // UTC (the EARLIER instant). Newest-first → e-utc must come first.
+    expect(res.events.map((e) => e.id)).toEqual(['e-utc', 'e-offset'])
+  })
+
+  // Fix round 2, G3 (Greptile round-2 P1, ACCEPTED): thread mode must honour
+  // every feed filter the caller sent — a joined row from another actor,
+  // outside the window, of another severity, or from the wrong category must
+  // never widen the thread past what the ordinary feed itself would show.
+  describe('G3: thread mode honours every feed filter', () => {
+    it('actorId filter drops a joined row by another actor', async () => {
+      mockClientWithRecording({ appointment_id: null })
+      list.mockImplementation(
+        async (opts: { target_type?: string; category?: string }) => {
+          if (opts.target_type === 'recording') {
+            return { events: [], total: 0, page: 1, page_size: 200 }
+          }
+          if (opts.category === 'karute') {
+            return {
+              events: [
+                coreEvent({
+                  id: 'k-other-actor',
+                  actor_id: 'staff-OTHER',
+                  category: 'karute',
+                  action: 'karute.save',
+                  target_type: 'karute',
+                  target_id: 'kar-1',
+                  detail: { recording_session_id: RECORDING_ID },
+                }),
+              ],
+              total: 1,
+              page: 1,
+              page_size: 200,
+            }
+          }
+          throw new Error('unexpected call: ' + JSON.stringify(opts))
+        },
+      )
+      const res = await listAuditLog({
+        targetId: RECORDING_ID,
+        targetType: 'recording',
+        actorId: 'staff-1',
+      })
+      if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res))
+      expect(res.events.map((e) => e.id)).toEqual([])
+    })
+
+    it("a `from` bound after the joined row's `at` drops it", async () => {
+      mockClientWithRecording({ appointment_id: null })
+      list.mockImplementation(
+        async (opts: { target_type?: string; category?: string }) => {
+          if (opts.target_type === 'recording') {
+            return { events: [], total: 0, page: 1, page_size: 200 }
+          }
+          if (opts.category === 'karute') {
+            return {
+              events: [
+                coreEvent({
+                  id: 'k-early',
+                  at: '2026-09-01T00:00:00.000Z',
+                  category: 'karute',
+                  action: 'karute.save',
+                  target_type: 'karute',
+                  target_id: 'kar-1',
+                  detail: { recording_session_id: RECORDING_ID },
+                }),
+              ],
+              total: 1,
+              page: 1,
+              page_size: 200,
+            }
+          }
+          throw new Error('unexpected call: ' + JSON.stringify(opts))
+        },
+      )
+      const res = await listAuditLog({
+        targetId: RECORDING_ID,
+        targetType: 'recording',
+        from: '2026-09-01T00:05:00.000Z',
+      })
+      if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res))
+      expect(res.events.map((e) => e.id)).toEqual([])
+    })
+
+    it("category:'karute' skips the customer walk entirely (spy: no customer-category call)", async () => {
+      mockClientWithRecording() // default appointment_id set — customer walk would normally run
+      // A thrown response inside the walk isn't a usable spy — walkAuditQuery
+      // catches it internally (D1-2's own resilience) and degrades quietly.
+      // Track the call directly instead.
+      let customerWalkCalled = false
+      list.mockImplementation(
+        async (opts: { target_type?: string; category?: string }) => {
+          if (opts.target_type === 'recording') {
+            return { events: [], total: 0, page: 1, page_size: 200 }
+          }
+          if (opts.category === 'karute') {
+            return { events: [], total: 0, page: 1, page_size: 200 }
+          }
+          if (opts.category === 'customer') {
+            customerWalkCalled = true
+            return { events: [], total: 0, page: 1, page_size: 200 }
+          }
+          throw new Error('unexpected call: ' + JSON.stringify(opts))
+        },
+      )
+      const res = await listAuditLog({
+        targetId: RECORDING_ID,
+        targetType: 'recording',
+        category: 'karute',
+      })
+      if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res))
+      expect(customerWalkCalled).toBe(false)
+    })
+
+    it('severity filter drops a joined row of another severity', async () => {
+      mockClientWithRecording({ appointment_id: null })
+      list.mockImplementation(
+        async (opts: { target_type?: string; category?: string }) => {
+          if (opts.target_type === 'recording') {
+            return { events: [], total: 0, page: 1, page_size: 200 }
+          }
+          if (opts.category === 'karute') {
+            return {
+              events: [
+                coreEvent({
+                  id: 'k-info',
+                  severity: 'info',
+                  category: 'karute',
+                  action: 'karute.save',
+                  target_type: 'karute',
+                  target_id: 'kar-1',
+                  detail: { recording_session_id: RECORDING_ID },
+                }),
+              ],
+              total: 1,
+              page: 1,
+              page_size: 200,
+            }
+          }
+          throw new Error('unexpected call: ' + JSON.stringify(opts))
+        },
+      )
+      const res = await listAuditLog({
+        targetId: RECORDING_ID,
+        targetType: 'recording',
+        severity: 'warn',
+      })
+      if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res))
+      expect(res.events.map((e) => e.id)).toEqual([])
+    })
   })
 })

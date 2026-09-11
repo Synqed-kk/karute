@@ -93,13 +93,23 @@ jest.mock('@/actions/packs', () => ({
   redeemSessionActionWithClient: (c: unknown, s: unknown, i: unknown) =>
     redeemSessionActionWithClient(c, s, i),
 }))
+// G5 (audit round 2, Greptile P1, ACCEPTED): the new appointment-tenancy
+// gate — declared before jest.mock('@/lib/app-api/customer-facade', ...)
+// below, same hoist-safe idiom the redeem-route deps above already use
+// (babel-plugin-jest-hoist only reorders jest.mock relative to `import`
+// lines, never relative to plain const/jest.mock statements that precede it
+// in source order).
+const proveAppointmentForCustomer = jest.fn(async (..._args: unknown[]) => {})
 jest.mock('@/lib/app-api/customer-facade', () => ({
   proveCustomerInBusiness: jest.fn(async () => {}),
   provePackForCustomer: jest.fn(async () => {}),
+  proveAppointmentForCustomer: (...a: unknown[]) =>
+    proveAppointmentForCustomer(...(a as [unknown, unknown, unknown])),
   requireIdempotencyKey: jest.fn(() => {}),
   resolveSelfStaffId: jest.fn(async () => 'staff-1'),
 }))
 
+import { AppApiError } from '@/lib/app-api/errors'
 import { GET as dayFacts } from '@/app/api/app/v1/recovery/day-facts/route'
 import { POST as redeem } from '@/app/api/app/v1/customers/[id]/packs/redeem/route'
 
@@ -285,6 +295,24 @@ describe('POST packs/redeem — the recovery flag (C-2 + B-9)', () => {
     expect((row?.[0] as { detail?: Record<string, unknown> })?.detail?.resolved_via).toBeUndefined()
   })
 
+  // Audit round 2, PR D1 fix round 1, subject 4 (D1-4): the FACADE half of
+  // the recording-thread join was inert on the phone — the audit row must
+  // carry appointment_id + customer_id (the SAME field name the web
+  // recovery burn already writes, src/actions/packs.ts) so a phone burn can
+  // join a recording thread, not just the cron auto-burn and the web
+  // recovery burn.
+  it('D1-4: the audit row carries appointment_id + customer_id, on an ordinary (non-recovery) phone burn too', async () => {
+    await post({ packId: 'pack-1', appointmentId: 'appt-9' })
+    const row = audit.mock.calls.find(
+      (c) => (c[0] as { action?: string }).action === 'customer.pack_redeem',
+    )
+    expect(row).toBeDefined()
+    expect((row![0] as { detail?: Record<string, unknown> }).detail).toMatchObject({
+      appointment_id: 'appt-9',
+      customer_id: 'cust-1',
+    })
+  })
+
   it('B-9: an already-recorded burn is a 409 conflict, not a 502', async () => {
     redeemSessionActionWithClient.mockResolvedValueOnce({
       ok: false,
@@ -299,6 +327,47 @@ describe('POST packs/redeem — the recovery flag (C-2 + B-9)', () => {
     expect((await post({ packId: 'pack-1' })).status).toBe(409)
     redeemSessionActionWithClient.mockResolvedValueOnce({ ok: false, error: 'boom' } as never)
     expect((await post({ packId: 'pack-1' })).status).toBe(502)
+  })
+
+  // Audit round 2, PR D1 fix round 2, G5 (Greptile P1, ACCEPTED): a client-
+  // supplied appointmentId must be PROVEN to belong to the path customer
+  // BEFORE the burn — same idiom as provePackForCustomer just above it in
+  // the route. Without this, a caller could burn against another
+  // customer's appointment, and the audit reader's joinRecordingThread
+  // would then join that redemption into the WRONG recording's thread.
+  describe('G5: an explicit appointmentId must be proven before it can burn', () => {
+    it('a foreign appointmentId is rejected before the burn — no redeem call, no audit row', async () => {
+      proveAppointmentForCustomer.mockRejectedValueOnce(
+        new AppApiError('not_found', 'appointment not found for this customer'),
+      )
+      const res = await post({ packId: 'pack-1', appointmentId: 'appt-foreign' })
+      expect(res.status).toBe(404)
+      expect(redeemSessionActionWithClient).not.toHaveBeenCalled()
+      expect(audit).not.toHaveBeenCalled()
+    })
+
+    it('an own appointmentId proves clean, burns, and its detail.appointment_id rides the audit row', async () => {
+      const res = await post({ packId: 'pack-1', appointmentId: 'appt-own' })
+      expect(res.status).toBe(201)
+      expect(proveAppointmentForCustomer).toHaveBeenCalledWith(
+        expect.anything(),
+        'cust-1',
+        'appt-own',
+      )
+      const row = audit.mock.calls.find(
+        (c) => (c[0] as { action?: string }).action === 'customer.pack_redeem',
+      )
+      expect(row).toBeDefined()
+      expect((row![0] as { detail?: Record<string, unknown> }).detail).toMatchObject({
+        appointment_id: 'appt-own',
+      })
+    })
+
+    it('an absent appointmentId never calls proveAppointmentForCustomer — core still derives the pairing', async () => {
+      const res = await post({ packId: 'pack-1' })
+      expect(res.status).toBe(201)
+      expect(proveAppointmentForCustomer).not.toHaveBeenCalled()
+    })
   })
 })
 

@@ -8,6 +8,7 @@ import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { canReadAuditLog } from '@/lib/auth/audit-read'
 import { audit } from '@/lib/audit'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { AUDIT_TARGET_TYPES } from '@/lib/audit-target-types'
 
 /** Mirror of core's audit row (SDK 1.13 ListAuditResponse.events[]). Local
  *  mirror instead of the SDK type so this file types against the pinned local
@@ -25,6 +26,13 @@ export interface AuditLogEvent {
   detail: unknown
   break_glass: boolean
   severity: string
+  /** PR D1 (round-2 amendment 1 F6/F9): pass-through from the SDK's own
+   *  AuditEvent — request_id backs the reader-side dedupe belt below
+   *  (core's Idempotency-Key, CORE-19 item 3, doesn't exist yet); store_id
+   *  rides the wire now, the store lens itself is a later design (PR B2's
+   *  all-stores gate stands this PR). */
+  request_id: string | null
+  store_id: string | null
   /** Write-time snapshot name (SDK 1.14, synqed-core PR #52) — durable even
    *  after the staff row is renamed/removed. Absent on old cached responses;
    *  optional here so those keep parsing. Component prefers this over the
@@ -51,6 +59,10 @@ export interface AuditLogFilters {
   to?: string
   /** Per-customer dispute view (the ?target= deep-link). */
   targetId?: string
+  /** Amendment 4 F5: what `targetId` names — defaults to 'customer' when
+   *  `targetId` is set and this is absent (today's behaviour, byte-identical).
+   *  'recording' additionally triggers the thread join (amendment 1 F6). */
+  targetType?: 'customer' | 'recording' | 'karute' | 'staff'
   /** Default feed hides view events (they outnumber changes ~10:1). */
   includeViews?: boolean
   breakGlass?: boolean
@@ -77,6 +89,242 @@ const PAGE_SIZE = 100
  *  (e.g. a core rollback), not a correctness dependency. */
 function isViewAction(action: string): boolean {
   return action.endsWith('.view') || action.endsWith('_view')
+}
+
+/** Amendment 1 F3 (reader-side belt): core has no Idempotency-Key yet
+ *  (CORE-19 item 3), so a retried write can land twice sharing everything but
+ *  id/at. Rows are grouped by (action, target_type, target_id, request_id) —
+ *  a null request_id NEVER groups (every such row stands alone) — and every
+ *  group keeps only its earliest `at`. Display-only: callers must not adjust
+ *  any total/count off this — the row count coming in is still the truth for
+ *  those (amendment 4 F9).
+ *  Page-local by design (Greptile round-2, refuted): `events` is only ONE
+ *  page, so a duplicate pair straddling a page boundary shows one row on
+ *  each of two pages, never two on one screen — ponytail: the ceiling is
+ *  core's own Idempotency-Key (CORE-19 item 3), or short of that, a one-row
+ *  look-ahead into page+1 when hasMore. */
+function foldDuplicateAuditEvents(events: AuditLogEvent[]): {
+  events: AuditLogEvent[]
+  folded: number
+} {
+  const groups = new Map<string, number[]>()
+  events.forEach((e, i) => {
+    if (e.request_id == null) return
+    const key = `${e.action}|${e.target_type}|${e.target_id}|${e.request_id}`
+    const idxs = groups.get(key)
+    if (idxs) idxs.push(i)
+    else groups.set(key, [i])
+  })
+  const drop = new Set<number>()
+  for (const idxs of groups.values()) {
+    if (idxs.length < 2) continue
+    let keepIdx = idxs[0]!
+    for (const i of idxs) {
+      // Fix round 1, subject 7 (D1-7/F-4): compare the actual INSTANT, not
+      // the raw string — under mixed UTC-offset serialisation a lexically
+      // smaller string can be the LATER instant (e.g. '00:30Z' sorts before
+      // '09:00+09:00', which is actually an hour earlier at 00:00 UTC).
+      if (Date.parse(events[i]!.at) < Date.parse(events[keepIdx]!.at)) keepIdx = i
+    }
+    for (const i of idxs) if (i !== keepIdx) drop.add(i)
+  }
+  if (drop.size === 0) return { events, folded: 0 }
+  return { events: events.filter((_, i) => !drop.has(i)), folded: drop.size }
+}
+
+/** Every row of `category`, newest constraint being `from`, paged to
+ *  completion or `MAX_THREAD_PAGES` — same idiom as
+ *  src/lib/audit-watch/run.ts's pageRecordingEvents (no action/detail filter
+ *  exists on ListAuditOptions yet, CORE-19 items 1-2, so callers filter
+ *  client-side). Direct synqed.audit.list calls — never a nested
+ *  listAuditLogWithClient, which would each write their own
+ *  privacy.audit_log.view row. */
+const THREAD_PAGE_SIZE = 200
+const MAX_THREAD_PAGES = 10
+
+async function walkAuditCategoryFrom(
+  synqed: ReturnType<typeof newSynqedClient>,
+  category: string,
+  from: string,
+): Promise<{ events: AuditLogEvent[]; truncated: boolean }> {
+  // Fix round 1, subject 5 (D1-5): exclude_views:true on BOTH inner walks —
+  // a view row is never a valid join key, and the karute category is
+  // view-dominated (one row per record open), so leaving views in burns the
+  // walk's own MAX_THREAD_PAGES cap on rows that can never join.
+  return walkAuditQuery(synqed, { category, from, exclude_views: true })
+}
+
+/** Shared walk primitive — every page of `query`, to completion or
+ *  MAX_THREAD_PAGES. Used for the karute/customer joins above AND (fix
+ *  round 1, subject 1 / D1-1) for the thread's own target rows, which must
+ *  be walked to completion too — a single PAGE_SIZE page per call made page
+ *  2+ re-merge the full joined set with the WRONG target slice, silently
+ *  shifting `total` and losing rows (lens-measured: 30 of 150 unreachable).
+ *  Fix round 1, subject 2 (D1-2): wraps its OWN failure — a thrown/rejected
+ *  page must degrade this ONE walk to `{ events: [], truncated: true }`,
+ *  never escape into listAuditLogWithClient's outer catch and fail the
+ *  whole read (throwing away rows a SIBLING walk already fetched). */
+async function walkAuditQuery(
+  synqed: ReturnType<typeof newSynqedClient>,
+  query: Record<string, unknown>,
+): Promise<{ events: AuditLogEvent[]; truncated: boolean }> {
+  try {
+    const events: AuditLogEvent[] = []
+    for (let page = 1; page <= MAX_THREAD_PAGES; page++) {
+      const res = await synqed.audit.list({ ...query, page, page_size: THREAD_PAGE_SIZE })
+      events.push(...(res.events as AuditLogEvent[]))
+      if (res.events.length === 0 || page * THREAD_PAGE_SIZE >= res.total) {
+        return { events, truncated: false }
+      }
+    }
+    return { events, truncated: true }
+  } catch {
+    return { events: [], truncated: true }
+  }
+}
+
+/** G3 (Greptile round-2 P1, ACCEPTED): does a joined row (from either inner
+ *  walk) still belong inside the CALLER's requested window? The inner walks
+ *  themselves stay hard-coded to (category, recording.created_at) — they
+ *  find candidates — this is the second gate, applied the same predicates
+ *  `res`'s own core query already applies to the target rows, so a joined
+ *  row can never widen the thread past what the ordinary feed would show.
+ *  `severity` is the ALREADY-NORMALIZED value (breakGlass wins, R1) — same
+ *  value `res`'s own query used, never `filters.severity` raw. */
+function passesThreadFilters(
+  e: AuditLogEvent,
+  filters: AuditLogFilters,
+  severity: 'warn' | 'critical' | undefined,
+): boolean {
+  if (filters.actorId && e.actor_id !== filters.actorId) return false
+  // VERIFY (source: node_modules/@synqed-kk/client/dist/types.d.ts,
+  // ListAuditOptions.severity doc comment): "Exact-match severity" — a
+  // floor would need >=, core's is ===.
+  if (severity && e.severity !== severity) return false
+  // VERIFY (source: same file, AuditEvent.break_glass /
+  // ListAuditOptions.break_glass — "Owner/dev cross-access flag"): a
+  // per-ROW flag, so the filter selects rows flagged break-glass, not a
+  // request-level mode. Mirrors res's own break_glass:true param.
+  if (filters.breakGlass && !e.break_glass) return false
+  // VERIFY (source: unknowable — core (synqed-core) is a separate repo, not
+  // vendored here, and ListAuditOptions carries no doc comment on from/to):
+  // inclusive both ends, stated here rather than guessed silently.
+  if (filters.from && Date.parse(e.at) < Date.parse(filters.from)) return false
+  if (filters.to && Date.parse(e.at) > Date.parse(filters.to)) return false
+  return true
+}
+
+/** Amendment 1 F6: a recording thread joins the rows that RESOLVE it —
+ *  karute.save / karute.delete rows whose detail.recording_session_id is
+ *  this recording, OR whose detail.appointment_id matches the recording's
+ *  own appointment; plus, once the appointment is known, customer.pack_redeem
+ *  rows carrying that appointment id — the cron auto-burn, the web recovery
+ *  burn, AND (fix round 1, subject 4 / D1-4) an ordinary phone burn all
+ *  write it now (karute.manual_create is NEVER joined —
+ *  D1-9/subject 4: it has no linked appointment by construction and never
+ *  carries recording_session_id either, so it structurally cannot match this
+ *  filter). A failed recording lookup degrades to the target rows alone
+ *  (threadPartial:true) — never a crash. `targetEvents` is ALL of this
+ *  thread's own target rows (fix round 1, subject 1: walked to completion by
+ *  the caller via walkAuditQuery, same bounded idiom as the joins below —
+ *  never just one core page) — merges with the join, folds the MERGED set
+ *  through the SAME dedupe belt the ordinary feed uses (fix round 1, subject
+ *  3 / D1-3: a retried karute.save is exactly the row this thread joins, so
+ *  it must fold here too), re-sorts newest-first, and re-pages client-side
+ *  with the SAME PAGE_SIZE — the thread is small by construction (one
+ *  recording's story).
+ *  Fix round 2, G3: thread mode honours every feed filter; the thread is
+ *  the recording's story WITHIN the requested window — `filters.category`
+ *  (when set and not the walk's own category) skips that whole inner walk
+ *  (a category-filtered thread joins only that category), and every joined
+ *  row additionally passes `passesThreadFilters` above. */
+async function joinRecordingThread(
+  synqed: ReturnType<typeof newSynqedClient>,
+  recordingId: string,
+  targetEvents: AuditLogEvent[],
+  page: number,
+  filters: AuditLogFilters,
+  severity: 'warn' | 'critical' | undefined,
+): Promise<{
+  events: AuditLogEvent[]
+  total: number
+  hasMore: boolean
+  threadPartial: boolean
+  folded: number
+}> {
+  // async wrapper (not a bare .then/.catch chain): a SYNCHRONOUS throw — a
+  // client without the recordings surface — must degrade to target rows
+  // only, same idiom as resolveTargetLabels' karuteRecords fallback below.
+  const recording = await (async () => {
+    try {
+      return await synqed.recordings.get(recordingId)
+    } catch {
+      return null
+    }
+  })()
+
+  const joined: AuditLogEvent[] = []
+  let threadPartial = false
+  if (recording) {
+    const appointmentId = recording.appointment_id
+    // G3(c): a category-filtered thread joins ONLY that category — skip the
+    // WHOLE walk (never even queries it), not just its rows.
+    const walkKarute = !filters.category || filters.category === 'karute'
+    const walkCustomer = !filters.category || filters.category === 'customer'
+
+    if (walkKarute) {
+      const karuteWalk = await walkAuditCategoryFrom(synqed, 'karute', recording.created_at)
+      joined.push(
+        ...karuteWalk.events.filter((e) => {
+          const d = e.detail as { recording_session_id?: unknown; appointment_id?: unknown } | null
+          const isJoinTarget =
+            d?.recording_session_id === recordingId ||
+            (appointmentId != null && d?.appointment_id === appointmentId)
+          return isJoinTarget && passesThreadFilters(e, filters, severity)
+        }),
+      )
+      threadPartial = karuteWalk.truncated
+    }
+
+    if (appointmentId != null && walkCustomer) {
+      const customerWalk = await walkAuditCategoryFrom(synqed, 'customer', recording.created_at)
+      for (const e of customerWalk.events) {
+        if (e.action !== 'customer.pack_redeem') continue
+        const d = e.detail as { appointment_id?: unknown } | null
+        if (d?.appointment_id === appointmentId && passesThreadFilters(e, filters, severity)) {
+          joined.push(e)
+        }
+      }
+      threadPartial = threadPartial || customerWalk.truncated
+    }
+  } else {
+    threadPartial = true
+  }
+
+  const merged = new Map<string, AuditLogEvent>()
+  for (const e of targetEvents) merged.set(e.id, e)
+  for (const e of joined) merged.set(e.id, e)
+  // Subject 3 (D1-3): the belt covers the MERGED set, not just the target
+  // half — the earlier per-target-page fold (in listAuditLogWithClient)
+  // still runs first, but a retried write can land as one target row plus
+  // one joined row (or two joined rows) sharing a request_id, which only
+  // this second pass over the merge can catch.
+  const { events: belted, folded } = foldDuplicateAuditEvents([...merged.values()])
+  // G4 (Greptile round-2 P1, ACCEPTED, reviewer's line verbatim): compare
+  // the actual INSTANT, not the raw string — mixed UTC-offset serialisation
+  // can make a lexically smaller string the LATER instant (same class of
+  // bug fix round 1 subject 7 already fixed in foldDuplicateAuditEvents'
+  // "earliest" pick; this is the thread's own final sort).
+  const sorted = belted.sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+
+  const start = (page - 1) * PAGE_SIZE
+  return {
+    events: sorted.slice(start, start + PAGE_SIZE),
+    total: sorted.length,
+    hasMore: page * PAGE_SIZE < sorted.length,
+    threadPartial,
+    folded,
+  }
 }
 
 type ListAuditLogResult =
@@ -108,6 +356,15 @@ type ListAuditLogResult =
        *  on any probe failure (G2, round-4 line-audit — replaces the second
        *  critical read + merge with an honest single-severity count). */
       criticalTotal: number | null
+      /** Amendment 1 F3 (reader-side belt): rows sharing (action, target_type,
+       *  target_id, request_id) with a non-null request_id are folded to the
+       *  earliest — this is how many were dropped. Display-only; the strip
+       *  totals above are unadjusted (amendment 4 F9). */
+      folded: number
+      /** Amendment 1 F6: set only for a targetType:'recording' read. True
+       *  when the recording lookup failed (target rows only, no join) or any
+       *  inner walk hit its page cap — the thread may be incomplete. */
+      threadPartial?: boolean
     }
   | { ok: false; error: 'forbidden' | 'failed' }
 
@@ -138,26 +395,34 @@ export async function listAuditLogWithClient(
     // falls back to res.total) — a severity lens on top would leave the
     // critical half ignoring break_glass and undercount it.
     const severity = filters.breakGlass ? undefined : filters.severity
+    // Amendment 4 F5: targetType defaults to 'customer' when targetId is set
+    // and it's absent — today's behaviour, byte-identical. D1-6 (subject 6):
+    // an unrecognized value (past the erased union type) is ALSO ignored,
+    // same as absent — never forwarded to core or the receipt.
+    const targetType = filters.targetId
+      ? filters.targetType && AUDIT_TARGET_TYPES.has(filters.targetType)
+        ? filters.targetType
+        : 'customer'
+      : undefined
     const baseQuery = {
       category: filters.category || undefined,
       actor_id: filters.actorId || undefined,
-      target_type: filters.targetId ? ('customer' as const) : undefined,
+      target_type: targetType,
       target_id: filters.targetId || undefined,
       from: filters.from || undefined,
       to: filters.to || undefined,
     }
-    // Local SDK (1.11.1) has no `audit` property yet — `synqed.audit.list`
-    // below already errors at tsc baseline (11, unchanged by CI's real
-    // ^1.15.0). Wrapping the call ONCE keeps that a single error site
-    // instead of one per probe call (ponytail: `as any` scoped to this one
-    // line, not sprinkled per call — upgrade path is deleting this cast once
-    // the SDK bump lands). MUST stay a call THROUGH `synqed.audit` — a bare
-    // method extraction loses the receiver, and AuditClient.list reads
-    // `this.client`, so every probe rejects and the catch nulls the pair
-    // (probes silently dead in prod; found by the post-#581 live wire check).
+    // Fix round 1, subject 9 (housekeeping): the "local SDK 1.11.1, tsc
+    // baseline 11 errors" comment and `(synqed as any)` cast that used to
+    // live here are gone — the linked SDK is 1.34.0 (`synqed.audit` is fully
+    // typed) and tsc is 0 both before and after this file's edits. Wrapping
+    // the call ONCE still keeps every T1 strip-count probe at one call site.
+    // MUST stay a call THROUGH `synqed.audit` — a bare method extraction
+    // loses the receiver, and AuditClient.list reads `this.client`, so an
+    // unbound extraction would make every probe reject silently (probes
+    // silently dead in prod; found by the post-#581 live wire check).
     const auditListProbe = (q: Record<string, unknown>): Promise<{ total: number }> =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same stale-SDK gap as above, scoped to one line
-      (synqed as any).audit.list(q)
+      synqed.audit.list(q)
     // T1 strip-count probes (page_size 1, total only) — skipped under the
     // SAME condition as the break-glass probe below (I7 actorId scope) plus
     // breakGlass on (that feed IS the count strip then). A severity lens
@@ -239,22 +504,89 @@ export async function listAuditLogWithClient(
       actorId: actor.staffId,
       actorType: 'staff',
       businessId: actor.businessId,
-      ...(filters.targetId
-        ? { targetType: 'customer' as const, targetId: filters.targetId }
-        : {}),
+      // Amendment 4 F5: the receipt is typed by what was actually opened —
+      // never 'customer' for a recording thread.
+      ...(filters.targetId ? { targetType, targetId: filters.targetId } : {}),
       requestId: actor.requestId,
       source: actor.source,
     })
 
-    // BELT on top of server exclude_views (packet-18 fix round): the server
-    // now excludes BOTH view spellings — '.view' (SDK 1.14) and '_view'
-    // (synqed-core #56, merged + deployed 7/27, CI-proven) — so res.total and
-    // hasMore are exact and no view row of either era reaches this filter in
-    // the default feed. The belt stays as pure defense-in-depth against a
-    // core-side regression, mirroring isViewAction's doc above.
-    const events = (res.events as AuditLogEvent[]).filter(
-      (e) => filters.includeViews || !isViewAction(e.action),
-    )
+    // Amendment 1 F6: a recording thread additionally joins the rows that
+    // RESOLVE it (karute save/manual-create/delete, an appointment-linked
+    // pack redemption) — core has no detail filter, so the join walks
+    // client-side and re-pages the merged result itself.
+    const isThreadRead = targetType === 'recording' && Boolean(filters.targetId)
+    let finalEvents: AuditLogEvent[]
+    let total: number
+    let hasMore: boolean
+    let threadPartial: boolean | undefined
+    let folded: number
+    if (isThreadRead) {
+      // Fix round 1, subject 1 (D1-1): walk ALL of the thread's own target
+      // rows to completion — a single `res` page (below) is exactly the bug
+      // this replaces (page 2 would re-merge the full joined set with the
+      // WRONG target slice). G3(a) (fix round 2): the query is `res`'s OWN
+      // query object, mirrored field for field — `baseQuery` already carries
+      // target_type/target_id (plus category/actor_id/from/to, which the old
+      // hand-typed copy here dropped), so this is `{ ...baseQuery, ... }`,
+      // never a second hand-typed literal that can drift from `res`'s.
+      const targetWalk = await walkAuditQuery(synqed, {
+        ...baseQuery,
+        exclude_views: filters.includeViews ? undefined : true,
+        break_glass: filters.breakGlass ? true : undefined,
+        severity,
+      })
+      // G2 (Greptile round-2 P1, ACCEPTED): a thrown/rejected target walk
+      // degrades to { events: [], truncated: true } (walkAuditQuery's own
+      // catch) — that must never read as "the recording has no rows".
+      // Falls back to THIS page's already-fetched `res.events` (view-
+      // filtered exactly like the non-thread branch below), keeping
+      // threadPartial:true via targetWalk.truncated further down. A walk
+      // that legitimately returned rows but hit MAX_THREAD_PAGES keeps
+      // them — no fallback, that data is real, just possibly incomplete.
+      const targetWalkFailed = targetWalk.truncated && targetWalk.events.length === 0
+      const targetRows = (
+        targetWalkFailed ? (res.events as AuditLogEvent[]) : targetWalk.events
+      ).filter((e) => filters.includeViews || !isViewAction(e.action))
+      // Subject 3 (D1-3): the belt runs ONCE, inside joinRecordingThread,
+      // over the merged (target ∪ joined) set — folding target rows here
+      // too would just be redundant work ahead of the same fold.
+      const thread = await joinRecordingThread(
+        synqed,
+        filters.targetId!,
+        targetRows,
+        page,
+        filters,
+        severity,
+      )
+      finalEvents = thread.events
+      total = thread.total
+      hasMore = thread.hasMore
+      threadPartial = thread.threadPartial || targetWalk.truncated
+      folded = thread.folded
+    } else {
+      // BELT on top of server exclude_views (packet-18 fix round): the
+      // server now excludes BOTH view spellings — '.view' (SDK 1.14) and
+      // '_view' (synqed-core #56, merged + deployed 7/27, CI-proven) — so
+      // res.total and hasMore are exact and no view row of either era
+      // reaches this filter in the default feed. The belt stays as pure
+      // defense-in-depth against a core-side regression, mirroring
+      // isViewAction's doc above.
+      const viewFilteredEvents = (res.events as AuditLogEvent[]).filter(
+        (e) => filters.includeViews || !isViewAction(e.action),
+      )
+      // Belt (amendment 1 F3): core has no Idempotency-Key yet (CORE-19 item
+      // 3), so a retried write can land as two rows sharing everything but
+      // id and at — fold those to the earliest. Display-only: the strip
+      // totals below stay unadjusted (amendment 4 F9), only this page's
+      // rendered rows shrink.
+      const belt = foldDuplicateAuditEvents(viewFilteredEvents)
+      finalEvents = belt.events
+      total = res.total
+      hasMore = res.page * res.page_size < res.total
+      folded = belt.folded
+    }
+
     // 警告/重大 are each exact in BOTH view states: views hidden → count only
     // non-'.view' warn (nvWarn) / crit (nvCrit) rows, matching what the feed
     // shows; views shown → count all warn (warnAll) / crit (critAll). The
@@ -271,13 +603,13 @@ export async function listAuditLogWithClient(
     // view-suffix exclusion — the #56 widen — matches isViewAction).
     const warnPair = filters.includeViews ? [warnAllRes, critAllRes] : [nvWarnRes, nvCritRes]
     const warnPairOk = warnPair.every((r) => r !== null)
-    const targetLabels = await resolveTargetLabels(synqed, events)
+    const targetLabels = await resolveTargetLabels(synqed, finalEvents)
     // R7-1: build the reassign display line ONCE here, off the SAME
     // (now-extended) targetLabels map — shared by the web action AND the
     // facade route (both call this twin), so neither needs its own copy of
     // this template. Set only for karute.customer_reassign rows with both
     // ids present; every other row leaves the field undefined.
-    for (const e of events) {
+    for (const e of finalEvents) {
       if (e.action !== 'karute.customer_reassign') continue
       const d = e.detail as { from_customer_id?: unknown; to_customer_id?: unknown } | null
       const fromId = d?.from_customer_id
@@ -287,13 +619,14 @@ export async function listAuditLogWithClient(
     }
     return {
       ok: true,
-      events,
-      total: res.total,
-      page: res.page,
-      // hasMore follows the server-filtered total, which is exact since the
-      // #56 widen (server excludes both view spellings from events AND
-      // total) — the belt hides nothing the server counted.
-      hasMore: res.page * res.page_size < res.total,
+      events: finalEvents,
+      total,
+      // A thread's page is CLIENT-computed (the merged/re-sorted set); every
+      // other read still echoes core's own res.page verbatim, unchanged.
+      page: isThreadRead ? page : res.page,
+      // hasMore follows the server-filtered total (exact since the #56
+      // widen), or the thread's own client-paged total above.
+      hasMore,
       breakGlassTotal: breakGlassRes
         ? breakGlassRes.total
         : filters.breakGlass
@@ -314,6 +647,8 @@ export async function listAuditLogWithClient(
           : null,
       targetLabels,
       criticalTotal: warnPairOk ? warnPair[1]!.total : null,
+      folded,
+      threadPartial,
     }
   } catch {
     return { ok: false, error: 'failed' }

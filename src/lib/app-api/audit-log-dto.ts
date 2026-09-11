@@ -20,6 +20,19 @@ const AuditLogEventSchema = z.object({
   detail: z.unknown(),
   break_glass: z.boolean(),
   severity: z.string(),
+  // PR D1 (amendment 1 F6/F9): additive pass-through — absent on old cached
+  // responses (pre-this-PR), so nullable+optional with the SAME
+  // actor_label normalization below (never undefined past this boundary).
+  request_id: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((v) => v ?? null),
+  store_id: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((v) => v ?? null),
   // SDK 1.14 (synqed-core PR #52) — write-time snapshot name. Absent on old
   // cached responses; normalized to null at this parse boundary so every
   // consumer sees string | null, never undefined (packet 18 T3).
@@ -56,6 +69,13 @@ export const AuditLogListResultDTO = z.discriminatedUnion('ok', [
     // criticalEvents/criticalTruncated/criticalUnavailable trio (the merged
     // critical read + group), which are DELETED.
     criticalTotal: z.number().nullable(),
+    // PR D1 (amendment 1 F3): the reader-side dedupe belt's own drop count.
+    // Required (always a number, never absent) — an old cached response
+    // simply won't have this key, but old responses only ever came from a
+    // pre-this-PR build, and this DTO parses THIS build's own live output.
+    folded: z.number(),
+    // PR D1 (amendment 1 F6): set only for a targetType:'recording' read.
+    threadPartial: z.boolean().optional(),
   }),
   z.object({
     ok: z.literal(false),
