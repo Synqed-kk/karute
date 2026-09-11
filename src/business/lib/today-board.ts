@@ -245,7 +245,7 @@ export function coursesFitForDay(input: {
   let fits = 0
   for (const member of input.staff) {
     // A receptionist is not idle capacity — the same judgement, from the same
-    // home, that `rosterAvailableMinutes` and 稼働率 read.
+    // home (`treatsPatients`), that 稼働率 reads through `laneMinutes`.
     if (!treatsPatients(input.qualifications[member.id])) continue
     const shift = shiftByStaff.get(member.id)
     if (!shift) continue
@@ -734,29 +734,16 @@ export function absenceForDay(
   return byDay.get(dayKey) ?? null
 }
 
-/** The treatment minutes ONE DAY'S roster leaves, for ANY day rather than only
- *  the day on screen. Only staff who can take a treatment count, exactly as
- *  `utilization` reads `laneMinutes`: a receptionist is not idle capacity.
- *
- *  ⚠ 2026-09-12 — THE MONTH CALENDAR NO LONGER READS THIS. It counted 空き by
- *  dividing this sum (⚖ Liam 「I choose B」: `coursesFitForDay` replaced that),
- *  so the only thing calling it today is the suite that pins it equal to
- *  `utilization(laneMinutes).available` — the ⚖ ONE HOME check that a day's
- *  roster is read the same way whichever route reaches it. Reported for a
- *  ruling: a helper with no product caller is a formula waiting to drift. */
-export function rosterAvailableMinutes(
-  staff: readonly { id: string }[],
-  shifts: readonly FixtureShift[],
-  qualifications: Record<string, string[] | undefined>,
-  absence: FixtureAbsence | null,
-): number {
-  const shiftByStaff = new Map(shifts.map((s) => [s.staff_id, s]))
-  return staff.reduce(
-    (n, member) =>
-      treatsPatients(qualifications[member.id]) ? n + shiftAvailableMinutes(shiftByStaff.get(member.id), absence) : n,
-    0,
-  )
-}
+/* ⚰ `rosterAvailableMinutes` LIVED HERE and was deleted 2026-09-12 (fix round 1).
+ * It was #890's calendar denominator: the treatment minutes one day's roster
+ * leaves, which the month divided by 60. ⚖ Liam 「I choose B」 replaced that
+ * division with `coursesFitForDay` above, and the helper was left with no
+ * product caller at all — only a test suite keeping it warm. Same ruling as
+ * `freeSlots` in the same round: a formula nothing paints is a second formula
+ * waiting to disagree with the one that does. A future reader wanting a day's
+ * roster minutes should compose `shiftAvailableMinutes` (which 稼働率 already
+ * reads through `laneMinutes`) rather than re-mint this.
+ */
 
 /** Per-lane minute sums — the one pair of numbers behind 稼働率 AND the
  *  calendar's free-slot count. */

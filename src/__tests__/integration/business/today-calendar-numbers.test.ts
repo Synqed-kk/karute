@@ -62,121 +62,35 @@ import { opsConfig } from '@/business/lib/fixtures-today'
 import {
   listAbsenceByDay,
   listAppointments,
-  listCustomers,
-  listMenus,
-  listResources,
   listShiftsByDay,
   listStaff,
-  listStoreOptions,
   readDayPlanes,
-  readShellIdentity,
-  readStaffStores,
   renderNow,
 } from '@/business/lib/data'
-import {
-  absenceForDay,
-  dayBookings,
-  laneMinutes,
-  rosterAvailableMinutes,
-  treatsPatients,
-  utilization,
-  type BuildInput,
-} from '@/business/lib/today-board'
+import { absenceForDay, coursesFitForDay, treatsPatients } from '@/business/lib/today-board'
 
 /** page.tsx's own read window (`WINDOW`), stated here rather than imported so a
  *  change to the page has to be a deliberate change to this pin too. */
 const WINDOW = 45
 
-/** The BuildInput page.tsx assembles for the day on screen (page.tsx :154-173),
- *  field for field, from the same door reads in the same order. */
-async function pageWorld(shownOffset = 0) {
-  const lens = STORE_A
-  const shownKey = jstDayKey(renderNow()) + shownOffset
-  const [customers, appointments, menus, staff, resources, planes, shell, storeOptions] =
-    await Promise.all([
-      listCustomers(lens),
-      listAppointments(lens),
-      listMenus(lens),
-      listStaff(lens),
-      listResources(lens),
-      readDayPlanes(lens, shownKey),
-      readShellIdentity(),
-      listStoreOptions(),
-    ])
-  const staffStores = await readStaffStores(lens)
-  const input: BuildInput = {
-    appointments,
-    customers,
-    menus,
-    staff,
-    resources,
-    shifts: planes.shifts,
-    qualifications: planes.staffQualifications,
-    staffListPrice: planes.staffListPrice,
-    staffStores,
-    absence: planes.absence,
-    blocks: planes.blocks,
-    sellSlots: planes.sellSlots,
-    decisions: planes.decisions,
-    hours: planes.operatingHours,
-    dayKey: shownKey,
-    operatorStaffId: shell.operator.staff_id,
-    storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
-    crossStore: false,
-  }
-  return { input, staff, planes, shownKey }
-}
-
-describe('⚖ ONE HOME — 稼働率 and the calendar count are the SAME sum', () => {
-  it('rosterAvailableMinutes(day) === utilization(laneMinutes).available, on the fixture world', async () => {
-    // The board's 稼働率 denominator and the month calendar's capacity ask the
-    // same question about the same day. They reach it by two routes — the board
-    // through per-lane sums, the calendar through the per-day roster read — and
-    // the whole point of `shiftAvailableMinutes` having one home is that the two
-    // routes cannot answer differently. Anything that makes them disagree (a
-    // receptionist counted as capacity on one side, an absence applied on one
-    // side) lands here.
-    const { input, staff, planes } = await pageWorld(0)
-    const board = utilization(laneMinutes(input, dayBookings(input))).available
-    const calendar = rosterAvailableMinutes(staff, planes.shifts, planes.staffQualifications, planes.absence)
-    expect(calendar).toBe(board)
-    // …and not a vacuous 0 === 0: the fixture day has a working roster.
-    expect(calendar).toBeGreaterThan(0)
-  })
-
-  it('holds on a day that is NOT today, where the absence is gone from both sides', async () => {
-    const { input, staff, planes } = await pageWorld(3)
-    expect(rosterAvailableMinutes(staff, planes.shifts, planes.staffQualifications, planes.absence)).toBe(
-      utilization(laneMinutes(input, dayBookings(input))).available,
-    )
-  })
-})
-
-describe('rosterAvailableMinutes — who is capacity and who is not', () => {
-  const shift = (staff_id: string) => ({ staff_id, start: 10 * 60, end: 18 * 60, breaks: [] })
-
-  it('a member who takes no treatments is NOT idle capacity', () => {
-    // 稼働率 has always read it this way (「a receptionist is not idle capacity」);
-    // the calendar reads the same judgement from the same helper. Dropping the
-    // check here would quietly hand the month a reception desk's worth of 空き.
-    const staff = [{ id: 'p-01' }, { id: 'p-09' }]
-    const quals = { 'p-01': ['整体'], 'p-09': ['受付', '会計'] }
-    const both = rosterAvailableMinutes(staff, [shift('p-01'), shift('p-09')], quals, null)
-    const treatingOnly = rosterAvailableMinutes([{ id: 'p-01' }], [shift('p-01')], quals, null)
-    expect(both).toBe(treatingOnly)
-    expect(both).toBe(8 * 60)
-    // The receptionist's own shift is 8 hours — so the two sums above are only
-    // equal because she was excluded, not because she had nothing to give.
-    expect(rosterAvailableMinutes([{ id: 'p-09' }], [shift('p-09')], quals, null)).toBe(0)
-  })
-
-  it('a roster member with no shift row contributes nothing, and breaks come off', () => {
-    const staff = [{ id: 'p-01' }, { id: 'p-04' }]
-    const quals = { 'p-01': ['整体'], 'p-04': ['整体'] }
-    const withBreak = [{ staff_id: 'p-01', start: 10 * 60, end: 18 * 60, breaks: [{ start: 12 * 60, end: 13 * 60 }] }]
-    expect(rosterAvailableMinutes(staff, withBreak, quals, null)).toBe(7 * 60)
-  })
-})
+/** ⚖ FIX ROUND 1 — THE ⚖ ONE HOME SUITE AND THE `rosterAvailableMinutes`
+ *  SUITE ARE GONE WITH THE FUNCTION THEY PINNED.
+ *
+ *  `rosterAvailableMinutes` was #890's calendar denominator. 「I choose B」 left
+ *  it with no product caller at all, and a helper alive only because a test
+ *  calls it is the same defect `freeSlots` was deleted for — a second formula,
+ *  kept warm, waiting to drift from the one the board actually paints.
+ *
+ *  NOTHING TRUE WAS LOST, and that was checked rather than assumed:
+ *   · 「a receptionist is not idle capacity」 and 「a roster member with no shift
+ *     row contributes nothing」 are asserted against the LIVE formula in
+ *     today-courses-fit.test.ts ('a receptionist is NOT capacity…', 'a day with
+ *     no shifts at all fits nothing…'), where breaks come off too.
+ *   · 「稼働率 reads one home for a shift's minutes」 is still pinned, because
+ *     `utilization(laneMinutes(...))` and `shiftAvailableMinutes` are untouched
+ *     and today-off-identity.frozen.json freezes their answer at three lenses.
+ *   · 「the 勤務不可 really shortens that day」 moved to the live formula — see
+ *     the V5 suite below, which now measures it in courses instead of minutes. */
 
 describe('listShiftsByDay — the door answers for EVERY day in the range', () => {
   it('serves the whole window, with the real roster, and nothing outside it', async () => {
@@ -267,22 +181,37 @@ describe('⚖ V5 — 勤務不可 shortens its OWN day, on EVERY shown day', () 
     expect((await readDayPlanes(STORE_B, todayKey)).absence).toBeNull()
   })
 
-  it('a shortened roster is shorter than the same day’s unshortened one', async () => {
+  it('a shortened roster really fits fewer courses than the same day’s unshortened one', async () => {
     // Without this the tests above would still pass if the absence stopped
     // shortening anything at all.
+    //
+    // ⚖ FIX ROUND 1 — measured in COURSES now, on the formula the cell paints.
+    // It used to divide `rosterAvailableMinutes` two ways; that helper is gone
+    // (dead since 「I choose B」), and asking the live count is the stronger
+    // question anyway: an absence that shortened the minutes but left the
+    // courses alone would have passed the old version of this test.
     const todayKey = jstDayKey(renderNow())
-    const [staff, quals, shiftsByDay, absenceByDay] = await Promise.all([
+    const [staff, planes, shiftsByDay, absenceByDay] = await Promise.all([
       listStaff(STORE_A),
-      readDayPlanes(STORE_A, todayKey).then((p) => p.staffQualifications),
+      readDayPlanes(STORE_A, todayKey),
       listShiftsByDay(STORE_A, { from: todayKey, to: todayKey }),
       listAbsenceByDay(STORE_A, { from: todayKey, to: todayKey }),
     ])
     const shifts = shiftsByDay.get(todayKey) ?? []
-    const withAbsence = rosterAvailableMinutes(staff, shifts, quals, absenceForDay(todayKey, absenceByDay))
-    const without = rosterAvailableMinutes(staff, shifts, quals, null)
-    expect(withAbsence).toBeLessThan(without)
+    const day = (absence: Parameters<typeof coursesFitForDay>[0]['absence']) =>
+      coursesFitForDay({
+        staff,
+        shifts,
+        qualifications: planes.staffQualifications,
+        absence,
+        close: planes.operatingHours.close,
+        bookings: [],
+        sessionMin: planes.opsConfig.standardSessionMin,
+      })
+    const without = day(null)
+    expect(day(absenceForDay(todayKey, absenceByDay))).toBeLessThan(without)
     // …and TOMORROW's cell keeps the full roster on the very same read.
-    expect(rosterAvailableMinutes(staff, shifts, quals, absenceForDay(todayKey + 1, absenceByDay))).toBe(without)
+    expect(day(absenceForDay(todayKey + 1, absenceByDay))).toBe(without)
   })
 })
 
