@@ -195,6 +195,45 @@ describe('AuditLogSection — I6/I7 the three new rows', () => {
     ])
     expect(container.textContent).toContain('文字起こし結果なし')
   })
+
+  it('F7(c): karute_missing with a full-session duration shows 60分, never （3600秒）', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'recording.karute_missing',
+        actor_type: 'system',
+        actor_id: null,
+        detail: { reason: 'emptyTranscript', ticket_burned: false, duration_seconds: 3600 },
+      }),
+    ])
+    expect(container.textContent).toContain('60分')
+    expect(container.textContent).not.toContain('3600秒')
+  })
+
+  it('F7(c): transcribe_failed with a full-session duration shows minutes, not seconds', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'recording.transcribe_failed',
+        actor_type: 'system',
+        actor_id: null,
+        detail: { reason: 'other', customer_id: null, duration_seconds: 125 },
+      }),
+    ])
+    expect(container.textContent).toContain('2分')
+    expect(container.textContent).not.toContain('125秒')
+  })
+
+  it('an ordinary recording.play row keeps the existing seconds format unchanged (pre-existing behaviour, out of F7(c) scope)', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'recording.play',
+        actor_type: 'staff',
+        actor_id: 'staff-1',
+        actor_label: '田中 美香',
+        detail: { duration_seconds: 6 },
+      }),
+    ])
+    expect(container.textContent).toContain('（6秒）')
+  })
 })
 
 // ---- I1: fold repeats -----------------------------------------------------
@@ -371,6 +410,36 @@ describe('AuditLogSection — I4 recording thread page', () => {
     const threadCall = listAuditLog.mock.calls[2]![0] as Record<string, unknown>
     expect(threadCall.targetType).toBe('recording')
     expect(threadCall.actorId).toBeUndefined()
+  })
+
+  it('F7(a): 戻る from a recording thread restores 閲覧を含む to what it was — never forced off', async () => {
+    const container = await renderWithEvents([
+      coreEvent({ id: 'rec-row', action: 'recording.play', target_id: 'rec-9' }),
+    ])
+    // Turn 閲覧を含む ON first (a real user choice made on the feed).
+    const viewsChip = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('閲覧を含む'),
+    )!
+    listAuditLog.mockResolvedValue(page([coreEvent({ id: 'rec-row', action: 'recording.play', target_id: 'rec-9' })]))
+    fireEvent.click(viewsChip)
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
+    expect(listAuditLog.mock.calls[1]![0]).toMatchObject({ includeViews: true })
+
+    // Open a recording thread (never touches includeViews itself).
+    const subButtons = Array.from(container.querySelectorAll('button')).filter((b) =>
+      b.textContent?.includes('録音'),
+    )
+    listAuditLog.mockResolvedValue(page([coreEvent({ id: 'thread-1', target_id: 'rec-9' })]))
+    fireEvent.click(subButtons[0]!)
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(3))
+    expect(listAuditLog.mock.calls[2]![0]).toMatchObject({ includeViews: true })
+
+    // 戻る — includeViews must still be true, not forced back to false.
+    const backBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === '戻る')!
+    listAuditLog.mockResolvedValue(page([coreEvent({ id: 'rec-row', action: 'recording.play', target_id: 'rec-9' })]))
+    fireEvent.click(backBtn)
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(4))
+    expect(listAuditLog.mock.calls[3]![0]).toMatchObject({ includeViews: true })
   })
 })
 

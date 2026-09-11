@@ -2539,7 +2539,8 @@
         "other": "Other"
       },
       "recording": {
-        "ticketBurned": "Pack already redeemed"
+        "ticketBurned": "Pack already redeemed",
+        "minutes": "{n} min"
       },
       "storm": {
         "sub": "Transcribed {n} times · ~{cost} · {day}"

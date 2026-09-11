@@ -147,14 +147,21 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   // targetType:'recording' read (the reader's own threadPartial contract).
   const [threadPartial, setThreadPartial] = useState(false)
 
-  // I4 — shared by the back button AND the (now-removed) inline clear button:
-  // leaving a thread always resets to the plain feed.
+  // I4 — the back button's handler; leaving a thread always resets targetId/
+  // targetType/threadPartial to the plain feed.
+  // F7(a) fix (blind lens finding 7): only the customer dispute view forces
+  // 閲覧を含む on entry (the deep-link's own default, `Boolean(initialTargetId)`
+  // above) — leaving it should return to that plain-feed default, unchanged
+  // from before this fix. A recording thread never touches includeViews on
+  // entry (opening one doesn't call setIncludeViews at all), so leaving one
+  // must never silently flip a toggle the user set for themselves on the
+  // feed — `prev` carries it through untouched.
   const closeTarget = useCallback(() => {
     setTargetId(null)
+    setIncludeViews((prev) => (targetType === 'customer' ? false : prev))
     setTargetType('customer')
-    setIncludeViews(false)
     setThreadPartial(false)
-  }, [])
+  }, [targetType])
 
   const staffNames = useMemo(
     () => new Map(staffList.map((s) => [s.id, s.full_name])),
@@ -502,9 +509,20 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       const resolvedName = e.target_id ? targetLabels[e.target_id] : undefined
       const hasCustomerId = typeof detail.customer_id === 'string' && detail.customer_id.length > 0
       const base = resolvedName ?? t(hasCustomerId ? 'recordingUnresolved' : 'recordingNoCustomer')
+      // F7(c) fix (blind lens finding 10): karute_missing/transcribe_failed
+      // carry the FULL SESSION length (karuteMissingDetail passes
+      // row.durationSeconds, run.ts:148) — every other target_type:
+      // 'recording' row's duration_seconds is a short clip, where the
+      // existing 「（{n}秒）」 durationSuffix reads fine. A full session in
+      // seconds ("（3600秒）") does not, so these two rows use the ruled
+      // recording.minutes 「{n}分」 line instead (native-pass table, KEEP).
+      const isSessionLengthRow =
+        e.action === 'recording.karute_missing' || e.action === 'recording.transcribe_failed'
       const duration =
         typeof detail.duration_seconds === 'number'
-          ? t('durationSuffix', { n: detail.duration_seconds })
+          ? isSessionLengthRow
+            ? t('recording.minutes', { n: Math.floor(detail.duration_seconds / 60) })
+            : t('durationSuffix', { n: detail.duration_seconds })
           : ''
       // #865 (merged 9/9) put staff_id into the assembler's detail — resolve
       // it the same way targetName above resolves a staff target_id (live

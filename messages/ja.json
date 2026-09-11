@@ -2539,7 +2539,8 @@
         "other": "その他"
       },
       "recording": {
-        "ticketBurned": "回数券消化済み"
+        "ticketBurned": "回数券消化済み",
+        "minutes": "{n}分"
       },
       "storm": {
         "sub": "文字起こし{n}回 · 約{cost} · {day}"
