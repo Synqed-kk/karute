@@ -111,15 +111,20 @@ describe('CP7 — AUDITED_CORES writers emit on every non-error path', () => {
       const unprovenNames = new Set((entry.unproven ?? []).map((u) => u.symbol))
       const provenSymbols = entry.symbols.filter((s) => !unprovenNames.has(s))
 
-      it.each(provenSymbols)('symbol %s resolves and emits on every non-error path', (symbolName) => {
-        const symbol = findSymbol(source, symbolName)
-        expect(symbol).not.toBeNull()
-        const result = emitsOnEveryNonErrorPath(symbol!)
-        if (!result.ok) {
-          throw new Error(`${entry.file}#${symbolName} has undominated returns:\n${result.offenders.join('\n')}`)
-        }
-        expect(result.ok).toBe(true)
-      })
+      // it.each throws on an empty table (round 2 PR C find — the first
+      // AUDITED_CORES entry whose EVERY symbol is `unproven`, so this table
+      // is legitimately empty rather than a bug in the entry itself).
+      if (provenSymbols.length > 0) {
+        it.each(provenSymbols)('symbol %s resolves and emits on every non-error path', (symbolName) => {
+          const symbol = findSymbol(source, symbolName)
+          expect(symbol).not.toBeNull()
+          const result = emitsOnEveryNonErrorPath(symbol!)
+          if (!result.ok) {
+            throw new Error(`${entry.file}#${symbolName} has undominated returns:\n${result.offenders.join('\n')}`)
+          }
+          expect(result.ok).toBe(true)
+        })
+      }
 
       if (entry.unproven?.length) {
         it.each(entry.unproven)('unproven symbol $symbol resolves (registered, not walker-asserted — $reason)', ({ symbol: symbolName }) => {
