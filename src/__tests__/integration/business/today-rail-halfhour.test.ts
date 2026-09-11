@@ -53,7 +53,11 @@ import {
   applyMoves,
   companionLines,
   companionsFor,
+  cursorWord,
   explainRails,
+  gestureAllocator,
+  handRowStamp,
+  liveChipFace,
   gapLayerFor,
   gapPackingDials,
   guardRailsFor,
@@ -62,11 +66,14 @@ import {
   onlineOffers,
   railChipClass,
   railExplain,
+  reseatSentence,
   reservedClause,
   restCueStarts,
   sellDrawnFor,
   sellLayerFor,
   type GuardRail,
+  type LandingClass,
+  type LandingVerdict,
   type Move,
   type RailCell,
   type RailCue,
@@ -77,6 +84,7 @@ import {
   TodayScreen,
   bedDoor,
   bedViewsFor,
+  type ToneSlot,
   type TodayProps,
 } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
@@ -948,6 +956,719 @@ describe('§BEHAVIOURAL — the packing search never runs per frame', () => {
     const spy = counting()
     explainWith(REAL.lanes, spy.allocate)
     expect(spy.packs()).toHaveLength(0)
+  })
+})
+
+// ── §BEHAVIOURAL (v) — WHAT A LIVE DRAG ASKS, COUNTED, NOW THAT IT PACKS ────
+//
+// ⚖ LIVE-WHILE-DRAGGING (2026-09-11). Clauses (i)–(iv) above answer for a board
+// whose strip does NOT pack per frame. This one answers for the board that does:
+// while an unstaged card is in hand the strip and the cursor ask the DROP's own
+// question on every frame, and what makes that affordable is that one gesture's
+// answers are one small set. So the fence here is not 「zero packs」 any more —
+// it is 「one search per distinct question, and the drop pays none of them
+// twice」, which is a thing only a counting allocator can say.
+//
+// It drives the REAL functions: `applyMoves` builds each frame's board exactly
+// as the screen does (both copies at the live span), `gestureAllocator` is the
+// product's, and every ask goes through `landingVerdict`'s own seam.
+//
+// ⚠ THE MUTANT (i) AND (ii) CANNOT SEE, named here because clause (b) is what
+// catches it: moving `boardLanesRef.current = boardLanes` out of the render body
+// and into an effect leaves the ref one frame stale, so every chip fails the
+// memo's board-family gate and passes straight through. Every ANSWER stays
+// correct and only the COST changes — a grep and a green battery are both blind
+// to it, and 「a second sweep of the same lattice asks the allocator nothing」
+// goes red on it immediately.
+//
+// ⚠ THE ORDER AT THE DROP, assumed and stated: `applyDragFrame` calls `setLive`
+// before `paintProxyVerdict`, and React 18 flushes the batched state only after
+// the rAF callback returns — so the aimed chip's slot is always written before
+// the render that reads it. `clearDrag()` runs before the release's own verdict
+// for the same reason. If a render ever did flush between the two, the hand-row
+// stamp is the guard: the board it would re-derive is the board the memo keys on.
+
+/** The screen's own live chain for ONE ordinary staff-row move (G1), rebuilt
+ *  from the props. Every ask it makes is counted, and the allocator the memo
+ *  falls back to is the spy, so 「how many searches did this frame pay?」 is a
+ *  number rather than an argument. */
+function liveRig(rest: BoardLane[], hand: { id: string; bed: string }) {
+  const asks: Array<{ lanes: BoardLane[]; opts: Ask }> = []
+  const base: typeof allocateBed = (lanes, opts) => {
+    asks.push({ lanes, opts })
+    return allocateBed(lanes, opts)
+  }
+  let boardLanes = rest
+  let cleanup = REAL.bedCleanupMinutes
+  // THE SCREEN'S OWN WORLD STAMP, modelled rather than faked: `useMemo` hands
+  // back the SAME object until one of its dependencies changes identity, so the
+  // three mid-gesture disturbances below reach the memo exactly the way they
+  // reach it on the board — through the dep list, which is pinned by exact text
+  // in today-bed-packing §B.
+  let placedLanes: unknown = rest
+  let pending: unknown = null
+  // The four the screen also lists and this rig never moves — they are in the
+  // tuple so the dep list under test is the SCREEN's, not a shortened copy.
+  const parked: unknown[] = []
+  const addedHere: unknown[] = []
+  const moves: object = {}
+  const bedMoves: object = {}
+  let depsAt: unknown[] = []
+  let stamp: object = {}
+  const world = () => {
+    const deps = [placedLanes, parked, addedHere, moves, bedMoves, pending, REAL.hours, REAL.sell.nowMinute, cleanup]
+    if (deps.some((d, i) => d !== depsAt[i]) || deps.length !== depsAt.length) {
+      depsAt = deps
+      stamp = {}
+    }
+    return stamp
+  }
+  const memo = gestureAllocator({
+    handId: hand.id,
+    stamp: world,
+    board: () => boardLanes,
+    rowStamp: () => handRowStamp(boardLanes, hand.id, hand.bed),
+    base,
+  })
+  const dur = REAL.guard.standardSessionMin
+  /** One pointer frame: the hand's card written onto BOTH rows at the live span,
+   *  exactly as `liveMoves`/`liveBedMoves` do it (TodayScreen :1279-1290). */
+  const frameAt = (laneKey: string, start: number) => {
+    const span = place(start, start + dur, REAL.hours)
+    boardLanes = applyMoves(
+      rest,
+      { [hand.id]: { laneKey, ...span } },
+      [],
+      [],
+      REAL.hours,
+      { [hand.id]: { laneKey: hand.bed, ...span } },
+      cleanup,
+    )
+    return span
+  }
+  /** `TodayScreen.verdictFor` — the board's own inputs to `landingVerdict`, with
+   *  the gesture's memo on the question every consumer already builds. */
+  const verdictFor = (laneKey: string | null, start: number, cell: RailCell | null, pack: boolean, lanes = boardLanes) =>
+    landingVerdict(
+      lanes,
+      {
+        staffLane: laneKey,
+        bedLane: hand.bed,
+        solveRoom: true,
+        id: hand.id,
+        requiresPrivate: false,
+        foreignRefusal: null,
+        hasPrice: true,
+        start,
+        end: start + dur,
+        span: place(start, start + dur, REAL.hours),
+        locked: [],
+        minutesOf: (x: number) => minuteOf(x, REAL.hours),
+        stagedId: null,
+        now: REAL.sell.nowMinute,
+        cleanupMinutesByBed: cleanup,
+        pack,
+        allocate: memo.allocate,
+      },
+      cell,
+    )
+  /** `verdictAtLanding` — the gesture END, whole: the solve, and the guard's
+   *  re-read on the board the shuffle would leave. */
+  const dropAt = (laneKey: string, start: number) => {
+    const v = verdictFor(laneKey, start, cellAt(boardLanes, laneKey, start, hand.id), true)
+    if (v.reseats.length === 0) return v
+    const shuffled = applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), REAL.hours, cleanup)
+    return { ...verdictFor(laneKey, start, cellAt(shuffled, laneKey, start, hand.id), true, shuffled), reseats: v.reseats }
+  }
+  /** `solveBed` — the second door, which STAGES the answer. */
+  const solveBed = (laneKey: string, start: number) =>
+    memo.allocate(boardLanes, {
+      id: hand.id,
+      currentBed: hand.bed,
+      stores: boardLanes.find((l) => l.key === laneKey)?.stores ?? null,
+      requiresPrivate: false,
+      start,
+      end: start + dur,
+      stagedId: null,
+      pack: true,
+      now: REAL.sell.nowMinute,
+      cleanupMinutesByBed: cleanup,
+    })
+  return {
+    memo,
+    dur,
+    frameAt,
+    verdictFor,
+    dropAt,
+    solveBed,
+    board: () => boardLanes,
+    /** Packing searches this frame's board actually paid — asks that reached the
+     *  allocator itself, on THIS board family. A re-judge on a shuffled board is
+     *  a different family by design and is counted separately where it matters. */
+    packsOn: (lanes: BoardLane[]) => asks.filter((a) => a.opts.pack === true && a.lanes === lanes).length,
+    packs: () => asks.filter((a) => a.opts.pack === true).length,
+    reset: () => { asks.length = 0 },
+    /** The operator stages or confirms a card mid-gesture. */
+    changePending: () => { pending = { id: 'somebody' } },
+    /** A server refresh hands the board a new `placedLanes` identity. */
+    refreshServer: () => { placedLanes = [...(placedLanes as unknown[])] },
+    /** A room's turnaround changes under the card. */
+    changeCleanup: (next: Record<string, number>) => { cleanup = next },
+    /** ⚖ FIX ROUND 1 (F2) — the two values the SCREEN's ⇄ fill gate compares.
+     *  They are the same two the memo clears on, read from the same places. */
+    worldStamp: world,
+    rowStamp: () => handRowStamp(boardLanes, hand.id, hand.bed),
+  }
+}
+
+/** ⚖ FIX ROUND 2 (FX-B — ADDENDUM STOP 1) — THE ON-DEMAND COMPOSER'S RULE, AS
+ *  SOMETHING THAT CAN BE ASKED.
+ *
+ *  `composeSlot()` lives in TodayScreen's render body and NO SUITE IN THIS REPO
+ *  RENDERS TodayScreen, so the rule is driven here against a hand-built store
+ *  and the LINES that spell it in the product are pinned as text in
+ *  today-bed-packing §B. Neither half is armour on its own: a rule nobody can
+ *  execute proves nothing, and a pinned line nobody exercised proves nothing
+ *  either.
+ *
+ *  It replaces fix round 1's refill-on-clear gate, which was correct and cost
+ *  33 rebuilds and p95 114.5 ms of a 68-frame gesture on the 30-lane board. The
+ *  rule now, in one sentence: a candidate whose (lane · start · length · SET OF
+ *  MOVES) is already in the map is REUSED; anything else is composed on the
+ *  spot, on one shuffled board per distinct set of moves for the whole gesture. */
+/** ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — ONE COMPARE, TWO CACHES. Mirrors the
+ *  screen's own `gestureStore()`: the board compare that drops the gesture's
+ *  shuffled boards drops the companion LINES composed from them with it, because
+ *  both are views of the world as it was. It sits in its own door for the same
+ *  reason it does on the screen — a chip whose slot HITS never reaches the
+ *  composer, so a compare that lived only there could not protect the lines. */
+/** ⚖ FIX ROUND 4 (Greptile #884 4/5) — TWO COMPARES, AND ONLY ONE OF THEM MAY
+ *  TOUCH THE SLOTS. The BOARD changes on every frame of a gesture because the
+ *  hand's own live claim is in it, so dropping the previews on that compare is
+ *  fix round 1's refill — 33 rebuilds and p95 114.5 ms on the 30-lane board,
+ *  measured and ruled out. The WORLD (the board MINUS the hand: a staged card,
+ *  a server refresh, a room's turnaround, `now`) is rare and is not a preview
+ *  question at all — a slot composed before it moved describes a board nobody
+ *  is looking at, and the set of moves in the key cannot catch it because an
+ *  UNCHANGED rescue under a CHANGED world carries the SAME key. */
+function spendCaches(
+  store: { slots?: Map<string, LandingClass>; shuffledFor: Map<string, number>; linesFor?: Map<string, number>; base?: unknown; world?: unknown },
+  base: unknown,
+  world: unknown = store.world,
+): void {
+  if (store.world !== world) {
+    store.world = world
+    store.slots?.clear()
+    store.shuffledFor.clear()
+    store.linesFor?.clear()
+  }
+  if (store.base !== base) {
+    store.base = base
+    store.shuffledFor.clear()
+    store.linesFor?.clear()
+  }
+}
+
+/** ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — THE ⇄ CHIP'S COMPANION LINES, AS A
+ *  RULE THAT CAN BE ASKED: composed once per SET OF MOVES, reused by every chip
+ *  wearing that rescue, and dropped when the board underneath moves. Before it,
+ *  the renderer walked the board twice per marked chip per pointer frame. */
+function linesRule(
+  store: { shuffledFor: Map<string, number>; linesFor: Map<string, number>; base?: unknown; world?: unknown },
+  moveSet: string,
+  compose: () => number,
+  base: unknown = store.base,
+  world: unknown = store.world,
+): { composed: boolean; entries: number } {
+  spendCaches(store, base, world)
+  const had = store.linesFor.get(moveSet)
+  if (had !== undefined) return { composed: false, entries: store.linesFor.size }
+  store.linesFor.set(moveSet, compose())
+  return { composed: true, entries: store.linesFor.size }
+}
+
+/** ⚖ FIX ROUND 5 (Greptile #885 4/5) — WHAT A ⇄ PREVIEW REMEMBERS, AND WHAT
+ *  THE CHIP SAYS OFF IT.
+ *
+ *  Two one-line rules that live in TodayScreen's render body — `composeSlot`'s
+ *  store line and the chip's own `sentence` — so the same armour applies as to
+ *  every other rule in this file: the LINES are pinned as text in
+ *  today-bed-packing §B, the RULES are exercised here, and neither half proves
+ *  anything alone.
+ *
+ *  The slot used to be `final.kind` alone. `final` is the DROP's own verdict on
+ *  the shuffled board, and on a costly swap its `reason` is the sentence the
+ *  △ palette is about — the very tail the REST layer appends through
+ *  `reseatSentence` for the same chip. Dropping it left the ⇄ chip's
+ *  accessible name announcing the swap and never its price. The tail is read
+ *  back for a `caution` slot ONLY: a clean swap has no cost to name, and naming
+ *  one would be a sentence the rest layer does not write either. `ToneSlot` is
+ *  the product's own exported type, so a change to the slot's shape fails the
+ *  typecheck here as well as the text pin there. */
+const slotOf = (final: Pick<LandingVerdict, 'kind' | 'reason'>): ToneSlot => ({ kind: final.kind, reason: final.reason })
+const chipTail = (slot: ToneSlot | undefined): string | null => (slot?.kind === 'caution' ? slot.reason : null)
+
+function slotRule(
+  store: { slots: Map<string, LandingClass>; shuffledFor: Map<string, number>; linesFor?: Map<string, number>; base?: unknown; world?: unknown },
+  laneKey: string,
+  start: number,
+  dur: number,
+  moveSet: string,
+  compose: () => LandingClass,
+  /** ⚖ FIX ROUND 1B (FX-D) — the BOARD the shuffles below are a view of. It
+   *  defaults to the one the store already holds, so a caller that does not care
+   *  about the world moving is asking exactly the question it asked before. */
+  base: unknown = store.base,
+  /** ⚖ FIX ROUND 4 — the WORLD the slots were composed under: the board MINUS
+   *  the hand. It defaults to the one the store already holds, so every caller
+   *  written before this round is asking exactly the question it asked before. */
+  world: unknown = store.world,
+): { kind: LandingClass; composed: boolean; shuffles: number } {
+  // ⚖ FIX ROUND 1B (FX-D) — the compare that spends the caches…
+  // ⚖ FIX ROUND 4 — …and it runs BEFORE the hit, not after it. It sat below the
+  // hit while it could not touch the SLOTS: a found slot read a map the compare
+  // would not have changed, so a hit never needed to ask. The world compare can
+  // drop slots, and a lazy sweep would let the first chip of a render read a
+  // stale entry and only clear the map for its neighbours — half a swept frame.
+  // The screen spells the same ordering: the store's door is called once in the
+  // render body, above the strips, and not only from inside the composer.
+  spendCaches(store, base, world)
+  const key = `${laneKey}|${start}|${dur}|${moveSet}`
+  const had = store.slots.get(key)
+  if (had !== undefined) return { kind: had, composed: false, shuffles: store.shuffledFor.size }
+  if (!store.shuffledFor.has(moveSet)) store.shuffledFor.set(moveSet, store.shuffledFor.size + 1)
+  const kind = compose()
+  store.slots.set(key, kind)
+  return { kind, composed: true, shuffles: store.shuffledFor.size }
+}
+
+/** ⚖ FIX ROUND 2 (FX-A) — THE ⇄ FILL'S OWN FENCE, AS A RULE THAT CAN BE ASKED.
+ *
+ *  Same armour as the gate above: the LINE is pinned as text in
+ *  today-bed-packing §B, the RULE is exercised here, and neither proves
+ *  anything alone. `landingVerdict` sets `reseats` before its stops, then
+ *  refuses a pack-rescued start on the REST cell it is handed (:5802) — so the
+ *  first-leg verdict of a ⇄ candidate is `blocked` WITH companions, and a fence
+ *  that reads `kind` throws away exactly the cells the fill exists for. */
+function toneAdmits(v: LandingVerdict): boolean {
+  return v.reseats.length > 0
+}
+
+/** The fence FX-A replaced, kept here and ONLY here so the rule above can be
+ *  measured against it on the repo's own day rather than argued about. */
+function toneAdmittedBefore(v: LandingVerdict): boolean {
+  return v.kind !== 'blocked' && v.reseats.length > 0
+}
+
+/** The guard's cell for one chip, the way `verdictAt` builds it. */
+function cellAt(lanes: BoardLane[], laneKey: string, start: number, excludeId: string | null): RailCell | null {
+  return railsOnFor(lanes, excludeId).find((r) => r.laneKey === laneKey)?.cells.find((c) => c.start === start) ?? null
+}
+
+/** `railsOn` with a hand lifted out — the strip's own input mid-drag. */
+function railsOnFor(lanes: BoardLane[], excludeId: string | null): GuardRail[] {
+  const views = bedViewsFor(lanes, DAY_FRAME(), excludeId)
+  return guardRailsFor(lanes, {
+    open: REAL.hours.open,
+    close: REAL.hours.close,
+    stepMin: 30,
+    dur: REAL.guard.standardSessionMin,
+    protectedDur: REAL.guard.protectedDurationMin,
+    nowMinute: REAL.sell.nowMinute,
+    locked: [],
+    guard: REAL.guard.config,
+    excludeId,
+    placementFeasible: bedDoor(views, lanes, excludeId),
+    protectedWindowFeasible: bedDoor(views, lanes, null),
+    resting: null,
+  })
+}
+
+describe('§BEHAVIOURAL (v) — a live drag pays for each question ONCE, and the drop pays for none', () => {
+  const HAND = { id: 'apt-22', bed: 'bed-02' }
+  const LATTICE = () => {
+    const out: number[] = []
+    for (let s = REAL.hours.open; s + REAL.guard.standardSessionMin <= REAL.hours.close; s += 30) out.push(s)
+    return out
+  }
+
+  /** One sweep of every chip on every strip, at one pointer frame. */
+  function sweep(rig: ReturnType<typeof liveRig>, laneKeys: string[], starts: number[]) {
+    for (const lk of laneKeys) {
+      const rails = railsOnFor(rig.board(), HAND.id)
+      const rail = rails.find((r) => r.laneKey === lk)
+      if (!rail) continue
+      for (const s of starts) {
+        rig.verdictFor(lk, s, rail.cells.find((c) => c.start === s) ?? null, true)
+      }
+    }
+  }
+
+  const staffKeys = () => REAL.lanes.filter((l) => l.group === 'staff').map((l) => l.key)
+
+  it('(a)+(b) thirty frames sweeping the lattice pay one search per QUESTION; a second sweep pays none', () => {
+    const rig = liveRig(sceneC(), HAND)
+    const starts = LATTICE()
+    const keys = staffKeys()
+    // Frame 1 — the pick-up burst. Every distinct question is searched once and
+    // never again, however many lanes ask it: the answer depends on the staff
+    // lane only through its store.
+    rig.frameAt(keys[0], 840)
+    const board1 = rig.board()
+    sweep(rig, keys, starts)
+    const firstBurst = rig.packsOn(board1)
+    expect(firstBurst).toBeGreaterThan(0)
+    // ONE SEARCH PER ENTRY, and the entries are the QUESTIONS: a lattice start
+    // times a store binding. `allocateBed`'s answer depends on the staff lane
+    // only through `stores`, so six lanes asking the same start on one binding
+    // are one question — which is the whole design in one number. On this day
+    // that is 17 starts across the bindings the roster actually has.
+    const bindings = new Set(REAL.lanes.filter((l) => l.group === 'staff').map((l) => JSON.stringify(l.stores))).size
+    expect({ burst: firstBurst, entries: rig.memo.size() }).toEqual({ burst: rig.memo.size(), entries: rig.memo.size() })
+    expect(firstBurst).toBeLessThanOrEqual(starts.length * bindings)
+    // …against the chips that asked, which is the ratio the round is built on.
+    expect(firstBurst).toBeLessThan(starts.length * keys.length)
+    // …and the lanes that share a binding were already being served out of it
+    // inside this very first sweep.
+    expect(rig.memo.hits()).toBeGreaterThan(0)
+
+    // Frames 2-30 — the card travels. Nothing about the board MINUS the hand
+    // changed, so the same lattice is answered without one more search.
+    rig.reset()
+    for (let f = 1; f < 30; f += 1) {
+      rig.frameAt(keys[f % keys.length], 840 + 5 * (f % 12))
+      sweep(rig, keys, starts)
+    }
+    expect({ frames: 29, searches: rig.packs() }).toEqual({ frames: 29, searches: 0 })
+    expect({ passes: rig.memo.passes(), rowClears: rig.memo.rowClears() }).toEqual({ passes: 0, rowClears: 0 })
+    // Over the whole gesture the answers are overwhelmingly served, not searched
+    // — which is the sentence the round's cost rests on.
+    expect(rig.memo.hits()).toBeGreaterThan(rig.memo.misses() * 10)
+  })
+
+  it('(c) the DROP at a start the strip already answered pays nothing — same key, same board, same object', () => {
+    const rig = liveRig(sceneC(), HAND)
+    const keys = staffKeys()
+    rig.frameAt(keys[0], 840)
+    sweep(rig, keys, LATTICE())
+    rig.reset()
+    const board = rig.board()
+    const v = rig.dropAt(keys[0], 840)
+    // Zero fresh searches on the board the release is judged against. A landing
+    // that carries companions also re-reads the guard on the board the shuffle
+    // would leave — a DIFFERENT board family, which the gate sends to its own
+    // deterministic search on purpose; it is not on this board's bill.
+    expect({ onThisBoard: rig.packsOn(board), kind: typeof v.kind }).toEqual({ onThisBoard: 0, kind: 'string' })
+  })
+
+  it('(d) `solveBed`’s own ask is the SAME ENTRY the cursor read — object identity, not a re-derivation', () => {
+    const rig = liveRig(sceneC(), HAND)
+    const keys = staffKeys()
+    rig.frameAt(keys[0], 840)
+    const first = rig.solveBed(keys[0], 840)
+    rig.reset()
+    const again = rig.solveBed(keys[0], 840)
+    expect({ searches: rig.packs(), same: again === first, frozen: Object.isFrozen(first) })
+      .toEqual({ searches: 0, same: true, frozen: true })
+  })
+
+  it('(e)+(f) the BOOK and the RAILS never reach the gesture’s allocator at all', () => {
+    const rig = liveRig(sceneC(), HAND)
+    rig.frameAt(staffKeys()[0], 840)
+    // The frame's own book and its four-door strip, built exactly as the screen
+    // builds them. Neither is handed the memo and neither may find it: the book
+    // imports `allocateBed` directly (R9) and the rails are handed doors.
+    bedViewsFor(rig.board(), DAY_FRAME(), HAND.id)
+    railsOnFor(rig.board(), HAND.id)
+    expect({ hits: rig.memo.hits(), misses: rig.memo.misses(), passes: rig.memo.passes(), searches: rig.packs() })
+      .toEqual({ hits: 0, misses: 0, passes: 0, searches: 0 })
+  })
+
+  it('(g) the world moving under the card MISSES the memo — three ways it can', () => {
+    // ⚖ AUDIT A5. The memo's contract is that the screen owns invalidation, so
+    // the three things that can genuinely change mid-gesture each have to empty
+    // it: a card staged or confirmed, a server refresh, and a room's turnaround.
+    for (const [name, disturb] of [
+      ['the operator stages a card (`pending`)', (r: ReturnType<typeof liveRig>) => r.changePending()],
+      ['a server refresh (`placedLanes` identity)', (r: ReturnType<typeof liveRig>) => r.refreshServer()],
+      ['a room’s turnaround (`bedCleanupMinutes`)', (r: ReturnType<typeof liveRig>) => r.changeCleanup({ ...REAL.bedCleanupMinutes, 'bed-01': 45 })],
+    ] as const) {
+      const rig = liveRig(sceneC(), HAND)
+      const keys = staffKeys()
+      rig.frameAt(keys[0], 840)
+      rig.verdictFor(keys[0], 840, null, true)
+      rig.reset()
+      rig.verdictFor(keys[0], 840, null, true)
+      expect({ name, beforeDisturbance: rig.packs() }).toEqual({ name, beforeDisturbance: 0 })
+      // ⚖ FIX ROUND 2 (FX-B) — AND THE ⇄ TONE SLOTS DO **NOT** GO WITH IT.
+      // Fix round 1 rebuilt the whole view on every one of these clears, which
+      // is correct and costs 33 rebuilds and p95 114.5 ms of a 68-frame gesture
+      // on the 30-lane board. So the slots now outlive the memo on purpose, and
+      // the staleness a clear can cause is answered in the KEY and at the CHIP:
+      // the same start with the SAME rescue is reused (the design's declared
+      // preview class), and the same start with a DIFFERENT rescue misses and is
+      // composed fresh in that render.
+      const store = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, number>() }
+      let composes = 0
+      const compose = (): LandingClass => { composes += 1; return 'clean' }
+      expect({ name, beforeTheDisturbance: slotRule(store, keys[0], 840, 60, 'a>r2', compose).composed })
+        .toEqual({ name, beforeTheDisturbance: true })
+      disturb(rig)
+      rig.frameAt(keys[0], 840)
+      rig.verdictFor(keys[0], 840, null, true)
+      expect({ name, afterDisturbance: rig.packs() }).toEqual({ name, afterDisturbance: 1 })
+      expect({ name, entries: rig.memo.size() }).toEqual({ name, entries: 1 })
+      expect({ name, sameRescueStillReused: slotRule(store, keys[0], 840, 60, 'a>r2', compose).composed })
+        .toEqual({ name, sameRescueStillReused: false })
+      expect({ name, changedRescueComposesFresh: slotRule(store, keys[0], 840, 60, 'a>r3', compose).composed })
+        .toEqual({ name, changedRescueComposesFresh: true })
+      expect({ name, composes, shuffles: store.shuffledFor.size }).toEqual({ name, composes: 2, shuffles: 2 })
+    }
+    // …and the three cases the rule exists for, hand-built and named, plus the
+    // gesture's one shuffled board per set of moves. These are mutants (2), (5)
+    // and (7) of the fix round, written as the rule rather than as an edit.
+    {
+      const store = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, number>() }
+      let composes = 0
+      const compose = (): LandingClass => { composes += 1; return 'caution' }
+      // A candidate WITHOUT a slot is composed at the site…
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r2', compose)).toEqual({ kind: 'caution', composed: true, shuffles: 1 })
+      // …a candidate WITH one is reused and composes nothing…
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r2', compose)).toEqual({ kind: 'caution', composed: false, shuffles: 1 })
+      // …and a CHANGED set of moves is a different question, composed fresh on
+      // its own board.
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r3', compose)).toEqual({ kind: 'caution', composed: true, shuffles: 2 })
+      // …while a second chip under the SAME set of moves composes its own slot
+      // but REUSES the gesture's board — the cache without which composing on
+      // demand costs a whole shuffled board per missing chip.
+      expect(slotRule(store, 'p-02', 840, 60, 'a>r2', compose)).toEqual({ kind: 'caution', composed: true, shuffles: 2 })
+      expect({ composes, keys: store.slots.size }).toEqual({ composes: 3, keys: 3 })
+    }
+    // ⚖ FIX ROUND 1B (FX-D) — …and the FOURTH case: a changed BOARD rebuilds the
+    // shuffle even for a set of moves this gesture has already shuffled once. The
+    // cached board is a view of the world as it was; the world can move under the
+    // card (a staged card, a refresh, a room's turnaround), and a candidate
+    // composed on demand afterwards would otherwise be judged on the old one.
+    {
+      const store = {
+        slots: new Map<string, LandingClass>(),
+        shuffledFor: new Map<string, number>(),
+        linesFor: new Map<string, number>(),
+        base: undefined as unknown,
+      }
+      let composes = 0
+      const compose = (): LandingClass => { composes += 1; return 'caution' }
+      const boardA: unknown = { world: 'A' }
+      const boardB: unknown = { world: 'B' }
+      // Two sets of moves under ONE board: two shuffles, both kept…
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r2', compose, boardA)).toEqual({ kind: 'caution', composed: true, shuffles: 1 })
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r3', compose, boardA)).toEqual({ kind: 'caution', composed: true, shuffles: 2 })
+      // …a second chip under the same board still reuses them…
+      expect(slotRule(store, 'p-02', 840, 60, 'a>r2', compose, boardA)).toEqual({ kind: 'caution', composed: true, shuffles: 2 })
+      // …and the board CHANGING drops every one of them, so the very same set of
+      // moves is shuffled again on the board that stands now.
+      expect(slotRule(store, 'p-03', 840, 60, 'a>r2', compose, boardB)).toEqual({ kind: 'caution', composed: true, shuffles: 1 })
+      // …while the SLOTS composed before it all survive: dropping those is fix
+      // round 1's rebuild, measured at p95 114.5 ms and ruled out.
+      expect({ composes, keys: store.slots.size }).toEqual({ composes: 4, keys: 4 })
+      // ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — …AND THE ⇄ CHIP'S COMPANION
+      // LINES RIDE ON EXACTLY THE SAME TWO RULES: one composition per set of
+      // moves however many chips wear it, and dropped when the board moves.
+      // Spelled at the chip, this was two board walks per marked chip per
+      // pointer frame; the rule below is what the cache has to keep true.
+      let lineComposes = 0
+      const composeLines = (): number => { lineComposes += 1; return lineComposes }
+      // The board here is `boardB` — the one the block above left the store on.
+      expect(linesRule(store, 'a>r2', composeLines, boardB)).toEqual({ composed: true, entries: 1 })
+      // …a second chip under the SAME rescue reuses it and composes nothing…
+      expect(linesRule(store, 'a>r2', composeLines, boardB)).toEqual({ composed: false, entries: 1 })
+      // …a DIFFERENT rescue is a different sentence, composed on its own…
+      expect(linesRule(store, 'a>r3', composeLines, boardB)).toEqual({ composed: true, entries: 2 })
+      // …and the board MOVING drops them with the shuffles, so the very same
+      // rescue is read off the board that stands now — a line naming a
+      // companion the board no longer carries is the defect this closes.
+      expect(linesRule(store, 'a>r2', composeLines, boardA)).toEqual({ composed: true, entries: 1 })
+      expect({ lineComposes, shuffles: store.shuffledFor.size }).toEqual({ lineComposes: 3, shuffles: 0 })
+    }
+    // ⚖ FIX ROUND 4 (Greptile #884 4/5) — …and the FIFTH case, which is the
+    // whole of this round: A CHANGED WORLD DROPS EVERY SLOT; AN UNCHANGED WORLD
+    // WITH A CHANGED BOARD KEEPS THEM.
+    //
+    // The two are not the same event. The BOARD is a different object on every
+    // frame of a gesture because the hand's own live claim is in it, so the
+    // board compare above is the hand moving, and dropping the previews on it is
+    // fix round 1's refill — 33 rebuilds and p95 114.5 ms on the 30-lane board,
+    // measured and ruled out (the chip under the cursor is corrected on every
+    // aim change, which is what makes the rest a declared preview). The WORLD is
+    // the board MINUS the hand — a staged or confirmed card, a server refresh, a
+    // room's turnaround, `now` — and a slot composed before one of those moved
+    // is not a stale preview but an answer about a board nobody is looking at.
+    // The set of moves in the key cannot catch it: an UNCHANGED rescue under a
+    // CHANGED world carries the SAME key and was being handed straight back.
+    {
+      const store = {
+        slots: new Map<string, LandingClass>(),
+        shuffledFor: new Map<string, number>(),
+        linesFor: new Map<string, number>(),
+        base: undefined as unknown,
+        world: undefined as unknown,
+      }
+      let composes = 0
+      const compose = (): LandingClass => { composes += 1; return 'clean' }
+      const boardA: unknown = { board: 'A' }
+      const boardB: unknown = { board: 'B' }
+      const w1: unknown = { world: 1 }
+      const w2: unknown = { world: 2 }
+      // Two chips under one world and one board…
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r2', compose, boardA, w1)).toEqual({ kind: 'clean', composed: true, shuffles: 1 })
+      expect(slotRule(store, 'p-02', 840, 60, 'a>r2', compose, boardA, w1)).toEqual({ kind: 'clean', composed: true, shuffles: 1 })
+      // …the BOARD moving under the card drops the shuffles and KEEPS the
+      // previews — this is the frame-by-frame case, and it is the one round 1
+      // paid 114.5 ms for.
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r2', compose, boardB, w1)).toEqual({ kind: 'clean', composed: false, shuffles: 0 })
+      expect({ keptAcrossTheHandMoving: store.slots.size }).toEqual({ keptAcrossTheHandMoving: 2 })
+      // …and the WORLD moving drops every one of them, so the very same chip
+      // with the very same rescue is composed again on the board that stands
+      // now — and its neighbour's preview is gone too, not just its own.
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r2', compose, boardB, w2)).toEqual({ kind: 'clean', composed: true, shuffles: 1 })
+      expect({ composes, keys: store.slots.size }).toEqual({ composes: 3, keys: 1 })
+    }
+    // ⚖ FIX ROUND 5 (Greptile #885 4/5) — …and the SIXTH case, which is not
+    // about WHEN a slot is kept but about WHAT ONE HOLDS.
+    //
+    // A slot is the DROP's answer for a start the board can only reach by
+    // moving somebody, and it held that answer's KIND alone. On a costly swap
+    // the kind is `caution`, the △ palette follows from it — and the sentence
+    // that says WHAT the swap costs was computed by the same verdict, used to
+    // pick the palette, and thrown away. The chip then wore a △ and told a
+    // screen reader only that the board would move someone: the mark promised a
+    // price and the name never said it. The cost is not a new fact and this is
+    // not a new sentence — at REST the same clause carries the same tail
+    // through the same composer (`railExplain`'s reseat arm takes `caution:
+    // v.kind === 'caution' ? v.reason : null` off the SHUFFLED board's own
+    // verdict), so mid-drag it is the identical value from the identical place.
+    {
+      // A real one: the guard's own refusal sentence for a protected window the
+      // swap would spend (the shape `landingVerdict` returns on a caution).
+      const REASON = 'ここに置くと新規（90分）が入らなくなります（16:00〜17:00）'
+      const BASE = 'この30分はベッドが空いています'
+      const LINES = ['見本 さくら様 ベッド1 → ベッド2']
+      // A caution final keeps its reason…
+      expect(slotOf({ kind: 'caution', reason: REASON })).toEqual({ kind: 'caution', reason: REASON })
+      // …a clean one has none to keep — `landingVerdict`'s `reason` is `null` on
+      // a landing nothing refused…
+      expect(slotOf({ kind: 'clean', reason: null })).toEqual({ kind: 'clean', reason: null })
+      // …and a REFUSED one keeps the stop's reason, which the chip never reads:
+      // it draws × and `liveChipFace` gives it no mark, so there is no swap to
+      // explain.
+      expect(slotOf({ kind: 'blocked', reason: 'この位置では確定できません' })).toEqual({ kind: 'blocked', reason: 'この位置では確定できません' })
+      // The tail is the slot's reason on a caution and nothing anywhere else —
+      // including the chip whose slot is MISSING, which is composed on the spot
+      // and until then has no cost to name.
+      expect(chipTail(slotOf({ kind: 'caution', reason: REASON }))).toBe(REASON)
+      expect(chipTail(slotOf({ kind: 'clean', reason: null }))).toBeNull()
+      expect(chipTail(slotOf({ kind: 'blocked', reason: 'この位置では確定できません' }))).toBeNull()
+      expect(chipTail(undefined)).toBeNull()
+      // …and the SENTENCE is the rest layer's own composer with that tail in
+      // its third argument — asserted against `reseatSentence` itself, never
+      // against a second spelling of the clause, which is the defect the
+      // composer was lifted to prevent.
+      const costly = reseatSentence(BASE, LINES, chipTail(slotOf({ kind: 'caution', reason: REASON })))
+      expect(costly).toBe(reseatSentence(BASE, LINES, REASON))
+      expect(costly.endsWith(`。${REASON}`)).toBe(true)
+      // …and a swap that costs nothing still ends at the companions, exactly as
+      // it does at rest.
+      const free = reseatSentence(BASE, LINES, chipTail(slotOf({ kind: 'clean', reason: null })))
+      expect(free).toBe(reseatSentence(BASE, LINES, null))
+      expect(free).not.toContain(REASON)
+      expect(free.endsWith(`（${LINES[0]}）`)).toBe(true)
+    }
+    // …and the hand's OWN room row is the third: a tail that clips or re-grows
+    // under the card changes what `allocateBed`'s step-0 arm sees, which is the
+    // defect M1b exists for. The stamp says so on its own counter.
+    const rig = liveRig(sceneC(), HAND)
+    const rows = [
+      handRowStamp(rig.board(), HAND.id, HAND.bed),
+      (rig.frameAt(staffKeys()[0], 840), handRowStamp(rig.board(), HAND.id, HAND.bed)),
+    ]
+    expect(rows.every((r) => typeof r === 'string')).toBe(true)
+  })
+
+  it('(h) ⚖ AUDIT A1 — the chip under the cursor, the badge and the release are ONE answer', () => {
+    // The chips sit on the 30-minute lattice and the card does not, so the two
+    // are asking about two starts. Both answers are exact; the identity the round
+    // must hold is that the chip shows ITS OWN start's drop answer and the badge
+    // shows the landing's, and that on an ON-LATTICE frame — where the two
+    // questions coincide — they are the same answer, written once.
+    const rig = liveRig(sceneC(), HAND)
+    const keys = staffKeys()
+    const starts = LATTICE()
+    rig.frameAt(keys[0], starts[0])
+    sweep(rig, keys, starts)
+
+    let checked = 0
+    // ⚖ ADJUDICATION L2 M-1 — three booking lattices, because `bookingStepMin` is
+    // a live dial and the 30-minute chip lattice is not the one the card snaps to.
+    for (const step of [5, 15, 30]) {
+      for (const lk of keys) {
+        for (const s of starts) {
+          for (const off of [0, step]) {
+            const live = s + off
+            if (live + rig.dur > REAL.hours.close) continue
+            rig.frameAt(lk, live)
+            const chipStart = Math.floor(live / 30) * 30
+            const badge = rig.dropAt(lk, live)
+            const chipDrop = rig.dropAt(lk, chipStart)
+            const chipV = rig.verdictFor(lk, chipStart, cellAt(rig.board(), lk, chipStart, HAND.id), true)
+            const face = liveChipFace({ v: chipV, final: chipDrop, start: chipStart })
+            // The chip's face is the drop's answer AT THE CHIP'S OWN START…
+            expect({ at: `${lk}@${chipStart}`, blocked: face.state === 'blocked' })
+              .toEqual({ at: `${lk}@${chipStart}`, blocked: chipDrop.kind === 'blocked' })
+            expect({ at: `${lk}@${chipStart}`, mark: face.mark != null })
+              .toEqual({ at: `${lk}@${chipStart}`, mark: chipDrop.kind !== 'blocked' && chipV.reseats.length > 0 })
+            // …and the badge is the drop's answer at the LANDING, said in words.
+            expect({ at: `${lk}@${live}`, word: cursorWord(badge).kind })
+              .toEqual({ at: `${lk}@${live}`, word: cursorWord(rig.dropAt(lk, live)).kind })
+            // …and where the two coincide they are literally one answer.
+            if (live === chipStart) {
+              expect({ at: `${lk}@${live}`, same: badge.kind }).toEqual({ at: `${lk}@${live}`, same: chipDrop.kind })
+            }
+            checked += 1
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0)
+  })
+
+  it('(i) ⚖ FIX ROUND 2 (FX-A) — the ⇄ fill’s fence is `reseats`, and the fence it replaced admitted NOTHING on this day', () => {
+    // The class the whole blind round walked past: every pin green, every fence
+    // green, every answer right — and the feature invisible, because the fill
+    // threw away all of its own input. Measured here on the repo's OWN fixture
+    // day through the REAL `landingVerdict`, not modelled.
+    const rig = liveRig(sceneC(), HAND)
+    const keys = staffKeys()
+    const starts = LATTICE()
+    rig.frameAt(keys[0], starts[0])
+    let candidates = 0
+    let admittedBefore = 0
+    let blockedFirstLeg = 0
+    let rescued = 0
+    for (const lk of keys) {
+      for (const s of starts) {
+        const v = rig.verdictFor(lk, s, cellAt(rig.board(), lk, s, HAND.id), true)
+        if (!toneAdmits(v)) continue
+        candidates += 1
+        if (toneAdmittedBefore(v)) admittedBefore += 1
+        if (v.kind === 'blocked') blockedFirstLeg += 1
+        // …and the composer's own rule, which is what makes a `blocked` first
+        // leg admissible at all: the SHUFFLED board's re-read decides the face.
+        if (rig.dropAt(lk, s).kind !== 'blocked') rescued += 1
+      }
+    }
+    expect({ candidates: candidates > 0, admittedBefore }).toEqual({ candidates: true, admittedBefore: 0 })
+    expect({ blockedFirstLeg, rescued: rescued > 0 }).toEqual({ blockedFirstLeg: candidates, rescued: true })
+    console.log(`(i) FX-A — scene C admits ${candidates} ⇄ candidates (the old fence: ${admittedBefore}); ${rescued} of them come back clean or caution on the shuffled board`)
   })
 })
 

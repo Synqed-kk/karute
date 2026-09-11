@@ -2728,6 +2728,29 @@ const laneCovers = (
  *  built and `restCueStarts` used to spell inline. */
 export const RAIL_STEP_MIN = 30
 
+/** ⚖ ADJUDICATION L3 MAJOR (2026-09-11) — 「ここに置くと、ほかのお客様のベッドを
+ *  入れ替えて収めます（…）」, AND IT HAS ONE HOME.
+ *
+ *  The clause was spelled inline in `railExplain` below, which is the REST
+ *  layer. Mid-drag `explainRails` returns an empty map (its `inHand` early
+ *  return), so the strip chip's own `sentence` — the one its `aria-label` gives
+ *  a screen reader and the one pressing it shows — fell through to the guard's
+ *  rest-time capacity sentence and never mentioned the swap the ⇄ on its face
+ *  was promising. The chip SAID one thing and MEANT another, which is flag 54's
+ *  disease in the one surface nobody re-checked.
+ *
+ *  So the clause is lifted, unchanged, and both layers call it. A second
+ *  spelling on the screen would have been the same defect one round later.
+ *
+ *  `base` is the sentence the chip would carry without the swap; `lines` are
+ *  `companionLines`' own, byte for byte; `caution` is the verdict's own sentence
+ *  when the shuffle costs a protected window, and `null` when it does not — it
+ *  is never a second wording of one. */
+export function reseatSentence(base: string, lines: readonly string[], caution: string | null): string {
+  const moved = `ここに置くと、ほかのお客様のベッドを入れ替えて収めます（${lines.join('、')}）`
+  return `${base}。${moved}${caution != null ? `。${caution}` : ''}`
+}
+
 export function railExplain(
   cell: RailCell,
   /** The length the strip is judging — ⚖ 50, it follows the gesture. */
@@ -2952,12 +2975,10 @@ export function railExplain(
   // is the one that goes. (Round 1's §Open-4 asked whether the two reading
   // together would be confusing; this closes it by decision.)
   if (opts.reseat != null && word == null && opts.reservedDur == null) {
-    const moved = `ここに置くと、ほかのお客様のベッドを入れ替えて収めます（${opts.reseat.lines.join('、')}）`
-    const caution = opts.reseat.caution != null ? `。${opts.reseat.caution}` : ''
     return {
       word: null,
       wordReason: null,
-      sentence: `${base}。${moved}${caution}`,
+      sentence: reseatSentence(base, opts.reseat.lines, opts.reseat.caution),
       cue: null,
       mark: { face: 'reseat', tone: opts.reseat.tone },
     }
@@ -4684,6 +4705,12 @@ export function gestureAllocator(opts: {
     // from every booking gesture (⚖ flag 73, `allocateBed`'s own doc above) and
     // it is in the key anyway: a key blind to an option the allocator READS is
     // one ruling away from being wrong (⚖ ADJUDICATION L1 minor).
+    // ⚖ CODE-LENS-2 N1 — THE ASSUMPTION THE RAW `|` JOIN RESTS ON, stated: none
+    // of the interpolated fields can CONTAIN a `|`. `id` and `stagedId` are
+    // booking UUIDs, `currentBed` is a bed lane key, and `stores` arrives
+    // JSON-quoted. If any of them ever could, two different questions would
+    // share one key — the single failure a memo is not allowed to have — and
+    // this line is where that would have to be answered.
     const key = `${o.id}|${o.currentBed}|${JSON.stringify(o.stores)}|${o.requiresPrivate}|${o.start}|${o.end}|${o.stagedId ?? ''}|${o.now}|${o.allowBusy === true}`
     const hit = memo.get(key)
     if (hit !== undefined) {
@@ -4691,9 +4718,14 @@ export function gestureAllocator(opts: {
       return hit
     }
     misses += 1
-    // Frozen, so no display that borrowed the answer can sort or splice what
-    // another surface is about to read off the same object (`blockers` is
-    // already `readonly` by type; this is the runtime half).
+    // Frozen, so no display that borrowed the answer can reassign a field on
+    // the object another surface is about to read off.
+    // ⚖ CODE-LENS-1 MINOR (b) — SHALLOW, and that is the whole of it: the
+    // OBJECT is frozen; `blockers` and `reseats` are not, and their guard is
+    // `readonly` by type. Not a deep freeze — the allocator's own array reuse
+    // is not proven either way, and a freeze it does not expect is a change to
+    // the engine, not a comment. No consumer of either array mutates it today
+    // (grepped across `src/`).
     const fresh = Object.freeze(base(lanes, o))
     memo.set(key, fresh)
     return fresh

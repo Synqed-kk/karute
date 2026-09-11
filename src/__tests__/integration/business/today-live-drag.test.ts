@@ -21,16 +21,19 @@
 import { cleanupBlocks, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 import {
   allocateBed,
+  applyMoves,
   cursorWord,
   gestureAllocator,
   handRowStamp,
   liveChipFace,
   packImpossible,
+  reseatSentence,
   sharesStore,
   VERDICT_WORD,
   type LandingVerdict,
+  type Moves,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
-import { bookFor, type BookCache } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { bookFor, moveSetOf, slotKey, type BookCache } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import type { DayFrame } from '@/app/[locale]/(business)/business/today/capacity-ledger'
 
 const HOURS: Hours = { open: 540, close: 1200 }
@@ -547,6 +550,82 @@ describe('`bookFor` — one capacity book per lanes array, and it dies with the 
   })
 })
 
+describe('`slotKey` — the ⇄ tone slot\u2019s ONE spelling, and every field separates', () => {
+  /** ⚖ ADJUDICATION L2 MAJOR 2 + breaker survivor (k). The key was written out
+   *  three times — the fill, the chip, the aimed chip's own refresh — and
+   *  nothing in the repo asserted the three agreed. Dropping `dur` from all
+   *  three shipped the whole battery green: every chip loses its slot, falls
+   *  back to the UN-shuffled verdict, and ⚖ RULING 3's third arm 「no mark when
+   *  the release would refuse」 stops holding with no test to say so. */
+  it('the lane, the start, the LENGTH and the SET OF MOVES each separate two keys', () => {
+    expect(slotKey('p-01', 840, 60, 'a>r2')).toBe(slotKey('p-01', 840, 60, 'a>r2'))
+    expect(slotKey('p-01', 840, 60, 'a>r2')).not.toBe(slotKey('p-02', 840, 60, 'a>r2'))
+    expect(slotKey('p-01', 840, 60, 'a>r2')).not.toBe(slotKey('p-01', 870, 60, 'a>r2'))
+    // …and the one the mutant dropped. The strip's length follows the gesture
+    // (⚖ 50), so one lane and one start are two different questions at two
+    // lengths — inert while a gesture holds one length, a landmine the moment
+    // the queued resize / shelf-chip rounds land.
+    expect(slotKey('p-01', 840, 60, 'a>r2')).not.toBe(slotKey('p-01', 840, 90, 'a>r2'))
+    // ⚖ FIX ROUND 2 (FX-B) — …and the FOURTH, which is what lets the slots
+    // outlive the memo at all. The board can move under the card mid-gesture
+    // and the pack can then rescue the same start a different way; a key blind
+    // to that would hand the chip a face composed on a board nobody is looking
+    // at any more. With the moves in the key that answer simply misses, and a
+    // miss is composed fresh at the chip.
+    expect(slotKey('p-01', 840, 60, 'a>r2')).not.toBe(slotKey('p-01', 840, 60, 'a>r3'))
+    expect(slotKey('p-01', 840, 60, '')).not.toBe(slotKey('p-01', 840, 60, 'a>r2'))
+  })
+
+  it('the four fields are all that is in it, in that order', () => {
+    expect(slotKey('p-01', 840, 60, 'a>r2')).toBe('p-01|840|60|a>r2')
+  })
+})
+
+describe('`moveSetOf` — the set of moves a landing would make, spelled ONCE', () => {
+  /** ⚖ FIX ROUND 2 (FX-B). Three sites ask for this string — the composer (for
+   *  the shuffled-board cache AND the key), the chip map, and the aimed chip's
+   *  own refresh — so it has a home rather than three spellings, which is the
+   *  same lesson `slotKey` above exists for. */
+  it('carries the booking and the room it moves to, in the search’s own order', () => {
+    expect(moveSetOf([{ id: 'a', from: 'r1', to: 'r2' }])).toBe('a>r2')
+    expect(moveSetOf([{ id: 'a', from: 'r1', to: 'r2' }, { id: 'b', from: 'r3', to: 'r4' }])).toBe('a>r2,b>r4')
+  })
+
+  it('a landing with no companions is the empty string, and that is a key like any other', () => {
+    expect(moveSetOf([])).toBe('')
+    expect(slotKey('p-01', 840, 60, moveSetOf([]))).toBe('p-01|840|60|')
+  })
+
+  it('the ROOM is in it, not only the booking — a different rescue of the same booking is a different answer', () => {
+    expect(moveSetOf([{ id: 'a', from: 'r1', to: 'r2' }])).not.toBe(moveSetOf([{ id: 'a', from: 'r1', to: 'r3' }]))
+  })
+})
+
+describe('`reseatSentence` — the swap said once, for both layers', () => {
+  /** ⚖ ADJUDICATION L3 MAJOR. The rest layer composed this inline and the
+   *  mid-drag chip never reached for it, so a chip wearing ⇄ announced the
+   *  guard's rest-time capacity sentence to a screen reader. One home, two
+   *  callers, and the wording is the board's own — 入れ替え is the legend's noun
+   *  (`⇄ = ベッドを入れ替えて置ける`) and the parenthesis is `companionLines`'. */
+  it('the ⇄ clause, with the companion lines in the parenthesis', () => {
+    expect(reseatSentence('この30分はベッドが空いています', ['見本 さくら様 ベッド1 → ベッド2'], null)).toBe(
+      'この30分はベッドが空いています。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（見本 さくら様 ベッド1 → ベッド2）',
+    )
+  })
+
+  it('several companions ride one parenthesis, joined the surface’s own way', () => {
+    expect(reseatSentence('あ', ['い', 'う'], null)).toBe('あ。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（い、う）')
+  })
+
+  it('the DEGRADED tone appends the shuffle’s own sentence, never a second wording of it', () => {
+    expect(reseatSentence('あ', ['い'], '新規用の枠が1つ減ります')).toBe(
+      'あ。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（い）。新規用の枠が1つ減ります',
+    )
+    // …and `null` adds nothing at all, which is what a clean shuffle costs.
+    expect(reseatSentence('あ', ['い'], null).endsWith('（い）')).toBe(true)
+  })
+})
+
 // ══ THE SOUNDNESS SWEEP — pruned ⇒ the allocator refuses ════════════════════
 
 /** mulberry32 — the same scene twice, on demand. */
@@ -692,5 +771,174 @@ describe('the pre-check is SOUND — a pruned ask is one the search would have r
     expect(boards).toBeGreaterThanOrEqual(N)
     expect(prunedCount).toBeGreaterThan(0)
     expect(asks).toBeGreaterThan(prunedCount)
+  })
+})
+
+
+// ══ THE EQUIVALENCE FUZZ — the memo may change a COST, never an ANSWER ══════
+
+/** `allocateBed`'s whole served answer, compared the way a consumer reads it.
+ *
+ *  ⚖ ADJUDICATION L1 M-3 — `laneKey` and `reseats` are not enough. The memo
+ *  serves object references made on an EARLIER frame, and what the surfaces
+ *  downstream actually read is the value: the refusal SENTENCE goes under the
+ *  cursor and into the 満室 box, and the blockers are walked into the chip's
+ *  micro-word. Every bed lane's 清掃 rows are new objects on every frame, so a
+ *  reference comparison would pass a stale answer; these are compared by value,
+ *  and the blockers as a SET because the walk's order is the board's. */
+function served(a: ReturnType<typeof allocateBed>) {
+  return {
+    laneKey: a.laneKey,
+    refusal: a.refusal,
+    reseats: a.reseats.map((r) => `${r.id}|${r.from}|${r.to}`),
+    blockers: [...a.blockers.map((b) => `${b.key}|${b.kind}|${b.startMin}|${b.endMin}`)].sort(),
+  }
+}
+
+describe('the memo is EXACTLY the allocator — proven at every frame of random gestures', () => {
+  it('0 mismatches, and the frames really do move the board under the card', () => {
+    // 3,000 gestures in CI with a fixed seed; LIVEDRAG_FUZZ_GESTURES=100000 is
+    // the deep run. It is the pin that turned the design's invariance claim into
+    // a fact rather than a story: the claim 「within one gesture the board MINUS
+    // the subject does not change」 is FALSE as written, this found it, and
+    // `handRowStamp` is the repair. Set the stamp to a constant and this goes red.
+    const GESTURES = Number(process.env.LIVEDRAG_FUZZ_GESTURES ?? '3000')
+    let gestures = 0
+    let frames = 0
+    let comparisons = 0
+    let packsSeen = 0
+    let mismatches = 0
+    let first: string | null = null
+    let hits = 0
+    let misses = 0
+    let rowClears = 0
+    let aimedChecks = 0
+    let aimedMismatches = 0
+
+    for (let seed = 1; gestures < GESTURES && seed < GESTURES * 8; seed += 1) {
+      const sc = scene(seed)
+      if (!sc) continue
+      gestures += 1
+      const r = rng(seed ^ 0x9e3779b9)
+      // ⚖ ADJUDICATION L1 M-4 — the clock is drawn, not frozen: it decides which
+      // bookings the pack may move at all (the lead floor), and freezing it left
+      // that whole arm unexercised.
+      const now = r() < 0.5 ? HOURS.open : 540 + 30 * Math.floor(r() * 20)
+      // ⚖ ADJUDICATION L2 M-1 — `bookingStepMin` is a live dial, and the card's
+      // lattice is not the chips'. Drawing it is what makes the aimed-chip clause
+      // below mean anything: the fixture's own 30 hid the off-lattice case.
+      const step = [5, 15, 30][Math.floor(r() * 3)]
+      const starts = Array.from({ length: 8 }, (_, i) => 540 + 60 * i).filter((x) => x + 60 <= HOURS.close)
+
+      let board: BoardLane[] = sc.lanes
+      // The screen's own world stamp, modelled: one object for the gesture,
+      // replaced only when the world MINUS the hand changes. The mid-gesture
+      // cases below drive it deliberately (⚖ ADJUDICATION L4).
+      let stamp: object = {}
+      const memo = gestureAllocator({
+        handId: sc.hand.id,
+        stamp: () => stamp,
+        board: () => board,
+        rowStamp: () => handRowStamp(board, sc.hand.id, sc.hand.bed),
+      })
+
+      const nFrames = 3 + Math.floor(r() * 4)
+      for (let f = 0; f < nFrames; f += 1) {
+        const laneKey = sc.staffKeys[Math.floor(r() * sc.staffKeys.length)]
+        const live = 540 + step * Math.floor(r() * (600 / step))
+        if (live + 60 > HOURS.close) continue
+        const span = place(live, live + 60, HOURS)
+        // F1 — a staff-row drag writes BOTH copies at the live span.
+        const liveMoves: Moves = { [sc.hand.id]: { laneKey, x: span.x, w: span.w } }
+        const liveBedMoves: Moves = { [sc.hand.id]: { laneKey: sc.hand.bed, x: span.x, w: span.w } }
+        board = applyMoves(sc.lanes, liveMoves, [], [], HOURS, liveBedMoves, sc.cleanup)
+        frames += 1
+
+        // ⚖ ADJUDICATION L4 — a third of the frames move the WORLD under the card
+        // and the stamp says so, so the memo is exercised across its own reset
+        // rather than only inside one quiet gesture.
+        if (r() < 0.33) stamp = {}
+
+        const ask = (l: string, s: number, priv: boolean) => ({
+          id: sc.hand.id,
+          currentBed: sc.hand.bed,
+          stores: board.find((x) => x.key === l && x.group === 'staff')!.stores,
+          requiresPrivate: priv,
+          start: s,
+          end: s + 60,
+          stagedId: null,
+          pack: true,
+          now,
+          cleanupMinutesByBed: sc.cleanup,
+        })
+
+        // Every chip's question on this frame, plus the cursor's own.
+        for (const l of sc.staffKeys) {
+          for (const s of starts) {
+            // ⚖ ADJUDICATION L1 M-4 — the 個室のみ axis, drawn per ask because it
+            // is in the key and it changes which rooms the search may use.
+            const priv = r() < 0.25
+            const viaMemo = memo.allocate(board, ask(l, s, priv))
+            const fresh = allocateBed(board, ask(l, s, priv))
+            comparisons += 1
+            if (fresh.reseats.length > 0) packsSeen += 1
+            if (JSON.stringify(served(viaMemo)) !== JSON.stringify(served(fresh))) {
+              mismatches += 1
+              if (first == null) {
+                first = `seed=${seed} frame=${f} lane=${l} start=${s} private=${priv} now=${now}\n`
+                  + `  memo:  ${JSON.stringify(served(viaMemo))}\n  fresh: ${JSON.stringify(served(fresh))}`
+              }
+            }
+          }
+        }
+
+        // THE CURSOR's own ask at this frame's aim…
+        const cursor = memo.allocate(board, ask(laneKey, live, false))
+        const cursorFresh = allocateBed(board, ask(laneKey, live, false))
+        comparisons += 1
+        if (JSON.stringify(served(cursor)) !== JSON.stringify(served(cursorFresh))) {
+          mismatches += 1
+          if (first == null) first = `CURSOR seed=${seed} frame=${f} start=${live}`
+        }
+
+        // …and ⚖ AUDIT A1 — THE AIMED CHIP. The chips sit on the 30-minute
+        // lattice and the card does not. Where the two coincide the badge and the
+        // chip must be ONE answer, not two readings that can drift: the memo
+        // serves the very same frozen entry to both, and the two pure faces agree
+        // about whether this landing moves anybody.
+        const chipStart = Math.floor(live / 30) * 30
+        if (live === chipStart) {
+          aimedChecks += 1
+          if (memo.allocate(board, ask(laneKey, chipStart, false)) !== cursor) aimedMismatches += 1
+          const v: LandingVerdict = {
+            kind: cursor.laneKey == null ? 'blocked' : 'clean',
+            floor: null,
+            label: cursor.laneKey == null ? VERDICT_WORD.blocked : VERDICT_WORD.clean,
+            reason: cursor.refusal,
+            cell: null,
+            bedLane: cursor.laneKey,
+            checks: [],
+            reseats: cursor.reseats,
+          }
+          const wearsMark = liveChipFace({ v, final: v, start: chipStart }).mark != null
+          if (wearsMark !== cursorWord(v).kind.startsWith('reseat')) aimedMismatches += 1
+        }
+      }
+      hits += memo.hits()
+      misses += memo.misses()
+      rowClears += memo.rowClears()
+      memo.free()
+      expect(memo.size()).toBe(0)
+    }
+
+    expect({ mismatches, first }).toEqual({ mismatches: 0, first: null })
+    expect({ aimedChecks: aimedChecks > 0, aimedMismatches }).toEqual({ aimedChecks: true, aimedMismatches: 0 })
+    // …and the run is not vacuous: the boards really pack, the memo really
+    // serves, and the hand-row stamp really fires on some of them.
+    expect(gestures).toBeGreaterThanOrEqual(GESTURES)
+    expect(packsSeen).toBeGreaterThan(0)
+    expect(hits).toBeGreaterThan(misses)
+    expect({ frames: frames > 0, comparisons: comparisons > 0, rowClears: rowClears >= 0 })
+      .toEqual({ frames: true, comparisons: true, rowClears: true })
   })
 })

@@ -128,12 +128,22 @@ import {
   restCueStarts,
   type HalfHourBeds,
   railChipClass,
+  // ⚖ LIVE-WHILE-DRAGGING (2026-09-11) — the gesture's own memo behind the
+  // allocator seam, the hand-row fingerprint that keeps it honest, and the two
+  // pure faces the strip and the cursor wear while a card is in hand.
+  gestureAllocator,
+  handRowStamp,
+  cursorWord,
+  liveChipFace,
+  type GestureMemo,
+  type LandingClass,
   restingSpanFor,
   warnFaceFor,
   holdClock,
   holdResumeAt,
   HOLD_MS,
   explainRails,
+  reseatSentence,
   reservedSentence,
   sameStore,
   sharesStore,
@@ -155,6 +165,7 @@ import {
   type OverrideLevel,
   type PairLanes,
   type RailCell,
+  type Reseat,
   type SellDrop,
   type WarnCardModel,
 } from './today-interactions'
@@ -324,6 +335,76 @@ export function bookFor(lanes: BoardLane[], frame: DayFrame, liftedId: string | 
   const views = bedViewsFor(lanes, frame, liftedId)
   cache.set(lanes, { frameKey, liftedId, views })
   return views
+}
+
+/** ⚖ ADJUDICATION L2 MAJOR 2 — ONE SPELLING OF THE ⇄ TONE SLOT'S KEY.
+ *
+ *  The slots are a string agreement between three sites — the fill that writes
+ *  them, the chip that reads one, and the aimed chip's own refresh, which does
+ *  both. It was spelled out three times, and the breaker's mutant (k) — drop
+ *  `dur` from all three — shipped the whole battery green: every chip silently
+ *  loses its slot, falls back to the UN-shuffled verdict, and ⚖ RULING 3's third
+ *  arm stops holding. A key with no home has no pin, so this is the home: the
+ *  three fields, the one separator, unit-pinned beside `bookFor` (same
+ *  precedent — exported, module-level, no screen needed to ask it).
+ *
+ *  `dur` is in the key because a chip's identity is its START and its LENGTH:
+ *  the strip's length follows the gesture (⚖ 50), so one lane and one start can
+ *  be two different questions inside one day. It is inert while a gesture holds
+ *  one length and a landmine the moment one does not. */
+export function slotKey(laneKey: string, start: number, dur: number, moveSet: string): string {
+  return `${laneKey}|${start}|${dur}|${moveSet}`
+}
+
+/** ⚖ FIX ROUND 5 (Greptile #885 4/5) — WHAT A ⇄ PREVIEW REMEMBERS: THE FACE,
+ *  AND WHAT THE FACE COSTS.
+ *
+ *  The slot held `final.kind` alone. A costly swap therefore knew it was costly
+ *  — the △ palette — and could not say what it cost: the shuffled board's own
+ *  verdict sentence was computed to pick that palette and then dropped, so the
+ *  chip's accessible name and its press-to-explain said the swap without its
+ *  price. That sentence is exactly the tail the REST layer appends for the same
+ *  chip (`railExplain`'s reseat arm, from `landingVerdict`'s own `reason` on the
+ *  shuffled board), so keeping it is not a new fact — it is the one this screen
+ *  already had and threw away.
+ *
+ *  `reason` is that verdict's own: `null` on a clean landing, the cell's
+ *  sentence on a caution one, the stop's reason on a refusal — and a refused
+ *  slot draws × and reads none of it. */
+export type ToneSlot = { kind: LandingClass; reason: string | null }
+
+/** ⚖ FIX ROUND 2 (FX-B) — THE SET OF MOVES A LANDING WOULD MAKE, AS ONE STRING.
+ *
+ *  It is the fourth field of the key above and the cache key for the shuffled
+ *  board, so it is asked at three sites and spelled at one. A slot composed
+ *  under one set of moves is not an answer about a different set: the world can
+ *  move under the card mid-gesture, the pack can then find a different rescue
+ *  for the same start, and a key blind to that would hand the chip a face
+ *  composed on a board nobody is looking at any more. With the moves in the key
+ *  a changed rescue simply misses, and the missing slot is composed on the spot
+ *  (`composeSlot`). An UNCHANGED rescue under a changed world is reused, and
+ *  that is the design's declared preview class — the chip under the cursor is
+ *  corrected the moment the operator aims at it. */
+export function moveSetOf(reseats: readonly Reseat[]): string {
+  return reseats.map((r) => `${r.id}>${r.to}`).join(',')
+}
+
+/** ⚖ Liam 2026-09-11 — the ⇄ badge is the ICON always and the WORD only when the card
+ *  has room: the icon and the word are two nodes so the CSS can hide the word by the
+ *  card's own width (`@container`, today.css). `cursorWord` still composes the whole
+ *  text (the engine's spelling, the H8 identity, the tests' truth) — this only decides
+ *  how much of it is on screen. `node.textContent` stays byte-equal to `text`. */
+export function dressBadge(node: HTMLElement, text: string, kind: ReturnType<typeof cursorWord>['kind']): void {
+  if (kind === 'reseat' || kind === 'reseat-caution') {
+    const mark = document.createElement('b')
+    mark.textContent = text.slice(0, 1) // '⇄' — one UTF-16 unit (U+21C4)
+    const word = document.createElement('span')
+    word.textContent = text.slice(1) // ' 入れ替え' / ' 要確認' — the space rides with the word
+    node.replaceChildren(mark, word)
+  } else {
+    node.textContent = text // 置けない / 要確認 / '' — byte-unchanged behaviour
+  }
+  node.dataset.verdict = kind
 }
 
 /** ⚖ 51 / Greptile #827 — WHAT THE NEXT VISIT'S CATEGORY IS.
@@ -1992,7 +2073,7 @@ export function TodayScreen(props: TodayProps) {
    *  and reads the frame's book. */
   const bedDoorFor = useCallback(
     (askerId: string | null, lanes: BoardLane[] = boardLanes) =>
-      bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, ledgerFrame, handId), lanes, askerId),
+      bedDoor(lanes === boardLanes ? ledger : bookFor(lanes, ledgerFrame, handId, FOREIGN_BOOKS), lanes, askerId),
     [boardLanes, ledger, ledgerFrame, handId],
   )
   /** ⚖ NUDGE-GUARD — WHERE THE STORE'S COMMITTED DAY STILL HAS THE CARD BEING MOVED.
@@ -2031,7 +2112,7 @@ export function TodayScreen(props: TodayProps) {
       const lifted =
         lanes === boardLanes && excludeId === ledger.handId
           ? ledger.worldMinusHand
-          : bedViewsFor(lanes, ledgerFrame, excludeId).worldMinusHand
+          : bookFor(lanes, ledgerFrame, excludeId, FOREIGN_BOOKS).worldMinusHand
       return lifted === null ? undefined : bedDoor({ world: lifted, worldMinusHand: null, handId: null }, lanes, null)
     }
     return (excludeId: string | null, lanes: BoardLane[] = boardLanes) => {
@@ -2231,6 +2312,66 @@ export function TodayScreen(props: TodayProps) {
     }
     return null
   }, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])
+
+  /** ⚖ LIVE-WHILE-DRAGGING §3 — THE GESTURE'S OWN MEMO, and the one switch that
+   *  turns the live packing question on.
+   *
+   *  Until this round the strip and the word at the cursor asked 「does a bed
+   *  happen to be free here」 and the DROP asked 「…or can one be made free by
+   *  moving somebody」 — two questions, so the board could refuse a start it had
+   *  just marked ✓, and could stay silent about a landing that moves other
+   *  customers. They ask the SAME question now, and they can afford to because
+   *  one gesture's answers are one small set: the strip asks 660 times a frame
+   *  and the answer set is 22 questions.
+   *
+   *  It exists ONLY for an unstaged MOVE of a board card (`beginDrag`); every
+   *  other gesture keeps today's `pack: false` path byte for byte, and with the
+   *  ref null `livePack()` says so. */
+  const gestureMemoRef = useRef<GestureMemo | null>(null)
+  /** ONE HOME for 「is this gesture answering the packing question?」. Every
+   *  live reader asks here rather than spelling the boolean, so the fence in the
+   *  suite has one line to hold. */
+  const livePack = () => ({ pack: gestureMemoRef.current != null })
+  /** ⚖ §5b — THE ⇄ TONE SLOTS: the kind the DROP would give, for the chips that
+   *  can actually WEAR the mark. `null` means 「this gesture has not filled them
+   *  yet」; a record (even one with an empty Map) means it has, so a board with
+   *  no ⇄ anywhere pays the walk once rather than once a frame. Only ⇄ candidates
+   *  are in here — every other chip's own verdict IS the drop's.
+   *
+   *  ⚖ FIX ROUND 2 (FX-B — ADDENDUM STOP 1) — ONE MAP PER GESTURE, DROPPED ONLY
+   *  AT `freeGesture`. Fix round 1 tied the slots to the memo's own two
+   *  invalidators and rebuilt them on every clear; measured on the 30-lane
+   *  board that is 33 rebuilds in one gesture and p95 114.5 ms against today's
+   *  106.9 ms, so the rebuild was ruled out and this is the fallback the ruling
+   *  named. The slots now OUTLIVE the memo on purpose and the staleness a clear
+   *  can cause is answered two other ways: the set of moves is IN the key (so a
+   *  changed rescue misses and is composed fresh), and a candidate with no slot
+   *  at all is composed at the chip site in the same render.
+   *
+   *  `shuffledFor` is the gesture's one board per distinct set of moves — the
+   *  expensive half — shared by the pick-up burst and every on-demand compose,
+   *  so a shuffle is built once however many chips ask for it.
+   *
+   *  ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — `linesFor` is the second thing a
+   *  set of moves decides: the companion LINES the ⇄ chip's sentence names
+   *  (「さくら様 ベッド1 → ベッド2」). Same key, same lifetime, dropped by the
+   *  same board compare — one invalidation, two caches.
+   *
+   *  ⚖ FIX ROUND 4 (Greptile #884 4/5) — `world` is the WORLD the slots above
+   *  were composed under, and it is the one change that DOES drop them. */
+  const toneRef = useRef<{
+    slots: Map<string, ToneSlot>
+    shuffledFor: Map<string, BoardLane[]>
+    linesFor: Map<string, readonly string[]>
+    base: BoardLane[]
+    world: object
+  } | null>(null)
+  /** The whole of what a gesture leaves behind, released in one place. */
+  function freeGesture() {
+    gestureMemoRef.current?.free()
+    gestureMemoRef.current = null
+    toneRef.current = null
+  }
 
 
   const openCards = props.cards.filter((c) => c.state === 'open' && !resolved.includes(c.id))
@@ -2441,6 +2582,13 @@ export function TodayScreen(props: TodayProps) {
           now: props.sell.nowMinute,
           cleanupMinutesByBed: props.bedCleanupMinutes,
           pack,
+          // ⚖ LIVE-WHILE-DRAGGING §3.5 — THE GESTURE'S MEMO, ON THE QUESTION
+          // EVERY CONSUMER ALREADY BUILDS. No caller of `verdictFor` or
+          // `verdictAtLanding` changes its arguments and there is one home, so
+          // the strip, the cursor and the drop cannot end up reading three
+          // searches of one question. With no gesture in flight it is
+          // `undefined` and `landingVerdict` takes the import — byte-unchanged.
+          allocate: gestureMemoRef.current?.allocate,
         },
         cell,
       ),
@@ -2659,6 +2807,228 @@ export function TodayScreen(props: TodayProps) {
    *  homes for one landing all over again. */
   const boardLanesRef = useRef(boardLanes)
   boardLanesRef.current = boardLanes
+  /** ⚖ LIVE-WHILE-DRAGGING §3.3 / §3.4 — THE TWO STAMPS THE GESTURE MEMO READS,
+   *  and they are written HERE, in the render body, beside the board ref, for
+   *  the reason that ref is: during a render `boardLanesRef.current` IS this
+   *  frame's `boardLanes`, so every per-frame consumer passes the memo's
+   *  board-family gate. Move either assignment into an effect and the ref goes
+   *  one frame stale, every chip fails the gate, and the memo is silently dead
+   *  while every answer stays correct — which is why the ORDER and the
+   *  ADJACENCY of these four lines are pinned as text, and why the behavioural
+   *  clause 「a second sweep of the same lattice asks the allocator nothing」 is
+   *  what must go red on that mutant.
+   *
+   *  THE WORLD STAMP is a fresh identity whenever anything that changes the
+   *  world MINUS the hand changes. Each name below is an invalidator in its own
+   *  right: `placedLanes` (a server refresh or a block move), `parked`,
+   *  `addedHere`, `moves`, `bedMoves`, `pending` (staging or confirming), the
+   *  day's `hours`, the clock the pack's lead floor reads, and each room's
+   *  turnaround. It is an OBJECT of them rather than an empty literal so the
+   *  list cannot be pruned as unused: a stamp blind to one of its inputs serves
+   *  a stale answer in silence, which is the one failure a memo can have. */
+  const worldStamp = useMemo(
+    () => ({ placedLanes, parked, addedHere, moves, bedMoves, pending, hours, now: props.sell.nowMinute, cleanup: props.bedCleanupMinutes }),
+    [placedLanes, parked, addedHere, moves, bedMoves, pending, hours, props.sell.nowMinute, props.bedCleanupMinutes],
+  )
+  const worldStampRef = useRef(worldStamp)
+  worldStampRef.current = worldStamp
+  /** M1b — the fingerprint of the hand's own room row. Free at rest: with no
+   *  card in hand there is no bed lane to walk. */
+  const rowStampRef = useRef('')
+  rowStampRef.current = handRowStamp(boardLanes, handId ?? '', live?.bedLane ?? null)
+
+  /** ⚖ LIVE-WHILE-DRAGGING §5b — THE ⇄ TONE SLOTS, FILLED ONCE PER GESTURE, IN
+   *  ONE BURST, HERE — never inside the chip map and never lazily.
+   *
+   *  A chip that fits only by moving somebody must not wear ✓ and then be
+   *  refused on release, so its face is composed from the verdict the DROP would
+   *  give: the guard re-read on the board the shuffle would leave, which is
+   *  `verdictAtLanding`'s own two-step shape. That re-judge is the expensive
+   *  half, so it is paid once: one shuffled board per DISTINCT set of moves, one
+   *  capacity book per board (`bookFor`), and the walk narrowed to the chips
+   *  that can actually WEAR the mark — a start the clash row refuses comes back
+   *  `blocked` with its moves carried and earns neither.
+   *
+   *  SYNC, and the numbers are why: spreading the misses over later frames was
+   *  measured at 4–140× the whole-gesture cost at every batch size, because each
+   *  extra render costs a full frame.
+   *
+   *  ⚠ WHAT THESE SLOTS ARE, said plainly: a PREVIEW. The guard's protected-
+   *  window door reads the book of the board with the hand's live claim in it,
+   *  and that claim moves every frame — so a slot filled here can differ from
+   *  the same chip's honest answer later in the gesture (measured: 4.6% of
+   *  re-checks). That is the character the strip's ✓/△ marks already have away
+   *  from the cursor. The chip UNDER the cursor is the one that may never
+   *  disagree with the badge and the drop, and it does not: `paintProxyVerdict`
+   *  rewrites its slot on every aim change with the cursor's own answer.
+   *
+   *  BELOW THE THREE REFS ON PURPOSE: the fill is the first reader of the memo
+   *  in this render, and the memo's board-family gate compares against
+   *  `boardLanesRef.current` — written two statements above.
+   *
+   *  ⚖ FIX ROUND 2 (FX-B) + 1B (FX-D) — AND THE SLOTS OUTLIVE THE MEMO, ON
+   *  PURPOSE. Fix round 1 tied them to the memo's own two invalidators and
+   *  rebuilt the whole view on every clear; measured on the 30-lane board that
+   *  is 33 rebuilds in one gesture and p95 114.5 ms against today's 106.9 ms, so
+   *  it was ruled out and this is the fallback the ruling named. ONE map per
+   *  gesture, dropped only at `freeGesture`, and the staleness a clear can cause
+   *  is answered two other ways instead: the SET OF MOVES is the key's fourth
+   *  field, so a candidate whose rescue changed misses and is composed fresh;
+   *  and a candidate with no slot at all is composed AT THE CHIP SITE, in the
+   *  same render that draws it, so no chip is ever drawn from an un-shuffled
+   *  verdict (⚖ RULING 3's third arm, which `liveChipFace` claims holds by
+   *  construction). What FX-D adds is the BOARD: the shuffles — and the
+   *  companion lines built from them — are views of the world as it was, so the
+   *  store carries the board it was built on and `gestureStore` drops both
+   *  caches when that board is a different object. What is left is a non-aimed
+   *  ⇄ preview whose rescue is unchanged under a moved world: the 4.6% class
+   *  above, ruled acceptable, and never the chip under the cursor
+   *  (`paintProxyVerdict` rewrites that one on every aim change). */
+  function composeSlot(laneKey: string, start: number, v: LandingVerdict): ToneSlot | undefined {
+    const store = gestureStore()
+    // Both callers stand under a hand and under the store's own existence, and
+    // TypeScript's narrowing does not cross a function boundary. It is also a
+    // real guard: a composer asked outside a gesture answers 「nothing」 rather
+    // than inventing a face.
+    if (inHand == null || store == null) return undefined
+    const moveSet = moveSetOf(v.reseats)
+    let shuffled = store.shuffledFor.get(moveSet)
+    if (!shuffled) {
+      shuffled = applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), hours, props.bedCleanupMinutes)
+      store.shuffledFor.set(moveSet, shuffled)
+    }
+    const ask = { ...inHand, staffLane: laneKey, span: place(start, start + railDur, hours) }
+    const final = verdictFor(ask, verdictAt(laneKey, start, railDur, inHand.id, shuffled), false, shuffled)
+    const slot: ToneSlot = { kind: final.kind, reason: final.reason }
+    store.slots.set(slotKey(laneKey, start, railDur, moveSet), slot)
+    return slot
+  }
+  /** ⚖ FIX ROUND 1B (FX-D) — THE GESTURE'S CACHES FOLLOW THE BOARD THEY WERE
+   *  BUILT FROM, AND ONE COMPARE SPENDS THEM BOTH.
+   *
+   *  `shuffledFor` caches one shuffled board per set of moves for the whole
+   *  gesture, and `linesFor` caches the companion lines composed from it — both
+   *  built from `boardLanes`, and `boardLanes` itself can change under the card
+   *  mid-gesture (a staged card, a server refresh, a room's turnaround, `now` —
+   *  the world stamp's own deps). A candidate composed ON DEMAND after such a
+   *  change would otherwise be judged on a shuffle of the OLD world, so its
+   *  guard re-read can miss exactly what the world has just gained, and a
+   *  sentence composed then would name a companion the board may no longer
+   *  carry. The rule: when the board is a different object, everything built
+   *  from the old one is dropped and the next ask rebuilds it. The SLOTS are
+   *  deliberately not dropped with them — that is fix round 2's measured
+   *  decision, and the set of moves in the key already makes a changed rescue
+   *  miss.
+   *
+   *  ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — IT LIVES HERE, NOT INSIDE
+   *  `composeSlot`, because the renderer's chip line calls the composer only
+   *  when the slot is MISSING: on a frame where every ⇄ chip's slot hits, a
+   *  compare that sat inside the composer would never run, and `linesFor` would
+   *  go on serving lines built from a board that has moved. Both readers pass
+   *  through here, so the invalidation has one home and cannot be half-applied.
+   *
+   *  ⚖ FIX ROUND 4 (Greptile #884 4/5) — …AND WHEN THE WORLD MOVES, THE ⇄
+   *  PREVIEWS GO WITH THE SHUFFLES. Two different things change under a held
+   *  card and they do not deserve the same answer. The HAND moving is every
+   *  frame of the gesture — `boardLanes` is a new object each time because the
+   *  live claim is in it — and dropping the slots on that is fix round 1's
+   *  refill: 33 rebuilds and p95 114.5 ms on the 30-lane board, ruled out,
+   *  because a preview one live-claim old is exactly the class §5b declares and
+   *  the chip under the cursor is corrected on every aim change anyway. The
+   *  WORLD moving is rare and is not a preview at all: a staged or confirmed
+   *  card, a server refresh, a room's turnaround, `now` crossing a lead-time
+   *  pin — the `worldStamp` memo's own inputs, the board MINUS the hand. A slot
+   *  composed before one of those is an answer about a board nobody is looking
+   *  at any more, and the set of moves in the key cannot see it: an UNCHANGED
+   *  rescue under a CHANGED world carries the same key and was being reused.
+   *  So the world's identity joins the store and a different object drops all
+   *  three caches. Measured: ≈0 per gesture on every board the rig builds (the
+   *  stamp's inputs do not move while a card is held); the 2.47% of frames in
+   *  the design's table is the HAND-ROW half's rate on random boards, and that
+   *  half is deliberately not here. */
+  function gestureStore() {
+    const store = toneRef.current
+    if (store == null) return null
+    if (store.world !== worldStampRef.current) {
+      store.world = worldStampRef.current
+      store.slots.clear()
+      store.shuffledFor.clear()
+      store.linesFor.clear()
+    }
+    if (store.base !== boardLanes) {
+      store.base = boardLanes
+      store.shuffledFor.clear()
+      store.linesFor.clear()
+    }
+    return store
+  }
+  /** ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — THE ⇄ CHIP'S COMPANION LINES, ONCE
+   *  PER SET OF MOVES INSTEAD OF ONCE PER CHIP PER FRAME.
+   *
+   *  The sentence a ⇄ chip gives a screen reader is composed from these lines,
+   *  and composing them walks the board twice — `companionsFor` finds each moved
+   *  card, and `companionLines` does a `flatMap` of every item on the board per
+   *  companion to read its name. That ran inside `rail.cells.map`, for every
+   *  marked chip, on every pointer frame. It was disclosed in round 1 as costing
+   *  nothing 「because the slots are empty on every board measured」 — a premise
+   *  fix round 2 deleted when it admitted the candidates.
+   *
+   *  The lines depend on exactly what the shuffled board beside them depends on:
+   *  the set of moves, and the board. So they are kept on the same store, under
+   *  the same key, and dropped by the same compare. A gesture composes one set
+   *  of lines per distinct rescue, however many chips wear it. */
+  function linesFor(v: LandingVerdict): readonly string[] {
+    const store = gestureStore()
+    const moveSet = moveSetOf(v.reseats)
+    const had = store?.linesFor.get(moveSet)
+    if (had !== undefined) return had
+    const lines = companionLines(boardLanes, companionsFor(boardLanes, v.reseats))
+    store?.linesFor.set(moveSet, lines)
+    return lines
+  }
+  function fillToneSlots(): void {
+    // The gate below is what proves this, and TypeScript's narrowing does not
+    // cross a function boundary: a fill with no hand has nothing to ask about.
+    if (inHand == null) return
+    toneRef.current = { slots: new Map<string, ToneSlot>(), shuffledFor: new Map<string, BoardLane[]>(), linesFor: new Map<string, readonly string[]>(), base: boardLanes, world: worldStampRef.current }
+    for (const rail of rails) {
+      for (const c of rail.cells) {
+        const ask = { ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }
+        const v = verdictFor(ask, c, livePack().pack)
+        // ⚖ FIX ROUND 2 (FX-A — ADDENDUM STOP 2) — THE FENCE IS `reseats`, AND
+        // ONLY `reseats`. `landingVerdict` fills `reseats` before its stops and
+        // refuses a rescued start on the REST cell it is handed
+        // (today-interactions.ts :5802, `cell?.state === 'blocked' &&
+        // !cell.ackAllowed`), so the FIRST-LEG verdict of every ⇄ candidate is
+        // `blocked` WITH `reseats` carried. Narrowing on `kind` here therefore
+        // discarded every candidate the fill exists for — the slots stayed empty
+        // on every board and no strip chip could ever wear ⇄. The drop fences on
+        // `reseats` alone (`verdictAtLanding`), the chip site fences on `reseats`
+        // alone, and so does this: the shuffled `final` is what decides the face,
+        // and a start the shuffle cannot rescue comes back `blocked` from it.
+        if (v.reseats.length === 0) continue
+        composeSlot(rail.laneKey, c.start, v)
+      }
+    }
+  }
+  if (inHand != null && livePack().pack && toneRef.current == null) fillToneSlots()
+  /** ⚖ FIX ROUND 4 (Greptile #884 4/5) — AND THE STORE IS SWEPT ONCE, HERE,
+   *  BEFORE ANYTHING READS A SLOT.
+   *
+   *  `gestureStore` is where the invalidation lives, and until this round every
+   *  caller reached it LAZILY: `composeSlot` runs only when the chip line's own
+   *  `toneRef.current.slots.get(…)` has already MISSED, and `linesFor` only for
+   *  a chip that is already wearing the mark. That was sound while the compare
+   *  could not touch `slots` — a hit read a map the compare would not have
+   *  changed. It stops being sound the moment a world change drops the slots:
+   *  the first ⇄ chip of the render would read its stale entry, draw a face
+   *  from a board nobody is looking at, and only THEN would a later miss run
+   *  the compare and clear the map for its neighbours. One ordering, one clear,
+   *  no half-swept frame — so the sweep runs here, under the three refs
+   *  (`worldStampRef.current` is written above) and above the strips, and every
+   *  reader below finds a store that already agrees with this frame. On a frame
+   *  with nothing to drop it is one identity compare. */
+  gestureStore()
 
   /** ⚖ Liam flag 58 RIDER — THE ONE PLACE AN ENGINE START BECOMES AN OFFER.
    *
@@ -3375,7 +3745,10 @@ export function TodayScreen(props: TodayProps) {
   //  that answers 「which board does this landing solve against?」.
   function solveBed(board: BoardLane[], staffLaneKey: string | null, id: string | null, currentBed: string | null, requiresPrivate: boolean, span: { x: number; w: number }): { laneKey: string; companions: BedCompanion[] } | null {
     const start = minuteOf(span.x, hours)
-    const solved = allocateBed(board, {
+    // ⚖ LIVE-WHILE-DRAGGING §6 — THROUGH THE GESTURE'S OWN MEMO, so the room
+    // this stages is the very entry the cursor's word and the chip's mark were
+    // read out of: one object, not a second search that could answer differently.
+    const solved = (gestureMemoRef.current?.allocate ?? allocateBed)(board, {
       id,
       currentBed,
       stores: board.find((l) => l.key === staffLaneKey)?.stores ?? null,
@@ -4038,6 +4411,27 @@ export function TodayScreen(props: TodayProps) {
    *  it started with), and the listeners hang off `window`, so no re-render,
    *  re-order or re-parent anywhere on the board can interrupt a drag. */
   function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame' | 'aimKey'>) {
+    // ⚖ LIVE-WHILE-DRAGGING §3.6 — THE GESTURE'S MEMO IS OPENED HERE, eagerly,
+    // because this is the one place that knows the gesture's mode, group and id;
+    // a lazy creation would put that decision at a call site instead of at the
+    // gesture's own door. A Map and three closures is the whole allocation.
+    //
+    // ONLY AN UNSTAGED MOVE OF A BOARD CARD. A bed-row drag never reaches the
+    // allocator through the verdict at all (the operator named the room out
+    // loud); a resize changes its length every frame, so a memo keyed on the
+    // length would miss every frame; and a STAGED card's re-drag solves on the
+    // board with its companions put back, so its chips would memoise on one
+    // board family while its drop read another — a NEW disagreement, which this
+    // round exists to remove rather than create. Each of those keeps today's
+    // `pack: false` path byte for byte.
+    if (ctx.origin.mode === 'move' && ctx.group !== 'beds' && pending?.id !== ctx.id) {
+      gestureMemoRef.current = gestureAllocator({
+        handId: ctx.id,
+        stamp: () => worldStampRef.current,
+        board: () => boardLanesRef.current,
+        rowStamp: () => rowStampRef.current,
+      })
+    }
     const onMove = (e: PointerEvent) => {
       const c = dragRef.current
       if (!c) return
@@ -4132,13 +4526,84 @@ export function TodayScreen(props: TodayProps) {
     if (key === ctx.aimKey) return
     ctx.aimKey = key
     const sides = sidesAt(ctx.home, ctx.group, ctx.targetLane)
-    // ⚖ FIX ROUND 2 (F1, CODE-LENS-1 BLOCKER) — NO PACK AT THE CURSOR. This
-    // runs from the coalesced pointer-move frame; design §3 lists 「the word at
-    // the cursor during a drag」 on the NEVER side of the fence and §6 makes
-    // landing-only the zero-per-frame-cost guarantee. ⚖ flag 54's asymmetry
-    // stands: the cursor promises only no-shuffle fits, and the drop may accept
-    // a start it did not promise.
-    const v = verdictRef.current({
+    // ⚖ LIVE-WHILE-DRAGGING §5a — AND THE CURSOR ASKS THE DROP'S OWN QUESTION
+    // NOW. The OFF answer stood here because the backtracking search ran on
+    // every pointer frame and could not be afforded; the gesture's memo is what
+    // changed that — one search per distinct question for the whole gesture,
+    // measured NEGATIVE against today's frame on both stress boards. ⚖ flag 54's
+    // asymmetry is what closes with it: the word now promises exactly what the
+    // release will do, including 「this fits if the board moves somebody」. With
+    // no memo (every gesture but an unstaged card move) `livePack()` is `false`
+    // and this call is byte-identical to the one it replaces.
+    const v = verdictRef.current(askOf(ctx, sides, span), livePack())
+    wearVerdict(node, v)
+    // ⚖ ADJUDICATION L2 M-1 — THE CHIP UNDER THE CURSOR TAKES THIS ANSWER.
+    //
+    // The strip's chips sit on the 30-minute lattice and the card does not, so
+    // the aimed chip and the badge are asking about two different starts. Both
+    // answers are exact; which one the chip must show is the chip's own. On an
+    // ON-LATTICE frame the two questions coincide and the cursor's answer IS the
+    // chip's — free, because it has just been computed. Off the lattice the chip
+    // gets ONE re-judge of its own, and only when it is a ⇄ candidate at all
+    // (the slots hold nothing else), so the cost is at most one extra landing
+    // per aim change and zero on a board with no ⇄ anywhere.
+    //
+    // It lands before the render that draws the chips: `applyDragFrame` calls
+    // `setLive` above this, React 18 flushes the batched state only after the
+    // rAF callback returns, and this write is synchronous inside it.
+    // ⚖ FIX ROUND 4 (Greptile #884 4/5) — AND THIS ONE READS THE REF DIRECTLY,
+    // ON PURPOSE. The map it writes into is always the CURRENT world's, because
+    // `store.world` and `worldStampRef.current` only ever change inside a
+    // render — the sweep beside the fill copies one into the other — so between
+    // two renders they cannot disagree, and this write happens between two
+    // renders. Calling `gestureStore` here would be the WRONG door: the
+    // listeners are bound once per gesture (see the closure note below), so the
+    // `gestureStore` reachable from here is the POINTERDOWN render's, and its
+    // `boardLanes` is the board as it stood when the card was picked up. Its
+    // base compare would therefore fire on every aim change, drop the shuffles
+    // and the lines the render had just built, and set `store.base` BACKWARDS
+    // to a board that no longer exists — a cache thrash on the busiest path in
+    // the gesture, in exchange for nothing the sweep does not already give.
+    const slots = toneRef.current?.slots ?? null
+    if (slots != null && !ctx.offLane) {
+      const from = minuteOf(span.x, hours)
+      const dur = minuteOf(span.x + span.w, hours) - from
+      // The renderer's own `aimed` rule: an off-lattice landing belongs to the
+      // cell it starts INSIDE (⚖ flag 48), so the chip is the floored start.
+      const chipStart = Math.floor(from / 30) * 30
+      // ⚖ FIX ROUND 1 (M2) — `dur` is DERIVED HERE, not the render body's
+      // `railDur`, and that is a correction to the fix packet rather than a
+      // shortcut. This function is reached only through the listeners
+      // `beginDrag` binds ONCE per gesture, so its closure is the POINTERDOWN
+      // render's — where `live` and `dragLen` are both null and `railDur` is
+      // therefore `props.guard.standardSessionMin`, not the card's length.
+      // `span` is the very object `applyDragFrame` has just handed `setLive`,
+      // so this expression is `aimDur`'s own (TodayScreen `const aimDur =`) on
+      // the same values, and the next render's `railDur` is the same number.
+      // ⚖ FIX ROUND 2 (FX-B) — AND THE WRITE IS UNCONDITIONAL. It used to be
+      // gated on the map already HAVING that key, which made the aimed chip's
+      // identity depend on the pick-up burst having already composed it — and
+      // after a mid-gesture clear, or for a chip whose rescue changed, it had
+      // not. The chip under
+      // the cursor is the one that may NEVER disagree with the badge and the
+      // drop (⚖ AUDIT A1), so it is written every aim change whether or not the
+      // burst knew about it. A landing with no companions writes an entry the
+      // renderer never reads (its chip fences on `reseats` before it looks) —
+      // bounded by aim changes, and cheaper than a gate that can be wrong.
+      const aimed =
+        from === chipStart
+          ? v
+          : verdictRef.current({ ...askOf(ctx, sides, span), span: place(chipStart, chipStart + dur, hours) }, livePack())
+      slots.set(slotKey(ctx.targetLane, chipStart, dur, moveSetOf(aimed.reseats)), { kind: aimed.kind, reason: aimed.reason })
+    }
+  }
+
+  /** ONE description of 「this card, landing here」, the way `chipAsk` is the
+   *  shelf chip's: the word at the cursor and the aimed chip's own re-judge are
+   *  the SAME question at two starts, so they are built from one sentence of
+   *  code rather than two that could drift apart. */
+  function askOf(ctx: DragCtx, sides: ReturnType<typeof sidesAt>, span: { x: number; w: number }): LandingAsk {
+    return {
       staffLane: ctx.offLane ? null : sides.staffLane,
       bedLane: sides.bedLane,
       // ⚖ 51 — the room is SOLVED on a staff-side landing and NAMED on a bed
@@ -4150,8 +4615,7 @@ export function TodayScreen(props: TodayProps) {
       foreignRefusal: null,
       hasPrice: hasPriceFor(ctx.id),
       span,
-    }, { pack: false })
-    wearVerdict(node, v)
+    }
   }
 
   /** ⚖ Liam flag 50(b) — the word, and the BOX GOING RED with it (his own
@@ -4162,9 +4626,12 @@ export function TodayScreen(props: TodayProps) {
    *  imperative class on its next pass, and it renders no `data-verdict` at all,
    *  so this attribute is the drag's to own for the life of the gesture. */
   function wearVerdict(node: HTMLElement, v: LandingVerdict | null) {
-    node.textContent = v == null || v.kind === 'clean' ? '' : v.label
-    const kind = v == null || v.kind === 'clean' ? '' : v.kind
-    node.dataset.verdict = kind
+    // ⚖ LIVE-WHILE-DRAGGING §5a — the word and its rank come from ONE pure
+    // function now, so the badge's five answers can be read without a renderer.
+    // Three of them are byte-unchanged (silence on a clean landing, 要確認,
+    // 置けない); the two new ones are the landings that move other customers.
+    const { text, kind } = cursorWord(v)
+    dressBadge(node, text, kind)
     if (proxyRef.current) proxyRef.current.dataset.verdict = kind
   }
 
@@ -4243,6 +4710,9 @@ export function TodayScreen(props: TodayProps) {
 
   function onCardPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
     if (e.button !== 0 || dragRef.current || !item.caseId) return
+    // Defensive: a gesture that ended through a path nobody expected must not
+    // lend its answers to the next one (⚖ ADJUDICATION L2 M-4).
+    freeGesture()
     if (pending && pending.id !== item.caseId) {
       refuse('仮押さえ中の予約を確定するか、元に戻してから操作してください')
       return
@@ -4276,7 +4746,29 @@ export function TodayScreen(props: TodayProps) {
     e.preventDefault()
   }
 
+  /** ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-4 — EVERY EXIT FREES THE GESTURE.
+   *
+   *  The release has seven of them (a press that never travelled, the shelf, the
+   *  off-board refusal, an unchanged span, the blocked branch and the landing
+   *  itself), and a memo left alive after one of them would hand the NEXT
+   *  gesture an answer about a board that no longer exists. One `finally` is the
+   *  whole guard; the body is unchanged and lives one name over so the release's
+   *  own exact-line pins keep reading the lines they were written against.
+   *
+   *  NOT in `clearDrag`: that runs BEFORE the drop's verdict, and freeing there
+   *  would hand the release a cold memo and lose the 「does what it promised」
+   *  property the round is for. The popover's later 「注意して配置」 / offered
+   *  start run after the free and pay one fresh search each — the same
+   *  deterministic answer, at a gesture end, never on a frame budget. */
   function finishDrag(clientX: number, clientY: number, upAt: number) {
+    try {
+      finishDragAt(clientX, clientY, upAt)
+    } finally {
+      freeGesture()
+    }
+  }
+
+  function finishDragAt(clientX: number, clientY: number, upAt: number) {
     const ctx = dragRef.current
     if (!ctx) return
     const { item, lane } = ctx
@@ -4698,6 +5190,7 @@ export function TodayScreen(props: TodayProps) {
     restoreSides(ctx.id, ctx.home)
     openClickWindow(e.timeStamp, ctx.nodes[0] ?? null)
     clearDrag()
+    freeGesture()
   }
 
   function clearDrag() {
@@ -4719,8 +5212,10 @@ export function TodayScreen(props: TodayProps) {
     setProxy(null)
   }
 
-  // The listeners outlive a render, so an unmount mid-drag has to take them.
-  useEffect(() => () => { dragRef.current?.detach() }, [])
+  // The listeners outlive a render, so an unmount mid-drag has to take them —
+  // and so does the gesture's memo, which is the only thing a drag leaves in
+  // memory (⚖ ADJUDICATION L2 N-1).
+  useEffect(() => () => { dragRef.current?.detach(); freeGesture() }, [])
 
   // ── ⚖ Liam flag 25 — 画面の説明 (the guided tour) ─────────────────────────
 
@@ -6424,11 +6919,28 @@ export function TodayScreen(props: TodayProps) {
             // adoption on top, and it appears ONLY while a drag is live and ONLY
             // where release is truly inert (⚖ 52's law). At rest the strip is
             // byte-identical to canon's.
-            const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c) : null
-            const state = v ? (v.kind === 'blocked' ? 'blocked' : v.kind === 'caution' ? 'degraded' : 'safe') : c.state
-            const label = v
-              ? (v.kind === 'blocked' ? '×' : v.kind === 'caution' ? `△${hhmm(c.start)}` : `✓${hhmm(c.start)}`)
-              : c.label
+            // ⚖ LIVE-WHILE-DRAGGING §5b — …and it asks the PACKING question now,
+            // through the gesture's memo (`livePack().pack` — one token, one
+            // home, never a bare boolean at a call site: the 9/8 round lost a
+            // positional `true` to exactly that spelling).
+            const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c, livePack().pack) : null
+            // The DROP's own kind for a chip that fits only by moving somebody.
+            // Every other chip's verdict IS the drop's, so it is its own `final`.
+            //
+            // ⚖ FIX ROUND 2 (FX-B) — AND A MISSING SLOT IS COMPOSED HERE, IN
+            // THIS RENDER. A chip that BECAME a ⇄ candidate after the board
+            // moved under the card was not in the pick-up burst, so it has no
+            // slot; without this it would draw its face from the UN-shuffled
+            // verdict and could wear ⇄ on a landing the release refuses (⚖
+            // RULING 3's third arm). Composing it at the site costs one shuffled
+            // board per distinct set of moves for the whole gesture and one
+            // re-judge for this chip. A slot that IS present under a changed
+            // world is reused, and that is the design's declared preview class —
+            // the chip under the cursor is rewritten by `paintProxyVerdict` on
+            // every aim change, so the one chip that may never disagree does not.
+            const drop = v && v.reseats.length > 0 && toneRef.current ? (toneRef.current.slots.get(slotKey(rail.laneKey, c.start, railDur, moveSetOf(v.reseats))) ?? composeSlot(rail.laneKey, c.start, v)) : undefined
+            const chip = v ? liveChipFace({ v, final: drop ? { ...v, kind: drop.kind, reason: drop.reason } : v, start: c.start }) : null
+            const state = chip ? chip.state : c.state
             // ⚖ flag 44 — the chip's own reading of itself. The WORD is a
             // rest-state cue and the mid-drag face belongs to the verdict (the
             // × is the answer to a different question), so it is dropped for
@@ -6436,7 +6948,38 @@ export function TodayScreen(props: TodayProps) {
             // the verdict's own reason outranks it while one exists.
             const explained = railExplained.get(rail.laneKey)?.get(c.start) ?? null
             const word = v ? null : (explained?.word ?? null)
-            const sentence = v?.reason ?? explained?.sentence ?? c.sentence
+            // ⚖ ADJUDICATION L3 MAJOR (2026-09-11) — AND A ⇄ CHIP SAYS THE SWAP
+            // IT SHOWS. This line is the chip's `aria-label` (below) and the
+            // sentence pressing it displays, and it never carried the reseat:
+            // `landingVerdict` returns `reason: null` on a clean landing and the
+            // cell's own sentence on a caution one, and `explainRails` is empty
+            // for the whole of a gesture — so a screen reader on a chip wearing
+            // ⇄ heard the REST-time capacity guard's words and nothing about
+            // moving another customer's bed. The mark promised; the name did
+            // not. The clause is the rest layer's own (`reseatSentence`), never
+            // a second spelling, laid on top of exactly the sentence this chip
+            // would have carried anyway. Every non-⇄ chip is byte-unchanged.
+            //
+            // ⚖ FIX ROUND 5 (Greptile #885 4/5) — …AND THE COST OF THE SWAP RIDES
+            // WITH IT. The tail was `null` here because the slot remembered the
+            // shuffled verdict's KIND and threw its REASON away, so a △ chip
+            // announced the swap and never the thing the △ is about. The tail
+            // is that verdict's own sentence — the SHUFFLED board's, composed by
+            // the drop's own second leg — which is the same value the REST layer
+            // appends through this same composer (`railExplain`'s reseat arm:
+            // `caution: v.kind === 'caution' ? v.reason : null`, off
+            // `landingOn(after, …)`). One composer, one source, one spelling; a
+            // CLEAN swap still has no tail, exactly as it has none at rest.
+            //
+            // ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — …and the LINES it names
+            // are composed once per set of moves, not once per chip per frame:
+            // `linesFor` is the gesture's own cache, dropped with the shuffles
+            // when the board moves. Spelling the two board walks here again is
+            // the cost this round priced and removed.
+            const sentence =
+              v && chip?.mark
+                ? reseatSentence(v.reason ?? c.sentence, linesFor(v), drop?.kind === 'caution' ? drop.reason : null)
+                : (v?.reason ?? explained?.sentence ?? c.sentence)
             // ⚖ LIAM RULING 3 (2026-09-09) — 「a start that fits only by MOVING
             // someone gets a small 『moves someone』 marker instead of a plain
             // ✓」. It is a REST face like the word beside it: `explainRails`
@@ -6444,8 +6987,13 @@ export function TodayScreen(props: TodayProps) {
             // cannot survive into a drag and the verdict's ×/△/✓ keeps the chip
             // to itself. ⇄ is the companion line's own 「→」 said twice, so it
             // reads as 入れ替え and is confusable with none of ✓ △ × —.
-            const mark = explained?.mark ?? null
-            const face = mark ? `⇄${hhmm(c.start)}` : (word ?? label)
+            // ⚖ LIVE-WHILE-DRAGGING §5b — …and mid-drag it is the chip's own
+            // live face instead, composed from the DROP's verdict so ⚖ RULING 3's
+            // third arm (「no mark when the release would refuse」) holds by
+            // construction: a shuffle the drop refuses comes back `blocked` and
+            // the chip wears × exactly as it does today.
+            const mark = chip ? chip.mark : (explained?.mark ?? null)
+            const face = chip ? chip.face : (mark ? `⇄${hhmm(c.start)}` : (word ?? c.label))
             return (
               <button
                 // ⚖ flag 50(c) — canon's `.aimed`, in sync with the dashed landing.
@@ -6459,7 +7007,11 @@ export function TodayScreen(props: TodayProps) {
                 className={railChipClass({
                   mark,
                   state,
-                  inert: v?.kind === 'blocked',
+                  // ⚖ 52 — the mark that means 「this stops you」 appears exactly
+                  // where release is inert, so it reads the DROP's own answer
+                  // rather than the pre-shuffle one. With nothing to shuffle the
+                  // two are the same verdict, which is every chip today.
+                  inert: chip?.state === 'blocked',
                   aimed: aimed?.laneKey === rail.laneKey && aimed.start === c.start,
                 })}
                 key={c.start}
@@ -7122,9 +7674,28 @@ export function TodayScreen(props: TodayProps) {
             // because the words and the symbols now share this one band. At a
             // guard-off store the clause is the whole sentence: no 記号 exist to
             // be explained, so promising them would be a plain untruth.
+            // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L3 — AND ⇄ IS TAUGHT AT PICK-UP.
+            // The ⇄ key below has been in this band since ⚖ RULING 3, but it read
+            // as a REST mark; the round gives the operator the same sign while the
+            // card is in their hand and a badge on the card besides, and an
+            // operator who only ever read the tour would not know either existed
+            // until it happened to them. ONE sentence, in the band that already
+            // owns the 記号 (⚖ 8/23 guided-tour law: a new function declares
+            // itself the same round), written from the board's own words — the ⇄
+            // key here, `railExplain`'s 入れ替えて収めます, and the 仮押さえ tour's
+            // 「入れ替えたお客様はここに表示されます」. No new page, no new step.
+            // ⚖ FIX ROUND 3 (DELTA-CODE-D2 MAJOR, 2026-09-11) — AND IT DESCRIBES
+            // THE MARK, NOT THE RENDERED STRING. The clause quoted the card's own
+            // text (「⇄ 入れ替え」), and round 1B gave that word a width rule: below
+            // 82px of card content box the word steps aside and the badge is the
+            // ⇄ alone (today.css :583-586), which is every 30分 card — the
+            // commonest one on the board. A tour that promises a string the
+            // ordinary card does not show is ⚖ RULING 3's defect with the halves
+            // swapped. So the sentence now says what the ⇄ MEANS, exactly as the
+            // ⇄ key below it does, and it is true at every width a card can take.
             data-guide={
               guardOn
-                ? `新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。${LAYER_LEGEND_GUIDE}`
+                ? `新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。ボードのカードをドラッグしている間は、ベッドを入れ替えれば置ける開始に ⇄ が付き、いま持っているカードにも ⇄ の印が付きます（入れ替えたお客様は、仮押さえの確認に表示されます）。各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。${LAYER_LEGEND_GUIDE}`
                 : LAYER_LEGEND_GUIDE
             }
           >
