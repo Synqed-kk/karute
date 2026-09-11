@@ -345,6 +345,11 @@ describe('watchOneBusiness — recording.transcribe_storm', () => {
         requestId: 'audit-watch:recording.transcribe_storm:sess-storm:2026-09-10',
         // P2-3: one extra per-candidate recording read fills the row-level store.
         storeId: 'store-9',
+        // P3-14/m5b: the storm emit's own shape — untested before this pin,
+        // unlike the karute_missing emit's (already pinned above).
+        severity: 'notice',
+        actorType: 'system',
+        source: 'system',
         detail: expect.objectContaining({ count: 4, day: '2026-09-10' }),
       }),
     )
@@ -391,5 +396,56 @@ describe('watchOneBusiness — recording.transcribe_storm', () => {
     const pageCall = auditListCalls.find((a) => !('target_id' in a)) as { from: string; to: string }
     expect(pageCall.from).toBe('2026-01-03T15:00:00.000Z') // JST start of 2026-01-04
     expect(pageCall.to).toBe(injectedNow.toISOString())
+  })
+})
+
+// P3-14/m7: both in-loop deadline checks (missing candidates, storm
+// candidates) stop their own loop honestly — truncated: true, nothing
+// written past the point the budget ran out. Date.now is mocked directly
+// (rather than real elapsed time) since audit() itself is mocked and every
+// other call in these paths is a resolved-microtask mock, so the only real
+// Date.now() call sites left are run.ts's own three checks (admission, the
+// page walk, the write loop reached).
+describe('watchOneBusiness — in-loop deadline checks (P3-14/m7)', () => {
+  afterEach(() => {
+    jest.spyOn(Date, 'now').mockRestore()
+  })
+
+  it('the karute_missing write loop stops honestly once the deadline passes mid-loop', async () => {
+    const nowSpy = jest.spyOn(Date, 'now')
+    nowSpy.mockReturnValueOnce(1_000) // admission: 1000 + 30_000 <= 100_000
+    nowSpy.mockReturnValueOnce(2_000) // pageRecordingEvents' own page-1 check
+    nowSpy.mockReturnValue(999_999_999) // the missing loop's first check
+
+    const result = await watchOneBusiness('biz-1', NOW, 'write', 100_000)
+    expect(result.truncated).toBe(true)
+    expect(result.candidates).toBe(1) // computed before the loop runs
+    expect(result.written).toBe(0)
+    expect(auditMock).not.toHaveBeenCalled()
+  })
+
+  it('the storm write loop stops honestly once the deadline passes mid-loop', async () => {
+    const client = {
+      ...makeClient({ stormEvents: [1, 2, 3, 4].map((n) => ({
+        id: `s${n}`,
+        at: `2026-09-10T0${n}:00:00.000Z`,
+        action: 'recording.transcribe',
+        target_id: 'sess-storm-loop',
+        detail: { cost_cents: 10, cents_reserved: 12, customer_id: 'cust-9', staff_id: 'staff-9' },
+      })) }),
+      recordings: { list: jest.fn(async () => ({ recordings: [], total: 0 })), get: jest.fn() },
+    }
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+
+    const nowSpy = jest.spyOn(Date, 'now')
+    nowSpy.mockReturnValueOnce(1_000) // admission
+    nowSpy.mockReturnValueOnce(2_000) // pageRecordingEvents' own page-1 check
+    nowSpy.mockReturnValue(999_999_999) // the storms loop's first check
+
+    const result = await watchOneBusiness('biz-1', NOW, 'write', 100_000)
+    expect(result.truncated).toBe(true)
+    expect(result.candidates).toBe(1) // one storm, computed before the loop runs
+    expect(result.written).toBe(0)
+    expect(auditMock).not.toHaveBeenCalled()
   })
 })
