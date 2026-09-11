@@ -186,9 +186,15 @@ describe('GET /api/audit-watch mode resolution', () => {
 // spirit as the other route files' header comments.
 describe('CP1 — audit-watch is NOT a facade route', () => {
   it('imports no facadeHandler and no listAuditLogWithClient (no actor, no view receipt)', () => {
-    const src = readFileSync(join(process.cwd(), 'src/app/api/audit-watch/route.ts'), 'utf8')
-    expect(src).not.toMatch(/\bimport\b[^\n]*\bfacadeHandler\b/)
-    expect(src).not.toMatch(/\bimport\b[^\n]*\blistAuditLogWithClient\b/)
-    expect(src).toMatch(/CRON_SECRET/)
+    const routeSrc = readFileSync(join(process.cwd(), 'src/app/api/audit-watch/route.ts'), 'utf8')
+    expect(routeSrc).not.toMatch(/\bimport\b[^\n]*\bfacadeHandler\b/)
+    expect(routeSrc).not.toMatch(/\bimport\b[^\n]*\blistAuditLogWithClient\b/)
+    expect(routeSrc).toMatch(/CRON_SECRET/)
+
+    // P3-12: every read in this feature actually lives in run.ts, which the
+    // check above never touched — extend the same source grep there.
+    const runSrc = readFileSync(join(process.cwd(), 'src/lib/audit-watch/run.ts'), 'utf8')
+    expect(runSrc).not.toMatch(/\bimport\b[^\n]*\bfacadeHandler\b/)
+    expect(runSrc).not.toMatch(/\bimport\b[^\n]*\blistAuditLogWithClient\b/)
   })
 })
