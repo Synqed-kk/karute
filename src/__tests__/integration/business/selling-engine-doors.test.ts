@@ -791,9 +791,18 @@ describe('1 — the round gate', () => {
     for (const line of [
       "import { SELLING_ENGINE_LAW } from './selling-engine-gate'",
       'gateOn: SELLING_ENGINE_LAW,',
-      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
+      // ⚖ FRAME-SEAM (2026-09-12) — THE RAIL'S TWO GATED DOORS TAKE THE HAND'S
+      // BOARD. The strip judged every chip on `boardLanes` while the drop judged
+      // on the companions-restored board, so for a staged card's re-drag the mark
+      // and the release were answers about two different days (Liam's 9/11
+      // finding). Both doors already accept a foreign board through the escape
+      // hatch they were built with, so this is the existing `bookFor` arm and NOT
+      // a new read: `SELLING_ENGINE_LAW` stays at 7 reads and the six whole-line
+      // anchors stay six. The VERDICT's two sibling lines are byte-unchanged —
+      // their `lanes` default is what the caller decides, never their text.
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, handBoard) : undefined,',
       'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
-      'restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId) : undefined,',
+      'restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId, handBoard) : undefined,',
       'restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(excludeId, lanes) : undefined,',
     ]) {
       expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
@@ -820,10 +829,10 @@ describe('1 — the round gate', () => {
       expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
       return s
     }
-    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],')
+    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],')
     const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus],')
     for (const [where, call, line] of [
-      ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,'],
+      ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, handBoard) : undefined,'],
       ['verdict', verdict.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,'],
     ] as const) {
       expect({ where, line, inThisCall: pinnedLines(call, line), inTheFile: pinnedLines(screen, line) })

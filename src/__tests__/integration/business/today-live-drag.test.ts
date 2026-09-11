@@ -21,6 +21,7 @@
 import { cleanupBlocks, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 import {
   allocateBed,
+  applyBedMoves,
   applyMoves,
   cursorWord,
   gestureAllocator,
@@ -30,10 +31,11 @@ import {
   reseatSentence,
   sharesStore,
   VERDICT_WORD,
+  type BedCompanion,
   type LandingVerdict,
   type Moves,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
-import { bookFor, moveSetOf, slotKey, type BookCache } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { bookFor, handBoardFor, moveSetOf, slotKey, type BookCache } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import type { DayFrame } from '@/app/[locale]/(business)/business/today/capacity-ledger'
 
 const HOURS: Hours = { open: 540, close: 1200 }
@@ -940,5 +942,73 @@ describe('the memo is EXACTLY the allocator — proven at every frame of random 
     expect(hits).toBeGreaterThan(misses)
     expect({ frames: frames > 0, comparisons: comparisons > 0, rowClears: rowClears >= 0 })
       .toEqual({ frames: true, comparisons: true, rowClears: true })
+  })
+})
+
+/** ⚖ FRAME-SEAM (2026-09-12) — `handBoardFor`: THE BOARD A QUESTION ABOUT ONE
+ *  CARD IS ASKED ON, as a pure function with no screen.
+ *
+ *  The rule is ⚖ 9/8 PACKING's re-landing rule, Liam's: 「a second gesture on the
+ *  same staged card is measured from the day the operator started on」. It lived
+ *  inside `solveLanes`, which only the DROP could reach — so the strip judged its
+ *  chips on `boardLanes` while the drop judged on the companions-restored board,
+ *  and for a staged card's re-drag those are two different days. Measured on the
+ *  mounted screen: the card said 置けない and the chip under the cursor said
+ *  △15:30, about the same minute (PROBE-2-FRAME-SEAM.md §(a)).
+ *
+ *  This is the lane's FIRST behavioural pin on a rest-identity guarantee — the
+ *  thing the text pins could only assert. DELTA-4's ceiling (「no browser, no
+ *  render」) is what it closes for this round's own new code. */
+describe('FRAME-SEAM — handBoardFor: one rule, one home, and the same array at rest', () => {
+  const board = (): BoardLane[] => [
+    lane({ key: 'p-01', group: 'staff', items: [item('a', 'apt-1', 600, 660)] }),
+    lane({ key: 'bed-01', group: 'beds', items: [] }),
+    lane({ key: 'bed-02', group: 'beds', items: [item('b', 'apt-2', 600, 660)] }),
+  ]
+
+  it('NO HAND — the board it was handed, by reference. §6 rests on this line.', () => {
+    const L = board()
+    // This is the whole of 「nothing moves at rest」: `handId` is null, the `else`
+    // arm runs, and every memo downstream sees the IDENTICAL array in its dep
+    // list — so it re-runs nothing and cannot produce a different byte. A copy
+    // here is still CORRECT and silently re-derives the entire chain on every
+    // render, which is the mutant this clause exists for.
+    expect(handBoardFor(L, null, 'apt-1', HOURS, {})).toBe(L)
+    expect(handBoardFor(L, null, null, HOURS, {})).toBe(L)
+    expect(handBoardFor(L, undefined, 'apt-1', HOURS, {})).toBe(L)
+  })
+
+  it('A STAGED CARD THAT IS NOT THE ONE IN HAND — still the same array', () => {
+    const L = board()
+    const pending = { id: 'apt-9', companions: [{ id: 'apt-2', bedOrigin: { laneKey: 'bed-01', x: 0, w: 1 }, bedTo: 'bed-02' }] as BedCompanion[] }
+    // The question is about `apt-1`; the stage belongs to `apt-9`. Restoring
+    // another card's companions here would put the strip on a day nobody is
+    // looking at — and would break the identity at rest for every other reader.
+    expect(handBoardFor(L, pending, 'apt-1', HOURS, {})).toBe(L)
+    // …and no hand at all, with a stage open, is still the board itself: this is
+    // the state the screen is in whenever a 仮押さえ is standing and nothing is
+    // being dragged, i.e. most of the time a stage exists.
+    expect(handBoardFor(L, pending, null, HOURS, {})).toBe(L)
+  })
+
+  it('THE STAGED CARD IN HAND — every companion back in the room it came from', () => {
+    const L = board()
+    const companions: BedCompanion[] = [{ id: 'apt-2', bedOrigin: { laneKey: 'bed-01', x: 0, w: 1 }, bedTo: 'bed-02' }]
+    const roomOf = (b: BoardLane[], id: string) => b.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === id))?.key ?? null
+    // The stage moved `apt-2` out of bed-01 and into bed-02; the day the operator
+    // started on has her in bed-01, and that is the day this second gesture is
+    // measured from — the drop's rule, which the strip now shares.
+    expect(roomOf(L, 'apt-2')).toBe('bed-02')
+    const hand = handBoardFor(L, { id: 'apt-9', companions }, 'apt-9', HOURS, {})
+    expect(hand).not.toBe(L)
+    expect(roomOf(hand, 'apt-2')).toBe('bed-01')
+    // …and it is exactly `lanesWithCompanionsRestored`'s answer, never a second
+    // spelling of the restore: the same helper the drop has always used.
+    const same = applyBedMoves(L, companions.map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), HOURS, {})
+    expect(hand).toEqual(same)
+    // An empty companion set is a restore of nothing — the array itself, so a
+    // landing that packed nobody pays nothing for this rule.
+    expect(handBoardFor(L, { id: 'apt-9', companions: [] }, 'apt-9', HOURS, {})).toBe(L)
+    expect(handBoardFor(L, { id: 'apt-9' }, 'apt-9', HOURS, {})).toBe(L)
   })
 })
