@@ -142,13 +142,23 @@ function cellsFor(world: World): Record<(typeof PATHS)[number], unknown> {
   const { input, bookings, lanes, hours, opsConfig, pricingRule } = world
 
   // 3 — cleanupBlocks. The fixture's beds all carry 0 cleanup, so the cell
-  // applies a fixed 15-minute turnaround to the day's real bookings;
-  // buildLanes' own derived 清掃 blocks stay covered through the buildLanes
-  // cell.
-  const cleanupBlocksValue = cleanupBlocks(
-    bookings.map((b) => ({ id: b.id, start: b.startMinute, end: b.endMinute })),
-    15,
-    hours,
+  // applies a fixed 15-minute turnaround; production shape, not the whole
+  // day on one timeline — `cleanupBlocks` is documented "清掃 windows on ONE
+  // resource" (today-board.ts:88) and both buildLanes (:585) and the sibling
+  // test (:245-256) feed it one bed's own bookings at a time. Bed lane key =
+  // resource id (`lanes.push({ key: resource.id, group: 'beds', ... })`,
+  // today-board.ts:609-611 — grep-verified), so `l.key` is what
+  // `b.resourceId` is filtered against below. One entry per bed lane.
+  const bedLanes = lanes.filter((l) => l.group === 'beds')
+  const cleanupBlocksValue = Object.fromEntries(
+    bedLanes.map((l) => [
+      l.key,
+      cleanupBlocks(
+        bookings.filter((b) => b.resourceId === l.key).map(({ id, startMinute, endMinute }) => ({ id, start: startMinute, end: endMinute })),
+        15,
+        hours,
+      ),
+    ]),
   )
 
   // 4 — laneMinutes (also literal A).
@@ -184,9 +194,9 @@ function cellsFor(world: World): Record<(typeof PATHS)[number], unknown> {
   const laneSpansValue = Object.fromEntries(lanes.map((l) => [l.key, laneSpans(l)]))
 
   // 8 — roomFitsNeed / orderRooms / allocateBed, for the day's first booking.
+  // `bedLanes` reused from cell 3 above.
   const firstBooking = bookings[0]
   const need = firstBooking.requiresPrivateRoom
-  const bedLanes = lanes.filter((l) => l.group === 'beds')
   const bookingStaffLane = lanes.find((l) => l.group === 'staff' && l.key === firstBooking.staffId) ?? null
   const roomAllocationValue = {
     fits: bedLanes.map((l) => [l.key, roomFitsNeed(l, need)]),
