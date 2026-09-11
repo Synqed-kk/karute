@@ -443,6 +443,12 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
     expect(CSS).toContain('.biz .cal-cell.open { background: var(--green-soft); color: var(--green-dark); }')
     expect(CSS).toContain('gap: 1px; min-height: 44px;')
     expect(CSS).toContain('.biz .cal-head strong { font-size: 14px; }')
+    // …and canon itself never regains the descendant form either: .cal-tools
+    // states its own look rather than inheriting .time-nav's a/button rules.
+    const CANON = CSS.slice(0, CSS.indexOf(HEADER)).replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(CANON).not.toMatch(/\.time-nav (button|a)[\s,{:.]/)
+    expect(CANON).toContain('.biz .cal-tools a {')
+    expect(CANON).toContain('.biz .cal-tools button { min-width: 30px;')
   })
 })
 

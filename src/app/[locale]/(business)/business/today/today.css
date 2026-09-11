@@ -167,8 +167,9 @@
 }
 .biz .segmented button[aria-pressed="true"] { background: var(--select-bg); color: var(--select-ink); box-shadow: inset 0 0 0 1px var(--select-line); }
 
-/* Child combinators only: .cal-pop nests deeper inside .time-nav (E8 month
-   calendar) and must NOT inherit the day-nav's own a/button look. */
+/* Child combinators only: .cal-pop (E8 month calendar) nests inside .time-nav,
+   and the descendant form reached every day cell and the 今日/‹/› controls
+   (measured at the :2228 D-PR2-2 note). */
 .biz .time-nav { position: relative; display: flex; padding: 3px; border: 1px solid var(--control); border-radius: 8px; background: #fff; }
 .biz .time-nav > button { min-width: 30px; min-height: 27px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); font-size: 12px; font-weight: 600; }
 .biz .time-nav > button:hover { background: #f4f4f5; }
@@ -261,6 +262,8 @@
 .biz .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .biz .cal-head strong { font-size: 14px; }
 .biz .cal-tools { display: flex; gap: 4px; }
+/* .cal-tools states its own min-width and the 今日 link's look — these used to
+   arrive via .time-nav's descendant a/button rules. */
 .biz .cal-tools button { min-width: 30px; min-height: 30px; padding: 0 9px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; }
 .biz .cal-tools button:hover { background: #f4f4f5; }
 .biz .cal-tools a { display: inline-flex; align-items: center; min-width: 30px; padding: 0 8px; border-radius: 6px; color: var(--ink-2); font-size: 12px; font-weight: 600; text-decoration: none; }
