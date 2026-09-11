@@ -17,6 +17,7 @@ import { audit } from '@/lib/audit'
 import { readRecordingsInbox } from '@/lib/recordings/inbox-read'
 import { deriveInboxRows, INBOX_WINDOW_MS, type InboxRow } from '@/lib/recordings/inbox'
 import { findKaruteMissing, lastAssemblerPassAt } from '@/lib/audit-watch/find-karute-missing'
+import { ASSEMBLE_AFTER_MS } from '@/lib/recording/assembler'
 import { findTranscribeStorms } from '@/lib/audit-watch/find-transcribe-storms'
 import { ymdInJst, jstStartOfToday } from '@/lib/date/jst'
 
@@ -130,6 +131,7 @@ export async function watchOneBusiness(
       rows,
       now: now.getTime(),
       lastAssemblerPassAt: lastAssemblerPassAt(now.getTime()),
+      assembleAfterMs: ASSEMBLE_AFTER_MS,
     })
 
     // (b) recording.transcribe_storm candidates — since the start of

@@ -16,12 +16,14 @@ import { newSynqedClient } from '@/lib/synqed/client'
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: jest.fn() }))
 
 const NOW = new Date('2026-09-11T05:00:00.000Z') // 14:00 JST — after today's assembler floor
-// 2 days ago: past the assembler floor (yesterday 18:07 UTC) but still
-// inside the inbox's own 7-day window (INBOX_WINDOW_MS) — a session older
-// than that window never produces a row at all (deriveInboxRows' own floor),
-// so a "missing forever" session past 7 days is outside what this cron can
-// see, same horizon the 録音履歴 screen itself has.
-const OLD = new Date(NOW.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString()
+// 3 days ago: its session (300s duration) ends well over ASSEMBLE_AFTER_MS
+// (48h default) before the assembler floor (yesterday 18:07 UTC) — the
+// assembler has genuinely had its rescue shot — while still inside the
+// inbox's own 7-day window (INBOX_WINDOW_MS): a session older than that
+// window never produces a row at all (deriveInboxRows' own floor), so a
+// "missing forever" session past 7 days is outside what this cron can see,
+// same horizon the 録音履歴 screen itself has.
+const OLD = new Date(NOW.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString()
 
 type AuditListArgs = { target_id?: string; page?: number }
 
