@@ -336,8 +336,10 @@ export const storeBookingPolicy = {
    *  fire, which is why nothing in the settings copy above changes.) */
   overrideHoldToConfirm: true,
   /** ⚠SETTINGS-BATCH — 残りわずかの目安 (⚖ Liam 2026-09-12, the month-calendar
-   *  lane's follow-up 2). 月カレンダーで橙になる空き枠数の上限: a day whose free
-   *  count is at or under this is painted 「残りわずか」 amber instead of green.
+   *  lane's follow-up 2). 月カレンダーで橙になる、あと入る予約数の上限: a day that
+   *  still fits this many courses or fewer is painted 「残りわずか」 amber instead
+   *  of green. ⚖ Liam 9/12 00:5x 「I choose B」 — the number the bound is compared
+   *  against counts BOOKINGS THAT STILL FIT, never free hours.
    *
    *  It is DATA for the same reason the dials above it are: how few is 「わずか」
    *  is a store's judgement about its own day — a busy salon calls 2 tight and a
@@ -348,7 +350,7 @@ export const storeBookingPolicy = {
    *  ⚖ HIS 8/31 GENERAL LAW: 「every settings entry carries a one-line
    *  description of what it changes/turns off」. That line, written here so the
    *  settings round does not have to invent it:
-   *  「月カレンダーで、空きがこの数以下の日を橙で示します」.
+   *  「月カレンダーで、あと入る数がこの数以下の日を橙で示します」.
    *  AND ITS OFF-STATE, which is the half a dial usually leaves silent:
    *  0 にすると橙は出ません — the month keeps 緑 and 満 only.
    *

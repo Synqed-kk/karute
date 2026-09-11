@@ -1040,6 +1040,32 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     expect(SCREEN_CODE).toContain('aria-label="1枠増やす"')
   })
 
+  /** ⚖ Liam 9/12 00:5x 「I choose B」 — THE ROW SAYS WHAT THE NUMBER IS.
+   *
+   *  The month stopped counting free hours and started counting bookings that
+   *  still fit, so 「空きがこの数以下」 became a sentence about a different number
+   *  than the one the dial moves. The row's two sentences are pinned in the new
+   *  wording and the old one is pinned OUT — a settings page describing the
+   *  wrong quantity is the exact ⚖ 8/21 failure this row exists to avoid, and it
+   *  is invisible from inside the settings room. */
+  it('⚖ 9/12 — the description and the ?-tour step describe あと入る数, not 空き', () => {
+    expect(SCREEN_CODE).toContain(
+      '<p className="st-dial-desc">月カレンダーで、あと入る数がこの数以下の日を橙で示します</p>',
+    )
+    expect(SCREEN_CODE).toContain(
+      'data-guide="月カレンダーで「残りわずか」として橙で示す、あと入る予約数の上限です。2なら、あと1〜2枠の日が橙になります。0にすると橙は出ません。"',
+    )
+    // The superseded sentences, by name, so a revert says which.
+    expect(SCREEN_CODE).not.toContain('空きがこの数以下')
+    expect(SCREEN_CODE).not.toContain('空きが1〜2枠')
+    expect(SCREEN_CODE).not.toContain('空き枠数の上限')
+    // …and the store's own fixture carries the SAME two sentences, which is
+    // where the settings round was told to read them from.
+    const WORLD = read('src/business/lib/fixtures-today.ts')
+    expect(WORLD).toContain('月カレンダーで、あと入る数がこの数以下の日を橙で示します')
+    expect(WORLD).not.toContain('空きがこの数以下')
+  })
+
   it('and its two siblings in the engine now refuse the same inputs', () => {
     // The behavioural red-run for `guardRailsFor` lives with the rail's own pins
     // (today-screen-interactions.test.ts, ⚖ A2-N1/N2, re-derived in the same
