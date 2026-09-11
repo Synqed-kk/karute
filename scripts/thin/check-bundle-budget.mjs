@@ -524,7 +524,22 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // ≤600 B convention's headroom plus the +417 B CI-vs-local delta measured
 // above, rounded up) — enough for CI's own build of the exact same source to
 // pass without masking a real regression on a future round.
-const BUDGET_BYTES = 2_055_239
+// PR D2 (this packet, 2026-09-11): the 監査ログ page now ships Liam's own
+// titles for the two new automation rows (カルテ未保存, 同じ録音連続文字起こし,
+// replacing the earlier auto-worded lines), alongside the rest of D2's page
+// work already on this tip — the automation names, three new sub-lines, the
+// fold, the recording thread, and the scope line, with their ja/en keys and
+// helpers. Measured cold on this machine (twice, byte-identical both times):
+// en 131,664 · index 990,328 · vendor 937,743 = 2,059,735 B. The ceiling is
+// set from THIS local number plus 1,000 B (the ≤600 B-headroom convention
+// plus the +417 B CI-vs-local delta measured above, rounded up):
+// 2,059,735 + 1,000 = 2,060,735 — within the 2,060,764 ceiling Liam accepted
+// for this round.
+//
+// Report-only per ⚖ 8/25: this raise is REVERSIBLE, Liam vetoes it with one
+// revert. The script still gates — it runs in CI and exits non-zero against
+// whatever ceiling stands here.
+const BUDGET_BYTES = 2_060_735
 
 let dir
 try {
