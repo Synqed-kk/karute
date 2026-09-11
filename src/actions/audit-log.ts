@@ -478,9 +478,18 @@ export async function listAuditLogWithClient(
         break_glass: filters.breakGlass ? true : undefined,
         severity,
       })
-      const targetRows = targetWalk.events.filter(
-        (e) => filters.includeViews || !isViewAction(e.action),
-      )
+      // G2 (Greptile round-2 P1, ACCEPTED): a thrown/rejected target walk
+      // degrades to { events: [], truncated: true } (walkAuditQuery's own
+      // catch) — that must never read as "the recording has no rows".
+      // Falls back to THIS page's already-fetched `res.events` (view-
+      // filtered exactly like the non-thread branch below), keeping
+      // threadPartial:true via targetWalk.truncated further down. A walk
+      // that legitimately returned rows but hit MAX_THREAD_PAGES keeps
+      // them — no fallback, that data is real, just possibly incomplete.
+      const targetWalkFailed = targetWalk.truncated && targetWalk.events.length === 0
+      const targetRows = (
+        targetWalkFailed ? (res.events as AuditLogEvent[]) : targetWalk.events
+      ).filter((e) => filters.includeViews || !isViewAction(e.action))
       // Subject 3 (D1-3): the belt runs ONCE, inside joinRecordingThread,
       // over the merged (target ∪ joined) set — folding target rows here
       // too would just be redundant work ahead of the same fold.

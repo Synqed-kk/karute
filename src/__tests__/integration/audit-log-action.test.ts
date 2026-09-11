@@ -1622,6 +1622,50 @@ describe('listAuditLog — PR D1 recording thread join (amendment 1 F6)', () => 
     expect(res.threadPartial).toBe(true)
   })
 
+  // Fix round 2, G2 (Greptile round-2 P1, ACCEPTED): the TARGET walk itself
+  // (walkAuditQuery over target_type:'recording') can throw/reject — that
+  // degrades to { events: [], truncated: true } internally — and losing the
+  // recording's own rows entirely is worse than the inner-walk case above.
+  // Falls back to THIS page's already-fetched `res.events` (the plain
+  // single-page read that always runs alongside the thread read, via the
+  // same Promise.all every other invocation of this function uses).
+  it('G2: a target walk that throws falls back to res.events — the recording still shows its own rows, threadPartial:true', async () => {
+    mockClientWithRecording({ appointment_id: null })
+    list.mockImplementation(
+      async (opts: { target_type?: string; category?: string; page_size?: number }) => {
+        if (opts.target_type === 'recording') {
+          // walkAuditQuery's internal paging always asks THREAD_PAGE_SIZE
+          // (200); res's own single-page read always asks PAGE_SIZE (100) —
+          // that's the only thing distinguishing the two callers now that
+          // G3 mirrors the target walk's query onto baseQuery.
+          if (opts.page_size === 200) throw new Error('core unavailable')
+          return {
+            events: [
+              coreEvent({
+                id: 'e-own',
+                category: 'recording',
+                action: 'recording.session_cleanup',
+                target_type: 'recording',
+                target_id: RECORDING_ID,
+              }),
+            ],
+            total: 1,
+            page: 1,
+            page_size: 100,
+          }
+        }
+        if (opts.category === 'karute') {
+          return { events: [], total: 0, page: 1, page_size: 200 }
+        }
+        throw new Error('unexpected call: ' + JSON.stringify(opts))
+      },
+    )
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res))
+    expect(res.events.map((e) => e.id)).toEqual(['e-own'])
+    expect(res.threadPartial).toBe(true)
+  })
+
   // Fix round 1, subject 2 (D1-2): a throwing inner walk must degrade the
   // THREAD, not the whole read — the target rows already fetched (and any
   // sibling walk) must still come back, with threadPartial:true, never
