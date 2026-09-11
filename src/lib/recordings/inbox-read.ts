@@ -319,16 +319,35 @@ export async function readRecordingsInbox({
 }: InboxReadDeps): Promise<InboxServerSession[]> {
   const from = new Date(now.getTime() - INBOX_WINDOW_MS).toISOString()
 
+  // P3-11: neither call named itself, so a truncated page fell back to
+  // paginateDedupe's 'customers cache' default and pointed triage at the
+  // wrong subsystem. A truncated records read is also worse than a log line:
+  // a dropped karute record makes a saved session look record-less (a false
+  // miss), and a truncated sessions read means the window itself isn't whole
+  // — either one marks every record-less row below.
+  let readTruncated = false
+  const onTruncated = () => {
+    readTruncated = true
+  }
+
   const [sessions, records, discardLedger] = await Promise.all([
-    paginateDedupe((page) =>
-      synqed.recordings
-        .list({ ...(staffId !== null ? { staff_id: staffId } : {}), from, page, page_size: PAGE_SIZE })
-        .then((r) => ({ items: r.recordings, total: r.total })),
+    paginateDedupe(
+      (page) =>
+        synqed.recordings
+          .list({ ...(staffId !== null ? { staff_id: staffId } : {}), from, page, page_size: PAGE_SIZE })
+          .then((r) => ({ items: r.recordings, total: r.total })),
+      50,
+      'recordings inbox sessions',
+      onTruncated,
     ),
-    paginateDedupe((page) =>
-      synqed.karuteRecords
-        .list({ from, page, page_size: PAGE_SIZE })
-        .then((r) => ({ items: r.karute_records, total: r.total })),
+    paginateDedupe(
+      (page) =>
+        synqed.karuteRecords
+          .list({ from, page, page_size: PAGE_SIZE })
+          .then((r) => ({ items: r.karute_records, total: r.total })),
+      50,
+      'recordings inbox records',
+      onTruncated,
     ),
     readStaffDiscardedSessions(synqed),
   ])
@@ -361,6 +380,13 @@ export async function readRecordingsInbox({
     discardedByStaff: discardLedger.discarded.has(s.id),
   }))
 
+  // P3-11: a truncated sessions or records page means this pass cannot swear
+  // to any record-less row — mark them all, same idiom as the degraded-ledger
+  // branch below.
+  if (readTruncated) {
+    for (const r of rows) if (!r.karuteRecordId) r.probeIncomplete = true
+  }
+
   // Residue = the only sessions whose job state can still matter.
   const residue = rows
     // A discarded session's job state cannot change what the row says (the
@@ -387,6 +413,10 @@ export async function readRecordingsInbox({
    *  as "definitively no job" and offer 保存する over audio a live job may
    *  already be processing. */
   const probedSessions = new Set(probes.map((r) => r.recordingSessionId))
+  // F-e (監査ログ round 2 PR C2): a row past the cap was never asked at all —
+  // mark it so the audit-watch cron never treats its shape-identical "no job"
+  // look as a judged miss.
+  for (const row of residue.slice(maxJobProbes)) row.probeIncomplete = true
   let next = 0
   await Promise.all(
     Array.from({ length: Math.min(PROBE_CONCURRENCY, probes.length) }, async () => {
@@ -412,6 +442,7 @@ export async function readRecordingsInbox({
               err,
             )
             row.jobProbeFailed = true
+            row.probeIncomplete = true
             return null
           })
         if (!job) continue
@@ -429,6 +460,12 @@ export async function readRecordingsInbox({
     console.warn(
       '[recordings-inbox] discard ledger degraded — server-audio derivation skipped for this read',
     )
+    // P1-1 (監査ログ round 2 lens): on this pass every discarded session in
+    // the window reads discardedByStaff: false, so a real discard falls
+    // through the fold shape-identically to a genuine miss. Mark every
+    // record-less row so the audit-watch cron stands down too (R9b already
+    // stands the screen down for the same reason).
+    for (const r of rows) if (!r.karuteRecordId) r.probeIncomplete = true
   } else {
     await deriveServerAudio(rows, pointerBySession, probedSessions, businessId, now.getTime(), {
       takeAudioProbe,
@@ -549,9 +586,10 @@ async function deriveServerAudio(
   }
   // `rows` is the server list's own order, so re-sort to the residue's
   // newest-first rule before the cap decides who is dropped.
-  const probeList = candidates
-    .sort((a, b) => Date.parse(b.row.createdAt) - Date.parse(a.row.createdAt))
-    .slice(0, deps.maxAudioProbes)
+  candidates.sort((a, b) => Date.parse(b.row.createdAt) - Date.parse(a.row.createdAt))
+  const probeList = candidates.slice(0, deps.maxAudioProbes)
+  // F-e: the oldest candidates the cap itself drops were never probed either.
+  for (const c of candidates.slice(deps.maxAudioProbes)) c.row.probeIncomplete = true
   let next = 0
   await Promise.all(
     Array.from({ length: Math.min(PROBE_CONCURRENCY, probeList.length) }, async () => {
@@ -572,12 +610,19 @@ async function deriveServerAudio(
           // no segments behind it. Only a proven 'absent' buys the listing, and
           // the listing now gates the RESCUE half alone.
           const audio = await deps.takeAudioProbe(businessId, takeId, ext)
-          if (audio === 'unknown') continue
+          if (audio === 'unknown') {
+            // F-e: a blip is not an answer — the row keeps today's behaviour,
+            // but this pass could not judge it either way.
+            row.probeIncomplete = true
+            continue
+          }
           if (audio !== 'absent') {
             row.serverAudio = 'object'
             continue
           }
-          if ((await deps.segmentsProbe(businessId, key)) === true) row.serverAudio = 'segments'
+          const segments = await deps.segmentsProbe(businessId, key)
+          if (segments === true) row.serverAudio = 'segments'
+          else if (segments === 'unknown') row.probeIncomplete = true
         } catch (err) {
           // A probe we could not ask is not an answer: the row keeps today's
           // behaviour and the next render asks again.
@@ -585,6 +630,7 @@ async function deriveServerAudio(
             `[recordings-inbox] server-audio probe failed for ${row.recordingSessionId}:`,
             err,
           )
+          row.probeIncomplete = true
           continue
         }
       }

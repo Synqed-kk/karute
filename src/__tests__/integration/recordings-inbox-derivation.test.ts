@@ -231,6 +231,44 @@ describe('録音履歴 — 破棄済み (A2-3)', () => {
   })
 })
 
+// ── PR C2a's Finding 1 (LENS-PR-C2A-BLIND-2026-09-11): the fold must never
+// read `probeIncomplete` — it exists ONLY for the audit-watch cron to know a
+// row this pass could not fully judge, never for the screen. This was true by
+// inspection before this pin (probeIncomplete never appeared inside
+// deriveInboxRows's logic) but nothing proved it, so a future edit reading the
+// field would ship silently. Covers a representative row from each of the
+// five states.
+describe('録音履歴 — probeIncomplete never changes the fold (pin, Finding 1)', () => {
+  const cases: Array<[string, InboxServerSession[], InboxLocalTake[]]> = [
+    ['保存済み', [session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' })], []],
+    [
+      '確認待ち',
+      [session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' })],
+      [take({ takeId: 't1', recordingSessionId: 's1' })],
+    ],
+    ['処理中', [session({ recordingSessionId: 's1', jobStatus: 'QUEUED' })], []],
+    [
+      '失敗',
+      [session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'EMPTY_TRANSCRIPT' })],
+      [],
+    ],
+    [
+      '復元可能',
+      [session({ recordingSessionId: 's1' })],
+      [take({ takeId: 't1', recordingSessionId: 's1' })],
+    ],
+  ]
+
+  it.each(cases)('%s: a row with probeIncomplete: true folds identically to one without it', (_label, sessions, takes) => {
+    const without = fold(sessions, takes)
+    const withFlag = fold(
+      sessions.map((s) => ({ ...s, probeIncomplete: true })),
+      takes,
+    )
+    expect(withFlag).toEqual(without)
+  })
+})
+
 describe('録音履歴 — precedence: record beats job beats take', () => {
   it('a record wins over a FAILED job (a retry that landed)', () => {
     const [row] = fold([
