@@ -46,17 +46,24 @@ describe('lastAssemblerPassAt', () => {
 
 describe('findKaruteMissing', () => {
   const floor = lastAssemblerPassAt(NOW)
-  const old = floor - 60_000 // one minute before the floor
-  const recent = floor + 60_000 // one minute after the floor
+  const ASSEMBLE_AFTER_MS = 48 * 60 * 60 * 1000
+  const DEFAULT_DURATION_MS = 300 * 1000 // row()'s default durationSeconds: 300
+  // A row whose session (default 5-minute duration) ends `beforeFloorMs` before the floor.
+  const startedAtEndingBeforeFloorBy = (beforeFloorMs: number) => floor - beforeFloorMs - DEFAULT_DURATION_MS
+  const old = startedAtEndingBeforeFloorBy(ASSEMBLE_AFTER_MS + 60_000) // session ends 48h + 1min before the floor
+  const recent = floor + 60_000 // started one minute after the floor — nowhere near old enough
 
-  it('picks up recoverable and failed rows older than the assembler floor', () => {
+  it('picks up recoverable and failed rows whose session ended at least assembleAfterMs before the floor', () => {
     const rows = [
       row({ key: 'a', state: 'recoverable', startedAt: old }),
       row({ key: 'b', state: 'failed', startedAt: old }),
     ]
-    expect(findKaruteMissing({ rows, now: NOW, lastAssemblerPassAt: floor }).map((r) => r.recordingSessionId))
-      .toEqual(['sess-1', 'sess-1'])
-    expect(findKaruteMissing({ rows, now: NOW, lastAssemblerPassAt: floor })).toHaveLength(2)
+    expect(
+      findKaruteMissing({ rows, now: NOW, lastAssemblerPassAt: floor, assembleAfterMs: ASSEMBLE_AFTER_MS }).map(
+        (r) => r.recordingSessionId,
+      ),
+    ).toEqual(['sess-1', 'sess-1'])
+    expect(findKaruteMissing({ rows, now: NOW, lastAssemblerPassAt: floor, assembleAfterMs: ASSEMBLE_AFTER_MS })).toHaveLength(2)
   })
 
   it('excludes discarded, saved, awaiting-check and processing rows — even when old', () => {
@@ -66,19 +73,64 @@ describe('findKaruteMissing', () => {
       row({ key: 'c', state: 'awaiting-check', startedAt: old }),
       row({ key: 'd', state: 'processing', startedAt: old }),
     ]
-    expect(findKaruteMissing({ rows, now: NOW, lastAssemblerPassAt: floor })).toHaveLength(0)
+    expect(
+      findKaruteMissing({ rows, now: NOW, lastAssemblerPassAt: floor, assembleAfterMs: ASSEMBLE_AFTER_MS }),
+    ).toHaveLength(0)
   })
 
-  it('excludes a recoverable/failed row newer than the assembler floor — it may still get rescued tonight', () => {
+  it('excludes a recoverable/failed row started after the assembler floor — it may still get rescued tonight', () => {
     const rows = [
       row({ key: 'a', state: 'recoverable', startedAt: recent }),
       row({ key: 'b', state: 'failed', startedAt: recent }),
     ]
-    expect(findKaruteMissing({ rows, now: NOW, lastAssemblerPassAt: floor })).toHaveLength(0)
+    expect(
+      findKaruteMissing({ rows, now: NOW, lastAssemblerPassAt: floor, assembleAfterMs: ASSEMBLE_AFTER_MS }),
+    ).toHaveLength(0)
   })
 
-  it('excludes a row created EXACTLY at the assembler floor — the boundary is strict-less-than', () => {
+  it('excludes a row started EXACTLY at the assembler floor — its session has not even ended yet, let alone assembleAfterMs before the floor', () => {
     const rows = [row({ key: 'a', state: 'recoverable', startedAt: floor })]
-    expect(findKaruteMissing({ rows, now: NOW, lastAssemblerPassAt: floor })).toHaveLength(0)
+    expect(
+      findKaruteMissing({ rows, now: NOW, lastAssemblerPassAt: floor, assembleAfterMs: ASSEMBLE_AFTER_MS }),
+    ).toHaveLength(0)
+  })
+
+  // Fix round 2 (PACKET-PR-C1-FIX-ROUND2-GREPTILE-2026-09-11.md fix (a)): the
+  // rescue floor was too early — "started before the last pass" isn't enough,
+  // the assembler only rescues once the session ENDED assembleAfterMs ago.
+  it('a session ended 47h before the floor is NOT a candidate — the assembler has not had its rescue shot yet (old code judged only startedAt and called this a candidate)', () => {
+    const startedAt = floor - 47 * 60 * 60 * 1000 - 600 * 1000
+    const rows = [row({ key: 'a', state: 'recoverable', durationSeconds: 600, startedAt })]
+    expect(
+      findKaruteMissing({ rows, now: NOW, lastAssemblerPassAt: floor, assembleAfterMs: ASSEMBLE_AFTER_MS }),
+    ).toHaveLength(0)
+  })
+
+  it('the same session ended exactly 48h before the floor → a candidate (the boundary is inclusive)', () => {
+    const startedAt = floor - 48 * 60 * 60 * 1000 - 600 * 1000
+    const rows = [row({ key: 'a', state: 'recoverable', durationSeconds: 600, startedAt })]
+    expect(
+      findKaruteMissing({ rows, now: NOW, lastAssemblerPassAt: floor, assembleAfterMs: ASSEMBLE_AFTER_MS }),
+    ).toHaveLength(1)
+  })
+
+  it('with no duration, the inbox grace stands in for the session end — 48h+3h before the floor is a candidate, one ms later is not', () => {
+    const base = floor - 48 * 60 * 60 * 1000 - 3 * 60 * 60 * 1000
+    const candidateRows = [row({ key: 'a', state: 'recoverable', durationSeconds: null, startedAt: base })]
+    const notCandidateRows = [row({ key: 'a', state: 'recoverable', durationSeconds: null, startedAt: base + 1 })]
+    expect(
+      findKaruteMissing({ rows: candidateRows, now: NOW, lastAssemblerPassAt: floor, assembleAfterMs: ASSEMBLE_AFTER_MS }),
+    ).toHaveLength(1)
+    expect(
+      findKaruteMissing({ rows: notCandidateRows, now: NOW, lastAssemblerPassAt: floor, assembleAfterMs: ASSEMBLE_AFTER_MS }),
+    ).toHaveLength(0)
+  })
+
+  it('honours a shorter assembleAfterMs input (the env floor) instead of a hardcoded 48h', () => {
+    const startedAt = floor - 10 * 60 * 1000 - DEFAULT_DURATION_MS // session ends 10 min before the floor
+    const rows = [row({ key: 'a', state: 'recoverable', startedAt })]
+    expect(
+      findKaruteMissing({ rows, now: NOW, lastAssemblerPassAt: floor, assembleAfterMs: 5 * 60 * 1000 }),
+    ).toHaveLength(1)
   })
 })

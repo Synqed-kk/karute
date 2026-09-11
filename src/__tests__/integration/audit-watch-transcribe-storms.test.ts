@@ -81,4 +81,27 @@ describe('findTranscribeStorms', () => {
     ]
     expect(findTranscribeStorms({ events, truncated: false })).toHaveLength(0)
   })
+
+  // Fix round 2 (PACKET-PR-C1-FIX-ROUND2-GREPTILE-2026-09-11.md fix (b)): the
+  // web transcription receipt carries no customer_id — attributing off the
+  // FIRST receipt only left customerId/staffId null even when a later receipt
+  // in the same storm carried both.
+  it('attributes customerId/staffId off the first receipt that actually carries them, not the group\'s first receipt (old code: null)', () => {
+    const events = [1, 2, 3, 4].map((n) =>
+      event({
+        id: `e${n}`,
+        at: atOn('2026-09-05', `0${n}:00`),
+        detail:
+          n === 1
+            ? { cost_cents: 1, cents_reserved: 1 } // no customer_id/staff_id at all
+            : n === 2
+              ? { cost_cents: 2, cents_reserved: 2, customer_id: 'cust-1', staff_id: 'staff-1' }
+              : { cost_cents: n, cents_reserved: n, customer_id: 'cust-1', staff_id: 'staff-1' },
+      }),
+    )
+    const storms = findTranscribeStorms({ events, truncated: false })
+    expect(storms).toHaveLength(1)
+    expect(storms[0].customerId).toBe('cust-1')
+    expect(storms[0].staffId).toBe('staff-1')
+  })
 })

@@ -41,6 +41,17 @@ function detailString(detail: unknown, key: string): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null
 }
 
+/** The first non-null value for `key` across the group, in the group's own
+ *  order — not just the first receipt's, which may carry no customer_id at
+ *  all (the web transcription receipt emits none; fix round 2 finding (b)). */
+function firstString(group: readonly AuditEvent[], key: string): string | null {
+  for (const e of group) {
+    const v = detailString(e.detail, key)
+    if (v !== null) return v
+  }
+  return null
+}
+
 /**
  * @param truncated The caller's own read did not finish paging every
  *   `recording.transcribe` event in the window (deadline or page cap) — see
@@ -66,7 +77,6 @@ export function findTranscribeStorms(input: {
   for (const [key, group] of groups) {
     if (group.length <= STORM_THRESHOLD) continue
     const [targetId, day] = key.split('|')
-    const first = group[0]
     storms.push({
       targetId,
       day,
@@ -78,8 +88,8 @@ export function findTranscribeStorms(input: {
       ),
       truncated: input.truncated,
       ids: group.map((e) => e.id),
-      customerId: detailString(first.detail, 'customer_id'),
-      staffId: detailString(first.detail, 'staff_id'),
+      customerId: firstString(group, 'customer_id'),
+      staffId: firstString(group, 'staff_id'),
     })
   }
   return storms
