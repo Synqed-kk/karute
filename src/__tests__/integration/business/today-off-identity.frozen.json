@@ -1,0 +1,339 @@
+{
+  "emittedAt": "a7d10dc3a",
+  "instant": "2026-08-19T00:00:00Z",
+  "cells": {
+    "STORE_A": {
+      "dayBookings": {
+        "sha256": "8dfa634d3d6d2d0b90df25aaa9f554b12712b5d2def2d88ed7631483978f82d2",
+        "bytes": 5179,
+        "n": 11
+      },
+      "buildLanes": {
+        "sha256": "d5b927d03c0173d4b5976dee4fee3cd63498845f1bc93dc28b1853004f13ac07",
+        "bytes": 12634,
+        "n": 9
+      },
+      "cleanupBlocks": {
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2,
+        "n": 0
+      },
+      "laneMinutes": {
+        "sha256": "5bb617f14b5e7f4d1db1978d580a8ac5c9c77c30e552588014d7ddab86f2dac8",
+        "bytes": 453,
+        "n": 6
+      },
+      "utilization": {
+        "sha256": "b799ae02569f4640f5685b924957ec55a3f7e4e5520ce7d71a2d54c385c33346",
+        "bytes": 46,
+        "n": 3
+      },
+      "computeChecks": {
+        "sha256": "5e4d31c42247f62b53e5b30ee27e9749c144a6d89f411bd5d063b75c92e9a766",
+        "bytes": 178,
+        "n": 4
+      },
+      "laneSpans": {
+        "sha256": "669a5275940b6a015303685fdd94f0111150ce4b594dbed24edc6765b840a520",
+        "bytes": 1376,
+        "n": 9
+      },
+      "roomAllocation": {
+        "sha256": "894e7c0dcddea3236470b328a53849e4a93452d3fe61495b0bde63a6a56dd0e3",
+        "bytes": 166,
+        "n": 3
+      },
+      "sellLayerFor": {
+        "sha256": "cdbf7b35c2493b98839afa314e416700b4bb0c9c51a61a425abf371976e67be3",
+        "bytes": 4945,
+        "n": 7
+      },
+      "bedTruthViews": {
+        "sha256": "193d582f8485a479cec09b1cf06e60de44d0228fc46aa151cf2c0a0218275c24",
+        "bytes": 2250,
+        "n": 18
+      },
+      "fitsDrag": {
+        "sha256": "a4c73e64c28cc2b5dd30e0ea7649ada872e271f6c819e1ddfc38e4b947b1f91a",
+        "bytes": 47,
+        "n": 8
+      }
+    },
+    "STORE_B": {
+      "dayBookings": {
+        "sha256": "99637f334a2ffc48e173b125cb7bc3642af8324e5af814920d39250e5b9486a8",
+        "bytes": 945,
+        "n": 2
+      },
+      "buildLanes": {
+        "sha256": "6f47a239618f4ca269fcbefd1ea49f373f856a25d330c938fe041ed1c222e27b",
+        "bytes": 3856,
+        "n": 4
+      },
+      "cleanupBlocks": {
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2,
+        "n": 0
+      },
+      "laneMinutes": {
+        "sha256": "c7f736eae5eb92ef667297a7ac885ecdb4e4f65cf5d0b5571f0a47d19abb09c6",
+        "bytes": 225,
+        "n": 3
+      },
+      "utilization": {
+        "sha256": "4eb972d47198ff6e6f35aa8138cb3296d680bd2180513f928ec1a8b47a1e20b1",
+        "bytes": 44,
+        "n": 3
+      },
+      "computeChecks": {
+        "sha256": "2dbb5ac818ea4f56aab74f082dff19835d67514910951be6713a7885ea4e62c5",
+        "bytes": 155,
+        "n": 4
+      },
+      "laneSpans": {
+        "sha256": "19e9d5f11133435a5016b9cbef0108c0d68b9d84231844071a8c61d908e71a44",
+        "bytes": 398,
+        "n": 4
+      },
+      "roomAllocation": {
+        "sha256": "2fab9228395794154b12cc8fc45147511d9a828f66c5d0a2f888e60413b495d2",
+        "bytes": 116,
+        "n": 3
+      },
+      "sellLayerFor": {
+        "sha256": "3d5bb1b46d3e79589efe2ca06dc356aba8070774da431e4b3a0585063c3b4417",
+        "bytes": 2944,
+        "n": 7
+      },
+      "bedTruthViews": {
+        "sha256": "4de9931da0de82c12ff3a036e70e0eaf41353b08d841458867c7cbbcaf1884ff",
+        "bytes": 2105,
+        "n": 18
+      },
+      "fitsDrag": {
+        "sha256": "a4c73e64c28cc2b5dd30e0ea7649ada872e271f6c819e1ddfc38e4b947b1f91a",
+        "bytes": 47,
+        "n": 8
+      }
+    },
+    "viewAll": {
+      "dayBookings": {
+        "sha256": "1260a4792cce89e1fa188b00189cd8069119566cd2798d8de0ace1d3149e5d34",
+        "bytes": 6129,
+        "n": 13
+      },
+      "buildLanes": {
+        "sha256": "cc64bf52dfa75950fddea08d8c7a9906f9dea18cc5892c057c6c2f7549c35bd2",
+        "bytes": 14890,
+        "n": 11
+      },
+      "cleanupBlocks": {
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2,
+        "n": 0
+      },
+      "laneMinutes": {
+        "sha256": "f1efe59e791da3dc72f9a0e339c9effa220ce2db2fa702b646ce807683fb45ec",
+        "bytes": 529,
+        "n": 7
+      },
+      "utilization": {
+        "sha256": "1cb8d5f40d591c4c1d9fd801f7db582b6e21c863008fc33687755c52969af0cb",
+        "bytes": 46,
+        "n": 3
+      },
+      "computeChecks": {
+        "sha256": "d2b17b285008a684aef519ed0d7e46f356d32d4595fa18d9df6894ee514f063c",
+        "bytes": 184,
+        "n": 4
+      },
+      "laneSpans": {
+        "sha256": "5ff8301f45e433b3623ddfcfb4b94c3cdcbdc58a38c3fe32595743bbd9985e26",
+        "bytes": 1595,
+        "n": 11
+      },
+      "roomAllocation": {
+        "sha256": "4e6ff2ce24599104d5aee4af9d3e84b458ad1e349fc8837045b4b982ddb8e0fb",
+        "bytes": 191,
+        "n": 3
+      },
+      "sellLayerFor": {
+        "sha256": "d9e7b2376fd4b02ecac40039ca2fc4d6c318c7748d102eb37cb630a4fa5adc64",
+        "bytes": 7045,
+        "n": 7
+      },
+      "bedTruthViews": {
+        "sha256": "2ebcd5319f6689e9ec3ab8d8c159a182696f17134550c5bb63103e95d8afd698",
+        "bytes": 1817,
+        "n": 18
+      },
+      "fitsDrag": {
+        "sha256": "a4c73e64c28cc2b5dd30e0ea7649ada872e271f6c819e1ddfc38e4b947b1f91a",
+        "bytes": 47,
+        "n": 8
+      }
+    }
+  },
+  "literals": {
+    "laneMinutes": {
+      "STORE_A": [
+        {
+          "staffId": "p-01",
+          "treats": true,
+          "availableMinutes": 150,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "c-03",
+          "treats": true,
+          "availableMinutes": 420,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-04",
+          "treats": true,
+          "availableMinutes": 420,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-05",
+          "treats": true,
+          "availableMinutes": 360,
+          "bookedMinutes": 80
+        },
+        {
+          "staffId": "p-06",
+          "treats": true,
+          "availableMinutes": 510,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-09",
+          "treats": false,
+          "availableMinutes": 0,
+          "bookedMinutes": 0
+        }
+      ],
+      "STORE_B": [
+        {
+          "staffId": "p-02",
+          "treats": true,
+          "availableMinutes": 480,
+          "bookedMinutes": 45
+        },
+        {
+          "staffId": "c-03",
+          "treats": true,
+          "availableMinutes": 420,
+          "bookedMinutes": 0
+        },
+        {
+          "staffId": "p-05",
+          "treats": true,
+          "availableMinutes": 360,
+          "bookedMinutes": 45
+        }
+      ],
+      "viewAll": [
+        {
+          "staffId": "p-01",
+          "treats": true,
+          "availableMinutes": 150,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-02",
+          "treats": true,
+          "availableMinutes": 480,
+          "bookedMinutes": 45
+        },
+        {
+          "staffId": "c-03",
+          "treats": true,
+          "availableMinutes": 420,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-04",
+          "treats": true,
+          "availableMinutes": 420,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-05",
+          "treats": true,
+          "availableMinutes": 360,
+          "bookedMinutes": 125
+        },
+        {
+          "staffId": "p-06",
+          "treats": true,
+          "availableMinutes": 510,
+          "bookedMinutes": 120
+        },
+        {
+          "staffId": "p-09",
+          "treats": false,
+          "availableMinutes": 0,
+          "bookedMinutes": 0
+        }
+      ]
+    },
+    "computeChecks": {
+      "STORE_A": [
+        {
+          "ok": false,
+          "label": "時間帯が重複: テスト くらら・見本 そら・テスト えいた・本日勤務なし"
+        },
+        {
+          "ok": true,
+          "label": "見本 はなこの勤務時間内（〜13:00）"
+        },
+        {
+          "ok": true,
+          "label": "整体資格 一致"
+        },
+        {
+          "ok": true,
+          "label": "予約時価格を保持（動的価格は適用しません）"
+        }
+      ],
+      "STORE_B": [
+        {
+          "ok": false,
+          "label": "時間帯が重複: 見本 うみ"
+        },
+        {
+          "ok": true,
+          "label": "見本 たろうの勤務時間内（〜19:00）"
+        },
+        {
+          "ok": true,
+          "label": "整体資格 一致"
+        },
+        {
+          "ok": true,
+          "label": "予約時価格を保持（動的価格は適用しません）"
+        }
+      ],
+      "viewAll": [
+        {
+          "ok": false,
+          "label": "時間帯が重複: テスト くらら・見本 うみ・見本 そら・テスト えいた・本日勤務なし"
+        },
+        {
+          "ok": true,
+          "label": "見本 はなこの勤務時間内（〜13:00）"
+        },
+        {
+          "ok": true,
+          "label": "整体資格 一致"
+        },
+        {
+          "ok": true,
+          "label": "予約時価格を保持（動的価格は適用しません）"
+        }
+      ]
+    }
+  }
+}
