@@ -854,10 +854,11 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           <button
             type="button"
             onClick={closeTarget}
-            aria-label={t('clearTarget')}
-            className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted"
+            aria-label={tc('back')}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md p-1 text-sm text-muted-foreground hover:bg-muted"
           >
             <ArrowLeft className="size-4" />
+            {tc('back')}
           </button>
           <h3 className="text-lg font-semibold">
             {targetType === 'recording' ? t('thread.title') : t('thread.customerTitle')}

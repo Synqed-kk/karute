@@ -250,6 +250,15 @@ describe('AuditLogSection — I4 recording thread page', () => {
     await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
     expect(listAuditLog.mock.calls[1]![0]).toMatchObject({ targetId: 'rec-9', targetType: 'recording' })
     expect(container.textContent).toContain('この録音に関する記録')
+    // F6 fix (blind lens finding 6): the back control's VISIBLE text is 戻る
+    // (this assertion was missing before — the test's own title claimed it
+    // checked 戻る but never actually did, which is exactly how F6 slipped
+    // through green).
+    const backBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent === '戻る',
+    )
+    expect(backBtn).toBeTruthy()
+    expect(backBtn!.getAttribute('aria-label')).toBe('戻る')
     void link
   })
 
