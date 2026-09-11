@@ -247,4 +247,19 @@ describe('hasRememberedEmptyTranscript — the pure helper table', () => {
   it('a remembered TAKE row must NOT match a query for its own rescue key', () => {
     expect(hasRememberedEmptyTranscript([match] as never, `${RESCUE_PREFIX}${AUDIO_PATH}`)).toBe(false)
   })
+
+  // The rescue/take pair above only ever exercises the endsWith direction —
+  // RESCUE_PREFIX ('rsc/') and the take grammar ('app_') diverge at position
+  // 0, so neither key is ever a literal PREFIX of the other and that pair
+  // can't distinguish === from startsWith in either argument order (checked
+  // directly: both directions are false for both orderings). These two pin
+  // strict equality against startsWith on a genuine prefix relationship.
+  it('a longer audio_path is not a match just because the query is its prefix', () => {
+    const row = { ...match, detail: { ...match.detail, audio_path: `${AUDIO_PATH}-extra` } }
+    expect(hasRememberedEmptyTranscript([row] as never, AUDIO_PATH)).toBe(false)
+  })
+
+  it('a shorter audio_path is not a match just because it is the query’s prefix', () => {
+    expect(hasRememberedEmptyTranscript([match] as never, `${AUDIO_PATH}-extra`)).toBe(false)
+  })
 })
