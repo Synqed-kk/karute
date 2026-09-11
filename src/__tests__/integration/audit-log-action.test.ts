@@ -1882,6 +1882,53 @@ describe('listAuditLog — PR D1 recording thread join (amendment 1 F6)', () => 
     expect(ids1.length + ids2.length).toBe(allIds.size)
   })
 
+  // Fix round 2, G4 (Greptile round-2 P1, ACCEPTED, reviewer's line
+  // verbatim): the thread's own sort compared raw timestamp STRINGS, so
+  // mixed UTC-offset serialisation could show rows in the wrong order —
+  // '00:30Z' sorts lexically before '09:00+09:00' even though the latter is
+  // the EARLIER instant (00:00 UTC). Newest-first must mean by instant.
+  it('G4: sorts by the actual instant, not the raw string — mixed UTC offsets', async () => {
+    mockClientWithRecording({ appointment_id: null })
+    list.mockImplementation(
+      async (opts: { target_type?: string; category?: string }) => {
+        if (opts.target_type === 'recording') {
+          return {
+            events: [
+              coreEvent({
+                id: 'e-utc',
+                at: '2026-09-01T00:30:00.000Z',
+                category: 'recording',
+                action: 'recording.session_cleanup',
+                target_type: 'recording',
+                target_id: RECORDING_ID,
+              }),
+              coreEvent({
+                id: 'e-offset',
+                at: '2026-09-01T09:00:00.000+09:00',
+                category: 'recording',
+                action: 'recording.session_cleanup',
+                target_type: 'recording',
+                target_id: RECORDING_ID,
+              }),
+            ],
+            total: 2,
+            page: 1,
+            page_size: 200,
+          }
+        }
+        if (opts.category === 'karute') {
+          return { events: [], total: 0, page: 1, page_size: 200 }
+        }
+        throw new Error('unexpected call: ' + JSON.stringify(opts))
+      },
+    )
+    const res = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording' })
+    if (!res.ok) throw new Error('expected ok, got ' + JSON.stringify(res))
+    // e-utc = 00:30 UTC (the LATER instant); e-offset = 09:00+09:00 = 00:00
+    // UTC (the EARLIER instant). Newest-first → e-utc must come first.
+    expect(res.events.map((e) => e.id)).toEqual(['e-utc', 'e-offset'])
+  })
+
   // Fix round 2, G3 (Greptile round-2 P1, ACCEPTED): thread mode must honour
   // every feed filter the caller sent — a joined row from another actor,
   // outside the window, of another severity, or from the wrong category must

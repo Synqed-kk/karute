@@ -310,7 +310,12 @@ async function joinRecordingThread(
   // one joined row (or two joined rows) sharing a request_id, which only
   // this second pass over the merge can catch.
   const { events: belted, folded } = foldDuplicateAuditEvents([...merged.values()])
-  const sorted = belted.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
+  // G4 (Greptile round-2 P1, ACCEPTED, reviewer's line verbatim): compare
+  // the actual INSTANT, not the raw string — mixed UTC-offset serialisation
+  // can make a lexically smaller string the LATER instant (same class of
+  // bug fix round 1 subject 7 already fixed in foldDuplicateAuditEvents'
+  // "earliest" pick; this is the thread's own final sort).
+  const sorted = belted.sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
 
   const start = (page - 1) * PAGE_SIZE
   return {
