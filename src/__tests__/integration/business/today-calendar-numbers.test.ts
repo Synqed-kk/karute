@@ -554,12 +554,15 @@ describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an 
  *  and this suite would be red by tomorrow morning. Pinned to the oracle's own
  *  instant, the world it was emitted from comes back exactly. */
 describe('⚖ 9/12 — あと入る数 (「I choose B」)', () => {
+  /** ⚖ FIX ROUND 1 — TRIMMED TO THE COLUMN THE PRODUCT IS DIFFED AGAINST.
+   *  It arrived as the mock's whole 7,842-line working set (per-lane pockets,
+   *  A's own numbers, residues) — the A/B comparison the mock existed to make,
+   *  and none of it is an oracle for anything this suite asserts. 127 lines now,
+   *  one per day, plus the header that says where the numbers came from and
+   *  which world clock reproduces them. */
   const ORACLE: {
-    _origin: { generatedAt: string; worldClock: string }
-    sessionMin: number
-    closedWeekday: number
-    hours: { open: number; close: number }
-    days: Array<{ offset: number; y: number; m: number; d: number; covered: boolean; closed?: boolean; coursesFit?: number; pocketsMin?: number[] }>
+    _origin: { generatedAt: string; worldClock: string; sessionMin: number; closedWeekday: number; coursesFit: { min: number; max: number } }
+    days: Array<{ offset: number; y: number; m: number; d: number; wd: number; closed: boolean; coursesFit: number }>
   } = JSON.parse(readFileSync('src/__tests__/integration/business/today-calendar-courses.oracle.json', 'utf8'))
 
   const service = createServiceClient as jest.Mock
@@ -699,7 +702,7 @@ describe('⚖ 9/12 — あと入る数 (「I choose B」)', () => {
       return {
         date: `${c.y}/${c.m}/${c.d}`,
         page: c.covered === false ? null : c.fits,
-        oracle: oracle ? (oracle.coursesFit ?? null) : 'NO SUCH DAY IN THE ORACLE',
+        oracle: oracle ? oracle.coursesFit : 'NO SUCH DAY IN THE ORACLE',
       }
     })
     expect(rows).toHaveLength(WINDOW * 2 + 1)
@@ -707,8 +710,9 @@ describe('⚖ 9/12 — あと入る数 (「I choose B」)', () => {
     // The oracle's own summary, re-derived here, so a fixture swapped for a
     // flatter one cannot pass this by being uniform.
     const fits = rows.map((r) => r.page as number)
-    expect(Math.min(...fits)).toBe(0) // 定休日
-    expect(Math.max(...fits)).toBe(35)
+    expect(Math.min(...fits)).toBe(ORACLE._origin.coursesFit.min) // 0, the 定休日
+    expect(Math.max(...fits)).toBe(ORACLE._origin.coursesFit.max) // 35
+    expect(ORACLE._origin.coursesFit).toEqual({ min: 0, max: 35 })
   })
 
   it('3 · the store’s 標準セッション is what the count is IN, and the screen is told', async () => {
@@ -717,7 +721,7 @@ describe('⚖ 9/12 — あと入る数 (「I choose B」)', () => {
     // dial the count is packed with — never a literal 60.
     const props = await pageProps()
     expect(props.calendarSessionMin).toBe(opsConfig.standardSessionMin)
-    expect(props.calendarSessionMin).toBe(ORACLE.sessionMin)
+    expect(props.calendarSessionMin).toBe(ORACLE._origin.sessionMin)
   })
 
   it('4 · a 定休日 advertises nothing, whatever its roster could have held', async () => {
