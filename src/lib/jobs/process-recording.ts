@@ -474,7 +474,12 @@ async function upsertKaruteRecord(
  *  a second row under the same requestId — a genuinely new failure round,
  *  not a duplicate of this one. The reader folds rows sharing (action,
  *  target, request_id) in PR D, and core's Idempotency-Key (CORE-19) will
- *  make it one row at the source later; neither exists yet. */
+ *  make it one row at the source later; neither exists yet.
+ *
+ *  Layer A (PACKET-MIC-SILENCE-LAYER-A-2026-09-11.md subject 1): the row now
+ *  also carries `audio_path` — that field is this row's memory key, keyed on
+ *  the OBJECT and never the session, because a retake mints a new object and
+ *  must still pay for its own transcription. */
 function emitTranscribeFailedIfExhausted(job: RecordingJob, message: string): void {
   if (message === DISCARDED_BY_STAFF || message === AI_SPEND_LIMIT) return
   if (message === DISCARD_LEDGER_UNREADABLE) return
@@ -494,6 +499,7 @@ function emitTranscribeFailedIfExhausted(job: RecordingJob, message: string): vo
       customer_id: payload?.customer_id ?? null,
       staff_id: payload?.staff_id ?? null,
       appointment_id: payload?.appointment_id ?? null,
+      audio_path: payload?.audio_path ?? null,
       attempt: job.attempts,
       max_attempts: job.max_attempts,
       reason: message === 'EMPTY_TRANSCRIPT' ? 'empty_transcript' : 'other',

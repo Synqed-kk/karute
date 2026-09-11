@@ -151,6 +151,7 @@ describe('process-recording worker — recording.transcribe_failed (subject 6, f
           customer_id: 'cust-1',
           staff_id: 'staff-1',
           appointment_id: 'ap-1',
+          audio_path: baseJob.payload.audio_path,
           attempt: 4,
           max_attempts: 3,
           reason: 'other',
@@ -170,7 +171,12 @@ describe('process-recording worker — recording.transcribe_failed (subject 6, f
     await processRecordingJobs(10_000)
 
     expect(audit).toHaveBeenCalledWith(
-      expect.objectContaining({ detail: expect.objectContaining({ reason: 'empty_transcript' }) }),
+      expect.objectContaining({
+        detail: expect.objectContaining({
+          reason: 'empty_transcript',
+          audio_path: baseJob.payload.audio_path,
+        }),
+      }),
     )
   })
 
