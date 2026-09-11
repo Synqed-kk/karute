@@ -14216,3 +14216,67 @@ describe('⚖ NUDGE-RESIDUE — the engine publishes the attempted placement’s
     expect(engineSrc).toContain('It is the ATTEMPTED key whatever the verdict')
   })
 })
+
+describe('月カレンダー day cell — display resolves through the real cascade (Greptile P2, PR #889)', () => {
+  // today-reskin-layer.test.ts's ".time-nav does not reach into the popovers"
+  // pin (its CANON check) only greps selector TEXT — it can't see that a MORE
+  // SPECIFIC rule (e.g. `.biz .time-nav .cal-cell { display: inline-flex; }`)
+  // or an edited `.cal-cell` declaration would still pass while silently
+  // flattening the day grid back to a row. This walks the actual cascade:
+  // build the day cell's real DOM shape, load today.css as a real stylesheet,
+  // and ask which rule WINS for `display` by (specificity, source order) —
+  // same answer a browser gives.
+  //
+  // A naive `getComputedStyle` after injecting the raw file was tried first
+  // and discarded: today.css carries `@container`/`@starting-style` blocks
+  // that jsdom's bundled CSS parser cannot parse at all, so the WHOLE
+  // stylesheet is silently dropped and every case (buggy, fixed, mutated)
+  // comes back identically un-styled — a check that can never fail either way.
+  // Stripping comments and every `@`-rule body first (none of them touch
+  // `.cal-cell`'s `display` anywhere in the file — checked) lets the real
+  // stylesheet parse, so `document.styleSheets` carries the real rules.
+  function stripAtRules(text: string): string {
+    let out = ''
+    let depth = 0
+    let inAt = false
+    for (const c of text) {
+      if (!inAt && c === '@' && depth === 0) { inAt = true; continue }
+      if (inAt) {
+        if (c === '{') depth++
+        else if (c === '}') { depth--; if (depth <= 0) { inAt = false; depth = 0 } }
+        else if (c === ';' && depth === 0) inAt = false
+        continue
+      }
+      out += c
+    }
+    return out
+  }
+
+  // id / class+attr+pseudo-class / type-selector counts — the three CSS
+  // specificity buckets. `>` and whitespace combinators carry no weight and
+  // are never matched by any of these three patterns, so they fall out for free.
+  function specificity(sel: string): [number, number, number] {
+    const ids = (sel.match(/#[\w-]+/g) ?? []).length
+    const classish = (sel.match(/\.[\w-]+/g) ?? []).length
+      + (sel.match(/\[[^\]]+\]/g) ?? []).length
+      + (sel.match(/:[\w-]+(\([^)]*\))?/g) ?? []).length
+    const bare = sel.replace(/#[\w-]+|\.[\w-]+|\[[^\]]+\]|:[\w-]+(\([^)]*\))?/g, ' ')
+    const tags = (bare.match(/[a-zA-Z][\w-]*/g) ?? []).length
+    return [ids, classish, tags]
+  }
+  const higherOrTied = (a: number[], b: number[]) => a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] >= b[2]
+
+  it('the day cell resolves to display: grid, not the more specific/edited forms a text fence would miss', () => {
+    const css = stripAtRules(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''))
+    document.head.innerHTML = `<style>${css}</style>`
+    document.body.innerHTML = '<div class="biz"><div class="time-nav date-nav"><a></a><button class="day-label"></button><a></a><div class="cal-pop"><div class="cal-grid"><a class="cal-cell open"><b>1</b><small>9</small></a></div></div></div></div>'
+    const cell = document.querySelector('.cal-cell')!
+    let winner: { spec: [number, number, number]; display: string } | null = null
+    for (const rule of Array.from(document.styleSheets[0].cssRules) as CSSStyleRule[]) {
+      if (!rule.style?.display || !cell.matches(rule.selectorText)) continue
+      const spec = specificity(rule.selectorText)
+      if (!winner || higherOrTied(spec, winner.spec)) winner = { spec, display: rule.style.display }
+    }
+    expect(winner?.display).toBe('grid')
+  })
+})
