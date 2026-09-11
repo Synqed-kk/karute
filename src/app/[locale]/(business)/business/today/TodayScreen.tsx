@@ -334,6 +334,25 @@ export function bookFor(lanes: BoardLane[], frame: DayFrame, liftedId: string | 
   return views
 }
 
+/** ⚖ ADJUDICATION L2 MAJOR 2 — ONE SPELLING OF THE ⇄ TONE SLOT'S KEY.
+ *
+ *  The slots are a string agreement between three sites — the fill that writes
+ *  them, the chip that reads one, and the aimed chip's own refresh, which does
+ *  both. It was spelled out three times, and the breaker's mutant (k) — drop
+ *  `dur` from all three — shipped the whole battery green: every chip silently
+ *  loses its slot, falls back to the UN-shuffled verdict, and ⚖ RULING 3's third
+ *  arm stops holding. A key with no home has no pin, so this is the home: the
+ *  three fields, the one separator, unit-pinned beside `bookFor` (same
+ *  precedent — exported, module-level, no screen needed to ask it).
+ *
+ *  `dur` is in the key because a chip's identity is its START and its LENGTH:
+ *  the strip's length follows the gesture (⚖ 50), so one lane and one start can
+ *  be two different questions inside one day. It is inert while a gesture holds
+ *  one length and a landmine the moment one does not. */
+export function slotKey(laneKey: string, start: number, dur: number): string {
+  return `${laneKey}|${start}|${dur}`
+}
+
 /** ⚖ 51 / Greptile #827 — WHAT THE NEXT VISIT'S CATEGORY IS.
  *
  *  `BookingCategory` is a per-BOOKING word, not a customer's badge:
@@ -2135,10 +2154,16 @@ export function TodayScreen(props: TodayProps) {
   const livePack = () => ({ pack: gestureMemoRef.current != null })
   /** ⚖ §5b — THE ⇄ TONE SLOTS: the kind the DROP would give, for the chips that
    *  can actually WEAR the mark. `null` means 「this gesture has not filled them
-   *  yet」; a Map (even an empty one) means it has, so a board with no ⇄ anywhere
-   *  pays the walk once rather than once a frame. Only ⇄ candidates are in here —
-   *  every other chip's own verdict IS the drop's. */
-  const toneRef = useRef<Map<string, LandingClass> | null>(null)
+   *  yet」; a record (even one with an empty Map) means it has, so a board with
+   *  no ⇄ anywhere pays the walk once rather than once a frame. Only ⇄ candidates
+   *  are in here — every other chip's own verdict IS the drop's.
+   *
+   *  ⚖ FIX ROUND 1 (F2) — `world` and `row` are the memo's own two invalidators,
+   *  recorded beside the answers they were built from, so the slots cannot
+   *  outlive the answers they are a view of. `object` is the engine's own
+   *  spelling for the world stamp (`gestureAllocator`'s `stamp: () => object`),
+   *  not a widening of it. */
+  const toneRef = useRef<{ world: object; row: string; slots: Map<string, LandingClass> } | null>(null)
   /** The whole of what a gesture leaves behind, released in one place. */
   function freeGesture() {
     gestureMemoRef.current?.free()
@@ -2489,51 +2514,6 @@ export function TodayScreen(props: TodayProps) {
     ],
   )
 
-  /** ⚖ LIVE-WHILE-DRAGGING §5b — THE ⇄ TONE SLOTS, FILLED ONCE PER GESTURE, IN
-   *  ONE BURST, HERE — never inside the chip map and never lazily.
-   *
-   *  A chip that fits only by moving somebody must not wear ✓ and then be
-   *  refused on release, so its face is composed from the verdict the DROP would
-   *  give: the guard re-read on the board the shuffle would leave, which is
-   *  `verdictAtLanding`'s own two-step shape. That re-judge is the expensive
-   *  half, so it is paid once: one shuffled board per DISTINCT set of moves, one
-   *  capacity book per board (`bookFor`), and the walk narrowed to the chips
-   *  that can actually WEAR the mark — a start the clash row refuses comes back
-   *  `blocked` with its moves carried and earns neither.
-   *
-   *  SYNC, and the numbers are why: spreading the misses over later frames was
-   *  measured at 4–140× the whole-gesture cost at every batch size, because each
-   *  extra render costs a full frame.
-   *
-   *  ⚠ WHAT THESE SLOTS ARE, said plainly: a PREVIEW. The guard's protected-
-   *  window door reads the book of the board with the hand's live claim in it,
-   *  and that claim moves every frame — so a slot filled here can differ from
-   *  the same chip's honest answer later in the gesture (measured: 4.6% of
-   *  re-checks). That is the character the strip's ✓/△ marks already have away
-   *  from the cursor. The chip UNDER the cursor is the one that may never
-   *  disagree with the badge and the drop, and it does not: `paintProxyVerdict`
-   *  rewrites its slot on every aim change with the cursor's own answer. */
-  if (inHand != null && gestureMemoRef.current != null && toneRef.current == null) {
-    const slots = new Map<string, LandingClass>()
-    const shuffledFor = new Map<string, BoardLane[]>()
-    for (const rail of rails) {
-      for (const c of rail.cells) {
-        const ask = { ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }
-        const v = verdictFor(ask, c, livePack().pack)
-        if (v.kind === 'blocked' || v.reseats.length === 0) continue
-        const moveSet = v.reseats.map((r) => `${r.id}>${r.to}`).join(',')
-        let shuffled = shuffledFor.get(moveSet)
-        if (!shuffled) {
-          shuffled = applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), hours, props.bedCleanupMinutes)
-          shuffledFor.set(moveSet, shuffled)
-        }
-        const final = verdictFor(ask, verdictAt(rail.laneKey, c.start, railDur, inHand.id, shuffled), false, shuffled)
-        slots.set(`${rail.laneKey}|${c.start}|${railDur}`, final.kind)
-      }
-    }
-    toneRef.current = slots
-  }
-
   /** The same question when the guard has NOT already been asked — a gesture
    *  ending, where there is one landing rather than a strip of them. The card's
    *  OWN length, exactly as `askGuard` does it. */
@@ -2654,6 +2634,72 @@ export function TodayScreen(props: TodayProps) {
    *  card in hand there is no bed lane to walk. */
   const rowStampRef = useRef('')
   rowStampRef.current = handRowStamp(boardLanes, handId ?? '', live?.bedLane ?? null)
+
+  /** ⚖ LIVE-WHILE-DRAGGING §5b — THE ⇄ TONE SLOTS, FILLED ONCE PER GESTURE, IN
+   *  ONE BURST, HERE — never inside the chip map and never lazily.
+   *
+   *  A chip that fits only by moving somebody must not wear ✓ and then be
+   *  refused on release, so its face is composed from the verdict the DROP would
+   *  give: the guard re-read on the board the shuffle would leave, which is
+   *  `verdictAtLanding`'s own two-step shape. That re-judge is the expensive
+   *  half, so it is paid once: one shuffled board per DISTINCT set of moves, one
+   *  capacity book per board (`bookFor`), and the walk narrowed to the chips
+   *  that can actually WEAR the mark — a start the clash row refuses comes back
+   *  `blocked` with its moves carried and earns neither.
+   *
+   *  SYNC, and the numbers are why: spreading the misses over later frames was
+   *  measured at 4–140× the whole-gesture cost at every batch size, because each
+   *  extra render costs a full frame.
+   *
+   *  ⚠ WHAT THESE SLOTS ARE, said plainly: a PREVIEW. The guard's protected-
+   *  window door reads the book of the board with the hand's live claim in it,
+   *  and that claim moves every frame — so a slot filled here can differ from
+   *  the same chip's honest answer later in the gesture (measured: 4.6% of
+   *  re-checks). That is the character the strip's ✓/△ marks already have away
+   *  from the cursor. The chip UNDER the cursor is the one that may never
+   *  disagree with the badge and the drop, and it does not: `paintProxyVerdict`
+   *  rewrites its slot on every aim change with the cursor's own answer.
+   *
+   *  BELOW THE THREE REFS ON PURPOSE: the fill is the first reader of the memo
+   *  in this render, and the memo's board-family gate compares against
+   *  `boardLanesRef.current` — written two statements above.
+   *
+   *  ⚖ FIX ROUND 1 (F2 — Fable, blind lenses 1 and 2) — AND THE SLOTS SHARE THE
+   *  MEMO'S LIFETIME. They are a VIEW of the memo's answers, so they may not
+   *  outlive them. `gestureAllocator` empties itself on exactly two conditions
+   *  (its own two `memo.clear()` sites): the world stamp's identity changed, or
+   *  the hand-row string changed. So the view records the PAIR it was built
+   *  under and is rebuilt when either differs — same inputs, one home on the
+   *  screen, and the rebuild is SYNC on the first render after a clear. The 4.6%
+   *  above is the ceiling on a STALE slot; a MISSING slot is what this closes:
+   *  without it, a chip that BECOMES a ⇄ candidate after a clear has no slot,
+   *  composes its face from the UN-shuffled verdict, and can wear ⇄ on a landing
+   *  the release would refuse — ⚖ RULING 3's third arm, which `liveChipFace`
+   *  claims holds by construction. */
+  function fillToneSlots(): void {
+    // The gate below is what proves this, and TypeScript's narrowing does not
+    // cross a function boundary: a fill with no hand has nothing to ask about.
+    if (inHand == null) return
+    const slots = new Map<string, LandingClass>()
+    const shuffledFor = new Map<string, BoardLane[]>()
+    for (const rail of rails) {
+      for (const c of rail.cells) {
+        const ask = { ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }
+        const v = verdictFor(ask, c, livePack().pack)
+        if (v.kind === 'blocked' || v.reseats.length === 0) continue
+        const moveSet = v.reseats.map((r) => `${r.id}>${r.to}`).join(',')
+        let shuffled = shuffledFor.get(moveSet)
+        if (!shuffled) {
+          shuffled = applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), hours, props.bedCleanupMinutes)
+          shuffledFor.set(moveSet, shuffled)
+        }
+        const final = verdictFor(ask, verdictAt(rail.laneKey, c.start, railDur, inHand.id, shuffled), false, shuffled)
+        slots.set(slotKey(rail.laneKey, c.start, railDur), final.kind)
+      }
+    }
+    toneRef.current = { world: worldStampRef.current, row: rowStampRef.current, slots }
+  }
+  if (inHand != null && livePack().pack && (toneRef.current == null || toneRef.current.world !== worldStampRef.current || toneRef.current.row !== rowStampRef.current)) fillToneSlots()
 
   /** ⚖ Liam flag 58 RIDER — THE ONE PLACE AN ENGINE START BECOMES AN OFFER.
    *
@@ -4176,14 +4222,23 @@ export function TodayScreen(props: TodayProps) {
     // It lands before the render that draws the chips: `applyDragFrame` calls
     // `setLive` above this, React 18 flushes the batched state only after the
     // rAF callback returns, and this write is synchronous inside it.
-    const slots = toneRef.current
+    const slots = toneRef.current?.slots ?? null
     if (slots != null && !ctx.offLane) {
       const from = minuteOf(span.x, hours)
       const dur = minuteOf(span.x + span.w, hours) - from
       // The renderer's own `aimed` rule: an off-lattice landing belongs to the
       // cell it starts INSIDE (⚖ flag 48), so the chip is the floored start.
       const chipStart = Math.floor(from / 30) * 30
-      const slot = `${ctx.targetLane}|${chipStart}|${dur}`
+      // ⚖ FIX ROUND 1 (M2) — `dur` is DERIVED HERE, not the render body's
+      // `railDur`, and that is a correction to the fix packet rather than a
+      // shortcut. This function is reached only through the listeners
+      // `beginDrag` binds ONCE per gesture, so its closure is the POINTERDOWN
+      // render's — where `live` and `dragLen` are both null and `railDur` is
+      // therefore `props.guard.standardSessionMin`, not the card's length.
+      // `span` is the very object `applyDragFrame` has just handed `setLive`,
+      // so this expression is `aimDur`'s own (TodayScreen `const aimDur =`) on
+      // the same values, and the next render's `railDur` is the same number.
+      const slot = slotKey(ctx.targetLane, chipStart, dur)
       if (slots.has(slot)) {
         slots.set(
           slot,
@@ -6524,7 +6579,7 @@ export function TodayScreen(props: TodayProps) {
             const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c, livePack().pack) : null
             // The DROP's own kind for a chip that fits only by moving somebody.
             // Every other chip's verdict IS the drop's, so it is its own `final`.
-            const drop = v && v.reseats.length > 0 ? toneRef.current?.get(`${rail.laneKey}|${c.start}|${railDur}`) : undefined
+            const drop = v && v.reseats.length > 0 ? toneRef.current?.slots.get(slotKey(rail.laneKey, c.start, railDur)) : undefined
             const chip = v ? liveChipFace({ v, final: drop ? { ...v, kind: drop } : v, start: c.start }) : null
             const state = chip ? chip.state : c.state
             // ⚖ flag 44 — the chip's own reading of itself. The WORD is a
