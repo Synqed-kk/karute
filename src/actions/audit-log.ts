@@ -190,7 +190,9 @@ async function walkAuditQuery(
  *  karute.save / karute.delete rows whose detail.recording_session_id is
  *  this recording, OR whose detail.appointment_id matches the recording's
  *  own appointment; plus, once the appointment is known, customer.pack_redeem
- *  rows carrying that appointment id (karute.manual_create is NEVER joined —
+ *  rows carrying that appointment id — the cron auto-burn, the web recovery
+ *  burn, AND (fix round 1, subject 4 / D1-4) an ordinary phone burn all
+ *  write it now (karute.manual_create is NEVER joined —
  *  D1-9/subject 4: it has no linked appointment by construction and never
  *  carries recording_session_id either, so it structurally cannot match this
  *  filter). A failed recording lookup degrades to the target rows alone
@@ -357,18 +359,17 @@ export async function listAuditLogWithClient(
       from: filters.from || undefined,
       to: filters.to || undefined,
     }
-    // Local SDK (1.11.1) has no `audit` property yet — `synqed.audit.list`
-    // below already errors at tsc baseline (11, unchanged by CI's real
-    // ^1.15.0). Wrapping the call ONCE keeps that a single error site
-    // instead of one per probe call (ponytail: `as any` scoped to this one
-    // line, not sprinkled per call — upgrade path is deleting this cast once
-    // the SDK bump lands). MUST stay a call THROUGH `synqed.audit` — a bare
-    // method extraction loses the receiver, and AuditClient.list reads
-    // `this.client`, so every probe rejects and the catch nulls the pair
-    // (probes silently dead in prod; found by the post-#581 live wire check).
+    // Fix round 1, subject 9 (housekeeping): the "local SDK 1.11.1, tsc
+    // baseline 11 errors" comment and `(synqed as any)` cast that used to
+    // live here are gone — the linked SDK is 1.34.0 (`synqed.audit` is fully
+    // typed) and tsc is 0 both before and after this file's edits. Wrapping
+    // the call ONCE still keeps every T1 strip-count probe at one call site.
+    // MUST stay a call THROUGH `synqed.audit` — a bare method extraction
+    // loses the receiver, and AuditClient.list reads `this.client`, so an
+    // unbound extraction would make every probe reject silently (probes
+    // silently dead in prod; found by the post-#581 live wire check).
     const auditListProbe = (q: Record<string, unknown>): Promise<{ total: number }> =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same stale-SDK gap as above, scoped to one line
-      (synqed as any).audit.list(q)
+      synqed.audit.list(q)
     // T1 strip-count probes (page_size 1, total only) — skipped under the
     // SAME condition as the break-glass probe below (I7 actorId scope) plus
     // breakGlass on (that feed IS the count strip then). A severity lens
