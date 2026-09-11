@@ -252,11 +252,20 @@ describe('⚖ P1-2 — the month the calendar opens on is the SHOWN day’s mont
   // ?? props.calendar[0]`. A shown day the roster door has no row for is not in
   // `calendar` at all (page.tsx drops it), so the find missed and the popover
   // opened on the FIRST month of the ±45-day window — the wrong month, silently.
+  //
+  // The pin is on the RULE, not on one spelling of it: the `monthCells` memo
+  // alone (up to its own blank line), asserting where the month comes FROM and
+  // what it must never fall back to. #891 rewrites the body of this same memo
+  // and has to keep passing — a pin that breaks on a legitimate rewrite trains
+  // people to edit the test.
   const SRC = readFileSync('src/app/[locale]/(business)/business/today/TodayScreen.tsx', 'utf8')
-  const MEMO = SRC.slice(SRC.indexOf('const monthCells = useMemo('), SRC.indexOf('const timelineClasses'))
+  const MEMO_AT = SRC.indexOf('const monthCells = useMemo(')
+  const MEMO = SRC.slice(MEMO_AT, SRC.indexOf('\n\n', MEMO_AT))
 
   it('anchors on props.shownYm and never searches the calendar rows for it', () => {
-    expect(MEMO).toContain('const anchor = props.shownYm')
+    expect(MEMO_AT).toBeGreaterThan(-1)
+    expect(MEMO).toContain('props.shownYm')
+    // The two halves of the old fallback, each named so a revert says which.
     expect(MEMO).not.toContain('props.calendar[0]')
     expect(MEMO).not.toContain('c.offset === props.dayOffset')
   })
