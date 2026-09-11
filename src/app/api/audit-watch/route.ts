@@ -50,7 +50,15 @@ export async function GET(request: Request) {
   // (see rotateBusinessIds in run.ts).
   const results = []
   for (const businessId of rotateBusinessIds(businessIds, now)) {
-    results.push(await watchOneBusiness(businessId, now, mode, deadline))
+    const result = await watchOneBusiness(businessId, now, mode, deadline)
+    results.push(result)
+    // The cron caller discards this response body and CRON_SECRET is
+    // Sensitive on Vercel (unreadable by anyone) — this log line is the
+    // operator's only window onto a dry run. Logged as soon as each business
+    // finishes, so a run that dies at the 300s platform wall still leaves
+    // the finished businesses' lines. `result` already carries only
+    // ids/codes/counts (WatchCandidate) — never add a name here.
+    console.log('[audit-watch] ' + mode, JSON.stringify(result))
   }
 
   // F-b: an error is not a green run — but a business's own catch never

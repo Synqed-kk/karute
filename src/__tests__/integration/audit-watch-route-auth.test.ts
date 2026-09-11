@@ -181,6 +181,66 @@ describe('GET /api/audit-watch mode resolution', () => {
   })
 })
 
+// PKT-AUDIT-WATCH-DRY-LOG-2026-09-11: the cron caller discards the response
+// body and CRON_SECRET is Sensitive (unreadable by anyone) — nobody can call
+// ?dry=1 by hand, so the log line is the only window onto a dry run.
+describe('GET /api/audit-watch dry-run logging', () => {
+  it('logs one [audit-watch] <mode> line per business, containing the businessId and written:0', async () => {
+    process.env.AUDIT_WATCH_BUSINESS_IDS = 'biz-1, biz-2'
+    // a prior test in this file overrides the mock's implementation for its
+    // own case (e.g. truncated: true) and clearAllMocks() never restores it
+    // — pin our own so this test doesn't depend on file order.
+    watchOneBusiness.mockImplementation(async (businessId) => ({
+      businessId,
+      candidates: 0,
+      written: 0,
+      skipped: 0,
+      truncated: false,
+      error: false,
+      unchecked: 0,
+      list: [],
+    }))
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {})
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        await fetch({ method: 'GET', headers: { authorization: 'Bearer test-cron-secret' } })
+      },
+    })
+    const calls = log.mock.calls.filter(([tag]) => tag === '[audit-watch] dry')
+    expect(calls).toHaveLength(2)
+    for (const businessId of ['biz-1', 'biz-2']) {
+      const call = calls.find(([, json]) => JSON.parse(json as string).businessId === businessId)
+      expect(call).toBeDefined()
+      // exact-shape check (not toMatchObject): a stray field — e.g. a name —
+      // must fail this test, not slip through unnoticed.
+      expect(JSON.parse(call![1] as string)).toEqual({
+        businessId,
+        candidates: 0,
+        written: 0,
+        skipped: 0,
+        truncated: false,
+        error: false,
+        unchecked: 0,
+        list: [],
+      })
+    }
+    log.mockRestore()
+  })
+
+  it('logs nothing on the 401 path (no bearer, no log line)', async () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {})
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        expect((await fetch({ method: 'GET' })).status).toBe(401)
+      },
+    })
+    expect(log).not.toHaveBeenCalled()
+    log.mockRestore()
+  })
+})
+
 // CP1 (packet §GATES / item 8): a plain CRON_SECRET route, never a facade
 // route — no actor resolution, no view receipt. Static source check, same
 // spirit as the other route files' header comments.

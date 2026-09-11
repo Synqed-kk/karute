@@ -49,6 +49,11 @@ const LITERAL_ONLY_CATEGORY = {
   // hourly cron writes these, no endpoint.
   'recording.karute_missing': 'recording',
   'recording.transcribe_storm': 'recording',
+  // Choke emit: src/lib/jobs/process-recording.ts#emitTranscribeFailedIfExhausted
+  // (the worker, 監査ログ round 2 PR C subject 6) — literal-only by
+  // construction: only the job worker's exhausted-round catch writes this,
+  // no endpoint.
+  'recording.transcribe_failed': 'recording',
   'privacy.customer_delete_canceled': 'privacy',
   'privacy.customer_delete_scheduled': 'privacy',
   'settings.permissions_change': 'settings',

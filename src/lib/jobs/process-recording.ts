@@ -25,7 +25,12 @@ import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { isOwnAudioKey, parseRecordingKey } from '@/lib/recording/key-grammar'
 import { readStaffDiscard } from '@/lib/recording/staff-discard'
-import { AI_SPEND_LIMIT, DISCARDED_BY_STAFF } from '@/lib/recording/job-errors'
+import {
+  AI_SPEND_LIMIT,
+  DISCARDED_BY_STAFF,
+  DISCARD_LEDGER_UNREADABLE,
+  TRANSCRIPTION_LEDGER_UNAVAILABLE,
+} from '@/lib/recording/job-errors'
 import { AppApiError } from '@/lib/app-api/errors'
 import { audit } from '@/lib/audit'
 import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
@@ -96,7 +101,7 @@ function coreClient(businessId: string): SynqedClient {
  *  the review screen), parked with Liam, not this round's. */
 async function assertNotDiscardedByStaff(synqed: SynqedClient, recordingSessionId: string): Promise<void> {
   const verdict = await readStaffDiscard(synqed, recordingSessionId)
-  if (verdict === 'unreadable') throw new Error('discard ledger row unreadable — refusing to write')
+  if (verdict === 'unreadable') throw new Error(DISCARD_LEDGER_UNREADABLE)
   if (verdict === 'discarded') throw new Error(DISCARDED_BY_STAFF)
 }
 
@@ -441,6 +446,63 @@ async function upsertKaruteRecord(
   return { id: record.id, storeId: record.store_id ?? payload.store_id ?? null }
 }
 
+/** 監査ログ round 2 PR C, subject 6 (PACKET-AUDITLOG-PR-C-SERVER-WATCH-
+ *  2026-09-11.md item 6), fix round 1 (PACKET-PR-C3-FIX-ROUND1-2026-09-11.md
+ *  subject 1): recording.transcribe_failed, once per round CORE ITSELF
+ *  declares exhausted — never a local guess computed from the job object the
+ *  worker was handed at claim time.
+ *
+ *  ATTEMPTS SEMANTICS, PINNED AT SOURCE (core's own service —
+ *  Synqed-kk/synqed-core src/services/recording-job.service.ts, fetched
+ *  2026-09-11): claimNext increments `attempts` ON CLAIM (:102); fail() sets
+ *  `status = spent ? 'FAILED' : 'QUEUED'` where `spent = job.attempts >=
+ *  job.maxAttempts` (:130-138) and RETURNS the updated job. So core's fail()
+ *  response IS the exhaustion verdict — the caller below only reaches this
+ *  function once it has already confirmed that response's `status ===
+ *  'FAILED'`; this function no longer recomputes attempts itself.
+ *
+ *  Never on a discard refusal (its own recording.discard row IS the record —
+ *  council amendment 4 F3), never on a spend-limit refusal, and never on a
+ *  spend-ledger-unavailable refusal (both already filed the row —
+ *  recording.transcribe_refused via
+ *  src/lib/ai/transcribe.ts#auditTranscriptionRefused; emitting here too
+ *  would double-log the same event under two actions, Greptile PR #881).
+ *
+ *  KNOWN GAP, ACCEPTED AS DESIGNED (Q2, fix round 1 subject 3): core re-arms
+ *  a FAILED job with `attempts = 0` on its next enqueue (job-errors.ts's
+ *  AI_SPEND_LIMIT comment), so a second exhaustion of the same job id writes
+ *  a second row under the same requestId — a genuinely new failure round,
+ *  not a duplicate of this one. The reader folds rows sharing (action,
+ *  target, request_id) in PR D, and core's Idempotency-Key (CORE-19) will
+ *  make it one row at the source later; neither exists yet. */
+function emitTranscribeFailedIfExhausted(job: RecordingJob, message: string): void {
+  if (message === DISCARDED_BY_STAFF || message === AI_SPEND_LIMIT) return
+  if (message === DISCARD_LEDGER_UNREADABLE) return
+  if (message === TRANSCRIPTION_LEDGER_UNAVAILABLE) return
+  const payload = job.payload as unknown as RecordingJobPayload | undefined
+  audit({
+    category: 'recording',
+    action: 'recording.transcribe_failed',
+    actorId: null,
+    actorType: 'system',
+    businessId: job.business_id,
+    targetType: 'recording',
+    targetId: job.recording_session_id,
+    severity: 'notice',
+    detail: {
+      recording_session_id: job.recording_session_id,
+      customer_id: payload?.customer_id ?? null,
+      staff_id: payload?.staff_id ?? null,
+      appointment_id: payload?.appointment_id ?? null,
+      attempt: job.attempts,
+      max_attempts: job.max_attempts,
+      reason: message === 'EMPTY_TRANSCRIPT' ? 'empty_transcript' : 'other',
+    },
+    requestId: `job:${job.id}:failed`,
+    source: 'system',
+  })
+}
+
 /** Claim-and-process loop with a wall-clock budget (the route's maxDuration
  *  minus headroom). Returns counts for the tick's log line. */
 export async function processRecordingJobs(budgetMs: number): Promise<{
@@ -463,9 +525,19 @@ export async function processRecordingJobs(budgetMs: number): Promise<{
       processed++
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      await worker.recordingJobs.fail(job.id, message).catch(() => {})
+      // Core's own verdict decides, not a local guess (fix round 1, subject
+      // 1): a rejected fail() call leaves the job RUNNING for the
+      // stale-claim reclaim to pick up — that later round decides, so no
+      // row here.
+      const failResult = await worker.recordingJobs.fail(job.id, message).then(
+        (r) => r,
+        () => null,
+      )
       failed++
       console.error(`[jobs] recording job ${job.id} failed:`, message)
+      if (failResult !== null && failResult.status === 'FAILED') {
+        emitTranscribeFailedIfExhausted(failResult, message)
+      }
     }
   }
   return { processed, failed }

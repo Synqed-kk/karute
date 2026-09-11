@@ -2485,6 +2485,7 @@
           "session_cleanup": "Recording discarded",
           "take_named": "Recording upload address issued (existing session)",
           "transcribe": "Transcribed recording",
+          "transcribe_failed": "Transcription failed",
           "transcribe_refused": "Recording transcription declined (usage limit)",
           "transcribe_storm": "Recording transcribed repeatedly"
         }
