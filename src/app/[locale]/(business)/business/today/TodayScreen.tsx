@@ -2334,7 +2334,7 @@ export function TodayScreen(props: TodayProps) {
    *  `shuffledFor` is the gesture's one board per distinct set of moves — the
    *  expensive half — shared by the pick-up burst and every on-demand compose,
    *  so a shuffle is built once however many chips ask for it. */
-  const toneRef = useRef<{ slots: Map<string, LandingClass>; shuffledFor: Map<string, BoardLane[]> } | null>(null)
+  const toneRef = useRef<{ slots: Map<string, LandingClass>; shuffledFor: Map<string, BoardLane[]>; base: BoardLane[] } | null>(null)
   /** The whole of what a gesture leaves behind, released in one place. */
   function freeGesture() {
     gestureMemoRef.current?.free()
@@ -2854,6 +2854,21 @@ export function TodayScreen(props: TodayProps) {
     // real guard: a composer asked outside a gesture answers 「nothing」 rather
     // than inventing a face.
     if (inHand == null || store == null) return undefined
+    // ⚖ FIX ROUND 1B (FX-D) — THE GESTURE'S SHUFFLED BOARDS FOLLOW THE BOARD THEY
+    // WERE BUILT FROM. `shuffledFor` caches one shuffled board per set of moves for
+    // the whole gesture, each built below from `boardLanes`, and `boardLanes` itself
+    // can change under the card mid-gesture (a staged card, a server refresh, a
+    // room's turnaround, `now` — the world stamp's own deps). A candidate composed
+    // ON DEMAND after such a change would otherwise be judged on a shuffle of the
+    // OLD world, so its guard re-read can miss exactly what the world has just
+    // gained. The rule: when the board is a different object, the shuffles it
+    // produced are dropped and the next ask rebuilds them. The SLOTS are
+    // deliberately not dropped with them — that is fix round 2's measured decision,
+    // and the set of moves in the key already makes a changed rescue miss.
+    if (store.base !== boardLanes) {
+      store.base = boardLanes
+      store.shuffledFor.clear()
+    }
     const moveSet = moveSetOf(v.reseats)
     let shuffled = store.shuffledFor.get(moveSet)
     if (!shuffled) {
@@ -2869,7 +2884,7 @@ export function TodayScreen(props: TodayProps) {
     // The gate below is what proves this, and TypeScript's narrowing does not
     // cross a function boundary: a fill with no hand has nothing to ask about.
     if (inHand == null) return
-    toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>() }
+    toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>(), base: boardLanes }
     for (const rail of rails) {
       for (const c of rail.cells) {
         const ask = { ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }

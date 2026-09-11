@@ -1821,8 +1821,17 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     expect(SCREEN).not.toContain('toneRef.current.row !==')
     // …and the store the burst creates: the slots, and the ONE shuffled board
     // per distinct set of moves that both callers of `composeSlot` share.
-    expect(SCREEN).toContain('toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>() }')
-    expect(SCREEN).toContain('const toneRef = useRef<{ slots: Map<string, LandingClass>; shuffledFor: Map<string, BoardLane[]> } | null>(null)')
+    // ⚖ FIX ROUND 1B (FX-D) — …and the BOARD those shuffles were built from, which
+    // the store now carries so it can notice the board changing under the card.
+    expect(SCREEN).toContain('toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>(), base: boardLanes }')
+    expect(SCREEN).toContain('const toneRef = useRef<{ slots: Map<string, LandingClass>; shuffledFor: Map<string, BoardLane[]>; base: BoardLane[] } | null>(null)')
+    // …and the compare that spends it. Without these three lines an on-demand
+    // compose after a staged card / refresh / turnaround re-uses a shuffle of the
+    // OLD world and its guard re-read misses what the world just gained.
+    expect(SCREEN).toContain('    if (store.base !== boardLanes) {\n      store.base = boardLanes\n      store.shuffledFor.clear()\n    }')
+    // …and the SLOTS are not dropped with the shuffles: that was fix round 1's
+    // measured 33 rebuilds and p95 114.5 ms, ruled out.
+    expect(SCREEN).not.toContain('store.slots.clear()')
     // …and the composer itself: ONE definition, TWO callers — the pick-up burst
     // and the chip map. A third caller, or a second spelling of the shuffle,
     // fails here.
