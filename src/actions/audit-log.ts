@@ -145,20 +145,28 @@ async function walkAuditCategoryFrom(
  *  round 1, subject 1 / D1-1) for the thread's own target rows, which must
  *  be walked to completion too — a single PAGE_SIZE page per call made page
  *  2+ re-merge the full joined set with the WRONG target slice, silently
- *  shifting `total` and losing rows (lens-measured: 30 of 150 unreachable). */
+ *  shifting `total` and losing rows (lens-measured: 30 of 150 unreachable).
+ *  Fix round 1, subject 2 (D1-2): wraps its OWN failure — a thrown/rejected
+ *  page must degrade this ONE walk to `{ events: [], truncated: true }`,
+ *  never escape into listAuditLogWithClient's outer catch and fail the
+ *  whole read (throwing away rows a SIBLING walk already fetched). */
 async function walkAuditQuery(
   synqed: ReturnType<typeof newSynqedClient>,
   query: Record<string, unknown>,
 ): Promise<{ events: AuditLogEvent[]; truncated: boolean }> {
-  const events: AuditLogEvent[] = []
-  for (let page = 1; page <= MAX_THREAD_PAGES; page++) {
-    const res = await synqed.audit.list({ ...query, page, page_size: THREAD_PAGE_SIZE })
-    events.push(...(res.events as AuditLogEvent[]))
-    if (res.events.length === 0 || page * THREAD_PAGE_SIZE >= res.total) {
-      return { events, truncated: false }
+  try {
+    const events: AuditLogEvent[] = []
+    for (let page = 1; page <= MAX_THREAD_PAGES; page++) {
+      const res = await synqed.audit.list({ ...query, page, page_size: THREAD_PAGE_SIZE })
+      events.push(...(res.events as AuditLogEvent[]))
+      if (res.events.length === 0 || page * THREAD_PAGE_SIZE >= res.total) {
+        return { events, truncated: false }
+      }
     }
+    return { events, truncated: true }
+  } catch {
+    return { events: [], truncated: true }
   }
-  return { events, truncated: true }
 }
 
 /** Amendment 1 F6: a recording thread joins the rows that RESOLVE it —
