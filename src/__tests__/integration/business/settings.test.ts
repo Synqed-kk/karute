@@ -41,6 +41,10 @@ import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-regis
 import { AUDIT_CATEGORIES, businessProfiles, rulebook, storeDials } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { closedWeekday, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
+// ⚖ 9/12 — the dial's own home. Already in this suite's graph (`store-policy-props`
+// imports it to build 予約と確保's payload); named here so the room's clamp can be
+// driven against the same guardrail the board paints with.
+import { CALENDAR_TIGHT_MAX, CALENDAR_TIGHT_RANGE, clampCalendarTight } from '@/app/[locale]/(business)/business/today/today-interactions'
 import {
   accessFor,
   addToCollection,
@@ -570,8 +574,8 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     }
     // ⚖ S17 FOLD — AND 予約と確保 IS THE OPPOSITE OF A STUB, proven where its
     // substance actually lives. Its section head carries a real kicker, title,
-    // lead and tour declaration; its payload carries the store's own eight dial
-    // values, its roster and its save answer; and its screen renders eight dial
+    // lead and tour declaration; its payload carries the store's own nine dial
+    // values, its roster and its save answer; and its screen renders nine dial
     // rows plus the presets, the live card and 保存.
     const head = sectionOf(props, 'booking-guard')
     expect(head.title).toBe('予約と確保')
@@ -588,6 +592,24 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     expect(Object.keys(section.policy)).toHaveLength(11)
     expect(Object.keys(section.policy)).toContain('minSellableMin')
     expect(Object.keys(section.policy)).toContain('calendarTightMax')
+    // ⚖ 9/12 (COLD-READ B1) — the ROOM clamps the same value the board clamps,
+    // DRIVEN rather than read: a fixture already sitting on the default proves no
+    // clamp at all, and three separate breaks of this seam — the clamp dropped,
+    // the clamp kept but pointed at `bookingStepMin`, the row opening on a
+    // literal — passed the whole battery before this block existed. The failure
+    // it fences is the room saying 「残りわずかの目安 5枠」 while the month it
+    // describes paints at 2, with neither surface wrong on its own.
+    expect(section.policy.calendarTightMax).toBe(clampCalendarTight(opsConfig.calendarTightMax))
+    const dial = opsConfig as { calendarTightMax: unknown }
+    const before = dial.calendarTightMax
+    try {
+      dial.calendarTightMax = 9
+      expect((await policyOf({ store: STORE_A })).policy.calendarTightMax).toBe(CALENDAR_TIGHT_RANGE.max)
+      dial.calendarTightMax = undefined
+      expect((await policyOf({ store: STORE_A })).policy.calendarTightMax).toBe(CALENDAR_TIGHT_MAX)
+    } finally {
+      dial.calendarTightMax = before
+    }
     expect(SECTION_CODE).toContain('販売可能な最小の長さ {props.policy.minSellableMin}分（今日の運営の値）')
     expect(section.save.roles.length).toBeGreaterThan(0)
     for (const dial of ['上書きの権限', '名指しロック', '長押しで確定', '店長のみでも警告を止める', 'すき間の販売', '新規のお客様の確保', '確保枠の会員ランク開放', '予約の刻み', '残りわずかの目安', '保存']) {

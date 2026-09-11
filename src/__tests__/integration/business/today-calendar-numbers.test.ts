@@ -49,7 +49,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
-import { CALENDAR_TIGHT_MAX, clampCalendarTight } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { CALENDAR_TIGHT_MAX, CALENDAR_TIGHT_RANGE, clampCalendarTight } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { jstDayKey, jstYmd } from '@/business/lib/clock'
 import { STORE_A, STORE_B } from '@/business/lib/fixtures'
 import { opsConfig } from '@/business/lib/fixtures-today'
@@ -458,9 +458,9 @@ describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an 
     const before = dial.calendarTightMax
     try {
       dial.calendarTightMax = 9
-      expect((await pageProps()).calendarTightMax).toBe(5)
+      expect((await pageProps()).calendarTightMax).toBe(CALENDAR_TIGHT_RANGE.max)
       dial.calendarTightMax = -3
-      expect((await pageProps()).calendarTightMax).toBe(0)
+      expect((await pageProps()).calendarTightMax).toBe(CALENDAR_TIGHT_RANGE.min)
       dial.calendarTightMax = undefined
       expect((await pageProps()).calendarTightMax).toBe(CALENDAR_TIGHT_MAX)
     } finally {
