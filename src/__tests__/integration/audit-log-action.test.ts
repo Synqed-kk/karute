@@ -1581,4 +1581,77 @@ describe('listAuditLog — PR D1 recording thread join (amendment 1 F6)', () => 
     if (!res.ok) throw new Error('expected ok')
     expect(res.threadPartial).toBe(true)
   })
+
+  // Fix round 1, subject 1 (D1-1 / lens m8): the reader must walk ALL of the
+  // thread's OWN target rows to completion, not just the core page matching
+  // this call's `page` — otherwise page 2 re-merges the FULL joined set with
+  // an EMPTY (or wrong) target page and `total`/reachability shift under the
+  // reader. 150 target rows + 20 joined = 170 merged rows; PAGE_SIZE=100
+  // means two client pages must be disjoint, cover every row exactly once,
+  // and report the SAME total both times.
+  it('walks ALL target rows to completion (not one core page) so paging a large thread stays complete and total stays stable (subject 1)', async () => {
+    mockClientWithRecording()
+    const baseMs = Date.parse(CREATED_AT)
+    const targetEvents = Array.from({ length: 150 }, (_, i) =>
+      coreEvent({
+        id: `t-${i}`,
+        at: new Date(baseMs + i * 1000).toISOString(),
+        category: 'recording',
+        action: 'recording.session_cleanup',
+        target_type: 'recording',
+        target_id: RECORDING_ID,
+        detail: { customer_id: null },
+      }),
+    )
+    const joinedEvents = Array.from({ length: 20 }, (_, i) =>
+      coreEvent({
+        id: `k-${i}`,
+        at: new Date(baseMs + (150 + i) * 1000).toISOString(),
+        category: 'karute',
+        action: 'karute.save',
+        target_type: 'karute',
+        target_id: `kar-${i}`,
+        detail: { recording_session_id: RECORDING_ID },
+      }),
+    )
+    list.mockImplementation(
+      async (opts: { target_type?: string; category?: string; page?: number; page_size?: number }) => {
+        // Respects the REQUESTED page/page_size like a real core would — the
+        // old code asked for one PAGE_SIZE=100 page of target rows per call
+        // (via `res`); only a full walk-to-completion (page_size=THREAD_PAGE_SIZE)
+        // returns everything in one shot.
+        if (opts.target_type === 'recording') {
+          const p = opts.page ?? 1
+          const ps = opts.page_size ?? 100
+          const start = (p - 1) * ps
+          return { events: targetEvents.slice(start, start + ps), total: 150, page: p, page_size: ps }
+        }
+        if (opts.category === 'karute') {
+          return { events: joinedEvents, total: 20, page: 1, page_size: 200 }
+        }
+        if (opts.category === 'customer') {
+          return { events: [], total: 0, page: 1, page_size: 200 }
+        }
+        throw new Error('unexpected call: ' + JSON.stringify(opts))
+      },
+    )
+    const allIds = new Set([...targetEvents, ...joinedEvents].map((e) => e.id))
+
+    const page1 = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording', page: 1 })
+    const page2 = await listAuditLog({ targetId: RECORDING_ID, targetType: 'recording', page: 2 })
+    if (!page1.ok || !page2.ok) throw new Error('expected ok')
+
+    expect(page1.events).toHaveLength(100)
+    expect(page2.events).toHaveLength(70)
+    expect(page1.total).toBe(170)
+    expect(page2.total).toBe(170)
+
+    const ids1 = page1.events.map((e) => e.id)
+    const ids2 = page2.events.map((e) => e.id)
+    // disjoint
+    expect(ids1.filter((id) => ids2.includes(id))).toEqual([])
+    // full coverage, no duplicates, every row reachable exactly once
+    expect(new Set([...ids1, ...ids2])).toEqual(allIds)
+    expect(ids1.length + ids2.length).toBe(allIds.size)
+  })
 })

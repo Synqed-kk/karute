@@ -137,9 +137,22 @@ async function walkAuditCategoryFrom(
   category: string,
   from: string,
 ): Promise<{ events: AuditLogEvent[]; truncated: boolean }> {
+  return walkAuditQuery(synqed, { category, from })
+}
+
+/** Shared walk primitive — every page of `query`, to completion or
+ *  MAX_THREAD_PAGES. Used for the karute/customer joins above AND (fix
+ *  round 1, subject 1 / D1-1) for the thread's own target rows, which must
+ *  be walked to completion too — a single PAGE_SIZE page per call made page
+ *  2+ re-merge the full joined set with the WRONG target slice, silently
+ *  shifting `total` and losing rows (lens-measured: 30 of 150 unreachable). */
+async function walkAuditQuery(
+  synqed: ReturnType<typeof newSynqedClient>,
+  query: Record<string, unknown>,
+): Promise<{ events: AuditLogEvent[]; truncated: boolean }> {
   const events: AuditLogEvent[] = []
   for (let page = 1; page <= MAX_THREAD_PAGES; page++) {
-    const res = await synqed.audit.list({ category, from, page, page_size: THREAD_PAGE_SIZE })
+    const res = await synqed.audit.list({ ...query, page, page_size: THREAD_PAGE_SIZE })
     events.push(...(res.events as AuditLogEvent[]))
     if (res.events.length === 0 || page * THREAD_PAGE_SIZE >= res.total) {
       return { events, truncated: false }
@@ -154,10 +167,12 @@ async function walkAuditCategoryFrom(
  *  detail.appointment_id matches the recording's own appointment; plus, once
  *  the appointment is known, customer.pack_redeem rows carrying that
  *  appointment id. A failed recording lookup degrades to the target rows
- *  alone (threadPartial:true) — never a crash. `targetEvents` (this page's
- *  rows whose OWN target is this recording) merge with the join, re-sort
- *  newest-first, and re-page client-side with the SAME PAGE_SIZE — the
- *  thread is small by construction (one recording's story). */
+ *  alone (threadPartial:true) — never a crash. `targetEvents` is ALL of this
+ *  thread's own target rows (fix round 1, subject 1: walked to completion by
+ *  the caller via walkAuditQuery, same bounded idiom as the joins below —
+ *  never just one core page) — merges with the join, re-sorts newest-first,
+ *  and re-pages client-side with the SAME PAGE_SIZE — the thread is small by
+ *  construction (one recording's story). */
 async function joinRecordingThread(
   synqed: ReturnType<typeof newSynqedClient>,
   recordingId: string,
@@ -390,37 +405,60 @@ export async function listAuditLogWithClient(
       source: actor.source,
     })
 
-    // BELT on top of server exclude_views (packet-18 fix round): the server
-    // now excludes BOTH view spellings — '.view' (SDK 1.14) and '_view'
-    // (synqed-core #56, merged + deployed 7/27, CI-proven) — so res.total and
-    // hasMore are exact and no view row of either era reaches this filter in
-    // the default feed. The belt stays as pure defense-in-depth against a
-    // core-side regression, mirroring isViewAction's doc above.
-    const viewFilteredEvents = (res.events as AuditLogEvent[]).filter(
-      (e) => filters.includeViews || !isViewAction(e.action),
-    )
-    // Belt (amendment 1 F3): core has no Idempotency-Key yet (CORE-19 item
-    // 3), so a retried write can land as two rows sharing everything but id
-    // and at — fold those to the earliest. Display-only: the strip totals
-    // below stay unadjusted (amendment 4 F9), only this page's rendered rows
-    // shrink.
-    const { events: foldedEvents, folded } = foldDuplicateAuditEvents(viewFilteredEvents)
-
     // Amendment 1 F6: a recording thread additionally joins the rows that
     // RESOLVE it (karute save/manual-create/delete, an appointment-linked
     // pack redemption) — core has no detail filter, so the join walks
     // client-side and re-pages the merged result itself.
     const isThreadRead = targetType === 'recording' && Boolean(filters.targetId)
-    let finalEvents = foldedEvents
-    let total = res.total
-    let hasMore = res.page * res.page_size < res.total
+    let finalEvents: AuditLogEvent[]
+    let total: number
+    let hasMore: boolean
     let threadPartial: boolean | undefined
+    let folded: number
     if (isThreadRead) {
-      const thread = await joinRecordingThread(synqed, filters.targetId!, foldedEvents, page)
+      // Fix round 1, subject 1 (D1-1): walk ALL of the thread's own target
+      // rows to completion — a single `res` page (below) is exactly the bug
+      // this replaces (page 2 would re-merge the full joined set with the
+      // WRONG target slice). Same exclude_views/severity/break_glass shape
+      // `res`'s own query uses, just walked instead of one-paged.
+      const targetWalk = await walkAuditQuery(synqed, {
+        target_type: targetType,
+        target_id: filters.targetId,
+        exclude_views: filters.includeViews ? undefined : true,
+        break_glass: filters.breakGlass ? true : undefined,
+        severity,
+      })
+      const targetRows = targetWalk.events.filter(
+        (e) => filters.includeViews || !isViewAction(e.action),
+      )
+      const targetBelt = foldDuplicateAuditEvents(targetRows)
+      const thread = await joinRecordingThread(synqed, filters.targetId!, targetBelt.events, page)
       finalEvents = thread.events
       total = thread.total
       hasMore = thread.hasMore
-      threadPartial = thread.threadPartial
+      threadPartial = thread.threadPartial || targetWalk.truncated
+      folded = targetBelt.folded
+    } else {
+      // BELT on top of server exclude_views (packet-18 fix round): the
+      // server now excludes BOTH view spellings — '.view' (SDK 1.14) and
+      // '_view' (synqed-core #56, merged + deployed 7/27, CI-proven) — so
+      // res.total and hasMore are exact and no view row of either era
+      // reaches this filter in the default feed. The belt stays as pure
+      // defense-in-depth against a core-side regression, mirroring
+      // isViewAction's doc above.
+      const viewFilteredEvents = (res.events as AuditLogEvent[]).filter(
+        (e) => filters.includeViews || !isViewAction(e.action),
+      )
+      // Belt (amendment 1 F3): core has no Idempotency-Key yet (CORE-19 item
+      // 3), so a retried write can land as two rows sharing everything but
+      // id and at — fold those to the earliest. Display-only: the strip
+      // totals below stay unadjusted (amendment 4 F9), only this page's
+      // rendered rows shrink.
+      const belt = foldDuplicateAuditEvents(viewFilteredEvents)
+      finalEvents = belt.events
+      total = res.total
+      hasMore = res.page * res.page_size < res.total
+      folded = belt.folded
     }
 
     // 警告/重大 are each exact in BOTH view states: views hidden → count only
