@@ -454,7 +454,7 @@ export function guardCheckRowBesideOffer(cell: RailCell | null): { label: string
 
 // ── E8 · the month calendar's day cells ────────────────────────────────────
 
-/** 「残りわずか」 の境目 — 空きがこの数以下の日は緑ではなく橙で塗る。
+/** 「残りわずか」 の境目 — あと入る数がこの数以下の日は緑ではなく橙で塗る。
  *
  *  ⚖ MISTAKE-PROOFING (Liam 2026-08-21), ANSWERED 2026-09-12 — this is now the
  *  DEFAULT of the store setting `storeBookingPolicy.calendarTightMax`, and the
@@ -516,7 +516,7 @@ export interface CalendarCellFace {
  *  UNCOVERED one is a date the read window never reached — the grid still draws
  *  it, because a month with holes in it is a lie about the month. */
 export type CalendarCellDay =
-  | { m: number; d: number; offset: number; closed: boolean; free: number; covered?: true }
+  | { m: number; d: number; offset: number; closed: boolean; fits: number; covered?: true }
   | { m: number; d: number; covered: false }
 
 /** ONE day cell's whole face — the paint, the word under the date, and the
@@ -543,14 +543,14 @@ export function calendarCellFace(
   // as a dated blank the operator cannot press.
   if (day.covered === false) return { tone: 'unknown', className: 'cal-cell unknown', small: null, aria: `${date}、表示範囲外` }
   // 定休日 is read before the count, not after it. page.tsx already forces
-  // `free` to 0 on a closed day (「a closed day showing free slots is the
+  // `fits` to 0 on a closed day (「a closed day advertising capacity is the
   // impossible state」), and this order means the cell still reads 定休 rather
   // than 満 if that ever stops being true upstream.
-  const paint = day.closed ? 'closedday' : day.free === 0 ? 'full' : day.free <= tightMax ? 'tight' : 'open'
+  const paint = day.closed ? 'closedday' : day.fits === 0 ? 'full' : day.fits <= tightMax ? 'tight' : 'open'
   if (day.offset < 0) return { tone: 'past', className: `cal-cell ${paint} dim`, small: null, aria: date }
   if (paint === 'closedday') return { tone: 'closed', className: 'cal-cell closedday', small: '定休', aria: `${date}、定休日` }
-  if (paint === 'full') return { tone: 'full', className: 'cal-cell full', small: '満', aria: `${date}、空きなし` }
-  return { tone: paint, className: `cal-cell ${paint}`, small: `空き${day.free}`, aria: `${date}、空き枠${day.free}件` }
+  if (paint === 'full') return { tone: 'full', className: 'cal-cell full', small: '満', aria: `${date}、もう入りません` }
+  return { tone: paint, className: `cal-cell ${paint}`, small: `あと${day.fits}枠`, aria: `${date}、あと${day.fits}枠入ります` }
 }
 
 /** ⚖ F6 — a Map, not an object literal: `e.key` is a string the USER supplies,
@@ -636,10 +636,10 @@ export function calendarLead(day: { d: number; wd: number }): number {
  *  server's own clock read, and says of itself that it carries no numbers.
  *
  *  `covered: false` is the whole discriminator: an uncovered row has NO
- *  `closed` and NO `free`, so no surface can read a capacity off a day the
+ *  `closed` and NO `fits`, so no surface can read a capacity off a day the
  *  door never answered for. */
 export type CalendarWindowDay =
-  | { y: number; m: number; d: number; wd: number; offset: number; closed: boolean; free: number; booked: number; covered?: true }
+  | { y: number; m: number; d: number; wd: number; offset: number; closed: boolean; fits: number; booked: number; covered?: true }
   | { y: number; m: number; d: number; wd: number; offset: number; covered: false }
 
 /** THE MONTH THE GRID DRAWS — the whole month `delta` steps from the anchor,

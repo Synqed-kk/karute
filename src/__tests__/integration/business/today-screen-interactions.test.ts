@@ -2367,6 +2367,41 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     expect(SRC).toContain('{tightLegend !== null && <span>{tightLegend} ・</span>}')
   })
 
+  /** ⚖ Liam 9/12 00:5x 「I choose B」 — THE MONTH SAYS WHAT IT IS COUNTING, AND
+   *  THE LENGTH COMES FROM THE STORE.
+   *
+   *  The cell says 「あと16枠」 and a 枠 is one 標準セッション, so the legend has to
+   *  name that length or the number has no unit anywhere on the popover. It is
+   *  pinned as `props.calendarSessionMin` and the literal 60 is pinned by
+   *  ABSENCE: a legend that hardcoded 60 would keep saying 60 the day a store
+   *  moves its standard session, and the count beside it would not.
+   *
+   *  The old vocabulary is pinned out too. 「空き」 was a claim about free TIME
+   *  and 「空きなし」 said a 満 day has no loose minutes on it — both false of a
+   *  count of bookings, and both one careless revert away. */
+  it('the legend names あと入る数 and its length, and never quotes a session literal', () => {
+    const legend = SRC.slice(SRC.indexOf('className="cal-legend"'), SRC.indexOf('</div>', SRC.indexOf('className="cal-legend"')))
+    expect(legend).toContain('<span>あと＝その日にまだ入る予約の数（{props.calendarSessionMin}分） ・</span>')
+    expect(legend).toContain('<span>満＝もう入らない ・</span>')
+    expect(legend).toContain('<span>定休＝定休日（{props.closedWeekdayLabel}）</span>')
+    // The hover sentence explains a 枠 in one line, off the same prop.
+    expect(SRC).toContain(
+      'title={`あとN枠 = 担当ごとの続いた空き時間に、標準セッション（${props.calendarSessionMin}分）の予約をあと何件入れられるか`}',
+    )
+    // ⚠ NO SESSION LITERAL anywhere in the legend, and no 空き vocabulary left
+    // in the clauses the operator reads. (The hover sentence DOES say
+    // 「続いた空き時間」 — it is describing the raw pockets the count is packed
+    // into, which really are free time; the CLAUSES are the ones that must not
+    // advertise hours.)
+    expect(legend).not.toContain('60')
+    const clauses = [...legend.matchAll(/<span>([^<]*)<\/span>/g)].map((m) => m[1])
+    expect(clauses).toHaveLength(4)
+    expect(clauses.filter((c) => c.includes('空き'))).toEqual([])
+    expect(SRC).not.toContain('空き枠 = スタッフの空き時間を60分単位で数えたもの')
+    expect(SRC).not.toContain('満＝空きなし')
+    expect(SRC).not.toContain('空き＝その日の空き枠数')
+  })
+
   /** ⚖ NUDGE-GUARD FIX 2, BREAKER-NUDGE-5fab5076b.md §F1 (MAJOR) + §F2 — THE TWO
    *  NEW HELPERS WERE PINNED BY THE LINE THAT CALLS THEM, NEVER BY THEIR BODIES.
    *

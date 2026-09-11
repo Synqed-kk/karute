@@ -16,15 +16,20 @@
 //
 // COUNTS RECONCILE, and that is a rule rather than a coincidence: the nav badge,
 // 未解決, 次に決めること and the cards below the board are ONE count of open
-// decisions; 稼働率 and the calendar's free-slot numbers are ONE pair of minute
-// sums; the money band and the revenue KPI are summed from the cards on screen.
+// decisions; the money band and the revenue KPI are summed from the cards on
+// screen. 稼働率 and the month calendar are the pair that needs saying out loud
+// (⚖ Liam 2026-09-12 「I choose B」): they ask DIFFERENT questions in different
+// units — 稼働率 is booked minutes ÷ available minutes across the treating
+// staff, the calendar is how many standard-length courses the day's free
+// pockets still hold — and what has one home is the INPUT they both read
+// (roster · shifts · 勤務不可 · bookings), never a shared formula.
 //
 // DAY NAVIGATION is a link (`?day=`), not client state: the board would
 // otherwise have to carry a fortnight of composed boards to the browser to move
 // one day. Same soft navigation, one day's data.
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { jstDayKey, jstYmd } from '@/business/lib/clock'
+import { jstDayKey, jstMinuteOfDay, jstYmd } from '@/business/lib/clock'
 import { bedSecuredProof } from '@/business/lib/fixtures-today'
 import {
   defaultStoreId,
@@ -45,13 +50,12 @@ import {
 import {
   absenceForDay,
   buildLanes,
+  coursesFitForDay,
   dayBookings,
   dayTotals,
-  freeSlots,
   hhmm,
   laneMinutes,
   openDecisions,
-  rosterAvailableMinutes,
   utilization,
   yen,
   type BoardBooking,
@@ -196,18 +200,22 @@ export default async function TodayPage({
   const hourLabels = Array.from({ length: hourCount }, (_, i) => String(planes.operatingHours.open / 60 + i))
 
   // ── the day index behind the calendar (E8) and the date nav ───────────────
-  // Free slots and 稼働率 come from the SAME two sums, so a day that reads 満
-  // cannot also read as under-utilised.
-  const bookedByDay = new Map<number, number>()
+  // ONE PASS, because the two things the month needs about a day come off the
+  // same rows: how many bookings it holds, and WHERE on each 担当's lane they
+  // sit. The second is what 「あとN枠」 packs around — a course needs its minutes
+  // contiguous, so the day's minutes cannot be a single sum any more.
   const countByDay = new Map<number, number>()
+  const bookingsByDay = new Map<number, Array<{ staffId: string | null; start: number; end: number }>>()
   for (const a of appointments) {
     if (a.status === 'cancelled' || a.board_state === 'noshow') continue
     const key = jstDayKey(a.starts_at)
     countByDay.set(key, (countByDay.get(key) ?? 0) + 1)
-    bookedByDay.set(
-      key,
-      (bookedByDay.get(key) ?? 0) + (new Date(a.ends_at).getTime() - new Date(a.starts_at).getTime()) / 60_000,
-    )
+    // Minutes-of-day through the board's OWN clock helper — the same reading
+    // `dayBookings` makes of a booking (today-board.ts). A second clock rule in
+    // the month is how a cell and the board it opens onto come to disagree.
+    const onDay = bookingsByDay.get(key) ?? []
+    onDay.push({ staffId: a.staff_id, start: jstMinuteOfDay(a.starts_at), end: jstMinuteOfDay(a.ends_at) })
+    bookingsByDay.set(key, onDay)
   }
   const calendar: CalendarWindowDay[] = Array.from({ length: WINDOW * 2 + 1 }, (_, i) => i - WINDOW).map((offset) => {
     const dayKey = todayKey + offset
@@ -231,13 +239,18 @@ export default async function TodayPage({
     // The absence comes from its own per-day door rather than from the shown
     // day's planes, so today's cell carries today's incident while the operator
     // is standing on next Tuesday — which is the whole point of a month grid.
-    const free = closed
+    const fits = closed
       ? 0
-      : freeSlots(
-          rosterAvailableMinutes(staff, shifts, planes.staffQualifications, absenceForDay(dayKey, absenceByDay)),
-          bookedByDay.get(dayKey) ?? 0,
-        )
-    return { offset, ...p, closed, free, booked: countByDay.get(dayKey) ?? 0 }
+      : coursesFitForDay({
+          staff,
+          shifts,
+          qualifications: planes.staffQualifications,
+          absence: absenceForDay(dayKey, absenceByDay),
+          close: planes.operatingHours.close,
+          bookings: bookingsByDay.get(dayKey) ?? [],
+          sessionMin: planes.opsConfig.standardSessionMin,
+        })
+    return { offset, ...p, closed, fits, booked: countByDay.get(dayKey) ?? 0 }
   })
 
   // ── C: ops strip ──────────────────────────────────────────────────────────
@@ -574,6 +587,12 @@ export default async function TodayPage({
     // calendar LOOP is untouched — which day is tight is a paint question the
     // cell's face helper answers, not a number the day record carries.
     calendarTightMax: clampCalendarTight(planes.opsConfig.calendarTightMax),
+    // ⚖ Liam 2026-09-12 — THE LENGTH THE MONTH IS COUNTING, so the legend can
+    // say it instead of the operator having to know it. The store's own
+    // 標準セッション, read ONCE here from the same dial `coursesFitForDay` packs
+    // with above — a legend printing a literal 60 would be a promise the count
+    // stops keeping the day a store moves its standard session.
+    calendarSessionMin: planes.opsConfig.standardSessionMin,
     ops: {
       total: yen(totals.total),
       settled: `${totals.settled}件`,

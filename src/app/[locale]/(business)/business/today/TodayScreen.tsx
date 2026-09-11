@@ -626,13 +626,19 @@ export interface TodayProps {
    *  law sentence alone, managers see it with the one action beside it. */
   canReleaseHeld: boolean
   closedWeekdayLabel: string
-  /** ⚠SETTINGS-BATCH — ⚖ Liam 9/12. 月カレンダーで橙になる空き枠数の上限, the
-   *  store's own dial (`storeBookingPolicy.calendarTightMax`, default 2,
+  /** ⚠SETTINGS-BATCH — ⚖ Liam 9/12. 月カレンダーで橙になる、あと入る予約数の上限,
+   *  the store's own dial (`storeBookingPolicy.calendarTightMax`, default 2,
    *  guardrail 0–5), clamped on the server like every other authority this
    *  screen is handed. The cells and the legend both read THIS, so the paint and
    *  the sentence under it can never quote different numbers — and at 0 the
    *  legend's 橙 clause disappears with the tier. */
   calendarTightMax: number
+  /** ⚖ Liam 9/12 — 標準セッション, THE LENGTH THE MONTH'S COUNT IS IN
+   *  (`opsConfig.standardSessionMin`). The cell says 「あと16枠」 and this is what
+   *  a 枠 is, so the legend prints it rather than leaving the operator to know
+   *  it. Read on the server from the same dial the count is packed with; a
+   *  literal 60 here would keep saying 60 the day a store moves its session. */
+  calendarSessionMin: number
   ops: {
     total: string
     settled: string
@@ -7802,15 +7808,18 @@ export function TodayScreen(props: TodayProps) {
                         )
                       })}
                     </div>
-                    <div className="cal-legend" title="空き枠 = スタッフの空き時間を60分単位で数えたもの">
-                      <span>空き＝その日の空き枠数 ・</span>
+                    <div
+                      className="cal-legend"
+                      title={`あとN枠 = 担当ごとの続いた空き時間に、標準セッション（${props.calendarSessionMin}分）の予約をあと何件入れられるか`}
+                    >
+                      <span>あと＝その日にまだ入る予約の数（{props.calendarSessionMin}分） ・</span>
                       {/* ⚖ F7 — 「残り2枠以下」 includes 0, and 0 is painted 満,
                           not 橙. The range says exactly what the tier is, and
                           the helper writes it from the STORE's own bound: at 1
                           it collapses (never 「1〜1枠」) and at 0 the clause is
                           gone entirely, because the month has no 橙 to explain. */}
                       {tightLegend !== null && <span>{tightLegend} ・</span>}
-                      <span>満＝空きなし ・</span>
+                      <span>満＝もう入らない ・</span>
                       <span>定休＝定休日（{props.closedWeekdayLabel}）</span>
                     </div>
                   </div>

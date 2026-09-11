@@ -60,7 +60,6 @@ import {
   dayBookings,
   cleanupBlocks,
   effectiveShift,
-  freeSlots,
   openDecisions,
   minuteOf,
   place,
@@ -394,13 +393,6 @@ describe('board derivations', () => {
     ])
     expect(u).toEqual({ booked: 180, available: 900, percent: 20 })
     expect(utilization([]).percent).toBe(0)
-  })
-
-  it('counts free slots from the same minutes 稼働率 uses', () => {
-    expect(freeSlots(480, 120)).toBe(6)
-    expect(freeSlots(480, 480)).toBe(0)
-    // A day booked past its roster reads 満, never a negative number of slots.
-    expect(freeSlots(300, 480)).toBe(0)
   })
 
   it('suppresses only the absent lane, and only past the cut', () => {
@@ -949,7 +941,7 @@ describe('今日の運営 screen', () => {
     expect((await board(STORE_A, 'tomorrow')).dayOffset).toBe(0)
   })
 
-  it('the calendar covers a month either way and carries a free-slot count per day', async () => {
+  it('the calendar covers a month either way and carries あと入る数 per day', async () => {
     const p = await board(STORE_A)
     expect(p.calendar.length).toBe(91)
     expect(p.calendar.some((c) => c.offset === 0)).toBe(true)
@@ -963,11 +955,11 @@ describe('今日の運営 screen', () => {
     // produces — see today-calendar-numbers.test.ts for that half.
     const known = p.calendar.filter((c) => c.covered !== false)
     expect(known).toHaveLength(91)
-    for (const c of known) expect(c.free).toBeGreaterThanOrEqual(0)
-    // The busiest day has fewer free slots than an empty one — the number moves.
+    for (const c of known) expect(c.fits).toBeGreaterThanOrEqual(0)
+    // The busiest day fits fewer courses than an empty one — the number moves.
     const empty = known.find((c) => c.booked === 0)!
     const busy = known.find((c) => c.offset === 0)!
-    expect(busy.free).toBeLessThan(empty.free)
+    expect(busy.fits).toBeLessThan(empty.fits)
   })
 
   // ── the L-6 promise ─────────────────────────────────────────────────────
