@@ -1216,6 +1216,35 @@ describe('⚖ 9/12 — the one-tap discard, recorder origin', () => {
     expect(mockDiscardRecording).toHaveBeenCalledTimes(1)
   })
 
+  // ⚖ FIX ROUND 2 (F3, lens finding): a THROWN server action (dropped
+  // Wi-Fi, a network error — not an ordinary {ok:false} refusal) must
+  // surface exactly like a refusal does: the dialog opens with `failed`,
+  // nothing is discarded, and the rejection never escapes uncaught.
+  it('a thrown/rejected server action fails closed with the same fallback — no unhandled rejection', async () => {
+    recorderTake.takeId = 'take-1'
+    mockDurationMs = 5_000
+    const unhandled: unknown[] = []
+    const onUnhandledRejection = (reason: unknown) => unhandled.push(reason)
+    process.on('unhandledRejection', onUnhandledRejection)
+    try {
+      mockDiscardWithReason.mockImplementationOnce(async () => {
+        throw new Error('network drop')
+      })
+      await renderPage()
+      await tapDiscard('discard')
+
+      expect(screen.getByRole('alert')).toHaveTextContent('discardReason.failed')
+      expect(screen.getByRole('textbox')).toHaveValue('')
+      expect(reasonGate()).not.toBeNull()
+      expect(mockDiscardRecording).not.toHaveBeenCalled()
+      const { toast } = jest.requireMock('sonner') as { toast: { success: jest.Mock } }
+      expect(toast.success).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection)
+    }
+    expect(unhandled).toHaveLength(0)
+  })
+
   // The 使用/破棄 race, one-tap flavour: the window is now the one-tap's OWN
   // internal await (the session-id mint) rather than a dialog left open for
   // the staff member to type in — same guard (discardIntentRef vs the live
