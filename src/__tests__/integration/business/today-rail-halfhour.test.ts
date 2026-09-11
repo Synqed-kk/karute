@@ -71,6 +71,7 @@ import {
   sellDrawnFor,
   sellLayerFor,
   type GuardRail,
+  type LandingVerdict,
   type Move,
   type RailCell,
   type RailCue,
@@ -1132,6 +1133,24 @@ function toneGate(tone: { world: object; row: string } | null, world: object, ro
   return tone == null || tone.world !== world || tone.row !== row
 }
 
+/** ⚖ FIX ROUND 2 (FX-A) — THE ⇄ FILL'S OWN FENCE, AS A RULE THAT CAN BE ASKED.
+ *
+ *  Same armour as the gate above: the LINE is pinned as text in
+ *  today-bed-packing §B, the RULE is exercised here, and neither proves
+ *  anything alone. `landingVerdict` sets `reseats` before its stops, then
+ *  refuses a pack-rescued start on the REST cell it is handed (:5802) — so the
+ *  first-leg verdict of a ⇄ candidate is `blocked` WITH companions, and a fence
+ *  that reads `kind` throws away exactly the cells the fill exists for. */
+function toneAdmits(v: LandingVerdict): boolean {
+  return v.reseats.length > 0
+}
+
+/** The fence FX-A replaced, kept here and ONLY here so the rule above can be
+ *  measured against it on the repo's own day rather than argued about. */
+function toneAdmittedBefore(v: LandingVerdict): boolean {
+  return v.kind !== 'blocked' && v.reseats.length > 0
+}
+
 /** The guard's cell for one chip, the way `verdictAt` builds it. */
 function cellAt(lanes: BoardLane[], laneKey: string, start: number, excludeId: string | null): RailCell | null {
   return railsOnFor(lanes, excludeId).find((r) => r.laneKey === laneKey)?.cells.find((c) => c.start === start) ?? null
@@ -1360,6 +1379,36 @@ describe('§BEHAVIOURAL (v) — a live drag pays for each question ONCE, and the
       }
     }
     expect(checked).toBeGreaterThan(0)
+  })
+
+  it('(i) ⚖ FIX ROUND 2 (FX-A) — the ⇄ fill’s fence is `reseats`, and the fence it replaced admitted NOTHING on this day', () => {
+    // The class the whole blind round walked past: every pin green, every fence
+    // green, every answer right — and the feature invisible, because the fill
+    // threw away all of its own input. Measured here on the repo's OWN fixture
+    // day through the REAL `landingVerdict`, not modelled.
+    const rig = liveRig(sceneC(), HAND)
+    const keys = staffKeys()
+    const starts = LATTICE()
+    rig.frameAt(keys[0], starts[0])
+    let candidates = 0
+    let admittedBefore = 0
+    let blockedFirstLeg = 0
+    let rescued = 0
+    for (const lk of keys) {
+      for (const s of starts) {
+        const v = rig.verdictFor(lk, s, cellAt(rig.board(), lk, s, HAND.id), true)
+        if (!toneAdmits(v)) continue
+        candidates += 1
+        if (toneAdmittedBefore(v)) admittedBefore += 1
+        if (v.kind === 'blocked') blockedFirstLeg += 1
+        // …and the composer's own rule, which is what makes a `blocked` first
+        // leg admissible at all: the SHUFFLED board's re-read decides the face.
+        if (rig.dropAt(lk, s).kind !== 'blocked') rescued += 1
+      }
+    }
+    expect({ candidates: candidates > 0, admittedBefore }).toEqual({ candidates: true, admittedBefore: 0 })
+    expect({ blockedFirstLeg, rescued: rescued > 0 }).toEqual({ blockedFirstLeg: candidates, rescued: true })
+    console.log(`(i) FX-A — scene C admits ${candidates} ⇄ candidates (the old fence: ${admittedBefore}); ${rescued} of them come back clean or caution on the shuffled board`)
   })
 })
 

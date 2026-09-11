@@ -1793,6 +1793,18 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     expect(SCREEN.indexOf('rowStampRef.current = handRowStamp(')).toBeLessThan(SCREEN.indexOf('function fillToneSlots('))
     expect(SCREEN.indexOf('worldStampRef.current = worldStamp')).toBeLessThan(SCREEN.indexOf('function fillToneSlots('))
     //
+    // ⚖ FIX ROUND 2 (FX-A — ADDENDUM STOP 2) — AND THE FILL'S OWN FENCE IS
+    // `reseats`, NEVER `kind`. The fence it replaces —
+    // `v.kind === 'blocked' || v.reseats.length === 0` — read the FIRST-LEG
+    // verdict, and `landingVerdict` refuses a pack-rescued start on the REST
+    // cell it is handed (:5802) AFTER it has already set `reseats`. So every ⇄
+    // candidate arrived here `blocked` WITH companions and was thrown away: the
+    // slots were empty on every board measured, no chip could wear ⇄, and the
+    // whole battery stayed green. The drop's own fence (`verdictAtLanding`) and
+    // the chip site both read `reseats` alone; this is the third.
+    expect(SCREEN).toContain('        if (v.reseats.length === 0) continue')
+    expect(SCREEN).not.toContain("v.kind === 'blocked' || v.reseats.length === 0")
+    //
     // ⚖ FIX ROUND 1 (F2) — THE SLOTS' LIFETIME IS THE MEMO'S, SPELLED ON THE
     // SCREEN. The memo empties on exactly two conditions; the view of its
     // answers is rebuilt on the same two. Dropping either compare from this
