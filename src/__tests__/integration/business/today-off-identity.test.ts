@@ -5,8 +5,9 @@
  * STORE_B, viewAll) must produce byte-identical answers to the frozen file
  * below; a change here is a change to what every store sees on 今日の運営 with
  * no class feature switched on. The fixture's beds all carry 0 cleanup, so
- * the cleanupBlocks cell applies a fixed 15-minute turnaround instead of the
- * fixture's own (vacuous) value.
+ * the cleanupBlocks cell freezes that (vacuous) fixture value directly; a
+ * separate `cleanup15` literal exercises cleanupBlocks' own arithmetic at a
+ * fixed 15 minutes.
  *
  * The frozen file is EMITTED by this suite
  * (`EMIT_OFF_IDENTITY=<sha> npx jest today-off-identity`), never typed by
@@ -45,6 +46,7 @@ import {
   place,
   utilization,
   type BoardBooking,
+  type BoardItem,
   type BoardLane,
   type BuildInput,
   type Hours,
@@ -67,6 +69,15 @@ beforeAll(() => jest.useFakeTimers().setSystemTime(new Date(FROZEN_INSTANT)))
 afterAll(() => jest.useRealTimers())
 
 const NOW_MIN = jstMinuteOfDay(new Date(FROZEN_INSTANT))
+
+// The live page's own read window (page.tsx:96 `const WINDOW = 45`, :141-142
+// `from`/`to`) — WINDOW is not exported, so mirrored here rather than reused.
+// Without it, `listAppointments(lens)` with no range pulls every fixture
+// appointment ever dated, not the window the real board would ever ask for.
+const WINDOW = 45
+const DAY_MS = 86_400_000
+const APPT_FROM = new Date(new Date(FROZEN_INSTANT).getTime() + (-WINDOW - 1) * DAY_MS).toISOString()
+const APPT_TO = new Date(new Date(FROZEN_INSTANT).getTime() + (WINDOW + 1) * DAY_MS).toISOString()
 
 const LENSES: ReadonlyArray<readonly [string, StoreLens]> = [
   ['STORE_A', STORE_A],
@@ -105,7 +116,7 @@ async function buildWorld(lens: StoreLens): Promise<World> {
   const [customers, appts, menus, staff, resources, planes, shell, storeOptions, staffStores] =
     await Promise.all([
       data.listCustomers(lens),
-      data.listAppointments(lens),
+      data.listAppointments(lens, { from: APPT_FROM, to: APPT_TO }),
       data.listMenus(lens),
       data.listStaff(lens),
       data.listResources(lens),
@@ -139,28 +150,77 @@ async function buildWorld(lens: StoreLens): Promise<World> {
   return { input, bookings, lanes, hours: input.hours, opsConfig: planes.opsConfig, pricingRule: planes.pricingRule }
 }
 
+/** Each bed lane's own bookings, in cleanupBlocks' input shape — shared by
+ *  cell 3 (the fixture's own cleanup_minutes) and the `cleanup15` literal
+ *  (a fixed 15), so both read off the same per-bed grouping. Bed lane key =
+ *  resource id (`lanes.push({ key: resource.id, group: 'beds', ... })`,
+ *  today-board.ts:609-611 — grep-verified). */
+function bedBookingsByLane(world: World): Array<[string, Array<{ id: string; start: number; end: number }>]> {
+  return world.lanes
+    .filter((l) => l.group === 'beds')
+    .map((l) => [
+      l.key,
+      world.bookings
+        .filter((b) => b.resourceId === l.key)
+        .map(({ id, startMinute, endMinute }) => ({ id, start: startMinute, end: endMinute })),
+    ])
+}
+
+/** The fixed-15 exercise of cleanupBlocks' own arithmetic (G3) — moved out of
+ *  cell 3, which now freezes the fixture's own (vacuous) cleanup_minutes. */
+function cleanup15For(world: World): Record<string, unknown> {
+  return Object.fromEntries(bedBookingsByLane(world).map(([key, bk]) => [key, cleanupBlocks(bk, 15, world.hours)]))
+}
+
+/** The computeChecks probe (G2): the first staff lane with >= 2 bookings —
+ *  `chosen` is the first of those two, `second` the other. `now` (built by
+ *  the caller from `second`'s own span) drops `chosen` onto `second`'s slot,
+ *  a real conflict with someone else rather than a self-collision, since
+ *  `ctx.bookingId` is `chosen`'s own id and drag-rules.ts:200 excludes only
+ *  spans sharing that id. Lane chosen per lens (verified empirically, see the
+ *  build report): STORE_A → staff lane `c-03`; viewAll → the same `c-03`
+ *  (same booking, same fixture rows). STORE_B has no staff lane with 2
+ *  bookings at all (its 2 real bookings sit on 2 DIFFERENT staff members) —
+ *  see the fallback below, which uses its bed lane instead. */
+function checksProbeFor(world: World): { staffLane: BoardLane; chosen: BoardBooking; second: BoardItem } {
+  const staffLaneWithTwo = world.lanes.find(
+    (l) => l.group === 'staff' && l.items.filter((i) => i.kind === 'booking').length >= 2,
+  )
+  if (staffLaneWithTwo) {
+    const [chosenItem, second] = staffLaneWithTwo.items.filter((i) => i.kind === 'booking')
+    const chosen = world.bookings.find((b) => b.id === chosenItem.caseId)!
+    return { staffLane: staffLaneWithTwo, chosen, second }
+  }
+  // Fallback (STORE_B only, verified empirically): its 2 real bookings sit on
+  // 2 DIFFERENT staff members, so no single staff lane ever carries 2 — its
+  // one bed lane (bed-04) does, since both bookings are on the same bed.
+  // `chosen`'s own staff lane still supplies staffName/staffUntil; `second`
+  // and the overlap come from the shared bed lane instead.
+  const bedLaneWithTwo = world.lanes.find(
+    (l) => l.group === 'beds' && l.items.filter((i) => i.kind === 'booking').length >= 2,
+  )!
+  const [chosenItem, second] = bedLaneWithTwo.items.filter((i) => i.kind === 'booking')
+  const chosen = world.bookings.find((b) => b.id === chosenItem.caseId)!
+  const staffLane = world.lanes.find((l) => l.group === 'staff' && l.key === chosen.staffId)!
+  return { staffLane, chosen, second }
+}
+
 /** Every one of the eleven paths, computed once for one lens's world. */
 function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number], unknown> {
   const { input, bookings, lanes, hours, opsConfig, pricingRule } = world
 
-  // 3 — cleanupBlocks. The fixture's beds all carry 0 cleanup, so the cell
-  // applies a fixed 15-minute turnaround; production shape, not the whole
-  // day on one timeline — `cleanupBlocks` is documented "清掃 windows on ONE
-  // resource" (today-board.ts:88) and both buildLanes (:585) and the sibling
-  // test (:245-256) feed it one bed's own bookings at a time. Bed lane key =
-  // resource id (`lanes.push({ key: resource.id, group: 'beds', ... })`,
-  // today-board.ts:609-611 — grep-verified), so `l.key` is what
-  // `b.resourceId` is filtered against below. One entry per bed lane.
+  // 3 — cleanupBlocks: the fixture's own OFF value. All four bed resources
+  // carry cleanup_minutes: 0 (fixtures-today.ts:140-143), so this cell is
+  // vacuous ([] per bed) today — a genuine fact, not a probe; buildLanes' own
+  // derived 清掃 blocks (built from these SAME resource.cleanup_minutes) cover
+  // the real path. Production shape, not the whole day on one timeline —
+  // `cleanupBlocks` is documented "清掃 windows on ONE resource"
+  // (today-board.ts:88) and both buildLanes (:585) and the sibling test
+  // (:245-256) feed it one bed's own bookings at a time.
   const bedLanes = lanes.filter((l) => l.group === 'beds')
+  const resourceByKey = new Map(input.resources.map((r) => [r.id, r]))
   const cleanupBlocksValue = Object.fromEntries(
-    bedLanes.map((l) => [
-      l.key,
-      cleanupBlocks(
-        bookings.filter((b) => b.resourceId === l.key).map(({ id, startMinute, endMinute }) => ({ id, start: startMinute, end: endMinute })),
-        15,
-        hours,
-      ),
-    ]),
+    bedBookingsByLane(world).map(([key, bk]) => [key, cleanupBlocks(bk, resourceByKey.get(key)?.cleanup_minutes ?? 0, hours)]),
   )
 
   // 4 — laneMinutes (also literal A).
@@ -174,23 +234,20 @@ function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number],
   // — never the whole board: both production callers restrict the pool this
   // way. TodayScreen.tsx:2687 `const onLanes = boardLanes.filter((l) =>
   // l.items.some((i) => i.caseId === id))`; today-interactions.ts:5269 `for
-  // (const lane of [staff, bed])`. `now` is the first booking of the first
-  // staff lane that has one, shifted +30 min — long enough that the shift
-  // still overlaps its own original span, producing a real 時間帯が重複.
-  const staffLaneWithBooking = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.kind === 'booking'))!
-  const firstStaffBookingItem = staffLaneWithBooking.items.find((i) => i.kind === 'booking')!
-  const checkNow = place(firstStaffBookingItem.startMin + 30, firstStaffBookingItem.endMin + 30, hours)
-  const chosenBooking = bookings.find((b) => b.id === firstStaffBookingItem.caseId)!
+  // (const lane of [staff, bed])`. `bookingId`/`now` come from `checksProbeFor`
+  // (G2) above — a real id, and a real second booking's slot.
+  const { staffLane: staffLaneWithTwo, chosen: chosenBooking, second: secondItem } = checksProbeFor(world)
+  const checkNow = place(secondItem.startMin, secondItem.endMin, hours)
   const bookingBedLane = bedLanes.find((l) => l.key === chosenBooking.resourceId) ?? null
-  const onLanes = [staffLaneWithBooking, ...(bookingBedLane ? [bookingBedLane] : [])]
+  const onLanes = [staffLaneWithTwo, ...(bookingBedLane ? [bookingBedLane] : [])]
   const spans: CheckSpan[] = onLanes
     .flatMap((l) => l.items)
     .map((i) => ({ id: i.caseId ?? i.key, x: i.x, w: i.w, title: i.title, derived: i.kind === 'cleanup', parked: false }))
   const ctx: CheckContext = {
     spans,
-    bookingId: 'off-identity-synthetic',
-    staffName: staffLaneWithBooking.label,
-    staffUntil: staffLaneWithBooking.untilLabel,
+    bookingId: chosenBooking.id,
+    staffName: staffLaneWithTwo.label,
+    staffUntil: staffLaneWithTwo.untilLabel,
     laneLocked: false,
     minutesOf: (x: number) => minuteOf(x, hours),
   }
@@ -373,7 +430,7 @@ interface FrozenFile {
   emittedAt: string
   instant: string
   cells: Record<string, Record<string, { sha256: string; bytes: number; n: number }>>
-  literals: { laneMinutes: Record<string, unknown>; computeChecks: Record<string, unknown> }
+  literals: { laneMinutes: Record<string, unknown>; computeChecks: Record<string, unknown>; cleanup15: Record<string, unknown> }
 }
 
 let FROZEN: FrozenFile | null = null
@@ -398,7 +455,7 @@ describe('the 33 cells', () => {
   // ── emit mode ──────────────────────────────────────────────────────────
   itEmit('emits the frozen file', () => {
     const cells: FrozenFile['cells'] = {}
-    const literals: FrozenFile['literals'] = { laneMinutes: {}, computeChecks: {} }
+    const literals: FrozenFile['literals'] = { laneMinutes: {}, computeChecks: {}, cleanup15: {} }
     for (const [lensName] of LENSES) {
       cells[lensName] = {}
       for (const path of PATHS) {
@@ -406,23 +463,30 @@ describe('the 33 cells', () => {
       }
       literals.laneMinutes[lensName] = laneMinutes(WORLDS[lensName].input, WORLDS[lensName].bookings)
       literals.computeChecks[lensName] = CELLS[lensName].computeChecks
+      literals.cleanup15[lensName] = cleanup15For(WORLDS[lensName])
     }
     const frozen: FrozenFile = { emittedAt: EMIT_SHA as string, instant: FROZEN_INSTANT, cells, literals }
     writeFileSync(FROZEN_PATH, `${JSON.stringify(frozen, null, 2)}\n`)
   })
 })
 
-describe('the two literals', () => {
+describe('the three literals', () => {
   for (const [lensName] of LENSES) {
     itNormal(`${lensName} laneMinutes literal is unchanged`, () => {
       const { input, bookings } = WORLDS[lensName]
       expect(laneMinutes(input, bookings)).toEqual(FROZEN!.literals.laneMinutes[lensName])
     })
 
-    itNormal(`${lensName} computeChecks literal is unchanged, and proves a real conflict`, () => {
+    itNormal(`${lensName} computeChecks literal is unchanged, and proves a real conflict with someone else`, () => {
       const value = CELLS[lensName].computeChecks as Check[]
       expect(value).toEqual(FROZEN!.literals.computeChecks[lensName])
       expect(value.some((c) => !c.ok)).toBe(true)
+      const { second } = checksProbeFor(WORLDS[lensName])
+      expect(value.some((c) => !c.ok && c.label.includes(second.title))).toBe(true)
+    })
+
+    itNormal(`${lensName} cleanup15 literal is unchanged`, () => {
+      expect(cleanup15For(WORLDS[lensName])).toEqual(FROZEN!.literals.cleanup15[lensName])
     })
   }
 })

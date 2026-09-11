@@ -14,8 +14,8 @@
         "n": 9
       },
       "cleanupBlocks": {
-        "sha256": "c9113cea7db0e9a3fe40fadafe14d2131d061bf11cb6572b9ed494c5c97aca94",
-        "bytes": 405,
+        "sha256": "d15d1006bbb9ab7bfec6c5ac0950f9aaf8a386e787d0d8cf9c51a24faa098b7b",
+        "bytes": 37,
         "n": 3
       },
       "laneMinutes": {
@@ -29,8 +29,8 @@
         "n": 3
       },
       "computeChecks": {
-        "sha256": "ad414bafe411e072bd08e757bb16fef4050330eb71af119703f640b9ef8c7fc3",
-        "bytes": 157,
+        "sha256": "871069ad869f75b9dcbce6d12c1ca11ce2d94cbd586a2d76eda49581ade4dda3",
+        "bytes": 158,
         "n": 4
       },
       "laneSpans": {
@@ -71,8 +71,8 @@
         "n": 4
       },
       "cleanupBlocks": {
-        "sha256": "01e491890a1e61d7a2887dba07d864b6d497e506b45d1234f1a684d5d0b4fb32",
-        "bytes": 105,
+        "sha256": "92c70b68c26ec2dc446e8a874711c1a8d57850448d3c7a543ecd78eeccdef8e5",
+        "bytes": 13,
         "n": 1
       },
       "laneMinutes": {
@@ -86,8 +86,8 @@
         "n": 3
       },
       "computeChecks": {
-        "sha256": "2dbb5ac818ea4f56aab74f082dff19835d67514910951be6713a7885ea4e62c5",
-        "bytes": 155,
+        "sha256": "6f4aba251ea3b43e38b0a93daf98d4eb80c240e112b6975ee044cf71701c6a1d",
+        "bytes": 157,
         "n": 4
       },
       "laneSpans": {
@@ -118,18 +118,18 @@
     },
     "viewAll": {
       "dayBookings": {
-        "sha256": "1260a4792cce89e1fa188b00189cd8069119566cd2798d8de0ace1d3149e5d34",
-        "bytes": 6129,
+        "sha256": "6ecb9b394c47b680a60fa61f7b7beeee5453a730edeb7d708cb64a4e2a956581",
+        "bytes": 6123,
         "n": 13
       },
       "buildLanes": {
-        "sha256": "cc64bf52dfa75950fddea08d8c7a9906f9dea18cc5892c057c6c2f7549c35bd2",
+        "sha256": "e16349fa29471c5432e42b09a462b006b194b56e704555788a5b354c805cfd05",
         "bytes": 14890,
         "n": 11
       },
       "cleanupBlocks": {
-        "sha256": "8e2b212df763247536e091e4b4cd0ed29553ff77ce0545786f95ff28b9201cb0",
-        "bytes": 509,
+        "sha256": "a7a0923ced7add311701c787a7db0871691d0ec42da1ca6ee026da0b1fb9af02",
+        "bytes": 49,
         "n": 4
       },
       "laneMinutes": {
@@ -143,8 +143,8 @@
         "n": 3
       },
       "computeChecks": {
-        "sha256": "ad414bafe411e072bd08e757bb16fef4050330eb71af119703f640b9ef8c7fc3",
-        "bytes": 157,
+        "sha256": "871069ad869f75b9dcbce6d12c1ca11ce2d94cbd586a2d76eda49581ade4dda3",
+        "bytes": 158,
         "n": 4
       },
       "laneSpans": {
@@ -283,11 +283,11 @@
       "STORE_A": [
         {
           "ok": false,
-          "label": "時間帯が重複: テスト くらら"
+          "label": "時間帯が重複: 見本 あかり"
         },
         {
           "ok": true,
-          "label": "見本 はなこの勤務時間内（〜13:00）"
+          "label": "テスト さぶろうの勤務時間内（〜19:00）"
         },
         {
           "ok": true,
@@ -301,7 +301,7 @@
       "STORE_B": [
         {
           "ok": false,
-          "label": "時間帯が重複: 見本 うみ"
+          "label": "時間帯が重複: テスト くらら"
         },
         {
           "ok": true,
@@ -319,11 +319,11 @@
       "viewAll": [
         {
           "ok": false,
-          "label": "時間帯が重複: テスト くらら"
+          "label": "時間帯が重複: 見本 あかり"
         },
         {
           "ok": true,
-          "label": "見本 はなこの勤務時間内（〜13:00）"
+          "label": "テスト さぶろうの勤務時間内（〜19:00）"
         },
         {
           "ok": true,
@@ -334,6 +334,130 @@
           "label": "予約時価格を保持（動的価格は適用しません）"
         }
       ]
+    },
+    "cleanup15": {
+      "STORE_A": {
+        "bed-01": [
+          {
+            "id": "apt-12-cleanup",
+            "start": 660,
+            "end": 675
+          },
+          {
+            "id": "apt-26-cleanup",
+            "start": 930,
+            "end": 945
+          }
+        ],
+        "bed-02": [
+          {
+            "id": "apt-22-cleanup",
+            "start": 690,
+            "end": 705
+          },
+          {
+            "id": "apt-14-cleanup",
+            "start": 870,
+            "end": 885
+          },
+          {
+            "id": "apt-33-cleanup",
+            "start": 1092,
+            "end": 1107
+          }
+        ],
+        "bed-03": [
+          {
+            "id": "apt-25-cleanup",
+            "start": 720,
+            "end": 735
+          },
+          {
+            "id": "apt-29-cleanup",
+            "start": 905,
+            "end": 920
+          },
+          {
+            "id": "apt-28-cleanup",
+            "start": 990,
+            "end": 1005
+          }
+        ]
+      },
+      "STORE_B": {
+        "bed-04": [
+          {
+            "id": "apt-13-cleanup",
+            "start": 705,
+            "end": 720
+          },
+          {
+            "id": "apt-34-cleanup",
+            "start": 990,
+            "end": 1005
+          }
+        ]
+      },
+      "viewAll": {
+        "bed-01": [
+          {
+            "id": "apt-12-cleanup",
+            "start": 660,
+            "end": 675
+          },
+          {
+            "id": "apt-26-cleanup",
+            "start": 930,
+            "end": 945
+          }
+        ],
+        "bed-02": [
+          {
+            "id": "apt-22-cleanup",
+            "start": 690,
+            "end": 705
+          },
+          {
+            "id": "apt-14-cleanup",
+            "start": 870,
+            "end": 885
+          },
+          {
+            "id": "apt-33-cleanup",
+            "start": 1092,
+            "end": 1107
+          }
+        ],
+        "bed-03": [
+          {
+            "id": "apt-25-cleanup",
+            "start": 720,
+            "end": 735
+          },
+          {
+            "id": "apt-29-cleanup",
+            "start": 905,
+            "end": 920
+          },
+          {
+            "id": "apt-28-cleanup",
+            "start": 990,
+            "end": 1005
+          }
+        ],
+        "bed-04": [
+          {
+            "id": "apt-13-cleanup",
+            "start": 705,
+            "end": 720
+          },
+          {
+            "id": "apt-34-cleanup",
+            "start": 990,
+            "end": 1005
+          }
+        ]
+      }
     }
   }
 }
