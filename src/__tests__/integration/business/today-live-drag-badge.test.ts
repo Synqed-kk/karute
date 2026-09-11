@@ -106,7 +106,15 @@ describe('⚖ 9/11 — `dressBadge`: the icon always, the word only when the car
     // The query is on the PROXY, not the viewport: a 30分 card is narrow on a
     // 1440 screen too. Without `container-type` the query has nothing to measure
     // and the word simply never appears.
-    expect(CSS).toContain('.biz .drag-proxy.chip { container-type: inline-size; }')
+    // ⚖ FIX ROUND 3 (DELTA-CODE-D1 MINOR 2) — BOTH SELECTORS, AS ONE STRING.
+    // The rule is a two-selector list and this pin held only the second half,
+    // so deleting `.biz .event.drag-proxy,` left every badge pin green — and
+    // with the CARD no longer a container, the unnamed `@container` query has
+    // no eligible ancestor, the `display: inline` rule never matches, and
+    // 「⇄ 入れ替え」 never appears on a card at any width. That is the whole of
+    // ⚖ 9/11 evening's ruling, silently off, whole battery green. (1B's own
+    // mutant deleted the WHOLE rule and went red; the half-deletion survived.)
+    expect(CSS).toContain('.biz .event.drag-proxy,\n.biz .drag-proxy.chip { container-type: inline-size; }')
     expect(CSS).toContain('.biz .proxy-verdict > span { display: none; }')
     // 82px, not 92: a container query is asked in the container's CONTENT box and
     // the card is `box-sizing: border-box` with a 1px border and 2px/6px side

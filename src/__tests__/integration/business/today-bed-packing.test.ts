@@ -1792,9 +1792,31 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // expensive frame paid ~660 uncached packing searches where the design
     // budgets 22. Every answer was correct; only the cost was wrong, which is
     // exactly the class no battery and no grep can see.
+    //
+    // ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 1) — …AND THE CLAUSES INDEX THE CALL,
+    // NOT THE DECLARATION. F3 extracted the fill into a hoisted
+    // `function fillToneSlots()`, which split its TEXT position from its
+    // EXECUTION position — a split that did not exist at `d71be396a`, where the
+    // fill was an inline block and pinning where the block sat WAS pinning when
+    // it ran. D1 simulated the mutant: move the one call statement above
+    // `const boardLanesRef = useRef(boardLanes)` (every free variable it closes
+    // over is declared higher, so there is no TDZ and it compiles), and the
+    // three clauses below stayed green with F1 fully restored — ~660 uncached
+    // searches on the gesture's most expensive frame where the design budgets
+    // 22. The gate line is pinned verbatim above, so the two nets interlock:
+    // the call cannot move without one of them going red.
+    const TONE_CALL = 'if (inHand != null && livePack().pack && toneRef.current == null) fillToneSlots()'
+    expect(SCREEN.indexOf(TONE_CALL)).toBeGreaterThan(-1)
+    expect(SCREEN.indexOf('boardLanesRef.current = boardLanes')).toBeLessThan(SCREEN.indexOf(TONE_CALL))
+    expect(SCREEN.indexOf('rowStampRef.current = handRowStamp(')).toBeLessThan(SCREEN.indexOf(TONE_CALL))
+    expect(SCREEN.indexOf('worldStampRef.current = worldStamp')).toBeLessThan(SCREEN.indexOf(TONE_CALL))
+    // …and the composer's own HOME stays below them too (the three clauses this
+    // round inherited), with the declaration ahead of the call — so both the
+    // definition and the execution site are held under the three refs.
     expect(SCREEN.indexOf('boardLanesRef.current = boardLanes')).toBeLessThan(SCREEN.indexOf('function fillToneSlots('))
     expect(SCREEN.indexOf('rowStampRef.current = handRowStamp(')).toBeLessThan(SCREEN.indexOf('function fillToneSlots('))
     expect(SCREEN.indexOf('worldStampRef.current = worldStamp')).toBeLessThan(SCREEN.indexOf('function fillToneSlots('))
+    expect(SCREEN.indexOf('function fillToneSlots(')).toBeLessThan(SCREEN.indexOf(TONE_CALL))
     //
     // ⚖ FIX ROUND 2 (FX-A — ADDENDUM STOP 2) — AND THE FILL'S OWN FENCE IS
     // `reseats`, NEVER `kind`. The fence it replaces —
