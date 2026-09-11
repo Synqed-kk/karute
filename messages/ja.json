@@ -2528,6 +2528,10 @@
       "recordingUnresolved": "録音",
       "durationSuffix": "（{n}秒）",
       "recordingStaff": "担当: {name}",
+      "fold": {
+        "count": "×{n}",
+        "range": "{from}〜{to}"
+      },
       "reason": {
         "empty_transcript": "文字起こし結果なし",
         "job_failed": "処理エラー",

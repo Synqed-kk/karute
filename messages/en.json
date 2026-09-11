@@ -2528,6 +2528,10 @@
       "recordingUnresolved": "Recording",
       "durationSuffix": " · {n}s",
       "recordingStaff": "Staff: {name}",
+      "fold": {
+        "count": "×{n}",
+        "range": "{from}–{to}"
+      },
       "reason": {
         "empty_transcript": "No transcript produced",
         "job_failed": "Processing error",
