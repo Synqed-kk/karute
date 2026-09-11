@@ -335,6 +335,35 @@ export const storeBookingPolicy = {
    *  reach it; what it decides there is only the shape of a button that can never
    *  fire, which is why nothing in the settings copy above changes.) */
   overrideHoldToConfirm: true,
+  /** ⚠SETTINGS-BATCH — 残りわずかの目安 (⚖ Liam 2026-09-12, the month-calendar
+   *  lane's follow-up 2). 月カレンダーで橙になる空き枠数の上限: a day whose free
+   *  count is at or under this is painted 「残りわずか」 amber instead of green.
+   *
+   *  It is DATA for the same reason the dials above it are: how few is 「わずか」
+   *  is a store's judgement about its own day — a busy salon calls 2 tight and a
+   *  quiet one does not — and a component that hardcoded the number would make
+   *  every store the same store (⚖ 8/21 mistake-proofing: a dial ships with a
+   *  DEFAULT and a GUARDRAIL, never a per-業種 rule).
+   *
+   *  ⚖ HIS 8/31 GENERAL LAW: 「every settings entry carries a one-line
+   *  description of what it changes/turns off」. That line, written here so the
+   *  settings round does not have to invent it:
+   *  「月カレンダーで、空きがこの数以下の日を橙で示します」.
+   *  AND ITS OFF-STATE, which is the half a dial usually leaves silent:
+   *  0 では橙は出ません — the month keeps 緑 and 満 only.
+   *
+   *  GUARDRAIL 0–5, named where the dial is specified (`CALENDAR_TIGHT_RANGE`,
+   *  today-interactions.ts). Fable default, OVERTURNABLE on Liam's word.
+   *  NO CORE FIELD YET: `calendar_tight_max` rides
+   *  DRAFT-ANTHONY-ASK-SETTINGS-FIELDS with the others, so the 店舗設定 row
+   *  ships 準備中 like its seven siblings and this fixture is the world's value
+   *  until the column lands.
+   *
+   *  ⚠ THE NUMBER IS WRITTEN HERE, not imported from the screen that defaults
+   *  it: territory runs one way (an app screen reads this lib, never the
+   *  reverse), so this is the STORE's own 2 and today-interactions' own 2 is the
+   *  fallback for a store that has none. That they agree is pinned by a test. */
+  calendarTightMax: 2,
 }
 
 /** スキマガード / Reserve受付 dials (canon `opsConfig`). The board never
@@ -398,6 +427,12 @@ export const opsConfig = {
    *  record) and this line is only the shorter name `readDayPlanes` hands the
    *  board. The number moves house, it does not change. */
   overrideHoldToConfirm: storeBookingPolicy.overrideHoldToConfirm,
+  /** DERIVED — ⚖ Liam 9/12's 残りわずかの目安, on the same one-home pattern as the
+   *  aliases above it: the value LIVES on `storeBookingPolicy` (⚠SETTINGS-BATCH,
+   *  where its description and its off-state are written) and this line is only
+   *  the shorter name `readDayPlanes` hands the month calendar and the 設定 row.
+   *  The number moves house, it does not change. */
+  calendarTightMax: storeBookingPolicy.calendarTightMax,
 }
 
 /** レジ (ask T-08). The aggregates the money band shows that no booking row
