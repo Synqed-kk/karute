@@ -29,8 +29,8 @@
         "n": 3
       },
       "computeChecks": {
-        "sha256": "871069ad869f75b9dcbce6d12c1ca11ce2d94cbd586a2d76eda49581ade4dda3",
-        "bytes": 158,
+        "sha256": "1f993261de7840b215790502ec5f78e8127fcf3255f6c6fe97cc6160dffeb1da",
+        "bytes": 161,
         "n": 4
       },
       "laneSpans": {
@@ -86,8 +86,8 @@
         "n": 3
       },
       "computeChecks": {
-        "sha256": "6f4aba251ea3b43e38b0a93daf98d4eb80c240e112b6975ee044cf71701c6a1d",
-        "bytes": 157,
+        "sha256": "04ad2d0a9b7017ef2cff0252ae307c9a7f25b048d4d15cf3b1146319be4fa4ce",
+        "bytes": 160,
         "n": 4
       },
       "laneSpans": {
@@ -143,8 +143,8 @@
         "n": 3
       },
       "computeChecks": {
-        "sha256": "871069ad869f75b9dcbce6d12c1ca11ce2d94cbd586a2d76eda49581ade4dda3",
-        "bytes": 158,
+        "sha256": "1f993261de7840b215790502ec5f78e8127fcf3255f6c6fe97cc6160dffeb1da",
+        "bytes": 161,
         "n": 4
       },
       "laneSpans": {
@@ -283,7 +283,7 @@
       "STORE_A": [
         {
           "ok": false,
-          "label": "時間帯が重複: 見本 あかり"
+          "label": "時間帯が重複: 休憩・見本 あかり"
         },
         {
           "ok": true,
@@ -301,7 +301,7 @@
       "STORE_B": [
         {
           "ok": false,
-          "label": "時間帯が重複: テスト くらら"
+          "label": "時間帯が重複: 休憩・テスト くらら"
         },
         {
           "ok": true,
@@ -319,7 +319,7 @@
       "viewAll": [
         {
           "ok": false,
-          "label": "時間帯が重複: 見本 あかり"
+          "label": "時間帯が重複: 休憩・見本 あかり"
         },
         {
           "ok": true,

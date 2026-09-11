@@ -173,23 +173,25 @@ function cleanup15For(world: World): Record<string, unknown> {
 }
 
 /** The computeChecks probe (G2): the first staff lane with >= 2 bookings —
- *  `chosen` is the first of those two, `second` the other. `now` (built by
- *  the caller from `second`'s own span) drops `chosen` onto `second`'s slot,
- *  a real conflict with someone else rather than a self-collision, since
- *  `ctx.bookingId` is `chosen`'s own id and drag-rules.ts:200 excludes only
- *  spans sharing that id. Lane chosen per lens (verified empirically, see the
- *  build report): STORE_A → staff lane `c-03`; viewAll → the same `c-03`
- *  (same booking, same fixture rows). STORE_B has no staff lane with 2
- *  bookings at all (its 2 real bookings sit on 2 DIFFERENT staff members) —
- *  see the fallback below, which uses its bed lane instead. */
-function checksProbeFor(world: World): { staffLane: BoardLane; chosen: BoardBooking; second: BoardItem } {
+ *  `chosen` is the first of those two (`chosenItem` its BoardItem form,
+ *  `.startMin`/`.endMin`), `second` the other. `ctx.bookingId` is `chosen`'s
+ *  own id, so drag-rules.ts:200 excludes `chosen`'s own span(s) from the
+ *  conflict pool; `now` (built by the caller) straddles BOTH `chosen`'s own
+ *  slot and `second`'s, so that exclusion is load-bearing — proven by mutant
+ *  M8 (drop the exclusion), which then names `chosen` in the label too.
+ *  Lane chosen per lens (verified empirically, see the build report):
+ *  STORE_A → staff lane `c-03`; viewAll → the same `c-03` (same booking,
+ *  same fixture rows). STORE_B has no staff lane with 2 bookings at all (its
+ *  2 real bookings sit on 2 DIFFERENT staff members) — see the fallback
+ *  below, which uses its bed lane instead. */
+function checksProbeFor(world: World): { staffLane: BoardLane; chosen: BoardBooking; chosenItem: BoardItem; second: BoardItem } {
   const staffLaneWithTwo = world.lanes.find(
     (l) => l.group === 'staff' && l.items.filter((i) => i.kind === 'booking').length >= 2,
   )
   if (staffLaneWithTwo) {
     const [chosenItem, second] = staffLaneWithTwo.items.filter((i) => i.kind === 'booking')
     const chosen = world.bookings.find((b) => b.id === chosenItem.caseId)!
-    return { staffLane: staffLaneWithTwo, chosen, second }
+    return { staffLane: staffLaneWithTwo, chosen, chosenItem, second }
   }
   // Fallback (STORE_B only, verified empirically): its 2 real bookings sit on
   // 2 DIFFERENT staff members, so no single staff lane ever carries 2 — its
@@ -202,7 +204,7 @@ function checksProbeFor(world: World): { staffLane: BoardLane; chosen: BoardBook
   const [chosenItem, second] = bedLaneWithTwo.items.filter((i) => i.kind === 'booking')
   const chosen = world.bookings.find((b) => b.id === chosenItem.caseId)!
   const staffLane = world.lanes.find((l) => l.group === 'staff' && l.key === chosen.staffId)!
-  return { staffLane, chosen, second }
+  return { staffLane, chosen, chosenItem, second }
 }
 
 /** Every one of the eleven paths, computed once for one lens's world. */
@@ -234,10 +236,20 @@ function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number],
   // — never the whole board: both production callers restrict the pool this
   // way. TodayScreen.tsx:2687 `const onLanes = boardLanes.filter((l) =>
   // l.items.some((i) => i.caseId === id))`; today-interactions.ts:5269 `for
-  // (const lane of [staff, bed])`. `bookingId`/`now` come from `checksProbeFor`
-  // (G2) above — a real id, and a real second booking's slot.
-  const { staffLane: staffLaneWithTwo, chosen: chosenBooking, second: secondItem } = checksProbeFor(world)
-  const checkNow = place(secondItem.startMin, secondItem.endMin, hours)
+  // (const lane of [staff, bed])`. `bookingId` comes from `checksProbeFor`
+  // (G2) — a real id, never synthesised. `now` is a long drag stretching from
+  // 15 min into `chosen`'s own slot to 15 min into `second`'s, so it overlaps
+  // BOTH — the self-exclusion on `ctx.bookingId` is load-bearing (proven by
+  // mutant M8): with it, only `second`'s title conflicts; without it,
+  // `chosen`'s own title joins the label too. Guard (not observed in this
+  // fixture, kept defensive): if `second`'s start + 15 wouldn't land after
+  // `chosen`'s start + 15, use the later of the two bookings' own end
+  // minutes instead, so the span never degenerates to zero width.
+  const { staffLane: staffLaneWithTwo, chosen: chosenBooking, chosenItem, second: secondItem } = checksProbeFor(world)
+  const checkStart = chosenItem.startMin + 15
+  const naiveCheckEnd = secondItem.startMin + 15
+  const checkEnd = naiveCheckEnd > checkStart ? naiveCheckEnd : Math.max(secondItem.endMin, chosenItem.endMin)
+  const checkNow = place(checkStart, checkEnd, hours)
   const bookingBedLane = bedLanes.find((l) => l.key === chosenBooking.resourceId) ?? null
   const onLanes = [staffLaneWithTwo, ...(bookingBedLane ? [bookingBedLane] : [])]
   const spans: CheckSpan[] = onLanes
