@@ -53,6 +53,14 @@ export async function GET(request: Request) {
     results.push(await watchOneBusiness(businessId, now, mode, deadline))
   }
 
+  // The cron caller discards this response body and CRON_SECRET is Sensitive
+  // on Vercel (unreadable by anyone) — this log line is the operator's only
+  // window onto a dry run. `result` already carries only ids/codes/counts
+  // (WatchCandidate) — never add a name here.
+  for (const result of results) {
+    console.log('[audit-watch] ' + mode, JSON.stringify(result))
+  }
+
   // F-b: an error is not a green run — but a business's own catch never
   // stops the loop, so every OTHER business still gets its pass. A budget
   // stop (`truncated`) stays a 200, same rule as /api/assemble: the walk saw
