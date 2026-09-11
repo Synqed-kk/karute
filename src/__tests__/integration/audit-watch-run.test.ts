@@ -11,6 +11,7 @@ const auditMock = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditMock(e) }))
 
 import { watchOneBusiness } from '@/lib/audit-watch/run'
+import { rotateBusinessIds } from '@/lib/audit-watch/rotate-business-ids'
 import { newSynqedClient } from '@/lib/synqed/client'
 
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: jest.fn() }))
@@ -488,5 +489,29 @@ describe('watchOneBusiness — in-loop deadline checks (P3-14/m7)', () => {
     expect(result.candidates).toBe(1) // one storm, computed before the loop runs
     expect(result.written).toBe(0)
     expect(auditMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('rotateBusinessIds (Greptile round 3 finding 2)', () => {
+  const ids = ['biz-a', 'biz-b', 'biz-c']
+
+  it('at 00:xx UTC the walk starts at the first business (no rotation)', () => {
+    expect(rotateBusinessIds(ids, new Date('2026-09-11T00:45:00.000Z'))).toEqual([
+      'biz-a',
+      'biz-b',
+      'biz-c',
+    ])
+  })
+
+  it('at 01:xx UTC the walk starts at the second business', () => {
+    expect(rotateBusinessIds(ids, new Date('2026-09-11T01:15:00.000Z'))).toEqual([
+      'biz-b',
+      'biz-c',
+      'biz-a',
+    ])
+  })
+
+  it('an empty list rotates to itself, never throws', () => {
+    expect(rotateBusinessIds([], new Date('2026-09-11T01:15:00.000Z'))).toEqual([])
   })
 })
