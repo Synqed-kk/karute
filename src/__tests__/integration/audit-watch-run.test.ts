@@ -132,9 +132,15 @@ describe('watchOneBusiness — recording.karute_missing', () => {
     )
   })
 
-  it('mode "dry": finds the same candidate but calls audit() zero times', async () => {
+  it('F-c: mode "dry" finds the same candidate, lists it, but writes NOTHING and calls audit() zero times', async () => {
     const result = await watchOneBusiness('biz-1', NOW, 'dry', FAR_DEADLINE)
-    expect(result).toMatchObject({ candidates: 1, written: 1, skipped: 0 })
+    // written stays 0 in dry mode — candidates is the count, list the content.
+    expect(result).toMatchObject({
+      candidates: 1,
+      written: 0,
+      skipped: 0,
+      list: [{ action: 'recording.karute_missing', targetId: 'sess-old', reason: 'genericFailure' }],
+    })
     expect(auditMock).not.toHaveBeenCalled()
   })
 

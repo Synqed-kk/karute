@@ -218,8 +218,10 @@ export async function watchOneBusiness(
           requestId: `audit-watch:recording.karute_missing:${targetId}:${ymdInJst(now)}`,
           source: 'system',
         })
+        // F-c: `written` counts only real writes — dry mode leaves it at 0
+        // (`candidates` is the count, `list` the content).
+        result.written++
       }
-      result.written++
     }
 
     for (const storm of storms) {
@@ -261,8 +263,8 @@ export async function watchOneBusiness(
           requestId: `audit-watch:recording.transcribe_storm:${storm.targetId}:${storm.day}`,
           source: 'system',
         })
+        result.written++
       }
-      result.written++
     }
   } catch (err) {
     // F-b: an error is not a green run. Decoupled from `truncated` — a
