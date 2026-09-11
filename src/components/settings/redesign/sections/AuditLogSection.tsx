@@ -13,6 +13,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useLocale, useTranslations } from 'next-intl'
 import {
   Activity,
+  ArrowLeft,
   Calendar,
   ChevronDown,
   CreditCard,
@@ -27,11 +28,19 @@ import {
   Sparkles,
   User,
   Users,
-  X,
 } from 'lucide-react'
 import type { StaffMember } from '@/lib/staff'
 import { listAuditLog, type AuditLogEvent } from '@/actions/audit-log'
 import { listEntryEditHistory, type EntryEditHistoryRow } from '@/actions/karute'
+import {
+  automationLabelKey,
+  foldRepeats,
+  formatStormCostUsd,
+  karuteMissingReasonKey,
+  rangeDays,
+  transcribeFailedReasonKey,
+  type FoldGroup,
+} from '@/lib/audit-labels'
 
 const CATEGORIES = [
   'auth',
@@ -63,9 +72,8 @@ const RANGE_PRESETS = ['7d', '30d', '90d', 'all'] as const
 type RangePreset = (typeof RANGE_PRESETS)[number]
 
 function presetFrom(preset: RangePreset): string | undefined {
-  if (preset === 'all') return undefined
-  const days = preset === '7d' ? 7 : preset === '30d' ? 30 : 90
-  return new Date(Date.now() - days * 86_400_000).toISOString()
+  const days = rangeDays(preset)
+  return days === null ? undefined : new Date(Date.now() - days * 86_400_000).toISOString()
 }
 
 function isViewEvent(action: string): boolean {
@@ -111,6 +119,10 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   const [range, setRange] = useState<RangePreset>('30d')
   // Deep-link opens the dispute view: views INCLUDED (§11 inversion).
   const [targetId, setTargetId] = useState(initialTargetId ?? null)
+  // I4 (round-2 D2): what `targetId` names when set. The initial deep-link is
+  // always the customer dispute view; a recording thread only opens via a tap
+  // on a recording row's sub-line (see renderEventGroup below).
+  const [targetType, setTargetType] = useState<'customer' | 'recording'>('customer')
   const [includeViews, setIncludeViews] = useState(Boolean(initialTargetId))
   const [breakGlass, setBreakGlass] = useState(false)
   // G2 (round-4 line-audit): tapping 警告 or 重大 is a SERVER filter (core's
@@ -131,6 +143,18 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<'forbidden' | 'failed' | null>(null)
+  // I4: honest "this thread may be incomplete" flag — set only on a
+  // targetType:'recording' read (the reader's own threadPartial contract).
+  const [threadPartial, setThreadPartial] = useState(false)
+
+  // I4 — shared by the back button AND the (now-removed) inline clear button:
+  // leaving a thread always resets to the plain feed.
+  const closeTarget = useCallback(() => {
+    setTargetId(null)
+    setTargetType('customer')
+    setIncludeViews(false)
+    setThreadPartial(false)
+  }, [])
 
   const staffNames = useMemo(
     () => new Map(staffList.map((s) => [s.id, s.full_name])),
@@ -158,6 +182,9 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           actorId: actorId ?? undefined,
           from: presetFrom(range),
           targetId: targetId ?? undefined,
+          // I4: 'recording' triggers D1's thread join server-side; absent
+          // (undefined) when no target is set, same as today for customer.
+          targetType: targetId ? targetType : undefined,
           includeViews,
           breakGlass: breakGlass || undefined,
           // G2 round-4: one real severity value at a time — see the `days`
@@ -197,9 +224,10 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       setTargetLabels((prev) => (append ? { ...prev, ...res.targetLabels } : res.targetLabels))
       setPage(res.page)
       setHasMore(res.hasMore)
+      setThreadPartial(Boolean(res.threadPartial))
       setLoading(false)
     },
-    [category, actorId, range, targetId, includeViews, breakGlass, lens],
+    [category, actorId, range, targetId, targetType, includeViews, breakGlass, lens],
   )
 
   useEffect(() => {
@@ -229,7 +257,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     for (let el = rootRef.current?.parentElement ?? null; el; el = el.parentElement) {
       el.scrollTop = 0
     }
-  }, [category, actorId, range, targetId, includeViews, breakGlass, lens])
+  }, [category, actorId, range, targetId, targetType, includeViews, breakGlass, lens])
 
   const dayFmt = useMemo(
     () =>
@@ -309,6 +337,16 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     return tRole.has(`role_${role}`) ? tRole(`role_${role}`) : role
   }
 
+  // I5 — one muted line naming the filter window. {store} is 全店舗 while the
+  // log is all-stores-only (PR B2 gate) — reuses the sibling already live in
+  // this same auditLog namespace (menuUpdate.allStores) rather than adding a
+  // duplicate literal.
+  function scopeLineText(): string {
+    const days = rangeDays(range)
+    const store = t('menuUpdate.allStores')
+    return days === null ? t('strip.scopeAll', { store }) : t('strip.scope', { days, store })
+  }
+
   /** Second line of a row: who/what it happened to, plus the change itself
    *  for events whose detail carries before/after. Ids only in the data —
    *  names join from targetLabels (server) or the staff roster (client). */
@@ -327,6 +365,17 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     // customer here) and prefixing it would just add noise to Liam's ask.
     if (e.action === 'karute.customer_reassign' && e.reassign_customer_line) {
       return e.reassign_customer_line
+    }
+    // I7 (round-2 D2): the storm has no customer/staff of its own worth
+    // naming — count, cost and day are the whole story. cost_cents_estimate
+    // is Deepgram $/min USD cents (ai-rate-limit.ts) — formatted as a dollar
+    // string, never yen.
+    if (e.action === 'recording.transcribe_storm') {
+      const n = typeof detail.count === 'number' ? detail.count : 0
+      const cost =
+        typeof detail.cost_cents_estimate === 'number' ? formatStormCostUsd(detail.cost_cents_estimate) : ''
+      const day = typeof detail.day === 'string' ? detail.day : ''
+      return t('storm.sub', { n, cost, day })
     }
     if (typeof detail.before_role === 'string' && typeof detail.after_role === 'string') {
       const change = `${roleLabel(detail.before_role)} → ${roleLabel(detail.after_role)}`
@@ -458,7 +507,23 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           ? (staffNames.get(detail.staff_id) ?? targetLabels[detail.staff_id])
           : undefined
       const staffSuffix = staffName ? ` · ${t('recordingStaff', { name: staffName })}` : ''
-      return `${base}${duration}${staffSuffix}`
+      let line = `${base}${duration}${staffSuffix}`
+      // I6 (round-2 D2): karute_missing / transcribe_failed append the
+      // reason word — mapped from the writer's real value, never the raw
+      // code (karuteMissingReasonKey/transcribeFailedReasonKey return null
+      // for anything unrecognized, which renders nothing). karute_missing
+      // additionally appends the ticket-burned fact when core's bulk check
+      // found one; ticket_burned is false/null far more often than true, so
+      // this only fires on a real hit.
+      if (e.action === 'recording.karute_missing') {
+        const reasonKey = karuteMissingReasonKey(detail.reason)
+        if (reasonKey) line += ` · ${t(reasonKey)}`
+        if (detail.ticket_burned === true) line += ` · ${t('recording.ticketBurned')}`
+      } else if (e.action === 'recording.transcribe_failed') {
+        const reasonKey = transcribeFailedReasonKey(detail.reason)
+        if (reasonKey) line += ` · ${t(reasonKey)}`
+      }
+      return line
     }
     return targetName
   }
@@ -521,9 +586,34 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     })()
   }
 
-  function renderEventRow(e: AuditLogEvent) {
+  function renderEventGroup(group: FoldGroup) {
+    // I1 — the representative row (newest member: fold's first-occurrence
+    // position IS the newest, since callers always pass one day's events,
+    // already newest-first) drives icon/title/actor/entry-edit expand; every
+    // member of the group shares the same (action, target_type, target_id,
+    // actor_id) by construction.
+    const e = group.events[0]!
+    const many = group.events.length > 1
     const Icon = CATEGORY_ICONS[e.category] ?? Activity
     const sub = eventSub(e)
+    // I1 — the fold count badge + time range. Range is computed from the
+    // WHOLE group (not assumed pre-sorted) and joins the sub-line, not the
+    // single-time slot — a folded row's own time stays the representative's.
+    const foldRange = many
+      ? (() => {
+          const times = group.events.map((x) => Date.parse(x.at)).sort((a, b) => a - b)
+          return t('fold.range', {
+            from: timeFmt.format(new Date(times[0]!)),
+            to: timeFmt.format(new Date(times[times.length - 1]!)),
+          })
+        })()
+      : null
+    const subText = foldRange ? (sub ? `${sub} · ${foldRange}` : foldRange) : sub
+    // I4 — a recording row's sub-line is the tap target that opens its
+    // thread, UNLESS a recording thread is already open (tapping inside it
+    // again would be a no-op reload of the same thing).
+    const isRecordingLink =
+      e.target_type === 'recording' && Boolean(e.target_id) && !(targetId && targetType === 'recording')
     // Mock 840dd1d1 note 3: view rows mix into the feed as
     // muted gray lines, so 変更 rows stay the eye's anchor when
     // 閲覧を含む is ON. Severity coloring still wins on the icon.
@@ -535,9 +625,15 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     // never resolves a label for a null actor_id).
     // || not ?? — an empty-string snapshot must fall through to
     // the roster/不明 chain, never render a blank (Greptile #581 P2).
+    // I2 (round-2 D2): a system row names the automation FAMILY that wrote
+    // it (自動文字起こし/自動復元/自動チェック/自動消化/自動破棄) when one
+    // matches; any other system row keeps today's plain システム.
+    const autoLabelKey = e.actor_type === 'system' ? automationLabelKey(e.action) : null
     const actorName =
       e.actor_type === 'system'
-        ? t('systemActor')
+        ? autoLabelKey
+          ? t(autoLabelKey)
+          : t('systemActor')
         : e.actor_label ||
           ((e.actor_id && staffNames.get(e.actor_id)) || t('unknownActor'))
     const isEntryEdit =
@@ -545,7 +641,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     const isOpen = isEntryEdit && expandedEditId === e.id
     const trail = isEntryEdit ? editTrails[e.id] : undefined
     return (
-      <li key={e.id} className="flex flex-col px-4 py-2.5">
+      <li key={group.key} className="flex flex-col px-4 py-2.5">
         <div className="flex items-center gap-3">
           <span
             className={`flex size-8 shrink-0 items-center justify-center rounded-full ${
@@ -570,6 +666,11 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
               >
                 {actionLabel(e.action)}
               </span>
+              {many && (
+                <span className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground tabular-nums">
+                  {t('fold.count', { n: group.events.length })}
+                </span>
+              )}
               {e.break_glass && (
                 <span className="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300">
                   <ShieldAlert className="size-3" />
@@ -577,7 +678,24 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                 </span>
               )}
             </div>
-            {sub && <p className="truncate text-xs text-muted-foreground">{sub}</p>}
+            {subText &&
+              (isRecordingLink ? (
+                // I4 — one tap target, the whole sub-line: opens this
+                // recording's thread (target rows ∪ the joined karute/pack
+                // rows, D1's join).
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTargetType('recording')
+                    setTargetId(e.target_id)
+                  }}
+                  className="block truncate border-b border-dotted border-muted-foreground/50 text-left text-xs text-muted-foreground hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400"
+                >
+                  {subText}
+                </button>
+              ) : (
+                <p className="truncate text-xs text-muted-foreground">{subText}</p>
+              ))}
           </div>
           <div className="shrink-0 text-right">
             {e.actor_type === 'system' || !e.actor_id ? (
@@ -706,32 +824,54 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
 
   return (
     <div ref={rootRef} className="space-y-4">
-      <div>
-        <h3 className="text-lg font-semibold">{t('label')}</h3>
-        <p className="text-sm text-muted-foreground">{t('description')}</p>
-      </div>
-
-      {/* Dispute-view chip — present only via the per-customer deep-link. */}
-      {targetId && (
-        <div className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-sm text-sky-700 dark:text-sky-300">
-          <Eye className="size-4 shrink-0" />
-          <span className="flex-1">{t('targetFilter')}</span>
+      {/* I4 — a thread (either kind) swaps the section label for a back
+       *  button + a title naming what the thread is about; the plain feed
+       *  keeps today's label/description. */}
+      {targetId ? (
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              setTargetId(null)
-              setIncludeViews(false)
-            }}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium hover:bg-sky-500/10"
+            onClick={closeTarget}
+            aria-label={t('clearTarget')}
+            className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted"
           >
-            <X className="size-3.5" />
-            {t('clearTarget')}
+            <ArrowLeft className="size-4" />
           </button>
+          <h3 className="text-lg font-semibold">
+            {targetType === 'recording' ? t('thread.title') : t('thread.customerTitle')}
+          </h3>
+        </div>
+      ) : (
+        <div>
+          <h3 className="text-lg font-semibold">{t('label')}</h3>
+          <p className="text-sm text-muted-foreground">{t('description')}</p>
         </div>
       )}
 
+      {/* Dispute-view banner — customer thread only; the recording thread's
+       *  own title above already says what this view is (⚖ NO I8: no chip,
+       *  no door, no explanation sentence beyond this existing line). */}
+      {targetId && targetType === 'customer' && (
+        <div className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-sm text-sky-700 dark:text-sky-300">
+          <Eye className="size-4 shrink-0" />
+          <span className="flex-1">{t('targetFilter')}</span>
+        </div>
+      )}
+
+      {/* I4 — the honest partial line: some of this recording's own history
+       *  could not be walked (a failed recording lookup, or an inner walk
+       *  that hit its page cap). Reuses the section's own loading idiom
+       *  while the read is in flight — this only shows once it settles. */}
+      {targetId && targetType === 'recording' && threadPartial && !loading && (
+        <p className="text-xs text-muted-foreground">{t('thread.partial')}</p>
+      )}
+
       {/* Toolbar (§11 filters, owner-vocabulary form): category + person
-       *  dropdowns, 期間 segments, the two on/off filters as icon chips. */}
+       *  dropdowns, 期間 segments, the two on/off filters as icon chips.
+       *  Hidden inside a thread — the mock's sub-page carries no toolbar of
+       *  its own; the underlying filter STATE still applies server-side
+       *  (D1's passesThreadFilters), only the chrome is hidden. */}
+      {!targetId && (
       <div className="flex flex-wrap items-center gap-2">
         <ToolbarSelect
           label={t('categoryLabel')}
@@ -794,10 +934,12 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           {t('breakGlass')}
         </FilterChip>
       </div>
+      )}
 
       {/* Summary strip — 「何か問題は？」 answered before the rows. Amber and
-       *  red are one-tap filters straight to those events. */}
-      {!error && !actorId && (
+       *  red are one-tap filters straight to those events. Hidden inside a
+       *  thread, same as the toolbar above. */}
+      {!error && !actorId && !targetId && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-baseline gap-1.5 rounded-lg border border-border bg-background px-3.5 py-2">
             <span className="text-lg font-semibold leading-none tabular-nums">
@@ -866,6 +1008,12 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
         </div>
       )}
 
+      {/* I5 — one muted line naming the filter window, under the strip.
+       *  Hidden with it (same actorId/targetId gates). */}
+      {!error && !actorId && !targetId && (
+        <p className="text-xs text-muted-foreground/70">{scopeLineText()}</p>
+      )}
+
       {error ? (
         <div className="rounded-lg border border-dashed border-border/50 bg-card/30 px-6 py-10 text-center text-sm text-muted-foreground">
           {t(error === 'forbidden' ? 'errorForbidden' : 'errorLoad')}
@@ -889,7 +1037,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
               </span>
             </div>
             <ul className="divide-y divide-border/60 rounded-xl border border-border bg-card">
-              {day.events.map((e) => renderEventRow(e))}
+              {foldRepeats(day.events).map((group) => renderEventGroup(group))}
             </ul>
           </div>
         ))
