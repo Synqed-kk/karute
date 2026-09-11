@@ -25,6 +25,7 @@ import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { isOwnAudioKey, parseRecordingKey } from '@/lib/recording/key-grammar'
 import { readStaffDiscard } from '@/lib/recording/staff-discard'
+import { hasRememberedEmptyTranscript } from '@/lib/jobs/empty-transcript-memory'
 import {
   AI_SPEND_LIMIT,
   DISCARDED_BY_STAFF,
@@ -153,6 +154,29 @@ async function processJob(job: RecordingJob): Promise<string> {
   // all five doors share one place, and a refusal leaves here as AI_SPEND_LIMIT.
   const { consent } = await synqed.customers.getConsent(payload.customer_id)
   if (!isConsentCurrent(consent)) throw new Error(CONSENT_REQUIRED_ERROR)
+
+  // Layer A memory: object-keyed — a re-arm of the SAME audio_path skips the
+  // paid call; no door refuses it (would push the phone to its own in-tab
+  // PAID fallback, global-pipeline.ts:536-537). One page, 50 rows, newest
+  // first (CORE-19 removes that horizon later); a read failure just pays
+  // again. THE FIRST ROUND STILL PAYS its three attempts (written only at
+  // exhaustion) ≈ 99¢/silent take, then zero — do not "fix" round one here.
+  let remembered: Awaited<ReturnType<typeof synqed.audit.list>> | null = null
+  try {
+    remembered = await synqed.audit.list({
+      target_type: 'recording',
+      target_id: job.recording_session_id,
+      category: 'recording',
+      page_size: 50,
+    })
+  } catch (err) {
+    remembered = null
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn('[jobs] empty-transcript memory read failed; transcribing as before:', message)
+  }
+  if (remembered && hasRememberedEmptyTranscript(remembered.events, payload.audio_path)) {
+    throw new Error('EMPTY_TRANSCRIPT')
+  }
 
   // Signed READ url for Deepgram — server-minted from the storage path, same
   // by-construction SSRF posture as the facade transcribe twin.
@@ -474,7 +498,12 @@ async function upsertKaruteRecord(
  *  a second row under the same requestId — a genuinely new failure round,
  *  not a duplicate of this one. The reader folds rows sharing (action,
  *  target, request_id) in PR D, and core's Idempotency-Key (CORE-19) will
- *  make it one row at the source later; neither exists yet. */
+ *  make it one row at the source later; neither exists yet.
+ *
+ *  Layer A (PACKET-MIC-SILENCE-LAYER-A-2026-09-11.md subject 1): the row now
+ *  also carries `audio_path` — that field is this row's memory key, keyed on
+ *  the OBJECT and never the session, because a retake mints a new object and
+ *  must still pay for its own transcription. */
 function emitTranscribeFailedIfExhausted(job: RecordingJob, message: string): void {
   if (message === DISCARDED_BY_STAFF || message === AI_SPEND_LIMIT) return
   if (message === DISCARD_LEDGER_UNREADABLE) return
@@ -494,6 +523,7 @@ function emitTranscribeFailedIfExhausted(job: RecordingJob, message: string): vo
       customer_id: payload?.customer_id ?? null,
       staff_id: payload?.staff_id ?? null,
       appointment_id: payload?.appointment_id ?? null,
+      audio_path: payload?.audio_path ?? null,
       attempt: job.attempts,
       max_attempts: job.max_attempts,
       reason: message === 'EMPTY_TRANSCRIPT' ? 'empty_transcript' : 'other',
