@@ -771,8 +771,11 @@ describe('今日の運営 reskin layer — slice ④ (motion · the sliding thum
     const group = SRC_CODE.slice(SRC_CODE.indexOf('aria-label="ボード表示"'))
     expect(group.indexOf('<i className="seg-thumb"')).toBeLessThan(group.indexOf('.map('))
     expect(group.indexOf('ref={segWrapRef}')).toBeLessThan(group.indexOf('<i className="seg-thumb"'))
-    // THE BOARD'S OWN CONSTANTS, not SettingsScreen's `.3` / `.4`.
-    expect((SRC_CODE.match(/\{ response: 0\.22, damping: 1\.0, eps: 0\.3, reduced \}/g) ?? [])).toHaveLength(2)
+    // THE EPSILON IS THE BOARD'S (`.3`, the mock's, finer than SettingsScreen's
+    // `.4`); THE RESPONSE IS THE FAMILY'S `.3` and may not go back to the mock's
+    // `.22` — the shared integrator's clamped step diverges there (G-1, and the
+    // behavioural pin below drives it rather than reading it).
+    expect((SRC_CODE.match(/\{ response: 0\.3, damping: 1\.0, eps: 0\.3, reduced \}/g) ?? [])).toHaveLength(2)
     // reduced motion comes from the screen's own reader, never a second one.
     expect(SRC_CODE).toContain('const reduced = holdReduced()')
     // both springs are stopped on unmount, and the old pair is stopped before a

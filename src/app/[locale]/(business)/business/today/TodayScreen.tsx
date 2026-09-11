@@ -1279,10 +1279,22 @@ export function TodayScreen(props: TodayProps) {
    *  when nothing is pressed, `stop()` on unmount — because a second shape for
    *  the same widget is how the two drift apart.
    *
-   *  ⚠ THE CONSTANTS ARE THIS BOARD'S, NOT SETTINGS'. `response: 0.22` /
-   *  `eps: 0.3` are the approved mock's own values (TODAY-RESKIN-MOCK-v1
-   *  :3276–3277); SettingsScreen uses `.3` / `.4` for THEIR thumb. This control
-   *  is pressed tens of times a day and was tuned faster on purpose.
+   *  ⚠ THE EPSILON IS THIS BOARD'S; THE RESPONSE IS THE FAMILY'S, AND HAS TO BE.
+   *  `eps: 0.3` is the approved mock's own value (TODAY-RESKIN-MOCK-v1
+   *  :3276–3277) — SettingsScreen stops at `.4` for THEIR thumb, and this
+   *  control is pressed tens of times a day, so it is worth the finer arrival.
+   *
+   *  `response`, though, is the FAMILY's `0.3` and NOT the mock's `0.22`. The
+   *  shared integrator clamps `dt` to 1/30 s and steps with semi-implicit
+   *  Euler, which at critical damping is stable only while `2π·dt/response`
+   *  stays under 0.828. `0.22` puts it at 0.95 — eigenvalues 0.63 and −1.44, so
+   *  every clamped frame multiplies the error by 1.44 AND flips its sign: the
+   *  thumb does not settle, it swings wider. The clamp is hit by any frame of
+   *  33 ms or more — a 30 Hz display, the first frame after a background tab
+   *  wakes, and this board's own heavy drag frames (124–228 ms on a 30-lane
+   *  day). `0.3` puts it at 0.70 — 0.69 and −0.57, stable with margin.
+   *  The mock was tuned on a canvas that never clamped anything, so its 0.22
+   *  never met the step that breaks it. Greptile's P1 on #879, upheld.
    *
    *  ⚠ NO `if (ref.current)` GUARD ON THE BUILD, and that is the fix rather than
    *  a style choice: `makeSpring` captures `reduced` at construction, so a guard
@@ -1320,8 +1332,8 @@ export function TodayScreen(props: TodayProps) {
     segX.current?.stop()
     segW.current?.stop()
     const reduced = holdReduced()
-    segX.current = makeSpring((v) => { segGeom.current.x = v; paint() }, { response: 0.22, damping: 1.0, eps: 0.3, reduced })
-    segW.current = makeSpring((v) => { segGeom.current.w = v; paint() }, { response: 0.22, damping: 1.0, eps: 0.3, reduced })
+    segX.current = makeSpring((v) => { segGeom.current.x = v; paint() }, { response: 0.3, damping: 1.0, eps: 0.3, reduced })
+    segW.current = makeSpring((v) => { segGeom.current.w = v; paint() }, { response: 0.3, damping: 1.0, eps: 0.3, reduced })
     // A rebuilt spring starts at 0, so the thumb is re-SEATED at its place
     // rather than travelling there from the left edge.
     segSeated.current = false
