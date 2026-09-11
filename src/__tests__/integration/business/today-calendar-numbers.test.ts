@@ -430,24 +430,40 @@ describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an 
   const CELLS_AT = SCREEN_SRC.indexOf('{monthCells.days.map(')
   const CELLS = SCREEN_SRC.slice(CELLS_AT, SCREEN_SRC.indexOf('</div>', CELLS_AT))
 
+  // THE UNCOVERED BRANCH ITSELF — from `covered === false` down to the covered
+  // day's <Link>, and nothing else. Slicing this narrowly is the point: the old
+  // pin read both whole files, so it stayed green while the class was deleted
+  // from the branch, as long as the words survived anywhere (a comment, another
+  // cell). This one is red the moment THIS branch stops carrying them.
+  const UNCOVERED = CELLS.slice(CELLS.indexOf('covered === false')).split('<Link')[0]
+
+  // …and WHERE that branch authors its face. It either spells the class and the
+  // sentence itself (#890) or hands the day to a helper and renders the answer
+  // (#891 lifts them into `calendarCellFace`). Follow the ONE reference rather
+  // than pin either spelling — but follow it to that helper's own uncovered
+  // line, never to the whole file.
+  const FACE_SRC = (() => {
+    const via = UNCOVERED.match(/\{(\w+)\.className\}/)?.[1]
+    if (!via) return UNCOVERED
+    const fn = CELLS.match(new RegExp(`const ${via} = (\\w+)\\(`))?.[1] ?? ''
+    const LIB = readFileSync('src/app/[locale]/(business)/business/today/today-interactions.ts', 'utf8')
+    const at = LIB.indexOf(`export function ${fn}(`)
+    const body = at < 0 ? '' : LIB.slice(at, LIB.indexOf('\nexport ', at + 1))
+    return body.split('\n').find((l) => l.includes('covered === false')) ?? ''
+  })()
+
   it('the uncovered day is drawn as a dated, unpressable cell — never a link', () => {
     expect(CELLS_AT).toBeGreaterThan(-1)
     expect(CELLS).toContain('d.covered === false')
-    // The uncovered branch is everything before the covered day's <Link>.
-    const [blank] = CELLS.split('<Link')
-    expect(blank).toContain('<span')
-    expect(blank).not.toContain('href')
-    expect(blank).not.toContain('dayHref')
+    expect(UNCOVERED).toContain('<span')
+    expect(UNCOVERED).not.toContain('href')
+    expect(UNCOVERED).not.toContain('dayHref')
   })
 
-  it('and it says 表示範囲外 out loud, in its own paint', () => {
-    // The face is authored wherever the face lives — in the JSX today, in
-    // today-interactions.ts once #891 lifts it into `calendarCellFace`. So the
-    // pin is on the pair existing SOMEWHERE in the月カレンダー's own sources,
-    // never on which file holds them or how they are spelt into the element.
-    const FACE = SCREEN_SRC + readFileSync('src/app/[locale]/(business)/business/today/today-interactions.ts', 'utf8')
-    expect(FACE).toContain('表示範囲外')
-    expect(FACE).toContain('cal-cell unknown')
+  it('and THAT branch — not some other line — says 表示範囲外, in its own paint', () => {
+    expect(FACE_SRC).not.toBe('')
+    expect(FACE_SRC).toMatch(/\bunknown\b/)
+    expect(FACE_SRC).toContain('表示範囲外')
   })
 
   it('the cell has a paint of its own, paler than 定休', () => {
