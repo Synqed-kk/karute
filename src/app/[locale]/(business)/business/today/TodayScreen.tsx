@@ -156,6 +156,7 @@ import {
   unparkOutcome,
   withPriceFact,
   foreignStoreRefusal,
+  type CalendarWindowDay,
   type GuardRail,
   type LandingFloor,
   type LandingQuestion,
@@ -615,7 +616,7 @@ export interface TodayProps {
   cases: Record<string, InspectorCase>
   kpi: { count: string; revenue: string; utilization: string; note: string }
   hold: { summary: string; checks: string[]; bookingId: string } | null
-  calendar: Array<{ offset: number; y: number; m: number; d: number; wd: number; closed: boolean; free: number; booked: number }>
+  calendar: readonly CalendarWindowDay[]
   dialogs: {
     recovery: { rows: Array<[string, string]> } | null
     checkout: { title: string; sub: string; amount: string; rows: Array<[string, string]>; bookingId: string } | null
@@ -7494,18 +7495,34 @@ export function TodayScreen(props: TodayProps) {
                         <span className={`wd${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`} key={w}>{w}</span>
                       ))}
                       {Array.from({ length: monthCells.lead }, (_, i) => <span key={`lead-${i}`} />)}
-                      {monthCells.days.map((d) => (
-                        <Link
-                          key={`${d.y}-${d.m}-${d.d}`}
-                          href={dayHref(d.offset)}
-                          className={`cal-cell ${d.closed ? 'closedday' : d.free > 0 ? 'open' : 'full'}${d.offset === props.dayOffset ? ' cur' : ''}${d.offset === 0 ? ' today' : ''}`}
-                          aria-label={`${d.m}月${d.d}日${d.closed ? '、定休日' : d.free === 0 ? '、空きなし' : `、空き枠${d.free}件`}`}
-                          onClick={() => setPop('')}
-                        >
-                          <b>{d.d}</b>
-                          <small>{d.closed ? '定休' : d.free > 0 ? d.free : '満'}</small>
-                        </Link>
-                      ))}
+                      {monthCells.days.map((d) =>
+                        // A day the roster door never answered for. It is DATED
+                        // and it is DRAWN — dropping it printed a month with
+                        // holes — but it is not a link and it carries no count,
+                        // because there is no count. `role="img"` is what makes
+                        // a bare <span> announce its label at all.
+                        d.covered === false ? (
+                          <span
+                            key={`${d.y}-${d.m}-${d.d}`}
+                            className="cal-cell unknown"
+                            role="img"
+                            aria-label={`${d.m}月${d.d}日、表示範囲外`}
+                          >
+                            <b>{d.d}</b>
+                          </span>
+                        ) : (
+                          <Link
+                            key={`${d.y}-${d.m}-${d.d}`}
+                            href={dayHref(d.offset)}
+                            className={`cal-cell ${d.closed ? 'closedday' : d.free > 0 ? 'open' : 'full'}${d.offset === props.dayOffset ? ' cur' : ''}${d.offset === 0 ? ' today' : ''}`}
+                            aria-label={`${d.m}月${d.d}日${d.closed ? '、定休日' : d.free === 0 ? '、空きなし' : `、空き枠${d.free}件`}`}
+                            onClick={() => setPop('')}
+                          >
+                            <b>{d.d}</b>
+                            <small>{d.closed ? '定休' : d.free > 0 ? d.free : '満'}</small>
+                          </Link>
+                        ),
+                      )}
                     </div>
                     <div className="cal-legend">数字＝その日の空き枠 ・ 満＝空きなし ・ 定休＝定休日（{props.closedWeekdayLabel}）</div>
                   </div>

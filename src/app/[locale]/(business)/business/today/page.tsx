@@ -57,7 +57,7 @@ import {
   type BoardBooking,
   type BuildInput,
 } from '@/business/lib/today-board'
-import { canReleaseHeld, overrideLevelFor } from './today-interactions'
+import { canReleaseHeld, overrideLevelFor, type CalendarWindowDay } from './today-interactions'
 import { TodayScreen, type DecisionCard, type InspectorCase, type TodayProps } from './TodayScreen'
 import './today.css'
 
@@ -209,22 +209,21 @@ export default async function TodayPage({
       (bookedByDay.get(key) ?? 0) + (new Date(a.ends_at).getTime() - new Date(a.starts_at).getTime()) / 60_000,
     )
   }
-  const calendar = Array.from({ length: WINDOW * 2 + 1 }, (_, i) => i - WINDOW).flatMap((offset) => {
+  const calendar: CalendarWindowDay[] = Array.from({ length: WINDOW * 2 + 1 }, (_, i) => i - WINDOW).map((offset) => {
     const dayKey = todayKey + offset
-    // ⚠ A DAY THE DOOR HAS NO ROSTER FOR IS NOT A ROW. `listShiftsByDay` returns
-    // only the days it actually holds, and `?? []` here would have turned 「we do
-    // not know」 into an empty roster — the cell then painted 満, a capacity of
-    // zero nobody computed.
-    //
-    // WHAT THE OPERATOR SEES when a day is missing, on THIS PR alone: the月
-    // カレンダー simply does not print that date, exactly as it already does for
-    // a date outside the ±45-day window today — the month that opens is still
-    // the right month (`shownYm` below is the grid's anchor, not the rows). The
-    // face PR (#891) draws the same day as a dated, unpressable 表示範囲外 cell
-    // instead of leaving a hole.
-    const shifts = shiftsByDay.get(dayKey)
-    if (!shifts) return []
     const p = jstYmd(new Date(now.getTime() + offset * DAY_MS))
+    // ⚠ A DAY THE DOOR HAS NO ROSTER FOR STILL GETS A ROW — one that says it has
+    // no numbers. `listShiftsByDay` returns only the days it actually holds, and
+    // `?? []` here would have turned 「we do not know」 into an empty roster: the
+    // cell then painted 満, a capacity of zero nobody computed. Dropping the row
+    // instead (what this loop did until 2026-09-12) cut the date out of the
+    // month entirely, and a month with holes in it is a lie about the month.
+    //
+    // WHAT THE OPERATOR SEES, on THIS PR alone: the date is drawn in its own
+    // box, greyed and unpressable, reading 表示範囲外 — no count, no 定休, no
+    // link. The face PR (#891) gives that same row its studio paint.
+    const shifts = shiftsByDay.get(dayKey)
+    if (!shifts) return { offset, ...p, covered: false }
     // 定休日 has no capacity to advertise — a closed day showing free slots is
     // the impossible state, not a rounding question.
     const closed = p.wd === planes.closedWeekday
@@ -238,7 +237,7 @@ export default async function TodayPage({
           rosterAvailableMinutes(staff, shifts, planes.staffQualifications, absenceForDay(dayKey, absenceByDay)),
           bookedByDay.get(dayKey) ?? 0,
         )
-    return [{ offset, ...p, closed, free, booked: countByDay.get(dayKey) ?? 0 }]
+    return { offset, ...p, closed, free, booked: countByDay.get(dayKey) ?? 0 }
   })
 
   // ── C: ops strip ──────────────────────────────────────────────────────────
