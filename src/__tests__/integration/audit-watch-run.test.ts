@@ -169,6 +169,7 @@ describe('watchOneBusiness — recording.karute_missing', () => {
       skipped: 0,
       truncated: true,
       error: false,
+      unchecked: 0,
       list: [],
     })
     expect(auditMock).not.toHaveBeenCalled()
@@ -220,6 +221,44 @@ describe('watchOneBusiness — recording.karute_missing', () => {
     const result = await watchOneBusiness('biz-1', NOW, 'write', FAR_DEADLINE)
     expect(result.error).toBe(true)
     expect(result.truncated).toBe(false)
+    expect(auditMock).not.toHaveBeenCalled()
+  })
+
+  it('F-e: a session past the job-probe cap (probeIncomplete) never reaches the candidate list, though its shape reads failed', async () => {
+    // No audio_storage_path anywhere here — this exercises the JOB-probe cap
+    // (inbox-read.ts's MAX_JOB_PROBES residue) exclusively, never storage.
+    const client = makeClient()
+    const baseMs = new Date(OLD).getTime()
+    client.recordings.list = jest.fn(async () => ({
+      recordings: Array.from({ length: 101 }, (_, i) => {
+        const created = new Date(baseMs - i * 60_000).toISOString()
+        return {
+          id: `sess-${i}`,
+          business_id: 'biz-1',
+          customer_id: 'cust-1',
+          store_id: 'store-1',
+          staff_id: 'staff-1',
+          appointment_id: null,
+          audio_storage_path: null,
+          duration_seconds: 300,
+          status: 'RECORDED',
+          created_at: created,
+          updated_at: created,
+        }
+      }),
+      total: 101,
+    }))
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+
+    const result = await watchOneBusiness('biz-1', NOW, 'dry', FAR_DEADLINE)
+    // The 100 newest get job-probed (404 → a genuine `failed` candidate each);
+    // the 101st (oldest, sess-100) is past MAX_JOB_PROBES and marked
+    // probeIncomplete — without the F-e filter it reads the exact same shape
+    // (jobStatus null, jobProbeFailed false) and would be a 101st candidate.
+    expect(result.unchecked).toBe(1)
+    expect(result.candidates).toBe(100)
+    expect(result.list).toHaveLength(100)
+    expect(result.list.some((c) => c.targetId === 'sess-100')).toBe(false)
     expect(auditMock).not.toHaveBeenCalled()
   })
 })

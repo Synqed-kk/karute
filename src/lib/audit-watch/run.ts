@@ -55,6 +55,11 @@ export interface BusinessWatchResult {
    *  rule: a run that could not see everything says so, a run that simply
    *  ran out of time is still a 200). */
   error: boolean
+  /** F-e: sessions this run could not fully judge (a job/audio probe past its
+   *  cap, or a storage probe that threw/answered 'unknown') and therefore
+   *  dropped before they could become a candidate — so the dry list shows how
+   *  many were left unjudged rather than silently under-counting. */
+  unchecked: number
   list: WatchCandidate[]
 }
 
@@ -143,6 +148,7 @@ export async function watchOneBusiness(
     skipped: 0,
     truncated: false,
     error: false,
+    unchecked: 0,
     list: [],
   }
   if (Date.now() >= deadline) {
@@ -154,7 +160,18 @@ export async function watchOneBusiness(
   try {
     // (a) recording.karute_missing candidates.
     const sessions = await readRecordingsInbox({ synqed, staffId: null, businessId, now })
-    const rows = deriveInboxRows({ sessions, takes: [], now: now.getTime() })
+    const allRows = deriveInboxRows({ sessions, takes: [], now: now.getTime() })
+    // F-e: a session this pass could not fully judge reads `failed`/
+    // `processing` shape-identically to a real miss (find-karute-missing.ts's
+    // own ponytail note) — never write a row for one; count it instead so the
+    // dry list shows how many were left unjudged.
+    const incompleteIds = new Set(
+      sessions.filter((s) => s.probeIncomplete).map((s) => s.recordingSessionId),
+    )
+    result.unchecked = incompleteIds.size
+    const rows = allRows.filter(
+      (r) => r.recordingSessionId === null || !incompleteIds.has(r.recordingSessionId),
+    )
     const missing = findKaruteMissing({
       rows,
       now: now.getTime(),

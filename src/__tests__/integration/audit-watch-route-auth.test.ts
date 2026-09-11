@@ -16,6 +16,7 @@ const watchOneBusiness = jest.fn(async (businessId: string, now: Date, mode: 'dr
   skipped: 0,
   truncated: false,
   error: false,
+  unchecked: 0,
   list: [] as unknown[],
 }))
 jest.mock('@/lib/audit-watch/run', () => ({
@@ -103,6 +104,7 @@ describe('GET /api/audit-watch auth', () => {
       skipped: 0,
       truncated: false,
       error: businessId === 'biz-1',
+      unchecked: 0,
       list: [],
     }))
     await testApiHandler({
@@ -128,6 +130,7 @@ describe('GET /api/audit-watch auth', () => {
       skipped: 0,
       truncated: true,
       error: false,
+      unchecked: 0,
       list: [],
     }))
     await testApiHandler({
