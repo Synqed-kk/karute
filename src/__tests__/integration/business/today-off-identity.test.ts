@@ -248,21 +248,49 @@ function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number],
       end: busiestT + 60,
       now: NOW_MIN,
     }),
+    // allocKeep/allocKeepPrivate exercise rule 1 of allocateBed's own three
+    // (「keep the booking's current bed when it is free」) — `alloc`/`allocFull`
+    // both pass `currentBed: null` and never reach it.
+    allocKeep: allocateBed(lanes, {
+      id: firstBooking.id,
+      currentBed: firstBooking.resourceId,
+      stores: bookingStaffLane?.stores ?? null,
+      requiresPrivate: need,
+      start: firstBooking.startMinute,
+      end: firstBooking.endMinute,
+      now: NOW_MIN,
+    }),
+    allocKeepPrivate: allocateBed(lanes, {
+      id: firstBooking.id,
+      currentBed: firstBooking.resourceId,
+      stores: bookingStaffLane?.stores ?? null,
+      requiresPrivate: true,
+      start: firstBooking.startMinute,
+      end: firstBooking.endMinute,
+      now: NOW_MIN,
+    }),
   }
 
   // 9 — sellLayerFor (covers deriveSellableCells). Same opts shape as the
   // sibling's call at :786; gridMin/hi/hqMin read off the same fixture door
   // (readDayPlanes) the page itself reads them from, since this suite never
   // renders the page.
-  const sellLayerForValue = sellLayerFor(lanes, hours, {
+  const sellLayerOpts = {
     gridMin: opsConfig.reserveStartGridMin,
-    nowMinute: NOW_MIN,
     locked: [],
     showPrice: true,
     hi: pricingRule.hq_max,
     hqMin: pricingRule.hq_min,
     depth: 9,
-  })
+  } as const
+  // `atOpen` alone leaves 「過ぎた時間は売れない」 untested: NOW_MIN (09:00) sits
+  // before `hours.open` (10:00), so `Math.max(open, …)` is always dominated by
+  // `open` and the now-clamp never bites; `midDay` (a fixed mid-day instant
+  // derived from the fixture's own opening hour) makes it bite.
+  const sellLayerForValue = {
+    atOpen: sellLayerFor(lanes, hours, { ...sellLayerOpts, nowMinute: NOW_MIN }),
+    midDay: sellLayerFor(lanes, hours, { ...sellLayerOpts, nowMinute: hours.open + 150 }),
+  }
 
   // 10 — capacity-ledger bedTruthViews. Captured before any other call on
   // this `world` (own block, `world`/`bedWorld` used nowhere else); never

@@ -39,14 +39,14 @@
         "n": 9
       },
       "roomAllocation": {
-        "sha256": "2eb4ff24dfa9026da36ef123a2baef6b81876962a79867c30456934c27b412fb",
-        "bytes": 1503,
-        "n": 4
+        "sha256": "0abd1afb3a6aa34c6816af49062d2a17c6f81b6e91a84a9ba4d3065cf69cb48d",
+        "bytes": 1660,
+        "n": 6
       },
       "sellLayerFor": {
-        "sha256": "cdbf7b35c2493b98839afa314e416700b4bb0c9c51a61a425abf371976e67be3",
-        "bytes": 4945,
-        "n": 7
+        "sha256": "45fda3093c175f6ba6bc7d4f24a8559ef4a8fbf14c0b6be631650a6e756c0667",
+        "bytes": 7190,
+        "n": 2
       },
       "bedTruthViews": {
         "sha256": "07b575ae5c4875b11522cc8963ede904eae3c8ee0f7a013642739cebc6c0ea9b",
@@ -96,14 +96,14 @@
         "n": 4
       },
       "roomAllocation": {
-        "sha256": "19f395014c5d3e4dfe2c0853e19d2e6157da2d11cb054df168a6c7dbbea5f290",
-        "bytes": 650,
-        "n": 4
+        "sha256": "b1396d04c2cecbff39aac7f0fe6dc6b725073bb596e66fb6dd0490d981b0e6bb",
+        "bytes": 831,
+        "n": 6
       },
       "sellLayerFor": {
-        "sha256": "3d5bb1b46d3e79589efe2ca06dc356aba8070774da431e4b3a0585063c3b4417",
-        "bytes": 2944,
-        "n": 7
+        "sha256": "9d3ad43173f0499a0d95acdb898d570526e5610c183f701fcd91bcfe9f790e89",
+        "bytes": 5056,
+        "n": 2
       },
       "bedTruthViews": {
         "sha256": "c17d5fb553e5aa879ef423a47f89f968fec17cf88e2762a027cd1811a1995037",
@@ -153,14 +153,14 @@
         "n": 11
       },
       "roomAllocation": {
-        "sha256": "250160e2b301e8b52e20272435b6f79a239715f47ddfd6c44c5fdb22276377a7",
-        "bytes": 358,
-        "n": 4
+        "sha256": "238b12a3f42283b6f87889a42659b319b48a193c3bcd5049ffc5d0b22372da85",
+        "bytes": 515,
+        "n": 6
       },
       "sellLayerFor": {
-        "sha256": "d9e7b2376fd4b02ecac40039ca2fc4d6c318c7748d102eb37cb630a4fa5adc64",
-        "bytes": 7045,
-        "n": 7
+        "sha256": "cb7b3a0328ced9a58341ed371a04f406afa744d7cfb87cfb8acd637efd9fa1d5",
+        "bytes": 10536,
+        "n": 2
       },
       "bedTruthViews": {
         "sha256": "25a772bc922a73ab0786228ec830e1fed6c4943e52c2faafa52b81da19cce7c7",
