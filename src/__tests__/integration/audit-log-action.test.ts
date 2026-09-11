@@ -1577,6 +1577,19 @@ describe('listAuditLog — PR D1 recording thread join (amendment 1 F6)', () => 
     expect(res.total).toBe(3)
     expect(res.hasMore).toBe(false)
     expect(res.threadPartial).toBe(false)
+    // Fix round 1, subject 8 (lens m9b): the one-receipt-per-thread-read
+    // property, pinned with a RUNTIME spy across a full read that exercises
+    // BOTH inner walks (karute + customer) — the inner reads call
+    // synqed.audit.list directly (source-pinned separately), never a nested
+    // listAuditLogWithClient that would mint its own receipt per call.
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'privacy.audit_log.view',
+        targetType: 'recording',
+        targetId: RECORDING_ID,
+      }),
+    )
   })
 
   it('a failed recordings.get degrades to target rows only, with threadPartial:true', async () => {
