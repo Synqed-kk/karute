@@ -124,7 +124,11 @@ describe('process-recording worker — recording.transcribe_failed (subject 6, f
   it('core\'s fail() verdict says FAILED + a generic failure → emits reason "other"', async () => {
     runMeteredTranscription.mockRejectedValueOnce(new Error('provider timeout'))
     claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
-    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED' })
+    // attempts (4) > max_attempts (3): a stale-claim reclaim can push attempts
+    // past the max before core marks the job FAILED (spent = attempts >=
+    // maxAttempts) — distinct values here so a swapped attempt/max_attempts
+    // in the emitted detail cannot hide behind an equal-equal fixture.
+    fail.mockResolvedValueOnce({ ...baseJob, status: 'FAILED', attempts: 4 })
 
     await processRecordingJobs(10_000)
 
@@ -147,7 +151,7 @@ describe('process-recording worker — recording.transcribe_failed (subject 6, f
           customer_id: 'cust-1',
           staff_id: 'staff-1',
           appointment_id: 'ap-1',
-          attempt: 3,
+          attempt: 4,
           max_attempts: 3,
           reason: 'other',
         }),
