@@ -745,7 +745,11 @@ describe('double tap on 破棄する', () => {
 
 // ── 4. The gate is not optional ──────────────────────────────────
 
-describe('there is no way past the gate', () => {
+// ⚖ FIX ROUND 2 (F6): the honest name — a below-floor recorder/banner take
+// now has a way past this gate (the one-tap), by design. This describe is
+// about the cases that still always face it: AT OR OVER the floor (any
+// origin), or at review / pipeline-error (any duration, per F1).
+describe('there is no way past the gate — AT OR OVER the floor, or at review / pipeline-error', () => {
   it('a blank reason cannot be confirmed at either chokepoint', async () => {
     for (const trigger of ['discard', 'review-discard']) {
       mockPipelineState = trigger === 'review-discard' ? 'review' : 'idle'

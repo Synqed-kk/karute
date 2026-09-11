@@ -69,7 +69,7 @@ const CANON_BLOCK_JA = {
   // only ever reaches this dialog's failure fallback as the typed-reason
   // field stays empty there), oneTapDone is the toast shown after a one-tap
   // success. Pinned here, byte-exact, same as every other line in this block.
-  autoReasonBelowFloor: '誤操作（10秒未満の録音のため自動記録）',
+  autoReasonBelowFloor: '誤操作（{n}秒未満の録音のため自動記録）',
   oneTapDone: '録音を破棄しました。破棄の記録（日時・担当者）が残ります。',
 }
 const CANON_BLOCK_EN = {
@@ -82,7 +82,7 @@ const CANON_BLOCK_EN = {
   failed: 'Could not record the discard. Please try again.',
   takeChanged:
     'This recording has already gone to transcription, so it could not be discarded.',
-  autoReasonBelowFloor: 'Accidental tap (under 10 seconds — recorded automatically)',
+  autoReasonBelowFloor: 'Accidental tap (under {n} seconds — recorded automatically)',
   oneTapDone: 'Recording discarded. A discard record (date/time, staff) is kept.',
 }
 /** Phase B's line. Ships in B1, WITH the behaviour it describes — never here. */

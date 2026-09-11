@@ -1123,7 +1123,13 @@ export function RecordPageView({
       setDiscardReasonSubmitting(true)
       setDiscardReasonError(null)
       try {
-        const outcome = await runDiscardWithReason(origin, t('discardReason.autoReasonBelowFloor'))
+        // ⚖ FIX ROUND 2 (F4): { n: BELOW_FLOOR_SEC }, never a second literal
+        // 10 baked into the stored text — same pattern as the sibling
+        // transcriptBelowFloor (DiscardReasonsSection.tsx).
+        const outcome = await runDiscardWithReason(
+          origin,
+          t('discardReason.autoReasonBelowFloor', { n: BELOW_FLOOR_SEC }),
+        )
         if (outcome === 'ok') {
           toast.success(t('discardReason.oneTapDone'))
         } else {
