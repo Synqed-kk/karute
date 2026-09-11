@@ -165,14 +165,18 @@ describe('process-recording worker — Layer A memory skip (subject 2)', () => {
     expect(complete).toHaveBeenCalled()
   })
 
-  it('(c) the audit.list read rejects → the provider is still called (a memory blip never costs a karute)', async () => {
+  it('(c) the audit.list read rejects → the provider is still called (a memory blip never costs a karute), and the switch-off is warned once', async () => {
     auditList.mockRejectedValue(new Error('core unreachable'))
     claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
     await processRecordingJobs(10_000)
 
     expect(runMeteredTranscription).toHaveBeenCalled()
     expect(complete).toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toEqual(expect.stringContaining('empty-transcript memory'))
+    warn.mockRestore()
   })
 
   it('(d) a remembered row with reason "other" → the provider is still called', async () => {
