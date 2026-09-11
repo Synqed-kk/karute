@@ -78,6 +78,7 @@ jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(() => fakeClient) 
 
 import { processRecordingJobs } from '@/lib/jobs/process-recording'
 import { hasRememberedEmptyTranscript } from '@/lib/jobs/empty-transcript-memory'
+import { RESCUE_PREFIX } from '@/lib/recording/key-grammar'
 import { conformingKey } from './helpers/recording-key-fixtures'
 
 const AUDIO_PATH = conformingKey('biz-1')
@@ -134,6 +135,12 @@ describe('process-recording worker — Layer A memory skip (subject 2)', () => {
 
     await processRecordingJobs(10_000)
 
+    expect(auditList).toHaveBeenCalledWith({
+      target_type: 'recording',
+      target_id: 'sess-1',
+      category: 'recording',
+      page_size: 50,
+    })
     expect(runMeteredTranscription).not.toHaveBeenCalled()
     expect(fail).toHaveBeenCalledWith('job-1', 'EMPTY_TRANSCRIPT')
     expect(audit).toHaveBeenCalledWith(
@@ -223,5 +230,17 @@ describe('hasRememberedEmptyTranscript — the pure helper table', () => {
 
   it('no events → false', () => {
     expect(hasRememberedEmptyTranscript([], AUDIO_PATH)).toBe(false)
+  })
+
+  // Fix round 1, S1 (F1): the rescue key shape is RESCUE_PREFIX + the take's
+  // OWN key (key-grammar.ts:330) — a lookalike-substring compare would let a
+  // returning REAL take match its own rescue's remembered row and be refused.
+  it('a remembered RESCUE row must NOT match its own take’s real audio_path', () => {
+    const row = { ...match, detail: { ...match.detail, audio_path: `${RESCUE_PREFIX}${AUDIO_PATH}` } }
+    expect(hasRememberedEmptyTranscript([row] as never, AUDIO_PATH)).toBe(false)
+  })
+
+  it('a remembered TAKE row must NOT match a query for its own rescue key', () => {
+    expect(hasRememberedEmptyTranscript([match] as never, `${RESCUE_PREFIX}${AUDIO_PATH}`)).toBe(false)
   })
 })
