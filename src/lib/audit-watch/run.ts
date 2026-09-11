@@ -246,6 +246,12 @@ export async function watchOneBusiness(
         reason: row.reason ?? undefined,
       })
       if (mode === 'write') {
+        // P2-3: the row-level store (src/lib/audit.ts:50, the idiom every
+        // appointment emitter uses) so a store-scoped 監査ログ can see this
+        // row — never just inside detail. karuteMissingDetail already reads
+        // the recording for detail.store_id; reuse it instead of a second
+        // fetch.
+        const detail = await karuteMissingDetail(synqed, row, redemptions)
         audit({
           category: 'recording',
           action: 'recording.karute_missing',
@@ -254,8 +260,9 @@ export async function watchOneBusiness(
           businessId,
           targetType: 'recording',
           targetId,
+          storeId: typeof detail.store_id === 'string' ? detail.store_id : undefined,
           severity: 'notice',
-          detail: await karuteMissingDetail(synqed, row, redemptions),
+          detail,
           // P2-2: no day suffix — deterministic across runs (was ymdInJst(now),
           // the RUN's day, which changes daily for the same never-resolved
           // session; the packet's ceiling comment above assumed this already
@@ -287,6 +294,10 @@ export async function watchOneBusiness(
         costCentsEstimate: storm.costCentsEstimate,
       })
       if (mode === 'write') {
+        // P2-3: one extra per-candidate recording read fills the row-level
+        // store, same idiom as karuteMissingDetail — rare by construction (a
+        // storm event exists only when its source recording did too).
+        const recording = await synqed.recordings.get(storm.targetId).catch(() => null)
         audit({
           category: 'recording',
           action: 'recording.transcribe_storm',
@@ -295,6 +306,7 @@ export async function watchOneBusiness(
           businessId,
           targetType: 'recording',
           targetId: storm.targetId,
+          storeId: recording?.store_id ?? undefined,
           severity: 'notice',
           detail: {
             recording_session_id: storm.targetId,

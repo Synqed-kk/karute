@@ -121,6 +121,9 @@ describe('watchOneBusiness — recording.karute_missing', () => {
         // P2-2: no day suffix — one fact per target, ever (the run's day is
         // not the session's day, so a day suffix here was never stable).
         requestId: 'audit-watch:recording.karute_missing:sess-old',
+        // P2-3: the row-level store (never just inside detail) — so a
+        // branch-scoped 監査ログ can see it under the STORE ISOLATION LAW.
+        storeId: 'store-1',
         detail: expect.objectContaining({
           recording_session_id: 'sess-old',
           customer_id: 'cust-1',
@@ -302,7 +305,13 @@ describe('watchOneBusiness — recording.transcribe_storm', () => {
 
   it('writes a storm row whose request_id carries the STORM day, not today', async () => {
     // Isolate the storm path: an empty inbox (no recording.karute_missing candidate).
-    const client = { ...makeClient({ stormEvents }), recordings: { list: jest.fn(async () => ({ recordings: [], total: 0 })), get: jest.fn() } }
+    const client = {
+      ...makeClient({ stormEvents }),
+      recordings: {
+        list: jest.fn(async () => ({ recordings: [], total: 0 })),
+        get: jest.fn(async () => ({ id: 'sess-storm', store_id: 'store-9' })),
+      },
+    }
     ;(newSynqedClient as jest.Mock).mockReturnValue(client)
 
     const result = await watchOneBusiness('biz-1', NOW, 'write', FAR_DEADLINE)
@@ -312,8 +321,29 @@ describe('watchOneBusiness — recording.transcribe_storm', () => {
         action: 'recording.transcribe_storm',
         targetId: 'sess-storm',
         requestId: 'audit-watch:recording.transcribe_storm:sess-storm:2026-09-10',
+        // P2-3: one extra per-candidate recording read fills the row-level store.
+        storeId: 'store-9',
         detail: expect.objectContaining({ count: 4, day: '2026-09-10' }),
       }),
+    )
+  })
+
+  it('P2-3: a failed recording lookup leaves storeId undefined but still writes the row', async () => {
+    const client = {
+      ...makeClient({ stormEvents }),
+      recordings: {
+        list: jest.fn(async () => ({ recordings: [], total: 0 })),
+        get: jest.fn(async () => {
+          throw new Error('core down')
+        }),
+      },
+    }
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+
+    const result = await watchOneBusiness('biz-1', NOW, 'write', FAR_DEADLINE)
+    expect(result).toMatchObject({ candidates: 1, written: 1, skipped: 0 })
+    expect(auditMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'recording.transcribe_storm', storeId: undefined }),
     )
   })
 })
