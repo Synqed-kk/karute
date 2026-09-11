@@ -60,7 +60,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
 import { makeSpring } from '@/business/lib/spring'
-import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'
+import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory, type Hours } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -393,6 +393,37 @@ export type ToneSlot = { kind: LandingClass; reason: string | null }
  *  corrected the moment the operator aims at it. */
 export function moveSetOf(reseats: readonly Reseat[]): string {
   return reseats.map((r) => `${r.id}>${r.to}`).join(',')
+}
+
+/** ⚖ FRAME-SEAM (2026-09-12) — THE BOARD A QUESTION ABOUT **THIS** CARD IS ASKED ON.
+ *
+ *  ⚖ 9/8 PACKING's re-landing rule is Liam's: 「a second gesture on the same
+ *  staged card is measured from the day the operator started on」. It lived
+ *  inside `solveLanes`, so the DROP restored the stage's companions to their old
+ *  rooms while the strip the operator was looking at judged every chip on the
+ *  board with them still moved — two boards for one hand, and the card's word
+ *  and the aimed chip could give opposite answers to a byte-identical question
+ *  (PROBE-2-FRAME-SEAM.md §(a): 置けない on the card, △15:30 on the chip).
+ *  The rule is spelled ONCE, here, module level, so the strip, the word and the
+ *  drop cannot each carry their own copy of it.
+ *
+ *  THE `else` ARM RETURNS THE ARRAY IT WAS HANDED, BY REFERENCE. §6 of the
+ *  design rests on this line: with no hand (`forId == null`) — and for every
+ *  question about a card that is not the staged one — `handBoard === boardLanes`
+ *  by identity, so every memo downstream sees the same array in its dep list,
+ *  re-runs nothing, and nothing at rest can move a byte. A copy here would be
+ *  correct and would silently re-run the whole derivation chain on every render;
+ *  `today-live-drag.test.ts` drives that identity as a behavioural unit pin. */
+export function handBoardFor(
+  lanes: BoardLane[],
+  pending: { id: string; companions?: readonly BedCompanion[] } | null | undefined,
+  forId: string | null,
+  hours: Hours,
+  cleanupMinutesByBed?: Record<string, number>,
+): BoardLane[] {
+  return pending && forId != null && pending.id === forId
+    ? lanesWithCompanionsRestored(lanes, pending.companions, hours, cleanupMinutesByBed)
+    : lanes
 }
 
 /** ⚖ Liam 2026-09-11 — the ⇄ badge is the ICON always and the WORD only when the card
@@ -745,12 +776,15 @@ interface DragCtx {
   /** rAF coalescing: the newest pointer position, applied once per frame. */
   pending: { clientX: number; clientY: number } | null
   frame: number | null
-  /** ⚖ Liam flag 50 — PERF BAR. The verdict is a function of the LANE and the
-   *  START, and a 30-minute lattice changes those a handful of times in a drag
-   *  that fires hundreds of pointer frames. This is the last pair it was asked
-   *  for; an unchanged pair re-uses the answer and the guard engine, the bed
-   *  ledger and `computeChecks` are never run per pixel. */
-  aimKey: string
+  /** ⚖ FRAME-SEAM (2026-09-12) — `aimKey` USED TO LIVE HERE and is gone with the
+   *  ask it fenced. ⚖ Liam flag 50's perf bar is unchanged, it simply moved
+   *  home: the word is no longer computed inside the rAF (that was the seam —
+   *  the answer was judged one commit early, on the previous render's board), it
+   *  is `liveWord` in the render body, and the same 「lane + span」 key is now that
+   *  memo's dep (`liveAimKey`). An unchanged aim on an unchanged world still asks
+   *  nothing — measured at exactly today's 50 asks over 84 frames. The shelf
+   *  chip's own `aimKey` (`chipDragRef`) is untouched: its board cannot move
+   *  under it, so it has no seam. */
   detach: () => void
 }
 
@@ -2078,6 +2112,25 @@ export function TodayScreen(props: TodayProps) {
    *  actually in the operator's hand may be lifted out of the world, and only for
    *  the question "may the thing I am holding go here". */
   const handId = live?.id ?? null
+  /** ⚖ FRAME-SEAM (2026-09-12) — THE ONE BOARD EVERY QUESTION ABOUT THE HAND IS
+   *  ASKED ON, this render.
+   *
+   *  `handBoardFor`'s rule (module level, above) applied to the card actually in
+   *  the operator's hand. `=== boardLanes` by reference for every gesture but a
+   *  staged card's re-drag, so the whole derivation chain below is byte-for-byte
+   *  today's at rest and for every ordinary drag (design §6; the identity is
+   *  unit-pinned on `handBoardFor` itself).
+   *
+   *  It sits HERE rather than beside `boardLanes` (:1598) because `handId` — the
+   *  question's subject — is declared one line above and the design's own text
+   *  pin spells the memo `handBoardFor(boardLanes, pending, handId, …)`; reading
+   *  `live?.id` a second time would be a second home for「who is in hand」.
+   *  Everything that must read it (`rails`, the two gated doors, the chip site,
+   *  `explainRails`, `composeSlot`, `linesFor`, `handBoardRef`) is below. */
+  const handBoard = useMemo(
+    () => handBoardFor(boardLanes, pending, handId, hours, props.bedCleanupMinutes),
+    [boardLanes, pending, handId, hours, props.bedCleanupMinutes],
+  )
   /** THE CAPACITY BOOK, BUILT ONCE PER FRAME. Both worlds come out of one call,
    *  and the second only exists while a hand is holding something. Construction
    *  is a memo and never a predicate, a pointer frame or a drag handler: the
@@ -2187,7 +2240,15 @@ export function TodayScreen(props: TodayProps) {
   const rails = useMemo<GuardRail[]>(
     () =>
       guardOn
-        ? guardRailsFor(boardLanes, {
+        ? // ⚖ FRAME-SEAM (2026-09-12) — ON THE HAND'S BOARD. The strip answers
+          // 「could the card I am holding start here」, and the DROP answers that
+          // on the board with a staged card's companions put back (⚖ 9/8
+          // PACKING's re-landing rule, `handBoardFor`). While those two were
+          // different arrays the strip promised what the release refused — Liam's
+          // 9/11 finding. The strip joins the drop; the drop never joins the
+          // strip. `=== boardLanes` for every other gesture, so this is today's
+          // memo byte for byte away from a staged re-drag.
+          guardRailsFor(handBoard, {
             open: hours.open,
             close: hours.close,
             stepMin: 30,
@@ -2202,18 +2263,25 @@ export function TodayScreen(props: TodayProps) {
             // the question it was always painting: could a NEW placement start
             // here. `bedDoorFor(null)` is that question in the book's words.
             excludeId: handId,
-            placementFeasible: bedDoorFor(handId),
+            // ⚖ FRAME-SEAM — and the three doors answer on the SAME board the
+            // rails are cut from. Each already accepts a foreign board through
+            // the escape hatch it was built with (:2074, :2110), so this is the
+            // existing `bookFor` arm and not a new door.
+            placementFeasible: bedDoorFor(handId, handBoard),
             // ⚖ spec §3.1 — 「does the real world publish a protected window
             // starting here」, answered by the SAME `newClientMask` door the
             // reserved mask above is built from. A new client is never the card
             // in hand, so this asks `bedDoorFor(null)` — the world, not the
             // world-minus-hand — which is exactly the book `heldBoard` reads.
-            protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,
+            protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, handBoard) : undefined,
+            // ⚖ FRAME-SEAM — `restingFor` is NOT given the hand's board: it reads
+            // `committedLanes` (:2083), the store's settled day, which is a REST
+            // question and has no hand in it at all.
             resting: restingFor(handId),
-            restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId) : undefined,
+            restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId, handBoard) : undefined,
           })
         : [],
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],
+    [guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
   /** ⚖ LIAM RULING 1 (2026-09-09) — THE BED TRUTH FOR ONE WINDOW ON ONE LANE.
@@ -2675,7 +2743,12 @@ export function TodayScreen(props: TodayProps) {
    *  round, blind lens 4). */
   const railExplained = useMemo(
     () =>
-      explainRails(rails, boardLanes, {
+      // ⚖ FRAME-SEAM (2026-09-12) — the names it reads and the rails it explains
+      // come out of ONE board. It early-returns an empty map for the whole of a
+      // gesture (`inHand`, today-interactions :3134), so this is
+      // correctness-of-agreement rather than a per-frame cost, and at rest
+      // `handBoard === boardLanes`.
+      explainRails(rails, handBoard, {
         dur: railDur,
         handId,
         // ⚖ R3 one world — the operator's own staged card is named as theirs
@@ -2733,7 +2806,7 @@ export function TodayScreen(props: TodayProps) {
         },
       }),
     [
-      rails, boardLanes, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode,
+      rails, handBoard, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode,
       heldBoard, bedsOver, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt,
     ],
   )
@@ -2829,6 +2902,21 @@ export function TodayScreen(props: TodayProps) {
    *  homes for one landing all over again. */
   const boardLanesRef = useRef(boardLanes)
   boardLanesRef.current = boardLanes
+  /** ⚖ FRAME-SEAM (2026-09-12) — THE HAND'S BOARD, REACHABLE FROM THE LISTENERS.
+   *
+   *  Same escape hatch, same reason as the two refs above: `solveLanes` is
+   *  reached from listeners bound once at pointerdown, and the drop must solve on
+   *  the board the LAST RENDER cut its strip from — the same array, not an equal
+   *  one. Written in the render body and never in an effect: an effect runs after
+   *  the commit, the ref would be one frame stale, and the release would solve
+   *  against the previous frame's hand board — a NEW off-by-one where this round
+   *  exists to close one. `handIdRef` is the subject that decides which arm
+   *  `solveLanes` takes; `handId` is `live?.id`, which the listeners' closure
+   *  cannot see. */
+  const handBoardRef = useRef(handBoard)
+  handBoardRef.current = handBoard
+  const handIdRef = useRef(handId)
+  handIdRef.current = handId
   /** ⚖ LIVE-WHILE-DRAGGING §3.3 / §3.4 — THE TWO STAMPS THE GESTURE MEMO READS,
    *  and they are written HERE, in the render body, beside the board ref, for
    *  the reason that ref is: during a render `boardLanesRef.current` IS this
@@ -2858,6 +2946,84 @@ export function TodayScreen(props: TodayProps) {
    *  card in hand there is no bed lane to walk. */
   const rowStampRef = useRef('')
   rowStampRef.current = handRowStamp(boardLanes, handId ?? '', live?.bedLane ?? null)
+
+  /** ⚖ FRAME-SEAM (2026-09-12) — THE ONE ANSWER TO 「this card, landing here」,
+   *  COMPUTED IN THE RENDER BODY.
+   *
+   *  It used to be computed inside the rAF, one commit early: `applyDragFrame`
+   *  called `setLive` and then painted the word in the SAME callback, so the word
+   *  was judged through `verdictRef` → `boardLanesRef.current`, which during the
+   *  rAF still holds the PREVIOUS commit's board, while the strip the operator
+   *  was looking at was drawn from the new one. Measured on the mount at
+   *  `ee35cc6a1`: of 84 frames, 42 asked the question at all and ALL 42 read a
+   *  different board than the strip. Computing it here makes 「the badge and the
+   *  aimed chip agree」 an OBJECT IDENTITY — the chip site reads this very
+   *  verdict — rather than two separately-timed asks that happen to match.
+   *
+   *  It sits below the three refs on purpose: `verdictRef` → `verdictAtLanding` →
+   *  `solveLanes` reads `handBoardRef.current` / `boardLanesRef.current`, both
+   *  written above, so this ask is answered on THIS render's world by
+   *  construction.
+   *
+   *  THE KEY IS THE AIM PLUS THE WORLD, and it is exactly sufficient. `aimKey`
+   *  is the old pointer-side key spelled on `live` (:4525's three fields);
+   *  `boardLanes` is a function of `liveMoves`/`liveBedMoves` — which are a
+   *  function of `targetLane` and the span, i.e. of `aimKey` — plus
+   *  `placedLanes`, `parked`, `addedHere`, `moves`, `bedMoves`, `pending`,
+   *  `hours` and each room's turnaround, every one of which is an input of
+   *  `worldStamp`. So an unchanged aim on an unchanged world cannot change this
+   *  answer, and a key on `boardLanes`'s identity would repaint on EVERY frame
+   *  (it is a fresh array even for a no-op move, :1527–1530) — measured +34 word
+   *  asks over 84 frames for zero information. Off-lane frames, where the key
+   *  collapses the lane to `''` while the board still moves, are answered by the
+   *  verdict itself: `askOfLive` gives `staffLane: null` and the answer is the
+   *  board-independent stop 「予約を置く行の中で離してください」.
+   *
+   *  ⚖ FIX-1 (L1 MINOR-4) — AND IT IS EXACTLY SUFFICIENT FOR THE BOARD, WHICH IS
+   *  NOT THE WHOLE ANSWER. `verdictFor` also closes over `locked` and
+   *  `props.overrideLevel`, and `askOfLive` reads `hasPriceFor` (whose inputs are
+   *  `props.pricedIds` and `parkChips`) — none of the three is in `liveAimKey` or
+   *  in `worldStamp`, so a mid-gesture change to one of them would leave this memo
+   *  serving the previous answer. It is the same hole the pointer-side `aimKey` it
+   *  replaces had (that key carried no world term at all), so this is a narrowing
+   *  of the claim and strictly no worse than what shipped; and none of the three
+   *  can move while a pointer is down — a lane lock and an override level are
+   *  UI/permission state, and `props.pricedIds` moves with a server refresh, which
+   *  also moves `placedLanes`, which IS in the stamp. */
+  const liveAimKey =
+    live && live.mode === 'move' && !live.overShelf ? `${live.offLane ? '' : live.targetLane}|${live.x}|${live.w}` : null
+  const liveWord = useMemo(
+    () => {
+      const ask = liveAimKey == null ? null : askOfLive()
+      return ask == null ? null : verdictRef.current(ask, livePack())
+    },
+    // `askOfLive` and `livePack` are body declarations reading refs and `live`;
+    // the pair above is the whole of what can change this answer (the paragraph
+    // over this memo proves it), and `worldStamp` is an object identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [liveAimKey, worldStamp],
+  )
+  /** ⚖ FRAME-SEAM (2026-09-12) — AND THE WORD IS PAINTED AFTER THE COMMIT IT
+   *  BELONGS TO.
+   *
+   *  The premise, named because the old code's premise was the opposite one:
+   *  React batches the `setLive` inside the rAF and flushes it only after the
+   *  callback returns (this screen states it at `applyDragFrame`'s own comment),
+   *  so anything the rAF paints is painted from the previous commit's world. A
+   *  layout effect runs after the commit and BEFORE the browser paints, so the
+   *  screen still paints once per frame and the word is this render's.
+   *
+   *  `paintProxyVerdict` is now a paint and nothing else; the answer is
+   *  `liveWord` above. The drop keeps reading the LAST render's board through
+   *  `handBoardRef` / `verdictRef`, which is the same world this word was judged
+   *  on — which is the promise. */
+  useLayoutEffect(() => {
+    const ctx = dragRef.current
+    if (ctx) paintProxyVerdict(ctx, liveWord)
+    // `paintProxyVerdict` is a body function declaration, new every render; the
+    // answer it paints is `liveWord` and nothing else in it reads the render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveWord])
 
   /** ⚖ LIVE-WHILE-DRAGGING §5b — THE ⇄ TONE SLOTS, FILLED ONCE PER GESTURE, IN
    *  ONE BURST, HERE — never inside the chip map and never lazily.
@@ -2916,7 +3082,12 @@ export function TodayScreen(props: TodayProps) {
     const moveSet = moveSetOf(v.reseats)
     let shuffled = store.shuffledFor.get(moveSet)
     if (!shuffled) {
-      shuffled = applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), hours, props.bedCleanupMinutes)
+      // ⚖ FRAME-SEAM (2026-09-12) — the shuffle starts from the HAND's board, the
+      // one the chip's own first leg was judged on and the one the drop will
+      // shuffle (`verdictAtLanding` → `solveLanes`). `store.base` below stays on
+      // `boardLanes` and cannot disagree with it — see the memo-gate invariant at
+      // `beginDrag`: a store exists only when `handBoard === boardLanes`.
+      shuffled = applyBedMoves(handBoard, companionsFor(handBoard, v.reseats), hours, props.bedCleanupMinutes)
       store.shuffledFor.set(moveSet, shuffled)
     }
     const ask = { ...inHand, staffLane: laneKey, span: place(start, start + railDur, hours) }
@@ -3004,7 +3175,10 @@ export function TodayScreen(props: TodayProps) {
     const moveSet = moveSetOf(v.reseats)
     const had = store?.linesFor.get(moveSet)
     if (had !== undefined) return had
-    const lines = companionLines(boardLanes, companionsFor(boardLanes, v.reseats))
+    // ⚖ FRAME-SEAM (2026-09-12) — the names it reads come off the same board the
+    // shuffle above is built from, so a ⇄ chip's sentence can never name a
+    // companion the answer it explains was not measured against.
+    const lines = companionLines(handBoard, companionsFor(handBoard, v.reseats))
     store?.linesFor.set(moveSet, lines)
     return lines
   }
@@ -3016,7 +3190,12 @@ export function TodayScreen(props: TodayProps) {
     for (const rail of rails) {
       for (const c of rail.cells) {
         const ask = { ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }
-        const v = verdictFor(ask, c, livePack().pack)
+        // ⚖ FRAME-SEAM (2026-09-12) — the board is passed EXPLICITLY here and at
+        // the chip site; `verdictFor`'s default stays `boardLanes` so every rest
+        // surface is byte-unchanged. Harmless and deliberate: by the memo-gate
+        // invariant a fill only ever runs while `handBoard === boardLanes`, and
+        // spelling it keeps the hand's askers reading one name.
+        const v = verdictFor(ask, c, livePack().pack, handBoard)
         // ⚖ FIX ROUND 2 (FX-A — ADDENDUM STOP 2) — THE FENCE IS `reseats`, AND
         // ONLY `reseats`. `landingVerdict` fills `reseats` before its stops and
         // refuses a rescued start on the REST cell it is handed
@@ -3819,11 +3998,19 @@ export function TodayScreen(props: TodayProps) {
    *  A second gesture on the SAME staged card puts every companion back where it
    *  stood before the change, so the new answer is measured from the day the
    *  operator started on and the new companion set REPLACES the old one. Any
-   *  other landing gets the board as it stands. */
+   *  other landing gets the board as it stands.
+   *
+   *  ⚖ FRAME-SEAM (2026-09-12) — AND THE RULE ITSELF NOW LIVES IN ONE EXPORTED
+   *  FUNCTION (`handBoardFor`), so the strip can ask it too. The HAND's answer is
+   *  not recomputed here: it is the very array this render already built and the
+   *  rails were cut from (`handBoardRef.current`), which is what makes 「the badge
+   *  and the aimed chip agree」 an object identity rather than a timing
+   *  coincidence. Every other id takes the rule on the current board, which is
+   *  today's expression exactly — with no hand `handIdRef.current` is null. */
   function solveLanes(id: string | null): BoardLane[] {
-    return pending && pending.id === id
-      ? lanesWithCompanionsRestored(boardLanesRef.current, pending.companions, hours, props.bedCleanupMinutes)
-      : boardLanesRef.current
+    return id != null && id === handIdRef.current
+      ? handBoardRef.current
+      : handBoardFor(boardLanesRef.current, pending, id, hours, props.bedCleanupMinutes)
   }
 
   /** ⚖ BATCH-6 flag 45 — ONE SIDE RETARGETS, BOTH RE-TIME (canon `stageChange`
@@ -4432,7 +4619,7 @@ export function TodayScreen(props: TodayProps) {
    *  until the release (canon's `dragMove` only ever calls `evSet` on the card
    *  it started with), and the listeners hang off `window`, so no re-render,
    *  re-order or re-parent anywhere on the board can interrupt a drag. */
-  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame' | 'aimKey'>) {
+  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame'>) {
     // ⚖ LIVE-WHILE-DRAGGING §3.6 — THE GESTURE'S MEMO IS OPENED HERE, eagerly,
     // because this is the one place that knows the gesture's mode, group and id;
     // a lazy creation would put that decision at a call site instead of at the
@@ -4446,6 +4633,15 @@ export function TodayScreen(props: TodayProps) {
     // board family while its drop read another — a NEW disagreement, which this
     // round exists to remove rather than create. Each of those keeps today's
     // `pack: false` path byte for byte.
+    //
+    // ⚖ FRAME-SEAM (2026-09-12) — THE MEMO-GATE INVARIANT, and it is what makes
+    // leaving `rowStampRef`, `gestureStore`'s `store.base` compare and this
+    // memo's `board: () => boardLanesRef.current` on `boardLanes` CORRECT rather
+    // than lucky. This condition refuses a STAGED card's re-drag
+    // (`pending?.id !== ctx.id`), and a staged card's re-drag is the only gesture
+    // in which `handBoard !== boardLanes`. So whenever the gesture memo or the
+    // tone store exists, `handBoard === boardLanes` — those three sites cannot
+    // see a mixed world. Pinned as text in today-bed-packing.test.ts.
     if (ctx.origin.mode === 'move' && ctx.group !== 'beds' && pending?.id !== ctx.id) {
       gestureMemoRef.current = gestureAllocator({
         handId: ctx.id,
@@ -4499,7 +4695,6 @@ export function TodayScreen(props: TodayProps) {
       ...ctx,
       pending: null,
       frame: null,
-      aimKey: '',
       detach: () => {
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
@@ -4522,121 +4717,78 @@ export function TodayScreen(props: TodayProps) {
    *  Canon's demo hangs a fixed ghost off the pointer and writes 置ける/要確認/
    *  置けない into it (`updateGhost` :7619-7645). Ours already carries the card
    *  itself under the cursor (⚖ 19), so the word rides THAT — one travelling
-   *  thing, not two — and it is written the way the transform is: straight to
-   *  the node, outside React, from the same coalesced frame. The board is not
-   *  re-rendered for a word, which is the whole perf bar.
+   *  thing, not two — and it is written straight to the node, outside React. The
+   *  board is not re-rendered for a word, which is the whole perf bar.
    *
    *  Silence on a clean landing is ⚖ Liam's own reading of his demo: the dashed
    *  preview already says where it goes, and a word that is always there while
-   *  the operator aims at open space is the noise ⚖ 44 rules against. */
-  function paintProxyVerdict(ctx: DragCtx, span: { x: number; w: number }) {
+   *  the operator aims at open space is the noise ⚖ 44 rules against.
+   *
+   *  ⚖ FRAME-SEAM (2026-09-12) — THIS IS A PAINT AND NOTHING ELSE NOW. It used to
+   *  ASK the verdict through its own ref, and to write the aimed chip's tone
+   *  slot, both from inside the rAF — one commit before the render they belonged
+   *  to. The ask is `liveWord` in the render body, the aimed chip
+   *  reads that same object, and its only caller is the layout effect beside
+   *  `liveWord`. What is left is the two silences (a resize has no proxy, a card
+   *  over the shelf is being parked, neither is a landing question) and
+   *  `wearVerdict`. */
+  function paintProxyVerdict(ctx: DragCtx, v: LandingVerdict | null) {
     const node = proxyVerdictRef.current
     if (!node) return
     // A RESIZE never leaves its lane and never has a proxy; a card over the
     // shelf is being parked, which is not a landing question at all.
     if (ctx.origin.mode !== 'move' || ctx.overShelf) {
       wearVerdict(node, null)
-      ctx.aimKey = ''
       return
     }
-    // ⚖ flag 61 — over a strip that belongs to no lane the answer is the
-    // release's own sentence, said live at the cursor. `landingVerdict` already
-    // owns it (`if (!staff) return stop('予約を置く行の中で離してください')`),
-    // so this is the one verdict answering a lane of `null`, not a second
-    // opinion about it.
-    const key = `${ctx.offLane ? '' : ctx.targetLane}|${span.x}|${span.w}`
-    if (key === ctx.aimKey) return
-    ctx.aimKey = key
-    const sides = sidesAt(ctx.home, ctx.group, ctx.targetLane)
-    // ⚖ LIVE-WHILE-DRAGGING §5a — AND THE CURSOR ASKS THE DROP'S OWN QUESTION
-    // NOW. The OFF answer stood here because the backtracking search ran on
-    // every pointer frame and could not be afforded; the gesture's memo is what
-    // changed that — one search per distinct question for the whole gesture,
-    // measured NEGATIVE against today's frame on both stress boards. ⚖ flag 54's
-    // asymmetry is what closes with it: the word now promises exactly what the
-    // release will do, including 「this fits if the board moves somebody」. With
-    // no memo (every gesture but an unstaged card move) `livePack()` is `false`
-    // and this call is byte-identical to the one it replaces.
-    const v = verdictRef.current(askOf(ctx, sides, span), livePack())
     wearVerdict(node, v)
-    // ⚖ ADJUDICATION L2 M-1 — THE CHIP UNDER THE CURSOR TAKES THIS ANSWER.
-    //
-    // The strip's chips sit on the 30-minute lattice and the card does not, so
-    // the aimed chip and the badge are asking about two different starts. Both
-    // answers are exact; which one the chip must show is the chip's own. On an
-    // ON-LATTICE frame the two questions coincide and the cursor's answer IS the
-    // chip's — free, because it has just been computed. Off the lattice the chip
-    // gets ONE re-judge of its own, and only when it is a ⇄ candidate at all
-    // (the slots hold nothing else), so the cost is at most one extra landing
-    // per aim change and zero on a board with no ⇄ anywhere.
-    //
-    // It lands before the render that draws the chips: `applyDragFrame` calls
-    // `setLive` above this, React 18 flushes the batched state only after the
-    // rAF callback returns, and this write is synchronous inside it.
-    // ⚖ FIX ROUND 4 (Greptile #884 4/5) — AND THIS ONE READS THE REF DIRECTLY,
-    // ON PURPOSE. The map it writes into is always the CURRENT world's, because
-    // `store.world` and `worldStampRef.current` only ever change inside a
-    // render — the sweep beside the fill copies one into the other — so between
-    // two renders they cannot disagree, and this write happens between two
-    // renders. Calling `gestureStore` here would be the WRONG door: the
-    // listeners are bound once per gesture (see the closure note below), so the
-    // `gestureStore` reachable from here is the POINTERDOWN render's, and its
-    // `boardLanes` is the board as it stood when the card was picked up. Its
-    // base compare would therefore fire on every aim change, drop the shuffles
-    // and the lines the render had just built, and set `store.base` BACKWARDS
-    // to a board that no longer exists — a cache thrash on the busiest path in
-    // the gesture, in exchange for nothing the sweep does not already give.
-    const slots = toneRef.current?.slots ?? null
-    if (slots != null && !ctx.offLane) {
-      const from = minuteOf(span.x, hours)
-      const dur = minuteOf(span.x + span.w, hours) - from
-      // The renderer's own `aimed` rule: an off-lattice landing belongs to the
-      // cell it starts INSIDE (⚖ flag 48), so the chip is the floored start.
-      const chipStart = Math.floor(from / 30) * 30
-      // ⚖ FIX ROUND 1 (M2) — `dur` is DERIVED HERE, not the render body's
-      // `railDur`, and that is a correction to the fix packet rather than a
-      // shortcut. This function is reached only through the listeners
-      // `beginDrag` binds ONCE per gesture, so its closure is the POINTERDOWN
-      // render's — where `live` and `dragLen` are both null and `railDur` is
-      // therefore `props.guard.standardSessionMin`, not the card's length.
-      // `span` is the very object `applyDragFrame` has just handed `setLive`,
-      // so this expression is `aimDur`'s own (TodayScreen `const aimDur =`) on
-      // the same values, and the next render's `railDur` is the same number.
-      // ⚖ FIX ROUND 2 (FX-B) — AND THE WRITE IS UNCONDITIONAL. It used to be
-      // gated on the map already HAVING that key, which made the aimed chip's
-      // identity depend on the pick-up burst having already composed it — and
-      // after a mid-gesture clear, or for a chip whose rescue changed, it had
-      // not. The chip under
-      // the cursor is the one that may NEVER disagree with the badge and the
-      // drop (⚖ AUDIT A1), so it is written every aim change whether or not the
-      // burst knew about it. A landing with no companions writes an entry the
-      // renderer never reads (its chip fences on `reseats` before it looks) —
-      // bounded by aim changes, and cheaper than a gate that can be wrong.
-      const aimed =
-        from === chipStart
-          ? v
-          : verdictRef.current({ ...askOf(ctx, sides, span), span: place(chipStart, chipStart + dur, hours) }, livePack())
-      slots.set(slotKey(ctx.targetLane, chipStart, dur, moveSetOf(aimed.reseats)), { kind: aimed.kind, reason: aimed.reason })
-    }
   }
 
   /** ONE description of 「this card, landing here」, the way `chipAsk` is the
-   *  shelf chip's: the word at the cursor and the aimed chip's own re-judge are
-   *  the SAME question at two starts, so they are built from one sentence of
-   *  code rather than two that could drift apart. */
-  function askOf(ctx: DragCtx, sides: ReturnType<typeof sidesAt>, span: { x: number; w: number }): LandingAsk {
+   *  shelf chip's — one sentence of code, so the card's word and the aimed chip
+   *  cannot drift apart.
+   *
+   *  ⚖ FRAME-SEAM (2026-09-12) — READ OFF THE RENDER, NOT OFF THE POINTER. It was
+   *  `askOf(ctx, sides, span)`, called from inside the rAF by the two things that
+   *  are gone (the pre-commit word and the pre-commit aimed re-judge); with no
+   *  pointer-path caller left there is one spelling, and it is this one. The
+   *  moving parts come from `live` — which is what `applyDragFrame` has just
+   *  written from those very values — so the render body asks the drop's own
+   *  question without a second author.
+   *  The gesture's constants (`item`, `group`, `id`) come from `dragRef.current`,
+   *  which does not move for the life of the gesture; `staffLane`/`bedLane` are
+   *  the `sidesAt` pair `setLive` already resolved, so this cannot resolve them
+   *  differently.
+   *
+   *  The gate is the paint's own (`paintProxyVerdict`, :4515–4519 before this
+   *  round): a MOVE, not over the shelf. A BED-ROW move is INCLUDED — the word
+   *  has always been painted for one (`solveRoom` goes false and the room is
+   *  NAMED, ⚖ 51) — which is why this is not `inHand`: `inHand` is the STRIP's
+   *  ask and is null for a bed-row drag on purpose.
+   *
+   *  ⚖ FIX ROUND 4 (Greptile #884 4/5), KEPT AS HISTORY — THE POINTER PATH MUST
+   *  NEVER CALL `gestureStore` (written without its parens on purpose: the round-4
+   *  pin counts CALL SITES). The write this rule was written for (the
+   *  pre-commit aimed slot write) is gone, and the rule stands for whoever writes
+   *  from a pointer-path closure next: the listeners are bound ONCE per gesture,
+   *  so the `gestureStore` reachable from there is the POINTERDOWN render's, and
+   *  its base compare would fire on every aim change, drop the shuffles and the
+   *  lines the current render had just built, and set `store.base` BACKWARDS to a
+   *  board that no longer exists — a cache thrash on the busiest path in the
+   *  gesture. Read the ref directly, or ask from the render body as this round
+   *  now does. */
+  function askOfLive(): LandingAsk | null {
+    const ctx = dragRef.current
+    if (!ctx || !live || live.mode !== 'move' || live.overShelf) return null
     return {
-      staffLane: ctx.offLane ? null : sides.staffLane,
-      bedLane: sides.bedLane,
-      // ⚖ 51 — the room is SOLVED on a staff-side landing and NAMED on a bed
-      // row, and the mid-drag word has to answer under the same rule the
-      // release will, or it is telling the operator about a different board.
+      staffLane: live.offLane ? null : live.staffLane,
+      bedLane: live.bedLane,
       solveRoom: ctx.group !== 'beds',
       id: ctx.id,
       requiresPrivate: ctx.item.requiresPrivateRoom === true,
       foreignRefusal: null,
       hasPrice: hasPriceFor(ctx.id),
-      span,
+      span: { x: live.x, w: live.w },
     }
   }
 
@@ -4716,18 +4868,17 @@ export function TodayScreen(props: TodayProps) {
       offLane: ctx.offLane,
       mode: ctx.origin.mode,
     })
-    // ⚖ Liam flag 50 — AND THE WORD AT THE CURSOR, written straight to the node.
-    // Same discipline as the transform above it: React renders the element once
-    // per gesture and never sees the verdict change, so the cursor word itself
-    // costs nothing per pointer frame.
-    // ⚖ 44 FIX ROUND (blind lens 4, SF2) — and this comment used to claim that
-    // of the whole BOARD, which was never true: `setLive` below moves
-    // `liveMoves` → `boardLanes` → `rails`, so the strips are re-derived on
-    // every frame of a drag, and for one round `railExplained` ran an
-    // `allocateBed` per bed-refused chip inside that. It early-returns on the
-    // gesture now (see `explainRails`); the rails themselves still re-derive,
-    // which is what makes the × follow the pointer.
-    paintProxyVerdict(ctx, span)
+    // ⚖ FRAME-SEAM (2026-09-12) — AND THE WORD IS NO LONGER PAINTED HERE.
+    //
+    // The proxy's verdict paint stood on this line and was the seam: React
+    // batches the `setLive` above and flushes it only after this callback
+    // returns, so a verdict asked here is answered on the PREVIOUS commit's
+    // board while the strip on screen is drawn from the new one — measured, 42
+    // of 42 asking frames read a different board than the strip. The answer is
+    // `liveWord` in the render body now and the paint is a layout effect keyed
+    // on it, which runs after the commit and before the browser paints. Nothing
+    // else in this frame needs a verdict: the transform, the shelf test and the
+    // lane hunt above are the perf bar and are untouched.
   }
 
   function onCardPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
@@ -6971,7 +7122,19 @@ export function TodayScreen(props: TodayProps) {
             // through the gesture's memo (`livePack().pack` — one token, one
             // home, never a bare boolean at a call site: the 9/8 round lost a
             // positional `true` to exactly that spelling).
-            const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c, livePack().pack) : null
+            // ⚖ FRAME-SEAM (2026-09-12) — …ON THE HAND'S BOARD, spelled out. The
+            // strip and the drop were judging two different arrays for a staged
+            // card's re-drag; `handBoard` is the one the rails above were cut
+            // from and the one `solveLanes` hands the release.
+            const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c, livePack().pack, handBoard) : null
+            // ⚖ FRAME-SEAM (2026-09-12) — IS THIS THE CHIP UNDER THE CURSOR, and
+            // is the card's own landing start THIS chip's start? On-lattice the
+            // two questions are one question, and the chip then wears the card's
+            // own answer — `liveWord`, the very object the badge wears — which is
+            // what makes 「the badge and the aimed chip agree」 an identity rather
+            // than a coincidence.
+            const isAimed = aimed?.laneKey === rail.laneKey && aimed.start === c.start
+            const onLattice = isAimed && liveStart === c.start
             // The DROP's own kind for a chip that fits only by moving somebody.
             // Every other chip's verdict IS the drop's, so it is its own `final`.
             //
@@ -6986,7 +7149,28 @@ export function TodayScreen(props: TodayProps) {
             // world is reused, and that is the design's declared preview class —
             // the chip under the cursor is rewritten by `paintProxyVerdict` on
             // every aim change, so the one chip that may never disagree does not.
-            const drop = v && v.reseats.length > 0 && toneRef.current ? (toneRef.current.slots.get(slotKey(rail.laneKey, c.start, railDur, moveSetOf(v.reseats))) ?? composeSlot(rail.laneKey, c.start, v)) : undefined
+            //
+            // ⚖ FRAME-SEAM (2026-09-12) — AND THE AIMED CHIP NEVER READS THE
+            // CACHE. The pre-commit write that used to keep it honest ran inside
+            // the rAF, one commit early, and was measured redundant twice over:
+            // structurally unreachable on the only gesture where the two boards
+            // differ (a staged re-drag opens no gesture memo, so there is no
+            // store to write into), and behaviourally a no-op — 173 of 173
+            // writes suppressed changed 0 of 180 aimed-chip faces. It is deleted.
+            // What replaces it is not a second home: ON-LATTICE the chip's
+            // question IS the card's, so it takes `liveWord`; OFF-LATTICE it
+            // composes its own on this render's `handBoard`, which is the drop's
+            // own two-leg shape. Every OTHER chip keeps the cache and its
+            // declared preview class.
+            const cached = v && v.reseats.length > 0 && !isAimed && toneRef.current
+              ? toneRef.current.slots.get(slotKey(rail.laneKey, c.start, railDur, moveSetOf(v.reseats)))
+              : undefined
+            const drop =
+              v && v.reseats.length > 0
+                ? isAimed && onLattice && liveWord
+                  ? { kind: liveWord.kind, reason: liveWord.reason }
+                  : (cached ?? composeSlot(rail.laneKey, c.start, v))
+                : undefined
             const chip = v ? liveChipFace({ v, final: drop ? { ...v, kind: drop.kind, reason: drop.reason } : v, start: c.start }) : null
             const state = chip ? chip.state : c.state
             // ⚖ flag 44 — the chip's own reading of itself. The WORD is a
@@ -7060,7 +7244,7 @@ export function TodayScreen(props: TodayProps) {
                   // rather than the pre-shuffle one. With nothing to shuffle the
                   // two are the same verdict, which is every chip today.
                   inert: chip?.state === 'blocked',
-                  aimed: aimed?.laneKey === rail.laneKey && aimed.start === c.start,
+                  aimed: isAimed,
                 })}
                 key={c.start}
                 type="button"

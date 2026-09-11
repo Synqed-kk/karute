@@ -1106,9 +1106,33 @@ describe('R6 — a second landing of the same card solves against the day it sta
   })
 
   it('and the screen asks that question at every landing, through ONE function', () => {
+    // ⚖ FRAME-SEAM (2026-09-12) — THE RULE MOVED UP, OUT OF THE SCREEN, and this
+    // pin moved with it. It used to be spelled inside `solveLanes` and nowhere
+    // else, which is exactly why the STRIP could not ask it: the rails judged
+    // every chip on `boardLanes` while the drop judged on the companions-restored
+    // board, and for a staged card's re-drag those are two different days (Liam's
+    // 9/11 finding, PROBE-2-FRAME-SEAM.md §(a)). It is now the exported pure
+    // function `handBoardFor`, unit-driven in `today-live-drag.test.ts`
+    // (reference identity + the restore), and `solveLanes` is one of its two
+    // callers — the other is the `handBoard` memo the strip reads. The rule this
+    // test guards (「one home for: which board does this landing solve against」)
+    // is strengthened, not weakened: there is still exactly one spelling of it.
     expect(SCREEN).toContain('function solveLanes(id: string | null): BoardLane[] {')
-    expect(SCREEN).toContain('lanesWithCompanionsRestored(boardLanesRef.current, pending.companions, hours, props.bedCleanupMinutes)')
-    expect(SCREEN).toContain(': boardLanesRef.current')
+    expect(SCREEN).toContain('? lanesWithCompanionsRestored(lanes, pending.companions, hours, cleanupMinutesByBed)')
+    expect(SCREEN).toContain('handBoardFor(boardLanesRef.current, pending, id, hours, props.bedCleanupMinutes)')
+    // The HAND's arm is the very array this render already built and the rails
+    // were cut from — not a second restore, and not `boardLanesRef` (that mutant
+    // puts the strip and the word back on two boards and the frame-mount pin's
+    // A2 goes red).
+    expect(SCREEN).toContain('? handBoardRef.current')
+    // …and the body asks the rule exactly ONCE. A second `handBoardFor(` here is
+    // a second restore per landing; zero is the rule gone.
+    const solveBody = SCREEN.slice(
+      SCREEN.indexOf('function solveLanes(id: string | null): BoardLane[] {'),
+      SCREEN.indexOf('\n  }\n', SCREEN.indexOf('function solveLanes(id: string | null): BoardLane[] {')),
+    )
+    expect({ where: 'solveLanes', ref: solveBody.includes('handBoardRef.current'), calls: (solveBody.match(/handBoardFor\(/g) ?? []).length })
+      .toEqual({ where: 'solveLanes', ref: true, calls: 1 })
     // All four landings go through it — the drop, the keyboard nudge, the 次回予約
     // placement and the shelf chip. A landing that read the raw board would
     // shuffle さくら a second time out of the seat this change gave her.
@@ -1645,12 +1669,16 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // shape — every call site still names its own answer out loud — and the one
     // new spelling, `livePack()`, has ONE home and is pinned to it below.
     //
-    // Thirteen call sites, each carrying its answer as the second argument. The
-    // regex matches a CALL (`(`), so a comment naming the function is not one.
-    // The thirteenth is the aimed chip's own re-judge inside
-    // `paintProxyVerdict` (⚖ ADJUDICATION L2 M-1).
+    // ⚖ FRAME-SEAM (2026-09-12) — THIRTEEN → TWELVE. Two of the thirteen were
+    // asked from INSIDE the rAF, one commit before the render they belonged to:
+    // the word (`paintProxyVerdict`) and the aimed chip's own re-judge
+    // (⚖ ADJUDICATION L2 M-1's pre-commit slot write). Both are gone; ONE
+    // replaces them — `liveWord`, in the render body, which the badge wears and
+    // the aimed chip reads. 13 − 2 + 1 = 12. Each site still carries its answer
+    // as the second argument; the regex matches a CALL (`(`), so a comment naming
+    // the function is not one.
     const calls = [...SCREEN.matchAll(/verdict(?:Ref\.current|AtLanding)\(/g)].map((m) => m.index ?? -1)
-    expect(calls).toHaveLength(13)
+    expect(calls).toHaveLength(12)
     for (let i = 0; i < calls.length; i += 1) {
       const seg = SCREEN.slice(calls[i], calls[i + 1] ?? SCREEN.length)
       // `, livePack())` rather than a bare `livePack()`: the switch is ALSO read
@@ -1683,8 +1711,21 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // …and the card's per-frame paint answers with the GESTURE's own switch while
     // the shelf chip's stays OFF. Both are called from the coalesced pointer-move
     // frame; only one of them has a memo behind it.
+    //
+    // ⚖ FRAME-SEAM (2026-09-12) — RE-ANCHORED ONTO `liveWord`'S MEMO BODY, and
+    // `paintProxyVerdict`'s own clause STRENGTHENED into a statement that it has
+    // stopped being an asker at all. The card's per-frame word is no longer
+    // asked inside the coalesced pointer frame — that was the seam, the answer
+    // came out of the PREVIOUS commit's board while the strip was drawn from the
+    // new one — so the three clauses belong to the memo that asks now.
+    const wordBody = SCREEN.slice(SCREEN.indexOf('const liveWord = useMemo('), SCREEN.indexOf('\n  )\n', SCREEN.indexOf('const liveWord = useMemo(')))
+    expect({ fn: 'liveWord', live: wordBody.includes('livePack()') }).toEqual({ fn: 'liveWord', live: true })
+    expect({ fn: 'liveWord', on: wordBody.includes('{ pack: true }') }).toEqual({ fn: 'liveWord', on: false })
+    expect({ fn: 'liveWord', off: wordBody.includes('{ pack: false }') }).toEqual({ fn: 'liveWord', off: false })
     const proxyBody = SCREEN.slice(SCREEN.indexOf('function paintProxyVerdict('), SCREEN.indexOf('\n  }\n', SCREEN.indexOf('function paintProxyVerdict(')))
-    expect({ fn: 'paintProxyVerdict', live: proxyBody.includes('livePack()') }).toEqual({ fn: 'paintProxyVerdict', live: true })
+    expect({ fn: 'paintProxyVerdict', paints: proxyBody.includes('wearVerdict(') }).toEqual({ fn: 'paintProxyVerdict', paints: true })
+    expect({ fn: 'paintProxyVerdict', asks: proxyBody.includes('verdictRef.current(') }).toEqual({ fn: 'paintProxyVerdict', asks: false })
+    expect({ fn: 'paintProxyVerdict', live: proxyBody.includes('livePack()') }).toEqual({ fn: 'paintProxyVerdict', live: false })
     expect({ fn: 'paintProxyVerdict', on: proxyBody.includes('{ pack: true }') }).toEqual({ fn: 'paintProxyVerdict', on: false })
     expect({ fn: 'paintProxyVerdict', off: proxyBody.includes('{ pack: false }') }).toEqual({ fn: 'paintProxyVerdict', off: false })
     const chipBody = SCREEN.slice(SCREEN.indexOf('function paintChipVerdict('), SCREEN.indexOf('\n  }\n', SCREEN.indexOf('function paintChipVerdict(')))
@@ -1751,13 +1792,16 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     const verdictForCalls = [...SCREEN.matchAll(/verdictFor\(/g)]
     expect(verdictForCalls).toHaveLength(6)
     for (const site of [
-      'const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c, livePack().pack) : null',
+      // ⚖ FRAME-SEAM (2026-09-12) — the two HAND askers name their board out loud
+      // (`handBoard`); `verdictFor`'s default stays `boardLanes`, so every rest site
+      // in this list is byte-unchanged.
+      'const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c, livePack().pack, handBoard) : null',
       'const v = verdictFor(ask, verdictAt(laneKey, start, railDur, null, lanes), false, lanes)',
       // ⚖ ADJUDICATION L2 MINOR 2 — the ⇄ fill's own first ask, inside
       // `fillToneSlots`. Five of the six sites were named and this was the one
       // left out: the only site that could grow a bare positional `true`
       // unnoticed, and the one F1 has just moved.
-      'const v = verdictFor(ask, c, livePack().pack)',
+      'const v = verdictFor(ask, c, livePack().pack, handBoard)',
       'const v = verdictFor(q, cellOn(base), opts.pack, base)',
       'return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }',
       // ⚖ FIX ROUND 2 (FX-B) — the same site, now inside `composeSlot`, which
@@ -1783,6 +1827,18 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     expect(SCREEN).toContain("const rowStampRef = useRef('')\n  rowStampRef.current = handRowStamp(boardLanes, handId ?? '', live?.bedLane ?? null)")
     expect(SCREEN.indexOf('boardLanesRef.current = boardLanes')).toBeLessThan(SCREEN.indexOf('const v = inHand ? verdictFor('))
     expect(SCREEN.indexOf('rowStampRef.current = handRowStamp(')).toBeLessThan(SCREEN.indexOf('const v = inHand ? verdictFor('))
+    //
+    // ⚖ FRAME-SEAM (2026-09-12) — A FOURTH CLAUSE, for the same mutant on a new
+    // ref. `handBoardRef` is what the DROP solves against (`solveLanes`), and it
+    // must be the array THIS render's strip was cut from: move the assignment
+    // into an effect and the ref goes one frame stale, so the release solves on
+    // the previous frame's hand board — a new off-by-one where this round exists
+    // to close one. It goes AFTER both lines of the board ref's pinned pair, never
+    // between them.
+    expect(SCREEN).toContain('const handBoardRef = useRef(handBoard)\n  handBoardRef.current = handBoard')
+    expect(SCREEN).toContain('const handIdRef = useRef(handId)\n  handIdRef.current = handId')
+    expect(SCREEN.indexOf('boardLanesRef.current = boardLanes')).toBeLessThan(SCREEN.indexOf('handBoardRef.current = handBoard'))
+    expect(SCREEN.indexOf('handBoardRef.current = handBoard')).toBeLessThan(SCREEN.indexOf('const v = inHand ? verdictFor('))
     //
     // ⚖ FIX ROUND 1 (F1 — Fable + blind lenses 1 and 2) — AND THE ⇄ TONE FILL IS
     // THE OTHER READER, so it is ordered too. The pin above indexed the ref
@@ -1810,6 +1866,9 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     expect(SCREEN.indexOf('boardLanesRef.current = boardLanes')).toBeLessThan(SCREEN.indexOf(TONE_CALL))
     expect(SCREEN.indexOf('rowStampRef.current = handRowStamp(')).toBeLessThan(SCREEN.indexOf(TONE_CALL))
     expect(SCREEN.indexOf('worldStampRef.current = worldStamp')).toBeLessThan(SCREEN.indexOf(TONE_CALL))
+    // ⚖ FRAME-SEAM (2026-09-12) — the fourth clause, on both of the fill's sites.
+    expect(SCREEN.indexOf('handBoardRef.current = handBoard')).toBeLessThan(SCREEN.indexOf(TONE_CALL))
+    expect(SCREEN.indexOf('handBoardRef.current = handBoard')).toBeLessThan(SCREEN.indexOf('function fillToneSlots('))
     // …and the composer's own HOME stays below them too (the three clauses this
     // round inherited), with the declaration ahead of the call — so both the
     // definition and the execution site are held under the three refs.
@@ -1901,7 +1960,7 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // refs, and every reader below finds a store that agrees with this frame.
     expect(SCREEN.indexOf(TONE_CALL)).toBeLessThan(SCREEN.indexOf('\n  gestureStore()\n'))
     expect(SCREEN.indexOf('\n  gestureStore()\n')).toBeGreaterThan(-1)
-    expect(SCREEN.indexOf('\n  gestureStore()\n')).toBeLessThan(SCREEN.indexOf('const drop = v && v.reseats.length > 0'))
+    expect(SCREEN.indexOf('\n  gestureStore()\n')).toBeLessThan(SCREEN.indexOf('const cached = v && v.reseats.length > 0'))
     // …and the composer itself: ONE definition, TWO callers — the pick-up burst
     // and the chip map. A third caller, or a second spelling of the shuffle,
     // fails here.
@@ -1910,8 +1969,18 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // which is what makes composing on demand affordable at all: without this
     // block every missing chip rebuilds the board the shuffle would leave.
     expect(SCREEN).toContain(
-      '    let shuffled = store.shuffledFor.get(moveSet)\n    if (!shuffled) {\n      shuffled = applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), hours, props.bedCleanupMinutes)\n      store.shuffledFor.set(moveSet, shuffled)\n    }',
+      '    let shuffled = store.shuffledFor.get(moveSet)\n    if (!shuffled) {',
     )
+    // ⚖ FRAME-SEAM (2026-09-12) — …AND THE SHUFFLE STARTS FROM THE HAND'S BOARD,
+    // not from `boardLanes`. The board the chip's first leg was judged on and the
+    // board the drop will shuffle (`verdictAtLanding` → `solveLanes`) have to be
+    // one board, and for a staged card's re-drag `boardLanes` is a different day —
+    // the strip promising △ over a day the release does not measure was Liam's
+    // 9/11 finding. `store.base` below stays on `boardLanes` and cannot disagree
+    // with it: the memo-gate invariant (pinned further down) says a store exists
+    // only while `handBoard === boardLanes`.
+    expect(SCREEN).toContain('      shuffled = applyBedMoves(handBoard, companionsFor(handBoard, v.reseats), hours, props.bedCleanupMinutes)\n      store.shuffledFor.set(moveSet, shuffled)\n    }')
+    expect(SCREEN).not.toContain('applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats)')
     // …and there are exactly two places on this screen that build a shuffled
     // board at all: `verdictAtLanding`'s own second leg, and the composer.
     expect((SCREEN.match(/applyBedMoves\(/g) ?? [])).toHaveLength(2)
@@ -1922,11 +1991,18 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // creation site. The gate above is NOT a seventh.
     expect((SCREEN.match(/gestureMemoRef\.current/g) ?? [])).toHaveLength(6)
     //
-    // ⚖ ADJUDICATION L2 MAJOR 2 — THE ⇄ SLOT KEY HAS ONE HOME AND THREE CALLERS.
+    // ⚖ ADJUDICATION L2 MAJOR 2 — THE ⇄ SLOT KEY HAS ONE HOME AND ITS CALLERS.
     // Three spellings of one string agreement, none of them pinned: the
     // breaker's mutant (k) dropped `dur` from all three and shipped green.
+    // ⚖ FRAME-SEAM (2026-09-12) — FOUR → THREE (the declaration, the composer's
+    // write, the chip map's read). The fourth was the PRE-COMMIT AIMED WRITE, run
+    // inside the rAF one commit before the render it served; it is deleted, and
+    // the chip under the cursor takes the card's own answer instead of a cached
+    // one. Measured redundant: 173 of 173 writes suppressed changed 0 of 180
+    // aimed faces, and 359 of the 379 it made carried an EMPTY move set, which
+    // the renderer can never look up.
     expect(SCREEN).toContain('export function slotKey(laneKey: string, start: number, dur: number, moveSet: string): string {\n  return `${laneKey}|${start}|${dur}|${moveSet}`\n}')
-    expect((SCREEN.match(/slotKey\(/g) ?? [])).toHaveLength(4)
+    expect((SCREEN.match(/slotKey\(/g) ?? [])).toHaveLength(3)
     // ⚖ FIX ROUND 2 (FX-B) — …and the FOURTH FIELD has a home of its own,
     // because three sites ask for it: the composer (for the shuffled-board
     // cache and for the key), the chip map, and the aimed chip's own refresh.
@@ -1934,7 +2010,10 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — …and a FOURTH asks: the ⇄ chip's
     // own companion lines, cached under the same key as the shuffle they are
     // read off.
-    expect((SCREEN.match(/moveSetOf\(/g) ?? [])).toHaveLength(5)
+    // ⚖ FRAME-SEAM (2026-09-12) — 5 → 4 with the pre-commit aimed write: the
+    // declaration, the composer's two (the shuffled-board cache and the key) and
+    // the chip map's read. The aimed chip asks for no key at all now.
+    expect((SCREEN.match(/moveSetOf\(/g) ?? [])).toHaveLength(4)
     // …and the two renderer lines ⚖ M-6(a) never got, byte for byte. `drop` is
     // the read; `mark` is what the read decides.
     // ⚖ FIX ROUND 2 (FX-B) — …and the read now COMPOSES what it does not find.
@@ -1942,8 +2021,18 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // candidate after the board moved drawing its face from the UN-shuffled
     // verdict — the exact promise ⚖ RULING 3's third arm makes and the release
     // can refuse.
+    // ⚖ FRAME-SEAM (2026-09-12) — …and the AIMED chip is out of that read
+    // entirely. The chip under the cursor is the one that may never disagree with
+    // the badge and the drop; it used to be kept honest by a write made inside the
+    // rAF, one commit before the render that drew it, and that write was measured
+    // redundant (173/173 suppressed → 0/180 faces changed) and structurally
+    // unreachable on the one gesture where the two boards differ. It now takes the
+    // card's own answer on-lattice and composes fresh on `handBoard` off-lattice.
     expect(SCREEN).toContain(
-      'const drop = v && v.reseats.length > 0 && toneRef.current ? (toneRef.current.slots.get(slotKey(rail.laneKey, c.start, railDur, moveSetOf(v.reseats))) ?? composeSlot(rail.laneKey, c.start, v)) : undefined',
+      'const cached = v && v.reseats.length > 0 && !isAimed && toneRef.current\n              ? toneRef.current.slots.get(slotKey(rail.laneKey, c.start, railDur, moveSetOf(v.reseats)))\n              : undefined',
+    )
+    expect(SCREEN).toContain(
+      'const drop =\n              v && v.reseats.length > 0\n                ? isAimed && onLattice && liveWord\n                  ? { kind: liveWord.kind, reason: liveWord.reason }\n                  : (cached ?? composeSlot(rail.laneKey, c.start, v))\n                : undefined',
     )
     expect(SCREEN).toContain('const mark = chip ? chip.mark : (explained?.mark ?? null)')
     // ⚖ FIX ROUND 5 — …and the `final` the chip's face is read off carries the
@@ -1974,14 +2063,19 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
       'const sentence =\n              v && chip?.mark\n                ? reseatSentence(v.reason ?? c.sentence, linesFor(v), drop?.kind === \'caution\' ? drop.reason : null)\n                : (v?.reason ?? explained?.sentence ?? c.sentence)',
     )
     expect(SCREEN).not.toContain('linesFor(v), null)')
-    expect(SCREEN).not.toContain('companionLines(boardLanes, companionsFor(boardLanes, v.reseats)), null)')
+    expect(SCREEN).not.toContain('companionLines(handBoard, companionsFor(handBoard, v.reseats)), null)')
     // …and the composer is ONE line, in ONE place, behind the cache: the
     // gesture's own `linesFor`, keyed by the set of moves and dropped by the
     // board compare above. Bypassing it — composing at the chip again — fails
     // the count below.
     expect(SCREEN).toContain(
-      '  function linesFor(v: LandingVerdict): readonly string[] {\n    const store = gestureStore()\n    const moveSet = moveSetOf(v.reseats)\n    const had = store?.linesFor.get(moveSet)\n    if (had !== undefined) return had\n    const lines = companionLines(boardLanes, companionsFor(boardLanes, v.reseats))\n    store?.linesFor.set(moveSet, lines)\n    return lines\n  }',
+      '  function linesFor(v: LandingVerdict): readonly string[] {\n    const store = gestureStore()\n    const moveSet = moveSetOf(v.reseats)\n    const had = store?.linesFor.get(moveSet)\n    if (had !== undefined) return had',
     )
+    // ⚖ FRAME-SEAM (2026-09-12) — …and the two board walks read the HAND's board,
+    // so a ⇄ chip's sentence cannot name a companion the answer it explains was
+    // never measured against. Its negative sibling below is re-spelled with it, or
+    // it would have become vacuously true and stopped biting.
+    expect(SCREEN).toContain('    const lines = companionLines(handBoard, companionsFor(handBoard, v.reseats))\n    store?.linesFor.set(moveSet, lines)\n    return lines\n  }')
     // TWO calls in the whole screen: the 仮押さえ box's own summary (a rest
     // surface, one per staged card) and this one. A third is a per-frame walk
     // of the board wherever it lands.
@@ -2014,24 +2108,35 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     expect(SCREEN).toContain('store.slots.set(slotKey(laneKey, start, railDur, moveSet), slot)')
     expect(SCREEN).toContain('function composeSlot(laneKey: string, start: number, v: LandingVerdict): ToneSlot | undefined {')
     expect(SCREEN).not.toContain('store.slots.set(slotKey(laneKey, start, railDur, moveSet), final.kind)')
-    // …and the aimed chip's own refresh keys on the length it DERIVES from the
-    // frame's span, never on the render body's `railDur`: this function is
-    // reached only through the listeners `beginDrag` binds once per gesture, so
-    // its closure is the POINTERDOWN render's — where `live` and `dragLen` are
-    // both null and `railDur` is `props.guard.standardSessionMin`. `span` is the
-    // object `applyDragFrame` has just handed `setLive`, so this expression is
-    // `aimDur`'s own on the same values (see §Deviations, FIX-REPORT-1).
-    expect(SCREEN).toContain('      const from = minuteOf(span.x, hours)\n      const dur = minuteOf(span.x + span.w, hours) - from\n')
-    expect(SCREEN).toContain('const slots = toneRef.current?.slots ?? null')
-    // ⚖ FIX ROUND 2 (FX-B) — …and the aimed chip's slot is written WHETHER OR
-    // NOT the burst ever saw that chip. The `if (slots.has(slot))` gate this
-    // replaces made ⚖ AUDIT A1's identity — the chip under the cursor, the
-    // badge and the release are ONE answer — depend on the pick-up burst having
-    // already composed that exact key, which after a changed rescue it had not.
-    expect(SCREEN).toContain(
-      '      const aimed =\n        from === chipStart\n          ? v\n          : verdictRef.current({ ...askOf(ctx, sides, span), span: place(chipStart, chipStart + dur, hours) }, livePack())\n      slots.set(slotKey(ctx.targetLane, chipStart, dur, moveSetOf(aimed.reseats)), { kind: aimed.kind, reason: aimed.reason })',
-    )
+    // ⚖ FRAME-SEAM (2026-09-12) — THE PRE-COMMIT AIMED SLOT WRITE IS DELETED, and
+    // this pin becomes its negative. It wrote the chip under the cursor from
+    // INSIDE the rAF, one commit before the render that drew it, and it was
+    // measured redundant twice over: structurally unreachable on the only gesture
+    // where the two boards differ (a staged card's re-drag opens no gesture memo,
+    // so `toneRef.current` is null and the block never ran at all), and
+    // behaviourally a no-op — 173 of 173 writes suppressed changed 0 of 180 aimed
+    // chip faces, and 359 of 379 of them carried an EMPTY move set, which the
+    // renderer can never look up. ⚖ AUDIT A1's identity — the chip under the
+    // cursor, the badge and the release are ONE answer — is kept by a stronger
+    // means: the aimed chip reads `liveWord`, the object the badge wears.
+    // DELTA-4 row (e) closes by deletion.
+    expect(SCREEN).not.toContain('const slots = toneRef.current?.slots ?? null')
+    expect(SCREEN).not.toContain('slots.set(slotKey(ctx.targetLane, chipStart, dur,')
     expect(SCREEN).not.toContain('slots.has(')
+    // …and the replacement is not a second home. ON-LATTICE the chip's question IS
+    // the card's, so it takes the card's own answer; OFF-LATTICE it composes fresh
+    // on this render's `handBoard`, which is the drop's own two-leg shape. Every
+    // OTHER chip keeps the cache and its declared preview class.
+    expect(SCREEN).toContain('const isAimed = aimed?.laneKey === rail.laneKey && aimed.start === c.start')
+    expect(SCREEN).toContain('const onLattice = isAimed && liveStart === c.start')
+    expect(SCREEN).toContain(
+      '                ? isAimed && onLattice && liveWord\n                  ? { kind: liveWord.kind, reason: liveWord.reason }\n                  : (cached ?? composeSlot(rail.laneKey, c.start, v))',
+    )
+    // …and the cache is CONSULTED for every chip but the aimed one. `!isAimed` is
+    // the whole of the deletion's replacement on the read side: one spelling of
+    // the composer at this site (the count of 3 below holds), and the chip under
+    // the cursor never served from a map a previous frame wrote.
+    expect(SCREEN).toContain('const cached = v && v.reseats.length > 0 && !isAimed && toneRef.current')
     //
     // ⚖ ADJUDICATION L4 — AND THE WORLD STAMP'S DEP LIST IS PINNED BY EXACT TEXT.
     // The memo has no self-check that its caller's stamp is complete: a dropped
@@ -2115,5 +2220,99 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // A name the board cannot show is OMITTED, never invented (⚖ A3's law).
     expect(companionLines(board, [{ id: 'nobody', bedOrigin: { laneKey: 'bed-01', x: 0, w: 1 }, bedTo: 'bed-02' }]))
       .toEqual(['ベッド1 → ベッド2'])
+  })
+})
+
+/** ⚖ FRAME-SEAM (2026-09-12) — THE CARD'S WORD, THE AIMED CHIP AND THE STRIP OUT
+ *  OF ONE RENDER'S WORLD.
+ *
+ *  Liam's 9/11 finding on the preview: a strip chip read ✓16:00 under the cursor
+ *  while the card in hand said 要確認. Two roots, both proven on the mounted
+ *  screen (PROBE-2-FRAME-SEAM.md): the word was computed INSIDE the rAF, one
+ *  commit before the render it belonged to, and for a staged card's re-drag the
+ *  word and the strip were judging two different boards.
+ *
+ *  No suite here can mount `TodayScreen` — the territory fence keeps `react-dom`
+ *  and RTL out of Business tests — so the behavioural net is the lane's frame
+ *  mount (`harness/frame-seam/frame-seam-pin.harness.test.tsx`, run on the tip
+ *  and again by the layer-off lens). What the repo holds is the rule as a PURE
+ *  FUNCTION with a real behavioural pin (`handBoardFor`, in
+ *  today-live-drag.test.ts) plus text pins on the CALL SITES — never on a
+ *  hoisted declaration, which pins where code SITS and not when it RUNS
+ *  (⚖ live-drag lesson 4). */
+describe('FRAME-SEAM — one render, one world', () => {
+  it('the word is no longer asked inside the pointer frame, and the paint is a layout effect', () => {
+    // THE SEAM ITSELF. `applyDragFrame` calls `setLive` and returns; React
+    // flushes the batched state only after that callback, so anything the frame
+    // paints is painted from the PREVIOUS commit's board while the strip on
+    // screen is drawn from the new one. Measured on the mount at ee35cc6a1: of
+    // 84 frames, 42 asked the question at all and all 42 read a different board
+    // than the strip — not one frame agreed.
+    const frameBody = SCREEN.slice(
+      SCREEN.indexOf('function applyDragFrame() {'),
+      SCREEN.indexOf('\n  }\n', SCREEN.indexOf('function applyDragFrame() {')),
+    )
+    expect({ where: 'applyDragFrame', paints: frameBody.includes('paintProxyVerdict(') }).toEqual({ where: 'applyDragFrame', paints: false })
+    expect({ where: 'applyDragFrame', asks: frameBody.includes('verdictRef.current(') }).toEqual({ where: 'applyDragFrame', asks: false })
+    // …and the ONE call site is inside a layout effect keyed on the answer. A
+    // layout effect runs after the commit and before the browser paints, so the
+    // screen still paints once per frame and the word is this render's.
+    expect(SCREEN).toContain(
+      'useLayoutEffect(() => {\n    const ctx = dragRef.current\n    if (ctx) paintProxyVerdict(ctx, liveWord)',
+    )
+    expect((SCREEN.match(/paintProxyVerdict\(ctx, /g) ?? [])).toHaveLength(1)
+    // …keyed on the aim plus the world, never on `boardLanes`'s identity: that
+    // array is fresh on EVERY frame including a no-op move, so the naive key
+    // repaints when the answer provably cannot change (+34 asks over 84 frames,
+    // measured). The chosen key asks exactly as often as today did: 50/84.
+    expect(SCREEN).toContain("const liveAimKey =\n    live && live.mode === 'move' && !live.overShelf ? `${live.offLane ? '' : live.targetLane}|${live.x}|${live.w}` : null")
+    expect(SCREEN).toContain('[liveAimKey, worldStamp],')
+    expect(SCREEN).not.toContain('[liveAimKey, boardLanes]')
+  })
+
+  it('ONE board for the hand: the rule is an exported pure function, and the memo spells it', () => {
+    // ROOT 2. `solveLanes` handed the word and the drop the stage's companions
+    // put BACK in their old rooms while the strip's `rails` read `boardLanes` —
+    // companions in their NEW rooms. Same question, two boards, opposite answers
+    // (置けない on the card, △15:30 on the chip). The strip joins the drop; ⚖ 9/8
+    // PACKING's re-landing rule is Liam's and is never the thing that moves.
+    expect(SCREEN).toContain('export function handBoardFor(')
+    expect(SCREEN).toContain('const handBoard = useMemo(\n    () => handBoardFor(boardLanes, pending, handId, hours, props.bedCleanupMinutes),')
+    // …and the `else` arm hands back the SAME REFERENCE, which is what makes
+    // nothing move at rest: with no hand `handBoard === boardLanes` by identity,
+    // so every memo below sees the identical array in its dep list. A copy here
+    // is correct and re-runs the whole derivation chain on every render — the
+    // behavioural pin for it is in today-live-drag.test.ts.
+    expect(SCREEN).toContain('    : lanes\n}')
+    // …and the strip, its three doors, the explainer and the two composers are
+    // its readers. `bedsOver`, `ledger`, `heldBoard`, `rowStampRef`,
+    // `gestureStore`'s base compare and `pendingGuardRow` stay on `boardLanes`
+    // (rest/sell questions, and the memo-gate invariant below).
+    expect(SCREEN).toContain('guardRailsFor(handBoard, {')
+    expect(SCREEN).toContain('placementFeasible: bedDoorFor(handId, handBoard),')
+    expect(SCREEN).toContain('protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, handBoard) : undefined,')
+    expect(SCREEN).toContain('restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId, handBoard) : undefined,')
+    expect(SCREEN).toContain('explainRails(rails, handBoard, {')
+    // `restingFor` is NOT given it: it reads `committedLanes`, a rest question.
+    expect(SCREEN).toContain('resting: restingFor(handId),')
+    // `verdictAt`/`verdictFor` KEEP their `= boardLanes` defaults (⚖ ADJUDICATION
+    // L1 M-1): the hand's askers pass the board EXPLICITLY, so every rest surface
+    // that omits it is byte-unchanged.
+    expect(SCREEN).toContain('lanes: BoardLane[] = boardLanes): LandingVerdict =>')
+  })
+
+  it('the memo-gate invariant is stated where it is load-bearing', () => {
+    // WHY `rowStampRef`, `store.base` and the memo's own `board: () =>
+    // boardLanesRef.current` may stay on `boardLanes`: the gesture memo is opened
+    // only when the card in hand is NOT the staged one, and `handBoard !==
+    // boardLanes` only while the staged card IS in hand. So whenever the memo or
+    // the tone store exists, the two arrays are the same object and those three
+    // sites cannot see a mixed world. It is the statement that makes leaving them
+    // alone correct rather than lucky, so it is text and it is pinned.
+    expect(SCREEN).toContain('⚖ FRAME-SEAM (2026-09-12) — THE MEMO-GATE INVARIANT')
+    expect(SCREEN).toContain('// memo\'s `board: () => boardLanesRef.current` on `boardLanes` CORRECT rather')
+    expect(SCREEN).toContain('store.base !== boardLanes')
+    expect(SCREEN).toContain("rowStampRef.current = handRowStamp(boardLanes, handId ?? '', live?.bedLane ?? null)")
+    expect(SCREEN).toContain('board: () => boardLanesRef.current,')
   })
 })
