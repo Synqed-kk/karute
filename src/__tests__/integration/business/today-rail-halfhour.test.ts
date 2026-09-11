@@ -1110,7 +1110,26 @@ function liveRig(rest: BoardLane[], hand: { id: string; bed: string }) {
     refreshServer: () => { placedLanes = [...(placedLanes as unknown[])] },
     /** A room's turnaround changes under the card. */
     changeCleanup: (next: Record<string, number>) => { cleanup = next },
+    /** ⚖ FIX ROUND 1 (F2) — the two values the SCREEN's ⇄ fill gate compares.
+     *  They are the same two the memo clears on, read from the same places. */
+    worldStamp: world,
+    rowStamp: () => handRowStamp(boardLanes, hand.id, hand.bed),
   }
+}
+
+/** ⚖ FIX ROUND 1 (F2) — THE SCREEN'S ⇄ FILL GATE, AS A RULE THAT CAN BE ASKED.
+ *
+ *  `fillToneSlots()` lives in TodayScreen's render body and NO SUITE IN THIS
+ *  REPO RENDERS TodayScreen, so the rule is driven here against hand-built
+ *  values and the LINE that spells it in the product is pinned as text in
+ *  today-bed-packing §B. The two together are the armour: a rule nobody can
+ *  execute proves nothing, and a pinned line nobody exercised proves nothing
+ *  either.
+ *
+ *  The rule, in one sentence: rebuild the slots when there are none, or when
+ *  either of the memo's own two invalidators has moved since they were built. */
+function toneGate(tone: { world: object; row: string } | null, world: object, row: string): boolean {
+  return tone == null || tone.world !== world || tone.row !== row
 }
 
 /** The guard's cell for one chip, the way `verdictAt` builds it. */
@@ -1253,11 +1272,37 @@ describe('§BEHAVIOURAL (v) — a live drag pays for each question ONCE, and the
       rig.reset()
       rig.verdictFor(keys[0], 840, null, true)
       expect({ name, beforeDisturbance: rig.packs() }).toEqual({ name, beforeDisturbance: 0 })
+      // ⚖ FIX ROUND 1 (F2) — AND THE ⇄ TONE SLOTS GO WITH IT. They are a VIEW
+      // of the answers this memo just threw away, so a view that survives the
+      // clear is a chip wearing a mark composed from a verdict the board no
+      // longer gives. Before the disturbance the gate says 「keep them」; after
+      // it, 「rebuild」 — on each of the three, one at a time.
+      const built = { world: rig.worldStamp(), row: rig.rowStamp() }
+      expect({ name, refillBefore: toneGate(built, rig.worldStamp(), rig.rowStamp()) })
+        .toEqual({ name, refillBefore: false })
       disturb(rig)
       rig.frameAt(keys[0], 840)
       rig.verdictFor(keys[0], 840, null, true)
       expect({ name, afterDisturbance: rig.packs() }).toEqual({ name, afterDisturbance: 1 })
       expect({ name, entries: rig.memo.size() }).toEqual({ name, entries: 1 })
+      expect({ name, refillAfter: toneGate(built, rig.worldStamp(), rig.rowStamp()) })
+        .toEqual({ name, refillAfter: true })
+      // …and the rebuilt view records the pair it was built under, so the very
+      // next render does NOT refill again.
+      const rebuilt = { world: rig.worldStamp(), row: rig.rowStamp() }
+      expect({ name, refillTwice: toneGate(rebuilt, rig.worldStamp(), rig.rowStamp()) })
+        .toEqual({ name, refillTwice: false })
+    }
+    // …and each half of the gate is load-bearing on its own: dropping either
+    // compare leaves a disturbance the slots never notice. These are mutants (2)
+    // and (3) of the fix round, written as the rule rather than as an edit.
+    {
+      const w1 = {}
+      const w2 = {}
+      expect(toneGate({ world: w1, row: 'r' }, w2, 'r')).toBe(true)   // world only
+      expect(toneGate({ world: w1, row: 'r' }, w1, 'r2')).toBe(true)  // row only
+      expect(toneGate(null, w1, 'r')).toBe(true)                      // never filled
+      expect(toneGate({ world: w1, row: 'r' }, w1, 'r')).toBe(false)  // nothing moved
     }
     // …and the hand's OWN room row is the third: a tail that clips or re-grows
     // under the card changes what `allocateBed`'s step-0 arm sees, which is the
