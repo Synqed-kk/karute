@@ -3232,6 +3232,15 @@ export function RecordPageView({
   // the dialog-hygiene effect above has to span 'autosaving' too (fix round 6)
   // — narrower, it clears the flag this tap just set.
   function handleUseRecordingTap() {
+    // ⚖ FIX ROUND 3 (Greptile P1): the ONE entry every 使用 tap goes through
+    // (runStopFlow/handleAutoFlow/openOutcomeDialog/the supersede confirm are
+    // all reached only from here — setShowSupersedeDialog(true) is written
+    // nowhere else). Before the dialog path lost the modal to the one-tap
+    // gate, that modal WAS this fence: it covered 使用する for the whole
+    // discard round-trip. A below-floor take's one-tap discard leaves the
+    // button live, so without this check an auto-redeem customer's tap here
+    // could burn a prepaid session for audio that is mid-discard.
+    if (discardReasonSubmittingRef.current) return
     if (pipeline.state === 'processing') {
       // The old run survives server-side — say so, don't ask.
       if (globalPipeline.serverOwned) toast.info(t('supersedeServerNotice'))
@@ -3280,7 +3289,10 @@ export function RecordPageView({
             // Belt: visual only, state-driven (resolvingOutcome only spans the
             // pack/redeem write, not the whole post-resolve window) — the real
             // guard is outcomeResolvedRef inside openOutcomeDialog.
-            disabled={resolvingOutcome}
+            // ⚖ FIX ROUND 3: discardReasonSubmitting (state, for render) backs
+            // the ref guard at the top of handleUseRecordingTap (logic) — a
+            // tap that lands before the re-render is still caught there.
+            disabled={discardReasonSubmitting || resolvingOutcome}
             onClick={handleUseRecordingTap}
           >
             {t('useRecording')}

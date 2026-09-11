@@ -70,9 +70,13 @@ jest.mock('@/actions/customers', () => ({
   uploadCustomerPhoto: jest.fn(async () => ({ photo: { id: 'p1' } })),
   deleteCustomerPhoto: () => mockDeleteCustomerPhoto(),
 }))
+/** ⚖ FIX ROUND 3 (Greptile P1) — the money side of 使用 in auto-redeem mode.
+ *  Named + resolved so a test can drive `handleAutoFlow` without it exploding
+ *  on `.then()` of an unconfigured mock's `undefined`. */
+const mockRedeemSessionAction = jest.fn(async (_input: unknown) => ({ ok: true, redemptionId: 'r1' }) as const)
 jest.mock('@/actions/packs', () => ({
   createPackAction: jest.fn(),
-  redeemSessionAction: jest.fn(),
+  redeemSessionAction: (i: unknown) => mockRedeemSessionAction(i as never),
   undoRedemptionAction: jest.fn(),
 }))
 jest.mock('@/actions/recordings-inbox', () => ({ listRecordingsInbox: jest.fn(async () => []) }))
@@ -1423,6 +1427,60 @@ describe('⚖ FIX ROUND 2 (F7) — the receipt duration is captured pre-await, n
       recordingSessionId: 'sess-reminted',
       durationSeconds: 45,
     })
+  })
+})
+
+// ⚖ FIX ROUND 3 (Greptile P1, accepted at source): the dialog path's modal
+// used to cover 使用する for the whole discard round-trip — a real fence. The
+// one-tap path removed the modal, so without a guard, tapping 使用 on an
+// auto-redeem customer while a below-floor discard is still submitting would
+// burn a prepaid session (redeemSessionAction) for audio that gets discarded
+// a moment later. Both the ref guard (handleUseRecordingTap, logic) and the
+// disabled prop (state, render) are pinned here — belt and braces.
+describe('⚖ FIX ROUND 3 (Greptile P1) — 使用 is sealed while a one-tap discard is submitting', () => {
+  it('an auto-redeem tap during an in-flight one-tap discard burns nothing and hands off nothing', async () => {
+    mockTarget = { customerId: 'cust-A', customerName: 'テスト花子' }
+    recorderTake.takeId = 'take-1'
+    mockDurationMs = 5_000 // under the floor — 破棄 one-taps
+    let releaseDiscard: (v: unknown) => void = () => {}
+    mockDiscardWithReason.mockImplementationOnce(
+      () => new Promise((res) => { releaseDiscard = res }) as never,
+    )
+    await renderPage({
+      ticketsEnabled: true,
+      // remaining > REPURCHASE_PROMPT_REMAINING (2) → resolveOutcomeMode
+      // returns 'auto' → resolveStopFlow returns 'auto-redeem'.
+      targetPack: { id: 'p1', remaining: 5, size: 10 },
+    })
+
+    const discardBtn = screen.getByText('discard')
+    const useBtn = screen.getByText('useRecording')
+    // Same-tick race, no render between the two taps (the same idiom the
+    // double-tap tests use): the first dispatch runs openDiscardReason
+    // synchronously up to its own await (awaitRecordingSessionId), setting
+    // discardReasonSubmittingRef.current = true and scheduling — but not yet
+    // committing — discardReasonSubmitting's re-render. The second dispatch
+    // lands on a DOM button that is not YET marked disabled, so only the ref
+    // guard (not the disabled prop) is what can catch it.
+    await act(async () => {
+      discardBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      useBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+
+    // THE MONEY ASSERTION: no ticket burned, no handoff to the pipeline.
+    expect(mockRedeemSessionAction).not.toHaveBeenCalled()
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+    // Belt: by now React has re-rendered — the button is visibly disabled too.
+    expect(useBtn.closest('button')).toBeDisabled()
+
+    // Release the held discard — it completes normally.
+    await act(async () => {
+      releaseDiscard({ ok: true, receiptId: 'row-1', duplicate: false })
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+    expect(mockDiscardRecording).toHaveBeenCalledTimes(1)
   })
 })
 
