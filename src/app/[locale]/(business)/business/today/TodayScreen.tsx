@@ -356,6 +356,23 @@ export function slotKey(laneKey: string, start: number, dur: number, moveSet: st
   return `${laneKey}|${start}|${dur}|${moveSet}`
 }
 
+/** ⚖ FIX ROUND 5 (Greptile #885 4/5) — WHAT A ⇄ PREVIEW REMEMBERS: THE FACE,
+ *  AND WHAT THE FACE COSTS.
+ *
+ *  The slot held `final.kind` alone. A costly swap therefore knew it was costly
+ *  — the △ palette — and could not say what it cost: the shuffled board's own
+ *  verdict sentence was computed to pick that palette and then dropped, so the
+ *  chip's accessible name and its press-to-explain said the swap without its
+ *  price. That sentence is exactly the tail the REST layer appends for the same
+ *  chip (`railExplain`'s reseat arm, from `landingVerdict`'s own `reason` on the
+ *  shuffled board), so keeping it is not a new fact — it is the one this screen
+ *  already had and threw away.
+ *
+ *  `reason` is that verdict's own: `null` on a clean landing, the cell's
+ *  sentence on a caution one, the stop's reason on a refusal — and a refused
+ *  slot draws × and reads none of it. */
+export type ToneSlot = { kind: LandingClass; reason: string | null }
+
 /** ⚖ FIX ROUND 2 (FX-B) — THE SET OF MOVES A LANDING WOULD MAKE, AS ONE STRING.
  *
  *  It is the fourth field of the key above and the cache key for the shuffled
@@ -2343,7 +2360,7 @@ export function TodayScreen(props: TodayProps) {
    *  ⚖ FIX ROUND 4 (Greptile #884 4/5) — `world` is the WORLD the slots above
    *  were composed under, and it is the one change that DOES drop them. */
   const toneRef = useRef<{
-    slots: Map<string, LandingClass>
+    slots: Map<string, ToneSlot>
     shuffledFor: Map<string, BoardLane[]>
     linesFor: Map<string, readonly string[]>
     base: BoardLane[]
@@ -2867,7 +2884,7 @@ export function TodayScreen(props: TodayProps) {
    *  ⇄ preview whose rescue is unchanged under a moved world: the 4.6% class
    *  above, ruled acceptable, and never the chip under the cursor
    *  (`paintProxyVerdict` rewrites that one on every aim change). */
-  function composeSlot(laneKey: string, start: number, v: LandingVerdict): LandingClass | undefined {
+  function composeSlot(laneKey: string, start: number, v: LandingVerdict): ToneSlot | undefined {
     const store = gestureStore()
     // Both callers stand under a hand and under the store's own existence, and
     // TypeScript's narrowing does not cross a function boundary. It is also a
@@ -2882,8 +2899,9 @@ export function TodayScreen(props: TodayProps) {
     }
     const ask = { ...inHand, staffLane: laneKey, span: place(start, start + railDur, hours) }
     const final = verdictFor(ask, verdictAt(laneKey, start, railDur, inHand.id, shuffled), false, shuffled)
-    store.slots.set(slotKey(laneKey, start, railDur, moveSet), final.kind)
-    return final.kind
+    const slot: ToneSlot = { kind: final.kind, reason: final.reason }
+    store.slots.set(slotKey(laneKey, start, railDur, moveSet), slot)
+    return slot
   }
   /** ⚖ FIX ROUND 1B (FX-D) — THE GESTURE'S CACHES FOLLOW THE BOARD THEY WERE
    *  BUILT FROM, AND ONE COMPARE SPENDS THEM BOTH.
@@ -2972,7 +2990,7 @@ export function TodayScreen(props: TodayProps) {
     // The gate below is what proves this, and TypeScript's narrowing does not
     // cross a function boundary: a fill with no hand has nothing to ask about.
     if (inHand == null) return
-    toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>(), linesFor: new Map<string, readonly string[]>(), base: boardLanes, world: worldStampRef.current }
+    toneRef.current = { slots: new Map<string, ToneSlot>(), shuffledFor: new Map<string, BoardLane[]>(), linesFor: new Map<string, readonly string[]>(), base: boardLanes, world: worldStampRef.current }
     for (const rail of rails) {
       for (const c of rail.cells) {
         const ask = { ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }
@@ -4576,7 +4594,7 @@ export function TodayScreen(props: TodayProps) {
         from === chipStart
           ? v
           : verdictRef.current({ ...askOf(ctx, sides, span), span: place(chipStart, chipStart + dur, hours) }, livePack())
-      slots.set(slotKey(ctx.targetLane, chipStart, dur, moveSetOf(aimed.reseats)), aimed.kind)
+      slots.set(slotKey(ctx.targetLane, chipStart, dur, moveSetOf(aimed.reseats)), { kind: aimed.kind, reason: aimed.reason })
     }
   }
 
@@ -6921,7 +6939,7 @@ export function TodayScreen(props: TodayProps) {
             // the chip under the cursor is rewritten by `paintProxyVerdict` on
             // every aim change, so the one chip that may never disagree does not.
             const drop = v && v.reseats.length > 0 && toneRef.current ? (toneRef.current.slots.get(slotKey(rail.laneKey, c.start, railDur, moveSetOf(v.reseats))) ?? composeSlot(rail.laneKey, c.start, v)) : undefined
-            const chip = v ? liveChipFace({ v, final: drop ? { ...v, kind: drop } : v, start: c.start }) : null
+            const chip = v ? liveChipFace({ v, final: drop ? { ...v, kind: drop.kind, reason: drop.reason } : v, start: c.start }) : null
             const state = chip ? chip.state : c.state
             // ⚖ flag 44 — the chip's own reading of itself. The WORD is a
             // rest-state cue and the mid-drag face belongs to the verdict (the
@@ -6942,11 +6960,16 @@ export function TodayScreen(props: TodayProps) {
             // a second spelling, laid on top of exactly the sentence this chip
             // would have carried anyway. Every non-⇄ chip is byte-unchanged.
             //
-            // ⚠ The caution tail is `null` here and that is honest, not an
-            // omission: at rest it is the SHUFFLED board's own verdict sentence,
-            // and mid-drag the slots carry that verdict's KIND alone. Naming a
-            // cost we have not asked for would be the invention this board does
-            // not make; the △ palette the chip already wears is what says it.
+            // ⚖ FIX ROUND 5 (Greptile #885 4/5) — …AND THE COST OF THE SWAP RIDES
+            // WITH IT. The tail was `null` here because the slot remembered the
+            // shuffled verdict's KIND and threw its REASON away, so a △ chip
+            // announced the swap and never the thing the △ is about. The tail
+            // is that verdict's own sentence — the SHUFFLED board's, composed by
+            // the drop's own second leg — which is the same value the REST layer
+            // appends through this same composer (`railExplain`'s reseat arm:
+            // `caution: v.kind === 'caution' ? v.reason : null`, off
+            // `landingOn(after, …)`). One composer, one source, one spelling; a
+            // CLEAN swap still has no tail, exactly as it has none at rest.
             //
             // ⚖ FIX ROUND 3 (DELTA-CODE-D1 MAJOR 2) — …and the LINES it names
             // are composed once per set of moves, not once per chip per frame:
@@ -6955,7 +6978,7 @@ export function TodayScreen(props: TodayProps) {
             // the cost this round priced and removed.
             const sentence =
               v && chip?.mark
-                ? reseatSentence(v.reason ?? c.sentence, linesFor(v), null)
+                ? reseatSentence(v.reason ?? c.sentence, linesFor(v), drop?.kind === 'caution' ? drop.reason : null)
                 : (v?.reason ?? explained?.sentence ?? c.sentence)
             // ⚖ LIAM RULING 3 (2026-09-09) — 「a start that fits only by MOVING
             // someone gets a small 『moves someone』 marker instead of a plain

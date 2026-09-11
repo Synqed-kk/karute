@@ -6399,7 +6399,10 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // out of the JSX into `liveChipFace`, where the whole table is unit-pinned
     // without a renderer. The 満室 answer above is unchanged either way.
     expect(SRC).toContain('const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c, livePack().pack) : null')
-    expect(SRC).toContain('const chip = v ? liveChipFace({ v, final: drop ? { ...v, kind: drop } : v, start: c.start }) : null')
+    // ⚖ FIX ROUND 5 (Greptile #885 4/5) — the slot is an object now, so the
+    // chip's `final` takes its kind AND its reason. `liveChipFace` reads the
+    // kind only; the reason is what the chip's own sentence says out loud.
+    expect(SRC).toContain('const chip = v ? liveChipFace({ v, final: drop ? { ...v, kind: drop.kind, reason: drop.reason } : v, start: c.start }) : null')
     expect(SRC).toContain('const state = chip ? chip.state : c.state')
   })
 

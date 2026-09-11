@@ -66,6 +66,7 @@ import {
   onlineOffers,
   railChipClass,
   railExplain,
+  reseatSentence,
   reservedClause,
   restCueStarts,
   sellDrawnFor,
@@ -83,6 +84,7 @@ import {
   TodayScreen,
   bedDoor,
   bedViewsFor,
+  type ToneSlot,
   type TodayProps,
 } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
@@ -1185,6 +1187,27 @@ function linesRule(
   return { composed: true, entries: store.linesFor.size }
 }
 
+/** ⚖ FIX ROUND 5 (Greptile #885 4/5) — WHAT A ⇄ PREVIEW REMEMBERS, AND WHAT
+ *  THE CHIP SAYS OFF IT.
+ *
+ *  Two one-line rules that live in TodayScreen's render body — `composeSlot`'s
+ *  store line and the chip's own `sentence` — so the same armour applies as to
+ *  every other rule in this file: the LINES are pinned as text in
+ *  today-bed-packing §B, the RULES are exercised here, and neither half proves
+ *  anything alone.
+ *
+ *  The slot used to be `final.kind` alone. `final` is the DROP's own verdict on
+ *  the shuffled board, and on a costly swap its `reason` is the sentence the
+ *  △ palette is about — the very tail the REST layer appends through
+ *  `reseatSentence` for the same chip. Dropping it left the ⇄ chip's
+ *  accessible name announcing the swap and never its price. The tail is read
+ *  back for a `caution` slot ONLY: a clean swap has no cost to name, and naming
+ *  one would be a sentence the rest layer does not write either. `ToneSlot` is
+ *  the product's own exported type, so a change to the slot's shape fails the
+ *  typecheck here as well as the text pin there. */
+const slotOf = (final: Pick<LandingVerdict, 'kind' | 'reason'>): ToneSlot => ({ kind: final.kind, reason: final.reason })
+const chipTail = (slot: ToneSlot | undefined): string | null => (slot?.kind === 'caution' ? slot.reason : null)
+
 function slotRule(
   store: { slots: Map<string, LandingClass>; shuffledFor: Map<string, number>; linesFor?: Map<string, number>; base?: unknown; world?: unknown },
   laneKey: string,
@@ -1509,6 +1532,56 @@ describe('§BEHAVIOURAL (v) — a live drag pays for each question ONCE, and the
       // now — and its neighbour's preview is gone too, not just its own.
       expect(slotRule(store, 'p-01', 840, 60, 'a>r2', compose, boardB, w2)).toEqual({ kind: 'clean', composed: true, shuffles: 1 })
       expect({ composes, keys: store.slots.size }).toEqual({ composes: 3, keys: 1 })
+    }
+    // ⚖ FIX ROUND 5 (Greptile #885 4/5) — …and the SIXTH case, which is not
+    // about WHEN a slot is kept but about WHAT ONE HOLDS.
+    //
+    // A slot is the DROP's answer for a start the board can only reach by
+    // moving somebody, and it held that answer's KIND alone. On a costly swap
+    // the kind is `caution`, the △ palette follows from it — and the sentence
+    // that says WHAT the swap costs was computed by the same verdict, used to
+    // pick the palette, and thrown away. The chip then wore a △ and told a
+    // screen reader only that the board would move someone: the mark promised a
+    // price and the name never said it. The cost is not a new fact and this is
+    // not a new sentence — at REST the same clause carries the same tail
+    // through the same composer (`railExplain`'s reseat arm takes `caution:
+    // v.kind === 'caution' ? v.reason : null` off the SHUFFLED board's own
+    // verdict), so mid-drag it is the identical value from the identical place.
+    {
+      // A real one: the guard's own refusal sentence for a protected window the
+      // swap would spend (the shape `landingVerdict` returns on a caution).
+      const REASON = 'ここに置くと新規（90分）が入らなくなります（16:00〜17:00）'
+      const BASE = 'この30分はベッドが空いています'
+      const LINES = ['見本 さくら様 ベッド1 → ベッド2']
+      // A caution final keeps its reason…
+      expect(slotOf({ kind: 'caution', reason: REASON })).toEqual({ kind: 'caution', reason: REASON })
+      // …a clean one has none to keep — `landingVerdict`'s `reason` is `null` on
+      // a landing nothing refused…
+      expect(slotOf({ kind: 'clean', reason: null })).toEqual({ kind: 'clean', reason: null })
+      // …and a REFUSED one keeps the stop's reason, which the chip never reads:
+      // it draws × and `liveChipFace` gives it no mark, so there is no swap to
+      // explain.
+      expect(slotOf({ kind: 'blocked', reason: 'この位置では確定できません' })).toEqual({ kind: 'blocked', reason: 'この位置では確定できません' })
+      // The tail is the slot's reason on a caution and nothing anywhere else —
+      // including the chip whose slot is MISSING, which is composed on the spot
+      // and until then has no cost to name.
+      expect(chipTail(slotOf({ kind: 'caution', reason: REASON }))).toBe(REASON)
+      expect(chipTail(slotOf({ kind: 'clean', reason: null }))).toBeNull()
+      expect(chipTail(slotOf({ kind: 'blocked', reason: 'この位置では確定できません' }))).toBeNull()
+      expect(chipTail(undefined)).toBeNull()
+      // …and the SENTENCE is the rest layer's own composer with that tail in
+      // its third argument — asserted against `reseatSentence` itself, never
+      // against a second spelling of the clause, which is the defect the
+      // composer was lifted to prevent.
+      const costly = reseatSentence(BASE, LINES, chipTail(slotOf({ kind: 'caution', reason: REASON })))
+      expect(costly).toBe(reseatSentence(BASE, LINES, REASON))
+      expect(costly.endsWith(`。${REASON}`)).toBe(true)
+      // …and a swap that costs nothing still ends at the companions, exactly as
+      // it does at rest.
+      const free = reseatSentence(BASE, LINES, chipTail(slotOf({ kind: 'clean', reason: null })))
+      expect(free).toBe(reseatSentence(BASE, LINES, null))
+      expect(free).not.toContain(REASON)
+      expect(free.endsWith(`（${LINES[0]}）`)).toBe(true)
     }
     // …and the hand's OWN room row is the third: a tail that clips or re-grows
     // under the card changes what `allocateBed`'s step-0 arm sees, which is the

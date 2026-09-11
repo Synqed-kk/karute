@@ -1851,10 +1851,10 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // ⚖ FIX ROUND 4 (Greptile #884 4/5) — …and the WORLD those slots were
     // composed under, which is the one change that does drop them.
     expect(SCREEN).toContain(
-      'toneRef.current = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, BoardLane[]>(), linesFor: new Map<string, readonly string[]>(), base: boardLanes, world: worldStampRef.current }',
+      'toneRef.current = { slots: new Map<string, ToneSlot>(), shuffledFor: new Map<string, BoardLane[]>(), linesFor: new Map<string, readonly string[]>(), base: boardLanes, world: worldStampRef.current }',
     )
     expect(SCREEN).toContain(
-      'const toneRef = useRef<{\n    slots: Map<string, LandingClass>\n    shuffledFor: Map<string, BoardLane[]>\n    linesFor: Map<string, readonly string[]>\n    base: BoardLane[]\n    world: object\n  } | null>(null)',
+      'const toneRef = useRef<{\n    slots: Map<string, ToneSlot>\n    shuffledFor: Map<string, BoardLane[]>\n    linesFor: Map<string, readonly string[]>\n    base: BoardLane[]\n    world: object\n  } | null>(null)',
     )
     // …and the compare that spends it. Without these lines an on-demand
     // compose after a staged card / refresh / turnaround re-uses a shuffle of the
@@ -1905,7 +1905,6 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // …and the composer itself: ONE definition, TWO callers — the pick-up burst
     // and the chip map. A third caller, or a second spelling of the shuffle,
     // fails here.
-    expect(SCREEN).toContain('function composeSlot(laneKey: string, start: number, v: LandingVerdict): LandingClass | undefined {')
     expect((SCREEN.match(/composeSlot\(/g) ?? [])).toHaveLength(3)
     // …and the shuffled board is CACHED per set of moves for the whole gesture,
     // which is what makes composing on demand affordable at all: without this
@@ -1947,6 +1946,11 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
       'const drop = v && v.reseats.length > 0 && toneRef.current ? (toneRef.current.slots.get(slotKey(rail.laneKey, c.start, railDur, moveSetOf(v.reseats))) ?? composeSlot(rail.laneKey, c.start, v)) : undefined',
     )
     expect(SCREEN).toContain('const mark = chip ? chip.mark : (explained?.mark ?? null)')
+    // ⚖ FIX ROUND 5 — …and the `final` the chip's face is read off carries the
+    // slot's REASON beside its kind. `liveChipFace` reads `kind` only, so this
+    // is inert to the face and is what makes the SENTENCE below possible from
+    // one value rather than two.
+    expect(SCREEN).toContain('const chip = v ? liveChipFace({ v, final: drop ? { ...v, kind: drop.kind, reason: drop.reason } : v, start: c.start }) : null')
     // ⚖ ADJUDICATION L3 MAJOR — …and the chip's own SENTENCE, which is its
     // `aria-label` and what pressing it shows. A ⇄ chip reaches for the rest
     // layer's one clause; every other chip keeps the fallback chain byte for
@@ -1960,9 +1964,16 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // every pointer frame — priced at nothing in round 1 because the slots were
     // then empty on every board measured, a premise round 2 deleted when it
     // admitted the candidates.
+    // ⚖ FIX ROUND 5 (Greptile #885 4/5) — …and the CAUTION TAIL is the slot's
+    // own reason, not `null`. The tail is the third argument of the rest
+    // layer's composer and it is what makes 「入れ替えて収めます」 say what the
+    // swap costs; passing `null` again is the finding this round closes, and
+    // passing it for a CLEAN slot would invent a cost at rest the rest layer
+    // does not name either.
     expect(SCREEN).toContain(
-      'const sentence =\n              v && chip?.mark\n                ? reseatSentence(v.reason ?? c.sentence, linesFor(v), null)\n                : (v?.reason ?? explained?.sentence ?? c.sentence)',
+      'const sentence =\n              v && chip?.mark\n                ? reseatSentence(v.reason ?? c.sentence, linesFor(v), drop?.kind === \'caution\' ? drop.reason : null)\n                : (v?.reason ?? explained?.sentence ?? c.sentence)',
     )
+    expect(SCREEN).not.toContain('linesFor(v), null)')
     expect(SCREEN).not.toContain('companionLines(boardLanes, companionsFor(boardLanes, v.reseats)), null)')
     // …and the composer is ONE line, in ONE place, behind the cache: the
     // gesture's own `linesFor`, keyed by the set of moves and dropped by the
@@ -1993,7 +2004,16 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // back is what the second line holds.
     expect(SCREEN).toContain('いま持っているカードにも ⇄ の印が付きます（入れ替えたお客様は、仮押さえの確認に表示されます）')
     expect(SCREEN).not.toContain('いま持っているカードにも「⇄ 入れ替え」')
-    expect(SCREEN).toContain('store.slots.set(slotKey(laneKey, start, railDur, moveSet), final.kind)')
+    // ⚖ FIX ROUND 5 (Greptile #885 4/5) — …and the slot it stores carries the
+    // COST as well as the face. `final.reason` is the shuffled board's own
+    // verdict sentence — the thing the △ palette is about — and storing the
+    // kind alone is what left the ⇄ chip's accessible name saying the swap and
+    // not its price.
+    expect(SCREEN).toContain('export type ToneSlot = { kind: LandingClass; reason: string | null }')
+    expect(SCREEN).toContain('const slot: ToneSlot = { kind: final.kind, reason: final.reason }')
+    expect(SCREEN).toContain('store.slots.set(slotKey(laneKey, start, railDur, moveSet), slot)')
+    expect(SCREEN).toContain('function composeSlot(laneKey: string, start: number, v: LandingVerdict): ToneSlot | undefined {')
+    expect(SCREEN).not.toContain('store.slots.set(slotKey(laneKey, start, railDur, moveSet), final.kind)')
     // …and the aimed chip's own refresh keys on the length it DERIVES from the
     // frame's span, never on the render body's `railDur`: this function is
     // reached only through the listeners `beginDrag` binds once per gesture, so
@@ -2009,7 +2029,7 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // badge and the release are ONE answer — depend on the pick-up burst having
     // already composed that exact key, which after a changed rescue it had not.
     expect(SCREEN).toContain(
-      '      const aimed =\n        from === chipStart\n          ? v\n          : verdictRef.current({ ...askOf(ctx, sides, span), span: place(chipStart, chipStart + dur, hours) }, livePack())\n      slots.set(slotKey(ctx.targetLane, chipStart, dur, moveSetOf(aimed.reseats)), aimed.kind)',
+      '      const aimed =\n        from === chipStart\n          ? v\n          : verdictRef.current({ ...askOf(ctx, sides, span), span: place(chipStart, chipStart + dur, hours) }, livePack())\n      slots.set(slotKey(ctx.targetLane, chipStart, dur, moveSetOf(aimed.reseats)), { kind: aimed.kind, reason: aimed.reason })',
     )
     expect(SCREEN).not.toContain('slots.has(')
     //
