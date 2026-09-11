@@ -39,9 +39,9 @@
         "n": 9
       },
       "roomAllocation": {
-        "sha256": "3c8757213b7c90b584e0c3ec402dc633a204e330d8a16419853bef6979f33afb",
-        "bytes": 241,
-        "n": 3
+        "sha256": "2eb4ff24dfa9026da36ef123a2baef6b81876962a79867c30456934c27b412fb",
+        "bytes": 1503,
+        "n": 4
       },
       "sellLayerFor": {
         "sha256": "cdbf7b35c2493b98839afa314e416700b4bb0c9c51a61a425abf371976e67be3",
@@ -96,9 +96,9 @@
         "n": 4
       },
       "roomAllocation": {
-        "sha256": "e74ba5e01bc4d6eff39841811152f8cc04a3c7e620c4bf0abf3504a3d85a56d0",
-        "bytes": 158,
-        "n": 3
+        "sha256": "19f395014c5d3e4dfe2c0853e19d2e6157da2d11cb054df168a6c7dbbea5f290",
+        "bytes": 650,
+        "n": 4
       },
       "sellLayerFor": {
         "sha256": "3d5bb1b46d3e79589efe2ca06dc356aba8070774da431e4b3a0585063c3b4417",
@@ -153,9 +153,9 @@
         "n": 11
       },
       "roomAllocation": {
-        "sha256": "d2dcb22098aabecea8ca3e7b98db924fe396a85cfc9ebb8845078f243411ec39",
-        "bytes": 283,
-        "n": 3
+        "sha256": "250160e2b301e8b52e20272435b6f79a239715f47ddfd6c44c5fdb22276377a7",
+        "bytes": 358,
+        "n": 4
       },
       "sellLayerFor": {
         "sha256": "d9e7b2376fd4b02ecac40039ca2fc4d6c318c7748d102eb37cb630a4fa5adc64",

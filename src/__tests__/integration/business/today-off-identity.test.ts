@@ -140,7 +140,7 @@ async function buildWorld(lens: StoreLens): Promise<World> {
 }
 
 /** Every one of the eleven paths, computed once for one lens's world. */
-function cellsFor(world: World): Record<(typeof PATHS)[number], unknown> {
+function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number], unknown> {
   const { input, bookings, lanes, hours, opsConfig, pricingRule } = world
 
   // 3 — cleanupBlocks. The fixture's beds all carry 0 cleanup, so the cell
@@ -207,6 +207,21 @@ function cellsFor(world: World): Record<(typeof PATHS)[number], unknown> {
   const firstBooking = bookings[0]
   const need = firstBooking.requiresPrivateRoom
   const bookingStaffLane = lanes.find((l) => l.group === 'staff' && l.key === firstBooking.staffId) ?? null
+  // allocFull is a second probe: allocateBed for a NEW booking at this lens's
+  // own busiest bed slot — only STORE_B (1 bed, 2 bookings) is guaranteed a
+  // genuine refusal by this fixture; STORE_A/viewAll may legitimately find a
+  // free bed.
+  let busiestT = hours.open
+  let busiestCount = -1
+  for (let t = hours.open; t < hours.close - 60; t += 30) {
+    const occupied = bedLanes.filter((l) =>
+      bookings.some((b) => b.resourceId === l.key && b.startMinute <= t && t < b.endMinute),
+    ).length
+    if (occupied > busiestCount) {
+      busiestCount = occupied
+      busiestT = t
+    }
+  }
   const roomAllocationValue = {
     fits: {
       standard: bedLanes.map((l) => [l.key, roomFitsNeed(l, false)]),
@@ -222,6 +237,15 @@ function cellsFor(world: World): Record<(typeof PATHS)[number], unknown> {
       requiresPrivate: need,
       start: firstBooking.startMinute,
       end: firstBooking.endMinute,
+      now: NOW_MIN,
+    }),
+    allocFull: allocateBed(lanes, {
+      id: 'off-identity-full',
+      currentBed: null,
+      stores: typeof lens === 'string' ? [lens] : null,
+      requiresPrivate: false,
+      start: busiestT,
+      end: busiestT + 60,
       now: NOW_MIN,
     }),
   }
@@ -303,7 +327,7 @@ beforeAll(async () => {
   for (const [lensName, lens] of LENSES) {
     const world = await buildWorld(lens)
     WORLDS[lensName] = world
-    CELLS[lensName] = cellsFor(world)
+    CELLS[lensName] = cellsFor(world, lens)
   }
 })
 
