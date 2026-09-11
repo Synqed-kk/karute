@@ -13,6 +13,8 @@
  * helper and nothing else, and needs no DOM at all, so it runs on jest's
  * default `node` environment.
  */
+import { readFileSync } from 'node:fs'
+
 import { jstYmd } from '@/business/lib/clock'
 import {
   CALENDAR_TIGHT_MAX,
@@ -125,25 +127,27 @@ describe('calendarCellFace — one answer for paint, word and sentence', () => {
 
 describe('nextCalendarIndex — arrow keys inside the month grid', () => {
   const COUNT = 30
+  /** A month whose every drawn day is a link — the ordinary case. */
+  const ALL = Array.from({ length: COUNT }, () => true)
 
   it('moves a day sideways and a week vertically', () => {
-    expect(nextCalendarIndex(10, 'ArrowLeft', COUNT)).toBe(9)
-    expect(nextCalendarIndex(10, 'ArrowRight', COUNT)).toBe(11)
-    expect(nextCalendarIndex(10, 'ArrowUp', COUNT)).toBe(3)
-    expect(nextCalendarIndex(10, 'ArrowDown', COUNT)).toBe(17)
-    expect(nextCalendarIndex(10, 'Home', COUNT)).toBe(0)
-    expect(nextCalendarIndex(10, 'End', COUNT)).toBe(29)
+    expect(nextCalendarIndex(10, 'ArrowLeft', ALL)).toBe(9)
+    expect(nextCalendarIndex(10, 'ArrowRight', ALL)).toBe(11)
+    expect(nextCalendarIndex(10, 'ArrowUp', ALL)).toBe(3)
+    expect(nextCalendarIndex(10, 'ArrowDown', ALL)).toBe(17)
+    expect(nextCalendarIndex(10, 'Home', ALL)).toBe(0)
+    expect(nextCalendarIndex(10, 'End', ALL)).toBe(29)
   })
 
   it('stops at the month edge instead of wrapping, and lets every other key through', () => {
-    expect(nextCalendarIndex(0, 'ArrowLeft', COUNT)).toBeNull()
-    expect(nextCalendarIndex(0, 'ArrowUp', COUNT)).toBeNull()
-    expect(nextCalendarIndex(29, 'ArrowRight', COUNT)).toBeNull()
-    expect(nextCalendarIndex(29, 'ArrowDown', COUNT)).toBeNull()
+    expect(nextCalendarIndex(0, 'ArrowLeft', ALL)).toBeNull()
+    expect(nextCalendarIndex(0, 'ArrowUp', ALL)).toBeNull()
+    expect(nextCalendarIndex(29, 'ArrowRight', ALL)).toBeNull()
+    expect(nextCalendarIndex(29, 'ArrowDown', ALL)).toBeNull()
     // Enter is the link's own navigation and Tab still leaves the grid —
     // returning null is what keeps the caller's hands off them.
     for (const key of ['Enter', ' ', 'Tab', 'Escape', 'a']) {
-      expect(nextCalendarIndex(10, key, COUNT)).toBeNull()
+      expect(nextCalendarIndex(10, key, ALL)).toBeNull()
     }
   })
 
@@ -152,8 +156,88 @@ describe('nextCalendarIndex — arrow keys inside the month grid', () => {
     // 「constructor」 came back as a FUNCTION and `10 + fn` made a string index;
     // the step table is a Map, which has no inherited keys at all.
     for (const key of ['constructor', 'toString', 'hasOwnProperty', '__proto__', 'valueOf']) {
-      expect(nextCalendarIndex(10, key, COUNT)).toBeNull()
+      expect(nextCalendarIndex(10, key, ALL)).toBeNull()
     }
+  })
+})
+
+/** ⚖ GREPTILE FIX (#891) — 「Unknown dates break navigation」.
+ *
+ *  The handler collected `a.cal-cell`, so a 表示範囲外 day — a <span> — was not
+ *  in the list at all. The月 then counted wrong from that day on: ←/→ moved TWO
+ *  dates in one press, and ↑/↓, which steps by exactly 7 places, landed in the
+ *  NEIGHBOURING weekday column. The indices are now every drawn day cell, and
+ *  `focusable` says which of them can be landed on. */
+describe('a 表示範囲外 day is a CELL — the keys count it, they just never land on it', () => {
+  const COUNT = 30
+  const ALL = Array.from({ length: COUNT }, () => true)
+  /** The same month with 表示範囲外 days in it. `false` = a <span>: drawn, dated,
+   *  and impossible to focus. */
+  const withGaps = (...gaps: number[]) => ALL.map((_, i) => !gaps.includes(i))
+
+  it('←/→ step past it — one press, the next day the operator can actually open', () => {
+    // 11 is 表示範囲外, so → from 10 walks on to 12 and ← from 12 back to 10.
+    // The date it stepped over is still a cell: the dates either side are the
+    // real neighbours, which is what made the old skip read as a lost day.
+    const month = withGaps(11)
+    expect(nextCalendarIndex(10, 'ArrowRight', month)).toBe(12)
+    expect(nextCalendarIndex(12, 'ArrowLeft', month)).toBe(10)
+    // Two 表示範囲外 days in a row are two steps, not two presses.
+    const wider = withGaps(11, 12)
+    expect(nextCalendarIndex(10, 'ArrowRight', wider)).toBe(13)
+    expect(nextCalendarIndex(13, 'ArrowLeft', wider)).toBe(10)
+  })
+
+  it('a run of them at the month edge is the end of the road, not a wrap', () => {
+    const month = withGaps(28, 29)
+    expect(nextCalendarIndex(27, 'ArrowRight', month)).toBeNull()
+    expect(nextCalendarIndex(1, 'ArrowLeft', withGaps(0))).toBeNull()
+  })
+
+  it('↑/↓ onto one is NO MOVE — the weekday column stays honest', () => {
+    // 17 is a week below 10 and it is 表示範囲外. Sliding on to 18 to find
+    // something pressable would move the operator from a 火曜 to a 水曜 without
+    // saying so, so the answer is null and the focus simply stays put.
+    expect(nextCalendarIndex(10, 'ArrowDown', withGaps(17))).toBeNull()
+    expect(nextCalendarIndex(17, 'ArrowUp', withGaps(10))).toBeNull()
+    // …and a week away that IS a link still moves, gaps elsewhere or not.
+    expect(nextCalendarIndex(10, 'ArrowDown', withGaps(11, 16, 18))).toBe(17)
+  })
+
+  it('Home/End are the first and last day that can be OPENED', () => {
+    const month = withGaps(0, 1, 29)
+    expect(nextCalendarIndex(10, 'Home', month)).toBe(2)
+    expect(nextCalendarIndex(10, 'End', month)).toBe(28)
+    // A month nobody can open anywhere answers null rather than index 0.
+    expect(nextCalendarIndex(0, 'Home', ALL.map(() => false))).toBeNull()
+    expect(nextCalendarIndex(0, 'End', ALL.map(() => false))).toBeNull()
+  })
+
+  it('the count comes from the list itself, so it cannot disagree with the month', () => {
+    expect(nextCalendarIndex(0, 'End', [true, true, true])).toBe(2)
+    expect(nextCalendarIndex(2, 'ArrowRight', [true, true, true])).toBeNull()
+  })
+})
+
+/** A SOURCE PIN on the grid's own hands. The helper above is pure, so the bug
+ *  itself — 「collect only the anchors」 — lives in the JSX and no unit test can
+ *  see it. This one reads the handler and pins the RULE: every `.cal-cell`,
+ *  and a focusability flag derived from the element, never an anchor-only
+ *  querySelectorAll. */
+describe('the grid hands the helper every cell, and says which ones take focus', () => {
+  const SCREEN_SRC = readFileSync('src/app/[locale]/(business)/business/today/TodayScreen.tsx', 'utf8')
+  const AT = SCREEN_SRC.indexOf('className="cal-grid"')
+  const HANDLER = SCREEN_SRC.slice(AT, SCREEN_SRC.indexOf('{WD.map(', AT))
+
+  it('collects EVERY day cell — `a.cal-cell` is the bug, not the selector', () => {
+    expect(AT).toBeGreaterThan(-1)
+    expect(HANDLER).toMatch(/querySelectorAll<[^>]+>\('\.cal-cell'\)/)
+    expect(HANDLER).not.toContain("'a.cal-cell'")
+  })
+
+  it('and tells the helper which of them can be landed on', () => {
+    expect(HANDLER).toContain('nextCalendarIndex(')
+    expect(HANDLER).toContain('HTMLAnchorElement')
   })
 })
 

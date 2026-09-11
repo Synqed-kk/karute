@@ -527,11 +527,38 @@ const CALENDAR_STEP = new Map<string, number>([
  *  shown month's first/last cell. `null` means 「not ours」 — either the key is
  *  another key, or the move would walk off the month — and the caller then does
  *  nothing at all, so the key keeps whatever the browser already does with it
- *  (Enter and Space are the link's own navigation; Tab still leaves the grid). */
-export function nextCalendarIndex(current: number, key: string, count: number): number | null {
+ *  (Enter and Space are the link's own navigation; Tab still leaves the grid).
+ *
+ *  ⚖ FIX (Greptile, #891) — the grid is NOT all links. A 表示範囲外 day is a
+ *  <span> with nothing to press, and the handler used to collect only the
+ *  anchors, so an unknown day sitting between two covered ones simply was not
+ *  there: ←/→ skipped TWO dates in one press, and ↑/↓ landed a column off for
+ *  the rest of the month. So the indices here are EVERY drawn day cell in grid
+ *  order, links and unknown spans alike, and `focusable` says which of them can
+ *  actually take focus — `focusable.length` IS the count, so the two can never
+ *  disagree about how long the month is.
+ *
+ *  The two directions answer differently on purpose:
+ *  ←/→ read 「the next day I can open」, so they walk PAST the unknown ones;
+ *  ↑/↓ read 「this weekday, a week away」, which is ONE exact cell. Sliding off
+ *  it to find something pressable would quietly move the operator into another
+ *  weekday column, so an unknown cell there is 「no move」 instead. */
+export function nextCalendarIndex(
+  current: number,
+  key: string,
+  focusable: readonly boolean[],
+): number | null {
+  const count = focusable.length
   const step = CALENDAR_STEP.get(key)
-  const next = step !== undefined ? current + step : key === 'Home' ? 0 : key === 'End' ? count - 1 : null
-  return next === null || next < 0 || next >= count ? null : next
+  if (step === undefined) {
+    const end = key === 'Home' ? focusable.indexOf(true) : key === 'End' ? focusable.lastIndexOf(true) : -1
+    return end < 0 ? null : end
+  }
+  const next = current + step
+  if (next < 0 || next >= count) return null
+  if (Math.abs(step) === 7) return focusable[next] ? next : null
+  for (let i = next; i >= 0 && i < count; i += step) if (focusable[i]) return i
+  return null
 }
 
 /** The month `delta` months from y/m, counted in whole months rather than by

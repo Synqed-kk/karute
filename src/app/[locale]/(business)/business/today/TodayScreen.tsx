@@ -7550,13 +7550,19 @@ export function TodayScreen(props: TodayProps) {
                     <div
                       className="cal-grid"
                       onKeyDown={(e) => {
-                        // ←/→ a day, ↑/↓ a week, Home/End the month's ends. The
-                        // blank lead spans and the 表示範囲外 days are not links,
-                        // so `a.cal-cell` is exactly the set that can be landed on.
-                        const cells = Array.from(e.currentTarget.querySelectorAll<HTMLAnchorElement>('a.cal-cell'))
-                        const from = cells.indexOf((e.target as HTMLElement).closest('a.cal-cell') as HTMLAnchorElement)
+                        // ←/→ a day, ↑/↓ a week, Home/End the month's ends.
+                        // ⚖ FIX (Greptile) — collect EVERY day cell, not only the
+                        // anchors: a 表示範囲外 day is a <span>, and leaving it out
+                        // of the list made the whole month after it count wrong —
+                        // ←/→ jumped two dates in one press and ↑/↓ landed in the
+                        // neighbouring weekday column. The lead blanks and the
+                        // weekday header carry no `cal-cell`, so they stay out.
+                        // `focusable` is what the helper steps by; only anchors
+                        // can be focused, so only anchors are ever landed on.
+                        const cells = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('.cal-cell'))
+                        const from = cells.indexOf((e.target as HTMLElement).closest('.cal-cell') as HTMLElement)
                         if (from < 0) return
-                        const to = nextCalendarIndex(from, e.key, cells.length)
+                        const to = nextCalendarIndex(from, e.key, cells.map((c) => c instanceof HTMLAnchorElement))
                         if (to === null) return
                         e.preventDefault()
                         cells[to].focus()
