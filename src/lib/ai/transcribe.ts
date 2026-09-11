@@ -17,6 +17,7 @@ import {
   reportTranscriptionUsageWithClient,
 } from '@/lib/ai-rate-limit'
 import { AppApiError } from '@/lib/app-api/errors'
+import { TRANSCRIPTION_LEDGER_UNAVAILABLE } from '@/lib/recording/job-errors'
 import { audit } from '@/lib/audit'
 import type { OrgSettings } from '@/actions/org-settings'
 
@@ -491,7 +492,7 @@ export async function runMeteredTranscription(
     // Three attempts failed: core cannot tell us the spend has been counted, so
     // we do not spend. This is the consume's own law one line further down the
     // path — "could not write it down" is never "go ahead".
-    const err = new AppApiError('upstream_unavailable', 'transcription ledger unavailable', {
+    const err = new AppApiError('upstream_unavailable', TRANSCRIPTION_LEDGER_UNAVAILABLE, {
       reason: 'ledger_unavailable',
     })
     auditTranscriptionRefused(meter, err)
