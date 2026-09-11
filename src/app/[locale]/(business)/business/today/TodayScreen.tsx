@@ -82,6 +82,11 @@ import {
   blockEdgeZones,
   blockStepPct,
   BLOCK_STEP_MIN_DEFAULT,
+  calendarCellFace,
+  calendarMonth,
+  calendarMonthAt,
+  nextCalendarIndex,
+  CALENDAR_TIGHT_MAX,
   cardNodes,
   chipProxySize,
   clampLabelWidth,
@@ -1041,6 +1046,15 @@ export function TodayScreen(props: TodayProps) {
    *  identity. */
   const [released, setReleased] = useState<readonly ReleasedWindow[]>([])
   const [calMonth, setCalMonth] = useState(0)
+  // ⚖ F2 — THE PAGED MONTH BELONGS TO THE OPEN POPOVER. There is no single
+  // close path (a day, 今日, Escape, a click outside, and any sibling popover
+  // all close it), so the reset is stated once where the two states meet rather
+  // than repeated at five call sites that will not stay five. Left standing, a
+  // month paged to the edge of the ±45-day window came back on the next open
+  // with no covered day in it — lead 0, every date one column out of place.
+  // React's own 「adjust state while rendering」: the re-render happens before
+  // anything is painted, so the wrong month is never on screen.
+  if (pop !== 'cal' && calMonth !== 0) setCalMonth(0)
   /** ⚖ Liam flag 47 (2026-08-21) — A REFUSAL HAS TO BE READABLE. Every message
    *  on this board dwelt for the same 3.2s, which is right for 「置きました」 —
    *  the operator can see the result and the sentence only confirms it — and
@@ -6353,19 +6367,44 @@ export function TodayScreen(props: TodayProps) {
     show(`${chip.item.title}様を${props.dayLabel} ${hhmm(start)}へ仮押さえしました`)
   }
 
-  // The month grid the calendar popover draws: the loaded window, grouped by
-  // the month the ‹ › buttons are standing on — counted from the SHOWN DAY's
-  // own month, which the server sends, rather than hunted for in the rows.
-  const monthCells = useMemo(() => {
-    const anchor = props.shownYm
-    let y = anchor.y
-    let m = anchor.m + calMonth
-    while (m > 12) { m -= 12; y += 1 }
-    while (m < 1) { m += 12; y -= 1 }
-    const days = props.calendar.filter((c) => c.y === y && c.m === m).sort((a, b) => a.d - b.d)
-    const lead = days.length > 0 ? days[0].wd : 0
-    return { y, m, days, lead }
-  }, [props.calendar, props.shownYm.y, props.shownYm.m, calMonth])
+  // The month grid the calendar popover draws: the WHOLE month the ‹ › buttons
+  // are standing on, with the loaded window's days filled in.
+  //
+  // ⚖ ADDENDUM V2 — it used to render only the days the ±45-day read covered,
+  // so paging to the edge of the window printed a September that started on the
+  // 22nd and called itself 2026年9月. A month is a calendar fact; the days the
+  // server could not date are drawn as dated blanks (`covered: false`) and the
+  // ‹ › buttons below refuse to walk past the last month that has any at all.
+  //
+  // The month it STARTS on is the shown day's own, which the server sends. It
+  // used to be hunted for among the rows (`calendar.find(…) ?? calendar[0]`),
+  // and a shown day the roster door has no row for is not among them — the
+  // popover then opened the window's FIRST month. No row can answer「which
+  // month is the operator standing in」, so the day itself does.
+  //
+  // Every DATE here is the server's own (`y/m/d/wd` from ONE clock read); the
+  // only thing derived in the browser is how many boxes the month needs, which
+  // is arithmetic on those same fields — see calendarLead / calendarMonthDays.
+  const monthCells = useMemo(
+    () => calendarMonth(props.calendar, props.shownYm, calMonth),
+    [props.calendar, props.shownYm.y, props.shownYm.m, calMonth],
+  )
+
+  /** Does the month `delta` steps from the one on screen hold ANY day the
+   *  server dated? The ‹ › buttons disable on 「no」 rather than paging into an
+   *  all-blank month. */
+  const monthCovered = useCallback(
+    (delta: number) => {
+      const { y, m } = calendarMonthAt(monthCells.y, monthCells.m, delta)
+      return props.calendar.some((c) => c.y === y && c.m === m)
+    },
+    [props.calendar, monthCells.y, monthCells.m],
+  )
+
+  // The hint quotes the window the SERVER actually sent — `calendar[0].offset`
+  // is page.tsx's own −WINDOW — so it can never promise a range the read does
+  // not cover, whatever WINDOW becomes.
+  const calendarRangeHint = `表示できる範囲は前後${Math.abs(props.calendar[0]?.offset ?? 0)}日です`
 
   const timelineClasses = [
     'timeline',
@@ -7486,45 +7525,82 @@ export function TodayScreen(props: TodayProps) {
                       <strong>{monthCells.y}年{monthCells.m}月</strong>
                       <span className="cal-tools">
                         <Link href={dayHref(0)} onClick={() => setPop('')}>今日</Link>
-                        <button type="button" aria-label="前の月" onClick={() => setCalMonth((m) => m - 1)}>‹</button>
-                        <button type="button" aria-label="次の月" onClick={() => setCalMonth((m) => m + 1)}>›</button>
+                        <button
+                          type="button"
+                          aria-label="前の月"
+                          disabled={!monthCovered(-1)}
+                          title={monthCovered(-1) ? undefined : calendarRangeHint}
+                          onClick={() => setCalMonth((m) => m - 1)}
+                        >‹</button>
+                        <button
+                          type="button"
+                          aria-label="次の月"
+                          disabled={!monthCovered(1)}
+                          title={monthCovered(1) ? undefined : calendarRangeHint}
+                          onClick={() => setCalMonth((m) => m + 1)}
+                        >›</button>
                       </span>
                     </div>
-                    <div className="cal-grid">
+                    <div
+                      className="cal-grid"
+                      onKeyDown={(e) => {
+                        // ←/→ a day, ↑/↓ a week, Home/End the month's ends. The
+                        // blank lead spans and the 表示範囲外 days are not links,
+                        // so `a.cal-cell` is exactly the set that can be landed on.
+                        const cells = Array.from(e.currentTarget.querySelectorAll<HTMLAnchorElement>('a.cal-cell'))
+                        const from = cells.indexOf((e.target as HTMLElement).closest('a.cal-cell') as HTMLAnchorElement)
+                        if (from < 0) return
+                        const to = nextCalendarIndex(from, e.key, cells.length)
+                        if (to === null) return
+                        e.preventDefault()
+                        cells[to].focus()
+                      }}
+                    >
                       {WD.map((w, i) => (
                         <span className={`wd${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}`} key={w}>{w}</span>
                       ))}
                       {Array.from({ length: monthCells.lead }, (_, i) => <span key={`lead-${i}`} />)}
-                      {monthCells.days.map((d) =>
-                        // A day the roster door never answered for. It is DATED
-                        // and it is DRAWN — dropping it printed a month with
-                        // holes — but it is not a link and it carries no count,
-                        // because there is no count. `role="img"` is what makes
-                        // a bare <span> announce its label at all.
-                        d.covered === false ? (
-                          <span
-                            key={`${d.y}-${d.m}-${d.d}`}
-                            className="cal-cell unknown"
-                            role="img"
-                            aria-label={`${d.m}月${d.d}日、表示範囲外`}
-                          >
-                            <b>{d.d}</b>
-                          </span>
-                        ) : (
+                      {monthCells.days.map((d) => {
+                        const face = calendarCellFace(d)
+                        if (d.covered === false) {
+                          // ⚖ F5 — an aria-label on a bare <span> names nothing:
+                          // the element has no role, so assistive tech has no
+                          // reason to announce it and 表示範囲外 went unsaid. The
+                          // sentence rides as real text instead, hidden from the
+                          // eye by the app's own `sr-only` utility.
+                          return (
+                            <span key={`out-${d.d}`} className={face.className}>
+                              <b aria-hidden="true">{d.d}</b>
+                              <span className="sr-only">{face.aria}</span>
+                            </span>
+                          )
+                        }
+                        return (
                           <Link
-                            key={`${d.y}-${d.m}-${d.d}`}
+                            key={`${monthCells.y}-${monthCells.m}-${d.d}`}
                             href={dayHref(d.offset)}
-                            className={`cal-cell ${d.closed ? 'closedday' : d.free > 0 ? 'open' : 'full'}${d.offset === props.dayOffset ? ' cur' : ''}${d.offset === 0 ? ' today' : ''}`}
-                            aria-label={`${d.m}月${d.d}日${d.closed ? '、定休日' : d.free === 0 ? '、空きなし' : `、空き枠${d.free}件`}`}
+                            className={`${face.className}${d.offset === props.dayOffset ? ' cur' : ''}${d.offset === 0 ? ' today' : ''}`}
+                            aria-label={face.aria}
+                            // ⚖ F3 — `.cur` is a wash, and a wash is not a fact a
+                            // screen reader can hear. `date` is the ARIA value for
+                            // 「this is the day being shown」.
+                            aria-current={d.offset === props.dayOffset ? 'date' : undefined}
                             onClick={() => setPop('')}
                           >
                             <b>{d.d}</b>
-                            <small>{d.closed ? '定休' : d.free > 0 ? d.free : '満'}</small>
+                            {face.small !== null && <small>{face.small}</small>}
                           </Link>
-                        ),
-                      )}
+                        )
+                      })}
                     </div>
-                    <div className="cal-legend">数字＝その日の空き枠 ・ 満＝空きなし ・ 定休＝定休日（{props.closedWeekdayLabel}）</div>
+                    <div className="cal-legend" title="空き枠 = スタッフの空き時間を60分単位で数えたもの">
+                      <span>空き＝その日の空き枠数 ・</span>
+                      {/* ⚖ F7 — 「残り2枠以下」 includes 0, and 0 is painted 満,
+                          not 橙. The range says exactly what the tier is. */}
+                      <span>橙＝残り1〜{CALENDAR_TIGHT_MAX}枠 ・</span>
+                      <span>満＝空きなし ・</span>
+                      <span>定休＝定休日（{props.closedWeekdayLabel}）</span>
+                    </div>
                   </div>
                 )}
               </div>
