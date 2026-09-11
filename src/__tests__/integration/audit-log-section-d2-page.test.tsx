@@ -222,6 +222,57 @@ describe('AuditLogSection — I6/I7 the three new rows', () => {
     expect(container.textContent).not.toContain('125秒')
   })
 
+  it('fix round 2 (G2/P1): 45s shows 1分, not 0分 — the shared durationMinutesFromSeconds helper, never Math.floor', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'recording.karute_missing',
+        actor_type: 'system',
+        actor_id: null,
+        detail: { reason: 'emptyTranscript', ticket_burned: false, duration_seconds: 45 },
+      }),
+    ])
+    expect(container.textContent).toContain('1分')
+    expect(container.textContent).not.toContain('0分')
+  })
+
+  it('fix round 2 (G2/P1): 940s shows 16分, not 15分', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'recording.transcribe_failed',
+        actor_type: 'system',
+        actor_id: null,
+        detail: { reason: 'other', customer_id: null, duration_seconds: 940 },
+      }),
+    ])
+    expect(container.textContent).toContain('16分')
+    expect(container.textContent).not.toContain('15分')
+  })
+
+  it('fix round 2 (G2/P1): 0s renders no duration fragment at all, never 0分', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'recording.karute_missing',
+        actor_type: 'system',
+        actor_id: null,
+        detail: { reason: 'emptyTranscript', ticket_burned: false, duration_seconds: 0 },
+      }),
+    ])
+    expect(container.textContent).not.toContain('0分')
+    expect(container.textContent).not.toMatch(/-?\d+分/)
+  })
+
+  it('fix round 2 (G2/P1): a negative duration renders no duration fragment at all', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'recording.transcribe_failed',
+        actor_type: 'system',
+        actor_id: null,
+        detail: { reason: 'other', customer_id: null, duration_seconds: -5 },
+      }),
+    ])
+    expect(container.textContent).not.toMatch(/-?\d+分/)
+  })
+
   it('an ordinary recording.play row keeps the existing seconds format unchanged (pre-existing behaviour, out of F7(c) scope)', async () => {
     const container = await renderWithEvents([
       coreEvent({

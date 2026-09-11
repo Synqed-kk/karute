@@ -30,6 +30,7 @@ import {
   Users,
 } from 'lucide-react'
 import type { StaffMember } from '@/lib/staff'
+import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { listAuditLog, type AuditLogEvent } from '@/actions/audit-log'
 import { listEntryEditHistory, type EntryEditHistoryRow } from '@/actions/karute'
 import {
@@ -521,7 +522,10 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       const duration =
         typeof detail.duration_seconds === 'number'
           ? isSessionLengthRow
-            ? t('recording.minutes', { n: Math.floor(detail.duration_seconds / 60) })
+            ? (() => {
+                const minutes = durationMinutesFromSeconds(detail.duration_seconds as number)
+                return minutes != null ? t('recording.minutes', { n: minutes }) : ''
+              })()
             : t('durationSuffix', { n: detail.duration_seconds })
           : ''
       // #865 (merged 9/9) put staff_id into the assembler's detail — resolve
