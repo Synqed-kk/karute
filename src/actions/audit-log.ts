@@ -78,6 +78,15 @@ export interface AuditLogFilters {
 
 const PAGE_SIZE = 100
 
+/** Fix round 1, subject 6 (D1-6): the same four literals the facade route
+ *  validates (route.ts's TARGET_TYPES) — checked HERE too, in the twin BOTH
+ *  doors call, so web and facade can never diverge. `AuditLogFilters`'s
+ *  union type is erased at this 'use server' action boundary, so a stale
+ *  build or a bypassed caller can still send anything; an unrecognized value
+ *  is ignored, matching the facade's own never-400s contract, never a
+ *  throw. */
+const VALID_TARGET_TYPES = new Set<string>(['customer', 'recording', 'karute', 'staff'])
+
 /** View-kind actions (customer.view, privacy.audit_log.view, …) stay out of
  *  the default feed by naming convention. Core's exclude_views excludes BOTH
  *  suffixes server-side — '.view' since SDK 1.14, '_view' since the 7/27
@@ -328,8 +337,14 @@ export async function listAuditLogWithClient(
     // critical half ignoring break_glass and undercount it.
     const severity = filters.breakGlass ? undefined : filters.severity
     // Amendment 4 F5: targetType defaults to 'customer' when targetId is set
-    // and it's absent — today's behaviour, byte-identical.
-    const targetType = filters.targetId ? (filters.targetType ?? 'customer') : undefined
+    // and it's absent — today's behaviour, byte-identical. D1-6 (subject 6):
+    // an unrecognized value (past the erased union type) is ALSO ignored,
+    // same as absent — never forwarded to core or the receipt.
+    const targetType = filters.targetId
+      ? filters.targetType && VALID_TARGET_TYPES.has(filters.targetType)
+        ? filters.targetType
+        : 'customer'
+      : undefined
     const baseQuery = {
       category: filters.category || undefined,
       actor_id: filters.actorId || undefined,

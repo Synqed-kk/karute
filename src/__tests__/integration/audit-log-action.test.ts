@@ -36,7 +36,11 @@ jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'biz-1'),
 }))
 
-import { listAuditLog, listAuditLogWithClient } from '@/actions/audit-log'
+import {
+  listAuditLog,
+  listAuditLogWithClient,
+  type AuditLogFilters,
+} from '@/actions/audit-log'
 import { getMyCapabilities as getMyCapabilitiesImport } from '@/lib/auth/require-permission'
 import { newSynqedClient as newSynqedClientImport } from '@/lib/synqed/client'
 import { audit as auditImport } from '@/lib/audit'
@@ -1433,6 +1437,21 @@ describe('listAuditLog — PR D1 targetType (amendment 4 F5)', () => {
     )
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({ targetType: 'recording', targetId: 'sess-1' }),
+    )
+  })
+
+  // Fix round 1, subject 6 (D1-6): the union type is erased at the 'use
+  // server' boundary — a caller (or a future refactor) can still send
+  // something outside the four literals. The web action must reject it the
+  // SAME way the facade already does (route.ts's TARGET_TYPES): ignore →
+  // default 'customer', never let it reach core or the receipt.
+  it("an unrecognized targetType (e.g. 'order') never reaches core or the receipt — falls back to the customer default", async () => {
+    await listAuditLog({ targetId: 'cus-9', targetType: 'order' as AuditLogFilters['targetType'] })
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ target_type: 'customer', target_id: 'cus-9' }),
+    )
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({ targetType: 'customer', targetId: 'cus-9' }),
     )
   })
 })
