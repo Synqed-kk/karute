@@ -97,7 +97,12 @@ function isViewAction(action: string): boolean {
  *  a null request_id NEVER groups (every such row stands alone) — and every
  *  group keeps only its earliest `at`. Display-only: callers must not adjust
  *  any total/count off this — the row count coming in is still the truth for
- *  those (amendment 4 F9). */
+ *  those (amendment 4 F9).
+ *  Page-local by design (Greptile round-2, refuted): `events` is only ONE
+ *  page, so a duplicate pair straddling a page boundary shows one row on
+ *  each of two pages, never two on one screen — ponytail: the ceiling is
+ *  core's own Idempotency-Key (CORE-19 item 3), or short of that, a one-row
+ *  look-ahead into page+1 when hasMore. */
 function foldDuplicateAuditEvents(events: AuditLogEvent[]): {
   events: AuditLogEvent[]
   folded: number
