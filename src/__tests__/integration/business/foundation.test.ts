@@ -486,6 +486,11 @@ describe('the fixture data door', () => {
         // imports of its own, so this arrow adds no module to the graph below
         // it.
         '@/business/lib/settings-link',
+        // ⚠ ONE SPRING INTEGRATOR FOR THE WHOLE FAMILY: the accepted mock's own
+        // `makeSpring`, ported rather than re-invented and PURE of React and the
+        // DOM. A second easing written by hand beside it would be a second
+        // motion language on one page.
+        '@/business/lib/spring',
         '@/business/lib/today-board',
         'next/link',
         'react',

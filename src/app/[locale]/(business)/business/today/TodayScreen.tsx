@@ -59,6 +59,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 // behaviour, new address; nothing about this room's tour changed with it.
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { settingsHref } from '@/business/lib/settings-link'
+import { makeSpring } from '@/business/lib/spring'
 import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
@@ -1268,6 +1269,132 @@ export function TodayScreen(props: TodayProps) {
     window.addEventListener('resize', place)
     return () => window.removeEventListener('resize', place)
   }, [pop])
+
+  /** ⚖ 見た目の層 ④ — THE SEGMENTED CONTROL'S SLIDING THUMB (PKT-PR4 §3).
+   *
+   *  One decorative `<i>` under the three labels, moved by the family's own
+   *  integrator. The STRUCTURE mirrors `SettingsScreen`'s `Segment` (:2233–2282)
+   *  exactly — two springs rebuilt in an effect keyed on `reduced`, a `seated`
+   *  ref so the FIRST layout jumps and every later one travels, `opacity: 0`
+   *  when nothing is pressed, `stop()` on unmount — because a second shape for
+   *  the same widget is how the two drift apart.
+   *
+   *  ⚠ THE EPSILON IS THIS BOARD'S; THE RESPONSE IS THE FAMILY'S, AND HAS TO BE.
+   *  `eps: 0.3` is the approved mock's own value (TODAY-RESKIN-MOCK-v1
+   *  :3276–3277) — SettingsScreen stops at `.4` for THEIR thumb, and this
+   *  control is pressed tens of times a day, so it is worth the finer arrival.
+   *
+   *  `response`, though, is the FAMILY's `0.3` and NOT the mock's `0.22`. The
+   *  shared integrator clamps `dt` to 1/30 s and steps with semi-implicit
+   *  Euler, which at critical damping is stable only while `2π·dt/response`
+   *  stays under 0.828. `0.22` puts it at 0.95 — eigenvalues 0.63 and −1.44, so
+   *  every clamped frame multiplies the error by 1.44 AND flips its sign: the
+   *  thumb does not settle, it swings wider. The clamp is hit by any frame of
+   *  33 ms or more — a 30 Hz display, the first frame after a background tab
+   *  wakes, and this board's own heavy drag frames (124–228 ms on a 30-lane
+   *  day). `0.3` puts it at 0.70 — 0.69 and −0.57, stable with margin.
+   *  The mock was tuned on a canvas that never clamped anything, so its 0.22
+   *  never met the step that breaks it. Greptile's P1 on #879, upheld.
+   *
+   *  ⚠ NO `if (ref.current)` GUARD ON THE BUILD, and that is the fix rather than
+   *  a style choice: `makeSpring` captures `reduced` at construction, so a guard
+   *  that builds once pins the first answer forever. Built unconditionally in an
+   *  effect keyed on the answer, the old pair is stopped and replaced.
+   *
+   *  Reduced motion is read the way this screen already reads it — `holdReduced()`,
+   *  a plain `matchMedia` — and refreshed by the query's own `change` event, so
+   *  a reader who flips the OS switch mid-session gets the new answer on the
+   *  next rebuild rather than at the next reload. */
+  const segWrapRef = useRef<HTMLDivElement | null>(null)
+  const segThumbRef = useRef<HTMLElement | null>(null)
+  const segX = useRef<ReturnType<typeof makeSpring> | null>(null)
+  const segW = useRef<ReturnType<typeof makeSpring> | null>(null)
+  const segGeom = useRef({ x: 0, w: 0 })
+  const segSeated = useRef(false)
+  /** the current seat, published for the mount-scoped `fonts.ready` waiter below
+   *  (ReservationsScreen holds its mover the same way, for the same reason) */
+  const segSeatRef = useRef<((instant: boolean) => void) | null>(null)
+  const [segReduced, setSegReduced] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const apply = () => setSegReduced(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
+  useLayoutEffect(() => {
+    const paint = () => {
+      const thumb = segThumbRef.current
+      if (!thumb) return
+      thumb.style.transform = `translateX(${segGeom.current.x.toFixed(2)}px)`
+      thumb.style.width = `${Math.max(0, segGeom.current.w).toFixed(2)}px`
+    }
+    segX.current?.stop()
+    segW.current?.stop()
+    const reduced = holdReduced()
+    segX.current = makeSpring((v) => { segGeom.current.x = v; paint() }, { response: 0.3, damping: 1.0, eps: 0.3, reduced })
+    segW.current = makeSpring((v) => { segGeom.current.w = v; paint() }, { response: 0.3, damping: 1.0, eps: 0.3, reduced })
+    // A rebuilt spring starts at 0, so the thumb is re-SEATED at its place
+    // rather than travelling there from the left edge.
+    segSeated.current = false
+  }, [segReduced])
+  useLayoutEffect(() => {
+    const seat = (instant: boolean) => {
+      const wrap = segWrapRef.current
+      const thumb = segThumbRef.current
+      if (!wrap || !thumb) return
+      const on = wrap.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
+      if (!on) { thumb.style.opacity = '0'; return }
+      thumb.style.opacity = ''
+      const x = on.offsetLeft
+      const w = on.offsetWidth
+      if (instant || !segSeated.current) {
+        segSeated.current = true
+        segX.current!.jump(x)
+        segW.current!.jump(w)
+        return
+      }
+      segX.current!.set(x)
+      segW.current!.set(w)
+    }
+    seat(false)
+    // ⚠ F-3 lives in the MOUNT effect below, not here — see the note there.
+    segSeatRef.current = seat
+    // canon's own answer to a resize everywhere else on this screen: re-place,
+    // never re-animate (the mock's `reseat()`).
+    const reseat = () => seat(true)
+    window.addEventListener('resize', reseat)
+    return () => {
+      window.removeEventListener('resize', reseat)
+      segSeatRef.current = null
+    }
+  }, [view, segReduced])
+  /** ⚠ F-3 — RE-SEAT WHEN THE JAPANESE FACE LANDS, AND ONLY FROM HERE.
+   *
+   *  The app loads Noto Sans JP through `next/font/google`, and the swap changes
+   *  the width of all three labels after first layout — so without this the
+   *  thumb sits at pre-font geometry until the operator presses a tab or
+   *  resizes, on a board that is left open all day. AnalyticsScreen wrote the
+   *  reason down: 「Both `jump` on layout, resize and `fonts.ready`, because a
+   *  spring that animates from 0 on first paint is a page that looks like it is
+   *  still loading」. `jump`, never `set`: a font swap is not a state change the
+   *  operator made.
+   *
+   *  ⚠ AND THE EFFECT IT LIVES IN IS THE WHOLE POINT. The first cut put this
+   *  line in the seat effect above, whose deps are `[view, segReduced]` — so it
+   *  re-registered on every tab press, and `document.fonts.ready` STAYS resolved
+   *  once the font has loaded. Every press then queued a microtask `jump` that
+   *  cancelled the travel the same press had just started: the thumb stopped
+   *  animating at all, for the rest of the session. Caught by the behavioural
+   *  harness the moment its `cancelAnimationFrame` became real.
+   *  Both siblings already scope it this way and neither re-runs on selection —
+   *  ReservationsScreen keys its builder on `[reduced]` and holds the mover in a
+   *  ref for the press effect to call, AnalyticsScreen the same. This is that
+   *  shape: the seat is published to a ref, and the font waits here, once. */
+  useEffect(() => {
+    document.fonts?.ready?.then(() => segSeatRef.current?.(true)).catch(() => {})
+    return () => { segX.current?.stop(); segW.current?.stop() }
+  }, [])
 
   /** THE BOARD, twice. `boardLanes` is the truth every derivation reads — the
    *  dragged card is already on the lane it is heading for, which is what makes
@@ -6915,7 +7042,12 @@ export function TodayScreen(props: TodayProps) {
                 aria-label="ボード表示"
                 data-guide-title="表示の切替"
                 data-guide="スタッフだけ・設備だけ・両方の表示を切り替えます。"
+                ref={segWrapRef}
               >
+                {/* the thumb — decorative, aria-hidden, never in the
+                    accessibility tree; the buttons above it are what a reader
+                    hears and what `aria-pressed` says. */}
+                <i className="seg-thumb" aria-hidden="true" ref={segThumbRef} />
                 {([['both', '両方'], ['staff', 'スタッフ'], ['beds', '設備']] as const).map(([k, label]) => (
                   <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}>{label}</button>
                 ))}
