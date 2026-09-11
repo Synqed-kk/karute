@@ -260,8 +260,8 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
   it('⚖ F12 — a COLLAPSED 詳細設定 does not silently shorten the walk', () => {
     // THE MECHANISM, driven: `spotTargets` drops zero-sized nodes, which is the
     // right law (a hidden dial is not explained) and is exactly what a closed
-    // `<details>` does to all nine dials inside it. A manager who folded the
-    // section away and then pressed ? was walked through 3 steps instead of 12,
+    // `<details>` does to all ten dials inside it. A manager who folded the
+    // section away and then pressed ? was walked through 3 steps instead of 13,
     // with the counter reading 「1 / 3」 as though that were the page.
     const root = document.createElement('div')
     const box = (h: number) => () => ({ left: 0, top: 0, width: h === 0 ? 0 : 100, height: h, right: 100, bottom: h, x: 0, y: 0, toJSON: () => ({}) })
@@ -992,11 +992,23 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     expect(SCREEN_CODE).not.toMatch(/TIGHT_(MIN|MAX)\s*=\s*\d/)
     expect(SCREEN_CODE).toContain("const commit = commitNumberField(tightText, lastGoodTight.current, TIGHT_MIN, TIGHT_MAX, '枠')")
     // …and the ± stepper reaches for the SAME clamp the page clamps with, so a
-    // press can never land on a value the month would refuse to paint.
-    expect(SCREEN_CODE).toContain('setTightText(String(clampCalendarTight(Number(tightText) - 1)))')
-    expect(SCREEN_CODE).toContain('setTightText(String(clampCalendarTight(Number(tightText) + 1)))')
+    // press can never land on a value the month would refuse to paint — and each
+    // press CLEARS the commit sentence (⚖ COLD-READ C4), or a stale
+    // 「0枠から5枠のあいだで…」 from an earlier blur sits over the 0 state.
+    expect(SCREEN_CODE).toContain('onClick={() => { setTightMsg(null); setTightText(String(clampCalendarTight(Number(tightText) - 1))) }}')
+    expect(SCREEN_CODE).toContain('onClick={() => { setTightMsg(null); setTightText(String(clampCalendarTight(Number(tightText) + 1))) }}')
     expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.max + 1)).toBe(CALENDAR_TIGHT_RANGE.max)
     expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.min - 1)).toBe(CALENDAR_TIGHT_RANGE.min)
+
+    // …and the row OPENS on the store's own value, never on a literal (⚖ COLD-READ
+    // B1: a row that ignored the store would show one number while the month
+    // painted another, and neither surface would be wrong on its own).
+    expect(SCREEN_CODE).toContain('const [tightText, setTightText] = useState(String(policy.calendarTightMax))')
+    expect(SCREEN_CODE).toContain('const lastGoodTight = useRef(clampCalendarTight(policy.calendarTightMax))')
+    // ⚠ AND 0 IS A VALUE THE FIELD REMEMBERS. `n > TIGHT_MIN` here would mean a
+    // store that dialled the tier OFF and then emptied the box is handed 2 back —
+    // the tier switched back on without anyone choosing that.
+    expect(SCREEN_CODE).toContain('n >= TIGHT_MIN && n <= TIGHT_MAX')
 
     // 2 · THE BLUR RULE, DRIVEN — the room's one rule for a number field, with
     // this field's unit and this field's bounds.
@@ -1018,7 +1030,11 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     expect(SCREEN_CODE).toContain('setTightWarn(clean !== e.target.value)')
     expect(SCREEN_CODE).toContain("`st-ctrl-d${tightWarn || tightMsg !== null ? ' warn' : ' dim'}`")
     expect(SCREEN_CODE).toContain("? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'")
-    expect(SCREEN_CODE).toContain(": (tightMsg ?? (tightText.trim() === '0' ? '0では橙は出ません' : '数字以外は保存されません'))}")
+    // ⚖ COLD-READ C6 — ONE FACT, ONE SENTENCE: the live line and the ?-tour step
+    // say the off-state in the SAME words (the room's own ⚖ R3-2 rule).
+    expect(SCREEN_CODE).toContain(": (tightMsg ?? (tightText.trim() === '0' ? '0にすると橙は出ません' : '数字以外は保存されません'))}")
+    expect(SCREEN_CODE).toContain('0にすると橙は出ません。"')
+    expect(SCREEN_CODE).not.toContain('0では橙は出ません')
     // …and the ± are named in 枠, the unit the number is in.
     expect(SCREEN_CODE).toContain('aria-label="1枠減らす"')
     expect(SCREEN_CODE).toContain('aria-label="1枠増やす"')

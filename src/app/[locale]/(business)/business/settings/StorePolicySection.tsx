@@ -982,7 +982,12 @@ export function StorePolicySection(props: StorePolicySectionProps) {
             <div className="st-dial-ctl">
               <div className="st-step">
                 <div className="st-step-g">
-                  <button type="button" aria-label="1枠減らす" onClick={() => setTightText(String(clampCalendarTight(Number(tightText) - 1)))}>−</button>
+                  {/* ⚠ THE ± CLEAR THE COMMIT SENTENCE (⚖ COLD-READ C4). Without
+                      it a stale 「0枠から5枠のあいだで…」 from an earlier blur sits
+                      in the live region while the operator steps down to 0, and
+                      「0にすると橙は出ません」 — the one state this row exists to say
+                      out loud — never gets its turn. */}
+                  <button type="button" aria-label="1枠減らす" onClick={() => { setTightMsg(null); setTightText(String(clampCalendarTight(Number(tightText) - 1))) }}>−</button>
                   <input
                     id="stTight"
                     type="text"
@@ -1002,7 +1007,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       setTightMsg(commit.message)
                     }}
                   />
-                  <button type="button" aria-label="1枠増やす" onClick={() => setTightText(String(clampCalendarTight(Number(tightText) + 1)))}>＋</button>
+                  <button type="button" aria-label="1枠増やす" onClick={() => { setTightMsg(null); setTightText(String(clampCalendarTight(Number(tightText) + 1))) }}>＋</button>
                 </div>
                 <span className="st-step-u">枠</span>
             </div>
@@ -1012,7 +1017,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
             <p className={`st-ctrl-d${tightWarn || tightMsg !== null ? ' warn' : ' dim'}`} aria-live="polite">
               {tightWarn
                 ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'
-                : (tightMsg ?? (tightText.trim() === '0' ? '0では橙は出ません' : '数字以外は保存されません'))}
+                : (tightMsg ?? (tightText.trim() === '0' ? '0にすると橙は出ません' : '数字以外は保存されません'))}
             </p>
             <Collapse open={detOpen['tight'] === true} id="st-det-bg.tight" reduced={props.reduced}>
               <ul className="st-det">

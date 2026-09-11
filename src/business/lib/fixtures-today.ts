@@ -350,7 +350,7 @@ export const storeBookingPolicy = {
    *  settings round does not have to invent it:
    *  「月カレンダーで、空きがこの数以下の日を橙で示します」.
    *  AND ITS OFF-STATE, which is the half a dial usually leaves silent:
-   *  0 では橙は出ません — the month keeps 緑 and 満 only.
+   *  0 にすると橙は出ません — the month keeps 緑 and 満 only.
    *
    *  GUARDRAIL 0–5, named where the dial is specified (`CALENDAR_TIGHT_RANGE`,
    *  today-interactions.ts). Fable default, OVERTURNABLE on Liam's word.
