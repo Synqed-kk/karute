@@ -285,6 +285,24 @@ describe('POST packs/redeem — the recovery flag (C-2 + B-9)', () => {
     expect((row?.[0] as { detail?: Record<string, unknown> })?.detail?.resolved_via).toBeUndefined()
   })
 
+  // Audit round 2, PR D1 fix round 1, subject 4 (D1-4): the FACADE half of
+  // the recording-thread join was inert on the phone — the audit row must
+  // carry appointment_id + customer_id (the SAME field name the web
+  // recovery burn already writes, src/actions/packs.ts) so a phone burn can
+  // join a recording thread, not just the cron auto-burn and the web
+  // recovery burn.
+  it('D1-4: the audit row carries appointment_id + customer_id, on an ordinary (non-recovery) phone burn too', async () => {
+    await post({ packId: 'pack-1', appointmentId: 'appt-9' })
+    const row = audit.mock.calls.find(
+      (c) => (c[0] as { action?: string }).action === 'customer.pack_redeem',
+    )
+    expect(row).toBeDefined()
+    expect((row![0] as { detail?: Record<string, unknown> }).detail).toMatchObject({
+      appointment_id: 'appt-9',
+      customer_id: 'cust-1',
+    })
+  })
+
   it('B-9: an already-recorded burn is a 409 conflict, not a 502', async () => {
     redeemSessionActionWithClient.mockResolvedValueOnce({
       ok: false,

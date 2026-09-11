@@ -121,7 +121,23 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
   // C-2 (D7 on the phone): the recovery-resolved marker rides the handler's own
   // audit hook, which already emits customer.pack_redeem for this route. Same
   // seam karute outcome/entry-edits use — one bounded route key.
-  if (parsed.data.recovery) ctx.auditDetail = { resolved_via: 'recovery' }
+  //
+  // D1-4 (audit round 2, PR D1 fix round 1, subject 4): appointment_id +
+  // customer_id ride EVERY burn now, not just recovery ones — the SAME field
+  // name the web recovery burn already writes (src/actions/packs.ts,
+  // customer.pack_redeem's detail.appointment_id), which
+  // joinRecordingThread (src/actions/audit-log.ts) keys pack_redeem rows on.
+  // Without this, only the cron auto-burn and the web recovery burn could
+  // ever join a recording's thread — an ordinary phone burn never could.
+  // appointmentId here is the CLIENT-sent value (parsed.data.appointmentId,
+  // absent when the server derives it) — the same shallow value the web
+  // recovery burn captures, not the server-resolved one. customerId is the
+  // PATH id, never the client's (this route's own contract above).
+  ctx.auditDetail = {
+    appointment_id: parsed.data.appointmentId ?? null,
+    customer_id: id,
+    ...(parsed.data.recovery ? { resolved_via: 'recovery' } : {}),
+  }
   return ok(ctx, { ok: true, redemptionId: result.redemptionId }, 201)
 })
 
