@@ -1135,16 +1135,28 @@ function liveRig(rest: BoardLane[], hand: { id: string; bed: string }) {
  *  MOVES) is already in the map is REUSED; anything else is composed on the
  *  spot, on one shuffled board per distinct set of moves for the whole gesture. */
 function slotRule(
-  store: { slots: Map<string, LandingClass>; shuffledFor: Map<string, number> },
+  store: { slots: Map<string, LandingClass>; shuffledFor: Map<string, number>; base?: unknown },
   laneKey: string,
   start: number,
   dur: number,
   moveSet: string,
   compose: () => LandingClass,
+  /** ⚖ FIX ROUND 1B (FX-D) — the BOARD the shuffles below are a view of. It
+   *  defaults to the one the store already holds, so a caller that does not care
+   *  about the world moving is asking exactly the question it asked before. */
+  base: unknown = store.base,
 ): { kind: LandingClass; composed: boolean; shuffles: number } {
   const key = `${laneKey}|${start}|${dur}|${moveSet}`
   const had = store.slots.get(key)
   if (had !== undefined) return { kind: had, composed: false, shuffles: store.shuffledFor.size }
+  // ⚖ FIX ROUND 1B (FX-D) — and this is the composer's FIRST act, which is why it
+  // sits below the hit above: a slot that is found is never composed, so a hit
+  // never asks about the board. `boardLanes` is memoised and changes identity
+  // exactly when its inputs do, so a different object IS a different world.
+  if (store.base !== base) {
+    store.base = base
+    store.shuffledFor.clear()
+  }
   if (!store.shuffledFor.has(moveSet)) store.shuffledFor.set(moveSet, store.shuffledFor.size + 1)
   const kind = compose()
   store.slots.set(key, kind)
@@ -1352,6 +1364,29 @@ describe('§BEHAVIOURAL (v) — a live drag pays for each question ONCE, and the
       // demand costs a whole shuffled board per missing chip.
       expect(slotRule(store, 'p-02', 840, 60, 'a>r2', compose)).toEqual({ kind: 'caution', composed: true, shuffles: 2 })
       expect({ composes, keys: store.slots.size }).toEqual({ composes: 3, keys: 3 })
+    }
+    // ⚖ FIX ROUND 1B (FX-D) — …and the FOURTH case: a changed BOARD rebuilds the
+    // shuffle even for a set of moves this gesture has already shuffled once. The
+    // cached board is a view of the world as it was; the world can move under the
+    // card (a staged card, a refresh, a room's turnaround), and a candidate
+    // composed on demand afterwards would otherwise be judged on the old one.
+    {
+      const store = { slots: new Map<string, LandingClass>(), shuffledFor: new Map<string, number>(), base: undefined as unknown }
+      let composes = 0
+      const compose = (): LandingClass => { composes += 1; return 'caution' }
+      const boardA: unknown = { world: 'A' }
+      const boardB: unknown = { world: 'B' }
+      // Two sets of moves under ONE board: two shuffles, both kept…
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r2', compose, boardA)).toEqual({ kind: 'caution', composed: true, shuffles: 1 })
+      expect(slotRule(store, 'p-01', 840, 60, 'a>r3', compose, boardA)).toEqual({ kind: 'caution', composed: true, shuffles: 2 })
+      // …a second chip under the same board still reuses them…
+      expect(slotRule(store, 'p-02', 840, 60, 'a>r2', compose, boardA)).toEqual({ kind: 'caution', composed: true, shuffles: 2 })
+      // …and the board CHANGING drops every one of them, so the very same set of
+      // moves is shuffled again on the board that stands now.
+      expect(slotRule(store, 'p-03', 840, 60, 'a>r2', compose, boardB)).toEqual({ kind: 'caution', composed: true, shuffles: 1 })
+      // …while the SLOTS composed before it all survive: dropping those is fix
+      // round 1's rebuild, measured at p95 114.5 ms and ruled out.
+      expect({ composes, keys: store.slots.size }).toEqual({ composes: 4, keys: 4 })
     }
     // …and the hand's OWN room row is the third: a tail that clips or re-grows
     // under the card changes what `allocateBed`'s step-0 arm sees, which is the
