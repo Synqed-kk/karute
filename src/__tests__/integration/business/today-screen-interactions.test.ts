@@ -2433,8 +2433,16 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // Liam photographed. The invariant is what it always was: ONE door, and
     // every walk through it named. This one is named here and anchored to the
     // memo it lives in.
-    expect(SRC.split('bedViewsFor(').length - 1).toBe(4)
+    //
+    // ⚠ MIGRATED AGAIN at LIVE-DRAG PR-A, 4 → 5: the fifth walk is `bookFor`'s
+    // own (⚖ M-5 — one book per shuffled board; `FOREIGN_BOOKS` keeps one
+    // record per board array). At this commit nothing calls `bookFor` yet —
+    // PR-B's two doors will, and PR-B re-pins the count at 3 once those doors
+    // go through it. Named here so the invariant (one door, every walk named)
+    // holds at every commit on main.
+    expect(SRC.split('bedViewsFor(').length - 1).toBe(5)
     expect({ liftedWalk: pinnedLines(SRC, ': bedViewsFor(lanes, ledgerFrame, excludeId).worldMinusHand') }).toEqual({ liftedWalk: 1 })
+    expect({ bookForWalk: pinnedLines(SRC, 'const views = bedViewsFor(lanes, frame, liftedId)') }).toEqual({ bookForWalk: 1 })
     expect(SRC).not.toContain('bedViewsFor(committedLanes')
     expect(SRC).toContain('gateOn: SELLING_ENGINE_LAW,')
     expect(SRC).toContain('bookOf: bedViewsFor,')
