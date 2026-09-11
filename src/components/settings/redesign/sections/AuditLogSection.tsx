@@ -682,10 +682,20 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
               (isRecordingLink ? (
                 // I4 — one tap target, the whole sub-line: opens this
                 // recording's thread (target rows ∪ the joined karute/pack
-                // rows, D1's join).
+                // rows, D1's join). F7(b) ceiling: the join can walk up to
+                // ~28 serialized core calls / ~4,000 rows (LENS-PR-D1-BLIND
+                // §3) before CORE-19's action/detail filters remove it.
+                // F4 fix (blind lens finding 4): clear the rendered feed and
+                // force the loading idiom in THIS SAME state update — the
+                // effect that fires load() also sets loading, but only on
+                // its next tick, and without clearing `events` here the
+                // previous feed's rows (a different recording's story)
+                // would render under the thread's own title for that gap.
                 <button
                   type="button"
                   onClick={() => {
+                    setEvents([])
+                    setLoading(true)
                     setTargetType('recording')
                     setTargetId(e.target_id)
                   }}

@@ -268,6 +268,41 @@ describe('AuditLogSection — I4 recording thread page', () => {
     fireEvent.click(subButtons[0]!)
     await waitFor(() => expect(container.textContent).toContain('一部の記録を読み込めませんでした。'))
   })
+
+  it('F4: opening a thread clears the previous feed and shows the loading idiom — no stale rows from an unrelated target while the read is pending', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        id: 'karute-row',
+        action: 'karute.save',
+        target_type: 'karute',
+        target_id: 'k-9',
+        actor_type: 'staff',
+        actor_id: 'staff-1',
+        actor_label: '田中 美香',
+      }),
+      coreEvent({
+        id: 'rec-row',
+        action: 'recording.play',
+        actor_type: 'staff',
+        actor_id: 'staff-1',
+        actor_label: '田中 美香',
+        target_id: 'rec-9',
+      }),
+    ])
+    const subButtons = Array.from(container.querySelectorAll('button')).filter((b) =>
+      b.textContent?.includes('録音'),
+    )
+    expect(subButtons.length).toBeGreaterThan(0)
+    // Never resolves during this test — the thread read is deliberately left
+    // pending so the assertion below catches whatever renders WHILE it waits.
+    listAuditLog.mockReturnValue(new Promise(() => {}))
+    fireEvent.click(subButtons[0]!)
+    await waitFor(() => {
+      expect(container.querySelector('.animate-spin')).not.toBeNull()
+    })
+    expect(container.textContent).not.toContain('カルテを保存')
+    expect(container.textContent).not.toContain('k-9')
+  })
 })
 
 // ---- I5: the scope line -----------------------------------------------------
