@@ -2814,7 +2814,18 @@ export function TodayScreen(props: TodayProps) {
       for (const c of rail.cells) {
         const ask = { ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }
         const v = verdictFor(ask, c, livePack().pack)
-        if (v.kind === 'blocked' || v.reseats.length === 0) continue
+        // ⚖ FIX ROUND 2 (FX-A — ADDENDUM STOP 2) — THE FENCE IS `reseats`, AND
+        // ONLY `reseats`. `landingVerdict` sets `reseats` before its stops and
+        // refuses a rescued start on the REST cell it is handed
+        // (today-interactions.ts :5802, `cell?.state === 'blocked' &&
+        // !cell.ackAllowed`), so the FIRST-LEG verdict of every ⇄ candidate is
+        // `blocked` WITH `reseats` carried. Narrowing on `kind` here therefore
+        // discarded every candidate the fill exists for — the slots stayed empty
+        // on every board and no strip chip could ever wear ⇄. The drop fences on
+        // `reseats` alone (`verdictAtLanding`), the chip site fences on `reseats`
+        // alone, and so does this: the shuffled `final` is what decides the face,
+        // and a start the shuffle cannot rescue comes back `blocked` from it.
+        if (v.reseats.length === 0) continue
         const moveSet = v.reseats.map((r) => `${r.id}>${r.to}`).join(',')
         let shuffled = shuffledFor.get(moveSet)
         if (!shuffled) {
