@@ -1709,6 +1709,19 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // …and every exit of the release frees it, through one `finally`.
     expect(SCREEN).toContain('    try {\n      finishDragAt(clientX, clientY, upAt)\n    } finally {\n      freeGesture()\n    }')
     expect(SCREEN).toContain('function freeGesture() {\n    gestureMemoRef.current?.free()\n    gestureMemoRef.current = null\n    toneRef.current = null\n  }')
+    // ⚖ ADJUDICATION L2 MAJOR 3 — …AND THE OTHER THREE EXITS, each with the
+    // statement it stands beside. ⚖ M-4 asks for `free()` at four exits and only
+    // the `finally` was pinned, so the breaker's mutant (e) — delete the call
+    // from `cancelDrag` — shipped the whole battery green, leaving a cancelled
+    // gesture's memo alive: `livePack()` goes on saying `true` and every render
+    // between the cancel and the next pointerdown paints the strip through a
+    // memo built for a hand that is no longer there.
+    expect(SCREEN).toContain('    clearDrag()\n    freeGesture()\n  }')
+    expect(SCREEN).toContain('useEffect(() => () => { dragRef.current?.detach(); freeGesture() }, [])')
+    expect(SCREEN).toContain("if (e.button !== 0 || dragRef.current || !item.caseId) return\n    // Defensive: a gesture that ended through a path nobody expected must not\n    // lend its answers to the next one (⚖ ADJUDICATION L2 M-4).\n    freeGesture()")
+    // …one definition and four calls, counted, so a fifth exit cannot appear
+    // without this line and a call cannot quietly move into `clearDrag`.
+    expect((SCREEN.match(/freeGesture\(/g) ?? [])).toHaveLength(5)
     // …and `pendingGuardRow`'s own memo body is the third OFF site — the FIX
     // ROUND 3 (G1) mutant: reverting its gate to `{ pack: true }` must fail
     // this pin.
@@ -1759,6 +1772,58 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     expect(SCREEN).toContain("const rowStampRef = useRef('')\n  rowStampRef.current = handRowStamp(boardLanes, handId ?? '', live?.bedLane ?? null)")
     expect(SCREEN.indexOf('boardLanesRef.current = boardLanes')).toBeLessThan(SCREEN.indexOf('const v = inHand ? verdictFor('))
     expect(SCREEN.indexOf('rowStampRef.current = handRowStamp(')).toBeLessThan(SCREEN.indexOf('const v = inHand ? verdictFor('))
+    //
+    // ⚖ FIX ROUND 1 (F1 — Fable + blind lenses 1 and 2) — AND THE ⇄ TONE FILL IS
+    // THE OTHER READER, so it is ordered too. The pin above indexed the ref
+    // against the CHIP MAP only, and the fill's own ask is spelled without the
+    // `inHand ?` — so it sat 111 lines ABOVE the ref with this assertion green,
+    // every one of its asks failed the board-family gate, and the gesture's most
+    // expensive frame paid ~660 uncached packing searches where the design
+    // budgets 22. Every answer was correct; only the cost was wrong, which is
+    // exactly the class no battery and no grep can see.
+    expect(SCREEN.indexOf('boardLanesRef.current = boardLanes')).toBeLessThan(SCREEN.indexOf('function fillToneSlots('))
+    expect(SCREEN.indexOf('rowStampRef.current = handRowStamp(')).toBeLessThan(SCREEN.indexOf('function fillToneSlots('))
+    expect(SCREEN.indexOf('worldStampRef.current = worldStamp')).toBeLessThan(SCREEN.indexOf('function fillToneSlots('))
+    //
+    // ⚖ FIX ROUND 1 (F2) — THE SLOTS' LIFETIME IS THE MEMO'S, SPELLED ON THE
+    // SCREEN. The memo empties on exactly two conditions; the view of its
+    // answers is rebuilt on the same two. Dropping either compare from this
+    // gate leaves a chip that becomes a ⇄ candidate after a mid-gesture clear
+    // with no slot at all — it then wears ⇄ composed from the UN-shuffled
+    // verdict, which is a promise the release can refuse.
+    expect(SCREEN).toContain(
+      'if (inHand != null && livePack().pack && (toneRef.current == null || toneRef.current.world !== worldStampRef.current || toneRef.current.row !== rowStampRef.current)) fillToneSlots()',
+    )
+    expect(SCREEN).toContain('toneRef.current = { world: worldStampRef.current, row: rowStampRef.current, slots }')
+    // …and the gate reads the packing switch through its ONE home rather than
+    // spelling `gestureMemoRef.current != null` a second time (⚖ L2 MINOR 1).
+    // Six reads of the ref in all: `livePack`, the two in `freeGesture`, the two
+    // authorised allocator seams (`verdictFor`'s ask and `solveBed`), and the one
+    // creation site. The gate above is NOT a seventh.
+    expect((SCREEN.match(/gestureMemoRef\.current/g) ?? [])).toHaveLength(6)
+    //
+    // ⚖ ADJUDICATION L2 MAJOR 2 — THE ⇄ SLOT KEY HAS ONE HOME AND THREE CALLERS.
+    // Three spellings of one string agreement, none of them pinned: the
+    // breaker's mutant (k) dropped `dur` from all three and shipped green.
+    expect(SCREEN).toContain('export function slotKey(laneKey: string, start: number, dur: number): string {\n  return `${laneKey}|${start}|${dur}`\n}')
+    expect((SCREEN.match(/slotKey\(/g) ?? [])).toHaveLength(4)
+    // …and the two renderer lines ⚖ M-6(a) never got, byte for byte. `drop` is
+    // the read; `mark` is what the read decides.
+    expect(SCREEN).toContain(
+      'const drop = v && v.reseats.length > 0 ? toneRef.current?.slots.get(slotKey(rail.laneKey, c.start, railDur)) : undefined',
+    )
+    expect(SCREEN).toContain('const mark = chip ? chip.mark : (explained?.mark ?? null)')
+    expect(SCREEN).toContain('slots.set(slotKey(rail.laneKey, c.start, railDur), final.kind)')
+    // …and the aimed chip's own refresh keys on the length it DERIVES from the
+    // frame's span, never on the render body's `railDur`: this function is
+    // reached only through the listeners `beginDrag` binds once per gesture, so
+    // its closure is the POINTERDOWN render's — where `live` and `dragLen` are
+    // both null and `railDur` is `props.guard.standardSessionMin`. `span` is the
+    // object `applyDragFrame` has just handed `setLive`, so this expression is
+    // `aimDur`'s own on the same values (see §Deviations, FIX-REPORT-1).
+    expect(SCREEN).toContain('      const dur = minuteOf(span.x + span.w, hours) - minuteOf(span.x, hours)\n')
+    expect(SCREEN).toContain('const slot = slotKey(ctx.targetLane, chipStart, dur)')
+    expect(SCREEN).toContain('const slots = toneRef.current?.slots ?? null')
     //
     // ⚖ ADJUDICATION L4 — AND THE WORLD STAMP'S DEP LIST IS PINNED BY EXACT TEXT.
     // The memo has no self-check that its caller's stamp is complete: a dropped

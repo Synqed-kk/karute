@@ -32,7 +32,7 @@ import {
   type LandingVerdict,
   type Moves,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
-import { bookFor, type BookCache } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { bookFor, slotKey, type BookCache } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import type { DayFrame } from '@/app/[locale]/(business)/business/today/capacity-ledger'
 
 const HOURS: Hours = { open: 540, close: 1200 }
@@ -546,6 +546,29 @@ describe('`bookFor` — one capacity book per lanes array, and it dies with the 
     const lanes = board()
     const a = bookFor(lanes, FRAME, 'a', cache)
     expect(bookFor(lanes, { ...FRAME, nowMin: 900 }, 'a', cache)).not.toBe(a)
+  })
+})
+
+describe('`slotKey` — the ⇄ tone slot\u2019s ONE spelling, and every field separates', () => {
+  /** ⚖ ADJUDICATION L2 MAJOR 2 + breaker survivor (k). The key was written out
+   *  three times — the fill, the chip, the aimed chip's own refresh — and
+   *  nothing in the repo asserted the three agreed. Dropping `dur` from all
+   *  three shipped the whole battery green: every chip loses its slot, falls
+   *  back to the UN-shuffled verdict, and ⚖ RULING 3's third arm 「no mark when
+   *  the release would refuse」 stops holding with no test to say so. */
+  it('the lane, the start and the LENGTH each separate two keys', () => {
+    expect(slotKey('p-01', 840, 60)).toBe(slotKey('p-01', 840, 60))
+    expect(slotKey('p-01', 840, 60)).not.toBe(slotKey('p-02', 840, 60))
+    expect(slotKey('p-01', 840, 60)).not.toBe(slotKey('p-01', 870, 60))
+    // …and the one the mutant dropped. The strip's length follows the gesture
+    // (⚖ 50), so one lane and one start are two different questions at two
+    // lengths — inert while a gesture holds one length, a landmine the moment
+    // the queued resize / shelf-chip rounds land.
+    expect(slotKey('p-01', 840, 60)).not.toBe(slotKey('p-01', 840, 90))
+  })
+
+  it('the three fields are all that is in it, in that order', () => {
+    expect(slotKey('p-01', 840, 60)).toBe('p-01|840|60')
   })
 })
 

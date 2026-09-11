@@ -4684,6 +4684,12 @@ export function gestureAllocator(opts: {
     // from every booking gesture (⚖ flag 73, `allocateBed`'s own doc above) and
     // it is in the key anyway: a key blind to an option the allocator READS is
     // one ruling away from being wrong (⚖ ADJUDICATION L1 minor).
+    // ⚖ CODE-LENS-2 N1 — THE ASSUMPTION THE RAW `|` JOIN RESTS ON, stated: none
+    // of the interpolated fields can CONTAIN a `|`. `id` and `stagedId` are
+    // booking UUIDs, `currentBed` is a bed lane key, and `stores` arrives
+    // JSON-quoted. If any of them ever could, two different questions would
+    // share one key — the single failure a memo is not allowed to have — and
+    // this line is where that would have to be answered.
     const key = `${o.id}|${o.currentBed}|${JSON.stringify(o.stores)}|${o.requiresPrivate}|${o.start}|${o.end}|${o.stagedId ?? ''}|${o.now}|${o.allowBusy === true}`
     const hit = memo.get(key)
     if (hit !== undefined) {
@@ -4691,9 +4697,14 @@ export function gestureAllocator(opts: {
       return hit
     }
     misses += 1
-    // Frozen, so no display that borrowed the answer can sort or splice what
-    // another surface is about to read off the same object (`blockers` is
-    // already `readonly` by type; this is the runtime half).
+    // Frozen, so no display that borrowed the answer can reassign a field on
+    // the object another surface is about to read off.
+    // ⚖ CODE-LENS-1 MINOR (b) — SHALLOW, and that is the whole of it: the
+    // OBJECT is frozen; `blockers` and `reseats` are not, and their guard is
+    // `readonly` by type. Not a deep freeze — the allocator's own array reuse
+    // is not proven either way, and a freeze it does not expect is a change to
+    // the engine, not a comment. No consumer of either array mutates it today
+    // (grepped across `src/`).
     const fresh = Object.freeze(base(lanes, o))
     memo.set(key, fresh)
     return fresh
