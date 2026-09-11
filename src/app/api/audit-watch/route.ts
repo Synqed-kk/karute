@@ -49,5 +49,10 @@ export async function GET(request: Request) {
     results.push(await watchOneBusiness(businessId, now, mode, deadline))
   }
 
-  return NextResponse.json({ mode, results })
+  // F-b: an error is not a green run — but a business's own catch never
+  // stops the loop, so every OTHER business still gets its pass. A budget
+  // stop (`truncated`) stays a 200, same rule as /api/assemble: the walk saw
+  // everything and simply ran out of time.
+  const status = results.some((r) => r.error) ? 500 : 200
+  return NextResponse.json({ mode, results }, { status })
 }

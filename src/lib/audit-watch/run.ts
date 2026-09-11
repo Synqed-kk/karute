@@ -50,6 +50,11 @@ export interface BusinessWatchResult {
   written: number
   skipped: number
   truncated: boolean
+  /** F-b: a caught error is not a green run — decoupled from `truncated`,
+   *  which stays reserved for an honest budget stop (the assembler's own
+   *  rule: a run that could not see everything says so, a run that simply
+   *  ran out of time is still a 200). */
+  error: boolean
   list: WatchCandidate[]
 }
 
@@ -137,6 +142,7 @@ export async function watchOneBusiness(
     written: 0,
     skipped: 0,
     truncated: false,
+    error: false,
     list: [],
   }
   if (Date.now() >= deadline) {
@@ -259,8 +265,11 @@ export async function watchOneBusiness(
       result.written++
     }
   } catch (err) {
+    // F-b: an error is not a green run. Decoupled from `truncated` — a
+    // budget stop is honest (the walk saw everything and simply ran out of
+    // time); a caught error means the walk itself could not be trusted.
     console.error('[audit-watch]', businessId, err instanceof Error ? err.message : err)
-    result.truncated = true
+    result.error = true
   }
   return result
 }

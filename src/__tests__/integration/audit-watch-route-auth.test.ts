@@ -15,6 +15,8 @@ const watchOneBusiness = jest.fn(async (businessId: string, now: Date, mode: 'dr
   written: 0,
   skipped: 0,
   truncated: false,
+  error: false,
+  list: [] as unknown[],
 }))
 jest.mock('@/lib/audit-watch/run', () => ({
   watchOneBusiness: (...a: unknown[]) => watchOneBusiness(...(a as [string, Date, 'dry' | 'write', number])),
@@ -86,6 +88,53 @@ describe('GET /api/audit-watch auth', () => {
         expect(res.status).toBe(200)
         expect(watchOneBusiness).toHaveBeenCalledTimes(2)
         expect(await res.json()).toMatchObject({ results: expect.any(Array) })
+      },
+    })
+  })
+
+  // F-b: an error is not a green run — and the loop must not stop at the
+  // first one; every OTHER business still gets its pass.
+  it('F-b: one business erroring 500s the whole run, but the other business still ran', async () => {
+    process.env.AUDIT_WATCH_BUSINESS_IDS = 'biz-1, biz-2'
+    watchOneBusiness.mockImplementation(async (businessId) => ({
+      businessId,
+      candidates: 0,
+      written: 0,
+      skipped: 0,
+      truncated: false,
+      error: businessId === 'biz-1',
+      list: [],
+    }))
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({ method: 'GET', headers: { authorization: 'Bearer test-cron-secret' } })
+        expect(res.status).toBe(500)
+        expect(watchOneBusiness).toHaveBeenCalledTimes(2)
+        expect(watchOneBusiness).toHaveBeenCalledWith('biz-1', expect.any(Date), 'dry', expect.any(Number))
+        expect(watchOneBusiness).toHaveBeenCalledWith('biz-2', expect.any(Date), 'dry', expect.any(Number))
+        const body = await res.json()
+        expect(body.results).toHaveLength(2)
+      },
+    })
+  })
+
+  it('a budget-stop (truncated) alone stays 200 — an honest budget stop is not an error', async () => {
+    process.env.AUDIT_WATCH_BUSINESS_IDS = 'biz-1'
+    watchOneBusiness.mockImplementation(async (businessId) => ({
+      businessId,
+      candidates: 0,
+      written: 0,
+      skipped: 0,
+      truncated: true,
+      error: false,
+      list: [],
+    }))
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({ method: 'GET', headers: { authorization: 'Bearer test-cron-secret' } })
+        expect(res.status).toBe(200)
       },
     })
   })

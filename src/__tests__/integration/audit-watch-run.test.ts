@@ -162,6 +162,7 @@ describe('watchOneBusiness — recording.karute_missing', () => {
       written: 0,
       skipped: 0,
       truncated: true,
+      error: false,
       list: [],
     })
     expect(auditMock).not.toHaveBeenCalled()
@@ -202,6 +203,18 @@ describe('watchOneBusiness — recording.karute_missing', () => {
     )
     expect(result.list).toHaveLength(2)
     expect(result.list.some((c) => c.targetId === 'sess-skip')).toBe(false)
+  })
+
+  it('F-b: a read failure sets result.error = true — decoupled from truncated', async () => {
+    const client = makeClient()
+    client.recordings.list = jest.fn(async () => {
+      throw new Error('core down')
+    })
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+    const result = await watchOneBusiness('biz-1', NOW, 'write', FAR_DEADLINE)
+    expect(result.error).toBe(true)
+    expect(result.truncated).toBe(false)
+    expect(auditMock).not.toHaveBeenCalled()
   })
 })
 
