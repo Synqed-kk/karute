@@ -191,6 +191,7 @@ export default async function TodayPage({
   const slotById = new Map(planes.sellSlots.map((s) => [s.id, s]))
 
   const shownAt = new Date(now.getTime() + dayOffset * DAY_MS)
+  const shownYmd = jstYmd(shownAt)
   const hourCount = (planes.operatingHours.close - planes.operatingHours.open) / 60
   const hourLabels = Array.from({ length: hourCount }, (_, i) => String(planes.operatingHours.open / 60 + i))
 
@@ -211,11 +212,16 @@ export default async function TodayPage({
   const calendar = Array.from({ length: WINDOW * 2 + 1 }, (_, i) => i - WINDOW).flatMap((offset) => {
     const dayKey = todayKey + offset
     // ⚠ A DAY THE DOOR HAS NO ROSTER FOR IS NOT A ROW. `listShiftsByDay` returns
-    // only the days it actually holds (data.ts :273-285), and `?? []` here would
-    // have turned 「we do not know」 into an empty roster — the cell then painted
-    // 満, a capacity of zero nobody computed. Being ABSENT from this array is
-    // what makes the grid draw the date as 表示範囲外 instead
-    // (`calendarMonth` fills the month's gaps with `covered: false`).
+    // only the days it actually holds, and `?? []` here would have turned 「we do
+    // not know」 into an empty roster — the cell then painted 満, a capacity of
+    // zero nobody computed.
+    //
+    // WHAT THE OPERATOR SEES when a day is missing, on THIS PR alone: the月
+    // カレンダー simply does not print that date, exactly as it already does for
+    // a date outside the ±45-day window today — the month that opens is still
+    // the right month (`shownYm` below is the grid's anchor, not the rows). The
+    // face PR (#891) draws the same day as a dated, unpressable 表示範囲外 cell
+    // instead of leaving a hole.
     const shifts = shiftsByDay.get(dayKey)
     if (!shifts) return []
     const p = jstYmd(new Date(now.getTime() + offset * DAY_MS))
@@ -466,6 +472,12 @@ export default async function TodayPage({
     lensLabel: clamped ? (storeNames.get(storeId!) ?? 'この店舗') : 'すべての店舗',
     dayOffset,
     dayLabel: fmtDayFull.format(shownAt),
+    // The month the calendar popover opens on. It is a FACT ABOUT THE SHOWN
+    // DAY, not something to be found among the calendar rows: the grid used to
+    // anchor by searching `calendar` for the shown offset and falling back to
+    // its first row, so a shown day the roster door had no entry for opened the
+    // window's FIRST month instead of the one the operator is looking at.
+    shownYm: { y: shownYmd.y, m: shownYmd.m },
     monthLabel: fmtMonth.format(shownAt),
     isToday: dayOffset === 0,
     windowDays: WINDOW,

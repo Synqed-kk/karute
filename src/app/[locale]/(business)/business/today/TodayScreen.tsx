@@ -493,6 +493,13 @@ export interface TodayProps {
   lensLabel: string
   dayOffset: number
   dayLabel: string
+  /** THE MONTH THE CALENDAR OPENS ON — the shown day's own year/month, in JST,
+   *  from the server's one clock read. The grid used to find its anchor by
+   *  searching `calendar` for the shown offset and falling back to `calendar[0]`
+   *  when that failed, so a shown day the roster door has no row for opened the
+   *  window's first month instead of the one on screen. A month is a fact about
+   *  the day being shown, so the day being shown carries it. */
+  shownYm: { y: number; m: number }
   monthLabel: string
   isToday: boolean
   windowDays: number
@@ -6346,9 +6353,10 @@ export function TodayScreen(props: TodayProps) {
   }
 
   // The month grid the calendar popover draws: the loaded window, grouped by
-  // the month the ‹ › buttons are standing on.
+  // the month the ‹ › buttons are standing on — counted from the SHOWN DAY's
+  // own month, which the server sends, rather than hunted for in the rows.
   const monthCells = useMemo(() => {
-    const anchor = props.calendar.find((c) => c.offset === props.dayOffset) ?? props.calendar[0]
+    const anchor = props.shownYm
     let y = anchor.y
     let m = anchor.m + calMonth
     while (m > 12) { m -= 12; y += 1 }
@@ -6356,7 +6364,7 @@ export function TodayScreen(props: TodayProps) {
     const days = props.calendar.filter((c) => c.y === y && c.m === m).sort((a, b) => a.d - b.d)
     const lead = days.length > 0 ? days[0].wd : 0
     return { y, m, days, lead }
-  }, [props.calendar, props.dayOffset, calMonth])
+  }, [props.calendar, props.shownYm.y, props.shownYm.m, calMonth])
 
   const timelineClasses = [
     'timeline',

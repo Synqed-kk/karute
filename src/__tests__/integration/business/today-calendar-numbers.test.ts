@@ -11,6 +11,8 @@
  * (today-screen-interactions.test.ts :1-10) — everything here is in-repo, and
  * no DOM is needed, so it runs on jest's default `node` environment.
  */
+import { readFileSync } from 'node:fs'
+
 import { jstDayKey } from '@/business/lib/clock'
 import { STORE_A, STORE_B } from '@/business/lib/fixtures'
 import {
@@ -236,5 +238,48 @@ describe('⚖ V5 — 勤務不可 shortens its OWN day, on EVERY shown day', () 
     expect(withAbsence).toBeLessThan(without)
     // …and TOMORROW's cell keeps the full roster on the very same read.
     expect(rosterAvailableMinutes(staff, shifts, quals, absenceForDay(todayKey + 1, absenceByDay))).toBe(without)
+  })
+})
+
+describe('⚖ P1-2 — the month the calendar opens on is the SHOWN day’s month', () => {
+  // A SOURCE PIN, not a behaviour test, and deliberately: the rule is one
+  // expression inside TodayScreen's `monthCells` memo, and lifting it into a
+  // `calendarAnchor(shownYm)` helper would be an identity function with one
+  // caller — an abstraction to keep alive forever so a test can call it. The
+  // line itself is the smallest honest thing to pin.
+  //
+  // THE BUG: the anchor was `props.calendar.find((c) => c.offset === dayOffset)
+  // ?? props.calendar[0]`. A shown day the roster door has no row for is not in
+  // `calendar` at all (page.tsx drops it), so the find missed and the popover
+  // opened on the FIRST month of the ±45-day window — the wrong month, silently.
+  const SRC = readFileSync('src/app/[locale]/(business)/business/today/TodayScreen.tsx', 'utf8')
+  const MEMO = SRC.slice(SRC.indexOf('const monthCells = useMemo('), SRC.indexOf('const timelineClasses'))
+
+  it('anchors on props.shownYm and never searches the calendar rows for it', () => {
+    expect(MEMO).toContain('const anchor = props.shownYm')
+    expect(MEMO).not.toContain('props.calendar[0]')
+    expect(MEMO).not.toContain('c.offset === props.dayOffset')
+  })
+
+  it('the server sends the shown day’s own JST year/month, from its one clock read', () => {
+    const PAGE = readFileSync('src/app/[locale]/(business)/business/today/page.tsx', 'utf8')
+    expect(PAGE).toContain('const shownYmd = jstYmd(shownAt)')
+    expect(PAGE).toContain('shownYm: { y: shownYmd.y, m: shownYmd.m }')
+  })
+
+  it('the shown month is therefore the same whether that day has a roster row or not', () => {
+    // The rule the two pins above add up to, stated as arithmetic so a reader
+    // can see what「anchored on shownYm」 buys: the month on screen is a
+    // function of the shown day and the ‹ › steps ONLY, never of the rows.
+    const monthOf = (shownYm: { y: number; m: number }, calMonth: number) => {
+      let y = shownYm.y
+      let m = shownYm.m + calMonth
+      while (m > 12) { m -= 12; y += 1 }
+      while (m < 1) { m += 12; y -= 1 }
+      return { y, m }
+    }
+    expect(monthOf({ y: 2026, m: 9 }, 0)).toEqual({ y: 2026, m: 9 })
+    expect(monthOf({ y: 2026, m: 12 }, 1)).toEqual({ y: 2027, m: 1 })
+    expect(monthOf({ y: 2026, m: 1 }, -1)).toEqual({ y: 2025, m: 12 })
   })
 })
