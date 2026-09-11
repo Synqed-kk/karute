@@ -2644,6 +2644,42 @@ export function railChipClass(input: {
  *  (Liam on the mock: 「色の意味は ✓／△ と同じ」). */
 export type RailMark = { face: 'reseat'; tone: 'safe' | 'degraded' }
 
+/** ⚖ LIVE-WHILE-DRAGGING §5b (M3) — THE FACE A CHIP WEARS WHILE A CARD IS IN
+ *  HAND, once the strip is allowed to answer the packing question too.
+ *
+ *  `v` is the verdict on THIS frame's board for this chip's own start. `final`
+ *  is the answer the DROP would give for the same start — `verdictAtLanding`'s
+ *  own two-step composition: the base solve, and, when it carries companions,
+ *  the guard re-read on the board the shuffle would leave. Passing the FINAL
+ *  verdict rather than a separate 「tone」 is what makes ⚖ RULING 3's third arm
+ *  (「NO MARK when the drop would refuse」) true BY CONSTRUCTION instead of by a
+ *  second rule: a packed landing the shuffle makes illegal comes back `blocked`
+ *  and the chip wears × exactly as it does today.
+ *
+ *  The ⇄ arm is stated on `v.reseats` — the memo's own verdict — because in the
+ *  product the chip's verdict IS the packing one, and `landingVerdict` carries
+ *  `reseats` on a REFUSED verdict too (its own doc below). A staff-clashed chip
+ *  therefore comes back `blocked` with its `reseats` carried and gets no mark.
+ *
+ *  Pure, so the mapping is unit-pinned rather than read out of a renderer — the
+ *  same reason `railChipClass` above was lifted out of the JSX. */
+export function liveChipFace(input: {
+  v: LandingVerdict
+  final: LandingVerdict
+  start: number
+}): { mark: RailMark | null; state: RailState; face: string } {
+  const f = input.final
+  const state: RailState = f.kind === 'blocked' ? 'blocked' : f.kind === 'caution' ? 'degraded' : 'safe'
+  if (f.kind !== 'blocked' && input.v.reseats.length > 0) {
+    return { mark: { face: 'reseat', tone: f.kind === 'caution' ? 'degraded' : 'safe' }, state, face: `⇄${hhmm(input.start)}` }
+  }
+  return {
+    mark: null,
+    state,
+    face: f.kind === 'blocked' ? '×' : f.kind === 'caution' ? `△${hhmm(input.start)}` : `✓${hhmm(input.start)}`,
+  }
+}
+
 /** One mark on a lane's track: a cue, and the stretch of the day it covers
  *  after neighbouring half hours of the same kind have been merged. */
 export interface RestCue extends RailCue {
@@ -4078,6 +4114,88 @@ const PACK_MAX_MOVES = 4
  *  store's own board ever refuses a day the harness calls packable. */
 const PACK_BUDGET = 16000
 
+/** ⚖ LIVE-WHILE-DRAGGING §4 (M2) — THE PIGEONHOLE PRE-CHECK: 「can ANY
+ *  arrangement of these rooms host one more claim over [start, end)?」
+ *
+ *  A NECESSARY condition only, answered in O(rooms × span). It never turns a
+ *  refusal into a pack — it only skips a backtracking search whose answer is
+ *  already decided. It is what makes the per-frame packing question affordable:
+ *  on a board whose rooms are solid all afternoon the cold burst goes from
+ *  68.3 ms to 2.0 ms, and the worst single miss from 14.8 ms to 0.075 ms.
+ *
+ *  IT IS HANDED `packSearch`'s OWN PREAMBLE rather than re-walking the board,
+ *  so the two cannot disagree about what a claim is: `bookings` has already
+ *  dropped every drawn 清掃 (the tail is re-derived per claim), every
+ *  `caseId == null` booking (invisible to the search) and the subject itself;
+ *  `pinsOf` holds each room's non-booking rows with their own spans and no tail.
+ *
+ *  `minTail` is the SMALLEST turnaround of any room in `beds` — ⚖ ADJUDICATION
+ *  L1 M-1: over ALL of `allocateBed`'s rooms, never 「the rooms the subject may
+ *  use」, because a companion relocates through `companionRooms` into any
+ *  compatible room. It is a LOWER bound on any room's tail, so a booking that
+ *  moves to a shorter-tail room can never make this count too high.
+ *
+ *  ⚖ ADJUDICATION L1 M-2 — IT COUNTS DISTINCT ROOMS, NEVER CLAIMS. `resource_id`
+ *  blocks are drawn onto bed lanes (today-board.ts :598-610) and can overlap a
+ *  booking on the same room, and `packSearch` never re-validates the board it is
+ *  handed — so a claim COUNT could exceed the number of rooms on a legal search
+ *  and over-prune. Counting rooms removes the precondition entirely.
+ *
+ *  SOUND BY CONSTRUCTION, re-derived for that rule: every legal move puts a
+ *  booking into a room free at its claim's minutes, so a move frees its source
+ *  room only when that booking was the source's only claim at t, and it always
+ *  occupies its destination — the number of OCCUPIED ROOMS at t never DECREASES
+ *  under moves. If every room is occupied at some minute t inside the subject's
+ *  own window before any move, it is after every move, and the subject — which
+ *  needs a free room at t — cannot land. Co-located claims count once, so this
+ *  form prunes no more than the multiset count on a legal board and strictly
+ *  less on an illegal one.
+ *
+ *  ⚠ WINDOW-BASED FULLNESS IS NOT THIS TEST AND IS NOT SOUND: two short claims
+ *  can share one bed inside one window. On the same 281,952 random asks the
+ *  window form produced 202 real violations and this one produced zero. */
+export function packImpossible(
+  /** `allocateBed`'s own `beds` (its store filter), handed in — never re-derived. */
+  beds: readonly BoardLane[],
+  /** `packSearch`'s own `bookings`, already classified by its preamble. */
+  bookings: readonly { room: string; start: number; end: number }[],
+  /** `packSearch`'s own `pinsOf` — each room's non-booking rows, no tail. */
+  pinsOf: ReadonlyMap<string, ReadonlyArray<{ start: number; end: number }>>,
+  subject: { start: number; end: number },
+  minTail: number,
+): boolean {
+  const n = beds.length
+  if (n === 0) return true
+  const span = subject.end - subject.start
+  if (span <= 0) return false
+  const cover = new Int32Array(span)
+  const room = new Int32Array(span + 1)
+  const claim = (from: number, to: number) => {
+    const a = Math.max(from, subject.start)
+    const b = Math.min(to, subject.end)
+    if (b <= a) return false
+    room[a - subject.start] += 1
+    room[b - subject.start] -= 1
+    return true
+  }
+  for (const l of beds) {
+    room.fill(0)
+    let any = false
+    for (const p of pinsOf.get(l.key) ?? []) if (claim(p.start, p.end)) any = true
+    for (const b of bookings) if (b.room === l.key && claim(b.start, b.end + minTail)) any = true
+    // A room with no claim at all inside the window keeps `cover` under `n` at
+    // every minute, so the answer is settled without sweeping the rest.
+    if (!any) return false
+    let run = 0
+    for (let k = 0; k < span; k += 1) {
+      run += room[k]
+      if (run > 0) cover[k] += 1
+    }
+  }
+  for (let k = 0; k < span; k += 1) if (cover[k] >= n) return true
+  return false
+}
+
 /** ⚖ 9/8 PACKING (DESIGN-RESEAT-ONEHOP v3.1 §2 step 1) — THE CONFLICT-DIRECTED,
  *  FEWEST-MOVES-FIRST SEARCH.
  *
@@ -4271,6 +4389,21 @@ function packSearch(
     return false
   }
 
+  // ⚖ LIVE-WHILE-DRAGGING §4 (M2) — THE PIGEONHOLE PRE-CHECK, AT THE HEAD OF THE
+  // SEARCH, on the preamble's own claims rather than a second walk of the board.
+  // It answers 「every room is already occupied at some minute this landing needs」
+  // in O(rooms × span), which is the whole of `allocateBed`'s refusal cost on a
+  // full afternoon: the search below then never starts. `minTail` is the smallest
+  // turnaround over ALL of these rooms (⚖ ADJUDICATION L1 M-1) — a companion
+  // relocates through `companionRooms` into ANY compatible room, so a bound taken
+  // over the subject's own candidates would not be a bound at all.
+  let minTail = Infinity
+  for (const l of beds) {
+    const t = cleanupOf(l)
+    if (t < minTail) minTail = t
+  }
+  if (packImpossible(beds, bookings, pinsOf, subject, Number.isFinite(minTail) ? minTail : 0)) return null
+
   for (let k = 1; k <= PACK_MAX_MOVES; k += 1) {
     const moves = new Map<string, string>()
     const movedSet = new Set<string>()
@@ -4375,11 +4508,13 @@ export function allocateBed(
      *  and the reserved mask, which is the one place it must never be (design §3;
      *  pinned in the suite against `capacity-ledger.ts`' own `search()`).
      *
-     *  THREE CALLERS (⚖ FIX ROUND 2, L1-m1 — the count was stale): `landingVerdict`'s
-     *  solve arm through `verdictAtLanding`, `solveBed`, which stages the answer,
-     *  and — since ⚖ LIAM RULING 3 (2026-09-09) — the strip's REST layer, once
-     *  per 「moves someone」 candidate in `explainRails`, never while a card is
-     *  in hand. The word at the cursor during a drag still does not. */
+     *  FOUR READERS, ONE MEMO (⚖ LIVE-WHILE-DRAGGING, 2026-09-11; the count was
+     *  「THREE CALLERS」 until the strip and the cursor started asking too):
+     *  `landingVerdict`'s solve arm, `solveBed`, `explainRails`' one resting ask
+     *  — and, while an UNSTAGED card is in hand, the strip and the cursor, which
+     *  now ask the packing question too and read it out of the gesture's own
+     *  memo (`gestureAllocator`). The memo can change what an ask COSTS and
+     *  never what it ANSWERS: the equivalence fuzz proves it at every frame. */
     pack?: boolean
     /** Minutes on the day shown; `null` = a future day, where nothing has
      *  started. REQUIRED when `pack` is true — a re-seat search that cannot tell
@@ -4456,6 +4591,168 @@ export function allocateBed(
     blockers: rows.flatMap(([, blockers]) => blockers),
     reseats: [],
   }
+}
+
+/** ⚖ LIVE-WHILE-DRAGGING §3 (M1) — THE GESTURE'S OWN MEMO, BEHIND THE ALLOCATOR
+ *  SEAM, so the strip and the cursor can ask the packing question on every
+ *  pointer frame and pay for it once per gesture.
+ *
+ *  THE KEY INSIGHT, measured: `allocateBed`'s answer depends on the STAFF LANE
+ *  only through `stores`, and `packSearch` is handed exactly the rooms that
+ *  filter produced — so within one gesture the hand's packing question at
+ *  `(stores, start, end, requiresPrivate, currentBed, id, stagedId, now,
+ *  allowBusy)` is ONE question however many lanes ask it. On a 30×10 board the
+ *  strip asks 660 times a frame and the answer set is 22 distinct questions.
+ *
+ *  A HIT RETURNS THE SAME FROZEN OBJECT. The cursor, the chip and the drop
+ *  reading ONE entry is what makes 「the drop does what the mark promised」
+ *  object identity rather than a second derivation that could drift — which is
+ *  flag 54's disease, and the whole reason this exists.
+ *
+ *  TWO GATES, each for its own reason:
+ *
+ *  (1) `o.pack === true && o.id === handId`. Everything else passes straight
+ *      through to `base` byte for byte: the book's hypotheticals, the
+ *      `id: null` rail probes, `reseatLandingAt`'s own re-judge, every non-hand
+ *      ask. The pass-through counter exists so a suite can prove it.
+ *
+ *  (2) `lanes === board()` — THE BOARD-FAMILY GATE. The memo keys on the
+ *      QUESTION, and the same question has different answers on different board
+ *      FAMILIES: `verdictAtLanding`'s own re-judge asks it on
+ *      `applyBedMoves(base, companionsFor(base, …))`, and a staged card's
+ *      re-drag solves on `lanesWithCompanionsRestored(...)`. One identity
+ *      compare closes both — each foreign family fails the gate and pays a
+ *      fresh, deterministic search at a gesture end, never a wrong answer. The
+ *      gate is NOT part of the key: an entry made on frame 3 is still served on
+ *      frame 40, which is the whole point.
+ *
+ *  TWO STAMPS, both cleared wholesale when they change:
+ *    · `stamp()` — a fresh object identity whenever anything that changes the
+ *      world MINUS the hand changes (the screen's own `useMemo(() => ({}), …)`).
+ *    · `rowStamp()` — M1b below, the one thing a drag genuinely perturbs about
+ *      the board minus the hand.
+ *
+ *  ⚠ THE KEYWORD FORM OF THE PACKING OPTION NEVER APPEARS IN THIS FUNCTION.
+ *  R9 (today-bed-packing.test.ts) counts that literal inside `explainRails` and
+ *  bans it everywhere else in this file; `o.pack === true` is the reading form,
+ *  and it matches nothing. */
+export interface GestureMemo {
+  allocate: typeof allocateBed
+  size(): number
+  hits(): number
+  misses(): number
+  passes(): number
+  /** How many times the hand-row fingerprint changed mid-gesture (M1b). */
+  rowClears(): number
+  free(): void
+}
+
+export function gestureAllocator(opts: {
+  handId: string
+  stamp: () => object
+  /** THIS FRAME's `boardLanes` — the screen's own `boardLanesRef.current`. */
+  board: () => BoardLane[]
+  rowStamp: () => string
+  base?: typeof allocateBed
+}): GestureMemo {
+  const base = opts.base ?? allocateBed
+  const memo = new Map<string, ReturnType<typeof allocateBed>>()
+  let stampAt: object | null = null
+  let rowAt: string | null = null
+  let hits = 0
+  let misses = 0
+  let passes = 0
+  let rowClears = 0
+
+  const allocate: typeof allocateBed = (lanes, o) => {
+    if (o.pack !== true || o.id !== opts.handId || lanes !== opts.board()) {
+      passes += 1
+      return base(lanes, o)
+    }
+    const s = opts.stamp()
+    if (s !== stampAt) {
+      memo.clear()
+      stampAt = s
+    }
+    const row = opts.rowStamp()
+    if (row !== rowAt) {
+      if (rowAt !== null) rowClears += 1
+      memo.clear()
+      rowAt = row
+    }
+    // `cleanupMinutesByBed` rides in the world stamp. `allowBusy` is unreachable
+    // from every booking gesture (⚖ flag 73, `allocateBed`'s own doc above) and
+    // it is in the key anyway: a key blind to an option the allocator READS is
+    // one ruling away from being wrong (⚖ ADJUDICATION L1 minor).
+    const key = `${o.id}|${o.currentBed}|${JSON.stringify(o.stores)}|${o.requiresPrivate}|${o.start}|${o.end}|${o.stagedId ?? ''}|${o.now}|${o.allowBusy === true}`
+    const hit = memo.get(key)
+    if (hit !== undefined) {
+      hits += 1
+      return hit
+    }
+    misses += 1
+    // Frozen, so no display that borrowed the answer can sort or splice what
+    // another surface is about to read off the same object (`blockers` is
+    // already `readonly` by type; this is the runtime half).
+    const fresh = Object.freeze(base(lanes, o))
+    memo.set(key, fresh)
+    return fresh
+  }
+
+  return {
+    allocate,
+    size: () => memo.size,
+    hits: () => hits,
+    misses: () => misses,
+    passes: () => passes,
+    rowClears: () => rowClears,
+    free: () => {
+      memo.clear()
+      stampAt = null
+      rowAt = null
+    },
+  }
+}
+
+/** ⚠ ⚖ LIVE-WHILE-DRAGGING §3.4 (M1b) — THE HAND-ROW STAMP, and it is a ROOT
+ *  repair rather than a tuning knob.
+ *
+ *  The design this memo was asked for assumed 「within one gesture the board
+ *  MINUS THE SUBJECT does not change」. That is FALSE, and an equivalence fuzz
+ *  found it: 286 mismatches in 262,442 comparisons over 2,000 random gestures,
+ *  13,920 in 13,079,076 at full scale.
+ *
+ *  THE MECHANISM, at the line: `applyMoves` re-derives each BED lane's trailing
+ *  清掃 rows through `withTrailingCleanup` (bed lanes only), and that function
+ *  clips every tail against the next BOOKING on the same row. Its `items`
+ *  include the HAND's own live drawing — a staff-row drag writes the bed copy at
+ *  the live span too — so as the hand slides along its own room row it shortens
+ *  and re-grows OTHER customers' turnarounds, and `allocateBed.blockersOn`
+ *  counts drawn 清掃 rows. The same question therefore gets different answers on
+ *  different frames of ONE gesture. (`packSearch` is immune: it skips drawn 清掃
+ *  and re-derives every claim from the ROOM's own policy. That disagreement
+ *  between `allocateBed`'s two arms about what a tail IS is genuine and
+ *  pre-existing; this works around it rather than changing an answer.)
+ *
+ *  THE REPAIR IS THE ROOT: the perturbation is confined to the ONE bed row the
+ *  hand is drawn on, so the memo carries a fingerprint of that row — its key,
+ *  and every item on it except the hand's own two drawings — and empties itself
+ *  when the fingerprint changes. On a frame where no tail actually clips, which
+ *  is nearly every frame, the fingerprint is identical and the memo survives the
+ *  whole gesture. Measured: 0.0004–0.0074 ms a frame, 0 clears on the three real
+ *  boards, 2.47% of frames on random ones — and the fuzz re-run reports 0
+ *  mismatches on the same 13,079,076 comparisons. */
+export function handRowStamp(boardLanes: readonly BoardLane[], handId: string, handBedLane: string | null): string {
+  if (handBedLane == null) return ''
+  const lane = boardLanes.find((l) => l.group === 'beds' && l.key === handBedLane)
+  if (!lane) return handBedLane
+  let s = handBedLane
+  const tail = `${handId}-cleanup`
+  for (const i of lane.items) {
+    if (i.caseId === handId || i.key === tail) continue
+    s += `|${i.key}:${i.startMin}-${i.endMin}`
+  }
+  return s
 }
 
 /** ⚖ LIAM flag 76 (2026-08-23) — THE ROOMS, AS THE GUARD ENGINE'S CTX.
@@ -4959,6 +5256,39 @@ export const VERDICT_WORD: Record<LandingClass, string> = {
   clean: '',
 }
 
+/** ⚖ LIVE-WHILE-DRAGGING §5a (M4) — WHAT THE BADGE ON THE CARD IN HAND SAYS,
+ *  once a landing may move other customers' beds.
+ *
+ *  Silence on a CLEAN landing is ⚖ Liam's own reading of his demo and it stays:
+ *  a word that is always true while the operator aims at open space is the noise
+ *  ⚖ 44 rules against. But a landing that MOVES OTHER CUSTOMERS is not nothing,
+ *  so it gets a word of its own — and 要確認 keeps its rank beside it, because ⇄
+ *  says the COST and the guard's word says the RANK.
+ *
+ *  NOTHING IS COINED. 入れ替え is this board's own noun for the move: the legend
+ *  「⇄ = ベッドを入れ替えて置ける」, `railExplain`'s own sentence above
+ *  （「…ベッドを入れ替えて収めます」）, and the 仮押さえ tour line. 要確認 is
+ *  `VERDICT_WORD.caution`.
+ *
+ *  ⚠ THE WIDTH IS THE REASON IT IS FOUR GLYPHS AND NOT NINE. The badge is
+ *  `.proxy-verdict` — 12px, 800 weight, 2px 8px padding, a 1px border and
+ *  `.event`'s own `overflow: hidden` — riding a card that is 101px wide at the
+ *  1180px shell floor for a 60-minute booking on the fixture day. 「⇄ 入れ替え」
+ *  is ≈81px and fits with 17px to spare; the strip's fuller
+ *  「⇄ 入れ替えて置ける」 is ≈129px and clips at every width measured. */
+export function cursorWord(v: LandingVerdict | null): {
+  text: string
+  kind: '' | 'caution' | 'blocked' | 'reseat' | 'reseat-caution'
+} {
+  if (v == null || v.kind === 'clean') {
+    if (v != null && v.reseats.length > 0) return { text: '⇄ 入れ替え', kind: 'reseat' }
+    return { text: '', kind: '' }
+  }
+  if (v.kind === 'blocked') return { text: v.label, kind: 'blocked' }
+  if (v.reseats.length > 0) return { text: '⇄ 要確認', kind: 'reseat-caution' }
+  return { text: v.label, kind: 'caution' }
+}
+
 export interface LandingVerdict {
   kind: LandingClass
   /** ⚖ 73 — WHICH FLOOR refused, `null` when nothing did. Set at each `stop`,
@@ -5182,6 +5512,16 @@ export interface LandingQuestion {
    *  OPTIONAL, and absent means NOT ADMITTED (`dialAdmits`): the callers that ask
    *  this question about pure geometry keep working and keep the closed answer. */
   overrideLevel?: OverrideLevel
+  /** ⚖ LIVE-WHILE-DRAGGING §3.5 — THE ALLOCATOR THIS LANDING ASKS, so a gesture
+   *  can hand in its own memo and the strip, the cursor and the drop all read
+   *  ONE answer instead of three searches of the same question.
+   *
+   *  The precedent is `explainRails`' own last option, added for exactly this
+   *  reason. Absent is the one import, so every caller that predates this keeps
+   *  today's answer with no edit — and the seam can only change what an ask
+   *  COSTS, never what it ANSWERS (proven at every frame by the equivalence
+   *  fuzz, `today-live-drag.test.ts`). */
+  allocate?: typeof allocateBed
 }
 
 /** ⚖ LIAM flag 50 (2026-08-22) — THE ONE VERDICT HOME.
@@ -5235,7 +5575,9 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // who is already busy at this time is the more useful sentence, and saying
   // 満室 to someone whose staff member is double-booked answers the wrong half.
   const solved = q.solveRoom
-    ? allocateBed(lanes, {
+    ? // ⚖ LIVE-WHILE-DRAGGING §3.5 — the ONE seam the gesture memo arrives
+      // through. Absent is the import, so every caller is byte-unchanged.
+      (q.allocate ?? allocateBed)(lanes, {
         id: q.id,
         currentBed: q.bedLane,
         stores: staff.stores,
