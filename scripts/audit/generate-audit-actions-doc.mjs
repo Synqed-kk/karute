@@ -103,6 +103,12 @@ const LITERAL_ONLY_CATEGORY = {
   // helper mintTakeUploadUrl calls only for a CLIENT-NAMED take; facade key
   // recordings.uploadUrl stays a skip row citing it).
   'recording.take_named': 'recording',
+  // Choke emit: src/lib/recording/mint-take-url.ts#commitReservation (update
+  // 25 Group B, d4) — the karute-exists probe's refusal, literal-only by
+  // construction: only that conditional branch writes this, no endpoint of
+  // its own (recordings.uploadUrl stays the skip row above, citing
+  // auditTakeNamed as its dominant emit).
+  'recording.take_refused_has_record': 'recording',
   // Choke emit: src/lib/settings/recording-autostart.ts#setRecordingAutostartWithClient
   // (facade key orgSettings.recordingAutostart is a skip row — same doctrine).
   // The ONE audited settings-blob key, spec §8.1 fix C1. Recording-integrity PR A4.

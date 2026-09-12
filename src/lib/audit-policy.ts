@@ -80,6 +80,7 @@ export const AUDIT_ACTIONS = [
   'recording.play',
   'recording.session_cleanup',
   'recording.take_named',
+  'recording.take_refused_has_record',
   'recording.transcribe',
   'recording.transcribe_failed',
   'recording.transcribe_refused',

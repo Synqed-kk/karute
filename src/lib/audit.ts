@@ -798,6 +798,13 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // which is a different act entirely and could be true of any recording
   // route. This endpoint's own write is the RESERVATION, and the emit that
   // dominates it is auditTakeNamed — cite the writer, not the destination.
+  //
+  // UPDATE 25 GROUP B, d4: this endpoint's SAME choke point (commitReservation)
+  // conditionally emits a second action, recording.take_refused_has_record,
+  // when its karute-exists probe refuses to bind a take onto a session that
+  // already has a saved karute — auditTakeRefusedHasRecord, beside
+  // auditTakeNamed in the same file, same actor idiom. Not a second coveredBy
+  // row: both emits live at this one endpoint's one choke point.
   'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/mint-take-url.ts#auditTakeNamed' },
 
   // karute.save / karute.entry.update (§3.1 last row: "deliberate skip, now
