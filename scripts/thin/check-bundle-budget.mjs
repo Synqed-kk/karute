@@ -557,6 +557,33 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Report-only per ⚖ 8/25: this raise is REVERSIBLE, Liam vetoes it with one
 // revert. The script still gates — it runs in CI and exits non-zero against
 // whatever ceiling stands here.
+//
+// C4 (PKT-GROUP-C, 2026-09-12) — THE MEASUREMENT RECIPE, so the next raise
+// (or the next "are we still under budget" check) reproduces the number
+// above byte-for-byte instead of guessing:
+//   1. `rm -rf thin/dist` (a stale dist can carry a prior build's chunk).
+//   2. `vite build --config thin/vite.config.ts`, with EXACTLY the CI job's
+//      dummy env (.github/workflows/ci.yml, the "thin bundle budget" step):
+//      VITE_SHELL_MODE=local, VITE_FACADE_URL=https://ci-dummy.invalid (24
+//      chars), VITE_SUPABASE_URL=https://ci-dummy-xxxxxxxxxxx.supabase.co
+//      (40 chars), VITE_SUPABASE_ANON_KEY=not-a-key-<x*198> (208 chars),
+//      VITE_BUILD_COMMIT=cidummyx (8 chars), VITE_BUILD_NUMBER=00 (2
+//      digits) — the LENGTHS matter (padded to match the real release
+//      values' byte length), never the literal values.
+//   3. Sum the raw byte size of every `thin/dist/assets/*.js` chunk (this
+//      script's own `raw` total, or `stat -f %z` per file) — NOT the
+//      gzip figure, and not the KB-rounded console line.
+//   4. Run steps 1-3 TWICE from a clean dist; a real raise needs
+//      byte-identical results both times before it means anything (content-
+//      hashed filenames may differ; the SUM must not).
+//   5. Ceiling = that measured sum + a ~1,000 B margin (the convention every
+//      raise above this comment already follows) — never a bigger pad "to
+//      be safe", and never smaller than the actual feature cost.
+//   6. Node version used for the measurement this convention assumes: record
+//      it in the raise's own dated comment (the 9/12 raise above did not,
+//      and neither builder's local Node differs enough from CI's to matter
+//      today — `node --version` at measurement time, going forward).
+// Report-only per ⚖ 8/25, same as every entry above: reversible, one revert.
 const BUDGET_BYTES = 2_061_849
 
 let dir
