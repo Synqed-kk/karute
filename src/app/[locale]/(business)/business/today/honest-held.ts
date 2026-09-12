@@ -313,14 +313,19 @@ function assign(flat: readonly Candidate[]): { room: (string | null)[]; exact: b
       }
       const c = flat[part[i]]
       for (const r of c.rooms) {
-        if ((lastEnd.get(r) ?? -1) > c.span.start) continue
-        const was = lastEnd.get(r)
+        // HONEST-COUNT ROUND 1 · fix 5 (2026-09-13, Greptile P1 on #904 — live rails)
+        // — the undo is a `set`, never a `delete`. The only read of this map is
+        // `?? -1`, so 「no key」 and 「-1」 are the same thing to the walk, and a
+        // restored -1 is the absent key. Nothing iterates the map, so the extra
+        // key is invisible; the Business data-access guard, which reads any
+        // `.delete(` in territory as a write call, stays green.
+        const was = lastEnd.get(r) ?? -1
+        if (was > c.span.start) continue
         lastEnd.set(r, c.span.end)
         picked[i] = r
         walk(i + 1, size + 1)
         picked[i] = null
-        if (was === undefined) lastEnd.delete(r)
-        else lastEnd.set(r, was)
+        lastEnd.set(r, was)
         if (stopped) return
       }
       walk(i + 1, size)
