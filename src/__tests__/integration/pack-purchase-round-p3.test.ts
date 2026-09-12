@@ -49,14 +49,17 @@ describe('nextPurchaseRound — an allow-list of REAL purchases', () => {
 
 // The single caller (packs.ts:75, createPackActionWithClient) — wired end to
 // end so the allow-list actually reaches the derived 購入回数 a new pack gets.
-const mockCreatePack = jest.fn(async (_synqed: unknown, _input: unknown) => ({
-  ok: true,
-  id: 'pack-new',
-}))
-const mockListCustomerPacks = jest.fn(async (_synqed: unknown, _id: string) => [] as unknown[])
+const mockCreatePack = jest.fn(async (...args: [unknown, unknown]) => {
+  void args
+  return { ok: true, id: 'pack-new' }
+})
+const mockListCustomerPacks = jest.fn(async (...args: [unknown, string]) => {
+  void args
+  return [] as unknown[]
+})
 jest.mock('@/lib/packs/store', () => ({
-  createPackWithClient: (synqed: unknown, input: unknown) => mockCreatePack(synqed, input as never),
-  listCustomerPacksWithClient: (synqed: unknown, id: string) => mockListCustomerPacks(synqed, id as never),
+  createPackWithClient: (synqed: unknown, input: unknown) => mockCreatePack(synqed, input),
+  listCustomerPacksWithClient: (synqed: unknown, id: string) => mockListCustomerPacks(synqed, id),
   addRedemptionWithClient: jest.fn(),
   removeRedemption: jest.fn(),
   updatePackStatus: jest.fn(),
