@@ -515,3 +515,203 @@ describe('rotateBusinessIds (Greptile round 3 finding 2)', () => {
     expect(rotateBusinessIds([], new Date('2026-09-11T01:15:00.000Z'))).toEqual([])
   })
 })
+
+// ⚖ UPDATE 25 GROUP B, d5 — recording.no_sessions_today. The 9/9 shape: a
+// staffer with a kept appointment today, a session in the previous 7 days,
+// and zero sessions today. Evaluated only ≥21:00 JST.
+describe('watchOneBusiness — recording.no_sessions_today (d5)', () => {
+  const AT_21 = new Date('2026-09-11T12:00:00.000Z') // 21:00 JST
+  const AT_2059 = new Date('2026-09-11T11:59:00.000Z') // 20:59 JST
+  const AT_2101 = new Date('2026-09-11T12:01:00.000Z') // 21:01 JST
+  const threeDaysBefore = (d: Date) => new Date(d.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString()
+
+  function clientForD5(opts: {
+    sessionsCreatedAt: string
+    appointmentsToday: { staff_id: string; status: string }[]
+    staff: { id: string; user_id: string | null }[]
+    existingEvents?: { id: string; action: string; detail: unknown; at: string }[]
+  }) {
+    const auditList = jest.fn(async (args: AuditListArgs) => {
+      if ('target_id' in args) return { events: [], total: 0, page: 1, page_size: 50 }
+      const events = opts.existingEvents ?? []
+      return { events, total: events.length, page: 1, page_size: 200 }
+    })
+    return {
+      recordings: {
+        list: jest.fn(async () => ({
+          recordings: [
+            {
+              id: 'sess-d5',
+              business_id: 'biz-1',
+              customer_id: 'cust-1',
+              store_id: 'store-1',
+              staff_id: 'staff-a',
+              appointment_id: null,
+              audio_storage_path: null,
+              duration_seconds: 300,
+              status: 'RECORDED',
+              created_at: opts.sessionsCreatedAt,
+              updated_at: opts.sessionsCreatedAt,
+            },
+          ],
+          total: 1,
+        })),
+        get: jest.fn(async (id: string) => ({
+          id,
+          business_id: 'biz-1',
+          customer_id: 'cust-1',
+          store_id: 'store-1',
+          staff_id: 'staff-a',
+          appointment_id: null,
+          audio_storage_path: null,
+          duration_seconds: 300,
+          status: 'RECORDED',
+          created_at: opts.sessionsCreatedAt,
+          updated_at: opts.sessionsCreatedAt,
+        })),
+      },
+      karuteRecords: { list: jest.fn(async () => ({ karute_records: [], total: 0 })) },
+      recordingJobs: {
+        getByRecordingSession: jest.fn(async () => {
+          throw { status: 404 }
+        }),
+      },
+      recordingDiscards: {
+        list: jest.fn(async () => ({ events: [], total: 0, page: 1, page_size: 200 })),
+      },
+      audit: { list: auditList },
+      packs: { listRecentRedemptions: jest.fn(async () => []) },
+      appointments: {
+        list: jest.fn(async () => ({
+          appointments: opts.appointmentsToday,
+          total: opts.appointmentsToday.length,
+        })),
+      },
+      staff: {
+        list: jest.fn(async () => ({ staff: opts.staff, total: opts.staff.length })),
+      },
+    }
+  }
+
+  const baseOpts = () => ({
+    sessionsCreatedAt: threeDaysBefore(AT_21),
+    appointmentsToday: [{ staff_id: 'staff-a', status: 'SCHEDULED' }],
+    staff: [{ id: 'staff-a', user_id: null }],
+  })
+
+  it('20:59 JST is silent — the hour gate has not opened yet, and neither new read runs', async () => {
+    const client = clientForD5(baseOpts())
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+    const result = await watchOneBusiness('biz-1', AT_2059, 'write', FAR_DEADLINE)
+    expect(result.list.some((c) => c.action === 'recording.no_sessions_today')).toBe(false)
+    expect(client.appointments.list).not.toHaveBeenCalled()
+    expect(client.staff.list).not.toHaveBeenCalled()
+    expect(auditMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'recording.no_sessions_today' }),
+    )
+  })
+
+  it('21:00 JST fires ONE row, target-less, with the exact detail keys + deterministic request_id', async () => {
+    const client = clientForD5(baseOpts())
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+    const result = await watchOneBusiness('biz-1', AT_21, 'write', FAR_DEADLINE)
+    const call = auditMock.mock.calls
+      .map(([e]) => e as Record<string, unknown>)
+      .find((e) => e.action === 'recording.no_sessions_today')
+    expect(call).toBeDefined()
+    expect(call).toMatchObject({
+      category: 'recording',
+      action: 'recording.no_sessions_today',
+      actorId: null,
+      actorType: 'system',
+      businessId: 'biz-1',
+      targetType: 'business',
+      severity: 'warning',
+      source: 'system',
+      requestId: 'audit-watch:recording.no_sessions_today:biz-1:2026-09-11',
+    })
+    expect(call!.targetId).toBeUndefined()
+    expect(call!.detail).toEqual({
+      day: '2026-09-11',
+      staff_ids: ['staff-a'],
+      kept_appointments: 1,
+      sessions_today: 0,
+      sessions_prev_7d: 1,
+    })
+    expect(result.list).toContainEqual({
+      action: 'recording.no_sessions_today',
+      targetId: 'biz-1',
+      day: '2026-09-11',
+      count: 1,
+    })
+  })
+
+  it('21:01 dedupes off the already-paged recording-category events — no second row, no extra read', async () => {
+    const client = clientForD5({
+      ...baseOpts(),
+      existingEvents: [
+        { id: 'e1', action: 'recording.no_sessions_today', detail: { day: '2026-09-11' }, at: AT_21.toISOString() },
+      ],
+    })
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+    const result = await watchOneBusiness('biz-1', AT_2101, 'write', FAR_DEADLINE)
+    expect(result.list.some((c) => c.action === 'recording.no_sessions_today')).toBe(false)
+    expect(auditMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'recording.no_sessions_today' }),
+    )
+    // The dedupe cost NOTHING extra: isNewCandidate is unchanged, and this
+    // scan never reaches the appointments/staff reads at all.
+    expect(client.appointments.list).not.toHaveBeenCalled()
+    expect(client.staff.list).not.toHaveBeenCalled()
+  })
+
+  it('a truncated recording-events walk → silent this run, never a false zero', async () => {
+    const client = clientForD5(baseOpts())
+    client.audit.list = jest.fn(async (args: AuditListArgs & { page?: number }) => {
+      if ('target_id' in args) return { events: [], total: 0, page: 1, page_size: 50 }
+      // A non-empty page that never satisfies `page * page_size >= total` —
+      // forces the walk to exhaust MAX_AUDIT_PAGES and return truncated: true
+      // (an EMPTY page would instead read as "done" and exit early).
+      return {
+        events: [{ id: `e-${args.page}`, action: 'recording.transcribe', at: AT_21.toISOString(), detail: {} }],
+        total: 999_999,
+        page: args.page ?? 1,
+        page_size: 200,
+      }
+    })
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+    const result = await watchOneBusiness('biz-1', AT_21, 'write', FAR_DEADLINE)
+    expect(result.truncated).toBe(true)
+    expect(result.list.some((c) => c.action === 'recording.no_sessions_today')).toBe(false)
+    expect(client.appointments.list).not.toHaveBeenCalled()
+    expect(client.staff.list).not.toHaveBeenCalled()
+  })
+
+  it('dry mode lists the day + staff count, writes nothing', async () => {
+    const client = clientForD5(baseOpts())
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+    const result = await watchOneBusiness('biz-1', AT_21, 'dry', FAR_DEADLINE)
+    expect(result.list).toContainEqual({
+      action: 'recording.no_sessions_today',
+      targetId: 'biz-1',
+      day: '2026-09-11',
+      count: 1,
+    })
+    expect(auditMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'recording.no_sessions_today' }),
+    )
+  })
+
+  it('the appointments read throwing → the business’s own catch (error: true), never a false zero', async () => {
+    const client = clientForD5(baseOpts())
+    client.appointments.list = jest.fn(async () => {
+      throw new Error('core down')
+    })
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+    const result = await watchOneBusiness('biz-1', AT_21, 'write', FAR_DEADLINE)
+    expect(result.error).toBe(true)
+    expect(auditMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'recording.no_sessions_today' }),
+    )
+  })
+})

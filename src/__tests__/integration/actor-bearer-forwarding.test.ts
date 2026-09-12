@@ -84,6 +84,12 @@ jest.mock('@synqed-kk/client', () => {
       listSegments: (id: string) => Promise<unknown>
     }
     recordingDiscards: { list: (input: unknown) => Promise<unknown>; create: (input: unknown) => Promise<unknown> }
+    // ⚖ UPDATE 25 GROUP B, d4: commitReservation's karute-exists probe.
+    // Bypasses `this.fetch` deliberately — this file's subject is which
+    // bearer rides on the RECORDING writes, and a probe hit would only add
+    // noise to fetchCalls; a plain 404 keeps every existing case here
+    // proceeding to the write exactly as before.
+    karuteRecords: { getByRecordingSession: (id: string) => Promise<unknown> }
     staffStores: { get: (id: string) => Promise<{ store_ids: string[] }> }
     stores: { list: () => Promise<{ stores: { id: string; is_primary: boolean }[] }> }
     audit: { list: (input: unknown) => Promise<unknown>; log: (input: unknown) => Promise<unknown> }
@@ -107,6 +113,11 @@ jest.mock('@synqed-kk/client', () => {
         list: (input: unknown) => this.fetch('/recording-discards', { method: 'POST', body: JSON.stringify(input) }),
         create: (input: unknown) =>
           this.fetch('/recording-discards', { method: 'POST', body: JSON.stringify(input) }),
+      }
+      this.karuteRecords = {
+        getByRecordingSession: async (_id: string) => {
+          throw Object.assign(new Error('not found'), { status: 404 })
+        },
       }
       this.audit = {
         list: (input: unknown) => this.fetch('/audit', { method: 'POST', body: JSON.stringify(input) }),

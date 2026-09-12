@@ -55,8 +55,13 @@ export interface AuditEvent {
   /** Privileged cross-access (dev tools, owner opening another staff's data).
    *  Always logged; gets its own filter chip in the viewer. */
   breakGlass?: boolean
-  /** SMALL — ids/flags/counts only, never record content. */
-  detail?: Record<string, string | number | boolean | null>
+  /** SMALL — ids/flags/counts only, never record content. The `string[]`
+   *  member (⚖ UPDATE 25 GROUP B, d5) is additive: an array of ids ONLY
+   *  (recording.no_sessions_today's `staff_ids`) — core's own `detail?:
+   *  unknown` (types.d.ts) already accepted this, and the 監査ログ page's
+   *  render branch (AuditLogSection.tsx) already reads `detail.staff_ids`
+   *  with `Array.isArray` — this just lets the emitter TYPE what it sends. */
+  detail?: Record<string, string | number | boolean | null | string[]>
   requestId?: string
   source: 'facade' | 'web' | 'system'
 }
@@ -994,24 +999,25 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
     coveredBy: 'src/lib/recording/assembler.ts#assembleStrandedTake',
   },
   // The audit-watch cron (監査ログ round 2 PR C) — CRON_SECRET-gated like its
-  // siblings, and NOT a skip: it writes recording.karute_missing and
-  // recording.transcribe_storm rows, one per NEW candidate the run actually
+  // siblings, and NOT a skip: it writes recording.karute_missing,
+  // recording.transcribe_storm and (update 25 Group B, d5)
+  // recording.no_sessions_today rows, one per NEW candidate the run actually
   // finds, with no staff in the loop.
   'audit-watch': {
     kind: 'mutation',
     // No structured `coveredBy` (deliberately, like AUDITED_CORES's
-    // `unproven` marker elsewhere in this file): watchOneBusiness's two
-    // audit() emits (recording.karute_missing, recording.transcribe_storm)
-    // are conditional on a NEW candidate existing — the common run finds
-    // zero (or every candidate already has a row) and returns unemitted,
-    // which is correct, not an unaudited write, but it is not a symbol CP2's
-    // walker can prove dominates every return — same mechanical-proof
-    // ceiling as src/lib/audit-policy.ts's AUDITED_CORES entry for this same
-    // file/symbol (see its own `unproven` note). Verified at source; CP4's
-    // literal scan already proves both action strings are correctly
-    // registered independent of this row.
+    // `unproven` marker elsewhere in this file): watchOneBusiness's THREE
+    // audit() emits (recording.karute_missing, recording.transcribe_storm,
+    // recording.no_sessions_today) are each conditional on a NEW candidate
+    // existing — the common run finds zero (or every candidate already has a
+    // row) and returns unemitted, which is correct, not an unaudited write,
+    // but it is not a symbol CP2's walker can prove dominates every return —
+    // same mechanical-proof ceiling as src/lib/audit-policy.ts's
+    // AUDITED_CORES entry for this same file/symbol (see its own `unproven`
+    // note). Verified at source; CP4's literal scan already proves all three
+    // action strings are correctly registered independent of this row.
     justification:
-      "watchOneBusiness (src/lib/audit-watch/run.ts) emits recording.karute_missing and recording.transcribe_storm — one row per NEW candidate actually written. Conditional by design, same shape as the auto-burn/assemble rows above (return unemitted when there is nothing to do), except the emit sits inline in the driver rather than a downstream helper, so it cannot be handed a dominated coveredBy citation the way those two are.",
-    dated: '2026-09-11',
+      "watchOneBusiness (src/lib/audit-watch/run.ts) emits recording.karute_missing, recording.transcribe_storm and recording.no_sessions_today — one row per NEW candidate actually written. Conditional by design, same shape as the auto-burn/assemble rows above (return unemitted when there is nothing to do), except the emit sits inline in the driver rather than a downstream helper, so it cannot be handed a dominated coveredBy citation the way those two are.",
+    dated: '2026-09-12',
   },
 }

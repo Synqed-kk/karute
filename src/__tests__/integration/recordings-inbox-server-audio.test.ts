@@ -417,6 +417,13 @@ describe('nothing about WHERE the audio is reaches the wire', () => {
     ]
     const rows = await read()
     const keys = new Set(rows.flatMap((r) => Object.keys(r)))
+    // ⚖ UPDATE 25 GROUP B, d5: `staffId` joined the row (inbox-read.ts, fed
+    // from `Recording.staff_id` — already on the SDK row, zero extra reads).
+    // It is an ACTOR id, the same tier as `customerId` already on this list,
+    // never a storage path/key/status — the census's own privacy line is
+    // untouched. Consumed only by the audit-watch cron's per-staffer finder;
+    // the facade DTO does not declare it (recordings-inbox-dto.ts), so it
+    // never reaches the wire.
     expect([...keys].sort()).toEqual([
       'createdAt',
       'customerId',
@@ -429,6 +436,7 @@ describe('nothing about WHERE the audio is reaches the wire', () => {
       'karuteRecordId',
       'recordingSessionId',
       'serverAudio',
+      'staffId',
     ])
     for (const r of rows) {
       expect(JSON.stringify(r)).not.toContain(TAKE)

@@ -77,6 +77,7 @@ export const AUDIT_ACTIONS = [
   'recording.capture_unlinked',
   'recording.discard',
   'recording.karute_missing',
+  'recording.no_sessions_today',
   'recording.play',
   'recording.session_cleanup',
   'recording.take_named',

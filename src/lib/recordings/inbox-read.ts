@@ -378,6 +378,12 @@ export async function readRecordingsInbox({
     jobProbeFailed: false,
     jobLastError: null,
     discardedByStaff: discardLedger.discarded.has(s.id),
+    // ⚖ UPDATE 25 GROUP B, d5: the ONE line that fills the new optional
+    // field (inbox.ts) from the raw SDK row — zero extra reads, the row was
+    // already here. Consumed only by the audit-watch cron's per-staffer
+    // finder; the facade DTO doesn't declare it, so it never leaves the
+    // server.
+    staffId: s.staff_id ?? null,
   }))
 
   // P3-11: a truncated sessions or records page means this pass cannot swear

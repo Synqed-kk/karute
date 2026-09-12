@@ -11,7 +11,7 @@
  * receipt per call, which this cron must never do: CP1, no actor, no view
  * row).
  */
-import type { AuditEvent, RecentRedemption } from '@synqed-kk/client'
+import type { Appointment, AuditEvent, RecentRedemption } from '@synqed-kk/client'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { audit } from '@/lib/audit'
 import { readRecordingsInbox } from '@/lib/recordings/inbox-read'
@@ -19,7 +19,9 @@ import { deriveInboxRows, INBOX_WINDOW_MS, type InboxRow } from '@/lib/recording
 import { findKaruteMissing, lastAssemblerPassAt } from '@/lib/audit-watch/find-karute-missing'
 import { ASSEMBLE_AFTER_MS } from '@/lib/recording/assembler'
 import { findTranscribeStorms } from '@/lib/audit-watch/find-transcribe-storms'
-import { ymdInJst, jstWallTimeToDate } from '@/lib/date/jst'
+import { findNoSessionsToday } from '@/lib/audit-watch/find-no-sessions-today'
+import { isTerminalStatus } from '@/lib/appointments/status'
+import { ymdInJst, jstWallTimeToDate, partsInJst } from '@/lib/date/jst'
 
 const AUDIT_PAGE_SIZE = 200
 /** Safety stop on the category:'recording' page walk (mirrors /api/cleanup's
@@ -34,6 +36,14 @@ const DEDUPE_PAGE_SIZE = 50
  *  START what the wall will interrupt" — is TAKE_RESERVE_MS,
  *  src/lib/recording/assembler.ts:157. */
 const BUSINESS_RESERVE_MS = 30_000
+
+/** ⚖ UPDATE 25 GROUP B, d5. Core rejects page_size above 200 on staff.list
+ *  (staff-map.ts's own precedent); a 40-page cap is auto-burn.ts's own idiom
+ *  for a paginate-to-exhaustion loop that must still stop on a broken core. */
+const APPOINTMENTS_PAGE_SIZE = 500
+const MAX_APPOINTMENTS_PAGES = 40
+const STAFF_PAGE_SIZE = 200
+const MAX_STAFF_PAGES = 25
 
 type Detail = Record<string, string | number | boolean | null>
 
@@ -104,6 +114,52 @@ async function isNewCandidate(
     page_size: DEDUPE_PAGE_SIZE,
   })
   return !existing.events.some((e) => e.action === action && (day == null || detailDay(e.detail) === day))
+}
+
+/** ⚖ UPDATE 25 GROUP B, d5. Today's KEPT appointments (auto-burn.ts's
+ *  paginate-to-exhaustion idiom, one call per business per ≥21:00 JST
+ *  evaluation — normally a single page). Terminal (CANCELLED/NO_SHOW)
+ *  bookings are dropped: a "kept" appointment is what gate (a) needs. */
+async function pageTodaysAppointments(
+  synqed: ReturnType<typeof newSynqedClient>,
+  ymd: string,
+): Promise<(Appointment & { staff_id: string })[]> {
+  const from = new Date(`${ymd}T00:00:00+09:00`).toISOString()
+  const to = new Date(`${ymd}T23:59:59.999+09:00`).toISOString()
+  const appointments: Appointment[] = []
+  for (let page = 1; page <= MAX_APPOINTMENTS_PAGES; page++) {
+    const res = await synqed.appointments.list({ from, to, page, page_size: APPOINTMENTS_PAGE_SIZE })
+    appointments.push(...res.appointments)
+    if (res.appointments.length === 0 || appointments.length >= res.total) break
+  }
+  // by-date.ts's own precedent: a BLOCK-kind row (or any staff-less booking)
+  // has nothing for the per-staffer finder to join against — never invent one.
+  return appointments.filter(
+    (a): a is Appointment & { staff_id: string } => a.staff_id != null && !isTerminalStatus(a.status),
+  )
+}
+
+/** ⚖ UPDATE 25 GROUP B, d5 (L2 §1). `recording_sessions.staff_id` is NOT a
+ *  single id space — the auth/profile id on a resolved-identity mint, the
+ *  CORE staff id on the appointment-fallback mint (session-mint.ts:156-160)
+ *  — while `appointments.staff_id` is always the core id. This is the
+ *  two-way normalize-to-core-id map the finder joins both through:
+ *  `id → id` (core id maps to itself) and `user_id → id` (the linked profile
+ *  maps to its card). One roster read per business per ≥21:00 JST
+ *  evaluation, same MAX_PAGES idiom as staff-map.ts's own precedent. */
+async function buildStaffCoreIdMap(
+  synqed: ReturnType<typeof newSynqedClient>,
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  for (let page = 1; page <= MAX_STAFF_PAGES; page++) {
+    const res = await synqed.staff.list({ page, page_size: STAFF_PAGE_SIZE })
+    for (const s of res.staff) {
+      map.set(s.id, s.id)
+      if (s.user_id) map.set(s.user_id, s.id)
+    }
+    if (res.staff.length === 0 || page * STAFF_PAGE_SIZE >= res.total) break
+  }
+  return map
 }
 
 /** Every `recording`-category event since `from`, paged to completion or
@@ -356,6 +412,84 @@ export async function watchOneBusiness(
         // P3-8: same "handed to the writer, not landed" semantics as the
         // karute_missing counter above.
         result.written++
+      }
+    }
+
+    // (c) recording.no_sessions_today — Group B d5: a staffer who usually
+    // records but produced no session today (packet's own 9/9 shape: OTHER
+    // phones minted fine while one staffer's minted nothing). Evaluated only
+    // in the FIRST hourly run at or after 21:00 JST, so a half-day never
+    // fires; a truncated events walk OR sessions walk this run means this
+    // pass could not fully judge the business, so it stays SILENT (the
+    // storms rule — the 22:23/23:23 runs get their own chance, never a false
+    // zero). Reuses the SAME `sessions` walk (a) already read and the SAME
+    // `events` page (b) already paged for dedupe — zero extra audit reads;
+    // the two new reads below (appointments, roster) run at most once per
+    // business per day.
+    //
+    // ⚖ THIS ROW IS A CHECK, NEVER A DIAGNOSIS (design law §1 Layer A) — it
+    // names a staffer who usually records and produced no session today; it
+    // does not and cannot say WHY (a legitimate day off is already excluded
+    // by the "kept appointment today" gate; a customer who declined consent
+    // is an accepted false-positive class — no bulk per-customer consent
+    // read exists to build a gate against it from, so none is built here).
+    if (partsInJst(now).hour >= 21 && !pagesTruncated && incompleteIds.size === 0) {
+      const today = ymdInJst(now)
+      // DEDUPE with zero new reads (L2 §4): the already-paged `events` cover
+      // [yesterday JST start, now] — a superset of all of today — so any
+      // prior row for today is already in hand. isNewCandidate stays
+      // UNCHANGED; this is a plain scan of what's already in memory.
+      const alreadyFired = events.some(
+        (e) => e.action === 'recording.no_sessions_today' && detailDay(e.detail) === today,
+      )
+      if (!alreadyFired) {
+        const todayStart = jstWallTimeToDate(today, '00:00')
+        // The SAME probeIncomplete-filtered set (a) already built for
+        // findKaruteMissing — never the raw `sessions` array, or a truncated
+        // page could undercount a real staffer's sessions and manufacture a
+        // false "zero today" (L2 MUST 2).
+        const completeSessions = sessions.filter((s) => !s.probeIncomplete)
+        const [todaysAppointments, staffCoreIdMap] = await Promise.all([
+          pageTodaysAppointments(synqed, today),
+          buildStaffCoreIdMap(synqed),
+        ])
+        const found = findNoSessionsToday({
+          sessions: completeSessions,
+          appointments: todaysAppointments,
+          staffIdToCoreId: staffCoreIdMap,
+          now: now.getTime(),
+          todayStart,
+        })
+        if (found) {
+          result.candidates += 1
+          // F-a: listed in BOTH modes, ids and codes only. targetId here is
+          // the BUSINESS id (the dry list's own display handle) — the actual
+          // audit row below carries NO target at all (target-less by design,
+          // audit.ts:52).
+          result.list.push({
+            action: 'recording.no_sessions_today',
+            targetId: businessId,
+            day: found.day,
+            count: found.staff_ids.length,
+          })
+          if (mode === 'write') {
+            audit({
+              category: 'recording',
+              action: 'recording.no_sessions_today',
+              actorId: null,
+              actorType: 'system',
+              businessId,
+              targetType: 'business',
+              // NO targetId (audit.ts:52, targetId optional) — a business-day
+              // fact, not one recording's. storeId omitted for the same reason.
+              severity: 'warning',
+              detail: { ...found },
+              requestId: `audit-watch:recording.no_sessions_today:${businessId}:${found.day}`,
+              source: 'system',
+            })
+            result.written++
+          }
+        }
       }
     }
   } catch (err) {

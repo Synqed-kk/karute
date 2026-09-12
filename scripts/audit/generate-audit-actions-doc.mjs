@@ -49,6 +49,11 @@ const LITERAL_ONLY_CATEGORY = {
   // hourly cron writes these, no endpoint.
   'recording.karute_missing': 'recording',
   'recording.transcribe_storm': 'recording',
+  // Choke emit: src/lib/audit-watch/run.ts#watchOneBusiness (update 25 Group
+  // B, d5) — the ≥21:00 JST per-staffer "usually records, today nothing"
+  // check. Same doctrine as the two siblings above: literal-only, only the
+  // hourly cron writes it, no endpoint.
+  'recording.no_sessions_today': 'recording',
   // Choke emit: src/lib/jobs/process-recording.ts#emitTranscribeFailedIfExhausted
   // (the worker, 監査ログ round 2 PR C subject 6) — literal-only by
   // construction: only the job worker's exhausted-round catch writes this,
