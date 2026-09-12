@@ -330,7 +330,7 @@ export interface BoardItem {
   w: number
   /** The same span in minutes. The board paints in percent, but the sell-layer
    *  derivation reasons in minutes, and inverting the percent back would fold a
-   *  rounding error into every free-slot test. One value, both readings. */
+   *  rounding error into every coursesFitForDay test. One value, both readings. */
   startMin: number
   endMin: number
   title: string
@@ -755,8 +755,9 @@ export function absenceForDay(
  * reads through `laneMinutes`) rather than re-mint this.
  */
 
-/** Per-lane minute sums — the one pair of numbers behind 稼働率 AND the
- *  calendar's free-slot count. */
+/** Per-lane minute sums — behind 稼働率 only now. The calendar's あと入る数
+ *  count is `coursesFitForDay`'s own pocket-packing, not this sum: see that
+ *  function's docblock — the two share the INPUT, never a FORMULA. */
 export function laneMinutes(input: BuildInput, bookings: BoardBooking[]) {
   const shiftByStaff = new Map(input.shifts.map((s) => [s.staff_id, s]))
   return input.staff.map((member) => ({

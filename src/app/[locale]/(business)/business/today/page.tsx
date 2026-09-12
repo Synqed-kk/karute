@@ -232,7 +232,7 @@ export default async function TodayPage({
     // link. The face PR (#891) gives that same row its studio paint.
     const shifts = shiftsByDay.get(dayKey)
     if (!shifts) return { offset, ...p, covered: false }
-    // 定休日 has no capacity to advertise — a closed day showing free slots is
+    // 定休日 has no capacity to advertise — a closed day advertising capacity is
     // the impossible state, not a rounding question.
     const closed = p.wd === planes.closedWeekday
     // ⚠ 勤務不可 belongs to ONE day, and to that day WHATEVER DAY IS ON SCREEN.
