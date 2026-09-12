@@ -1410,7 +1410,8 @@
         "thisWeek": "今週",
         "aiPending": "AI補完待ち",
         "needsReview": "レビュー要",
-        "draft": "下書き"
+        "draft": "下書き",
+        "discarded": "破棄済み"
       },
       "dateGroup": {
         "today": "本日",

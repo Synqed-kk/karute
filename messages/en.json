@@ -1410,7 +1410,8 @@
         "thisWeek": "This week",
         "aiPending": "AI pending",
         "needsReview": "Needs review",
-        "draft": "Draft"
+        "draft": "Draft",
+        "discarded": "Discarded"
       },
       "dateGroup": {
         "today": "Today",

@@ -34,6 +34,7 @@ export function SessionsScreen() {
           items={dto.items}
           monthCount={dto.monthCount}
           total={dto.total}
+          discardedCount={dto.discardedCount}
           initialWindowStart={dto.windowStart}
           initialHasMore={dto.hasMore}
           staffList={dto.staffList}

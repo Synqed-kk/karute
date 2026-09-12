@@ -114,6 +114,7 @@ export default async function KaruteRecordsListPage() {
   // screen.total below on purpose.
   const displayMonthCount = karuteData.monthProbe?.total ?? null
   const displayTotal = karuteData.data?.freshStoreTotal ?? null
+  const displayDiscardedCount = karuteData.data?.freshDiscardedCount ?? null
   // PR-2a: the loaded boundary + "is there older history" flag the さらに表示
   // button keys on. null boundary = the window read failed (the button hides
   // along with the whole status line).
@@ -138,6 +139,7 @@ export default async function KaruteRecordsListPage() {
     synqedStaff,
     monthCount: displayMonthCount ?? 0,
     total: displayTotal ?? 0,
+    discardedCount: displayDiscardedCount ?? 0,
   })
 
   return (
@@ -150,6 +152,7 @@ export default async function KaruteRecordsListPage() {
         items={screen.items}
         monthCount={displayMonthCount}
         total={displayTotal}
+        discardedCount={displayDiscardedCount}
         initialWindowStart={initialWindowStart}
         initialHasMore={initialHasMore}
         // The lens these rows were read under. The store switcher's

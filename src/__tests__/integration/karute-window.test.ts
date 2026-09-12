@@ -11,6 +11,7 @@
  *     (contract inherited from PR-1b's listSynqedKaruteRowsWithMonthProbe,
  *     which moved here when its main leg became a window read)
  */
+import type { SynqedClient } from '@synqed-kk/client'
 import {
   KARUTE_MAX_PROBE_WINDOWS,
   KARUTE_SESSION_DATE_EPOCH,
@@ -29,16 +30,35 @@ type ListOpts = {
   to?: string
   page?: number
   page_size?: number
+  include_discarded?: boolean
 }
-type Rec = { id: string; created_at: string; session_date: string | null }
+type Rec = {
+  id: string
+  created_at: string
+  session_date: string | null
+  status: 'FINALIZED' | 'DISCARDED'
+}
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const asClient = (list: (o: ListOpts) => unknown) => ({ karuteRecords: { list } }) as any
+const asClient = (list: (o: ListOpts) => unknown) => ({
+  karuteRecords: { list },
+  fetch: (path: string) => {
+    const query = new URL(path, 'https://core.test').searchParams
+    return list({
+      ...(query.get('store_id') ? { store_id: query.get('store_id')! } : {}),
+      ...(query.get('from') ? { from: query.get('from')! } : {}),
+      ...(query.get('to') ? { to: query.get('to')! } : {}),
+      ...(query.get('page') ? { page: Number(query.get('page')) } : {}),
+      ...(query.get('page_size') ? { page_size: Number(query.get('page_size')) } : {}),
+      include_discarded: query.get('include_discarded') === 'true',
+    })
+  },
+}) as unknown as SynqedClient
 
-const rec = (id: string, iso: string): Rec => ({
+const rec = (id: string, iso: string, status: Rec['status'] = 'FINALIZED'): Rec => ({
   id,
   created_at: iso,
   session_date: iso.slice(0, 10),
+  status,
 })
 
 /** A fake core that answers from an in-memory set, filtering on created_at —
@@ -52,11 +72,15 @@ function fakeCore(records: Rec[]) {
     let rows = records
     if (opts.from) rows = rows.filter((r) => r.created_at >= opts.from!)
     if (opts.to) rows = rows.filter((r) => r.created_at <= opts.to!)
+    const activeRows = rows.filter((r) => r.status !== 'DISCARDED')
+    const discardedRows = rows.filter((r) => r.status === 'DISCARDED')
+    const visibleRows = opts.include_discarded ? rows : activeRows
     const size = opts.page_size ?? 100
     const page = opts.page ?? 1
     return Promise.resolve({
-      karute_records: rows.slice((page - 1) * size, page * size),
-      total: rows.length,
+      karute_records: visibleRows.slice((page - 1) * size, page * size),
+      total: activeRows.length,
+      discarded_count: discardedRows.length,
     })
   }
   return { list, calls }
@@ -117,6 +141,19 @@ describe('loadKaruteWindowRows — probe-then-fetch', () => {
     const probes = core.calls.filter((c) => c.page_size === 1 && c.from)
     expect(probes.length).toBe(4)
     expect(res.windowStart).toBe('2026-07-01')
+  })
+
+  it('returns a window containing only discarded rows instead of skipping it', async () => {
+    const core = fakeCore([
+      rec('k-discarded', '2026-08-24T01:00:00.000Z', 'DISCARDED'),
+    ])
+    const res = await loadKaruteWindowRows(asClient(core.list), { now: NOW })
+
+    expect(res.rows.map((r) => r.id)).toEqual(['k-discarded'])
+    expect(res.freshStoreTotal).toBe(0)
+    expect(res.freshDiscardedCount).toBe(1)
+    expect(res.hasMore).toBe(false)
+    expect(core.calls.filter((c) => c.page_size === 1 && c.from)).toHaveLength(1)
   })
 
   it('pages a non-empty window to COMPLETION — page * page_size < total', async () => {

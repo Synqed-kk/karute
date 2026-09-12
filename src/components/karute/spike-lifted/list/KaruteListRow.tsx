@@ -35,12 +35,14 @@ interface Props {
 export function KaruteListRow({ item }: Props) {
   const t = useTranslations('karute.recordList')
   const staffColor = getStaffColorByKey(item.staffColorKey)
+  const active = !item.isDiscarded
+  const rowClassName = cn(
+    'relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 last:border-b-0 dark:border-white/5 md:gap-4',
+    active ? 'hover:bg-muted/30 active:bg-muted/50' : 'opacity-70',
+  )
 
-  return (
-    <Link
-      href={item.href as Parameters<typeof Link>[0]['href']}
-      className="group relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 transition-colors last:border-b-0 hover:bg-muted/30 active:bg-muted/50 dark:border-white/5 md:gap-4"
-    >
+  const content = (
+    <>
       {/* Staff color stripe (left edge) — same idiom as customer cards */}
       <span
         aria-hidden
@@ -90,7 +92,7 @@ export function KaruteListRow({ item }: Props) {
            *  Suppressed for placeholders — a customer with no karute yet has
            *  nothing drafted (下書き) and no conversion to resolve (仮カルテ);
            *  those chips would misread as "session in progress". */}
-          {!item.isPlaceholder && (
+          {!item.isPlaceholder && active && (
             <span className="ml-auto flex shrink-0 items-center gap-1 md:hidden">
               <ConversionChip status={item.conversionStatus} />
               <AiChip status={item.aiStatus} />
@@ -100,7 +102,7 @@ export function KaruteListRow({ item }: Props) {
 
         {/* Line 2 — summary (truncate) */}
         <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-          {item.summary || '—'}
+          {active ? item.summary || '—' : t('filters.discarded')}
         </p>
 
         {/* Line 3 (mobile) — service + duration + staff */}
@@ -149,12 +151,26 @@ export function KaruteListRow({ item }: Props) {
       </div>
 
       {/* Status chips (desktop) — suppressed for placeholders; see mobile note. */}
-      {!item.isPlaceholder && (
+      {!item.isPlaceholder && active && (
         <div className="hidden shrink-0 items-center gap-1 md:flex">
           <ConversionChip status={item.conversionStatus} />
           <AiChip status={item.aiStatus} />
         </div>
       )}
+    </>
+  )
+
+  if (!active) {
+    return (
+      <div className={rowClassName} aria-disabled="true">
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <Link href={item.href as Parameters<typeof Link>[0]['href']} className={rowClassName}>
+      {content}
     </Link>
   )
 }

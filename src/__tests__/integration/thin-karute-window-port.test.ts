@@ -24,6 +24,7 @@ const okBody = {
   items: [],
   windowStart: '2026-07-29',
   freshStoreTotal: 62,
+  freshDiscardedCount: 0,
   hasMore: true,
 }
 
@@ -127,6 +128,7 @@ describe('thin actions port — karute window transport contract', () => {
       items: [],
       windowStart: '2026-07-01',
       freshStoreTotal: 0,
+      freshDiscardedCount: 0,
       hasMore: false,
     })
   })

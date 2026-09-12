@@ -44,6 +44,8 @@ export interface SessionsListScreen {
   /** Store-wide karute total, unfiltered by date or staff (PR-1b plumbing —
    *  not rendered until PR-2a's 全件 display; see the DTO's matching field). */
   total: number
+  /** Store-wide discarded records, separate from total. */
+  discardedCount: number
   /** Staff filter pills (id + display name + initials). */
   staffList: Array<{
     id: string
@@ -83,6 +85,7 @@ export function buildSessionsListScreen(args: {
   monthCount: number
   /** See the matching field's doc on SessionsListScreen. */
   total: number
+  discardedCount?: number
 }): SessionsListScreen {
   const {
     staffList,
@@ -93,6 +96,7 @@ export function buildSessionsListScreen(args: {
     synqedStaff,
     monthCount,
     total,
+    discardedCount = 0,
   } = args
 
   type RecordRow = {
@@ -104,6 +108,7 @@ export function buildSessionsListScreen(args: {
     staff_profile_id: string | null
     client_id: string
     entries: Array<{ count: number }> | null
+    status: string
     service?: string | null
     duration_minutes?: number | null
   }
@@ -218,6 +223,7 @@ export function buildSessionsListScreen(args: {
       summary: r.summary ?? '',
       aiStatus,
       conversionStatus,
+      ...(r.status === 'DISCARDED' ? { isDiscarded: true } : {}),
       href: `/karute/${r.id}`,
     }
   })
@@ -248,6 +254,7 @@ export function buildSessionsListScreen(args: {
     placeholders,
     monthCount,
     total,
+    discardedCount,
     staffList: visibleStaff.map((s) => ({
       id: s.id,
       name: s.full_name ?? 'Unknown',

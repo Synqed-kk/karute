@@ -49,6 +49,9 @@ const KaruteListItemDTO = z.object({
   conversionStatus: z.enum(['active', 'provisional']).catch('provisional'),
   href: z.string(),
   isPlaceholder: z.boolean().optional(),
+  /** Present only on release-18 mixed ledger rows. Omitted on legacy active
+   *  rows, preserving the bare-call payload. */
+  isDiscarded: z.boolean().optional(),
 })
 
 export const SessionsScreenDTO = z.object({
@@ -111,9 +114,11 @@ export type SessionsScreenDTOType = z.infer<typeof SessionsScreenDTO>
  * call. At that point this schema absorbs the base one and the split goes away.
  */
 export const SessionsScreenWindowedDTO = SessionsScreenDTO.extend({
+  /** Separate from total: discarded rows never inflate active-record pills. */
+  discardedCount: z.number().default(0),
   /** Is there store history older than `windowStart` still unloaded?
    *  Server-computed via the ONE formula (karuteHasMore: loadedCount <
-   *  freshStoreTotal) — the phone renders this field, the web view derives the
+   *  freshStoreTotal + discardedCount) — the phone renders this field, the web view derives the
    *  identical formula client-side. */
   hasMore: z.boolean().default(false),
   /** YYYY-MM-DD (JST) — the oldest day the initial window reached. Feeds the

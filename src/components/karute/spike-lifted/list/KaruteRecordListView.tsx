@@ -59,6 +59,9 @@ interface Props {
    *  itself load" signal the status line uses to decide whether to render
    *  anything at all (Greptile PR #775 round 2). */
   total?: number | null
+  /** Store-wide discarded records. Kept separate from the ordinary total so
+   *  active-record pills never count discarded rows. */
+  discardedCount?: number | null
   /** PR-2a 日付チャンク読み込み — the oldest day the SERVER-rendered first
    *  window reached. さらに表示 walks backward from here; null = the window
    *  read failed (button hidden, same degraded posture as the status line). */
@@ -104,7 +107,10 @@ const FILTER_KEYS: KaruteListFilter[] = [
   'thisWeek',
   'aiPending',
   'draft',
+  'discarded',
 ]
+
+const isActiveKarute = (item: KaruteListItem) => !item.isDiscarded
 
 /**
  * THE 今週 lens — ONE home for the last-7-days rule (⚖ Liam 8/25, overturning
@@ -154,6 +160,7 @@ export function KaruteRecordListView({
   items,
   monthCount,
   total = null,
+  discardedCount = 0,
   initialWindowStart = null,
   initialHasMore = false,
   storeId = null,
@@ -184,6 +191,7 @@ export function KaruteRecordListView({
   const [appended, setAppended] = useState<KaruteListItem[]>([])
   const [windowStart, setWindowStart] = useState<string | null>(initialWindowStart)
   const [storeTotal, setStoreTotal] = useState<number | null>(total)
+  const [storeDiscardedCount, setStoreDiscardedCount] = useState<number | null>(discardedCount)
   const [serverHasMore, setServerHasMore] = useState(initialHasMore)
   const [loadingMore, setLoadingMore] = useState(false)
   // Generation counter for the purge-vs-in-flight race (fix round 4). The
@@ -307,7 +315,9 @@ export function KaruteRecordListView({
   // DTO field the phone renders. Only when the store total is unknown does the
   // view fall back to the server's own flag.
   const hasMore =
-    storeTotal !== null ? karuteHasMore(loadedCount, storeTotal) : serverHasMore
+    storeTotal !== null && storeDiscardedCount !== null
+      ? karuteHasMore(loadedCount, storeTotal, storeDiscardedCount)
+      : serverHasMore
 
   // Keep the derived total honest when the server re-renders (QuietRefresh) —
   // and RECONCILE rows that left the store (Greptile PR #779 P1).
@@ -376,17 +386,24 @@ export function KaruteRecordListView({
   }
 
   useEffect(() => {
-    if (total !== null && storeTotal !== null && total < storeTotal) {
+    if (
+      total !== null &&
+      discardedCount !== null &&
+      storeTotal !== null &&
+      storeDiscardedCount !== null &&
+      total + discardedCount < storeTotal + storeDiscardedCount
+    ) {
       rewindToFirstWindow()
     }
     setStoreTotal(total)
-    // `total` is the only trigger. storeTotal, sinceParam and
+    setStoreDiscardedCount(discardedCount)
+    // Incoming totals are the only triggers. storeTotal, sinceParam and
     // initialWindowStart are read as CURRENT values, never as triggers —
     // listing storeTotal would re-run this on our own setStoreTotal, and
     // listing sinceParam would re-run it on every さらに表示 tap, which is how
     // a purge could chase its own re-walk in a loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [total])
+  }, [total, discardedCount])
 
   async function fetchOlder(announce: boolean) {
     if (!windowStart || loadingMore) return
@@ -443,6 +460,10 @@ export function KaruteRecordListView({
       setWindowStart(res.windowStart)
       setSinceParam(res.windowStart)
       setStoreTotal(res.freshStoreTotal)
+      // Older cached clients/actions and several failure-recovery payloads do
+      // not carry the newly-added count yet. Treat those as the pre-feature
+      // value instead of poisoning the combined total with `undefined`.
+      setStoreDiscardedCount(res.freshDiscardedCount ?? 0)
       setServerHasMore(res.hasMore)
       // Focus stays on the button — nothing is focused here, and the button
       // never carries a native `disabled` attribute for the browser to blur
@@ -610,6 +631,7 @@ export function KaruteRecordListView({
     // shows store A's 全件 above store B's rows, and hasMore rides that stale
     // total long enough for さらに表示 to flash in and out.
     setStoreTotal(total)
+    setStoreDiscardedCount(discardedCount)
     // Store A's retry line, its last announcement, and its reveal row (which
     // NAMES a store A customer) all stop being true at the switch. The request
     // id bump lands an in-flight reveal into nothing, same as the two
@@ -834,14 +856,18 @@ export function KaruteRecordListView({
   // null (storeTotal unknown, or month view below) → SegmentedFilterBar renders
   // that pill's LABEL ALONE. A count that can't be true is dropped, not guessed.
   const counts = useMemo(() => {
+    const activeItems = allItems.filter(isActiveKarute)
+    const countStatus = (status: KaruteListItem['aiStatus']) =>
+      activeItems.filter((i) => i.aiStatus === status).length
     return {
       all: storeTotal,
-      thisWeek: allItems.filter((i) => isThisWeek(i, weekCutoff)).length,
-      aiPending: allItems.filter((i) => i.aiStatus === 'pending').length,
-      needsReview: allItems.filter((i) => i.aiStatus === 'needsReview').length,
-      draft: allItems.filter((i) => i.aiStatus === 'draft').length,
+      thisWeek: activeItems.filter((i) => isThisWeek(i, weekCutoff)).length,
+      aiPending: countStatus('pending'),
+      needsReview: countStatus('needsReview'),
+      draft: countStatus('draft'),
+      discarded: storeDiscardedCount,
     } satisfies Record<KaruteListFilter, number | null>
-  }, [allItems, storeTotal, weekCutoff])
+  }, [allItems, storeTotal, storeDiscardedCount, weekCutoff])
 
   // Month view SWAPS the row set (PR-2b). The staff scope and the search box
   // still apply INSIDE a month — they answer "whose" and "which words", not
@@ -869,13 +895,14 @@ export function KaruteRecordListView({
     // SAME predicate, SAME cutoff as the pill's count above — that identity IS
     // the ⚖ ruling (thisWeekCutoffYmd). The second copy of this arithmetic that
     // used to live here is gone.
-    if (filter === 'thisWeek') result = result.filter((i) => isThisWeek(i, weekCutoff))
-    else if (filter === 'aiPending')
-      result = result.filter((i) => i.aiStatus === 'pending')
-    else if (filter === 'needsReview')
-      result = result.filter((i) => i.aiStatus === 'needsReview')
-    else if (filter === 'draft')
-      result = result.filter((i) => i.aiStatus === 'draft')
+    if (filter === 'discarded') result = result.filter((i) => i.isDiscarded)
+    else if (filter !== 'all') {
+      result = result.filter(isActiveKarute)
+      if (filter === 'thisWeek') result = result.filter((i) => isThisWeek(i, weekCutoff))
+      else if (filter === 'aiPending') result = result.filter((i) => i.aiStatus === 'pending')
+      else if (filter === 'needsReview') result = result.filter((i) => i.aiStatus === 'needsReview')
+      else if (filter === 'draft') result = result.filter((i) => i.aiStatus === 'draft')
+    }
 
     const q = searchQuery.trim().toLowerCase()
     if (q) {

@@ -162,14 +162,49 @@ describe('listSynqedKaruteRowsWithTotal', () => {
         throw new Error('boom')
       }),
     )
-    expect(result).toEqual({ rows: [], total: 0 })
+    expect(result).toEqual({ rows: [], total: 0, discardedCount: 0 })
   })
 
   it('passes through a real result unchanged on success', async () => {
     const result = await listSynqedKaruteRowsWithTotal(
       asClient(async () => ({ karute_records: [], total: 7 })),
     )
-    expect(result).toEqual({ rows: [], total: 7 })
+    expect(result).toEqual({ rows: [], total: 7, discardedCount: 0 })
+  })
+})
+
+describe('mixed discarded Karute ledger read', () => {
+  it('explicitly opts in, preserves the split counts, and maps DISCARDED', async () => {
+    const fetch = jest.fn(async () => ({
+      karute_records: [{
+        id: 'discarded-1',
+        business_id: 'biz',
+        customer_id: 'customer-1',
+        staff_id: 'staff-1',
+        status: 'DISCARDED',
+        ai_summary: 'must not become an active chip',
+        transcript: null,
+        created_at: '2026-09-11T00:00:00.000Z',
+        entry_count: 0,
+      }],
+      total: 4,
+      discarded_count: 1,
+    }))
+    const client = { fetch, karuteRecords: { list: jest.fn() } } as never
+
+    const result = await listSynqedKaruteRowsWithTotalOrThrow(client, {
+      storeId: 'store-1',
+      includeDiscarded: true,
+      page_size: 20,
+    })
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('include_discarded=true'),
+    )
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('store_id=store-1'))
+    expect(result.total).toBe(4)
+    expect(result.discardedCount).toBe(1)
+    expect(result.rows[0].status).toBe('DISCARDED')
   })
 })
 

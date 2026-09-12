@@ -626,6 +626,7 @@ async function facadeLoadKaruteWindow(input: {
       items: body.items,
       windowStart: body.windowStart,
       freshStoreTotal: body.freshStoreTotal ?? 0,
+      freshDiscardedCount: body.freshDiscardedCount ?? 0,
       hasMore: body.hasMore ?? false,
     }
   } catch (err) {

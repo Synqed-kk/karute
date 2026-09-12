@@ -861,6 +861,32 @@ describe('pill counts', () => {
     expect(showingCount()).toBe(1)
   })
 
+  it('破棄済み uses its separate total and shows only non-actionable discarded rows', () => {
+    const active = item('active', jstYmd(0), '有効 花子')
+    const discarded = {
+      ...item('discarded', jstYmd(1), '破棄 太郎'),
+      isDiscarded: true,
+    }
+    renderList({
+      items: [active, discarded],
+      total: 1,
+      discardedCount: 1,
+    })
+
+    expect(pillCount('discarded')).toBe(1)
+    expect(screen.getByText('有効 花子')).toBeInTheDocument()
+    // The ordinary ledger is mixed: retained discarded rows remain visible,
+    // while the active-only total on the すべて pill stays 1.
+    expect(screen.getByText('破棄 太郎')).toBeInTheDocument()
+    expect(pillCount('all')).toBe(1)
+
+    fireEvent.click(pill('discarded'))
+    expect(showingCount()).toBe(pillCount('discarded'))
+    expect(screen.queryByText('有効 花子')).not.toBeInTheDocument()
+    expect(screen.getByText('破棄 太郎')).toBeInTheDocument()
+    expect(screen.getByText('破棄 太郎').closest('[aria-disabled="true"]')).toBeTruthy()
+  })
+
   it('今週 does NOT climb when さらに表示 appends OLDER rows', async () => {
     loadKaruteWindow.mockResolvedValue({
       // A walk backward can only ever return rows older than the boundary, so
