@@ -72,7 +72,7 @@ export function computePackAlerts(input: ComputePackAlertsInput): PackAlerts {
   let unconsumedTotal = 0
   let holderCount = 0
   for (const [customerId, u] of input.usage) {
-    if (u.hasActivePack) {
+    if (u.ownsActivePack ?? u.hasActivePack) {
       unconsumedTotal += u.unconsumed
       holderCount += 1
     }
