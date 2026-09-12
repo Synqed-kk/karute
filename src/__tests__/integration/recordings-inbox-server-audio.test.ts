@@ -480,6 +480,40 @@ describe('nothing about WHERE the audio is reaches the wire', () => {
 })
 
 /**
+ * UPDATE 25 GROUP A, piece c — `sameDay`, computed at the read from the
+ * SERVER clock (`now`), never the phone's. The JST rule, not UTC: pinned with
+ * explicit ISO instants that straddle the UTC/JST midnight gap.
+ */
+describe('sameDay — the never-backfill fence, computed at the read', () => {
+  it('created today (JST) → sameDay: true', async () => {
+    recordings.current = [rec({ id: 's1', created_at: iso(30) })] // 30 min ago, same JST day as NOW
+    const [row] = await read()
+    expect(row.sameDay).toBe(true)
+  })
+
+  it('created 23:59 JST yesterday, now 00:01 JST today → sameDay: false (JST, not UTC)', async () => {
+    // 2026-08-24 23:59 JST = 2026-08-24T14:59:00.000Z
+    const createdAt = '2026-08-24T14:59:00.000Z'
+    // 2026-08-25 00:01 JST = 2026-08-24T15:01:00.000Z
+    const now = new Date('2026-08-24T15:01:00.000Z')
+    recordings.current = [rec({ id: 's1', created_at: createdAt })]
+    const [row] = await read({ now })
+    expect(row.sameDay).toBe(false)
+  })
+
+  it('a UTC-day match that is a JST-day MISS → sameDay: false', async () => {
+    // Both instants share the UTC calendar day 2026-08-24, but 22:00 UTC is
+    // already 2026-08-25 07:00 JST — a JST-day miss a UTC-only compare would
+    // wrongly call same-day.
+    const createdAt = '2026-08-24T01:00:00.000Z' // 2026-08-24 10:00 JST
+    const now = new Date('2026-08-24T22:00:00.000Z') // 2026-08-25 07:00 JST
+    recordings.current = [rec({ id: 's1', created_at: createdAt })]
+    const [row] = await read({ now })
+    expect(row.sameDay).toBe(false)
+  })
+})
+
+/**
  * ⚖ R3 — "NEVER ASKED" IS NOT "NO JOB".
  *
  * The job probe is capped at 100 and leaves everything past it with
