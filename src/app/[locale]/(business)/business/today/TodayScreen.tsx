@@ -2453,6 +2453,14 @@ export function TodayScreen(props: TodayProps) {
    *  half-hour word: あずさ's row stops saying 新規用 over a 枠 the chip no
    *  longer counts, and ごろう's keeps saying it.
    *
+   *  HONEST-COUNT ROUND 1 · fix 5 (2026-09-13, Greptile P1 on #904 — live rails)
+   *  — and mid-gesture the demotion LIFTS ITSELF as soon as the live board no
+   *  longer carries the winner's 枠 (lift ごろう's 14:30 card and あずさ's row
+   *  speaks again), while the other half — a NEW collision the tentative layout
+   *  creates — is the ⚖ 「nothing per pointer frame」 trade: seeing it would need
+   *  the netting on every frame, so the rail says main's word there until the
+   *  drop settles the board.
+   *
    *  Identity when nothing is shared, so the gate off is today's board. */
   const heldBoardHonest = useMemo(() => demoteShared(heldBoard, honest), [heldBoard, honest])
 
