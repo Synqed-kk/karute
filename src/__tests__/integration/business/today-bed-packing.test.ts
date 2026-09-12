@@ -1771,8 +1771,14 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // this pin.
     {
       const start = SCREEN.indexOf('const pendingGuardRow = useMemo(')
+      // ⚖ NEW-WINDOW (2026-09-12) — the memo's dep list gained `dayOrigin` and
+      // `dayCommitted`, the two SETTLED-board walks the day sentence is composed
+      // from. They sit BEFORE `props.guard.bookingStepMin`, which is pinned as
+      // this list's own tail in today-screen-interactions.test.ts. The slice
+      // anchor moves with the list; what this pin is about — `{ pack: false }` in
+      // and `{ pack: true }` out of this memo — is untouched.
       const end = SCREEN.indexOf(
-        '}, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin])',
+        '}, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, dayOrigin, dayCommitted, props.guard.bookingStepMin])',
       )
       expect(start).toBeGreaterThan(-1)
       expect(end).toBeGreaterThan(start)

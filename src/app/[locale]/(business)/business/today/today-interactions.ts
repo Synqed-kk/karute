@@ -2056,8 +2056,17 @@ export interface RailCell {
   gapNote?: { worse: boolean; dead: number; salvage: number; lostMenus: string[] }
   /** ⚖ NEW-WINDOW D-2 — THE ENGINE'S OWN STATEMENT, when M10 republished its class.
    *  Present only on the refusal arm that rewrote an R-DEAD / R-SALV into the
-   *  capacity form; `warnFaceFor` renders it through `reasonLine`, so the minutes
-   *  fact is said in the engine's words rather than this surface's. */
+   *  capacity form, where the panel's sentence is now about the 新規 window and the
+   *  engine's minutes fact would otherwise have nowhere to be said.
+   *  ponytail: NO SURFACE READS THIS YET, and the reason is a live ruling conflict,
+   *  stated rather than resolved by a builder: ⚖ 92 fix round 5 V3 deleted the
+   *  engine-row append from `warnFaceFor` and bans its name
+   *  (`today-screen-interactions.test.ts:9533`), on the premise that a guard-lit
+   *  panel is already saying the row. That premise is FALSE for this field — the
+   *  panel says the capacity sentence and this is the residue one — which is the
+   *  same reading D-1 applies to `guardRow` one line below. Published with the arm
+   *  that produces it (`gapNote`'s own precedent), never bolted on after it; the
+   *  row's home is the session model's to rule. */
   engineNote?: { code: 'R-DEAD' | 'R-SALV'; n: number }
   /** ⚖ NEW-WINDOW M1 — WHAT THIS LANDING COSTS THE WHOLE STORE, and whose.
    *
@@ -6887,18 +6896,11 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  95分残ります」 — is a DIFFERENT fact, which ⚖ 73-74 forbids dropping. So the
    *  row is suppressed only where the pocket is what the panel is already saying. */
   const guardRow = guardWarn && pocketLossOf(cell) > 0 ? null : guardCheckRow(cell)
-  /** ⚖ NEW-WINDOW D-2 — and where M10 republished the engine's class, the
-   *  engine's own minutes statement is said here, in its own words. */
-  const engineRow: { label: string; tone: 'warn' } | null =
-    cell?.engineNote == null
-      ? null
-      : { label: reasonLine({ code: cell.engineNote.code, params: { n: cell.engineNote.n } }, protectedDur), tone: 'warn' }
   const kept = [
     ...rows.filter(
       (r) => (r.tone !== '' || greenSubjectOf(r.label) === null) && !(!guardWarn && r.label === overrideRow),
     ),
     ...(guardRow ? [guardRow] : []),
-    ...(engineRow ? [engineRow] : []),
   ]
 
   // ⚖ 92 — the safe answer, from the ENGINE'S own alternatives. Two shapes and

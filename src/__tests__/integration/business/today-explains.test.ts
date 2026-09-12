@@ -322,8 +322,15 @@ const placeableOn = (rail: GuardRail): RailCell => rail.cells.find((c) => c.stat
 
 /** The screen's own composition for one chip: `allocateBed`'s answer for the
  *  chip's own window whenever the class is `bed`, and nothing otherwise. */
-const explainOn = (lanes: BoardLane[], cell: RailCell, dur = 60) =>
+/** ⚖ NEW-WINDOW L-E (2026-09-12) — `reservedHalf` is a REAL ARGUMENT now. The
+ *  board's own composer (`explainRails`) computes it from `heldExtents` over the
+ *  mark's half hour and passes it on EVERY call, on both walks; this helper left
+ *  it out, so the 新規用 arm — which is now gated on it — could only be asked one
+ *  way. Defaults to `undefined`, exactly as before, so every other caller is
+ *  byte-unchanged. */
+const explainOn = (lanes: BoardLane[], cell: RailCell, dur = 60, reservedHalf?: boolean) =>
   railExplain(cell, dur, {
+    reservedHalf,
     room:
       cell.reason === 'bed'
         ? allocateBed(lanes, {
@@ -396,7 +403,15 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     // ⚖ LIAM RULING (2026-08-30) — 新規用, not 新規. Bare 新規 is the board's
     // カテゴリー word, so on a chip it read as 「put a new customer here」 —
     // the inversion of a HOLD. The 用 is what makes the word un-invertible.
-    expect(explainOn([], guarded).word).toBe('新規用')
+    // ⚖ NEW-WINDOW L-E (2026-09-12) — AND THE WORD IS THE MASK'S. 新規用 says
+    // 「this half hour is being HELD for a 新規 and cannot be sold」, so it may only
+    // be worn where a window really is published there. The bare
+    // `cell.reason === 'guard'` arm painted it on every engine refusal, the menu
+    // repertoire one included — a half hour holding nothing wearing the word for
+    // a hold. Both directions are asserted, so neither the gate nor the arm can
+    // quietly go away.
+    expect(explainOn([], guarded, 60, true).word).toBe('新規用')
+    expect(explainOn([], guarded, 60, false).word).toBeNull()
 
     // ⚖ Fable-accepted default (overturnable, noted in the PR body): a
     // no-pocket-fit chip keeps the bare 「—」. Its blocker is drawn on the row.

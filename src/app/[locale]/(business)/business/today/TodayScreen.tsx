@@ -3904,13 +3904,14 @@ export function TodayScreen(props: TodayProps) {
   const pendingWarnLane = pending && !pendingOffBoard && moves[pending.id]
     ? boardLanes.find((l) => l.group === 'staff' && l.key === moves[pending.id].laneKey)
     : undefined
+  // ⚖ NEW-WINDOW — THE ONE READER OF THE DAY, and it is the `cell` field below.
+  // `warnFaceFor` composes the headline, the △ row and the 長押し gate from it;
+  // nothing else on this screen is ever handed a `day`-carrying cell, so the
+  // offer path keeps today's pocket law byte for byte.
   const pendingWarnModel = pendingWarnLane === undefined || !pending
     ? null
     : warnFaceFor({
         rows: pendingRows,
-        // ⚖ NEW-WINDOW — THE ONE READER OF THE DAY. `warnFaceFor` composes the
-        // headline, the △ row and the 長押し gate from it; nothing else on this
-        // screen is ever handed a `day`-carrying cell.
         cell: pendingGuardRow.cell == null ? null : { ...pendingGuardRow.cell, day: pendingGuardRow.day },
         override: pending.override ?? null,
         level: props.overrideLevel,
