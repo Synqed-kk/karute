@@ -1703,9 +1703,16 @@ describe('7 — the fix round: the publication boundary', () => {
     // landing and 新規予約を作成 both run on the TRACK's own click — and the
     // click returns unless the track is the target.
     expect(screen).toContain('if (e.target !== e.currentTarget || dragRef.current || blockDragRef.current) return')
-    // ⚖ HONEST-COUNT ROUND 1 — the shared box stands aside on the same two
-    // classes: it draws over the same track and a placement must reach through.
-    expect(css).toContain('.biz .timeline.placing .cell-held,\n.biz .timeline.placing .cell-shared,\n.biz .timeline.dragging-live .cell-held,\n.biz .timeline.dragging-live .cell-shared { pointer-events: none; }')
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MAJOR 1)
+    // BACK TO MAIN'S TEXT, because the shared box no longer needs these two
+    // classes: it is `pointer-events: none` at rest, so it stands aside on
+    // EVERY frame and not only while a placement is armed. F6's list is about
+    // the one box on this track that takes a press, and the shared box is not
+    // that box — grouping it in here is what let it swallow あずさ's minutes at
+    // rest and answer nothing.
+    expect(css).toContain('.biz .timeline.placing .cell-held,\n.biz .timeline.dragging-live .cell-held { pointer-events: none; }')
+    // …and the base rule is where the shared box says it, once, for every frame.
+    expect(css).toContain('.biz .cell-shared { cursor: default; pointer-events: none;')
     // Both classes are ones the screen already sets — no new switch.
     expect(screen).toContain("placing ? 'placing' : ''")
     expect(screen).toContain("dragLen != null || live || blockLive ? 'dragging-live' : ''")

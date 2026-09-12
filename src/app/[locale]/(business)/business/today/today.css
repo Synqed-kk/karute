@@ -961,8 +961,18 @@
    flat fill, so a glance separates 『we are holding this』 from 『we cannot
    actually honour this one』 without a second colour entering the page. No
    accent, no black, no press — there is no rule on it the held box does not
-   already carry. */
-.biz .cell-shared { cursor: default; border-color: #cbd5e1; background: repeating-linear-gradient(135deg, #e6eaf0 0 5px, #f5f7fa 5px 10px); }
+   already carry.
+
+   ⚖ HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MAJOR 1)
+   …and BECAUSE it has no press, it stands aside like every other state paint on
+   this track. F6's law below says it in as many words: 『every other layer on
+   this track is pointer-events: none, so the track's own click is what 配置モード's
+   landing and 新規予約を作成 both run on』. The held box is that law's deliberate
+   exception because it ANSWERS; this box answers nothing, so at rest it was
+   swallowing あずさ's minutes and giving the operator neither a dialog nor a
+   landing. It is a state paint like the rest cue and the 詰め込み/スキマ boxes,
+   and it carries their rule. `cursor: default` stays — harmless, and true. */
+.biz .cell-shared { cursor: default; pointer-events: none; border-color: #cbd5e1; background: repeating-linear-gradient(135deg, #e6eaf0 0 5px, #f5f7fa 5px 10px); }
 .biz .cell-shared .held-title { color: #64748b; font-weight: 600; }
 /* 表示設定 ▸ 空き枠表示「非表示」 takes the whole sell layer off the board, and
    the 確保 chip goes with it — the operator asked for a board with no window
@@ -988,9 +998,7 @@
    the chip stands aside like every other layer; at rest it is pressable exactly
    as ruled. The two classes are the ones the screen already sets. */
 .biz .timeline.placing .cell-held,
-.biz .timeline.placing .cell-shared,
-.biz .timeline.dragging-live .cell-held,
-.biz .timeline.dragging-live .cell-shared { pointer-events: none; }
+.biz .timeline.dragging-live .cell-held { pointer-events: none; }
 
 /* ── スキマガード 60分配置ガイド (canon :626–686) ──────────────────────────
    An 18px status rail follows each staff lane: every exact 30-minute start,
