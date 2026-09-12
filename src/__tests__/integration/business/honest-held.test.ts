@@ -114,6 +114,32 @@ describe('honest-held — the fixture', () => {
     )
   })
 
+  it('asks the book on the LANE\u2019s own store binding, never on 「any room anywhere」', () => {
+    // ⚖ the store-isolation law: `{ stores: null }` means a floating asker and
+    // is answered with every room on the board. Asking it on behalf of a lane
+    // that HAS a store would offer a 店舗B room to a 店舗A customer — and here
+    // it would also hand two colliding 枠 a room each and publish a number the
+    // store cannot honour.
+    const a = lane('p-05', ['store-a'])
+    const b = lane('p-06', ['store-a'])
+    const book = stubBook((_start, _end, stores) => (stores === null ? ['bed-01', 'bed-02'] : ['bed-02']))
+    const h = honestHeld([maskOf('p-05', [span(870, 90)]), maskOf('p-06', [span(905, 90)])], [a, b], book, true)
+    expect({ total: h.total, shared: h.byLane.filter((l) => l.shared.length > 0).map((l) => l.laneKey) }).toEqual({ total: 1, shared: ['p-06'] })
+  })
+
+  it('answers the same thing whatever order the rows arrive in', () => {
+    // The sort by (start, laneKey) is what makes a published number independent
+    // of the lane loop's order. Same board, rows reversed.
+    const fwd = honestHeld(fixtureCandidates(), fixtureLanes(), fixtureBook(), true)
+    const rev = honestHeld([...fixtureCandidates()].reverse(), [...fixtureLanes()].reverse(), fixtureBook(), true)
+    const flat = (h: HonestHeld) => ({
+      held: h.byLane.flatMap((l) => l.held.map((s) => `${l.laneKey} ${hhmm(s.start)}`)).sort(),
+      shared: h.byLane.flatMap((l) => l.shared.map((s) => `${l.laneKey} ${hhmm(s.start)}`)).sort(),
+      total: h.total,
+    })
+    expect(flat(rev)).toEqual(flat(fwd))
+  })
+
   it('a row the world does not carry gets no rooms and is never counted', () => {
     // The lane lookup misses, so the 枠 has no room it can name — it is shared
     // with nobody rather than silently held.
@@ -260,6 +286,17 @@ describe('demoteShared — the board world', () => {
       { laneKey: 'p-05', spans: ['14:30'], n: 1 },
       { laneKey: 'p-06', spans: [], n: 0 },
     ])
+  })
+
+  it('keeps a span on the SAME lane that does not overlap the shared one', () => {
+    // The key is lane + OVERLAP, and the overlap test is a real half-open
+    // interval test on BOTH sides: あずさ's own earlier 枠 (08:00-09:30, nowhere
+    // near her shared 15:05-16:35) is not the 枠 the settled board demoted, and
+    // the rail must keep speaking over it. A one-sided test (`a.start < b.end`
+    // alone) would swallow every span earlier in the day.
+    const board = [maskOf('p-06', [span(480, 90), span(905, 90), span(1020, 90)])]
+    const out = demoteShared(board, settled())!
+    expect(out[0].spans.map((s) => hhmm(s.start))).toEqual(['08:00', '17:00'])
   })
 
   it('is the IDENTITY when nothing is shared, so the gate off is the board that ships', () => {
