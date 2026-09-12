@@ -238,8 +238,19 @@ export function honestHeld(
  *  c→r2 first, while a→r2, b→r1 is the same size and the EARLIER held set. So
  *  every complete leaf of the best size is compared on its held vector in
  *  candidate order — the first position where one holds and the other does not
- *  decides — and the bound below is relaxed from `<=` to `<` so an equal-size
- *  branch is still walked. The node budget still caps the whole thing.
+ *  decides.
+ *
+ *  HONEST-COUNT ROUND 1 · fix 3 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1b-delta-verify.md MAJOR 1)
+ *  — AND THE BOUND IS ON THE TIE-BREAK TOO, not only on the size. Fix 2 relaxed
+ *  it from `<=` to `<`, which stops pruning altogether once `bestSize` reaches
+ *  the component's own length — the ordinary busy board, every 枠 holdable —
+ *  and the walk then enumerates every ROOM PERMUTATION of an answer it already
+ *  has, burns the budget and publishes `exact: false` (measured: every
+ *  all-holdable board from n = 7 up, and a LOWER total on 8 of 3,000 random
+ *  boards). So an equal-size branch is walked only while it can still WIN: the
+ *  best it can reach is its prefix plus 「hold everything left」, and if that
+ *  vector is not earlier than `best`, nothing below it can replace `best`.
+ *  The node budget still caps the whole thing.
  *  ⚠ IT IS BLIND TO SELLABILITY: a price-0 row's earlier 枠 beats a sellable
  *  row's later one for the same room. Physically honest; a sellability-aware
  *  comparator is one line and it is a product ruling, not this module's. */
@@ -283,9 +294,23 @@ function assign(flat: readonly Candidate[]): { room: (string | null)[]; exact: b
         return
       }
       // The bound: even holding everything left cannot MATCH what we have.
-      // `<` and not `<=`: an equal-size branch may still hold an earlier set
-      // (see the tie-break note above), so it is walked rather than pruned.
       if (size + (part.length - i) < bestSize) return
+      // HONEST-COUNT ROUND 1 · fix 3 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1b-delta-verify.md MAJOR 1)
+      // …and an equal-size branch is dead too unless it can still win the
+      // TIE-BREAK. The best it can reach is 「this prefix + hold everything
+      // left」; compared against `best` position by position, the first
+      // disagreement decides, holding wins, equal is not earlier.
+      // ponytail: the walk, not the answer — the node budget still caps a
+      // pathological tangle and `exact: false` still says so when it trips.
+      if (size + (part.length - i) === bestSize) {
+        let canWin = false
+        for (let k = 0; k < part.length; k += 1) {
+          const ph = k < i ? picked[k] !== null : true
+          const bh = best[k] !== null
+          if (ph !== bh) { canWin = ph; break }
+        }
+        if (!canWin) return
+      }
       const c = flat[part[i]]
       for (const r of c.rooms) {
         if ((lastEnd.get(r) ?? -1) > c.span.start) continue

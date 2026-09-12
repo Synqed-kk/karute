@@ -224,10 +224,14 @@ function rng(seed: number) {
   }
 }
 
-function randomBoard(seed: number, len = 90) {
+// HONEST-COUNT ROUND 1 · fix 3 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1b-delta-verify.md MAJOR 1)
+// `maxN` is the only thing this round added: the 500-seed leg keeps its own
+// boards byte for byte (the default is the 6 it always used), and the wider
+// net below asks the same generator for boards the oracle can still afford.
+function randomBoard(seed: number, len = 90, maxN = 6) {
   const r = rng(seed + 1)
   const rooms = ['bed-01', 'bed-02', 'bed-03'].slice(0, 1 + Math.floor(r() * 3))
-  const n = 1 + Math.floor(r() * 6)
+  const n = 1 + Math.floor(r() * maxN)
   const wins: Win[] = []
   for (let i = 0; i < n; i += 1) {
     const start = 600 + Math.floor(r() * 12) * 15
@@ -268,6 +272,65 @@ describe('honest-held — against a brute-force oracle', () => {
       // Nothing is lost on the way out: held + shared is the input, per row.
       expect({ seed, kept: h.byLane.reduce((a, l) => a + l.held.length + l.shared.length, 0) }).toEqual({ seed, kept: wins.length })
     }
+  })
+
+  // HONEST-COUNT ROUND 1 · fix 3 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1b-delta-verify.md MAJOR 1)
+  // THE ORDINARY BUSY BOARD: n staff whose 確保 枠 all overlap, and n rooms any
+  // of them may use. Every 枠 is holdable, so the honest answer is n — and it is
+  // exactly the board on which the size bound can never prune again, because
+  // `bestSize` reaches the component's own length. Without a bound on the
+  // TIE-BREAK the walk then enumerates every ROOM PERMUTATION of an answer it
+  // already has, burns the node budget and publishes `exact: false` from n = 7
+  // up. Seven staff with overlapping 枠 and seven free rooms is a real salon.
+  const allHoldableBoard = (n: number) => {
+    const rooms = Array.from({ length: n }, (_, i) => `bed-${String(i + 1).padStart(2, '0')}`)
+    const wins: Win[] = Array.from({ length: n }, (_, i) => ({
+      laneKey: `p-${String(i).padStart(2, '0')}`, start: 600 + i * 5, end: 600 + i * 5 + 90, rooms,
+    }))
+    return {
+      wins,
+      candidates: wins.map((w) => maskOf(w.laneKey, [span(w.start, 90)])),
+      lanes: wins.map((w) => lane(w.laneKey)),
+      book: stubBook(() => rooms),
+    }
+  }
+  const allHoldable = (n: number) => {
+    const { wins, candidates, lanes, book } = allHoldableBoard(n)
+    const h = honestHeld(candidates, lanes, book, true)
+    const roomsOf = new Map(wins.map((w) => [w.laneKey, w.rooms]))
+    const held = h.byLane.flatMap((l) => l.held.map((s) => ({ rooms: roomsOf.get(l.laneKey)!, start: s.start, end: s.end })))
+    return { total: h.total, exact: h.exact, shared: h.byLane.reduce((a, l) => a + l.shared.length, 0), legal: feasible(held) }
+  }
+
+  it('SEVEN staff, seven rooms, every 枠 holdable: all seven are held and the count is EXACT', () => {
+    expect(allHoldable(7)).toEqual({ total: 7, exact: true, shared: 0, legal: true })
+  })
+
+  it('TWELVE staff, twelve rooms, every 枠 holdable: still all of them, still EXACT', () => {
+    expect(allHoldable(12)).toEqual({ total: 12, exact: true, shared: 0, legal: true })
+  })
+
+  it('the wider net: 200 seeds, up to EIGHT 枠 and three rooms — the total, the earliest set AND exactness', () => {
+    // HONEST-COUNT ROUND 1 · fix 3 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1b-delta-verify.md MAJOR 1)
+    // The 500-seed leg's boards (1–6 枠, 1–3 rooms) are too small to trip the
+    // bound. These are as wide as the oracle can still afford — it enumerates
+    // (rooms+1)^n ≤ 4^8 = 65,536 assignments per board — and they are asked the
+    // whole question: the number, WHICH 枠, and whether the search finished.
+    // Every disagreement is collected rather than thrown at, so the first
+    // failing seed is printed and the board can be rebuilt by hand from it.
+    const fails: string[] = []
+    for (let seed = 0; seed < 200; seed += 1) {
+      const { wins, candidates, lanes, book } = randomBoard(seed, 90, 8)
+      const h = honestHeld(candidates, lanes, book, true)
+      const want = bruteForce(wins)
+      const got = { total: h.total, exact: h.exact, held: heldKeys(h) }
+      const wanted = { total: want.best, exact: true, held: [...want.earliest].sort() }
+      if (JSON.stringify(got) !== JSON.stringify(wanted)) {
+        fails.push(`seed ${seed} (${wins.length} 枠) — module ${JSON.stringify(got)} · oracle ${JSON.stringify(wanted)}`)
+      }
+    }
+    if (fails.length > 0) console.log(`\nWIDER NET — first failing seed: ${fails[0]}\n(${fails.length} of 200 boards disagree)\n`)
+    expect({ boards: 200, disagreeing: fails.length, first: fails[0] ?? '(none)' }).toEqual({ boards: 200, disagreeing: 0, first: '(none)' })
   })
 
   it('a room a floating 枠 could take is LEFT for the row that has no other — the earliest set of its size wins', () => {
