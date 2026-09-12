@@ -225,6 +225,18 @@ export interface InboxServerSession {
    * one space here.
    */
   staffId?: string | null
+  /**
+   * UPDATE 25 GROUP A, piece c. Computed SERVER-SIDE (inbox-read.ts) from the
+   * SERVER clock: `ymdInJst(createdAt) === ymdInJst(now)`. The never-backfill
+   * fence for the same-day 手書き door — the card must never compute "today"
+   * from a render-time clock, and a take-only row (this device's phone clock)
+   * is never trusted for it either (see InboxRow.sameDay below).
+   *
+   * Optional/nullish, the `discardedByStaff` idiom above: absent = an older
+   * server that never derived it, which the fold treats as `false` — the door
+   * stays closed rather than open on an unproven day.
+   */
+  sameDay?: boolean
 }
 
 /** One device-local take (lib/karute/take-store). Audio is guaranteed: the
@@ -290,6 +302,12 @@ export interface InboxRow {
    *  ONE flag instead of matching on a reason string — a reason is a display
    *  fact, and routing a save off one is how the two drift apart. */
   serverAudio?: boolean
+  /** UPDATE 25 GROUP A, piece c — THE FENCE for the same-day 手書き door.
+   *  `s.sameDay === true` on a session row (the server's own JST-day proof);
+   *  `false` on every take-only row, whose only clock is this device's — never
+   *  trusted for a never-backfill decision. The card renders the door ONLY
+   *  when this is true; never computed from a render-time clock. */
+  sameDay: boolean
 }
 
 /** The states that mean a human still owes this recording something AND can
@@ -379,6 +397,8 @@ export function deriveInboxRows(input: {
       startedAt,
       durationSeconds: s.durationSeconds ?? takeDuration(take),
       canRetry: false,
+      // c: the server's own JST-day proof, never a render-time clock.
+      sameDay: s.sameDay === true,
     }
 
     // PRECEDENCE, ABOVE EVERYTHING (A2-3). A deliberate discard is a decision
@@ -420,6 +440,7 @@ export function deriveInboxRows(input: {
           startedAt: take.startedAt,
           durationSeconds: takeDuration(take),
           canRetry: false,
+          sameDay: false,
         })
         continue
       }
@@ -567,6 +588,7 @@ export function deriveInboxRows(input: {
       startedAt: take.startedAt,
       durationSeconds: takeDuration(take),
       canRetry: false,
+      sameDay: false,
     })
   }
 
@@ -593,6 +615,7 @@ export function deriveInboxRows(input: {
       startedAt: t.startedAt,
       durationSeconds: takeDuration(t),
       canRetry: false,
+      sameDay: false,
     })
   }
 
@@ -612,6 +635,7 @@ export function deriveInboxRows(input: {
       startedAt: t.startedAt,
       durationSeconds: takeDuration(t),
       canRetry: false,
+      sameDay: false,
     })
   }
 

@@ -8,6 +8,12 @@
  * session and offers the one thing that can still be done about it — nothing
  * else. Rows never disappear; a resolved one just changes state.
  *
+ * ⚖ UPDATE 25 GROUP A's ONE STATED EXCEPTION (piece c): an emptyTranscript row
+ * from TODAY renders the same-day 手書き door ALONGSIDE 再試行 — it is not a
+ * second action ON the recording, it is the exit FROM it, so the "one thing"
+ * rule is about what can still be done ABOUT the audio, not about the screen's
+ * button count.
+ *
  * Colour: every state chip is a soft wash with dark text (R13 — no solid fills
  * on a non-pressable), the only solid `bg-primary` is 保存する (the commit), and
  * 確認する is the R13 selected-state recipe. 開く / 再試行 are quiet links.
@@ -36,6 +42,11 @@ export interface RecordingsInboxCardProps {
   onOpenRecord: (row: InboxRow) => void
   /** 保存する / 再試行 — hand this take's audio to the recovery save. */
   onSaveTake: (row: InboxRow) => void
+  /** UPDATE 25 GROUP A, piece c — the same-day 手書き door: the honest exit
+   *  FROM a recording that came back with no transcript. F8's ONE stated
+   *  exception to "at most one action per row" — it renders ALONGSIDE 再試行,
+   *  never in place of it. */
+  onHandwrite?: (row: InboxRow) => void
   /** The session whose SERVER save is in flight (build 23 slice ③, fix round
    *  1). Its one button greys out until the row has been re-read — without it
    *  the tap changed nothing on screen, and a second tap fired a second
@@ -110,6 +121,7 @@ export function RecordingsInboxCard({
   customerNameById,
   onOpenRecord,
   onSaveTake,
+  onHandwrite,
   savingSessionId,
   myDiscardsThisMonth,
 }: RecordingsInboxCardProps) {
@@ -134,10 +146,22 @@ export function RecordingsInboxCard({
 
   function reasonFor(row: InboxRow): string | null {
     if (!row.reason) return null
-    // The one error core names keeps the SAME honest string the pipeline error
-    // card shows — one wording for one failure, on every surface.
-    if (row.reason === 'emptyTranscript') return tRec('pipelineErrorEmptyTranscript')
+    // UPDATE 25 GROUP A, piece c — superseded: `reason.emptyTranscript` is its
+    // own inbox-namespace key now. A row's sub-line and the error card's
+    // sentence are two REGISTERS of one fact (this file's siblings all read
+    // this way), not one shared wording — both keys stay honest, and the
+    // native pass rules both.
     return t(`reason.${row.reason}` as 'reason.transcribing')
+  }
+
+  /** UPDATE 25 GROUP A, piece c — the same-day 手書き door. Gated on
+   *  `row.sameDay`, which the fold computes from the SERVER's clock (never
+   *  `now`/`todayYmd` here — those are `foldedAt`, the phone clock, used only
+   *  for the 今日/昨日 headers). A yesterday-dated failed row shows no door. */
+  function handwriteFor(row: InboxRow) {
+    if (row.state !== 'failed' || row.reason !== 'emptyTranscript' || !row.sameDay) return null
+    if (!onHandwrite) return null
+    return { run: () => onHandwrite(row) }
   }
 
   /** The ONE thing a row still offers, or nothing. Quiet link for the two that
@@ -231,6 +255,7 @@ export function RecordingsInboxCard({
           {items.map(({ row, day, showDay }) => {
             const reason = reasonFor(row)
             const action = actionFor(row)
+            const handwrite = handwriteFor(row)
             return (
               <li key={row.key} className="m-0 p-0">
                 {showDay && (
@@ -278,27 +303,37 @@ export function RecordingsInboxCard({
                     </p>
                   )}
 
-                  {action && (
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={action.run}
-                        // In flight → EVERY save/retry arm is spent until the
-                        // list has been re-read, because the page holds one
-                        // latch for the whole card (fix round 3, R2).
-                        // `disabled` carries the a11y half by itself
-                        // (aria-disabled is implied), and `aria-busy` says WHY
-                        // rather than just "no" — so it stays on the one row
-                        // that is actually busy.
-                        disabled={!!savingSessionId && action.blocksOnSave}
-                        aria-busy={
-                          !!savingSessionId && savingSessionId === row.recordingSessionId
-                        }
-                        className={`${action.className} disabled:opacity-60`}
-                      >
-                        {action.Icon && <action.Icon size={13} aria-hidden="true" />}
-                        {t(action.labelKey as 'action.open')}
-                      </button>
+                  {(action || handwrite) && (
+                    <div className="flex justify-end gap-2">
+                      {/* UPDATE 25 GROUP A, piece c — F8's ONE stated exception:
+                          the exit FROM this recording, never gated on the
+                          card-wide save latch (it is not a save/retry arm). */}
+                      {handwrite && (
+                        <button type="button" onClick={handwrite.run} className={WASH_BTN}>
+                          {t('action.handwrite')}
+                        </button>
+                      )}
+                      {action && (
+                        <button
+                          type="button"
+                          onClick={action.run}
+                          // In flight → EVERY save/retry arm is spent until the
+                          // list has been re-read, because the page holds one
+                          // latch for the whole card (fix round 3, R2).
+                          // `disabled` carries the a11y half by itself
+                          // (aria-disabled is implied), and `aria-busy` says WHY
+                          // rather than just "no" — so it stays on the one row
+                          // that is actually busy.
+                          disabled={!!savingSessionId && action.blocksOnSave}
+                          aria-busy={
+                            !!savingSessionId && savingSessionId === row.recordingSessionId
+                          }
+                          className={`${action.className} disabled:opacity-60`}
+                        >
+                          {action.Icon && <action.Icon size={13} aria-hidden="true" />}
+                          {t(action.labelKey as 'action.open')}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

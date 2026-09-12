@@ -2148,6 +2148,18 @@ export function RecordPageView({
     })()
   }
 
+  // UPDATE 25 GROUP A, piece c — the same-day 手書き door. `row.sameDay` (the
+  // card's own gate) has already proven this is today's JST day server-side,
+  // so `ymdInJst(new Date(row.startedAt))` is that same proven day, not a new
+  // check. `new` is omitted for a walk-in row (no customer) — the list degrades
+  // to no preselect, same as today.
+  function handleInboxHandwrite(row: InboxRow) {
+    const ymd = ymdInJst(new Date(row.startedAt))
+    const params = new URLSearchParams({ date: ymd })
+    if (row.customerId) params.set('new', row.customerId)
+    router.push(`/karute?${params.toString()}` as Parameters<typeof router.push>[0])
+  }
+
   /**
    * 保存する on a row whose audio is on the SERVER (build 23 slice ③).
    *
@@ -3434,6 +3446,15 @@ export function RecordPageView({
     </div>
   )
 
+  // UPDATE 25 GROUP A, piece c — the error card's own same-day proof. Looked
+  // up against the FOLDED row (never `now`/a render-time clock): no session id
+  // on the errored run (a mint that never resolved) finds nothing → no door,
+  // fail-closed, same as the orphan row's own door-less shape.
+  const errorCardHandwriteRow =
+    pipeline.error === 'empty-transcript'
+      ? inbox.rows.find((r) => r.recordingSessionId === pipeline.context?.recordingSessionId)
+      : undefined
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <RecordPageHeader />
@@ -3453,6 +3474,12 @@ export function RecordPageView({
           onDiscard={
             pipeline.error === 'empty-transcript' && pipeline.context?.takeId
               ? () => openDiscardReason('pipeline-error')
+              : undefined
+          }
+          errorRepeated={pipeline.errorRepeated}
+          onHandwrite={
+            errorCardHandwriteRow?.sameDay
+              ? () => handleInboxHandwrite(errorCardHandwriteRow)
               : undefined
           }
         />
@@ -3640,6 +3667,7 @@ export function RecordPageView({
         customerNameById={customerNameById}
         onOpenRecord={handleInboxOpenRecord}
         onSaveTake={handleInboxSaveTake}
+        onHandwrite={handleInboxHandwrite}
         savingSessionId={serverSavingId}
         myDiscardsThisMonth={myDiscardsThisMonth}
       />

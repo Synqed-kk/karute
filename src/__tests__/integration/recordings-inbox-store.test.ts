@@ -24,8 +24,26 @@ jest.mock('@/lib/karute/take-store', () => ({
   TERMINAL_SECURE_ERRORS: new Set(['exists', 'reserved_elsewhere', 'not_reserved', 'superseded']),
 }))
 jest.mock('@/lib/global-recorder', () => ({ globalRecorder: { takeId: null } }))
+/** UPDATE 25 GROUP A, piece b — mutable so the reconcile tests can put the
+ *  pipeline in `error` with a session id, and prove `reset` fires (or doesn't). */
+const pipelineState = {
+  state: 'idle' as string,
+  context: null as { recordingSessionId?: string; takeId?: string } | null,
+}
+const pipelineReset = jest.fn(() => {
+  pipelineState.state = 'idle'
+})
 jest.mock('@/lib/global-pipeline', () => ({
-  globalPipeline: { state: 'idle', context: null, subscribe: () => () => {} },
+  globalPipeline: {
+    get state() {
+      return pipelineState.state
+    },
+    get context() {
+      return pipelineState.context
+    },
+    subscribe: () => () => {},
+    reset: (...a: unknown[]) => pipelineReset(...(a as [])),
+  },
 }))
 
 import {
@@ -82,6 +100,8 @@ beforeEach(() => {
   jest.clearAllMocks()
   listOwnTakes.mockImplementation(async () => [])
   listRecordingsInbox.mockImplementation(async () => [])
+  pipelineState.state = 'idle'
+  pipelineState.context = null
   resetInbox()
   // A mounted consumer — the poll only ever runs while something is watching.
   unsubscribe = subscribeInbox(() => {})
@@ -300,6 +320,102 @@ describe('FX-6c — the epoch guard (shared salon device)', () => {
     expect(listRecordingsInbox).toHaveBeenCalledTimes(1)
   })
 })
+
+/**
+ * UPDATE 25 GROUP A, piece b — the pill reconciles with the row's durable
+ * truth. Traced (cold read): `reset()`'s `notify()` re-fires the pipeline
+ * watch INSIDE this call's own stack, but `loading` is still true at that
+ * point, so the re-entrant `loadInbox()` defers to ONE trailing re-run, which
+ * finds `idle` and resets nothing again.
+ */
+describe('録音履歴 — b: the pill reconciles with the row (piece b)', () => {
+  it('error + a matching FAILED row with canRetry → reset called once; the next fold does not reset again', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      { takeId: 't1', recordingSessionId: 's1', customerId: null, customerName: null, startedAt: NOW, updatedAt: NOW },
+    ])
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'boom' }),
+    ])
+    pipelineState.state = 'error'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't1' }
+
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).toHaveBeenCalledTimes(1)
+    expect(getInboxState().rows[0].state).toBe('failed')
+    expect(getInboxState().rows[0].canRetry).toBe(true)
+
+    // Second fold: reset() flipped pipelineState.state to 'idle' (the mock's
+    // own effect), so this fold must find nothing left to reconcile.
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).toHaveBeenCalledTimes(1)
+  })
+
+  it('error + a PROCESSING row → NOT reset (no server job exists for it — the card is the only truth)', async () => {
+    listRecordingsInbox.mockResolvedValue([session({ recordingSessionId: 's1', jobStatus: 'RUNNING' })])
+    pipelineState.state = 'error'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't1' }
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).not.toHaveBeenCalled()
+  })
+
+  it('error + NO session id on the context → NOT reset (nothing to look up)', async () => {
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'boom' }),
+    ])
+    pipelineState.state = 'error'
+    pipelineState.context = { takeId: 't1' }
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).not.toHaveBeenCalled()
+  })
+
+  it('error + a FAILED row with NO audio anywhere → NOT reset (the card’s blob is the last copy)', async () => {
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'boom' }),
+    ])
+    pipelineState.state = 'error'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't1' }
+    // No local take AND no serverAudio: canRetry is false, serverAudio undefined.
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).not.toHaveBeenCalled()
+  })
+
+  it('error + a session the staffer already DISCARDED → reset (a colleague’s decision, already inert)', async () => {
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', discardedByStaff: true }),
+    ])
+    pipelineState.state = 'error'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't1' }
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).toHaveBeenCalledTimes(1)
+  })
+
+  it('the errored run’s OWN take IS in the fold — readLocalTakes stops excluding it', async () => {
+    pipelineState.state = 'error'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't-err' }
+    listRecordingsInbox.mockResolvedValue([])
+    await loadInbox()
+    await flush()
+    const excludeArg = listOwnTakes.mock.calls[0][0] as Array<string | null>
+    expect(excludeArg).not.toContain('t-err')
+  })
+
+  it('idle (the ordinary case) still excludes the live take, unchanged', async () => {
+    pipelineState.state = 'processing'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't-live' }
+    listRecordingsInbox.mockResolvedValue([])
+    await loadInbox()
+    await flush()
+    const excludeArg = listOwnTakes.mock.calls[0][0] as Array<string | null>
+    expect(excludeArg).toContain('t-live')
+  })
+})
+
 /**
  * UPDATE 25 GROUP A, piece r — `readLocalTakes` maps `secureTerminal` from
  * take-store's own TERMINAL_SECURE_ERRORS set (never re-derived here).

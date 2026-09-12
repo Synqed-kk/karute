@@ -588,12 +588,14 @@ describe('録音履歴 — i18n parity for the new keys', () => {
     'reason.tailIncomplete',
     'reason.serverAudio',
     'reason.partialOnServer',
+    'reason.emptyTranscript',
     'reason.sessionUnlisted',
     'reason.refusedHasRecord',
     'action.open',
     'action.check',
     'action.retry',
     'action.save',
+    'action.handwrite',
   ]
 
   function read(root: unknown, path: string): unknown {
@@ -610,9 +612,12 @@ describe('録音履歴 — i18n parity for the new keys', () => {
     expect(typeof read(enRecording.inbox, p)).toBe('string')
   })
 
-  it('every InboxReason the fold can emit has a message (or reuses an existing one)', () => {
-    // 'emptyTranscript' deliberately reuses recording.pipelineErrorEmptyTranscript
-    // so the one honest wording exists in ONE place.
+  it('every InboxReason the fold can emit has a message', () => {
+    // UPDATE 25 GROUP A, piece c: `reason.emptyTranscript` is now its OWN
+    // inbox-namespace key (superseding the reuse of
+    // recording.pipelineErrorEmptyTranscript) — the row's sub-line and the
+    // error card's sentence are two registers of one fact, not one shared
+    // wording. The error card's own key still exists and is pinned separately.
     const emitted = [
       'transcribing',
       'unsettled',
@@ -624,16 +629,23 @@ describe('録音履歴 — i18n parity for the new keys', () => {
       'partialOnServer',
       'sessionUnlisted',
       'refusedHasRecord',
+      'emptyTranscript',
     ] as const
     const jaInbox = jaRecording.inbox as { reason: Record<string, string> }
-    for (const r of emitted) expect(typeof jaInbox.reason[r]).toBe('string')
+    const enInbox = enRecording.inbox as { reason: Record<string, string> }
+    for (const r of emitted) {
+      expect(typeof jaInbox.reason[r]).toBe('string')
+      expect(typeof enInbox.reason[r]).toBe('string')
+    }
     expect(typeof jaRecording.pipelineErrorEmptyTranscript).toBe('string')
     expect(typeof enRecording.pipelineErrorEmptyTranscript).toBe('string')
   })
 
-  it('the new d2 key exists in both files', () => {
+  it('the new pipeline-level keys exist in both files', () => {
     expect(typeof jaRecording.serverRowMissing).toBe('string')
     expect(typeof enRecording.serverRowMissing).toBe('string')
+    expect(typeof jaRecording.pipelineErrorRepeated).toBe('string')
+    expect(typeof enRecording.pipelineErrorRepeated).toBe('string')
   })
 })
 
@@ -1055,5 +1067,43 @@ describe('録音履歴 — r: the refused take, session already has a karute', (
     )
     expect(rows).toHaveLength(1)
     expect(rows[0].state).toBe('discarded')
+  })
+})
+
+/**
+ * UPDATE 25 GROUP A, piece c — the same-day fence for the 手書き door.
+ * `sameDay` is the server's own JST-day proof; every take-only row is `false`
+ * regardless of the device clock.
+ */
+describe('録音履歴 — c: sameDay, the never-backfill fence', () => {
+  it('a session row reads sameDay true ONLY from the server flag', () => {
+    const [today] = fold([session({ recordingSessionId: 's1', karuteRecordId: 'rec-1', sameDay: true })])
+    expect(today.sameDay).toBe(true)
+    const [yesterday] = fold([
+      session({ recordingSessionId: 's2', karuteRecordId: 'rec-2', sameDay: false }),
+    ])
+    expect(yesterday.sameDay).toBe(false)
+    const [absent] = fold([session({ recordingSessionId: 's3', karuteRecordId: 'rec-3' })])
+    expect(absent.sameDay).toBe(false) // an older server that never derived it — door closed
+  })
+
+  it('every take-only row is sameDay FALSE — a device clock is never trusted for the fence', () => {
+    const orphan = fold([], [take({ takeId: 't-orphan', recordingSessionId: null })])[0]
+    expect(orphan.sameDay).toBe(false)
+    const stranded = fold(
+      [],
+      [take({ takeId: 't-stranded', startedAt: NOW - 9 * 24 * 3600_000, updatedAt: NOW - 9 * 24 * 3600_000, expiredUnsecured: true })],
+    )[0]
+    expect(stranded.sameDay).toBe(false)
+    const d3Row = fold(
+      [],
+      [take({ takeId: 't-ghost', recordingSessionId: 'sess-ghost', startedAt: NOW - SESSION_UNSETTLED_GRACE_MS - MIN })],
+    )[0]
+    expect(d3Row.sameDay).toBe(false)
+    const rRow = fold(
+      [session({ recordingSessionId: 's1', karuteRecordId: 'rec-1', sameDay: true })],
+      [take({ takeId: 't1', recordingSessionId: 's1', secureTerminal: true })],
+    ).find((r) => r.key === 'take:t1')!
+    expect(rRow.sameDay).toBe(false)
   })
 })

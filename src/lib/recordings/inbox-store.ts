@@ -151,7 +151,12 @@ function schedulePoll(rows: readonly InboxRow[]): void {
 
 /** This device's takes, minus the ones a live recorder/pipeline owns. An
  *  in-progress session is not history, and offering it as 復元可能 would let a
- *  save delete audio still being captured. */
+ *  save delete audio still being captured.
+ *
+ *  UPDATE 25 GROUP A, piece b: an ERRORED run does not own its audio the way a
+ *  live run does — the take is kept on FAILED, and it is exactly what the row
+ *  must be able to offer. Only a run still `processing`/`review`/`autosaving`
+ *  excludes its take here. */
 async function readLocalTakes() {
   const [{ listOwnTakes, TERMINAL_SECURE_ERRORS }, { globalRecorder }, { globalPipeline }] =
     await Promise.all([
@@ -159,7 +164,10 @@ async function readLocalTakes() {
       import('@/lib/global-recorder'),
       import('@/lib/global-pipeline'),
     ])
-  const takes = await listOwnTakes([globalRecorder.takeId, globalPipeline.context?.takeId])
+  const takes = await listOwnTakes([
+    globalRecorder.takeId,
+    globalPipeline.state === 'error' ? null : globalPipeline.context?.takeId,
+  ])
   return takes.map((t) => ({
     takeId: t.takeId,
     recordingSessionId: t.recordingSessionId,
@@ -193,6 +201,37 @@ async function readServerSessions() {
     console.warn('[recordings-inbox] server read failed:', err)
     return { sessions: [], failed: true }
   }
+}
+
+/**
+ * UPDATE 25 GROUP A, piece b — the pill reconciles with the row's durable
+ * truth. An in-tab error and the server's own failed/discarded row are two
+ * views of the SAME recording; once the row can speak for it (a durable
+ * failed row with a way forward, or a colleague's discard), the pill and the
+ * error card stand down so there is one honest status per failed take, not
+ * two that can drift.
+ *
+ * NOT reconciled, on purpose: an in-tab failure whose session reads
+ * 処理中/復元可能 (no server job exists for it yet — the card is the only
+ * truth there); an error with no session id (nothing to look up); a failed
+ * row with no audio anywhere (the card's retained blob is the last copy).
+ *
+ * NO LOOP: `reset()` notifies synchronously, which re-fires `armPipelineWatch`'s
+ * subscriber inside THIS call's own stack — re-entrant `loadInbox()` calls hit
+ * the `loading` guard and defer to ONE trailing re-run, which finds `idle` and
+ * returns here having done nothing (`state !== 'error'`).
+ */
+async function reconcilePipelineWithRows(rows: readonly InboxRow[]): Promise<void> {
+  const { globalPipeline } = await import('@/lib/global-pipeline')
+  if (globalPipeline.state !== 'error') return
+  const sessionId = globalPipeline.context?.recordingSessionId
+  if (!sessionId) return
+  const row = rows.find((r) => r.recordingSessionId === sessionId)
+  if (!row) return
+  const rowSpeaksForIt =
+    (row.state === 'failed' && (row.canRetry || row.serverAudio === true)) ||
+    row.state === 'discarded'
+  if (rowSpeaksForIt) globalPipeline.reset()
 }
 
 /**
@@ -242,6 +281,7 @@ async function runInbox(): Promise<void> {
       serverFailed: server.failed,
     })
     schedulePoll(rows)
+    await reconcilePipelineWithRows(rows)
   } finally {
     if (epoch === myEpoch) {
       loading = false

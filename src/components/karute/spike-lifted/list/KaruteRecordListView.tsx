@@ -235,6 +235,33 @@ export function KaruteRecordListView({
   // Which customer the dialog should preselect — null for the top "+ 新規
   // カルテ" CTA, a candidate id when opened from the search-reveal row below.
   const [presetCustomerId, setPresetCustomerId] = useState<string | null>(null)
+  // UPDATE 25 GROUP A, piece c — the same-day 手書き door's own date, from
+  // the record page's `?date=`. null everywhere else (the top CTA and the
+  // search-reveal row both leave the dialog on today, unchanged).
+  const [handwriteDate, setHandwriteDate] = useState<string | null>(null)
+
+  // Land the same-day 手書き door: `?new=<customerId>&date=<ymd>` from the
+  // record page's failed-recording row (`new` omitted for a walk-in row with
+  // no customer — `date` alone is that shape). Read once on mount; a miss on
+  // `new` (an out-of-store customer — this list is STORE-scoped, the record
+  // page's inbox is STAFF-scoped) degrades to no preselect, the same "the
+  // staffer picks" behaviour the top CTA already has. Stripped from the URL
+  // immediately so back-navigation never re-opens it.
+  useEffect(() => {
+    const dateParam = searchParams.get('date')
+    if (!dateParam) return
+    const newParam = searchParams.get('new')
+    const matched = customerOptions.some((c) => c.id === newParam) ? newParam : null
+    setPresetCustomerId(matched)
+    setHandwriteDate(dateParam)
+    setNewKaruteOpen(true)
+    const next = new URLSearchParams(window.location.search)
+    next.delete('new')
+    next.delete('date')
+    const qs = next.toString()
+    router.replace((pathname + (qs ? `?${qs}` : '')) as never, { scroll: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- landing effect, runs once
+  }, [])
 
   // DEGRADED SERVER WINDOW (fix round 2). page.tsx signals a FAILED server-side
   // window read as items=[] + total=null + initialWindowStart=null. Merging that
@@ -995,6 +1022,7 @@ export function KaruteRecordListView({
             aria-label={t('newKarute')}
             onClick={() => {
               setPresetCustomerId(null)
+              setHandwriteDate(null)
               setNewKaruteOpen(true)
             }}
           >
@@ -1135,6 +1163,7 @@ export function KaruteRecordListView({
                 candidate={revealCandidate}
                 onCreateClick={() => {
                   setPresetCustomerId(revealCandidate.id)
+                  setHandwriteDate(null)
                   setNewKaruteOpen(true)
                 }}
               />
@@ -1207,6 +1236,7 @@ export function KaruteRecordListView({
         customers={customerOptions}
         defaultStaffId={currentStaffId}
         preselectedCustomerId={presetCustomerId}
+        initialDate={handwriteDate}
       />
     </main>
   )

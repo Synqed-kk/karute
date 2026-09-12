@@ -562,6 +562,84 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
   })
 })
 
+// UPDATE 25 GROUP A, piece c — errorRepeated/lastErrorCode. retry() nulls
+// `error` synchronously before the new attempt resolves, so `errorRepeated`
+// cannot be read off `error` at failure time; `lastErrorCode` is retry()'s own
+// memory of what just failed.
+describe('globalPipeline errorRepeated (piece c)', () => {
+  it('a FIRST failure is never "repeated" (nothing to compare against)', async () => {
+    jobStatus.mockResolvedValueOnce({
+      status: 'FAILED', karuteRecordId: null, attempts: 3, maxAttempts: 3, lastError: 'EMPTY_TRANSCRIPT',
+    })
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    await tick(5000)
+    expect(globalPipeline.state).toBe('error')
+    expect(globalPipeline.error).toBe('empty-transcript')
+    expect(globalPipeline.errorRepeated).toBe(false)
+  })
+
+  it('retry() failing with the SAME code sets errorRepeated true', async () => {
+    jobStatus.mockResolvedValueOnce({
+      status: 'FAILED', karuteRecordId: null, attempts: 3, maxAttempts: 3, lastError: 'EMPTY_TRANSCRIPT',
+    })
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    await tick(5000)
+    expect(globalPipeline.errorRepeated).toBe(false)
+
+    jobStatus.mockResolvedValueOnce({
+      status: 'FAILED', karuteRecordId: null, attempts: 3, maxAttempts: 3, lastError: 'EMPTY_TRANSCRIPT',
+    })
+    globalPipeline.retry()
+    await tick(0)
+    await tick(5000)
+    expect(globalPipeline.state).toBe('error')
+    expect(globalPipeline.errorRepeated).toBe(true)
+    // MUTANT check inline: retry is never withheld on a repeated failure —
+    // the state stays 'error' (PipelineErrorCard always renders 再試行 for it).
+  })
+
+  it('retry() failing with a DIFFERENT code is not "repeated"', async () => {
+    jobStatus.mockResolvedValueOnce({
+      status: 'FAILED', karuteRecordId: null, attempts: 3, maxAttempts: 3, lastError: 'EMPTY_TRANSCRIPT',
+    })
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    await tick(5000)
+    expect(globalPipeline.error).toBe('empty-transcript')
+
+    jobStatus.mockResolvedValueOnce({
+      status: 'FAILED', karuteRecordId: null, attempts: 3, maxAttempts: 3, lastError: 'boom',
+    })
+    globalPipeline.retry()
+    await tick(0)
+    await tick(5000)
+    expect(globalPipeline.error).toBe('unknown')
+    expect(globalPipeline.errorRepeated).toBe(false)
+  })
+
+  it('reset() clears both errorRepeated and lastErrorCode', async () => {
+    jobStatus.mockResolvedValueOnce({
+      status: 'FAILED', karuteRecordId: null, attempts: 3, maxAttempts: 3, lastError: 'EMPTY_TRANSCRIPT',
+    })
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    await tick(5000)
+    jobStatus.mockResolvedValueOnce({
+      status: 'FAILED', karuteRecordId: null, attempts: 3, maxAttempts: 3, lastError: 'EMPTY_TRANSCRIPT',
+    })
+    globalPipeline.retry()
+    await tick(0)
+    await tick(5000)
+    expect(globalPipeline.errorRepeated).toBe(true)
+
+    globalPipeline.reset()
+    expect(globalPipeline.errorRepeated).toBe(false)
+    expect(globalPipeline.lastErrorCode).toBeNull()
+  })
+})
+
 describe('globalPipeline server-path poll settlement (packet 22)', () => {
   it('DONE → settles the take through the ONE rule and finishes via autosaving + serverSavedRecordId (the mirrored-toast trigger)', async () => {
     jobStatus

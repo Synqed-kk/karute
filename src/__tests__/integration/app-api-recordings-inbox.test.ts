@@ -375,6 +375,8 @@ describe('GET recordings/inbox — the join', () => {
     // Same tier as the customerId already here — WHO the session is about, not
     // WHAT was said; the privacy line this guard defends is transcript /
     // summary / audio path, and none of them moved.
+    // UPDATE 25 GROUP A, piece c: `sameDay` joined the allowlist — a boolean
+    // JST-day flag, not a fact about what was said either.
     expect(Object.keys(body.sessions[0]).sort()).toEqual([
       'createdAt',
       'customerId',
@@ -386,6 +388,7 @@ describe('GET recordings/inbox — the join', () => {
       'jobStatus',
       'karuteRecordId',
       'recordingSessionId',
+      'sameDay',
     ])
   })
 

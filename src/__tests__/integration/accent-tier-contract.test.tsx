@@ -314,6 +314,7 @@ describe('録音履歴 inbox rows (Build F1)', () => {
     startedAt: Date.parse('2026-08-25T01:00:00.000Z'),
     durationSeconds: 540,
     canRetry: false,
+    sameDay: false,
   }
 
   function renderRows(rows: Row[]) {

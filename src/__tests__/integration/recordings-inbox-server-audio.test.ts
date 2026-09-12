@@ -424,6 +424,8 @@ describe('nothing about WHERE the audio is reaches the wire', () => {
     // untouched. Consumed only by the audit-watch cron's per-staffer finder;
     // the facade DTO does not declare it (recordings-inbox-dto.ts), so it
     // never reaches the wire.
+    // ⚖ UPDATE 25 GROUP A, piece c: `sameDay` joined the row too — a boolean
+    // JST-day flag (never a path/key/status), and this one DOES ride the DTO.
     expect([...keys].sort()).toEqual([
       'createdAt',
       'customerId',
@@ -435,6 +437,7 @@ describe('nothing about WHERE the audio is reaches the wire', () => {
       'jobStatus',
       'karuteRecordId',
       'recordingSessionId',
+      'sameDay',
       'serverAudio',
       'staffId',
     ])

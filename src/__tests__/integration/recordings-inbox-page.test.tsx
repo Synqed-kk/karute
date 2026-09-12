@@ -217,6 +217,7 @@ const pipe = {
   context: null as
     | { takeId: string; recordingSessionId: string; serverRowMissing?: boolean }
     | null,
+  errorRepeated: false,
 }
 jest.mock('@/lib/global-pipeline', () => ({
   globalPipeline: {
@@ -231,6 +232,9 @@ jest.mock('@/lib/global-pipeline', () => ({
     },
     get context() {
       return pipe.context
+    },
+    get errorRepeated() {
+      return pipe.errorRepeated
     },
     runId: 1,
     savedRecordId: null,
@@ -254,6 +258,8 @@ type ServerSession = {
   jobLastError: string | null
   /** Build 23 slice ③ — what the server holds for this session's audio. */
   serverAudio?: 'segments' | 'object' | null
+  /** UPDATE 25 GROUP A, piece c — the server's own JST-day proof. */
+  sameDay?: boolean
 }
 let serverSessions: ServerSession[] = []
 let serverThrows = false
@@ -324,6 +330,7 @@ beforeEach(() => {
   pipe.state = 'idle'
   pipe.error = null
   pipe.context = null
+  pipe.errorRepeated = false
 })
 
 afterEach(() => {
@@ -533,9 +540,12 @@ describe('録音履歴 — 再試行 only when the audio is here', () => {
 
     const r = row('session:sess-1')
     expect(r.dataset.state).toBe('failed')
-    // The one honest string core's error earns, reused from the error card.
-    expect(within(r).getByText('recording.pipelineErrorEmptyTranscript')).toBeInTheDocument()
+    // UPDATE 25 GROUP A, piece c: `reason.emptyTranscript` is now its own
+    // inbox-namespace key (superseded the reuse of the error card's sentence).
+    expect(within(r).getByText('recording.inbox.reason.emptyTranscript')).toBeInTheDocument()
     expect(within(r).queryByText('recording.inbox.action.retry')).toBeNull()
+    // A yesterday-dated row (sameDay defaults to false/absent here) shows no door.
+    expect(within(r).queryByText('recording.inbox.action.handwrite')).toBeNull()
   })
 
   it('FAILED with a local take offers 再試行, and it runs the same save', async () => {
@@ -1278,6 +1288,101 @@ describe('録音履歴 — d2: no server row for this take', () => {
     pipe.context = { takeId: 't1', recordingSessionId: 's1' }
     await renderPage({ nextAppointment })
     expect(screen.queryByText('recording.serverRowMissing')).toBeNull()
+  })
+})
+
+/**
+ * UPDATE 25 GROUP A, piece c — the same-day 手書き door. F8's ONE stated
+ * exception: it renders ALONGSIDE 再試行, never in place of it.
+ */
+describe('録音履歴 — c: the same-day 手書き door', () => {
+  it('emptyTranscript + sameDay → the door renders and navigates with the row’s own day + customer', async () => {
+    serverSessions = [
+      session({
+        recordingSessionId: 'sess-1',
+        jobStatus: 'FAILED',
+        jobLastError: 'EMPTY_TRANSCRIPT',
+        sameDay: true,
+      }),
+    ]
+    await renderPage()
+    const r = row('session:sess-1')
+    await act(async () => {
+      fireEvent.click(within(r).getByText('recording.inbox.action.handwrite'))
+    })
+    await flush()
+    expect(mockPush).toHaveBeenCalledWith('/karute?date=2026-08-25&new=cust-1')
+  })
+
+  it('emptyTranscript + !sameDay (yesterday) → NO door', async () => {
+    serverSessions = [
+      session({
+        recordingSessionId: 'sess-1',
+        jobStatus: 'FAILED',
+        jobLastError: 'EMPTY_TRANSCRIPT',
+        sameDay: false,
+      }),
+    ]
+    await renderPage()
+    expect(
+      within(row('session:sess-1')).queryByText('recording.inbox.action.handwrite'),
+    ).toBeNull()
+  })
+
+  it('a session the server never derived sameDay for (older bake) shows no door either', async () => {
+    serverSessions = [
+      session({ recordingSessionId: 'sess-1', jobStatus: 'FAILED', jobLastError: 'EMPTY_TRANSCRIPT' }),
+    ]
+    await renderPage()
+    expect(
+      within(row('session:sess-1')).queryByText('recording.inbox.action.handwrite'),
+    ).toBeNull()
+  })
+
+  it('a walk-in row (no customer) omits the `new` param', async () => {
+    serverSessions = [
+      session({
+        recordingSessionId: 'sess-1',
+        customerId: null,
+        jobStatus: 'FAILED',
+        jobLastError: 'EMPTY_TRANSCRIPT',
+        sameDay: true,
+      }),
+    ]
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(
+        within(row('session:sess-1')).getByText('recording.inbox.action.handwrite'),
+      )
+    })
+    await flush()
+    expect(mockPush).toHaveBeenCalledWith('/karute?date=2026-08-25')
+  })
+
+  it('genericFailure + sameDay → NO door (only emptyTranscript gets one)', async () => {
+    serverSessions = [
+      session({ recordingSessionId: 'sess-1', jobStatus: 'FAILED', jobLastError: 'boom', sameDay: true }),
+    ]
+    await renderPage()
+    expect(
+      within(row('session:sess-1')).queryByText('recording.inbox.action.handwrite'),
+    ).toBeNull()
+  })
+
+  it('the door renders ALONGSIDE 再試行 when the audio is still on this device (F8 exception)', async () => {
+    serverSessions = [
+      session({
+        recordingSessionId: 'sess-1',
+        jobStatus: 'FAILED',
+        jobLastError: 'EMPTY_TRANSCRIPT',
+        sameDay: true,
+      }),
+    ]
+    stored = [take({ takeId: 'take-1', recordingSessionId: 'sess-1' })]
+    await renderPage()
+    const r = row('session:sess-1')
+    expect(within(r).getByText('recording.inbox.action.handwrite')).toBeInTheDocument()
+    expect(within(r).getByText('recording.inbox.action.retry')).toBeInTheDocument()
   })
 })
 
