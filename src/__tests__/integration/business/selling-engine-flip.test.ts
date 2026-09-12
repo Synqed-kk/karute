@@ -51,6 +51,8 @@ import { reservedMaskFor, type ReleasedWindow, type ReservedLaneMask } from '@/a
 import { SELLING_ENGINE_LAW } from '@/app/[locale]/(business)/business/today/selling-engine-gate'
 import { bedDoor, bedViewsFor, TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import {
+  applyBlockMoves,
+  applyMoves,
   canReleaseHeld,
   explainRails,
   gapKindOf,
@@ -67,9 +69,14 @@ import {
   sellDrawnFor,
   sellLayerFor,
   sellStaffLanes,
+  warnFaceFor,
+  windowsOf,
+  lostOn,
   type GuardRail,
+  type RailCell,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
 import { type GapCell } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
 import { clampPriceInputs, SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
@@ -2533,5 +2540,119 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     // …and the one match IS the pinned sentence, not a second gate that happens
     // to sit beside it: same index, offset by the sentence's own prefix.
     expect(door.indexOf('return null')).toBe(door.indexOf(GATE) + 'if (!heldCommitted) '.length)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW.md H3)
+// 8 — THE STAGED ORIGIN BOARD, AND THE SENTENCE IT PAYS FOR.
+//
+// `honestOrigin` is the 元に戻す board's own honest set, and the whole of the
+// 16:00 warning rides on it: `lostOn` subtracts the two SETTLED boards, and if
+// the origin one collapses to the staged answer the subtraction is zero and the
+// card goes quiet about a 枠 the store really loses. Codex's mutant
+// (「`if (dayStaged) return honest` at the top of `honestOrigin`」) does exactly
+// that and no suite in the family noticed.
+//
+// ⚠ THIS SUITE CANNOT MOUNT. react-dom is off Business territory's import
+// allowlist (business-isolation.test.ts), which this file's own header states,
+// so the memo cannot be exercised through a render here. Two pins instead, and
+// between them they cover what the mutant breaks:
+//   (a) the staged board's data path, end to end through the real producers —
+//       two settled boards, one netting each, `lostOn`, and the sentence the
+//       card prints, byte for byte, plus the undo and the price-0 cases;
+//   (b) the memo's own head as an anchored slice, so an early `return honest`
+//       in front of the guard cannot be added silently.
+// The RENDERED half is the new-window rig, which does mount: the mutant takes
+// 5 of its 14 legs RED (W1/W2/W3/W6/W13 — logs/new-window-pin-final-b8-mutant.log).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('8 — the staged origin board keeps the store\u2019s loss sayable', () => {
+  /** The REST board, built the way the screen builds it (TodayScreen's
+   *  `placedLanes` then `committedLanes`, no moves). */
+  const restLanes = () => applyMoves(applyBlockMoves(REAL.lanes, {}, REAL.hours, []), {}, [], [], REAL.hours, {}, REAL.bedCleanupMinutes)
+
+  /** A settled board's honest day answer — `windowsOf(honest…)`, the producer
+   *  BOTH sides of `lostOn` read since this round. */
+  const dayOf = (lanes: BoardLane[], released: readonly ReleasedWindow[] = []) => {
+    const frame = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
+    const book = bedViewsFor(lanes, frame, null).world
+    const mask = reservedMaskFor({
+      lanes, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute,
+      guard: REAL.guard.config, gapGuardMode: REAL.guard.mode, book, released,
+    })
+    return windowsOf(honestHeld(mask, lanes, book, true), lanes)
+  }
+
+  /** The card's own face, composed by the one producer the screen calls. */
+  const faceFor = (rows: ReturnType<typeof lostOn>, landing: string, listPrice: number) =>
+    warnFaceFor({
+      rows: [],
+      cell: {
+        start: 16 * 60, state: 'warn', label: '', sentence: '', reason: null,
+        alternatives: [], alternativeKind: null, ackAllowed: true,
+        day: { laneKey: landing, before: rows.reduce((a, r) => a + r.before.length, 0), after: rows.reduce((a, r) => a + r.after.length, 0), lostOn: rows },
+      } as unknown as RailCell,
+      override: null, level: 'allow-warned', holdToConfirm: true, targetLaneMine: false,
+      operatorName: '見本 たろう', listPrice,
+      // The board's OWN price levers, through this suite's one home for them —
+      // the card's ¥ and the board's ¥ come off one set of dials by construction.
+      frame: priceOf().frame, depth: priceOf().depth,
+      protectedDur: REAL.guard.protectedDurationMin, confirmEnabled: true,
+    })
+
+  /** しろう's 15:45 枠 — the one a 16:00 landing on the row below costs the
+   *  store. The label and the price are read off the BOARD, never typed. */
+  const LOST = { laneKey: 'p-04', windowStart: 945 }
+  const LANDING = 'p-06'
+
+  it('two settled boards, one netting each: しろう loses her 15:45 枠 and the card says so', () => {
+    const lanes = restLanes()
+    const before = dayOf(lanes)
+    const after = dayOf(lanes, [{ ...LOST, dayOffset: REAL.dayOffset, store: REAL.store } as unknown as ReleasedWindow])
+    const rows = lostOn(before, after)
+    const lost = lanes.find((l) => l.key === LOST.laneKey)!
+    expect(rows.map((r) => ({ laneKey: r.laneKey, label: r.label, before: r.before, after: r.after, listPrice: r.listPrice })))
+      .toEqual([{ laneKey: LOST.laneKey, label: lost.label, before: [LOST.windowStart], after: [], listPrice: lost.listPrice }])
+    const face = faceFor(rows, LANDING, lanes.find((l) => l.key === LANDING)!.listPrice)
+    const sentence = `${face.impact.head}${face.impact.yen ? `（${face.impact.yen}）` : ''}${face.impact.tail}`
+    expect({ face: face.face, sentence }).toEqual({
+      face: 'warn',
+      sentence: `ここに置くと、${lost.label}の新規のお客様の${REAL.guard.protectedDurationMin}分の空き（${face.impact.yen}）が1枠から0枠に減ります。`,
+    })
+    expect(face.impact.yen).toMatch(/^約¥[\d,]+$/)
+    expect({ kind: face.commit?.kind, label: face.commit?.label }).toEqual({ kind: 'hold', label: '長押しで注意して配置' })
+  })
+
+  it('undo: with nothing staged the two boards agree and the card goes quiet', () => {
+    const lanes = restLanes()
+    const rows = lostOn(dayOf(lanes), dayOf(lanes))
+    expect(rows).toEqual([])
+    const face = faceFor(rows, LANDING, lanes.find((l) => l.key === LANDING)!.listPrice)
+    expect({ face: face.face, head: face.impact.head, commit: face.commit }).toEqual({ face: 'clean', head: '', commit: null })
+  })
+
+  it('a price-0 lane loses a 枠 too, and the sentence drops the ¥ rather than guessing a zero', () => {
+    const lanes = restLanes().map((l) => (l.key === LOST.laneKey ? { ...l, listPrice: 0 } : l))
+    const before = dayOf(lanes)
+    const after = dayOf(lanes, [{ ...LOST, dayOffset: REAL.dayOffset, store: REAL.store } as unknown as ReleasedWindow])
+    const rows = lostOn(before, after)
+    expect(rows.map((r) => ({ laneKey: r.laneKey, listPrice: r.listPrice, before: r.before, after: r.after })))
+      .toEqual([{ laneKey: LOST.laneKey, listPrice: 0, before: [LOST.windowStart], after: [] }])
+    const face = faceFor(rows, LANDING, lanes.find((l) => l.key === LANDING)!.listPrice)
+    const label = lanes.find((l) => l.key === LOST.laneKey)!.label
+    expect({ face: face.face, yen: face.impact.yen, head: face.impact.head, tail: face.impact.tail }).toEqual({
+      face: 'warn', yen: null,
+      head: `ここに置くと、${label}の新規のお客様の${REAL.guard.protectedDurationMin}分の空き`,
+      tail: 'が1枠から0枠に減ります。',
+    })
+  })
+
+  it('\u2026and the memo that builds the origin board cannot lose its guard', () => {
+    // Codex's mutant inserts `if (dayStaged) return honest` ABOVE this line, so
+    // the two lines stop being adjacent and this anchor goes RED. It is the
+    // repo-side half of a fact the rig proves by rendering.
+    const screen = SRC('TodayScreen.tsx')
+    expect(screen).toContain('const honestOrigin = useMemo(() => {\n    if (!honest || !dayStaged) return honest\n    const originHeld = heldCommittedFor({')
   })
 })
