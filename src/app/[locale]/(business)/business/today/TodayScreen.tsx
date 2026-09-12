@@ -192,7 +192,7 @@ import {
 import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
 import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
 import { heldCommittedFor } from './held-committed'
-import { demoteShared, heldMaskOf, honestHeld } from './honest-held'
+import { demoteShared, heldMaskOf, honestHeld, type HonestHeld } from './honest-held'
 import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'
 import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'
 
@@ -2063,10 +2063,16 @@ export function TodayScreen(props: TodayProps) {
     () => new Set(sellStaffLanes(committedLanes, locked).filter((l) => !l.locked).map((l) => l.key)),
     [committedLanes, locked],
   )
-  /** ⚠ `total` on this value is the STORE'S, carried through unchanged by the
-   *  narrowing — nothing reads it off here, and the header reads `honest`. */
+  /** HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 4)
+   *  — THE DRAWN HALF IS ONLY ROWS. It used to be a whole `HonestHeld` carrying
+   *  the STORE's `total` beside a narrowed `byLane`, which is a typed value that
+   *  contradicts itself: nothing read `.total` off it, but nothing stopped the
+   *  next reader either, and that reader would have put the store's number on a
+   *  narrowed surface. It has the rows and nothing else now, so the wrong number
+   *  is not there to be read. The counted half is `honest`, which is whole. */
   const honestDrawn = useMemo(
-    () => (honest ? { ...honest, byLane: honest.byLane.filter((l) => sellableLaneKeys.has(l.laneKey)) } : undefined),
+    (): Pick<HonestHeld, 'byLane'> | undefined =>
+      (honest ? { byLane: honest.byLane.filter((l) => sellableLaneKeys.has(l.laneKey)) } : undefined),
     [honest, sellableLaneKeys],
   )
   /** ⚖ v3 N1 — the DRAWING's per-lane index. `heldDrawnByLane` below is KEPT
