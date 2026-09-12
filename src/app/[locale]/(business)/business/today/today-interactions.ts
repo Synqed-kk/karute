@@ -2985,15 +2985,13 @@ export const reservedSentence = (start: number, end: number): string =>
  *     is the point). It deliberately does NOT repeat the held box's
  *     「オンラインで新規のお客様に販売中」, which would say the opposite.
  *
- *  // JP-NATIVE PASS PENDING — drafted from the siblings on this same surface
- *  (`新規用に確保` TodayScreen:7227, `reservedClause` above); a native reader
- *  rules on the wording before Liam sees it. */
+ *  // JP-NATIVE PASS DONE 2026-09-13 (JP-NATIVE-HONEST-COUNT/REPORT.md) */
 export const sharedRoomTitle = (roomLabel: string, withName: string | null): string =>
   withName ? `${roomLabel}を${withName}の確保枠と共有` : `${roomLabel}をほかの確保枠と共有`
 
-/** // JP-NATIVE PASS PENDING — see `sharedRoomTitle`. */
+/** // JP-NATIVE PASS DONE 2026-09-13 (JP-NATIVE-HONEST-COUNT/REPORT.md) */
 export const sharedRoomSub = (dur: number): string =>
-  `${dur}分・確保枠の数には含めていません・この時間はオンライン販売に出していません`
+  `${dur}分・確保枠の数には含めていません・オンラインでは販売していません`
 
 /** ⚖ FIX ROUND 2 (A + D, 2026-09-09) — THE BED TRUTH FOR ONE WINDOW.
  *

@@ -7403,13 +7403,14 @@ export function TodayScreen(props: TodayProps) {
               return (
                 <div
                   className="cell-shared"
+                  role="note"
                   key={`shared-${s.start}`}
                   style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
                   aria-label={`${title}。${sub}`}
-                  data-guide-title={firstSharedLane === lane.key && s === sharedHere[0] ? '部屋を共有している確保枠' : undefined}
+                  data-guide-title={firstSharedLane === lane.key && s === sharedHere[0] ? 'ベッドを共有している確保枠' : undefined}
                   data-guide={
                     firstSharedLane === lane.key && s === sharedHere[0]
-                      ? '同じ部屋を必要とする確保枠が重なっています。実際にお受けできるのは片方だけなので、こちらは確保枠の数に入れていません。時間はオンライン販売に出していません。'
+                      ? 'このベッドを必要とする確保枠が重なっているため、実際にお使いいただけるのは片方だけです。こちらは確保枠の数には入れておらず、オンラインでは販売していません。'
                       : undefined
                   }
                 >
@@ -8032,8 +8033,8 @@ export function TodayScreen(props: TodayProps) {
               // rooms can honour against TODAY'S bookings (the hours already on
               // sale are not subtracted), and it includes 確保枠 on rows that
               // sell nothing online, which the board draws no box for.
-              // JP-NATIVE PASS PENDING — a native reader rules on the wording.
-              data-guide="新規のお客様のために店全体で確保している枠の数です。今日の予約に対して部屋が用意できる数で、販売中の枠は差し引いていません。オンライン販売をしていないスタッフの確保枠も含みます。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。"
+              // JP-NATIVE PASS DONE 2026-09-13 (JP-NATIVE-HONEST-COUNT/REPORT.md)
+              data-guide="新規のお客様のために店全体で確保している枠の数です。今日の予約に対してベッドが用意できる数で、販売中の枠は差し引いていません。オンライン販売をしていないスタッフの確保枠も含みます。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。"
             >
               新規用に確保 {dayCommitted.total}枠
             </span>
