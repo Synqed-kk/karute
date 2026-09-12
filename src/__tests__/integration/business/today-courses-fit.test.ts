@@ -50,6 +50,7 @@ const fits = (over: Partial<Parameters<typeof coursesFitForDay>[0]> = {}) =>
     open: OPEN,
     close: CLOSE,
     bookings: [],
+    blocks: [],
     sessionMin: SESSION,
     ...over,
   })
@@ -198,5 +199,38 @@ describe('coursesFitForDay — the pockets, packed', () => {
     expect(
       fits({ shifts: [shift('p-01', OPEN, CLOSE)], bookings: [{ staffId: 'p-01', start: 600, end: 720 }] }),
     ).toBe(7)
+  })
+
+  describe('⚖ FIX ROUND 3 — P1, staff blocks are occupied time', () => {
+    it('a 15-minute block inside a lane turns one 120-minute pocket into 45+60 — loses one course', () => {
+      // Untouched: a single 120-minute pocket packs 2 courses of 60.
+      const roster = { shifts: [shift('p-01', OPEN, OPEN + 120)] }
+      expect(fits(roster)).toBe(2)
+      // The block sits at +45..+60 (15 min), splitting the pocket into a
+      // 45-minute piece (0 courses) and a 60-minute piece (1 course) — 1, not 2.
+      expect(
+        fits({ ...roster, blocks: [{ staffId: 'p-01', start: OPEN + 45, end: OPEN + 60 }] }),
+      ).toBe(1)
+    })
+
+    it('a block on a non-treating staff member changes nothing', () => {
+      const roster = { staff: [{ id: 'p-09' }], shifts: [shift('p-09')] }
+      expect(fits(roster)).toBe(0)
+      expect(fits({ ...roster, blocks: [{ staffId: 'p-09', start: OPEN, end: OPEN + 60 }] })).toBe(0)
+    })
+
+    it('a RESOURCE-ONLY block (staffId null) changes nothing — nobody’s day is spent on a blocked bed', () => {
+      const roster = { shifts: [shift('p-01')] }
+      const baseline = fits(roster)
+      expect(fits({ ...roster, blocks: [{ staffId: null, start: OPEN + 60, end: OPEN + 120 }] })).toBe(baseline)
+    })
+
+    it('a block outside the shift changes nothing', () => {
+      const roster = { shifts: [shift('p-01', 12 * 60, 16 * 60)] }
+      const baseline = fits(roster)
+      // Entirely before the shift, and entirely after it.
+      expect(fits({ ...roster, blocks: [{ staffId: 'p-01', start: 8 * 60, end: 9 * 60 }] })).toBe(baseline)
+      expect(fits({ ...roster, blocks: [{ staffId: 'p-01', start: 17 * 60, end: 18 * 60 }] })).toBe(baseline)
+    })
   })
 })

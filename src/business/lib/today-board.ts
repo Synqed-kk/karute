@@ -5,7 +5,9 @@
 // and the cards themselves are ONE count; 稼働率 and the month calendar's
 // 「あとN枠」 ask different questions — a ratio of minutes and a count of
 // courses — but they ask them of ONE set of door reads: the same roster, the
-// same shifts, the same 勤務不可, the same bookings). That discipline is only
+// same shifts, the same 勤務不可, the same 予定ブロック, the same bookings — the
+// fifth input joined 2026-09-12 fix round 3, when P1 found a block that could
+// swallow a course the count still advertised). That discipline is only
 // checkable if the arithmetic can be called on its own, so it lives here and
 // the page composes.
 //
@@ -241,6 +243,18 @@ export function coursesFitForDay(input: {
    *  package that failed the isolation lock. */
   close: number
   bookings: ReadonlyArray<{ staffId: string | null; start: number; end: number }>
+  /** ⚖ FIX ROUND 3 (P1) — 予定ブロック (「準備」「記録」「レジ」「指名予約」…), the
+   *  board's own 「予約不可」 cards (`kind: 'block'`). A block on a staff member
+   *  IS occupied time on that member's lane, the same as a booking or a break —
+   *  the board already refuses to place one there (`laneSpans()` counts every
+   *  item whatever its `kind`), so a count that ignored them advertised a
+   *  course the placement rail would refuse. A RESOURCE-ONLY block (`staffId`
+   *  null — a bed-only 予定ブロック) is NOT lane occupancy: nobody's DAY is
+   *  spent when a bed alone is blocked, so it is filtered out below and never
+   *  subtracted the way an unassigned booking is. A block on a staff member
+   *  with no shift that day (or outside her clamped window) changes nothing,
+   *  same as a booking. */
+  blocks: ReadonlyArray<{ staffId: string | null; start: number; end: number }>
   /** 標準セッション (`opsConfig.standardSessionMin`), the length being counted. */
   sessionMin: number
 }): number {
@@ -270,6 +284,7 @@ export function coursesFitForDay(input: {
       occupied: [
         ...eff.breaks.map((b) => ({ start: b.start, end: b.end, isBreak: true })),
         ...input.bookings.filter((b) => b.staffId === member.id),
+        ...input.blocks.filter((b) => b.staffId === member.id),
       ],
     })
     for (const pocket of pockets) fits += kPackCount(pocket.s, pocket.e, sessionMin)
@@ -742,6 +757,18 @@ export function absenceForDay(
   byDay: ReadonlyMap<number, FixtureAbsence | null>,
 ): FixtureAbsence | null {
   return byDay.get(dayKey) ?? null
+}
+
+/** ⚖ FIX ROUND 3 (P1) — the 予定ブロック that occupy day K's lanes: the door's
+ *  answer FOR K, and nothing else — same one-home discipline as `absenceForDay`
+ *  right above it. A day the door holds no block for has none, honestly.
+ *  Returned already in `coursesFitForDay`'s own occupancy shape, so the
+ *  caller hands the result straight through. */
+export function blocksForDay(
+  dayKey: number,
+  byDay: ReadonlyMap<number, FixtureBlock[]>,
+): ReadonlyArray<{ staffId: string | null; start: number; end: number }> {
+  return (byDay.get(dayKey) ?? []).map((b) => ({ staffId: b.staff_id, start: b.start, end: b.end }))
 }
 
 /* ⚰ `rosterAvailableMinutes` LIVED HERE and was deleted 2026-09-12 (fix round 1).

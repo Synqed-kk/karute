@@ -62,12 +62,13 @@ import { opsConfig } from '@/business/lib/fixtures-today'
 import {
   listAbsenceByDay,
   listAppointments,
+  listBlocksByDay,
   listShiftsByDay,
   listStaff,
   readDayPlanes,
   renderNow,
 } from '@/business/lib/data'
-import { absenceForDay, coursesFitForDay, treatsPatients } from '@/business/lib/today-board'
+import { absenceForDay, blocksForDay, coursesFitForDay, treatsPatients } from '@/business/lib/today-board'
 
 /** page.tsx's own read window (`WINDOW`), stated here rather than imported so a
  *  change to the page has to be a deliberate change to this pin too. */
@@ -207,6 +208,7 @@ describe('⚖ V5 — 勤務不可 shortens its OWN day, on EVERY shown day', () 
         open: planes.operatingHours.open,
         close: planes.operatingHours.close,
         bookings: [],
+        blocks: [],
         sessionMin: planes.opsConfig.standardSessionMin,
       })
     const without = day(null)
@@ -556,7 +558,7 @@ describe('⚖ 9/12 — あと入る数 (「I choose B」)', () => {
     const props = await pageProps()
     const todayKey = jstDayKey(renderNow())
     const sessionMin = props.calendarSessionMin
-    const [appointments, staff, planes, shiftsByDay, absenceByDay] = await Promise.all([
+    const [appointments, staff, planes, shiftsByDay, absenceByDay, blocksByDay] = await Promise.all([
       listAppointments(STORE_A, {
         from: new Date(renderNow().getTime() - (WINDOW + 1) * 86_400_000).toISOString(),
         to: new Date(renderNow().getTime() + (WINDOW + 1) * 86_400_000).toISOString(),
@@ -565,6 +567,7 @@ describe('⚖ 9/12 — あと入る数 (「I choose B」)', () => {
       readDayPlanes(STORE_A, todayKey),
       listShiftsByDay(STORE_A, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
       listAbsenceByDay(STORE_A, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
+      listBlocksByDay(STORE_A, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
     ])
 
     /** THIS SUITE'S OWN ARITHMETIC. Nothing below calls `coursesFitForDay`,
@@ -572,13 +575,19 @@ describe('⚖ 9/12 — あと入る数 (「I choose B」)', () => {
      *  hand, the occupancy merged by hand, the gaps walked by hand and the
      *  courses packed by hand. A helper that quietly stopped subtracting breaks,
      *  stopped honouring the 勤務不可 or started counting loose minutes lands
-     *  here as a number, not as a green test. */
+     *  here as a number, not as a green test.
+     *  ⚖ FIX ROUND 3 (P1) — `blocksForDay` rides along for the same reason
+     *  `absenceForDay` already does: it is a data-shaping lookup (which day's
+     *  rows), never the arithmetic under test, so borrowing it does not weaken
+     *  the pin. A resource-only block (`staffId` null) is filtered out below,
+     *  same as `coursesFitForDay` itself. */
     const recompute = (dayKey: number): number => {
       const shifts = shiftsByDay.get(dayKey)
       if (!shifts) return 0
       const p = jstYmd(new Date(renderNow().getTime() + (dayKey - todayKey) * 86_400_000))
       if (p.wd === planes.closedWeekday) return 0
       const absence = absenceForDay(dayKey, absenceByDay)
+      const dayBlocks = blocksForDay(dayKey, blocksByDay)
       const live = appointments.filter(
         (a) => jstDayKey(a.starts_at) === dayKey && a.status !== 'cancelled' && a.board_state !== 'noshow',
       )
@@ -598,6 +607,7 @@ describe('⚖ 9/12 — あと入る数 (「I choose B」)', () => {
           ...live
             .filter((a) => a.staff_id === member.id)
             .map((a) => ({ s: jstMinuteOfDay(a.starts_at), e: jstMinuteOfDay(a.ends_at) })),
+          ...dayBlocks.filter((b) => b.staffId === member.id).map((b) => ({ s: b.start, e: b.end })),
         ]
           .map((b) => ({ s: Math.max(b.s, shift.start), e: Math.min(b.e, until) }))
           .filter((b) => b.e > b.s)

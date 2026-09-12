@@ -39,6 +39,7 @@ import {
   listResources,
   listStaff,
   listAbsenceByDay,
+  listBlocksByDay,
   listShiftsByDay,
   listStoreOptions,
   readDayPlanes,
@@ -49,6 +50,7 @@ import {
 } from '@/business/lib/data'
 import {
   absenceForDay,
+  blocksForDay,
   buildLanes,
   coursesFitForDay,
   dayBookings,
@@ -138,7 +140,7 @@ export default async function TodayPage({
   const from = new Date(now.getTime() + (-WINDOW - 1) * DAY_MS).toISOString()
   const to = new Date(now.getTime() + (WINDOW + 1) * DAY_MS).toISOString()
 
-  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay, absenceByDay] =
+  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay, absenceByDay, blocksByDay] =
     await Promise.all([
     listCustomers(lens),
     listAppointments(lens, { from, to }),
@@ -154,6 +156,10 @@ export default async function TodayPage({
     // asked per day. Inclusive on both ends, exactly the window the grid draws.
     listShiftsByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
     listAbsenceByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
+    // ⚖ FIX ROUND 3 (P1) — the fifth per-day input, same discipline as the two
+    // above it: a staff block is occupied time and the count must not disagree
+    // with what the placement rail already refuses.
+    listBlocksByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
   ])
   const staffStores = await readStaffStores(lens)
 
@@ -249,6 +255,7 @@ export default async function TodayPage({
           open: planes.operatingHours.open,
           close: planes.operatingHours.close,
           bookings: bookingsByDay.get(dayKey) ?? [],
+          blocks: blocksForDay(dayKey, blocksByDay),
           sessionMin: planes.opsConfig.standardSessionMin,
         })
     return { offset, ...p, closed, fits, booked: countByDay.get(dayKey) ?? 0 }
