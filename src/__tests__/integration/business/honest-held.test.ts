@@ -209,19 +209,27 @@ function randomBoard(seed: number, len = 90) {
     wins.push({ laneKey: `p-${String(i).padStart(2, '0')}`, start, end: start + len, rooms: mine.length ? mine : [rooms[0]] })
   }
   const candidates = wins.map((w) => maskOf(w.laneKey, [span(w.start, len)]))
-  const lanes = wins.map((w) => lane(w.laneKey))
-  const book = stubBook((start) => wins.find((w) => w.start === start)?.rooms ?? [])
+  // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md NOTE 2)
+  // Every lane carries its OWN store binding, so the stub book is keyed on
+  // (lane, start) instead of on start alone. Two 枠 that begin at the same
+  // minute on two rows now get their own room lists — which is what lets the
+  // comparison below keep those boards instead of skipping them. Two staff free
+  // at 14:00 is the normal board, not an edge.
+  const lanes = wins.map((w) => lane(w.laneKey, [w.laneKey]))
+  const book = stubBook((start, _end, stores) => wins.find((w) => w.start === start && w.laneKey === stores?.[0])?.rooms ?? [])
   return { wins, candidates, lanes, book }
 }
 
 describe('honest-held — against a brute-force oracle', () => {
-  it('publishes exactly the maximum, legally, on 500 random small boards', () => {
+  it('publishes exactly the maximum, legally, on 500 random small boards — boards where 枠 START TOGETHER included', () => {
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md NOTE 2)
+    // This loop used to `continue` past every board on which two 枠 begin at
+    // the same minute, because the stub book could not tell the two rows apart.
+    // The book is keyed on (lane, start) now, so nothing is skipped and the
+    // commonest real board — two staff free at the same time — is in the
+    // comparison.
     for (let seed = 0; seed < 500; seed += 1) {
       const { wins, candidates, lanes, book } = randomBoard(seed)
-      // One lane per 枠 here, so a lane's rooms are found by START — two 枠 at
-      // the same start on different lanes would collide in the stub. Skipped
-      // rather than papered over; the fixture case covers distinct starts.
-      if (new Set(wins.map((w) => w.start)).size !== wins.length) continue
       const h = honestHeld(candidates, lanes, book, true)
       const want = bruteForce(wins)
       const roomsOf = new Map(wins.map((w) => [w.laneKey, w.rooms]))
@@ -230,6 +238,22 @@ describe('honest-held — against a brute-force oracle', () => {
       // Nothing is lost on the way out: held + shared is the input, per row.
       expect({ seed, kept: h.byLane.reduce((a, l) => a + l.held.length + l.shared.length, 0) }).toEqual({ seed, kept: wins.length })
     }
+  })
+
+  it('one lane, two 枠, one room: the earlier is held, the later is shared, and it names the lane itself', () => {
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md NOTE 2)
+    // A lane can publish more than one 枠 (pocket order), and the per-lane
+    // rebuild keys on `${laneKey}|${windowStart}` — this is the board that key
+    // has to survive. Both 枠 want ベッド1 and they overlap, so the partner the
+    // shared one names is its own row.
+    const book = stubBook((start, _end, stores) => (stores?.[0] === 'p-01' && (start === 600 || start === 660) ? ['bed-01'] : []))
+    const h = honestHeld([maskOf('p-01', [span(600, 90), span(660, 90)])], [lane('p-01', ['p-01'])], book, true)
+    expect(picture(h)).toEqual({
+      held: ['p-01 10:00-11:30'],
+      shared: ['p-01 11:00-12:30→bed-01 with p-01'],
+      total: 1,
+      exact: true,
+    })
   })
 })
 
