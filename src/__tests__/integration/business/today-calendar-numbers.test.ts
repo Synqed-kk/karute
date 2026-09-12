@@ -277,7 +277,7 @@ describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an 
   // fix) would have painted 満, a capacity of zero nobody computed.
   //
   // THE RULE: the day still comes through, dated by the server's own clock read
-  // and carrying `covered: false` — which is a row with NO `free` and NO
+  // and carrying `covered: false` — which is a row with NO `fits` and NO
   // `closed` on it, so no surface can read a capacity off it by accident.
   const DAY_MS = 86_400_000
   const service = createServiceClient as jest.Mock
@@ -344,7 +344,7 @@ describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an 
     expect(row).toEqual({ offset: 3, ...jstYmd(new Date(renderNow().getTime() + 3 * DAY_MS)), covered: false })
     // …and that is the whole row. 満 is a count, 定休 is a decision the store
     // made; neither is knowable here, so neither field exists to be read.
-    expect('free' in row).toBe(false)
+    expect('fits' in row).toBe(false)
     expect('closed' in row).toBe(false)
   })
 
