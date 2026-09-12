@@ -91,7 +91,7 @@ describe('calendarCellFace — one answer for paint, word and sentence', () => {
   })
 
   it('the 橙 boundary is INCLUSIVE — tightMax itself is still 残りわずか', () => {
-    // The legend promises 「橙＝残り1〜2枠」, so 2 has to be orange and 3 green
+    // The legend promises 「橙＝あと1〜2枠」, so 2 has to be orange and 3 green
     // (and 0 is 満, which is why the clause is a RANGE and not 「2枠以下」).
     // A `<` here would print a legend the board does not honour.
     expect(calendarCellFace(day({ fits: CALENDAR_TIGHT_MAX })).tone).toBe('tight')
@@ -204,10 +204,10 @@ describe('clampCalendarTight — what a stored bound is allowed to be', () => {
 describe('calendarTightLegend — the 橙 clause says exactly what the tier is', () => {
   it('names the range at 2–5, the single number at 1, and nothing at 0', () => {
     expect(calendarTightLegend(0)).toBeNull()
-    // 「橙＝残り1〜1枠」 is a range nobody writes.
-    expect(calendarTightLegend(1)).toBe('橙＝残り1枠')
-    expect(calendarTightLegend(2)).toBe('橙＝残り1〜2枠')
-    expect(calendarTightLegend(5)).toBe('橙＝残り1〜5枠')
+    // 「橙＝あと1〜1枠」 is a range nobody writes.
+    expect(calendarTightLegend(1)).toBe('橙＝あと1枠')
+    expect(calendarTightLegend(2)).toBe('橙＝あと1〜2枠')
+    expect(calendarTightLegend(5)).toBe('橙＝あと1〜5枠')
   })
 
   it('and the sentence matches the paint, at every legal setting', () => {
@@ -222,7 +222,7 @@ describe('calendarTightLegend — the 橙 clause says exactly what the tier is',
         continue
       }
       expect({ tightMax, amber }).toEqual({ tightMax, amber: [1, 2, 3, 4, 5].slice(0, tightMax) })
-      expect(clause.startsWith('橙＝残り1')).toBe(true)
+      expect(clause.startsWith('橙＝あと1')).toBe(true)
       expect(clause.endsWith(`${tightMax}枠`)).toBe(true)
     }
   })

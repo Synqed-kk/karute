@@ -508,7 +508,7 @@ export function clampCalendarTight(value: unknown): number {
  *  colour the month cannot paint is the degraded state lying about itself. */
 export function calendarTightLegend(tightMax: number): string | null {
   if (tightMax <= 0) return null
-  return tightMax === 1 ? '橙＝残り1枠' : `橙＝残り1〜${tightMax}枠`
+  return tightMax === 1 ? '橙＝あと1枠' : `橙＝あと1〜${tightMax}枠`
 }
 
 export interface CalendarCellFace {

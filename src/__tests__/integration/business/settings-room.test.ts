@@ -984,7 +984,7 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
    *  THE BOARD'S. The row was built by mirroring the field above it, so it is
    *  pinned the same way — but with one thing the older field does not need: its
    *  bounds are READ from the dial's own home rather than spelled here. A second
-   *  literal is how 「橙＝残り1〜5枠」 and a stepper that stops at 4 come to
+   *  literal is how 「橙＝あと1〜5枠」 and a stepper that stops at 4 come to
    *  disagree, and neither surface would be wrong on its own. */
   it('⚖ 9/12 — the 残りわずかの目安 field reads ONE guardrail, and 0 is a real setting', () => {
     // 1 · THE BOUNDS ARE THE BOARD'S, destructured once, never re-typed.
