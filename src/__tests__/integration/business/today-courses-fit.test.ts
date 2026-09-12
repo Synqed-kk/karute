@@ -233,4 +233,23 @@ describe('coursesFitForDay — the pockets, packed', () => {
       expect(fits({ ...roster, blocks: [{ staffId: 'p-01', start: 17 * 60, end: 18 * 60 }] })).toBe(baseline)
     })
   })
+
+  describe('⚖ FIX ROUND 3 — P2, an unassigned booking outside 営業時間 costs nothing past the wall', () => {
+    const roster = { shifts: [shift('p-01')] } // 10:00–19:00, untouched by the unassigned lane
+
+    it('a 20:00–21:00 unassigned booking at a 10:00–19:00 store costs 0 — entirely past close', () => {
+      const without = fits(roster)
+      expect(fits({ ...roster, bookings: [{ staffId: null, start: 20 * 60, end: 21 * 60 }] })).toBe(without)
+    })
+
+    it('an 18:30–19:30 unassigned booking costs 1 — only the 30 minutes before close count (ceil = 1)', () => {
+      expect(
+        fits({ ...roster, bookings: [{ staffId: null, start: 18 * 60 + 30, end: 19 * 60 + 30 }] }),
+      ).toBe(fits(roster) - 1)
+    })
+
+    it('a 9:00–11:00 unassigned booking costs 1 — only the hour after open counts', () => {
+      expect(fits({ ...roster, bookings: [{ staffId: null, start: 9 * 60, end: 11 * 60 }] })).toBe(fits(roster) - 1)
+    })
+  })
 })

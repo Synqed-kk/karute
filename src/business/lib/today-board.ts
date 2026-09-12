@@ -289,9 +289,18 @@ export function coursesFitForDay(input: {
     })
     for (const pocket of pockets) fits += kPackCount(pocket.s, pocket.e, sessionMin)
   }
+  // ⚖ FIX ROUND 3 (P2) — an unassigned booking is on no lane and still eats
+  // the day, but only for the part that actually lands inside 営業時間: an
+  // assigned booking at that hour is already clamped by `freePockets` above,
+  // and the unassigned rule must clip the same way or a night import (a
+  // booking starting after close, say) paints the whole day 満.
   const unassigned = input.bookings
     .filter((b) => b.staffId === null)
-    .reduce((n, b) => n + Math.ceil(Math.max(b.end - b.start, 0) / sessionMin), 0)
+    .reduce((n, b) => {
+      const s = Math.max(b.start, input.open)
+      const e = Math.min(b.end, input.close)
+      return e <= s ? n : n + Math.ceil((e - s) / sessionMin)
+    }, 0)
   return Math.max(0, fits - unassigned)
 }
 

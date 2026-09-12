@@ -621,10 +621,15 @@ describe('⚖ 9/12 — あと入る数 (「I choose B」)', () => {
         if (until > cursor) gaps.push(until - cursor)
         for (const gap of gaps) fits += Math.floor(gap / sessionMin)
       }
-      // A booking nobody owns is on no lane and still eats someone's day.
+      // A booking nobody owns is on no lane and still eats someone's day —
+      // clipped to 営業時間 the same way an assigned one already is above (P2).
       const orphan = live
         .filter((a) => a.staff_id === null)
-        .reduce((n, a) => n + Math.ceil((jstMinuteOfDay(a.ends_at) - jstMinuteOfDay(a.starts_at)) / sessionMin), 0)
+        .reduce((n, a) => {
+          const s = Math.max(jstMinuteOfDay(a.starts_at), planes.operatingHours.open)
+          const e = Math.min(jstMinuteOfDay(a.ends_at), planes.operatingHours.close)
+          return e <= s ? n : n + Math.ceil((e - s) / sessionMin)
+        }, 0)
       return Math.max(0, fits - orphan)
     }
 
