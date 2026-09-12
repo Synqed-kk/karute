@@ -198,6 +198,21 @@ export interface InboxServerSession {
    * and the DTO's plain z.object strips it — the phone parses nothing new.
    */
   probeIncomplete?: true
+  /**
+   * ⚖ UPDATE 25 GROUP B, d5. The recording's `staff_id` (Recording.staff_id,
+   * the SDK's own field) — absent from every reader of this interface until
+   * now, so optional/nullish matches the file's own established idiom
+   * (`discardedByStaff?`, `serverAudio?`, `probeIncomplete?` above). Fed to
+   * the audit-watch cron's find-no-sessions-today.ts finder ONLY; the pure
+   * fold (deriveInboxRows below) never reads it, and the facade DTO
+   * (recordings-inbox-dto.ts) does not declare it either — zod's z.object
+   * STRIPS unknown keys on `.parse()`, so this never reaches a phone. Two id
+   * spaces, not one (session-mint.ts:156-160): the auth/profile id on a
+   * resolved-identity mint, the core staff id on the appointment-fallback
+   * mint — the finder normalizes both through a roster map, never assumes
+   * one space here.
+   */
+  staffId?: string | null
 }
 
 /** One device-local take (lib/karute/take-store). Audio is guaranteed: the

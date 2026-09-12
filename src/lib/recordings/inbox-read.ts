@@ -378,13 +378,22 @@ export async function readRecordingsInbox({
     jobProbeFailed: false,
     jobLastError: null,
     discardedByStaff: discardLedger.discarded.has(s.id),
+    // ⚖ UPDATE 25 GROUP B, d5: the ONE line that fills the new optional
+    // field (inbox.ts) from the raw SDK row — zero extra reads, the row was
+    // already here. Consumed only by the audit-watch cron's per-staffer
+    // finder; the facade DTO doesn't declare it, so it never leaves the
+    // server.
+    staffId: s.staff_id ?? null,
   }))
 
-  // P3-11: a truncated sessions or records page means this pass cannot swear
-  // to any record-less row — mark them all, same idiom as the degraded-ledger
-  // branch below.
+  // P3-11 / ⚖ fix round d5b (NB-4, mutant M17): a truncated sessions or
+  // records page means this pass cannot swear to ANY row, not only the
+  // record-less ones — a truncated SESSIONS walk can drop rows before a
+  // record ever gets matched to them, so a row that happens to carry a
+  // karute record on THIS page is no safer than one that doesn't. Mark every
+  // row, same idiom as the degraded-ledger branch below.
   if (readTruncated) {
-    for (const r of rows) if (!r.karuteRecordId) r.probeIncomplete = true
+    for (const r of rows) r.probeIncomplete = true
   }
 
   // Residue = the only sessions whose job state can still matter.

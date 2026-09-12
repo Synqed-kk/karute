@@ -370,7 +370,37 @@ describe('POST … — the ROSTER gate (#566 parity)', () => {
         code: 'upstream_unavailable',
         status: 502,
         reason: 'not_on_roster',
+        // ⚖ UPDATE 25 GROUP B, d1 (L1 SHOULD 7): identity resolves before the
+        // roster check throws, so the line now also names the tenant.
+        businessId: 'business-1',
       })
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  // ⚖ UPDATE 25 GROUP B, d1: the twin of the test above — a failure BEFORE
+  // identity resolves (a missing Bearer) has no tenant to name, and the line
+  // must say so by OMISSION, not by a null/empty placeholder — same promise
+  // the `reason` field already keeps for an untagged error, below.
+  it('a Bearer failure (before identity resolves) logs NO businessId at all', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const res = await POST(
+        new Request('https://s/api/app/v1/recordings/discards/transcript', {
+          method: 'POST',
+          body: JSON.stringify(REVIEW_BODY),
+        }),
+        noParams,
+      )
+      expect(res.status).toBe(401)
+      const lines = warn.mock.calls
+        .map(([first]) => (typeof first === 'string' ? first : ''))
+        .filter((l) => l.includes('"evt":"facade_error"'))
+        .map((l) => JSON.parse(l) as Record<string, unknown>)
+      expect(lines).toHaveLength(1)
+      expect(lines[0].code).toBe('unauthenticated')
+      expect('businessId' in lines[0]).toBe(false)
     } finally {
       warn.mockRestore()
     }

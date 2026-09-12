@@ -73,10 +73,17 @@ const ROW: Row = {
 const recordingsGet = jest.fn(async (_id: string): Promise<Row> => ROW)
 const recordingsUpdate = jest.fn(async (id: string, _i: unknown): Promise<Row> => ({ ...ROW, id }))
 const recordingsCreate = jest.fn(async (_i: unknown): Promise<Row> => ({ ...ROW, id: 'sess-new' }))
+// ⚖ UPDATE 25 GROUP B, d4: commitReservation's karute-exists probe. Default
+// 404 (no record) so every EXISTING mint case here proceeds to the write
+// exactly as before — this file's own subject is finalize, not the probe.
+const karuteRecordsGetByRecordingSession = jest.fn(async () => {
+  throw Object.assign(new Error('not found'), { status: 404 })
+})
 const fakeClient = {
   recordings: { get: recordingsGet, update: recordingsUpdate, create: recordingsCreate },
   stores: { get: jest.fn(async () => ({ id: 'store-1' })) },
   staffStores: { get: jest.fn(async () => ({ store_ids: [] })) },
+  karuteRecords: { getByRecordingSession: karuteRecordsGetByRecordingSession },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 

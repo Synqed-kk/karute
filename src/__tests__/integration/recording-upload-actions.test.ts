@@ -72,7 +72,18 @@ const get = jest.fn(async (_id: string): Promise<Row> => row())
 const create = jest.fn(async (_input: unknown): Promise<Row> => row({ id: 'sess-new' }))
 const update = jest.fn(async (id: string, _input: unknown): Promise<Row> => row({ id }))
 const apptGet = jest.fn(async (_id: string) => ({ staff_id: 'staff-1' }))
-const fakeClient = { recordings: { get, create, update }, appointments: { get: apptGet } }
+// ⚖ UPDATE 25 GROUP B, d4: commitReservation's karute-exists probe. Default
+// 404 (no record) — every EXISTING test in this file exercises the
+// null-pointer legacy-write path and must keep proceeding to the write
+// exactly as before; only the new describe block below overrides it.
+const getByRecordingSession = jest.fn(async (): Promise<{ id: string }> => {
+  throw Object.assign(new Error('not found'), { status: 404 })
+})
+const fakeClient = {
+  recordings: { get, create, update },
+  appointments: { get: apptGet },
+  karuteRecords: { getByRecordingSession },
+}
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => fakeClient,
   // Wired (fix round 10): the born-reserved proof runs the SESSION door and the
@@ -252,6 +263,13 @@ beforeEach(() => {
       ? { data: { size: 2048 }, error: null }
       : { data: null, error: { ...OBJECT_NOT_FOUND } },
   )
+  // ⚖ UPDATE 25 GROUP B, d4: reset to the default 404 (no record) EVERY test —
+  // a `.mockRejectedValue(...)`/`.mockResolvedValue(...)` set by one test
+  // would otherwise leak into every test that runs after it (clearAllMocks
+  // only clears call history, not the implementation).
+  getByRecordingSession.mockImplementation(async () => {
+    throw Object.assign(new Error('not found'), { status: 404 })
+  })
   held.clear()
   get.mockResolvedValue(row())
   create.mockResolvedValue(row({ id: 'sess-new' }))
@@ -897,6 +915,81 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     getCurrentUserStaffId.mockResolvedValue(null)
     await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'forbidden' })
     expectNoBinding()
+  })
+})
+
+// ⚖ UPDATE 25 GROUP B, d4 — THE KARUTE PROBE. commitReservation refuses to
+// bind a take onto a null-pointer session that already has a saved karute —
+// the null-pointer legacy write below would otherwise let the worker's
+// carry-forward merge (process-recording.ts's upsertKaruteRecord) silently
+// REPLACE that saved visit's transcript/summary the moment its job runs.
+describe('mintRecordingUploadUrl — refuses a take onto a session that already has a saved karute (d4)', () => {
+  it('a karute already exists → reserved_elsewhere on the wire, plus ONE audit row naming the true reason', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: null }))
+    getByRecordingSession.mockResolvedValue({ id: 'karute-1' })
+    await expect(mintRecordingUploadUrl(NAMED)).resolves.toEqual({ error: 'reserved_elsewhere' })
+    expect(update).not.toHaveBeenCalled()
+    expect(getByRecordingSession).toHaveBeenCalledWith(SESSION)
+    expect(auditFn).toHaveBeenCalledTimes(1)
+    const [event] = auditFn.mock.calls[0] as [Record<string, unknown>]
+    expect(event).toMatchObject({
+      category: 'recording',
+      action: 'recording.take_refused_has_record',
+      actorId: 'staff-1',
+      actorType: 'staff',
+      businessId: 'biz-1',
+      severity: 'warning',
+      targetType: 'recording',
+      targetId: SESSION,
+      source: 'web',
+    })
+    // ⚖ 8/17 doc law — ids only. Default row() carries no store_id, so the
+    // key is OMITTED, never a null placeholder.
+    expect(event.detail).toEqual({
+      recording_session_id: SESSION,
+      take_id: UUID,
+      karute_record_id: 'karute-1',
+    })
+  })
+
+  it('carries the row’s store_id in the audit detail when the row has one', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: null, store_id: 'store-9' }))
+    getByRecordingSession.mockResolvedValue({ id: 'karute-1' })
+    await mintRecordingUploadUrl(NAMED)
+    const [event] = auditFn.mock.calls[0] as [Record<string, unknown>]
+    expect(event.detail).toMatchObject({ store_id: 'store-9' })
+  })
+
+  it('a 404 (no record) → bound exactly as today, the write payload byte-identical', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: null }))
+    const res = await mintOk(NAMED)
+    expect(getByRecordingSession).toHaveBeenCalledWith(SESSION)
+    expect(update).toHaveBeenCalledWith(SESSION, { audio_storage_path: OWN, status: 'UPLOADING' })
+    expect(res.recordingSessionId).toBe(SESSION)
+    expect(auditFn).toHaveBeenCalledTimes(1) // only auditTakeNamed — no refusal row
+    expect((auditFn.mock.calls[0] as [Record<string, unknown>])[0]).toMatchObject({
+      action: 'recording.take_named',
+    })
+  })
+
+  it('the probe throws a non-404 → upstream, retryable, no write, no audit row', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: null }))
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('core down'), { status: 500 }))
+    await expect(mintRecordingUploadUrl(NAMED)).resolves.toEqual({ error: 'upstream' })
+    expect(update).not.toHaveBeenCalled()
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  it('the probe never runs on the ALREADY-OURS re-read — the born-reserved fast path pays nothing', async () => {
+    // Same sequence as the existing "a concurrent mint of the SAME take lands
+    // first" case above: the re-read inside commitReservation finds the
+    // pointer already exactly this key (:489) and returns before the probe's
+    // line is ever reached.
+    get.mockResolvedValueOnce(row()).mockResolvedValue(row({ audio_storage_path: OWN, status: 'UPLOADING' }))
+    const res = await mintOk(NAMED)
+    expect(res.recordingSessionId).toBe(SESSION)
+    expect(update).not.toHaveBeenCalled()
+    expect(getByRecordingSession).not.toHaveBeenCalled()
   })
 })
 

@@ -49,6 +49,11 @@ const LITERAL_ONLY_CATEGORY = {
   // hourly cron writes these, no endpoint.
   'recording.karute_missing': 'recording',
   'recording.transcribe_storm': 'recording',
+  // Choke emit: src/lib/audit-watch/run.ts#watchOneBusiness (update 25 Group
+  // B, d5) — the ≥21:00 JST per-staffer "usually records, today nothing"
+  // check. Same doctrine as the two siblings above: literal-only, only the
+  // hourly cron writes it, no endpoint.
+  'recording.no_sessions_today': 'recording',
   // Choke emit: src/lib/jobs/process-recording.ts#emitTranscribeFailedIfExhausted
   // (the worker, 監査ログ round 2 PR C subject 6) — literal-only by
   // construction: only the job worker's exhausted-round catch writes this,
@@ -103,6 +108,12 @@ const LITERAL_ONLY_CATEGORY = {
   // helper mintTakeUploadUrl calls only for a CLIENT-NAMED take; facade key
   // recordings.uploadUrl stays a skip row citing it).
   'recording.take_named': 'recording',
+  // Choke emit: src/lib/recording/mint-take-url.ts#commitReservation (update
+  // 25 Group B, d4) — the karute-exists probe's refusal, literal-only by
+  // construction: only that conditional branch writes this, no endpoint of
+  // its own (recordings.uploadUrl stays the skip row above, citing
+  // auditTakeNamed as its dominant emit).
+  'recording.take_refused_has_record': 'recording',
   // Choke emit: src/lib/settings/recording-autostart.ts#setRecordingAutostartWithClient
   // (facade key orgSettings.recordingAutostart is a skip row — same doctrine).
   // The ONE audited settings-blob key, spec §8.1 fix C1. Recording-integrity PR A4.

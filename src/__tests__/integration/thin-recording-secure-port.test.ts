@@ -681,6 +681,19 @@ describe('thin actions port — the recorder start-mint reserves at create too',
     expect(bodies[1]).toEqual({ customerId: 'cust-1', appointmentId: null })
   })
 
+  // ⚖ UPDATE 25 GROUP B, d1 — OLD-CLIENT PARITY. The route now re-throws a
+  // core failure as 502 upstream_unavailable instead of swallowing it to 200
+  // {id:null}. This port's OWN contract must not change: `!res.ok` already
+  // covered every non-2xx before d1 (a 200-with-no-id and a 502 both read as
+  // null here), so this pins that a 502 stays exactly as invisible to the
+  // phone as it always was.
+  it('a 502 upstream_unavailable answers null, same as any other non-2xx — the client cannot tell an outage from a walk-in', async () => {
+    port(async () => new Response(errorBody('upstream_unavailable'), { status: 502 }))
+    await expect(
+      startRecordingSession({ customerId: 'cust-1', takeId: FINALIZE.takeId, mimeType: FINALIZE.mimeType }),
+    ).resolves.toBeNull()
+  })
+
   // BOTH OR NEITHER — half a pair is a validation 400 by the door's schema, so
   // a take with no uuid to name (or no negotiated container) never sends one.
   it('sends neither when only one of the two is known', async () => {

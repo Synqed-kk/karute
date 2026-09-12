@@ -64,7 +64,7 @@
 // this round (bounded: they age out with the 7-day take window), and it carries
 // the same residual race it always did, with core's unique index as the belt.
 
-import type { Recording, SynqedClient } from '@synqed-kk/client'
+import type { KaruteRecord, Recording, SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
@@ -83,7 +83,11 @@ import {
   warnStorageUnknown,
 } from '@/lib/recording/take-binding'
 
-type Core = Pick<SynqedClient, 'recordings'>
+// ⚖ UPDATE 25 GROUP B, d4: commitReservation's legacy write needs the karute
+// probe (session-cleanup.ts's own idiom) — widened here rather than passed as
+// a second parameter, since planReservation/mintTakeUploadUrl/
+// mintSegmentUploadUrls all thread the SAME `synqed` through unchanged.
+type Core = Pick<SynqedClient, 'recordings' | 'karuteRecords'>
 
 /** WHO asked for this key — resolved by the caller from its own session
  *  (cookie on web, Bearer identity on the facade), never read from a body.
@@ -282,6 +286,48 @@ function auditTakeNamed(
     source: actor.source,
   })
   return { recordingSessionId }
+}
+
+/**
+ * ⚖ UPDATE 25 GROUP B, d4 — VISIBLE, NOT SILENT. commitReservation's karute
+ * probe refuses a second take that would otherwise bind onto a session that
+ * already has a saved karute (see the probe's own comment for the mechanism
+ * this prevents). The WIRE refusal stays the ordinary `reserved_elsewhere` —
+ * this row is where the TRUE reason ("a karute already exists, not merely a
+ * rival take") actually lives, so the owner's 監査ログ shows a second
+ * recording tried to land on a saved visit. Same actor idiom as
+ * auditTakeNamed above; ids only. */
+function auditTakeRefusedHasRecord(
+  actor: MintTakeActor,
+  recordingSessionId: string,
+  takeId: string,
+  karuteRecordId: string,
+  storeId: string | null,
+): void {
+  console.warn('[mint-take-url] refused: session already has a karute', {
+    recordingSessionId,
+    takeId,
+    karuteRecordId,
+    storeId,
+  })
+  audit({
+    category: 'recording',
+    action: 'recording.take_refused_has_record',
+    actorId: actor.staffId,
+    actorType: 'staff',
+    businessId: actor.businessId,
+    severity: 'warning',
+    targetType: 'recording',
+    targetId: recordingSessionId,
+    detail: {
+      recording_session_id: recordingSessionId,
+      take_id: takeId,
+      karute_record_id: karuteRecordId,
+      ...(storeId ? { store_id: storeId } : {}),
+    },
+    requestId: actor.requestId,
+    source: actor.source,
+  })
 }
 
 /**
@@ -492,6 +538,54 @@ async function commitReservation(
   // like a fresh update. Only a DIFFERENT non-null pointer is the real
   // reserved_elsewhere.
   if (row.audio_storage_path !== null) return { error: 'reserved_elsewhere' }
+
+  // ⚖ UPDATE 25 GROUP B, d4 — THE KARUTE PROBE. Placed AFTER both returns
+  // above (the born-reserved fast path at :489 and the foreign-pointer
+  // refusal just above both pay nothing) and BEFORE the legacy write below —
+  // the only gap it can ever run in. A null pointer here does NOT mean this
+  // session has nothing to lose: the argument-less step-back
+  // (global-recorder.ts's ANY-failure retry, session-mint.ts:210-213) is a
+  // LIVE path on current builds, not merely legacy, and it can leave a
+  // null-pointer session that ALREADY has a saved karute — the web in-tab
+  // pipeline writes one directly, with no take/job/audio_storage_path trail
+  // at all (session-cleanup.ts:68-78). Binding a second take onto such a
+  // session here would let the worker's carry-forward merge
+  // (process-recording.ts:401-432 upsertKaruteRecord) silently REPLACE that
+  // saved visit's transcript and ai_summary the moment its job runs — the
+  // exact "a take never reached the server and nobody was told" this whole
+  // packet exists to close, just for a visit that WAS recorded, not one that
+  // wasn't. Same idiom as session-cleanup.ts's own provenance gate
+  // (:120-147): getByRecordingSession, a structural 404 check, ONLY a 404
+  // proves "no record". (session-cleanup.ts's own internal `'has_record'`
+  // string is that door's own, unrelated guard — a different code path.)
+  let existingRecord: KaruteRecord | null
+  try {
+    existingRecord = await synqed.karuteRecords.getByRecordingSession(row.id)
+  } catch (err) {
+    if (statusOf(err) === 404) {
+      existingRecord = null
+    } else {
+      // ⚖ ANY OTHER status/throw is an UNKNOWN, never a silent allow — this
+      // REVERSES plan v2 §8 ("probe failure = allow + log"): allow-on-unknown
+      // is the destructive side here, retry-on-unknown is reversible and
+      // matches planReservation's own 'upstream' posture two lines up in
+      // this file. The take stays on the phone; the next drain asks again.
+      console.warn('[mint-take-url] karute-exists probe failed:', err)
+      return { error: 'upstream' }
+    }
+  }
+  if (existingRecord) {
+    // THE REFUSAL — the SAME status and the SAME message string the wire
+    // already carries for the check two lines up (`reserved_elsewhere` is
+    // already terminal, already allowlisted, on every build that has ever
+    // shipped this feature — thin/ports/recording.vite.ts's MINT_ERROR_CODES
+    // checks the message BEFORE the code). ⛔ NO new wire code — an unknown
+    // code under 409 falls to `mint_409`, not in TERMINAL_SECURE_ERRORS,
+    // which would storm the whole take back onto the server every drain,
+    // forever, on every affected phone.
+    auditTakeRefusedHasRecord(actor, row.id, takeId, existingRecord.id, row.store_id)
+    return { error: 'reserved_elsewhere' }
+  }
 
   // THE LEGACY WRITE (fix round 10). Reachable only for a row minted before
   // sessions were born reserved — a current row met its own key above.

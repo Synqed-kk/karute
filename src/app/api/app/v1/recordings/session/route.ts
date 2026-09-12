@@ -3,9 +3,20 @@
 // (selfStaffId) with the appointment-staff fallback, on the business-scoped
 // client. Effectful row mint → Idempotency-Key REQUIRED (orphan rows stay the
 // accepted degradation, packet-10 fact 3); records.write; revocation-sensitive
-// (recordings.session.mint). Fail-OPEN contract (capture must NEVER block on
-// the mint): like the web action, a genuine SDK failure is swallowed to
-// { id: null } after logging — the mint core documents that callers swallow.
+// (recordings.session.mint).
+//
+// ⚖ UPDATE 25 GROUP B, d1 — THE SERVER TELLS THE TRUTH. A genuine SDK failure
+// used to be swallowed to 200 { id: null } — the SAME answer as the
+// legitimate "no staff to attribute this to" null (session-mint.ts:161, a
+// settled non-throw) — which is how the 9/9-9/10 outage went unnoticed for
+// two days: a core failure read exactly like an ordinary walk-in. The catch
+// below now RE-THROWS as `upstream_unavailable` (502) instead. The fail-OPEN
+// CONTRACT itself is unchanged and still lives entirely at the CLIENT: the
+// thin port maps every non-2xx to null (thin/ports/actions.vite.ts, `if
+// (!res.ok) return null`), exactly as it already treats a 200 with no id —
+// so capture still never blocks on this route, but the SERVER's own logs
+// (handler.ts's facade_error line) now distinguish an outage from a settled
+// null.
 //
 // FIX ROUND 10 — BORN RESERVED. The body may now carry { takeId, mimeType }, and
 // when it does the row is created WITH that take's storage key already on it
@@ -129,9 +140,15 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
   // and put a store-less row behind the take.
   const storeId = clamp.storeId ?? (await resolvePrimaryStoreId(synqed))
 
-  // Fail-OPEN parity with the web action: a null mint (unresolvable staff) is
-  // NOT an error, and a genuine SDK throw is swallowed to { id: null } too —
-  // the client proceeds without dedupe, capture never blocks on the mint.
+  // Fail-OPEN parity with the web action for the LEGITIMATE null: an
+  // unresolvable staff (session-mint.ts:161) is a settled answer, not an
+  // error, and still comes back here as `result === null` below — the client
+  // reads it as `{ id: null }` exactly as before. ⚖ UPDATE 25 GROUP B, d1: a
+  // genuine SDK throw is NO LONGER swallowed — it is a core failure, not a
+  // walk-in, and re-throwing here is what tells the two apart on the server's
+  // own logs. The client still cannot tell them apart (both read as "the mint
+  // failed, proceed without dedupe" — see the header comment), so capture is
+  // never blocked either way.
   let result: StartRecordingSessionResult = null
   try {
     result = await startRecordingSessionWithClient(synqed, {
@@ -147,10 +164,16 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
     })
   } catch (err) {
     console.error('[recordings.session.mint] failed:', err)
+    // A specific facade error is never relabeled — only a genuine SDK
+    // failure (the case this catch exists for) becomes upstream_unavailable.
+    if (err instanceof AppApiError) throw err
+    throw new AppApiError('upstream_unavailable', 'recording session mint failed')
   }
   // Named, so the recorder can renegotiate its container rather than retry
-  // blind. Checked OUTSIDE the try: an AppApiError thrown inside it would be
-  // swallowed by the fail-open catch above and answered as a 200.
+  // blind. Checked OUTSIDE the try: the catch above passes an AppApiError
+  // through unchanged and only relabels a genuine SDK failure as
+  // upstream_unavailable, so a name thrown here is never swallowed or
+  // relabeled by it.
   if (result && 'error' in result) {
     // Storage failed to say whether the key is free (fix round 11) — a real
     // upstream outage, never the client's fault, and never folded into the

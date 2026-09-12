@@ -60,7 +60,13 @@ const row = (over: Partial<Row> = {}): Row => ({
 const get = jest.fn(async (_id: string): Promise<Row> => row())
 const update = jest.fn(async (id: string, _i: unknown): Promise<Row> => row({ id }))
 const create = jest.fn(async (_i: unknown): Promise<Row> => row({ id: 'sess-new' }))
-const fakeClient = { recordings: { get, create, update } }
+// ⚖ UPDATE 25 GROUP B, d4: commitReservation's karute-exists probe. Default
+// 404 (no record) — this file's own subject is the already-there arm, not
+// the probe, so every case here must reach the write exactly as before.
+const getByRecordingSession = jest.fn(async () => {
+  throw Object.assign(new Error('not found'), { status: 404 })
+})
+const fakeClient = { recordings: { get, create, update }, karuteRecords: { getByRecordingSession } }
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => fakeClient,
   getSynqedClient: async () => fakeClient,

@@ -55,8 +55,13 @@ export interface AuditEvent {
   /** Privileged cross-access (dev tools, owner opening another staff's data).
    *  Always logged; gets its own filter chip in the viewer. */
   breakGlass?: boolean
-  /** SMALL — ids/flags/counts only, never record content. */
-  detail?: Record<string, string | number | boolean | null>
+  /** SMALL — ids/flags/counts only, never record content. The `string[]`
+   *  member (⚖ UPDATE 25 GROUP B, d5) is additive: an array of ids ONLY
+   *  (recording.no_sessions_today's `staff_ids`) — core's own `detail?:
+   *  unknown` (types.d.ts) already accepted this, and the 監査ログ page's
+   *  render branch (AuditLogSection.tsx) already reads `detail.staff_ids`
+   *  with `Array.isArray` — this just lets the emitter TYPE what it sends. */
+  detail?: Record<string, string | number | boolean | null | string[]>
   requestId?: string
   source: 'facade' | 'web' | 'system'
 }
@@ -798,6 +803,13 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // which is a different act entirely and could be true of any recording
   // route. This endpoint's own write is the RESERVATION, and the emit that
   // dominates it is auditTakeNamed — cite the writer, not the destination.
+  //
+  // UPDATE 25 GROUP B, d4: this endpoint's SAME choke point (commitReservation)
+  // conditionally emits a second action, recording.take_refused_has_record,
+  // when its karute-exists probe refuses to bind a take onto a session that
+  // already has a saved karute — auditTakeRefusedHasRecord, beside
+  // auditTakeNamed in the same file, same actor idiom. Not a second coveredBy
+  // row: both emits live at this one endpoint's one choke point.
   'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/mint-take-url.ts#auditTakeNamed' },
 
   // karute.save / karute.entry.update (§3.1 last row: "deliberate skip, now
@@ -987,24 +999,25 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
     coveredBy: 'src/lib/recording/assembler.ts#assembleStrandedTake',
   },
   // The audit-watch cron (監査ログ round 2 PR C) — CRON_SECRET-gated like its
-  // siblings, and NOT a skip: it writes recording.karute_missing and
-  // recording.transcribe_storm rows, one per NEW candidate the run actually
+  // siblings, and NOT a skip: it writes recording.karute_missing,
+  // recording.transcribe_storm and (update 25 Group B, d5)
+  // recording.no_sessions_today rows, one per NEW candidate the run actually
   // finds, with no staff in the loop.
   'audit-watch': {
     kind: 'mutation',
     // No structured `coveredBy` (deliberately, like AUDITED_CORES's
-    // `unproven` marker elsewhere in this file): watchOneBusiness's two
-    // audit() emits (recording.karute_missing, recording.transcribe_storm)
-    // are conditional on a NEW candidate existing — the common run finds
-    // zero (or every candidate already has a row) and returns unemitted,
-    // which is correct, not an unaudited write, but it is not a symbol CP2's
-    // walker can prove dominates every return — same mechanical-proof
-    // ceiling as src/lib/audit-policy.ts's AUDITED_CORES entry for this same
-    // file/symbol (see its own `unproven` note). Verified at source; CP4's
-    // literal scan already proves both action strings are correctly
-    // registered independent of this row.
+    // `unproven` marker elsewhere in this file): watchOneBusiness's THREE
+    // audit() emits (recording.karute_missing, recording.transcribe_storm,
+    // recording.no_sessions_today) are each conditional on a NEW candidate
+    // existing — the common run finds zero (or every candidate already has a
+    // row) and returns unemitted, which is correct, not an unaudited write,
+    // but it is not a symbol CP2's walker can prove dominates every return —
+    // same mechanical-proof ceiling as src/lib/audit-policy.ts's
+    // AUDITED_CORES entry for this same file/symbol (see its own `unproven`
+    // note). Verified at source; CP4's literal scan already proves all three
+    // action strings are correctly registered independent of this row.
     justification:
-      "watchOneBusiness (src/lib/audit-watch/run.ts) emits recording.karute_missing and recording.transcribe_storm — one row per NEW candidate actually written. Conditional by design, same shape as the auto-burn/assemble rows above (return unemitted when there is nothing to do), except the emit sits inline in the driver rather than a downstream helper, so it cannot be handed a dominated coveredBy citation the way those two are.",
-    dated: '2026-09-11',
+      "watchOneBusiness (src/lib/audit-watch/run.ts) emits recording.karute_missing, recording.transcribe_storm and recording.no_sessions_today — one row per NEW candidate actually written. Conditional by design, same shape as the auto-burn/assemble rows above (return unemitted when there is nothing to do), except the emit sits inline in the driver rather than a downstream helper, so it cannot be handed a dominated coveredBy citation the way those two are.",
+    dated: '2026-09-12',
   },
 }
