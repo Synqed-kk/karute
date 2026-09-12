@@ -158,11 +158,6 @@ export function KaruteListRow({ item }: Props) {
           <AiChip status={item.aiStatus} />
         </div>
       )}
-      {item.isDiscarded && (
-        <span className="inline-flex h-5 shrink-0 items-center rounded-full border border-border bg-muted px-2 text-[10px] font-medium text-muted-foreground">
-          {t('discarded')}
-        </span>
-      )}
     </>
   )
 
