@@ -321,13 +321,23 @@ describe('POST recordings/session mint', () => {
     expect(res.status).toBe(400)
     expect(recordingsCreate).not.toHaveBeenCalled()
   })
-  it('SDK create failure → fail-OPEN 200 {id:null}, mirrors the web action', async () => {
+  // ⚖ UPDATE 25 GROUP B, d1: this used to fail-OPEN 200 {id:null}, the SAME
+  // answer as the legitimate null below — which is exactly how the 9/9-9/10
+  // outage went unnoticed for two days (a core failure read like a walk-in).
+  // The route now re-throws as 502 upstream_unavailable; the CLIENT still
+  // reads any non-2xx as null (thin/ports/actions.vite.ts), so capture is
+  // never blocked — only the server's own logs changed.
+  it('SDK create failure → 502 upstream_unavailable (a core failure is no longer told apart from a walk-in)', async () => {
     recordingsCreate.mockRejectedValueOnce(new Error('transient synqed outage'))
     const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
-    expect(res.status).toBe(200)
-    expect((await res.json()).id).toBeNull()
+    expect(res.status).toBe(502)
+    expect((await res.json()).error.code).toBe('upstream_unavailable')
   })
-  it('unresolvable staff + no appointment → fail-OPEN {id:null} (never blocks capture)', async () => {
+  // The ONLY 200-null left: a settled non-throw (session-mint.ts's own
+  // fail-OPEN contract for "nothing to attribute this to"), kept distinct
+  // from the SDK-failure case above by design — sharpened name, unchanged
+  // behaviour.
+  it('unresolvable staff + no appointment → the ONLY 200-null: fail-OPEN {id:null} (never blocks capture)', async () => {
     roster.current = []
     const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
     expect(res.status).toBe(200)

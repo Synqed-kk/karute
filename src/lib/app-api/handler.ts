@@ -139,8 +139,14 @@ export function facadeHandler<P = Record<string, string>>(
     // of the stack log the same key. Wraps the whole try/catch: a request that
     // FAILS is the one most in need of correlation.
     return withRequestId(requestId, async () => {
+      // ⚖ UPDATE 25 GROUP B, d1 (L1 SHOULD 7). Hoisted above the try so the
+      // catch below can name WHICH business a failure belongs to: a bearer
+      // failure before identity resolves leaves this `undefined` (correctly —
+      // there is no tenant to blame it on), and every other throw runs after
+      // the assignment two lines down.
+      let identity: RequestIdentity | undefined
       try {
-        const identity = await resolveBearerIdentity(req, endpoint, deps)
+        identity = await resolveBearerIdentity(req, endpoint, deps)
         const ctx: FacadeContext<P> = { req, identity, origin, route, meta }
         const res = await fn(ctx)
         await logFacadeAudit(
@@ -159,7 +165,7 @@ export function facadeHandler<P = Record<string, string>>(
         return res
       } catch (err) {
         const apiErr = toAppApiError(err)
-        logFacadeError(endpoint, apiErr, meta)
+        logFacadeError(endpoint, apiErr, meta, identity?.businessId)
         return jsonResponse(errorBody(apiErr), apiErr.status, origin, requestId)
       }
     })
@@ -344,11 +350,19 @@ function reportUnmappedEndpoint(
  *  — customers/[id] puts `currentVersion` (a row's updated_at) there — and this
  *  line's promise is labels, not payloads. A non-string `reason` is dropped, and
  *  JSON.stringify omits the key entirely when it is undefined, so every error
- *  that sets no reason logs byte-identically to before. */
+ *  that sets no reason logs byte-identically to before.
+ *
+ *  `businessId` (⚖ UPDATE 25 GROUP B, d1 — L1 SHOULD 7) is the SAME additive
+ *  promise: undefined for a bearer failure before identity resolves (correct —
+ *  there is no tenant yet), so this line stays byte-identical to before for
+ *  every pre-identity error and only GAINS a field for everything after, e.g.
+ *  "mint failures per business" becomes one log filter on `endpoint` +
+ *  `businessId` instead of `endpoint` alone. */
 function logFacadeError(
   endpoint: string,
   err: AppApiError,
   meta: FacadeContext['meta'],
+  businessId?: string,
 ): void {
   const reason = typeof err.detail?.reason === 'string' ? err.detail.reason : undefined
   console.warn(
@@ -361,6 +375,7 @@ function logFacadeError(
       requestId: meta.requestId,
       appVersion: meta.appVersion,
       platform: meta.platform,
+      businessId,
     }),
   )
 }
