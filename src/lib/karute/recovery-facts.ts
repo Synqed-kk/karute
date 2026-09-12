@@ -175,40 +175,48 @@ export async function buildRecoveryDayFacts(
     if (usage && usage.size > 0) relevantIds.push(cid)
   }
   // Per-customer real rows, fanned out in ONE batch — a single customer's
-  // read failing nulls the WHOLE batch (never a row with a guessed target),
-  // exactly the way a failed listAllPackUsageWithClient degrades the
-  // aggregate above: no pack rows at all, rather than a partial guess.
+  // read failing nulls the WHOLE batch (never a row with a guessed target).
   const ownRowsByCustomer = await Promise.all(
     relevantIds.map((cid) => listCustomerPacksWithClient(synqed, cid)),
   )
     .then((rows) => new Map(relevantIds.map((cid, i) => [cid, rows[i]])))
     .catch(() => null)
 
+  // F-1 / A-5 (Greptile PR #900 P1, Fable-adjudicated VALID): either pack
+  // read failing — the aggregate above OR this per-customer fan-out — must
+  // never present as a QUIET day with an empty pack set: a customer who
+  // holds a pack would read as "no pack" and a recovery save could proceed
+  // with no burn and no warning. ONE home for both failures: the day comes
+  // back UNAVAILABLE, the identical explicit shape actions/recovery.ts and
+  // the day-facts route already build for a top-level throw, so the
+  // client's existing gate (RecordPageView's factsBlockSave, driven by the
+  // `unavailable` discriminant) blocks the save here exactly like it
+  // already does for those.
+  if (packUsage === null || ownRowsByCustomer === null) {
+    return { date: dateYmd, unavailable: true, bookings: [], packs: [], redeemed: null }
+  }
+
   const packs: RecoveryDayFacts['packs'] = []
-  if (ownRowsByCustomer) {
-    for (const cid of relevantIds) {
-      const usage = packUsage!.get(cid)!
-      const rows = ownRowsByCustomer.get(cid) ?? []
-      const fifo = pickRedemptionTarget(rows)
-      const target = fifo
-        ? {
-            remaining: fifo.remaining,
-            size: fifo.pack_size,
-            otherRemaining: rows
-              .filter(
-                (p) => p.kind === 'pack' && p.status === 'active' && p.id !== fifo.id,
-              )
-              .reduce((sum, p) => sum + p.remaining, 0),
-          }
-        : null
-      packs.push({
-        customerId: cid,
-        packId: fifo?.id ?? null,
-        remaining: usage.remaining,
-        size: usage.size,
-        target,
-      })
-    }
+  for (const cid of relevantIds) {
+    const usage = packUsage.get(cid)!
+    const rows = ownRowsByCustomer.get(cid) ?? []
+    const fifo = pickRedemptionTarget(rows)
+    const target = fifo
+      ? {
+          remaining: fifo.remaining,
+          size: fifo.pack_size,
+          otherRemaining: rows
+            .filter((p) => p.kind === 'pack' && p.status === 'active' && p.id !== fifo.id)
+            .reduce((sum, p) => sum + p.remaining, 0),
+        }
+      : null
+    packs.push({
+      customerId: cid,
+      packId: fifo?.id ?? null,
+      remaining: usage.remaining,
+      size: usage.size,
+      target,
+    })
   }
 
   return {

@@ -292,14 +292,16 @@ describe('回数券 rows are derived, and scoped to who the picker can reach', (
     })
   })
 
-  // D5: never a row with a GUESSED target — a per-customer read failure nulls
-  // the whole fan-out, degrading EXACTLY like a failed listAllPackUsageWithClient
-  // does today (no pack rows at all).
-  it('a per-customer fan-out failure drops ALL pack rows, never a guessed target', async () => {
+  // F-1 / A-5: never a row with a GUESSED target — a per-customer read
+  // failure must make the WHOLE DAY unavailable, never a loaded day with an
+  // empty pack set (a customer who holds a pack would silently read as "no
+  // pack" and a recovery save could proceed with no burn and no warning).
+  it('a per-customer fan-out failure → the day is unavailable, never a loaded day with an empty pack set', async () => {
     listPacks.mockRejectedValueOnce(new Error('core down'))
     const facts = await run({ pinnedCustomerIds: ['cust-PINNED'] })
+    expect(facts.unavailable).toBe(true)
     expect(facts.packs).toEqual([])
-    expect(facts.bookings).toHaveLength(1)
+    expect(facts.bookings).toEqual([])
   })
 
   // B2's twin — recovery-facts.ts:199 carries the SAME `status === 'active'`
@@ -390,11 +392,14 @@ describe('the burn history is TRI-STATE', () => {
     expect(facts.bookings).toHaveLength(1)
   })
 
-  it('an unreadable PACK aggregate costs the pill, not the screen', async () => {
+  // F-1 / A-5: same doctrine as the fan-out failure above — an unreadable
+  // aggregate must not degrade to "no pack rows" on an otherwise-loaded day.
+  it('an unreadable PACK aggregate → the day is unavailable, never a loaded day with an empty pack set', async () => {
     listActivePacks.mockRejectedValueOnce(new Error('core down'))
     const facts = await run()
+    expect(facts.unavailable).toBe(true)
     expect(facts.packs).toEqual([])
-    expect(facts.bookings).toHaveLength(1)
+    expect(facts.bookings).toEqual([])
   })
 })
 
