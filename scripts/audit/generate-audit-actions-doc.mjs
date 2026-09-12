@@ -48,12 +48,6 @@ const LITERAL_ONLY_CATEGORY = {
   // cron, 監査ログ round 2 PR C) — literal-only by construction: only the
   // hourly cron writes these, no endpoint.
   'recording.karute_missing': 'recording',
-  // Choke emit (pending, PKT-GROUP-B d5): src/lib/audit-watch/run.ts's hourly
-  // "usually records, today nothing" finder — same construction as
-  // recording.karute_missing above (only the cron writes it, no endpoint).
-  // Registered here in Group C, ahead of Group B's literal emit call — see
-  // audit-policy.ts's own pending note beside this action.
-  'recording.no_sessions_today': 'recording',
   'recording.transcribe_storm': 'recording',
   // Choke emit: src/lib/jobs/process-recording.ts#emitTranscribeFailedIfExhausted
   // (the worker, 監査ログ round 2 PR C subject 6) — literal-only by
@@ -109,13 +103,6 @@ const LITERAL_ONLY_CATEGORY = {
   // helper mintTakeUploadUrl calls only for a CLIENT-NAMED take; facade key
   // recordings.uploadUrl stays a skip row citing it).
   'recording.take_named': 'recording',
-  // Choke emit (pending, PKT-GROUP-B d4): src/lib/recording/mint-take-url.ts
-  // #commitReservation's refusal to bind a take onto a session that already
-  // has a saved karute — literal-only, no endpoint of its own (the take-url
-  // mint route's action already IS take_named for the success case).
-  // Registered here in Group C, ahead of Group B's literal emit call — see
-  // audit-policy.ts's own pending note beside this action.
-  'recording.take_refused_has_record': 'recording',
   // Choke emit: src/lib/settings/recording-autostart.ts#setRecordingAutostartWithClient
   // (facade key orgSettings.recordingAutostart is a skip row — same doctrine).
   // The ONE audited settings-blob key, spec §8.1 fix C1. Recording-integrity PR A4.

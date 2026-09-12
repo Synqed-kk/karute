@@ -77,17 +77,9 @@ export const AUDIT_ACTIONS = [
   'recording.capture_unlinked',
   'recording.discard',
   'recording.karute_missing',
-  // pending: PKT-GROUP-B d5 (registered ahead of its emitter — see this
-  // file's own C2 registration note; the hourly audit-watch cron literal-
-  // emits this once Group B lands its d5 piece).
-  'recording.no_sessions_today',
   'recording.play',
   'recording.session_cleanup',
   'recording.take_named',
-  // pending: PKT-GROUP-B d4 (registered ahead of its emitter — see the C2
-  // registration note above; commitReservation literal-emits this once
-  // Group B lands its d4 piece).
-  'recording.take_refused_has_record',
   'recording.transcribe',
   'recording.transcribe_failed',
   'recording.transcribe_refused',
