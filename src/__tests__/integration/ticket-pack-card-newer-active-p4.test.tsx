@@ -71,6 +71,42 @@ const newPack: PackWithUsage = {
   lastRedeemedOn: null,
 }
 
+const newPackLow: PackWithUsage = {
+  id: 'new2',
+  customer_id: 'c1',
+  kind: 'pack',
+  pack_size: 10,
+  unit_price: 9900,
+  total_price: 99000,
+  purchase_round: 2,
+  purchased_at: '2026-08-30',
+  source: 'manual',
+  status: 'active',
+  notes: null,
+  redeemedCount: 9,
+  remaining: 1,
+  unconsumedValue: 9900,
+  lastRedeemedOn: '2026-09-01',
+}
+
+const cancelledPack: PackWithUsage = {
+  id: 'cancelled',
+  customer_id: 'c1',
+  kind: 'pack',
+  pack_size: 10,
+  unit_price: 9900,
+  total_price: 99000,
+  purchase_round: 3,
+  purchased_at: '2026-09-01',
+  source: 'manual',
+  status: 'cancelled',
+  notes: null,
+  redeemedCount: 0,
+  remaining: 10,
+  unconsumedValue: 99000,
+  lastRedeemedOn: null,
+}
+
 describe('TicketPackCard — 残りわずか suppressed when a newer active pack exists', () => {
   it('old 残1 alone → the hint renders', () => {
     render(<TicketPackCard customerId="c1" packs={[oldPack]} lifecycle={null} />)
@@ -80,5 +116,21 @@ describe('TicketPackCard — 残りわずか suppressed when a newer active pack
   it('old 残1 + a newer active pack → no hint on the old pack', () => {
     render(<TicketPackCard customerId="c1" packs={[newPack, oldPack]} lifecycle={null} />)
     expect(screen.queryByText(LOW_HINT)).not.toBeInTheDocument()
+  })
+
+  // p5 — the hint is the SAME total-balance rule the stop dialog uses
+  // (resolveOutcomeMode), not "any newer active pack exists": two packs each
+  // at 残1 sum to the repurchase decision point (total 2), same as the
+  // dialog, so BOTH must ask — never both silenced.
+  it('TWO active packs each at 残1 (total 2) → BOTH show the hint (the dialog asks at total 2)', () => {
+    render(<TicketPackCard customerId="c1" packs={[oldPack, newPackLow]} lifecycle={null} />)
+    expect(screen.getAllByText(LOW_HINT)).toHaveLength(2)
+  })
+
+  // p5 (B2's sibling on the phone side) — a cancelled pack never counts
+  // toward the total, however many sessions it still shows on paper.
+  it('old 残1 + a cancelled pack with sessions left → hint still renders (cancelled never counts)', () => {
+    render(<TicketPackCard customerId="c1" packs={[oldPack, cancelledPack]} lifecycle={null} />)
+    expect(screen.getByText(LOW_HINT)).toBeInTheDocument()
   })
 })
