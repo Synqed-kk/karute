@@ -988,6 +988,23 @@ describe('4 — what paints, and what stops', () => {
     expect(shared).not.toMatch(/#2563eb|var\(--primary|#000|black/)
   })
 
+  it('the 確保 chip\u2019s tour clause falls back to main\u2019s exact words with the round off', () => {
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW.md H2)
+    // The round's clause says the number is what the ROOMS can honour and that
+    // it includes rows that sell nothing online. With `HONEST_HELD` off the chip
+    // prints the per-lane enumeration's Σ, where neither sentence is true — so
+    // the clause is asked of `honest`, the very value `dayCommitted` was built
+    // from, and falls back to the words main ships.
+    const screen = SRC('TodayScreen.tsx')
+    expect(screen).toContain('data-guide={honest')
+    // main's line, byte for byte, as the OFF arm.
+    expect(screen).toContain("                : '新規のお客様のために店全体で確保している枠の数です。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'}")
+    // …and it is not a second read of the round's gate: the doors suite pins
+    // `HONEST_HELD` at exactly two code occurrences (the import and the memo),
+    // and a `HONEST_HELD ?` here would be a third.
+    expect(screen).not.toContain('data-guide={HONEST_HELD')
+  })
+
   it('the bed row gains nothing new under a held window', () => {
     // The chip is staff-only by construction (the mask is keyed by staff lane
     // and the renderer asks for it only on a staff lane), and the withheld

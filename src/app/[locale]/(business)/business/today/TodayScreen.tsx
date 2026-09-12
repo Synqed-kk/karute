@@ -8047,7 +8047,16 @@ export function TodayScreen(props: TodayProps) {
               // sale are not subtracted), and it includes 確保枠 on rows that
               // sell nothing online, which the board draws no box for.
               // JP-NATIVE PASS DONE 2026-09-13 (JP-NATIVE-HONEST-COUNT/REPORT.md)
-              data-guide="新規のお客様のために店全体で確保している枠の数です。今日の予約に対してベッドが用意できる数で、販売中の枠は差し引いていません。オンライン販売をしていないスタッフの確保枠も含みます。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。"
+              //
+              // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW.md H2)
+              // — …AND ONLY WHEN THE NUMBER IS THE NETTED ONE. With the round
+              // off the chip prints the per-lane enumeration's Σ, and those two
+              // sentences would have told the operator it was room-aware when it
+              // is not. Asked of `honest` — the value `dayCommitted` itself was
+              // built from — so this is not a second read of the gate.
+              data-guide={honest
+                ? '新規のお客様のために店全体で確保している枠の数です。今日の予約に対してベッドが用意できる数で、販売中の枠は差し引いていません。オンライン販売をしていないスタッフの確保枠も含みます。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'
+                : '新規のお客様のために店全体で確保している枠の数です。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'}
             >
               新規用に確保 {dayCommitted.total}枠
             </span>
