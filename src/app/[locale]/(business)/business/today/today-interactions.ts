@@ -2054,6 +2054,23 @@ export interface RailCell {
    *  ponytail: no product surface reads this yet (LENS-4 §D-11) — it is the explain
    *  surfaces' data, published with the axis rather than bolted on after it. */
   gapNote?: { worse: boolean; dead: number; salvage: number; lostMenus: string[] }
+  /** ⚖ NEW-WINDOW D-2 — THE ENGINE'S OWN STATEMENT, when M10 republished its class.
+   *  Present only on the refusal arm that rewrote an R-DEAD / R-SALV into the
+   *  capacity form; `warnFaceFor` renders it through `reasonLine`, so the minutes
+   *  fact is said in the engine's words rather than this surface's. */
+  engineNote?: { code: 'R-DEAD' | 'R-SALV'; n: number }
+  /** ⚖ NEW-WINDOW M1 — WHAT THIS LANDING COSTS THE WHOLE STORE, and whose.
+   *
+   *  A SIBLING of `impact`, never nested inside it: `impact` is the POCKET's
+   *  answer on this lane and `day` is the store's answer about this landing, and
+   *  a surface that merged them would have one field meaning two things.
+   *
+   *  Present ONLY where the day question was actually asked — the staged landing
+   *  (`TodayScreen`'s `pendingGuardRow`, whose `day` the warn card's input carries
+   *  in). `railCell` and `guardVerdictAt` never build one, so the rail's chips
+   *  cost nothing. `laneKey` is the lane the card is landing ON, which is what
+   *  lets the sentence drop the name the operator is already looking at. */
+  day?: DayLoss
 }
 
 export interface GuardRail {
@@ -2140,6 +2157,15 @@ export function windowsEatenBy(
  *  first is a window and only the first may be given a clause, and the thing
  *  that knows which is the composer holding the verdict — so `railCell` passes
  *  '' for the other. */
+/** ⚖ NEW-WINDOW M10 — the protected window's own name, spelled the way gap-guard
+ *  spells it (`reasonForKey` :340: `${protectedLabel}（${protectedDurationMin}分）`)
+ *  from the same two store settings. The engine's copy is private to
+ *  `createGapGuard`, so the rail composes it here for the one arm that
+ *  republishes the class, and takes the minutes from the number every other
+ *  sentence on this rail already uses. */
+const protectedLabelOf = (input: RailInput) =>
+  `${input.guard.protectedLabel || '新規'}（${input.protectedDur}分）`
+
 export function reasonLine(reason: GuardReason | undefined, protectedDur: number, windows = ''): string {
   if (!reason) return '配置できません'
   const p = reason.params as Record<string, number | string>
@@ -2789,12 +2815,27 @@ function railCell(
   // なります」, gap-guard `reasonForKey`'s `repLabel(lossSet)` line — :338) is not
   // a protected window and gets nothing. The engine's own `capacityLost` is the
   // test — the words are not.
-  const repCapacity =
+  /** ⚖ NEW-WINDOW L-A (M4) — TWO NAMES FOR TWO FACTS, because they are two facts.
+   *
+   *  `engineRep` is the ENGINE'S CLAIM about its own key: it ranked this refusal on
+   *  the protected-capacity term. It is keyed on `capacityLost`, which
+   *  `reasonForKey` fills from a baseline the engine computed on the LIVE ctx —
+   *  the world with the hand's phantom already at the aim — so on a MOVE it can
+   *  read 0 while the lane really lost a window (the round's Defect 1).
+   *
+   *  `repCapacity` is the HONEST COUNT: the caller's own lists, which for a move
+   *  are the whole lane before (through the lifting door) and the whole lane after.
+   *  What is PUBLISHED is keyed on this one; the arms that ask 「which term did the
+   *  engine rank on」 keep asking `engineRep`. At rest the two are the same fact —
+   *  `resting === null` collapses `beforeStarts`/`afterStarts` onto the engine's own
+   *  pocket lists, so a board with nothing in hand does not move a byte. */
+  const engineRep =
     v.reason?.code === 'R-REP' && Number(v.reason.params.capacityLost) > 0
+  const repCapacity = loss > 0
   // (c) — A REFUSAL WHOSE ONLY COST WAS THE PHANTOM WINDOW IS PLACEABLE. The store loses
   // no inventory by confirming this change, so the gate that priced it and held it behind
   // 長押し had nothing to gate: △, quiet, un-priced, the engine's safe offers kept.
-  if (repCapacity && resting !== null && loss === 0) {
+  if (engineRep && resting !== null && loss === 0) {
     return degradedFace(keptSentence(afterStarts, afterStarts.length === 0), safeAlternatives, v.alternativeKind === 'safe' ? 'safe' : null)
   }
   // (c2) — THE GAP AXIS OF A MOVE, measured against the store's committed day. The
@@ -2817,7 +2858,7 @@ function railCell(
   // now falls through to (d)/(e) and is priced there, exactly as at base.
   const rv =
     resting !== null && v.verdict === 'refuse' && loss === 0 && v.reason
-    && (v.reason.code === 'R-DEAD' || v.reason.code === 'R-SALV' || (v.reason.code === 'R-REP' && !repCapacity))
+    && (v.reason.code === 'R-DEAD' || v.reason.code === 'R-SALV' || (v.reason.code === 'R-REP' && !engineRep))
       ? residueVerdict(engine, pocket, resting, { start, dur: input.dur }, ctx, RESIDUE_COMPARE_STRIPS_EXEMPTIONS, restGap)
       : null
   if (rv !== null) {
@@ -2840,28 +2881,68 @@ function railCell(
       },
     }
   }
-  // (d)/(e) — a refusal that really costs a window names and prices the honest lists;
-  // every other refusal class keeps the engine's own pocket numbers, untouched.
-  const windowsBefore = repCapacity ? beforeStarts : v.protectedWindowsBefore
-  const windowsAfter = repCapacity ? afterStarts : v.protectedWindowsAfter
+  /** (d)/(e) — ⚖ NEW-WINDOW L-A: THE CALLER'S OWN LISTS, ON EVERY ARM.
+   *
+   *  This line used to hand the engine's pocket lists to every class the engine
+   *  did not rank on capacity — and on a MOVE those lists are the phantom
+   *  baseline, so a landing that really closed the lane's last 新規 window
+   *  published 0→0 and went silent (Defect 1). `beforeStarts`/`afterStarts` are
+   *  the honest pair the caller already computed twenty lines up; at rest they
+   *  ARE the engine's pocket lists, byte for byte. */
+  const windowsBefore = beforeStarts
+  const windowsAfter = afterStarts
   const repWindows = repCapacity
     ? protectedWindowsClause(
         windowsEatenBy(beforeStarts, input.protectedDur, start, input.dur),
         input.protectedDur,
       )
     : ''
+  /** M10 — A WINDOW LOSS WEARS THE WINDOW SHAPE, whatever the engine ranked on.
+   *
+   *  With the honest count saying a protected window is gone, publishing the
+   *  engine's own class would name a MENU (`reasonForKey`'s `repLabel`, gap-guard
+   *  :338) or a residue in minutes over a fact that is about the store's 確保
+   *  inventory — and `impactOf`'s `ruled` gate would refuse the sentence
+   *  entirely. So the published reason is the capacity form, composed from the
+   *  honest lists; the label is gap-guard's own (`reasonForKey` :340), from the
+   *  same two store settings.
+   *
+   *  D-2 — AND THE ENGINE'S OWN STATEMENT DOES NOT VANISH WITH ITS CLASS. When the
+   *  override rewrote an R-DEAD / R-SALV, its minutes sentence had nowhere left to
+   *  go (the (c2) arm's `gapNote` is a different axis), so it rides `engineNote`
+   *  and `warnFaceFor` renders it as a △ row in the engine's own words. */
+  const published: GuardReason | undefined =
+    repCapacity && v.reason
+      ? {
+          code: 'R-REP',
+          params: {
+            label: protectedLabelOf(input),
+            capacityBefore: beforeStarts.length,
+            capacityAfter: afterStarts.length,
+            capacityLost: loss,
+          },
+        }
+      : v.reason
+  const overridden =
+    repCapacity && (v.reason?.code === 'R-DEAD' || v.reason?.code === 'R-SALV')
+      ? { code: v.reason.code, n: Number(v.reason.params.n) }
+      : null
   return {
-    ...blocked(reasonLine(v.reason, input.protectedDur, repWindows), 'guard'),
+    ...blocked(reasonLine(published, input.protectedDur, repWindows), 'guard'),
     alternatives: v.alternatives,
     alternativeKind: v.alternativeKind,
+    // The engine's word about whether this placement can be made at all is NEVER
+    // republished: M10 changes what the refusal is ABOUT, never whether it may be
+    // walked past (⚖ 73).
     ackAllowed: v.reason?.ackAllowed === true,
-    // ⚖ 92 — the engine's own class (R-REP / R-DEAD / R-SALV), carried rather
-    // than read back out of the sentence it produced.
+    ...(overridden ? { engineNote: overridden } : {}),
+    // ⚖ 92 — the published class, carried rather than read back out of the
+    // sentence it produced.
     // ⚖ 92 fix round 5 V1 (breaker #4) — with the window starts, as above.
-    ...(v.reason
+    ...(published
       ? {
           impact: {
-            code: v.reason.code,
+            code: published.code,
             capacityBefore: windowsBefore.length,
             capacityAfter: windowsAfter.length,
             windowsBefore,
@@ -3233,7 +3314,17 @@ export function railExplain(
     // because a held half hour is empty by the store's own decision and the
     // 確保 chip is what explains it; the no-rooms store is answered inside
     // `halfWord`, which can produce nothing when `free` is null.
-    cell.reason === 'guard'
+    /** ⚖ NEW-WINDOW L-E — AND THE WORD IS THE MASK'S, ON BOTH WALKS.
+     *
+     *  `cell.reason === 'guard'` alone painted 新規用 on ANY engine refusal — the
+     *  menu-repertoire one included — so a half hour holding nothing wore the word
+     *  that means 「this start is being held for a 新規」. The mask (`reservedHalf`,
+     *  computed from `heldExtents` and passed on EVERY `railExplain` call) is the
+     *  honest door, and it is the same one the arm below already asks. The guard
+     *  arm STAYS: a guard-refused chip inside a held span whose `halfWord` is null
+     *  would otherwise lose the word entirely, which is the design's own §3g
+     *  spelling and it re-emits 198 baseline lines. Measured both ways. */
+    cell.reason === 'guard' && opts.reservedHalf === true
       // ⚖ LIAM RULING (2026-08-30) — 新規用, and the JP lens called it before he
       // did. 新規 alone is a CATEGORY word on this board (it is the カテゴリー
       // colour in the legend, and 新規予約を作成 is what an empty track opens), so
@@ -6483,8 +6574,75 @@ const protectedValueOf = (starts: readonly number[], listPrice: number, protecte
  *  the engine hands over the protected windows themselves, the screen hands over
  *  the levers the sell layer is built from, and the loss is the difference
  *  between what that inventory was worth before and after. */
+/** ⚖ NEW-WINDOW L-C — THE LANES, AS A PERSON WOULD READ THEM OUT. 名 is the
+ *  counter for people; 件 counts bookings, and these are staff members. Past
+ *  three names the list stops rather than running the card off the phone. */
+const laneListOf = (labels: string[]) =>
+  labels.length <= 3 ? labels.join('・') : `${labels.slice(0, 3).join('・')}、他${labels.length - 3}名`
+
 function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame: PriceFrame | null, depth: number): WarnCardModel['impact'] {
   const verbatim = { head: cell.sentence, yen: null, tail: '' }
+  /** ⚖ NEW-WINDOW M-1 — THE DAY LEADS, and it leads from the TOP of this function.
+   *
+   *  Every gate below is keyed on `cell.impact` — this pocket's class, its
+   *  capacity pair, its money — and none of them can see a fact about ANOTHER
+   *  lane. A ✓ pocket (`impact == null`) and an unruled class (R-SALV) both
+   *  return `verbatim` down there, which is exactly how a landing that closed a
+   *  named staff member's last 新規 window stayed silent.
+   *
+   *  THE FENCE IS THE ARM'S OWN FIRST LINE. `:6500`'s `!(protectedDur > 0)` sits
+   *  BELOW this arm, and this sentence prints 「…{N}分の空き」 too, so a store that
+   *  has not set 確保する長さ would be handed 「NaN分」 with money beside it. Same
+   *  spelling — `!(x > 0)` is the one that catches NaN.
+   *
+   *  THE ¥ IS THE LOST LANE'S OWN PRICE, row by row: what the store loses on
+   *  スタッフA's window is worth スタッフA's rate. Main's own per-row rule is kept
+   *  (a lane that prices nothing contributes nothing) and the ¥10 round fires
+   *  ONCE over the Σ — rounding per row double-counts the remainder, which is the
+   *  same reason `protectedValueOf`'s own comment gives.
+   *
+   *  THE NAMES RIDE IN `head`, NOT IN THE BRACKET. `.wc-yen` is `white-space:
+   *  nowrap` (today.css :1385, 「half a price is a wrong price」), and a bracket
+   *  carrying four staff names cannot break on a 393px phone. `head` is plain
+   *  text inside a wrapping `<p>`, and both renderers of this model — the card
+   *  and settings/StorePolicySection — already paint it unchanged.
+   *
+   *  THE SAME-LANE COLLAPSE: the landing lane has no name to ADD, because the
+   *  operator is looking at it. It is still COUNTED and still PRICED; only the
+   *  name drops, which makes a same-lane loss byte-identical to today's sentence. */
+  if (cell.day != null && cell.day.lostOn.length > 0) {
+    if (!(protectedDur > 0)) return verbatim
+    const day = cell.day
+    const dayBefore = day.lostOn.reduce((a, r) => a + r.before.length, 0)
+    const dayAfter = day.lostOn.reduce((a, r) => a + r.after.length, 0)
+    const dayLoss = dayBefore - dayAfter
+    if (dayLoss <= 0) return verbatim
+    const dayValue = frame != null
+      ? Math.round(
+          day.lostOn.reduce(
+            (total, r) => (frame.hqMin > 0 && r.listPrice > 0
+              ? total
+                + protectedValueOf(r.before, r.listPrice, protectedDur, frame, depth)
+                - protectedValueOf(r.after, r.listPrice, protectedDur, frame, depth)
+              : total),
+            0,
+          ) / 10,
+        ) * 10
+      : 0
+    const dayYen = dayValue > 0 ? `約${money(dayValue)}` : null
+    const names = day.lostOn.filter((r) => r.laneKey !== day.laneKey).map((r) => r.label)
+    const dayHead = `ここに置くと、${names.length === 0 ? '' : `${laneListOf(names)}の`}新規のお客様の${protectedDur}分の空き`
+    const dayShrink = `が${dayBefore}枠から${dayAfter}枠に減ります`
+    // ⚖ 92 V1 is HONOURED, not amended: the money sits on the noun at a loss of
+    // one and moves to the 枠 clause past it, exactly as it does below.
+    return dayLoss === 1
+      ? { head: dayHead, yen: dayYen, tail: `${dayShrink}。` }
+      : {
+          head: dayHead,
+          yen: null,
+          tail: dayYen ? `${dayShrink}（${dayLoss}枠分・${dayYen}）。` : `${dayShrink}。`,
+        }
+  }
   // The two classes the approved design gave a shape to, and no others: an
   // unruled class keeps the engine's sentence exactly as it did before this fix
   // (and with it, no ¥ — the queued design note about that is Liam's to rule on,
@@ -6560,8 +6718,38 @@ function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame
  *  that same ⚖ 54 reason one scope wider: the ruling makes this number the warn
  *  face's own TRIGGER, so the composer, the draw gate and the press now all ask
  *  it. Three readers, one spelling, and the screen imports it. */
-export const lossOf = (c: RailCell | null): number =>
+export const pocketLossOf = (c: RailCell | null): number =>
   c == null || c.state === 'safe' || c.impact == null ? 0 : Math.max(0, c.impact.capacityBefore - c.impact.capacityAfter)
+
+/** ⚖ NEW-WINDOW §C — WHAT THE STORE LOSES, summed over the lanes that lost.
+ *
+ *  Never `day.before - day.after` as store totals: one landing can open twenty
+ *  windows elsewhere and close one on a named lane, and the net form calls that
+ *  a gain and says nothing. The lanes that lost are the answer, and they are
+ *  what the sentence names. Read BEFORE any `safe` / `impact == null`
+ *  short-circuit — a landing whose own pocket is ✓ can still cost the store a
+ *  window on somebody else's lane. */
+export const dayLossOf = (c: RailCell | null): number =>
+  c?.day == null ? 0 : c.day.lostOn.reduce((a, r) => a + (r.before.length - r.after.length), 0)
+
+export const lossOf = (c: RailCell | null): number => Math.max(pocketLossOf(c), dayLossOf(c))
+
+/** ⚖ NEW-WINDOW — THE ONE HOME for 「how many 新規 windows does this board hold,
+ *  and whose」. `byLane` carries each lane's own published starts and its own
+ *  price, so both readers below — the store total and the per-lane difference —
+ *  come out of ONE walk and can never disagree (⚖ 54).
+ *
+ *  `windowsOn` takes NO placement argument: the placement is baked into the BOARD
+ *  it is asked of, so a landing's cost is a subtraction of two totals the same
+ *  function produced on two real boards, and nothing has to lift a card out of a
+ *  world by argument. */
+export type DayWindows = { total: number; byLane: Array<{ laneKey: string; label: string; starts: number[]; listPrice: number }> }
+/** One lane that lost published 新規 windows between two settled boards. */
+export type DayRow = { laneKey: string; label: string; before: number[]; after: number[]; listPrice: number }
+/** `RailCell.day`'s shape. `before`/`after` are Σ over `lostOn` (§C), never store totals. */
+export type DayLoss = { laneKey: string; before: number; after: number; lostOn: DayRow[] }
+export const EMPTY_WINDOWS: DayWindows = { total: 0, byLane: [] }
+export const EMPTY_DAY: DayLoss = { laneKey: '', before: 0, after: 0, lostOn: [] }
 
 /** ⚖ 54 — HOW MANY 新規 WINDOWS A DAY HOLDS, and it is the ENGINE'S count.
  *
@@ -6575,8 +6763,9 @@ export const lossOf = (c: RailCell | null): number =>
  *  window, minus the locked ones — so the number counts precisely the lanes the
  *  rail would draw on. `.before` is the day AS IT STANDS: nothing is being placed
  *  here, the question is what the day can still hold. */
-export function protectedCapacityOf(lanes: BoardLane[], input: RailInput): number {
+export function windowsOn(lanes: BoardLane[], input: RailInput): DayWindows {
   const engine = createGapGuard(input.guard)
+  const byLane: DayWindows['byLane'] = []
   let total = 0
   for (const lane of lanes) {
     if (lane.group !== 'staff' || lane.window == null || input.locked.includes(lane.key)) continue
@@ -6592,9 +6781,43 @@ export function protectedCapacityOf(lanes: BoardLane[], input: RailInput): numbe
     // bed callbacks is answered by them here too, rather than by a second,
     // callback-less ctx spelled beside it.
     const ctx = railCtx(lane, input)
-    for (const pocket of pockets) total += engine.protectedCapacity(pocket, null, ctx).before
+    const starts: number[] = []
+    // `.beforeStarts` IS `.before`'s own array (gap-guard :218-226 returns the
+    // list and its length off one variable), so widening the walk cannot move the
+    // total by one: `protectedCapacityOf` below is this function's `.total`.
+    for (const pocket of pockets) starts.push(...engine.protectedCapacity(pocket, null, ctx).beforeStarts)
+    total += starts.length
+    byLane.push({ laneKey: lane.key, label: lane.label, starts, listPrice: lane.listPrice })
   }
-  return total
+  return { total, byLane }
+}
+
+/** ⚖ NEW-WINDOW — WHICH LANES LOST A WINDOW BETWEEN TWO SETTLED BOARDS, and which.
+ *
+ *  A row per lane whose published list got SHORTER; a lane that vanished from the
+ *  after board is a row with `after: []`. The rows carry the lost lane's OWN
+ *  `listPrice`, because what the store loses on スタッフA's window is priced at
+ *  スタッフA's rate and not at the rate of the lane the card happens to land on.
+ *
+ *  ⚖ §C — the pair the sentence prints is Σ over THESE ROWS, never the two store
+ *  totals: on 271 of 1,260 measured landings the store's net moved UP while a
+ *  named lane really lost a window, and a net form goes silent on every one of
+ *  them. */
+export function lostOn(before: DayWindows, after: DayWindows): DayRow[] {
+  const now = new Map(after.byLane.map((l) => [l.laneKey, l.starts]))
+  const rows: DayRow[] = []
+  for (const lane of before.byLane) {
+    const still = now.get(lane.laneKey) ?? []
+    if (still.length < lane.starts.length) {
+      rows.push({ laneKey: lane.laneKey, label: lane.label, before: lane.starts, after: still, listPrice: lane.listPrice })
+    }
+  }
+  return rows
+}
+
+/** 設定's own number, unmoved: one walk, two readers, no second spelling (⚖ 54). */
+export function protectedCapacityOf(lanes: BoardLane[], input: RailInput): number {
+  return windowsOn(lanes, input).total
 }
 
 export function warnFaceFor(input: WarnCardInput): WarnCardModel {
@@ -6608,10 +6831,13 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  row — which is exactly where those facts lived before flag 92, and where
    *  `pendingGuardRow.row` still renders them.
    *
-   *  `state !== 'safe'` is kept beside it though `lossOf` already answers 0 for a
-   *  safe cell: it is the sentence the ruling is written in, and it says out loud
-   *  that a safe cell was never a fact at all. */
-  const guardWarn = cell != null && cell.state !== 'safe' && lossOf(cell) > 0
+   *  ⚖ NEW-WINDOW M2 — AND THE `state !== 'safe'` CLAUSE MOVES INSIDE `pocketLossOf`,
+   *  where it is true of the POCKET path only. A landing the lane itself calls ✓
+   *  can still take the last room across another staff member's 新規 window, and
+   *  under the old spelling that cell was silent, un-priced and one tap from
+   *  committed. `lossOf` is still the whole of the trigger; what changed is that
+   *  it now counts the store's loss as well as this pocket's. */
+  const guardWarn = cell != null && lossOf(cell) > 0
   // The trigger, and it is the OR the ruling names: the guard found a fact, or a
   // row was already walked past. `tone === 'warn'` is the △ row itself, so a
   // future warn-grade row lights this face without a second predicate.
@@ -6653,13 +6879,26 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *
    *  `guardCheckRow` already answers null for a null cell and for a safe one, so
    *  its own law is the whole of the condition and there is no second spelling of
-   *  「is there a verdict to show?」 here. */
-  const guardRow = guardWarn ? null : guardCheckRow(cell)
+   *  「is there a verdict to show?」 here.
+   *
+   *  ⚖ NEW-WINDOW D-1 — 「already the same verdict」 IS TRUE ONLY WHEN THE HEADLINE
+   *  CAME FROM THE POCKET. When the DAY lit this face, the panel above is about
+   *  another lane's window and the pocket's own verdict — 「割引でしか売れない空きが
+   *  95分残ります」 — is a DIFFERENT fact, which ⚖ 73-74 forbids dropping. So the
+   *  row is suppressed only where the pocket is what the panel is already saying. */
+  const guardRow = guardWarn && pocketLossOf(cell) > 0 ? null : guardCheckRow(cell)
+  /** ⚖ NEW-WINDOW D-2 — and where M10 republished the engine's class, the
+   *  engine's own minutes statement is said here, in its own words. */
+  const engineRow: { label: string; tone: 'warn' } | null =
+    cell?.engineNote == null
+      ? null
+      : { label: reasonLine({ code: cell.engineNote.code, params: { n: cell.engineNote.n } }, protectedDur), tone: 'warn' }
   const kept = [
     ...rows.filter(
       (r) => (r.tone !== '' || greenSubjectOf(r.label) === null) && !(!guardWarn && r.label === overrideRow),
     ),
     ...(guardRow ? [guardRow] : []),
+    ...(engineRow ? [engineRow] : []),
   ]
 
   // ⚖ 92 — the safe answer, from the ENGINE'S own alternatives. Two shapes and
