@@ -6665,6 +6665,18 @@ export const dayLossOf = (c: RailCell | null): number =>
 
 export const lossOf = (c: RailCell | null): number => Math.max(pocketLossOf(c), dayLossOf(c))
 
+/** ⚖ ROUND BUILD-1 (2) — IS THE DAY HEADLINE ABOUT THE LANE THE CARD IS LANDING ON?
+ *
+ *  ⚖ 73-74 forbids dropping a verdict the panel is not already saying. When the
+ *  day headline names ANOTHER lane's window, the pocket's own row — 「割引でしか
+ *  売れない空きが95分残ります」 — is a DIFFERENT fact and must survive. But when the
+ *  lane that lost IS the landing lane, the headline's own sentence (with the name
+ *  collapsed out, because the operator is looking at it) and the pocket's △ row are
+ *  the SAME window loss said twice, the second time under the engine's mislabelled
+ *  menu name. Same fact, one voice. */
+export const dayOnLandingLane = (c: RailCell | null): boolean =>
+  c?.day != null && c.day.lostOn.some((r) => r.laneKey === c.day!.laneKey)
+
 /** ⚖ NEW-WINDOW — THE ONE HOME for 「how many 新規 windows does this board hold,
  *  and whose」. `byLane` carries each lane's own published starts and its own
  *  price, so both readers below — the store total and the per-lane difference —
@@ -6812,12 +6824,14 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  its own law is the whole of the condition and there is no second spelling of
    *  「is there a verdict to show?」 here.
    *
-   *  ⚖ NEW-WINDOW D-1 — 「already the same verdict」 IS TRUE ONLY WHEN THE HEADLINE
-   *  CAME FROM THE POCKET. When the DAY lit this face, the panel above is about
-   *  another lane's window and the pocket's own verdict — 「割引でしか売れない空きが
-   *  95分残ります」 — is a DIFFERENT fact, which ⚖ 73-74 forbids dropping. So the
-   *  row is suppressed only where the pocket is what the panel is already saying. */
-  const guardRow = guardWarn && pocketLossOf(cell) > 0 ? null : guardCheckRow(cell)
+   *  ⚖ NEW-WINDOW D-1 + ⚖ ROUND BUILD-1 (2) — 「already the same verdict」 IS ABOUT
+   *  THE LANE, not about which computation lit the face. The row drops when the
+   *  panel above is already saying THIS lane's window loss — from the pocket, or
+   *  from a day headline that names the landing lane (`dayOnLandingLane`, where
+   *  the △ twin is the same loss worn under the engine's mislabelled menu name).
+   *  When the day names ANOTHER lane, the pocket's own verdict — 「割引でしか売れない
+   *  空きが95分残ります」 — is a DIFFERENT fact and ⚖ 73-74 forbids dropping it. */
+  const guardRow = guardWarn && (pocketLossOf(cell) > 0 || dayOnLandingLane(cell)) ? null : guardCheckRow(cell)
   const kept = [
     ...rows.filter(
       (r) => (r.tone !== '' || greenSubjectOf(r.label) === null) && !(!guardWarn && r.label === overrideRow),
