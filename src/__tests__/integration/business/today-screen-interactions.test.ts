@@ -1957,7 +1957,11 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     expect({
       bedDoorMentions: (CODE.match(/bedDoor\(/g) ?? []).length,
       bedDoorDefinitions: (CODE.match(/\b(?:function|const|let|var|class)\s+bedDoor\b/g) ?? []).length,
-    }).toEqual({ bedDoorMentions: 3, bedDoorDefinitions: 1 })
+    // ⚖ NEW-WINDOW (2026-09-12) — 3 → 4, COUNTED BY A RUN. The fourth is
+    // `windowDoorOn`, the SETTLED boards' own door: it calls `bedDoor` on a book
+    // it built itself rather than through `bedDoorFor`, whose closure is
+    // per-frame. A new door, named here, exactly as this pin's own rule asks.
+    }).toEqual({ bedDoorMentions: 4, bedDoorDefinitions: 1 })
 
     // ⚖ BREAKER-827 §DELTA 3 S2 (BLOCKER) — AND THE GATE'S NAME IS BOUND IN
     // EXACTLY ONE PLACE. Every pin above reads a NAME and none of them said
@@ -2271,6 +2275,17 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "laneKeyAtY,",
       "landingVerdict,",
       "lossOf,",
+      // ⚖ NEW-WINDOW (2026-09-12) — the day family. One walk answers 「how many
+      // 新規 windows does this board hold, and whose」 (`windowsOn`), one names the
+      // lanes that lost between two settled boards (`lostOn`), and the two empty
+      // shapes are what the guard-off arm and the memo's own early returns answer
+      // with. `DayLoss` is the field's type, for the memo's return annotation.
+      // Added, nothing renamed or removed.
+      "windowsOn,",
+      "lostOn,",
+      "EMPTY_WINDOWS,",
+      "EMPTY_DAY,",
+      "type DayLoss,",
       "bedClassCell,",
       "nearestFreeStarts,",
       "offerableCell,",
@@ -2323,6 +2338,12 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "slotStartAt,",
       "unparkOutcome,",
       "withPriceFact,",
+      // ⚖ ROUND BUILD-1 (2026-09-12) — COUNTED BY A RUN (the list came back with
+      // this one line extra). `withoutAdded` is the shelf place-back's origin
+      // board, lifted off this screen into the engine file so it could be pinned
+      // at all — spelled inline here, filtering on the wrong key was a silent
+      // no-op (mutant (d)). Added, nothing renamed or removed.
+      "withoutAdded,",
       "foreignStoreRefusal,",
       // ⚖ P1 (#890) — the calendar row's own type. A day the roster door has no
       // answer for is a row that says so (`covered: false`), so the row shape is
@@ -2338,6 +2359,9 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "type OverrideLevel,",
       "type PairLanes,",
       "type RailCell,",
+      // ⚖ NEW-WINDOW (2026-09-12) — `inputOn` returns one, so the screen names the
+      // shape it is building. Added, nothing renamed or removed.
+      "type RailInput,",
       // ⚖ FIX ROUND 2 (FX-B) — `moveSetOf` takes the search’s own `Reseat[]`
       // rather than a hand-copied shape, so the type rides in with it.
       "type Reseat,",
@@ -2623,9 +2647,12 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     expect(SRC).toContain('const hit = cache.get(lanes)')
     expect(SRC).toContain('if (hit && hit.frameKey === frameKey && hit.liftedId === liftedId) return hit.views')
     expect(SRC).toContain('const views = bedViewsFor(lanes, frame, liftedId)')
-    // Three mentions of `bookFor(`: the definition and the two NAMED doors — the
+    // Four mentions of `bookFor(`: the definition and the three NAMED doors — the
     // same 「a call nobody named is a second door」 rule as `bedDoor(` above.
-    expect(SRC.split('bookFor(').length - 1).toBe(3)
+    // ⚖ NEW-WINDOW (2026-09-12) — 3 → 4, COUNTED BY A RUN. The third door is
+    // `windowDoorOn`'s, and it is named right here: it asks the book for a
+    // SETTLED board with nothing lifted, which is the day question's own world.
+    expect(SRC.split('bookFor(').length - 1).toBe(4)
     expect(SRC).not.toContain('bedViewsFor(committedLanes')
     expect(SRC).toContain('gateOn: SELLING_ENGINE_LAW,')
     expect(SRC).toContain('bookOf: bedViewsFor,')
@@ -9248,7 +9275,16 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     })).face).toBe('warn')
     // The trigger is the composer's own line, and `lossOf` is the ONE spelling
     // the draw gate and the press read too (⚖ 54).
-    expect(INT).toContain("const guardWarn = cell != null && cell.state !== 'safe' && lossOf(cell) > 0")
+    // ⚖ NEW-WINDOW M2 (2026-09-12) — the `state !== 'safe'` clause MOVED into
+    // `pocketLossOf`, where it is true of the pocket path alone. A landing the
+    // lane itself calls ✓ can still take the last room across another staff
+    // member's 新規 window; under the old spelling that cell was silent and
+    // un-priced. `lossOf` is still the whole trigger — it now counts the store's
+    // loss as well as this pocket's — and the safe-cell rule is pinned at its new
+    // home two lines below.
+    expect(INT).toContain('const guardWarn = cell != null && lossOf(cell) > 0')
+    expect(INT).toContain("export const pocketLossOf = (c: RailCell | null): number =>\n"
+      + "  c == null || c.state === 'safe' || c.impact == null ? 0 : Math.max(0, c.impact.capacityBefore - c.impact.capacityAfter)")
   })
 
   // ⚖ 92 fix round F8 — TITLED FOR WHAT IT PROVES. This is the MODEL half: a
@@ -9644,9 +9680,14 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // board, and swapping two of them (the lane's price for the store's, the
     // operator's name for the lane's) compiles, renders and lies. The composer's
     // own tests cannot see this seam at all, so it is pinned at the call.
+    // ⚖ NEW-WINDOW (2026-09-12) — the `cell` field is the ONE place a
+    // `day`-carrying cell exists on this screen. The offer path below — the draw
+    // gate, `stagedLoss`, `row: guardCheckRow(cell)`, the press — keeps the RAW
+    // cell, byte for byte, so a day-inclusive number is never compared against
+    // pocket-only offers. Every other field is unchanged.
     expect(SRC).toContain(`: warnFaceFor({
         rows: pendingRows,
-        cell: pendingGuardRow.cell,
+        cell: pendingGuardRow.cell == null ? null : { ...pendingGuardRow.cell, day: pendingGuardRow.day },
         override: pending.override ?? null,
         level: props.overrideLevel,
         holdToConfirm: props.holdToConfirm,
@@ -10269,8 +10310,16 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // re-homed into today-interactions by ⚖ 9/1 ruling 2/2, where the composer's
     // own trigger now reads it too. Three readers, ONE definition (⚖ 54): the
     // screen imports it and holds no spelling of its own.
-    expect(INT).toContain('export const lossOf = (c: RailCell | null): number =>\n'
+    // ⚖ NEW-WINDOW (2026-09-12) — the one definition now MAXES two, and the
+    // pocket half is byte-identical to what stood here. `dayLossOf` reads
+    // `cell.day` BEFORE any `safe` / `impact == null` short-circuit, which is the
+    // whole point: a ✓ pocket can still cost the store a window elsewhere. Still
+    // three readers and ONE definition (⚖ 54); the screen still holds none.
+    expect(INT).toContain("export const pocketLossOf = (c: RailCell | null): number =>\n"
       + "  c == null || c.state === 'safe' || c.impact == null ? 0 : Math.max(0, c.impact.capacityBefore - c.impact.capacityAfter)")
+    expect(INT).toContain('export const dayLossOf = (c: RailCell | null): number =>\n'
+      + '  c?.day == null ? 0 : c.day.lostOn.reduce((a, r) => a + (r.before.length - r.after.length), 0)')
+    expect(INT).toContain('export const lossOf = (c: RailCell | null): number => Math.max(pocketLossOf(c), dayLossOf(c))')
     expect(INT.match(/const lossOf = /g)).toHaveLength(1)
     expect(SRC).not.toContain('const lossOf = ')
     expect(SRC).toContain('  lossOf,\n')

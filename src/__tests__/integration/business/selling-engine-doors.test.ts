@@ -772,8 +772,12 @@ describe('1 — the round gate', () => {
     // …/nextround/BLIND-NUDGE-f14f7294f/LENS-1-engineer.md L1-5). Both new reads
     // are whole-line anchored below, so the count is not carrying them alone.
     const screen = SRC('TodayScreen.tsx')
+    // ⚖ NEW-WINDOW (2026-09-12) — 7 → 8, COUNTED BY A RUN (`Expected: 7 /
+    // Received: 8`). The eighth read is `windowDoorOn`, the SETTLED boards' own
+    // gated door: the day walk asks the same room question the rail asks, so it
+    // is gated the same way, and it is whole-line anchored below like the rest.
     const reads = [...codeOnly(screen).matchAll(/SELLING_ENGINE_LAW/g)].length
-    expect(reads).toBe(7)
+    expect(reads).toBe(8)
     // ⚖ D1 — and the number does not move when `codeOnly` learns about block
     // comments: all five reads are code, none of the six raw occurrences the
     // pre-armour count saw ever sat inside a block the new filter removes.
@@ -804,6 +808,13 @@ describe('1 — the round gate', () => {
       'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
       'restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId, handBoard) : undefined,',
       'restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(excludeId, lanes) : undefined,',
+      // ⚖ NEW-WINDOW (2026-09-12) — THE SETTLED BOARDS' DOOR. It builds the
+      // foreign book itself rather than going through `bedDoorFor`, whose closure
+      // holds `boardLanes`, `ledger` and `handId` — all per-frame — so a memo
+      // built through it would walk the whole day on every pointer frame. `null`
+      // for the lift, for the same reason the rail's line passes `null`: a new
+      // client is never the card in hand, and these boards hold no hand at all.
+      'return SELLING_ENGINE_LAW ? bedDoor(bookFor(lanes, ledgerFrame, null, FOREIGN_BOOKS), lanes, null) : undefined',
     ]) {
       expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
     }

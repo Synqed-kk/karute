@@ -21,7 +21,10 @@
 // protected door and (⚖ R7) the verdict's protected door. The count is pinned
 // in selling-engine-doors.test.ts §1, so a fifth read cannot arrive quietly.
 // Everything below takes the mask as a PARAMETER, so an absent mask IS
-// today's board by construction; reading this constant inside a predicate, a
+// today's board by construction — for every reader EXCEPT the rail's 新規用
+// word, which is the mask's own (⚖ NEW-WINDOW L-E, today-interactions
+// `railExplain`): with no mask there is no held half hour, so no word —
+// honest, not a regression. Reading this constant inside a predicate, a
 // layer or a handler would put the round's state in two places and is a
 // review-fail.
 //
