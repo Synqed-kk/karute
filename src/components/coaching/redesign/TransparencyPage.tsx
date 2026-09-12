@@ -28,6 +28,7 @@
 // dialog itself is mostly self-explanatory for any reader.
 
 import { useState } from 'react'
+import { useCoachingConsent } from '@/lib/coaching-consent/hooks'
 import { Cloud, Eye, FileText, Lock, Shield } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
@@ -38,6 +39,8 @@ import { DataDeletionRequestButton } from './DataDeletionRequestButton'
 
 export function TransparencyPage() {
   const t = useTranslations('coaching.data')
+  const tConsent = useTranslations('coaching.consent')
+  const consent = useCoachingConsent()
   const [consentOpen, setConsentOpen] = useState(false)
 
   const staffOnlyItems = [
@@ -58,11 +61,23 @@ export function TransparencyPage() {
   return (
     <div className="space-y-6">
       <CoachingConsentDialog
+        key={`${consent.identityRevision}:${consent.currentPolicyVersion}`}
         open={consentOpen}
         onOpenChange={setConsentOpen}
-        onConsent={() => setConsentOpen(false)}
+        onConsent={(granted) => consent.decide(granted ? 'granted' : 'declined')}
+        saving={consent.saving}
+        grantUnavailable={!consent.canGrant}
+        unavailable={consent.loading || consent.error === 'loadFailed'}
+        error={consent.error ? tConsent(consent.error) : !consent.loading && !consent.canGrant ? tConsent('policyUnavailable') : null}
       />
 
+      {consent.error === 'loadFailed' && (
+        <div role="alert" className="rounded-lg border border-border p-4 text-sm">
+          <p>{tConsent('loadFailed')}</p>
+          <button type="button" className="mt-2 rounded-md border border-primary/30 px-3 py-2 text-primary"
+            onClick={() => { void consent.reload() }}>{tConsent('retry')}</button>
+        </div>
+      )}
       {/* Mission statement */}
       <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-5 dark:border-white/10 dark:bg-white/[0.04]">
         <div className="flex items-start gap-3">
