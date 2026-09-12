@@ -11,12 +11,11 @@
 // real impl: insert/delete `learning_assignments` rows on toggle
 // + send a Supabase realtime notification to the assigned staff.
 //
-// CONSENT GATE preserved verbatim from spike: only staff with
-// consentGiven=true appear as assignable chips. Non-consented
-// staff don't surface here.
+// Module assignment is independent of AI-coaching consent. Declining
+// personal AI coaching must not exclude staff from receiving help modules.
 //
 // PRIVACY: Layer 3 — owner action. No staff-side data
-// surfaced (just the module catalog + names of consented staff).
+// surfaced (just the module catalog + assignable staff names).
 //
 // NOTE (from spike header, preserved verbatim):
 // This is a SUMMARY card on the coaching landing page. It
@@ -103,7 +102,7 @@ export function AssignModulesCard({
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {staffList
-                    .filter((s) => !s.isTopPerformer && s.consentGiven)
+                    .filter((s) => !s.isTopPerformer)
                     .map((s) => {
                       const key = `${mod.id}:${s.staffId}`
                       const assigned = assignedPairs.has(key)
@@ -111,6 +110,7 @@ export function AssignModulesCard({
                         <button
                           key={s.staffId}
                           type="button"
+                          aria-pressed={assigned}
                           onClick={() => toggle(mod.id, s.staffId)}
                           className={`inline-flex h-6 items-center gap-1 rounded-full px-2 text-[11px] font-medium transition-colors ${
                             assigned
