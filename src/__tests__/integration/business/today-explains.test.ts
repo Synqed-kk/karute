@@ -958,7 +958,14 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // refused for their POCKET, which are exactly the ones with a card, a break
     // or an absence drawn across them. The chip keeps its word; the LANE keeps
     // 「empty track only」. Nothing about 「one source, three faces」 moved.
-    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items, handId)')
+    // ⚖ HONEST-COUNT ROUND 1 (2026-09-13), SPEC-HONEST-COUNT v3 N2 — the
+    // fourth argument is now `coverHere`, the UN-netted committed list. The
+    // boxes drawn on the row read the honest set (a 枠 the rooms cannot
+    // honour is drawn as shared, not as held); the CUE's cover must still
+    // read every candidate, because the operator can see the shared box and a
+    // 清掃 wash under it is flag 88's artifact one layer along. Same
+    // position, same law, one world — two questions.
+    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, coverHere, lane.items, handId)')
     // ⚖ LIAM RULING 1 + 2 (2026-09-09) — the filter is the CUE now. The source
     // of the three faces is still ONE value per chip: `railExplain` decides the
     // word and the mark together, in one return, so they cannot drift apart —

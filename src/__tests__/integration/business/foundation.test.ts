@@ -479,6 +479,14 @@ describe('the fixture data door', () => {
         // that held-committed.ts names neither this file nor the book's own
         // producer, and held-committed.ts is where the reasoning lives in full.
         './held-committed',
+        // ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — the netting, applied HERE
+        // because this is where the publication filter and the locked-lane list
+        // live, and `reserved-mask.ts`'s own header forbids it knowing either.
+        // It is a pure module whose every import is a TYPE, so this arrow adds
+        // no module to the graph below the screen: everything it names
+        // (`./reserved-mask`, `./capacity-ledger`, `@/business/lib/today-board`)
+        // is already on this list.
+        './honest-held',
         './reserved-mask',
         './selling-engine-gate',
         './today-interactions',

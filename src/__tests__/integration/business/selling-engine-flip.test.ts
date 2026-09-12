@@ -919,7 +919,15 @@ describe('4 — what paints, and what stops', () => {
     // The three drawn sets, each named once and read by the paint.
     expect(screen).toContain('const cells = sellDrawn.cells.filter(onThisLane)')
     expect(screen).toContain('const gapHere = [...gapDrawn.packed, ...gapDrawn.scraps].filter(onThisLane)')
-    expect(screen).toContain('const heldHere = lane.group === \'staff\' ? (heldDrawnByLane.get(lane.key) ?? []) : []')
+    // ⚖ HONEST-COUNT ROUND 1 (2026-09-13), SPEC-HONEST-COUNT v3 N1/N2 — TWO
+    // per-lane lists at this site now, because they answer two questions. The
+    // un-netted one (`coverHere`) is what the rest cue's cover takes, unchanged.
+    // The drawn HELD boxes come off the honest set, so a 枠 the rooms cannot
+    // honour is drawn ONCE, as a shared box, and never twice.
+    expect(screen).toContain("const coverHere = lane.group === 'staff' ? (heldDrawnByLane.get(lane.key) ?? []) : []")
+    expect(screen).toContain("const honestHere = lane.group === 'staff' ? honestByLane.get(lane.key) : undefined")
+    expect(screen).toContain('const heldHere = honestHere ? honestHere.held : coverHere')
+    expect(screen).toContain('const sharedHere = honestHere?.shared ?? []')
     // ONE chip per held span, on the STAFF row only, spanning it exactly — the
     // same `place(...)` percentage grammar every other box on this track uses.
     expect(screen).toContain('heldHere.map((h) => {')
@@ -946,22 +954,38 @@ describe('4 — what paints, and what stops', () => {
     // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F4, L1#4 ≡ L2#8): the
     // counter takes §4.5's EMISSION over that set rather than the set itself —
     // one home for the reserved kind, and it is the home the screen reads.
-    expect(screen).toContain('reserved: reservedOffersFor(heldDrawn),')
+    // ⚖ HONEST-COUNT ROUND 1 — …over the HONEST half of that set. A 枠 the
+    // rooms cannot honour beside its neighbour is not an offer Reserve may
+    // show, so the reserved rows drop with the chip; `heldMaskOf` is a rename
+    // of one honest row into the shape this adapter already takes. Gate off ⇒
+    // `honestDrawn` is undefined ⇒ the line that shipped.
+    expect(screen).toContain('reserved: reservedOffersFor(honestDrawn ? honestDrawn.byLane.map(heldMaskOf) : heldDrawn),')
   })
 
   it('空き枠表示「非表示」 takes the chips with the rest of the layer', () => {
     const css = readFileSync(join(process.cwd(), HERE, 'today.css'), 'utf8')
-    expect(css).toContain('.biz .timeline.sell-off .cell-held { display: none; }')
-    expect(css).toContain('.biz .lane.locked .cell-held { display: none; }')
+    // ⚖ HONEST-COUNT ROUND 1 — the shared box is the same layer and goes with
+    // it: 空き枠表示「非表示」 takes the whole sell layer off the board, and a
+    // locked lane sells nothing online so it holds nothing to show.
+    expect(css).toContain('.biz .timeline.sell-off .cell-held,\n.biz .timeline.sell-off .cell-shared { display: none; }')
+    expect(css).toContain('.biz .lane.locked .cell-held,\n.biz .lane.locked .cell-shared { display: none; }')
     // The class the rule keys off is the one the screen already sets, so this
     // needed no new switch: one dial, one class, one rule per layer.
     expect(SRC('TodayScreen.tsx')).toContain('`sell-${sellMode}`')
     // ⚖ R13 + the one-way accent law: a STATE is a wash and a dashed border,
     // never a fill and never the accent.
-    const rule = css.slice(css.indexOf('.biz .cell-held {'), css.indexOf('.biz .cell-held .held-title'))
+    // ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — the shared box shares the held
+    // box's GEOMETRY, so the two selectors open the same rule and this anchor
+    // moved with them. The box's own paint is asserted below it.
+    const rule = css.slice(css.indexOf('.biz .cell-held,\n.biz .cell-shared {'), css.indexOf('.biz .cell-held .held-title'))
     expect(rule).toContain('border: 1px dashed #94a3b8;')
     expect(rule).toContain('background: #eef2f7;')
     expect(rule).not.toMatch(/#2563eb|var\(--primary/)
+    // …and the shared box is the board's existing muted hatch, no accent, no
+    // black, no colour the page does not already carry.
+    const shared = css.split('\n').find((l) => l.startsWith('.biz .cell-shared { cursor')) ?? ''
+    expect(shared).toContain('repeating-linear-gradient(')
+    expect(shared).not.toMatch(/#2563eb|var\(--primary|#000|black/)
   })
 
   it('the bed row gains nothing new under a held window', () => {
@@ -1169,7 +1193,10 @@ describe('5 — a 確保 window answers with the law', () => {
     // entry; the `locked` half is gone because `heldDrawn` has already dropped
     // those lanes (`heldDrawnFor`, one spelling).
     expect(screen).toContain("const firstHeldLane = drawnLanes.find(")
-    expect(screen).toContain("(l) => l.group === 'staff' && laneRendered(l) && (heldDrawnByLane.get(l.key)?.length ?? 0) > 0,")
+    // ⚖ HONEST-COUNT ROUND 1 — the walk asks for a DRAWN box: a row whose only
+    // 枠 was demoted to shared draws no held box, and the 8/23 entry would have
+    // landed on nothing. The legacy map is still the fallback with the gate off.
+    expect(screen).toContain('(honestByLane.get(l.key)?.held.length ?? heldDrawnByLane.get(l.key)?.length ?? 0) > 0,')
     // …and the renderer asks the very same question, once, by name.
     expect(screen).toContain('if (!laneRendered(lane)) return null')
     // …and the counter's own entry moved with ⚖ Q3's definition.
@@ -1354,7 +1381,11 @@ describe('6 — a manager releases ごろう’s held window, and the board re-d
     // agnostic now and still says the only thing it ever meant: the same
     // `releasedHere` list is handed to BOTH world instances, on its own line,
     // exactly twice.
-    expect(screen.match(/^ +released: releasedHere,$/gm)).toHaveLength(2)
+    // ⚖ HONEST-COUNT ROUND 1 — 2 → 3. There is a THIRD settled world now, the
+    // 元に戻す board the day layer subtracts against, and it is handed the same
+    // list for the same reason: a window a manager put back on sale is released
+    // on every board the store is being asked about, or on none.
+    expect(screen.match(/^ +released: releasedHere,$/gm)).toHaveLength(3)
     expect(screen).toContain('const releasedHere = useMemo(\n    () => released.filter((r) => onShownBoard(r, board)),')
   })
 })
@@ -1522,7 +1553,11 @@ describe('7 — the fix round: the publication boundary', () => {
     // `withheld` widens a span's REACH and never the number the sentence quotes,
     // and `dur` stays the span's own length — so the code is unchanged and the
     // claim is.
-    expect(screen).toContain('held: heldBoard,')
+    // ⚖ HONEST-COUNT ROUND 1 — the board world minus the 枠 the SETTLED board
+    // found it cannot honour (`demoteShared`, v3 N4). The world is not netted —
+    // it is rebuilt per pointer frame on a cold book — it is handed the settled
+    // answer's shared spans and drops what overlaps them.
+    expect(screen).toContain('held: heldBoardHonest,')
     expect(screen).not.toContain('the two inputs are the two halves of one fact rather than two worlds')
 
     // ⚖ MICROFIX N1 — and the board-world instance lifts the hand, which is the
@@ -1623,7 +1658,8 @@ describe('7 — the fix round: the publication boundary', () => {
     // exactly one CALL, and it is the counter's.
     const screen = SRC('TodayScreen.tsx')
     expect(screen).not.toContain('reserved: reservedOffersFor(heldCommitted),')
-    expect(screen.match(/^ +reserved: reservedOffersFor\(heldDrawn\),$/gm)).toHaveLength(1)
+    // ⚖ HONEST-COUNT ROUND 1 — one call, and its argument is the honest half.
+    expect(screen.match(/^ +reserved: reservedOffersFor\(honestDrawn \? honestDrawn\.byLane\.map\(heldMaskOf\) : heldDrawn\),$/gm)).toHaveLength(1)
     expect(screen.match(/^ +[a-zA-Z]*:? ?reservedOffersFor\(/gm)).toHaveLength(1)
   })
 
@@ -1649,7 +1685,11 @@ describe('7 — the fix round: the publication boundary', () => {
     // ⚖ FLAG 88, WHOLE (2026-09-09) — a FIFTH argument, the lane's own drawn
     // cards. What F5 is about is untouched: `heldHere` is still the COMMITTED
     // list the chip above the cue is drawn from, in the same position.
-    expect(screen).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items, handId)')
+    // ⚖ HONEST-COUNT ROUND 1 (v3 N2) — `coverHere`, the same COMMITTED list in
+    // the same position, under its own name now that the row also has a netted
+    // one. What F5 is about is untouched: the cue still stands down over the
+    // chips the operator can see, shared ones included.
+    expect(screen).toContain('restCueStarts(explainedHere, cells, gapHere, coverHere, lane.items, handId)')
     // …and the board world's per-lane index is GONE, not merely unused: a second
     // held index on this screen is how the two worlds get mixed again.
     expect(screen).not.toContain('heldByLane')
@@ -1663,7 +1703,9 @@ describe('7 — the fix round: the publication boundary', () => {
     // landing and 新規予約を作成 both run on the TRACK's own click — and the
     // click returns unless the track is the target.
     expect(screen).toContain('if (e.target !== e.currentTarget || dragRef.current || blockDragRef.current) return')
-    expect(css).toContain('.biz .timeline.placing .cell-held,\n.biz .timeline.dragging-live .cell-held { pointer-events: none; }')
+    // ⚖ HONEST-COUNT ROUND 1 — the shared box stands aside on the same two
+    // classes: it draws over the same track and a placement must reach through.
+    expect(css).toContain('.biz .timeline.placing .cell-held,\n.biz .timeline.placing .cell-shared,\n.biz .timeline.dragging-live .cell-held,\n.biz .timeline.dragging-live .cell-shared { pointer-events: none; }')
     // Both classes are ones the screen already sets — no new switch.
     expect(screen).toContain("placing ? 'placing' : ''")
     expect(screen).toContain("dragLen != null || live || blockLive ? 'dragging-live' : ''")
@@ -1707,7 +1749,8 @@ describe('7 — the fix round: the publication boundary', () => {
     // leave the 8/23 entry on no DOM node at all.
     expect(screen).toContain("(view === 'both' || view === lane.group) && !collapsed.includes(lane.group)")
     expect(screen).toContain('if (!laneRendered(lane)) return null')
-    expect(screen).toContain('laneRendered(l) && (heldDrawnByLane.get(l.key)?.length ?? 0) > 0')
+    // ⚖ HONEST-COUNT ROUND 1 — …asked of the DRAWN box (see the F1 note).
+    expect(screen).toContain('(honestByLane.get(l.key)?.held.length ?? heldDrawnByLane.get(l.key)?.length ?? 0) > 0')
     // …and the toast's one action slot is navigated rather than announced: since
     // E5 it can carry a COMMIT, and a button inside a live region is one a
     // screen-reader user hears about rather than reaches.
@@ -2401,7 +2444,12 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     expect([...screen.matchAll(/\bheld: ([^,\n]+),/g)].map((m) => m[1]).sort()).toEqual([
       'false',
       'false',
-      'heldBoard',
+      // ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — `heldBoard` became
+      // `heldBoardHonest` at the ONE site that reads it: the rail explanation.
+      // It is still the BOARD world's mask, built in the same memo, minus the
+      // 枠 the settled board found it cannot honour. This is the review
+      // question the pin asks on purpose, and the PR body answers it.
+      'heldBoardHonest',
       'heldCommitted',
       'heldCommitted',
       'heldCommitted',
