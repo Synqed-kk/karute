@@ -25,6 +25,31 @@ jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getCurrentUserStaffId: jest.fn(async () => '28318e68-6b73-46ed-a1a2-c21299deee3f'),
 }))
+// can()/getMyCapabilities() and resolveStoreScope() both bottom out in a REAL
+// createServiceClient() Supabase call, unmocked here — createAppointment's
+// permission gate and every getAppointmentsByDate call each fire it fresh
+// (react's cache() does not dedupe across separate `it()` blocks — confirmed
+// by instrumenting global.fetch: 2 real fetches per exposed test). Against
+// the dummy test host this fails closed today (practitioner-preset fallback,
+// viewAll: false), but as an uncontrolled real network round-trip per test —
+// the exact CI-runner-load 5s timeout flake class (see
+// CLOCKPROOF-PR814-AI-STORE-SCOPE-2026-09-02.md, same root class named there
+// for this suite's "returns [] on client error" case). Neither is under test
+// here — store-scope clamping is pinned separately in
+// appointments-store-scope.test.ts — so stub both flat, matching that file's
+// own mock shape.
+jest.mock('@/lib/auth/require-permission', () => ({
+  can: jest.fn(async () => true),
+  requireCapability: jest.fn(async () => {}),
+}))
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: null,
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  })),
+}))
 
 // Stub getOrgSettings so validateAppointmentTime treats operating hours as permissive
 jest.mock('@/actions/org-settings', () => ({
