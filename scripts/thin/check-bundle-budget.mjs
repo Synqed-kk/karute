@@ -586,14 +586,14 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Report-only per ⚖ 8/25, same as every entry above: reversible, one revert.
 //
 // Raised 2026-09-12 at the pack-prompt-total-25 fix round (p5, blind-lens
-// adjudicated, branch feat/pack-prompt-total-25) — B2's cancelled-pack
-// alignment on TicketPackCard.tsx's 残りわずか hint: the card now runs the
+// adjudicated, branch feat/pack-prompt-total-25) — the p5 card change
+// (blind-read finding N5) on TicketPackCard.tsx's 残りわずか hint: the card now runs the
 // SAME resolveOutcomeMode total-balance rule the stop dialog already uses
 // (otherRemaining computed per row, excluding cancelled packs) instead of
 // its own "any newer active pack" check — genuine phone-bundle feature
 // bytes, not bloat; the purchase-marker scan stays the real gate and
 // remains 0 hits. Measured cold on this machine per the C4 recipe above,
-// byte-identical across three separate clean builds (node v24.16.0): en
+// byte-identical across two separate clean builds (node v24.16.0): en
 // 132,012 · index 992,101 · vendor 937,743 = 2,061,856 B, against
 // origin/main (db9c58758) — also byte-identical across two clean builds —
 // of 132,012 + 991,758 + 937,743 = 2,061,513 B: feature cost +343 B. The
