@@ -24,7 +24,8 @@ import {
 } from '@/lib/customers/identity'
 import { getAppointmentsByDateWithClient } from '@/lib/appointments/by-date'
 import { listAllCustomers } from '@/lib/customers/list-all'
-import { listAllPackUsageWithClient } from '@/lib/packs/store'
+import { listAllPackUsageWithClient, listCustomerPacksWithClient } from '@/lib/packs/store'
+import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { ymdInJst } from '@/lib/date/jst'
 import type { SynqedClient } from '@synqed-kk/client'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
@@ -47,11 +48,22 @@ export interface RecoveryDayFacts {
    *  the shared by-date assembly). */
   bookings: RecordTargetBooking[]
   /** Active 回数券 per relevant customer — the picker row's 残n/m pill AND the
-   *  burn target for a recovery save. `packId` is the SAME FIFO pick the money
-   *  path uses (first active counted pack with sessions left); null when the
-   *  customer's packs are all spent. Only customers who actually hold one get
-   *  a row — a row of nulls is pure wire weight. */
-  packs: { customerId: string; packId: string | null; remaining: number; size: number }[]
+   *  burn target for a recovery save. `remaining`/`size` are the AGGREGATE
+   *  (Σ across active counted packs) — the picker pill's number, unchanged
+   *  meaning. `packId` = the FIFO target's real id, from this customer's own
+   *  rows (pickRedemptionTarget) — one truth with the live path, no longer
+   *  trusting core's bulk-list order. `target` (回数券 update 25, p1/p2) is
+   *  that SAME FIFO pack's own remaining/size + otherRemaining (Σ the
+   *  customer's OTHER active counted packs) — the money reader's input
+   *  (mode, toast, dialog); null when nothing is burnable. Only customers who
+   *  actually hold a pack get a row — a row of nulls is pure wire weight. */
+  packs: {
+    customerId: string
+    packId: string | null
+    remaining: number
+    size: number
+    target: { remaining: number; size: number; otherRemaining: number } | null
+  }[]
   /** Which of that day's burns already happened. `null` = the history read
    *  FAILED: 消化 state is then UNKNOWN and the banner must stay silent rather
    *  than claim 未処理 (F7 — derived truth or nothing). */
@@ -149,19 +161,52 @@ export async function buildRecoveryDayFacts(
 
   // ONE fact row per BOOKED customer that actually holds a pack — the picker
   // rows read `pack` and nothing else here, so a row of nulls would be pure
-  // wire weight.
-  const packs: RecoveryDayFacts['packs'] = []
+  // wire weight. `remaining`/`size` stay the AGGREGATE (unchanged wire
+  // meaning); `packId`/`target` (回数券 update 25, p2) come from THIS
+  // customer's own rows, the same shape the live path already gives the
+  // recording flow — no more presenting an aggregate as one pack's own
+  // before/after count (LENS-L1 Finding 1).
+  const relevantIds: string[] = []
   const seen = new Set<string>()
   for (const cid of [...pinnedCustomerIds, ...bookings.map((b) => b.customerId)]) {
     if (!cid || seen.has(cid)) continue
     seen.add(cid)
     const usage = packUsage?.get(cid)
-    if (usage && usage.size > 0) {
+    if (usage && usage.size > 0) relevantIds.push(cid)
+  }
+  // Per-customer real rows, fanned out in ONE batch — a single customer's
+  // read failing nulls the WHOLE batch (never a row with a guessed target),
+  // exactly the way a failed listAllPackUsageWithClient degrades the
+  // aggregate above: no pack rows at all, rather than a partial guess.
+  const ownRowsByCustomer = await Promise.all(
+    relevantIds.map((cid) => listCustomerPacksWithClient(synqed, cid)),
+  )
+    .then((rows) => new Map(relevantIds.map((cid, i) => [cid, rows[i]])))
+    .catch(() => null)
+
+  const packs: RecoveryDayFacts['packs'] = []
+  if (ownRowsByCustomer) {
+    for (const cid of relevantIds) {
+      const usage = packUsage!.get(cid)!
+      const rows = ownRowsByCustomer.get(cid) ?? []
+      const fifo = pickRedemptionTarget(rows)
+      const target = fifo
+        ? {
+            remaining: fifo.remaining,
+            size: fifo.pack_size,
+            otherRemaining: rows
+              .filter(
+                (p) => p.kind === 'pack' && p.status === 'active' && p.id !== fifo.id,
+              )
+              .reduce((sum, p) => sum + p.remaining, 0),
+          }
+        : null
       packs.push({
         customerId: cid,
-        packId: usage.firstPackId ?? null,
+        packId: fifo?.id ?? null,
         remaining: usage.remaining,
         size: usage.size,
+        target,
       })
     }
   }

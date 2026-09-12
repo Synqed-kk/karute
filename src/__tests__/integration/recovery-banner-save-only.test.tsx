@@ -57,7 +57,18 @@ jest.mock('@/actions/recording-discards', () => ({
 const DAY_FACTS = {
   date: '2026-08-18',
   bookings: [],
-  packs: [] as { customerId: string; packId: string | null; remaining: number; size: number }[],
+  packs: [] as {
+    customerId: string
+    packId: string | null
+    remaining: number
+    size: number
+    // 回数券 update 25, p2 — optional here on purpose: most fixtures below
+    // are single-pack customers, where the graceful degrade (RecordPageView's
+    // resolveRecoveryTicketState) reads remaining/size as the FIFO pack's own
+    // — numerically identical to a real target, so those fixtures need no
+    // edit. Only the two-pack test below sets it explicitly.
+    target?: { remaining: number; size: number; otherRemaining: number } | null
+  }[],
   redeemed: { appointmentIds: [] as string[], customerIds: [] as string[] },
 }
 const mockDayFacts = jest.fn(async (_i: unknown) => DAY_FACTS)
@@ -1200,6 +1211,39 @@ describe('auto mode parity (A-6)', () => {
     }
     expect(redeemSessionAction).not.toHaveBeenCalled()
     expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+  })
+
+  // 回数券 update 25, Layer 1, p2 — the recovery flow reads the SAME
+  // total-balance shape the live path does: an old 残1 pack + a new 残10 pack
+  // reads 'auto' (never 'repurchase'), and the burn still targets the OLD
+  // (FIFO) pack — never the aggregate (11) presented as one pack's count.
+  it('two-pack customer (old 残1 + new otherRemaining 10) → mode auto, burns the FIFO (old) pack', async () => {
+    grantConsent()
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-old',
+        remaining: 11, // aggregate — unchanged meaning, unread by the money path
+        size: 16,
+        target: { remaining: 1, size: 6, otherRemaining: 10 },
+      },
+    ]
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    // No dialog — total (1+10) is comfortably 'auto', never 'repurchase'.
+    expect(screen.queryByText('disclaimer')).toBeNull()
+    const { redeemSessionAction } = jest.requireMock('@/actions/packs') as {
+      redeemSessionAction: jest.Mock
+    }
+    expect(redeemSessionAction).toHaveBeenCalledTimes(1)
+    expect(redeemSessionAction.mock.calls[0][0]).toMatchObject({
+      packId: 'pack-old',
+      redeemedOn: '2026-08-18',
+      recovery: true,
+    })
   })
 })
 
