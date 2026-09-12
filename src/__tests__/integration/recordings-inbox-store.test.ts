@@ -25,10 +25,14 @@ jest.mock('@/lib/karute/take-store', () => ({
 }))
 jest.mock('@/lib/global-recorder', () => ({ globalRecorder: { takeId: null } }))
 /** UPDATE 25 GROUP A, piece b — mutable so the reconcile tests can put the
- *  pipeline in `error` with a session id, and prove `reset` fires (or doesn't). */
+ *  pipeline in `error` with a session id, and prove `reset` fires (or doesn't).
+ *  FIX ROUND F3 adds `error`: the reconcile must read the pipeline's error
+ *  CODE (not just its state) to know whether the card is still the only 破棄
+ *  door for an empty-transcript failure. */
 const pipelineState = {
   state: 'idle' as string,
   context: null as { recordingSessionId?: string; takeId?: string } | null,
+  error: null as string | null,
 }
 const pipelineReset = jest.fn(() => {
   pipelineState.state = 'idle'
@@ -40,6 +44,9 @@ jest.mock('@/lib/global-pipeline', () => ({
     },
     get context() {
       return pipelineState.context
+    },
+    get error() {
+      return pipelineState.error
     },
     subscribe: () => () => {},
     reset: (...a: unknown[]) => pipelineReset(...(a as [])),
@@ -102,6 +109,7 @@ beforeEach(() => {
   listRecordingsInbox.mockImplementation(async () => [])
   pipelineState.state = 'idle'
   pipelineState.context = null
+  pipelineState.error = null
   resetInbox()
   // A mounted consumer — the poll only ever runs while something is watching.
   unsubscribe = subscribeInbox(() => {})
@@ -414,6 +422,46 @@ describe('録音履歴 — b: the pill reconciles with the row (piece b)', () =>
     const excludeArg = listOwnTakes.mock.calls[0][0] as Array<string | null>
     expect(excludeArg).toContain('t-live')
   })
+
+  // FIX ROUND F3 — the card is the ONLY 破棄 door for an empty-transcript
+  // failure while it still holds a take (the recovery banner's 破棄 is gated
+  // `belowFloor`, and the 録音履歴 row itself offers no discard). Standing the
+  // card down here would remove that door with nothing replacing it.
+  it('error empty-transcript + context.takeId + a matching FAILED row with canRetry → NOT reset (the card is the only 破棄 door)', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      { takeId: 't1', recordingSessionId: 's1', customerId: null, customerName: null, startedAt: NOW, updatedAt: NOW },
+    ])
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'EMPTY_TRANSCRIPT' }),
+    ])
+    pipelineState.state = 'error'
+    pipelineState.error = 'empty-transcript'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't1' }
+
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).not.toHaveBeenCalled()
+  })
+
+  it('error empty-transcript with NO context.takeId → reset (nothing left holding the 破棄 door, the row speaks)', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      { takeId: 't1', recordingSessionId: 's1', customerId: null, customerName: null, startedAt: NOW, updatedAt: NOW },
+    ])
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'EMPTY_TRANSCRIPT' }),
+    ])
+    pipelineState.state = 'error'
+    pipelineState.error = 'empty-transcript'
+    pipelineState.context = { recordingSessionId: 's1' }
+
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).toHaveBeenCalledTimes(1)
+  })
+
+  // MUTANT anchor: dropping the `error === 'empty-transcript' && context?.takeId`
+  // clause lets the first case above reset — RED — see the report's
+  // RED-then-restored capture.
 })
 
 /**

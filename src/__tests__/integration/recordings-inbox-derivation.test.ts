@@ -1046,6 +1046,53 @@ describe('録音履歴 — d3: the session was never listed', () => {
 })
 
 /**
+ * FIX ROUND, n3 — 「サーバーの記録には見つかりません」 is a claim ABOUT THE
+ * SERVER; a read this pass could not fully judge (`probeIncomplete` on a
+ * returned row) is no evidence the server lacks a record for an UNLISTED
+ * session. `readComplete` gates the claim; the take-side reason is used
+ * instead, which claims nothing about the server.
+ */
+describe('録音履歴 — n3: sessionUnlisted only when the read was complete', () => {
+  it('a truncated read (a returned session carries probeIncomplete) never claims sessionUnlisted for an unlisted take', () => {
+    const rows = fold(
+      [session({ recordingSessionId: 'sess-other', probeIncomplete: true })],
+      [
+        take({
+          takeId: 't1',
+          recordingSessionId: 'sess-ghost',
+          startedAt: NOW - SESSION_UNSETTLED_GRACE_MS - MIN,
+        }),
+      ],
+    )
+    const row = rows.find((r) => r.key === 'take:t1')!
+    expect(row.state).toBe('recoverable')
+    // recoverableReason(take): no tailIncomplete/stopPendingAt → 'localAudio'.
+    expect(row.reason).toBe('localAudio')
+    // The fence narrows the CLAIM, not the affordance — still 要対応.
+    expect(needsAttention(row)).toBe(true)
+  })
+
+  it('a COMPLETE read (no probeIncomplete anywhere) keeps sessionUnlisted', () => {
+    const rows = fold(
+      [session({ recordingSessionId: 'sess-other' })],
+      [
+        take({
+          takeId: 't1',
+          recordingSessionId: 'sess-ghost',
+          startedAt: NOW - SESSION_UNSETTLED_GRACE_MS - MIN,
+        }),
+      ],
+    )
+    const row = rows.find((r) => r.key === 'take:t1')!
+    expect(row.reason).toBe('sessionUnlisted')
+  })
+
+  // MUTANT anchor: dropping `readComplete` (always claiming sessionUnlisted
+  // past the grace) → RED on the first test above — see the report's
+  // RED-then-restored capture.
+})
+
+/**
  * UPDATE 25 GROUP A, piece r — a take TERMINALLY refused because its own
  * session already carries a karute (Group B's d4) gets its own honest row;
  * the session row reads 保存済み without it.

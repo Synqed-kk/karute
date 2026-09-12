@@ -214,7 +214,13 @@ async function readServerSessions() {
  * NOT reconciled, on purpose: an in-tab failure whose session reads
  * 処理中/復元可能 (no server job exists for it yet — the card is the only
  * truth there); an error with no session id (nothing to look up); a failed
- * row with no audio anywhere (the card's retained blob is the last copy).
+ * row with no audio anywhere (the card's retained blob is the last copy);
+ * and, FIX ROUND F3, an `empty-transcript` error still holding its take —
+ * `PipelineErrorCard`'s 録音を破棄する is the ONLY discard door for a take
+ * ≥10s (the recovery banner's discard is gated `belowFloor`, and the 録音履歴
+ * row itself offers no discard). Standing the card down here would remove
+ * that door with nothing replacing it, so the card stays until the row can
+ * offer 破棄 itself.
  *
  * NO LOOP: `reset()` notifies synchronously, which re-fires `armPipelineWatch`'s
  * subscriber inside THIS call's own stack — re-entrant `loadInbox()` calls hit
@@ -224,6 +230,9 @@ async function readServerSessions() {
 async function reconcilePipelineWithRows(rows: readonly InboxRow[]): Promise<void> {
   const { globalPipeline } = await import('@/lib/global-pipeline')
   if (globalPipeline.state !== 'error') return
+  // FIX ROUND F3 — the card is still the only 破棄 door for this code while it
+  // holds a take; nothing else in the diff gives that door back to the row.
+  if (globalPipeline.error === 'empty-transcript' && globalPipeline.context?.takeId) return
   const sessionId = globalPipeline.context?.recordingSessionId
   if (!sessionId) return
   const row = rows.find((r) => r.recordingSessionId === sessionId)

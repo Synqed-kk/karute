@@ -581,6 +581,15 @@ export function deriveInboxRows(input: {
   // `takeBySession` for sessions the server actually returned. `rendered` is
   // built by that same loop, so this only fires for a session that never
   // reached it (never double-counts a session the loop already rendered).
+  //
+  // FIX ROUND, n3 — 「サーバーの記録には見つかりません」 is a claim ABOUT THE
+  // SERVER; a probe that could not fully check every returned row
+  // (`probeIncomplete`) means this read simply did not get a complete answer,
+  // which is no evidence the server lacks a record. Computed once, honestly:
+  // a session the read DID return but could not fully judge still counts as
+  // "not complete" for this purpose — the fold cannot tell which unlisted
+  // session it would have implicated.
+  const readComplete = !sessions.some((s) => s.probeIncomplete)
   for (const [sessionId, take] of takeBySession) {
     if (rendered.has(sessionId)) continue
     if (take.startedAt < floor) continue
@@ -591,7 +600,11 @@ export function deriveInboxRows(input: {
     rows.push({
       key: `take:${take.takeId}`,
       state: unsettled ? 'processing' : 'recoverable',
-      reason: unsettled ? 'unsettled' : 'sessionUnlisted',
+      // Past the grace: 'sessionUnlisted' claims the server has no record,
+      // which is only honest when the read was COMPLETE. A truncated read
+      // gets the device-side reason instead — it claims nothing the read
+      // cannot back up.
+      reason: unsettled ? 'unsettled' : readComplete ? 'sessionUnlisted' : recoverableReason(take),
       recordingSessionId: sessionId,
       takeId: take.takeId,
       karuteRecordId: null,
