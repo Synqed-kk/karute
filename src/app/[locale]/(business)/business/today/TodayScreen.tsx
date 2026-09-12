@@ -3668,7 +3668,10 @@ export function TodayScreen(props: TodayProps) {
     /** ⚖ NEW-WINDOW — WHAT THIS LANDING COSTS THE WHOLE STORE, from the two
      *  SETTLED boards and nothing else: the day 元に戻す restores, and the day as
      *  it stands with the card where it is staged. Both are stable memos, so this
-     *  costs one subtraction per render and nothing per frame.
+     *  costs one `lostOn` subtraction per run of this memo (it re-runs per
+     *  pointer frame while a staged card is re-dragged, deps `boardLanes`) and
+     *  NO engine walk per frame — the two `windowsOn` walks live in
+     *  `dayOrigin`/`dayCommitted`, measured 0/frame by the spy.
      *
      *  It rides out as its own FIELD rather than being folded into `cell`: the
      *  offer path below — the draw gate, `stagedLoss`, the press — is today's
