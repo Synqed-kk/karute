@@ -2547,12 +2547,18 @@ export function TodayScreen(props: TodayProps) {
    *  staged card. It is built only while a gesture is STAGED — the at-rest
    *  collapse below is kept — which is the cadence the legacy walk already had.
    *
-   *  `gateOn: true` is not a second gate: this memo returns early unless
-   *  `honest` exists, and `honest` IS the two gates' answer. */
+   *  HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 1)
+   *  — THE GATE, NAMED. This call used to pass the literal `true` and lean on
+   *  the early return above it for its safety. That was argued rather than
+   *  structural, and it is the exact shape `held-committed.ts`'s own header
+   *  names as the one a text pin cannot see: a hardcoded argument contains no
+   *  comparison and no `'off'`, so nothing in the suite would have noticed it
+   *  drifting. It costs one identifier to make the 元に戻す board's own mask ask
+   *  the same gate every other board on this screen asks. */
   const honestOrigin = useMemo(() => {
     if (!honest || !dayStaged) return honest
     const originHeld = heldCommittedFor({
-      gateOn: true,
+      gateOn: SELLING_ENGINE_LAW,
       lanes: originLanes,
       frame: ledgerFrame,
       bookOf: bedViewsFor,
@@ -2562,6 +2568,8 @@ export function TodayScreen(props: TodayProps) {
       gapGuardMode: props.guard.mode,
       released: releasedHere,
     })
+    // …and with the gate named, this line is REACHABLE rather than dead:
+    // `heldCommittedFor` answers `undefined` exactly when `gateOn` is false.
     if (!originHeld) return honest
     return honestHeld(
       originHeld.filter((m) => !locked.includes(m.laneKey)),

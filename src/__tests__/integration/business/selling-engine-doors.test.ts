@@ -821,8 +821,13 @@ describe('1 — the round gate', () => {
     // Received: 8`). The eighth read is `windowDoorOn`, the SETTLED boards' own
     // gated door: the day walk asks the same room question the rail asks, so it
     // is gated the same way, and it is whole-line anchored below like the rest.
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 1)
+    // — 8 → 9. The ninth read is the 元に戻す board's own mask: it used to pass
+    // a hardcoded `true` and rest on an early return for its safety, which is
+    // the one shape a text pin cannot see. The gate is named there now, so the
+    // safety is structural, and this count is what holds it.
     const reads = [...codeOnly(screen).matchAll(/SELLING_ENGINE_LAW/g)].length
-    expect(reads).toBe(8)
+    expect(reads).toBe(9)
     // ⚖ D1 — and the number does not move when `codeOnly` learns about block
     // comments: all five reads are code, none of the six raw occurrences the
     // pre-armour count saw ever sat inside a block the new filter removes.
