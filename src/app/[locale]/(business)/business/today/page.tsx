@@ -246,6 +246,7 @@ export default async function TodayPage({
           shifts,
           qualifications: planes.staffQualifications,
           absence: absenceForDay(dayKey, absenceByDay),
+          open: planes.operatingHours.open,
           close: planes.operatingHours.close,
           bookings: bookingsByDay.get(dayKey) ?? [],
           sessionMin: planes.opsConfig.standardSessionMin,

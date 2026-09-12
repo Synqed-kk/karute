@@ -224,8 +224,15 @@ export function coursesFitForDay(input: {
   shifts: readonly FixtureShift[]
   qualifications: Record<string, string[] | undefined>
   absence: FixtureAbsence | null
-  /** 閉店. `freePockets` needs it to name a pocket's right-hand wall: the
-   *  store's own close, or just this person's last workable minute.
+  /** 開店. Paired with `close` below so every lane's pockets are clamped to
+   *  the store's own day — see that comment for why. */
+  open: number
+  /** 閉店. The count never advertises a course the store is shut for: it is
+   *  clamped to the store's own day the same way the placement rail (~:105)
+   *  already refuses to place one there — a calendar that disagrees with the
+   *  rail sends a receptionist to a slot that is not there. `freePockets`
+   *  still reads this value on its own, to name a pocket's right-hand wall:
+   *  the store's own close, or just this person's last workable minute.
    *  ⚠ NO QUOTED WALL NAMES IN THIS COMMENT. business-isolation.test.ts scans
    *  every Business file for the word `from` followed by a quoted string and
    *  reads the quote as an import specifier — prose included, because a block
@@ -253,8 +260,11 @@ export function coursesFitForDay(input: {
     // An absence that swallows the whole shift leaves no window to pocket.
     if (eff.end <= eff.start) continue
     const pockets = freePockets({
-      from: eff.start,
-      until: eff.end,
+      // ⚖ D-C4 rider: 稼働率's own denominator (`shiftAvailableMinutes`) does
+      // not clamp to 営業時間 either — same class of gap, deliberately left for
+      // the reconnect round; this fix touches only the calendar's count.
+      from: Math.max(eff.start, input.open),
+      until: Math.min(eff.end, input.close),
       close: input.close,
       now: null,
       occupied: [

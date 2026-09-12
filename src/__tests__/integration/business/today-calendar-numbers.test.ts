@@ -204,6 +204,7 @@ describe('⚖ V5 — 勤務不可 shortens its OWN day, on EVERY shown day', () 
         shifts,
         qualifications: planes.staffQualifications,
         absence,
+        open: planes.operatingHours.open,
         close: planes.operatingHours.close,
         bookings: [],
         sessionMin: planes.opsConfig.standardSessionMin,

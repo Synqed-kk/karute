@@ -47,6 +47,7 @@ const fits = (over: Partial<Parameters<typeof coursesFitForDay>[0]> = {}) =>
     shifts: [shift('p-01')],
     qualifications: TREATS,
     absence: null,
+    open: OPEN,
     close: CLOSE,
     bookings: [],
     sessionMin: SESSION,
@@ -173,6 +174,17 @@ describe('coursesFitForDay — the pockets, packed', () => {
     expect(fits({ ...roster, bookings: [{ staffId: 'p-01', start: 15 * 60, end: 20 * 60 }] })).toBe(3)
     // A booking on SOMEBODY ELSE's lane never touches hers.
     expect(fits({ ...roster, bookings: [{ staffId: 'p-02', start: 12 * 60, end: 16 * 60 }] })).toBe(4)
+  })
+
+  it('F1 — the count is clamped to 営業時間, never just the shift', () => {
+    // A roster running past 閉店 used to advertise courses sold after close:
+    // 10:00–21:00 with close at 19:00 counts the same as 10:00–19:00.
+    expect(fits({ shifts: [shift('p-01', OPEN, 21 * 60)] })).toBe(9)
+    // …and the same clamp on the other wall — a shift starting before 開店
+    // counts the same as one that starts exactly at open.
+    expect(fits({ shifts: [shift('p-01', 8 * 60, CLOSE)] })).toBe(9)
+    // A shift entirely outside 営業時間 fits nothing — never a negative pocket.
+    expect(fits({ shifts: [shift('p-01', 20 * 60, 22 * 60)] })).toBe(0)
   })
 
   it('the whole day is counted, today included — the morning that has gone is not subtracted', () => {
