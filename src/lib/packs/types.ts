@@ -55,10 +55,22 @@ export interface CustomerLifecycle {
 /** Next 購入回数 for a NEW pack: highest STORED round + 1, never a row count.
  *  The imports collapsed history to one row per customer (a round-4 regular
  *  has 1 row), so COUNT-based numbering relabels regulars 初回. The stored
- *  purchase_round carries the truth the sheet loaded. */
-export function nextPurchaseRound(packs: ReadonlyArray<Pick<TicketPack, 'kind' | 'purchase_round'>>): number {
+ *  purchase_round carries the truth the sheet loaded.
+ *
+ *  回数券 update 25, p3 — counts only REAL PURCHASES: an ALLOW-list
+ *  (status === 'active' || 'exhausted'), so a 'cancelled' row today and a
+ *  future 'void' one (CORE-12, not yet on this repo's PackStatus union)
+ *  are both excluded without naming 'void' or widening the union. A
+ *  cancelled/voided pack was never a real purchase — the customer's next
+ *  genuine buy should renumber as if it never happened (docs/
+ *  store-transfer-design.md §7.4's own pending fix: "nextRound counts
+ *  cancelled packs toward the next round — a voided first pack can produce
+ *  a 2枚目 label"). */
+export function nextPurchaseRound(
+  packs: ReadonlyArray<Pick<TicketPack, 'kind' | 'purchase_round' | 'status'>>,
+): number {
   const rounds = packs
-    .filter((p) => p.kind === 'pack')
+    .filter((p) => p.kind === 'pack' && (p.status === 'active' || p.status === 'exhausted'))
     // Legacy app-created packs stored 0-based rounds — read 0 as round 1 so
     // the follow-up purchase becomes 2, not a second 初回.
     .map((p) => Math.max(p.purchase_round, 1))
