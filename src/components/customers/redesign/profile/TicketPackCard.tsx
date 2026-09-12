@@ -173,7 +173,11 @@ function PackRow({
   // day counter is running. 残0 with a newer pack = quietly 終了.
   const exhausted = pack.kind === 'pack' && pack.remaining === 0
   const closed = exhausted && hasNewerActive
-  const low = pack.kind === 'pack' && pack.remaining === 1
+  // 回数券 update 25, p4 — a newer active pack already covers the next
+  // sessions, so the "start the next-pack conversation" hint is moot; same
+  // pattern as `closed` right above it (hasNewerActive is already computed
+  // + threaded for that state).
+  const low = pack.kind === 'pack' && pack.remaining === 1 && !hasNewerActive
   const daysSinceLast = pack.lastRedeemedOn
     ? jstDaysBetween(pack.lastRedeemedOn)
     : null
