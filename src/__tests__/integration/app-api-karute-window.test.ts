@@ -121,6 +121,7 @@ describe('GET /api/app/v1/karute/window', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(Object.keys(body).sort()).toEqual([
+      'freshDiscardedCount',
       'freshStoreTotal',
       'hasMore',
       'items',
@@ -129,6 +130,7 @@ describe('GET /api/app/v1/karute/window', () => {
     expect(body.items).toHaveLength(1)
     expect(body.items[0].customerName).toBe('山田 花子')
     expect(body.freshStoreTotal).toBe(1)
+    expect(body.freshDiscardedCount).toBe(0)
     expect(body.hasMore).toBe(false)
   })
 

@@ -58,6 +58,8 @@ export interface KaruteListItem {
   summary: string
   aiStatus: KaruteAiStatus
   conversionStatus: KaruteConversionStatus
+  /** Retained ledger row. It is visible but never navigable/actionable. */
+  isDiscarded?: boolean
   /** Tap target. Real records link to `/karute/{recordId}`; placeholder
    *  rows for customers with no records link to
    *  `/karute/customer/{customerId}`. Caller (page) decides. */
@@ -75,3 +77,4 @@ export type KaruteListFilter =
   | 'aiPending'
   | 'needsReview'
   | 'draft'
+  | 'discarded'

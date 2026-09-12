@@ -1397,6 +1397,7 @@
       "loadMore": "Show more (karute before {date})",
       "addedCount": "Loaded {n} karute",
       "loadMoreFailed": "Couldn't load more. Please try again.",
+      "discarded": "Discarded",
       "newKarute": "+ New karute",
       "searchPlaceholder": "Search by customer · service · staff",
       "revealSummary": "Shows up here once their first session is recorded",
@@ -1410,7 +1411,8 @@
         "thisWeek": "This week",
         "aiPending": "AI pending",
         "needsReview": "Needs review",
-        "draft": "Draft"
+        "draft": "Draft",
+        "discarded": "Discarded"
       },
       "dateGroup": {
         "today": "Today",

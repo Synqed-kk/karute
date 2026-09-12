@@ -386,7 +386,7 @@ describe('GET /api/app/v1/screens/sessions?window=1 — the release-18 windowed 
     karuteList.mockResolvedValue({ karute_records: FIXED_KARUTE, total: 1 })
   })
 
-  it('adds hasMore + windowStart ON TOP of the legacy keys (additive only)', async () => {
+  it('adds pagination and discarded counts ON TOP of the legacy keys (additive only)', async () => {
     const res = await GET(windowReq('?window=1', { headers: auth }), route)
     expect(res.status).toBe(200)
     const dto = await res.json()
@@ -398,10 +398,12 @@ describe('GET /api/app/v1/screens/sessions?window=1 — the release-18 windowed 
       'staffList',
       'currentStaffId',
       'customerOptions',
+      'discardedCount',
       'hasMore',
       'windowStart',
     ])
     expect(typeof dto.windowStart).toBe('string')
+    expect(dto.discardedCount).toBe(0)
     // 1 row loaded of a 1-row store → nothing older.
     expect(dto.hasMore).toBe(false)
     expect(dto.items).toHaveLength(1)

@@ -117,12 +117,14 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
       // Status-line numbers belong to the screen read; an append carries rows.
       monthCount: 0,
       total: window.freshStoreTotal,
+      discardedCount: window.freshDiscardedCount,
     })
 
     return ok(ctx, {
       items: screen.items,
       windowStart: window.windowStart,
       freshStoreTotal: window.freshStoreTotal,
+      freshDiscardedCount: window.freshDiscardedCount,
       hasMore: window.hasMore,
     })
   } catch (err) {

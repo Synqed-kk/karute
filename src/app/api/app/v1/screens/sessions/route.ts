@@ -114,6 +114,7 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
         from: monthStartIso,
         to: nowIso,
         page_size: 1,
+        includeDiscarded: windowed,
       }),
       synqed.staff.list({ page_size: 200 }),
     ])
@@ -123,6 +124,10 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
     // keeps the legacy response free of the new keys.
     const storeTotal =
       'freshStoreTotal' in karuteRead ? karuteRead.freshStoreTotal : karuteRead.total
+    const storeDiscardedCount =
+      'freshDiscardedCount' in karuteRead
+        ? karuteRead.freshDiscardedCount
+        : karuteRead.discardedCount
     if ('windowStart' in karuteRead) windowRead = karuteRead
 
     // Page parity (getCurrentUserStaffId): the caller's staff identity is their
@@ -150,6 +155,7 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
       synqedStaff,
       monthCount: monthProbe.total,
       total: storeTotal,
+      discardedCount: storeDiscardedCount,
     })
   } catch (err) {
     if (err instanceof AppApiError) throw err

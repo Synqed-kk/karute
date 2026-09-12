@@ -72,6 +72,8 @@ export interface KaruteWindow {
   windowStart: string
   /** Store-wide karute total, re-read on THIS call — never a stale snapshot. */
   freshStoreTotal: number
+  /** Store-wide discarded rows, separate from the ordinary total. */
+  freshDiscardedCount: number
   /** See {@link karuteHasMore}. */
   hasMore: boolean
 }
@@ -84,8 +86,12 @@ export interface KaruteWindow {
  * the phone renders; the web view calls it with its own dedupe-map size. Same
  * function, so the two can never drift.
  */
-export function karuteHasMore(loadedCount: number, freshStoreTotal: number): boolean {
-  return loadedCount < freshStoreTotal
+export function karuteHasMore(
+  loadedCount: number,
+  freshStoreTotal: number,
+  discardedCount = 0,
+): boolean {
+  return loadedCount < freshStoreTotal + discardedCount
 }
 
 /**
@@ -148,7 +154,11 @@ function shiftYmd(ymd: string, days: number): string {
  * gap it closes.
  */
 async function pagedReadWithDriftRetry(
-  readPage: (page: number) => Promise<{ rows: KaruteListRow[]; total: number }>,
+  readPage: (page: number) => Promise<{
+    rows: KaruteListRow[]
+    total: number
+    discardedCount: number
+  }>,
 ): Promise<KaruteListRow[]> {
   for (let attempt = 1; ; attempt += 1) {
     const rows: KaruteListRow[] = []
@@ -159,15 +169,16 @@ async function pagedReadWithDriftRetry(
     let drifted = false
     for (let page = 1; ; page += 1) {
       const res = await readPage(page)
+      const mixedTotal = res.total + res.discardedCount
       if (page === 1) {
-        firstTotal = res.total
-        maxPages = Math.ceil(res.total / KARUTE_WINDOW_PAGE_SIZE) + 1
-      } else if (res.total !== firstTotal && attempt === 1) {
+        firstTotal = mixedTotal
+        maxPages = Math.ceil(mixedTotal / KARUTE_WINDOW_PAGE_SIZE) + 1
+      } else if (mixedTotal !== firstTotal && attempt === 1) {
         drifted = true
         break
       }
       rows.push(...res.rows)
-      if (page * KARUTE_WINDOW_PAGE_SIZE >= res.total) break
+      if (page * KARUTE_WINDOW_PAGE_SIZE >= mixedTotal) break
       if (page >= maxPages) break
     }
     if (!drifted) return rows
@@ -188,6 +199,7 @@ async function pageWindowToCompletion(
       to: opts.to,
       page,
       page_size: KARUTE_WINDOW_PAGE_SIZE,
+      includeDiscarded: true,
     }),
   )
 }
@@ -218,6 +230,7 @@ async function legacySweep(
       storeId,
       page,
       page_size: KARUTE_WINDOW_PAGE_SIZE,
+      includeDiscarded: true,
     }),
   )
 }
@@ -260,9 +273,13 @@ export async function loadKaruteWindowRows(
 
   // Fresh store total on EVERY call — hasMore must never ride a snapshot taken
   // when the page was first rendered.
-  const freshStoreTotal = (
-    await listSynqedKaruteRowsWithTotalOrThrow(synqed, { storeId, page_size: 1 })
-  ).total
+  const storeProbe = await listSynqedKaruteRowsWithTotalOrThrow(synqed, {
+    storeId,
+    page_size: 1,
+    includeDiscarded: true,
+  })
+  const freshStoreTotal = storeProbe.total
+  const freshDiscardedCount = storeProbe.discardedCount
 
   if (opts.month) {
     // Month mode swaps the list rather than appending to it (PR-2b), so there
@@ -280,6 +297,7 @@ export async function loadKaruteWindowRows(
       rows,
       windowStart: `${opts.month}-01`,
       freshStoreTotal,
+      freshDiscardedCount,
       hasMore: false,
     }
   }
@@ -295,14 +313,15 @@ export async function loadKaruteWindowRows(
   for (let probe = 0; probe < KARUTE_MAX_PROBE_WINDOWS; probe += 1) {
     // PROBE FLOOR: the whole next window lies before the epoch.
     if (toDate.getTime() < epochStart.getTime()) {
-      if (!karuteHasMore(loadedCount, freshStoreTotal)) {
-        return { rows: [], windowStart: KARUTE_SESSION_DATE_EPOCH, freshStoreTotal, hasMore: false }
+      if (!karuteHasMore(loadedCount, freshStoreTotal, freshDiscardedCount)) {
+        return { rows: [], windowStart: KARUTE_SESSION_DATE_EPOCH, freshStoreTotal, freshDiscardedCount, hasMore: false }
       }
       const rows = await legacySweep(synqed, storeId)
       return {
         rows,
         windowStart: KARUTE_SESSION_DATE_EPOCH,
         freshStoreTotal,
+        freshDiscardedCount,
         // Final window by construction: the sweep read the whole store.
         hasMore: false,
       }
@@ -315,14 +334,16 @@ export async function loadKaruteWindowRows(
       from,
       to,
       page_size: 1,
+      includeDiscarded: true,
     })
-    if (probeRes.total > 0) {
+    if (probeRes.total + probeRes.discardedCount > 0) {
       const rows = await pageWindowToCompletion(synqed, { storeId, from, to })
       return {
         rows,
         windowStart: fromYmd,
         freshStoreTotal,
-        hasMore: karuteHasMore(loadedCount + rows.length, freshStoreTotal),
+        freshDiscardedCount,
+        hasMore: karuteHasMore(loadedCount + rows.length, freshStoreTotal, freshDiscardedCount),
       }
     }
     // Empty window — skip it and keep walking backward.
@@ -338,7 +359,8 @@ export async function loadKaruteWindowRows(
     rows: [],
     windowStart: shiftYmd(fromYmd, KARUTE_WINDOW_DAYS),
     freshStoreTotal,
-    hasMore: karuteHasMore(loadedCount, freshStoreTotal),
+    freshDiscardedCount,
+    hasMore: karuteHasMore(loadedCount, freshStoreTotal, freshDiscardedCount),
   }
 }
 
@@ -356,7 +378,7 @@ export interface KaruteWindowWithMonthProbe {
    *  discards already-successfully-loaded rows just because this leg
    *  failed (fix round 1's shared-try/catch bug — Greptile PR #775 round 2:
    *  a probe failure silently emptied the whole list). */
-  monthProbe: { total: number } | null
+  monthProbe: { total: number; discardedCount: number } | null
 }
 
 /**
@@ -395,10 +417,16 @@ export async function loadKaruteWindowWithMonthProbe(
       from: opts.monthFrom,
       to: opts.monthTo,
       page_size: 1,
+      includeDiscarded: true,
     }).catch((err: unknown) => {
       console.error('[loadKaruteWindowWithMonthProbe] 今月 probe failed:', err)
       return null
     }),
   ])
-  return { data, monthProbe: monthProbe ? { total: monthProbe.total } : null }
+  return {
+    data,
+    monthProbe: monthProbe
+      ? { total: monthProbe.total, discardedCount: monthProbe.discardedCount }
+      : null,
+  }
 }

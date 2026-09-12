@@ -1625,6 +1625,7 @@ export type KaruteWindowPage = {
   items: KaruteListItem[]
   windowStart: string
   freshStoreTotal: number
+  freshDiscardedCount: number
   hasMore: boolean
 }
 
@@ -1709,12 +1710,14 @@ export async function loadKaruteWindow(input: {
       // append only carries rows. freshStoreTotal rides the response field.
       monthCount: 0,
       total: window.freshStoreTotal,
+      discardedCount: window.freshDiscardedCount,
     })
 
     return {
       items: screen.items,
       windowStart: window.windowStart,
       freshStoreTotal: window.freshStoreTotal,
+      freshDiscardedCount: window.freshDiscardedCount,
       hasMore: window.hasMore,
     }
   } catch (err) {

@@ -76,7 +76,7 @@ describe('SessionsScreenDTO — the legacy shape stays exactly the legacy shape'
 })
 
 describe('SessionsScreenWindowedDTO — additive only', () => {
-  it('adds hasMore + windowStart AFTER every base key, in order', () => {
+  it('adds discardedCount + pagination AFTER every base key, in order', () => {
     const parsed = SessionsScreenWindowedDTO.parse({
       ...screen(),
       hasMore: true,
@@ -90,6 +90,7 @@ describe('SessionsScreenWindowedDTO — additive only', () => {
       'staffList',
       'currentStaffId',
       'customerOptions',
+      'discardedCount',
       'hasMore',
       'windowStart',
     ])
@@ -100,6 +101,7 @@ describe('SessionsScreenWindowedDTO — additive only', () => {
     const parsed = SessionsScreenWindowedDTO.parse(screen())
     expect(parsed.hasMore).toBe(false)
     expect(parsed.windowStart).toBeNull()
+    expect(parsed.discardedCount).toBe(0)
   })
 })
 

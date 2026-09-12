@@ -35,12 +35,15 @@ interface Props {
 export function KaruteListRow({ item }: Props) {
   const t = useTranslations('karute.recordList')
   const staffColor = getStaffColorByKey(item.staffColorKey)
+  const rowClassName = cn(
+    'group relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 transition-colors last:border-b-0 dark:border-white/5 md:gap-4',
+    item.isDiscarded
+      ? 'cursor-default bg-muted/35 text-muted-foreground opacity-70 grayscale'
+      : 'hover:bg-muted/30 active:bg-muted/50',
+  )
 
-  return (
-    <Link
-      href={item.href as Parameters<typeof Link>[0]['href']}
-      className="group relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 transition-colors last:border-b-0 hover:bg-muted/30 active:bg-muted/50 dark:border-white/5 md:gap-4"
-    >
+  const content = (
+    <>
       {/* Staff color stripe (left edge) — same idiom as customer cards */}
       <span
         aria-hidden
@@ -90,7 +93,7 @@ export function KaruteListRow({ item }: Props) {
            *  Suppressed for placeholders — a customer with no karute yet has
            *  nothing drafted (下書き) and no conversion to resolve (仮カルテ);
            *  those chips would misread as "session in progress". */}
-          {!item.isPlaceholder && (
+          {!item.isPlaceholder && !item.isDiscarded && (
             <span className="ml-auto flex shrink-0 items-center gap-1 md:hidden">
               <ConversionChip status={item.conversionStatus} />
               <AiChip status={item.aiStatus} />
@@ -100,7 +103,7 @@ export function KaruteListRow({ item }: Props) {
 
         {/* Line 2 — summary (truncate) */}
         <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-          {item.summary || '—'}
+          {item.isDiscarded ? t('discarded') : item.summary || '—'}
         </p>
 
         {/* Line 3 (mobile) — service + duration + staff */}
@@ -149,12 +152,31 @@ export function KaruteListRow({ item }: Props) {
       </div>
 
       {/* Status chips (desktop) — suppressed for placeholders; see mobile note. */}
-      {!item.isPlaceholder && (
+      {!item.isPlaceholder && !item.isDiscarded && (
         <div className="hidden shrink-0 items-center gap-1 md:flex">
           <ConversionChip status={item.conversionStatus} />
           <AiChip status={item.aiStatus} />
         </div>
       )}
+      {item.isDiscarded && (
+        <span className="inline-flex h-5 shrink-0 items-center rounded-full border border-border bg-muted px-2 text-[10px] font-medium text-muted-foreground">
+          {t('discarded')}
+        </span>
+      )}
+    </>
+  )
+
+  if (item.isDiscarded) {
+    return (
+      <div className={rowClassName} aria-disabled="true" data-status="discarded">
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <Link href={item.href as Parameters<typeof Link>[0]['href']} className={rowClassName}>
+      {content}
     </Link>
   )
 }

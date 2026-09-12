@@ -16,6 +16,9 @@ export interface KaruteListRow {
   customer_id: string | null
   client_id: string
   entries: Array<{ count: number }>
+  /** Core workflow state. DISCARDED rows are retained for the Karute ledger
+   *  but must never expose a detail action. */
+  status: string
   /** Session metadata persisted on synqed-core karute_records
    *  (2026-06-11). Optional: Supabase-side rows predate the columns. */
   service?: string | null
@@ -86,6 +89,7 @@ export async function listSynqedKaruteRowsOrThrow(
       customer_id: r.business_id ?? null,
       client_id: r.customer_id ?? '',
       entries: [{ count: r.entry_count ?? r.entries?.length ?? 0 }],
+      status: r.status,
       service: extra.service ?? null,
       duration_minutes: extra.duration_minutes ?? null,
     }
@@ -99,7 +103,60 @@ export async function listSynqedKaruteRowsOrThrow(
  *  comment below). */
 export interface KaruteRowsWithTotal {
   rows: KaruteListRow[]
+  /** Matching non-discarded rows. */
   total: number
+  /** Matching discarded rows, kept separate from the ordinary total. */
+  discardedCount: number
+}
+
+type MixedKaruteResponse = {
+  karute_records?: Array<{
+    id: string
+    business_id: string
+    customer_id: string | null
+    staff_id: string
+    status: string
+    ai_summary: string | null
+    edited_summary?: string | null
+    transcript: string | null
+    created_at: string
+    entry_count?: number
+    entries?: Array<unknown>
+    session_date?: string | null
+    service?: string | null
+    duration_minutes?: number | null
+  }>
+  total?: number
+  discarded_count?: number
+}
+
+/** SDK 1.34 predates include_discarded and silently drops unknown options.
+ *  Use its public authenticated transport until 1.35 can be published. */
+async function listMixedKaruteRecords(
+  synqed: SynqedClient,
+  opts: NonNullable<Parameters<typeof listSynqedKaruteRowsWithTotalOrThrow>[1]>,
+): Promise<MixedKaruteResponse> {
+  // Small test doubles and old cached facade adapters may only expose the
+  // resource client. They have no mixed rows, so their truthful discarded
+  // count is zero; production SynqedClient always has fetch().
+  if (typeof synqed.fetch !== 'function') {
+    return synqed.karuteRecords.list({
+      ...(opts.customerId ? { customer_id: opts.customerId } : {}),
+      ...(opts.storeId ? { store_id: opts.storeId } : {}),
+      ...(opts.from ? { from: opts.from } : {}),
+      ...(opts.to ? { to: opts.to } : {}),
+      ...(opts.page ? { page: opts.page } : {}),
+      page_size: opts.page_size ?? 200,
+    })
+  }
+  const params = new URLSearchParams({ include_discarded: 'true' })
+  if (opts.customerId) params.set('customer_id', opts.customerId)
+  if (opts.storeId) params.set('store_id', opts.storeId)
+  if (opts.from) params.set('from', opts.from)
+  if (opts.to) params.set('to', opts.to)
+  if (opts.page) params.set('page', String(opts.page))
+  params.set('page_size', String(opts.page_size ?? 200))
+  return synqed.fetch<MixedKaruteResponse>(`/karute-records?${params}`)
 }
 
 /**
@@ -128,16 +185,20 @@ export async function listSynqedKaruteRowsWithTotalOrThrow(
      *  page 1 implicitly, exactly as before. */
     page?: number
     page_size?: number
+    /** Karute ledger only: retain DISCARDED rows in the returned page. */
+    includeDiscarded?: boolean
   },
 ): Promise<KaruteRowsWithTotal> {
-  const res = await synqed.karuteRecords.list({
-    ...(opts?.customerId ? { customer_id: opts.customerId } : {}),
-    ...(opts?.storeId ? { store_id: opts.storeId } : {}),
-    ...(opts?.from ? { from: opts.from } : {}),
-    ...(opts?.to ? { to: opts.to } : {}),
-    ...(opts?.page ? { page: opts.page } : {}),
-    page_size: opts?.page_size ?? 200,
-  })
+  const res: MixedKaruteResponse = opts?.includeDiscarded
+    ? await listMixedKaruteRecords(synqed, opts)
+    : await synqed.karuteRecords.list({
+        ...(opts?.customerId ? { customer_id: opts.customerId } : {}),
+        ...(opts?.storeId ? { store_id: opts.storeId } : {}),
+        ...(opts?.from ? { from: opts.from } : {}),
+        ...(opts?.to ? { to: opts.to } : {}),
+        ...(opts?.page ? { page: opts.page } : {}),
+        page_size: opts?.page_size ?? 200,
+      })
   const rows = (res.karute_records ?? []).map((r) => {
     const extra = r as unknown as {
       session_date?: string | null
@@ -154,11 +215,16 @@ export async function listSynqedKaruteRowsWithTotalOrThrow(
       customer_id: r.business_id ?? null,
       client_id: r.customer_id ?? '',
       entries: [{ count: r.entry_count ?? r.entries?.length ?? 0 }],
+      status: r.status,
       service: extra.service ?? null,
       duration_minutes: extra.duration_minutes ?? null,
     }
   })
-  return { rows, total: res.total ?? 0 }
+  return {
+    rows,
+    total: res.total ?? 0,
+    discardedCount: res.discarded_count ?? 0,
+  }
 }
 
 /** Graceful sibling of {@link listSynqedKaruteRowsWithTotalOrThrow} — degrades
@@ -173,7 +239,7 @@ export async function listSynqedKaruteRowsWithTotal(
     return await listSynqedKaruteRowsWithTotalOrThrow(synqed, opts)
   } catch (err) {
     console.error('[listSynqedKaruteRowsWithTotal] synqed-core fetch failed:', err)
-    return { rows: [], total: 0 }
+    return { rows: [], total: 0, discardedCount: 0 }
   }
 }
 

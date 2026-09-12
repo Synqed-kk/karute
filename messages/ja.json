@@ -1397,6 +1397,7 @@
       "loadMore": "さらに表示（{date}以前のカルテ）",
       "addedCount": "{n}件を読み込みました",
       "loadMoreFailed": "読み込みに失敗しました。もう一度お試しください",
+      "discarded": "破棄済み",
       "newKarute": "+ 新規カルテ",
       "searchPlaceholder": "顧客名・サービス・スタッフで検索...",
       "revealSummary": "初回セッションを記録すると、ここに表示されます",
@@ -1410,7 +1411,8 @@
         "thisWeek": "今週",
         "aiPending": "AI補完待ち",
         "needsReview": "レビュー要",
-        "draft": "下書き"
+        "draft": "下書き",
+        "discarded": "破棄済み"
       },
       "dateGroup": {
         "today": "本日",
