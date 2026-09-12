@@ -162,12 +162,18 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
       mimeType: parsed.data.mimeType ?? null,
       storeId,
     })
-  } catch {
+  } catch (err) {
+    console.error('[recordings.session.mint] failed:', err)
+    // A specific facade error is never relabeled — only a genuine SDK
+    // failure (the case this catch exists for) becomes upstream_unavailable.
+    if (err instanceof AppApiError) throw err
     throw new AppApiError('upstream_unavailable', 'recording session mint failed')
   }
   // Named, so the recorder can renegotiate its container rather than retry
-  // blind. Checked OUTSIDE the try: an AppApiError thrown inside it would be
-  // swallowed by the fail-open catch above and answered as a 200.
+  // blind. Checked OUTSIDE the try: the catch above passes an AppApiError
+  // through unchanged and only relabels a genuine SDK failure as
+  // upstream_unavailable, so a name thrown here is never swallowed or
+  // relabeled by it.
   if (result && 'error' in result) {
     // Storage failed to say whether the key is free (fix round 11) — a real
     // upstream outage, never the client's fault, and never folded into the

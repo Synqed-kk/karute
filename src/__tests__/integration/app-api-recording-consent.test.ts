@@ -76,6 +76,7 @@ import { GET as consentGET } from '@/app/api/app/v1/customers/[id]/consent/route
 import { POST as grantPOST } from '@/app/api/app/v1/customers/[id]/consent/grant/route'
 import { POST as mintPOST } from '@/app/api/app/v1/recordings/session/route'
 import { POST as uploadPOST } from '@/app/api/app/v1/recordings/upload-url/route'
+import { AppApiError } from '@/lib/app-api/errors'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -329,9 +330,26 @@ describe('POST recordings/session mint', () => {
   // never blocked — only the server's own logs changed.
   it('SDK create failure → 502 upstream_unavailable (a core failure is no longer told apart from a walk-in)', async () => {
     recordingsCreate.mockRejectedValueOnce(new Error('transient synqed outage'))
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
+      expect(res.status).toBe(502)
+      expect((await res.json()).error.code).toBe('upstream_unavailable')
+      // d1b: the 9/9-9/10 outage's own evidence — the underlying error is no
+      // longer dropped when the route re-throws it as upstream_unavailable.
+      expect(error.mock.calls.some(([first]) => typeof first === 'string' && first.includes('[recordings.session.mint] failed:'))).toBe(true)
+    } finally {
+      error.mockRestore()
+    }
+  })
+  // d1b: a NAMED facade error (e.g. session-mint's own refusals, once they
+  // throw one) must reach the client under its own code, never relabeled
+  // upstream_unavailable by the catch that exists for genuine SDK failures.
+  it('a thrown AppApiError from the mint core is never relabeled upstream_unavailable', async () => {
+    recordingsCreate.mockRejectedValueOnce(new AppApiError('validation', 'x'))
     const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
-    expect(res.status).toBe(502)
-    expect((await res.json()).error.code).toBe('upstream_unavailable')
+    expect(res.status).toBe(400)
+    expect((await res.json()).error.code).toBe('validation')
   })
   // The ONLY 200-null left: a settled non-throw (session-mint.ts's own
   // fail-OPEN contract for "nothing to attribute this to"), kept distinct
