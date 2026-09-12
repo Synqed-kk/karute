@@ -121,6 +121,11 @@ import {
   laneKeyAtY,
   landingVerdict,
   lossOf,
+  windowsOn,
+  lostOn,
+  EMPTY_WINDOWS,
+  EMPTY_DAY,
+  type DayLoss,
   bedClassCell,
   nearestFreeStarts,
   offerableCell,
@@ -174,6 +179,7 @@ import {
   type OverrideLevel,
   type PairLanes,
   type RailCell,
+  type RailInput,
   type Reseat,
   type SellDrop,
   type WarnCardModel,
@@ -2358,6 +2364,93 @@ export function TodayScreen(props: TodayProps) {
         : undefined,
     [boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],
   )
+
+  /** ⚖ NEW-WINDOW — THE DAY QUESTION'S OWN DOOR, and it is the SETTLED board's.
+   *
+   *  `bedDoorFor` cannot be used here: its closure holds `boardLanes`, `ledger`
+   *  and `handId`, every one of which gets a fresh identity on every pointer
+   *  frame, so a memo built through it would walk the whole day on every frame of
+   *  a re-drag. `bedDoor`, `bookFor` and `FOREIGN_BOOKS` are module-level, so the
+   *  only reactive thing this closure holds is `ledgerFrame` — three scalars.
+   *
+   *  The lifted id is `null`, not `handId`: these are SETTLED boards with no card
+   *  in hand, and a protected window's subject is a NEW client, so the asker is
+   *  the world rather than the world-minus-hand. Passing `null` is also what
+   *  takes `handId` out of the dep list.
+   *
+   *  The block-body `return SELLING_ENGINE_LAW ? …` spelling is load-bearing: an
+   *  arrow with the ternary as its whole body trips the screen's own
+   *  open-paren-then-gate ban, and a wrapped head would add a second bare gate
+   *  line. */
+  const windowDoorOn = useCallback((lanes: BoardLane[]) => {
+    return SELLING_ENGINE_LAW ? bedDoor(bookFor(lanes, ledgerFrame, null, FOREIGN_BOOKS), lanes, null) : undefined
+  }, [ledgerFrame])
+  /** The rail's own input, asked of a SETTLED board. Every field's source is
+   *  named; the five constants are what make this the DAY question rather than a
+   *  placement one — nothing is being placed, so there is no `excludeId`, no
+   *  `placementFeasible`, and with two real boards there is nothing left to lift. */
+  const inputOn = useCallback((lanes: BoardLane[]): RailInput => ({
+    open: hours.open,
+    close: hours.close,
+    // the rail's 30-minute grid, spelled the way this screen's own two RailInput
+    // sites spell it — there is no constant for it in this file.
+    stepMin: 30,
+    // canon's 60分配置. NOT `railDur`, which follows the live aim and would put
+    // both memos on the frame path.
+    dur: props.guard.standardSessionMin,
+    protectedDur: props.guard.protectedDurationMin,
+    nowMinute: props.sell.nowMinute,
+    locked,
+    guard: props.guard.config,
+    excludeId: null,
+    placementFeasible: undefined,
+    protectedWindowFeasible: windowDoorOn(lanes),
+    resting: null,
+    restingWindowFeasible: undefined,
+  }), [hours.open, hours.close, props.guard.standardSessionMin, props.guard.protectedDurationMin,
+       props.guard.config, props.sell.nowMinute, locked, windowDoorOn])
+
+  const pendingId = pending?.id ?? null
+  const dayStaged = pendingId != null && moves[pendingId] != null
+  /** The three boards-without-this-card helpers, so the ORIGIN board is the day
+   *  元に戻す restores. `addedHere`'s identity is `a.item.caseId` — `applyMoves`'s
+   *  own admission key — and not an `id` field, which does not exist on those rows
+   *  and would have made this filter a silent no-op. */
+  const movesWithoutPending = useMemo(() => {
+    if (pendingId == null) return moves
+    const rest = { ...moves }
+    delete rest[pendingId]
+    return rest
+  }, [moves, pendingId])
+  const bedMovesWithoutPending = useMemo(() => {
+    if (pendingId == null) return bedMoves
+    const rest = { ...bedMoves }
+    delete rest[pendingId]
+    return rest
+  }, [bedMoves, pendingId])
+  const addedWithoutPending = useMemo(
+    () => (pendingId == null ? addedHere : addedHere.filter((a) => a.item.caseId !== pendingId)),
+    [addedHere, pendingId],
+  )
+  /** THE HEADER CHIP'S NUMBER — gated on `guardOn` ALONE, because the header reads
+   *  it AT REST. A pending gate here would print 「新規用に確保 0枠」 on a store
+   *  whose guard is on and whose day is untouched. */
+  const dayCommitted = useMemo(
+    () => (guardOn ? windowsOn(committedLanes, inputOn(committedLanes)) : EMPTY_WINDOWS),
+    [guardOn, committedLanes, inputOn],
+  )
+  /** THE 元に戻す BOARD. It collapses to `committedLanes` when nothing is staged,
+   *  so this memo — and only this one — may take the pending gate. */
+  const originLanes = useMemo(
+    () => (dayStaged
+      ? applyMoves(placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, bedMovesWithoutPending, props.bedCleanupMinutes)
+      : committedLanes),
+    [dayStaged, placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, bedMovesWithoutPending, props.bedCleanupMinutes, committedLanes],
+  )
+  const dayOrigin = useMemo(
+    () => (guardOn ? (dayStaged ? windowsOn(originLanes, inputOn(originLanes)) : dayCommitted) : EMPTY_WINDOWS),
+    [guardOn, dayStaged, originLanes, inputOn, dayCommitted],
+  )
   // ⚖ FIX ROUND F5 — the board world's per-lane index is GONE, not merely
   // unused: the rest cue was its only reader and it now reads the committed
   // one (`heldDrawnByLane`), which is the world the chip it defers to is drawn
@@ -3562,15 +3655,32 @@ export function TodayScreen(props: TodayProps) {
    *  is one rendering of that same cell — deriving them together here keeps them
    *  one reading of one board, which is the whole of ⚖ 54's lesson. The clean
    *  face keeps rendering `row` exactly as it did. */
-  const pendingGuardRow = useMemo((): { row: { label: string; tone: 'warn' } | null; cell: RailCell | null; engineStarts: number[] } => {
+  const pendingGuardRow = useMemo((): { row: { label: string; tone: 'warn' } | null; cell: RailCell | null; engineStarts: number[]; day: DayLoss } => {
     // ⚖ 46 forerunner: `pendingOffBoard`, not a day-only test — `verdictAt` reads
     // the board on screen, so a 仮押さえ staged in another STORE would have its
     // row computed from this store's cards. Same predicate as the checks above.
-    if (!pending || pendingOffBoard) return { row: null, cell: null, engineStarts: [] }
+    if (!pending || pendingOffBoard) return { row: null, cell: null, engineStarts: [], day: EMPTY_DAY }
     const at = moves[pending.id]
-    if (!at) return { row: null, cell: null, engineStarts: [] }
+    if (!at) return { row: null, cell: null, engineStarts: [], day: EMPTY_DAY }
     const start = minuteOf(at.x, hours)
     const cell = verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id)
+    /** ⚖ NEW-WINDOW — WHAT THIS LANDING COSTS THE WHOLE STORE, from the two
+     *  SETTLED boards and nothing else: the day 元に戻す restores, and the day as
+     *  it stands with the card where it is staged. Both are stable memos, so this
+     *  costs one subtraction per render and nothing per frame.
+     *
+     *  It rides out as its own FIELD rather than being folded into `cell`: the
+     *  offer path below — the draw gate, `stagedLoss`, the press — is today's
+     *  pocket law byte for byte, and a day-carrying cell reaching it would compare
+     *  a day-inclusive number against pocket-only offers. The one reader is the
+     *  warn card. */
+    const rows = lostOn(dayOrigin, dayCommitted)
+    const day = {
+      laneKey: at.laneKey,
+      before: rows.reduce((a, r) => a + r.before.length, 0),
+      after: rows.reduce((a, r) => a + r.after.length, 0),
+      lostOn: rows,
+    }
     /** ⚖ 92 fix round F2 (blind L4#3) — AND THE CARD'S OFFER GOES THROUGH ⚖ 58'S
      *  ONE HOME LIKE EVERY OTHER OFFER ON THIS BOARD.
      *
@@ -3716,6 +3826,7 @@ export function TodayScreen(props: TodayProps) {
        *  exactly it to mirror the split at the press. One derivation, two
        *  readers; re-deriving it there would be two answers to one question. */
       engineStarts: cell?.alternatives ?? [],
+      day,
     }
     // ⚖ ROOM RULE — the room-policy dep LEAVES this list with the dials it named.
     // The gate re-verdicts each candidate start through `verdictRef`, and the
@@ -3728,8 +3839,10 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ 92 final hygiene (breaker #6 F4) — the gate reads `verdictRef.current`
     // during render, so the rule cannot see through the ref to what it touches:
     // this list is hand-maintained against `verdictAt`'s transitive reads.
+    // ⚖ NEW-WINDOW — the two settled-day memos join the list BEFORE
+    // `props.guard.bookingStepMin`, which is pinned as this list's own tail.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin])
+  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, dayOrigin, dayCommitted, props.guard.bookingStepMin])
 
   // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
   // stops wearing ×. The operator did not make the reason go away, they
@@ -3795,7 +3908,10 @@ export function TodayScreen(props: TodayProps) {
     ? null
     : warnFaceFor({
         rows: pendingRows,
-        cell: pendingGuardRow.cell,
+        // ⚖ NEW-WINDOW — THE ONE READER OF THE DAY. `warnFaceFor` composes the
+        // headline, the △ row and the 長押し gate from it; nothing else on this
+        // screen is ever handed a `day`-carrying cell.
+        cell: pendingGuardRow.cell == null ? null : { ...pendingGuardRow.cell, day: pendingGuardRow.day },
         override: pending.override ?? null,
         level: props.overrideLevel,
         holdToConfirm: props.holdToConfirm,
@@ -4078,7 +4194,10 @@ export function TodayScreen(props: TodayProps) {
     const solved = (gestureMemoRef.current?.allocate ?? allocateBed)(board, {
       id,
       currentBed,
-      stores: board.find((l) => l.key === staffLaneKey)?.stores ?? null,
+      // ⚖ NEW-WINDOW §M-4 — the same staff test `landingVerdict` carries on its
+      // own copy of this lookup. No behaviour change on today's key scheme; it
+      // removes a way for the two spellings of one question to drift.
+      stores: board.find((l) => l.key === staffLaneKey && l.group === 'staff')?.stores ?? null,
       requiresPrivate,
       start,
       end: minuteOf(span.x + span.w, hours),
@@ -7706,6 +7825,19 @@ export function TodayScreen(props: TodayProps) {
               it is one KIND of the four, and it says so in the board's own 案C
               word. The number and its unit are untouched. */}
           <span className="chip ok">公開中の販売可能枠 {sellDrawn.staffBands.length}枠</span>
+          {/* ⚖ NEW-WINDOW L-D — THE OTHER HALF OF THE DAY: how many 新規用に確保
+              windows the store still holds, room-aware, on the settled board.
+              ABSENT with the guard off — a store that holds nothing does not hold
+              zero — which is the `guardOn` gate and not a 0枠 chip. */}
+          {guardOn && (
+            <span
+              className="chip ok"
+              data-guide-title="新規用に確保"
+              data-guide="いま店全体で、新規のお客様のために空けておける枠の数です。合計が増えても、名前の付いたスタッフの枠が1つ減ることはあります。上の数字は店全体の合計、確認画面の文章はその人の枠のことです。"
+            >
+              新規用に確保 {dayCommitted.total}枠
+            </span>
+          )}
           <button className="btn" type="button" onClick={() => closingRef.current?.showModal()}>閉店準備を確認</button>
         </div>
       </header>
