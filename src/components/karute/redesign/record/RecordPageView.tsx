@@ -169,8 +169,11 @@ export interface RecordPageViewProps {
    *  pack vs. no-pack tactic line. */
   targetHasTicketPack?: boolean
   /** The target customer's active 回数券 (sessions remaining) — drives the
-   *  one-tap 消化 row in the post-session outcome dialog (design #1). */
-  targetPack?: { id: string; remaining: number; size: number } | null
+   *  one-tap 消化 row in the post-session outcome dialog (design #1).
+   *  otherRemaining (update 25, p1) = Σ remaining over the customer's OTHER
+   *  active counted packs — resolveOutcomeMode's total-balance input only;
+   *  `remaining` here stays THIS (FIFO) pack's own, the display number. */
+  targetPack?: { id: string; remaining: number; size: number; otherRemaining?: number } | null
   /** Owner presets + permission for the 新しい回数券 panel (設定 → 回数券). */
   packPresets?: PackPreset[]
   staffCanCustomizePacks?: boolean
@@ -324,7 +327,14 @@ interface RecoveryFlow {
   durationSec: number
   /** The FIFO burn target for `dest`, resolved at freeze time. */
   packId: string | null
+  /** COUNT shape (aggregate) — the banner line + the auto-saved notice
+   *  fallback read this. Never the money decision (see `target`). */
   pack: { remaining: number; size: number } | null
+  /** MONEY shape (回数券 update 25, p2) — resolveOutcomeMode/the dialog/the
+   *  burn toast read THIS, never `pack`. The FIFO target's own numbers, so a
+   *  customer holding another pack elsewhere never gets asked "did they buy?"
+   *  for a purchase that already happened. */
+  target: { remaining: number; size: number; otherRemaining: number } | null
   /** This visit's ticket already moved — the popup states it instead of
    *  offering a second one. */
   alreadyRedeemed: boolean
@@ -397,18 +407,30 @@ export function resolveRecoveryTicketState(opts: {
   appointmentId: string | null
 }): {
   state: RecoveryTicketState
+  /** COUNT reader's shape — the customer's AGGREGATE balance, unchanged
+   *  meaning. Feeds the recovery banner's line and the auto-saved notice's
+   *  fallback: "how many sessions does she hold", never a money decision. */
   pack: { remaining: number; size: number } | null
   /** The FIFO burn target for this customer — null when there is nothing
    *  burnable, which is also the only state in which the popup must not offer
    *  a burn at all. */
   packId: string | null
+  /** MONEY reader's shape (回数券 update 25, p2) — the FIFO target's OWN
+   *  remaining/size + otherRemaining, feeding resolveOutcomeMode/the dialog/
+   *  the burn toast, exactly like the live path's targetPack. The server
+   *  ALWAYS sends `target` (the row type makes it required) — a row without
+   *  one offers no burn at all, full stop. No fallback to the aggregate: an
+   *  aggregate presented as one pack's own numbers is exactly the lie p2
+   *  exists to remove. */
+  target: { remaining: number; size: number; otherRemaining: number } | null
 } {
   const { facts, customerId, appointmentId } = opts
-  if (!facts || !customerId) return { state: 'none', pack: null, packId: null }
+  if (!facts || !customerId) return { state: 'none', pack: null, packId: null, target: null }
   const row = facts.packs.find((p) => p.customerId === customerId) ?? null
   const pack = row ? { remaining: row.remaining, size: row.size } : null
   const packId = row?.packId ?? null
-  if (!facts.redeemed) return { state: 'none', pack, packId }
+  const target = row?.target ?? null
+  if (!facts.redeemed) return { state: 'none', pack, packId, target }
   // ⚖ 2026-08-21 (Liam) — BOOKING-KEYED, exactly like the server guard this
   // mirrors (actions/packs.ts, D5). A destination WITH a booking asks one
   // question: has THIS booking already burned? A same-day burn keyed to some
@@ -421,8 +443,8 @@ export function resolveRecoveryTicketState(opts: {
   const burned = appointmentId
     ? facts.redeemed.appointmentIds.includes(appointmentId)
     : facts.redeemed.customerIds.includes(customerId)
-  if (burned) return { state: 'redeemed', pack, packId }
-  return { state: pack ? 'unresolved' : 'none', pack, packId }
+  if (burned) return { state: 'redeemed', pack, packId, target }
+  return { state: pack ? 'unresolved' : 'none', pack, packId, target }
 }
 
 export function RecordPageView({
@@ -2318,6 +2340,7 @@ export function RecordPageView({
       durationSec: offerDurationSec,
       packId: own.packId,
       pack: own.pack,
+      target: own.target,
       alreadyRedeemed: own.state === 'redeemed',
     }
     recoverySavingRef.current = true
@@ -2458,7 +2481,7 @@ export function RecordPageView({
     // the coaching labels that design protects. Recovery must behave the same.
     // The mode decides ALONE whether to ask: an already-burned mid-pack
     // customer still must not be asked — they just have nothing left to burn.
-    if (flow.packId && resolveOutcomeMode(flow.pack) === 'auto') {
+    if (flow.packId && resolveOutcomeMode(flow.target) === 'auto') {
       await runRecoveryAutoRedeem(flow)
       return
     }
@@ -2542,7 +2565,7 @@ export function RecordPageView({
       outcome: undefined,
       skipped: true,
       legs: { burn: 'pending', pack: 'none' },
-      burnFrom: flow.pack?.remaining ?? 0,
+      burnFrom: flow.target?.remaining ?? 0,
       auto: true,
     })
   }
@@ -3733,11 +3756,11 @@ export function RecordPageView({
           isReturningCustomer={null}
           saving={recoveryResolving}
           mode={
-            resolveOutcomeMode(outcomeFlow.pack) === 'repurchase' ? 'repurchase' : 'conversion'
+            resolveOutcomeMode(outcomeFlow.target) === 'repurchase' ? 'repurchase' : 'conversion'
           }
           pack={
-            outcomeFlow.packId && outcomeFlow.pack
-              ? { id: outcomeFlow.packId, ...outcomeFlow.pack }
+            outcomeFlow.packId && outcomeFlow.target
+              ? { id: outcomeFlow.packId, ...outcomeFlow.target }
               : null
           }
           alreadyRedeemed={outcomeFlow.alreadyRedeemed}

@@ -62,6 +62,63 @@ const listActivePacks = jest.fn(async () => [
   // Another customer's pack: never emitted — nobody in the picker can reach them.
   { id: 'pack-3', customer_id: 'cust-ELSEWHERE', kind: 'pack', pack_size: 4, unit_price: 8000 },
 ])
+// 回数券 update 25, p2 — the per-customer REAL rows (with status/purchased_at,
+// which core's bulk listActivePacks above deliberately lacks) that
+// listCustomerPacksWithClient reads to compute each row's FIFO `target`.
+// One pack per customer here, mirroring listActivePacks above — the
+// multi-pack (otherRemaining) case gets its own dedicated test below.
+const PACKS_BY_CUSTOMER: Record<string, unknown[]> = {
+  'cust-1': [
+    {
+      id: 'pack-1',
+      customer_id: 'cust-1',
+      kind: 'pack',
+      pack_size: 6,
+      unit_price: 10000,
+      status: 'active',
+      purchased_at: '2026-01-01',
+      purchase_round: 1,
+      source: 'manual',
+      notes: null,
+      total_price: null,
+    },
+  ],
+  'cust-PINNED': [
+    {
+      id: 'pack-2',
+      customer_id: 'cust-PINNED',
+      kind: 'pack',
+      pack_size: 10,
+      unit_price: 9000,
+      status: 'active',
+      purchased_at: '2026-01-02',
+      purchase_round: 1,
+      source: 'manual',
+      notes: null,
+      total_price: null,
+    },
+  ],
+  'cust-ELSEWHERE': [
+    {
+      id: 'pack-3',
+      customer_id: 'cust-ELSEWHERE',
+      kind: 'pack',
+      pack_size: 4,
+      unit_price: 8000,
+      status: 'active',
+      purchased_at: '2026-01-03',
+      purchase_round: 1,
+      source: 'manual',
+      notes: null,
+      total_price: null,
+    },
+  ],
+}
+const REDEMPTIONS_BY_CUSTOMER: Record<string, { pack_id: string; redeemed_on: string }[]> = {
+  'cust-1': [{ pack_id: 'pack-1', redeemed_on: '2026-08-18' }],
+}
+const listPacks = jest.fn(async (cid: string) => PACKS_BY_CUSTOMER[cid] ?? [])
+const listRedemptions = jest.fn(async (cid: string) => REDEMPTIONS_BY_CUSTOMER[cid] ?? [])
 
 jest.mock('@/lib/customers/list-all', () => ({
   listAllCustomers: jest.fn(async () => ({
@@ -87,6 +144,8 @@ function client(): Client {
       listRecentRedemptions: (s: string) => listRecentRedemptions(s),
       listActivePacks: () => listActivePacks(),
       listAllRedemptionPackIds: async () => ['pack-1'],
+      listPacks: (cid: string) => listPacks(cid),
+      listRedemptions: (cid: string) => listRedemptions(cid),
     },
   } as unknown as Client
 }
@@ -98,7 +157,13 @@ const run = (over: Partial<Parameters<typeof buildRecoveryDayFacts>[1]> = {}) =>
     ...over,
   })
 
+const ORIGINAL_PACKS_CUST_1 = PACKS_BY_CUSTOMER['cust-1']
 beforeEach(() => jest.clearAllMocks())
+afterEach(() => {
+  // The two-pack test below mutates this fixture in place — restore it so
+  // test order never matters.
+  PACKS_BY_CUSTOMER['cust-1'] = ORIGINAL_PACKS_CUST_1
+})
 
 describe('the day window is the RECORDING day, in JST', () => {
   it('queries that JST calendar day, not today', async () => {
@@ -126,8 +191,15 @@ describe('回数券 rows are derived, and scoped to who the picker can reach', (
   it('emits the FIFO burn target for a booked customer', async () => {
     const facts = await run()
     const row = facts.packs.find((p) => p.customerId === 'cust-1')
-    // 6-session pack, one redemption on the ledger → 残5/6.
-    expect(row).toEqual({ customerId: 'cust-1', packId: 'pack-1', remaining: 5, size: 6 })
+    // 6-session pack, one redemption on the ledger → 残5/6. Single pack, so
+    // target mirrors the aggregate with otherRemaining 0.
+    expect(row).toEqual({
+      customerId: 'cust-1',
+      packId: 'pack-1',
+      remaining: 5,
+      size: 6,
+      target: { remaining: 5, size: 6, otherRemaining: 0 },
+    })
   })
 
   it('includes the PINNED customer even with no booking that day', async () => {
@@ -137,6 +209,7 @@ describe('回数券 rows are derived, and scoped to who the picker can reach', (
       packId: 'pack-2',
       remaining: 10,
       size: 10,
+      target: { remaining: 10, size: 10, otherRemaining: 0 },
     })
   })
 
@@ -161,6 +234,115 @@ describe('回数券 rows are derived, and scoped to who the picker can reach', (
   it('tolerates null/undefined ids in the list (unbound take, no original)', async () => {
     const facts = await run({ pinnedCustomerIds: [null, undefined, 'cust-PINNED'] })
     expect(facts.packs.some((p) => p.customerId === 'cust-PINNED')).toBe(true)
+  })
+
+  // 回数券 update 25, p2 (LENS-L1 Finding 1) — a two-pack customer's `target`
+  // is the OLD (FIFO) pack's own remaining/size + otherRemaining from the
+  // NEW pack, never the aggregate dressed up as one pack's before/after.
+  it('a two-pack customer: target is the OLD pack`s own numbers + otherRemaining from the new pack', async () => {
+    // The AGGREGATE (core's bulk listActivePacks) must carry both packs too —
+    // otherwise this fixture would test a state that can't occur for real
+    // (aggregate and per-customer fan-out disagreeing about pack count).
+    // N3 — pack-1b listed BEFORE pack-1: core's bulk order carries no
+    // purchased_at, so it must NOT be what decides the FIFO pick. Listing
+    // the newer pack first here proves packId comes from the per-customer
+    // REAL rows (which DO carry purchased_at) and not from this order.
+    listActivePacks.mockResolvedValueOnce([
+      { id: 'pack-1b', customer_id: 'cust-1', kind: 'pack', pack_size: 10, unit_price: 9900 },
+      { id: 'pack-1', customer_id: 'cust-1', kind: 'pack', pack_size: 6, unit_price: 10000 },
+      { id: 'pack-2', customer_id: 'cust-PINNED', kind: 'pack', pack_size: 10, unit_price: 9000 },
+    ])
+    PACKS_BY_CUSTOMER['cust-1'] = [
+      {
+        id: 'pack-1',
+        customer_id: 'cust-1',
+        kind: 'pack',
+        pack_size: 6,
+        unit_price: 10000,
+        status: 'active',
+        purchased_at: '2026-01-01',
+        purchase_round: 1,
+        source: 'manual',
+        notes: null,
+        total_price: null,
+      },
+      {
+        id: 'pack-1b',
+        customer_id: 'cust-1',
+        kind: 'pack',
+        pack_size: 10,
+        unit_price: 9900,
+        status: 'active',
+        purchased_at: '2026-08-30',
+        purchase_round: 2,
+        source: 'manual',
+        notes: null,
+        total_price: null,
+      },
+    ]
+    const facts = await run()
+    const row = facts.packs.find((p) => p.customerId === 'cust-1')
+    // Aggregate (remaining/size) is untouched — Σ across both packs: 5 + 10.
+    expect(row).toEqual({
+      customerId: 'cust-1',
+      packId: 'pack-1',
+      remaining: 15,
+      size: 16,
+      target: { remaining: 5, size: 6, otherRemaining: 10 },
+    })
+  })
+
+  // F-1 / A-5: never a row with a GUESSED target — a per-customer read
+  // failure must make the WHOLE DAY unavailable, never a loaded day with an
+  // empty pack set (a customer who holds a pack would silently read as "no
+  // pack" and a recovery save could proceed with no burn and no warning).
+  it('a per-customer fan-out failure → the day is unavailable, never a loaded day with an empty pack set', async () => {
+    listPacks.mockRejectedValueOnce(new Error('core down'))
+    const facts = await run({ pinnedCustomerIds: ['cust-PINNED'] })
+    expect(facts.unavailable).toBe(true)
+    expect(facts.packs).toEqual([])
+    expect(facts.bookings).toEqual([])
+  })
+
+  // B2's twin — recovery-facts.ts:199 carries the SAME `status === 'active'`
+  // guard as record-screen.ts:514; a cancelled pack with sessions left must
+  // never inflate the recovery path's otherRemaining either.
+  it('a CANCELLED pack with sessions left never inflates otherRemaining (recovery-facts.ts:199)', async () => {
+    listActivePacks.mockResolvedValueOnce([
+      { id: 'pack-1', customer_id: 'cust-1', kind: 'pack', pack_size: 6, unit_price: 10000 },
+      { id: 'pack-2', customer_id: 'cust-PINNED', kind: 'pack', pack_size: 10, unit_price: 9000 },
+    ])
+    PACKS_BY_CUSTOMER['cust-1'] = [
+      {
+        id: 'pack-1',
+        customer_id: 'cust-1',
+        kind: 'pack',
+        pack_size: 6,
+        unit_price: 10000,
+        status: 'active',
+        purchased_at: '2026-01-01',
+        purchase_round: 1,
+        source: 'manual',
+        notes: null,
+        total_price: null,
+      },
+      {
+        id: 'pack-x',
+        customer_id: 'cust-1',
+        kind: 'pack',
+        pack_size: 10,
+        unit_price: 9900,
+        status: 'cancelled',
+        purchased_at: '2026-09-01',
+        purchase_round: 2,
+        source: 'manual',
+        notes: null,
+        total_price: null,
+      },
+    ]
+    const facts = await run()
+    const row = facts.packs.find((p) => p.customerId === 'cust-1')
+    expect(row?.target).toEqual({ remaining: 5, size: 6, otherRemaining: 0 })
   })
 })
 
@@ -210,11 +392,14 @@ describe('the burn history is TRI-STATE', () => {
     expect(facts.bookings).toHaveLength(1)
   })
 
-  it('an unreadable PACK aggregate costs the pill, not the screen', async () => {
+  // F-1 / A-5: same doctrine as the fan-out failure above — an unreadable
+  // aggregate must not degrade to "no pack rows" on an otherwise-loaded day.
+  it('an unreadable PACK aggregate → the day is unavailable, never a loaded day with an empty pack set', async () => {
     listActivePacks.mockRejectedValueOnce(new Error('core down'))
     const facts = await run()
+    expect(facts.unavailable).toBe(true)
     expect(facts.packs).toEqual([])
-    expect(facts.bookings).toHaveLength(1)
+    expect(facts.bookings).toEqual([])
   })
 })
 

@@ -29,8 +29,12 @@ let mockTarget: {
   appointmentId: string | null
 } | null = null
 
+// p5 (B1) — 'autoRedeemed' is special-cased to embed its vars so the burn
+// toast's 残{from}→残{to} can be pinned; every other key keeps the bare-key
+// behaviour every existing assertion in this file relies on.
 jest.mock('next-intl', () => ({
-  useTranslations: () => (key: string) => key,
+  useTranslations: () => (key: string, vars?: Record<string, unknown>) =>
+    key === 'autoRedeemed' && vars ? `${key}:${JSON.stringify(vars)}` : key,
 }))
 jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ replace: jest.fn(), push: jest.fn(), back: jest.fn() }),
@@ -74,6 +78,16 @@ jest.mock('@/actions/packs', () => ({
   createPackAction: jest.fn(),
   redeemSessionAction: jest.fn(),
   undoRedemptionAction: jest.fn(),
+}))
+// p5 (B1) — the burn toast's 残{from}→残{to} was unpinned; mocked so the
+// message text (via the next-intl mock above) can be asserted on.
+jest.mock('sonner', () => ({
+  toast: Object.assign(jest.fn(), {
+    success: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+    warning: jest.fn(),
+  }),
 }))
 // Pipeline mocked so the stop-flow render test can assert what the save hands
 // off (and that no real pipeline work runs in jsdom).
@@ -345,6 +359,52 @@ describe('stop flow under mismatch — end-to-end render pin (delta-verify catch
     // And customer B's pack was NOT burned.
     const { redeemSessionAction } = jest.requireMock('@/actions/packs')
     expect(redeemSessionAction).not.toHaveBeenCalled()
+  })
+
+  // 回数券 update 25, Layer 1, p1 — the total-balance rule changes the MODE
+  // decision only; the burn itself still targets (and would toast) the FIFO
+  // pack's own remaining, never the total. A customer holding an old 残1 +
+  // a new 残10 (otherRemaining) reads 'auto' — no dialog — and the burn that
+  // follows must still hit the OLD pack for its OWN 1→0, not an invented 11→10.
+  it('old 残1 + new 残10 (otherRemaining) → auto burn still targets the OLD (FIFO) pack, not a total', async () => {
+    mockRecState = 'recorded'
+    mockResult = { blob: new Blob(['x']), mimeType: 'audio/webm', durationMs: 5000 }
+    mockTarget = {
+      customerId: 'cust-A',
+      customerName: 'リエム代表',
+      karuteNumber: null,
+      appointmentId: 'apt-A',
+    }
+    const { redeemSessionAction } = jest.requireMock('@/actions/packs')
+    redeemSessionAction.mockResolvedValueOnce({ ok: true, redemptionId: 'r1' })
+    render(
+      <RecordPageView
+        {...baseProps}
+        targetPack={{ id: 'pack-old', remaining: 1, size: 6, otherRemaining: 10 }}
+        nextAppointment={nextAppointmentFor('cust-A', 'リエム代表')}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('useRecording'))
+
+    await waitFor(() => expect(redeemSessionAction).toHaveBeenCalledTimes(1))
+    // The FIFO (old) pack, never a customer-total — the toast's `from` (:3049
+    // `const from = targetPack.remaining`) reads this same object's own 1,
+    // proven separately at record-screen.ts (pack-total-balance-p1.test.tsx).
+    expect(redeemSessionAction.mock.calls[0][0]).toMatchObject({
+      packId: 'pack-old',
+      customerId: 'cust-A',
+    })
+    // No conversion/repurchase dialog — total 11 is comfortably 'auto'.
+    expect(screen.queryByText('disclaimer')).toBeNull()
+    // p5 (B1) — the toast is the FIFO pack's OWN 残1 → 残0, never the
+    // aggregate 残11 → 残10 (LENS-L1 B1: unpinned before this).
+    await waitFor(() => {
+      const { toast } = jest.requireMock('sonner') as { toast: { success: jest.Mock } }
+      expect(toast.success).toHaveBeenCalled()
+    })
+    const { toast } = jest.requireMock('sonner') as { toast: { success: jest.Mock } }
+    expect(toast.success.mock.calls[0][0]).toBe('autoRedeemed:{"from":1,"to":0}')
   })
 })
 
