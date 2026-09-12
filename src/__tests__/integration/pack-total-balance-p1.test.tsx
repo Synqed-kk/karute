@@ -133,6 +133,34 @@ describe('record-screen.ts — targetPack.otherRemaining (the live DTO path)', (
     const result = await screenFor([only])
     expect(result.targetPack).toEqual({ id: 'only', remaining: 2, size: 10, otherRemaining: 0 })
   })
+
+  // p5 (B2) — withUsage computes `remaining` regardless of status, so a
+  // cancelled pack keeps a positive remaining. otherRemaining must still
+  // exclude it, or a cancelled pack's leftover sessions could push the total
+  // over 2 and silently suppress the repurchase question — the live shape
+  // this update was written for (an old pack 残1, a new 10-pack, and a
+  // cancelled round-3 pack).
+  it('a CANCELLED pack with sessions left never inflates otherRemaining (the live round-3 case)', async () => {
+    const oldPack = packWithUsage({ id: 'old', purchased_at: '2026-04-29', remaining: 1 })
+    const cancelled = packWithUsage({
+      id: 'x',
+      purchased_at: '2026-09-01',
+      remaining: 10,
+      status: 'cancelled',
+    })
+    const result = await screenFor([cancelled, oldPack])
+    expect(result.targetPack).toEqual({ id: 'old', remaining: 1, size: 10, otherRemaining: 0 })
+  })
+
+  // N12 — a subscription-only customer never reaches the pack-target math at
+  // all: pickRedemptionTarget filters kind === 'pack', so targetPack is
+  // null and resolveOutcomeMode(null) reads 'conversion', as today.
+  it('subscription-only fixture: targetPack is null → conversion (N12)', async () => {
+    const sub = packWithUsage({ id: 'sub', remaining: 5, kind: 'subscription' })
+    const result = await screenFor([sub])
+    expect(result.targetPack).toBeNull()
+    expect(resolveOutcomeMode(result.targetPack)).toBe('conversion')
+  })
 })
 
 describe('RepurchaseCueBanner — renders off the SAME resolver, never its own arithmetic', () => {
@@ -143,5 +171,13 @@ describe('RepurchaseCueBanner — renders off the SAME resolver, never its own a
   it('single 残1, no other pack → renders', () => {
     render(<RepurchaseCueBanner pack={{ remaining: 1, size: 10 }} />)
     expect(screen.getByRole('status')).toBeTruthy()
+  })
+
+  // N1 — the title reads the FIFO pack's OWN remaining, never the total: two
+  // packs each at 残1 (total 2, still the repurchase decision point) must
+  // read 残り1回, never 残り2回.
+  it("two packs each at 残1 (total 2) → title reads the FIFO pack's own 1, never the total 2", () => {
+    render(<RepurchaseCueBanner pack={{ remaining: 1, size: 6, otherRemaining: 1 }} />)
+    expect(screen.getByText('title:{"n":1}')).toBeInTheDocument()
   })
 })

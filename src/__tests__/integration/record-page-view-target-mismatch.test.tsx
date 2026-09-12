@@ -29,8 +29,12 @@ let mockTarget: {
   appointmentId: string | null
 } | null = null
 
+// p5 (B1) — 'autoRedeemed' is special-cased to embed its vars so the burn
+// toast's 残{from}→残{to} can be pinned; every other key keeps the bare-key
+// behaviour every existing assertion in this file relies on.
 jest.mock('next-intl', () => ({
-  useTranslations: () => (key: string) => key,
+  useTranslations: () => (key: string, vars?: Record<string, unknown>) =>
+    key === 'autoRedeemed' && vars ? `${key}:${JSON.stringify(vars)}` : key,
 }))
 jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ replace: jest.fn(), push: jest.fn(), back: jest.fn() }),
@@ -74,6 +78,16 @@ jest.mock('@/actions/packs', () => ({
   createPackAction: jest.fn(),
   redeemSessionAction: jest.fn(),
   undoRedemptionAction: jest.fn(),
+}))
+// p5 (B1) — the burn toast's 残{from}→残{to} was unpinned; mocked so the
+// message text (via the next-intl mock above) can be asserted on.
+jest.mock('sonner', () => ({
+  toast: Object.assign(jest.fn(), {
+    success: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+    warning: jest.fn(),
+  }),
 }))
 // Pipeline mocked so the stop-flow render test can assert what the save hands
 // off (and that no real pipeline work runs in jsdom).
@@ -383,6 +397,14 @@ describe('stop flow under mismatch — end-to-end render pin (delta-verify catch
     })
     // No conversion/repurchase dialog — total 11 is comfortably 'auto'.
     expect(screen.queryByText('disclaimer')).toBeNull()
+    // p5 (B1) — the toast is the FIFO pack's OWN 残1 → 残0, never the
+    // aggregate 残11 → 残10 (LENS-L1 B1: unpinned before this).
+    await waitFor(() => {
+      const { toast } = jest.requireMock('sonner') as { toast: { success: jest.Mock } }
+      expect(toast.success).toHaveBeenCalled()
+    })
+    const { toast } = jest.requireMock('sonner') as { toast: { success: jest.Mock } }
+    expect(toast.success.mock.calls[0][0]).toBe('autoRedeemed:{"from":1,"to":0}')
   })
 })
 

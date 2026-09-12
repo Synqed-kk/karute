@@ -13,8 +13,15 @@
  *   · a take whose 結果 survived the crash saves with that outcome — which is
  *     what puts it in the existing autosave cohort instead of a review detour.
  */
+// p5 (B1 + N4) — two keys are special-cased to embed their vars so the burn
+// toast's 残{from}→残{to} and the repoint picker's pack pill can be pinned;
+// every other key keeps the bare-key behaviour every existing assertion in
+// this file relies on.
 jest.mock('next-intl', () => ({
-  useTranslations: () => (key: string) => key,
+  useTranslations: () => (key: string, vars?: Record<string, unknown>) =>
+    vars && (key === 'autoRedeemed' || key === 'card.packLeft')
+      ? `${key}:${JSON.stringify(vars)}`
+      : key,
 }))
 jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ replace: jest.fn(), push: jest.fn(), back: jest.fn() }),
@@ -1054,6 +1061,31 @@ describe('RecordCustomerPickerDialog — repoint variant', () => {
     expect(screen.queryByText('target.repointPinnedNoBooking')).toBeNull()
   })
 
+  // N4 — the repoint picker pill (RecordPageView:3793–3795) keeps the
+  // AGGREGATE, never the FIFO `target` — parity with the live picker's own
+  // aggregate at record-screen.ts. A customer holding an old 残5 + a new
+  // 残10 pack must still show 残15/16 in the picker, never the FIFO pack's
+  // own 5/6.
+  it('the PAGE wires the repoint pill to the AGGREGATE, never the FIFO target (N4)', async () => {
+    DAY_FACTS.bookings = [dayBooking] as never
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-2',
+        packId: 'pack-old',
+        remaining: 15,
+        size: 16,
+        target: { remaining: 5, size: 6, otherRemaining: 10 },
+      },
+    ]
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverRepoint'))
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+    expect(screen.getByText('card.packLeft:{"remaining":15,"size":16}')).toBeTruthy()
+    expect(screen.queryByText('card.packLeft:{"remaining":5,"size":6}')).toBeNull()
+  })
+
   it('a WALK-IN pinned take (no flag, not in the day list) still reads 当日の予約なし', () => {
     renderRepoint()
     expect(screen.getByText('target.repointPinnedNoBooking')).toBeTruthy()
@@ -1310,6 +1342,10 @@ describe('auto mode parity (A-6)', () => {
       redeemedOn: '2026-08-18',
       recovery: true,
     })
+    // p5 (B1) — the toast is the FIFO pack's OWN 残1 → 残0, never the
+    // aggregate 残11 → 残10 (LENS-L1 B1: unpinned before this).
+    const { toast } = jest.requireMock('sonner') as { toast: { success: jest.Mock } }
+    expect(toast.success.mock.calls[0][0]).toBe('autoRedeemed:{"from":1,"to":0}')
   })
 })
 
