@@ -4868,6 +4868,18 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     expect(SRC).toContain('          // The day\'s own standing 仮押さえ (the incident\'s) — the pill, always.\n          anchorId: null,')
   })
 
+  // ── F4 (fix round 2, COLD-READ) ──────────────────────────────────────────
+  it('the .cal-pop width and its phone clamp are pinned — 340 reintroduces the 393 h-scroll', () => {
+    // Measured 2026-09-12 (build-courses/proof.json, ⚖ Liam 「I choose B」): 380
+    // is the smallest width that holds 「あと35枠」 without pushing the card's
+    // own content past its column, and the clamp is what turns that same 380px
+    // into 361px at 393 so a right-anchored card never grows a horizontal
+    // scrollbar on a phone. Neither line was pinned before this round — a
+    // revert of either passed the whole battery.
+    expect(CSS).toContain('  width: 380px;')
+    expect(CSS).toContain('  max-width: calc(100vw - 32px);')
+  })
+
   /** Greptile #738 P1 — COLLAPSING THE GROUP UNMOUNTS THE ANCHOR.
    *
    *  `renderLane` returns null for a collapsed group, so the staged
