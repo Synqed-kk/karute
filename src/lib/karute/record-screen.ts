@@ -93,7 +93,11 @@ export interface RecordScreenResult {
   visitSegment: VisitSegment | null
   visitRhythm: VisitRhythm | null
   targetHasTicketPack: boolean
-  targetPack: { id: string; remaining: number; size: number } | null
+  /** otherRemaining (update 25, p1) = Σ remaining over the customer's OTHER
+   *  active counted packs — resolveOutcomeMode's total-balance input. Never
+   *  the display number: the burn toast/dialog keep reading `remaining` for
+   *  THIS (FIFO) pack alone. */
+  targetPack: { id: string; remaining: number; size: number; otherRemaining: number } | null
   previousPack: { size: number; unitPrice: number } | null
   packPresets: PackPreset[]
   staffCanCustomizePacks: boolean
@@ -490,7 +494,8 @@ export async function buildRecordScreen(input: {
 
   let brief: PreSessionBrief | null = null
   let briefInputs: RecordScreenBrief | null = null
-  let targetPack: { id: string; remaining: number; size: number } | null = null
+  let targetPack: { id: string; remaining: number; size: number; otherRemaining: number } | null =
+    null
   let previousPack: { size: number; unitPrice: number } | null = null
   let visitSegment: VisitSegment | null = null
   let visitRhythm: VisitRhythm | null = null
@@ -502,8 +507,20 @@ export async function buildRecordScreen(input: {
     )
     // FIFO: finish the old ticket first (pickRedemptionTarget — §7 rule).
     const activePack = pickRedemptionTarget(targetPacks)
+    // otherRemaining (update 25, p1) — Σ remaining over the OTHER active
+    // counted packs, same targetPacks list (already `withUsage` rows).
+    const otherRemaining = activePack
+      ? targetPacks
+          .filter((p) => p.kind === 'pack' && p.status === 'active' && p.id !== activePack.id)
+          .reduce((sum, p) => sum + p.remaining, 0)
+      : 0
     targetPack = activePack
-      ? { id: activePack.id, remaining: activePack.remaining, size: activePack.pack_size }
+      ? {
+          id: activePack.id,
+          remaining: activePack.remaining,
+          size: activePack.pack_size,
+          otherRemaining,
+        }
       : null
     const newest = targetPacks[0]
     previousPack = newest

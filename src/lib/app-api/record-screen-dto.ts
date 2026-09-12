@@ -128,7 +128,19 @@ export const RecordScreenDTO = z.object({
   visitSegment: VisitSegmentSchema,
   visitRhythm: VisitRhythmSchema,
   targetHasTicketPack: z.boolean(),
-  targetPack: z.object({ id: z.string(), remaining: z.number(), size: z.number() }).nullable(),
+  /** otherRemaining OPTIONAL on the wire (回数券 update 25, p1): a newer phone
+   *  parsing an older preview server's response must not crash on a missing
+   *  key — the server itself always sends it (record-screen.ts). Plain
+   *  z.object (no .strict()) — an OLD phone's baked schema simply strips the
+   *  extra key it doesn't know about. */
+  targetPack: z
+    .object({
+      id: z.string(),
+      remaining: z.number(),
+      size: z.number(),
+      otherRemaining: z.number().optional(),
+    })
+    .nullable(),
   previousPack: z.object({ size: z.number(), unitPrice: z.number() }).nullable(),
   packPresets: z.array(PackPresetSchema),
   staffCanCustomizePacks: z.boolean(),

@@ -346,6 +346,44 @@ describe('stop flow under mismatch — end-to-end render pin (delta-verify catch
     const { redeemSessionAction } = jest.requireMock('@/actions/packs')
     expect(redeemSessionAction).not.toHaveBeenCalled()
   })
+
+  // 回数券 update 25, Layer 1, p1 — the total-balance rule changes the MODE
+  // decision only; the burn itself still targets (and would toast) the FIFO
+  // pack's own remaining, never the total. A customer holding an old 残1 +
+  // a new 残10 (otherRemaining) reads 'auto' — no dialog — and the burn that
+  // follows must still hit the OLD pack for its OWN 1→0, not an invented 11→10.
+  it('old 残1 + new 残10 (otherRemaining) → auto burn still targets the OLD (FIFO) pack, not a total', async () => {
+    mockRecState = 'recorded'
+    mockResult = { blob: new Blob(['x']), mimeType: 'audio/webm', durationMs: 5000 }
+    mockTarget = {
+      customerId: 'cust-A',
+      customerName: 'リエム代表',
+      karuteNumber: null,
+      appointmentId: 'apt-A',
+    }
+    const { redeemSessionAction } = jest.requireMock('@/actions/packs')
+    redeemSessionAction.mockResolvedValueOnce({ ok: true, redemptionId: 'r1' })
+    render(
+      <RecordPageView
+        {...baseProps}
+        targetPack={{ id: 'pack-old', remaining: 1, size: 6, otherRemaining: 10 }}
+        nextAppointment={nextAppointmentFor('cust-A', 'リエム代表')}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('useRecording'))
+
+    await waitFor(() => expect(redeemSessionAction).toHaveBeenCalledTimes(1))
+    // The FIFO (old) pack, never a customer-total — the toast's `from` (:3049
+    // `const from = targetPack.remaining`) reads this same object's own 1,
+    // proven separately at record-screen.ts (pack-total-balance-p1.test.tsx).
+    expect(redeemSessionAction.mock.calls[0][0]).toMatchObject({
+      packId: 'pack-old',
+      customerId: 'cust-A',
+    })
+    // No conversion/repurchase dialog — total 11 is comfortably 'auto'.
+    expect(screen.queryByText('disclaimer')).toBeNull()
+  })
 })
 
 describe('resolveStopFlow — ticket economics only run against the session\'s own customer', () => {

@@ -169,8 +169,11 @@ export interface RecordPageViewProps {
    *  pack vs. no-pack tactic line. */
   targetHasTicketPack?: boolean
   /** The target customer's active 回数券 (sessions remaining) — drives the
-   *  one-tap 消化 row in the post-session outcome dialog (design #1). */
-  targetPack?: { id: string; remaining: number; size: number } | null
+   *  one-tap 消化 row in the post-session outcome dialog (design #1).
+   *  otherRemaining (update 25, p1) = Σ remaining over the customer's OTHER
+   *  active counted packs — resolveOutcomeMode's total-balance input only;
+   *  `remaining` here stays THIS (FIFO) pack's own, the display number. */
+  targetPack?: { id: string; remaining: number; size: number; otherRemaining?: number } | null
   /** Owner presets + permission for the 新しい回数券 panel (設定 → 回数券). */
   packPresets?: PackPreset[]
   staffCanCustomizePacks?: boolean

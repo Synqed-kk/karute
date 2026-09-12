@@ -9,15 +9,19 @@
 
 import { useTranslations } from 'next-intl'
 import { Ticket } from 'lucide-react'
-import { REPURCHASE_PROMPT_REMAINING } from '@/lib/packs/resolve'
+import { resolveOutcomeMode } from '@/lib/packs/resolve'
 
 export function RepurchaseCueBanner({
   pack,
 }: {
-  pack: { remaining: number; size: number } | null
+  pack: { remaining: number; size: number; otherRemaining?: number } | null
 }) {
   const t = useTranslations('recording.repurchaseCue')
-  if (!pack || pack.remaining > REPURCHASE_PROMPT_REMAINING || pack.remaining <= 0) {
+  // 回数券 update 25, p1: ONE resolver decides — the banner can't disagree
+  // with the stop dialog's mode. Renders only at the repurchase decision
+  // point (total ≤2 across active counted packs); a customer who also holds
+  // another pack with sessions left gets silence here (that pack covers her).
+  if (!pack || resolveOutcomeMode(pack) !== 'repurchase') {
     return null
   }
   const last = pack.remaining === 1
