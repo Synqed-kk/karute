@@ -2537,7 +2537,7 @@
         "range": "{from}〜{to}"
       },
       "noSessionsToday": {
-        "sub": "{day}・録音担当{n}名の録音がありません"
+        "sub": "{day}・録音担当{n}名、本日の録音なし"
       },
       "reason": {
         "empty_transcript": "文字起こし結果なし",

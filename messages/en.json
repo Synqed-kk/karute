@@ -2537,7 +2537,7 @@
         "range": "{from}–{to}"
       },
       "noSessionsToday": {
-        "sub": "{day} · no recordings from {n} staff who usually record"
+        "sub": "{day} · {n} staff who usually record, no recording today"
       },
       "reason": {
         "empty_transcript": "No transcript produced",

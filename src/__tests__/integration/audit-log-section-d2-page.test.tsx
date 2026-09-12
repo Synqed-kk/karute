@@ -308,9 +308,40 @@ describe('AuditLogSection — C2 the two Group-B rows (no_sessions_today / take_
       }),
     ])
     expect(container.textContent).toContain('本日の録音なし')
-    expect(container.textContent).toContain('2026-09-11・録音担当2名の録音がありません')
+    expect(container.textContent).toContain('2026-09-11・録音担当2名、本日の録音なし')
     expect(container.textContent).not.toContain('staff-uuid-aaa')
     expect(container.textContent).not.toContain('staff-uuid-bbb')
+  })
+
+  // Blind-read finding (LENS-GROUP-C-FINAL-READ-2026-09-12.md): detail is an
+  // untyped Record<string, unknown> off the wire — a malformed staff_ids
+  // (not an array) must render, not throw, and never leak whatever the
+  // malformed value actually was. Discriminating on the COUNT, not just "no
+  // throw": the guarded code reads n=0 for a non-array (Array.isArray fails
+  // → the `: 0` fallback); the mutant (guard removed, raw `.length` used)
+  // reads n=23 — the STRING's character count — off the same fixture. A bare
+  // "does it throw" assertion would NOT catch that mutant (a string's
+  // `.length` never throws), so the count itself is the pin.
+  it('recording.no_sessions_today with a non-array staff_ids renders 0-count, without throwing, no uuid anywhere', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'recording.no_sessions_today',
+        actor_type: 'system',
+        actor_id: null,
+        target_type: null,
+        target_id: null,
+        detail: {
+          day: '2026-09-11',
+          staff_ids: 'staff-uuid-not-an-array',
+          kept_appointments: 3,
+          sessions_today: 0,
+          sessions_prev_7d: 5,
+        },
+      }),
+    ])
+    expect(container.textContent).toContain('2026-09-11・録音担当0名、本日の録音なし')
+    expect(container.textContent).not.toContain('録音担当23名')
+    expect(container.textContent).not.toContain('staff-uuid-not-an-array')
   })
 
   it('recording.take_refused_has_record renders without any uuid substring', async () => {
