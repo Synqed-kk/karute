@@ -409,7 +409,14 @@ describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an 
   // on WHAT THE BRANCH MUST BE — a span, not a link, with nothing to press —
   // never on one spelling of the className or the sentence.
   const SCREEN_SRC = readFileSync('src/app/[locale]/(business)/business/today/TodayScreen.tsx', 'utf8')
-  const CELLS_AT = SCREEN_SRC.indexOf('{monthCells.days.map(')
+  // ⚖ STUDIO 2026-09-12 · C3 — the grid renders `monthShown`, not `monthCells`:
+  // the popover now outlives `pop` by the length of its exit spring, so the
+  // month it draws is CAPTURED while it is open and held through the fade (a
+  // navigation landing mid-fade used to repaint the leaving card as another
+  // month). Same array, same branch, same claims below — only the binding the
+  // JSX reads was renamed. `CELLS_AT` going to −1 is what the two assertions
+  // below are guarding against, so the anchor follows the name.
+  const CELLS_AT = SCREEN_SRC.indexOf('{monthShown.days.map(')
   const CELLS = SCREEN_SRC.slice(CELLS_AT, SCREEN_SRC.indexOf('</div>', CELLS_AT))
 
   // THE UNCOVERED BRANCH ITSELF — from `covered === false` down to the covered

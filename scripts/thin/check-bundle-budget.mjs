@@ -539,7 +539,25 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Report-only per ⚖ 8/25: this raise is REVERSIBLE, Liam vetoes it with one
 // revert. The script still gates — it runs in CI and exits non-zero against
 // whatever ceiling stands here.
-const BUDGET_BYTES = 2_060_735
+//
+// Raised 2026-09-12 at the discard one-tap fix round (F1–F7, blind-lens
+// adjudicated, branch feat/discard-one-tap-below-floor) — the accidental-tap
+// one-tap discard plus that round's own repairs: the recorder+banner-only
+// predicate (review/pipeline-error keep their dialog fence unconditionally),
+// the failure-fallback dialog, the one-tap success toast, and the try/catch
+// that now wraps the whole discard body so a thrown server action fails
+// closed instead of escaping as a silent unhandled rejection. Measured cold
+// on this machine, byte-identical across three separate clean builds: en
+// 131,802 · index 991,304 · vendor 937,743 = 2,060,849 B, against a
+// merge-base (d5cd18f13) measurement — also twice byte-identical — of
+// 2,059,860 B: feature cost +989 B. The ceiling is set from THIS local
+// number plus 1,000 B, the same convention as every prior raise above:
+// 2,060,849 + 1,000 = 2,061,849.
+//
+// Report-only per ⚖ 8/25: this raise is REVERSIBLE, Liam vetoes it with one
+// revert. The script still gates — it runs in CI and exits non-zero against
+// whatever ceiling stands here.
+const BUDGET_BYTES = 2_061_849
 
 let dir
 try {

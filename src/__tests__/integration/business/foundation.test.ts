@@ -520,6 +520,11 @@ describe('the fixture data door', () => {
         '@/business/lib/canon-logic/drag-rules',
         '@/business/lib/canon-logic/gap-guard',
         '@/business/lib/canon-logic/pricing',
+        // ⚖ STUDIO 2026-09-12 — TYPE-ONLY, and the third one here: the month
+        // popover's two motion helpers name `Spring`, and the integrator itself
+        // stays the screen's to build (`makeSpring` captures `reduced` at
+        // construction). Erased at compile time; no runtime dependency is added.
+        '@/business/lib/spring',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/loading.tsx': ['@/business/i18n'],

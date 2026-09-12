@@ -847,7 +847,9 @@
       "confirm": "破棄する",
       "submitting": "破棄中...",
       "failed": "破棄を記録できませんでした。もう一度お試しください。",
-      "takeChanged": "この録音はすでに文字起こしに進んでいます。破棄できませんでした。"
+      "takeChanged": "この録音はすでに文字起こしに進んでいます。破棄できませんでした。",
+      "autoReasonBelowFloor": "誤操作（{n}秒未満の録音のため自動記録）",
+      "oneTapDone": "録音を破棄しました。破棄の記録（日時・担当者）が残ります。"
     }
   },
   "customers": {
@@ -2337,7 +2339,7 @@
       "empty": "破棄の記録はまだありません。",
       "truncated": "件数が多いため、古い記録は表示していません。",
       "detailTruncated": "一部の記録は詳細を読み込めていません。",
-      "reasonLabel": "理由（スタッフ記入）",
+      "reasonLabel": "理由",
       "transcriptShow": "文字起こしを表示",
       "transcriptHide": "文字起こしを隠す",
       "transcriptMinutes": "{n}分",
