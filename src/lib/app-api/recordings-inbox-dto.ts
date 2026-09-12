@@ -62,6 +62,13 @@ const InboxSessionSchema = z.object({
    *  the header rule above: it says WHETHER, never WHERE. No path and no key
    *  is derivable from it, and the save door reads the path off the ROW. */
   serverAudio: z.string().nullish(),
+  /** UPDATE 25 GROUP A, piece c — the never-backfill fence for the same-day
+   *  手書き door: `ymdInJst(createdAt) === ymdInJst(serverNow)`, computed
+   *  server-side (inbox-read.ts) so no phone clock can ever open a door onto a
+   *  past day. `nullish` on purpose, the `discardedByStaff`/`serverAudio`
+   *  idiom above: an old baked bundle's payload without this key parses fine,
+   *  and the fold treats absence as `false` — door closed. */
+  sameDay: z.boolean().nullish(),
 })
 
 export const RecordingsInboxDTO = z.object({

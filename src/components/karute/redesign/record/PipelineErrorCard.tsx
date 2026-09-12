@@ -13,6 +13,8 @@ export function PipelineErrorCard({
   onCancel,
   onRetry,
   onDiscard,
+  errorRepeated = false,
+  onHandwrite,
 }: {
   code: PipelineErrorCode | null
   onCancel: () => void
@@ -23,6 +25,15 @@ export function PipelineErrorCard({
    *  it for the wrong code can never widen the byte-identical contract for
    *  every other code. */
   onDiscard?: () => void
+  /** UPDATE 25 GROUP A, piece c — this retry failed with the SAME code as the
+   *  one before it (global-pipeline's own memory). 再試行 is NEVER removed on
+   *  it — a wrong detector must never lock a real take out (B2's own rule). */
+  errorRepeated?: boolean
+  /** UPDATE 25 GROUP A, piece c — the same-day 手書き door, offered ONLY when
+   *  the caller has already proven (against the row's server-derived
+   *  `sameDay`) that this failed take's session is today's. Gated on `code`
+   *  too, the same discipline as `onDiscard` above. */
+  onHandwrite?: () => void
 }) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
@@ -40,6 +51,9 @@ export function PipelineErrorCard({
                   : 'pipelineErrorGeneric',
           )}
         </p>
+        {errorRepeated && (
+          <p className="mt-2 text-sm text-muted-foreground">{t('pipelineErrorRepeated')}</p>
+        )}
         <div className="mt-5 flex justify-center gap-3">
           <button
             type="button"
@@ -64,6 +78,18 @@ export function PipelineErrorCard({
             </button>
           )}
         </div>
+        {code === 'empty-transcript' && onHandwrite && (
+          <button
+            type="button"
+            onClick={onHandwrite}
+            // The R13 wash recipe (RecordingsInboxCard's WASH_BTN) — never a
+            // solid fill, never black: this is an exit FROM the recording, not
+            // an action ON it.
+            className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-[9px] border border-primary bg-primary/8 px-4 text-sm font-semibold text-primary"
+          >
+            {t('inbox.action.handwrite')}
+          </button>
+        )}
         {code === 'empty-transcript' && onDiscard && (
           <button
             type="button"

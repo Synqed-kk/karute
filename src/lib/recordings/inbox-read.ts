@@ -52,6 +52,7 @@ import type { SynqedClient } from '@synqed-kk/client'
 import { paginateDedupe } from '@/lib/customers/paginate'
 import { getCachedCustomerListFor } from '@/lib/customers/cached'
 import { parseRecordingKey } from '@/lib/recording/key-grammar'
+import { ymdInJst } from '@/lib/date/jst'
 import {
   INBOX_WINDOW_MS,
   SESSION_UNSETTLED_GRACE_MS,
@@ -384,6 +385,11 @@ export async function readRecordingsInbox({
     // finder; the facade DTO doesn't declare it, so it never leaves the
     // server.
     staffId: s.staff_id ?? null,
+    // ⚖ UPDATE 25 GROUP A, piece c — the never-backfill fence. Both the
+    // JST-day comparison AND `now` are the SERVER's (F4: `now` here is
+    // `new Date()` on both the cookie action and the facade route, never a
+    // client timestamp) — a phone's clock never decides this.
+    sameDay: ymdInJst(new Date(s.created_at)) === ymdInJst(now),
   }))
 
   // P3-11 / ⚖ fix round d5b (NB-4, mutant M17): a truncated sessions or

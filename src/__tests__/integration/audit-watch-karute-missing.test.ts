@@ -18,6 +18,7 @@ const row = (over: Partial<InboxRow> & { key: string; startedAt: number }): Inbo
   customerName: null,
   durationSeconds: 300,
   canRetry: false,
+  sameDay: false,
   ...over,
 })
 

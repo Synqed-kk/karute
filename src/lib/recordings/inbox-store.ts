@@ -151,14 +151,23 @@ function schedulePoll(rows: readonly InboxRow[]): void {
 
 /** This device's takes, minus the ones a live recorder/pipeline owns. An
  *  in-progress session is not history, and offering it as 復元可能 would let a
- *  save delete audio still being captured. */
+ *  save delete audio still being captured.
+ *
+ *  UPDATE 25 GROUP A, piece b: an ERRORED run does not own its audio the way a
+ *  live run does — the take is kept on FAILED, and it is exactly what the row
+ *  must be able to offer. Only a run still `processing`/`review`/`autosaving`
+ *  excludes its take here. */
 async function readLocalTakes() {
-  const [{ listOwnTakes }, { globalRecorder }, { globalPipeline }] = await Promise.all([
-    import('@/lib/karute/take-store'),
-    import('@/lib/global-recorder'),
-    import('@/lib/global-pipeline'),
+  const [{ listOwnTakes, BINDING_SECURE_REFUSALS }, { globalRecorder }, { globalPipeline }] =
+    await Promise.all([
+      import('@/lib/karute/take-store'),
+      import('@/lib/global-recorder'),
+      import('@/lib/global-pipeline'),
+    ])
+  const takes = await listOwnTakes([
+    globalRecorder.takeId,
+    globalPipeline.state === 'error' ? null : globalPipeline.context?.takeId,
   ])
-  const takes = await listOwnTakes([globalRecorder.takeId, globalPipeline.context?.takeId])
   return takes.map((t) => ({
     takeId: t.takeId,
     recordingSessionId: t.recordingSessionId,
@@ -174,6 +183,14 @@ async function readLocalTakes() {
     // PR4 fix round 1 — the flag the fold needs to keep an expired unsecured
     // take on screen. The store owns the TTL; this just carries its answer.
     expiredUnsecured: t.expiredUnsecured,
+    // UPDATE 25 GROUP A, piece r. Mapped from the take-store's own judgement
+    // (never from inbox.ts, which must stay pure — F6) — never a per-take meta
+    // read, `listOwnTakes` already carries `secureError`. FIX ROUND 2
+    // (Greptile issue 2): maps from `BINDING_SECURE_REFUSALS` — the four
+    // codes that say "this take is spoken for" — never the full
+    // `TERMINAL_SECURE_ERRORS`, whose other seven codes mean only "cannot
+    // upload" and never licensed a detach.
+    bindingRefused: !!t.secureError && BINDING_SECURE_REFUSALS.has(t.secureError),
   }))
 }
 
@@ -188,6 +205,46 @@ async function readServerSessions() {
     console.warn('[recordings-inbox] server read failed:', err)
     return { sessions: [], failed: true }
   }
+}
+
+/**
+ * UPDATE 25 GROUP A, piece b — the pill reconciles with the row's durable
+ * truth. An in-tab error and the server's own failed/discarded row are two
+ * views of the SAME recording; once the row can speak for it (a durable
+ * failed row with a way forward, or a colleague's discard), the pill and the
+ * error card stand down so there is one honest status per failed take, not
+ * two that can drift.
+ *
+ * NOT reconciled, on purpose: an in-tab failure whose session reads
+ * 処理中/復元可能 (no server job exists for it yet — the card is the only
+ * truth there); an error with no session id (nothing to look up); a failed
+ * row with no audio anywhere (the card's retained blob is the last copy);
+ * and, FIX ROUND F3, an `empty-transcript` error still holding its take —
+ * `PipelineErrorCard`'s 録音を破棄する is the ONLY discard door for a take
+ * ≥10s (the recovery banner's discard is gated `belowFloor`, and the 録音履歴
+ * row itself offers no discard). Standing the card down here would remove
+ * that door with nothing replacing it, so the card stays until the row can
+ * offer 破棄 itself.
+ *
+ * NO LOOP: `reset()` notifies synchronously, which re-fires `armPipelineWatch`'s
+ * subscriber inside THIS call's own stack — re-entrant `loadInbox()` calls hit
+ * the `loading` guard and defer to ONE trailing re-run, which finds `idle` and
+ * returns here having done nothing (`state !== 'error'`).
+ */
+async function reconcilePipelineWithRows(rows: readonly InboxRow[]): Promise<void> {
+  const { globalPipeline } = await import('@/lib/global-pipeline')
+  if (globalPipeline.state !== 'error') return
+  // FIX ROUND F3 — the card is still the only 破棄 door for this code while it
+  // holds a take; nothing else in the diff gives that door back to the row.
+  if (globalPipeline.error === 'empty-transcript' && globalPipeline.context?.takeId) return
+  const sessionId = globalPipeline.context?.recordingSessionId
+  if (!sessionId) return
+  const row = rows.find((r) => r.recordingSessionId === sessionId)
+  if (!row) return
+  const rowSpeaksForIt =
+    (row.state === 'failed' && (row.canRetry || row.serverAudio === true)) ||
+    row.state === 'discarded'
+  if (rowSpeaksForIt) globalPipeline.reset()
 }
 
 /**
@@ -228,7 +285,15 @@ async function runInbox(): Promise<void> {
     ])
     if (epoch !== myEpoch) return
     const foldedAt = Date.now()
-    const rows = deriveInboxRows({ sessions: server.sessions, takes, now: foldedAt })
+    const rows = deriveInboxRows({
+      sessions: server.sessions,
+      takes,
+      now: foldedAt,
+      // FIX ROUND 2 (Greptile issue 1) — a thrown server read is not evidence
+      // of anything; the fold must know to withhold every unlisted-session
+      // row rather than treat the empty `sessions` as a genuine answer.
+      serverReadFailed: server.failed,
+    })
     set({
       status: server.failed ? 'partial' : 'ready',
       rows,
@@ -237,6 +302,7 @@ async function runInbox(): Promise<void> {
       serverFailed: server.failed,
     })
     schedulePoll(rows)
+    await reconcilePipelineWithRows(rows)
   } finally {
     if (epoch === myEpoch) {
       loading = false

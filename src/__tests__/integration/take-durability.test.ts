@@ -405,10 +405,12 @@ Object.defineProperty(navigator, 'mediaDevices', {
 import { globalRecorder } from '@/lib/global-recorder'
 import {
   appendTakeSegment,
+  BINDING_SECURE_REFUSALS,
   clearOwnTakes,
   clearTakeStaged,
   createTake,
   deleteTake,
+  detachTakeFromRecordedSession,
   ensureFinalizedPath,
   getRecoverableTake,
   isUnsecurableTake,
@@ -865,6 +867,113 @@ describe('take durability — owner gate (store layer)', () => {
     await passGrace()
     expect(await getRecoverableTake([takeId])).toBeNull()
     expect((await getRecoverableTake([]))?.takeId).toBe(takeId)
+  })
+})
+
+/**
+ * UPDATE 25 GROUP A, piece r — the ONLY door that clears a take's session
+ * binding, so a refused take's audio can be re-offered WITHOUT overwriting the
+ * visit's already-saved karute (F1). Refuses a finalized take (nothing to
+ * detach) and a non-terminal failure (still retryable on the same session).
+ */
+describe('listOwnTakes carries secureError (piece r prerequisite)', () => {
+  // VERIFIED GAP (cold read + Fable): this literal used to omit `secureError`
+  // even though it is a real TakeMeta field, so `bindingRefused` in the inbox
+  // store's readLocalTakes was always false and piece r was dead code.
+  it('a take refused with a TERMINAL code surfaces its secureError to listOwnTakes', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await passGrace()
+    await markTakeSecureError(takeId, 'reserved_elsewhere')
+
+    const [row] = await listOwnTakes([])
+    expect(row.secureError).toBe('reserved_elsewhere')
+  })
+})
+
+describe('detachTakeFromRecordedSession (piece r)', () => {
+  it('clears recordingSessionId, secureError and lastSecureAttemptAt on a TERMINALLY-refused take', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await stampTakeSession(takeId, 'sess-refused')
+    await markTakeSecureError(takeId, 'reserved_elsewhere')
+    expect(TERMINAL_SECURE_ERRORS.has('reserved_elsewhere')).toBe(true)
+
+    const ok = await detachTakeFromRecordedSession(takeId)
+    expect(ok).toBe(true)
+
+    const meta = await readTakeSecureMeta(takeId)
+    expect(meta?.recordingSessionId).toBeFalsy()
+    expect(meta?.secureError).toBeUndefined()
+
+    // The FIRST-WRITE-WINS guard now sees an empty field, so a fresh stamp lands.
+    expect(await stampTakeSession(takeId, 'sess-fresh')).toBe(true)
+    expect((await readTakeSecureMeta(takeId))?.recordingSessionId).toBe('sess-fresh')
+  })
+
+  it('refuses a FINALIZED take — its audio already left, nothing to detach', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await stampTakeSession(takeId, 'sess-refused')
+    await markTakeFinalized(takeId, 'app_biz-1_take.webm')
+
+    const ok = await detachTakeFromRecordedSession(takeId)
+    expect(ok).toBe(false)
+    expect((await readTakeSecureMeta(takeId))?.recordingSessionId).toBe('sess-refused')
+  })
+
+  it('refuses a NON-TERMINAL failure — a retryable failure may still resolve on the same session', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await stampTakeSession(takeId, 'sess-1')
+    await markTakeSecureError(takeId, 'network') // retryable — NOT in TERMINAL_SECURE_ERRORS
+    expect(TERMINAL_SECURE_ERRORS.has('network')).toBe(false)
+
+    const ok = await detachTakeFromRecordedSession(takeId)
+    expect(ok).toBe(false)
+    expect((await readTakeSecureMeta(takeId))?.recordingSessionId).toBe('sess-1')
+  })
+
+  it('refuses a take with NO secureError at all — nothing was ever refused', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await stampTakeSession(takeId, 'sess-1')
+
+    const ok = await detachTakeFromRecordedSession(takeId)
+    expect(ok).toBe(false)
+    expect((await readTakeSecureMeta(takeId))?.recordingSessionId).toBe('sess-1')
+  })
+
+  // FIX ROUND 2 (Greptile issue 2) — `bad_mime` IS in TERMINAL_SECURE_ERRORS
+  // (the drain stops re-uploading it) but is NOT one of the four BINDING
+  // refusals: nothing about a rejected mime type says this take must not
+  // attach to its session. Before this fix the guard read the full set, so
+  // this take detached, re-minted, and saved as a SEPARATE karute.
+  it('refuses a TERMINAL-but-non-binding failure (bad_mime) — nothing said this take must not bind here', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await stampTakeSession(takeId, 'sess-1')
+    await markTakeSecureError(takeId, 'bad_mime')
+    expect(TERMINAL_SECURE_ERRORS.has('bad_mime')).toBe(true)
+    expect(BINDING_SECURE_REFUSALS.has('bad_mime')).toBe(false)
+
+    const ok = await detachTakeFromRecordedSession(takeId)
+    expect(ok).toBe(false)
+    expect((await readTakeSecureMeta(takeId))?.recordingSessionId).toBe('sess-1')
+  })
+
+  // MUTANT anchor: widening the detach guard back to
+  // `TERMINAL_SECURE_ERRORS.has(...)` lets the bad_mime case above detach —
+  // RED — see the report's RED-then-restored capture.
+
+  it('BINDING_SECURE_REFUSALS is a SUBSET of TERMINAL_SECURE_ERRORS — the two can never drift apart', () => {
+    for (const code of BINDING_SECURE_REFUSALS) expect(TERMINAL_SECURE_ERRORS.has(code)).toBe(true)
   })
 })
 

@@ -603,7 +603,28 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Report-only per ⚖ 8/25: this raise is REVERSIBLE, Liam vetoes it with one
 // revert. The script still gates — it runs in CI and exits non-zero against
 // whatever ceiling stands here.
-const BUDGET_BYTES = 2_062_856
+//
+// Raised 2026-09-12 at UPDATE 25 GROUP A (five pieces, branch
+// feat/inbox-truth-25) — the 録音履歴 inbox now renders a row for a
+// session the server never listed (d3), a quiet notice when a run's session
+// id never resolved (d2), a refused take's own honest row with a safe
+// re-save door (r), the same-day 手書き exit from an empty-transcript
+// failure plus the repeated-failure line (c), and the red pill's
+// reconciliation with the row's durable truth (b) — five new fields/reasons,
+// two new components' worth of copy, and the 手書き door's navigation. Genuine
+// phone-bundle feature bytes, not bloat; the purchase-marker scan stays the
+// real gate and remains 0/13. Measured cold on this machine per the C4
+// recipe above, byte-identical across two separate clean builds (node
+// v24.16.0): en 132,508 · index 996,638 · vendor 937,743 = 2,066,889 B,
+// against origin/main (0f2f75844) — also byte-identical across two clean
+// builds — of 132,012 + 992,100 + 937,743 = 2,061,855 B: feature cost
+// +5,034 B. The ceiling is set from THIS local number plus 1,000 B, the same
+// convention as every prior raise above: 2,066,889 + 1,000 = 2,067,889.
+//
+// Report-only per ⚖ 8/25: this raise is REVERSIBLE, Liam vetoes it with one
+// revert. The script still gates — it runs in CI and exits non-zero against
+// whatever ceiling stands here.
+const BUDGET_BYTES = 2_067_889
 
 let dir
 try {

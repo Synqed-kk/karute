@@ -16,11 +16,44 @@ const listRecordingsInbox = jest.fn()
 jest.mock('@/actions/recordings-inbox', () => ({
   listRecordingsInbox: () => listRecordingsInbox(),
 }))
-const listOwnTakes = jest.fn(async () => [] as unknown[])
-jest.mock('@/lib/karute/take-store', () => ({ listOwnTakes: () => listOwnTakes() }))
+const listOwnTakes = jest.fn<Promise<unknown[]>, [exclude?: unknown[]]>(async () => [])
+jest.mock('@/lib/karute/take-store', () => ({
+  listOwnTakes: (exclude?: unknown[]) => listOwnTakes(exclude),
+  // UPDATE 25 GROUP A, piece r — the real set `readLocalTakes` maps
+  // `bindingRefused` against. FIX ROUND 2 (Greptile issue 2): the store now
+  // maps from BINDING_SECURE_REFUSALS (the four "spoken for" codes), never
+  // the full TERMINAL_SECURE_ERRORS — this mock must carry the SAME set
+  // take-store's real one does, or the two can drift apart silently.
+  BINDING_SECURE_REFUSALS: new Set(['exists', 'reserved_elsewhere', 'not_reserved', 'superseded']),
+}))
 jest.mock('@/lib/global-recorder', () => ({ globalRecorder: { takeId: null } }))
+/** UPDATE 25 GROUP A, piece b — mutable so the reconcile tests can put the
+ *  pipeline in `error` with a session id, and prove `reset` fires (or doesn't).
+ *  FIX ROUND F3 adds `error`: the reconcile must read the pipeline's error
+ *  CODE (not just its state) to know whether the card is still the only 破棄
+ *  door for an empty-transcript failure. */
+const pipelineState = {
+  state: 'idle' as string,
+  context: null as { recordingSessionId?: string; takeId?: string } | null,
+  error: null as string | null,
+}
+const pipelineReset = jest.fn(() => {
+  pipelineState.state = 'idle'
+})
 jest.mock('@/lib/global-pipeline', () => ({
-  globalPipeline: { state: 'idle', context: null, subscribe: () => () => {} },
+  globalPipeline: {
+    get state() {
+      return pipelineState.state
+    },
+    get context() {
+      return pipelineState.context
+    },
+    get error() {
+      return pipelineState.error
+    },
+    subscribe: () => () => {},
+    reset: (...a: unknown[]) => pipelineReset(...(a as [])),
+  },
 }))
 
 import {
@@ -44,6 +77,7 @@ type Session = {
   jobLastError: string | null
   /** Slice ③ — what the server holds for this session's audio. */
   serverAudio?: 'segments' | 'object' | null
+  discardedByStaff?: boolean
 }
 const session = (over: Partial<Session> & { recordingSessionId: string }): Session => ({
   customerId: 'cust-1',
@@ -76,6 +110,9 @@ beforeEach(() => {
   jest.clearAllMocks()
   listOwnTakes.mockImplementation(async () => [])
   listRecordingsInbox.mockImplementation(async () => [])
+  pipelineState.state = 'idle'
+  pipelineState.context = null
+  pipelineState.error = null
   resetInbox()
   // A mounted consumer — the poll only ever runs while something is watching.
   unsubscribe = subscribeInbox(() => {})
@@ -293,4 +330,297 @@ describe('FX-6c — the epoch guard (shared salon device)', () => {
     await jest.advanceTimersByTimeAsync(INBOX_POLL_MS * 3)
     expect(listRecordingsInbox).toHaveBeenCalledTimes(1)
   })
+})
+
+/**
+ * FIX ROUND 3 (Greptile round 2) — a THROWN server read must never manufacture
+ * a d3 (`sessionUnlisted`) CLAIM, but round 2's fix (skip the whole
+ * unlisted-session loop) left the take with no row at all for as long as the
+ * outage lasted, invisible: `schedulePoll` only re-folds while some row is
+ * 処理中, and a skipped take is never that. `runInbox` still passes
+ * `serverReadFailed: server.failed` into the fold, which now holds the take
+ * as 処理中/unsettled instead of dropping it — the same "no result yet"
+ * honesty a live job gets inside the grace — so the poll is armed and the
+ * true row lands the moment the server answers.
+ */
+describe('録音履歴 — FIX ROUND 3: a failed server read holds the row as 処理中 and polls for the truth', () => {
+  it('listRecordingsInbox throwing → serverFailed true, a session-stamped take past the grace folds to 処理中/unsettled, and the poll is armed', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      {
+        takeId: 't1',
+        recordingSessionId: 'sess-ghost',
+        customerId: 'cust-1',
+        customerName: '佐藤 美咲',
+        // Past SESSION_UNSETTLED_GRACE_MS (3h) — the shape a COMPLETE read
+        // would fold to `sessionUnlisted`.
+        startedAt: NOW - 4 * 60 * 60_000,
+        updatedAt: NOW - 4 * 60 * 60_000,
+      },
+    ])
+    listRecordingsInbox.mockRejectedValue(new Error('network down'))
+    await loadInbox()
+    await flush()
+    expect(getInboxState().serverFailed).toBe(true)
+    expect(getInboxState().rows).toMatchObject([
+      { key: 'take:t1', state: 'processing', reason: 'unsettled' },
+    ])
+    expect(getInboxState().needsAttention).toBe(0)
+    expect(listRecordingsInbox).toHaveBeenCalledTimes(1)
+
+    // The outage clears — the armed poll re-folds without any user action.
+    listRecordingsInbox.mockResolvedValue([])
+    await jest.advanceTimersByTimeAsync(INBOX_POLL_MS)
+    await flush()
+    expect(listRecordingsInbox).toHaveBeenCalledTimes(2)
+    expect(getInboxState().serverFailed).toBe(false)
+    expect(getInboxState().rows).toMatchObject([
+      { key: 'take:t1', state: 'recoverable', reason: 'sessionUnlisted' },
+    ])
+  })
+
+  it('the SAME stamped take folds straight to sessionUnlisted when the server read succeeds first (empty, but complete)', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      {
+        takeId: 't1',
+        recordingSessionId: 'sess-ghost',
+        customerId: 'cust-1',
+        customerName: '佐藤 美咲',
+        startedAt: NOW - 4 * 60 * 60_000,
+        updatedAt: NOW - 4 * 60 * 60_000,
+      },
+    ])
+    listRecordingsInbox.mockResolvedValue([])
+    await loadInbox()
+    await flush()
+    expect(getInboxState().serverFailed).toBe(false)
+    expect(getInboxState().rows).toMatchObject([{ key: 'take:t1', reason: 'sessionUnlisted' }])
+  })
+
+  // MUTANT anchor: making the failed-read row non-pollable (e.g. giving it
+  // reason `partialOnServer` instead of `unsettled`) leaves the poll
+  // assertion above RED (`toHaveBeenCalledTimes(2)` never reached) — see the
+  // report's RED-then-restored capture.
+})
+
+/**
+ * UPDATE 25 GROUP A, piece b — the pill reconciles with the row's durable
+ * truth. Traced (cold read): `reset()`'s `notify()` re-fires the pipeline
+ * watch INSIDE this call's own stack, but `loading` is still true at that
+ * point, so the re-entrant `loadInbox()` defers to ONE trailing re-run, which
+ * finds `idle` and resets nothing again.
+ */
+describe('録音履歴 — b: the pill reconciles with the row (piece b)', () => {
+  it('error + a matching FAILED row with canRetry → reset called once; the next fold does not reset again', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      { takeId: 't1', recordingSessionId: 's1', customerId: null, customerName: null, startedAt: NOW, updatedAt: NOW },
+    ])
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'boom' }),
+    ])
+    pipelineState.state = 'error'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't1' }
+
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).toHaveBeenCalledTimes(1)
+    expect(getInboxState().rows[0].state).toBe('failed')
+    expect(getInboxState().rows[0].canRetry).toBe(true)
+
+    // Second fold: reset() flipped pipelineState.state to 'idle' (the mock's
+    // own effect), so this fold must find nothing left to reconcile.
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).toHaveBeenCalledTimes(1)
+  })
+
+  it('error + a PROCESSING row → NOT reset (no server job exists for it — the card is the only truth)', async () => {
+    listRecordingsInbox.mockResolvedValue([session({ recordingSessionId: 's1', jobStatus: 'RUNNING' })])
+    pipelineState.state = 'error'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't1' }
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).not.toHaveBeenCalled()
+  })
+
+  it('error + NO session id on the context → NOT reset (nothing to look up)', async () => {
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'boom' }),
+    ])
+    pipelineState.state = 'error'
+    pipelineState.context = { takeId: 't1' }
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).not.toHaveBeenCalled()
+  })
+
+  it('error + a FAILED row with NO audio anywhere → NOT reset (the card’s blob is the last copy)', async () => {
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'boom' }),
+    ])
+    pipelineState.state = 'error'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't1' }
+    // No local take AND no serverAudio: canRetry is false, serverAudio undefined.
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).not.toHaveBeenCalled()
+  })
+
+  it('error + a session the staffer already DISCARDED → reset (a colleague’s decision, already inert)', async () => {
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', discardedByStaff: true }),
+    ])
+    pipelineState.state = 'error'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't1' }
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).toHaveBeenCalledTimes(1)
+  })
+
+  it('the errored run’s OWN take IS in the fold — readLocalTakes stops excluding it', async () => {
+    pipelineState.state = 'error'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't-err' }
+    listRecordingsInbox.mockResolvedValue([])
+    await loadInbox()
+    await flush()
+    const excludeArg = listOwnTakes.mock.calls[0][0] as Array<string | null>
+    expect(excludeArg).not.toContain('t-err')
+  })
+
+  it('idle (the ordinary case) still excludes the live take, unchanged', async () => {
+    pipelineState.state = 'processing'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't-live' }
+    listRecordingsInbox.mockResolvedValue([])
+    await loadInbox()
+    await flush()
+    const excludeArg = listOwnTakes.mock.calls[0][0] as Array<string | null>
+    expect(excludeArg).toContain('t-live')
+  })
+
+  // FIX ROUND F3 — the card is the ONLY 破棄 door for an empty-transcript
+  // failure while it still holds a take (the recovery banner's 破棄 is gated
+  // `belowFloor`, and the 録音履歴 row itself offers no discard). Standing the
+  // card down here would remove that door with nothing replacing it.
+  it('error empty-transcript + context.takeId + a matching FAILED row with canRetry → NOT reset (the card is the only 破棄 door)', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      { takeId: 't1', recordingSessionId: 's1', customerId: null, customerName: null, startedAt: NOW, updatedAt: NOW },
+    ])
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'EMPTY_TRANSCRIPT' }),
+    ])
+    pipelineState.state = 'error'
+    pipelineState.error = 'empty-transcript'
+    pipelineState.context = { recordingSessionId: 's1', takeId: 't1' }
+
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).not.toHaveBeenCalled()
+  })
+
+  it('error empty-transcript with NO context.takeId → reset (nothing left holding the 破棄 door, the row speaks)', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      { takeId: 't1', recordingSessionId: 's1', customerId: null, customerName: null, startedAt: NOW, updatedAt: NOW },
+    ])
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'EMPTY_TRANSCRIPT' }),
+    ])
+    pipelineState.state = 'error'
+    pipelineState.error = 'empty-transcript'
+    pipelineState.context = { recordingSessionId: 's1' }
+
+    await loadInbox()
+    await flush()
+    expect(pipelineReset).toHaveBeenCalledTimes(1)
+  })
+
+  // MUTANT anchor: dropping the `error === 'empty-transcript' && context?.takeId`
+  // clause lets the first case above reset — RED — see the report's
+  // RED-then-restored capture.
+})
+
+/**
+ * UPDATE 25 GROUP A, piece r — `readLocalTakes` maps `bindingRefused` from
+ * take-store's own BINDING_SECURE_REFUSALS set (never re-derived here). FIX
+ * ROUND 2 (Greptile issue 2): this is the narrower "spoken for" set, not the
+ * full TERMINAL_SECURE_ERRORS — a terminal-but-non-binding code (`bad_mime`
+ * and its six siblings) must map to `bindingRefused: false`.
+ */
+describe('録音履歴 — r: the store’s bindingRefused mapping', () => {
+  it('a BINDING refusal (reserved_elsewhere) with a karute on its session folds to refusedHasRecord', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      {
+        takeId: 't1',
+        recordingSessionId: 's1',
+        customerId: 'cust-1',
+        customerName: '佐藤 美咲',
+        startedAt: NOW - 30 * 60_000,
+        updatedAt: NOW - 10 * 60_000,
+        secureError: 'reserved_elsewhere',
+      },
+    ])
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' }),
+    ])
+    await loadInbox()
+    await flush()
+    const rows = getInboxState().rows
+    expect(rows.find((r) => r.key === 'session:s1')).toMatchObject({ state: 'saved', takeId: null })
+    expect(rows.find((r) => r.key === 'take:t1')).toMatchObject({
+      state: 'recoverable',
+      reason: 'refusedHasRecord',
+    })
+  })
+
+  it('an ORDINARY retryable failure (session) is NOT bindingRefused — 確認待ち unchanged', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      {
+        takeId: 't1',
+        recordingSessionId: 's1',
+        customerId: 'cust-1',
+        customerName: '佐藤 美咲',
+        startedAt: NOW - 30 * 60_000,
+        updatedAt: NOW - 10 * 60_000,
+        secureError: 'session',
+      },
+    ])
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' }),
+    ])
+    await loadInbox()
+    await flush()
+    const rows = getInboxState().rows
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ state: 'awaiting-check', reason: 'autoSaved' })
+  })
+
+  // FIX ROUND 2 (Greptile issue 2) — the case the bug actually was: `bad_mime`
+  // IS in TERMINAL_SECURE_ERRORS (it stops the drain re-uploading) but is NOT
+  // one of the four BINDING refusals — nothing about it says this take must
+  // not attach to its session. Before this fix the store mapped off the full
+  // set, so this take folded to `bindingRefused: true` and the page detached
+  // + re-minted + saved it as a SEPARATE karute.
+  it('a TERMINAL-but-non-binding refusal (bad_mime) is NOT bindingRefused — 確認待ち unchanged', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      {
+        takeId: 't1',
+        recordingSessionId: 's1',
+        customerId: 'cust-1',
+        customerName: '佐藤 美咲',
+        startedAt: NOW - 30 * 60_000,
+        updatedAt: NOW - 10 * 60_000,
+        secureError: 'bad_mime',
+      },
+    ])
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' }),
+    ])
+    await loadInbox()
+    await flush()
+    const rows = getInboxState().rows
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ state: 'awaiting-check', reason: 'autoSaved' })
+  })
+
+  // MUTANT anchor: mapping `bindingRefused` off the full TERMINAL_SECURE_ERRORS
+  // again turns the bad_mime case above into a refusedHasRecord row — RED —
+  // see the report's RED-then-restored capture.
 })

@@ -99,6 +99,17 @@ export interface PipelineContext {
    *  (ReviewScreen callbacks, ProcessingIndicator autosave) delete it via this
    *  id. null/absent when persistence was disabled for the take. */
   takeId?: string | null
+  /**
+   * UPDATE 25 GROUP A, piece d2 — set when this run's session id was STILL
+   * null after both mints (start-mint, then `retryRecordingSessionMint`) had
+   * their say. The karute still saves — this never widens what a save can do
+   * — but it saves UNLINKED, and the audio never reaches the server: the
+   * device is the only copy. CLIENT-SIDE ONLY, the `autoFinish`/
+   * `recoveryUnanswered` idiom above — `isServerJobEligible` already makes a
+   * null-session run unreachable by the server path (F7), so this can never
+   * reach the job payload by construction; never read it as a payload field.
+   */
+  serverRowMissing?: boolean
 }
 
 export type PipelineState =
@@ -178,6 +189,18 @@ class GlobalPipeline {
   result: PipelineResult | null = null
   error: PipelineErrorCode | null = null
   context: PipelineContext | null = null
+  /** UPDATE 25 GROUP A, piece c — the PREVIOUS run's failure code, captured by
+   *  `retry()` before it nulls `error` for the new attempt. `error` itself
+   *  cannot answer "did this retry fail the SAME way" (retry clears it
+   *  synchronously before the new attempt resolves), so this is its own field.
+   *  Cleared by start()/reset() with the rest of the run. */
+  lastErrorCode: PipelineErrorCode | null = null
+  /** UPDATE 25 GROUP A, piece c — true when the failure that just landed has
+   *  the SAME code as the one `lastErrorCode` remembers. Read once by the
+   *  error card to show one honest line ("retrying gave the same result")
+   *  above its buttons; 再試行 is NEVER removed on it — a wrong detector must
+   *  never lock a real take out (B2's own rule). */
+  errorRepeated = false
   /** Bumped on every change so useSyncExternalStore re-renders subscribers. */
   version = 0
   /**
@@ -312,6 +335,8 @@ class GlobalPipeline {
     this.step = 'transcribing'
     this.result = null
     this.error = null
+    this.lastErrorCode = null
+    this.errorRepeated = false
     this.serverSavedRecordId = null
     this.savedRecordId = null
     this.autosaveSettled = false
@@ -405,6 +430,8 @@ class GlobalPipeline {
       // Raw text is for the console only — the UI localizes from the code.
       console.error('[global-pipeline] run failed:', err)
       this.error = err instanceof EmptyTranscriptError ? 'empty-transcript' : 'unknown'
+      // c: same code as the retry's own memory → this attempt failed IDENTICALLY.
+      this.errorRepeated = this.lastErrorCode !== null && this.lastErrorCode === this.error
       this.state = 'error'
       this.notify()
     }
@@ -650,6 +677,8 @@ class GlobalPipeline {
               : status.lastError === DISCARDED_BY_STAFF
                 ? 'discarded'
                 : 'unknown'
+        // c: same code as the retry's own memory → this attempt failed IDENTICALLY.
+        this.errorRepeated = this.lastErrorCode !== null && this.lastErrorCode === this.error
         this.state = 'error'
         this.notify()
         return
@@ -678,6 +707,9 @@ class GlobalPipeline {
     if (!this.blob || !this.context) return
     this.state = 'processing'
     this.step = 'transcribing'
+    // c: remember what just failed BEFORE clearing it — this attempt's own
+    // error site is the only place left that can still compare against it.
+    this.lastErrorCode = this.error
     this.error = null
     this.notify()
     if (isServerJobEligible(this.context) && getRecordingPipelinePort().supportsServerJob) {
@@ -711,6 +743,8 @@ class GlobalPipeline {
     this.step = 'transcribing'
     this.result = null
     this.error = null
+    this.lastErrorCode = null
+    this.errorRepeated = false
     this.context = null
     this.blob = null
     this.serverSavedRecordId = null

@@ -62,6 +62,12 @@ interface NewKaruteDialogProps {
    *  button) — looked up against `customers` so an id that isn't in the
    *  list (timing edge case) degrades to no preselect rather than crashing. */
   preselectedCustomerId?: string | null
+  /** UPDATE 25 GROUP A, piece c — the same-day 手書き door's own date
+   *  (`?date=` from the record page), used in place of `todayIso()` when
+   *  provided. The date field stays EDITABLE either way — this is about what
+   *  the dialog opens WITH, not a new restriction on the existing backdating
+   *  feature. */
+  initialDate?: string | null
 }
 
 type CustomerFlowState = 'combobox' | 'quick-create'
@@ -82,6 +88,7 @@ export function NewKaruteDialog({
   customers,
   defaultStaffId = null,
   preselectedCustomerId = null,
+  initialDate = null,
 }: NewKaruteDialogProps) {
   const t = useTranslations('karute.recordList.newKaruteDialog')
 
@@ -96,7 +103,7 @@ export function NewKaruteDialog({
   // Seeds QuickCreateCustomer's name input with whatever the staff had
   // already typed into the combobox before tapping "+ 新規顧客".
   const [quickCreateSeed, setQuickCreateSeed] = useState('')
-  const [date, setDate] = useState<string>(todayIso())
+  const [date, setDate] = useState<string>(initialDate ?? todayIso())
   const [duration, setDuration] = useState<Duration>(60)
   const [staffId, setStaffId] = useState<string>(
     defaultStaffId ?? staffList[0]?.id ?? '',
@@ -115,10 +122,14 @@ export function NewKaruteDialog({
   // combobox blank rather than crashing — reset() below still clears this on
   // close, so the top "+ 新規カルテ" CTA never inherits a stale preselect.
   useEffect(() => {
-    if (open && preselectedCustomerId) {
-      setSelectedCustomerId(preselectedCustomerId)
-    }
-  }, [open, preselectedCustomerId])
+    if (!open) return
+    if (preselectedCustomerId) setSelectedCustomerId(preselectedCustomerId)
+    // UPDATE 25 GROUP A, piece c — the same-day door's own date, re-applied on
+    // every open the same way the preselect above is (a fresh open with a NEW
+    // initialDate on the same mounted dialog instance must not keep showing
+    // the PREVIOUS open's date).
+    if (initialDate) setDate(initialDate)
+  }, [open, preselectedCustomerId, initialDate])
 
   const canSubmit =
     !!selectedCustomer &&
@@ -133,7 +144,7 @@ export function NewKaruteDialog({
     setSelectedCustomerId(null)
     setCustomerFlow('combobox')
     setQuickCreateSeed('')
-    setDate(todayIso())
+    setDate(initialDate ?? todayIso())
     setDuration(60)
     setStaffId(defaultStaffId ?? staffList[0]?.id ?? '')
     setService('')

@@ -165,6 +165,31 @@ export const TERMINAL_SECURE_ERRORS = new Set([
   'bad_mime',
 ])
 
+/**
+ * FIX ROUND 2 (Greptile issue 2) — the BINDING refusals, ON THEIR OWN: "this
+ * take is spoken for" — a statement about a binding that does not change
+ * because time passed. Every OTHER code in `TERMINAL_SECURE_ERRORS` above
+ * means "cannot upload", never "must not bind to this session" — so a caller
+ * deciding whether a take may re-attach to a DIFFERENT session (the detach
+ * door below) must fence on this narrower set, not the full one. Before this
+ * set existed, the 録音履歴 fold mapped its `bindingRefused` flag off the full
+ * `TERMINAL_SECURE_ERRORS`, so a `bad_mime` take under a session that already
+ * has a karute got silently detached, re-minted and saved as a SEPARATE
+ * karute — nothing ever said that take must not bind here.
+ *
+ * The mint reserves a take's key on the recorder's own row before a byte can
+ * exist, and finalize accepts nothing else: the object is already on storage
+ * and no row of this caller's reserved it, or the row is bound to a DIFFERENT
+ * take (`exists` / `reserved_elsewhere`); or finalize's twins — the row never
+ * reserved this key, or a job has moved the row on to other audio and this
+ * object is now unreferenced (`not_reserved` / `superseded`).
+ *
+ * One home, one list: the 録音履歴 store maps `bindingRefused` from THIS set
+ * (never the full one), and the detach door's own `when` guard reads it too,
+ * so the fence lives in exactly one place and the two can never drift apart.
+ */
+export const BINDING_SECURE_REFUSALS = new Set(['exists', 'reserved_elsewhere', 'not_reserved', 'superseded'])
+
 export type TakeMeta = {
   takeId: string
   /** Auth user id (Supabase auth.uid) of the staff member who recorded it. */
@@ -582,6 +607,39 @@ export async function stampTakeSession(
   recordingSessionId: string,
 ): Promise<boolean> {
   return patchTakeMeta(takeId, { recordingSessionId }, (meta) => !meta.recordingSessionId)
+}
+
+/**
+ * UPDATE 25 GROUP A, piece r — the ONLY door that clears a take's session
+ * binding, so a take refused with a BINDING refusal because its session
+ * already has a karute can be re-offered WITHOUT overwriting the visit's
+ * saved record (F1).
+ *
+ * Lives HERE, not in the page: this is the module's own private
+ * `patchTakeMeta` (never exported) doing the write — a caller reaching it
+ * from outside this file would open a guard-free write door around every
+ * other take-store write. `when` refuses a FINALIZED take (its audio already
+ * left; nothing to detach), a NON-TERMINAL take (a retryable failure may
+ * still resolve on the same session — clearing it would orphan a save the
+ * drain is about to finish), and — FIX ROUND 2 (Greptile issue 2) — any
+ * terminal refusal that is NOT a binding one: `bad_mime` and its six
+ * siblings mean "cannot upload", and nothing about them ever said this take
+ * must not attach to its session, so detaching (and thereby re-minting and
+ * re-saving as a SEPARATE karute) was never licensed for them. The door
+ * itself is the fence — same one-transaction discipline every other stamp in
+ * this file uses.
+ *
+ * ⚠ CLEARS, never re-points. `stampTakeSession`'s own guard is "first write
+ * wins" — a re-point would still carry the refused session and be refused by
+ * that guard when the recovery save tries to mint a fresh one. Clearing the
+ * field is what lets the fresh stamp land on an EMPTY one.
+ */
+export async function detachTakeFromRecordedSession(takeId: string): Promise<boolean> {
+  return patchTakeMeta(
+    takeId,
+    { recordingSessionId: undefined, secureError: undefined, lastSecureAttemptAt: undefined },
+    (meta) => !meta.finalizedAt && !!meta.secureError && BINDING_SECURE_REFUSALS.has(meta.secureError),
+  )
 }
 
 /** Merge fields into a take's meta row — the body stampTakeSession above and
@@ -1369,6 +1427,11 @@ export async function listOwnTakes(
         // Only ever true past the TTL for a take the server does not hold — the
         // branch above returned every other expired take to the prune.
         expiredUnsecured: expired || undefined,
+        // UPDATE 25 GROUP A, piece r — VERIFIED gap (cold read + Fable): this
+        // literal omitted it even though `secureError` is a real field on
+        // `TakeMeta`, so the 録音履歴 fold's `bindingRefused` mapping was always
+        // false and piece r was dead code without this line.
+        secureError: m.secureError,
       })
     }
     out.sort((a, b) => b.startedAt - a.startedAt)
