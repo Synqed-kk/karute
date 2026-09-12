@@ -405,6 +405,7 @@ Object.defineProperty(navigator, 'mediaDevices', {
 import { globalRecorder } from '@/lib/global-recorder'
 import {
   appendTakeSegment,
+  BINDING_SECURE_REFUSALS,
   clearOwnTakes,
   clearTakeStaged,
   createTake,
@@ -877,7 +878,7 @@ describe('take durability — owner gate (store layer)', () => {
  */
 describe('listOwnTakes carries secureError (piece r prerequisite)', () => {
   // VERIFIED GAP (cold read + Fable): this literal used to omit `secureError`
-  // even though it is a real TakeMeta field, so `secureTerminal` in the inbox
+  // even though it is a real TakeMeta field, so `bindingRefused` in the inbox
   // store's readLocalTakes was always false and piece r was dead code.
   it('a take refused with a TERMINAL code surfaces its secureError to listOwnTakes', async () => {
     const takeId = await startAndSettle()
@@ -946,6 +947,33 @@ describe('detachTakeFromRecordedSession (piece r)', () => {
     const ok = await detachTakeFromRecordedSession(takeId)
     expect(ok).toBe(false)
     expect((await readTakeSecureMeta(takeId))?.recordingSessionId).toBe('sess-1')
+  })
+
+  // FIX ROUND 2 (Greptile issue 2) — `bad_mime` IS in TERMINAL_SECURE_ERRORS
+  // (the drain stops re-uploading it) but is NOT one of the four BINDING
+  // refusals: nothing about a rejected mime type says this take must not
+  // attach to its session. Before this fix the guard read the full set, so
+  // this take detached, re-minted, and saved as a SEPARATE karute.
+  it('refuses a TERMINAL-but-non-binding failure (bad_mime) — nothing said this take must not bind here', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await stampTakeSession(takeId, 'sess-1')
+    await markTakeSecureError(takeId, 'bad_mime')
+    expect(TERMINAL_SECURE_ERRORS.has('bad_mime')).toBe(true)
+    expect(BINDING_SECURE_REFUSALS.has('bad_mime')).toBe(false)
+
+    const ok = await detachTakeFromRecordedSession(takeId)
+    expect(ok).toBe(false)
+    expect((await readTakeSecureMeta(takeId))?.recordingSessionId).toBe('sess-1')
+  })
+
+  // MUTANT anchor: widening the detach guard back to
+  // `TERMINAL_SECURE_ERRORS.has(...)` lets the bad_mime case above detach —
+  // RED — see the report's RED-then-restored capture.
+
+  it('BINDING_SECURE_REFUSALS is a SUBSET of TERMINAL_SECURE_ERRORS — the two can never drift apart', () => {
+    for (const code of BINDING_SECURE_REFUSALS) expect(TERMINAL_SECURE_ERRORS.has(code)).toBe(true)
   })
 })
 

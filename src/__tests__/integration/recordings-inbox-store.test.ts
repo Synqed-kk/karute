@@ -20,8 +20,11 @@ const listOwnTakes = jest.fn<Promise<unknown[]>, [exclude?: unknown[]]>(async ()
 jest.mock('@/lib/karute/take-store', () => ({
   listOwnTakes: (exclude?: unknown[]) => listOwnTakes(exclude),
   // UPDATE 25 GROUP A, piece r — the real set `readLocalTakes` maps
-  // `secureTerminal` against.
-  TERMINAL_SECURE_ERRORS: new Set(['exists', 'reserved_elsewhere', 'not_reserved', 'superseded']),
+  // `bindingRefused` against. FIX ROUND 2 (Greptile issue 2): the store now
+  // maps from BINDING_SECURE_REFUSALS (the four "spoken for" codes), never
+  // the full TERMINAL_SECURE_ERRORS — this mock must carry the SAME set
+  // take-store's real one does, or the two can drift apart silently.
+  BINDING_SECURE_REFUSALS: new Set(['exists', 'reserved_elsewhere', 'not_reserved', 'superseded']),
 }))
 jest.mock('@/lib/global-recorder', () => ({ globalRecorder: { takeId: null } }))
 /** UPDATE 25 GROUP A, piece b — mutable so the reconcile tests can put the
@@ -517,11 +520,14 @@ describe('録音履歴 — b: the pill reconciles with the row (piece b)', () =>
 })
 
 /**
- * UPDATE 25 GROUP A, piece r — `readLocalTakes` maps `secureTerminal` from
- * take-store's own TERMINAL_SECURE_ERRORS set (never re-derived here).
+ * UPDATE 25 GROUP A, piece r — `readLocalTakes` maps `bindingRefused` from
+ * take-store's own BINDING_SECURE_REFUSALS set (never re-derived here). FIX
+ * ROUND 2 (Greptile issue 2): this is the narrower "spoken for" set, not the
+ * full TERMINAL_SECURE_ERRORS — a terminal-but-non-binding code (`bad_mime`
+ * and its six siblings) must map to `bindingRefused: false`.
  */
-describe('録音履歴 — r: the store’s secureTerminal mapping', () => {
-  it('a TERMINALLY-refused take (reserved_elsewhere) with a karute on its session folds to refusedHasRecord', async () => {
+describe('録音履歴 — r: the store’s bindingRefused mapping', () => {
+  it('a BINDING refusal (reserved_elsewhere) with a karute on its session folds to refusedHasRecord', async () => {
     listOwnTakes.mockImplementation(async () => [
       {
         takeId: 't1',
@@ -546,7 +552,7 @@ describe('録音履歴 — r: the store’s secureTerminal mapping', () => {
     })
   })
 
-  it('an ORDINARY retryable failure (session) is NOT secureTerminal — 確認待ち unchanged', async () => {
+  it('an ORDINARY retryable failure (session) is NOT bindingRefused — 確認待ち unchanged', async () => {
     listOwnTakes.mockImplementation(async () => [
       {
         takeId: 't1',
@@ -567,4 +573,36 @@ describe('録音履歴 — r: the store’s secureTerminal mapping', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ state: 'awaiting-check', reason: 'autoSaved' })
   })
+
+  // FIX ROUND 2 (Greptile issue 2) — the case the bug actually was: `bad_mime`
+  // IS in TERMINAL_SECURE_ERRORS (it stops the drain re-uploading) but is NOT
+  // one of the four BINDING refusals — nothing about it says this take must
+  // not attach to its session. Before this fix the store mapped off the full
+  // set, so this take folded to `bindingRefused: true` and the page detached
+  // + re-minted + saved it as a SEPARATE karute.
+  it('a TERMINAL-but-non-binding refusal (bad_mime) is NOT bindingRefused — 確認待ち unchanged', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      {
+        takeId: 't1',
+        recordingSessionId: 's1',
+        customerId: 'cust-1',
+        customerName: '佐藤 美咲',
+        startedAt: NOW - 30 * 60_000,
+        updatedAt: NOW - 10 * 60_000,
+        secureError: 'bad_mime',
+      },
+    ])
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' }),
+    ])
+    await loadInbox()
+    await flush()
+    const rows = getInboxState().rows
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ state: 'awaiting-check', reason: 'autoSaved' })
+  })
+
+  // MUTANT anchor: mapping `bindingRefused` off the full TERMINAL_SECURE_ERRORS
+  // again turns the bad_mime case above into a refusedHasRecord row — RED —
+  // see the report's RED-then-restored capture.
 })

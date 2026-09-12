@@ -268,13 +268,17 @@ export interface InboxLocalTake {
    *  that is exactly the take whose flush-window estimate is the only length
    *  there is. */
   durationMs?: number
-  /** UPDATE 25 GROUP A, piece r. This take's last secure attempt refused
-   *  TERMINALLY (take-store's `TERMINAL_SECURE_ERRORS` — `exists`,
-   *  `reserved_elsewhere`, etc). Mapped by the store from `secureError`, never
-   *  read here beyond the boolean: this module stays pure and must never
-   *  import take-store (F6). Absent/false = not terminal, which is every take
-   *  before this field existed and every ordinary retryable failure. */
-  secureTerminal?: boolean
+  /** UPDATE 25 GROUP A, piece r. This take's last secure attempt was refused
+   *  with a BINDING refusal — take-store's `BINDING_SECURE_REFUSALS`
+   *  (`exists`, `reserved_elsewhere`, `not_reserved`, `superseded`: "this take
+   *  is spoken for"), a subset of the full `TERMINAL_SECURE_ERRORS` (FIX ROUND
+   *  2, Greptile issue 2 — the other seven terminal codes mean "cannot
+   *  upload", never "must not bind to this session"). Mapped by the store
+   *  from `secureError`, never read here beyond the boolean: this module
+   *  stays pure and must never import take-store (F6). Absent/false = not a
+   *  binding refusal, which is every take before this field existed and every
+   *  ordinary retryable or non-binding-terminal failure. */
+  bindingRefused?: boolean
 }
 
 export interface InboxRow {
@@ -310,14 +314,17 @@ export interface InboxRow {
   sameDay: boolean
   /** UPDATE 25 GROUP A, FIX ROUND, F4. ONE flag instead of matching on a
    *  reason string (this file's own law, above) — set on piece r's take row
-   *  AND on a d3 row for a take whose secure attempt was terminally refused,
-   *  so the page's save door (RecordPageView) can branch on the same ground
-   *  for BOTH: a d3 row is just a refusal whose session the server also never
-   *  returned, and it must detach before promoting exactly like piece r's row
-   *  does, or its save reaches the same F1 overwrite. Optional/nullish, the
-   *  `probeIncomplete?` idiom — absent = not terminal, true on every row
-   *  before this field existed. */
-  secureTerminal?: true
+   *  AND on a d3 row for a take whose secure attempt was refused with a
+   *  BINDING refusal (FIX ROUND 2 renames this from `secureTerminal`: it is
+   *  only the four codes that say "this take is spoken for", never the seven
+   *  "cannot upload" ones — Greptile issue 2), so the page's save door
+   *  (RecordPageView) can branch on the same ground for BOTH: a d3 row is
+   *  just a refusal whose session the server also never returned, and it must
+   *  detach before promoting exactly like piece r's row does, or its save
+   *  reaches the same F1 overwrite. Optional/nullish, the `probeIncomplete?`
+   *  idiom — absent = not a binding refusal, true on every row before this
+   *  field existed. */
+  bindingRefused?: true
 }
 
 /** The states that mean a human still owes this recording something AND can
@@ -433,16 +440,18 @@ export function deriveInboxRows(input: {
     }
 
     if (s.karuteRecordId) {
-      // UPDATE 25 GROUP A, piece r. A take TERMINALLY refused because THIS
-      // session already has a karute (Group B's d4 — `exists`/
-      // `reserved_elsewhere`) is not this session's un-settled take: folding it
-      // under the saved row makes the refused audio invisible and its 開く
-      // action opens a karute that is not this recording. The session reads
-      // what is true — saved, no take — and the refused take gets its own
-      // honest row, offered for save (F1's overwrite is closed on the page
-      // side: the door detaches the take's stale session before re-offering
-      // it, so a save here can only ever create a NEW record).
-      if (take?.secureTerminal) {
+      // UPDATE 25 GROUP A, piece r. A take refused with a BINDING refusal
+      // because THIS session already has a karute (Group B's d4 — `exists`/
+      // `reserved_elsewhere`; FIX ROUND 2 narrows this from every terminal
+      // code to just the four that say "this take is spoken for" — Greptile
+      // issue 2) is not this session's un-settled take: folding it under the
+      // saved row makes the refused audio invisible and its 開く action opens
+      // a karute that is not this recording. The session reads what is true —
+      // saved, no take — and the refused take gets its own honest row,
+      // offered for save (F1's overwrite is closed on the page side: the door
+      // detaches the take's stale session before re-offering it, so a save
+      // here can only ever create a NEW record).
+      if (take?.bindingRefused) {
         rows.push({ ...base, takeId: null, state: 'saved', reason: null })
         rows.push({
           key: `take:${take.takeId}`,
@@ -458,7 +467,7 @@ export function deriveInboxRows(input: {
           canRetry: false,
           sameDay: false,
           // FIX ROUND F4 — the page branches on this, not on the reason string.
-          secureTerminal: true,
+          bindingRefused: true,
         })
         continue
       }
@@ -631,10 +640,10 @@ export function deriveInboxRows(input: {
         durationSeconds: takeDuration(take),
         canRetry: false,
         sameDay: false,
-        // FIX ROUND F4 — a d3 row for a take terminally refused because its
-        // (unlisted) session already holds a karute must detach exactly like
-        // piece r's row, or its save reaches the same F1 overwrite.
-        secureTerminal: take.secureTerminal ? true : undefined,
+        // FIX ROUND F4 — a d3 row for a take whose BINDING refusal (piece r)
+        // left its (unlisted) session must detach exactly like piece r's row,
+        // or its save reaches the same F1 overwrite.
+        bindingRefused: take.bindingRefused ? true : undefined,
       })
     }
   }

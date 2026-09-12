@@ -175,9 +175,10 @@ jest.mock('@/lib/karute/take-store', () => ({
   getRecoverableTake: jest.fn(async () => null),
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
   detachTakeFromRecordedSession: (id: string) => mockDetachTakeFromRecordedSession(id),
-  // The real set — the store's own `secureTerminal` mapping reads it, and
-  // must never drift from take-store's real answer.
-  TERMINAL_SECURE_ERRORS: new Set(['exists', 'reserved_elsewhere', 'not_reserved', 'superseded']),
+  // The real set — the store's own `bindingRefused` mapping reads it (FIX
+  // ROUND 2: BINDING_SECURE_REFUSALS, not the full TERMINAL_SECURE_ERRORS),
+  // and must never drift from take-store's real answer.
+  BINDING_SECURE_REFUSALS: new Set(['exists', 'reserved_elsewhere', 'not_reserved', 'superseded']),
 }))
 jest.mock('@/lib/karute/draft', () => ({
   loadDraft: jest.fn(async () => null),
@@ -1465,11 +1466,11 @@ describe('録音履歴 — r: the refused take is re-offered without overwriting
   // the report's RED-then-restored capture.
 
   // FIX ROUND, F4 — a d3 row (the take's session is UNLISTED, not merely
-  // refused-with-a-record) for a terminally-refused take must detach exactly
-  // like piece r's row: the page branches on `row.secureTerminal`, never on
+  // refused-with-a-record) for a binding-refused take must detach exactly
+  // like piece r's row: the page branches on `row.bindingRefused`, never on
   // `row.reason`, so `sessionUnlisted` reaches the same door as
   // `refusedHasRecord`.
-  it('保存する on a sessionUnlisted row whose take is secureTerminal ALSO detaches before promoting', async () => {
+  it('保存する on a sessionUnlisted row whose take is bindingRefused ALSO detaches before promoting', async () => {
     const recorder = jest.requireMock('@/lib/global-recorder') as {
       globalRecorder: { retryRecordingSessionMint: jest.Mock }
     }
@@ -1506,7 +1507,7 @@ describe('録音履歴 — r: the refused take is re-offered without overwriting
   })
 
   // MUTANT anchor: branching on `row.reason === 'refusedHasRecord'` again (as
-  // opposed to `row.secureTerminal`) leaves this d3-terminal row undetached —
-  // RED on this test (context.recordingSessionId stays the stale 'sess-b') —
-  // see the report's RED-then-restored capture.
+  // opposed to `row.bindingRefused`) leaves this d3 binding-refused row
+  // undetached — RED on this test (context.recordingSessionId stays the
+  // stale 'sess-b') — see the report's RED-then-restored capture.
 })

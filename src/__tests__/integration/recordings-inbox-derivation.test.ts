@@ -1011,10 +1011,10 @@ describe('録音履歴 — d3: the session was never listed', () => {
     expect(rows).toHaveLength(0)
   })
 
-  // FIX ROUND F4 — a d3 row for a secureTerminal take carries the same flag
-  // piece r's row does, so the page can detach on ONE test (row.secureTerminal),
+  // FIX ROUND F4 — a d3 row for a bindingRefused take carries the same flag
+  // piece r's row does, so the page can detach on ONE test (row.bindingRefused),
   // never on the reason string. Absent on an ordinary d3 row.
-  it('a d3 row for a secureTerminal take carries secureTerminal: true — an ordinary one does not', () => {
+  it('a d3 row for a bindingRefused take carries bindingRefused: true — an ordinary one does not', () => {
     const [terminalRow] = fold(
       [],
       [
@@ -1022,11 +1022,11 @@ describe('録音履歴 — d3: the session was never listed', () => {
           takeId: 't1',
           recordingSessionId: 'sess-ghost-1',
           startedAt: NOW - SESSION_UNSETTLED_GRACE_MS - MIN,
-          secureTerminal: true,
+          bindingRefused: true,
         }),
       ],
     )
-    expect(terminalRow.secureTerminal).toBe(true)
+    expect(terminalRow.bindingRefused).toBe(true)
 
     const [ordinaryRow] = fold(
       [],
@@ -1038,7 +1038,7 @@ describe('録音履歴 — d3: the session was never listed', () => {
         }),
       ],
     )
-    expect(ordinaryRow.secureTerminal).toBeUndefined()
+    expect(ordinaryRow.bindingRefused).toBeUndefined()
   })
 
   // MUTANT anchor: removing the d3 loop drops this row to zero — see the
@@ -1164,7 +1164,7 @@ describe('録音履歴 — r: the refused take, session already has a karute', (
   it('terminal + record → own row (recoverable/refusedHasRecord) + the session reads saved WITHOUT the take', () => {
     const rows = fold(
       [session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' })],
-      [take({ takeId: 't1', recordingSessionId: 's1', secureTerminal: true })],
+      [take({ takeId: 't1', recordingSessionId: 's1', bindingRefused: true })],
     )
     expect(rows).toHaveLength(2)
     const sessionRow = rows.find((r) => r.key === 'session:s1')!
@@ -1179,7 +1179,7 @@ describe('録音履歴 — r: the refused take, session already has a karute', (
     expect(takeRow.canRetry).toBe(false)
     expect(needsAttention(takeRow)).toBe(true)
     // FIX ROUND F4 — the page branches on this flag, never on the reason string.
-    expect(takeRow.secureTerminal).toBe(true)
+    expect(takeRow.bindingRefused).toBe(true)
     // Same 要対応 total as if the take had simply been 確認待ち: one row that counts.
     expect(countNeedsAttention(rows)).toBe(1)
   })
@@ -1187,7 +1187,7 @@ describe('録音履歴 — r: the refused take, session already has a karute', (
   it('terminal + NO record → unchanged (still 復元可能/localAudio, today’s behaviour)', () => {
     const [row] = fold(
       [session({ recordingSessionId: 's1' })],
-      [take({ takeId: 't1', recordingSessionId: 's1', secureTerminal: true })],
+      [take({ takeId: 't1', recordingSessionId: 's1', bindingRefused: true })],
     )
     expect(row.state).toBe('recoverable')
     expect(row.reason).toBe('localAudio')
@@ -1196,7 +1196,7 @@ describe('録音履歴 — r: the refused take, session already has a karute', (
   it('non-terminal + record → 確認待ち unchanged (an ordinary un-settled take)', () => {
     const [row] = fold(
       [session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' })],
-      [take({ takeId: 't1', recordingSessionId: 's1', secureTerminal: false })],
+      [take({ takeId: 't1', recordingSessionId: 's1', bindingRefused: false })],
     )
     expect(row.state).toBe('awaiting-check')
     expect(row.reason).toBe('autoSaved')
@@ -1205,7 +1205,7 @@ describe('録音履歴 — r: the refused take, session already has a karute', (
   it('a deliberate discard still outranks a terminal refusal', () => {
     const rows = fold(
       [session({ recordingSessionId: 's1', karuteRecordId: 'rec-1', discardedByStaff: true })],
-      [take({ takeId: 't1', recordingSessionId: 's1', secureTerminal: true })],
+      [take({ takeId: 't1', recordingSessionId: 's1', bindingRefused: true })],
     )
     expect(rows).toHaveLength(1)
     expect(rows[0].state).toBe('discarded')
@@ -1244,7 +1244,7 @@ describe('録音履歴 — c: sameDay, the never-backfill fence', () => {
     expect(d3Row.sameDay).toBe(false)
     const rRow = fold(
       [session({ recordingSessionId: 's1', karuteRecordId: 'rec-1', sameDay: true })],
-      [take({ takeId: 't1', recordingSessionId: 's1', secureTerminal: true })],
+      [take({ takeId: 't1', recordingSessionId: 's1', bindingRefused: true })],
     ).find((r) => r.key === 'take:t1')!
     expect(rRow.sameDay).toBe(false)
   })

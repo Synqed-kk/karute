@@ -158,7 +158,7 @@ function schedulePoll(rows: readonly InboxRow[]): void {
  *  must be able to offer. Only a run still `processing`/`review`/`autosaving`
  *  excludes its take here. */
 async function readLocalTakes() {
-  const [{ listOwnTakes, TERMINAL_SECURE_ERRORS }, { globalRecorder }, { globalPipeline }] =
+  const [{ listOwnTakes, BINDING_SECURE_REFUSALS }, { globalRecorder }, { globalPipeline }] =
     await Promise.all([
       import('@/lib/karute/take-store'),
       import('@/lib/global-recorder'),
@@ -185,8 +185,12 @@ async function readLocalTakes() {
     expiredUnsecured: t.expiredUnsecured,
     // UPDATE 25 GROUP A, piece r. Mapped from the take-store's own judgement
     // (never from inbox.ts, which must stay pure — F6) — never a per-take meta
-    // read, `listOwnTakes` already carries `secureError`.
-    secureTerminal: !!t.secureError && TERMINAL_SECURE_ERRORS.has(t.secureError),
+    // read, `listOwnTakes` already carries `secureError`. FIX ROUND 2
+    // (Greptile issue 2): maps from `BINDING_SECURE_REFUSALS` — the four
+    // codes that say "this take is spoken for" — never the full
+    // `TERMINAL_SECURE_ERRORS`, whose other seven codes mean only "cannot
+    // upload" and never licensed a detach.
+    bindingRefused: !!t.secureError && BINDING_SECURE_REFUSALS.has(t.secureError),
   }))
 }
 
