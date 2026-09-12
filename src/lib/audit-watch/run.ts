@@ -245,6 +245,16 @@ export async function watchOneBusiness(
     // `processing` shape-identically to a real miss (find-karute-missing.ts's
     // own ponytail note) — never write a row for one; count it instead so the
     // dry list shows how many were left unjudged.
+    //
+    // ⚖ fix round d5b (NB-4, mutant M17): since inbox-read.ts now marks EVERY
+    // row `probeIncomplete` on a truncated sessions/records walk (not only
+    // the record-less ones), `incompleteIds` — and so `result.unchecked` —
+    // can include a row that already carries a karute record. That changes
+    // nothing for `missing` below: findKaruteMissing only ever accepts state
+    // 'recoverable' | 'failed', and a row with a karuteRecordId always folds
+    // to 'saved' / 'awaiting-check' (inbox.ts) — never a candidate either
+    // way, dropped or not. `result.unchecked` grows ONLY on a truncated walk
+    // or a capped/thrown probe (F-e above) — never on anything else.
     const incompleteIds = new Set(
       sessions.filter((s) => s.probeIncomplete).map((s) => s.recordingSessionId),
     )
@@ -423,9 +433,11 @@ export async function watchOneBusiness(
     // pass could not fully judge the business, so it stays SILENT (the
     // storms rule — the 22:23/23:23 runs get their own chance, never a false
     // zero). Reuses the SAME `sessions` walk (a) already read and the SAME
-    // `events` page (b) already paged for dedupe — zero extra audit reads;
-    // the two new reads below (appointments, roster) run at most once per
-    // business per day.
+    // `events` page (b) already paged for dedupe — zero extra audit reads.
+    // NB-7 (⚖ fix round d5b): the two new reads below (appointments, roster)
+    // do NOT run "at most once per business per day" — `alreadyFired` only
+    // becomes true once a row EXISTS, so they run on EVERY ≥21:00 JST run
+    // until one is written (up to three: 21:23 · 22:23 · 23:23).
     //
     // ⚖ THIS ROW IS A CHECK, NEVER A DIAGNOSIS (design law §1 Layer A) — it
     // names a staffer who usually records and produced no session today; it

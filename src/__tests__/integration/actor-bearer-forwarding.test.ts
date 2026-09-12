@@ -115,7 +115,7 @@ jest.mock('@synqed-kk/client', () => {
           this.fetch('/recording-discards', { method: 'POST', body: JSON.stringify(input) }),
       }
       this.karuteRecords = {
-        getByRecordingSession: async (_id: string) => {
+        getByRecordingSession: async () => {
           throw Object.assign(new Error('not found'), { status: 404 })
         },
       }

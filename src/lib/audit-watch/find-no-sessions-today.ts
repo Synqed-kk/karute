@@ -63,6 +63,13 @@ export function findNoSessionsToday(input: {
 }): NoSessionsTodayResult | null {
   const { sessions, appointments, staffIdToCoreId, now, todayStart } = input
   const todayStartMs = todayStart.getTime()
+  // NB-5 (⚖ fix round d5b, non-blocking): this is "the previous 7 days" only
+  // as far as the caller's inbox read actually reaches — that read is bounded
+  // by `now - INBOX_WINDOW_MS` (inbox-read.ts), not by `todayStart`, so at a
+  // 21:00 JST evaluation the far end of this window is ~21 hours short of
+  // what the name promises. The cost lands on the SAFE side: a staffer whose
+  // only prior session sits in that slice under-counts and can be missed —
+  // never falsely flagged.
   const lookbackStartMs = todayStartMs - LOOKBACK_MS
 
   // (a) kept appointments today, per core staffer.

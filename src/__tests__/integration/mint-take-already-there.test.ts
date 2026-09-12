@@ -63,7 +63,7 @@ const create = jest.fn(async (_i: unknown): Promise<Row> => row({ id: 'sess-new'
 // ⚖ UPDATE 25 GROUP B, d4: commitReservation's karute-exists probe. Default
 // 404 (no record) — this file's own subject is the already-there arm, not
 // the probe, so every case here must reach the write exactly as before.
-const getByRecordingSession = jest.fn(async (_id: string) => {
+const getByRecordingSession = jest.fn(async () => {
   throw Object.assign(new Error('not found'), { status: 404 })
 })
 const fakeClient = { recordings: { get, create, update }, karuteRecords: { getByRecordingSession } }

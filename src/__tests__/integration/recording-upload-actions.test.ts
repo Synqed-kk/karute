@@ -76,7 +76,7 @@ const apptGet = jest.fn(async (_id: string) => ({ staff_id: 'staff-1' }))
 // 404 (no record) — every EXISTING test in this file exercises the
 // null-pointer legacy-write path and must keep proceeding to the write
 // exactly as before; only the new describe block below overrides it.
-const getByRecordingSession = jest.fn(async (_id: string): Promise<{ id: string }> => {
+const getByRecordingSession = jest.fn(async (): Promise<{ id: string }> => {
   throw Object.assign(new Error('not found'), { status: 404 })
 })
 const fakeClient = {

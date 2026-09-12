@@ -687,6 +687,51 @@ describe('watchOneBusiness — recording.no_sessions_today (d5)', () => {
     expect(client.staff.list).not.toHaveBeenCalled()
   })
 
+  it('a truncated SESSIONS read whose returned rows ALL carry karute records → d5 stays silent, never fires on a walk it could not complete (⚖ fix round d5b, NB-4/mutant M17)', async () => {
+    const client = clientForD5(baseOpts())
+    // Force `readRecordingsInbox`'s sessions walk to truncate: the same
+    // session comes back on every page and `total` never comes down to what
+    // paginateDedupe's by-id map can hold in 50 pages (customers/paginate.ts's
+    // own truncation rule) — the exact "records read truncated" shape the
+    // lens flagged, except here EVERY returned row already carries a karute
+    // record. Before d5b, inbox-read.ts marked probeIncomplete only on
+    // record-LESS rows on a truncated walk, so `incompleteIds` stayed empty
+    // and the d5 gate (`incompleteIds.size === 0`) read this walk as whole —
+    // firing on a sessions read it never actually completed.
+    client.recordings.list = jest.fn(async () => ({
+      recordings: [
+        {
+          id: 'sess-d5',
+          business_id: 'biz-1',
+          customer_id: 'cust-1',
+          store_id: 'store-1',
+          staff_id: 'staff-a',
+          appointment_id: null,
+          audio_storage_path: null,
+          duration_seconds: 300,
+          status: 'RECORDED',
+          created_at: baseOpts().sessionsCreatedAt,
+          updated_at: baseOpts().sessionsCreatedAt,
+        },
+      ],
+      total: 999_999, // far past what one repeating page can ever satisfy
+    }))
+    ;(client.karuteRecords.list as jest.Mock).mockImplementation(async () => ({
+      karute_records: [{ id: 'kr-d5', recording_session_id: 'sess-d5' }],
+      total: 1,
+    }))
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+
+    const result = await watchOneBusiness('biz-1', AT_21, 'write', FAR_DEADLINE)
+    expect(result.unchecked).toBeGreaterThan(0)
+    expect(result.list.some((c) => c.action === 'recording.no_sessions_today')).toBe(false)
+    expect(client.appointments.list).not.toHaveBeenCalled()
+    expect(client.staff.list).not.toHaveBeenCalled()
+    expect(auditMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'recording.no_sessions_today' }),
+    )
+  })
+
   it('dry mode lists the day + staff count, writes nothing', async () => {
     const client = clientForD5(baseOpts())
     ;(newSynqedClient as jest.Mock).mockReturnValue(client)

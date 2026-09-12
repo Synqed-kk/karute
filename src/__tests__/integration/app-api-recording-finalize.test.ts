@@ -76,7 +76,7 @@ const recordingsCreate = jest.fn(async (_i: unknown): Promise<Row> => ({ ...ROW,
 // ⚖ UPDATE 25 GROUP B, d4: commitReservation's karute-exists probe. Default
 // 404 (no record) so every EXISTING mint case here proceeds to the write
 // exactly as before — this file's own subject is finalize, not the probe.
-const karuteRecordsGetByRecordingSession = jest.fn(async (_id: string) => {
+const karuteRecordsGetByRecordingSession = jest.fn(async () => {
   throw Object.assign(new Error('not found'), { status: 404 })
 })
 const fakeClient = {

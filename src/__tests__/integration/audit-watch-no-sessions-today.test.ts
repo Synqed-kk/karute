@@ -96,6 +96,31 @@ describe('findNoSessionsToday', () => {
     })
   })
 
+  it("a future-stamped session (device/core clock skew, same JST day) does NOT count as recorded today — the staffer is still flagged (NB-6, mutant M18)", () => {
+    const result = findNoSessionsToday({
+      sessions: [
+        // The genuine recorder proof, 3 days ago.
+        session({ staffId: 'staff-a', createdAt: isoHoursAgoFromTodayStart(3 * 24) }),
+        // Stamped an hour AFTER `now`, but still on today's JST calendar day.
+        // `at <= now` is the upper bound that keeps a skewed clock from
+        // reading this as "recorded today" — without it, this session alone
+        // would silently silence the staffer.
+        session({ staffId: 'staff-a', createdAt: new Date(NOW + 60 * 60 * 1000).toISOString() }),
+      ],
+      appointments: [{ staff_id: 'staff-a' }],
+      staffIdToCoreId: STAFF_MAP,
+      now: NOW,
+      todayStart: TODAY_START,
+    })
+    expect(result).toEqual({
+      day: '2026-09-11',
+      staff_ids: ['staff-a'],
+      kept_appointments: 1,
+      sessions_today: 0,
+      sessions_prev_7d: 1,
+    })
+  })
+
   it('a session recorded today in EITHER id space silences the staffer', () => {
     const result = findNoSessionsToday({
       sessions: [

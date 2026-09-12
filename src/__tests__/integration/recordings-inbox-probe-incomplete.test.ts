@@ -234,7 +234,7 @@ describe('probeIncomplete — P1-1 a degraded discard ledger', () => {
 })
 
 describe('probeIncomplete — P3-11 truncated reads', () => {
-  it('a truncated karute-records read marks every record-less row and leaves a record-bearing row unmarked; the readable, complete control marks none', async () => {
+  it('a truncated karute-records read marks EVERY row, including one whose record already landed (⚖ fix round d5b, NB-4/mutant M17: a truncated walk cannot swear to any row, not only the record-less ones); the readable, complete control marks none', async () => {
     recordings.current = [rec({ id: 's0' }), rec({ id: 's1' })]
     karuteRecords.current = [{ id: 'kr-1', recording_session_id: 's1' }]
 
@@ -249,10 +249,12 @@ describe('probeIncomplete — P3-11 truncated reads', () => {
     // total — the same "records read truncated" the lens flagged as a false
     // miss (a dropped record makes a saved session look record-less). Page 1
     // still carries s1's real record (byId keeps every page's items, so it
-    // survives however many later pages get fetched), so a correctly-guarded
-    // marking loop must leave s1 unmarked while marking s0 — a guard that
-    // marked EVERY row (the lens's m4) would mark s1 too, and this fixture
-    // alone (not the P1-1 sibling) catches that.
+    // survives however many later pages get fetched) — but a truncated walk
+    // is no proof the pages we never reached held nothing else that matters,
+    // so d5b widens the mark to every row on the page, s1 included: the
+    // audit-watch cron's d5 gate (run.ts) reads "zero incomplete rows" as
+    // proof the sessions walk was whole, and a walk that happens to return
+    // only record-bearing rows on a truncated page must not read as one.
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     ;(client.karuteRecords.list as jest.Mock).mockImplementation(async (opts: { page: number }) => ({
       karute_records:
@@ -263,7 +265,7 @@ describe('probeIncomplete — P3-11 truncated reads', () => {
     }))
     const truncated = await read()
     expect(find(truncated, 's0').probeIncomplete).toBe(true)
-    expect(find(truncated, 's1').probeIncomplete).toBeUndefined()
+    expect(find(truncated, 's1').probeIncomplete).toBe(true)
     // P3-11's other half: the read names itself instead of falling back to
     // the paginateDedupe default ('customers cache'), which the lens found
     // pointed triage at the wrong subsystem.
