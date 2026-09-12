@@ -1837,6 +1837,7 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
 // another, and a new module is forbidden on this lane), so a fix applied to one
 // copy and forgotten in the other two leaves two suites reading the blind
 // version — which is exactly how F5's blind spot lived in three places at once.
+// Every suite asserts all three copies are byte-identical, marker to marker.
 // ═══════════════════════════════════════════════════════════════════════════
 // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-2-matrix.md N4)
 // `windowsOf` — THE DAY LAYER'S ADAPTER OVER THE HONEST SET.
@@ -1927,7 +1928,6 @@ describe('windowsOf — the day layer over the honest set', () => {
   })
 })
 
-// Every suite asserts all three copies are byte-identical, marker to marker.
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('⚖ BREAKER-828 G3 — the three codeOnly copies are byte-identical', () => {
