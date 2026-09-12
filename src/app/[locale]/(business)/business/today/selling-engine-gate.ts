@@ -34,3 +34,29 @@
 // The suite pins the value instead (one assertion, and it is the thing that
 // actually matters: shipped ON from E3b).
 export const SELLING_ENGINE_LAW: boolean = true
+
+// 今日の運営 — THE HONEST 確保 COUNT'S OWN ROUND GATE (⚖ Liam 2026-09-12 21:1x).
+//
+// Same discipline as the line above, for the round that makes 新規用に確保 say
+// what the store's ROOMS can honour rather than what the per-lane enumeration
+// published. It lives here for the reason that one does: the doors test's
+// forbidden-reader list (§1) exists so a round's state cannot end up in two
+// places, and `reserved-mask.ts` — where a netting gate would look natural — is
+// ON that list.
+//
+// IT IS NOT A PRODUCT SWITCH EITHER. The store's dial is still `gap_guard_mode`:
+// a guard-off store gets the frozen empty mask and there is nothing to net.
+// This constant is CONSTRUCTION scaffolding, one boolean, one home, no env var.
+//
+// READ AT THE SCREEN BOUNDARY ONLY — ONE value read, and the count is pinned in
+// selling-engine-doors.test.ts §1 so a second cannot arrive quietly. OFF means
+// the screen's `honest` memo is `undefined`, and every reader below it —
+// the chip, the day layer, the row's boxes, the online 確保 rows, the rail —
+// takes the path that shipped, by construction rather than by a branch each of
+// them maintains. The netting FUNCTION keeps its own `on` parameter so its
+// identity answer stays reachable from its suite.
+//
+// `boolean` rather than `true as const`, for the same reason as above: the OFF
+// branches are what the parity proof is written against and `as const` would
+// make them statically dead.
+export const HONEST_HELD: boolean = true
