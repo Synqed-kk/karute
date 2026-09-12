@@ -993,11 +993,11 @@ describe('4 — what paints, and what stops', () => {
     const shared = css.split('\n').find((l) => l.startsWith('.biz .cell-shared { cursor')) ?? ''
     expect(shared).toContain('repeating-linear-gradient(')
     expect(shared).not.toMatch(/#2563eb|var\(--primary|#000|black/)
-    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW.md H4)
+    // HONEST-COUNT ROUND 1 · fix 4 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW-2.md R1)
     // …and 「quieter」 is the HATCH, never the words: both lines wear the HELD
-    // box's own ink, because a box the operator cannot read is not a quiet box.
+    // box's own title ink, because a box the operator cannot read is not a quiet box.
     expect(css).toContain('.biz .cell-shared .held-title { color: #475569; font-weight: 600; }')
-    expect(css).toContain('.biz .cell-shared .held-sub { color: #64748b; }')
+    expect(css).toContain('.biz .cell-shared .held-sub { color: #475569; }')
     // …and #475569 is not a new colour: it is the held box's own title ink,
     // read off the rule the two boxes share.
     const heldTitle = css.split('\n').find((l) => l.startsWith('.biz .cell-shared .held-title { font-size')) ?? ''

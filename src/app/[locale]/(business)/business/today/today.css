@@ -974,14 +974,11 @@
    and it carries their rule. `cursor: default` stays — harmless, and true. */
 .biz .cell-shared { cursor: default; pointer-events: none; border-color: #cbd5e1; background: repeating-linear-gradient(135deg, #e6eaf0 0 5px, #f5f7fa 5px 10px); }
 /* ⚖ HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW.md H4)
-   — THE TEXT HAD TO BE READABLE ON THE HATCH. 「Said quieter」 was reaching the
-   words: the title at #64748b sat ≈3.9:1 on the hatch and the sub-line inherited
-   #94a3b8 at ≈2.1:1, which is not a quiet box, it is an unreadable one. The
-   quiet comes from the hatch and the paler dashed border — both untouched — so
-   the two lines take the HELD box's own ink: title #475569 (its title colour,
-   7:1 class) and sub #64748b, which is what the title was. */
+   HONEST-COUNT ROUND 1 · fix 4 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW-2.md R1)
+   — both lines take the HELD box's own title ink, #475569; 「quieter」 is
+   carried by the hatch and the paler dashed border, not by the words. */
 .biz .cell-shared .held-title { color: #475569; font-weight: 600; }
-.biz .cell-shared .held-sub { color: #64748b; }
+.biz .cell-shared .held-sub { color: #475569; }
 /* 表示設定 ▸ 空き枠表示「非表示」 takes the whole sell layer off the board, and
    the 確保 chip goes with it — the operator asked for a board with no window
    layer on it. 淡色表示/ドラッグ時のみ are about a SALE being loud or quiet and
