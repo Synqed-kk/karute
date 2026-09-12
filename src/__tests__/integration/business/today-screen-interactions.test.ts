@@ -4295,7 +4295,7 @@ describe('the guided tour builds itself out of what is on screen', () => {
       // counter composes (`onlineOffers`).
       ['オンライン販売中', 'いまReserveで販売中の枠数。販売可能枠・詰め込み・スキマ枠・新規用に確保をまとめた数です。押すと種類ごとの一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。'],
       ['ご来店中', 'いま店内にいるお客様。ここから次回予約をその場で作成できます。'],
-      ['日付の移動', '日付を押すと月カレンダーで空き状況を確認できます。'],
+      ['日付の移動', '日付を押すと月カレンダーで、日ごとにあと何枠入るかを確認できます。'],
       ['表示設定', 'カード・販売可能枠・配置ガイドの見え方と、ボードの密度を調整します。'],
       ['表示の切替', 'スタッフだけ・設備だけ・両方の表示を切り替えます。'],
       ['仮置きエリア', '日付をまたぐ変更の一時置き場。ドラッグで置くと仮押さえになります。'],
@@ -4307,6 +4307,11 @@ describe('the guided tour builds itself out of what is on screen', () => {
       expect(SRC).toContain(`data-guide-title="${title}"`)
       expect(SRC).toContain(`data-guide="${body}"`)
     }
+    // F2 (fix round 2, COLD-READ) — 「空き状況」 was a claim about free TIME; the
+    // control opens a count of bookings, and its settings twin was already
+    // carried to あと入る数 while this one was not. Pinned out so a revert of
+    // the tuple above cannot bring it back unnoticed.
+    expect(SRC).not.toContain('空き状況')
   })
 
   it('OUR sections register too — the lane rule, machine-checked', () => {

@@ -7844,7 +7844,7 @@ export function TodayScreen(props: TodayProps) {
                 aria-label="日付の移動"
                 data-pop="cal"
                 data-guide-title="日付の移動"
-                data-guide="日付を押すと月カレンダーで空き状況を確認できます。"
+                data-guide="日付を押すと月カレンダーで、日ごとにあと何枠入るかを確認できます。"
               >
                 <Link href={dayHref(props.dayOffset - 1)} aria-label="前の日へ" prefetch={false}>‹</Link>
                 <button
