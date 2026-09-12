@@ -1046,6 +1046,69 @@ describe('録音履歴 — d3: the session was never listed', () => {
 })
 
 /**
+ * FIX ROUND 2 (Greptile issue 1) — a FAILED server read is not evidence.
+ * `sessions: []` from a thrown `readServerSessions` looks, to the d3 loop,
+ * identical to a server that genuinely listed nothing for every one of these
+ * takes — so before `serverReadFailed` an outage turned every session-stamped
+ * take past the grace into a d3 row claiming 「サーバーの記録には見つかりません」
+ * on zero evidence, and a save off that row reused the stamped session id
+ * straight into F1's overwrite.
+ */
+describe('録音履歴 — FIX ROUND 2: a FAILED server read manufactures no d3 rows', () => {
+  it('serverReadFailed: true — a session-stamped take past the grace gets NO row; an orphan take is unaffected', () => {
+    const rows = deriveInboxRows({
+      sessions: [],
+      takes: [
+        take({
+          takeId: 't1',
+          recordingSessionId: 'sess-ghost',
+          startedAt: NOW - SESSION_UNSETTLED_GRACE_MS - MIN,
+        }),
+        take({ takeId: 't-orphan', recordingSessionId: null }),
+      ],
+      now: NOW,
+      serverReadFailed: true,
+    })
+    // The unlisted-session take (d3's own case) vanishes entirely — no row,
+    // no claim. The orphan never depended on the server read at all, so it is
+    // untouched (packet: "the orphan/stranded loops are NOT touched").
+    expect(rows.map((r) => r.key)).toEqual(['take:t-orphan'])
+  })
+
+  it('the identical input with serverReadFailed: false keeps the d3 row exactly as today', () => {
+    const rows = deriveInboxRows({
+      sessions: [],
+      takes: [
+        take({
+          takeId: 't1',
+          recordingSessionId: 'sess-ghost',
+          startedAt: NOW - SESSION_UNSETTLED_GRACE_MS - MIN,
+        }),
+        take({ takeId: 't-orphan', recordingSessionId: null }),
+      ],
+      now: NOW,
+      serverReadFailed: false,
+    })
+    expect(rows.map((r) => r.key).sort()).toEqual(['take:t-orphan', 'take:t1'])
+    const d3Row = rows.find((r) => r.key === 'take:t1')!
+    expect(d3Row.state).toBe('recoverable')
+    expect(d3Row.reason).toBe('sessionUnlisted')
+  })
+
+  it('serverReadFailed defaults to false — every existing caller (the fold\'s own prior contract) is unchanged', () => {
+    const rows = fold(
+      [],
+      [take({ takeId: 't1', recordingSessionId: 'sess-ghost', startedAt: NOW - SESSION_UNSETTLED_GRACE_MS - MIN })],
+    )
+    expect(rows[0].reason).toBe('sessionUnlisted')
+  })
+
+  // MUTANT anchor: dropping the `if (!serverReadFailed)` guard around the d3
+  // loop lets the first test above see a row for 't1' — RED — see the
+  // report's RED-then-restored capture.
+})
+
+/**
  * FIX ROUND, n3 — 「サーバーの記録には見つかりません」 is a claim ABOUT THE
  * SERVER; a read this pass could not fully judge (`probeIncomplete` on a
  * returned row) is no evidence the server lacks a record for an UNLISTED

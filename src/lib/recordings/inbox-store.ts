@@ -281,7 +281,15 @@ async function runInbox(): Promise<void> {
     ])
     if (epoch !== myEpoch) return
     const foldedAt = Date.now()
-    const rows = deriveInboxRows({ sessions: server.sessions, takes, now: foldedAt })
+    const rows = deriveInboxRows({
+      sessions: server.sessions,
+      takes,
+      now: foldedAt,
+      // FIX ROUND 2 (Greptile issue 1) — a thrown server read is not evidence
+      // of anything; the fold must know to withhold every unlisted-session
+      // row rather than treat the empty `sessions` as a genuine answer.
+      serverReadFailed: server.failed,
+    })
     set({
       status: server.failed ? 'partial' : 'ready',
       rows,

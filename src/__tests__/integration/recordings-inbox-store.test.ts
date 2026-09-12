@@ -330,6 +330,58 @@ describe('FX-6c — the epoch guard (shared salon device)', () => {
 })
 
 /**
+ * FIX ROUND 2 (Greptile issue 1) — a THROWN server read must never manufacture
+ * a d3 (`sessionUnlisted`) row: `runInbox` passes `serverReadFailed:
+ * server.failed` into the fold, which withholds the whole unlisted-session
+ * loop rather than reading the empty `sessions` array as a genuine "no
+ * record" answer.
+ */
+describe('録音履歴 — FIX ROUND 2: a failed server read never manufactures a d3 row', () => {
+  it('listRecordingsInbox throwing → serverFailed true, and a session-stamped take past the grace gets NO row', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      {
+        takeId: 't1',
+        recordingSessionId: 'sess-ghost',
+        customerId: 'cust-1',
+        customerName: '佐藤 美咲',
+        // Past SESSION_UNSETTLED_GRACE_MS (3h) — exactly the shape that used
+        // to fold to `sessionUnlisted` off an empty, FAILED server read.
+        startedAt: NOW - 4 * 60 * 60_000,
+        updatedAt: NOW - 4 * 60 * 60_000,
+      },
+    ])
+    listRecordingsInbox.mockRejectedValue(new Error('network down'))
+    await loadInbox()
+    await flush()
+    expect(getInboxState().serverFailed).toBe(true)
+    expect(getInboxState().rows).toHaveLength(0)
+  })
+
+  it('the SAME stamped take DOES fold to sessionUnlisted once the server read succeeds (empty, but complete)', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      {
+        takeId: 't1',
+        recordingSessionId: 'sess-ghost',
+        customerId: 'cust-1',
+        customerName: '佐藤 美咲',
+        startedAt: NOW - 4 * 60 * 60_000,
+        updatedAt: NOW - 4 * 60 * 60_000,
+      },
+    ])
+    listRecordingsInbox.mockResolvedValue([])
+    await loadInbox()
+    await flush()
+    expect(getInboxState().serverFailed).toBe(false)
+    expect(getInboxState().rows).toMatchObject([{ key: 'take:t1', reason: 'sessionUnlisted' }])
+  })
+
+  // MUTANT anchor: dropping the `serverReadFailed: server.failed` pass-through
+  // (back to the bare `deriveInboxRows({ sessions, takes, now })` call) turns
+  // the first test above's row count back to 1 — RED — see the report's
+  // RED-then-restored capture.
+})
+
+/**
  * UPDATE 25 GROUP A, piece b — the pill reconciles with the row's durable
  * truth. Traced (cold read): `reset()`'s `notify()` re-fires the pipeline
  * watch INSIDE this call's own stack, but `loading` is still true at that
