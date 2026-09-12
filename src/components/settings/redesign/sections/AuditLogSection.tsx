@@ -738,7 +738,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                     setTargetType('recording')
                     setTargetId(e.target_id)
                   }}
-                  className="block truncate border-b border-dotted border-muted-foreground/50 text-left text-xs text-muted-foreground hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400"
+                  className="block w-full max-w-full truncate border-b border-dotted border-muted-foreground/50 text-left text-xs text-muted-foreground hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400"
                 >
                   {subText}
                 </button>
