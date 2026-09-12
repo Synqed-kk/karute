@@ -31,9 +31,6 @@
 import { ymdInJst } from '@/lib/date/jst'
 import type { InboxServerSession } from '@/lib/recordings/inbox'
 
-const DAY_MS = 24 * 60 * 60 * 1000
-const LOOKBACK_MS = 7 * DAY_MS
-
 export interface NoSessionsTodayResult {
   day: string
   /** Core staff ids, sorted — the flagged staffers only. */
@@ -60,17 +57,14 @@ export function findNoSessionsToday(input: {
   now: number
   /** JST midnight of the day being evaluated, as a Date. */
   todayStart: Date
+  /** The lower bound of the session read the caller actually performed —
+   *  sessions before it were never read. This is always the CALLER's read
+   *  floor, never a calendar constant derived from `todayStart`: the finder
+   *  can never claim to see further back than the read it was given. */
+  lookbackStartMs: number
 }): NoSessionsTodayResult | null {
-  const { sessions, appointments, staffIdToCoreId, now, todayStart } = input
+  const { sessions, appointments, staffIdToCoreId, now, todayStart, lookbackStartMs } = input
   const todayStartMs = todayStart.getTime()
-  // NB-5 (⚖ fix round d5b, non-blocking): this is "the previous 7 days" only
-  // as far as the caller's inbox read actually reaches — that read is bounded
-  // by `now - INBOX_WINDOW_MS` (inbox-read.ts), not by `todayStart`, so at a
-  // 21:00 JST evaluation the far end of this window is ~21 hours short of
-  // what the name promises. The cost lands on the SAFE side: a staffer whose
-  // only prior session sits in that slice under-counts and can be missed —
-  // never falsely flagged.
-  const lookbackStartMs = todayStartMs - LOOKBACK_MS
 
   // (a) kept appointments today, per core staffer.
   const keptTodayByStaffer = new Map<string, number>()

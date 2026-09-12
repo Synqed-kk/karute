@@ -44,6 +44,7 @@ describe('findNoSessionsToday', () => {
       staffIdToCoreId: STAFF_MAP,
       now: NOW,
       todayStart: TODAY_START,
+      lookbackStartMs: TODAY_START.getTime() - DAY_MS * 7,
     })
     expect(result).toEqual({
       day: '2026-09-11',
@@ -61,6 +62,7 @@ describe('findNoSessionsToday', () => {
       staffIdToCoreId: STAFF_MAP,
       now: NOW,
       todayStart: TODAY_START,
+      lookbackStartMs: TODAY_START.getTime() - DAY_MS * 7,
     })
     expect(result).toBeNull()
   })
@@ -72,6 +74,7 @@ describe('findNoSessionsToday', () => {
       staffIdToCoreId: STAFF_MAP,
       now: NOW,
       todayStart: TODAY_START,
+      lookbackStartMs: TODAY_START.getTime() - DAY_MS * 7,
     })
     expect(result).toBeNull()
   })
@@ -86,6 +89,7 @@ describe('findNoSessionsToday', () => {
       staffIdToCoreId: STAFF_MAP,
       now: NOW,
       todayStart: TODAY_START,
+      lookbackStartMs: TODAY_START.getTime() - DAY_MS * 7,
     })
     expect(result).toEqual({
       day: '2026-09-11',
@@ -111,6 +115,7 @@ describe('findNoSessionsToday', () => {
       staffIdToCoreId: STAFF_MAP,
       now: NOW,
       todayStart: TODAY_START,
+      lookbackStartMs: TODAY_START.getTime() - DAY_MS * 7,
     })
     expect(result).toEqual({
       day: '2026-09-11',
@@ -131,6 +136,7 @@ describe('findNoSessionsToday', () => {
       staffIdToCoreId: STAFF_MAP,
       now: NOW,
       todayStart: TODAY_START,
+      lookbackStartMs: TODAY_START.getTime() - DAY_MS * 7,
     })
     expect(result).toBeNull()
   })
@@ -142,6 +148,7 @@ describe('findNoSessionsToday', () => {
       staffIdToCoreId: STAFF_MAP,
       now: NOW,
       todayStart: TODAY_START,
+      lookbackStartMs: TODAY_START.getTime() - DAY_MS * 7,
     })
     expect(result).toBeNull() // staff-a has a kept appointment but no mapped 7-day session
   })
@@ -153,6 +160,7 @@ describe('findNoSessionsToday', () => {
       staffIdToCoreId: STAFF_MAP,
       now: NOW,
       todayStart: TODAY_START,
+      lookbackStartMs: TODAY_START.getTime() - DAY_MS * 7,
     })
     expect(result).toBeNull()
   })
@@ -167,25 +175,42 @@ describe('findNoSessionsToday', () => {
       staffIdToCoreId: STAFF_MAP,
       now: NOW,
       todayStart: TODAY_START,
+      lookbackStartMs: TODAY_START.getTime() - DAY_MS * 7,
     })
     expect(result).toBeNull() // the todayStart-exact session silences it
   })
 
-  it('a session exactly 7 days before todayStart is the inclusive lookback floor', () => {
-    const result = findNoSessionsToday({
-      sessions: [session({ staffId: 'staff-a', createdAt: new Date(TODAY_START.getTime() - DAY_MS * 7).toISOString() })],
+  it('a session exactly at lookbackStartMs is the inclusive floor; one ms earlier is invisible — the floor is the CALLER\'s read boundary, never a calendar constant', () => {
+    // Deliberately NOT calendar-aligned to todayStart (unlike every other
+    // test's default) — proves the finder trusts whatever floor it is given,
+    // the caller's actual inbox-read floor, rather than deriving one itself.
+    const lookbackStartMs = TODAY_START.getTime() - DAY_MS * 7 + 3 * 60 * 60 * 1000
+
+    const atFloor = findNoSessionsToday({
+      sessions: [session({ staffId: 'staff-a', createdAt: new Date(lookbackStartMs).toISOString() })],
       appointments: [{ staff_id: 'staff-a' }],
       staffIdToCoreId: STAFF_MAP,
       now: NOW,
       todayStart: TODAY_START,
+      lookbackStartMs,
     })
-    expect(result).toEqual({
+    expect(atFloor).toEqual({
       day: '2026-09-11',
       staff_ids: ['staff-a'],
       kept_appointments: 1,
       sessions_today: 0,
       sessions_prev_7d: 1,
     })
+
+    const beforeFloor = findNoSessionsToday({
+      sessions: [session({ staffId: 'staff-a', createdAt: new Date(lookbackStartMs - 1).toISOString() })],
+      appointments: [{ staff_id: 'staff-a' }],
+      staffIdToCoreId: STAFF_MAP,
+      now: NOW,
+      todayStart: TODAY_START,
+      lookbackStartMs,
+    })
+    expect(beforeFloor).toBeNull() // one ms before the floor — never read, never seen
   })
 
   it('multiple flagged staffers → staff_ids sorted, counts summed over the flagged only', () => {
@@ -207,6 +232,7 @@ describe('findNoSessionsToday', () => {
       staffIdToCoreId: STAFF_MAP,
       now: NOW,
       todayStart: TODAY_START,
+      lookbackStartMs: TODAY_START.getTime() - DAY_MS * 7,
     })
     expect(result).toEqual({
       day: '2026-09-11',

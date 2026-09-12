@@ -13,8 +13,20 @@ jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditMock(e) }))
 import { watchOneBusiness } from '@/lib/audit-watch/run'
 import { rotateBusinessIds } from '@/lib/audit-watch/rotate-business-ids'
 import { newSynqedClient } from '@/lib/synqed/client'
+import { INBOX_WINDOW_MS } from '@/lib/recordings/inbox'
+import { findNoSessionsToday } from '@/lib/audit-watch/find-no-sessions-today'
 
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: jest.fn() }))
+
+// Fix round 3, finding 2 CONTRACT pin: wraps the REAL implementation (every
+// other test's behavior is untouched) just to record what run.ts calls it
+// with — a plain jest.spyOn on this named export fails ("Cannot redefine
+// property", the compiled export getter is non-configurable), so the wrap
+// happens at mock-factory level instead.
+jest.mock('@/lib/audit-watch/find-no-sessions-today', () => {
+  const actual = jest.requireActual('@/lib/audit-watch/find-no-sessions-today')
+  return { ...actual, findNoSessionsToday: jest.fn(actual.findNoSessionsToday) }
+})
 
 const NOW = new Date('2026-09-11T05:00:00.000Z') // 14:00 JST — after today's assembler floor
 // 3 days ago: its session (300s duration) ends well over ASSEMBLE_AFTER_MS
@@ -757,6 +769,72 @@ describe('watchOneBusiness — recording.no_sessions_today (d5)', () => {
     expect(result.error).toBe(true)
     expect(auditMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: 'recording.no_sessions_today' }),
+    )
+  })
+
+  // Fix round 3, reviewer finding 2: the finder's lower bound must be the
+  // CALLER's actual read floor, never a `todayStart`-derived calendar
+  // constant (find-no-sessions-today.ts no longer computes one internally).
+  it('the finder and the real inbox read share the same floor: a session at now − 7d + 1h (inside the actual read window) still fires the row', async () => {
+    const client = clientForD5(baseOpts())
+    const sessionAt = new Date(AT_21.getTime() - INBOX_WINDOW_MS + 60 * 60 * 1000).toISOString()
+    // Unlike every other test's client.recordings.list mock (which returns a
+    // fixed row regardless of `from`), THIS one mirrors the real
+    // readRecordingsInbox floor by actually filtering on the `from` it was
+    // called with — so a floor mismatch between run.ts and inbox-read.ts
+    // would show up here as a missing session.
+    client.recordings.list = jest.fn(async (args: { from?: string }) => {
+      const from = args.from ? new Date(args.from).getTime() : -Infinity
+      const all = [
+        {
+          id: 'sess-d5',
+          business_id: 'biz-1',
+          customer_id: 'cust-1',
+          store_id: 'store-1',
+          staff_id: 'staff-a',
+          appointment_id: null,
+          audio_storage_path: null,
+          duration_seconds: 300,
+          status: 'RECORDED',
+          created_at: sessionAt,
+          updated_at: sessionAt,
+        },
+      ]
+      const rows = all.filter((r) => new Date(r.created_at).getTime() >= from)
+      return { recordings: rows, total: rows.length }
+    }) as unknown as typeof client.recordings.list
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+    const result = await watchOneBusiness('biz-1', AT_21, 'write', FAR_DEADLINE)
+    const call = auditMock.mock.calls
+      .map(([e]) => e as Record<string, unknown>)
+      .find((e) => e.action === 'recording.no_sessions_today')
+    expect(call).toBeDefined()
+    expect(call!.detail).toEqual({
+      day: '2026-09-11',
+      staff_ids: ['staff-a'],
+      kept_appointments: 1,
+      sessions_today: 0,
+      sessions_prev_7d: 1,
+    })
+    expect(result.list).toContainEqual(
+      expect.objectContaining({ action: 'recording.no_sessions_today' }),
+    )
+  })
+
+  // CONTRACT pin (packet's own honesty clause): the data-flow test above
+  // cannot distinguish the fix from the old `todayStart − 7d` calendar floor
+  // on this call path, because that old floor was ALWAYS wider (further
+  // back) than the real read floor here (this block only runs at ≥21:00
+  // JST, so `now` is always 21-24h after `todayStart`) — anything in the
+  // gap between the two floors was never fetched by the read either way, so
+  // both floors see identical data. Pin the actual contract directly instead
+  // of relying on an observable difference that cannot exist on this path.
+  it('CONTRACT: run.ts passes findNoSessionsToday exactly the read floor (now − INBOX_WINDOW_MS), never a calendar constant', async () => {
+    const client = clientForD5(baseOpts())
+    ;(newSynqedClient as jest.Mock).mockReturnValue(client)
+    await watchOneBusiness('biz-1', AT_21, 'write', FAR_DEADLINE)
+    expect(findNoSessionsToday as jest.Mock).toHaveBeenCalledWith(
+      expect.objectContaining({ lookbackStartMs: AT_21.getTime() - INBOX_WINDOW_MS }),
     )
   })
 })

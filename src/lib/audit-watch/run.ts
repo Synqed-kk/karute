@@ -471,6 +471,10 @@ export async function watchOneBusiness(
           staffIdToCoreId: staffCoreIdMap,
           now: now.getTime(),
           todayStart,
+          // Same floor readRecordingsInbox used to build `sessions` for this
+          // SAME `now` (inbox-read.ts: `from = now.getTime() - INBOX_WINDOW_MS`)
+          // — the finder's window can never claim to see further than the read.
+          lookbackStartMs: now.getTime() - INBOX_WINDOW_MS,
         })
         if (found) {
           result.candidates += 1
