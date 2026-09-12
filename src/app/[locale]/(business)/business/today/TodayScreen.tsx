@@ -7834,7 +7834,7 @@ export function TodayScreen(props: TodayProps) {
             <span
               className="chip ok"
               data-guide-title="新規用に確保"
-              data-guide="いま店全体で、新規のお客様のために空けておける枠の数です。合計が増えても、名前の付いたスタッフの枠が1つ減ることはあります。上の数字は店全体の合計、確認画面の文章はその人の枠のことです。"
+              data-guide="新規のお客様のために店全体で確保している枠の数です。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。"
             >
               新規用に確保 {dayCommitted.total}枠
             </span>
