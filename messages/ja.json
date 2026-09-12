@@ -2490,9 +2490,11 @@
           "capture_unlinked": "録音の音声が記録に紐付かず",
           "discard": "録音を破棄",
           "karute_missing": "カルテ未保存",
+          "no_sessions_today": "本日の録音なし",
           "play": "録音を再生",
           "session_cleanup": "録音を破棄",
           "take_named": "録音のアップロード先を発行（既存セッション）",
+          "take_refused_has_record": "二重紐付けを拒否",
           "transcribe": "録音を文字起こし",
           "transcribe_failed": "文字起こしに失敗",
           "transcribe_refused": "録音の文字起こしを見送り（利用上限）",
@@ -2533,6 +2535,9 @@
       "fold": {
         "count": "×{n}",
         "range": "{from}〜{to}"
+      },
+      "noSessionsToday": {
+        "sub": "{day}・録音担当{n}名、本日の録音なし"
       },
       "reason": {
         "empty_transcript": "文字起こし結果なし",

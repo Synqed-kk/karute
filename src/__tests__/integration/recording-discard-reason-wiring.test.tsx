@@ -1574,6 +1574,65 @@ describe('⚖ FIX ROUND 4 — the supersede confirm reaches runStopFlow directly
   })
 })
 
+// C3(b) (LENS-DISCARD-ONE-TAP-FINAL-READ-4 mutant e, 9/12): the fresh-read's
+// own mutant (e) — deleting ONLY the tap-handler guard at the top of
+// handleUseRecordingTap (RecordPageView.tsx:3255) — left all 54 pre-existing
+// tests GREEN. Every existing FIX ROUND 3/4 test proves runStopFlow's money
+// seal (:3208), which the tap-handler guard does NOT gate — the guard's own,
+// narrower job (its own comment, :3247-3253) is stopping the SUPERSEDE DIALOG
+// from popping open over an in-flight discard. That only has a visible effect
+// when pipeline.state IS 'processing' (not server-owned) — none of the
+// existing tests combine that with an in-flight discard. This is the exact
+// mutant that stayed GREEN on 9/12 13:20; it MUST go red now.
+describe('⚖ the tap-handler guard (LENS mutant e) — supersede dialog never opens mid-discard', () => {
+  it('discard already submitting + a prior take still processing (not server-owned) + 使用 tapped → no supersede dialog, no money', async () => {
+    mockTarget = { customerId: 'cust-A', customerName: 'テスト花子' }
+    recorderTake.takeId = 'take-1'
+    mockDurationMs = 5_000 // under the floor — 破棄 one-taps, no dialog
+    mockPipelineState = 'processing' // a PRIOR take's job still running
+    mockServerOwned = false // the field condition the dialog exists for
+    let releaseDiscard: (v: unknown) => void = () => {}
+    mockDiscardWithReason.mockImplementationOnce(
+      () => new Promise((res) => { releaseDiscard = res }) as never,
+    )
+    await renderPage({
+      ticketsEnabled: true,
+      targetPack: { id: 'p1', remaining: 5, size: 10 }, // auto-redeem mode
+    })
+
+    const discardBtn = screen.getByText('discard')
+    const useBtn = screen.getByText('useRecording')
+    // Same-tick race, no render between the two taps (same idiom as FIX
+    // ROUND 3/4 above): the discard tap sets discardReasonSubmittingRef
+    // .current = true synchronously before its own await, so the 使用 tap
+    // landing in the same tick meets the ref already true, on a button not
+    // yet marked disabled — only the tap-handler's OWN guard can catch this,
+    // not the `disabled` prop (the belt) and not runStopFlow's seal (the
+    // function returns before ever calling runStopFlow).
+    await act(async () => {
+      discardBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      useBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+
+    // THE GUARD'S OWN JOB: the supersede dialog must not pop up over an
+    // in-flight discard, even though pipeline.state IS 'processing' here —
+    // this is what mutant (e) actually breaks.
+    expect(screen.queryByText('supersedeConfirm')).toBeNull()
+    // No money action either (would also be blocked by runStopFlow's own
+    // seal if ever reached — this proves the tap never got that far).
+    expect(mockRedeemSessionAction).not.toHaveBeenCalled()
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+
+    await act(async () => {
+      releaseDiscard({ ok: true, receiptId: 'row-1', duplicate: false })
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+    expect(mockDiscardRecording).toHaveBeenCalledTimes(1)
+  })
+})
+
 // ── 7. A2-2 — the WORDS of a reasoned discard ────────────────────────────
 // ⚖ 8/20: a reasoned discard above the accidental-tap floor keeps what was
 // said, so a manager reads the transcript beside the claim. The property under

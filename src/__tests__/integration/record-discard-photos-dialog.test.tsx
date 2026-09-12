@@ -525,6 +525,34 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     expect(mockToastWarning).toHaveBeenCalledWith('sessionPhotos.uploadsDropped:{"n":1}')
   })
 
+  // C3(a) (lens F-3, 9/12 03:19): the below-floor one-tap and the D3 photos
+  // gate are TWO independent gates on the same 破棄 tap (handleDiscard checks
+  // photos FIRST; the below-floor one-tap lives inside openDiscardReason,
+  // which handleDiscardDeletePhotos calls next) — this is the only test in
+  // either suite that sets a KNOWN below-floor durationMs (5s) while photos
+  // are present. Every existing photos-dialog test above leaves mockResult
+  // null (duration UNKNOWN), so their `reasonGateShown()` assertions hold for
+  // the wrong reason — an unknown duration always shows the dialog, whether
+  // or not the below-floor gate is unconditional. Proves: photos confirm →
+  // ONE discardRecording, TWO photo deletes, NO reason dialog ever opens.
+  it('a take UNDER the floor WITH photos → photos confirm → one discard, N photo deletes, no reason dialog (F-3)', async () => {
+    sessionPhotoStore.photos = [
+      donePhoto({ id: 'a', serverId: 's-a' }),
+      donePhoto({ id: 'b', serverId: 's-b' }),
+    ]
+    mockResult = { blob: new Blob(['x']), mimeType: 'audio/webm', durationMs: 5000 }
+    render(<RecordPageView {...baseProps} />)
+    fireEvent.click(screen.getByText('discard'))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('sessionPhotos.discardPhotosDelete'))
+
+    await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
+    expect(reasonGateShown()).toBe(false)
+    expect(mockDeleteCustomerPhoto).toHaveBeenCalledTimes(2)
+    expect(mockDeleteCustomerPhoto).toHaveBeenCalledWith('cust-A', 's-a')
+    expect(mockDeleteCustomerPhoto).toHaveBeenCalledWith('cust-A', 's-b')
+  })
+
   it('SAVE path with result:null (not yet stopped) never shows the discard-photos dialog', () => {
     sessionPhotoStore.photos = [donePhoto()]
     // ticketsEnabled=false routes useRecording straight to handleUseRecording

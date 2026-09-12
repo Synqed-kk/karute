@@ -212,3 +212,25 @@ describe('recording-labels fix — pinned dictionary strings (ja + en)', () => {
     expect(en.settings.auditLog.recordingStaff).toBe('Staff: {name}')
   })
 })
+
+// C1 (Liam's 9/12 14:0x screenshots): the recording sub-line is a <button
+// class="block truncate ...">, and a WebKit button under display:block does
+// not stretch to its flex container — it grows to content width instead, so
+// `truncate` (overflow:hidden/nowrap/ellipsis) never has anything to clip
+// against. Fix: w-full max-w-full on the same button. Pixel proof (before
+// overflows, after clips) is in evidence/groupc-20260912/c1-*.png — this
+// test pins the computed className at the DOM level so a future edit that
+// drops the width utilities fails loud here, not just visually.
+describe('C1 — recording sub-line button carries w-full max-w-full (overflow fix)', () => {
+  it('the recording-linked sub-line button has block, w-full, max-w-full and truncate together', async () => {
+    const container = await renderWithEvents(
+      [coreEvent({ detail: { customer_id: 'cus-1', had_audio_path: true } })],
+      { [RAW_UUID]: '鈴木 一郎' },
+    )
+    const btn = container.querySelector('button.truncate')
+    expect(btn).not.toBeNull()
+    expect(btn!.className).toEqual(
+      expect.stringContaining('block w-full max-w-full truncate'),
+    )
+  })
+})
