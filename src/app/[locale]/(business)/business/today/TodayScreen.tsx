@@ -168,6 +168,7 @@ import {
   slotStartAt,
   unparkOutcome,
   withPriceFact,
+  withoutAdded,
   foreignStoreRefusal,
   type CalendarWindowDay,
   type GuardRail,
@@ -2429,7 +2430,7 @@ export function TodayScreen(props: TodayProps) {
     return rest
   }, [bedMoves, pendingId])
   const addedWithoutPending = useMemo(
-    () => (pendingId == null ? addedHere : addedHere.filter((a) => a.item.caseId !== pendingId)),
+    () => withoutAdded(addedHere, pendingId),
     [addedHere, pendingId],
   )
   /** THE HEADER CHIP'S NUMBER — gated on `guardOn` ALONE, because the header reads

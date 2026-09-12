@@ -813,6 +813,25 @@ export function calendarMonth(
 
 // ── the board's own state transitions ──────────────────────────────────────
 
+/** ⚖ ROUND BUILD-1 (3) — THE ORIGIN BOARD OF A PLACE-BACK, in one spelling.
+ *
+ *  A card dragged back from 仮置きエリア is an ADMISSION, not a move, so the day
+ *  it is being compared against is this list without that card. The identity is
+ *  `a.item.caseId` — `applyMoves`'s own admission key — and NOT an `id` field,
+ *  which those rows do not carry: spelled inline on the screen, that mistake was
+ *  a silent no-op no suite could see (mutant (d) survived a whole round). Here it
+ *  is one pure line with its own pin.
+ *
+ *  NOTHING IN HAND DROPS NOTHING, spelled rather than inferred: `caseId` on a
+ *  board item is `string | null`, so a bare filter would quietly drop every row
+ *  that never had a case id on the very render where there is no pending card —
+ *  the one shape the screen's old `pendingId == null ? addedHere : …` could not
+ *  get wrong. The pin's own third case asks exactly this. */
+export const withoutAdded = <T extends { item: { caseId: string | null } }>(
+  added: readonly T[],
+  caseId: string | null,
+): T[] => (caseId == null ? added.slice() : added.filter((a) => a.item.caseId !== caseId))
+
 /** The board as it currently stands: the server's lanes, plus staged moves,
  *  minus what is parked, plus what the create dialog added. Everything the sell
  *  layer and the guard checks read goes through here, so a card cannot be in one

@@ -2338,6 +2338,12 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "slotStartAt,",
       "unparkOutcome,",
       "withPriceFact,",
+      // ⚖ ROUND BUILD-1 (2026-09-12) — COUNTED BY A RUN (the list came back with
+      // this one line extra). `withoutAdded` is the shelf place-back's origin
+      // board, lifted off this screen into the engine file so it could be pinned
+      // at all — spelled inline here, filtering on the wrong key was a silent
+      // no-op (mutant (d)). Added, nothing renamed or removed.
+      "withoutAdded,",
       "foreignStoreRefusal,",
       // ⚖ P1 (#890) — the calendar row's own type. A day the roster door has no
       // answer for is a row that says so (`covered: false`), so the row shape is
