@@ -365,6 +365,17 @@ function components(flat: readonly Candidate[]): number[][] {
  *  chip does not count for the length of a gesture. Overlap under-holds the
  *  word for that gesture instead, which is the safe direction.
  *
+ *  HONEST-COUNT ROUND 1 · fix 5 (2026-09-13, Greptile P1 on #904 — live rails)
+ *  — AND ONLY WHILE THE COLLISION IS STILL ON THE BOARD. Mid-gesture the live
+ *  mask already carries the tentative move while `honest` still describes the
+ *  settled board, so a settled shared 枠 demotes a live span only while its
+ *  WINNER (`withLaneKey`, a 枠 OTHER than the one being demoted) still holds an
+ *  overlapping 枠 in the LIVE mask — lift ごろう's 14:30 枠 and あずさ's row gets
+ *  its word back for the gesture. `withLaneKey === ''` (the budget's own
+ *  unfilled 枠, no claimant at all) keeps demoting. The other half — a NEW
+ *  collision the live board CREATES — stays main's word until the drop: seeing
+ *  it needs the per-frame netting ⚖ v3 N4 refuses to pay for.
+ *
  *  IDENTITY WHEN NOTHING IS SHARED — the same array comes back, so the round
  *  gate off is byte-identical to today's board rather than equal-by-inspection. */
 export function demoteShared(
@@ -375,11 +386,17 @@ export function demoteShared(
   const sharedBy = new Map<string, readonly SharedSpan[]>()
   for (const l of honest.byLane) if (l.shared.length > 0) sharedBy.set(l.laneKey, l.shared)
   if (sharedBy.size === 0) return mask
+  const liveSpans = new Map(mask.map((m) => [m.laneKey, m.spans]))
+  /** Is the 枠 that TOOK the room still on this board? One overlap scan of the
+   *  winner's own lane — on the fixture, ごろう's one span, so one test. */
+  const winnerHolds = (h: SharedSpan, self: ReservedSpan) =>
+    h.withLaneKey === '' ||
+    (liveSpans.get(h.withLaneKey) ?? []).some((w) => w !== self && overlaps(w.start, w.end, h.start, h.end))
   let moved = false
   const out = mask.map((m) => {
     const shared = sharedBy.get(m.laneKey)
     if (!shared) return m
-    const kept = m.spans.filter((s) => !shared.some((h) => overlaps(s.start, s.end, h.start, h.end)))
+    const kept = m.spans.filter((s) => !shared.some((h) => overlaps(s.start, s.end, h.start, h.end) && winnerHolds(h, s)))
     if (kept.length === m.spans.length) return m
     moved = true
     return Object.freeze({ laneKey: m.laneKey, spans: Object.freeze(kept), protectedCount: kept.length })
