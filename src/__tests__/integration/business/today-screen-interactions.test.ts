@@ -1973,7 +1973,10 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // dark, `heldCommittedFor`'s `gateOn` false with them. A count of READS was
     // never a count of BINDINGS, so the bindings are banned and the import is
     // the only site left.
-    const GATE_IMPORT = "import { SELLING_ENGINE_LAW } from './selling-engine-gate'"
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 2)
+    // — ONE import line from this module, so the binding site the ban is about
+    // is one line and not two.
+    const GATE_IMPORT = "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'"
     expect({ gateImports: pinnedLines(SRC, GATE_IMPORT) }).toEqual({ gateImports: 1 })
     expect({
       declarations: (CODE.match(/\b(?:const|let|var|function|class|import\s+type)\s+SELLING_ENGINE_LAW\b/g) ?? []).length,
@@ -11568,13 +11571,15 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     "import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'",
     "import { fallbackCellsFor, type FallbackResult } from './fallback-cells'",
     "import { heldCommittedFor } from './held-committed'",
-    // ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — the netting, and its own round gate
-    // on its own line so the pinned `SELLING_ENGINE_LAW` import line stays
-    // byte-identical.
+    // ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — the netting, and its own round gate.
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 2)
+    // — ONE line from `selling-engine-gate`, not two. The round shipped them
+    // split so the pinned `SELLING_ENGINE_LAW` import line would stay
+    // byte-identical; this manifest was edited anyway, so the split bought a
+    // duplicate import line and nothing else.
     "import { demoteShared, heldMaskOf, honestHeld } from './honest-held'",
     "import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'",
-    "import { HONEST_HELD } from './selling-engine-gate'",
-    "import { SELLING_ENGINE_LAW } from './selling-engine-gate'",
+    "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
   ]
 
   /** ⚖ FIX ROUND 3 (BREAKER-828 F1 + F3) — the whole binder, as two lines. */

@@ -727,11 +727,14 @@ describe('1 — the round gate', () => {
     const screen = SRC('TodayScreen.tsx')
     // ONE read, counted over code with comment-led lines blanked (a count that
     // includes prose is a count a decoy inflates — BREAKER-827 F1): the import,
-    // and the single memo it decides. The import specifier is its own line so
-    // the pinned `SELLING_ENGINE_LAW` import line above stays byte-identical.
+    // and the single memo it decides.
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 2)
+    // — and the specifier shares the gate module's ONE import line now. The
+    // count is unchanged at 2: `HONEST_HELD` appears once in the merged import
+    // and once in the memo, exactly as it did across two lines.
     expect([...codeOnly(screen).matchAll(/HONEST_HELD/g)].length).toBe(2)
     for (const line of [
-      "import { HONEST_HELD } from './selling-engine-gate'",
+      "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
       '() => (HONEST_HELD && heldCommitted',
       // ⚖ AND THE MEMO IS A SETTLED-BOARD MEMO. Every name in its dependency
       // list is a settled value; not one of them is `boardLanes`, `ledger` or
@@ -843,7 +846,9 @@ describe('1 — the round gate', () => {
     // out of); `null` for the reason the rail asks `null`, a new client is
     // never the card in hand.
     for (const line of [
-      "import { SELLING_ENGINE_LAW } from './selling-engine-gate'",
+      // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, LENS-1-delta.md MINOR 2) — one
+      // line from this module, shared with `HONEST_HELD`.
+      "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
       'gateOn: SELLING_ENGINE_LAW,',
       // ⚖ FRAME-SEAM (2026-09-12) — THE RAIL'S TWO GATED DOORS TAKE THE HAND'S
       // BOARD. The strip judged every chip on `boardLanes` while the drop judged
@@ -912,7 +917,9 @@ describe('1 — the round gate', () => {
     // 0). So: the import is the ONE binding site, every other binding shape is
     // banned, and the fifth read is pinned as a line inside the memo it decides.
     const CODE = codeOnly(screen)
-    const GATE_IMPORT = "import { SELLING_ENGINE_LAW } from './selling-engine-gate'"
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, LENS-1-delta.md MINOR 2) — the
+    // ONE import line from this module, both specifiers on it.
+    const GATE_IMPORT = "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'"
     expect({ gateImports: pinnedLines(screen, GATE_IMPORT) }).toEqual({ gateImports: 1 })
     expect({
       declarations: (CODE.match(/\b(?:const|let|var|function|class|import\s+type)\s+SELLING_ENGINE_LAW\b/g) ?? []).length,

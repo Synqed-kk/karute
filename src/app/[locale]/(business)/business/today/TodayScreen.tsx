@@ -194,8 +194,7 @@ import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
 import { heldCommittedFor } from './held-committed'
 import { demoteShared, heldMaskOf, honestHeld } from './honest-held'
 import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'
-import { HONEST_HELD } from './selling-engine-gate'
-import { SELLING_ENGINE_LAW } from './selling-engine-gate'
+import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'
 
 const HINT = '見本データのため実行できません'
 
