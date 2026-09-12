@@ -2573,8 +2573,12 @@ export function TodayScreen(props: TodayProps) {
       gapGuardMode: props.guard.mode,
       released: releasedHere,
     })
-    // …and with the gate named, this line is REACHABLE rather than dead:
-    // `heldCommittedFor` answers `undefined` exactly when `gateOn` is false.
+    // HONEST-COUNT ROUND 1 · fix 3 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1b-delta-verify.md MINOR 1)
+    // STILL DEAD, for the same reason as before: `heldCommittedFor` answers
+    // `undefined` exactly when `gateOn` is false, and if the law were off
+    // `honest` would be `undefined` too, so the memo has already returned one
+    // line above. The line is kept only because the answer's type is
+    // `| undefined`; naming the gate did not make it reachable.
     if (!originHeld) return honest
     return honestHeld(
       originHeld.filter((m) => !locked.includes(m.laneKey)),
