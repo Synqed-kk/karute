@@ -166,27 +166,53 @@ function feasible(wins: Array<{ rooms: readonly string[]; start: number; end: nu
   return walk(0, [])
 }
 
+const winKey = (w: { laneKey: string; start: number }) => `${w.laneKey}|${w.start}`
+
 /** The dumbest possible answer: enumerate every assignment of each 枠 to one of
- *  its rooms or to 「unfilled」, keep the legal ones, take the biggest. */
-function bruteForce(wins: Win[]): number {
+ *  its rooms or to 「unfilled」, keep the legal ones, take the biggest.
+ *
+ *  HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW.md H1)
+ *  — …AND WHICH 枠 THOSE ARE. The module's tie-break promises the
+ *  lexicographically EARLIEST maximum-size held set, in the candidate order it
+ *  sorts by — (start, laneKey) — so the oracle answers in that order too and
+ *  names the set, not only its size. A size-only oracle cannot see a search
+ *  that holds the right NUMBER of the wrong rows, which is the defect this
+ *  fix is about. */
+function bruteForce(wins: Win[]): { best: number; earliest: string[] } {
+  // the module's own order (honest-held.ts's `flat.sort`), so 「earliest」 means
+  // the same thing on both sides.
+  const order = [...wins].sort((a, b) => (a.start === b.start ? (a.laneKey < b.laneKey ? -1 : a.laneKey > b.laneKey ? 1 : 0) : a.start - b.start))
   let combos: Array<Array<string | null>> = [[]]
-  for (const w of wins) {
+  for (const w of order) {
     const next: Array<Array<string | null>> = []
     for (const c of combos) for (const r of [null, ...w.rooms]) next.push([...c, r])
     combos = next
   }
+  // first position where one holds and the other does not decides; holding wins.
+  const earlierThan = (a: Array<string | null>, b: Array<string | null>) => {
+    for (let k = 0; k < a.length; k += 1) {
+      if ((a[k] !== null) !== (b[k] !== null)) return a[k] !== null
+    }
+    return false
+  }
   let best = 0
+  let bestVec: Array<string | null> = order.map(() => null)
   for (const c of combos) {
     let ok = true
-    for (let i = 0; i < wins.length && ok; i += 1) {
-      for (let j = i + 1; j < wins.length; j += 1) {
-        if (c[i] !== null && c[i] === c[j] && overlaps(wins[i], wins[j])) { ok = false; break }
+    for (let i = 0; i < order.length && ok; i += 1) {
+      for (let j = i + 1; j < order.length; j += 1) {
+        if (c[i] !== null && c[i] === c[j] && overlaps(order[i], order[j])) { ok = false; break }
       }
     }
-    if (ok) best = Math.max(best, c.filter((x) => x !== null).length)
+    if (!ok) continue
+    const size = c.filter((x) => x !== null).length
+    if (size > best || (size === best && earlierThan(c, bestVec))) { best = size; bestVec = c }
   }
-  return best
+  return { best, earliest: order.filter((_, i) => bestVec[i] !== null).map(winKey) }
 }
+
+/** The 枠 the module actually held, keyed the way the oracle names them. */
+const heldKeys = (h: HonestHeld) => h.byLane.flatMap((l) => l.held.map((s) => winKey({ laneKey: l.laneKey, start: s.windowStart }))).sort()
 
 /** A seeded LCG. `Math.imul` is the whole generator — no dependency, and a
  *  failing seed is printed so the board can be rebuilt by hand. */
@@ -234,10 +260,64 @@ describe('honest-held — against a brute-force oracle', () => {
       const want = bruteForce(wins)
       const roomsOf = new Map(wins.map((w) => [w.laneKey, w.rooms]))
       const held = h.byLane.flatMap((l) => l.held.map((s) => ({ rooms: roomsOf.get(l.laneKey)!, start: s.start, end: s.end })))
-      expect({ seed, total: h.total, exact: h.exact, legal: feasible(held) }).toEqual({ seed, total: want, exact: true, legal: true })
+      expect({ seed, total: h.total, exact: h.exact, legal: feasible(held) }).toEqual({ seed, total: want.best, exact: true, legal: true })
+      // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX H1) — …and it is the
+      // EARLIEST maximum set, not merely one of them. The count alone cannot
+      // see a search that holds the right number of the wrong rows.
+      expect({ seed, held: heldKeys(h) }).toEqual({ seed, held: [...want.earliest].sort() })
       // Nothing is lost on the way out: held + shared is the input, per row.
       expect({ seed, kept: h.byLane.reduce((a, l) => a + l.held.length + l.shared.length, 0) }).toEqual({ seed, kept: wins.length })
     }
+  })
+
+  it('a room a floating 枠 could take is LEFT for the row that has no other — the earliest set of its size wins', () => {
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW.md H1)
+    // Codex's three-row board. あ floats (either room), い can only use ベッド1,
+    // う only ベッド2, and all three overlap — so two is the most the store can
+    // honour, three different ways. Trying rooms in order reaches あ→1, い lost,
+    // う→2 FIRST; the answer the tie-break promises is あ+い, because い starts
+    // before う and the rule is 「the earlier 枠 survives」. Holding the right
+    // NUMBER of the wrong rows is invisible to a count.
+    const rooms = (start: number) => (start === 600 ? ['bed-01', 'bed-02'] : start === 615 ? ['bed-01'] : ['bed-02'])
+    const wins: Win[] = [
+      { laneKey: 'p-01', start: 600, end: 690, rooms: rooms(600) },
+      { laneKey: 'p-02', start: 615, end: 705, rooms: rooms(615) },
+      { laneKey: 'p-03', start: 630, end: 720, rooms: rooms(630) },
+    ]
+    const h = honestHeld(
+      wins.map((w) => maskOf(w.laneKey, [span(w.start, 90)])),
+      wins.map((w) => lane(w.laneKey)),
+      stubBook((start) => rooms(start)),
+      true,
+    )
+    const want = bruteForce(wins)
+    expect({ total: h.total, oracle: want.best, held: heldKeys(h), earliest: want.earliest }).toEqual({
+      total: 2, oracle: 2, held: ['p-01|600', 'p-02|615'], earliest: ['p-01|600', 'p-02|615'],
+    })
+    expect(picture(h).shared).toEqual(['p-03 10:30-12:00→bed-02 with p-01'])
+  })
+
+  it('same size, different set: the 枠 with a second room steps aside for the one without', () => {
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX H1) — the same defect on a
+    // board where the LAST row is the flexible one: あ and う can use either
+    // room, い only ベッド1. Two is the maximum either way; あ+い is the earlier
+    // set and the room-first walk finds あ+う first.
+    const rooms = (start: number) => (start === 615 ? ['bed-01'] : ['bed-01', 'bed-02'])
+    const wins: Win[] = [
+      { laneKey: 'p-01', start: 600, end: 690, rooms: rooms(600) },
+      { laneKey: 'p-02', start: 615, end: 705, rooms: rooms(615) },
+      { laneKey: 'p-03', start: 630, end: 720, rooms: rooms(630) },
+    ]
+    const h = honestHeld(
+      wins.map((w) => maskOf(w.laneKey, [span(w.start, 90)])),
+      wins.map((w) => lane(w.laneKey)),
+      stubBook((start) => rooms(start)),
+      true,
+    )
+    const want = bruteForce(wins)
+    expect({ total: h.total, oracle: want.best, held: heldKeys(h), earliest: want.earliest }).toEqual({
+      total: 2, oracle: 2, held: ['p-01|600', 'p-02|615'], earliest: ['p-01|600', 'p-02|615'],
+    })
   })
 
   it('one lane, two 枠, one room: the earlier is held, the later is shared, and it names the lane itself', () => {

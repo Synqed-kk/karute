@@ -227,13 +227,34 @@ export function honestHeld(
  *  cannot take a room from each other, and the budget then applies to a real
  *  tangle rather than to the size of the day.
  *
- *  TIE-BREAK: among equal-size solutions the EARLIER-starting 枠 is kept. The
- *  search tries rooms before 「unfilled」 at every position in the sorted order,
- *  so the first solution of a given size it reaches is the lexicographically
- *  earliest on 「held beats unfilled」 — and a later equal one never replaces it.
+ *  TIE-BREAK: among equal-size solutions the EARLIER-starting 枠 is kept.
+ *
+ *  HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW.md H1)
+ *  — THE LEAVES ARE COMPARED, not merely the first one reached. Trying rooms
+ *  before 「unfilled」 makes the walk PREFER holding at each position, but which
+ *  ROOM a held 枠 takes decides what the rows after it can still hold, and that
+ *  consequence is not local: on Codex's three-row board (a floating 10:00
+ *  {r1,r2} · b 10:15 {r1} · c 10:30 {r2}) the walk reaches a→r1, b unheld,
+ *  c→r2 first, while a→r2, b→r1 is the same size and the EARLIER held set. So
+ *  every complete leaf of the best size is compared on its held vector in
+ *  candidate order — the first position where one holds and the other does not
+ *  decides — and the bound below is relaxed from `<=` to `<` so an equal-size
+ *  branch is still walked. The node budget still caps the whole thing.
  *  ⚠ IT IS BLIND TO SELLABILITY: a price-0 row's earlier 枠 beats a sellable
  *  row's later one for the same room. Physically honest; a sellability-aware
  *  comparator is one line and it is a product ruling, not this module's. */
+/** Is `a` the earlier held set? Candidate order is the sorted order, so the
+ *  first position where one holds and the other does not decides it, and
+ *  holding beats not holding. Equal vectors are not 「earlier」 — `best` stands. */
+function earlierHeld(a: readonly (string | null)[], b: readonly (string | null)[]): boolean {
+  for (let k = 0; k < a.length; k += 1) {
+    const ah = a[k] !== null
+    const bh = b[k] !== null
+    if (ah !== bh) return ah
+  }
+  return false
+}
+
 function assign(flat: readonly Candidate[]): { room: (string | null)[]; exact: boolean } {
   const room: (string | null)[] = flat.map(() => null)
   let exact = true
@@ -255,14 +276,16 @@ function assign(flat: readonly Candidate[]): { room: (string | null)[]; exact: b
         return
       }
       if (i === part.length) {
-        if (size > bestSize) {
+        if (size > bestSize || (size === bestSize && earlierHeld(picked, best))) {
           bestSize = size
           for (let k = 0; k < picked.length; k += 1) best[k] = picked[k]
         }
         return
       }
-      // The bound: even holding everything left cannot beat what we have.
-      if (size + (part.length - i) <= bestSize) return
+      // The bound: even holding everything left cannot MATCH what we have.
+      // `<` and not `<=`: an equal-size branch may still hold an earlier set
+      // (see the tie-break note above), so it is walked rather than pruned.
+      if (size + (part.length - i) < bestSize) return
       const c = flat[part[i]]
       for (const r of c.rooms) {
         if ((lastEnd.get(r) ?? -1) > c.span.start) continue
