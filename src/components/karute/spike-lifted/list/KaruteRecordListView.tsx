@@ -110,6 +110,8 @@ const FILTER_KEYS: KaruteListFilter[] = [
   'discarded',
 ]
 
+const isActiveKarute = (item: KaruteListItem) => !item.isDiscarded
+
 /**
  * THE 今週 lens — ONE home for the last-7-days rule (⚖ Liam 8/25, overturning
  * PR-2c's server-count line: **the 今週 pill counts exactly the rows its tap
@@ -854,12 +856,15 @@ export function KaruteRecordListView({
   // null (storeTotal unknown, or month view below) → SegmentedFilterBar renders
   // that pill's LABEL ALONE. A count that can't be true is dropped, not guessed.
   const counts = useMemo(() => {
+    const activeItems = allItems.filter(isActiveKarute)
+    const countStatus = (status: KaruteListItem['aiStatus']) =>
+      activeItems.filter((i) => i.aiStatus === status).length
     return {
       all: storeTotal,
-      thisWeek: allItems.filter((i) => !i.isDiscarded && isThisWeek(i, weekCutoff)).length,
-      aiPending: allItems.filter((i) => !i.isDiscarded && i.aiStatus === 'pending').length,
-      needsReview: allItems.filter((i) => !i.isDiscarded && i.aiStatus === 'needsReview').length,
-      draft: allItems.filter((i) => !i.isDiscarded && i.aiStatus === 'draft').length,
+      thisWeek: activeItems.filter((i) => isThisWeek(i, weekCutoff)).length,
+      aiPending: countStatus('pending'),
+      needsReview: countStatus('needsReview'),
+      draft: countStatus('draft'),
       discarded: storeDiscardedCount,
     } satisfies Record<KaruteListFilter, number | null>
   }, [allItems, storeTotal, storeDiscardedCount, weekCutoff])
@@ -891,13 +896,13 @@ export function KaruteRecordListView({
     // the ⚖ ruling (thisWeekCutoffYmd). The second copy of this arithmetic that
     // used to live here is gone.
     if (filter === 'discarded') result = result.filter((i) => i.isDiscarded)
-    else if (filter === 'thisWeek') result = result.filter((i) => !i.isDiscarded && isThisWeek(i, weekCutoff))
-    else if (filter === 'aiPending')
-      result = result.filter((i) => !i.isDiscarded && i.aiStatus === 'pending')
-    else if (filter === 'needsReview')
-      result = result.filter((i) => !i.isDiscarded && i.aiStatus === 'needsReview')
-    else if (filter === 'draft')
-      result = result.filter((i) => !i.isDiscarded && i.aiStatus === 'draft')
+    else if (filter !== 'all') {
+      result = result.filter(isActiveKarute)
+      if (filter === 'thisWeek') result = result.filter((i) => isThisWeek(i, weekCutoff))
+      else if (filter === 'aiPending') result = result.filter((i) => i.aiStatus === 'pending')
+      else if (filter === 'needsReview') result = result.filter((i) => i.aiStatus === 'needsReview')
+      else if (filter === 'draft') result = result.filter((i) => i.aiStatus === 'draft')
+    }
 
     const q = searchQuery.trim().toLowerCase()
     if (q) {

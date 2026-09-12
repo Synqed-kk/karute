@@ -37,13 +37,10 @@ describe('discarded Karute row', () => {
     const { container } = render(<KaruteListRow item={{ ...item, isDiscarded: true }} />)
 
     expect(screen.getByText('山田 花子')).toBeInTheDocument()
-    expect(screen.getAllByText('discarded').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('filters.discarded').length).toBeGreaterThan(0)
     expect(screen.queryByText(item.summary)).not.toBeInTheDocument()
     expect(container.querySelector('a')).toBeNull()
-    expect(container.querySelector('[aria-disabled="true"]')).toHaveAttribute(
-      'data-status',
-      'discarded',
-    )
+    expect(container.firstElementChild).toHaveClass('opacity-70')
   })
 
   it('keeps an ordinary record navigable', () => {

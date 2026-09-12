@@ -35,11 +35,10 @@ interface Props {
 export function KaruteListRow({ item }: Props) {
   const t = useTranslations('karute.recordList')
   const staffColor = getStaffColorByKey(item.staffColorKey)
+  const active = !item.isDiscarded
   const rowClassName = cn(
-    'group relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 transition-colors last:border-b-0 dark:border-white/5 md:gap-4',
-    item.isDiscarded
-      ? 'cursor-default bg-muted/35 text-muted-foreground opacity-70 grayscale'
-      : 'hover:bg-muted/30 active:bg-muted/50',
+    'relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 last:border-b-0 dark:border-white/5 md:gap-4',
+    active ? 'hover:bg-muted/30 active:bg-muted/50' : 'opacity-70',
   )
 
   const content = (
@@ -93,7 +92,7 @@ export function KaruteListRow({ item }: Props) {
            *  Suppressed for placeholders — a customer with no karute yet has
            *  nothing drafted (下書き) and no conversion to resolve (仮カルテ);
            *  those chips would misread as "session in progress". */}
-          {!item.isPlaceholder && !item.isDiscarded && (
+          {!item.isPlaceholder && active && (
             <span className="ml-auto flex shrink-0 items-center gap-1 md:hidden">
               <ConversionChip status={item.conversionStatus} />
               <AiChip status={item.aiStatus} />
@@ -103,7 +102,7 @@ export function KaruteListRow({ item }: Props) {
 
         {/* Line 2 — summary (truncate) */}
         <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-          {item.isDiscarded ? t('discarded') : item.summary || '—'}
+          {active ? item.summary || '—' : t('filters.discarded')}
         </p>
 
         {/* Line 3 (mobile) — service + duration + staff */}
@@ -152,7 +151,7 @@ export function KaruteListRow({ item }: Props) {
       </div>
 
       {/* Status chips (desktop) — suppressed for placeholders; see mobile note. */}
-      {!item.isPlaceholder && !item.isDiscarded && (
+      {!item.isPlaceholder && active && (
         <div className="hidden shrink-0 items-center gap-1 md:flex">
           <ConversionChip status={item.conversionStatus} />
           <AiChip status={item.aiStatus} />
@@ -161,9 +160,9 @@ export function KaruteListRow({ item }: Props) {
     </>
   )
 
-  if (item.isDiscarded) {
+  if (!active) {
     return (
-      <div className={rowClassName} aria-disabled="true" data-status="discarded">
+      <div className={rowClassName} aria-disabled="true">
         {content}
       </div>
     )
