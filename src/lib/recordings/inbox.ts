@@ -308,6 +308,16 @@ export interface InboxRow {
    *  trusted for a never-backfill decision. The card renders the door ONLY
    *  when this is true; never computed from a render-time clock. */
   sameDay: boolean
+  /** UPDATE 25 GROUP A, FIX ROUND, F4. ONE flag instead of matching on a
+   *  reason string (this file's own law, above) — set on piece r's take row
+   *  AND on a d3 row for a take whose secure attempt was terminally refused,
+   *  so the page's save door (RecordPageView) can branch on the same ground
+   *  for BOTH: a d3 row is just a refusal whose session the server also never
+   *  returned, and it must detach before promoting exactly like piece r's row
+   *  does, or its save reaches the same F1 overwrite. Optional/nullish, the
+   *  `probeIncomplete?` idiom — absent = not terminal, true on every row
+   *  before this field existed. */
+  secureTerminal?: true
 }
 
 /** The states that mean a human still owes this recording something AND can
@@ -441,6 +451,8 @@ export function deriveInboxRows(input: {
           durationSeconds: takeDuration(take),
           canRetry: false,
           sameDay: false,
+          // FIX ROUND F4 — the page branches on this, not on the reason string.
+          secureTerminal: true,
         })
         continue
       }
@@ -589,6 +601,10 @@ export function deriveInboxRows(input: {
       durationSeconds: takeDuration(take),
       canRetry: false,
       sameDay: false,
+      // FIX ROUND F4 — a d3 row for a take terminally refused because its
+      // (unlisted) session already holds a karute must detach exactly like
+      // piece r's row, or its save reaches the same F1 overwrite.
+      secureTerminal: take.secureTerminal ? true : undefined,
     })
   }
 

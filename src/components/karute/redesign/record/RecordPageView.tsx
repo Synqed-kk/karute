@@ -2116,14 +2116,36 @@ export function RecordPageView({
       // keeps the stale refused session, skips the fresh mint, and the save
       // lands back in F1's overwrite path — the exact double-write this piece
       // exists to prevent.
-      if (row.reason === 'refusedHasRecord') {
-        await detachTakeFromRecordedSession(wanted)
+      //
+      // FIX ROUND (blockers 1 + F4). Branches on the ROW FLAG (inbox.ts's own
+      // law against matching a write decision on a reason string), not
+      // `row.reason === 'refusedHasRecord'` — a d3 row for a terminal-refused
+      // take whose session went unlisted must detach too, or its save reaches
+      // the same overwrite. And the detach's OWN answer decides whether the
+      // save may continue: `false` means the take was NOT written (signed out
+      // in another tab, the store gone, refused by `when`), so the re-read
+      // below could still hand back the stale refused session — exactly the
+      // silent overwrite this piece exists to prevent.
+      if (row.secureTerminal) {
+        if (!(await detachTakeFromRecordedSession(wanted))) {
+          toast.error(t('recoverSaveFailed'))
+          void loadInbox()
+          return
+        }
       }
       // Re-read rather than trusting the rendered row: the take may have been
       // saved or swept since the list was folded, and offering audio that is
       // gone is exactly the lie this feature exists to end.
       const take = (await listOwnTakes()).find((tk) => tk.takeId === wanted)
       if (!take) {
+        void loadInbox()
+        return
+      }
+      // Belt-and-braces: a take we just detached must carry NO session. If it
+      // still does, the store and the page disagree about what happened here,
+      // and saving would risk the same F1 overwrite — refuse rather than trust
+      // it, and let the next fold show the true state.
+      if (row.secureTerminal && take.recordingSessionId) {
         void loadInbox()
         return
       }

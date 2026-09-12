@@ -1011,6 +1011,36 @@ describe('録音履歴 — d3: the session was never listed', () => {
     expect(rows).toHaveLength(0)
   })
 
+  // FIX ROUND F4 — a d3 row for a secureTerminal take carries the same flag
+  // piece r's row does, so the page can detach on ONE test (row.secureTerminal),
+  // never on the reason string. Absent on an ordinary d3 row.
+  it('a d3 row for a secureTerminal take carries secureTerminal: true — an ordinary one does not', () => {
+    const [terminalRow] = fold(
+      [],
+      [
+        take({
+          takeId: 't1',
+          recordingSessionId: 'sess-ghost-1',
+          startedAt: NOW - SESSION_UNSETTLED_GRACE_MS - MIN,
+          secureTerminal: true,
+        }),
+      ],
+    )
+    expect(terminalRow.secureTerminal).toBe(true)
+
+    const [ordinaryRow] = fold(
+      [],
+      [
+        take({
+          takeId: 't2',
+          recordingSessionId: 'sess-ghost-2',
+          startedAt: NOW - SESSION_UNSETTLED_GRACE_MS - MIN,
+        }),
+      ],
+    )
+    expect(ordinaryRow.secureTerminal).toBeUndefined()
+  })
+
   // MUTANT anchor: removing the d3 loop drops this row to zero — see the
   // build report's RED-then-restored capture.
 })
@@ -1038,6 +1068,8 @@ describe('録音履歴 — r: the refused take, session already has a karute', (
     expect(takeRow.karuteRecordId).toBeNull()
     expect(takeRow.canRetry).toBe(false)
     expect(needsAttention(takeRow)).toBe(true)
+    // FIX ROUND F4 — the page branches on this flag, never on the reason string.
+    expect(takeRow.secureTerminal).toBe(true)
     // Same 要対応 total as if the take had simply been 確認待ち: one row that counts.
     expect(countNeedsAttention(rows)).toBe(1)
   })

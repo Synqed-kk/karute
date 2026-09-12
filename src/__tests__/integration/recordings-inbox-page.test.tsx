@@ -159,7 +159,16 @@ jest.mock('@/lib/karute/take-store', () => ({
   stampTakeSession: jest.fn(),
   stampTakeOutcome: jest.fn(async () => {}),
   readTakeOutcome: jest.fn(async () => null),
-  listOwnTakes: jest.fn(async () => [...stored].sort((a, b) => b.startedAt - a.startedAt)),
+  // FIX ROUND B2 — copy the OBJECTS, not just the array. The detach mock
+  // above mutates `held.recordingSessionId` on the stored object directly; a
+  // shallow `[...stored]` hands the re-read that SAME object, so "detach
+  // before the re-read" and "detach after it" become indistinguishable. The
+  // real listOwnTakes reads fresh rows out of IndexedDB, where the order
+  // genuinely matters — this makes the mock behave like the store it stands
+  // in for.
+  listOwnTakes: jest.fn(async () =>
+    stored.map((t) => ({ ...t })).sort((a, b) => b.startedAt - a.startedAt),
+  ),
   // The BANNER stays out of the way in this suite — every assertion here is
   // about the inbox rows, and the banner has its own suite.
   listOwnStoppedUnsecuredTakeIds: jest.fn(async () => []),
@@ -1426,4 +1435,78 @@ describe('録音履歴 — r: the refused take is re-offered without overwriting
   // MUTANT anchor: skipping the detach call (or moving it after the :2099
   // re-read) leaves `context.recordingSessionId` as the STALE 'sess-a' —
   // see the build report's RED-then-restored capture.
+
+  // FIX ROUND, blocker 1 — the detach's OWN answer decides whether the save
+  // may continue. `false` covers every reason the write did not land (signed
+  // out in another tab, the store gone, refused by `when`); the caller must
+  // not fall through to the re-read as though it had.
+  it('a FAILED detach never starts the pipeline — it toasts recoverSaveFailed and reloads instead', async () => {
+    serverSessions = [session({ recordingSessionId: 'sess-a', karuteRecordId: 'rec-other' })]
+    stored = [take({ takeId: 't1', recordingSessionId: 'sess-a', secureError: 'reserved_elsewhere' })]
+    await renderPage()
+    mockDetachTakeFromRecordedSession.mockResolvedValueOnce(false)
+
+    const refusedRow = row('take:t1')
+    await act(async () => {
+      fireEvent.click(within(refusedRow).getByText('recording.inbox.action.save'))
+    })
+    await flush(20)
+
+    expect(mockDetachTakeFromRecordedSession).toHaveBeenCalledWith('t1')
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { toast } = require('sonner') as { toast: { error: jest.Mock } }
+    expect(toast.error).toHaveBeenCalledWith('recording.recoverSaveFailed')
+  })
+
+  // MUTANT anchor: dropping the `if (!(await detach…)) { … return }` guard
+  // lets the save fall through on a failed detach — RED on this test (the
+  // stale session still reaches the mint check and the pipeline starts) — see
+  // the report's RED-then-restored capture.
+
+  // FIX ROUND, F4 — a d3 row (the take's session is UNLISTED, not merely
+  // refused-with-a-record) for a terminally-refused take must detach exactly
+  // like piece r's row: the page branches on `row.secureTerminal`, never on
+  // `row.reason`, so `sessionUnlisted` reaches the same door as
+  // `refusedHasRecord`.
+  it('保存する on a sessionUnlisted row whose take is secureTerminal ALSO detaches before promoting', async () => {
+    const recorder = jest.requireMock('@/lib/global-recorder') as {
+      globalRecorder: { retryRecordingSessionMint: jest.Mock }
+    }
+    recorder.globalRecorder.retryRecordingSessionMint.mockResolvedValue('sess-fresh')
+
+    // No server session at all for 'sess-b' — the take's session was never
+    // returned, so it folds through d3, not through piece r's session loop.
+    serverSessions = []
+    stored = [
+      take({
+        takeId: 't2',
+        recordingSessionId: 'sess-b',
+        secureError: 'reserved_elsewhere',
+        startedAt: NOW - 4 * 60 * MIN, // past SESSION_UNSETTLED_GRACE_MS (3h)
+      }),
+    ]
+    await renderPage()
+
+    const d3Row = row('take:t2')
+    expect(d3Row.dataset.state).toBe('recoverable')
+
+    await act(async () => {
+      fireEvent.click(within(d3Row).getByText('recording.inbox.action.save'))
+    })
+    await flush(20)
+
+    expect(mockDetachTakeFromRecordedSession).toHaveBeenCalledWith('t2')
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+    const [, context] = mockPipelineStart.mock.calls[0] as [
+      Blob,
+      { recordingSessionId?: string | null; takeId: string },
+    ]
+    expect(context.recordingSessionId).toBe('sess-fresh')
+  })
+
+  // MUTANT anchor: branching on `row.reason === 'refusedHasRecord'` again (as
+  // opposed to `row.secureTerminal`) leaves this d3-terminal row undetached —
+  // RED on this test (context.recordingSessionId stays the stale 'sess-b') —
+  // see the report's RED-then-restored capture.
 })
