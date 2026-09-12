@@ -847,7 +847,9 @@
       "confirm": "Discard",
       "submitting": "Discarding...",
       "failed": "Could not record the discard. Please try again.",
-      "takeChanged": "This recording has already gone to transcription, so it could not be discarded."
+      "takeChanged": "This recording has already gone to transcription, so it could not be discarded.",
+      "autoReasonBelowFloor": "Accidental tap (under {n} seconds — recorded automatically)",
+      "oneTapDone": "Recording discarded. A discard record (date/time, staff) is kept."
     }
   },
   "customers": {
@@ -2337,7 +2339,7 @@
       "empty": "No discards have been recorded yet.",
       "truncated": "Older records are not shown — there are too many to list.",
       "detailTruncated": "Details could not be loaded for some records.",
-      "reasonLabel": "Reason (written by the staff member)",
+      "reasonLabel": "Reason",
       "transcriptShow": "Show the transcript",
       "transcriptHide": "Hide the transcript",
       "transcriptMinutes": "{n} min",

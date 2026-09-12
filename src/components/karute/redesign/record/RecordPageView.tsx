@@ -1072,8 +1072,20 @@ export function RecordPageView({
   // Ordering (⚖ 8/17 / packet P5-A A-2): the photos confirm still comes first
   // where it applies — it decides what happens to the PHOTOS — and this dialog
   // is always LAST, the final commitment gate for the discard itself.
+  // ⚖ 9/12: under the accidental-tap floor the gate still commits, but the
+  // dialog itself is skipped — the app supplies the reason, the same reason
+  // row + receipt land, and the dialog opens only if that one-tap attempt
+  // fails (the fallback surface, never a second decision site).
 
-  function openDiscardReason(origin: 'recorder' | 'review' | 'pipeline-error' | 'banner') {
+  async function openDiscardReason(origin: 'recorder' | 'review' | 'pipeline-error' | 'banner') {
+    // ⚖ FIX ROUND 2 (F2): checked BEFORE the latches below, not after. A
+    // second tap while a confirm (dialog or one-tap) is already submitting
+    // must bail out doing NOTHING — re-writing discardIntentRef /
+    // bannerDiscardSnapshotRef against whatever the live take/offer has
+    // become by then would re-latch onto a NEW subject and defeat the very
+    // takeChanged guard those latches exist to prove. Same guard
+    // cancelDiscardReason already has; the dialog path gains it here too.
+    if (discardReasonSubmittingRef.current) return
     // Latch WHICH take this gate is for, at the moment it opens. Only the
     // recorder chokepoint can race 使用 — the review take was handed to the
     // pipeline long before, so there is nothing left to invalidate there.
@@ -1091,6 +1103,57 @@ export function RecordPageView({
             durationSec: offerDurationSec,
           }
         : null
+
+    // ⚖ 9/12 ONE-TAP: a take under BELOW_FLOOR_SEC skips the dialog entirely.
+    // Read AFTER the latches above — they are what makes runDiscardWithReason's
+    // takeChanged guards work, on this path exactly as on the dialog's.
+    // ⚖ FIX ROUND 2 (F1): recorder + banner ONLY. review and pipeline-error
+    // keep the dialog ALWAYS, at any duration — their dialog IS the fence
+    // that keeps ReviewScreen's 保存 (a second save writer the reverse guard
+    // never covers) from filing a karute while this discard is still in
+    // flight; a one-tap would unmount that fence for a below-floor take.
+    // ⚖ FIX ROUND 1: unknown length is not "under 10 s" — the dialog asks.
+    // `ctx: null` — only recorder/banner ever reach this gate (F1), and
+    // neither reads `ctx`; `bannerSnap` is the ref this function's own latch
+    // above JUST set, captured here, at open, matching F7's rule.
+    const oneTapDurationSec = discardSubjectDurationSec(origin, {
+      ctx: null,
+      bannerSnap: bannerDiscardSnapshotRef.current,
+    })
+    if (
+      (origin === 'recorder' || origin === 'banner') &&
+      oneTapDurationSec !== null &&
+      oneTapDurationSec < BELOW_FLOOR_SEC
+    ) {
+      discardReasonSubmittingRef.current = true
+      setDiscardReasonSubmitting(true)
+      setDiscardReasonError(null)
+      try {
+        // ⚖ FIX ROUND 2 (F4): { n: BELOW_FLOOR_SEC }, never a second literal
+        // 10 baked into the stored text — same pattern as the sibling
+        // transcriptBelowFloor (DiscardReasonsSection.tsx).
+        const outcome = await runDiscardWithReason(
+          origin,
+          t('discardReason.autoReasonBelowFloor', { n: BELOW_FLOOR_SEC }),
+        )
+        if (outcome === 'ok') {
+          toast.success(t('discardReason.oneTapDone'))
+        } else {
+          // Fails closed like the dialog does: nothing was discarded, so the
+          // dialog opens as the fallback — same error, empty reason field, the
+          // staff member's normal retry/cancel.
+          setDiscardReasonError(
+            outcome === 'takeChanged' ? t('discardReason.takeChanged') : t('discardReason.failed'),
+          )
+          setDiscardReasonFor(origin)
+        }
+      } finally {
+        discardReasonSubmittingRef.current = false
+        setDiscardReasonSubmitting(false)
+      }
+      return
+    }
+
     setDiscardReasonError(null)
     setDiscardReasonFor(origin)
   }
@@ -1105,23 +1168,60 @@ export function RecordPageView({
     setDiscardReasonError(null)
   }
 
+  /** ⚖ 9/12 — ONE HOME for "how long was this take". Feeds both the one-tap
+   *  gate (openDiscardReason) and the receipt payload below — the same
+   *  number, so the UI's decision and the server's own below_floor flag
+   *  (discard.ts) can never disagree.
+   *
+   *  ⚖ FIX ROUND 2 (F7): pure over `captured` — the ctx-keyed origins
+   *  (review/pipeline-error) and the banner read whatever `ctx`/`bannerSnap`
+   *  the CALLER captured, never `globalPipeline.context` /
+   *  `bannerDiscardSnapshotRef.current` live. `globalPipeline.context` is a
+   *  getter on a mutable singleton — reading it fresh a second time, after
+   *  an await, could return a different value than the pre-await read the
+   *  rest of this function already relies on (the "live singleton across
+   *  awaits" rule this file otherwise obeys everywhere else actually means:
+   *  capture ONCE, reuse the capture). The recorder keys on the hook's
+   *  `result`, which is already a stable render-closure value with no such
+   *  risk, so it still reads directly.
+   */
+  function discardSubjectDurationSec(
+    origin: 'recorder' | 'review' | 'pipeline-error' | 'banner',
+    captured: { ctx: { duration?: number } | null; bannerSnap: { durationSec: number } | null },
+  ): number | null {
+    // ⚖ 9/12 FIX ROUND 1: `null` for an UNKNOWN duration (never `0`) — 0 would
+    // read as "under the floor" and file the auto reason for a take that may
+    // be an hour long. The receipt's own `durationSeconds` keeps its existing
+    // `?? 0` fallback (unchanged, server-side behaviour); only this gate's
+    // decision needs to tell "unknown" apart from "short".
+    if (origin === 'review' || origin === 'pipeline-error') {
+      return captured.ctx?.duration ?? null
+    }
+    if (origin === 'banner') return captured.bannerSnap?.durationSec ?? null
+    return result ? result.durationMs / 1000 : null
+  }
+
   /**
-   * The one confirm handler for every chokepoint.
+   * The one discard body for every chokepoint (⚖ 9/12 extract, behaviour-
+   * neutral off the prior confirmDiscardReason): confirmDiscardReason below is
+   * now a thin wrapper around this, and openDiscardReason's one-tap branch
+   * (under the accidental-tap floor) calls it directly, with no dialog ever
+   * mounting. Takes `origin` as a parameter rather than reading
+   * `discardReasonFor` state, since the one-tap caller never sets that state.
    *
    * FAILS CLOSED, deliberately. A deliberate discard is the one recording
    * event that leaves no trace anywhere else, so if the trace cannot be
    * written — no session id to key the reason row on, or core refusing the row
    * or the receipt — the discard does NOT happen. The take stays exactly where
-   * it was, the typed reason stays in the field, and the staff member can
-   * retry or cancel. Both server steps are idempotent, so a retry never files
+   * it was; the CALLER decides what the staff member sees for a non-'ok'
+   * outcome (an already-open dialog's inline error, or the dialog opening for
+   * the first time). Both server steps are idempotent, so a retry never files
    * anything twice.
    */
-  async function confirmDiscardReason(reason: string) {
-    const origin = discardReasonFor
-    if (!origin || discardReasonSubmittingRef.current) return
-    discardReasonSubmittingRef.current = true
-    setDiscardReasonSubmitting(true)
-    setDiscardReasonError(null)
+  async function runDiscardWithReason(
+    origin: 'recorder' | 'review' | 'pipeline-error' | 'banner',
+    reason: string,
+  ): Promise<'ok' | 'failed' | 'takeChanged'> {
     try {
       // A banner gate with no frozen snapshot must fail closed HERE — never
       // fall through to the recorder arm below, which would act on the LIVE
@@ -1132,8 +1232,7 @@ export function RecordPageView({
       // closure), but a wrong-subject fall-through is exactly what every
       // other latch in this function guards against.
       if (origin === 'banner' && !bannerDiscardSnapshotRef.current) {
-        setDiscardReasonError(t('discardReason.failed'))
-        return
+        return 'failed'
       }
       // Line-audit BLOCKER-2: the auto-finish effect can start a recovery
       // save with NO tap at all, and this dialog outlives the banner (it
@@ -1171,8 +1270,7 @@ export function RecordPageView({
         (recoverySavingRef.current ||
           recoveredTake?.takeId !== bannerDiscardSnapshotRef.current?.takeId)
       ) {
-        setDiscardReasonError(t('discardReason.takeChanged'))
-        return
+        return 'takeChanged'
       }
       // Live singleton, not the render snapshot — same rule the rest of this
       // component follows for anything read across an await.
@@ -1216,8 +1314,7 @@ export function RecordPageView({
             : await globalRecorder.retryRecordingSessionMint()
       }
       if (!recordingSessionId) {
-        setDiscardReasonError(t('discardReason.failed'))
-        return
+        return 'failed'
       }
       // The take must still be the one this gate was opened for. If 使用 won the
       // race while the dialog was open, that take is already in transcription —
@@ -1229,19 +1326,22 @@ export function RecordPageView({
       // value nothing checked.
       const liveTakeId = globalRecorder.takeId
       if (origin === 'recorder' && liveTakeId !== discardIntentRef.current?.takeId) {
-        setDiscardReasonError(t('discardReason.takeChanged'))
-        return
+        return 'takeChanged'
       }
       const res = await discardRecordingWithReason({
         recordingSessionId,
         takeId:
           (ctxKeyed ? ctx?.takeId : bannerSnap ? bannerSnap.takeId : liveTakeId) ?? null,
         reason,
-        durationSeconds: ctxKeyed
-          ? (ctx?.duration ?? 0)
-          : bannerSnap
-            ? bannerSnap.durationSec
-            : (result?.durationMs ?? 0) / 1000,
+        // `?? 0`: the receipt's own fallback, unchanged from before the one-tap
+        // gate existed — the server flags an unknown/zero duration below_floor
+        // on its own account. This is a pre-existing fact about the receipt,
+        // not this gate's decision (which now tells "unknown" apart from
+        // "short" — see discardSubjectDurationSec).
+        // ⚖ FIX ROUND 2 (F7): `{ ctx, bannerSnap }` — the SAME pre-await
+        // captures a few lines above, never a fresh live read here after the
+        // mint/retry awaits.
+        durationSeconds: discardSubjectDurationSec(origin, { ctx, bannerSnap }) ?? 0,
         // `|| null`: a walk-in target carries id='' — the same coercion the
         // save binding does, so the receipt records null rather than ''.
         customerId:
@@ -1260,8 +1360,7 @@ export function RecordPageView({
         jobState: null,
       })
       if (!res.ok) {
-        setDiscardReasonError(t('discardReason.failed'))
-        return
+        return 'failed'
       }
       // The review arm closes its own dialog, in its tail — see below. Every
       // other arm keeps the close-then-act order it always had.
@@ -1445,6 +1544,34 @@ export function RecordPageView({
       // sets null for all three — so this is a no-op there, kept on the
       // shared line so the arms cannot drift.)
       discardIntentRef.current = null
+      return 'ok'
+    } catch (err) {
+      // ⚖ FIX ROUND 2 (F3): a THROWN action (network drop, a rejected
+      // server action) is a failure, not an unhandled rejection — ONE home,
+      // so both callers (the dialog's confirm and the one-tap gate) get the
+      // same fallback the dialog already has for an ordinary {ok:false}
+      // refusal. Ids only, never the reason text or anything customer-named.
+      console.warn(JSON.stringify({ evt: 'discard_run_failed', origin, err: String(err) }))
+      return 'failed'
+    }
+  }
+
+  /**
+   * confirmDiscardReason — the dialog's own confirm handler. Thin wrapper
+   * around runDiscardWithReason (⚖ 9/12 extract): reads `discardReasonFor`
+   * for the origin, owns the submitting ref/state exactly as before, and maps
+   * a non-'ok' outcome to the same inline error the dialog has always shown.
+   */
+  async function confirmDiscardReason(reason: string) {
+    const origin = discardReasonFor
+    if (!origin || discardReasonSubmittingRef.current) return
+    discardReasonSubmittingRef.current = true
+    setDiscardReasonSubmitting(true)
+    setDiscardReasonError(null)
+    try {
+      const outcome = await runDiscardWithReason(origin, reason)
+      if (outcome === 'failed') setDiscardReasonError(t('discardReason.failed'))
+      else if (outcome === 'takeChanged') setDiscardReasonError(t('discardReason.takeChanged'))
     } finally {
       discardReasonSubmittingRef.current = false
       setDiscardReasonSubmitting(false)
@@ -3069,6 +3196,16 @@ export function RecordPageView({
 
   // Which flow the 録音を使用 tap runs, once it's cleared to run at all.
   function runStopFlow() {
+    // ⚖ FIX ROUND 4: THE money seal, in its one home. Every route to a paid
+    // side effect from a live take passes through here — handleAutoFlow's
+    // redeemSessionAction (:3050, called only from the auto-redeem branch
+    // below) and openOutcomeDialog's own eventual redeemSessionAction
+    // (:3673, reached only via the dialog branch below) — so guarding here
+    // covers both. This is NOT reached only from handleUseRecordingTap's
+    // guarded branch: the supersede dialog's confirm button (:4023) calls
+    // runStopFlow() directly, which is exactly the second route fix round 3
+    // missed and fix round 4 closes.
+    if (discardReasonSubmittingRef.current) return
     // Tickets off OR the pack data on screen isn't this session's customer
     // (mismatch/anonymous): straight save — no burn, no 成約/回数券 dialog
     // (resolveStopFlow's contract).
@@ -3105,6 +3242,17 @@ export function RecordPageView({
   // the dialog-hygiene effect above has to span 'autosaving' too (fix round 6)
   // — narrower, it clears the flag this tap just set.
   function handleUseRecordingTap() {
+    // ⚖ FIX ROUND 3, corrected FIX ROUND 4 (Greptile P1 + the money seal
+    // moved to its one home, runStopFlow): this guard's job here is narrower
+    // than fix round 3 claimed — it stops the SUPERSEDE DIALOG from opening
+    // mid-discard (setShowSupersedeDialog(true) is written only at the two
+    // lines below, both inside this function). It does NOT, by itself, seal
+    // every route to a paid side effect: the supersede dialog's own confirm
+    // button (:4023, below) calls runStopFlow() directly, bypassing this
+    // function entirely — that is why the real money seal now lives at the
+    // top of runStopFlow instead. Kept here anyway: a discard-in-flight tap
+    // must not pop a dialog on top of it either.
+    if (discardReasonSubmittingRef.current) return
     if (pipeline.state === 'processing') {
       // The old run survives server-side — say so, don't ask.
       if (globalPipeline.serverOwned) toast.info(t('supersedeServerNotice'))
@@ -3153,7 +3301,10 @@ export function RecordPageView({
             // Belt: visual only, state-driven (resolvingOutcome only spans the
             // pack/redeem write, not the whole post-resolve window) — the real
             // guard is outcomeResolvedRef inside openOutcomeDialog.
-            disabled={resolvingOutcome}
+            // ⚖ FIX ROUND 3: discardReasonSubmitting (state, for render) backs
+            // the ref guard at the top of handleUseRecordingTap (logic) — a
+            // tap that lands before the re-render is still caught there.
+            disabled={discardReasonSubmitting || resolvingOutcome}
             onClick={handleUseRecordingTap}
           >
             {t('useRecording')}
@@ -3863,6 +4014,10 @@ export function RecordPageView({
                 variant="default"
                 size="md"
                 className="flex-1"
+                // ⚖ FIX ROUND 4: belt-and-braces twin of the 使用 button — the
+                // real seal is runStopFlow's own guard (this onClick calls it
+                // directly), this is the visible half.
+                disabled={discardReasonSubmitting}
                 onClick={() => {
                   setShowSupersedeDialog(false)
                   runStopFlow()
