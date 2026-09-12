@@ -605,47 +605,50 @@ export function deriveInboxRows(input: {
   // "not complete" for this purpose — the fold cannot tell which unlisted
   // session it would have implicated.
   //
-  // FIX ROUND 2 (Greptile issue 1) — A FAILED READ IS NOT EVIDENCE EITHER. An
-  // outage that threw before ANY session came back looks, to `takeBySession`,
-  // identical to a server that genuinely listed nothing for these takes — so
-  // without `serverReadFailed` this loop turned every session-stamped take
-  // past the grace into a d3 row claiming 「サーバーの記録には見つかりません」
-  // on zero evidence. A failed read gets NO unlisted-session rows at all:
-  // main's exact behaviour for such a take (no row), and the partial banner
-  // already tells the staffer the read was incomplete.
+  // FIX ROUND 2 (Greptile issue 1) — A FAILED READ IS NOT EVIDENCE EITHER, so
+  // it must never manufacture a 'recoverable'/sessionUnlisted CLAIM about the
+  // server. But skipping the whole loop on a failed read (this build's first
+  // attempt) traded that lie for a different one: a session-stamped take past
+  // the grace got NO row at all for as long as the outage lasted, and nothing
+  // reloaded it — `schedulePoll` only re-folds while some row is 処理中, and a
+  // skipped take is never that.
+  //
+  // FIX ROUND 3 — a failed read is folded in as "no result YET" instead, the
+  // same honest unknown a live job gets inside the grace: the take renders
+  // 処理中/'unsettled' (no save door, never counted in 要対応), and — being
+  // 処理中 with a pollable reason — arms the 90 s re-fold that restores the
+  // true row the instant the server answers.
   const readComplete = !serverReadFailed && !sessions.some((s) => s.probeIncomplete)
-  if (!serverReadFailed) {
-    for (const [sessionId, take] of takeBySession) {
-      if (rendered.has(sessionId)) continue
-      if (take.startedAt < floor) continue
-      // Honest about what this read could not tell us: within the grace, a
-      // live job on a session we simply could not read back may still own
-      // this take (never offer a save under it); past the grace, nothing is
-      // coming.
-      const unsettled = now - take.startedAt <= SESSION_UNSETTLED_GRACE_MS
-      rows.push({
-        key: `take:${take.takeId}`,
-        state: unsettled ? 'processing' : 'recoverable',
-        // Past the grace: 'sessionUnlisted' claims the server has no record,
-        // which is only honest when the read was COMPLETE. A truncated read
-        // gets the device-side reason instead — it claims nothing the read
-        // cannot back up.
-        reason: unsettled ? 'unsettled' : readComplete ? 'sessionUnlisted' : recoverableReason(take),
-        recordingSessionId: sessionId,
-        takeId: take.takeId,
-        karuteRecordId: null,
-        customerId: take.customerId,
-        customerName: take.customerName,
-        startedAt: take.startedAt,
-        durationSeconds: takeDuration(take),
-        canRetry: false,
-        sameDay: false,
-        // FIX ROUND F4 — a d3 row for a take whose BINDING refusal (piece r)
-        // left its (unlisted) session must detach exactly like piece r's row,
-        // or its save reaches the same F1 overwrite.
-        bindingRefused: take.bindingRefused ? true : undefined,
-      })
-    }
+  for (const [sessionId, take] of takeBySession) {
+    if (rendered.has(sessionId)) continue
+    if (take.startedAt < floor) continue
+    // Honest about what this read could not tell us: within the grace — or
+    // whenever the read itself failed — a live job on a session we could not
+    // read back may still own this take (never offer a save under it); past
+    // the grace with a COMPLETE read, nothing is coming.
+    const unsettled = serverReadFailed || now - take.startedAt <= SESSION_UNSETTLED_GRACE_MS
+    rows.push({
+      key: `take:${take.takeId}`,
+      state: unsettled ? 'processing' : 'recoverable',
+      // Past the grace: 'sessionUnlisted' claims the server has no record,
+      // which is only honest when the read was COMPLETE. A truncated read
+      // gets the device-side reason instead — it claims nothing the read
+      // cannot back up.
+      reason: unsettled ? 'unsettled' : readComplete ? 'sessionUnlisted' : recoverableReason(take),
+      recordingSessionId: sessionId,
+      takeId: take.takeId,
+      karuteRecordId: null,
+      customerId: take.customerId,
+      customerName: take.customerName,
+      startedAt: take.startedAt,
+      durationSeconds: takeDuration(take),
+      canRetry: false,
+      sameDay: false,
+      // FIX ROUND F4 — a d3 row for a take whose BINDING refusal (piece r)
+      // left its (unlisted) session must detach exactly like piece r's row,
+      // or its save reaches the same F1 overwrite.
+      bindingRefused: take.bindingRefused ? true : undefined,
+    })
   }
 
   // The stranded takes, in the SAME vocabulary as everything else: 復元可能,

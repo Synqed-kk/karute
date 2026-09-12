@@ -1046,53 +1046,79 @@ describe('録音履歴 — d3: the session was never listed', () => {
 })
 
 /**
- * FIX ROUND 2 (Greptile issue 1) — a FAILED server read is not evidence.
- * `sessions: []` from a thrown `readServerSessions` looks, to the d3 loop,
- * identical to a server that genuinely listed nothing for every one of these
- * takes — so before `serverReadFailed` an outage turned every session-stamped
- * take past the grace into a d3 row claiming 「サーバーの記録には見つかりません」
- * on zero evidence, and a save off that row reused the stamped session id
- * straight into F1's overwrite.
+ * FIX ROUND 3 (Greptile round 2) — round 2's fix skipped the WHOLE d3 loop on
+ * a failed read, which withheld the false sessionUnlisted CLAIM but also left
+ * the take with NO row for as long as the outage lasted — invisible, because
+ * `schedulePoll` only re-folds while some row is 処理中, and a skipped take is
+ * never that. A failed read is folded in instead as "no result YET", the
+ * identical honesty a live job gets within the grace: the take renders
+ * 処理中/'unsettled', offers no save door, is never counted in 要対応, and
+ * (being 処理中 with a pollable reason) arms the 90 s re-fold that restores
+ * the true row once the server answers.
  */
-describe('録音履歴 — FIX ROUND 2: a FAILED server read manufactures no d3 rows', () => {
-  it('serverReadFailed: true — a session-stamped take past the grace gets NO row; an orphan take is unaffected', () => {
+describe('録音履歴 — FIX ROUND 3: a FAILED server read holds unlisted takes as 処理中, never manufactures a claim', () => {
+  it('serverReadFailed: true — BOTH a within-grace and a past-grace session-stamped take fold to 処理中/unsettled; an orphan take is unaffected', () => {
     const rows = deriveInboxRows({
       sessions: [],
       takes: [
         take({
-          takeId: 't1',
-          recordingSessionId: 'sess-ghost',
+          takeId: 't-in-grace',
+          recordingSessionId: 'sess-ghost-1',
+          startedAt: NOW - MIN,
+        }),
+        take({
+          takeId: 't-past-grace',
+          recordingSessionId: 'sess-ghost-2',
           startedAt: NOW - SESSION_UNSETTLED_GRACE_MS - MIN,
+          bindingRefused: true,
         }),
         take({ takeId: 't-orphan', recordingSessionId: null }),
       ],
       now: NOW,
       serverReadFailed: true,
     })
-    // The unlisted-session take (d3's own case) vanishes entirely — no row,
-    // no claim. The orphan never depended on the server read at all, so it is
+    const inGrace = rows.find((r) => r.key === 'take:t-in-grace')!
+    const pastGrace = rows.find((r) => r.key === 'take:t-past-grace')!
+    expect(inGrace.state).toBe('processing')
+    expect(inGrace.reason).toBe('unsettled')
+    expect(pastGrace.state).toBe('processing')
+    expect(pastGrace.reason).toBe('unsettled')
+    // FIX ROUND F4 — the binding-refused flag still rides the row even while
+    // it is only 処理中/unsettled, not yet the terminal d3 shape.
+    expect(pastGrace.bindingRefused).toBe(true)
+    // Neither is evidence of anything actionable yet — never counted (the
+    // orphan take, unaffected by the read, is free to count itself).
+    expect(needsAttention(inGrace)).toBe(false)
+    expect(needsAttention(pastGrace)).toBe(false)
+    // The orphan never depended on the server read at all, so it is
     // untouched (packet: "the orphan/stranded loops are NOT touched").
-    expect(rows.map((r) => r.key)).toEqual(['take:t-orphan'])
+    expect(rows.map((r) => r.key)).toContain('take:t-orphan')
   })
 
-  it('the identical input with serverReadFailed: false keeps the d3 row exactly as today', () => {
+  it('the identical input with serverReadFailed: false keeps prior behaviour: in-grace 処理中/unsettled, past-grace 復元可能/sessionUnlisted', () => {
     const rows = deriveInboxRows({
       sessions: [],
       takes: [
         take({
-          takeId: 't1',
-          recordingSessionId: 'sess-ghost',
+          takeId: 't-in-grace',
+          recordingSessionId: 'sess-ghost-1',
+          startedAt: NOW - MIN,
+        }),
+        take({
+          takeId: 't-past-grace',
+          recordingSessionId: 'sess-ghost-2',
           startedAt: NOW - SESSION_UNSETTLED_GRACE_MS - MIN,
         }),
-        take({ takeId: 't-orphan', recordingSessionId: null }),
       ],
       now: NOW,
       serverReadFailed: false,
     })
-    expect(rows.map((r) => r.key).sort()).toEqual(['take:t-orphan', 'take:t1'])
-    const d3Row = rows.find((r) => r.key === 'take:t1')!
-    expect(d3Row.state).toBe('recoverable')
-    expect(d3Row.reason).toBe('sessionUnlisted')
+    const inGrace = rows.find((r) => r.key === 'take:t-in-grace')!
+    const pastGrace = rows.find((r) => r.key === 'take:t-past-grace')!
+    expect(inGrace.state).toBe('processing')
+    expect(inGrace.reason).toBe('unsettled')
+    expect(pastGrace.state).toBe('recoverable')
+    expect(pastGrace.reason).toBe('sessionUnlisted')
   })
 
   it('serverReadFailed defaults to false — every existing caller (the fold\'s own prior contract) is unchanged', () => {
@@ -1103,9 +1129,13 @@ describe('録音履歴 — FIX ROUND 2: a FAILED server read manufactures no d3 
     expect(rows[0].reason).toBe('sessionUnlisted')
   })
 
-  // MUTANT anchor: dropping the `if (!serverReadFailed)` guard around the d3
-  // loop lets the first test above see a row for 't1' — RED — see the
-  // report's RED-then-restored capture.
+  // MUTANT anchor 1: restoring the `if (!serverReadFailed)` loop-skip drops
+  // BOTH rows in the first test above to zero — RED — see the report's
+  // RED-then-restored capture.
+  // MUTANT anchor 2: making `unsettled` ignore `serverReadFailed` (bare
+  // `now - take.startedAt <= SESSION_UNSETTLED_GRACE_MS`) turns the
+  // past-grace row in the first test above back into 'recoverable' — RED —
+  // see the report's RED-then-restored capture.
 })
 
 /**

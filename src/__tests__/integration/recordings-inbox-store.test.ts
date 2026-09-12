@@ -333,22 +333,26 @@ describe('FX-6c — the epoch guard (shared salon device)', () => {
 })
 
 /**
- * FIX ROUND 2 (Greptile issue 1) — a THROWN server read must never manufacture
- * a d3 (`sessionUnlisted`) row: `runInbox` passes `serverReadFailed:
- * server.failed` into the fold, which withholds the whole unlisted-session
- * loop rather than reading the empty `sessions` array as a genuine "no
- * record" answer.
+ * FIX ROUND 3 (Greptile round 2) — a THROWN server read must never manufacture
+ * a d3 (`sessionUnlisted`) CLAIM, but round 2's fix (skip the whole
+ * unlisted-session loop) left the take with no row at all for as long as the
+ * outage lasted, invisible: `schedulePoll` only re-folds while some row is
+ * 処理中, and a skipped take is never that. `runInbox` still passes
+ * `serverReadFailed: server.failed` into the fold, which now holds the take
+ * as 処理中/unsettled instead of dropping it — the same "no result yet"
+ * honesty a live job gets inside the grace — so the poll is armed and the
+ * true row lands the moment the server answers.
  */
-describe('録音履歴 — FIX ROUND 2: a failed server read never manufactures a d3 row', () => {
-  it('listRecordingsInbox throwing → serverFailed true, and a session-stamped take past the grace gets NO row', async () => {
+describe('録音履歴 — FIX ROUND 3: a failed server read holds the row as 処理中 and polls for the truth', () => {
+  it('listRecordingsInbox throwing → serverFailed true, a session-stamped take past the grace folds to 処理中/unsettled, and the poll is armed', async () => {
     listOwnTakes.mockImplementation(async () => [
       {
         takeId: 't1',
         recordingSessionId: 'sess-ghost',
         customerId: 'cust-1',
         customerName: '佐藤 美咲',
-        // Past SESSION_UNSETTLED_GRACE_MS (3h) — exactly the shape that used
-        // to fold to `sessionUnlisted` off an empty, FAILED server read.
+        // Past SESSION_UNSETTLED_GRACE_MS (3h) — the shape a COMPLETE read
+        // would fold to `sessionUnlisted`.
         startedAt: NOW - 4 * 60 * 60_000,
         updatedAt: NOW - 4 * 60 * 60_000,
       },
@@ -357,10 +361,24 @@ describe('録音履歴 — FIX ROUND 2: a failed server read never manufactures 
     await loadInbox()
     await flush()
     expect(getInboxState().serverFailed).toBe(true)
-    expect(getInboxState().rows).toHaveLength(0)
+    expect(getInboxState().rows).toMatchObject([
+      { key: 'take:t1', state: 'processing', reason: 'unsettled' },
+    ])
+    expect(getInboxState().needsAttention).toBe(0)
+    expect(listRecordingsInbox).toHaveBeenCalledTimes(1)
+
+    // The outage clears — the armed poll re-folds without any user action.
+    listRecordingsInbox.mockResolvedValue([])
+    await jest.advanceTimersByTimeAsync(INBOX_POLL_MS)
+    await flush()
+    expect(listRecordingsInbox).toHaveBeenCalledTimes(2)
+    expect(getInboxState().serverFailed).toBe(false)
+    expect(getInboxState().rows).toMatchObject([
+      { key: 'take:t1', state: 'recoverable', reason: 'sessionUnlisted' },
+    ])
   })
 
-  it('the SAME stamped take DOES fold to sessionUnlisted once the server read succeeds (empty, but complete)', async () => {
+  it('the SAME stamped take folds straight to sessionUnlisted when the server read succeeds first (empty, but complete)', async () => {
     listOwnTakes.mockImplementation(async () => [
       {
         takeId: 't1',
@@ -378,10 +396,10 @@ describe('録音履歴 — FIX ROUND 2: a failed server read never manufactures 
     expect(getInboxState().rows).toMatchObject([{ key: 'take:t1', reason: 'sessionUnlisted' }])
   })
 
-  // MUTANT anchor: dropping the `serverReadFailed: server.failed` pass-through
-  // (back to the bare `deriveInboxRows({ sessions, takes, now })` call) turns
-  // the first test above's row count back to 1 — RED — see the report's
-  // RED-then-restored capture.
+  // MUTANT anchor: making the failed-read row non-pollable (e.g. giving it
+  // reason `partialOnServer` instead of `unsettled`) leaves the poll
+  // assertion above RED (`toHaveBeenCalledTimes(2)` never reached) — see the
+  // report's RED-then-restored capture.
 })
 
 /**
