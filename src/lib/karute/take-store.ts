@@ -584,6 +584,33 @@ export async function stampTakeSession(
   return patchTakeMeta(takeId, { recordingSessionId }, (meta) => !meta.recordingSessionId)
 }
 
+/**
+ * UPDATE 25 GROUP A, piece r — the ONLY door that clears a take's session
+ * binding, so a take TERMINALLY refused because its session already has a
+ * karute can be re-offered WITHOUT overwriting the visit's saved record (F1).
+ *
+ * Lives HERE, not in the page: this is the module's own private
+ * `patchTakeMeta` (never exported) doing the write — a caller reaching it
+ * from outside this file would open a guard-free write door around every
+ * other take-store write. `when` refuses a FINALIZED take (its audio already
+ * left; nothing to detach) and a NON-TERMINAL take (a retryable failure may
+ * still resolve on the same session — clearing it would orphan a save the
+ * drain is about to finish), the same one-transaction discipline every other
+ * stamp in this file uses.
+ *
+ * ⚠ CLEARS, never re-points. `stampTakeSession`'s own guard is "first write
+ * wins" — a re-point would still carry the refused session and be refused by
+ * that guard when the recovery save tries to mint a fresh one. Clearing the
+ * field is what lets the fresh stamp land on an EMPTY one.
+ */
+export async function detachTakeFromRecordedSession(takeId: string): Promise<boolean> {
+  return patchTakeMeta(
+    takeId,
+    { recordingSessionId: undefined, secureError: undefined, lastSecureAttemptAt: undefined },
+    (meta) => !meta.finalizedAt && !!meta.secureError && TERMINAL_SECURE_ERRORS.has(meta.secureError),
+  )
+}
+
 /** Merge fields into a take's meta row — the body stampTakeSession above and
  *  the two marks below share. Best-effort, no-throw, no-op-if-gone, exactly
  *  like every other stamp in this file.
@@ -1369,6 +1396,11 @@ export async function listOwnTakes(
         // Only ever true past the TTL for a take the server does not hold — the
         // branch above returned every other expired take to the prune.
         expiredUnsecured: expired || undefined,
+        // UPDATE 25 GROUP A, piece r — VERIFIED gap (cold read + Fable): this
+        // literal omitted it even though `secureError` is a real field on
+        // `TakeMeta`, so the 録音履歴 fold's `secureTerminal` mapping was always
+        // false and piece r was dead code without this line.
+        secureError: m.secureError,
       })
     }
     out.sort((a, b) => b.startedAt - a.startedAt)

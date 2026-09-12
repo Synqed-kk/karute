@@ -150,6 +150,19 @@ describe('globalPipeline server-path eligibility (packet 22)', () => {
     expect(mockDeferreds).toHaveLength(0)
   })
 
+  // UPDATE 25 GROUP A, piece d2 — F7 PIN. `serverRowMissing` is a CLIENT-SIDE
+  // marker (the `autoFinish`/`recoveryUnanswered` idiom); it must never widen
+  // the job's payload — `isServerJobEligible` already makes a null-session run
+  // unreachable here by construction, so this proves the flag itself is inert
+  // even on a context that DOES reach the server path.
+  it('serverRowMissing never reaches the enqueue payload', async () => {
+    globalPipeline.start(new Blob(['a']), { ...eligibleCtx, serverRowMissing: true })
+    await tick(0)
+    expect(enqueueJob).toHaveBeenCalledTimes(1)
+    const payload = enqueueJob.mock.calls[0][0] as Record<string, unknown>
+    expect('serverRowMissing' in payload).toBe(false)
+  })
+
   // ⚖ J2 (PR4 fix round 7). Slice three stamped `finalizedAt` alone and this
   // path gates on the KEY, so such a take threw into the pre-enqueue arm and
   // the whole recording fell to the in-tab leg — which stages a second copy of

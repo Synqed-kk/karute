@@ -16,8 +16,13 @@ const listRecordingsInbox = jest.fn()
 jest.mock('@/actions/recordings-inbox', () => ({
   listRecordingsInbox: () => listRecordingsInbox(),
 }))
-const listOwnTakes = jest.fn(async () => [] as unknown[])
-jest.mock('@/lib/karute/take-store', () => ({ listOwnTakes: () => listOwnTakes() }))
+const listOwnTakes = jest.fn<Promise<unknown[]>, [exclude?: unknown[]]>(async () => [])
+jest.mock('@/lib/karute/take-store', () => ({
+  listOwnTakes: (exclude?: unknown[]) => listOwnTakes(exclude),
+  // UPDATE 25 GROUP A, piece r — the real set `readLocalTakes` maps
+  // `secureTerminal` against.
+  TERMINAL_SECURE_ERRORS: new Set(['exists', 'reserved_elsewhere', 'not_reserved', 'superseded']),
+}))
 jest.mock('@/lib/global-recorder', () => ({ globalRecorder: { takeId: null } }))
 jest.mock('@/lib/global-pipeline', () => ({
   globalPipeline: { state: 'idle', context: null, subscribe: () => () => {} },
@@ -44,6 +49,7 @@ type Session = {
   jobLastError: string | null
   /** Slice ③ — what the server holds for this session's audio. */
   serverAudio?: 'segments' | 'object' | null
+  discardedByStaff?: boolean
 }
 const session = (over: Partial<Session> & { recordingSessionId: string }): Session => ({
   customerId: 'cust-1',
@@ -292,5 +298,57 @@ describe('FX-6c — the epoch guard (shared salon device)', () => {
     resetInbox()
     await jest.advanceTimersByTimeAsync(INBOX_POLL_MS * 3)
     expect(listRecordingsInbox).toHaveBeenCalledTimes(1)
+  })
+})
+/**
+ * UPDATE 25 GROUP A, piece r — `readLocalTakes` maps `secureTerminal` from
+ * take-store's own TERMINAL_SECURE_ERRORS set (never re-derived here).
+ */
+describe('録音履歴 — r: the store’s secureTerminal mapping', () => {
+  it('a TERMINALLY-refused take (reserved_elsewhere) with a karute on its session folds to refusedHasRecord', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      {
+        takeId: 't1',
+        recordingSessionId: 's1',
+        customerId: 'cust-1',
+        customerName: '佐藤 美咲',
+        startedAt: NOW - 30 * 60_000,
+        updatedAt: NOW - 10 * 60_000,
+        secureError: 'reserved_elsewhere',
+      },
+    ])
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' }),
+    ])
+    await loadInbox()
+    await flush()
+    const rows = getInboxState().rows
+    expect(rows.find((r) => r.key === 'session:s1')).toMatchObject({ state: 'saved', takeId: null })
+    expect(rows.find((r) => r.key === 'take:t1')).toMatchObject({
+      state: 'recoverable',
+      reason: 'refusedHasRecord',
+    })
+  })
+
+  it('an ORDINARY retryable failure (session) is NOT secureTerminal — 確認待ち unchanged', async () => {
+    listOwnTakes.mockImplementation(async () => [
+      {
+        takeId: 't1',
+        recordingSessionId: 's1',
+        customerId: 'cust-1',
+        customerName: '佐藤 美咲',
+        startedAt: NOW - 30 * 60_000,
+        updatedAt: NOW - 10 * 60_000,
+        secureError: 'session',
+      },
+    ])
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' }),
+    ])
+    await loadInbox()
+    await flush()
+    const rows = getInboxState().rows
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ state: 'awaiting-check', reason: 'autoSaved' })
   })
 })

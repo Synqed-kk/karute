@@ -102,6 +102,18 @@ export type InboxReason =
    *  saying 「この録音は保存されませんでした」 while the server was in fact
    *  holding most of the recording. */
   | 'partialOnServer'
+  /** UPDATE 25 GROUP A, d3 — a take carries a session id the SERVER did not
+   *  return (a lost mint reply, a truncated read, the other staff-id space).
+   *  Past SESSION_UNSETTLED_GRACE_MS with still no server answer, this is the
+   *  honest name for "we could not read your session" — distinct from
+   *  `localAudio`, whose session the server DID return. */
+  | 'sessionUnlisted'
+  /** UPDATE 25 GROUP A, piece r — this take's secure attempt was TERMINALLY
+   *  refused because its own session already carries a karute (Group B's d4,
+   *  `reserved_elsewhere`/`exists`). The session's row reads 保存済み without
+   *  this take; the take gets this row instead, so its audio is never invisible
+   *  and 保存する never overwrites the visit's saved karute (F1). */
+  | 'refusedHasRecord'
 
 /** The statuses this build knows how to read. Anything else on the wire is
  *  narrowed to "unknown, still in flight" — see `jobStatus` below. */
@@ -244,6 +256,13 @@ export interface InboxLocalTake {
    *  that is exactly the take whose flush-window estimate is the only length
    *  there is. */
   durationMs?: number
+  /** UPDATE 25 GROUP A, piece r. This take's last secure attempt refused
+   *  TERMINALLY (take-store's `TERMINAL_SECURE_ERRORS` — `exists`,
+   *  `reserved_elsewhere`, etc). Mapped by the store from `secureError`, never
+   *  read here beyond the boolean: this module stays pure and must never
+   *  import take-store (F6). Absent/false = not terminal, which is every take
+   *  before this field existed and every ordinary retryable failure. */
+  secureTerminal?: boolean
 }
 
 export interface InboxRow {
@@ -378,6 +397,32 @@ export function deriveInboxRows(input: {
     }
 
     if (s.karuteRecordId) {
+      // UPDATE 25 GROUP A, piece r. A take TERMINALLY refused because THIS
+      // session already has a karute (Group B's d4 — `exists`/
+      // `reserved_elsewhere`) is not this session's un-settled take: folding it
+      // under the saved row makes the refused audio invisible and its 開く
+      // action opens a karute that is not this recording. The session reads
+      // what is true — saved, no take — and the refused take gets its own
+      // honest row, offered for save (F1's overwrite is closed on the page
+      // side: the door detaches the take's stale session before re-offering
+      // it, so a save here can only ever create a NEW record).
+      if (take?.secureTerminal) {
+        rows.push({ ...base, takeId: null, state: 'saved', reason: null })
+        rows.push({
+          key: `take:${take.takeId}`,
+          state: 'recoverable',
+          reason: 'refusedHasRecord',
+          recordingSessionId: s.recordingSessionId,
+          takeId: take.takeId,
+          karuteRecordId: null,
+          customerId: base.customerId,
+          customerName: base.customerName,
+          startedAt: take.startedAt,
+          durationSeconds: takeDuration(take),
+          canRetry: false,
+        })
+        continue
+      }
       // The record landed. An un-settled local take means the CLIENT never saw
       // it land (supersession / closed app / crash-cron class) — we cannot
       // reliably attribute WHICH, so the row says only what is true: it was
@@ -493,6 +538,36 @@ export function deriveInboxRows(input: {
         ? { ...base, state: 'processing', reason: 'unsettled' }
         : { ...base, state: 'failed', reason: 'genericFailure' },
     )
+  }
+
+  // UPDATE 25 GROUP A, d3. A take carries a session id, but that session is
+  // absent from what the SERVER returned — a lost mint reply after core
+  // committed, a session minted under the OTHER staff-id space
+  // (session-mint.ts:156-161), or a truncated read. Nothing before this build
+  // ever renders such a take: the sessions loop above only reads
+  // `takeBySession` for sessions the server actually returned. `rendered` is
+  // built by that same loop, so this only fires for a session that never
+  // reached it (never double-counts a session the loop already rendered).
+  for (const [sessionId, take] of takeBySession) {
+    if (rendered.has(sessionId)) continue
+    if (take.startedAt < floor) continue
+    // Honest about what this read could not tell us: within the grace, a live
+    // job on a session we simply could not read back may still own this take
+    // (never offer a save under it); past the grace, nothing is coming.
+    const unsettled = now - take.startedAt <= SESSION_UNSETTLED_GRACE_MS
+    rows.push({
+      key: `take:${take.takeId}`,
+      state: unsettled ? 'processing' : 'recoverable',
+      reason: unsettled ? 'unsettled' : 'sessionUnlisted',
+      recordingSessionId: sessionId,
+      takeId: take.takeId,
+      karuteRecordId: null,
+      customerId: take.customerId,
+      customerName: take.customerName,
+      startedAt: take.startedAt,
+      durationSeconds: takeDuration(take),
+      canRetry: false,
+    })
   }
 
   // The stranded takes, in the SAME vocabulary as everything else: 復元可能,

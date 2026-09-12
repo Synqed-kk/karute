@@ -99,6 +99,17 @@ export interface PipelineContext {
    *  (ReviewScreen callbacks, ProcessingIndicator autosave) delete it via this
    *  id. null/absent when persistence was disabled for the take. */
   takeId?: string | null
+  /**
+   * UPDATE 25 GROUP A, piece d2 — set when this run's session id was STILL
+   * null after both mints (start-mint, then `retryRecordingSessionMint`) had
+   * their say. The karute still saves — this never widens what a save can do
+   * — but it saves UNLINKED, and the audio never reaches the server: the
+   * device is the only copy. CLIENT-SIDE ONLY, the `autoFinish`/
+   * `recoveryUnanswered` idiom above — `isServerJobEligible` already makes a
+   * null-session run unreachable by the server path (F7), so this can never
+   * reach the job payload by construction; never read it as a payload field.
+   */
+  serverRowMissing?: boolean
 }
 
 export type PipelineState =

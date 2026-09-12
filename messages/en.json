@@ -614,6 +614,7 @@
     "pipelineErrorConsentRequired": "Recording consent is required. Please obtain consent and try again.",
     "pipelineErrorGeneric": "Something went wrong while processing. Please try again.",
     "pipelineErrorDiscarded": "This recording was discarded by a staff member, so it cannot be saved to a karute.",
+    "serverRowMissing": "Could not create the recording's server record. The karute will be saved, but the audio stays on this device only",
     "recordingFor": "Recording for",
     "noUpcomingAppointment": "No upcoming appointment",
     "noBookingTitle": "No booking found",
@@ -769,7 +770,9 @@
         "localAudio": "The audio is still on this device (unsaved)",
         "tailIncomplete": "The recording ends partway (you can save what is left on this device)",
         "serverAudio": "Audio is on the server (not saved yet; may end partway)",
-        "partialOnServer": "Audio reached the server partway (you'll be able to save it within a few days)"
+        "partialOnServer": "Audio reached the server partway (you'll be able to save it within a few days)",
+        "sessionUnlisted": "The audio is still on this device (the server has no record of this recording)",
+        "refusedHasRecord": "This visit has a karute from another recording (saving creates a separate karute)"
       },
       "action": {
         "open": "Open",

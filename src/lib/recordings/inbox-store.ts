@@ -153,11 +153,12 @@ function schedulePoll(rows: readonly InboxRow[]): void {
  *  in-progress session is not history, and offering it as 復元可能 would let a
  *  save delete audio still being captured. */
 async function readLocalTakes() {
-  const [{ listOwnTakes }, { globalRecorder }, { globalPipeline }] = await Promise.all([
-    import('@/lib/karute/take-store'),
-    import('@/lib/global-recorder'),
-    import('@/lib/global-pipeline'),
-  ])
+  const [{ listOwnTakes, TERMINAL_SECURE_ERRORS }, { globalRecorder }, { globalPipeline }] =
+    await Promise.all([
+      import('@/lib/karute/take-store'),
+      import('@/lib/global-recorder'),
+      import('@/lib/global-pipeline'),
+    ])
   const takes = await listOwnTakes([globalRecorder.takeId, globalPipeline.context?.takeId])
   return takes.map((t) => ({
     takeId: t.takeId,
@@ -174,6 +175,10 @@ async function readLocalTakes() {
     // PR4 fix round 1 — the flag the fold needs to keep an expired unsecured
     // take on screen. The store owns the TTL; this just carries its answer.
     expiredUnsecured: t.expiredUnsecured,
+    // UPDATE 25 GROUP A, piece r. Mapped from the take-store's own judgement
+    // (never from inbox.ts, which must stay pure — F6) — never a per-take meta
+    // read, `listOwnTakes` already carries `secureError`.
+    secureTerminal: !!t.secureError && TERMINAL_SECURE_ERRORS.has(t.secureError),
   }))
 }
 

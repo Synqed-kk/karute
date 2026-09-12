@@ -588,6 +588,8 @@ describe('録音履歴 — i18n parity for the new keys', () => {
     'reason.tailIncomplete',
     'reason.serverAudio',
     'reason.partialOnServer',
+    'reason.sessionUnlisted',
+    'reason.refusedHasRecord',
     'action.open',
     'action.check',
     'action.retry',
@@ -620,11 +622,18 @@ describe('録音履歴 — i18n parity for the new keys', () => {
       'tailIncomplete',
       'serverAudio',
       'partialOnServer',
+      'sessionUnlisted',
+      'refusedHasRecord',
     ] as const
     const jaInbox = jaRecording.inbox as { reason: Record<string, string> }
     for (const r of emitted) expect(typeof jaInbox.reason[r]).toBe('string')
     expect(typeof jaRecording.pipelineErrorEmptyTranscript).toBe('string')
     expect(typeof enRecording.pipelineErrorEmptyTranscript).toBe('string')
+  })
+
+  it('the new d2 key exists in both files', () => {
+    expect(typeof jaRecording.serverRowMissing).toBe('string')
+    expect(typeof enRecording.serverRowMissing).toBe('string')
   })
 })
 
@@ -925,5 +934,126 @@ describe('録音履歴 — a failed job on a server-held recording (③ fix roun
     ])
     expect(row.reason).toBe('emptyTranscript')
     expect(row.canRetry).toBe(true)
+  })
+})
+
+/**
+ * UPDATE 25 GROUP A, piece d3 — a take carries a session id the SERVER did not
+ * return (a lost mint reply, the other staff-id space, a truncated read).
+ * Nothing before this build renders such a take at all.
+ */
+describe('録音履歴 — d3: the session was never listed', () => {
+  it('within the grace, an unlisted-session take reads 処理中/unsettled and is NOT counted', () => {
+    const rows = fold(
+      [],
+      [take({ takeId: 't1', recordingSessionId: 'sess-ghost', startedAt: NOW - 20 * MIN })],
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].key).toBe('take:t1')
+    expect(rows[0].state).toBe('processing')
+    expect(rows[0].reason).toBe('unsettled')
+    expect(rows[0].recordingSessionId).toBe('sess-ghost')
+    expect(needsAttention(rows[0])).toBe(false)
+  })
+
+  it('past the grace, the same take reads 復元可能/sessionUnlisted and IS counted', () => {
+    const rows = fold(
+      [],
+      [
+        take({
+          takeId: 't1',
+          recordingSessionId: 'sess-ghost',
+          startedAt: NOW - SESSION_UNSETTLED_GRACE_MS - MIN,
+        }),
+      ],
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].state).toBe('recoverable')
+    expect(rows[0].reason).toBe('sessionUnlisted')
+    expect(rows[0].recordingSessionId).toBe('sess-ghost') // kept — a true fact
+    expect(rows[0].takeId).toBe('t1')
+    expect(rows[0].canRetry).toBe(false)
+    expect(needsAttention(rows[0])).toBe(true)
+  })
+
+  it('a take whose session IS returned still collapses into that session’s row — no double row', () => {
+    const rows = fold(
+      [session({ recordingSessionId: 's1', jobStatus: 'RUNNING' })],
+      [take({ takeId: 't1', recordingSessionId: 's1' })],
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].key).toBe('session:s1')
+  })
+
+  it('an unlisted take OLDER than the 7-day floor is still dropped', () => {
+    const rows = fold(
+      [],
+      [
+        take({
+          takeId: 't-old',
+          recordingSessionId: 'sess-ghost',
+          startedAt: NOW - INBOX_WINDOW_MS - MIN,
+        }),
+      ],
+    )
+    expect(rows).toHaveLength(0)
+  })
+
+  // MUTANT anchor: removing the d3 loop drops this row to zero — see the
+  // build report's RED-then-restored capture.
+})
+
+/**
+ * UPDATE 25 GROUP A, piece r — a take TERMINALLY refused because its own
+ * session already carries a karute (Group B's d4) gets its own honest row;
+ * the session row reads 保存済み without it.
+ */
+describe('録音履歴 — r: the refused take, session already has a karute', () => {
+  it('terminal + record → own row (recoverable/refusedHasRecord) + the session reads saved WITHOUT the take', () => {
+    const rows = fold(
+      [session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' })],
+      [take({ takeId: 't1', recordingSessionId: 's1', secureTerminal: true })],
+    )
+    expect(rows).toHaveLength(2)
+    const sessionRow = rows.find((r) => r.key === 'session:s1')!
+    expect(sessionRow.state).toBe('saved')
+    expect(sessionRow.reason).toBeNull()
+    expect(sessionRow.takeId).toBeNull()
+    const takeRow = rows.find((r) => r.key === 'take:t1')!
+    expect(takeRow.state).toBe('recoverable')
+    expect(takeRow.reason).toBe('refusedHasRecord')
+    expect(takeRow.recordingSessionId).toBe('s1') // kept — a true, display-only fact
+    expect(takeRow.karuteRecordId).toBeNull()
+    expect(takeRow.canRetry).toBe(false)
+    expect(needsAttention(takeRow)).toBe(true)
+    // Same 要対応 total as if the take had simply been 確認待ち: one row that counts.
+    expect(countNeedsAttention(rows)).toBe(1)
+  })
+
+  it('terminal + NO record → unchanged (still 復元可能/localAudio, today’s behaviour)', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1' })],
+      [take({ takeId: 't1', recordingSessionId: 's1', secureTerminal: true })],
+    )
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('localAudio')
+  })
+
+  it('non-terminal + record → 確認待ち unchanged (an ordinary un-settled take)', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' })],
+      [take({ takeId: 't1', recordingSessionId: 's1', secureTerminal: false })],
+    )
+    expect(row.state).toBe('awaiting-check')
+    expect(row.reason).toBe('autoSaved')
+  })
+
+  it('a deliberate discard still outranks a terminal refusal', () => {
+    const rows = fold(
+      [session({ recordingSessionId: 's1', karuteRecordId: 'rec-1', discardedByStaff: true })],
+      [take({ takeId: 't1', recordingSessionId: 's1', secureTerminal: true })],
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].state).toBe('discarded')
   })
 })

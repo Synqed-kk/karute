@@ -12,6 +12,7 @@ import { ReviewScreen } from '@/components/review/ReviewScreen'
 import { loadDraft, clearDraft, type KaruteDraft } from '@/lib/karute/draft'
 import {
   deleteTake,
+  detachTakeFromRecordedSession,
   getRecoverableTake,
   listOwnTakes,
   loadTakeBlob,
@@ -1727,6 +1728,19 @@ export function RecordPageView({
       // exact outcome the doctrine forbids.
       const discardIntent = discardIntentRef.current
       if (discardIntent && discardIntent.takeId === globalRecorder.takeId) return
+      // UPDATE 25 GROUP A, piece d2 — still null after BOTH mints had their
+      // say: the karute will save unlinked, and the audio never reaches the
+      // server. Client-side only (F7 makes the server path unreachable for a
+      // null session id by construction, so this can never widen the job
+      // payload); the record page reads it to show a quiet notice instead of
+      // saving in total silence.
+      const serverRowMissing = !recordingSessionId
+      if (serverRowMissing) {
+        console.warn(
+          '[record] no recording_sessions row for this take — karute saves unlinked, audio stays on this device',
+          { takeId: globalRecorder.takeId },
+        )
+      }
       globalPipeline.start(result.blob, {
         locale,
         customers,
@@ -1737,6 +1751,7 @@ export function RecordPageView({
         outcomeSkipped,
         recordingSessionId,
         takeId: globalRecorder.takeId,
+        serverRowMissing,
       })
       // §9: same honest-loss toast as the discard path — computed/fired
       // BEFORE discardRecording() below wipes the strip via the store's
@@ -2093,6 +2108,17 @@ export function RecordPageView({
     }
     const wanted = row.takeId
     void (async () => {
+      // ⚖ UPDATE 25 GROUP A, piece r. MUST run BEFORE the re-read below, not
+      // merely before setRecoveredTake: the promoted take object the re-read
+      // produces has to already carry the CLEARED session id, or everything
+      // downstream (dest, flow.offer.take, the recovery save's
+      // `o.take.recordingSessionId ?? retryRecordingSessionMint(...)` check)
+      // keeps the stale refused session, skips the fresh mint, and the save
+      // lands back in F1's overwrite path — the exact double-write this piece
+      // exists to prevent.
+      if (row.reason === 'refusedHasRecord') {
+        await detachTakeFromRecordedSession(wanted)
+      }
       // Re-read rather than trusting the rendered row: the take may have been
       // saved or swept since the list was folded, and offering audio that is
       // gone is exactly the lie this feature exists to end.
@@ -2891,6 +2917,16 @@ export function RecordPageView({
             // watching it work.
             timeoutMs: SECURE_MINT_AWAIT_MS,
           }))
+        // UPDATE 25 GROUP A, piece d2 — same honest mark as the stop flow:
+        // still null after the retry mint, the karute saves unlinked and the
+        // audio stays device-only.
+        const serverRowMissing = !recordingSessionId
+        if (serverRowMissing) {
+          console.warn(
+            '[record] no recording_sessions row for this take — karute saves unlinked, audio stays on this device',
+            { takeId: o.take.takeId },
+          )
+        }
         globalPipeline.start(blob, {
           locale,
           customers,
@@ -2913,6 +2949,7 @@ export function RecordPageView({
           autoFinish: flow.autoFinish,
           recordingSessionId,
           takeId: o.take.takeId,
+          serverRowMissing,
         })
         // globalPipeline.start() has already minted this run's id (run()/
         // runServerJob() bump it synchronously before their first await), so
@@ -3340,6 +3377,15 @@ export function RecordPageView({
   const recorderColumn = (
     <div className="flex flex-col gap-3.5">
       {recorderControls}
+      {/* UPDATE 25 GROUP A, piece d2 — a run whose session id never resolved.
+          Quiet, non-blocking: the karute still saves, but the audio stays on
+          this device only. Never a dialog, never a toast-only surface — the
+          same wash-notice vocabulary the recovery banner uses. */}
+      {pipeline.state !== 'idle' && pipeline.context?.serverRowMissing && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] leading-relaxed text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200">
+          {t('serverRowMissing')}
+        </p>
+      )}
       {/* Session photos — mounted only for a session BOUND to a customer.
           Deliberately target-only, never the boundCustomerId fallback: under
           an anonymous record-anyway take, nextAppointment can resolve to a

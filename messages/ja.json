@@ -614,6 +614,7 @@
     "pipelineErrorConsentRequired": "録音の同意が必要です。同意を取得してからもう一度お試しください。",
     "pipelineErrorGeneric": "処理中にエラーが発生しました。もう一度お試しください。",
     "pipelineErrorDiscarded": "この録音はスタッフが破棄したため、カルテに保存できません。",
+    "serverRowMissing": "サーバーに録音の記録を作成できませんでした。カルテは保存されますが、音声はこの端末にのみ残ります",
     "recordingFor": "録音対象",
     "noUpcomingAppointment": "予約がありません",
     "noBookingTitle": "予約が見つかりません",
@@ -769,7 +770,9 @@
         "localAudio": "この端末に音声が残っています（未保存）",
         "tailIncomplete": "録音が途中で終わっています（この端末に残っているところまで保存できます）",
         "serverAudio": "サーバーに音声が残っています（未保存・途中までの場合があります）",
-        "partialOnServer": "サーバーに音声が途中まで届いています（数日以内に保存できるようになります）"
+        "partialOnServer": "サーバーに音声が途中まで届いています（数日以内に保存できるようになります）",
+        "sessionUnlisted": "この端末に音声が残っています（サーバーの記録には見つかりません）",
+        "refusedHasRecord": "この来店には別の録音のカルテがあります（保存すると別のカルテとして作成されます）"
       },
       "action": {
         "open": "開く",
