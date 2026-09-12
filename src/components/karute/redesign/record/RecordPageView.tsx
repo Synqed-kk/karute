@@ -417,10 +417,11 @@ export function resolveRecoveryTicketState(opts: {
   packId: string | null
   /** MONEY reader's shape (回数券 update 25, p2) — the FIFO target's OWN
    *  remaining/size + otherRemaining, feeding resolveOutcomeMode/the dialog/
-   *  the burn toast, exactly like the live path's targetPack. A row without
-   *  a `target` (an old cached fixture) degrades to reading the row's own
-   *  aggregate numbers as if they were the FIFO pack's own — honest for a
-   *  single-pack customer, the only shape that degrade can ever produce. */
+   *  the burn toast, exactly like the live path's targetPack. The server
+   *  ALWAYS sends `target` (the row type makes it required) — a row without
+   *  one offers no burn at all, full stop. No fallback to the aggregate: an
+   *  aggregate presented as one pack's own numbers is exactly the lie p2
+   *  exists to remove. */
   target: { remaining: number; size: number; otherRemaining: number } | null
 } {
   const { facts, customerId, appointmentId } = opts
@@ -428,10 +429,7 @@ export function resolveRecoveryTicketState(opts: {
   const row = facts.packs.find((p) => p.customerId === customerId) ?? null
   const pack = row ? { remaining: row.remaining, size: row.size } : null
   const packId = row?.packId ?? null
-  const target = !row
-    ? null
-    : (row.target ??
-      (packId ? { remaining: row.remaining, size: row.size, otherRemaining: 0 } : null))
+  const target = row?.target ?? null
   if (!facts.redeemed) return { state: 'none', pack, packId, target }
   // ⚖ 2026-08-21 (Liam) — BOOKING-KEYED, exactly like the server guard this
   // mirrors (actions/packs.ts, D5). A destination WITH a booking asks one

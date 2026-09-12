@@ -54,7 +54,13 @@ jest.mock('@/actions/recording-discards', () => ({
 const DAY_FACTS = {
   date: '2026-08-18',
   bookings: [] as unknown[],
-  packs: [] as { customerId: string; packId: string | null; remaining: number; size: number }[],
+  packs: [] as {
+    customerId: string
+    packId: string | null
+    remaining: number
+    size: number
+    target: { remaining: number; size: number; otherRemaining: number } | null
+  }[],
   redeemed: { appointmentIds: [] as string[], customerIds: [] as string[] },
 }
 const mockDayFacts = jest.fn(async (_i: unknown) => DAY_FACTS)
@@ -343,7 +349,15 @@ function factsWith(over: {
     packs:
       over.remaining === undefined
         ? []
-        : [{ customerId: 'cust-1', packId: 'pack-1', remaining: over.remaining, size: 6 }],
+        : [
+            {
+              customerId: 'cust-1',
+              packId: 'pack-1',
+              remaining: over.remaining,
+              size: 6,
+              target: { remaining: over.remaining, size: 6, otherRemaining: 0 },
+            },
+          ],
     redeemed: {
       appointmentIds: over.redeemedAppointments ?? [],
       customerIds: over.redeemedCustomers ?? [],
@@ -426,7 +440,15 @@ describe('auto-finish lands the record itself', () => {
   it('② an UNANSWERED take saves with NO outcome, burns NOTHING, and says 結果未回答', async () => {
     grantConsent()
     // 残2 = the repurchase cohort — the tapped path would open the popup here.
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
 
     await renderPage()
 
@@ -455,7 +477,15 @@ describe('auto-finish lands the record itself', () => {
     grantConsent()
     // 残4 (>2) = 'auto': the product never asks this cohort, so recovery must
     // not either — it burns and says so.
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 4,
+        size: 6,
+        target: { remaining: 4, size: 6, otherRemaining: 0 },
+      },
+    ]
     mockRedeem.mockImplementation(async () => {
       DAY_FACTS.redeemed = { appointmentIds: ['appt-1'], customerIds: ['cust-1'] }
       return { ok: true, redemptionId: 'r1' }
@@ -713,7 +743,15 @@ describe('what auto-finish REFUSES to do — the banner is the fallback, untouch
 
   it('guard_unavailable mid-flight certifies NOTHING, aborts to the banner, and shows no notice', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 4,
+        size: 6,
+        target: { remaining: 4, size: 6, otherRemaining: 0 },
+      },
+    ]
     mockRedeem.mockResolvedValue({ ok: false, error: 'guard_unavailable' })
 
     await renderPage()

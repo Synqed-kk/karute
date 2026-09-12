@@ -62,12 +62,14 @@ const DAY_FACTS = {
     packId: string | null
     remaining: number
     size: number
-    // 回数券 update 25, p2 — optional here on purpose: most fixtures below
-    // are single-pack customers, where the graceful degrade (RecordPageView's
-    // resolveRecoveryTicketState) reads remaining/size as the FIFO pack's own
-    // — numerically identical to a real target, so those fixtures need no
-    // edit. Only the two-pack test below sets it explicitly.
-    target?: { remaining: number; size: number; otherRemaining: number } | null
+    // 回数券 update 25, p2b — REQUIRED, matching the real server row: the
+    // server always sends `target` (the FIFO pack's own remaining/size +
+    // otherRemaining). Every single-pack fixture below sets it to the SAME
+    // numbers the row already carries (otherRemaining: 0) — a lone pack's
+    // aggregate IS its own remaining/size, so this is not a behavior change,
+    // just the honest shape. Only the two-pack test sets a genuinely
+    // different target.
+    target: { remaining: number; size: number; otherRemaining: number } | null
   }[],
   redeemed: { appointmentIds: [] as string[], customerIds: [] as string[] },
 }
@@ -733,7 +735,15 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
     // remaining 2 = 'repurchase' (REPURCHASE_PROMPT_REMAINING) — the mode that
     // still ASKS. remaining 4 would be 'auto', which A-6 now answers with the
     // silent burn leg and no dialog at all.
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
@@ -789,7 +799,15 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
   // reads as already-resolved and never re-asks, over money that never moved.
   it('A-3: nothing is stamped while the burn is still in flight', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     const packs = jest.requireMock('@/actions/packs') as { redeemSessionAction: jest.Mock }
     let settleBurn: (v: { ok: boolean }) => void = () => {}
     packs.redeemSessionAction.mockReturnValueOnce(
@@ -819,7 +837,15 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
     // remaining 2 = 'repurchase' (REPURCHASE_PROMPT_REMAINING) — the mode that
     // still ASKS. remaining 4 would be 'auto', which A-6 now answers with the
     // silent burn leg and no dialog at all.
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
@@ -1067,7 +1093,15 @@ describe('resolveRecoveryTicketState', () => {
     ({
       date: '2026-08-18',
       bookings: [],
-      packs: [{ customerId: 'c1', packId: 'p1', remaining: 4, size: 6 }],
+      packs: [
+        {
+          customerId: 'c1',
+          packId: 'p1',
+          remaining: 4,
+          size: 6,
+          target: { remaining: 4, size: 6, otherRemaining: 0 },
+        },
+      ],
       redeemed: { appointmentIds: [], customerIds: [] },
       ...over,
     }) as NonNullable<Parameters<typeof resolveRecoveryTicketState>[0]['facts']>
@@ -1159,6 +1193,22 @@ describe('resolveRecoveryTicketState', () => {
     })
     expect(r.state).toBe('redeemed')
   })
+
+  // p2b (Fable line-read, 20:3x) — the server ALWAYS sends `target`; a row
+  // with none offers no burn at all, full stop. Even with a real packId on
+  // the row (an old cached fixture shape), target is NEVER rebuilt from the
+  // aggregate (`remaining`/`size`) — that is the exact lie p2 exists to
+  // remove (an aggregate presented as one pack's own numbers).
+  it('a row with target null and no packId offers no burn: target stays null (never rebuilt from the aggregate)', () => {
+    const r = resolveRecoveryTicketState({
+      facts: facts({
+        packs: [{ customerId: 'c1', packId: 'p1', remaining: 4, size: 6, target: null }],
+      }),
+      customerId: 'c1',
+      appointmentId: 'a1',
+    })
+    expect(r.target).toBeNull()
+  })
 })
 
 // ── A-6: mid-pack customers never see the conversion question ──────────────
@@ -1168,7 +1218,15 @@ describe('auto mode parity (A-6)', () => {
     // >2 sessions left = resolveOutcomeMode 'auto': no conversion conversation
     // happened, so asking would pollute the coaching labels the live stop flow
     // protects by burning silently.
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 4,
+        size: 6,
+        target: { remaining: 4, size: 6, otherRemaining: 0 },
+      },
+    ]
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
@@ -1199,7 +1257,15 @@ describe('auto mode parity (A-6)', () => {
 
   it('an ALREADY-burned auto customer does not burn again', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 4,
+        size: 6,
+        target: { remaining: 4, size: 6, otherRemaining: 0 },
+      },
+    ]
     DAY_FACTS.redeemed = { appointmentIds: ['appt-1'], customerIds: [] }
     await renderPage()
     await act(async () => {
@@ -1252,7 +1318,15 @@ describe('alreadyRedeemed wiring (T-1)', () => {
   it('a burned booking reaches the popup as a static row and burns nothing', async () => {
     grantConsent()
     // remaining 2 → repurchase, so the dialog still opens (auto would not).
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     DAY_FACTS.redeemed = { appointmentIds: ['appt-1'], customerIds: [] }
     await renderPage()
     // The banner states it too.
@@ -1391,7 +1465,15 @@ describe('bound re-point (T-2)', () => {
 describe('latch release (T-3)', () => {
   it('cancelling the outcome popup re-enables 保存する', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
@@ -1548,7 +1630,15 @@ describe('draft save (T-5) and the per-offer answer latch (A-4)', () => {
     grantConsent()
     offerTake = false
     offerDraft = { ...DRAFT }
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     mockSaveInline.mockResolvedValueOnce({ error: 'boom' })
     // A preset prefills the 新しい回数券 panel, so 成約 can actually submit —
     // that combination (a burn AND a pack sale) is the one A-4 protects.
@@ -1701,7 +1791,15 @@ describe('the flow freezes its offer (A-1) and the abort really aborts', () => {
   // from under the live flow, which is the real production sequence.
   it('F-4: an offer claimed mid-flow closes the dialogs and frees the latch, MOUNTED', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     const { rerenderSame } = await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
@@ -1741,7 +1839,15 @@ describe('the flow freezes its offer (A-1) and the abort really aborts', () => {
           releaseConsent = r as (v: { consent: null }) => void
         }) as never,
       )
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 4,
+        size: 6,
+        target: { remaining: 4, size: 6, otherRemaining: 0 },
+      },
+    ]
     const { rerenderSame } = await renderPage()
     // The auto arm is done and stood down; the banner is the live surface.
     expect(mockGetCustomerConsent).toHaveBeenCalledTimes(1)
@@ -1842,7 +1948,15 @@ describe('a search-re-pointed customer keeps their pack (F-1)', () => {
     }))
     mockDayFacts.mockImplementationOnce(async () => ({
       ...DAY_FACTS,
-      packs: [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }],
+      packs: [
+        {
+          customerId: 'cust-1',
+          packId: 'pack-1',
+          remaining: 4,
+          size: 6,
+          target: { remaining: 4, size: 6, otherRemaining: 0 },
+        },
+      ],
     }))
     await renderPage()
     await act(async () => {
@@ -1895,7 +2009,15 @@ describe('draft answers are durable (F-2)', () => {
     grantConsent()
     offerTake = false
     offerDraft = { ...DRAFT2 }
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
@@ -1915,7 +2037,15 @@ describe('draft answers are durable (F-2)', () => {
     grantConsent()
     offerTake = false
     offerDraft = { ...DRAFT2 }
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     mockSaveInline.mockResolvedValueOnce({ error: 'boom' })
     await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
     await act(async () => {
@@ -1964,7 +2094,15 @@ describe('per-leg certification (F-3)', () => {
 
   it('a TRANSIENT burn failure certifies nothing, keeps the banner, and retries only that leg', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     const packs = packsMock()
     packs.redeemSessionAction.mockRejectedValueOnce(new Error('network'))
     await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
@@ -2003,7 +2141,15 @@ describe('per-leg certification (F-3)', () => {
   it('guard_unavailable says so honestly and certifies nothing', async () => {
     grantConsent()
     // remaining 4 → the auto leg, where the misleading 消化済み was worst.
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 4,
+        size: 6,
+        target: { remaining: 4, size: 6, otherRemaining: 0 },
+      },
+    ]
     const packs = packsMock()
     packs.redeemSessionAction.mockResolvedValueOnce({ ok: false, error: 'guard_unavailable' })
     const { toast } = jest.requireMock('sonner') as {
@@ -2031,7 +2177,15 @@ describe('per-leg certification (F-3)', () => {
 
   it('a PROVABLE already_redeemed certifies the leg and saves', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 4,
+        size: 6,
+        target: { remaining: 4, size: 6, otherRemaining: 0 },
+      },
+    ]
     packsMock().redeemSessionAction.mockResolvedValueOnce({
       ok: false,
       error: 'already_redeemed',
@@ -2155,7 +2309,15 @@ describe('deferred start + abort, at the edges', () => {
   // a live recording.
   it('an offer claimed during the money legs certifies them but saves nothing', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     const packs = jest.requireMock('@/actions/packs') as { redeemSessionAction: jest.Mock }
     let settleBurn: (v: { ok: boolean }) => void = () => {}
     packs.redeemSessionAction.mockReturnValueOnce(
@@ -2282,7 +2444,15 @@ describe('the new-pack payload is durable (Greptile #728)', () => {
     grantConsent()
     offerTake = false
     offerDraft = { ...DRAFT3 }
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     mockSaveInline.mockResolvedValueOnce({ error: 'boom' })
     await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
     await act(async () => {
@@ -2306,7 +2476,15 @@ describe('the new-pack payload is durable (Greptile #728)', () => {
     grantConsent()
     offerTake = false
     offerDraft = { ...DRAFT3 }
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     packs().createPackAction.mockResolvedValueOnce({ ok: false, error: 'boom' })
     await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
     await act(async () => {
