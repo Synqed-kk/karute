@@ -2054,20 +2054,6 @@ export interface RailCell {
    *  ponytail: no product surface reads this yet (LENS-4 §D-11) — it is the explain
    *  surfaces' data, published with the axis rather than bolted on after it. */
   gapNote?: { worse: boolean; dead: number; salvage: number; lostMenus: string[] }
-  /** ⚖ NEW-WINDOW D-2 — THE ENGINE'S OWN STATEMENT, when M10 republished its class.
-   *  Present only on the refusal arm that rewrote an R-DEAD / R-SALV into the
-   *  capacity form, where the panel's sentence is now about the 新規 window and the
-   *  engine's minutes fact would otherwise have nowhere to be said.
-   *  ponytail: NO SURFACE READS THIS YET, and the reason is a live ruling conflict,
-   *  stated rather than resolved by a builder: ⚖ 92 fix round 5 V3 deleted the
-   *  engine-row append from `warnFaceFor` and bans its name
-   *  (`today-screen-interactions.test.ts:9533`), on the premise that a guard-lit
-   *  panel is already saying the row. That premise is FALSE for this field — the
-   *  panel says the capacity sentence and this is the residue one — which is the
-   *  same reading D-1 applies to `guardRow` one line below. Published with the arm
-   *  that produces it (`gapNote`'s own precedent), never bolted on after it; the
-   *  row's home is the session model's to rule. */
-  engineNote?: { code: 'R-DEAD' | 'R-SALV'; n: number }
   /** ⚖ NEW-WINDOW M1 — WHAT THIS LANDING COSTS THE WHOLE STORE, and whose.
    *
    *  A SIBLING of `impact`, never nested inside it: `impact` is the POCKET's
@@ -2166,15 +2152,6 @@ export function windowsEatenBy(
  *  first is a window and only the first may be given a clause, and the thing
  *  that knows which is the composer holding the verdict — so `railCell` passes
  *  '' for the other. */
-/** ⚖ NEW-WINDOW M10 — the protected window's own name, spelled the way gap-guard
- *  spells it (`reasonForKey` :340: `${protectedLabel}（${protectedDurationMin}分）`)
- *  from the same two store settings. The engine's copy is private to
- *  `createGapGuard`, so the rail composes it here for the one arm that
- *  republishes the class, and takes the minutes from the number every other
- *  sentence on this rail already uses. */
-const protectedLabelOf = (input: RailInput) =>
-  `${input.guard.protectedLabel || '新規'}（${input.protectedDur}分）`
-
 export function reasonLine(reason: GuardReason | undefined, protectedDur: number, windows = ''): string {
   if (!reason) return '配置できません'
   const p = reason.params as Record<string, number | string>
@@ -2824,27 +2801,12 @@ function railCell(
   // なります」, gap-guard `reasonForKey`'s `repLabel(lossSet)` line — :338) is not
   // a protected window and gets nothing. The engine's own `capacityLost` is the
   // test — the words are not.
-  /** ⚖ NEW-WINDOW L-A (M4) — TWO NAMES FOR TWO FACTS, because they are two facts.
-   *
-   *  `engineRep` is the ENGINE'S CLAIM about its own key: it ranked this refusal on
-   *  the protected-capacity term. It is keyed on `capacityLost`, which
-   *  `reasonForKey` fills from a baseline the engine computed on the LIVE ctx —
-   *  the world with the hand's phantom already at the aim — so on a MOVE it can
-   *  read 0 while the lane really lost a window (the round's Defect 1).
-   *
-   *  `repCapacity` is the HONEST COUNT: the caller's own lists, which for a move
-   *  are the whole lane before (through the lifting door) and the whole lane after.
-   *  What is PUBLISHED is keyed on this one; the arms that ask 「which term did the
-   *  engine rank on」 keep asking `engineRep`. At rest the two are the same fact —
-   *  `resting === null` collapses `beforeStarts`/`afterStarts` onto the engine's own
-   *  pocket lists, so a board with nothing in hand does not move a byte. */
-  const engineRep =
+  const repCapacity =
     v.reason?.code === 'R-REP' && Number(v.reason.params.capacityLost) > 0
-  const repCapacity = loss > 0
   // (c) — A REFUSAL WHOSE ONLY COST WAS THE PHANTOM WINDOW IS PLACEABLE. The store loses
   // no inventory by confirming this change, so the gate that priced it and held it behind
   // 長押し had nothing to gate: △, quiet, un-priced, the engine's safe offers kept.
-  if (engineRep && resting !== null && loss === 0) {
+  if (repCapacity && resting !== null && loss === 0) {
     return degradedFace(keptSentence(afterStarts, afterStarts.length === 0), safeAlternatives, v.alternativeKind === 'safe' ? 'safe' : null)
   }
   // (c2) — THE GAP AXIS OF A MOVE, measured against the store's committed day. The
@@ -2867,7 +2829,7 @@ function railCell(
   // now falls through to (d)/(e) and is priced there, exactly as at base.
   const rv =
     resting !== null && v.verdict === 'refuse' && loss === 0 && v.reason
-    && (v.reason.code === 'R-DEAD' || v.reason.code === 'R-SALV' || (v.reason.code === 'R-REP' && !engineRep))
+    && (v.reason.code === 'R-DEAD' || v.reason.code === 'R-SALV' || (v.reason.code === 'R-REP' && !repCapacity))
       ? residueVerdict(engine, pocket, resting, { start, dur: input.dur }, ctx, RESIDUE_COMPARE_STRIPS_EXEMPTIONS, restGap)
       : null
   if (rv !== null) {
@@ -2890,68 +2852,28 @@ function railCell(
       },
     }
   }
-  /** (d)/(e) — ⚖ NEW-WINDOW L-A: THE CALLER'S OWN LISTS, ON EVERY ARM.
-   *
-   *  This line used to hand the engine's pocket lists to every class the engine
-   *  did not rank on capacity — and on a MOVE those lists are the phantom
-   *  baseline, so a landing that really closed the lane's last 新規 window
-   *  published 0→0 and went silent (Defect 1). `beforeStarts`/`afterStarts` are
-   *  the honest pair the caller already computed twenty lines up; at rest they
-   *  ARE the engine's pocket lists, byte for byte. */
-  const windowsBefore = beforeStarts
-  const windowsAfter = afterStarts
+  // (d)/(e) — a refusal that really costs a window names and prices the honest lists;
+  // every other refusal class keeps the engine's own pocket numbers, untouched.
+  const windowsBefore = repCapacity ? beforeStarts : v.protectedWindowsBefore
+  const windowsAfter = repCapacity ? afterStarts : v.protectedWindowsAfter
   const repWindows = repCapacity
     ? protectedWindowsClause(
         windowsEatenBy(beforeStarts, input.protectedDur, start, input.dur),
         input.protectedDur,
       )
     : ''
-  /** M10 — A WINDOW LOSS WEARS THE WINDOW SHAPE, whatever the engine ranked on.
-   *
-   *  With the honest count saying a protected window is gone, publishing the
-   *  engine's own class would name a MENU (`reasonForKey`'s `repLabel`, gap-guard
-   *  :338) or a residue in minutes over a fact that is about the store's 確保
-   *  inventory — and `impactOf`'s `ruled` gate would refuse the sentence
-   *  entirely. So the published reason is the capacity form, composed from the
-   *  honest lists; the label is gap-guard's own (`reasonForKey` :340), from the
-   *  same two store settings.
-   *
-   *  D-2 — AND THE ENGINE'S OWN STATEMENT DOES NOT VANISH WITH ITS CLASS. When the
-   *  override rewrote an R-DEAD / R-SALV, its minutes sentence had nowhere left to
-   *  go (the (c2) arm's `gapNote` is a different axis), so it rides `engineNote`
-   *  and `warnFaceFor` renders it as a △ row in the engine's own words. */
-  const published: GuardReason | undefined =
-    repCapacity && v.reason
-      ? {
-          code: 'R-REP',
-          params: {
-            label: protectedLabelOf(input),
-            capacityBefore: beforeStarts.length,
-            capacityAfter: afterStarts.length,
-            capacityLost: loss,
-          },
-        }
-      : v.reason
-  const overridden =
-    repCapacity && (v.reason?.code === 'R-DEAD' || v.reason?.code === 'R-SALV')
-      ? { code: v.reason.code, n: Number(v.reason.params.n) }
-      : null
   return {
-    ...blocked(reasonLine(published, input.protectedDur, repWindows), 'guard'),
+    ...blocked(reasonLine(v.reason, input.protectedDur, repWindows), 'guard'),
     alternatives: v.alternatives,
     alternativeKind: v.alternativeKind,
-    // The engine's word about whether this placement can be made at all is NEVER
-    // republished: M10 changes what the refusal is ABOUT, never whether it may be
-    // walked past (⚖ 73).
     ackAllowed: v.reason?.ackAllowed === true,
-    ...(overridden ? { engineNote: overridden } : {}),
-    // ⚖ 92 — the published class, carried rather than read back out of the
-    // sentence it produced.
+    // ⚖ 92 — the engine's own class (R-REP / R-DEAD / R-SALV), carried rather
+    // than read back out of the sentence it produced.
     // ⚖ 92 fix round 5 V1 (breaker #4) — with the window starts, as above.
-    ...(published
+    ...(v.reason
       ? {
           impact: {
-            code: published.code,
+            code: v.reason.code,
             capacityBefore: windowsBefore.length,
             capacityAfter: windowsAfter.length,
             windowsBefore,
