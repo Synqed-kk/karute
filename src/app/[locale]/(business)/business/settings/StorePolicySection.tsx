@@ -972,11 +972,11 @@ export function StorePolicySection(props: StorePolicySectionProps) {
             className="st-row st-dial"
             aria-labelledby="stTightLabel"
             data-guide-title="残りわずかの目安"
-            data-guide="月カレンダーで「残りわずか」として橙で示す空き枠数の上限です。2なら、空きが1〜2枠の日が橙になります。0にすると橙は出ません。"
+            data-guide="月カレンダーで「残りわずか」として橙で示す、あと入る予約数の上限です。2なら、あと1〜2枠の日が橙になります。0にすると橙は出ません。"
           >
             <div className="st-dial-what">
               <div className="st-dial-label"><h3 id="stTightLabel">残りわずかの目安</h3></div>
-              <p className="st-dial-desc">月カレンダーで、空きがこの数以下の日を橙で示します</p>
+              <p className="st-dial-desc">月カレンダーで、あと入る数がこの数以下の日を橙で示します</p>
               <DetailToggle open={detOpen['tight'] === true} controls="st-det-bg.tight" onToggle={() => toggleDet('tight')} />
             </div>
             <div className="st-dial-ctl">

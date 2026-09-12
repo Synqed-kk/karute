@@ -253,9 +253,15 @@
   top: calc(100% + 6px);
   z-index: 40;
   /* ⚖ STUDIO 2026-09-12 — 340, not 312: at 312 the 定休 cell's own word was
-     20.2px wide in a 39.1px column and 「空き12」 had nowhere to go. The clamp is
-     what keeps a right-anchored 340px card inside a 393px phone. */
-  width: 340px;
+     20.2px wide in a 39.1px column and 「空き12」 had nowhere to go.
+     ⚖ Liam 2026-09-12 00:5x 「I choose B」 — 380, not 340. The cell counts
+     BOOKINGS now and says so: 「あと35枠」 measures 43.81px against the 41.71px
+     column 340 leaves, so the grid pushed the card's own content to 354.67px
+     and a 393 phone grew a 61px horizontal scroll. At 380 the column is 47.14px
+     and the widest count the store can print sits inside it with 1.67px either
+     side — measured, not estimated (build-courses/renders/proof.json). The
+     clamp is what keeps a right-anchored 380px card inside a 393px phone. */
+  width: 380px;
   max-width: calc(100vw - 32px);
   padding: 12px;
   border: 1px solid var(--control);

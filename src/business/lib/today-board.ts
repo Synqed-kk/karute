@@ -2,9 +2,14 @@
 //
 // WHY THIS IS NOT IN THE PAGE: every number the board shows has to agree with
 // every other number (the nav badge, the 未解決 cell, the 次に決めること cell
-// and the cards themselves are ONE count; 稼働率 and the calendar's free-slot
-// numbers come from ONE pair of sums). That discipline is only checkable if the
-// arithmetic can be called on its own, so it lives here and the page composes.
+// and the cards themselves are ONE count; 稼働率 and the month calendar's
+// 「あとN枠」 ask different questions — a ratio of minutes and a count of
+// courses — but they ask them of ONE set of door reads: the same roster, the
+// same shifts, the same 勤務不可, the same 予定ブロック, the same bookings — the
+// fifth input joined 2026-09-12 fix round 3, when P1 found a block that could
+// swallow a course the count still advertised). That discipline is only
+// checkable if the arithmetic can be called on its own, so it lives here and
+// the page composes.
 //
 // Everything is DERIVED wherever a derivation exists (⚖ 8/9, product truth):
 //   · a bed's 清掃 blocks come from the bookings on it plus the resource's own
@@ -18,6 +23,7 @@
 //
 // Times are JST minutes from midnight throughout (see fixtures-today.ts).
 
+import { freePockets, kPackCount } from './canon-logic/availability'
 import { jstDayKey, jstMinuteOfDay } from './clock'
 import type { FixtureAppointment, FixtureCustomer, FixtureMenu, FixtureStaff } from './fixtures'
 import type {
@@ -193,12 +199,109 @@ export function suppressedByAbsence(
   return absence != null && booking.staff_id === absence.staff_id && booking.startMinute >= absence.from
 }
 
-/** Free capacity for one day, in hour-sized slots: the treatment minutes the
- *  roster leaves minus the minutes already booked. The calendar's per-day
- *  number and 稼働率 are the SAME two sums, so a day that reads 満 cannot also
- *  read as under-utilised. */
-export function freeSlots(availableMin: number, bookedMin: number): number {
-  return Math.max(Math.floor((availableMin - bookedMin) / 60), 0)
+/** あと入る数 — HOW MANY STANDARD-LENGTH COURSES ONE DAY STILL HOLDS.
+ *
+ *  ⚖ Liam 2026-09-12 「I choose B」. The month calendar used to divide the day's
+ *  leftover minutes by 60 (`freeSlots`, deleted with this round): three separate
+ *  30-minute gaps read as 「空き1」 and sent a receptionist to book an hour that
+ *  exists nowhere on that day. A course needs its minutes CONTIGUOUS, so the
+ *  count is asked per staff lane, over the free pockets the engine already
+ *  computes for スキマガード (`freePockets`) packed with the engine's own
+ *  `kPackCount` — never a second pocket formula written here.
+ *
+ *  `now: null` ON EVERY DAY, TODAY INCLUDED. This is a whole-day count, the same
+ *  question 稼働率 asks of the same day; subtracting the morning that has already
+ *  gone would answer a second question at the same time (a rider, not this).
+ *
+ *  ⚠ A BOOKING WITH NO 担当 sits on nobody's lane and will still consume
+ *  someone's day, so it is SUBTRACTED rather than ignored. Deliberately
+ *  conservative: a calendar that overstates sends a receptionist to sell a slot
+ *  that is not there, and understating by a course is the cheaper error.
+ *
+ *  稼働率 is NOT this number and is untouched — it is a ratio of minutes. What
+ *  the two share is the INPUT (roster · shifts · 勤務不可 · bookings), which is
+ *  where the one-home rule lives; a shared FORMULA is what they never had. */
+export function coursesFitForDay(input: {
+  staff: readonly { id: string }[]
+  shifts: readonly FixtureShift[]
+  qualifications: Record<string, string[] | undefined>
+  absence: FixtureAbsence | null
+  /** 開店. Paired with `close` below so every lane's pockets are clamped to
+   *  the store's own day — see that comment for why. */
+  open: number
+  /** 閉店. The count never advertises a course the store is shut for: it is
+   *  clamped to the store's own day the same way the placement rail (~:105)
+   *  already refuses to place one there — a calendar that disagrees with the
+   *  rail sends a receptionist to a slot that is not there. `freePockets`
+   *  still reads this value on its own, to name a pocket's right-hand wall:
+   *  the store's own close, or just this person's last workable minute.
+   *  ⚠ NO QUOTED WALL NAMES IN THIS COMMENT. business-isolation.test.ts scans
+   *  every Business file for the word `from` followed by a quoted string and
+   *  reads the quote as an import specifier — prose included, because a block
+   *  comment on one line is not a full-line comment to its stripper. The first
+   *  spelling of this line named the two walls in quotes and planted a phantom
+   *  package that failed the isolation lock. */
+  close: number
+  bookings: ReadonlyArray<{ staffId: string | null; start: number; end: number }>
+  /** ⚖ FIX ROUND 3 (P1) — 予定ブロック (「準備」「記録」「レジ」「指名予約」…), the
+   *  board's own 「予約不可」 cards (`kind: 'block'`). A block on a staff member
+   *  IS occupied time on that member's lane, the same as a booking or a break —
+   *  the board already refuses to place one there (`laneSpans()` counts every
+   *  item whatever its `kind`), so a count that ignored them advertised a
+   *  course the placement rail would refuse. A RESOURCE-ONLY block (`staffId`
+   *  null — a bed-only 予定ブロック) is NOT lane occupancy: nobody's DAY is
+   *  spent when a bed alone is blocked, so it is filtered out below and never
+   *  subtracted the way an unassigned booking is. A block on a staff member
+   *  with no shift that day (or outside her clamped window) changes nothing,
+   *  same as a booking. */
+  blocks: ReadonlyArray<{ staffId: string | null; start: number; end: number }>
+  /** 標準セッション (`opsConfig.standardSessionMin`), the length being counted. */
+  sessionMin: number
+}): number {
+  const { sessionMin } = input
+  // A course with no length divides into nothing, so 0 is the honest answer.
+  // NEVER NaN and never Infinity: both of those paint as a count on a cell.
+  if (!(Number.isFinite(sessionMin) && sessionMin > 0)) return 0
+  const shiftByStaff = new Map(input.shifts.map((s) => [s.staff_id, s]))
+  let fits = 0
+  for (const member of input.staff) {
+    // A receptionist is not idle capacity — the same judgement, from the same
+    // home (`treatsPatients`), that 稼働率 reads through `laneMinutes`.
+    if (!treatsPatients(input.qualifications[member.id])) continue
+    const shift = shiftByStaff.get(member.id)
+    if (!shift) continue
+    const eff = effectiveShift(shift, input.absence)
+    // An absence that swallows the whole shift leaves no window to pocket.
+    if (eff.end <= eff.start) continue
+    const pockets = freePockets({
+      // ⚖ D-C4 rider: 稼働率's own denominator (`shiftAvailableMinutes`) does
+      // not clamp to 営業時間 either — same class of gap, deliberately left for
+      // the reconnect round; this fix touches only the calendar's count.
+      from: Math.max(eff.start, input.open),
+      until: Math.min(eff.end, input.close),
+      close: input.close,
+      now: null,
+      occupied: [
+        ...eff.breaks.map((b) => ({ start: b.start, end: b.end, isBreak: true })),
+        ...input.bookings.filter((b) => b.staffId === member.id),
+        ...input.blocks.filter((b) => b.staffId === member.id),
+      ],
+    })
+    for (const pocket of pockets) fits += kPackCount(pocket.s, pocket.e, sessionMin)
+  }
+  // ⚖ FIX ROUND 3 (P2) — an unassigned booking is on no lane and still eats
+  // the day, but only for the part that actually lands inside 営業時間: an
+  // assigned booking at that hour is already clamped by `freePockets` above,
+  // and the unassigned rule must clip the same way or a night import (a
+  // booking starting after close, say) paints the whole day 満.
+  const unassigned = input.bookings
+    .filter((b) => b.staffId === null)
+    .reduce((n, b) => {
+      const s = Math.max(b.start, input.open)
+      const e = Math.min(b.end, input.close)
+      return e <= s ? n : n + Math.ceil((e - s) / sessionMin)
+    }, 0)
+  return Math.max(0, fits - unassigned)
 }
 
 export function hhmm(minute: number): string {
@@ -251,7 +354,7 @@ export interface BoardItem {
   w: number
   /** The same span in minutes. The board paints in percent, but the sell-layer
    *  derivation reasons in minutes, and inverting the percent back would fold a
-   *  rounding error into every free-slot test. One value, both readings. */
+   *  rounding error into every coursesFitForDay test. One value, both readings. */
   startMin: number
   endMin: number
   title: string
@@ -641,8 +744,8 @@ export function treatsPatients(qualifications: string[] | undefined): boolean {
 /** The minutes ONE member's shift leaves for treatment on a day, after the
  *  day's 勤務不可 has shortened it. Zero when they are not on that roster.
  *
- *  One home for the term, so the per-lane sums behind 稼働率 and the per-day
- *  roster the month calendar reads can never become two formulas that drift. */
+ *  One home for the term, so every per-day reading of a shift — the lane sums
+ *  behind 稼働率, and the roster sum below — comes from one place. */
 export function shiftAvailableMinutes(shift: FixtureShift | undefined, absence: FixtureAbsence | null): number {
   return shift ? availableMinutes(effectiveShift(shift, absence)) : 0
 }
@@ -665,26 +768,32 @@ export function absenceForDay(
   return byDay.get(dayKey) ?? null
 }
 
-/** The treatment minutes ONE DAY'S roster leaves — the denominator behind both
- *  稼働率 and the month calendar's 空き count, for ANY day rather than only the
- *  day on screen. Only staff who can take a treatment count, exactly as
- *  `utilization` reads `laneMinutes`: a receptionist is not idle capacity. */
-export function rosterAvailableMinutes(
-  staff: readonly { id: string }[],
-  shifts: readonly FixtureShift[],
-  qualifications: Record<string, string[] | undefined>,
-  absence: FixtureAbsence | null,
-): number {
-  const shiftByStaff = new Map(shifts.map((s) => [s.staff_id, s]))
-  return staff.reduce(
-    (n, member) =>
-      treatsPatients(qualifications[member.id]) ? n + shiftAvailableMinutes(shiftByStaff.get(member.id), absence) : n,
-    0,
-  )
+/** ⚖ FIX ROUND 3 (P1) — the 予定ブロック that occupy day K's lanes: the door's
+ *  answer FOR K, and nothing else — same one-home discipline as `absenceForDay`
+ *  right above it. A day the door holds no block for has none, honestly.
+ *  Returned already in `coursesFitForDay`'s own occupancy shape, so the
+ *  caller hands the result straight through. */
+export function blocksForDay(
+  dayKey: number,
+  byDay: ReadonlyMap<number, FixtureBlock[]>,
+): ReadonlyArray<{ staffId: string | null; start: number; end: number }> {
+  return (byDay.get(dayKey) ?? []).map((b) => ({ staffId: b.staff_id, start: b.start, end: b.end }))
 }
 
-/** Per-lane minute sums — the one pair of numbers behind 稼働率 AND the
- *  calendar's free-slot count. */
+/* ⚰ `rosterAvailableMinutes` LIVED HERE and was deleted 2026-09-12 (fix round 1).
+ * It was #890's calendar denominator: the treatment minutes one day's roster
+ * leaves, which the month divided by 60. ⚖ Liam 「I choose B」 replaced that
+ * division with `coursesFitForDay` above, and the helper was left with no
+ * product caller at all — only a test suite keeping it warm. Same ruling as
+ * `freeSlots` in the same round: a formula nothing paints is a second formula
+ * waiting to disagree with the one that does. A future reader wanting a day's
+ * roster minutes should compose `shiftAvailableMinutes` (which 稼働率 already
+ * reads through `laneMinutes`) rather than re-mint this.
+ */
+
+/** Per-lane minute sums — behind 稼働率 only now. The calendar's あと入る数
+ *  count is `coursesFitForDay`'s own pocket-packing, not this sum: see that
+ *  function's docblock — the two share the INPUT, never a FORMULA. */
 export function laneMinutes(input: BuildInput, bookings: BoardBooking[]) {
   const shiftByStaff = new Map(input.shifts.map((s) => [s.staff_id, s]))
   return input.staff.map((member) => ({

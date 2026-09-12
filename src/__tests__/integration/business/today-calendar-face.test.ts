@@ -2,11 +2,15 @@
  * 月カレンダー — the day cell's face, pinned.
  *
  * ⚖ Liam 2026-09-12 00:2x 「Let's use the studio version」. The popover's cells
- * used to compose their class, their 空き count and their aria-label as three
+ * used to compose their class, their count and their aria-label as three
  * separate ternaries over the same three fields, inline in the JSX, and the
- * three could disagree — a day already behind us still advertised 「空き6」 and
- * still said 「空き枠6件」 out loud. `calendarCellFace` is that behaviour lifted
- * out whole, so the paint, the word and the sentence come from one answer.
+ * three could disagree — a day already behind us still advertised a count and
+ * still said it out loud. `calendarCellFace` is that behaviour lifted out
+ * whole, so the paint, the word and the sentence come from one answer.
+ *
+ * ⚖ Liam 2026-09-12 00:5x 「I choose B」 — and the count itself changed unit:
+ * the cell says 「あとN枠」 (how many standard-length bookings still fit), never
+ * 「空きN」 (free hours). The field it reads is `fits`.
  *
  * The import fence for this folder allows react / next / node specifiers only
  * (today-screen-interactions.test.ts :1-10) — this suite imports the pure
@@ -35,43 +39,50 @@ import {
   type CalendarWindowDay,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 
-/** A day record shaped exactly as page.tsx's `calendar` array builds it. */
-const day = (over: Partial<{ offset: number; m: number; d: number; closed: boolean; free: number }> = {}) => ({
+/** A day record shaped exactly as page.tsx's `calendar` array builds it.
+ *
+ *  ⚖ Liam 2026-09-12 「I choose B」 — the field is `fits` (あと何件入るか), not
+ *  `free` (空き時間を60分で割った数). A field named `free` holding a course count
+ *  is a trap, so the rename is part of the round. */
+const day = (over: Partial<{ offset: number; m: number; d: number; closed: boolean; fits: number }> = {}) => ({
   offset: 1,
   m: 9,
   d: 12,
   closed: false,
-  free: 6,
+  fits: 6,
   ...over,
 })
 
 describe('calendarCellFace — one answer for paint, word and sentence', () => {
   it('paints and speaks each of the five tones once', () => {
-    expect(calendarCellFace(day({ free: 6 }))).toEqual({
+    expect(calendarCellFace(day({ fits: 6 }))).toEqual({
       tone: 'open',
       className: 'cal-cell open',
-      small: '空き6',
-      aria: '9月12日、空き枠6件',
+      small: 'あと6枠',
+      aria: '9月12日、あと6枠入ります',
     })
-    expect(calendarCellFace(day({ free: 2 }))).toEqual({
+    expect(calendarCellFace(day({ fits: 2 }))).toEqual({
       tone: 'tight',
       className: 'cal-cell tight',
-      small: '空き2',
-      aria: '9月12日、空き枠2件',
+      small: 'あと2枠',
+      aria: '9月12日、あと2枠入ります',
     })
-    expect(calendarCellFace(day({ free: 0 }))).toEqual({
+    expect(calendarCellFace(day({ fits: 0 }))).toEqual({
       tone: 'full',
       className: 'cal-cell full',
       small: '満',
-      aria: '9月12日、空きなし',
+      // ⚖ Liam 9/12 — 「空きなし」 was a claim about TIME. The cell counts
+      // bookings now, so 満 says the thing the number is about: nothing more
+      // will go in. A day can still have loose minutes on it and read 満.
+      aria: '9月12日、もう入りません',
     })
-    expect(calendarCellFace(day({ closed: true, free: 0 }))).toEqual({
+    expect(calendarCellFace(day({ closed: true, fits: 0 }))).toEqual({
       tone: 'closed',
       className: 'cal-cell closedday',
       small: '定休',
       aria: '9月12日、定休日',
     })
-    expect(calendarCellFace(day({ offset: -5, d: 6, free: 6 }))).toEqual({
+    expect(calendarCellFace(day({ offset: -5, d: 6, fits: 6 }))).toEqual({
       tone: 'past',
       className: 'cal-cell open dim',
       small: null,
@@ -80,18 +91,18 @@ describe('calendarCellFace — one answer for paint, word and sentence', () => {
   })
 
   it('the 橙 boundary is INCLUSIVE — tightMax itself is still 残りわずか', () => {
-    // The legend promises 「橙＝残り1〜2枠」, so 2 has to be orange and 3 green
+    // The legend promises 「橙＝あと1〜2枠」, so 2 has to be orange and 3 green
     // (and 0 is 満, which is why the clause is a RANGE and not 「2枠以下」).
     // A `<` here would print a legend the board does not honour.
-    expect(calendarCellFace(day({ free: CALENDAR_TIGHT_MAX })).tone).toBe('tight')
-    expect(calendarCellFace(day({ free: CALENDAR_TIGHT_MAX + 1 })).tone).toBe('open')
-    expect(calendarCellFace(day({ free: 1 })).tone).toBe('tight')
+    expect(calendarCellFace(day({ fits: CALENDAR_TIGHT_MAX })).tone).toBe('tight')
+    expect(calendarCellFace(day({ fits: CALENDAR_TIGHT_MAX + 1 })).tone).toBe('open')
+    expect(calendarCellFace(day({ fits: 1 })).tone).toBe('tight')
   })
 
   it('PAST WINS over every other tone, and takes the count with it', () => {
     // A day nobody can book has no availability to advertise. The paint stays,
     // dimmed, so 定休 and 満 still read as themselves in the month's shape.
-    for (const over of [{ free: 6 }, { free: 2 }, { free: 0 }, { closed: true, free: 0 }]) {
+    for (const over of [{ fits: 6 }, { fits: 2 }, { fits: 0 }, { closed: true, fits: 0 }]) {
       const face = calendarCellFace(day({ offset: -1, d: 10, ...over }))
       expect(face.tone).toBe('past')
       expect(face.small).toBeNull()
@@ -99,26 +110,26 @@ describe('calendarCellFace — one answer for paint, word and sentence', () => {
       expect(face.className).toMatch(/^cal-cell (open|tight|full|closedday) dim$/)
     }
     // …and today itself is never past: offset 0 keeps its count.
-    expect(calendarCellFace(day({ offset: 0, d: 11, free: 4 })).small).toBe('空き4')
+    expect(calendarCellFace(day({ offset: 0, d: 11, fits: 4 })).small).toBe('あと4枠')
   })
 
   it('LAYER OFF — tightMax 0 turns the 橙 tier off and changes nothing else', () => {
     // The store setting this default stands in for can be dialled to 0 — the
     // board then reads exactly as it did before this round, with no third tone.
-    for (const free of [1, 2, 3, 9]) {
-      expect(calendarCellFace(day({ free }), 0).tone).toBe('open')
-      expect(calendarCellFace(day({ free }), 0).small).toBe(`空き${free}`)
+    for (const fits of [1, 2, 3, 9]) {
+      expect(calendarCellFace(day({ fits }), 0).tone).toBe('open')
+      expect(calendarCellFace(day({ fits }), 0).small).toBe(`あと${fits}枠`)
     }
-    expect(calendarCellFace(day({ free: 0 }), 0)).toEqual(calendarCellFace(day({ free: 0 })))
-    expect(calendarCellFace(day({ closed: true, free: 0 }), 0)).toEqual(calendarCellFace(day({ closed: true, free: 0 })))
-    expect(calendarCellFace(day({ offset: -1, d: 10, free: 2 }), 0).small).toBeNull()
+    expect(calendarCellFace(day({ fits: 0 }), 0)).toEqual(calendarCellFace(day({ fits: 0 })))
+    expect(calendarCellFace(day({ closed: true, fits: 0 }), 0)).toEqual(calendarCellFace(day({ closed: true, fits: 0 })))
+    expect(calendarCellFace(day({ offset: -1, d: 10, fits: 2 }), 0).small).toBeNull()
   })
 
   it('定休 is read BEFORE the count, so a closed day with capacity still reads 定休', () => {
     // The helper's own comment says this is why the order is what it is: page.tsx
-    // forces `free` to 0 on a closed day today, and if that ever stops being true
-    // upstream the cell must still say 定休 rather than advertise 「空き5」.
-    expect(calendarCellFace(day({ closed: true, free: 5 }))).toEqual({
+    // forces `fits` to 0 on a closed day today, and if that ever stops being true
+    // upstream the cell must still say 定休 rather than advertise 「あと5枠」.
+    expect(calendarCellFace(day({ closed: true, fits: 5 }))).toEqual({
       tone: 'closed',
       className: 'cal-cell closedday',
       small: '定休',
@@ -127,8 +138,12 @@ describe('calendarCellFace — one answer for paint, word and sentence', () => {
   })
 
   it('every count says WHAT it counts (⚖ 8/25) — never a bare number', () => {
-    for (const free of [1, 2, 3, 12]) {
-      expect(calendarCellFace(day({ free })).small).toBe(`空き${free}`)
+    // ⚖ Liam 9/12 — and it says the RIGHT thing: 「あと6枠」 is 「six more bookings
+    // fit」, which is what the number now is. 「空き6」 read as 「six free hours」,
+    // and the day it stopped being hours the word would have been a lie.
+    for (const fits of [1, 2, 3, 12]) {
+      expect(calendarCellFace(day({ fits })).small).toBe(`あと${fits}枠`)
+      expect(calendarCellFace(day({ fits })).small).not.toContain('空き')
     }
   })
 })
@@ -189,10 +204,10 @@ describe('clampCalendarTight — what a stored bound is allowed to be', () => {
 describe('calendarTightLegend — the 橙 clause says exactly what the tier is', () => {
   it('names the range at 2–5, the single number at 1, and nothing at 0', () => {
     expect(calendarTightLegend(0)).toBeNull()
-    // 「橙＝残り1〜1枠」 is a range nobody writes.
-    expect(calendarTightLegend(1)).toBe('橙＝残り1枠')
-    expect(calendarTightLegend(2)).toBe('橙＝残り1〜2枠')
-    expect(calendarTightLegend(5)).toBe('橙＝残り1〜5枠')
+    // 「橙＝あと1〜1枠」 is a range nobody writes.
+    expect(calendarTightLegend(1)).toBe('橙＝あと1枠')
+    expect(calendarTightLegend(2)).toBe('橙＝あと1〜2枠')
+    expect(calendarTightLegend(5)).toBe('橙＝あと1〜5枠')
   })
 
   it('and the sentence matches the paint, at every legal setting', () => {
@@ -201,13 +216,13 @@ describe('calendarTightLegend — the 橙 clause says exactly what the tier is',
     // day outside it is not.
     for (let tightMax = CALENDAR_TIGHT_RANGE.min; tightMax <= CALENDAR_TIGHT_RANGE.max; tightMax += 1) {
       const clause = calendarTightLegend(tightMax)
-      const amber = [1, 2, 3, 4, 5, 6].filter((free) => calendarCellFace(day({ free }), tightMax).tone === 'tight')
+      const amber = [1, 2, 3, 4, 5, 6].filter((fits) => calendarCellFace(day({ fits }), tightMax).tone === 'tight')
       if (clause === null) {
         expect({ tightMax, amber }).toEqual({ tightMax, amber: [] })
         continue
       }
       expect({ tightMax, amber }).toEqual({ tightMax, amber: [1, 2, 3, 4, 5].slice(0, tightMax) })
-      expect(clause.startsWith('橙＝残り1')).toBe(true)
+      expect(clause.startsWith('橙＝あと1')).toBe(true)
       expect(clause.endsWith(`${tightMax}枠`)).toBe(true)
     }
   })
@@ -221,19 +236,19 @@ describe('⚖ 9/11 LAYER-OFF — the 橙 tier switched off changes nothing else'
     // as no day is inside that 2. A degraded state that stayed honest.
     const off = 0
     const on = CALENDAR_TIGHT_MAX
-    for (const d of [day({ free: 3 }), day({ free: 9 }), day({ free: 0 }), day({ closed: true, free: 0 }),
-      day({ offset: -1, d: 10, free: 6 }), { m: 12, d: 1, covered: false as const }]) {
+    for (const d of [day({ fits: 3 }), day({ fits: 9 }), day({ fits: 0 }), day({ closed: true, fits: 0 }),
+      day({ offset: -1, d: 10, fits: 6 }), { m: 12, d: 1, covered: false as const }]) {
       expect(calendarCellFace(d, off)).toEqual(calendarCellFace(d, on))
     }
-    // …and the days the tier WOULD have claimed are plain 空き, not a fourth tone.
-    for (const free of [1, 2]) {
-      expect(calendarCellFace(day({ free }), off)).toEqual({
+    // …and the days the tier WOULD have claimed are plain 緑, not a fourth tone.
+    for (const fits of [1, 2]) {
+      expect(calendarCellFace(day({ fits }), off)).toEqual({
         tone: 'open',
         className: 'cal-cell open',
-        small: `空き${free}`,
-        aria: `9月12日、空き枠${free}件`,
+        small: `あと${fits}枠`,
+        aria: `9月12日、あと${fits}枠入ります`,
       })
-      expect(calendarCellFace(day({ free }), on).className).toContain('tight')
+      expect(calendarCellFace(day({ fits }), on).className).toContain('tight')
     }
     expect(calendarTightLegend(off)).toBeNull()
     expect(calendarTightLegend(on)).not.toBeNull()
@@ -439,7 +454,7 @@ describe('⚖ F4 — the month at the WINDOW EDGE: whole month, honest holes', (
         wd: at.getUTCDay(),
         offset: i - half,
         closed: false,
-        free: 6,
+        fits: 6,
         booked: 0,
       }
     })

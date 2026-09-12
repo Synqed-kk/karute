@@ -2,10 +2,16 @@
  * 月カレンダー — the NUMBERS the month grid is drawn from, pinned.
  *
  * The cells' FACE (paint, word, sentence) is pinned next door in
- * today-calendar-face.test.ts. This suite is the other half: the door read the
- * capacity comes from, the arithmetic that turns a day's roster into 「空き」,
- * and the one-home rule that keeps 稼働率 and the calendar count from becoming
- * two formulas that drift.
+ * today-calendar-face.test.ts. This suite is the other half: the door reads the
+ * capacity comes from, the arithmetic that turns a day's roster into 「あとN枠」,
+ * and the one-home rule that keeps the two questions the board asks of a day —
+ * 稼働率 (a ratio of minutes) and あと入る数 (a count of courses) — reading ONE
+ * set of door answers.
+ *
+ * ⚖ Liam 2026-09-12 00:5x 「I choose B」 — the count is no longer free minutes ÷
+ * 60. The last describe in this file is its two proofs: an independent
+ * recompute written with its own loop, and the 91-day oracle the A/B mock
+ * emitted through the product's own doors.
  *
  * The import fence for this folder allows react / next / node specifiers only
  * (today-screen-interactions.test.ts :1-10) — everything here is in-repo, and
@@ -50,126 +56,42 @@ import { createClient } from '@/lib/supabase/server'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import { CALENDAR_TIGHT_MAX, CALENDAR_TIGHT_RANGE, clampCalendarTight } from '@/app/[locale]/(business)/business/today/today-interactions'
-import { jstDayKey, jstYmd } from '@/business/lib/clock'
+import { jstDayKey, jstMinuteOfDay, jstYmd } from '@/business/lib/clock'
 import { STORE_A, STORE_B } from '@/business/lib/fixtures'
 import { opsConfig } from '@/business/lib/fixtures-today'
 import {
   listAbsenceByDay,
   listAppointments,
-  listCustomers,
-  listMenus,
-  listResources,
+  listBlocksByDay,
   listShiftsByDay,
   listStaff,
-  listStoreOptions,
   readDayPlanes,
-  readShellIdentity,
-  readStaffStores,
   renderNow,
 } from '@/business/lib/data'
-import {
-  absenceForDay,
-  dayBookings,
-  laneMinutes,
-  rosterAvailableMinutes,
-  utilization,
-  type BuildInput,
-} from '@/business/lib/today-board'
+import { absenceForDay, blocksForDay, coursesFitForDay, treatsPatients } from '@/business/lib/today-board'
 
 /** page.tsx's own read window (`WINDOW`), stated here rather than imported so a
  *  change to the page has to be a deliberate change to this pin too. */
 const WINDOW = 45
 
-/** The BuildInput page.tsx assembles for the day on screen (page.tsx :154-173),
- *  field for field, from the same door reads in the same order. */
-async function pageWorld(shownOffset = 0) {
-  const lens = STORE_A
-  const shownKey = jstDayKey(renderNow()) + shownOffset
-  const [customers, appointments, menus, staff, resources, planes, shell, storeOptions] =
-    await Promise.all([
-      listCustomers(lens),
-      listAppointments(lens),
-      listMenus(lens),
-      listStaff(lens),
-      listResources(lens),
-      readDayPlanes(lens, shownKey),
-      readShellIdentity(),
-      listStoreOptions(),
-    ])
-  const staffStores = await readStaffStores(lens)
-  const input: BuildInput = {
-    appointments,
-    customers,
-    menus,
-    staff,
-    resources,
-    shifts: planes.shifts,
-    qualifications: planes.staffQualifications,
-    staffListPrice: planes.staffListPrice,
-    staffStores,
-    absence: planes.absence,
-    blocks: planes.blocks,
-    sellSlots: planes.sellSlots,
-    decisions: planes.decisions,
-    hours: planes.operatingHours,
-    dayKey: shownKey,
-    operatorStaffId: shell.operator.staff_id,
-    storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
-    crossStore: false,
-  }
-  return { input, staff, planes, shownKey }
-}
-
-describe('⚖ ONE HOME — 稼働率 and the calendar count are the SAME sum', () => {
-  it('rosterAvailableMinutes(day) === utilization(laneMinutes).available, on the fixture world', async () => {
-    // The board's 稼働率 denominator and the month calendar's capacity ask the
-    // same question about the same day. They reach it by two routes — the board
-    // through per-lane sums, the calendar through the per-day roster read — and
-    // the whole point of `shiftAvailableMinutes` having one home is that the two
-    // routes cannot answer differently. Anything that makes them disagree (a
-    // receptionist counted as capacity on one side, an absence applied on one
-    // side) lands here.
-    const { input, staff, planes } = await pageWorld(0)
-    const board = utilization(laneMinutes(input, dayBookings(input))).available
-    const calendar = rosterAvailableMinutes(staff, planes.shifts, planes.staffQualifications, planes.absence)
-    expect(calendar).toBe(board)
-    // …and not a vacuous 0 === 0: the fixture day has a working roster.
-    expect(calendar).toBeGreaterThan(0)
-  })
-
-  it('holds on a day that is NOT today, where the absence is gone from both sides', async () => {
-    const { input, staff, planes } = await pageWorld(3)
-    expect(rosterAvailableMinutes(staff, planes.shifts, planes.staffQualifications, planes.absence)).toBe(
-      utilization(laneMinutes(input, dayBookings(input))).available,
-    )
-  })
-})
-
-describe('rosterAvailableMinutes — who is capacity and who is not', () => {
-  const shift = (staff_id: string) => ({ staff_id, start: 10 * 60, end: 18 * 60, breaks: [] })
-
-  it('a member who takes no treatments is NOT idle capacity', () => {
-    // 稼働率 has always read it this way (「a receptionist is not idle capacity」);
-    // the calendar reads the same judgement from the same helper. Dropping the
-    // check here would quietly hand the month a reception desk's worth of 空き.
-    const staff = [{ id: 'p-01' }, { id: 'p-09' }]
-    const quals = { 'p-01': ['整体'], 'p-09': ['受付', '会計'] }
-    const both = rosterAvailableMinutes(staff, [shift('p-01'), shift('p-09')], quals, null)
-    const treatingOnly = rosterAvailableMinutes([{ id: 'p-01' }], [shift('p-01')], quals, null)
-    expect(both).toBe(treatingOnly)
-    expect(both).toBe(8 * 60)
-    // The receptionist's own shift is 8 hours — so the two sums above are only
-    // equal because she was excluded, not because she had nothing to give.
-    expect(rosterAvailableMinutes([{ id: 'p-09' }], [shift('p-09')], quals, null)).toBe(0)
-  })
-
-  it('a roster member with no shift row contributes nothing, and breaks come off', () => {
-    const staff = [{ id: 'p-01' }, { id: 'p-04' }]
-    const quals = { 'p-01': ['整体'], 'p-04': ['整体'] }
-    const withBreak = [{ staff_id: 'p-01', start: 10 * 60, end: 18 * 60, breaks: [{ start: 12 * 60, end: 13 * 60 }] }]
-    expect(rosterAvailableMinutes(staff, withBreak, quals, null)).toBe(7 * 60)
-  })
-})
+/** ⚖ FIX ROUND 1 — THE ⚖ ONE HOME SUITE AND THE `rosterAvailableMinutes`
+ *  SUITE ARE GONE WITH THE FUNCTION THEY PINNED.
+ *
+ *  `rosterAvailableMinutes` was #890's calendar denominator. 「I choose B」 left
+ *  it with no product caller at all, and a helper alive only because a test
+ *  calls it is the same defect `freeSlots` was deleted for — a second formula,
+ *  kept warm, waiting to drift from the one the board actually paints.
+ *
+ *  NOTHING TRUE WAS LOST, and that was checked rather than assumed:
+ *   · 「a receptionist is not idle capacity」 and 「a roster member with no shift
+ *     row contributes nothing」 are asserted against the LIVE formula in
+ *     today-courses-fit.test.ts ('a receptionist is NOT capacity…', 'a day with
+ *     no shifts at all fits nothing…'), where breaks come off too.
+ *   · 「稼働率 reads one home for a shift's minutes」 is still pinned, because
+ *     `utilization(laneMinutes(...))` and `shiftAvailableMinutes` are untouched
+ *     and today-off-identity.frozen.json freezes their answer at three lenses.
+ *   · 「the 勤務不可 really shortens that day」 moved to the live formula — see
+ *     the V5 suite below, which now measures it in courses instead of minutes. */
 
 describe('listShiftsByDay — the door answers for EVERY day in the range', () => {
   it('serves the whole window, with the real roster, and nothing outside it', async () => {
@@ -260,22 +182,39 @@ describe('⚖ V5 — 勤務不可 shortens its OWN day, on EVERY shown day', () 
     expect((await readDayPlanes(STORE_B, todayKey)).absence).toBeNull()
   })
 
-  it('a shortened roster is shorter than the same day’s unshortened one', async () => {
+  it('a shortened roster really fits fewer courses than the same day’s unshortened one', async () => {
     // Without this the tests above would still pass if the absence stopped
     // shortening anything at all.
+    //
+    // ⚖ FIX ROUND 1 — measured in COURSES now, on the formula the cell paints.
+    // It used to divide `rosterAvailableMinutes` two ways; that helper is gone
+    // (dead since 「I choose B」), and asking the live count is the stronger
+    // question anyway: an absence that shortened the minutes but left the
+    // courses alone would have passed the old version of this test.
     const todayKey = jstDayKey(renderNow())
-    const [staff, quals, shiftsByDay, absenceByDay] = await Promise.all([
+    const [staff, planes, shiftsByDay, absenceByDay] = await Promise.all([
       listStaff(STORE_A),
-      readDayPlanes(STORE_A, todayKey).then((p) => p.staffQualifications),
+      readDayPlanes(STORE_A, todayKey),
       listShiftsByDay(STORE_A, { from: todayKey, to: todayKey }),
       listAbsenceByDay(STORE_A, { from: todayKey, to: todayKey }),
     ])
     const shifts = shiftsByDay.get(todayKey) ?? []
-    const withAbsence = rosterAvailableMinutes(staff, shifts, quals, absenceForDay(todayKey, absenceByDay))
-    const without = rosterAvailableMinutes(staff, shifts, quals, null)
-    expect(withAbsence).toBeLessThan(without)
+    const day = (absence: Parameters<typeof coursesFitForDay>[0]['absence']) =>
+      coursesFitForDay({
+        staff,
+        shifts,
+        qualifications: planes.staffQualifications,
+        absence,
+        open: planes.operatingHours.open,
+        close: planes.operatingHours.close,
+        bookings: [],
+        blocks: [],
+        sessionMin: planes.opsConfig.standardSessionMin,
+      })
+    const without = day(null)
+    expect(day(absenceForDay(todayKey, absenceByDay))).toBeLessThan(without)
     // …and TOMORROW's cell keeps the full roster on the very same read.
-    expect(rosterAvailableMinutes(staff, shifts, quals, absenceForDay(todayKey + 1, absenceByDay))).toBe(without)
+    expect(day(absenceForDay(todayKey + 1, absenceByDay))).toBe(without)
   })
 })
 
@@ -340,7 +279,7 @@ describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an 
   // fix) would have painted 満, a capacity of zero nobody computed.
   //
   // THE RULE: the day still comes through, dated by the server's own clock read
-  // and carrying `covered: false` — which is a row with NO `free` and NO
+  // and carrying `covered: false` — which is a row with NO `fits` and NO
   // `closed` on it, so no surface can read a capacity off it by accident.
   const DAY_MS = 86_400_000
   const service = createServiceClient as jest.Mock
@@ -407,7 +346,7 @@ describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an 
     expect(row).toEqual({ offset: 3, ...jstYmd(new Date(renderNow().getTime() + 3 * DAY_MS)), covered: false })
     // …and that is the whole row. 満 is a count, 定休 is a decision the store
     // made; neither is knowable here, so neither field exists to be read.
-    expect('free' in row).toBe(false)
+    expect('fits' in row).toBe(false)
     expect('closed' in row).toBe(false)
   })
 
@@ -419,7 +358,7 @@ describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an 
       const near = rows.find((c) => c.offset === offset)!
       expect(near.covered).not.toBe(false)
       if (near.covered === false) throw new Error('unreachable')
-      expect(near.free).toBeGreaterThanOrEqual(0)
+      expect(near.fits).toBeGreaterThanOrEqual(0)
     }
   })
 
@@ -522,5 +461,225 @@ describe('⚖ P1 (#890) — a day the roster door does not know is DATA, not an 
   it('the cell has a paint of its own, paler than 定休', () => {
     const CSS = readFileSync('src/app/[locale]/(business)/business/today/today.css', 'utf8')
     expect(CSS).toContain('.biz .cal-cell.unknown {')
+  })
+})
+
+/** ⚖ Liam 2026-09-12 00:5x 「I choose B」 — あと入る数, PROVEN TWICE.
+ *
+ *  The month used to divide a day's leftover minutes by 60. Liam's own case
+ *  kills that: three separate 30-minute gaps are 90 free minutes and NOT one
+ *  bookable hour, so the cell said 「空き1」 and the receptionist had nowhere to
+ *  put the customer. The cell now counts the standard-length courses the day's
+ *  CONTIGUOUS pockets still hold.
+ *
+ *  Two independent checks, because a helper can only prove itself once:
+ *   1. THE RECOMPUTE. The same question answered by this file's OWN loop —
+ *      hand-cut shift, hand-merged occupancy, hand-walked gaps, hand-packed —
+ *      against the number the real page hands the screen. It calls
+ *      `coursesFitForDay` nowhere; the only product judgement it borrows is
+ *      `treatsPatients` (who is capacity at all), which is a roster rule pinned
+ *      on its own above and not the arithmetic under test.
+ *   2. THE ORACLE. `today-calendar-courses.oracle.json` — the 91 days the A/B
+ *      mock emitted through the product's own doors before any of this was
+ *      built (PKT-COUNT-UNIT-MOCK-2026-09-12). It shares no code path with
+ *      today's page: a build that quietly redefined the count would have to
+ *      match a file written before the build existed.
+ *
+ *  ⚠ THE CLOCK IS PINNED HERE, and it has to be. The packet assumed the fixture
+ *  clock was already pinned; it is not — `renderNow()` is `new Date()`
+ *  (src/business/lib/data.ts:83) and the booking calendar is re-derived from it
+ *  on every call (fixtures.ts:344-361, 「RELATIVE, so it is populated on any real
+ *  date」). Left alone, a frozen 91-day oracle would slide one date per real day
+ *  and this suite would be red by tomorrow morning. Pinned to the oracle's own
+ *  instant, the world it was emitted from comes back exactly. */
+describe('⚖ 9/12 — あと入る数 (「I choose B」)', () => {
+  /** ⚖ FIX ROUND 1 — TRIMMED TO THE COLUMN THE PRODUCT IS DIFFED AGAINST.
+   *  It arrived as the mock's whole 7,842-line working set (per-lane pockets,
+   *  A's own numbers, residues) — the A/B comparison the mock existed to make,
+   *  and none of it is an oracle for anything this suite asserts. 127 lines now,
+   *  one per day, plus the header that says where the numbers came from and
+   *  which world clock reproduces them. */
+  const ORACLE: {
+    _origin: { generatedAt: string; worldClock: string; sessionMin: number; closedWeekday: number; coursesFit: { min: number; max: number } }
+    days: Array<{ offset: number; y: number; m: number; d: number; wd: number; closed: boolean; coursesFit: number }>
+  } = JSON.parse(readFileSync('src/__tests__/integration/business/today-calendar-courses.oracle.json', 'utf8'))
+
+  const service = createServiceClient as jest.Mock
+  const supabase = createClient as jest.Mock
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function screenProps(node: any): TodayProps | null {
+    if (!node || typeof node !== 'object') return null
+    if (node.type === TodayScreen) return node.props
+    const kids = node.props?.children
+    for (const kid of Array.isArray(kids) ? kids.flat() : [kids]) {
+      const hit = screenProps(kid)
+      if (hit) return hit
+    }
+    return null
+  }
+  const pageProps = async () =>
+    screenProps(
+      await TodayPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve({ store: STORE_A }) }),
+    )!
+
+  beforeAll(() => jest.useFakeTimers().setSystemTime(new Date(ORACLE._origin.worldClock)))
+  afterAll(() => jest.useRealTimers())
+  beforeEach(() => {
+    mockMissingRosterDays.clear()
+    supabase.mockResolvedValue({
+      auth: { getUser: async () => ({ data: { user: { id: 'u1', email: 'o@x.jp' } }, error: null }) },
+    })
+    service.mockReturnValue({
+      from: (table: string) => {
+        const row =
+          table === 'business_workspace_grants'
+            ? { data: { workspace_id: 'business_admin', granted_by: 'u1' }, error: null }
+            : table === 'profiles'
+              ? { data: { customer_id: 'biz-1', is_management: false }, error: null }
+              : { data: null, error: null }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const chain = (): any => ({ select: chain, eq: chain, maybeSingle: async () => row })
+        return chain()
+      },
+    })
+  })
+
+  it('the clock pin lands on the world the oracle was emitted from', () => {
+    // Without this the two checks below would be measuring a different month
+    // and「0 mismatches」would mean nothing. Stated as its own test so a broken
+    // pin reads as a broken pin rather than 91 confusing diffs.
+    expect(new Date().toISOString()).toBe(ORACLE._origin.worldClock)
+    expect(jstDayKey(renderNow())).toBe(jstDayKey(new Date(ORACLE._origin.worldClock)))
+    expect(ORACLE.days).toHaveLength(WINDOW * 2 + 1)
+  })
+
+  it('1 · the page’s number survives an INDEPENDENT recompute of every covered day', async () => {
+    const props = await pageProps()
+    const todayKey = jstDayKey(renderNow())
+    const sessionMin = props.calendarSessionMin
+    const [appointments, staff, planes, shiftsByDay, absenceByDay, blocksByDay] = await Promise.all([
+      listAppointments(STORE_A, {
+        from: new Date(renderNow().getTime() - (WINDOW + 1) * 86_400_000).toISOString(),
+        to: new Date(renderNow().getTime() + (WINDOW + 1) * 86_400_000).toISOString(),
+      }),
+      listStaff(STORE_A),
+      readDayPlanes(STORE_A, todayKey),
+      listShiftsByDay(STORE_A, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
+      listAbsenceByDay(STORE_A, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
+      listBlocksByDay(STORE_A, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
+    ])
+
+    /** THIS SUITE'S OWN ARITHMETIC. Nothing below calls `coursesFitForDay`,
+     *  `freePockets`, `kPackCount` or `effectiveShift`: the shift is cut by
+     *  hand, the occupancy merged by hand, the gaps walked by hand and the
+     *  courses packed by hand. A helper that quietly stopped subtracting breaks,
+     *  stopped honouring the 勤務不可 or started counting loose minutes lands
+     *  here as a number, not as a green test.
+     *  ⚖ FIX ROUND 3 (P1) — `blocksForDay` rides along for the same reason
+     *  `absenceForDay` already does: it is a data-shaping lookup (which day's
+     *  rows), never the arithmetic under test, so borrowing it does not weaken
+     *  the pin. A resource-only block (`staffId` null) is filtered out below,
+     *  same as `coursesFitForDay` itself. */
+    const recompute = (dayKey: number): number => {
+      const shifts = shiftsByDay.get(dayKey)
+      if (!shifts) return 0
+      const p = jstYmd(new Date(renderNow().getTime() + (dayKey - todayKey) * 86_400_000))
+      if (p.wd === planes.closedWeekday) return 0
+      const absence = absenceForDay(dayKey, absenceByDay)
+      const dayBlocks = blocksForDay(dayKey, blocksByDay)
+      const live = appointments.filter(
+        (a) => jstDayKey(a.starts_at) === dayKey && a.status !== 'cancelled' && a.board_state !== 'noshow',
+      )
+      let fits = 0
+      for (const member of staff) {
+        if (!treatsPatients(planes.staffQualifications[member.id])) continue
+        const shift = shifts.find((sh) => sh.staff_id === member.id)
+        if (!shift) continue
+        // The 勤務不可 cut, by hand: she works until the incident and no later.
+        const until =
+          absence && absence.staff_id === member.id && absence.from < shift.end
+            ? Math.max(shift.start, absence.from)
+            : shift.end
+        if (until <= shift.start) continue
+        const busy = [
+          ...shift.breaks.map((b) => ({ s: b.start, e: b.end })),
+          ...live
+            .filter((a) => a.staff_id === member.id)
+            .map((a) => ({ s: jstMinuteOfDay(a.starts_at), e: jstMinuteOfDay(a.ends_at) })),
+          ...dayBlocks.filter((b) => b.staffId === member.id).map((b) => ({ s: b.start, e: b.end })),
+        ]
+          .map((b) => ({ s: Math.max(b.s, shift.start), e: Math.min(b.e, until) }))
+          .filter((b) => b.e > b.s)
+          .sort((x, y) => x.s - y.s)
+        let cursor = shift.start
+        const gaps: number[] = []
+        for (const b of busy) {
+          if (b.s > cursor) gaps.push(b.s - cursor)
+          cursor = Math.max(cursor, b.e)
+        }
+        if (until > cursor) gaps.push(until - cursor)
+        for (const gap of gaps) fits += Math.floor(gap / sessionMin)
+      }
+      // A booking nobody owns is on no lane and still eats someone's day —
+      // clipped to 営業時間 the same way an assigned one already is above (P2).
+      const orphan = live
+        .filter((a) => a.staff_id === null)
+        .reduce((n, a) => {
+          const s = Math.max(jstMinuteOfDay(a.starts_at), planes.operatingHours.open)
+          const e = Math.min(jstMinuteOfDay(a.ends_at), planes.operatingHours.close)
+          return e <= s ? n : n + Math.ceil((e - s) / sessionMin)
+        }, 0)
+      return Math.max(0, fits - orphan)
+    }
+
+    const covered = props.calendar.filter((c) => c.covered !== false)
+    expect(covered).toHaveLength(WINDOW * 2 + 1)
+    const mismatches = covered
+      .map((c) => ({ date: `${c.m}/${c.d}`, page: c.fits, mine: recompute(todayKey + c.offset) }))
+      .filter((r) => r.page !== r.mine)
+    expect(mismatches).toEqual([])
+    // …and not a vacuous agreement on 91 zeroes: the number moves across the
+    // month and the busy day is below the quiet one.
+    const values = covered.map((c) => c.fits)
+    expect(Math.max(...values)).toBeGreaterThan(Math.min(...values))
+    expect(Math.max(...values)).toBeGreaterThan(0)
+  })
+
+  it('2 · all 91 days match the A/B mock’s oracle, day by day', async () => {
+    const props = await pageProps()
+    const byDate = new Map(ORACLE.days.map((d) => [`${d.y}-${d.m}-${d.d}`, d]))
+    const rows = props.calendar.map((c) => {
+      const oracle = byDate.get(`${c.y}-${c.m}-${c.d}`)
+      return {
+        date: `${c.y}/${c.m}/${c.d}`,
+        page: c.covered === false ? null : c.fits,
+        oracle: oracle ? oracle.coursesFit : 'NO SUCH DAY IN THE ORACLE',
+      }
+    })
+    expect(rows).toHaveLength(WINDOW * 2 + 1)
+    expect(rows.filter((r) => r.page !== r.oracle)).toEqual([])
+    // The oracle's own summary, re-derived here, so a fixture swapped for a
+    // flatter one cannot pass this by being uniform.
+    const fits = rows.map((r) => r.page as number)
+    expect(Math.min(...fits)).toBe(ORACLE._origin.coursesFit.min) // 0, the 定休日
+    expect(Math.max(...fits)).toBe(ORACLE._origin.coursesFit.max) // 35
+    expect(ORACLE._origin.coursesFit).toEqual({ min: 0, max: 35 })
+  })
+
+  it('3 · the store’s 標準セッション is what the count is IN, and the screen is told', async () => {
+    // The legend prints this length, so a page that stopped sending it would
+    // leave 「あと16枠」 with no unit anywhere on the popover. Read from the same
+    // dial the count is packed with — never a literal 60.
+    const props = await pageProps()
+    expect(props.calendarSessionMin).toBe(opsConfig.standardSessionMin)
+    expect(props.calendarSessionMin).toBe(ORACLE._origin.sessionMin)
+  })
+
+  it('4 · a 定休日 advertises nothing, whatever its roster could have held', async () => {
+    const props = await pageProps()
+    const closed = props.calendar.filter((c) => c.covered !== false && c.closed)
+    expect(closed.length).toBeGreaterThan(0)
+    for (const c of closed) expect(c.covered === false ? null : c.fits).toBe(0)
   })
 })

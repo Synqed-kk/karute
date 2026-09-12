@@ -984,7 +984,7 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
    *  THE BOARD'S. The row was built by mirroring the field above it, so it is
    *  pinned the same way — but with one thing the older field does not need: its
    *  bounds are READ from the dial's own home rather than spelled here. A second
-   *  literal is how 「橙＝残り1〜5枠」 and a stepper that stops at 4 come to
+   *  literal is how 「橙＝あと1〜5枠」 and a stepper that stops at 4 come to
    *  disagree, and neither surface would be wrong on its own. */
   it('⚖ 9/12 — the 残りわずかの目安 field reads ONE guardrail, and 0 is a real setting', () => {
     // 1 · THE BOUNDS ARE THE BOARD'S, destructured once, never re-typed.
@@ -1038,6 +1038,32 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // …and the ± are named in 枠, the unit the number is in.
     expect(SCREEN_CODE).toContain('aria-label="1枠減らす"')
     expect(SCREEN_CODE).toContain('aria-label="1枠増やす"')
+  })
+
+  /** ⚖ Liam 9/12 00:5x 「I choose B」 — THE ROW SAYS WHAT THE NUMBER IS.
+   *
+   *  The month stopped counting free hours and started counting bookings that
+   *  still fit, so 「空きがこの数以下」 became a sentence about a different number
+   *  than the one the dial moves. The row's two sentences are pinned in the new
+   *  wording and the old one is pinned OUT — a settings page describing the
+   *  wrong quantity is the exact ⚖ 8/21 failure this row exists to avoid, and it
+   *  is invisible from inside the settings room. */
+  it('⚖ 9/12 — the description and the ?-tour step describe あと入る数, not 空き', () => {
+    expect(SCREEN_CODE).toContain(
+      '<p className="st-dial-desc">月カレンダーで、あと入る数がこの数以下の日を橙で示します</p>',
+    )
+    expect(SCREEN_CODE).toContain(
+      'data-guide="月カレンダーで「残りわずか」として橙で示す、あと入る予約数の上限です。2なら、あと1〜2枠の日が橙になります。0にすると橙は出ません。"',
+    )
+    // The superseded sentences, by name, so a revert says which.
+    expect(SCREEN_CODE).not.toContain('空きがこの数以下')
+    expect(SCREEN_CODE).not.toContain('空きが1〜2枠')
+    expect(SCREEN_CODE).not.toContain('空き枠数の上限')
+    // …and the store's own fixture carries the SAME two sentences, which is
+    // where the settings round was told to read them from.
+    const WORLD = read('src/business/lib/fixtures-today.ts')
+    expect(WORLD).toContain('月カレンダーで、あと入る数がこの数以下の日を橙で示します')
+    expect(WORLD).not.toContain('空きがこの数以下')
   })
 
   it('and its two siblings in the engine now refuse the same inputs', () => {

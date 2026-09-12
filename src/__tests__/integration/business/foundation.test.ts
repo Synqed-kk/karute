@@ -318,7 +318,14 @@ describe('the fixture data door', () => {
       // that shared import is the reconciliation between 日報's 本日 row and
       // the board's 本日の売上.
       'src/business/lib/analytics.ts': ['./clock', './fixtures', './fixtures-analytics', './today-board'],
-      'src/business/lib/today-board.ts': ['./clock', './fixtures', './fixtures-today'],
+      // ⚖ Liam 2026-09-12 「I choose B」 — `./canon-logic/availability` JOINED this
+      // inventory, deliberately. The month calendar counts the standard-length
+      // courses a day's free pockets still hold, and the pockets are the ENGINE's
+      // (`freePockets`) packed with the engine's own `kPackCount`. A second
+      // pocket formula written in this file is exactly what the import prevents;
+      // canon-logic is pure (its own inventory above is `['./pricing']`), so
+      // nothing about this reaches a door or the clock.
+      'src/business/lib/today-board.ts': ['./canon-logic/availability', './clock', './fixtures', './fixtures-today'],
       // A2 fix (Greptile round 1B addendum) — `shiftWarningOf`'s overage half
       // reads real instants (`jstMidnight`/`jstMinuteOfDay`) rather than bare
       // minute-of-day numbers, the same reason `data.ts`/`today-board.ts` above

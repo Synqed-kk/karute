@@ -63,6 +63,7 @@ import {
   staffListPrice,
   staffQualifications,
   type FixtureAbsence,
+  type FixtureBlock,
   type FixtureResource,
   type FixtureShift,
 } from './fixtures-today'
@@ -312,6 +313,32 @@ export async function listAbsenceByDay(
   // The same store clamp `readDayPlanes` applies below: a 勤務不可 carries a
   // store, so a lens that cannot see that store must not see the incident.
   if (todayKey >= range.from && todayKey <= range.to) byDay.set(todayKey, inLens([absence], lens, false)[0] ?? null)
+  return byDay
+}
+
+/** 予定ブロック, BY DAY, ACROSS A RANGE — the month calendar's block read
+ *  (fix round 3, P1). The same shape as `listAbsenceByDay` right above it, and
+ *  for the same reason: the fixture's four blocks are a snapshot of TODAY's
+ *  board (fixtures-today.ts's own header — the world is a pinned scene at
+ *  `boardNow`), not a standing roster like `shifts`, so the door answers under
+ *  TODAY's key only. `readDayPlanes` still hands the board the same rows for
+ *  the shown day — this is the second, PER-DAY door the calendar's 91-day loop
+ *  needs, exactly as `listShiftsByDay`/`listAbsenceByDay` are.
+ *
+ *  Inclusive on both ends, in `jstDayKey` units. The map is SPARSE: a key it
+ *  has no entry for is a day with no blocks — see `blocksForDay`.
+ *
+ *  ⚠ RECONNECT: the real door returns the blocks it holds per day over
+ *  [from, to]. The fixture world holds exactly one day of them, and it is
+ *  today's. */
+export async function listBlocksByDay(
+  lens: StoreLens,
+  range: { from: number; to: number },
+): Promise<Map<number, FixtureBlock[]>> {
+  assertLens(lens)
+  const byDay = new Map<number, FixtureBlock[]>()
+  const todayKey = jstDayKey(renderNow())
+  if (todayKey >= range.from && todayKey <= range.to) byDay.set(todayKey, inLens(blocks, lens, false))
   return byDay
 }
 

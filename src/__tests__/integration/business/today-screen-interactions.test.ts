@@ -2390,6 +2390,50 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     expect(SRC).toContain('{tightLegend !== null && <span>{tightLegend} ・</span>}')
   })
 
+  /** ⚖ Liam 9/12 00:5x 「I choose B」 — THE MONTH SAYS WHAT IT IS COUNTING, AND
+   *  THE LENGTH COMES FROM THE STORE.
+   *
+   *  The cell says 「あと16枠」 and a 枠 is one 標準セッション, so the legend has to
+   *  name that length or the number has no unit anywhere on the popover. It is
+   *  pinned as `props.calendarSessionMin` and the literal 60 is pinned by
+   *  ABSENCE: a legend that hardcoded 60 would keep saying 60 the day a store
+   *  moves its standard session, and the count beside it would not.
+   *
+   *  The old vocabulary is pinned out too. 「空き」 was a claim about free TIME
+   *  and 「空きなし」 said a 満 day has no loose minutes on it — both false of a
+   *  count of bookings, and both one careless revert away. */
+  it('the legend names あと入る数 and its length, and never quotes a session literal', () => {
+    const legend = SRC.slice(SRC.indexOf('className="cal-legend"'), SRC.indexOf('</div>', SRC.indexOf('className="cal-legend"')))
+    expect(legend).toContain('<span>あと＝その日にまだ入る予約の数（{props.calendarSessionMin}分） ・</span>')
+    expect(legend).toContain('<span>満＝もう入らない ・</span>')
+    expect(legend).toContain('<span>定休＝定休日（{props.closedWeekdayLabel}）</span>')
+    // The hover sentence explains a 枠 in one line, off the same prop.
+    //
+    // ⚖ FIX ROUND 1 — 「連続した空き時間」, not 「続いた」. The register is this
+    // surface's own accepted sibling line: the placement rail already says
+    // 「この開始には60分の連続した空きがありません」 (today-interactions.ts, pinned
+    // below in this file). One screen, one way of saying 「unbroken free time」.
+    expect(SRC).toContain(
+      'title={`あとN枠 = 担当ごとの連続した空き時間に、標準セッション（${props.calendarSessionMin}分）の予約をあと何件入れられるか`}',
+    )
+    expect(SRC).not.toContain('担当ごとの続いた空き時間')
+    // …and the sibling it borrows the register from is really there.
+    const RAIL = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+    expect(RAIL).toContain('分の連続した空きがありません')
+    // ⚠ NO SESSION LITERAL anywhere in the legend, and no 空き vocabulary left
+    // in the clauses the operator reads. (The hover sentence DOES say
+    // 「続いた空き時間」 — it is describing the raw pockets the count is packed
+    // into, which really are free time; the CLAUSES are the ones that must not
+    // advertise hours.)
+    expect(legend).not.toContain('60')
+    const clauses = [...legend.matchAll(/<span>([^<]*)<\/span>/g)].map((m) => m[1])
+    expect(clauses).toHaveLength(4)
+    expect(clauses.filter((c) => c.includes('空き'))).toEqual([])
+    expect(SRC).not.toContain('空き枠 = スタッフの空き時間を60分単位で数えたもの')
+    expect(SRC).not.toContain('満＝空きなし')
+    expect(SRC).not.toContain('空き＝その日の空き枠数')
+  })
+
   /** ⚖ NUDGE-GUARD FIX 2, BREAKER-NUDGE-5fab5076b.md §F1 (MAJOR) + §F2 — THE TWO
    *  NEW HELPERS WERE PINNED BY THE LINE THAT CALLS THEM, NEVER BY THEIR BODIES.
    *
@@ -4251,7 +4295,7 @@ describe('the guided tour builds itself out of what is on screen', () => {
       // counter composes (`onlineOffers`).
       ['オンライン販売中', 'いまReserveで販売中の枠数。販売可能枠・詰め込み・スキマ枠・新規用に確保をまとめた数です。押すと種類ごとの一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。'],
       ['ご来店中', 'いま店内にいるお客様。ここから次回予約をその場で作成できます。'],
-      ['日付の移動', '日付を押すと月カレンダーで空き状況を確認できます。'],
+      ['日付の移動', '日付を押すと月カレンダーで、日ごとにあと何枠入るかを確認できます。'],
       ['表示設定', 'カード・販売可能枠・配置ガイドの見え方と、ボードの密度を調整します。'],
       ['表示の切替', 'スタッフだけ・設備だけ・両方の表示を切り替えます。'],
       ['仮置きエリア', '日付をまたぐ変更の一時置き場。ドラッグで置くと仮押さえになります。'],
@@ -4263,6 +4307,11 @@ describe('the guided tour builds itself out of what is on screen', () => {
       expect(SRC).toContain(`data-guide-title="${title}"`)
       expect(SRC).toContain(`data-guide="${body}"`)
     }
+    // F2 (fix round 2, COLD-READ) — 「空き状況」 was a claim about free TIME; the
+    // control opens a count of bookings, and its settings twin was already
+    // carried to あと入る数 while this one was not. Pinned out so a revert of
+    // the tuple above cannot bring it back unnoticed.
+    expect(SRC).not.toContain('空き状況')
   })
 
   it('OUR sections register too — the lane rule, machine-checked', () => {
@@ -4817,6 +4866,18 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // it sat on the board indefinitely and swallowed the pointerdown of a card in
     // the lane below (measured, 2026-08-21).
     expect(SRC).toContain('          // The day\'s own standing 仮押さえ (the incident\'s) — the pill, always.\n          anchorId: null,')
+  })
+
+  // ── F4 (fix round 2, COLD-READ) ──────────────────────────────────────────
+  it('the .cal-pop width and its phone clamp are pinned — 340 reintroduces the 393 h-scroll', () => {
+    // Measured 2026-09-12 (build-courses/proof.json, ⚖ Liam 「I choose B」): 380
+    // is the smallest width that holds 「あと35枠」 without pushing the card's
+    // own content past its column, and the clamp is what turns that same 380px
+    // into 361px at 393 so a right-anchored card never grows a horizontal
+    // scrollbar on a phone. Neither line was pinned before this round — a
+    // revert of either passed the whole battery.
+    expect(CSS).toContain('  width: 380px;')
+    expect(CSS).toContain('  max-width: calc(100vw - 32px);')
   })
 
   /** Greptile #738 P1 — COLLAPSING THE GROUP UNMOUNTS THE ANCHOR.
