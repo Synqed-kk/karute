@@ -40,6 +40,12 @@ import {
   type DragOrigin,
 } from '@/business/lib/canon-logic/drag-rules'
 import { hhmm, minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
+// ⚖ STUDIO 2026-09-12 — TYPE-ONLY, for the month popover's two motion helpers
+// below. The integrator itself stays the screen's to build: `makeSpring`
+// captures `reduced` at construction, so a spring built out here would have to
+// be handed the answer anyway and this file would gain a `window` question it
+// has never had.
+import type { Spring } from '@/business/lib/spring'
 // ⚖ SPEC-SELLING-ENGINE §2 — TYPE-ONLY, and it has to stay that way: the mask
 // imports `laneSpans` from this file as a VALUE, and the capacity book imports
 // `allocateBed`, so a value import back to either would be a real module cycle.
@@ -601,6 +607,114 @@ export function nextCalendarIndex(
   if (Math.abs(step) === 7) return focusable[next] ? next : null
   for (let i = next; i >= 0 && i < count; i += step) if (focusable[i]) return i
   return null
+}
+
+/** ⚖ STUDIO 2026-09-12 — THE MONTH POPOVER'S MOTION, IN THE TWO MOMENTS IT HAS.
+ *
+ *  The approved Studio mock opens AND closes the popover on one critically-
+ *  damped spring — `damping 1.0 / response 0.30`, opacity and scale together,
+ *  from the day button's own corner — and「開く途中で押し直すと、その場の位置
+ *  から折り返す」(MOCK-STUDIO.html :127, :226-238). The product kept a 140ms CSS
+ *  entrance and no exit at all. These two functions are that motion's decisions;
+ *  the screen owns the integrator and the ref, and calls them.
+ *
+ *  WHY THEY ARE OUT HERE AT ALL — the same reason every other handler on this
+ *  board is: Business territory's import allowlist is react / next / node: only,
+ *  so no DOM renderer exists in the test folder and a spring driven from inside
+ *  the component could only ever be proven by grepping its source. Out here a
+ *  test builds the real `makeSpring` with its own `raf`, hands it a real jsdom
+ *  node, and watches the numbers. */
+
+/** ONE FRAME — the only place the popover's opacity and scale are written.
+ *
+ *  ⚠ UNDER REDUCED MOTION IT WRITES OPACITY AND NOTHING ELSE (Liam's words, and
+ *  the mock's own `if(!REDUCE)` guard at :228). The spring lands instantly for a
+ *  reduced-motion reader, so a scale here would not be a smaller animation — it
+ *  would be a `scale(0.96)` that is written once, arrives at `scale(1)` in the
+ *  same tick, and leaves a transform on an element whose sheet says it has none.
+ *
+ *  0.96→1, the value the CSS entrance this replaces already used. (The mock
+ *  reads 0.94→1; ⚖ D-S2 in the packet calls 0.96 「the mock's values」 and is
+ *  wrong about that — 0.96 is the PRODUCT's, and it is the one kept, so nothing
+ *  a reader has seen on this board changes size today.) */
+export function calPopFrame(el: HTMLElement | null, v: number, reduced: boolean): void {
+  if (!el) return
+  el.style.opacity = String(v)
+  // ⚖ COLD READ 2026-09-12 · C1 — THE REDUCED BRANCH IS AN ANSWER, NOT AN
+  // OMISSION. Writing nothing here left the LAST NON-REDUCED FRAME'S transform
+  // on the element: flip the OS switch while the calendar is up, the spring is
+  // rebuilt with `reduced: true`, and the card keeps whatever scale it had
+  // reached — a blind round drove the real helpers through that sequence and
+  // read back `scale(0.9699604898035411)`, there for the rest of the page's
+  // life. The reduced block's `.cal-pop { transform: none }` cannot beat an
+  // inline style, so the one case that rule is written about was the one case
+  // it lost. Clearing the property hands it back to the sheet.
+  if (!reduced) el.style.transform = `scale(${0.96 + 0.04 * v})`
+  else el.style.transform = ''
+}
+
+/** ONE STATE CHANGE — open, or begin to close — and THE ONLY PLACE THE EXIT IS
+ *  STATED. There is no single close path on this board (a day, 今日, Escape, a
+ *  click outside, and any sibling popover opening all close it, five `setPop('')`
+ *  call sites that will not stay five), so the exit is served from the state
+ *  seam exactly as the ⚖ F2 month reset is.
+ *
+ *  ⚠ `set`, NEVER `jump` — the mock's own note,「set(), never jump()」. `jump`
+ *  re-seats the integrator at the target with zero velocity: pressing the day
+ *  button again half-way through the fade would teleport the popover to full
+ *  opacity instead of turning it around from where it actually is, which is the
+ *  one thing the mock's interruptibility clause names.
+ *
+ *  ⚠ AND A CLOSING POPOVER IS NOT PRESSABLE, NOT REACHABLE AND NOT READABLE.
+ *  It is still painted and still in the tree for the length of its spring, so
+ *  without these lines it would swallow the click aimed at whatever is
+ *  underneath it and read its whole month out to a screen reader that has
+ *  already been told the popover is shut (`aria-expanded` follows `pop`, which
+ *  has already left).
+ *
+ *  ⚖ COLD READ 2026-09-12 · C2 — `inert`, BECAUSE `pointer-events` STOPS THE
+ *  MOUSE AND NOTHING ELSE. For the ~380ms of the exit the card still holds 今日,
+ *  two month arrows and up to 31 day cells, all of them Tab-reachable — and
+ *  `aria-hidden="true"` over a subtree containing the focused element is an axe
+ *  `aria-hidden-focus` violation, which is also exactly how a reader ends up
+ *  with focus parked on a node that is about to vanish (Escape from a focused
+ *  day cell does it). `inert` covers pointer events, focus AND the a11y tree in
+ *  one attribute. The `aria-hidden` write stays beside it as the older-browser
+ *  answer; `inert` is what closes the focus half. */
+export function calPopMotion(el: HTMLElement | null, spring: Spring, open: boolean): void {
+  if (el) {
+    el.style.pointerEvents = open ? '' : 'none'
+    el.toggleAttribute('inert', !open)
+    if (open) el.removeAttribute('aria-hidden')
+    else el.setAttribute('aria-hidden', 'true')
+  }
+  spring.set(open ? 1 : 0)
+}
+
+/** WHERE A NEWLY BUILT SPRING IS SEATED — the whole of it, so the question has
+ *  one answer and a test can ask it.
+ *
+ *  ⚖ GREPTILE P2 (#895, fix round 2) — A REBUILD IS NOT A MOUNT. The screen
+ *  rebuilds this spring whenever the reader's `prefers-reduced-motion` answer
+ *  changes, because `makeSpring` captures `reduced` at construction and a spring
+ *  that is never rebuilt is a spring that lies. But the old build seated every
+ *  new spring at 0, so flipping the OS switch while the calendar was open
+ *  dropped a settled card to nothing and replayed its whole entrance — an
+ *  animation announcing a change to a card whose state had not changed at all.
+ *
+ *  `null` is 「there is no card on screen」, which is the fresh-mount case and
+ *  the ONLY one that may start at 0 — that is the no-flash contract, and it is
+ *  stated here rather than left to whatever the caller happens to hold. Any
+ *  number is a card that is already somewhere, and the rebuild picks it up.
+ *
+ *  ⚠ POSITION, NOT VELOCITY. `jump` re-seats with zero velocity and `spring.ts`
+ *  offers no way to hand back a speed (its header forbids adding one), so a
+ *  rebuild caught MID-flight resumes from the right place at rest rather than
+ *  at its old pace. That is a change of speed in one frame, not a replay, and it
+ *  only happens in the sliver where the reader flips the OS switch during the
+ *  ~380ms the card is actually moving. */
+export function calPopSeat(last: number | null): number {
+  return last ?? 0
 }
 
 /** The month `delta` months from y/m, counted in whole months rather than by

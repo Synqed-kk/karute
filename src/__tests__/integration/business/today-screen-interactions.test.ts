@@ -42,6 +42,9 @@ import {
   stretchOrCarry,
   LABEL_MAX,
   LABEL_MIN,
+  calPopFrame,
+  calPopMotion,
+  calPopSeat,
   clickClosesPopover,
   dragModeAt,
   deltaPctIn,
@@ -116,6 +119,10 @@ import {
 // ⚖ Liam 8/23 — the tour engine these tests drive now lives in the family's one
 // shared home (`@/business/lib/guide`); the board imports it from there too.
 // Same functions, carried verbatim, so every assertion below is unchanged.
+// ⚖ STUDIO 2026-09-12 — the board's ONE integrator, driven by hand below with
+// its own `raf`/`cancel` so the month popover's entrance and exit are proven as
+// NUMBERS rather than grepped out of the screen's source.
+import { makeSpring } from '@/business/lib/spring'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
 import { buildSellLayer, freePockets, type SellCell } from '@/business/lib/canon-logic/availability'
@@ -2226,6 +2233,11 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "calendarCellFace,",
       "calendarMonth,",
       "calendarMonthAt,",
+      // ⚖ STUDIO 2026-09-12 — the popover's two motion moments. Added, nothing
+      // renamed or removed.
+      "calPopFrame,",
+      "calPopMotion,",
+      "calPopSeat,",
       "nextCalendarIndex,",
       "calendarTightLegend,",
       "cardNodes,",
@@ -2334,17 +2346,28 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     ])
   })
 
-  /** ⚖ STUDIO F2 — THE PAGED MONTH RESETS WHEN ITS OWN POPOVER CLOSES, pinned
-   *  whole-line. `pop !== 'cal'` is what makes the reset fire on every OTHER
-   *  popover's close path (a day, 今日, Escape, a click outside, any sibling
-   *  popover) and stay quiet on the calendar's own — a mutant that widens or
-   *  narrows that guard (`pop === ''`, say) either resets on the wrong closes
-   *  or stops resetting at all, and a paged month then survives to the next
-   *  open with no covered day in it (the ADDENDUM V2 defect this line exists
-   *  to prevent). */
-  it('the paged month reset is keyed to any popover other than the calendar', () => {
-    const line = "if (pop !== 'cal' && calMonth !== 0) setCalMonth(0)"
+  /** ⚖ STUDIO F2 — THE PAGED MONTH RESETS WHEN ITS OWN POPOVER IS GONE, pinned
+   *  whole-line. The guard is what makes the reset fire on every close path (a
+   *  day, 今日, Escape, a click outside, any sibling popover) and stay quiet
+   *  while the calendar is up — a mutant that widens or narrows it either resets
+   *  on the wrong closes or stops resetting at all, and a paged month then
+   *  survives to the next open with no covered day in it (the ADDENDUM V2 defect
+   *  this line exists to prevent).
+   *
+   *  ⚖ STUDIO 2026-09-12 — THE GUARD IS NOW THE PHASE, NOT `pop`. The popover
+   *  outlives `pop` by the length of its exit spring, and for those ~300ms it is
+   *  still on screen and still being read: `pop !== 'cal'` fires the reset the
+   *  instant the close STARTS, so a month paged to 11月 snapped back to the
+   *  current one in front of the reader. `calPhase` still reads `open` on that
+   *  pass — which a `!calClosing` term beside `pop` would NOT, because a
+   *  render-phase update is not visible to the pass that called it (measured
+   *  against this repo's own React: probes/render-phase-staleness). */
+  it('the paged month reset waits until its own popover is off the screen', () => {
+    const line = "if (calPhase === 'shut' && calMonth !== 0) setCalMonth(0)"
     expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
+    // and the two shapes that fire mid-fade are gone from the screen entirely
+    expect(SRC).not.toContain("if (pop !== 'cal' && calMonth !== 0) setCalMonth(0)")
+    expect(SRC).not.toContain("if (pop !== 'cal' && !calClosing && calMonth !== 0) setCalMonth(0)")
   })
 
   /** ⚖ Liam 9/12 — THE MONTH READS THE STORE'S OWN 「残りわずか」, NOT THE DEFAULT.
@@ -14406,5 +14429,367 @@ describe('月カレンダー day cell — display resolves through the real casc
       if (!winner || higherOrTied(spec, winner.spec)) winner = { spec, display: rule.style.display }
     }
     expect(winner?.display).toBe('grid')
+  })
+})
+
+describe('⚖ STUDIO 2026-09-12 — 月カレンダー enters AND leaves on the Studio spring', () => {
+  // The approved mock opens and closes the popover on ONE critically-damped
+  // spring (MOCK-STUDIO.html :226-238) and turns it around from its LIVE value
+  // when the day button is pressed again mid-flight. The screen owns the
+  // integrator; the two decisions in it are `calPopFrame` (one frame) and
+  // `calPopMotion` (one state change), so they can be driven here with a real
+  // `makeSpring`, a real jsdom node and a hand-cranked clock — no renderer, which
+  // this folder's import fence does not have and never will.
+  //
+  // The seg thumb's own behavioural proof had to leave the repo for exactly that
+  // reason (today-reskin-layer.test.ts :780 — 「TEXT pins, because the
+  // territory's import fence keeps a DOM renderer out of this folder」). Lifting
+  // the decisions out of the component is what lets this one stay in it.
+
+  /** The frame scheduler `makeSpring` is handed instead of `requestAnimationFrame`,
+   *  so a test advances time rather than waiting for it. */
+  function clock() {
+    let queue: Array<(t: number) => void> = []
+    let now = 0
+    let next = 1
+    return {
+      raf: (cb: (t: number) => void) => { queue.push(cb); return next++ },
+      cancel: () => { queue = [] },
+      /** one frame at 16ms, the interval a 60Hz browser hands the integrator */
+      tick(ms = 16) { now += ms; const due = queue; queue = []; for (const cb of due) cb(now) },
+      /** run until the spring stops asking for frames (it stops at rest) */
+      settle(limit = 400) { for (let i = 0; i < limit && queue.length; i += 1) this.tick() },
+      running: () => queue.length > 0,
+    }
+  }
+
+  /** The popover as the screen mounts it, plus the screen's own spring options
+   *  and its `onRest` unmount — everything about this drive is the product's. */
+  function mount(reduced = false) {
+    document.body.innerHTML = '<div class="biz"><div class="time-nav date-nav" data-pop="cal">' +
+      '<button class="day-label"></button><div class="cal-pop"><div class="cal-grid"></div></div></div></div>'
+    const el = document.querySelector<HTMLElement>('.cal-pop')!
+    const c = clock()
+    const rests: number[] = []
+    const spring = makeSpring((v) => calPopFrame(el, v, reduced), {
+      response: 0.3,
+      damping: 1.0,
+      eps: 0.02,
+      reduced,
+      raf: c.raf,
+      cancel: c.cancel,
+      onRest: (v) => { rests.push(v); if (v === 0) el.remove() },
+    })
+    spring.jump(0)
+    calPopMotion(el, spring, true)
+    return { el, spring, c, rests, opacity: () => Number(el.style.opacity) }
+  }
+
+  it('opens from 0 without a flash, rises, and rests at exactly opacity 1 / scale(1)', () => {
+    const { el, c, rests, opacity } = mount()
+    // the pre-paint seat: `jump(0)` has already run, so the first painted frame
+    // is the popover at nothing — this is what replaces `@starting-style`.
+    expect(el.style.opacity).toBe('0')
+    expect(el.style.transform).toBe('scale(0.96)')
+    expect(el.getAttribute('aria-hidden')).toBeNull()
+
+    // …and it is MOVING, upward, before it is anywhere near arrived.
+    const seen: number[] = []
+    for (let i = 0; i < 6; i += 1) { c.tick(); seen.push(opacity()) }
+    expect(seen[seen.length - 1]).toBeGreaterThan(0)
+    expect(seen[seen.length - 1]).toBeLessThan(1)
+    for (let i = 1; i < seen.length; i += 1) expect(seen[i]).toBeGreaterThanOrEqual(seen[i - 1])
+    // critically damped means it ARRIVES rather than bouncing past
+    for (const v of seen) expect(v).toBeLessThanOrEqual(1)
+
+    c.settle()
+    expect(el.style.opacity).toBe('1')
+    expect(el.style.transform).toBe('scale(1)')
+    expect(rests).toEqual([1])
+    expect(c.running()).toBe(false)
+  })
+
+  it('closing leaves it in the DOM, unpressable and unread, until the spring lands at 0', () => {
+    const { el, spring, c, rests, opacity } = mount()
+    c.settle()
+
+    calPopMotion(el, spring, false)
+    // STILL THERE — that is the whole point of the exit; and neither pressable
+    // nor reachable nor readable, because `pop` has already left and
+    // `aria-expanded` with it.
+    expect(document.querySelector('.cal-pop')).toBe(el)
+    expect(el.style.pointerEvents).toBe('none')
+    expect(el.getAttribute('aria-hidden')).toBe('true')
+    // ⚖ COLD READ · C2 — and Tab cannot reach the 34 controls inside it either.
+    // `pointer-events` is a mouse answer; `inert` is the one that also takes
+    // the card out of the focus order and the a11y tree, which is what makes
+    // the `aria-hidden` above legal rather than an `aria-hidden-focus` breach.
+    expect(el.hasAttribute('inert')).toBe(true)
+
+    const falling: number[] = []
+    for (let i = 0; i < 5; i += 1) { c.tick(); falling.push(opacity()) }
+    expect(falling[falling.length - 1]).toBeLessThan(1)
+    for (let i = 1; i < falling.length; i += 1) expect(falling[i]).toBeLessThanOrEqual(falling[i - 1])
+
+    c.settle()
+    expect(rests).toEqual([1, 0])
+    // `onRest(0)` is the unmount signal — the screen answers it with
+    // `setCalPhase('shut')`, this drive answers it by removing the node.
+    expect(document.querySelector('.cal-pop')).toBeNull()
+  })
+
+  it('pressed again mid-close it turns around FROM WHERE IT IS — never re-seated at 1', () => {
+    const { el, spring, c, opacity } = mount()
+    c.settle()
+    calPopMotion(el, spring, false)
+    for (let i = 0; i < 4; i += 1) c.tick()
+    const mid = opacity()
+    expect(mid).toBeGreaterThan(0.02)
+    expect(mid).toBeLessThan(0.98)
+
+    calPopMotion(el, spring, true)
+    // ⚠ THE MOCK'S OWN 「set(), never jump()」. `jump(1)` would re-seat the
+    // integrator at the target with zero velocity, and this line would read 1.
+    expect(opacity()).toBe(mid)
+    expect(el.style.pointerEvents).toBe('')
+    expect(el.getAttribute('aria-hidden')).toBeNull()
+    // …and every one of the three answers comes back, not just the two that
+    // are easy to see: a card the operator has reopened is pressable, Tab-able
+    // and readable again.
+    expect(el.hasAttribute('inert')).toBe(false)
+
+    c.tick()
+    c.tick()
+    expect(opacity()).toBeGreaterThan(mid)
+    expect(opacity()).toBeLessThan(1)
+    c.settle()
+    expect(el.style.opacity).toBe('1')
+    expect(document.querySelector('.cal-pop')).toBe(el)
+  })
+
+  it('⚖ GREPTILE P2 (#895) — a rebuild resumes where the card is; only a fresh mount starts at 0', () => {
+    // The screen rebuilds this spring whenever the reader's reduced-motion
+    // answer changes, because `makeSpring` captures `reduced` at construction.
+    // The first build seated EVERY new spring at 0, so flipping the OS switch
+    // with the calendar open dropped a settled card to nothing and replayed its
+    // whole entrance — an animation announcing a change that was not about this
+    // card. `calPopSeat` is the decision, and this drives it through the real
+    // integrator exactly as the layout effect does.
+    document.body.innerHTML = '<div class="cal-pop"></div>'
+    const el = document.querySelector<HTMLElement>('.cal-pop')!
+    const c = clock()
+    const last: { v: number | null } = { v: null }
+    const painted: number[] = []
+    /** the layout effect's own four steps, and nothing else */
+    const build = (reduced: boolean) => {
+      const spring = makeSpring((v) => {
+        calPopFrame(el, v, reduced)
+        last.v = v
+        painted.push(v)
+      }, { response: 0.3, damping: 1.0, eps: 0.02, reduced, raf: c.raf, cancel: c.cancel })
+      spring.jump(calPopSeat(last.v))
+      calPopMotion(el, spring, true)
+      return spring
+    }
+
+    // 1 · a FRESH mount — nothing has been painted, so the seat is 0 and the
+    // no-flash contract stands.
+    expect(last.v).toBeNull()
+    const first = build(false)
+    expect(el.style.opacity).toBe('0')
+    c.settle()
+    expect(el.style.opacity).toBe('1')
+
+    // 2 · the reader flips reduced motion ON. The card is settled and its state
+    // has not changed, so NOTHING may move.
+    first.stop()
+    painted.length = 0
+    build(true)
+    for (const v of painted) expect(v).toBe(1)
+    expect(el.style.opacity).toBe('1')
+    expect(el.style.transform).toBe('')
+    expect(c.running()).toBe(false)
+
+    // 3 · …and back OFF again, which is the same claim in the other direction:
+    // not one frame below 1, and the card is still fully open at the end.
+    painted.length = 0
+    const third = build(false)
+    c.settle()
+    for (const v of painted) expect(v).toBe(1)
+    expect(el.style.opacity).toBe('1')
+    expect(el.style.transform).toBe('scale(1)')
+    third.stop()
+
+    // 4 · the exit is what makes the NEXT mount fresh. The screen nulls
+    // `calLast` in the layout effect's `!calOnScreen` branch — the one
+    // transition that means the card has left — and without that a reopened
+    // popover would seat at 1 and appear fully open instead of entering.
+    last.v = null
+    painted.length = 0
+    build(false)
+    expect(el.style.opacity).toBe('0')
+  })
+
+  it('⚖ GREPTILE P2 (#895) — calPopSeat: null is the only seat that may be 0', () => {
+    // `null` is 「no card on screen」, which is the fresh mount. Every number is
+    // a card that is already somewhere.
+    expect(calPopSeat(null)).toBe(0)
+    expect(calPopSeat(0)).toBe(0)
+    expect(calPopSeat(1)).toBe(1)
+    expect(calPopSeat(0.4)).toBe(0.4)
+    // ⚠ `?? 0`, never `|| 0`: a card resting at 0 is a card the exit has not
+    // finished unmounting, and `||` would answer it the same as `null` — which
+    // is right by accident here and wrong the moment the seat is anything else.
+    expect(calPopSeat(0)).not.toBeNull()
+  })
+
+  it('⚖ COLD READ · C1 — a reduced frame CLEARS the transform a non-reduced frame left', () => {
+    // The reader flips the OS switch while the calendar is up. The screen
+    // rebuilds the spring with `reduced: true` (that is what `segReduced` is in
+    // the layout effect's deps for), and the very next frame is a reduced one —
+    // written onto an element that is still wearing the last animated scale.
+    //
+    // The first cut wrote NOTHING on the reduced branch, so that scale stayed:
+    // a blind round drove these two helpers through this exact sequence and
+    // read back `scale(0.9699604898035411)`. The sheet's reduced answer
+    // (`.biz .page-today .cal-pop { transform: none }`) cannot beat an inline
+    // style, so the one case that rule exists for was the one case it lost.
+    document.body.innerHTML = '<div class="cal-pop"></div>'
+    const el = document.querySelector<HTMLElement>('.cal-pop')!
+    calPopFrame(el, 0.85, false)
+    expect(el.style.transform).toBe('scale(0.994)')
+    calPopFrame(el, 1, true)
+    expect(el.style.transform).toBe('')
+    expect(el.style.opacity).toBe('1')
+    // an omission would leave the old value standing; an answer takes it away
+    expect(el.getAttribute('style')).not.toContain('scale')
+  })
+
+  it('under reduced motion it lands instantly and NEVER writes a transform', () => {
+    const { el, spring, c, rests } = mount(true)
+    // no frames were ever asked for: `reduced` lands every `set` where it stands.
+    expect(c.running()).toBe(false)
+    expect(el.style.opacity).toBe('1')
+    expect(el.style.transform).toBe('')
+
+    calPopMotion(el, spring, false)
+    expect(el.style.transform).toBe('')
+    expect(el.style.pointerEvents).toBe('none')
+    expect(el.getAttribute('aria-hidden')).toBe('true')
+    expect(rests).toEqual([1, 0])
+    expect(document.querySelector('.cal-pop')).toBeNull()
+  })
+
+  it('the screen mounts it through the fade, and the ⚖ F2 month reset waits for it', () => {
+    // The two facts that live in the component and cannot be driven from here.
+    const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    // ONE phase, three values, and 「on screen」 outlasts `pop`.
+    expect(CODE).toContain("const [calPhase, setCalPhase] = useState<'shut' | 'open' | 'closing'>('shut')")
+    expect(CODE).toContain("if (pop === 'cal' && calPhase !== 'open') setCalPhase('open')")
+    expect(CODE).toContain("else if (pop !== 'cal' && calPhase === 'open') setCalPhase('closing')")
+    expect(CODE).toContain("const calOnScreen = calPhase !== 'shut'")
+    expect(CODE).toContain('{calOnScreen && (\n                  <div className="cal-pop" ref={calPopRef}>')
+    // ⚠ AND THE MONTH RESET READS THAT PHASE, NOT `pop`. A popover that is
+    // still visibly fading is still being READ, so a month paged to 11月
+    // snapping back to the current one is the same bug ⚖ F2 exists to prevent,
+    // moved 300ms later. `pop !== 'cal'` here — with or without a `!calClosing`
+    // beside it — fires on the very pass the close starts, because a
+    // render-phase update is not visible to the pass that called it
+    // (probes/render-phase-staleness, run against this repo's own React).
+    expect(CODE).toContain("if (calPhase === 'shut' && calMonth !== 0) setCalMonth(0)")
+    expect(CODE).not.toContain("if (pop !== 'cal' && calMonth !== 0) setCalMonth(0)")
+    // the spring is the family's, at the eps this packet argues for, and it is
+    // stopped on unmount the way both seg springs are.
+    expect(CODE).toContain('eps: 0.02,')
+    expect(CODE).toContain('reduced: segReduced,')
+    expect(CODE).toContain("onRest: (v) => { if (v === 0) setCalPhase('shut') }")
+
+    // ── ⚖ COLD READ 2026-09-12 · B2-B4, B6 — THE REACT WIRING ITSELF ─────────
+    // The behaviour tests above drive the two helpers directly, so they never
+    // touch the wiring AROUND them: which effect type builds the spring, when
+    // the seat is written, what each dep array holds. A blind round mutated
+    // four of those and the whole battery stayed green, so the four lines that
+    // cannot be driven from this folder are pinned as text instead.
+
+    // B2 — THE ONE SEAM, AND THE DEP ARRAY THAT MAKES IT ONE. `[pop]` → `[]`
+    // and the popover opens and never closes again: nothing re-runs, so nothing
+    // ever calls `spring.set(0)`; the card sits at full opacity, still
+    // pressable, `aria-hidden` never written, `calPhase` stuck at `closing`,
+    // and ⚖ F2 never fires again for the life of the page.
+    expect(CODE).toContain("if (spring) calPopMotion(calPopRef.current, spring, pop === 'cal')\n  }, [pop])")
+
+    // B3 — THE NO-FLASH CONTRACT, which is now held by these two lines ALONE:
+    // the `@starting-style` rule that used to guarantee it was taken out of the
+    // sheet in this same change. A passive effect runs AFTER paint, so
+    // `useEffect` here paints the popover at full opacity and full size for one
+    // frame and only then seats it at 0; deleting `jump(0)` reaches the same
+    // flash by the other route, because a fresh spring starts at x = 0 without
+    // writing anything to the element.
+    // ⚠ THE PINS BELOW READ THE EFFECT WITH ITS BLANK LINES COLLAPSED. `CODE`
+    // blanks each `//` line rather than deleting it, so a pin written as two
+    // adjacent statements breaks the moment a sentence of prose is written
+    // between them — which is a pin about the comments, not about the code.
+    const calAt = CODE.indexOf("const calOnScreen = calPhase !== 'shut'")
+    expect(calAt).toBeGreaterThan(-1)
+    const calEffect = CODE
+      .slice(calAt, CODE.indexOf('}, [calOnScreen, segReduced])', calAt))
+      .replace(/(?:\n[ \t]*)+\n/g, '\n')
+    expect(calEffect.length).toBeGreaterThan(200)
+    expect(calEffect).toContain('useLayoutEffect(() => {\n    if (!calOnScreen) { calLast.current = null; return }')
+    expect(calEffect).toContain('    calSpring.current = spring\n    spring.jump(calPopSeat(calLast.current))')
+
+    // ⚖ GREPTILE P2 (#895) — THE LAST PAINTED VALUE IS WRITTEN BY THE PAINTER.
+    // The apply callback is the one place a value ever reaches the element, so
+    // recording it there is the only spelling that cannot disagree with the
+    // pixels; anywhere else is a second opinion about what is on screen.
+    expect(CODE).toContain('const calLast = useRef<number | null>(null)')
+    expect(calEffect).toContain('const spring = makeSpring((v) => { calPopFrame(el, v, segReduced); calLast.current = v }, {')
+    // …and it is reset in the branch that already means 「no card」 — reached on
+    // exactly one transition (`calOnScreen` turning false), whatever future path
+    // gets there. Without the reset a reopened popover seats at 1 and appears
+    // fully open instead of entering.
+    expect(CODE).toContain('if (!calOnScreen) { calLast.current = null; return }')
+    expect(CODE).not.toContain('spring.jump(0)')
+
+    // B4 — THE REBUILD CARRIES THE DIRECTION, never a hardcoded `true`. A
+    // rebuild mid-close (the operator flips the OS reduced-motion switch while
+    // the card fades) must carry on closing rather than re-open the thing they
+    // just dismissed. The cleanup rides the same pin so the pair cannot drift.
+    expect(calEffect).toContain("    calPopMotion(el, spring, pop === 'cal')\n    return () => { spring.stop(); calSpring.current = null }")
+
+    // B6 — …and `segReduced` is IN those deps, which is the only reason that
+    // rebuild happens at all. `makeSpring` captures `reduced` at construction,
+    // so a spring that is never rebuilt is a spring that lies — the seg thumb
+    // carries the same note for the same reason.
+    expect(CODE).toContain('  }, [calOnScreen, segReduced])')
+
+    // ⚖ COLD READ 2026-09-12 · C3 — THE WHOLE MONTH IS HELD THROUGH THE EXIT,
+    // not half of it. The month drawn is a pair: `calMonth` (the steps the
+    // operator paged) and `props.shownYm` (the day the board stands on). ⚖ F2
+    // above holds the first through the fade; the second is the server's and
+    // stays live, so a `<Link>` landing 100-300ms after the fade starts used to
+    // repaint the leaving card as another month (11月 + the preserved offset =
+    // 1月). This is that defect's sibling reached through the other input, and
+    // it is answered the same way: capture on every `open` pass, render the
+    // capture through `closing`.
+    expect(CODE).toContain('  const monthCellsHeld = useRef(monthCells)\n'
+      + "  if (calPhase === 'open') monthCellsHeld.current = monthCells\n"
+      + "  const monthShown = calPhase === 'closing' ? monthCellsHeld.current : monthCells")
+    // …and the popover renders the HELD answer, never the live memo — all four
+    // reads, the arrows' own `monthCovered` included, or the card's title and
+    // its grid could name two different months for the length of the exit.
+    // ⚠ the end anchor is searched FROM the start, not from 0: three
+    // `.fields-pop-wrap` siblings stand on this toolbar and the FIRST one is
+    // ABOVE the calendar, so a plain `indexOf` handed back an empty slice that
+    // passed `not.toContain` and failed nothing it should have caught.
+    const cardAt = CODE.indexOf('{calOnScreen && (')
+    expect(cardAt).toBeGreaterThan(-1)
+    const card = CODE.slice(cardAt, CODE.indexOf('<div className="fields-pop-wrap"', cardAt))
+    expect(card.length).toBeGreaterThan(500)
+    expect(card).toContain('<strong>{monthShown.y}年{monthShown.m}月</strong>')
+    expect(card).toContain('{monthShown.days.map((d) => {')
+    expect(card).not.toContain('monthCells')
+    expect(CODE).toContain('const { y, m } = calendarMonthAt(monthShown.y, monthShown.m, delta)')
   })
 })
