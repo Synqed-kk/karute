@@ -2490,9 +2490,11 @@
           "capture_unlinked": "Recording audio not linked to a record",
           "discard": "Discarded recording",
           "karute_missing": "Recording never became a karute",
+          "no_sessions_today": "No recording sessions today",
           "play": "Played recording",
           "session_cleanup": "Recording discarded",
           "take_named": "Recording upload address issued (existing session)",
+          "take_refused_has_record": "Refused a duplicate link to a saved recording",
           "transcribe": "Transcribed recording",
           "transcribe_failed": "Transcription failed",
           "transcribe_refused": "Recording transcription declined (usage limit)",
@@ -2533,6 +2535,9 @@
       "fold": {
         "count": "×{n}",
         "range": "{from}–{to}"
+      },
+      "noSessionsToday": {
+        "sub": "{day} · no recordings from {n} staff who usually record"
       },
       "reason": {
         "empty_transcript": "No transcript produced",

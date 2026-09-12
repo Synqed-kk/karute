@@ -11,6 +11,7 @@ import type { AuditLogEvent } from '@/actions/audit-log'
  *  though its action name starts the same way (packet WHAT item 1). */
 export function automationLabelKey(action: string): string | null {
   if (action === 'recording.karute_missing') return 'automation.watch'
+  if (action === 'recording.no_sessions_today') return 'automation.watch'
   if (action === 'recording.transcribe_storm') return 'automation.watch'
   if (action === 'recording.capture_resumed') return 'automation.rescue'
   if (action === 'customer.pack_redeem') return 'automation.autoburn'

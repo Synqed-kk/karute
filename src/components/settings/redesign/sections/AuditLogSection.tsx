@@ -559,6 +559,16 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       }
       return line
     }
+    // C2 (PKT-GROUP-B d5): the hourly watch's "usually records, today
+    // nothing" row has NO target (targetId omitted, detail-only) — the day
+    // and how many staff it fired for are the whole story. Ids only, never
+    // names for a multi-staff row (F13/F14: no per-staff tally on this
+    // shared page).
+    if (e.action === 'recording.no_sessions_today') {
+      const day = typeof detail.day === 'string' ? detail.day : ''
+      const n = Array.isArray(detail.staff_ids) ? detail.staff_ids.length : 0
+      return t('noSessionsToday.sub', { day, n })
+    }
     return targetName
   }
 

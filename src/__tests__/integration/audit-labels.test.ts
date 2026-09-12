@@ -15,6 +15,7 @@ describe('automationLabelKey (I2 — system-row actor label)', () => {
   const cases: [string, string | null][] = [
     // specific matches win over the recording.transcribe* wildcard below
     ['recording.karute_missing', 'automation.watch'],
+    ['recording.no_sessions_today', 'automation.watch'],
     ['recording.transcribe_storm', 'automation.watch'],
     ['recording.capture_resumed', 'automation.rescue'],
     ['customer.pack_redeem', 'automation.autoburn'],

@@ -287,6 +287,57 @@ describe('AuditLogSection — I6/I7 the three new rows', () => {
   })
 })
 
+// ---- C2 (PKT-GROUP-B d4/d5): the two Group-B rows, registered ahead of
+// their emitter — proves the render side is ready before Group B lands. ----
+describe('AuditLogSection — C2 the two Group-B rows (no_sessions_today / take_refused_has_record)', () => {
+  it('recording.no_sessions_today renders the label and the day/staff-count line, no uuid anywhere', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'recording.no_sessions_today',
+        actor_type: 'system',
+        actor_id: null,
+        target_type: null,
+        target_id: null,
+        detail: {
+          day: '2026-09-11',
+          staff_ids: ['staff-uuid-aaa', 'staff-uuid-bbb'],
+          kept_appointments: 3,
+          sessions_today: 0,
+          sessions_prev_7d: 5,
+        },
+      }),
+    ])
+    expect(container.textContent).toContain('本日の録音なし')
+    expect(container.textContent).toContain('2026-09-11・録音担当2名の録音がありません')
+    expect(container.textContent).not.toContain('staff-uuid-aaa')
+    expect(container.textContent).not.toContain('staff-uuid-bbb')
+  })
+
+  it('recording.take_refused_has_record renders without any uuid substring', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'recording.take_refused_has_record',
+        actor_type: 'staff',
+        actor_id: 'staff-1',
+        actor_label: '田中 美香',
+        target_type: 'recording',
+        target_id: 'sess-uuid-1111',
+        detail: {
+          recording_session_id: 'sess-uuid-1111',
+          take_id: 'take-uuid-2222',
+          karute_record_id: 'karute-uuid-3333',
+          store_id: 'store-uuid-4444',
+        },
+      }),
+    ])
+    expect(container.textContent).toContain('二重紐付けを拒否')
+    expect(container.textContent).not.toContain('sess-uuid-1111')
+    expect(container.textContent).not.toContain('take-uuid-2222')
+    expect(container.textContent).not.toContain('karute-uuid-3333')
+    expect(container.textContent).not.toContain('store-uuid-4444')
+  })
+})
+
 // ---- I1: fold repeats -----------------------------------------------------
 describe('AuditLogSection — I1 fold repeats', () => {
   it('a folded pair shows ×2 and the day header still counts the raw 2', async () => {
