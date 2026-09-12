@@ -359,7 +359,7 @@ async function computeAiPreSessionBrief(
       const clinical = tok.clinicalPosture !== 'service'
       const cautionTaxonomy = clinical
         ? '既往歴・手術歴・体内金属・服用中の薬・アレルギー・痛がった箇所・強さの上限や禁止の指示（「強くしないで」等 — 「強めが好き」等の好みは注意ではない）・サービスへの不安'
-        : 'アレルギー・体質・過去のトラブルや悪い反応・嫌がったこと・サービスへの不安'
+        : 'アレルギー・体質・服用中の薬・手術歴・体内金属や医療機器などサービスの安全性に関わる既往・過去のトラブルや悪い反応・嫌がったこと・サービスへの不安'
       const synthesisExample = clinical
         ? 'e.g. memo has 胃の不調 + 内臓調整希望 → 「内臓調整は強度を弱めにして様子を見る」'
         : 'e.g. the memo pairs a stated sensitivity with a requested service → flag the gentler approach'

@@ -76,6 +76,12 @@ describe('ai-brief memory block v12', () => {
     expect(SRC).not.toContain("'body'/'preference' items inform concerns AND cautions")
   })
 
+  it('service businesses retain surgery, implanted-device, and medication safety history', () => {
+    expect(SRC).toContain(
+      "'アレルギー・体質・服用中の薬・手術歴・体内金属や医療機器などサービスの安全性に関わる既往・過去のトラブルや悪い反応・嫌がったこと・サービスへの不安'",
+    )
+  })
+
   // Adversarial review on the bar itself: barred from cautions, a standing
   // preference needed a GUARANTEED home or it would vanish from the brief
   // entirely (concerns wants trajectory; recommendedFocus was null-unless-
