@@ -9,6 +9,7 @@ import { listAllCustomersCached } from '@/lib/customers/list-all'
 import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { buildSessionsListScreen } from '@/lib/karute/screen-rows'
 import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
+import { can } from '@/lib/auth/require-permission'
 
 /**
  * カルテ tab — RECORD-CENTRIC list of karute sessions.
@@ -61,6 +62,7 @@ export default async function KaruteRecordsListPage() {
     currentStaffId,
     karuteData,
     synqedStaff,
+    holdsDiscardView,
   ] = await Promise.all([
       t.phase('staffList', () => getStaffList()),
       // Page to completion so every customer resolves, not just the first 500
@@ -104,6 +106,8 @@ export default async function KaruteRecordsListPage() {
       // profile id the color/name maps key on (boundary translation mirrored
       // in getAppointmentsByDate).
       t.phase('synqedStaff', () => synqed.staff.list({ page_size: 200 })),
+      // R8 discarded-record door (⚖ Liam 2026-09-13, A8).
+      can('records.discardView'),
     ])
   const synqedKaruteRows = karuteData.data?.rows ?? []
   // Nullable display values (Greptile PR #775 round 2): null means that leg
@@ -162,6 +166,7 @@ export default async function KaruteRecordsListPage() {
         staffList={screen.staffList}
         currentStaffId={screen.currentStaffId}
         customerOptions={screen.customerOptions}
+        viewerCanOpenDiscarded={holdsDiscardView}
       />
     </>
   )

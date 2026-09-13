@@ -179,6 +179,9 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
         ...screen,
         hasMore: windowRead.hasMore,
         windowStart: windowRead.windowStart,
+        // R8 discarded-record door (A8) — windowed-only, same reasoning as
+        // discardedCount/hasMore/windowStart above.
+        viewerCanOpenDiscarded: ctx.identity.capabilities.has('records.discardView'),
       })
     : SessionsScreenDTO.parse(screen)
   return ok(ctx, dto)

@@ -93,6 +93,10 @@ interface Props {
     phone?: string | null
     furigana?: string | null
   }>
+  /** R8 discarded-record door (⚖ Liam 2026-09-13): may this viewer open
+   *  ANY discarded row via records.discardView? (own-record rows open
+   *  regardless — computed per row alongside this flag.) Default false. */
+  viewerCanOpenDiscarded?: boolean
 }
 
 // `needsReview` intentionally omitted from the visible filter row —
@@ -216,6 +220,7 @@ export function KaruteRecordListView({
   staffList = [],
   currentStaffId = null,
   customerOptions = [],
+  viewerCanOpenDiscarded = false,
 }: Props) {
   const t = useTranslations('karute.recordList')
   const tHead = useTranslations('karute')
@@ -1257,7 +1262,20 @@ export function KaruteRecordListView({
                     <span>{t('dateGroup.suffix', { n: items.length })}</span>
                   </div>
                   {items.map((item) => (
-                    <KaruteListRow key={item.id} item={item} />
+                    <KaruteListRow
+                      key={item.id}
+                      item={item}
+                      // R8 discarded-record door (⚖ Liam 2026-09-13, A8): own
+                      // record OR the discardView grant — the row's own look
+                      // (grey/「破棄済み」) is unaffected either way (A8: the
+                      // row's existence and honest state never depend on
+                      // this flag — only whether tapping it does something).
+                      canOpen={
+                        !item.isDiscarded ||
+                        viewerCanOpenDiscarded ||
+                        (currentStaffId != null && item.staffId === currentStaffId)
+                      }
+                    />
                   ))}
                 </div>
               )
