@@ -88,7 +88,6 @@ describe('bed-aware-sales — the demo fixture', () => {
     // the stage is the board PIN-R2 dumped: three 枠 held, あずさ's shared.
     expect(f.honest.total).toBe(3)
     const w = withheldOffers(f.offers, f.honest, f.candidates, f.lanes, f.book, true)
-    // eslint-disable-next-line no-console
     console.log('withheld (i′) =', setOf(w), 'blockedBy =', [...w.blockedBy])
     expect(setOf(w)).toEqual([offerKey('c-03', 870)])
     expect(w.blockedBy.get(offerKey('c-03', 870))).toBe('p-05')
