@@ -2390,6 +2390,16 @@ export function TodayScreen(props: TodayProps) {
           }),
     [gapDrawn, withheld],
   )
+  /** ⚖ D-17 F4 — …AND THE CLAIMS LIST AS THE SALE PUBLISHES IT. `drawnClaims`
+   *  is the gap layer's promises plus the fallback's, and the explanation layer
+   *  reads it to decide whose sale took a room. A withheld offer is drawn but
+   *  cannot be bought, so it may not be that answer. The publication filter is
+   *  the one `gapPublished` applies to the very same cells — one predicate, one
+   *  home. Nothing withheld ⇒ the same array, by identity. */
+  const publishedClaims = useMemo(
+    () => (withheld.keys.size === 0 ? drawnClaims : drawnClaims.filter((c) => !withheld.keys.has(offerKey(c.laneKey, c.s)))),
+    [drawnClaims, withheld],
+  )
 
   /** ⚖ SPEC-SELLING-ENGINE §8, RULED 8/30 (§13 Q3 — 「one number」) — WHAT IS ON
    *  SALE ONLINE, counted over all four kinds. Composed HERE, out of the four
@@ -3329,13 +3339,17 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ R3 one world — the operator's own staged card is named as theirs
         // rather than as a stranger's.
         stagedId: pending?.id ?? null,
-        // ⚖ FIX ROUND F1 — THE PUBLISHED LAYER, because 75(i)'s whole job is to
-        // explain EMPTY BOARD SPACE and empty board space is decided by the
-        // paint, not by the derivation. Fed `sell.cells` this map went silent
-        // over stretches the law had emptied, on the strength of boxes nobody
-        // could see.
-        sellCells: sellDrawn.cells,
-        claims: drawnClaims,
+        // ⚖ FIX ROUND F1 + ⚖ D-17 F4 — BOTH HALVES, AND THEY ARE DIFFERENT
+        // QUESTIONS. The PAINT decides empty board space, which is 75(i)'s whole
+        // job — fed `sell.cells` this map went silent over stretches the law had
+        // emptied, on the strength of boxes nobody could see, so every input that
+        // decides geometry or coverage below stays on the DRAWN lists. The SALE
+        // decides the sold cue: 「別の枠で販売中」 is a claim that somebody's sale
+        // took this person's only bed, and a WITHHELD offer is drawn muted and
+        // cannot be bought by anybody — so these two inputs, and only these two,
+        // read the PUBLISHED lists.
+        sellCells: sellPublished.cells,
+        claims: publishedClaims,
         drops: sellDrops,
         inHand: inHand != null,
         sellDisplayed: sellMode !== 'off',
@@ -3389,7 +3403,7 @@ export function TodayScreen(props: TodayProps) {
         },
       }),
     [
-      rails, handBoard, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode,
+      rails, handBoard, railDur, handId, pending?.id, sell, sellPublished, publishedClaims, sellDrops, inHand, sellMode,
       heldBoardHonest, bedsOver, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt,
     ],
   )

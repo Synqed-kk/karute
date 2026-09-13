@@ -1580,7 +1580,14 @@ describe('7 — the fix round: the publication boundary', () => {
 
   it('F1 — and the screen is wired that way: the published layer, and what it withheld', () => {
     const screen = SRC('TodayScreen.tsx')
-    expect(screen).toContain('sellCells: sellDrawn.cells,')
+    // ⚖ D-17 F4 (2026-09-14) — `sellDrawn.cells` → `sellPublished.cells` here,
+    // and `drawnClaims` → `publishedClaims` beside it. F1's finding is unmoved:
+    // the map may not go silent over stretches the law emptied, which is why
+    // every GEOMETRY and COVERAGE input below is still the drawn list. What
+    // moved is the SOLD CUE's two inputs: 「別の枠で販売中」 claims that somebody's
+    // sale took this person's only bed, and a withheld offer is not a sale.
+    expect(screen).toContain('sellCells: sellPublished.cells,')
+    expect(screen).toContain('claims: publishedClaims,')
     expect(screen).toContain('withheld: sell.cells.filter(isHeldBound),')
     // The DERIVATION still exists and is still what the fallback's survivor set
     // reads.
