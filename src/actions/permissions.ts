@@ -198,7 +198,11 @@ export async function setStaffPermissionsCore(
   // joins them ⚖ 9/3 council, and this gate is now the ONLY way it can enter
   // a stored override — the resolve chokepoint stopped stripping it).
   const ownerGrantedOnlyAdds = added.filter(
-    (c) => c === 'audit.view' || c === 'sync.view' || c === 'recordings.viewAll',
+    (c) =>
+      c === 'audit.view' ||
+      c === 'sync.view' ||
+      c === 'recordings.viewAll' ||
+      c === 'recordings.viewShared',
   )
   if (ownerGrantedOnlyAdds.length > 0) {
     const me = deps.callerStaffId
@@ -219,7 +223,9 @@ export async function setStaffPermissionsCore(
           ? 'Only the owner can grant audit-log access.'
           : ownerGrantedOnlyAdds.includes('sync.view')
             ? 'Only the owner can grant sync-status access.'
-            : 'Only the owner can grant recording access.',
+            : ownerGrantedOnlyAdds.includes('recordings.viewShared')
+              ? 'Only the owner can grant shared-recording access.'
+              : 'Only the owner can grant recording access.',
       }
   }
 
