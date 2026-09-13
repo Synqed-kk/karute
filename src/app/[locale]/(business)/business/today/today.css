@@ -1006,17 +1006,7 @@
    These rules follow `.cell-price` / `.cell-packed` / `.cell-gapfill` in this
    file, so the fill wins on equal specificity by source order alone — there is
    no `!important` and no invented weight anywhere here. */
-.biz .cell-withheld {
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  padding: 2px 4px;
-  box-sizing: border-box;
-  text-align: center;
-  border: 1px dashed #cbd5e1;
-  background: repeating-linear-gradient(135deg, #e6eaf0 0 5px, #f5f7fa 5px 10px);
-}
+.biz .cell-withheld { flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 2px 4px; box-sizing: border-box; text-align: center; border: 1px dashed #cbd5e1; background: repeating-linear-gradient(135deg, #e6eaf0 0 5px, #f5f7fa 5px 10px); }
 .biz .cell-withheld .held-title { font-size: 10px; font-weight: 600; line-height: 1; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .biz .cell-withheld .held-sub { font-size: 9px; line-height: 1.2; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 /* The kind and the price go quiet WITH the box rather than changing hue: the
@@ -1029,49 +1019,10 @@
    on this track, so the track's own click still opens 新規予約を作成 over it; the
    one control inside takes its pointer events back. A pill in the accent's LIGHT
    wash, never a fill — ⚖ 8/6: a state is a wash and an action is not black. */
-.biz .cell-released {
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: calc(var(--x) + 1px);
-  width: calc(var(--w) - 2px);
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  padding: 2px 4px;
-  box-sizing: border-box;
-  border: 1px dashed #cbd5e1;
-  border-radius: 4px;
-  background: #f8fafc;
-  text-align: center;
-  overflow: hidden;
-  pointer-events: none;
-}
+.biz .cell-released { position: absolute; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 2px 4px; box-sizing: border-box; border: 1px dashed #cbd5e1; border-radius: 4px; background: #f8fafc; text-align: center; overflow: hidden; pointer-events: none; }
 .biz .cell-released .held-title { font-size: 10px; font-weight: 700; line-height: 1; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .biz .cell-released .held-sub { font-size: 9px; line-height: 1.2; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.biz .cell-released .held-restore {
-  pointer-events: auto;
-  appearance: none;
-  -webkit-appearance: none;
-  margin: 0;
-  padding: 2px 7px;
-  font-family: inherit;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1.3;
-  border: 1px solid var(--indigo);
-  border-radius: 999px;
-  background: var(--indigo-soft);
-  color: var(--indigo);
-  cursor: pointer;
-  touch-action: manipulation;
-  max-width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-}
+.biz .cell-released .held-restore { pointer-events: auto; appearance: none; -webkit-appearance: none; margin: 0; padding: 2px 7px; font-family: inherit; font-size: 9px; font-weight: 700; line-height: 1.3; border: 1px solid var(--indigo); border-radius: 999px; background: var(--indigo-soft); color: var(--indigo); cursor: pointer; touch-action: manipulation; max-width: 100%; white-space: nowrap; overflow: hidden; }
 /* Same two switches the held and shared boxes answer to, for the same reasons:
    空き枠表示「非表示」 takes the whole window layer off the board, and a locked
    lane sells nothing online so it has nothing to report here. */
