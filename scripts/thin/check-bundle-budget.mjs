@@ -624,7 +624,23 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Report-only per ⚖ 8/25: this raise is REVERSIBLE, Liam vetoes it with one
 // revert. The script still gates — it runs in CI and exits non-zero against
 // whatever ceiling stands here.
-const BUDGET_BYTES = 2_067_889
+//
+// Raised 2026-09-13 at the Anthony #901/#905 repairs (R1 — the header's
+// discarded-repair string, PKT-ANTHONY-901-905-REPAIRS-2026-09-13.md): two
+// new message keys per locale (karute.recordList.statusLineDiscarded /
+// statusLineNoMonthDiscarded, ja + en) so the カルテ tab's status line can
+// name active+discarded once any record is discarded, without disturbing
+// the existing statusLine/statusLineNoMonth strings byte-for-byte (F1 —
+// 全件 must not read smaller than 表示中). Genuine phone-bundle copy, not
+// bloat; the purchase-marker scan stays the real gate and remains 0/13.
+// Measured cold on this machine per the C4 recipe above, byte-identical
+// across two separate clean builds (node v24.16.0): en 132,756 · index
+// 998,064 · vendor 937,743 = 2,068,563 B, against origin/main
+// (3af10723a) — also byte-identical across two clean builds — of
+// 132,530 + 997,597 + 937,743 = 2,067,870 B: feature cost +693 B. The
+// ceiling is set from THIS local number plus 1,000 B, the same convention
+// as every prior raise above: 2,068,563 + 1,000 = 2,069,563.
+const BUDGET_BYTES = 2_069_563
 
 let dir
 try {
