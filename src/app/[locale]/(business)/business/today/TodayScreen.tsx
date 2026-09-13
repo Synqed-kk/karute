@@ -3152,9 +3152,14 @@ export function TodayScreen(props: TodayProps) {
         // was judged on the board world with the hand lifted, and after
         // ⚖ MICROFIX N1 the mask is cut from that same occupancy — so the
         // sentence and the chip it hangs under are one answer about one board.
-        // ⚖ HONEST-COUNT ROUND 1 — …and minus the 枠 the settled board found it
-        // cannot honour, so the strip's 新規用 word and the header's number
-        // cannot disagree about the same half hour.
+        // ⚖ HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted
+        // per frame for the rail) — …and minus the 枠 THIS board cannot honour.
+        // The netting runs on the live mask itself, so a collision the card in
+        // the hand creates is spoken to on the frame it is created; at rest
+        // this is the settled answer, so the strip's 新規用 word and the
+        // header's number cannot disagree about the same half hour.
+        // THE ONLY READER of `heldBoardHonest` — the chip, the day layer, the
+        // boxes and the online 確保 rows stay on the settled answer.
         held: heldBoardHonest,
         // ⚖ FIX ROUND F1 — …over exactly the extent the withholding reached.
         // ⚖ MICROFIX N2 — AND THIS ONE IS THE SALES DOOR'S, which is a DIFFERENT
