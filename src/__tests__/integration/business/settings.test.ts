@@ -514,6 +514,12 @@ describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be ma
     expect(rulebook.grants.practitioner).not.toContain('settings.manage')
     expect(rulebook.grants.owner).toContain('billing.manage')
     expect(rulebook.grants.manager).not.toContain('billing.manage')
+    // …and the mirror carries records.discardView (⚖ Liam 2026-09-13, Karute
+    // PR 3): owner + manager by preset, not the explicit practitioner list.
+    expect(rulebook.grants.manager).toContain('records.discardView')
+    // …owner carries it too — the preset is owner+manager, not manager alone.
+    expect(rulebook.grants.owner).toContain('records.discardView')
+    expect(rulebook.grants.practitioner).not.toContain('records.discardView')
     // ⚠ `custom` IS A REAL ROLE AND IT STARTS EMPTY — Karute's own 「blank
     // canvas」 (`permissions.ts:88`). A role the room dropped is a role a store
     // cannot give anyone.
@@ -798,13 +804,13 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
 
   // ⚖ S17 · C7 — RE-DERIVED. The pin used to assert EIGHT capabilities, taken
   // from canon's staff MOCK's `CAP_ORDER`; the product's own list is EIGHTEEN.
-  it('the staff matrix is KARUTE’s own eighteen capabilities, in plain words', async () => {
+  it('the staff matrix is KARUTE’s own nineteen capabilities, in plain words', async () => {
     const props = await room({ store: STORE_A })
     const grid = controlsOf(props).find((c) => c.id.startsWith('staff.caps-'))!
     expect(grid.control.kind).toBe('chips')
     const options = grid.control.kind === 'chips' ? grid.control.options : []
     expect(options.map((o) => o.value)).toEqual(rulebook.capabilities.map((c) => c.token))
-    expect(options).toHaveLength(18)
+    expect(options).toHaveLength(19)
     // ⚠ AND NOT ONE OF THEM IS SPELLED AS A TOKEN. Karute's own file carries the
     // tokens with English comments; ⚖ 「plain names, never codes」 means the grid
     // wears the product's own language (S9L-2, kept).
@@ -812,7 +818,7 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
       expect({ value: o.value, plain: !/\./.test(o.label) && o.label.length > 0 })
         .toEqual({ value: o.value, plain: true })
     }
-    // ⚠ AND IT IS A GRID, NOT A RAG (⚖ mock D9): eighteen chips wrapping freely
+    // ⚠ AND IT IS A GRID, NOT A RAG (⚖ mock D9): nineteen chips wrapping freely
     // is the readability defect this round is for.
     expect(grid.control.kind === 'chips' && grid.control.grid).toBe(true)
   })
@@ -827,7 +833,7 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     const caps = src.slice(src.indexOf('export const CAPABILITIES = ['), src.indexOf('] as const', src.indexOf('export const CAPABILITIES = [')))
     const tokens = [...caps.matchAll(/^\s*'([a-z]+\.[a-zA-Z]+)',/gm)].map((m) => m[1])
     expect(tokens).toEqual(rulebook.capabilities.map((c) => c.token))
-    expect(tokens).toHaveLength(18)
+    expect(tokens).toHaveLength(19)
 
     const roles = src.slice(src.indexOf('export const PERMISSION_ROLES = ['), src.indexOf('] as const', src.indexOf('export const PERMISSION_ROLES = [')))
     const roleKeys = [...roles.matchAll(/^\s*'([a-z]+)',/gm)].map((m) => m[1])
