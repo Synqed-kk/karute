@@ -791,7 +791,7 @@ describe('1 — the round gate', () => {
     // whole below so a third read cannot arrive without saying what it is.
     expect([...codeOnly(screen).matchAll(/HONEST_HELD/g)].length).toBe(3)
     for (const line of [
-      "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
+      "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
       '() => (HONEST_HELD && heldCommitted',
       // ⚖ AND THE MEMO IS A SETTLED-BOARD MEMO. Every name in its dependency
       // list is a settled value; not one of them is `boardLanes`, `ledger` or
@@ -920,7 +920,7 @@ describe('1 — the round gate', () => {
     for (const line of [
       // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, LENS-1-delta.md MINOR 2) — one
       // line from this module, shared with `HONEST_HELD`.
-      "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
+      "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
       'gateOn: SELLING_ENGINE_LAW,',
       // ⚖ FRAME-SEAM (2026-09-12) — THE RAIL'S TWO GATED DOORS TAKE THE HAND'S
       // BOARD. The strip judged every chip on `boardLanes` while the drop judged
@@ -991,7 +991,7 @@ describe('1 — the round gate', () => {
     const CODE = codeOnly(screen)
     // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, LENS-1-delta.md MINOR 2) — the
     // ONE import line from this module, both specifiers on it.
-    const GATE_IMPORT = "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'"
+    const GATE_IMPORT = "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'"
     expect({ gateImports: pinnedLines(screen, GATE_IMPORT) }).toEqual({ gateImports: 1 })
     expect({
       declarations: (CODE.match(/\b(?:const|let|var|function|class|import\s+type)\s+SELLING_ENGINE_LAW\b/g) ?? []).length,
@@ -1003,8 +1003,12 @@ describe('1 — the round gate', () => {
     const CODE_SANS_GATE_IMPORT = CODE.replace(anchoredLine(GATE_IMPORT), '')
     expect(CODE_SANS_GATE_IMPORT).not.toMatch(/\(\s*SELLING_ENGINE_LAW\b/)
     expect(CODE_SANS_GATE_IMPORT).not.toMatch(/[,{]\s*SELLING_ENGINE_LAW\s*[,}]/)
+    // ⚖ ROUND 2 (2026-09-13) — the timed release: the producer memo is
+    // `heldBoardRaw` now; the NAME `heldBoard` stays on the released answer so
+    // every reader follows with no edit of its own. A mechanical whole-line
+    // rename — this slice is still the producer's own call.
     const heldBoard = uniqueSlice(
-      'const heldBoard = useMemo(',
+      'const heldBoardRaw = useMemo(',
       '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
     )
     expect({

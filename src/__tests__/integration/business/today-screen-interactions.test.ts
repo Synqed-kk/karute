@@ -1976,7 +1976,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 2)
     // — ONE import line from this module, so the binding site the ban is about
     // is one line and not two.
-    const GATE_IMPORT = "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'"
+    const GATE_IMPORT = "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'"
     expect({ gateImports: pinnedLines(SRC, GATE_IMPORT) }).toEqual({ gateImports: 1 })
     expect({
       declarations: (CODE.match(/\b(?:const|let|var|function|class|import\s+type)\s+SELLING_ENGINE_LAW\b/g) ?? []).length,
@@ -1992,8 +1992,11 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // suite used to hold by its COUNT alone — is a whole line, counted ONCE
     // over the file, and inside the memo whose answer it decides. `true` in its
     // place leaves the slice a line short: red here, and red again on the count.
+    // ⚖ ROUND 2 (2026-09-13) — the timed release: the producer memo is
+    // `heldBoardRaw` now (the NAME `heldBoard` stays on the released answer).
+    // Mechanical whole-line rename; the slice is the same call.
     const heldBoard = uniqueSlice(
-      'const heldBoard = useMemo(',
+      'const heldBoardRaw = useMemo(',
       '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
     )
     expect({
@@ -11594,7 +11597,11 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // by `honestHeld` itself now, and the rail's mask comes through `heldMaskOf`.
     "import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'",
     "import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'",
-    "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
+    "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
+    // ⚖ ROUND 2 (2026-09-13) — the timed release of a kept 新規用 枠. Pure, every
+    // import of its own a TYPE, so this arrow adds no module to the graph below
+    // the screen.
+    "import { releaseTimed } from './timed-release'",
   ]
 
   /** ⚖ FIX ROUND 3 (BREAKER-828 F1 + F3) — the whole binder, as two lines. */

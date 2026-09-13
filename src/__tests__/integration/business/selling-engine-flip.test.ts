@@ -1601,7 +1601,10 @@ describe('7 — the fix round: the publication boundary', () => {
     // ⚖ MICROFIX N1 — and the board-world instance lifts the hand, which is the
     // lift `guardRailsFor` was already making on its own pockets. Proven as
     // behaviour in reserved-mask.test.ts §9; this is the WIRING half.
-    const memo = screen.indexOf('const heldBoard = useMemo(')
+    // ⚖ ROUND 2 (2026-09-13) — the timed release: the producer memo is
+    // `heldBoardRaw` now; `excludeId: handId,` is still inside it. Mechanical
+    // whole-line rename.
+    const memo = screen.indexOf('const heldBoardRaw = useMemo(')
     expect(memo).toBeGreaterThan(-1)
     expect(screen.slice(memo, memo + 700)).toContain('excludeId: handId,')
   })
@@ -2378,7 +2381,11 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     // stays (POSTMERGE finding 7): the pass-through memo is short, and a slice
     // that ever over-read into the neighbouring `gapDials` memo would be a
     // false red rather than a silent pass.
-    const START = 'const heldCommitted = useMemo('
+    // ⚖ ROUND 2 (2026-09-13) — the timed release: the pass-through producer is
+    // `heldCommittedRaw` now and the NAME `heldCommitted` stays on the released
+    // answer. The CALL anchor `heldCommittedFor({` below is still true inside the
+    // renamed memo. Mechanical whole-line rename.
+    const START = 'const heldCommittedRaw = useMemo('
     const startIdx = screen.indexOf(START)
     expect(startIdx).toBeGreaterThanOrEqual(0)
     const endIdx = screen.indexOf('\n  )', startIdx + START.length)

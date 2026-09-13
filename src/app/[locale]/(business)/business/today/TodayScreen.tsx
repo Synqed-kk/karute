@@ -194,7 +194,8 @@ import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
 import { heldCommittedFor } from './held-committed'
 import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'
 import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'
-import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'
+import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'
+import { releaseTimed } from './timed-release'
 
 const HINT = '見本データのため実行できません'
 
@@ -1113,6 +1114,13 @@ export function TodayScreen(props: TodayProps) {
    *  `ReleasedWindow` for why a lane key and a minute-of-day were not an
    *  identity. */
   const [released, setReleased] = useState<readonly ReleasedWindow[]>([])
+  /** ⚖ ROUND 2 (2026-09-13) — THE MANAGER'S WAY BACK from an AUTOMATIC
+   *  release, and it is the mirror image of `released` above: the same kind of
+   *  fact, stamped with the same board, scoped by the same predicate. The
+   *  automatic release writes nothing and is a derivation, so 「I want that 枠
+   *  back」 cannot be a deletion — it is a fact that says 「keep holding this
+   *  one」 and the derivation reads it (⚖ reversible-by-default). */
+  const [keptBack, setKeptBack] = useState<readonly ReleasedWindow[]>([])
   const [calMonth, setCalMonth] = useState(0)
   /** ⚖ STUDIO 2026-09-12 — THE POPOVER OUTLIVES `pop` BY THE LENGTH OF ITS
    *  SPRING. It now LEAVES on the Studio spring rather than being unmounted out
@@ -1752,6 +1760,26 @@ export function TodayScreen(props: TodayProps) {
     () => released.filter((r) => onShownBoard(r, board)),
     [released, board],
   )
+  /** ⚖ ROUND 2 — …and the KEEP-HELD facts, scoped by the SAME predicate for the
+   *  same reason. A 枠 a manager held back on today's 銀座 board is held back
+   *  there and nowhere else. */
+  const keptBackHere = useMemo(
+    () => keptBack.filter((r) => onShownBoard(r, board)),
+    [keptBack, board],
+  )
+  /** ⚖ D-11 · SPEC-R2 §2.4 — HOW MANY MINUTES BEFORE A KEPT 枠 STARTS IT LETS
+   *  GO, resolved ONCE for the whole screen.
+   *
+   *  `'linked'` is not a number and must never become one here: the store's
+   *  answer is 「when online booking closes for that start」, which is
+   *  `leadTimeMin`'s own minute READ AT READ TIME. Copying the number would let
+   *  the two drift the day somebody moves 「直前の空きは売らない」. `null` is
+   *  「解除しない」 — the release half's own off value — and an absent key reads
+   *  as `null` too, so a board built without the dial is today's board. */
+  const beforeMin = useMemo((): number | null => {
+    const dial = props.guard.config.autoReleaseBeforeMin ?? null
+    return dial === 'linked' ? (props.guard.config.leadTimeMin ?? null) : dial
+  }, [props.guard.config])
   /** ⚖ R8 T1 — 「DOES THIS PLACEMENT HAVE A PRICE THE 保持 ROW CAN BE ABOUT?」,
    *  asked once for the whole screen so no gesture invents its own answer.
    *
@@ -1999,7 +2027,7 @@ export function TodayScreen(props: TodayProps) {
    *  from. The ban list includes the quote characters, which is why the
    *  comments INSIDE the memo carry no apostrophes: a stray one is a false red
    *  rather than a silent pass, and that is the trade this pin is making. */
-  const heldCommitted = useMemo(
+  const heldCommittedRaw = useMemo(
     () =>
       heldCommittedFor({
         gateOn: SELLING_ENGINE_LAW,
@@ -2024,6 +2052,31 @@ export function TodayScreen(props: TodayProps) {
       }),
     [committedLanes, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
   )
+
+  /** ⚖ D-11 · ROUND 2 (2026-09-13) — THE TIMED RELEASE, APPLIED ONCE, WHERE
+   *  EVERY READER ALREADY LOOKS.
+   *
+   *  The memo above keeps the raw enumeration; the name `heldCommitted` stays
+   *  on the RELEASED answer, so the netting, the row's boxes, `tagHeldBound`,
+   *  the gap layer, the rest cue, the chip and the online 確保 rows all see it
+   *  with no edit of their own — exactly the reach the manual release has. The
+   *  subtraction is the manual release's own filter with a predicate instead of
+   *  a list (`timed-release.ts` says why in full).
+   *
+   *  IT WRITES NOTHING and there is NO TIMER: `props.sell.nowMinute` is a server
+   *  prop and this board's clock does not tick, so a release lands on the next
+   *  render. The manager's way back is `keptBackHere`, pre-filtered by board
+   *  exactly as the manual list is — the module never asks which board it is
+   *  answering for, for the same reason `reservedMaskFor` does not.
+   *
+   *  The released ROWS come out of the same call because the row's own mark
+   *  quotes the cut-off it was let go at; one call, one answer, no second
+   *  arithmetic anywhere. */
+  const timedRelease = useMemo(
+    () => releaseTimed(heldCommittedRaw, props.sell.nowMinute, beforeMin, keptBackHere),
+    [heldCommittedRaw, props.sell.nowMinute, beforeMin, keptBackHere],
+  )
+  const heldCommitted = timedRelease.mask
 
   /** ⚖ HONEST-COUNT ROUND 1 (Liam 2026-09-12 21:1x) — WHAT THE ROOMS CAN
    *  HONOUR, once per SETTLED board.
@@ -2431,7 +2484,7 @@ export function TodayScreen(props: TodayProps) {
    *
    *  ⚖ EXCLUSION IS GESTURE-ONLY, so it is passed HERE and never above: the
    *  committed instance answers for the settled board, which is what prices read. */
-  const heldBoard = useMemo(
+  const heldBoardRaw = useMemo(
     () =>
       SELLING_ENGINE_LAW
         ? reservedMaskFor({
@@ -2446,6 +2499,15 @@ export function TodayScreen(props: TodayProps) {
           })
         : undefined,
     [boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],
+  )
+
+  /** ⚖ ROUND 2 — AND THE LIVE MASK GETS THE SAME SUBTRACTION, so the rail can
+   *  never say 新規用 over a half hour the settled board has already let go.
+   *  Same function, same facts, same clock; a filter over a handful of spans,
+   *  so the frame pays nothing measurable. */
+  const heldBoard = useMemo(
+    () => releaseTimed(heldBoardRaw, props.sell.nowMinute, beforeMin, keptBackHere).mask,
+    [heldBoardRaw, props.sell.nowMinute, beforeMin, keptBackHere],
   )
 
   /** ⚖ HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
