@@ -517,6 +517,8 @@ describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be ma
     // …and the mirror carries records.discardView (⚖ Liam 2026-09-13, Karute
     // PR 3): owner + manager by preset, not the explicit practitioner list.
     expect(rulebook.grants.manager).toContain('records.discardView')
+    // …owner carries it too — the preset is owner+manager, not manager alone.
+    expect(rulebook.grants.owner).toContain('records.discardView')
     expect(rulebook.grants.practitioner).not.toContain('records.discardView')
     // ⚠ `custom` IS A REAL ROLE AND IT STARTS EMPTY — Karute's own 「blank
     // canvas」 (`permissions.ts:88`). A role the room dropped is a role a store
