@@ -456,11 +456,18 @@ describe('§2 — reconciled before the layer is built, never in the renderer', 
     // the header chip NAMES ITS KIND. It reads the same layer it always did and
     // counts the same bands; ⚖ Q3 made the board head a total over four kinds,
     // and an unqualified 公開中 beside it read as a second, disagreeing total.
+    //
+    // ⚖ PIN MIGRATED at ROUND 2 (⚖ D-10, 2026-09-14): the published layer got
+    // its own name. `sellDrawn` is what the rows DRAW (a withheld offer stays
+    // drawn, muted); `sellPublished` is what is actually for sale, and every
+    // surface that COUNTS reads it — the chip, the incident stat, the price
+    // button caption, the online composer. Same four surfaces, same law, the
+    // name moved with the layer.
     for (const surface of [
-      '公開中の販売可能枠 {sellDrawn.staffBands.length}枠',
-      '<b>{sellDrawn.staffBands.length}枠</b>',
-      'priceButtonCaption(sellDrawn.staffBands.length',
-      'sell: sellDrawn.staffBands,',
+      '公開中の販売可能枠 {sellPublished.staffBands.length}枠',
+      '<b>{sellPublished.staffBands.length}枠</b>',
+      'priceButtonCaption(sellPublished.staffBands.length',
+      'sell: sellPublished.staffBands,',
     ]) {
       expect(src).toContain(surface)
     }
