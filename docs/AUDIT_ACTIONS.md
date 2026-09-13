@@ -65,12 +65,14 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `recording.no_sessions_today` | recording | live | `settings.auditLog.actions.recording.no_sessions_today` |
 | `recording.play` | recording | live | `settings.auditLog.actions.recording.play` |
 | `recording.session_cleanup` | recording | live | `settings.auditLog.actions.recording.session_cleanup` |
+| `recording.share` | recording | live | `settings.auditLog.actions.recording.share` |
 | `recording.take_named` | recording | live | `settings.auditLog.actions.recording.take_named` |
 | `recording.take_refused_has_record` | recording | live | `settings.auditLog.actions.recording.take_refused_has_record` |
 | `recording.transcribe` | recording | live | `settings.auditLog.actions.recording.transcribe` |
 | `recording.transcribe_failed` | recording | live | `settings.auditLog.actions.recording.transcribe_failed` |
 | `recording.transcribe_refused` | recording | live | `settings.auditLog.actions.recording.transcribe_refused` |
 | `recording.transcribe_storm` | recording | live | `settings.auditLog.actions.recording.transcribe_storm` |
+| `recording.unshare` | recording | live | `settings.auditLog.actions.recording.unshare` |
 | `settings.menu_create` | settings | live | `settings.auditLog.actions.settings.menu_create` |
 | `settings.menu_reactivate` | settings | live | `settings.auditLog.actions.settings.menu_reactivate` |
 | `settings.menu_retire` | settings | live | `settings.auditLog.actions.settings.menu_retire` |

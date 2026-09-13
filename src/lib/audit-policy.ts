@@ -80,12 +80,14 @@ export const AUDIT_ACTIONS = [
   'recording.no_sessions_today',
   'recording.play',
   'recording.session_cleanup',
+  'recording.share',
   'recording.take_named',
   'recording.take_refused_has_record',
   'recording.transcribe',
   'recording.transcribe_failed',
   'recording.transcribe_refused',
   'recording.transcribe_storm',
+  'recording.unshare',
   'settings.menu_create',
   'settings.menu_reactivate',
   'settings.menu_retire',
@@ -256,6 +258,19 @@ export const AUDITED_CORES: {
   // that returns before it. It performs no SDK/storage WRITE at all
   // (createSignedUrl is a read), so it needs no SDK_WRITE_ALLOWLIST row.
   { file: 'src/lib/recording/playback-url.ts', symbols: ['mintPlaybackUrlWithClient'] },
+  // The recorder's own share toggle (⚖ Liam 2026-09-13 sharing law; 2026-09-14
+  // design D6/D7). `emitShareAudit` is a PRIVATE helper (the auditLockout/
+  // emitDeletionAudit shape: a real function parameter named `action`, typed
+  // as the exact literal union — CP4's one sanctioned way to author a
+  // runtime-chosen action string) called from setRecordingSharedWithClient's
+  // one writing branch; it emits unconditionally on its own single path, so
+  // the walker proves it clean, same as auditLockout. `setRecordingSharedWithClient`
+  // itself is NOT registered here: its own body calls `emitShareAudit(...)`,
+  // not `audit(`/`auditWeb(`/`auditDurable(` directly, so the registry-
+  // reality scan never requires an entry for it — and its idempotent no-op
+  // return (D6 step 5: already in the requested state, no write, no audit)
+  // would otherwise need an `unproven` marking it does not need this way.
+  { file: 'src/lib/recording/share.ts', symbols: ['emitShareAudit'] },
   // The take-URL mint (capture pipeline PR2 fix round 2, widened in fix round
   // 4, re-split in fix round 6). auditTakeNamed is a private helper emitting
   // unconditionally on its one path; mintTakeUploadUrl conditions the CALL (a
@@ -541,6 +556,14 @@ export const SDK_WRITE_ALLOWLIST: {
     justification:
       "Names-fix (2026-08-31, ordering corrected in fix round 1) — the below-floor half. Stamps ONE derived field, recordings.duration_seconds, onto the session the caller is discarding, from the duration the receipt already reports: it adds no new fact and takes none away. Not silent in substance, and now not merely in the same call stack but strictly AFTER the emit: writeDiscardReceipt calls the stamp PAST its own failure guard, so the stamp fires only once the awaited durable recording.discard row carrying duration_sec and below_floor for this exact take has actually landed. A receipt-failed discard stamps nothing and retries whole, so there is no state in which a stamped duration exists without the audit row for the request that wrote it, and a second row here would double-count one act. The walker cannot see that emit because discard.ts's emitter is auditDurable rather than the audit()/auditWeb() pair AUDITED_CORES is seeded from — the same reason the sibling recordingDiscards.create entry above needs a line. It adds one serialized best-effort round-trip to a path already awaiting core four times (accepted cost), and can never fail the discard: every failure is one warn line and the result is returned unchanged.",
     dated: '2026-08-31',
+  },
+  {
+    file: 'src/lib/recording/share-columns.ts',
+    call: 'recordings.update',
+    symbols: ['updateRecordingShare'],
+    justification:
+      "The D13 typed write wrapper (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design D6/D13) — SDK 1.34's UpdateRecordingInput predates the shared_at/shared_by_staff_id columns, so this is the one place the untyped cast happens. The write itself sits one level below the emit: setRecordingSharedWithClient (src/lib/recording/share.ts, AUDITED_CORES via its own emitShareAudit helper) awaits this call and then, on its ONE writing branch, calls emitShareAudit — recording.share/recording.unshare — which dominates its own return. A second row here would double-count one act; this file stays audit-free by design, the exact same shape as discard.ts#stampRecordingDuration above (a write in a sibling helper, dominated by an emit one call-frame away, not lexically inside it).",
+    dated: '2026-09-14',
   },
   {
     file: 'src/actions/customers.ts',

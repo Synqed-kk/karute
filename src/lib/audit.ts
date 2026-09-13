@@ -292,6 +292,7 @@ export type FacadeEndpointKey =
   | 'recordings.playbackUrl'
   | 'recordings.session.delete'
   | 'recordings.session.mint'
+  | 'recordings.share'
   | 'recordings.uploadUrl'
   | 'recovery.day_facts'
   | 'screens.appointments'
@@ -792,6 +793,19 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // 'mutation' row here would double-log every facade discard.
   'recordings.session.delete': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient' },
   'recordings.session.mint': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
+  // The recorder's own share toggle (⚖ Liam 2026-09-13 sharing law; 2026-09-14
+  // design D6). Same doctrine as the writers above: the shared body
+  // (setRecordingSharedWithClient, src/lib/recording/share.ts) alone knows
+  // whether a toggle actually WROTE anything — the idempotent no-op (already
+  // in the requested state) writes and audits nothing, and the generic hook
+  // would emit on every 2xx including that no-op. Deliberately NO `coveredBy`
+  // citation here (unlike its siblings): the body's own idempotent-no-op
+  // return is a genuine, honest non-audited success path (D6 step 5), which
+  // CP2's coveredBy walker (audit-coveredby.test.ts) has no `unproven`
+  // allowance for — citing it here would fail that gate over a return the
+  // design deliberately leaves silent. The real writer is `recording.share`
+  // registered directly with AUDITED_CORES instead (audit-policy.ts).
+  'recordings.share': { kind: 'skip', category: 'recording', action: '' },
   // The mint's OWN row (capture pipeline PR2 fix round 2) is
   // recording.take_named, emitted at the shared core for a CLIENT-NAMED take
   // only — the case where the caller names a take it may not own (storage
