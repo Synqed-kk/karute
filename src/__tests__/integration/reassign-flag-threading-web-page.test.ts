@@ -668,3 +668,60 @@ describe('KaruteDetailPage — discarded records never create the AI slots (R8 f
     expect(props.suggestedMessageSlot).not.toBeNull()
   })
 })
+
+// ── R8 fix round 1 (LENS §3, MEDIUM) — THE WEB DOOR ITSELF WAS UNPINNED. The
+// facade half of canOpenDiscardedRecord/contentWithheld is covered elsewhere
+// (app-api-karute-detail-screen.test.ts); this page's OWN refusal, its own
+// photos-withhold branch, and the own-staffer bypass ran with no test at all —
+// deleting any one of them (LENS mutants M11, M20) left the whole battery
+// green. canOpenDiscardedRecord / readDoorStoreId run FOR REAL in this
+// harness (only next/navigation, staff, supabase/karute, synqed/*, auth/
+// require-permission, auth/store-scope, customers/*, audit-web and
+// detail-screen are mocked) — this is the real ACL, not a stub.
+describe('KaruteDetailPage — the discarded-record door itself (R8 fix round 1, §3)', () => {
+  it('a plain staffer (no capability, not the owner) opening a DISCARDED record → notFound() [mutant M11]', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, status: 'DISCARDED', staff_profile_id: 'other-staff',
+    }
+    grantedCaps.current = new Set()
+    await expect(
+      KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) }),
+    ).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  it('a records.discardView holder opens a DISCARDED record — page renders, and photos are withheld when contentWithheld [mutant M20]', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, status: 'DISCARDED', staff_profile_id: 'other-staff',
+    }
+    grantedCaps.current = new Set(['records.discardView'])
+    buildSpy.mockReturnValue({
+      karuteId: 'k-1',
+      customerId: 'cust-9',
+      transcript: null,
+      header: { customerName: 'テスト 太郎' },
+      summary: null,
+      discarded: true,
+      contentWithheld: true,
+    } as never)
+    const props = await viewPropsFromPage()
+    expect(props.photosSlot).toBeNull()
+  })
+
+  it('the record’s OWN staffer opens her own DISCARDED record — no capability needed, photos slot present', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, status: 'DISCARDED', staff_profile_id: 'staff-1',
+    }
+    grantedCaps.current = new Set()
+    buildSpy.mockReturnValue({
+      karuteId: 'k-1',
+      customerId: 'cust-9',
+      transcript: null,
+      header: { customerName: 'テスト 太郎' },
+      summary: null,
+      discarded: true,
+      contentWithheld: false,
+    } as never)
+    const props = await viewPropsFromPage()
+    expect(props.photosSlot).not.toBeNull()
+  })
+})
