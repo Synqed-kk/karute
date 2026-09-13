@@ -604,12 +604,14 @@ async function facadeLoadKaruteWindow(input: {
   olderThan?: string
   month?: string
   loadedCount?: number
+  sharedOnly?: boolean
 }): Promise<import('@/actions/karute').KaruteWindowPage | { error: string }> {
   try {
     const qs = new URLSearchParams()
     if (input.olderThan) qs.set('olderThan', input.olderThan)
     if (input.month) qs.set('month', input.month)
     if (input.loadedCount != null) qs.set('loadedCount', String(input.loadedCount))
+    if (input.sharedOnly) qs.set('sharedOnly', 'true')
     const res = await getDataPort().apiFetch(`/api/app/v1/karute/window?${qs.toString()}`)
     const body = (await res.json().catch(() => null)) as
       | (Partial<import('@/actions/karute').KaruteWindowPage> & {
@@ -627,6 +629,9 @@ async function facadeLoadKaruteWindow(input: {
       windowStart: body.windowStart,
       freshStoreTotal: body.freshStoreTotal ?? 0,
       freshDiscardedCount: body.freshDiscardedCount ?? 0,
+      // D10 (PR-C, self-lighting): NEVER `?? 0` — undefined stays undefined,
+      // exactly like every other hop of this field.
+      freshSharedCount: body.freshSharedCount,
       hasMore: body.hasMore ?? false,
     }
   } catch (err) {

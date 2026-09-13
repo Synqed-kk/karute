@@ -63,6 +63,7 @@ export default async function KaruteRecordsListPage() {
     karuteData,
     synqedStaff,
     holdsDiscardView,
+    holdsViewShared,
   ] = await Promise.all([
       t.phase('staffList', () => getStaffList()),
       // Page to completion so every customer resolves, not just the first 500
@@ -108,6 +109,9 @@ export default async function KaruteRecordsListPage() {
       t.phase('synqedStaff', () => synqed.staff.list({ page_size: 200 })),
       // R8 discarded-record door (⚖ Liam 2026-09-13, A8).
       can('records.discardView'),
+      // D10 (PR-C, self-lighting): gates the 「共有」 pill together with
+      // displaySharedCount below.
+      can('recordings.viewShared'),
     ])
   const synqedKaruteRows = karuteData.data?.rows ?? []
   // Nullable display values (Greptile PR #775 round 2): null means that leg
@@ -124,6 +128,10 @@ export default async function KaruteRecordsListPage() {
   // along with the whole status line).
   const initialWindowStart = karuteData.data?.windowStart ?? null
   const initialHasMore = karuteData.data?.hasMore ?? false
+  // D10 (PR-C, self-lighting): undefined (leg failed OR core hasn't shipped
+  // shared_count yet) collapses to null here — either way the pill must not
+  // exist. NEVER `?? 0` (feature detection: a real 0 is a shown value).
+  const displaySharedCount = karuteData.data?.freshSharedCount ?? null
 
   // #496 store clamp: the 担当 picker only offers staff assigned to the active
   // store (or floating staff) — the full roster was leaking every branch's
@@ -167,6 +175,8 @@ export default async function KaruteRecordsListPage() {
         currentStaffId={screen.currentStaffId}
         customerOptions={screen.customerOptions}
         viewerCanOpenDiscarded={holdsDiscardView}
+        sharedCount={displaySharedCount}
+        viewerHoldsViewShared={holdsViewShared}
       />
     </>
   )
