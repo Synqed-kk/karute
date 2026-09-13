@@ -1,8 +1,10 @@
-// readSharedAt (src/lib/recording/share-columns.ts) — the SDK-1.34 trust-
-// boundary read of core's shared_at column, which the installed client's own
-// types don't carry yet. Every non-string/unreadable shape must close to
-// null, never throw and never widen.
-import { readSharedAt } from '@/lib/recording/share-columns'
+// readSharedAt / updateRecordingShare (src/lib/recording/share-columns.ts) —
+// the SDK-1.34 trust-boundary read of core's shared_at column, and the typed
+// write wrapper (D13), both predating the installed client's own types.
+// Every non-string/unreadable read shape must close to null, never throw and
+// never widen; the write must send exactly the two share columns, nothing
+// more, nothing less.
+import { readSharedAt, updateRecordingShare } from '@/lib/recording/share-columns'
 
 describe('readSharedAt', () => {
   it('a genuine ISO string passes through', () => {
@@ -41,5 +43,28 @@ describe('readSharedAt', () => {
 
   it('the row itself null → null', () => {
     expect(readSharedAt(null)).toBeNull()
+  })
+})
+
+describe('updateRecordingShare', () => {
+  it('sends exactly { shared_at, shared_by_staff_id } to recordings.update — nothing else', async () => {
+    const update = jest.fn(async (_id: string, _input: unknown) => ({}))
+    const synqed = { recordings: { update } } as unknown as Parameters<typeof updateRecordingShare>[0]
+    await updateRecordingShare(synqed, 'row-1', {
+      shared_at: '2026-09-14T00:00:00.000Z',
+      shared_by_staff_id: 'staff-1',
+    })
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(update).toHaveBeenCalledWith('row-1', {
+      shared_at: '2026-09-14T00:00:00.000Z',
+      shared_by_staff_id: 'staff-1',
+    })
+  })
+
+  it('an unshare write sends both fields null', async () => {
+    const update = jest.fn(async (_id: string, _input: unknown) => ({}))
+    const synqed = { recordings: { update } } as unknown as Parameters<typeof updateRecordingShare>[0]
+    await updateRecordingShare(synqed, 'row-1', { shared_at: null, shared_by_staff_id: null })
+    expect(update).toHaveBeenCalledWith('row-1', { shared_at: null, shared_by_staff_id: null })
   })
 })
