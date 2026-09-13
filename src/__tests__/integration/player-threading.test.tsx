@@ -36,6 +36,10 @@ jest.mock('@/hooks/use-global-recorder', () => ({
   useGlobalRecorder: () => ({ state: 'idle' }),
   recorderIsLive: () => false,
 }))
+// The transcript card is REAL (it's the destination) and now imports the
+// share toggle, which is a 'use server' module — declare it regardless, the
+// same seam recording-player-card.test.tsx mocks (PR-B fix round 3, NF2).
+jest.mock('@/actions/recording-share', () => ({ setRecordingShared: jest.fn() }))
 // Every sibling card is out of scope — the same isolation the summary-placement
 // suite uses. The transcript card stays REAL: it is the destination.
 jest.mock('@/components/karute/redesign/detail/CustomerHeaderCard', () => ({ CustomerHeaderCard: () => null }))
