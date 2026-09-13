@@ -1748,9 +1748,9 @@ export interface OnlineCounter {
 }
 
 export function onlineOffers(input: {
-  /** The PUBLISHED sell layer's staff bands (`sellDrawnFor`, held-bound gone). */
+  /** The PUBLISHED sell layer's staff bands (`sellPublishedFor` — held-bound gone AND the bed-withheld offers gone; ROUND 2). */
   sell: readonly SellBand[]
-  /** …and the gap layer AS DRAWN — the §5 fallback's additions included. */
+  /** …and the gap layer as PUBLISHED (`gapPublished`: the §5 fallback's additions included, the bed-withheld cells removed; ROUND 2). */
   packed: readonly GapCell[]
   scraps: readonly GapCell[]
   /** ⚖ FIX ROUND F4 (blind-final L1#4 ≡ L2#8) — §4.5's OWN EMISSION, not the
