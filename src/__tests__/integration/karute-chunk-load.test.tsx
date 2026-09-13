@@ -927,6 +927,82 @@ describe('pill counts', () => {
     expect(screen.queryByText('有効 花子')).not.toBeInTheDocument()
   })
 
+  // Fix round 2 (2026-09-13, F1/F3): the pills above were counting from
+  // `allItems` UNSCOPED while the tap's own `filtered` applied staff scope
+  // + search FIRST — so 自分 (or a search word) narrowing to fewer rows than
+  // the pill promised. applyScope is now the one function both memos call;
+  // these pin the count/tap identity under staff scope and under search, for
+  // BOTH 破棄済み and 今週 — the rule is one home, not a 破棄済み special case.
+  describe('pills count AFTER staff scope and search — not the unscoped store (fix round 2, F1/F3)', () => {
+    const staffList = [
+      { id: 'staff-1', name: '田中 太郎', initials: '田中' },
+      { id: 'staff-2', name: '鈴木 花子', initials: '鈴木' },
+    ]
+    const selfToggle = () => screen.getByRole('button', { name: 'self' })
+
+    it('破棄済み: 自分 excludes another staff\'s loaded discarded row', () => {
+      const mine = { ...item('d-mine', jstYmd(0), '自分 一郎'), staffId: 'staff-1', isDiscarded: true }
+      const theirs = { ...item('d-theirs', jstYmd(1), '他人 二郎'), staffId: 'staff-2', isDiscarded: true }
+      renderList({
+        items: [mine, theirs],
+        total: 0,
+        discardedCount: 2,
+        staffList,
+        currentStaffId: 'staff-1',
+      })
+
+      fireEvent.click(selfToggle())
+      expect(pillCount('discarded')).toBe(1)
+      fireEvent.click(pill('discarded'))
+      expect(showingCount()).toBe(pillCount('discarded'))
+      expect(showingCount()).toBe(1)
+      expect(screen.getByText('自分 一郎')).toBeInTheDocument()
+      expect(screen.queryByText('他人 二郎')).not.toBeInTheDocument()
+    })
+
+    it('破棄済み: a search word narrows which loaded discarded rows count', () => {
+      const match = { ...item('d-match', jstYmd(0), '桜井 一郎'), isDiscarded: true }
+      const other = { ...item('d-other', jstYmd(1), '高橋 二郎'), isDiscarded: true }
+      renderList({ items: [match, other], total: 0, discardedCount: 2 })
+
+      fireEvent.change(screen.getByPlaceholderText('searchPlaceholder'), {
+        target: { value: '桜井' },
+      })
+      expect(pillCount('discarded')).toBe(1)
+      fireEvent.click(pill('discarded'))
+      expect(showingCount()).toBe(pillCount('discarded'))
+      expect(showingCount()).toBe(1)
+    })
+
+    it('今週: 自分 excludes another staff\'s loaded row — same rule, not a 破棄済み special case', () => {
+      const mine = { ...item('w-mine', jstYmd(0), '自分 花子'), staffId: 'staff-1' }
+      const theirs = { ...item('w-theirs', jstYmd(1), '他人 太郎'), staffId: 'staff-2' }
+      renderList({ items: [mine, theirs], total: 2, staffList, currentStaffId: 'staff-1' })
+
+      fireEvent.click(selfToggle())
+      expect(pillCount('thisWeek')).toBe(1)
+      fireEvent.click(pill('thisWeek'))
+      expect(showingCount()).toBe(pillCount('thisWeek'))
+      expect(showingCount()).toBe(1)
+      expect(screen.getByText('自分 花子')).toBeInTheDocument()
+      expect(screen.queryByText('他人 太郎')).not.toBeInTheDocument()
+    })
+
+    it('今週: a search word narrows which loaded rows count', () => {
+      const match = item('w-match', jstYmd(0), '桜井 花子')
+      const other = item('w-other', jstYmd(1), '高橋 太郎')
+      renderList({ items: [match, other], total: 2 })
+
+      fireEvent.change(screen.getByPlaceholderText('searchPlaceholder'), {
+        target: { value: '桜井' },
+      })
+      expect(pillCount('thisWeek')).toBe(1)
+      fireEvent.click(pill('thisWeek'))
+      expect(showingCount()).toBe(pillCount('thisWeek'))
+      expect(showingCount()).toBe(1)
+    })
+  })
+
   it('今週 does NOT climb when さらに表示 appends OLDER rows', async () => {
     loadKaruteWindow.mockResolvedValue({
       // A walk backward can only ever return rows older than the boundary, so
