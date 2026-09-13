@@ -99,8 +99,16 @@ const blocked = (book: BedTruth, room: string, start: number, end: number): BedT
  *  @param book the capacity book for that world.
  *  @param on the round gate's value, passed in. False = nothing withheld.
  *
- *  ponytail: offers × rooms nettings on the settled board only. Upgrade: one
- *  joint allocation of kept 枠 and offers, the day the slot-vs-offer ruling lands.
+ *  ponytail: THREE EXACT EXITS AND ONE MEMO, in this order — (a) an offer over no
+ *  kept 枠 is free; (c) the WITNESS proves 「on sale」 out of the netting's own legal
+ *  assignment; (d) the PIGEONHOLE proves 「withheld」 by counting, when every room on
+ *  the board is already taken at one instant inside the offer's span. What survives
+ *  all three pays at most ONE netting per (room, span) — memoised for the call,
+ *  because the netting depends on nothing else about the offer. CEILING, STATED: a
+ *  saturated board the pigeonhole cannot close (a store whose eligible rooms are a
+ *  strict subset of the board's) still pays |distinct room×span| nettings. Upgrade:
+ *  one joint allocation of kept 枠 and offers, the day the slot-vs-offer ruling
+ *  lands (⚖ D-05 · D-14).
  *
  *  ⚠ CEILING, STATED: offers are tested INDEPENDENTLY, so two surviving offers
  *  can both be counting on the same spare room. Offer-vs-offer is R4's job
@@ -128,6 +136,26 @@ export function withheldOffers(
       room: l.heldRoom[i] ?? '',
     })),
   )
+  // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 3 — THE ONE ROOM UNIVERSE the pigeonhole
+  // counts against: the board's own bed rows. A board drawn without them (a unit
+  // suite whose book is a stub) has none and the exit never fires — which is why
+  // the guard below is `> 0` and not merely the comparison.
+  const roomUniverse = lanes.filter((l) => l.group === 'beds').length
+  // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 2 — THE MEMO, for this call and no
+  // longer. `honestHeld(candidates, lanes, blocked(book, r, start, end), true)`
+  // depends on nothing else about the offer — not its lane, not its stores, not its
+  // price — so every offer asking about the same (room, span) has the same answer,
+  // and the sell boxes of a busy board sit on ONE lattice of spans. Exact by
+  // purity; it lives and dies with the call, so nothing in it can go stale.
+  const netted = new Map<string, ReadonlySet<string>>()
+  const heldWithout = (room: string, start: number, end: number): ReadonlySet<string> => {
+    const memoKey = `${room}|${start}|${end}`
+    const seen = netted.get(memoKey)
+    if (seen) return seen
+    const after: ReadonlySet<string> = new Set(heldIds(honestHeld(candidates, lanes, blocked(book, room, start, end), true)))
+    netted.set(memoKey, after)
+    return after
+  }
   const keys = new Set<string>()
   const blockedBy = new Map<string, string>()
 
@@ -176,11 +204,67 @@ export function withheldOffers(
     // `''` for its rooms: there is no assignment to witness, so fall through.
     if (!usedRooms.has('') && rooms.some((r) => !usedRooms.has(r))) continue
 
-    // LAZY EXIT (b): the first room that keeps every 枠 wins.
+    // LAZY EXIT (d) — THE PIGEONHOLE, the witness's dual: EXACT, and it can only
+    // ever prove WITHHELD (⚖ D-14 · SPEC-R2 v5 amendment item 3).
+    //
+    // `h(t)` = how many held 枠 cover the instant `t`. The netting's held set is a
+    // LEGAL assignment — overlapping 枠 sit in DISTINCT rooms, which v4's own
+    // `heldRoom` legs pin on 500 random boards — so if `h(t)` reaches the number of
+    // rooms ON THE BOARD at some `t` inside the offer's span, then at that instant
+    // every room is already spoken for. Whichever of them the offer takes, blocking
+    // it over a span containing `t` leaves `h(t)` 枠 to share `rooms − 1` seats and
+    // one of them must be dropped. No room works ⇒ WITHHELD, with ZERO nettings.
+    //
+    // WHY IT IS ASSIGNMENT-INDEPENDENT — the property the whole v3 amendment rests
+    // on, and here it is free: this reads only WHICH 枠 are held and WHEN, never
+    // which bed any of them was given. So it is also valid where the netting is not
+    // `exact`: a truncated search still returns a legal assignment, and the
+    // counting argument asks for nothing more than legality.
+    //
+    // `h(t)` is piecewise constant and only ever steps UP at a 枠's start, so its
+    // maximum over the span is attained at the offer's own start or at one of the
+    // overlapping 枠's starts strictly inside it — a finite check, never a sweep.
+    // Counting over `hit` is the same as counting over every held 枠: a 枠 covering
+    // an instant inside the offer's span overlaps the offer by definition.
+    //
+    // Eligibility (stores · roomClass) can only make it HARDER, never easier: a
+    // store whose rooms are a subset of the board's keeps `h(t)` below
+    // `roomUniverse`, the exit does not fire, and the cost is work — never an
+    // answer.
+    //
+    // ⚠ AND IT NEVER NAMES — the generic line, always. The loss lists are what a
+    // name is made of and this exit is precisely the exit that does not compute
+    // them. v5 amendment item 4 carved out 「one room on the board and one held 枠
+    // over the offer ⇒ the loss list is provably [X]」; the 500-board property
+    // DISPROVED it (seeds 137 · 178 · 301 · 306 · 451, printed in
+    // BUILD-REPORT-R2-A): with a single room, blocking it over the offer's span
+    // re-nets the whole day and the store loses TWO 枠 — the overlapping one AND a
+    // 枠 elsewhere that the netting swaps out for an equal-size alternative. Naming
+    // the overlapping one would half-tell the truth, which is the one thing
+    // `sharedRoomTitle`'s rule forbids. So the box says 「新規用の確保枠が先のため、
+    // いまは販売していません」 and names nobody.
+    //
+    // ⚠ THE OPEN QUESTION, STATED (report §STOP): on a saturated board rule 4 CAN
+    // name — 112 of the 500 boards' withheld offers have one — and this exit gives
+    // up that name to save every netting. Paying for the name means paying the
+    // |rooms| nettings the exit exists to avoid, on exactly the boards that lag.
+    // Cost vs the person's name in the box: not a builder's call.
+    if (roomUniverse > 0) {
+      const covering = (t: number) => hit.reduce((n, h) => (h.start <= t && t < h.end ? n + 1 : n), 0)
+      const steps = [o.start, ...hit.map((h) => h.start).filter((t) => t > o.start && t < o.end)]
+      if (steps.some((t) => covering(t) >= roomUniverse)) {
+        keys.add(o.key)
+        continue
+      }
+    }
+
+    // LAZY EXIT (b): the first room that keeps every 枠 wins — and each room's
+    // answer comes out of the memo, so a lattice of offers over one span pays once
+    // per room however many rows draw it.
     const lostPer: string[][] = []
     let onSale = false
     for (const r of rooms) {
-      const after = new Set(heldIds(honestHeld(candidates, lanes, blocked(book, r, o.start, o.end), true)))
+      const after = heldWithout(r, o.start, o.end)
       const lost = want.filter((k) => !after.has(k))
       if (lost.length === 0) {
         onSale = true
@@ -202,15 +286,21 @@ export function withheldOffers(
  *  name a person whose reason the operator cannot check」, `sharedRoomTitle`).
  *
  *  Every candidate room costs the store SOME 枠, or the offer would be on sale.
- *  A name is honest only when ONE kept 枠 is lost whichever room the offer takes
- *  and it overlaps the offer — then that 枠 really is 「先」. When two different
- *  rooms cost two different 枠 (the demo board at 13:30: ベッド1 is しろう's only
- *  room, ベッド2 is あずさ's) no single 枠 is the cause, and the box leads with the
- *  generic line instead of picking one and half-telling the truth. */
+ *  A name is honest only when EVERY candidate room's loss list is EXACTLY the same
+ *  single 枠 and that 枠 overlaps the offer — then it really is 「先」. Two rooms
+ *  costing two different 枠 (the demo board at 13:30: ベッド1 is しろう's only room,
+ *  ベッド2 is あずさ's), or ONE room costing two 枠 at once, means no single 枠 is the
+ *  reason, and the box leads with the generic line instead of picking one and
+ *  half-telling the truth.
+ *
+ *  ⚖ D-14 · SPEC-R2 v5 amendment item 4 — this is the rule this doc always
+ *  described; the code used to say 「some 枠 appears in every loss list」, which also
+ *  named a 枠 on a board where one room loses TWO. Now they agree. */
 function blockerOf(
   hit: ReadonlyArray<{ id: string; laneKey: string }>,
   lostPer: readonly string[][],
 ): string | null {
-  const always = hit.find((h) => lostPer.every((lost) => lost.includes(h.id)))
-  return always ? always.laneKey : null
+  const only = lostPer[0]?.length === 1 ? lostPer[0][0] : null
+  if (!only || !lostPer.every((lost) => lost.length === 1 && lost[0] === only)) return null
+  return hit.find((h) => h.id === only)?.laneKey ?? null
 }

@@ -24,7 +24,11 @@ import type { BoardLane } from '@/business/lib/today-board'
 
 const span = (start: number, end: number): ReservedSpan => ({ start, end, windowStart: start })
 const maskOf = (laneKey: string, spans: ReservedSpan[]): ReservedLaneMask => ({ laneKey, spans, protectedCount: spans.length })
-const lane = (key: string, stores: string[] | null = null) => ({ key, label: key, group: 'staff', stores } as unknown as BoardLane)
+const lane = (key: string, stores: string[] | null = null, group = 'staff') => ({ key, label: key, group, stores } as unknown as BoardLane)
+/** ⚖ ROUND 2 · v5 — the board's BED rows. `withheldOffers` counts them for the
+ *  pigeonhole exit (the one room universe); every board above draws none, which is
+ *  exactly why those legs are unmoved by this round. */
+const bedRows = (...keys: string[]) => keys.map((k) => lane(k, null, 'beds'))
 
 /** A book that answers `freeBedKeys` out of a table, counts every ask, and
  *  refuses every other question — the layer may not quietly grow a second one. */
@@ -210,6 +214,103 @@ describe('bed-aware-sales — the doors', () => {
     console.log('saturated: rooms =', rooms, 'nettings =', nettings)
     expect({ withheld: setOf(w), nettings }).toEqual({ withheld: [offer.key], nettings: rooms.length })
   })
+
+  // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 3 — THE PIGEONHOLE EXIT.
+  it('…and a SATURATED board pays ZERO nettings once the rooms are counted (the pigeonhole)', () => {
+    // The same shape as the leg above, now with the board's two BED rows present.
+    // x holds bed-01 and y bed-02 over one overlapping stretch and the offer sits
+    // inside it, so at 10:10 BOTH rooms on the board are spoken for. No room the
+    // offer could take survives — provable by counting, without a single netting.
+    const rows: Array<[string, number, number, string[]]> = [
+      ['x', 600, 690, ['bed-01']],
+      ['y', 605, 695, ['bed-02']],
+      ['z', 610, 650, ['bed-01', 'bed-02']],
+    ]
+    const { book, asks } = tableBook(rows)
+    const candidates = rows.slice(0, 2).map(([k, s, e]) => maskOf(k, [span(s, e)]))
+    const lanes = [...['x', 'y', 'z'].map((k) => lane(k)), ...bedRows('bed-01', 'bed-02')]
+    const roomUniverse = lanes.filter((l) => l.group === 'beds').length
+    const honest = honestHeld(candidates, lanes, book, true)
+    // SATURATION, derived rather than asserted by hand: the netting holds one 枠
+    // per room, and every one of them overlaps the offer.
+    expect(honest.total).toBe(roomUniverse)
+    const offer = askOf(rows[2])
+    const before = asks.length
+    const w = withheldOffers([offer], honest, candidates, lanes, book, true)
+    const nettings = (asks.length - before - 1) / candidates.length
+    console.log('pigeonhole: rooms on the board =', roomUniverse, 'held =', honest.total, 'nettings =', nettings)
+    expect({ withheld: setOf(w), nettings }).toEqual({ withheld: [offer.key], nettings: 0 })
+    // …and NO name: two rooms on the board, so the loss lists were never computed
+    // and nothing is provably the one 枠 that is 先 (v5 amendment item 4).
+    expect(w.blockedBy.has(offer.key)).toBe(false)
+  })
+
+  // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 2 — THE MEMO.
+  it('a lattice of offers over the same spans pays ONE netting per (room, span)', () => {
+    // THREE bed rows, so the pigeonhole cannot fire: two held 枠 never fill three
+    // rooms. x owns bed-01 and y bed-02 across the whole stretch, and the offers
+    // may only ever use those two, so there is no witness either and EVERY offer
+    // reaches the search. Three staff rows draw the same two spans.
+    const OFFER_SPANS: Array<[number, number]> = [[610, 640], [650, 680]]
+    const OFFER_ROOMS = ['bed-01', 'bed-02']
+    const OFFER_LANES = ['s1', 's2', 's3']
+    const rows: Array<[string, number, number, string[]]> = [
+      ['x', 600, 780, ['bed-01']],
+      ['y', 605, 785, ['bed-02']],
+      ...OFFER_SPANS.map(([s, e]) => ['offers', s, e, OFFER_ROOMS] as [string, number, number, string[]]),
+    ]
+    const { book, asks } = tableBook(rows)
+    const candidates = rows.slice(0, 2).map(([k, s, e]) => maskOf(k, [span(s, e)]))
+    const lanes = [...['x', 'y', ...OFFER_LANES].map((k) => lane(k)), ...bedRows('bed-01', 'bed-02', 'bed-03')]
+    const honest = honestHeld(candidates, lanes, book, true)
+    expect(honest.total).toBe(candidates.length)
+    const offers: OfferAsk[] = OFFER_LANES.flatMap((k) =>
+      OFFER_SPANS.map(([s, e]) => ({ key: offerKey(k, s), laneKey: k, start: s, end: e, stores: null })))
+    const before = asks.length
+    const w = withheldOffers(offers, honest, candidates, lanes, book, true)
+    const nettings = (asks.length - before - offers.length) / candidates.length
+    // BOTH numbers derived from the board: the memo's promise is one netting per
+    // distinct (room, span), and without it every offer would pay for its own.
+    const distinct = new Set(offers.flatMap((o) => OFFER_ROOMS.map((r) => `${r}|${o.start}|${o.end}`))).size
+    const unmemoised = offers.length * OFFER_ROOMS.length
+    console.log('memo:', offers.length, 'offers ·', distinct, 'distinct room×span · nettings =', nettings, '(un-memoised:', unmemoised, ')')
+    expect({ nettings, withheld: setOf(w).length }).toEqual({ nettings: distinct, withheld: offers.length })
+    expect(nettings).toBeLessThan(unmemoised)
+  })
+
+  // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 2 — AND THE MEMO KEY CARRIES THE END.
+  it('…and two offers that START together but end apart do NOT share one answer', () => {
+    // u and w overlap each other and may each use bed-01 or bed-03, so the netting
+    // holds both; THREE bed rows, so the pigeonhole cannot fire. Both offers may
+    // only use bed-01 and both are overlapped by a 枠 sitting in it, so neither has
+    // a witness and both reach the search.
+    //
+    // The SHORT offer is on sale: block bed-01 across 10:10–10:40 and u steps into
+    // bed-03 while w — which starts at 10:50, after it — keeps bed-01. The LONG one
+    // is withheld: blocked across 10:10–11:40 it takes bed-01 from BOTH, and two
+    // overlapping 枠 cannot share bed-03. Same room, same start, opposite answers —
+    // which is only true if the span's END is part of the question.
+    const rows: Array<[string, number, number, string[]]> = [
+      ['u', 600, 660, ['bed-01', 'bed-03']],
+      ['w', 650, 710, ['bed-01', 'bed-03']],
+      ['short', 610, 640, ['bed-01']],
+      ['long', 610, 700, ['bed-01']],
+    ]
+    const { book, asks } = tableBook(rows)
+    const candidates = rows.slice(0, 2).map(([k, s, e]) => maskOf(k, [span(s, e)]))
+    const lanes = [...rows.map(([k]) => lane(k)), ...bedRows('bed-01', 'bed-02', 'bed-03')]
+    const honest = honestHeld(candidates, lanes, book, true)
+    expect(honest.total).toBe(candidates.length)
+    const offers = [askOf(rows[2]), askOf(rows[3])]
+    const before = asks.length
+    const w = withheldOffers(offers, honest, candidates, lanes, book, true)
+    const nettings = (asks.length - before - offers.length) / candidates.length
+    // Derived: two distinct (room, span) questions, so two nettings — a memo that
+    // forgot the end would ask ONE and answer the other offer with it.
+    const distinct = new Set(offers.map((o) => `bed-01|${o.start}|${o.end}`)).size
+    console.log('memo key: nettings =', nettings, '· distinct room×span =', distinct, '· withheld =', setOf(w))
+    expect({ nettings, withheld: setOf(w) }).toEqual({ nettings: distinct, withheld: [offerKey('long', 610)] })
+  })
 })
 
 describe('bed-aware-sales — the one-bed store', () => {
@@ -265,17 +366,58 @@ describe('bed-aware-sales — whose 枠 the box may name', () => {
     expect(setOf(w)).toEqual([offer.key])
     expect(w.blockedBy.has(offer.key)).toBe(false)
   })
+
+  // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 4 — AND NO NAME WHEN ONE ROOM COSTS TWO.
+  it('no name when the offer’s only room costs TWO 枠 at once', () => {
+    // u and v both need bed-01 and do not overlap each other, so the netting parks
+    // both there; w sits in bed-03. The offer runs across all three and may only
+    // use bed-01, so bed-01 is its ONE candidate room — and blocking it costs the
+    // store u AND v together. Two 枠 move, so no single 枠 is 「先」 and the box must
+    // lead with the generic line rather than name whichever comes first.
+    const rows: Array<[string, number, number, string[]]> = [
+      ['u', 600, 660, ['bed-01']],
+      ['w', 650, 710, ['bed-03']],
+      ['v', 700, 760, ['bed-01']],
+      ['o', 610, 750, ['bed-01']],
+    ]
+    const { book } = tableBook(rows)
+    const candidates = rows.slice(0, 3).map(([k, s, e]) => maskOf(k, [span(s, e)]))
+    const lanes = [...rows.map(([k]) => lane(k)), ...bedRows('bed-01', 'bed-02', 'bed-03')]
+    const honest = honestHeld(candidates, lanes, book, true)
+    expect(honest.total).toBe(candidates.length)
+    const offer = askOf(rows[3])
+    // THE LOSS LIST, derived here rather than asserted: block the one candidate
+    // room over the offer's span and see which 枠 the netting can no longer hold.
+    const want = honest.byLane.flatMap((l) => l.held.map((sp) => offerKey(l.laneKey, sp.windowStart)))
+    const after = honestHeld(candidates, lanes, blockedFor(book, 'bed-01', offer.start, offer.end), true)
+    const lost = want.filter((k) => !after.byLane.flatMap((l) => l.held.map((sp) => offerKey(l.laneKey, sp.windowStart))).includes(k))
+    console.log('one room, two 枠: loss list =', lost)
+    expect(lost.length).toBeGreaterThan(1)
+    const w = withheldOffers([offer], honest, candidates, lanes, book, true)
+    expect(setOf(w)).toEqual([offer.key])
+    expect(w.blockedBy.has(offer.key)).toBe(false)
+  })
 })
 
-// ⚖ ROUND 2 · SPEC-R2 v4 amendment item 1 — THE CLAIM THE WITNESS EXIT RESTS ON,
-// MADE EXECUTABLE. The exit reads `heldRoom`, which is a TIE-BREAK, and the whole
-// v3 amendment exists because a money decision may not hang off a tie-break. So
-// the claim is that the exit changes only the COST and never the answer: it can
-// prove 「on sale」 early (a legal assignment exists) and it never decides
-// 「withheld」. This loop is that claim on 500 random boards against a reference
-// with no exits at all — the pin harness's own oracle shape, re-spelled here so
-// it shares no code with the module.
-describe('bed-aware-sales — the witness exit changes the cost, never the answer', () => {
+// ⚖ ROUND 2 · SPEC-R2 v4 item 1 + v5 items 2/3/5 — THE CLAIM EVERY EXIT RESTS ON,
+// MADE EXECUTABLE. The witness reads `heldRoom`, which is a TIE-BREAK, and the whole
+// v3 amendment exists because a money decision may not hang off a tie-break; the
+// pigeonhole and the memo are cheaper still. So the claim is that the exits change
+// only the COST and never the ANSWER, checked on 500 random boards against a
+// reference with no exits and no memo — the pin harness's own oracle shape,
+// re-spelled here so it shares no code with the module.
+//
+// ⚠ AND THE ANSWER IS TWO THINGS, which this round separated because they came
+// apart (report §STOP, and the module's own note on the pigeonhole):
+//   · THE WITHHELD SET — the money — is compared on EVERY board and EVERY offer,
+//     and it agrees everywhere. That is the property that matters.
+//   · THE NAME in the box is compared wherever a name is computed at all. The
+//     pigeonhole decides WITHOUT the loss lists, and a name is made of loss lists,
+//     so on those offers it gives the generic line and this leg asserts that it
+//     names NOBODY (v5 item 4's 「one room ⇒ provably [X]」 carve-out is disproved
+//     below and gone). How many rule-4 names that costs is PRINTED, not hidden —
+//     it is the open question the report hands back.
+describe('bed-aware-sales — the exits change the cost, never the answer', () => {
   /** One 32-bit mixer, so a seed is a board and the board is the same every run. */
   const mix = (...xs: number[]) => {
     let h = 0x9e3779b9
@@ -286,33 +428,68 @@ describe('bed-aware-sales — the witness exit changes the cost, never the answe
     return h >>> 0
   }
 
-  /** THE REFERENCE: test (i′) with every lazy exit removed — every room of every
-   *  overlapping offer is netted, and the verdict is read off the results. */
-  const referenceWithheld = (
+  /** THE REFERENCE: test (i′) with every exit and the memo removed — every room of
+   *  every overlapping offer is netted, and BOTH the verdict and the name are read
+   *  off the FULL loss lists (v5 item 4's rule, spelled here from scratch). */
+  const reference = (
     offers: readonly OfferAsk[],
     honest: ReturnType<typeof honestHeld>,
     candidates: ReservedLaneMask[],
     lanes: BoardLane[],
     book: BedTruth,
-  ): string[] => {
+  ) => {
     const idsOf = (h: ReturnType<typeof honestHeld>) => h.byLane.flatMap((l) => l.held.map((s) => offerKey(l.laneKey, s.windowStart)))
     const want = idsOf(honest)
-    const out: string[] = []
+    const spans = honest.byLane.flatMap((l) => l.held.map((s) => ({ id: offerKey(l.laneKey, s.windowStart), laneKey: l.laneKey, start: s.start, end: s.end })))
+    const keys: string[] = []
+    const named = new Map<string, string>()
+    let multiLoss = 0
     for (const o of offers) {
       const rooms = book.freeBedKeys(o.start, o.end, { stores: o.stores })
       if (rooms.length === 0) continue
-      const tries = rooms.map((r) => {
+      const lostPer = rooms.map((r) => {
         const after = new Set(idsOf(honestHeld(candidates, lanes, blockedFor(book, r, o.start, o.end), true)))
-        return want.every((k) => after.has(k))
+        return want.filter((k) => !after.has(k))
       })
-      if (!tries.some(Boolean)) out.push(o.key)
+      if (lostPer.some((lost) => lost.length === 0)) continue
+      keys.push(o.key)
+      if (lostPer.some((lost) => lost.length > 1)) multiLoss += 1
+      // v5 item 4: EVERY room's loss list exactly `[X]`, and X overlaps the offer.
+      const only = lostPer[0].length === 1 ? lostPer[0][0] : null
+      if (only && lostPer.every((lost) => lost.length === 1 && lost[0] === only)) {
+        const owner = spans.find((s) => s.id === only && o.start < s.end && s.start < o.end)
+        if (owner) named.set(o.key, owner.laneKey)
+      }
     }
-    return out.sort()
+    return { keys: keys.sort(), named, multiLoss }
   }
 
-  /** A board that is a pure function of its seed: R rooms, N kept 枠 of the
-   *  store's one protected length, M offers, and a book whose free-room answer
-   *  is a deterministic subset of the rooms for any span it is asked about. */
+  /** WHICH OFFERS THE PIGEONHOLE DECIDES, computed from the BOARD (its held 枠 and
+   *  its bed rows) and not from the module — so a mutant that fires the exit on the
+   *  wrong boards shows up as a SET disagreement rather than moving this scope. */
+  const pigeonholed = (
+    offers: readonly OfferAsk[],
+    honest: ReturnType<typeof honestHeld>,
+    lanes: BoardLane[],
+  ): Set<string> => {
+    const universe = lanes.filter((l) => l.group === 'beds').length
+    const spans = honest.byLane.flatMap((l) => l.held.map((s) => ({ start: s.start, end: s.end })))
+    const out = new Set<string>()
+    if (universe === 0) return out
+    for (const o of offers) {
+      const hit = spans.filter((s) => o.start < s.end && s.start < o.end)
+      const covering = (t: number) => hit.filter((s) => s.start <= t && t < s.end).length
+      const steps = [o.start, ...hit.map((s) => s.start).filter((t) => t > o.start && t < o.end)]
+      if (steps.some((t) => covering(t) >= universe)) out.add(o.key)
+    }
+    return out
+  }
+
+  /** A board that is a pure function of its seed: R BED ROWS, N kept 枠 of the
+   *  store's one protected length, M priced offers ON THE KEPT LANES — the board's
+   *  own shape (a staff row draws its 新規用 枠 AND its priced boxes), which is also
+   *  what makes the ROOM UNIVERSE independent of the staff count — and a book whose
+   *  free-room answer is a deterministic subset of the rooms for any span. */
   const board = (seed: number) => {
     const R = 1 + (mix(seed, 1) % 4)
     const rooms = Array.from({ length: R }, (_, i) => `bed-${String(i + 1).padStart(2, '0')}`)
@@ -322,40 +499,79 @@ describe('bed-aware-sales — the witness exit changes the cost, never the answe
       const s = 600 + (mix(seed, 10 + i) % 10) * 15
       return [`k${i}`, s, s + 90]
     })
-    const offers: OfferAsk[] = Array.from({ length: M }, (_, j) => {
+    const offers: OfferAsk[] = []
+    const taken = new Set<string>()
+    for (let j = 0; j < M; j += 1) {
+      const laneKey = kept[j % N][0]
       const s = 600 + (mix(seed, 40 + j) % 12) * 15
-      const len = mix(seed, 70 + j) % 2 === 0 ? 30 : 60
-      return { key: offerKey(`o${j}`, s), laneKey: `o${j}`, start: s, end: s + len, stores: null }
-    })
+      const key = offerKey(laneKey, s)
+      if (taken.has(key)) continue // the key IS the identity: a repeated (lane, start) is one offer
+      taken.add(key)
+      offers.push({ key, laneKey, start: s, end: s + (mix(seed, 70 + j) % 2 === 0 ? 30 : 60), stores: null })
+    }
     // Deterministic, span-keyed, and never the empty set for every span at once:
     // a room is free for a span unless the mixer says otherwise.
     const book = stubBook((start, end) => rooms.filter((r) => mix(seed, start, end, r.charCodeAt(r.length - 1)) % 3 !== 0)).book
     const candidates = kept.map(([k, s, e]) => maskOf(k, [span(s, e)]))
-    const lanes = [...kept.map(([k]) => lane(k)), ...offers.map((o) => lane(o.laneKey))]
+    const lanes = [...kept.map(([k]) => lane(k)), ...bedRows(...rooms)]
     return { rooms, kept, offers, book, candidates, lanes }
   }
 
-  it('≡ an exit-less reference on 500 random boards', () => {
-    const fails: string[] = []
-    let saturated = 0
+  it('≡ an exit-less reference on 500 random boards — the SET always, the NAME wherever one is computed', () => {
+    const setFails: string[] = []
+    const nameFails: string[] = []
+    const exitNamed: string[] = []
+    let withheldBoards = 0
+    let namedBoards = 0
+    let multiLossBoards = 0
+    let fewerStaffThanRooms = 0
+    let pigeonholedOffers = 0
+    let namesTheExitGivesUp = 0
     for (let seed = 0; seed < 500; seed += 1) {
       const b = board(seed)
       const honest = honestHeld(b.candidates, b.lanes, b.book, true)
-      // The equivalence argument assumes the netting FINISHED (see the module's
-      // own ceiling note); these boards are far inside the node budget and the
+      // The equivalence argument assumes the netting FINISHED (see the module's own
+      // ceiling note); these boards are far inside the node budget and the
       // assertion says so rather than assuming it.
-      if (!honest.exact) { fails.push(`seed ${seed} — the netting was not exact, so the board is not a fair comparison`); continue }
-      const got = setOf(withheldOffers(b.offers, honest, b.candidates, b.lanes, b.book, true))
-      const want = referenceWithheld(b.offers, honest, b.candidates, b.lanes, b.book)
-      if (got.length) saturated += 1
-      if (JSON.stringify(got) !== JSON.stringify(want)) {
-        fails.push(`seed ${seed} (${b.rooms.length} rooms · ${b.kept.length} 枠 · ${b.offers.length} offers) — module ${JSON.stringify(got)} · reference ${JSON.stringify(want)}`)
+      if (!honest.exact) { setFails.push(`seed ${seed} — the netting was not exact, so the board is not a fair comparison`); continue }
+      const w = withheldOffers(b.offers, honest, b.candidates, b.lanes, b.book, true)
+      const want = reference(b.offers, honest, b.candidates, b.lanes, b.book)
+      const byExit = pigeonholed(b.offers, honest, b.lanes)
+      const where = `seed ${seed} (${b.rooms.length} rooms · ${b.kept.length} 枠 · ${b.offers.length} offers)`
+      if (w.keys.size) withheldBoards += 1
+      if (want.named.size) namedBoards += 1
+      if (want.multiLoss) multiLossBoards += 1
+      if (b.kept.length < b.rooms.length) fewerStaffThanRooms += 1
+      pigeonholedOffers += [...byExit].filter((k) => w.keys.has(k)).length
+      // (1) THE SET — every board, every offer.
+      if (JSON.stringify(setOf(w)) !== JSON.stringify(want.keys)) {
+        setFails.push(`${where} — module ${JSON.stringify(setOf(w))} · reference ${JSON.stringify(want.keys)}`)
+      }
+      // (2) THE NAME — on every offer the pigeonhole did not decide.
+      for (const o of b.offers) {
+        if (byExit.has(o.key)) {
+          if (w.blockedBy.has(o.key)) exitNamed.push(`${where} — offer ${o.key} named ${w.blockedBy.get(o.key)} out of the pigeonhole exit`)
+          if (want.named.has(o.key)) namesTheExitGivesUp += 1
+          continue
+        }
+        if (w.blockedBy.get(o.key) !== want.named.get(o.key)) {
+          nameFails.push(`${where} — offer ${o.key}: module ${w.blockedBy.get(o.key) ?? '-'} · reference ${want.named.get(o.key) ?? '-'}`)
+        }
       }
     }
-    console.log(`witness-exit equivalence: 500 boards, ${saturated} of them withheld something; disagreements = ${fails.length}`)
-    expect(fails).toEqual([])
-    // …and the loop is worth running: some boards really do withhold, so an
-    // 「always empty」 module would not pass by accident.
-    expect(saturated).toBeGreaterThan(0)
+    console.log(`exit equivalence: 500 boards · ${withheldBoards} withheld something · ${namedBoards} named a 枠 · ${multiLossBoards} had a room losing two 枠 · ${fewerStaffThanRooms} had fewer staff rows than bed rows`)
+    console.log(`  set disagreements = ${setFails.length} · name disagreements off the exit = ${nameFails.length} · names given out of the exit = ${exitNamed.length}`)
+    console.log(`  ⚠ THE OPEN QUESTION: ${pigeonholedOffers} withheld offers were decided by the pigeonhole, and ${namesTheExitGivesUp} of them carry a rule-4 name the exit gives up (the generic line instead).`)
+    expect(setFails).toEqual([])
+    expect(nameFails).toEqual([])
+    expect(exitNamed).toEqual([])
+    // …and the loop is worth running: boards really do withhold, really do name,
+    // and really do carry the shapes the mutants live in — so an 「always empty」
+    // module could not pass by accident.
+    expect(withheldBoards).toBeGreaterThan(0)
+    expect(namedBoards).toBeGreaterThan(0)
+    expect(multiLossBoards).toBeGreaterThan(0)
+    expect(fewerStaffThanRooms).toBeGreaterThan(0)
+    expect(pigeonholedOffers).toBeGreaterThan(0)
   })
 })
