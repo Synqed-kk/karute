@@ -98,6 +98,25 @@ describe('RBAC permission model', () => {
     expect(effectiveCapabilities('senior', ['records.write']).has('menus.manage')).toBe(false)
   })
 
+  it('records.discardView: owner + manager by preset, senior/practitioner/frontdesk not — a stored override predating it does not inherit it (R8 A9, ⚖ 2026-09-13)', () => {
+    expect(new Set(ROLE_PRESETS.owner).has('records.discardView')).toBe(true)
+    expect(new Set(ROLE_PRESETS.manager).has('records.discardView')).toBe(true)
+    for (const role of ['senior', 'practitioner', 'frontdesk', 'custom'] as const) {
+      expect(new Set(ROLE_PRESETS[role]).has('records.discardView')).toBe(false)
+    }
+    // override ?? preset: a manager customized before this capability existed
+    // does NOT inherit it — their stored list is the whole truth (same
+    // precedent as menus.manage above, PR-1a §5).
+    expect(effectiveCapabilities('manager', ['records.write']).has('records.discardView')).toBe(false)
+    // A named grant on any non-owner role resolves as-is (audit.view /
+    // recordings.viewAll precedent).
+    expect(
+      effectiveCapabilities('practitioner', ['records.write', 'records.discardView']).has(
+        'records.discardView',
+      ),
+    ).toBe(true)
+  })
+
   it('an explicit override replaces the preset (the toggle mechanism)', () => {
     const caps = effectiveCapabilities('frontdesk', ['billing.manage'])
     expect(can(caps, 'billing.manage')).toBe(true) // granted explicitly

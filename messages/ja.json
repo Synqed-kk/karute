@@ -518,6 +518,16 @@
       "noTranscript": "文字起こしはまだありません",
       "restrictedTitle": "録音 ・ 文字起こし",
       "restricted": "この文字起こしは録音を担当したスタッフのみ閲覧できます。上の要約は共有されます。"
+    },
+    "discarded": {
+      "title": "破棄済み",
+      "reason": "理由",
+      "by": "破棄したスタッフ",
+      "at": "破棄日時",
+      "staff": "担当スタッフ",
+      "duration": "録音時間",
+      "unknown": "不明",
+      "withheld": "この記録の内容は、記録を担当したスタッフのみ閲覧できます。"
     }
   },
   "recording": {
@@ -3490,6 +3500,7 @@
     "cap_data_export": "データの書き出し・取り込み",
     "cap_records_delete": "記録の削除",
     "cap_records_reassign": "カルテの顧客変更",
+    "cap_records_discardView": "破棄したカルテを開く",
     "cap_records_write": "録音・カルテ編集",
     "cap_recordings_viewAll": "他スタッフの録音の再生・文字起こしの閲覧",
     "cap_analytics_viewAll": "全店舗の分析",

@@ -518,6 +518,16 @@
       "noTranscript": "No transcript yet",
       "restrictedTitle": "Recording · transcript",
       "restricted": "Only the staff who recorded this session can view the transcript. The summary above is shared."
+    },
+    "discarded": {
+      "title": "Discarded",
+      "reason": "Reason",
+      "by": "Discarded by",
+      "at": "Discarded at",
+      "staff": "Staff",
+      "duration": "Length",
+      "unknown": "Unknown",
+      "withheld": "Only the staff who ran this session can view its content."
     }
   },
   "recording": {
@@ -3490,6 +3500,7 @@
     "cap_data_export": "Export / import data",
     "cap_records_delete": "Delete records",
     "cap_records_reassign": "Reassign karute customer",
+    "cap_records_discardView": "Open discarded karute",
     "cap_records_write": "Record sessions & edit karute",
     "cap_recordings_viewAll": "Play & read other staff's recordings",
     "cap_analytics_viewAll": "Whole-salon analytics",
