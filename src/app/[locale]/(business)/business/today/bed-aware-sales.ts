@@ -118,7 +118,15 @@ export function withheldOffers(
 
   const want = heldIds(honest)
   const heldSpans = honest.byLane.flatMap((l) =>
-    l.held.map((s) => ({ id: offerKey(l.laneKey, s.windowStart), laneKey: l.laneKey, start: s.start, end: s.end })),
+    l.held.map((s, i) => ({
+      id: offerKey(l.laneKey, s.windowStart),
+      laneKey: l.laneKey,
+      start: s.start,
+      end: s.end,
+      // ⚖ ROUND 2 · SPEC-R2 v4 amendment item 1 — the room the netting GAVE this
+      // 枠. Carried for the witness exit below and read nowhere else.
+      room: l.heldRoom[i] ?? '',
+    })),
   )
   const keys = new Set<string>()
   const blockedBy = new Map<string, string>()
@@ -131,6 +139,42 @@ export function withheldOffers(
     // LAZY EXIT (a): an offer over no kept 枠 costs ZERO nettings.
     const hit = heldSpans.filter((h) => overlaps(o.start, o.end, h.start, h.end))
     if (hit.length === 0) continue
+
+    // LAZY EXIT (c) — THE WITNESS, and it is EXACT rather than a heuristic
+    // (⚖ D-13 · SPEC-R2 v4 amendment item 1). The netting already produced a
+    // LEGAL assignment and `heldRoom` is it. If this offer has a free room that
+    // NO held 枠 overlapping its span was given, then blocking that room over
+    // that span leaves the very same assignment legal — so every 枠 `honest`
+    // holds is still held, and the offer is ON SALE with ZERO nettings.
+    //
+    // It can only ever prove ON SALE. A 「withheld」 verdict is 「no room works」,
+    // which no single witness can establish, so that path still searches every
+    // room below — which is why the verdict stays assignment-INDEPENDENT even
+    // though the witness reads a tie-break. The property test proves it: the
+    // set with this exit and the set without it are equal on random boards.
+    //
+    // WHY THE WITNESS ANSWERS (i′) AND NOT MERELY THE COUNT: the blocked book
+    // returns a SUBSET of every 枠's rooms, so every blocked-legal assignment is
+    // also legal unblocked. The witness proves size |want| is reachable blocked,
+    // so the blocked maximum IS |want|; and `want`'s own held vector was the
+    // earliest over the LARGER (unblocked) set of maximum solutions, so it is
+    // still the earliest over the blocked subset it belongs to. The netting's
+    // own tie-break therefore returns the same held SET — every 枠 kept.
+    //
+    // ⚠ CEILING, stated: that argument assumes the netting is `exact`. On a
+    // board that trips `HONEST_SEARCH_BUDGET` both answers under-hold, and there
+    // the witness is the MORE honest of the two — it exhibits a real legal
+    // assignment where the truncated search may simply not have found one.
+    //
+    // The cost bound is the reason it exists: without it a busy board pays
+    // offers × rooms nettings (measured 160 ms p95 at 30 staff × 10 rooms). With
+    // it only a SATURATED offer — every free room of it in use by an overlapping
+    // held 枠 — pays anything at all, and those are the boards where a
+    // withholding is actually likely.
+    const usedRooms = new Set(hit.map((h) => h.room))
+    // A netting that never asked the book (the identity answer, gate off) reports
+    // `''` for its rooms: there is no assignment to witness, so fall through.
+    if (!usedRooms.has('') && rooms.some((r) => !usedRooms.has(r))) continue
 
     // LAZY EXIT (b): the first room that keeps every 枠 wins.
     const lostPer: string[][] = []
