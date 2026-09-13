@@ -404,6 +404,17 @@ export const opsConfig = {
   gapGuardMode: storeBookingPolicy.gapGuardMode,
   newClientSessionMin: storeBookingPolicy.newClientSessionMinutes,
   leadTimeMin: 60,
+  /** ⚖ D-11 (Liam 2026-09-13 17:0x, 「Okay let's go with option A」) — HOW MANY
+   *  MINUTES BEFORE A KEPT 新規用 枠 STARTS DOES IT LET GO?
+   *
+   *  `'linked'` is the shipped default and it is not a number on purpose: the
+   *  hold exists for online new customers, so the moment online booking closes
+   *  for that start the hold has no purpose left — which is `leadTimeMin`'s own
+   *  minute, read at read time. A copied `60` here would drift the day somebody
+   *  moves 「直前の空きは売らない」 and nothing would say so. `null` is
+   *  「解除しない」, this half's own off value; a number is an explicit override
+   *  the 設定 row offers. */
+  autoReleaseBeforeMin: 'linked' as number | 'linked' | null,
   /* ⚖ ROOM RULE (Liam 2026-09-05) — THE TWO ROOM DIALS ARE GONE, not defaulted
    * off. 「VIPは個室から出さない」 was a rule about the CUSTOMER and Liam has
    * overturned it; 「個室は最後に使う」 is now law for every store, so it is a

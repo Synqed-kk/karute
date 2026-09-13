@@ -588,7 +588,13 @@ export interface TodayProps {
      *  read it — `stepPct`'s default 30 was the real lattice — which is flag
      *  53's dead-lever disease in the store config itself. */
     bookingStepMin: number
-    config: GuardConfig
+    /** ⚖ ROUND 2 (2026-09-13) — the frozen engine's own `GuardConfig`, plus the
+     *  timed release's dial. It rides INSIDE `config` rather than beside it
+     *  because it is linked to `leadTimeMin`, which lives in there: the screen
+     *  resolves 「linked」 against its neighbour in one memo, and two dials read
+     *  out of two objects is how that link would come apart. The engine never
+     *  reads the extra key and cannot — `GuardConfig` is frozen. */
+    config: GuardConfig & { autoReleaseBeforeMin?: number | 'linked' | null }
   }
   /** ⚠SETTINGS-BATCH — ⚖ Liam flag 77 (2026-08-24). Does this store reserve
    *  turnover time between customers? OFF by default, and the ベッド・設備 group's
