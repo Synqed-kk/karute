@@ -442,6 +442,16 @@ describe('the fixture data door', () => {
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
         '../../BusinessSessionEdits',
         '../../BusinessTopbar',
+        // ⚖ D-10 · D-12 · ROUND 2 (2026-09-13) — the bed-aware sales layer, wired
+        // HERE for the reason `./honest-held` is: this is where the publication
+        // filter, the locked-lane list and the round gate live, and the two files
+        // a sellability gate would look natural in are on the forbidden-reader
+        // list one test over. It is a pure module whose every import is a TYPE
+        // except `honestHeld` — whose own imports are all types — so this arrow
+        // adds no module to the graph below the screen: everything it names
+        // (`./capacity-ledger`, `./honest-held`, `./reserved-mask`,
+        // `@/business/lib/today-board`) is already on this list.
+        './bed-aware-sales',
         // ⚖ R2 of the layer rebuild — the capacity book, read in SHADOW behind
         // `capacityLedgerShadow` (default OFF). The screen's only new
         // dependency this round, and R3 turns it into the real one.
@@ -489,6 +499,12 @@ describe('the fixture data door', () => {
         './honest-held',
         './reserved-mask',
         './selling-engine-gate',
+        // ⚖ D-11 · ROUND 2 (2026-09-13) — the timed release of a kept 新規用 枠,
+        // applied at this boundary for the same reason: it is the caller that
+        // knows the board, the clock and the manager's keep-held facts, and the
+        // module is forbidden to ask. Pure, every import of its own a TYPE from
+        // `./reserved-mask`, which is already on this list.
+        './timed-release',
         './today-interactions',
         '@/business/lib/canon-logic/drag-rules',
         '@/business/lib/canon-logic/gap-guard',
