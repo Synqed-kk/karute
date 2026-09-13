@@ -145,8 +145,11 @@ type MixedKaruteResponse = {
   shared_count?: number
 }
 
-/** SDK 1.34 predates include_discarded and silently drops unknown options.
- *  Use its public authenticated transport until 1.35 can be published.
+/** SDK 1.34 predates include_discarded/shared_only and silently drops unknown
+ *  options. Use its public authenticated transport until 1.35 can be
+ *  published. This is now the shared fetch/mixed path for BOTH knobs — a
+ *  caller wanting either one alone, or both together, routes through here
+ *  (the plain SDK `list()` supports neither).
  *
  *  R4 repair (2026-09-13, F4b): a client with no fetch() used to fall back to
  *  the plain (non-mixed) SDK list call and report `discardedCount: 0` as if
@@ -158,7 +161,21 @@ type MixedKaruteResponse = {
  *  (createOrUpdateKaruteRecord / createManualKaruteRecordWithClient), never
  *  this read — so no real caller can hit this branch; only a future
  *  fetch-less adapter would, and it must fail loudly rather than silently
- *  under-report discards. */
+ *  under-report discards.
+ *
+ *  F2 fix (PR-C fix round 1): `include_discarded` rides the wire ONLY when
+ *  `opts.includeDiscarded` is true — it used to go unconditionally, which
+ *  would have pulled DISCARDED rows into a sharedOnly-alone read (shared
+ *  mode never asks for that; the default walk always sets includeDiscarded
+ *  itself). Verified at core source (synqed-core origin/main):
+ *  validations/karute.ts:104-115 (`include_discarded` is `.optional()`, no
+ *  default) and services/karute.service.ts:172-178,188-189
+ *  (`rowsWhere = options.include_discarded ? requestedWhere : nonDiscardedWhere`,
+ *  and `total` is ALWAYS the `nonDiscardedWhere` count regardless of the
+ *  flag) — an ABSENT `include_discarded` is falsy on the server exactly like
+ *  an explicit `false`, so leaving it off the wire here is byte-identical to
+ *  the plain SDK `list()`'s own behaviour: non-discarded rows only, `total`
+ *  = the non-discarded count. */
 async function listMixedKaruteRecords(
   synqed: SynqedClient,
   opts: NonNullable<Parameters<typeof listSynqedKaruteRowsWithTotalOrThrow>[1]>,
@@ -168,7 +185,11 @@ async function listMixedKaruteRecords(
       '[listMixedKaruteRecords] client has no fetch() — cannot honor includeDiscarded; refusing to report a fabricated discardedCount:0',
     )
   }
-  const params = new URLSearchParams({ include_discarded: 'true' })
+  const params = new URLSearchParams()
+  // F2 fix (PR-C fix round 1): conditional, not unconditional — see the
+  // docblock above for the core-source proof that absent = the SDK's own
+  // non-discarded-only behaviour.
+  if (opts.includeDiscarded) params.set('include_discarded', 'true')
   if (opts.customerId) params.set('customer_id', opts.customerId)
   if (opts.storeId) params.set('store_id', opts.storeId)
   if (opts.from) params.set('from', opts.from)

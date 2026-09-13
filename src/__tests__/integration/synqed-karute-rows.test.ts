@@ -236,7 +236,9 @@ describe('D10 — sharedOnly + shared_at + shared_count (self-lighting)', () => 
       sharedOnly: true,
     })
 
+    // F2 fix (PR-C fix round 1): BOTH knobs together → both ride the wire.
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining('shared_only=true'))
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('include_discarded=true'))
   })
 
   it('sharedOnly ALONE (no includeDiscarded) still routes through the mixed/fetch path — the plain SDK list() has no such param', async () => {
@@ -248,6 +250,15 @@ describe('D10 — sharedOnly + shared_at + shared_count (self-lighting)', () => 
 
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining('shared_only=true'))
     expect(list).not.toHaveBeenCalled()
+    // F2 fix (PR-C fix round 1): sharedOnly ALONE must NOT stamp
+    // include_discarded on the wire — verified at core source
+    // (synqed-core validations/karute.ts:104-115 + services/karute.service.ts
+    // :172-178,188-189) that an absent include_discarded is byte-identical
+    // to the plain SDK list()'s own non-discarded-only behaviour, so this
+    // used to (before the fix) pull DISCARDED rows into a sharedOnly-alone
+    // read — a behaviour the default walk never has.
+    const url = (fetch.mock.calls[0] as unknown as [string])[0]
+    expect(url).not.toContain('include_discarded')
   })
 
   it('shared_at surfaces as the row\'s shared_at through BOTH row-mapping functions', async () => {
