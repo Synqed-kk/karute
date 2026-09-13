@@ -114,13 +114,15 @@ export interface KaruteDetailScreen {
    *  transcriptRestricted true, recording null (photos [] — screen-level,
    *  outside this builder). */
   contentWithheld: boolean
-  /** D8 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): what the
-   *  transcript card's share control needs. null when the karute has no
-   *  recording row (nothing to share). canShare = this viewer is the
-   *  record's own staffer, the record is live, and a recording exists;
-   *  shared = the row IS shared (sharedAt != null); viaShare = this viewer
-   *  sees the content ONLY because of the share (not the owner, not a
-   *  viewAll holder, sharedWith true). */
+  /** D8 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design). null when the
+   *  karute has no recording row (nothing to share), AND (fix round 1, L1
+   *  LOW-1) null unless this viewer has a reason to know the row's share
+   *  state — its own staffer, a viewAll holder, or a sharedWith reader; a
+   *  plain colleague never sees `shared`/`sharedAt` for a row she cannot
+   *  read. canShare = this viewer is the record's own staffer, the record is
+   *  live, and a recording exists; shared = the row IS shared (sharedAt !=
+   *  null); viaShare = this viewer sees the content ONLY because of the
+   *  share (not the owner, not a viewAll holder, sharedWith true). */
   share: { canShare: boolean; shared: boolean; sharedAt: string | null; viaShare: boolean } | null
 }
 
@@ -293,19 +295,28 @@ export function buildKaruteDetailScreen(
       : null
 
   // D8: the transcript card's share control. null when there is no recording
-  // row at all (nothing to share). canShare is the record's OWN staffer's
-  // question — hers to press, on a LIVE record only (⚖ Liam 9/13: nobody
-  // consents on her behalf, and a discarded record has no card to press it
-  // from). viaShare answers "why can THIS viewer read it" — true only when
-  // the share is the REASON, not a coincidence alongside ownership/viewAll.
-  const share = recordingRow
-    ? {
-        canShare: isOwnRecord && !isDiscarded,
-        shared: sharedAt != null,
-        sharedAt,
-        viaShare: !isOwnRecord && !canViewAllRecordings && sharedWith,
-      }
-    : null
+  // row at all (nothing to share), AND (fix round 1, L1 LOW-1) null unless
+  // THIS viewer has a reason to know the row's share state at all — the
+  // record's own staffer (isOwnRecord), a viewAll holder (canViewAllRecordings),
+  // or a reader who is here BECAUSE of the share (sharedWith). Without this
+  // gate `shared`/`sharedAt` leaked to any colleague who could merely open the
+  // karute, regardless of whether they could read a word of its content — a
+  // plain colleague on a shared-but-not-reachable-to-her row (S alone, D14)
+  // has no more business knowing it was shared than she does reading it.
+  // canShare is the record's OWN staffer's question — hers to press, on a
+  // LIVE record only (⚖ Liam 9/13: nobody consents on her behalf, and a
+  // discarded record has no card to press it from). viaShare answers "why can
+  // THIS viewer read it" — true only when the share is the REASON, not a
+  // coincidence alongside ownership/viewAll.
+  const share =
+    recordingRow && (isOwnRecord || canViewAllRecordings || sharedWith)
+      ? {
+          canShare: isOwnRecord && !isDiscarded,
+          shared: sharedAt != null,
+          sharedAt,
+          viaShare: !isOwnRecord && !canViewAllRecordings && sharedWith,
+        }
+      : null
 
   // Sequential per-tenant number from the shared customer list — matches the
   // karute list and customer profile (#00007).

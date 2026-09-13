@@ -1391,9 +1391,11 @@ describe('D14: the sharing layer-off matrix (recordings.viewShared, D3/D4/D5/D8)
   // stash`/`git show … > /tmp/x` to diff against origin/main; this literal
   // IS the origin/main behavior, verified by every pre-existing ACL test in
   // this file that pins the SAME restricted/recording:null answer for this
-  // exact fixture). The only new thing here is the additive `share` block,
-  // and every one of its four fields is the honest "nothing to see" answer.
-  it('all-off (¬S ¬V): the DTO is byte-for-byte today\'s answer, plus the additive share block', async () => {
+  // exact fixture). The only new thing here is the additive `share` field,
+  // and (fix round 1, L1 LOW-1) it is null: this viewer is not the owner,
+  // not a viewAll holder, and not sharedWith, so she has no more business
+  // knowing the row's share state than she does reading it.
+  it('all-off (¬S ¬V): the DTO is byte-for-byte today\'s answer, plus the additive share:null', async () => {
     const dto = await dtoFor()
     expect(dto).toEqual({
       karuteId: '00000000-0000-4000-8000-000000000008',
@@ -1432,26 +1434,38 @@ describe('D14: the sharing layer-off matrix (recordings.viewShared, D3/D4/D5/D8)
       staffCanRegenerate: false,
       discarded: null,
       contentWithheld: false,
-      share: { canShare: false, shared: false, sharedAt: null, viaShare: false },
+      share: null,
     })
   })
 
-  it('S alone: a shared row read by a viewer WITHOUT recordings.viewShared is still restricted, recording null', async () => {
+  it('S alone: a shared row read by a viewer WITHOUT recordings.viewShared is still restricted, recording null, AND share null (fix round 1, L1 LOW-1)', async () => {
     shareRow()
     const dto = await dtoFor()
     expect(dto.transcript).toBeNull()
     expect(dto.transcriptRestricted).toBe(true)
     expect(dto.recording).toBeNull()
-    expect(dto.share).toEqual({ canShare: false, shared: true, sharedAt: '2026-09-14T00:00:00.000Z', viaShare: false })
+    expect(dto.share).toBeNull()
   })
 
-  it('V alone: a viewShared holder on an UNSHARED row is still restricted', async () => {
+  // ⚖ FIX ROUND 1, F3 pin — a colleague who is neither owner, viewAll nor
+  // shared-with gets share:null even when the row IS shared: `shared`/
+  // `sharedAt` are not a public fact about a karute she can merely open: a
+  // plain colleague must not learn a colleague's recording was shared with
+  // management unless she herself can reach it that way.
+  it('a colleague who is neither owner, viewAll nor shared-with gets share:null even when the row is shared', async () => {
+    shareRow()
+    capabilities.current = new Set(['customers.view'])
+    const dto = await dtoFor()
+    expect(dto.share).toBeNull()
+  })
+
+  it('V alone: a viewShared holder on an UNSHARED row is still restricted, share null', async () => {
     holdsViewShared()
     const dto = await dtoFor()
     expect(dto.transcript).toBeNull()
     expect(dto.transcriptRestricted).toBe(true)
     expect(dto.recording).toBeNull()
-    expect(dto.share).toEqual({ canShare: false, shared: false, sharedAt: null, viaShare: false })
+    expect(dto.share).toBeNull()
   })
 
   it('S+V: transcript + recording + share.viaShare true', async () => {
@@ -1517,12 +1531,15 @@ describe('D14: the sharing layer-off matrix (recordings.viewShared, D3/D4/D5/D8)
     expect(dto.share).toEqual({ canShare: true, shared: true, sharedAt: '2026-09-14T00:00:00.000Z', viaShare: false })
   })
 
-  it('ownerless + S: open (unchanged, D-14\'s shared answer), viaShare false — the "no owner = shared" branch is NOT what let this through', async () => {
+  it('ownerless + S: open (unchanged, D-14\'s shared answer), share null — the viewer has no owner/viewAll/sharedWith reason to see it, and the "no owner = shared" branch is NOT what let the transcript through', async () => {
     KAR.current = { ...KAR.current, staff_id: null }
     shareRow()
     const dto = await dtoFor()
     expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
-    expect(dto.share.viaShare).toBe(false)
+    // isOwnRecord is false for an ownerless record (no one to be "own" of),
+    // and this viewer holds neither viewAll nor viewShared, so share is null
+    // exactly as it would be for any other reason-less viewer (fix round 1).
+    expect(dto.share).toBeNull()
   })
 
   it('S+V: staffCanRegenerate stays false — D15, share grants READ only', async () => {
