@@ -1042,20 +1042,38 @@
    on this track, so the track's own click still opens 新規予約を作成 over it; the
    one control inside takes its pointer events back. A pill in the accent's LIGHT
    wash, never a fill — ⚖ 8/6: a state is a wash and an action is not black. */
-.biz .cell-released { position: absolute; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); z-index: 0; display: block; box-sizing: border-box; border: 1px dashed #cbd5e1; border-radius: 4px; background: rgba(248, 250, 252, .45); overflow: hidden; pointer-events: none; }
-/* ⚖ D-16 (3), 2026-09-13 — THE NOTE IS A LABEL, NOT A LID. The body above
-   keeps the released 枠's whole span (that IS the fact it reports) but it is
-   now a backdrop: `z-index: 0` puts it under `.cell-packed`'s 1, and because
-   z-index 0 on a positioned box opens a stacking context, everything inside
-   the mark — this note included — is held under that same 0 with it. The
-   words move into one small top-right label so the priced boxes the mark
-   lies over stay readable: a note about a release may never hide what is on
-   sale. The pill keeps its own pointer events and its light accent wash
-   (⚖ 8/6). At phone widths the sub drops out of the label — it stays in the
-   DOM and in the mark's `aria-label`, which is where a screen reader reads
-   it — because the label would otherwise be the whole box again. */
-.biz .cell-released .held-note { position: absolute; top: 2px; right: 3px; z-index: 3; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; max-width: calc(100% - 6px); padding: 2px 4px; box-sizing: border-box; border: 1px dashed #cbd5e1; border-radius: 4px; background: rgba(248, 250, 252, .92); overflow: hidden; pointer-events: none; }
+.biz .cell-released { position: absolute; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); display: block; box-sizing: border-box; border: 1px dashed #cbd5e1; border-radius: 4px; background: rgba(248, 250, 252, .45); overflow: hidden; pointer-events: none; }
+/* ⚖ D-16 (3) · R2-B4, 2026-09-13 — THE NOTE IS A LABEL, NOT A LID, AND THE
+   ORDER IS THE LAYERING. The body keeps the released 枠's whole span (that IS
+   the fact it reports) but it is a backdrop: it carries NO `z-index` at all
+   and is drawn before every priced box in `renderLane`, so tree order alone
+   paints it under 販売可能枠 (0), スキマ枠 (0) and 詰め込み (1). A `z-index: 0`
+   here would open a stacking context and trap the note inside it — that is
+   what made the note show THROUGH a 詰め込み box — and a negative one would
+   sink the mark behind the timeline's own grid. With the parent context gone
+   the note's `z-index: 3` belongs to the LANE, so it sits above every box on
+   the track, everywhere, and the one rule holds: body under, note above.
+   The words are ONE row — title then pill — so the priced box underneath
+   keeps its height: a note about a release may never hide what is on sale.
+   The pill keeps its own pointer events and its light accent wash (⚖ 8/6).
+   The sub drops out of the label at every width — it stays in the DOM and in
+   the mark's `aria-label`, which is where a screen reader reads it — because
+   a second line would be the whole box again. The note's OWN dashed border and
+   its vertical padding are gone: the pill inside is ~18px on its own, and the
+   border plus 1px above and below put the strip at ~22px — over the ≤20px the
+   one row is for, and the height is exactly what the box underneath loses. The
+   mark's own dashed edge already says 「this is not a box you can sell」 one
+   pixel away, so the second dashed rectangle was noise as well as weight. The
+   fill is FULLY opaque: at .92 the box's own title read faintly through the
+   strip, which is the two-texts-crossing defect in a quieter form. */
+.biz .cell-released .held-note { position: absolute; top: 2px; right: 3px; z-index: 3; display: flex; flex-direction: row; align-items: center; gap: 4px; height: auto; max-width: calc(100% - 6px); padding: 0 4px; box-sizing: border-box; border-radius: 4px; background: #f8fafc; overflow: hidden; pointer-events: none; }
 .biz .cell-released .held-note .held-sub { display: none; }
+/* In the row, the TITLE is the one that gives way. `.held-title` already shrinks
+   to nothing (it clips its own overflow), but a flex item shrinks by default, so
+   at 440/393 the pill was being squeezed to 16px alongside a title with no room
+   for a glyph — the one control on the mark, made the smaller of the two. It
+   keeps its natural width now and only its own `max-width: 100%` trims it. */
+.biz .cell-released .held-note .held-restore { flex: 0 0 auto; }
 .biz .cell-released .held-title { font-size: 10px; font-weight: 700; line-height: 1; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .biz .cell-released .held-sub { font-size: 9px; line-height: 1.2; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .biz .cell-released .held-restore { pointer-events: auto; appearance: none; -webkit-appearance: none; margin: 0; padding: 2px 7px; font-family: inherit; font-size: 9px; font-weight: 700; line-height: 1.3; border: 1px solid var(--indigo); border-radius: 999px; background: var(--indigo-soft); color: var(--indigo); cursor: pointer; touch-action: manipulation; max-width: 100%; white-space: nowrap; overflow: hidden; }

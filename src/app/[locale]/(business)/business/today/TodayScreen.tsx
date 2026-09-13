@@ -7515,6 +7515,70 @@ export function TodayScreen(props: TodayProps) {
               </span>
             )
           })}
+          {/* ⚖ D-11 · SPEC-R2 §3.2 — THE 枠 THE CLOCK LET GO OF, SAID OUT LOUD.
+              An automatic change the operator did not make may not be silent:
+              the hours came back on sale, so the row says which hours, why, and
+              offers the one way back. The box itself is a `role="note"` in the
+              held box's own geometry and vocabulary — no black, no new colour —
+              and `pointer-events: none`, so the track's click still opens
+              新規予約を作成 over it; the 確保を戻す button is the ONE interactive
+              element and carries its own `pointer-events: auto`.
+              It deliberately does NOT wear `.cell-held`: this 枠 is no longer
+              held, and a held box here would be the board saying two things.
+              A manager who cannot release cannot un-release either, so the
+              button is not drawn for them at all (`keepBackAsk`'s own rule).
+              ⚖ D-16 (3), 2026-09-13 — the three children live inside one
+              `.held-note` span so the CSS can pin the WORDS into a small
+              top-right label while the box itself stays a pale full-span
+              backdrop: a note about a release may never hide what is on sale
+              underneath it.
+              ⚖ D-16 (3) · R2-B4, 2026-09-13 — THE ORDER IS THE LAYERING. The
+              mark is drawn HERE, before every priced box on the track, so its
+              pale body paints under them by tree order alone and carries no
+              `z-index` of its own (a negative one would sink it behind the
+              timeline's grid; an equal one let it win on DOM order). The note
+              inside it then keeps its own `z-index: 3` in the LANE's stacking
+              context — above 詰め込み's 1 as well as 販売可能枠's 0 — which is the
+              one rule that has to hold everywhere: body under every box, note
+              above every box. The landing ghost stays later in the DOM, so it
+              still paints above the mark. */}
+          {!isLocked && lane.group === 'staff' &&
+            timedRelease.released
+              .filter((r) => r.laneKey === lane.key)
+              .map((r, i) => {
+                const span = place(r.span.start, r.span.end, hours)
+                const sub = releasedHeldSub(r.span.end - r.span.start, r.beforeMin)
+                return (
+                  <div
+                    className="cell-released"
+                    role="note"
+                    key={`released-${r.span.windowStart}`}
+                    data-key={offerKey(r.laneKey, r.span.windowStart)}
+                    style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
+                    aria-label={`${releasedHeldTitle}。${sub}`}
+                    data-guide-title={firstReleasedLane === lane.key && i === 0 ? '自動で解除された確保枠' : undefined}
+                    data-guide={
+                      firstReleasedLane === lane.key && i === 0
+                        ? 'オンラインでの新規受付が締め切られたため、確保していた枠を自動で販売に戻しました。まだ確保しておきたいときは「確保を戻す」を押してください。'
+                        : undefined
+                    }
+                  >
+                    <span className="held-note">
+                      <span className="held-title">{releasedHeldTitle}</span>
+                      <span className="held-sub">{sub}</span>
+                      {props.canReleaseHeld && (
+                        <button
+                          type="button"
+                          className="held-restore"
+                          onClick={() => keepBackAsk(lane.key, r.span.windowStart)}
+                        >
+                          {keepBackLabel}
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                )
+              })}
           {!isLocked &&
             cells.map((c) => {
               const span = place(c.h, c.h + 60, hours)
@@ -7706,60 +7770,6 @@ export function TodayScreen(props: TodayProps) {
                 </div>
               )
             })}
-          {/* ⚖ D-11 · SPEC-R2 §3.2 — THE 枠 THE CLOCK LET GO OF, SAID OUT LOUD.
-              An automatic change the operator did not make may not be silent:
-              the hours came back on sale, so the row says which hours, why, and
-              offers the one way back. The box itself is a `role="note"` in the
-              held box's own geometry and vocabulary — no black, no new colour —
-              and `pointer-events: none`, so the track's click still opens
-              新規予約を作成 over it; the 確保を戻す button is the ONE interactive
-              element and carries its own `pointer-events: auto`.
-              It deliberately does NOT wear `.cell-held`: this 枠 is no longer
-              held, and a held box here would be the board saying two things.
-              A manager who cannot release cannot un-release either, so the
-              button is not drawn for them at all (`keepBackAsk`'s own rule).
-              ⚖ D-16 (3), 2026-09-13 — the three children live inside one
-              `.held-note` span so the CSS can pin the WORDS into a small
-              top-right label while the box itself stays a pale full-span
-              backdrop: a note about a release may never hide what is on sale
-              underneath it. */}
-          {!isLocked && lane.group === 'staff' &&
-            timedRelease.released
-              .filter((r) => r.laneKey === lane.key)
-              .map((r, i) => {
-                const span = place(r.span.start, r.span.end, hours)
-                const sub = releasedHeldSub(r.span.end - r.span.start, r.beforeMin)
-                return (
-                  <div
-                    className="cell-released"
-                    role="note"
-                    key={`released-${r.span.windowStart}`}
-                    data-key={offerKey(r.laneKey, r.span.windowStart)}
-                    style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
-                    aria-label={`${releasedHeldTitle}。${sub}`}
-                    data-guide-title={firstReleasedLane === lane.key && i === 0 ? '自動で解除された確保枠' : undefined}
-                    data-guide={
-                      firstReleasedLane === lane.key && i === 0
-                        ? 'オンラインでの新規受付が締め切られたため、確保していた枠を自動で販売に戻しました。まだ確保しておきたいときは「確保を戻す」を押してください。'
-                        : undefined
-                    }
-                  >
-                    <span className="held-note">
-                      <span className="held-title">{releasedHeldTitle}</span>
-                      <span className="held-sub">{sub}</span>
-                      {props.canReleaseHeld && (
-                        <button
-                          type="button"
-                          className="held-restore"
-                          onClick={() => keepBackAsk(lane.key, r.span.windowStart)}
-                        >
-                          {keepBackLabel}
-                        </button>
-                      )}
-                    </span>
-                  </div>
-                )
-              })}
           {landing?.laneKey === lane.key && landing.w > 0 && (
             <div className="drop-ghost" aria-hidden="true" style={{ '--x': `${landing.x}%`, '--w': `${landing.w}%` } as React.CSSProperties} />
           )}
