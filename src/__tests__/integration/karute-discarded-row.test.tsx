@@ -43,6 +43,12 @@ describe('discarded Karute row', () => {
     expect(container.firstElementChild).toHaveClass('opacity-70')
   })
 
+  it('carries no aria-disabled — a non-interactive div takes no disabled state (R6 repair, 2026-09-13, F6)', () => {
+    const { container } = render(<KaruteListRow item={{ ...item, isDiscarded: true }} />)
+    expect(container.firstElementChild).not.toHaveAttribute('aria-disabled')
+    expect(container.querySelector('[aria-disabled]')).toBeNull()
+  })
+
   it('keeps an ordinary record navigable', () => {
     const { container } = render(<KaruteListRow item={item} />)
     expect(container.querySelector('a')).toHaveAttribute('href', item.href)

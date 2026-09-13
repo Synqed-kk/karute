@@ -161,11 +161,13 @@ export function KaruteListRow({ item }: Props) {
   )
 
   if (!active) {
-    return (
-      <div className={rowClassName} aria-disabled="true">
-        {content}
-      </div>
-    )
+    // R6 repair (2026-09-13, F6): a plain, non-interactive `<div>` takes no
+    // `aria-disabled` — that attribute only has meaning on something that
+    // could otherwise be operated (a button, a link). This row has no href
+    // and no click handler, so the visible 「破棄済み」 text (line 105 above)
+    // is already the honest, sufficient carrier for a screen-reader user; a
+    // fake disabled-state announcement on an inert div is noise, not a11y.
+    return <div className={rowClassName}>{content}</div>
   }
 
   return (

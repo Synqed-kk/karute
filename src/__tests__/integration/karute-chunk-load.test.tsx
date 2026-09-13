@@ -891,7 +891,12 @@ describe('pill counts', () => {
     expect(showingCount()).toBe(pillCount('discarded'))
     expect(screen.queryByText('有効 花子')).not.toBeInTheDocument()
     expect(screen.getByText('破棄 太郎')).toBeInTheDocument()
-    expect(screen.getByText('破棄 太郎').closest('[aria-disabled="true"]')).toBeTruthy()
+    // R6 repair (2026-09-13, F6): a non-interactive div takes no
+    // aria-disabled — the gray `.opacity-70` styling (rowClassName's
+    // `active ? '...' : 'opacity-70'` branch) is the row's real inert
+    // marker now; see karute-discarded-row.test.tsx for the direct
+    // "no aria-disabled attribute anywhere" pin.
+    expect(screen.getByText('破棄 太郎').closest('.opacity-70')).toBeTruthy()
   })
 
   it('a discarded row\'s withheld summary is not a search oracle (R3 repair, 2026-09-13, F3b)', () => {
