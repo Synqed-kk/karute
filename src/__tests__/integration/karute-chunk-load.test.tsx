@@ -1127,6 +1127,47 @@ describe('共有 pill + shared mode (D10, PR-C)', () => {
     expect(sharedPill().textContent).toBe('filters.shared0')
   })
 
+  // F3 fix (PR-C fix round 1): the state's own doc comment claimed the
+  // DEFAULT walk's さらに表示 (fetchOlder) refreshes storeSharedCount — the
+  // code never did until this fix. Not the shared-mode fetch: the ordinary
+  // load-more button, outside shared mode entirely.
+  it('F3: a fetchOlder response carrying freshSharedCount updates the 共有 pill\'s count', async () => {
+    loadKaruteWindow.mockResolvedValue({
+      items: [],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 9,
+      freshDiscardedCount: 0,
+      freshSharedCount: 5,
+      hasMore: false,
+    })
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+    expect(sharedPill().textContent).toBe('filters.shared1')
+
+    await act(async () => {
+      fireEvent.click(loadMoreButton())
+    })
+
+    expect(sharedPill().textContent).toBe('filters.shared5')
+  })
+
+  it('F3: a fetchOlder response WITHOUT freshSharedCount leaves the pill\'s count untouched (F1(b): a non-holder\'s response never carries it)', async () => {
+    loadKaruteWindow.mockResolvedValue({
+      items: [],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 9,
+      freshDiscardedCount: 0,
+      hasMore: false,
+    })
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+    expect(sharedPill().textContent).toBe('filters.shared1')
+
+    await act(async () => {
+      fireEvent.click(loadMoreButton())
+    })
+
+    expect(sharedPill().textContent).toBe('filters.shared1')
+  })
+
   it('tap enters shared mode: ONE loadKaruteWindow({sharedOnly:true}) call, the list SWAPS, and any OTHER pill leaves the mode', async () => {
     loadKaruteWindow.mockResolvedValue({
       items: [item('shared-1', '2026-01-05', '共有 花子')],

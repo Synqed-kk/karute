@@ -548,6 +548,12 @@ export function KaruteRecordListView({
       // not carry the newly-added count yet. Treat those as the pre-feature
       // value instead of poisoning the combined total with `undefined`.
       setStoreDiscardedCount(res.freshDiscardedCount ?? 0)
+      // F3 fix (PR-C fix round 1): this line was MISSING — the state's own
+      // doc comment already claimed the default walk's さらに表示 responses
+      // refresh storeSharedCount, but the code never did it. With F1(b) a
+      // non-holder's response never carries this field at all (undefined,
+      // never `?? 0`), so the guard here stays honest either way.
+      if (res.freshSharedCount !== undefined) setStoreSharedCount(res.freshSharedCount)
       setServerHasMore(res.hasMore)
       // Focus stays on the button — nothing is focused here, and the button
       // never carries a native `disabled` attribute for the browser to blur
