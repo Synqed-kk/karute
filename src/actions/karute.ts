@@ -1626,6 +1626,9 @@ export type KaruteWindowPage = {
   windowStart: string
   freshStoreTotal: number
   freshDiscardedCount: number
+  /** D10 (PR-C, self-lighting): see {@link KaruteWindow.freshSharedCount} —
+   *  `undefined` until core ships `shared_count`, never defaulted to 0. */
+  freshSharedCount?: number
   hasMore: boolean
 }
 
@@ -1652,6 +1655,8 @@ export async function loadKaruteWindow(input: {
   olderThan?: string
   month?: string
   loadedCount?: number
+  /** D10 (PR-C): the manager's 共有 list mode — see loadKaruteWindowRows. */
+  sharedOnly?: boolean
 }): Promise<KaruteWindowPage | { error: string }> {
   try {
     await requireCapability('customers.view')
@@ -1694,6 +1699,7 @@ export async function loadKaruteWindow(input: {
           olderThan: input.olderThan,
           month: input.month,
           loadedCount: input.loadedCount,
+          sharedOnly: input.sharedOnly,
         }),
         synqed.staff.list({ page_size: 200 }),
       ])
@@ -1718,6 +1724,7 @@ export async function loadKaruteWindow(input: {
       windowStart: window.windowStart,
       freshStoreTotal: window.freshStoreTotal,
       freshDiscardedCount: window.freshDiscardedCount,
+      freshSharedCount: window.freshSharedCount,
       hasMore: window.hasMore,
     }
   } catch (err) {

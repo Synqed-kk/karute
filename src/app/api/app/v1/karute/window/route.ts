@@ -47,6 +47,9 @@ const QuerySchema = z.object({
   olderThan: z.string().refine(isValidKaruteYmd).optional(),
   month: z.string().refine(isValidKaruteMonth).optional(),
   loadedCount: z.coerce.number().int().min(0).optional(),
+  // D10 (PR-C): the manager's 共有 list mode — a literal 'true'/absent, the
+  // same shape isValidKaruteYmd's siblings use for a boolean query flag.
+  sharedOnly: z.literal('true').optional(),
 })
 
 export const GET = facadeHandler('karute.window', async (ctx) => {
@@ -57,6 +60,7 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
     olderThan: url.searchParams.get('olderThan') ?? undefined,
     month: url.searchParams.get('month') ?? undefined,
     loadedCount: url.searchParams.get('loadedCount') ?? undefined,
+    sharedOnly: url.searchParams.get('sharedOnly') ?? undefined,
   })
   if (!parsed.success) {
     throw new AppApiError(
@@ -94,6 +98,7 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
         olderThan: parsed.data.olderThan,
         month: parsed.data.month,
         loadedCount: parsed.data.loadedCount,
+        sharedOnly: parsed.data.sharedOnly === 'true',
       }),
       synqed.staff.list({ page_size: 200 }),
     ])
@@ -125,6 +130,10 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
       windowStart: window.windowStart,
       freshStoreTotal: window.freshStoreTotal,
       freshDiscardedCount: window.freshDiscardedCount,
+      // D10 (PR-C, self-lighting): JSON.stringify drops an undefined key, so
+      // this is silently absent from the wire until core ships shared_count —
+      // never `?? 0` (see jsonResponse in handler.ts).
+      freshSharedCount: window.freshSharedCount,
       hasMore: window.hasMore,
     })
   } catch (err) {

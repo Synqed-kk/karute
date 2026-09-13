@@ -23,6 +23,12 @@ export interface KaruteListRow {
    *  (2026-06-11). Optional: Supabase-side rows predate the columns. */
   service?: string | null
   duration_minutes?: number | null
+  /** D10 (PR-C, self-lighting): the row's recording session's `shared_at`,
+   *  read through core #83's columns once the karute list endpoint ships
+   *  them (§CORE ORDER, DESIGN-SHARE-2026-09-14.md). Absent/null on every
+   *  row until then — never defaulted, so downstream isShared derivation
+   *  (screen-rows.ts) stays honestly false. */
+  shared_at?: string | null
 }
 
 /**
@@ -78,6 +84,7 @@ export async function listSynqedKaruteRowsOrThrow(
       session_date?: string | null
       service?: string | null
       duration_minutes?: number | null
+      shared_at?: string | null
     }
     return {
       id: r.id,
@@ -92,6 +99,7 @@ export async function listSynqedKaruteRowsOrThrow(
       status: r.status,
       service: extra.service ?? null,
       duration_minutes: extra.duration_minutes ?? null,
+      shared_at: extra.shared_at ?? null,
     }
   })
 }
@@ -107,6 +115,11 @@ export interface KaruteRowsWithTotal {
   total: number
   /** Matching discarded rows, kept separate from the ordinary total. */
   discardedCount: number
+  /** D10 (PR-C, self-lighting): store-wide count of non-discarded rows whose
+   *  session is shared, computed IGNORING `sharedOnly` (§CORE ORDER 2b) —
+   *  `undefined` until core ships `shared_count`, NEVER defaulted to 0 (the
+   *  feature-detection law: absent ⇒ the pill does not exist). */
+  sharedCount?: number
 }
 
 type MixedKaruteResponse = {
@@ -125,9 +138,11 @@ type MixedKaruteResponse = {
     session_date?: string | null
     service?: string | null
     duration_minutes?: number | null
+    shared_at?: string | null
   }>
   total?: number
   discarded_count?: number
+  shared_count?: number
 }
 
 /** SDK 1.34 predates include_discarded and silently drops unknown options.
@@ -160,6 +175,9 @@ async function listMixedKaruteRecords(
   if (opts.to) params.set('to', opts.to)
   if (opts.page) params.set('page', String(opts.page))
   params.set('page_size', String(opts.page_size ?? 200))
+  // D10 (PR-C, self-lighting): today's core zod STRIPS this unknown key
+  // (§CORE ORDER) — sent unconditionally when asked, harmless until it ships.
+  if (opts.sharedOnly) params.set('shared_only', 'true')
   return synqed.fetch<MixedKaruteResponse>(`/karute-records?${params}`)
 }
 
@@ -191,9 +209,14 @@ export async function listSynqedKaruteRowsWithTotalOrThrow(
     page_size?: number
     /** Karute ledger only: retain DISCARDED rows in the returned page. */
     includeDiscarded?: boolean
+    /** D10 (PR-C, self-lighting): scope every row IN this read to
+     *  `shared_at != null` (§CORE ORDER). Routes through the mixed/fetch path
+     *  regardless of `includeDiscarded` — the plain SDK `list()` has no such
+     *  param. */
+    sharedOnly?: boolean
   },
 ): Promise<KaruteRowsWithTotal> {
-  const res: MixedKaruteResponse = opts?.includeDiscarded
+  const res: MixedKaruteResponse = opts?.includeDiscarded || opts?.sharedOnly
     ? await listMixedKaruteRecords(synqed, opts)
     : await synqed.karuteRecords.list({
         ...(opts?.customerId ? { customer_id: opts.customerId } : {}),
@@ -208,6 +231,7 @@ export async function listSynqedKaruteRowsWithTotalOrThrow(
       session_date?: string | null
       service?: string | null
       duration_minutes?: number | null
+      shared_at?: string | null
     }
     return {
       id: r.id,
@@ -222,12 +246,16 @@ export async function listSynqedKaruteRowsWithTotalOrThrow(
       status: r.status,
       service: extra.service ?? null,
       duration_minutes: extra.duration_minutes ?? null,
+      shared_at: extra.shared_at ?? null,
     }
   })
   return {
     rows,
     total: res.total ?? 0,
     discardedCount: res.discarded_count ?? 0,
+    // Feature detection (D10): NEVER `?? 0` — undefined must stay undefined
+    // all the way to the pill's existence check.
+    sharedCount: res.shared_count,
   }
 }
 
