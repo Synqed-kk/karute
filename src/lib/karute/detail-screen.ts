@@ -300,7 +300,11 @@ export function buildKaruteDetailScreen(
   return {
     karuteId: karute.id,
     customerId,
-    outcome,
+    // R8 fix round 1 (§4, ⚖ Fable ruling — the stricter side of LENS §4):
+    // 成約/失注 + its typed staff reason is CONTENT, same site as the other
+    // content fields below. A facts-only viewer (discardView, not the
+    // record's own staffer or a viewAll holder) never receives it.
+    outcome: contentWithheld ? null : outcome,
     header: {
       customerName: header.customerName,
       initials: header.customerInitials,

@@ -1133,6 +1133,13 @@ describe('R8 discarded-record door — content (piece 4)', () => {
   const openDiscarded = () => GET(req({ headers: auth }), routeFor(DISCARDED_UUID))
 
   it('a records.discardView holder, unrestricted, gets facts + reason present, EVERY content field withheld (assert each)', async () => {
+    // R8 fix round 1 (§4): a genuinely non-null outcome (no app-version
+    // header, so the #689 masking above never fires) to prove it is actually
+    // BLANKED by contentWithheld here, not merely absent by fixture default.
+    outcomeGet.mockResolvedValue({
+      outcome: 'success', reason: null, is_first_visit: false,
+      decided_at: '2026-06-01T00:00:00Z', auto_decided: false,
+    })
     capabilities.current = new Set(['customers.view', 'records.discardView'])
     const res = await openDiscarded()
     const dto = await res.json()
@@ -1148,10 +1155,16 @@ describe('R8 discarded-record door — content (piece 4)', () => {
     expect(dto.transcriptRestricted).toBe(true)
     expect(dto.recording).toBeNull()
     expect(dto.photos).toEqual([])
+    // R8 fix round 1 (§4, ⚖ ruling): outcome + its typed reason is CONTENT.
+    expect(dto.outcome).toBeNull()
   })
 
-  it('the record’s OWN staffer sees the FULL content, no capability needed', async () => {
+  it('the record’s OWN staffer sees the FULL content, no capability needed — outcome included (⚖ §4: only withheld by contentWithheld)', async () => {
     DISCARDED_KAR.current = { ...DISCARDED_KAR.current, staff_id: 'auth-user-1' }
+    outcomeGet.mockResolvedValue({
+      outcome: 'success', reason: null, is_first_visit: false,
+      decided_at: '2026-06-01T00:00:00Z', auto_decided: false,
+    })
     const res = await openDiscarded()
     const dto = await res.json()
     expect(dto.discarded).not.toBeNull()
@@ -1159,6 +1172,7 @@ describe('R8 discarded-record door — content (piece 4)', () => {
     expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
     expect(dto.entries.length).toBe(1)
     expect(dto.summaryBullets.length).toBeGreaterThan(0)
+    expect(dto.outcome).toMatchObject({ outcome: 'success' })
   })
 
   it('a discardView holder who ALSO holds recordings.viewAll sees content too — recordings.viewAll alone cannot even OPEN the door (canOpenDiscardedRecord needs discardView or ownership)', async () => {
