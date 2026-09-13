@@ -1064,6 +1064,7 @@
         "exhausted": "使い切り",
         "cancelledPack": "停止",
         "voidPack": "無効",
+        "unknownStatusPack": "不明",
         "redeem": "1回消化",
         "redeemConfirm": "記録する",
         "redeemDone": "消化を記録しました",
@@ -2545,6 +2546,7 @@
       "recordingStaff": "担当: {name}",
       "packUnresolved": "回数券",
       "packImportDateCorrected": "取込日 {date}",
+      "customerUnresolved": "顧客",
       "fold": {
         "count": "×{n}",
         "range": "{from}〜{to}"

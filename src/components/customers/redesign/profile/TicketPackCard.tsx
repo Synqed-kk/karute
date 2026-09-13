@@ -140,12 +140,18 @@ export function TicketPackCard({
                 {/* UPDATE 26 (CORE-12): a 'void' pack is neither exhausted
                  *  nor cancelled — the record itself doesn't count (entered
                  *  in error, corrected at the source). Rendering it as
-                 *  cancelled would be a false word. */}
+                 *  cancelled would be a false word.
+                 *  Fix round 1 (X2): 'unknown' (the DTO's honest fail-safe
+                 *  for a status this app has never seen) gets its OWN
+                 *  neutral word too — never 「無効」, which would claim a
+                 *  fact nobody here actually knows. */}
                 {p.status === 'exhausted'
                   ? t('exhausted')
                   : p.status === 'void'
                     ? t('voidPack')
-                    : t('cancelledPack')}
+                    : p.status === 'unknown'
+                      ? t('unknownStatusPack')
+                      : t('cancelledPack')}
               </span>
             </li>
           ))}

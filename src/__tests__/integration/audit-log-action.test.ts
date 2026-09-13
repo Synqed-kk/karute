@@ -936,6 +936,105 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     expect(res.events).toHaveLength(1)
   })
 
+  // Fix round 1 (X3, lens F3): the packIds.includes(r.pack_id) guard is what
+  // keeps an OFF-PAGE pack's customer out of the batch call — pinned here so
+  // dropping it goes RED instead of leaving all tests green.
+  it("the packIds guard scopes the customers.list batch to ONLY this page's pack rows, even when listRecentRedemptions returns rows for other packs too", async () => {
+    const CUS_OFFPAGE = '00000000-0000-4000-8000-000000000099'
+    const customersList = jest.fn(async () => ({
+      customers: [
+        { id: CUS_1, name: '鈴木 一郎' },
+        { id: CUS_LIVE, name: 'ぴあそん りえむ' },
+      ],
+    }))
+    const listRecentRedemptions = jest.fn(async () => [
+      { customer_id: CUS_1, appointment_id: null, redeemed_on: '2025-12-20', pack_id: 'pack-a', unit_price: 3000 },
+      // off-page: no row on this list targets 'pack-off-page' at all.
+      {
+        customer_id: CUS_OFFPAGE,
+        appointment_id: null,
+        redeemed_on: '2025-12-22',
+        pack_id: 'pack-off-page',
+        unit_price: 1000,
+      },
+      { customer_id: CUS_LIVE, appointment_id: null, redeemed_on: '2025-12-24', pack_id: 'pack-b', unit_price: 2000 },
+    ])
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: customersList },
+      packs: { listRecentRedemptions },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-pack-a',
+          category: 'customer',
+          action: 'correct_pack_import_date',
+          target_type: 'pack',
+          target_id: 'pack-a',
+          detail: { corrected_date: '2025-12-25' },
+        }),
+        coreEvent({
+          id: 'evt-pack-b',
+          category: 'customer',
+          action: 'correct_pack_import_date',
+          target_type: 'pack',
+          target_id: 'pack-b',
+          detail: { corrected_date: '2025-12-26' },
+        }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    // The off-page pack's customer must never reach the batch call.
+    expect(customersList).toHaveBeenCalledWith({ ids: [CUS_1, CUS_LIVE], include_deleted: true })
+    expect(res.targetLabels).toEqual({ 'pack-a': '鈴木 一郎', 'pack-b': 'ぴあそん りえむ' })
+  })
+
+  // Fix round 1 (X4, lens F4): the packDates filter requires target_type
+  // 'pack' — a non-pack row whose detail happens to carry corrected_date
+  // must not anchor (or trigger) the redemptions read.
+  it('a recording-target row whose detail carries corrected_date does NOT trigger listRecentRedemptions', async () => {
+    const listRecentRedemptions = jest.fn()
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+      packs: { listRecentRedemptions },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        // A pack row on the page (so packIds.length > 0), but its OWN detail
+        // carries no date — only the recording row below does.
+        coreEvent({
+          id: 'evt-pack-nodate',
+          category: 'customer',
+          action: 'correct_pack_import_date',
+          target_type: 'pack',
+          target_id: 'pack-x',
+          detail: { migration: 'x' },
+        }),
+        coreEvent({
+          id: 'evt-rec-with-date',
+          category: 'recording',
+          action: 'recording.karute_missing',
+          target_type: 'recording',
+          target_id: 'sess-y',
+          detail: { corrected_date: '2025-12-25' },
+        }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(listRecentRedemptions).not.toHaveBeenCalled()
+    expect(res.targetLabels).toEqual({})
+  })
+
   // F3 (round-2 line-audit): #865 put staff_id into recording.capture_resumed's
   // detail — resolveTargetLabels must widen the SAME staff batch to include it
   // (same idiom as the customer_id widen two tests up), or a departed staffer

@@ -569,6 +569,17 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       const n = Array.isArray(detail.staff_ids) ? detail.staff_ids.length : 0
       return t('noSessionsToday.sub', { day, n })
     }
+    // UPDATE 26 fix round 1 (X1, lens F1): merge_duplicate's own
+    // target_type is 'customer', so it fell through to the generic
+    // targetName chain — whose last arm is the raw id. Piece 1's promise for
+    // THIS row is "a name, never a uuid" (same as the pack branch below), so
+    // give it the same honest-state fallback instead of the generic one:
+    // resolved → the kept customer's name; unresolved (hard-purged / a
+    // failed batch call) → the neutral 顧客 word, never the id.
+    if (e.action === 'merge_duplicate') {
+      const name = e.target_id ? targetLabels[e.target_id] : undefined
+      return name ?? t('customerUnresolved')
+    }
     // UPDATE 26 (owner's 監査ログ, core PR #95's correct_pack_import_date
     // row): target_type 'pack' rows resolve through resolveTargetLabels'
     // pack branch (server, audit-log.ts) — same three-way honest-state rule

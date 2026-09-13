@@ -16,6 +16,14 @@ export type PackSource = 'manual' | 'import' | 'qr' | 'pos' | 'backfill' | 'auto
 // customer-profile-screen-dto.ts's PackWithUsageSchema.source, which is
 // unrelated) — never conflate the two.
 export type PackStatus = 'active' | 'exhausted' | 'cancelled' | 'void'
+// UPDATE 26 fix round 1 (X2, lens F2): a READ-side-only widening. Core has
+// shipped exactly 4 statuses; a 5th one the DTO cannot recognize must stay
+// honestly unknown, never be claimed as 'void' (the old `.catch('void')`
+// rendered a definite 「無効」 for a pack whose real state nobody here knows).
+// PackStatus itself — the WRITE type (setPackStatusAction, updatePackStatus,
+// the ticket_packs check constraint) — is UNTOUCHED; only the type a READER
+// (PackWithUsage, the DTO) may carry gains 'unknown'.
+export type PackStatusRead = PackStatus | 'unknown'
 export type LifecycleStatus = 'active' | 'graduated' | 'lost'
 
 export interface TicketPack {
@@ -42,8 +50,12 @@ export interface PackRedemption {
 }
 
 /** A pack joined with its consumption — what every surface renders.
- *  remaining/unconsumedValue are COMPUTED here, once (single source). */
-export interface PackWithUsage extends TicketPack {
+ *  remaining/unconsumedValue are COMPUTED here, once (single source).
+ *  status is READ-widened to PackStatusRead (X2, fix round 1) — the DTO's
+ *  fail-safe can degrade an unrecognized future status to 'unknown' here;
+ *  TicketPack itself (the WRITE shape) keeps the narrower PackStatus. */
+export interface PackWithUsage extends Omit<TicketPack, 'status'> {
+  status: PackStatusRead
   redeemedCount: number
   /** pack_size − redeemedCount, floored at 0. */
   remaining: number
@@ -73,9 +85,13 @@ export interface CustomerLifecycle {
  *  genuine buy should renumber as if it never happened (docs/
  *  store-transfer-design.md §7.4's own pending fix: "nextRound counts
  *  cancelled packs toward the next round — a voided first pack can produce
- *  a 2枚目 label"). */
+ *  a 2枚目 label"). Takes PackStatusRead (not PackStatus) so the caller's
+ *  PackWithUsage[] (X2 widened status) still passes straight through — the
+ *  ALLOW-list already excludes anything that isn't 'active'/'exhausted', so
+ *  'unknown' is excluded the same way 'cancelled'/'void' already are,
+ *  without naming it. */
 export function nextPurchaseRound(
-  packs: ReadonlyArray<Pick<TicketPack, 'kind' | 'purchase_round' | 'status'>>,
+  packs: ReadonlyArray<{ kind: PackKind; purchase_round: number; status: PackStatusRead }>,
 ): number {
   const rounds = packs
     .filter((p) => p.kind === 'pack' && (p.status === 'active' || p.status === 'exhausted'))

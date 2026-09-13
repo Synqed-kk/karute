@@ -1064,6 +1064,7 @@
         "exhausted": "Used up",
         "cancelledPack": "Cancelled",
         "voidPack": "Voided",
+        "unknownStatusPack": "Unknown",
         "redeem": "Use 1 session",
         "redeemConfirm": "Record",
         "redeemDone": "Session recorded",
@@ -2545,6 +2546,7 @@
       "recordingStaff": "Staff: {name}",
       "packUnresolved": "Ticket pack",
       "packImportDateCorrected": "Import date {date}",
+      "customerUnresolved": "Customer",
       "fold": {
         "count": "×{n}",
         "range": "{from}–{to}"

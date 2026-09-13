@@ -293,7 +293,12 @@ describe("GET /api/app/v1/customers/[id] — UPDATE 26 pack status/source DTO fa
     expect(dto.packs[0].status).toBe('void')
   })
 
-  it("an UNKNOWN future pack status parses (never throws) and degrades to 'void' — inactive, never a false claim, never a blanked screen", async () => {
+  // Fix round 1 (X2, lens F2): degrading an unrecognized status to 'void'
+  // rendered as a definite 「無効」 one layer down (TicketPackCard) — a false
+  // claim about a pack whose real state nobody here knows. The honest
+  // fail-safe is 'unknown', not 'void'; a REAL 'void' (the test above) is
+  // unaffected — only a status this app has never seen changes word.
+  it("an UNKNOWN future pack status parses (never throws) and degrades to 'unknown' — inactive, never a false claim, never a blanked screen", async () => {
     mockBuildScreen.mockResolvedValueOnce({
       ...FIXED_SCREEN,
       packs: [packFixture({ status: 'some-future-status-core-has-not-shipped-yet' })],
@@ -301,7 +306,7 @@ describe("GET /api/app/v1/customers/[id] — UPDATE 26 pack status/source DTO fa
     const res = await GET(req({ headers: auth }), routeFor('cust-1'))
     expect(res.status).toBe(200)
     const dto = await res.json()
-    expect(dto.packs[0].status).toBe('void')
+    expect(dto.packs[0].status).toBe('unknown')
   })
 
   it("a pack with source:'auto' (the 自動消化 cron — previously missing from this DTO) parses through unchanged", async () => {

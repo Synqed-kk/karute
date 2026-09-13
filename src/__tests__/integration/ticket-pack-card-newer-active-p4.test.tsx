@@ -170,3 +170,40 @@ describe('TicketPackCard — UPDATE 26 void pack status renders 無効, never �
     expect(screen.getByText('停止')).toBeInTheDocument()
   })
 })
+
+// Fix round 1 (X2, lens F2): a status this app has never seen (the DTO's
+// `.catch('unknown')`) must get its OWN neutral word — never 「無効」, which
+// would claim a fact (voided) nobody here actually knows.
+const unknownStatusPack: PackWithUsage = {
+  id: 'unknown-status',
+  customer_id: 'c1',
+  kind: 'pack',
+  pack_size: 8,
+  unit_price: 8000,
+  total_price: 64000,
+  purchase_round: 2,
+  purchased_at: '2026-09-05',
+  source: 'manual',
+  status: 'unknown',
+  notes: null,
+  redeemedCount: 0,
+  remaining: 8,
+  unconsumedValue: 64000,
+  lastRedeemedOn: null,
+}
+
+describe('TicketPackCard — fix round 1 (X2): unknown pack status renders 不明, never 無効', () => {
+  it('an unknown-status pack in the inactive list shows 不明 — never 無効 (void), 停止 (cancelled) or 使い切り (exhausted)', () => {
+    render(<TicketPackCard customerId="c1" packs={[unknownStatusPack]} lifecycle={null} />)
+    expect(screen.getByText('不明')).toBeInTheDocument()
+    expect(screen.queryByText('無効')).not.toBeInTheDocument()
+    expect(screen.queryByText('停止')).not.toBeInTheDocument()
+    expect(screen.queryByText('使い切り')).not.toBeInTheDocument()
+  })
+
+  it('unknown + void side by side each keep their own word — 無効 is reserved for a REAL void status', () => {
+    render(<TicketPackCard customerId="c1" packs={[unknownStatusPack, voidPack]} lifecycle={null} />)
+    expect(screen.getByText('不明')).toBeInTheDocument()
+    expect(screen.getByText('無効')).toBeInTheDocument()
+  })
+})

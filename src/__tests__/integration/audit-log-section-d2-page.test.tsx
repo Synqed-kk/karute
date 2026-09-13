@@ -396,6 +396,28 @@ describe('AuditLogSection — UPDATE 26 owner fixes (merge_duplicate / correct_p
     expect(container.textContent).not.toContain('cus-folded-2')
   })
 
+  // Fix round 1 (X1, lens F1): the kept customer not resolving (hard-purged,
+  // or a failed customers.list batch) must NOT fall through to the generic
+  // targetName chain, whose last arm is the raw id.
+  it('merge_duplicate UNRESOLVED (kept customer id absent from targetLabels) renders the neutral 顧客 line — never the raw customer id', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'merge_duplicate',
+        category: 'customer',
+        actor_type: 'system',
+        actor_id: null,
+        target_type: 'customer',
+        target_id: 'cus-kept-unresolved',
+        detail: { migration: 'core-pr-95', fold_customer_id: 'cus-folded-x', moved_rows: 1 },
+      }),
+    ])
+    expect(container.textContent).toContain('重複した顧客を統合')
+    expect(container.textContent).toContain('データ修復')
+    expect(container.textContent).toContain('顧客')
+    expect(container.textContent).not.toContain('cus-kept-unresolved')
+    expect(container.textContent).not.toContain('cus-folded-x')
+  })
+
   it('correct_pack_import_date (pack resolved) shows the label, データ修復, the resolved name, and the corrected date — no uuid', async () => {
     const container = await renderWithEvents(
       [
