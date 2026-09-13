@@ -625,6 +625,34 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // revert. The script still gates — it runs in CI and exits non-zero against
 // whatever ceiling stands here.
 //
+// Raised 2026-09-13 at UPDATE 26 session 1 (three pieces, branch
+// feat/update-26-owner-fixes) — labels + an actor word + a pack-resolver
+// branch for the owner's two core-written 監査ログ rows (Piece 1), the
+// sub-line 2-line-clamp/full-text split (Piece 2), and the DTO's pack
+// status/source enum widen for CORE-12 (Piece 3): genuine phone-bundle
+// feature bytes (new ja/en strings, a new resolver branch, a new render
+// branch, a third status arm, a widened zod enum), not bloat; the
+// purchase-marker scan stays the real gate and remains 0/13. Measured cold
+// on this machine (node v24.16.0) per the C4 recipe above: the FIRST clean
+// build of the session measured en 132,753 · index 998,285 · vendor 937,743
+// = 2,068,781 B, then TWO FURTHER clean builds landed byte-identical at en
+// 132,753 · index 998,286 · vendor 937,743 = 2,068,782 B (the first run's
+// index chunk was 1 B lighter — a cold Vite dependency-optimize cache on the
+// very first build of the process, not the feature; the two reproducible
+// runs are the number this raise uses). Against origin/main — re-fetched
+// mid-session and it had moved twice (last to 3af10723a, a Business
+// 今日の運営 branch-B connect PR, unrelated to and disjoint from every file
+// this PR touches — confirmed via `git show --stat`) — also byte-identical
+// across two clean builds at both f02b48683 (this PR's actual merge-base)
+// and 3af10723a: en 132,530 · index 997,604 · vendor 937,743 = 2,067,877 B:
+// feature cost +905 B. The ceiling is set from THIS local number plus
+// 1,000 B, the same convention as every prior raise above:
+// 2,068,782 + 1,000 = 2,069,782.
+//
+// Report-only per ⚖ 8/25: this raise is REVERSIBLE, Liam vetoes it with one
+// revert. The script still gates — it runs in CI and exits non-zero against
+// whatever ceiling stands here.
+//
 // Raised 2026-09-13 at the Anthony #901/#905 repairs (R1 — the header's
 // discarded-repair string, PKT-ANTHONY-901-905-REPAIRS-2026-09-13.md): two
 // new message keys per locale (karute.recordList.statusLineDiscarded /
@@ -640,7 +668,12 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // 132,530 + 997,597 + 937,743 = 2,067,870 B: feature cost +693 B. The
 // ceiling is set from THIS local number plus 1,000 B, the same convention
 // as every prior raise above: 2,068,563 + 1,000 = 2,069,563.
-const BUDGET_BYTES = 2_069_563
+//
+// merged with main (#907) 2026-09-13: measured 133,041 · index 999,001 ·
+// vendor 937,743 = 2,069,785 B, byte-identical across two clean builds
+// (node v24.16.0, C4 recipe, this merge tip) → ceiling 2,069,785 + 1,000 =
+// 2,070,785.
+const BUDGET_BYTES = 2_070_785
 
 let dir
 try {

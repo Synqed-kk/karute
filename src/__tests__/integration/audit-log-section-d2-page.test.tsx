@@ -369,6 +369,124 @@ describe('AuditLogSection — C2 the two Group-B rows (no_sessions_today / take_
   })
 })
 
+// ---- UPDATE 26: the owner's two core-written correction rows -------------
+// (core PR #95's manual SQL, applied 9/12 — bare action, category 'customer',
+// actor_type 'system'). Same render idiom as C2 above: real ja.json, the
+// REAL component.
+describe('AuditLogSection — UPDATE 26 owner fixes (merge_duplicate / correct_pack_import_date)', () => {
+  it('merge_duplicate shows the label, the データ修復 actor word, and the KEPT customer name — no uuid anywhere', async () => {
+    const container = await renderWithEvents(
+      [
+        coreEvent({
+          action: 'merge_duplicate',
+          category: 'customer',
+          actor_type: 'system',
+          actor_id: null,
+          target_type: 'customer',
+          target_id: 'cus-kept-1',
+          detail: { migration: 'core-pr-95', fold_customer_id: 'cus-folded-2', moved_rows: 3 },
+        }),
+      ],
+      { targetLabels: { 'cus-kept-1': '鈴木 一郎' } },
+    )
+    expect(container.textContent).toContain('重複した顧客を統合')
+    expect(container.textContent).toContain('データ修復')
+    expect(container.textContent).toContain('鈴木 一郎')
+    expect(container.textContent).not.toContain('cus-kept-1')
+    expect(container.textContent).not.toContain('cus-folded-2')
+  })
+
+  // Fix round 1 (X1, lens F1): the kept customer not resolving (hard-purged,
+  // or a failed customers.list batch) must NOT fall through to the generic
+  // targetName chain, whose last arm is the raw id.
+  it('merge_duplicate UNRESOLVED (kept customer id absent from targetLabels) renders the neutral 顧客 line — never the raw customer id', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'merge_duplicate',
+        category: 'customer',
+        actor_type: 'system',
+        actor_id: null,
+        target_type: 'customer',
+        target_id: 'cus-kept-unresolved',
+        detail: { migration: 'core-pr-95', fold_customer_id: 'cus-folded-x', moved_rows: 1 },
+      }),
+    ])
+    expect(container.textContent).toContain('重複した顧客を統合')
+    expect(container.textContent).toContain('データ修復')
+    expect(container.textContent).toContain('顧客')
+    expect(container.textContent).not.toContain('cus-kept-unresolved')
+    expect(container.textContent).not.toContain('cus-folded-x')
+  })
+
+  it('correct_pack_import_date (pack resolved) shows the label, データ修復, the resolved name, and the corrected date — no uuid', async () => {
+    const container = await renderWithEvents(
+      [
+        coreEvent({
+          action: 'correct_pack_import_date',
+          category: 'customer',
+          actor_type: 'system',
+          actor_id: null,
+          target_type: 'pack',
+          target_id: 'pack-uuid-1',
+          detail: {
+            migration: 'core-pr-95',
+            redemption_id: 'redemption-uuid-2',
+            previous_redeemed_on: '2025-12-01',
+            previous_purchased_at: '2025-11-01',
+            previous_status: 'active',
+            corrected_date: '2025-12-25',
+            corrected_status: 'exhausted',
+          },
+        }),
+      ],
+      { targetLabels: { 'pack-uuid-1': '田中 美香' } },
+    )
+    expect(container.textContent).toContain('回数券の取込日を修正')
+    expect(container.textContent).toContain('データ修復')
+    expect(container.textContent).toContain('田中 美香 · 取込日 2025-12-25')
+    expect(container.textContent).not.toContain('pack-uuid-1')
+    expect(container.textContent).not.toContain('redemption-uuid-2')
+  })
+
+  it('correct_pack_import_date (pack UNRESOLVED — no targetLabels entry) renders the neutral 回数券 line — never the raw pack id', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'correct_pack_import_date',
+        category: 'customer',
+        actor_type: 'system',
+        actor_id: null,
+        target_type: 'pack',
+        target_id: 'pack-uuid-unresolved',
+        detail: { corrected_date: '2025-12-25', corrected_status: 'exhausted' },
+      }),
+    ])
+    expect(container.textContent).toContain('回数券 · 取込日 2025-12-25')
+    expect(container.textContent).not.toContain('pack-uuid-unresolved')
+  })
+
+  it('correct_pack_import_date with NO corrected_date in detail renders the name/回数券 alone — no date suffix, no crash', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'correct_pack_import_date',
+        category: 'customer',
+        actor_type: 'system',
+        actor_id: null,
+        target_type: 'pack',
+        target_id: 'pack-uuid-nodate',
+        detail: { migration: 'x' },
+      }),
+    ])
+    // The sub-line itself (not the row's action-label title, which always
+    // spells 取込日を修正) is exactly the bare 回数券 line — no ` · 取込日 …`
+    // suffix appended when detail carries no corrected_date. Selected
+    // structurally (not by clamp/truncate class — Piece 2 changes that
+    // class, this test is Piece 1's and must hold either way).
+    const sub = container.querySelector('.min-w-0.flex-1 p')
+    expect(sub).not.toBeNull()
+    expect(sub!.textContent).toBe('回数券')
+  })
+})
+
 // ---- I1: fold repeats -----------------------------------------------------
 describe('AuditLogSection — I1 fold repeats', () => {
   it('a folded pair shows ×2 and the day header still counts the raw 2', async () => {
@@ -460,6 +578,41 @@ describe('AuditLogSection — I4 recording thread page', () => {
     expect(backBtn).toBeTruthy()
     expect(backBtn!.getAttribute('aria-label')).toBe('戻る')
     void link
+  })
+
+  // Piece 2 (⚖ Liam 9/13): list = up to two lines; an OPENED thread = the
+  // full text, no clamp. jsdom class-level proof (the pixel proof lives in
+  // evidence/update26-20260913/ — Playwright at 393/1280px).
+  it('Piece 2 — list mode clamps the sub-line (line-clamp-2, no break-words); opening the thread removes the clamp (break-words, no line-clamp-2)', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'recording.play',
+        actor_type: 'staff',
+        actor_id: 'staff-1',
+        actor_label: '田中 美香',
+        target_id: 'rec-9',
+      }),
+    ])
+    // LIST mode: the sub-line lives on an inner span inside the
+    // recording-link button (line-clamp-2 cannot go directly on the button —
+    // see the C1 update above), clamped to 2 lines.
+    const listBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('録音'),
+    )
+    expect(listBtn).toBeTruthy()
+    const listSpan = listBtn!.querySelector('span.line-clamp-2')
+    expect(listSpan).not.toBeNull()
+    expect(listBtn!.className).not.toContain('break-words')
+
+    // Tap into the thread — the SAME target row's sub-line now renders as a
+    // <p> (isRecordingLink is false once its own thread is already open —
+    // reopening the same thread would be a no-op), no clamp, full text.
+    listAuditLog.mockResolvedValue(page([coreEvent({ id: 'thread-1', target_id: 'rec-9' })]))
+    fireEvent.click(listBtn!)
+    await waitFor(() => expect(container.textContent).toContain('この録音に関する記録'))
+    const threadSub = container.querySelector('p.break-words')
+    expect(threadSub).not.toBeNull()
+    expect(threadSub!.className).not.toContain('line-clamp-2')
   })
 
   it('threadPartial renders the honest partial line', async () => {

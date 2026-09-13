@@ -138,8 +138,24 @@ const PackWithUsageSchema = z.object({
   total_price: z.number().nullable(),
   purchase_round: z.number(),
   purchased_at: z.string().nullable(),
-  source: z.enum(['manual', 'import', 'qr', 'pos', 'backfill']),
-  status: z.enum(['active', 'exhausted', 'cancelled']),
+  // UPDATE 26 (CORE-12 prerequisite — the phone parser accepting core's new
+  // values before Anthony enables the writes): 'auto' was already in
+  // PackSource (types.ts) but missing from this DTO (the 自動消化 cron writes
+  // it — a latent throw this closes); .catch degrades an unknown future
+  // source to 'manual' (source renders nowhere in src/components — a normal
+  // burn is the closest honest neighbour, never a claim). NO 'recovery' /
+  // 'correction' here — those are a REDEMPTION row's source, a field this
+  // schema (a PACK) does not carry and the app types nowhere.
+  source: z.enum(['manual', 'import', 'qr', 'pos', 'backfill', 'auto']).catch('manual'),
+  // 'void' = CORE-12 (a status update, never a delete). UPDATE 26 fix round
+  // 1 (X2, lens F2): the OLD `.catch('void')` degraded an unrecognized
+  // future status to 'void' — which one layer down (TicketPackCard) renders
+  // as a definite 「無効」, a false claim about a pack whose real state
+  // nobody here knows. Honest fail-safe: an unrecognized status degrades to
+  // 'unknown' instead. Every reader below still branches on `=== 'active'`,
+  // so 'unknown'-class inactive is still the fail-safe: never counted as a
+  // purchase, never blanks the screen — only the RENDERED WORD changes.
+  status: z.enum(['active', 'exhausted', 'cancelled', 'void', 'unknown']).catch('unknown'),
   notes: z.string().nullable(),
   redeemedCount: z.number(),
   remaining: z.number(),

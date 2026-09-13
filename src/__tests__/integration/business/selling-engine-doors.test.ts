@@ -764,9 +764,13 @@ describe('1 — the round gate', () => {
       // one frame). Its deps are the three per-frame values the settled memo is
       // pinned NOT to carry, which is the ruling itself: the rail is netted per
       // frame, the chip is not.
-      '() => (HONEST_HELD && heldBoard',
+      // HONEST-COUNT ROUND 1 · fix 7 (2026-09-13, lens 1f MINOR 1) — AND
+      // SKIPPED while a staff card is in hand: the reader (`inHand != null`)
+      // discards the map for that gesture, so the netting never runs for it.
+      "const staffCardInHand = live != null && live.group !== 'beds' && !live.overShelf && live.mode === 'move'",
+      '() => (HONEST_HELD && heldBoard && !staffCardInHand',
       '? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true).byLane.map(heldMaskOf)',
-      '[heldBoard, locked, boardLanes, ledger],',
+      '[heldBoard, locked, boardLanes, ledger, staffCardInHand],',
     ]) {
       expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
     }

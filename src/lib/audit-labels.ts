@@ -16,6 +16,12 @@ export function automationLabelKey(action: string): string | null {
   if (action === 'recording.capture_resumed') return 'automation.rescue'
   if (action === 'customer.pack_redeem') return 'automation.autoburn'
   if (action === 'recording.session_cleanup') return 'automation.cleanup'
+  // UPDATE 26: core's manual-SQL owner corrections (bare action, category
+  // 'customer' — PR #95, applied 9/12). A one-off developer repair, not a
+  // recurring cron, so it gets its OWN family rather than reusing 自動* —
+  // see NATIVE-PASS-UPDATE-26-2026-09-13.md automation.repair ruling.
+  if (action === 'merge_duplicate') return 'automation.repair'
+  if (action === 'correct_pack_import_date') return 'automation.repair'
   if (action.startsWith('recording.transcribe')) return 'automation.transcribe'
   return null
 }

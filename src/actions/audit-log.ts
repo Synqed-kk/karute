@@ -790,6 +790,44 @@ async function resolveTargetLabels(
       return [d?.from_customer_id, d?.to_customer_id]
     })
     .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  // UPDATE 26 (owner's 監査ログ, core PR #95's correct_pack_import_date row):
+  // target_type 'pack' rows carry no customer id of their own, only the
+  // pack's id — the KEPT customer's name has to come through the pack's own
+  // redemption history. Client 1.34.0 has no pack-by-id read (packs.d.ts:
+  // listPacks(customerId), listActivePacks() [active only — a
+  // corrected/exhausted pack has usually just left active],
+  // listRecentRedemptions(since) → rows carry pack_id + customer_id), so the
+  // door is listRecentRedemptions anchored to the EARLIEST date any
+  // pack-targeted row's detail carries (corrected_date /
+  // previous_redeemed_on — yyyy-mm-dd strings only; an unvalidated value is
+  // never passed as `since`). No such date on any pack row on the page → no
+  // call, ids stay raw (honest state, same as every other branch here).
+  // ponytail: no pack-by-id read in client 1.34 — listRecentRedemptions
+  // (since the row's own date) is the one door; swap for a pack get when the
+  // client ships one.
+  const packIds = idsOf('pack')
+  const YMD_RE = /^\d{4}-\d{2}-\d{2}$/
+  const packCustomerById = new Map<string, string>()
+  if (packIds.length > 0) {
+    const packDates = events
+      .filter((e) => e.target_type === 'pack' && e.target_id && packIds.includes(e.target_id))
+      .flatMap((e) => {
+        const d = e.detail as { corrected_date?: unknown; previous_redeemed_on?: unknown } | null
+        return [d?.corrected_date, d?.previous_redeemed_on]
+      })
+      .filter((v): v is string => typeof v === 'string' && YMD_RE.test(v))
+    if (packDates.length > 0) {
+      const since = [...packDates].sort()[0]!
+      try {
+        const rows = await synqed.packs.listRecentRedemptions(since)
+        for (const r of rows) {
+          if (packIds.includes(r.pack_id)) packCustomerById.set(r.pack_id, r.customer_id)
+        }
+      } catch {
+        /* ids remain */
+      }
+    }
+  }
   // Non-UUID ids (the '-' sentinel; any other malformed id) simply never
   // resolve — their rows keep showing the raw value, same honest-state
   // fallback as a purged customer or a failed batch call below.
@@ -800,6 +838,7 @@ async function resolveTargetLabels(
       ...karuteCustomerById.values(),
       ...reassignCustomerIds,
       ...recordingCustomerIds,
+      ...packCustomerById.values(),
     ]),
   ].filter((id) => UUID_RE.test(id))
   if (allCustomerIds.length > 0) {
@@ -828,6 +867,12 @@ async function resolveTargetLabels(
       for (const e of events) {
         if (e.target_type !== 'recording' || !e.target_id) continue
         const cid = (e.detail as { customer_id?: unknown } | null)?.customer_id
+        const name = typeof cid === 'string' ? nameById.get(cid) : undefined
+        if (name) labels[e.target_id] = name
+      }
+      for (const e of events) {
+        if (e.target_type !== 'pack' || !e.target_id) continue
+        const cid = packCustomerById.get(e.target_id)
         const name = typeof cid === 'string' ? nameById.get(cid) : undefined
         if (name) labels[e.target_id] = name
       }
