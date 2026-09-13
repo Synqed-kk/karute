@@ -1097,6 +1097,11 @@
    as ruled. The two classes are the ones the screen already sets. */
 .biz .timeline.placing .cell-held,
 .biz .timeline.dragging-live .cell-held { pointer-events: none; }
+/* Same law as the held box above: every layer stands aside during a gesture.
+   The released mark's pill is a second interactive element on the track, and
+   it is pressable only at rest — never mid-配置 or mid-drag. */
+.biz .timeline.placing .cell-released .held-restore,
+.biz .timeline.dragging-live .cell-released .held-restore { pointer-events: none; }
 
 /* ── スキマガード 60分配置ガイド (canon :626–686) ──────────────────────────
    An 18px status rail follows each staff lane: every exact 30-minute start,

@@ -1761,6 +1761,8 @@ describe('7 — the fix round: the publication boundary', () => {
     // that box — grouping it in here is what let it swallow あずさ's minutes at
     // rest and answer nothing.
     expect(css).toContain('.biz .timeline.placing .cell-held,\n.biz .timeline.dragging-live .cell-held { pointer-events: none; }')
+    // ⚖ ROUND 2 blind round L1 MAJOR 1 (2026-09-13) — the released mark's pill stands aside in the same two modes
+    expect(css).toContain('.biz .timeline.placing .cell-released .held-restore,\n.biz .timeline.dragging-live .cell-released .held-restore { pointer-events: none; }')
     // …and the base rule is where the shared box says it, once, for every frame.
     expect(css).toContain('.biz .cell-shared { cursor: default; pointer-events: none;')
     // Both classes are ones the screen already sets — no new switch.
