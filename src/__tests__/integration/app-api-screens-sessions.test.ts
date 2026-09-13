@@ -67,6 +67,25 @@ const fakeClient = {
   staffStores: { get: staffStoresGet },
   karuteRecords: { list: karuteList },
   staff: { list: staffList },
+  // R4 repair (2026-09-13, F4b): listMixedKaruteRecords now THROWS when a
+  // client has no fetch() (a fake production adapter must never silently
+  // report a fabricated discardedCount:0) — every windowed read
+  // (loadKaruteWindowRows always passes includeDiscarded:true) goes through
+  // it, so this double needs a real fetch() or the whole ?window=1
+  // describe block below 502s. Same query→opts translation as
+  // karute-window.test.ts's asClient, routed through the SAME karuteList
+  // mock so every existing assertion on karuteList.mock.calls is untouched.
+  fetch: async (path: string) => {
+    const query = new URL(path, 'https://core.test').searchParams
+    return karuteList({
+      ...(query.get('customer_id') ? { customer_id: query.get('customer_id') } : {}),
+      ...(query.get('store_id') ? { store_id: query.get('store_id') } : {}),
+      ...(query.get('from') ? { from: query.get('from') } : {}),
+      ...(query.get('to') ? { to: query.get('to') } : {}),
+      ...(query.get('page') ? { page: Number(query.get('page')) } : {}),
+      ...(query.get('page_size') ? { page_size: Number(query.get('page_size')) } : {}),
+    })
+  },
 }
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: jest.fn(() => fakeClient),

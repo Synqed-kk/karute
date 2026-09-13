@@ -64,7 +64,21 @@ const rec = (id: string, iso: string, status: Rec['status'] = 'FINALIZED'): Rec 
 /** A fake core that answers from an in-memory set, filtering on created_at —
  *  the REAL server semantics (proved by source read, see
  *  evidence/karute-tab-build-20260825/pr2a/NULL-DATE-PROOF.md: from/to hit
- *  created_at, NOT session_date, both bounds inclusive). */
+ *  created_at, NOT session_date, both bounds inclusive).
+ *
+ *  R4 repair (2026-09-13, ADDENDUM to F4): `total`/`discarded_count` below
+ *  mirror synqed-core's real listKaruteRecords @9d4baf99a verbatim, not a
+ *  guess — src/services/karute.service.ts:172-198 counts
+ *  `nonDiscardedWhere` into `total` and `discardedWhere` into
+ *  `discarded_count` UNCONDITIONALLY (independent of `include_discarded`,
+ *  which only widens which ROWS come back), and
+ *  src/validations/karute.ts:104-107,115 parses the query flag as the
+ *  literal string 'true' via `z.enum(['true','false'])` — exactly what
+ *  synqed-records.ts's listMixedKaruteRecords sends
+ *  (`include_discarded: 'true'`). Confirmed via `gh api
+ *  repos/Synqed-kk/synqed-core/contents/...` reads at core main 9d4baf99a;
+ *  no live Dev Salon read needed (packet's ADDENDUM 14:3x superseded the
+ *  original live-read instruction once this source proof landed). */
 function fakeCore(records: Rec[]) {
   const calls: ListOpts[] = []
   const list = (opts: ListOpts) => {

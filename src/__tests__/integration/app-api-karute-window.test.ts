@@ -58,6 +58,24 @@ jest.mock('@/lib/synqed/client', () => ({
     customers: { list: customersList },
     karuteRecords: { list: karuteRecordsList },
     staff: { list: staffList },
+    // R4 repair (2026-09-13, F4b): listMixedKaruteRecords now THROWS when a
+    // client has no fetch() — this whole route reads through
+    // loadKaruteWindowRows, which always passes includeDiscarded:true, so
+    // every test below needs a real fetch() or the route 502s. Same
+    // query→opts translation as karute-window.test.ts's asClient, routed
+    // through the SAME karuteRecordsList mock so every existing assertion
+    // on its .mock.calls is untouched.
+    fetch: async (path: string) => {
+      const query = new URL(path, 'https://core.test').searchParams
+      return karuteRecordsList({
+        ...(query.get('customer_id') ? { customer_id: query.get('customer_id') } : {}),
+        ...(query.get('store_id') ? { store_id: query.get('store_id') } : {}),
+        ...(query.get('from') ? { from: query.get('from') } : {}),
+        ...(query.get('to') ? { to: query.get('to') } : {}),
+        ...(query.get('page') ? { page: Number(query.get('page')) } : {}),
+        ...(query.get('page_size') ? { page_size: Number(query.get('page_size')) } : {}),
+      })
+    },
   }),
 }))
 

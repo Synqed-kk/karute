@@ -131,23 +131,27 @@ type MixedKaruteResponse = {
 }
 
 /** SDK 1.34 predates include_discarded and silently drops unknown options.
- *  Use its public authenticated transport until 1.35 can be published. */
+ *  Use its public authenticated transport until 1.35 can be published.
+ *
+ *  R4 repair (2026-09-13, F4b): a client with no fetch() used to fall back to
+ *  the plain (non-mixed) SDK list call and report `discardedCount: 0` as if
+ *  that were a real, backed answer — indistinguishable on screen from a store
+ *  that genuinely has zero discarded records. THROW instead: every production
+ *  SynqedClient (getSynqedClient / newSynqedClient) carries fetch() — grepped
+ *  every call site that casts `as unknown as SynqedClient`
+ *  (api/app/v1/karute/route.ts, .../manual/route.ts) and both are WRITE paths
+ *  (createOrUpdateKaruteRecord / createManualKaruteRecordWithClient), never
+ *  this read — so no real caller can hit this branch; only a future
+ *  fetch-less adapter would, and it must fail loudly rather than silently
+ *  under-report discards. */
 async function listMixedKaruteRecords(
   synqed: SynqedClient,
   opts: NonNullable<Parameters<typeof listSynqedKaruteRowsWithTotalOrThrow>[1]>,
 ): Promise<MixedKaruteResponse> {
-  // Small test doubles and old cached facade adapters may only expose the
-  // resource client. They have no mixed rows, so their truthful discarded
-  // count is zero; production SynqedClient always has fetch().
   if (typeof synqed.fetch !== 'function') {
-    return synqed.karuteRecords.list({
-      ...(opts.customerId ? { customer_id: opts.customerId } : {}),
-      ...(opts.storeId ? { store_id: opts.storeId } : {}),
-      ...(opts.from ? { from: opts.from } : {}),
-      ...(opts.to ? { to: opts.to } : {}),
-      ...(opts.page ? { page: opts.page } : {}),
-      page_size: opts.page_size ?? 200,
-    })
+    throw new Error(
+      '[listMixedKaruteRecords] client has no fetch() — cannot honor includeDiscarded; refusing to report a fabricated discardedCount:0',
+    )
   }
   const params = new URLSearchParams({ include_discarded: 'true' })
   if (opts.customerId) params.set('customer_id', opts.customerId)
