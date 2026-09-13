@@ -136,7 +136,17 @@ export function TicketPackCard({
                 {packLabel(p, t)}
                 {p.purchased_at ? ` · ${p.purchased_at}` : ''}
               </span>
-              <span>{p.status === 'exhausted' ? t('exhausted') : t('cancelledPack')}</span>
+              <span>
+                {/* UPDATE 26 (CORE-12): a 'void' pack is neither exhausted
+                 *  nor cancelled — the record itself doesn't count (entered
+                 *  in error, corrected at the source). Rendering it as
+                 *  cancelled would be a false word. */}
+                {p.status === 'exhausted'
+                  ? t('exhausted')
+                  : p.status === 'void'
+                    ? t('voidPack')
+                    : t('cancelledPack')}
+              </span>
             </li>
           ))}
         </ul>

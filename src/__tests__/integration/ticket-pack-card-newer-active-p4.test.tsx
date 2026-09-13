@@ -134,3 +134,39 @@ describe('TicketPackCard — 残りわずか suppressed when a newer active pack
     expect(screen.getByText(LOW_HINT)).toBeInTheDocument()
   })
 })
+
+// UPDATE 26 (CORE-12): a 'void' pack is its own inactive word — never the
+// false 「停止」(cancelled) claim. Same active/inactive split as the
+// cancelled-pack test above; this pins the THIRD status arm.
+const voidPack: PackWithUsage = {
+  id: 'voided',
+  customer_id: 'c1',
+  kind: 'pack',
+  pack_size: 10,
+  unit_price: 9900,
+  total_price: 99000,
+  purchase_round: 4,
+  purchased_at: '2026-09-01',
+  source: 'manual',
+  status: 'void',
+  notes: null,
+  redeemedCount: 0,
+  remaining: 10,
+  unconsumedValue: 99000,
+  lastRedeemedOn: null,
+}
+
+describe('TicketPackCard — UPDATE 26 void pack status renders 無効, never 停止', () => {
+  it('a void pack in the inactive list shows 無効 — never 停止 (cancelled) or 使い切り (exhausted)', () => {
+    render(<TicketPackCard customerId="c1" packs={[voidPack]} lifecycle={null} />)
+    expect(screen.getByText('無効')).toBeInTheDocument()
+    expect(screen.queryByText('停止')).not.toBeInTheDocument()
+    expect(screen.queryByText('使い切り')).not.toBeInTheDocument()
+  })
+
+  it('void + cancelled side by side each keep their own word', () => {
+    render(<TicketPackCard customerId="c1" packs={[voidPack, cancelledPack]} lifecycle={null} />)
+    expect(screen.getByText('無効')).toBeInTheDocument()
+    expect(screen.getByText('停止')).toBeInTheDocument()
+  })
+})

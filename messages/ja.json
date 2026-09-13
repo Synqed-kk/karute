@@ -1063,6 +1063,7 @@
         "purchased": "購入 {date}",
         "exhausted": "使い切り",
         "cancelledPack": "停止",
+        "voidPack": "無効",
         "redeem": "1回消化",
         "redeemConfirm": "記録する",
         "redeemDone": "消化を記録しました",

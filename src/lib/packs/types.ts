@@ -8,7 +8,14 @@ export type PackKind = 'pack' | 'subscription' | 'single'
 // (packs.service.ts addRedemption: `source: input.source ?? 'manual'`), so
 // widening this union needs no core or schema change.
 export type PackSource = 'manual' | 'import' | 'qr' | 'pos' | 'backfill' | 'auto'
-export type PackStatus = 'active' | 'exhausted' | 'cancelled'
+// 'void' = CORE-12 (core PR #86, deployed; docs/pack-corrections.md) — a
+// status UPDATE, never a delete; active-pack reads omit it, history stays.
+// This is a PACK status only — the redemption-row `source` vocabulary
+// 'recovery'/'correction' CORE-12 also adds is a DIFFERENT field this repo
+// does not type at all (no app-api DTO parses a redemption row; see
+// customer-profile-screen-dto.ts's PackWithUsageSchema.source, which is
+// unrelated) — never conflate the two.
+export type PackStatus = 'active' | 'exhausted' | 'cancelled' | 'void'
 export type LifecycleStatus = 'active' | 'graduated' | 'lost'
 
 export interface TicketPack {
@@ -58,9 +65,10 @@ export interface CustomerLifecycle {
  *  purchase_round carries the truth the sheet loaded.
  *
  *  回数券 update 25, p3 — counts only REAL PURCHASES: an ALLOW-list
- *  (status === 'active' || 'exhausted'), so a 'cancelled' row today and a
- *  future 'void' one (CORE-12, not yet on this repo's PackStatus union)
- *  are both excluded without naming 'void' or widening the union. A
+ *  (status === 'active' || 'exhausted'), so a 'cancelled' row and a 'void'
+ *  one (CORE-12, now on this repo's PackStatus union — update 26) are both
+ *  excluded without naming 'void' here; the ALLOW-list already keeps
+ *  excluding anything that isn't active/exhausted. A
  *  cancelled/voided pack was never a real purchase — the customer's next
  *  genuine buy should renumber as if it never happened (docs/
  *  store-transfer-design.md §7.4's own pending fix: "nextRound counts

@@ -1063,6 +1063,7 @@
         "purchased": "Purchased {date}",
         "exhausted": "Used up",
         "cancelledPack": "Cancelled",
+        "voidPack": "Voided",
         "redeem": "Use 1 session",
         "redeemConfirm": "Record",
         "redeemDone": "Session recorded",
