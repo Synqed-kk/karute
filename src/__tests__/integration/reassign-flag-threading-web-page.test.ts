@@ -78,8 +78,8 @@ jest.mock('@/components/karute/redesign/detail/PhotoRecordsServer', () => ({ Pho
 // reverted (this harness calls KaruteDetailPage directly and never runs a
 // React/Flight renderer over the returned tree, so a component passed as a
 // JSX prop is never invoked here regardless — see the prop-null test below).
-const aiBodyPredictionSlotMock = jest.fn((..._args: unknown[]) => null)
-const aiSuggestedMessageSlotMock = jest.fn((..._args: unknown[]) => null)
+const aiBodyPredictionSlotMock = jest.fn<null, unknown[]>(() => null)
+const aiSuggestedMessageSlotMock = jest.fn<null, unknown[]>(() => null)
 jest.mock('@/components/karute/redesign/detail/AiInsightSlots', () => ({
   AIBodyPredictionSlot: (...args: unknown[]) => aiBodyPredictionSlotMock(...args),
   AISuggestedMessageSlot: (...args: unknown[]) => aiSuggestedMessageSlotMock(...args),
