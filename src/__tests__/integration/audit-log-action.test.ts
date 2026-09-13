@@ -755,6 +755,286 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     expect(res.targetLabels).toEqual({})
   })
 
+  // UPDATE 26 (owner's 監査ログ, core PR #95's correct_pack_import_date row):
+  // target_type 'pack' rows carry no customer id of their own — only the
+  // pack's id, plus a corrected_date/previous_redeemed_on in detail. The
+  // KEPT customer's name has to come through listRecentRedemptions(since),
+  // anchored to the earliest such date on the page, ONE call, keyed by the
+  // pack's own target_id (same idiom as the karute/recording branches above).
+  it("a pack row (correct_pack_import_date) resolves its CUSTOMER label via listRecentRedemptions anchored to the row's own date, keyed by the pack target_id", async () => {
+    const customersList = jest.fn(async () => ({
+      customers: [{ id: CUS_1, name: '鈴木 一郎' }],
+    }))
+    const listRecentRedemptions = jest.fn(async () => [
+      {
+        customer_id: CUS_1,
+        appointment_id: null,
+        redeemed_on: '2025-12-20',
+        pack_id: 'pack-1',
+        unit_price: 3000,
+      },
+    ])
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: customersList },
+      packs: { listRecentRedemptions },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-pack',
+          category: 'customer',
+          action: 'correct_pack_import_date',
+          target_type: 'pack',
+          target_id: 'pack-1',
+          detail: { corrected_date: '2025-12-25' },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(listRecentRedemptions).toHaveBeenCalledTimes(1)
+    expect(listRecentRedemptions).toHaveBeenCalledWith('2025-12-25')
+    expect(customersList).toHaveBeenCalledWith({ ids: [CUS_1], include_deleted: true })
+    expect(res.targetLabels).toEqual({ 'pack-1': '鈴木 一郎' })
+  })
+
+  it('multiple pack rows on the page anchor listRecentRedemptions to the EARLIEST valid date across all of them (corrected_date and previous_redeemed_on both count), in ONE call', async () => {
+    const customersList = jest.fn(async () => ({
+      customers: [
+        { id: CUS_1, name: '鈴木 一郎' },
+        { id: CUS_LIVE, name: 'ぴあそん りえむ' },
+      ],
+    }))
+    const listRecentRedemptions = jest.fn(async () => [
+      { customer_id: CUS_1, appointment_id: null, redeemed_on: '2025-12-25', pack_id: 'pack-a', unit_price: 1000 },
+      { customer_id: CUS_LIVE, appointment_id: null, redeemed_on: '2025-11-01', pack_id: 'pack-b', unit_price: 2000 },
+    ])
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: customersList },
+      packs: { listRecentRedemptions },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-pack-a',
+          category: 'customer',
+          action: 'correct_pack_import_date',
+          target_type: 'pack',
+          target_id: 'pack-a',
+          detail: { corrected_date: '2025-12-25' },
+        }),
+        coreEvent({
+          id: 'evt-pack-b',
+          category: 'customer',
+          action: 'correct_pack_import_date',
+          target_type: 'pack',
+          target_id: 'pack-b',
+          detail: { previous_redeemed_on: '2025-11-01' },
+        }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    // ONE call for the whole page, anchored to the EARLIEST of the two dates.
+    expect(listRecentRedemptions).toHaveBeenCalledTimes(1)
+    expect(listRecentRedemptions).toHaveBeenCalledWith('2025-11-01')
+    expect(res.targetLabels).toEqual({ 'pack-a': '鈴木 一郎', 'pack-b': 'ぴあそん りえむ' })
+  })
+
+  it('a pack row with NO date in its detail never calls listRecentRedemptions — the id stays unresolved, honest state', async () => {
+    const listRecentRedemptions = jest.fn()
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+      packs: { listRecentRedemptions },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-pack-nodate',
+          category: 'customer',
+          action: 'merge_duplicate',
+          target_type: 'pack',
+          target_id: 'pack-nodate',
+          detail: { migration: 'x' },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(listRecentRedemptions).not.toHaveBeenCalled()
+    expect(res.targetLabels).toEqual({})
+  })
+
+  it('a malformed date string in a pack row detail is never passed as `since` — treated as no date, no call', async () => {
+    const listRecentRedemptions = jest.fn()
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+      packs: { listRecentRedemptions },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-pack-bad',
+          category: 'customer',
+          action: 'correct_pack_import_date',
+          target_type: 'pack',
+          target_id: 'pack-bad',
+          detail: { corrected_date: 'not-a-date' },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(listRecentRedemptions).not.toHaveBeenCalled()
+    expect(res.targetLabels).toEqual({})
+  })
+
+  it('listRecentRedemptions REJECTING degrades to unresolved pack ids — the feed never fails', async () => {
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+      packs: {
+        listRecentRedemptions: jest.fn(async () => {
+          throw new Error('core down')
+        }),
+      },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-pack-fail',
+          category: 'customer',
+          action: 'correct_pack_import_date',
+          target_type: 'pack',
+          target_id: 'pack-fail',
+          detail: { corrected_date: '2025-12-25' },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.targetLabels).toEqual({})
+    expect(res.events).toHaveLength(1)
+  })
+
+  // Fix round 1 (X3, lens F3): the packIds.includes(r.pack_id) guard is what
+  // keeps an OFF-PAGE pack's customer out of the batch call — pinned here so
+  // dropping it goes RED instead of leaving all tests green.
+  it("the packIds guard scopes the customers.list batch to ONLY this page's pack rows, even when listRecentRedemptions returns rows for other packs too", async () => {
+    const CUS_OFFPAGE = '00000000-0000-4000-8000-000000000099'
+    const customersList = jest.fn(async () => ({
+      customers: [
+        { id: CUS_1, name: '鈴木 一郎' },
+        { id: CUS_LIVE, name: 'ぴあそん りえむ' },
+      ],
+    }))
+    const listRecentRedemptions = jest.fn(async () => [
+      { customer_id: CUS_1, appointment_id: null, redeemed_on: '2025-12-20', pack_id: 'pack-a', unit_price: 3000 },
+      // off-page: no row on this list targets 'pack-off-page' at all.
+      {
+        customer_id: CUS_OFFPAGE,
+        appointment_id: null,
+        redeemed_on: '2025-12-22',
+        pack_id: 'pack-off-page',
+        unit_price: 1000,
+      },
+      { customer_id: CUS_LIVE, appointment_id: null, redeemed_on: '2025-12-24', pack_id: 'pack-b', unit_price: 2000 },
+    ])
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: customersList },
+      packs: { listRecentRedemptions },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-pack-a',
+          category: 'customer',
+          action: 'correct_pack_import_date',
+          target_type: 'pack',
+          target_id: 'pack-a',
+          detail: { corrected_date: '2025-12-25' },
+        }),
+        coreEvent({
+          id: 'evt-pack-b',
+          category: 'customer',
+          action: 'correct_pack_import_date',
+          target_type: 'pack',
+          target_id: 'pack-b',
+          detail: { corrected_date: '2025-12-26' },
+        }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    // The off-page pack's customer must never reach the batch call.
+    expect(customersList).toHaveBeenCalledWith({ ids: [CUS_1, CUS_LIVE], include_deleted: true })
+    expect(res.targetLabels).toEqual({ 'pack-a': '鈴木 一郎', 'pack-b': 'ぴあそん りえむ' })
+  })
+
+  // Fix round 1 (X4, lens F4): the packDates filter requires target_type
+  // 'pack' — a non-pack row whose detail happens to carry corrected_date
+  // must not anchor (or trigger) the redemptions read.
+  it('a recording-target row whose detail carries corrected_date does NOT trigger listRecentRedemptions', async () => {
+    const listRecentRedemptions = jest.fn()
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+      packs: { listRecentRedemptions },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        // A pack row on the page (so packIds.length > 0), but its OWN detail
+        // carries no date — only the recording row below does.
+        coreEvent({
+          id: 'evt-pack-nodate',
+          category: 'customer',
+          action: 'correct_pack_import_date',
+          target_type: 'pack',
+          target_id: 'pack-x',
+          detail: { migration: 'x' },
+        }),
+        coreEvent({
+          id: 'evt-rec-with-date',
+          category: 'recording',
+          action: 'recording.karute_missing',
+          target_type: 'recording',
+          target_id: 'sess-y',
+          detail: { corrected_date: '2025-12-25' },
+        }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(listRecentRedemptions).not.toHaveBeenCalled()
+    expect(res.targetLabels).toEqual({})
+  })
+
   // F3 (round-2 line-audit): #865 put staff_id into recording.capture_resumed's
   // detail — resolveTargetLabels must widen the SAME staff batch to include it
   // (same idiom as the customer_id widen two tests up), or a departed staffer

@@ -20,6 +20,10 @@ describe('automationLabelKey (I2 — system-row actor label)', () => {
     ['recording.capture_resumed', 'automation.rescue'],
     ['customer.pack_redeem', 'automation.autoburn'],
     ['recording.session_cleanup', 'automation.cleanup'],
+    // UPDATE 26: core's manual-SQL owner corrections (bare action, category
+    // 'customer') — a one-off developer repair, its own family (never 自動*).
+    ['merge_duplicate', 'automation.repair'],
+    ['correct_pack_import_date', 'automation.repair'],
     // the wildcard: every OTHER recording.transcribe* action
     ['recording.transcribe', 'automation.transcribe'],
     ['recording.transcribe_failed', 'automation.transcribe'],

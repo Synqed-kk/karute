@@ -141,6 +141,9 @@ jest.mock('@/lib/customers/profile-screen', () => ({
 }))
 
 import { GET } from '@/app/api/app/v1/customers/[id]/route'
+import { buildCustomerProfileScreen } from '@/lib/customers/profile-screen'
+
+const mockBuildScreen = buildCustomerProfileScreen as unknown as jest.Mock
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -251,5 +254,77 @@ describe('GET /api/app/v1/customers/[id] — full profile screen (packet 06 §Bu
     expect(en.status).toBe(200)
     const bad = await GET(new Request('https://s/api/app/v1/customers/x?locale=zz', { headers: auth }), routeFor('cust-1'))
     expect(bad.status).toBe(200)
+  })
+})
+
+// UPDATE 26 (CORE-12 prerequisite): the phone parser must accept core's new
+// pack status ('void') and the previously-missing 'auto' source BEFORE
+// Anthony enables the writes. buildCustomerProfileScreen is mocked (see
+// FIXED_SCREEN above) — these tests override its resolved `packs` per case,
+// since toCustomerProfileScreenDTO's `packs` field comes straight from
+// screen.packs (customer-profile-screen-dto.ts:226).
+function packFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'pack-1',
+    customer_id: 'cust-1',
+    kind: 'pack',
+    pack_size: 5,
+    unit_price: 3000,
+    total_price: 15000,
+    purchase_round: 1,
+    purchased_at: '2026-01-01',
+    source: 'manual',
+    status: 'active',
+    notes: null,
+    redeemedCount: 0,
+    remaining: 5,
+    unconsumedValue: 15000,
+    lastRedeemedOn: null,
+    ...overrides,
+  }
+}
+
+describe("GET /api/app/v1/customers/[id] — UPDATE 26 pack status/source DTO fail-safe", () => {
+  it("a pack with status:'void' parses through and lands in the DTO as 'void' — never throws, the screen never blanks", async () => {
+    mockBuildScreen.mockResolvedValueOnce({ ...FIXED_SCREEN, packs: [packFixture({ status: 'void' })] })
+    const res = await GET(req({ headers: auth }), routeFor('cust-1'))
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.packs[0].status).toBe('void')
+  })
+
+  // Fix round 1 (X2, lens F2): degrading an unrecognized status to 'void'
+  // rendered as a definite 「無効」 one layer down (TicketPackCard) — a false
+  // claim about a pack whose real state nobody here knows. The honest
+  // fail-safe is 'unknown', not 'void'; a REAL 'void' (the test above) is
+  // unaffected — only a status this app has never seen changes word.
+  it("an UNKNOWN future pack status parses (never throws) and degrades to 'unknown' — inactive, never a false claim, never a blanked screen", async () => {
+    mockBuildScreen.mockResolvedValueOnce({
+      ...FIXED_SCREEN,
+      packs: [packFixture({ status: 'some-future-status-core-has-not-shipped-yet' })],
+    })
+    const res = await GET(req({ headers: auth }), routeFor('cust-1'))
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.packs[0].status).toBe('unknown')
+  })
+
+  it("a pack with source:'auto' (the 自動消化 cron — previously missing from this DTO) parses through unchanged", async () => {
+    mockBuildScreen.mockResolvedValueOnce({ ...FIXED_SCREEN, packs: [packFixture({ source: 'auto' })] })
+    const res = await GET(req({ headers: auth }), routeFor('cust-1'))
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.packs[0].source).toBe('auto')
+  })
+
+  it("an UNKNOWN future pack source parses (never throws) and degrades to 'manual' — the closest honest neighbour, never a claim", async () => {
+    mockBuildScreen.mockResolvedValueOnce({
+      ...FIXED_SCREEN,
+      packs: [packFixture({ source: 'some-future-source-core-has-not-shipped-yet' })],
+    })
+    const res = await GET(req({ headers: auth }), routeFor('cust-1'))
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.packs[0].source).toBe('manual')
   })
 })

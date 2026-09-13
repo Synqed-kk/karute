@@ -221,16 +221,29 @@ describe('recording-labels fix — pinned dictionary strings (ja + en)', () => {
 // overflows, after clips) is in evidence/groupc-20260912/c1-*.png — this
 // test pins the computed className at the DOM level so a future edit that
 // drops the width utilities fails loud here, not just visually.
-describe('C1 — recording sub-line button carries w-full max-w-full (overflow fix)', () => {
-  it('the recording-linked sub-line button has block, w-full, max-w-full and truncate together', async () => {
+//
+// UPDATE 26 (⚖ intended test update, addendum B — not a red surprise):
+// Piece 2 replaces `truncate` (1-line ellipsis) with a 2-line clamp in list
+// mode. Proven empirically (BUILD-REPORT-UPDATE-26): `line-clamp-2` cannot
+// go directly on THIS button — it sets `display:-webkit-box`, and Tailwind
+// v4 emits `.block` AFTER `.line-clamp-2` in its utilities layer, so the
+// button's own `block` (needed for w-full/max-w-full to stretch it) wins the
+// cascade on `display` and silently cancels the clamp (measured: an
+// un-clamped button renders taller than the clamped case, same height as
+// plain wrapped text). The clamp goes on an inner <span> instead; the button
+// itself keeps EXACTLY the C1 width fix — this test now pins that split.
+describe('C1 — recording sub-line button carries w-full max-w-full (overflow fix); text clamps via an inner span', () => {
+  it('the recording-linked sub-line button keeps block w-full max-w-full (no truncate), and its text clamps to 2 lines via an inner span.line-clamp-2', async () => {
     const container = await renderWithEvents(
       [coreEvent({ detail: { customer_id: 'cus-1', had_audio_path: true } })],
       { [RAW_UUID]: '鈴木 一郎' },
     )
-    const btn = container.querySelector('button.truncate')
+    const btn = container.querySelector('button.max-w-full')
     expect(btn).not.toBeNull()
-    expect(btn!.className).toEqual(
-      expect.stringContaining('block w-full max-w-full truncate'),
-    )
+    expect(btn!.className).toEqual(expect.stringContaining('block w-full max-w-full'))
+    expect(btn!.className).not.toContain('truncate')
+    expect(btn!.className).not.toContain('line-clamp-2')
+    const span = btn!.querySelector('span.line-clamp-2')
+    expect(span).not.toBeNull()
   })
 })
