@@ -57,7 +57,7 @@ import {
 import { fallbackCellsFor, type FallbackResult } from '@/app/[locale]/(business)/business/today/fallback-cells'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { reservedMaskFor, type ReservedLaneMask } from '@/app/[locale]/(business)/business/today/reserved-mask'
-import { HONEST_HELD, SELLING_ENGINE_LAW } from '@/app/[locale]/(business)/business/today/selling-engine-gate'
+import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from '@/app/[locale]/(business)/business/today/selling-engine-gate'
 import { bedDoor, bedViewsFor, TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import {
   explainRails,
@@ -716,6 +716,56 @@ describe('1 — the round gate', () => {
     const gate = SRC('selling-engine-gate.ts')
     expect(gate).toContain('export const HONEST_HELD: boolean = true')
     expect(gate).not.toMatch(/process\.env/)
+  })
+
+  // ⚖ ROUND 2 (2026-09-13) — the timed release — SPEC-R2 §2.6. The bed-aware sales
+  // layer gets its own gate in this same module and under the same clauses. The
+  // file a sales gate would look natural in is `bed-aware-sales.ts`, and that
+  // module takes `on` as a PARAMETER — a gate inside it would give one round two
+  // homes, which is the whole reason this file exists. The release half has NO
+  // gate of its own on purpose: 「解除しない」 (`beforeMin === null`) is a real
+  // product value, not construction scaffolding.
+  it('the bed-aware sales layer ships ON, and its gate lives here too', () => {
+    expect(BED_AWARE_SALES).toBe(true)
+    const gate = SRC('selling-engine-gate.ts')
+    expect(gate).toContain('export const BED_AWARE_SALES: boolean = true')
+    expect(gate).not.toMatch(/process\.env/)
+  })
+
+  it('…and no module below the screen names the sales gate', () => {
+    // ⚖ ROUND 2 — the same list as the honest gate's, plus the round's own two
+    // modules: the withholding is applied at the screen and `on` arrives as a
+    // parameter, so a read anywhere below would put the round's state in two
+    // places.
+    const readers = ['today-interactions.ts', 'capacity-ledger.ts', 'reserved-mask.ts', 'fallback-cells.ts', 'held-committed.ts', 'honest-held.ts', 'bed-aware-sales.ts', 'timed-release.ts']
+    for (const f of readers) expect({ f, has: SRC(f).includes('BED_AWARE_SALES') }).toEqual({ f, has: false })
+  })
+
+  // ⚖ ADDENDUM 4 item 2 (Liam 2026-09-13 21:4x) — THE NO-CYCLE PROOF AS A
+  // WHOLE-LINE PIN. Both round-2 modules answer about board rows and a clock
+  // VALUE, so their exports must stay free of screen types, React and any clock
+  // of their own. The import header, ordered and exhaustive, is that proof: one
+  // value import (`honestHeld`, whose own file imports only types) and types
+  // besides. A new import — or a reworded one — moves this array and prints the
+  // diff.
+  it('⚖ ADDENDUM 4 — the two round-2 modules import types, one value, and no screen', () => {
+    for (const [f, lines] of [
+      ['bed-aware-sales.ts', [
+        "import type { BoardLane } from '@/business/lib/today-board'",
+        "import type { Asker, BedTruth } from './capacity-ledger'",
+        "import { honestHeld, type HonestHeld } from './honest-held'",
+        "import type { ReservedLaneMask } from './reserved-mask'",
+      ]],
+      ['timed-release.ts', [
+        "import type { ReleasedWindow, ReservedLaneMask, ReservedSpan } from './reserved-mask'",
+      ]],
+    ] as const) {
+      const src = SRC(f)
+      expect({ f, imports: src.split('\n').filter((l) => /\bfrom\s*['\"]/.test(l)).map((l) => l.trim()) }).toEqual({ f, imports: [...lines] })
+      // …and no clock of their own, over CODE (the headers say 「no timer」 in
+      // as many words, and a prose mention may not red this).
+      expect({ f, clock: /Date\.now|setInterval|setTimeout|new Date/.test(codeOnly(src)) }).toEqual({ f, clock: false })
+    }
   })
 
   it('…and the honest gate is read at the screen boundary ONCE', () => {

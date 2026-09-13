@@ -60,3 +60,36 @@ export const SELLING_ENGINE_LAW: boolean = true
 // branches are what the parity proof is written against and `as const` would
 // make them statically dead.
 export const HONEST_HELD: boolean = true
+
+// 今日の運営 — THE BED-AWARE SALES LAYER'S OWN ROUND GATE (⚖ D-10 · D-12, Liam
+// 2026-09-13 14:29 · 17:0x).
+//
+// Same discipline as the two lines above, for the round that stops the store
+// selling an hour whose only free room a kept 新規用 枠 is already holding.
+// It lives here for the reason the honest count's does: the doors test's
+// forbidden-reader list (§1) exists so a round's state cannot end up in two
+// places, and `bed-aware-sales.ts` — where a sales gate would look natural —
+// takes `on` as a PARAMETER so its answer stays reachable from its own suite.
+//
+// IT IS NOT A PRODUCT SWITCH. The store's dial is still `gap_guard_mode`: a
+// guard-off store gets the frozen empty mask, nothing is netted and nothing is
+// withheld. This constant is CONSTRUCTION scaffolding, one boolean, one home,
+// no env var, no per-store reading.
+//
+// READ AT THE SCREEN BOUNDARY ONLY — ONE value read (the withheld memo), and
+// the count is pinned in selling-engine-doors.test.ts §1 so a second cannot
+// arrive quietly. OFF means `withheldOffers` returns its frozen empty answer,
+// so `sellPublished`/`gapPublished` come back by IDENTITY and every reader
+// below — the row's boxes, the 公開中 chip, the オンライン販売中 counter and the
+// online 確保 rows — is the board that shipped, by construction rather than by
+// a branch each of them maintains.
+//
+// THE RELEASE HALF HAS NO GATE (SPEC-R2 §2.6): 「解除しない」
+// (`autoReleaseBeforeMin === null`) is a real product value the store can set,
+// not construction scaffolding, so a second boolean beside it would be a dial
+// with two off switches.
+//
+// `boolean` rather than `true as const`, for the same reason as above: the OFF
+// branches are what the parity proof is written against and `as const` would
+// make them statically dead.
+export const BED_AWARE_SALES: boolean = true
