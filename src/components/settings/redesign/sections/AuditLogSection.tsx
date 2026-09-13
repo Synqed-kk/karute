@@ -672,6 +672,11 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     // again would be a no-op reload of the same thing).
     const isRecordingLink =
       e.target_type === 'recording' && Boolean(e.target_id) && !(targetId && targetType === 'recording')
+    // Piece 2 (⚖ Liam 9/13): list = up to TWO lines; an opened thread
+    // (recording thread OR customer thread — both set `targetId`) = the FULL
+    // text, no clamp. One derived boolean, reused by both sub-line shapes
+    // below.
+    const inThread = Boolean(targetId)
     // Mock 840dd1d1 note 3: view rows mix into the feed as
     // muted gray lines, so 変更 rows stay the eye's anchor when
     // 閲覧を含む is ON. Severity coloring still wins on the icon.
@@ -754,6 +759,15 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                 // its next tick, and without clearing `events` here the
                 // previous feed's rows (a different recording's story)
                 // would render under the thread's own title for that gap.
+                // Piece 2: line-clamp-2 sets display:-webkit-box, which the
+                // button's own `block` (needed for w-full/max-w-full to
+                // stretch it — C1) OVERRIDES in the compiled stylesheet
+                // (line-clamp-2 is emitted before block in Tailwind v4's
+                // utilities layer, so block wins the cascade on `display` —
+                // proven empirically: applying line-clamp-2 directly to this
+                // button renders un-clamped, taller than 2 lines). The clamp
+                // goes on an inner span instead; the button itself stays
+                // exactly the C1 width fix, untouched.
                 <button
                   type="button"
                   onClick={() => {
@@ -762,12 +776,16 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                     setTargetType('recording')
                     setTargetId(e.target_id)
                   }}
-                  className="block w-full max-w-full truncate border-b border-dotted border-muted-foreground/50 text-left text-xs text-muted-foreground hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400"
+                  className="block w-full max-w-full border-b border-dotted border-muted-foreground/50 text-left text-xs text-muted-foreground hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400"
                 >
-                  {subText}
+                  <span className={inThread ? 'break-words' : 'line-clamp-2'}>{subText}</span>
                 </button>
               ) : (
-                <p className="truncate text-xs text-muted-foreground">{subText}</p>
+                <p
+                  className={`text-xs text-muted-foreground ${inThread ? 'break-words' : 'line-clamp-2'}`}
+                >
+                  {subText}
+                </p>
               ))}
           </div>
           <div className="shrink-0 text-right">

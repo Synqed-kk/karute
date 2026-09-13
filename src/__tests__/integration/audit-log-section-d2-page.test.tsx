@@ -558,6 +558,41 @@ describe('AuditLogSection — I4 recording thread page', () => {
     void link
   })
 
+  // Piece 2 (⚖ Liam 9/13): list = up to two lines; an OPENED thread = the
+  // full text, no clamp. jsdom class-level proof (the pixel proof lives in
+  // evidence/update26-20260913/ — Playwright at 393/1280px).
+  it('Piece 2 — list mode clamps the sub-line (line-clamp-2, no break-words); opening the thread removes the clamp (break-words, no line-clamp-2)', async () => {
+    const container = await renderWithEvents([
+      coreEvent({
+        action: 'recording.play',
+        actor_type: 'staff',
+        actor_id: 'staff-1',
+        actor_label: '田中 美香',
+        target_id: 'rec-9',
+      }),
+    ])
+    // LIST mode: the sub-line lives on an inner span inside the
+    // recording-link button (line-clamp-2 cannot go directly on the button —
+    // see the C1 update above), clamped to 2 lines.
+    const listBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('録音'),
+    )
+    expect(listBtn).toBeTruthy()
+    const listSpan = listBtn!.querySelector('span.line-clamp-2')
+    expect(listSpan).not.toBeNull()
+    expect(listBtn!.className).not.toContain('break-words')
+
+    // Tap into the thread — the SAME target row's sub-line now renders as a
+    // <p> (isRecordingLink is false once its own thread is already open —
+    // reopening the same thread would be a no-op), no clamp, full text.
+    listAuditLog.mockResolvedValue(page([coreEvent({ id: 'thread-1', target_id: 'rec-9' })]))
+    fireEvent.click(listBtn!)
+    await waitFor(() => expect(container.textContent).toContain('この録音に関する記録'))
+    const threadSub = container.querySelector('p.break-words')
+    expect(threadSub).not.toBeNull()
+    expect(threadSub!.className).not.toContain('line-clamp-2')
+  })
+
   it('threadPartial renders the honest partial line', async () => {
     listAuditLog.mockResolvedValue(
       page([coreEvent({ target_id: 'rec-9' })], { threadPartial: true }),
