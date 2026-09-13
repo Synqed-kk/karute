@@ -84,6 +84,9 @@ import {
   type SettingsSection,
 } from '@/business/lib/settings'
 import { storePolicyProps, type StorePolicyPropsInput } from './store-policy-props'
+// ⚡ R2 BRANCH C — the dial's ONE mapping (⚖ D-11, CONTRACTS-R2 §1): the row
+// imports the wire shape and the mapping pair, never re-derives them.
+import { AUTO_RELEASE_CHOICES, autoReleaseToWire } from './store-policy-seam'
 
 const JST = { timeZone: 'Asia/Tokyo' } as const
 const fmtDay = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', ...JST })
@@ -1517,6 +1520,14 @@ function sync(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
 
 function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
   void ctx
+  // ⚡ R2 BRANCH C — ⚖ D-11 / CONTRACTS-R2 §1. The guardrail is the SPEC's own
+  // rule (§2.4 「The dial」): it fires only when the stored value is an
+  // EXPLICIT number shorter than `leadTimeMin` — the linked default equals
+  // `leadTimeMin` by construction and can never trigger it, and 「解除しない」
+  // has no minute to compare. A fixed option list is the guardrail (no clamp
+  // code); this is the ONE sentence that says so or says the safe state.
+  const autoReleaseDial = opsConfig.autoReleaseBeforeMin
+  const autoReleaseTooShort = typeof autoReleaseDial === 'number' && autoReleaseDial < opsConfig.leadTimeMin
   return {
     ...base,
     kicker: 'Reserve設定',
@@ -1592,6 +1603,43 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
             guardrail: '制限なしにすると、準備の時間がない予約が入ります。締め切った空きは店頭・電話でのみ扱えます。',
           },
         }),
+        // ⚡ R2 BRANCH C — ⚖ D-11 (Liam 2026-09-13, 「Okay let's go with option
+        // A」). 確保を戻すために取り置く枠（新規用）を、開始のどれだけ前に自動で
+        // 解除するか。既定は「直前の空きは売らないと同じ」— 上のleadTimeMinを
+        // 都度参照する LINKED 値で、コピーした数字ではない（JP-NATIVE-R2/BRIEF.md
+        // items 9-11）。
+        row(
+          'reserve.row-autorelease',
+          '確保枠の自動解除',
+          '開始まで残りこの時間を切った新規用の確保枠は、確保をやめて通常の販売に戻します。「解除しない」にすると、開始時刻まで確保したままです。', // JP-NATIVE PASS PENDING
+          [
+            sel(
+              'reserve.autorelease',
+              '確保枠の自動解除',
+              opts(
+                AUTO_RELEASE_CHOICES.map((choice): [string, string] => [
+                  choice,
+                  {
+                    linked: `直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前）`, // JP-NATIVE PASS PENDING
+                    never: '解除しない', // JP-NATIVE PASS PENDING
+                    '30': '30分前', // JP-NATIVE PASS PENDING
+                    '120': '120分前', // JP-NATIVE PASS PENDING
+                  }[choice],
+                ]),
+              ),
+              autoReleaseToWire(opsConfig.autoReleaseBeforeMin),
+            ),
+          ],
+          {
+            scopeLabel: BUSINESS_SCOPE,
+            trio: {
+              base: '初期値: 直前の空きは売らないと同じ', // JP-NATIVE PASS PENDING
+              guardrail: autoReleaseTooShort
+                ? '「直前の空きは売らない」より短くすると、解除してもオンラインでは売れません。店頭・電話のみになります。' // JP-NATIVE PASS PENDING (BRIEF item 11)
+                : '「直前の空きは売らない」と同じか、それより長いため、いまはオンライン販売に影響しません。', // JP-NATIVE PASS PENDING
+            },
+          },
+        ),
       ], {
         preview: { template: 'お客様には{reserve.days}先まで、{reserve.grid}きざみの開始時刻を出します。{reserve.cutoff}で締め切り、{reserve.lead}の空きは出しません。スキマ枠は{reserve.gapfill}以上を{reserve.gapdisc}引きで掲載します。' },
         links: [{ label: 'ボードの操作の刻みは店舗情報・営業時間で', sectionId: 'store-hours' }],
