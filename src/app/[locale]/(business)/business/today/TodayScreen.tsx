@@ -2466,12 +2466,18 @@ export function TodayScreen(props: TodayProps) {
    *
    *  AT REST `boardLanes` IS the committed board and `ledger.world` its book,
    *  so this is the settled answer computed twice and the rail's words do not
-   *  move (the four-width renders are byte-identical). */
+   *  move (the four-width renders are byte-identical). While a staff card is
+   *  in hand the reader discards the map, so the netting is skipped (lens 1f,
+   *  2026-09-13); the rail's words during that gesture are not drawn at all
+   *  (pre-existing). */
+  /** ⚖ HONEST-COUNT ROUND 1 · fix 7 (2026-09-13, lens 1f MINOR 1) — the reader
+   *  discards `inHand != null`, so skip the netting exactly then. */
+  const staffCardInHand = live != null && live.group !== 'beds' && !live.overShelf && live.mode === 'move'
   const heldBoardHonest = useMemo(
-    () => (HONEST_HELD && heldBoard
+    () => (HONEST_HELD && heldBoard && !staffCardInHand
       ? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true).byLane.map(heldMaskOf)
       : heldBoard),
-    [heldBoard, locked, boardLanes, ledger],
+    [heldBoard, locked, boardLanes, ledger, staffCardInHand],
   )
 
   /** ⚖ NEW-WINDOW — THE DAY QUESTION'S OWN DOOR, and it is the SETTLED board's.
@@ -2751,7 +2757,7 @@ export function TodayScreen(props: TodayProps) {
    *  on. */
   const inHand = useMemo<LandingAsk | null>(() => {
     if (live) {
-      if (live.group === 'beds' || live.overShelf || live.mode !== 'move') return null
+      if (!staffCardInHand) return null
       const item = boardLanes.flatMap((l) => l.items).find((i) => i.caseId === live.id)
       return {
         staffLane: null,

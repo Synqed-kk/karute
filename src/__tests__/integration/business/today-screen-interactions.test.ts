@@ -6660,7 +6660,10 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // A block drag carries no booking, so it marks nothing (canon has no guard
     // for 休憩 either) — and neither does a bed-row drag, which can never land
     // on the staff strips these marks live on.
-    expect(SRC).toContain("if (live.group === 'beds' || live.overShelf || live.mode !== 'move') return null")
+    // HONEST-COUNT ROUND 1 · fix 7 (2026-09-13, lens 1f MINOR 1) — same truth,
+    // now named `staffCardInHand` so the honest-count memo reads it too (one
+    // home, the memo and the reader can never disagree).
+    expect(SRC).toContain('if (!staffCardInHand) return null')
   })
 
   // ── (b) the cursor label, and the perf bar ───────────────────────────────
