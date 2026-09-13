@@ -2711,7 +2711,14 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
     // Codex's mutant inserts `if (dayStaged) return honest` ABOVE this line, so
     // the two lines stop being adjacent and this anchor goes RED. It is the
     // repo-side half of a fact the rig proves by rendering.
+    //
+    // \u2696 D-20 (1) (2026-09-14) \u2014 the origin mask's PRODUCTION (`originHeld` /
+    // `heldCommittedFor`) moved out to its own `originReleased` memo, shared
+    // with `dayOrigin`'s netting-off arm; `honestOrigin`'s body shrank to the
+    // netting alone, so the line immediately below the guard is now the new
+    // `if (!originReleased) return honest` \u2014 same mutant, same adjacency, new
+    // second line.
     const screen = SRC('TodayScreen.tsx')
-    expect(screen).toContain('const honestOrigin = useMemo(() => {\n    if (!honest || !dayStaged) return honest\n    const originHeld = heldCommittedFor({')
+    expect(screen).toContain('const honestOrigin = useMemo(() => {\n    if (!honest || !dayStaged) return honest\n    if (!originReleased) return honest')
   })
 })
