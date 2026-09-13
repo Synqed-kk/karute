@@ -46,6 +46,9 @@ export interface SessionsListScreen {
   total: number
   /** Store-wide discarded records, separate from total. */
   discardedCount: number
+  /** D10 (PR-C, self-lighting): store-wide shared-karute count — see the
+   *  args doc below. `undefined` until core ships it, never `?? 0`. */
+  sharedCount?: number
   /** Staff filter pills (id + display name + initials). */
   staffList: Array<{
     id: string
@@ -86,6 +89,9 @@ export function buildSessionsListScreen(args: {
   /** See the matching field's doc on SessionsListScreen. */
   total: number
   discardedCount?: number
+  /** D10 (PR-C): see SessionsListScreen.sharedCount. Never defaulted — an
+   *  absent input must stay absent on the way out. */
+  sharedCount?: number
 }): SessionsListScreen {
   const {
     staffList,
@@ -97,6 +103,7 @@ export function buildSessionsListScreen(args: {
     monthCount,
     total,
     discardedCount = 0,
+    sharedCount,
   } = args
 
   type RecordRow = {
@@ -111,6 +118,8 @@ export function buildSessionsListScreen(args: {
     status: string
     service?: string | null
     duration_minutes?: number | null
+    /** D10 (PR-C, self-lighting): drives `isShared` on the projected row. */
+    shared_at?: string | null
   }
 
   // mergeKaruteRows still gives us the sort (session_date ?? created_at desc)
@@ -236,6 +245,10 @@ export function buildSessionsListScreen(args: {
       aiStatus,
       conversionStatus,
       ...(r.status === 'DISCARDED' ? { isDiscarded: true } : {}),
+      // D10 (PR-C, self-lighting): a fact about the row, not a visibility
+      // decision — WHO may see the resulting chip is decided downstream
+      // (KaruteListRow's viewerHoldsViewShared + currentStaffId gate).
+      ...(r.shared_at ? { isShared: true } : {}),
       href: `/karute/${r.id}`,
     }
   })
@@ -267,6 +280,7 @@ export function buildSessionsListScreen(args: {
     monthCount,
     total,
     discardedCount,
+    sharedCount,
     staffList: visibleStaff.map((s) => ({
       id: s.id,
       name: s.full_name ?? 'Unknown',

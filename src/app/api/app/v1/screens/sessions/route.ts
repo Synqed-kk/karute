@@ -136,6 +136,15 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
       'freshDiscardedCount' in karuteRead
         ? karuteRead.freshDiscardedCount
         : karuteRead.discardedCount
+    // D10 (PR-C, self-lighting): same two-branch field-name split as the pair
+    // above — `undefined` on EITHER branch stays undefined (never `?? 0`; a
+    // legacy/bare read never even threads sharedOnly, so it is undefined by
+    // construction until core ships shared_count). Discriminated on
+    // `windowStart` (required, unique to KaruteWindow) rather than
+    // `freshSharedCount` itself — that field is OPTIONAL on both branches, so
+    // an `in` check on it can't narrow the union the way `windowStart` can.
+    const storeSharedCount =
+      'windowStart' in karuteRead ? karuteRead.freshSharedCount : karuteRead.sharedCount
     if ('windowStart' in karuteRead) windowRead = karuteRead
 
     // Page parity (getCurrentUserStaffId): the caller's staff identity is their
@@ -164,6 +173,7 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
       monthCount: monthProbe.total,
       total: storeTotal,
       discardedCount: storeDiscardedCount,
+      sharedCount: storeSharedCount,
     })
   } catch (err) {
     if (err instanceof AppApiError) throw err
@@ -182,6 +192,8 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
         // R8 discarded-record door (A8) — windowed-only, same reasoning as
         // discardedCount/hasMore/windowStart above.
         viewerCanOpenDiscarded: ctx.identity.capabilities.has('records.discardView'),
+        // D10 (PR-C) — same windowed-only reasoning.
+        viewerHoldsViewShared: ctx.identity.capabilities.has('recordings.viewShared'),
       })
     : SessionsScreenDTO.parse(screen)
   return ok(ctx, dto)
