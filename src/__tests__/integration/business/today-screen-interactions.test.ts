@@ -2693,7 +2693,14 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // module-level `FOREIGN_BOOKS` cache, so the same object comes back. The
     // pin's meaning is unmoved: still ONE door, still every way in through the
     // cache and never through a per-frame closure.
-    expect(SRC.split('bookFor(').length - 1).toBe(7)
+    // ⚖ D-17 F3 (2026-09-14) — 7 → 8. The eighth way in is the day layer's
+    // HONEST-off arm: with the law ON and the netting OFF the header reads the
+    // RELEASED mask in the day layer's shape, which it gets from the one netting
+    // function asked with `on: false`. It is the SAME expression the honest and
+    // the withheld memos take (same lanes, same frame, same `FOREIGN_BOOKS`
+    // record), so it is a cache hit and not a second book — which is exactly what
+    // this pin exists to keep true.
+    expect(SRC.split('bookFor(').length - 1).toBe(8)
     expect(SRC).not.toContain('bedViewsFor(committedLanes')
     expect(SRC).toContain('gateOn: SELLING_ENGINE_LAW,')
     expect(SRC).toContain('bookOf: bedViewsFor,')

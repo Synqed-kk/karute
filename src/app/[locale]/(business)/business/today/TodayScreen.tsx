@@ -2694,9 +2694,33 @@ export function TodayScreen(props: TodayProps) {
    *  answer the row's boxes are drawn from. The legacy walk stays as the
    *  law-off fallback: with the round gate off `honest` is `undefined` and this
    *  line is byte-for-byte the one that shipped. */
+  /** ⚖ D-17 F3 — the release edits the mask ABOVE the netting, so the header must
+   *  read the mask even when the netting is off. The middle case used to fall to
+   *  the legacy walk, which re-derives the windows from the LANES and so counted
+   *  枠 the clock had already let go (the matrix printed chip 4 over three held
+   *  boxes and a released mark at 13:30). `on=false` is `honestHeld`'s identity
+   *  answer — no book asked, `heldRoom` `''` — so this is the released mask in
+   *  the day layer's shape, under the same lock rule the netting takes. The TRUE
+   *  law-off fallback (`heldCommitted === undefined`) keeps the byte-identical
+   *  legacy line. */
   const dayCommitted = useMemo(
-    () => (guardOn ? (honest ? windowsOf(honest, committedLanes) : windowsOn(committedLanes, inputOn(committedLanes))) : EMPTY_WINDOWS),
-    [guardOn, honest, committedLanes, inputOn],
+    () => {
+      if (!guardOn) return EMPTY_WINDOWS
+      if (honest) return windowsOf(honest, committedLanes)
+      if (heldCommitted) {
+        return windowsOf(
+          honestHeld(
+            heldCommitted.filter((m) => !locked.includes(m.laneKey)),
+            committedLanes,
+            bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+            false,
+          ),
+          committedLanes,
+        )
+      }
+      return windowsOn(committedLanes, inputOn(committedLanes))
+    },
+    [guardOn, honest, heldCommitted, locked, committedLanes, ledgerFrame, inputOn],
   )
   /** THE 元に戻す BOARD. It collapses to `committedLanes` when nothing is staged,
    *  so this memo — and only this one — may take the pending gate. */
