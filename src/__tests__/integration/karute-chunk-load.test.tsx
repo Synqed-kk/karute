@@ -894,6 +894,32 @@ describe('pill counts', () => {
     expect(screen.getByText('破棄 太郎').closest('[aria-disabled="true"]')).toBeTruthy()
   })
 
+  it('a discarded row\'s withheld summary is not a search oracle (R3 repair, 2026-09-13, F3b)', () => {
+    // screen-rows.ts now blanks a DISCARDED row's summary before it ever
+    // reaches this view (see screen-rows-discarded-summary.test.ts for that
+    // builder-level pin). This test is the CONSUMER half: even though this
+    // row's summary field is '' exactly as the fixed builder produces, prove
+    // the search box can't turn up the row via whatever its ORIGINAL raw
+    // summary would have said — searching for that word must find nothing,
+    // never a row that "matched" for no visible reason (the F3b(c) second-
+    // order bug: a presence/absence oracle over withheld content).
+    const active = item('active', jstYmd(0), '有効 花子')
+    const discarded = {
+      ...item('discarded', jstYmd(1), '破棄 次郎'),
+      summary: '', // withheld — the builder's fixed output, never the raw text
+      isDiscarded: true,
+    }
+    renderList({ items: [active, discarded], total: 1, discardedCount: 1 })
+
+    fireEvent.change(screen.getByPlaceholderText('searchPlaceholder'), {
+      // The word this discarded record's raw (pre-blank) summary carried —
+      // never shipped to this view at all post-fix.
+      target: { value: 'ヒミツの内容タグ' },
+    })
+    expect(screen.queryByText('破棄 次郎')).not.toBeInTheDocument()
+    expect(screen.queryByText('有効 花子')).not.toBeInTheDocument()
+  })
+
   it('今週 does NOT climb when さらに表示 appends OLDER rows', async () => {
     loadKaruteWindow.mockResolvedValue({
       // A walk backward can only ever return rows older than the boundary, so

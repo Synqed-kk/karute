@@ -220,7 +220,19 @@ export function buildSessionsListScreen(args: {
       staffName: recordStaffProfileId
         ? (staffNameById.get(recordStaffProfileId) ?? 'Unknown')
         : '—',
-      summary: r.summary ?? '',
+      // R3 repair (2026-09-13, F3b): a discarded row's summary is WITHHELD,
+      // not merely painted over — KaruteListRow renders the literal
+      // 「破棄済み」 for any !active row regardless of this value, but before
+      // this fix the raw summary still rode the wire to every viewer's
+      // network payload/React props, and the search box (i.summary.includes)
+      // could reveal a discarded row's presence by matching hidden content it
+      // never displays. Blanked here — the ONE builder every door (web list,
+      // thin SessionsScreen, the facade DTO, search) reads through — so all
+      // four close together. `aiStatus` above already read the REAL r.summary
+      // before this line runs, so a discarded row's aiStatus derivation is
+      // unaffected by the blank (its chips are suppressed anyway — see
+      // KaruteListRow.tsx's `active &&` guards).
+      summary: r.status === 'DISCARDED' ? '' : (r.summary ?? ''),
       aiStatus,
       conversionStatus,
       ...(r.status === 'DISCARDED' ? { isDiscarded: true } : {}),
