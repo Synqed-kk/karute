@@ -848,13 +848,16 @@ export function KaruteRecordListView({
   //
   // EVERY OTHER PILL counts the rows its own tap reveals — ⚖ Liam 8/25 for
   // 今週 (see thisWeekCutoffYmd for the ruling and the completeness argument),
-  // and settled-not-pending for AI補完待ち/下書き: `aiStatus` is derived from
+  // settled-not-pending for AI補完待ち/下書き: `aiStatus` is derived from
   // each row's data shape (summary/transcript presence — see screen-rows.ts),
   // while core's own `status` field is the workflow axis
-  // (DRAFT/REVIEW/APPROVED), a different question that cannot back them.
-  //
-  // null (storeTotal unknown, or month view below) → SegmentedFilterBar renders
-  // that pill's LABEL ALONE. A count that can't be true is dropped, not guessed.
+  // (DRAFT/REVIEW/APPROVED), a different question that cannot back them — and
+  // 破棄済み (R2 repair, 2026-09-13, F2): storeDiscardedCount is the STORE-WIDE
+  // count, exactly the すべて exception this comment names above, but 破棄済み
+  // was never granted that exception and has no header line inches away
+  // explaining the gap. So it counts the LOADED discarded rows, same as every
+  // other non-すべて pill; a discarded record outside the loaded window is
+  // exactly what さらに表示 (or filtering to すべて) surfaces.
   const counts = useMemo(() => {
     const activeItems = allItems.filter(isActiveKarute)
     const countStatus = (status: KaruteListItem['aiStatus']) =>
@@ -865,9 +868,9 @@ export function KaruteRecordListView({
       aiPending: countStatus('pending'),
       needsReview: countStatus('needsReview'),
       draft: countStatus('draft'),
-      discarded: storeDiscardedCount,
+      discarded: allItems.filter((i) => i.isDiscarded).length,
     } satisfies Record<KaruteListFilter, number | null>
-  }, [allItems, storeTotal, storeDiscardedCount, weekCutoff])
+  }, [allItems, storeTotal, weekCutoff])
 
   // Month view SWAPS the row set (PR-2b). The staff scope and the search box
   // still apply INSIDE a month — they answer "whose" and "which words", not

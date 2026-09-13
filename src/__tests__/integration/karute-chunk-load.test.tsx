@@ -861,7 +861,7 @@ describe('pill counts', () => {
     expect(showingCount()).toBe(1)
   })
 
-  it('破棄済み uses its separate total and shows only non-actionable discarded rows', () => {
+  it('破棄済み counts the LOADED discarded rows, never the store-wide total (R2 repair, 2026-09-13, F2)', () => {
     const active = item('active', jstYmd(0), '有効 花子')
     const discarded = {
       ...item('discarded', jstYmd(1), '破棄 太郎'),
@@ -870,7 +870,14 @@ describe('pill counts', () => {
     renderList({
       items: [active, discarded],
       total: 1,
-      discardedCount: 1,
+      // 5, not 1: the store holds 5 discarded records total, but only ONE is
+      // loaded on screen. Before the fix the pill read `storeDiscardedCount`
+      // (5) while its own tap reveals 1 row — exactly the ⚖ 8/25 pill rule
+      // violation F2 names. This one-line fixture change is the mutant proof:
+      // on the unfixed `discarded: storeDiscardedCount` line this assertion
+      // goes RED (pillCount('discarded') reads 5); see
+      // BUILD-REPORT-ANTHONY-REPAIRS-2026-09-13.md for the pasted red run.
+      discardedCount: 5,
     })
 
     expect(pillCount('discarded')).toBe(1)
