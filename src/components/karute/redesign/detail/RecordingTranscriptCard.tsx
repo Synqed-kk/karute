@@ -48,9 +48,6 @@ interface RecordingTranscriptCardProps {
 export function RecordingTranscriptCard({
   karuteId,
   transcript,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept on the
-  // wire (see the prop doc above), no longer rendered here.
-  consentOnFile,
   durationLabel,
   restricted,
   recording,
