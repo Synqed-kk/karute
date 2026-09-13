@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { Loader2 } from 'lucide-react'
@@ -11,11 +11,6 @@ interface RecordingShareToggleProps {
   karuteId: string
   shared: boolean
 }
-
-/** How long an optimistic display is trusted before it self-corrects even
- *  without a confirming prop change (see the FIX ROUND 1 note below) —
- *  generous next to a normal round-trip, short next to "never". */
-const OPTIMISTIC_SETTLE_MS = 5000
 
 /**
  * The recorder's own 共有 toggle (⚖ Liam 2026-09-13 sharing law; 2026-09-14
@@ -39,18 +34,16 @@ const OPTIMISTIC_SETTLE_MS = 5000
  * it until the refreshed `shared` prop actually arrives (the effect below),
  * so the chip never flashes back to stale.
  *
- * DISCLOSED GAP found while testing the packet's own claim ("if the server
- * disagrees, the display reverts honestly"): for a BOOLEAN prop, the only
- * value a disagreement can arrive as is the value `shared` already held
- * BEFORE this toggle — which means `useEffect(…, [shared])` can never see a
- * dependency change to react to (the value never differs across renders),
- * so the packet's literal `[shared]`-only effect cannot detect that case at
- * all. A settle TIMEOUT closes the gap: it clears the optimistic override
- * unconditionally after `OPTIMISTIC_SETTLE_MS`, so a disagreement still
- * self-corrects — not the instant the fresh (identical-looking) data lands,
- * but within a bounded, generous window, rather than staying wrong forever.
- * The ordinary confirm path (the value genuinely changes) still corrects
- * instantly via the prop-diff effect below, unaffected.
+ * FIX ROUND 2 (ruling on round 1's disclosed gap): `setRecordingSharedWithClient`
+ * returns `shared: input.shared` on EVERY `ok` result — both the written and
+ * the idempotent-no-op branch (share.ts) — so once `result.ok` is true, the
+ * server state IS the requested state by contract; "the server disagreed"
+ * cannot happen on a successful result. `optimistic` is therefore seeded
+ * from `result.shared` (the server's own confirmed answer), never from a
+ * locally-guessed `!shown` — and the `[shared]` prop-change effect is the
+ * WHOLE mechanism: the refreshed prop arriving means the override is no
+ * longer needed, and a prop that never arrives just keeps showing the
+ * server-confirmed truth, which is honest either way. No timer.
  */
 export function RecordingShareToggle({ karuteId, shared }: RecordingShareToggleProps) {
   const t = useTranslations('karuteDetail.transcript')
@@ -58,41 +51,25 @@ export function RecordingShareToggle({ karuteId, shared }: RecordingShareToggleP
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const [optimistic, setOptimistic] = useState<boolean | null>(null)
-  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const shown = optimistic ?? shared
-
-  const clearSettleTimer = () => {
-    if (settleTimer.current !== null) {
-      clearTimeout(settleTimer.current)
-      settleTimer.current = null
-    }
-  }
 
   // The prop changing means the server actually answered — real state wins,
   // whatever it says (a share the server refused reverts here, honestly).
   useEffect(() => {
     setOptimistic(null)
-    clearSettleTimer()
   }, [shared])
-
-  // Unmount safety: never let a pending timer fire setState on a gone card.
-  useEffect(() => clearSettleTimer, [])
 
   const toggle = async () => {
     setBusy(true)
     setFailed(false)
-    const next = !shown
-    const result = await setRecordingShared(karuteId, next)
+    const result = await setRecordingShared(karuteId, !shown)
     setBusy(false)
     if (!result.ok) {
       setOptimistic(null)
-      clearSettleTimer()
       setFailed(true)
       return
     }
-    setOptimistic(next)
-    clearSettleTimer()
-    settleTimer.current = setTimeout(() => setOptimistic(null), OPTIMISTIC_SETTLE_MS)
+    setOptimistic(result.shared)
     router.refresh()
   }
 
