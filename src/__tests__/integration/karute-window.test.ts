@@ -122,6 +122,36 @@ function fakeCore(records: Rec[]) {
   return { list, calls }
 }
 
+// T3 (fix round 2, L2 LOW-1): a fakeCore VARIANT whose response OMITS
+// shared_count entirely (core genuinely hasn't shipped the field at all,
+// distinct from "answered 0") — every other field behaves exactly like
+// fakeCore above, so this is a sibling, not a modification of it.
+function fakeCoreNoSharedCount(records: Rec[]) {
+  const calls: ListOpts[] = []
+  const list = (opts: ListOpts) => {
+    calls.push(opts)
+    let rows = records
+    if (opts.from) rows = rows.filter((r) => r.created_at >= opts.from!)
+    if (opts.to) rows = rows.filter((r) => r.created_at <= opts.to!)
+    if (opts.shared_only) rows = rows.filter((r) => r.sharedAt != null)
+    const activeRows = rows.filter((r) => r.status !== 'DISCARDED')
+    const discardedRows = rows.filter((r) => r.status === 'DISCARDED')
+    const visibleRows = opts.include_discarded ? rows : activeRows
+    const size = opts.page_size ?? 100
+    const page = opts.page ?? 1
+    return Promise.resolve({
+      karute_records: visibleRows
+        .slice((page - 1) * size, page * size)
+        .map((r) => ({ ...r, shared_at: r.sharedAt ?? null })),
+      total: activeRows.length,
+      discarded_count: discardedRows.length,
+      // shared_count key deliberately absent — NOT `shared_count: undefined`,
+      // a real upstream response that never mentions the field at all.
+    })
+  }
+  return { list, calls }
+}
+
 // Pinned "now" so a test never races the calendar.
 const NOW = new Date('2026-08-25T03:00:00.000Z')
 
@@ -440,6 +470,15 @@ describe('loadKaruteWindowRows — sharedOnly (D10, PR-C, self-lighting)', () =>
     })
     expect(res.rows.map((r) => r.id)).toEqual(['legacy-shared'])
     expect(core.calls.every((c) => c.shared_only === true)).toBe(true)
+  })
+})
+
+// T3 (fix round 2, L2 LOW-1, optional but cheap)
+describe('loadKaruteWindowRows — T3: shared_count entirely omitted from core\'s response', () => {
+  it('freshSharedCount is undefined at this hop when core never answers shared_count at all (never 0)', async () => {
+    const core = fakeCoreNoSharedCount([rec('k1', '2026-08-24T01:00:00.000Z')])
+    const res = await loadKaruteWindowRows(asClient(core.list), { now: NOW })
+    expect(res.freshSharedCount).toBeUndefined()
   })
 })
 
