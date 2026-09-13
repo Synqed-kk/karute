@@ -1020,19 +1020,44 @@ export function KaruteRecordListView({
              *  さらに表示 failure line: a background refresh that freezes the
              *  newest rows is exactly what a screen-reader user must hear —
              *  nothing on screen moved to tell them. */}
+            {/* R1 (2026-09-13 repair round): 全件 must name the SAME universe
+             *  表示中 counts under すべて — filtered.length includes discarded
+             *  rows there (:898), so 全 has to as well or 表示中 can read
+             *  larger than 全 (F1). storeDiscardedCount and storeTotal always
+             *  travel together (both legs of the SAME karuteData.data probe —
+             *  karute-window.ts's loadKaruteWindowRows reads them off one
+             *  storeProbe call), so treating a null discarded count as 0 here
+             *  never masks an independent leg failure — there is no such leg. */}
             {serverDegraded
               ? loadedCount > 0 && <span role="alert">{t('loadMoreFailed')}</span>
               : storeTotal !== null &&
-                (monthCount !== null
-                  ? t('statusLine', {
-                      total: storeTotal,
-                      monthCount,
-                      showingCount: filtered.length,
-                    })
-                  : t('statusLineNoMonth', {
-                      total: storeTotal,
-                      showingCount: filtered.length,
-                    }))}
+                (() => {
+                  const discarded = storeDiscardedCount ?? 0
+                  if (discarded > 0) {
+                    return monthCount !== null
+                      ? t('statusLineDiscarded', {
+                          total: storeTotal + discarded,
+                          discarded,
+                          monthCount,
+                          showingCount: filtered.length,
+                        })
+                      : t('statusLineNoMonthDiscarded', {
+                          total: storeTotal + discarded,
+                          discarded,
+                          showingCount: filtered.length,
+                        })
+                  }
+                  return monthCount !== null
+                    ? t('statusLine', {
+                        total: storeTotal,
+                        monthCount,
+                        showingCount: filtered.length,
+                      })
+                    : t('statusLineNoMonth', {
+                        total: storeTotal,
+                        showingCount: filtered.length,
+                      })
+                })()}
           </p>
           {/* + 新規カルテ — primary CTA. Opens the manual-entry dialog
            *  (NewKaruteDialog) so staff can backdate or log a session

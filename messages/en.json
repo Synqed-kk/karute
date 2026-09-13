@@ -1394,6 +1394,8 @@
     "recordList": {
       "statusLine": "Karute · {total} total · {monthCount} this month · showing {showingCount}",
       "statusLineNoMonth": "Karute · {total} total · showing {showingCount}",
+      "statusLineDiscarded": "Karute · {total} total ({discarded} discarded) · {monthCount} this month · showing {showingCount}",
+      "statusLineNoMonthDiscarded": "Karute · {total} total ({discarded} discarded) · showing {showingCount}",
       "loadMore": "Show more (karute before {date})",
       "addedCount": "Loaded {n} karute",
       "loadMoreFailed": "Couldn't load more. Please try again.",
