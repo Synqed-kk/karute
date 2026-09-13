@@ -192,7 +192,7 @@ import {
 import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
 import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
 import { heldCommittedFor } from './held-committed'
-import { demoteShared, heldMaskOf, honestHeld, type HonestHeld } from './honest-held'
+import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'
 import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'
 import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'
 
@@ -2442,27 +2442,37 @@ export function TodayScreen(props: TodayProps) {
     [boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],
   )
 
-  /** ⚖ HONEST-COUNT ROUND 1 · v3 N4 — THE BOARD WORLD, MINUS THE 枠 THE ROOMS
-   *  CANNOT HONOUR.
+  /** ⚖ HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+   *  frame for the rail) — THE BOARD WORLD IS NETTED, ON EVERY FRAME.
    *
-   *  The board world is NOT netted: it is rebuilt on every pointer frame on a
-   *  cold book, and a store-wide room search there is the cost this round
-   *  refuses to pay. It is handed the SETTLED board's shared spans instead, and
-   *  `demoteShared` drops what collides with them — one overlap test per span.
-   *  Its one reader is the rail explanation, so the whole blast radius is the
-   *  half-hour word: あずさ's row stops saying 新規用 over a 枠 the chip no
-   *  longer counts, and ごろう's keeps saying it.
+   *  It used to be handed the SETTLED board's shared spans and demote what
+   *  collided with them (`demoteShared`, spec v3 N4), which could not see a
+   *  collision the TENTATIVE MOVE ITSELF creates — Greptile's P1 on #904. Liam
+   *  ruled the cost in: the live mask is netted by the SAME producer the
+   *  settled answer uses, with the LIVE lanes and the LIVE book that mask was
+   *  cut from (`ledger.world` — never a second book; a second one would be a
+   *  second bed truth on the same frame, which is the one thing spec §1
+   *  forbids). Measured: fixture 0.06 ms p95 · 30 staff × 10 rooms 0.40 ms ·
+   *  60 × 20 0.81 ms, and the book already exists per frame, so the frame pays
+   *  the search alone.
    *
-   *  HONEST-COUNT ROUND 1 · fix 5 (2026-09-13, Greptile P1 on #904 — live rails)
-   *  — and mid-gesture the demotion LIFTS ITSELF as soon as the live board no
-   *  longer carries the winner's 枠 (lift ごろう's 14:30 card and あずさ's row
-   *  speaks again), while the other half — a NEW collision the tentative layout
-   *  creates — is the ⚖ 「nothing per pointer frame」 trade: seeing it would need
-   *  the netting on every frame, so the rail says main's word there until the
-   *  drop settles the board.
+   *  The locked filter is the SETTLED memo's, spelled the same way: a row
+   *  シフトロック has taken off sale may not take a room from a row it is still
+   *  selling (spec §2.1).
    *
-   *  Identity when nothing is shared, so the gate off is today's board. */
-  const heldBoardHonest = useMemo(() => demoteShared(heldBoard, honest), [heldBoard, honest])
+   *  ONE READER: `held:` at the rail explanation below. The chip, the day
+   *  layer's warning, the row boxes and the online 確保 rows stay on the
+   *  SETTLED `honest`/`honestDrawn` — by design they do not move mid-gesture.
+   *
+   *  AT REST `boardLanes` IS the committed board and `ledger.world` its book,
+   *  so this is the settled answer computed twice and the rail's words do not
+   *  move (the four-width renders are byte-identical). */
+  const heldBoardHonest = useMemo(
+    () => (HONEST_HELD && heldBoard
+      ? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true).byLane.map(heldMaskOf)
+      : heldBoard),
+    [heldBoard, locked, boardLanes, ledger],
+  )
 
   /** ⚖ NEW-WINDOW — THE DAY QUESTION'S OWN DOOR, and it is the SETTLED board's.
    *
