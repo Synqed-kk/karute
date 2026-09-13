@@ -21,7 +21,8 @@ jest.mock('@/lib/staff', () => ({
   resolveUserId: jest.fn(async () => 'user-1'),
 }))
 jest.mock('@/lib/supabase/karute', () => ({
-  getKaruteRecord: jest.fn(async (id: string) =>
+  // R8 discarded-record door: the page now reads through this sibling.
+  getKaruteRecordIncludingDiscarded: jest.fn(async (id: string) =>
     id === 'missing' ? null : { id, client_id: 'cust-9', summary: null },
   ),
 }))

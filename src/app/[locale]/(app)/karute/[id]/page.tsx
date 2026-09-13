@@ -3,7 +3,7 @@ import { renderStamp } from '@/lib/perf/render-stamp'
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 
-import { getKaruteRecord } from '@/lib/supabase/karute'
+import { getKaruteRecordIncludingDiscarded } from '@/lib/supabase/karute'
 import { getKaruteOutcome } from '@/lib/karute/outcome'
 import { KaruteDetailView } from '@/components/karute/redesign/detail/KaruteDetailView'
 import { PhotoRecordsServer } from '@/components/karute/redesign/detail/PhotoRecordsServer'
@@ -23,6 +23,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { can, getMyCapabilities } from '@/lib/auth/require-permission'
 import {
+  canOpenDiscardedRecord,
   canViewAllInStore,
   canViewTranscript,
   ownerHandReach,
@@ -59,8 +60,9 @@ export default async function KaruteDetailPage({
     canReassign,
     businessId,
     capabilities,
+    holdsDiscardView,
   ] = await Promise.all([
-    getKaruteRecord(id),
+    getKaruteRecordIncludingDiscarded(id),
     // Page to completion so the karute number resolves for an overflow customer.
     synqedPromise.then((synqed) =>
       listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
@@ -88,6 +90,10 @@ export default async function KaruteDetailPage({
     // rather than a second can() keeps `business.manage` out of the capability
     // log this page keeps for the READ (it is never asked as its own question).
     getMyCapabilities(),
+    // R8 discarded-record door (⚖ Liam 2026-09-13): joins the FIRST wave
+    // beside can('records.reassign') so the discard-door decision below costs
+    // no extra round-trip (cold-read F2).
+    can('records.discardView'),
   ])
   if (!karute) notFound()
 
@@ -136,6 +142,32 @@ export default async function KaruteDetailPage({
   // they cannot disagree about which stores this viewer can see.
   const allowedStoreIds =
     storeScope === null || storeScope.degraded ? [] : storeScope.allowedStoreIds
+
+  // R8 discarded-record door (⚖ Liam 2026-09-13, F2′): decide BEFORE the
+  // customer-contact/consent/customer wave below runs, so a refused viewer
+  // never pays for reads past this point. The record already says whether it
+  // is discarded (karute.status, widened by the mapper — A2). A LIVE
+  // record's control flow below is byte-identical to today: this whole
+  // branch is skipped, and the existing `const recordingRead = await
+  // recordingPromise` further down (unchanged, still awaited beside the
+  // customer wave per ③ fix round 4) is the ONLY await on this promise.
+  if (karute.status === 'DISCARDED') {
+    // recordingPromise has been in flight since the top of this function;
+    // awaiting it here costs nothing extra (a second await on an
+    // already-settled/in-flight promise is free) — readDoorStoreId needs it
+    // to judge which store this record belongs to. Do NOT move the existing
+    // await further down for the live-record path (F2′) — awaiting the same
+    // promise twice is intentional, not a bug.
+    const earlyRecordingRead = await recordingPromise
+    const allowedToOpen = canOpenDiscardedRecord({
+      ownerStaffId: ownerProfileId,
+      viewerStaffId,
+      holdsDiscardView,
+      allowedStoreIds,
+      recordStoreId: readDoorStoreId(karute, earlyRecordingRead),
+    })
+    if (!allowedToOpen) notFound()
+  }
 
   const customerId = karute.client_id ?? null
 

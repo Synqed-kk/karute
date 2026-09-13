@@ -14,7 +14,8 @@ jest.mock('@/lib/staff', () => ({
 }))
 const karuteRow = { current: { client_id: 'cust-9', summary: null } as Record<string, unknown> }
 jest.mock('@/lib/supabase/karute', () => ({
-  getKaruteRecord: jest.fn(async (id: string) => ({ id, ...karuteRow.current })),
+  // R8 discarded-record door: the page now reads through this sibling.
+  getKaruteRecordIncludingDiscarded: jest.fn(async (id: string) => ({ id, ...karuteRow.current })),
 }))
 jest.mock('@/lib/karute/outcome', () => ({ getKaruteOutcome: jest.fn(async () => null) }))
 // Slice ①: the page reads the recording behind the karute for the player's

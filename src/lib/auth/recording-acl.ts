@@ -26,6 +26,29 @@ export function canViewTranscript(opts: {
 }
 
 /**
+ * May `viewerStaffId` OPEN a DISCARDED karute owned by `ownerStaffId` — the
+ * facts + the discard reason, never the content (withheld separately by the
+ * caller: contentWithheld, detail-screen.ts). ⚖ Liam 2026-09-13: the
+ * record's own staffer always may, exactly as for a live record; everyone
+ * else needs the `records.discardView` capability, and store isolation
+ * applies to that grant exactly as it does to `recordings.viewAll` — REUSES
+ * canViewAllInStore + readDoorStoreId (the transcript door's own spelling),
+ * so the words door and the discard door can never disagree about which
+ * store judges a karute.
+ */
+export function canOpenDiscardedRecord(opts: {
+  ownerStaffId: string | null
+  viewerStaffId: string | null
+  holdsDiscardView: boolean
+  allowedStoreIds: readonly string[] | null
+  recordStoreId: string | null | undefined | 'unreadable'
+}): boolean {
+  const { ownerStaffId, viewerStaffId, holdsDiscardView, allowedStoreIds, recordStoreId } = opts
+  if (viewerStaffId != null && viewerStaffId === ownerStaffId) return true
+  return canViewAllInStore({ canViewAll: holdsDiscardView, allowedStoreIds, recordStoreId })
+}
+
+/**
  * The grant widens WHOSE recordings, never WHICH stores (⚖ Liam's store-
  * isolation law 8/17; Greptile #848 point 2).
  *

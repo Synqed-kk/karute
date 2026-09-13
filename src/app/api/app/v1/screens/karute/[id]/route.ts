@@ -19,7 +19,7 @@
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { KaruteDetailScreenDTO } from '@/lib/app-api/karute-detail-screen-dto'
-import { readKaruteRaw } from '@/lib/app-api/karute-facade'
+import { readKaruteRawIncludingDiscarded } from '@/lib/app-api/karute-facade'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
@@ -29,6 +29,7 @@ import { getKaruteOutcomeWithClient, OLD_SHELL_OUTCOMES } from '@/lib/karute/out
 import { mapSynqedKaruteRecord } from '@/lib/supabase/karute'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
 import {
+  canOpenDiscardedRecord,
   canViewAllInStore,
   canViewTranscript,
   ownerHandReach,
@@ -66,8 +67,12 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
   const synqed = newSynqedClient(businessId)
 
   // Tenancy proof FIRST — cross-tenant/missing → 404, genuine upstream → 502,
-  // both OUTSIDE the wave catch so they surface with their own status.
-  const raw = await readKaruteRaw(synqed, id)
+  // both OUTSIDE the wave catch so they surface with their own status. R8
+  // discarded-record door (⚖ Liam 2026-09-13): the retry is NOT conditioned
+  // on the caller (own-ness cannot be known before the read), so this sibling
+  // is now the tenancy-proof read for EVERY detail GET — a live record's
+  // ordinary get() succeeds directly and the retry never fires (A1).
+  const raw = await readKaruteRawIncludingDiscarded(synqed, id)
   const customerId = (raw.customer_id as string | null) ?? null
   const recordingSessionId = (raw.recording_session_id as string | null) ?? null
 
@@ -137,6 +142,8 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     const viewerStaffId = selfRow ? selfRow.id : null
     const viewerRole = (selfRow?.display_role ?? '') as string
     const holdsRecordingsViewAll = ctx.identity.capabilities.has('recordings.viewAll')
+    // R8 discarded-record door (⚖ Liam 2026-09-13).
+    const holdsDiscardView = ctx.identity.capabilities.has('records.discardView')
 
     const customerName = customerId
       ? allCustomers.customers.find((c) => c.id === customerId)?.name ?? null
@@ -154,7 +161,10 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     // `business.manage && recordings.viewAll`), so a both-keys caller always
     // takes this branch and a caller holding neither key pays nothing.
     const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
-    const allowedStoreIds = holdsRecordingsViewAll
+    // Widened for R8 (⚖ Liam 2026-09-13): a discardView-only caller pays for
+    // this resolution too — the discard door's store isolation reuses this
+    // exact scope (A3). A caller holding neither key still pays nothing.
+    const allowedStoreIds = holdsRecordingsViewAll || holdsDiscardView
         ? await viewerAllowedStoreIds({
             synqed,
             authUserId: ctx.identity.authUserId,
@@ -184,6 +194,25 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
           businessId,
         )) ?? karute.staff_profile_id)
       : null
+
+    // R8 discarded-record door (⚖ Liam 2026-09-13). readKaruteRawIncludingDiscarded
+    // above already widened the tenancy read; decide HERE whether this
+    // viewer may actually see what came back. Refused = the SAME classified
+    // not_found the tenancy proof itself throws for a genuinely missing id —
+    // a discardView-less viewer cannot tell "discarded, not yours" from
+    // "does not exist" (A3's oracle-closing requirement, byte-identical body).
+    if (karute.status === 'DISCARDED') {
+      const allowedToOpen = canOpenDiscardedRecord({
+        ownerStaffId: ownerProfileId,
+        viewerStaffId,
+        holdsDiscardView,
+        allowedStoreIds,
+        recordStoreId: readDoorStoreId(karute, recordingRead),
+      })
+      if (!allowedToOpen) {
+        throw new AppApiError('not_found', 'karute not found in this business')
+      }
+    }
 
     // Merge→shell-update window gate (#689 P1). Fielded shells (iOS ≤4.6,
     // Android ≤code 12) parse this screen with a BAKED strict outcome enum
