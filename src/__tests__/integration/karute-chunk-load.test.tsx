@@ -1261,6 +1261,97 @@ describe('共有 pill + shared mode (D10, PR-C)', () => {
     // Back to the default view — the pill is no longer pressed.
     expect(sharedPill()).toHaveAttribute('aria-pressed', 'false')
   })
+
+  // T2 (fix round 2, L2 MED-2): mode exclusivity between shared mode and
+  // 月ジャンプ was untested in EITHER direction — mirrors the store-switch
+  // test above, which already proves a THIRD kind of exit from shared mode.
+  const monthChip = () => screen.getByRole('button', { name: /^\d{4}年\d{1,2}月$/ })
+
+  it('T2(a): entering shared mode then picking a month EXITS shared mode', async () => {
+    loadKaruteWindow.mockImplementation(
+      async (input: { sharedOnly?: boolean; month?: string }) => {
+        if (input.sharedOnly) {
+          return {
+            items: [item('shared-1', '2026-01-05', '共有 花子')],
+            windowStart: '2026-01-05',
+            freshStoreTotal: 1,
+            freshDiscardedCount: 0,
+            freshSharedCount: 1,
+            hasMore: false,
+          }
+        }
+        // Month path (PR-2b ±1 widening): only the picked month itself
+        // carries the fixture row; the two neighbour-window calls are empty.
+        return {
+          items: input.month === '2026-07' ? [item('july-1', '2026-07-10', '七月 太郎')] : [],
+          windowStart: `${input.month}-01`,
+          freshStoreTotal: 9,
+          hasMore: false,
+        }
+      },
+    )
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+
+    await act(async () => {
+      fireEvent.click(sharedPill())
+    })
+    await waitFor(() => expect(screen.getByText('共有 花子')).toBeInTheDocument())
+    expect(sharedPill()).toHaveAttribute('aria-pressed', 'true')
+
+    // 2026年7月 is the session-date epoch floor — always offered, whatever
+    // rows happen to be loaded (karute-month-jump.test.tsx's own pin).
+    fireEvent.click(monthChip())
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: '2026年7月' }))
+    })
+
+    await waitFor(() => expect(screen.getByText('七月 太郎')).toBeInTheDocument())
+    expect(screen.queryByText('共有 花子')).not.toBeInTheDocument()
+    expect(sharedPill()).toHaveAttribute('aria-pressed', 'false')
+    const monthCalls = loadKaruteWindow.mock.calls.filter(
+      ([a]: [{ month?: string }]) => a.month,
+    )
+    expect(monthCalls.length).toBeGreaterThan(0)
+    expect(monthCalls.every(([a]: [{ sharedOnly?: boolean }]) => !a.sharedOnly)).toBe(true)
+  })
+
+  it('T2(b): entering month mode then tapping 共有 EXITS month mode (the reverse direction)', async () => {
+    loadKaruteWindow.mockImplementation(
+      async (input: { sharedOnly?: boolean; month?: string }) => {
+        if (input.sharedOnly) {
+          return {
+            items: [item('shared-1', '2026-01-05', '共有 花子')],
+            windowStart: '2026-01-05',
+            freshStoreTotal: 1,
+            freshDiscardedCount: 0,
+            freshSharedCount: 1,
+            hasMore: false,
+          }
+        }
+        return { items: [], windowStart: `${input.month}-01`, freshStoreTotal: 9, hasMore: false }
+      },
+    )
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+
+    fireEvent.click(monthChip())
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: '2026年7月' }))
+    })
+    expect(monthChip().textContent).toBe('2026年7月')
+
+    await act(async () => {
+      fireEvent.click(sharedPill())
+    })
+
+    expect(monthChip().textContent).not.toBe('2026年7月')
+    await waitFor(() => expect(screen.getByText('共有 花子')).toBeInTheDocument())
+    expect(sharedPill()).toHaveAttribute('aria-pressed', 'true')
+    const sharedCalls = loadKaruteWindow.mock.calls.filter(
+      ([a]: [{ sharedOnly?: boolean }]) => a.sharedOnly,
+    )
+    expect(sharedCalls).toHaveLength(1)
+    expect(sharedCalls[0][0]).toEqual({ sharedOnly: true })
+  })
 })
 
 // R8 discarded-record door (⚖ Liam 2026-09-13, A8) — the list row's Link vs
