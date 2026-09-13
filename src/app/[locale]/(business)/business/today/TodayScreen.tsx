@@ -3855,7 +3855,10 @@ export function TodayScreen(props: TodayProps) {
         }
         // ⚖ E3b — the PUBLISHED layer: a check row naming a 販売可能枠 that the
         // law is withholding would point at a box the board is not drawing.
-        for (const c of sellDrawn.cells) {
+        // ROUND 2 (2026-09-13, blind L1 MINOR 1): the published layer, not the
+        // derivation — a check row may not call an hour 販売可能枠 that the row
+        // draws grey.
+        for (const c of sellPublished.cells) {
           if ((lane.group === 'staff' ? c.laneKey : c.resourceKey) !== lane.key) continue
           const cell = place(c.h, c.h + 60, hours)
           spans.push({ id: `sell-${c.h}-${lane.key}`, x: cell.x, w: cell.w, title: '販売可能枠', derived: true, parked: false })
@@ -3898,7 +3901,7 @@ export function TodayScreen(props: TodayProps) {
       }
       return checks
     },
-    [boardLanes, sellDrawn.cells, hours, locked, hasPriceFor],
+    [boardLanes, sellPublished.cells, hours, locked, hasPriceFor],
   )
 
   /** canon `syncPendingUI` (:3673): while the board is showing a DIFFERENT day
@@ -3921,7 +3924,8 @@ export function TodayScreen(props: TodayProps) {
   //
   // ⚖ BREAKER-827 F7 — AND THE CLOCK IS NOT ONE OF THEM; this line used to say
   // it was. A moved clock arrives as NEW PROPS, so `props.sell` is new, so
-  // `sellDrawn.cells` is new, so `checksFor` — a dep of this memo — is new, and
+  // `sellDrawn` is new, so `sellPublished.cells` is new, so `checksFor` — a dep
+  // of this memo — is new, and
   // the memo recomputes exactly like the expression did. What it saves is the
   // render that moves no prop and no board state of its own.
   //

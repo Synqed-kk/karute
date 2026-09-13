@@ -755,6 +755,10 @@ describe('1 — the round gate', () => {
     // law along — so the reader count is pinned, not just the memo.
     expect({ drawnReaders: (codeOnly(screen).match(/sellDrawn\.staffBands/g) ?? []).length }).toEqual({ drawnReaders: 0 })
     expect({ publishedReaders: (codeOnly(screen).match(/sellPublished\.staffBands/g) ?? []).length }).toEqual({ publishedReaders: 7 })
+    // ROUND 2 (2026-09-13, blind L1 MINOR 1) — `checksFor`'s 判断 check row was
+    // reading `sellDrawn.cells` (the derivation) while its own comment promised
+    // the published layer: anchored so it cannot drift back.
+    expect({ line: 'checksFor', has: pinnedLine(screen, 'for (const c of sellPublished.cells) {') }).toEqual({ line: 'checksFor', has: true })
     // …and `gapDrawn` reaches the four-kind counter through `gapPublished` too,
     // so 「オンライン販売中 N窓」 and the chip answer out of one set.
     expect({ line: 'packed', has: pinnedLine(screen, 'packed: heldCommitted ? gapPublished.packed : [],') }).toEqual({ line: 'packed', has: true })

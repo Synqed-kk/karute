@@ -12053,7 +12053,9 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // ⚖ FIX ROUND 1 (blind round 1, L1 F1) — and both hooks that ask it LIST
     // it, so neither can answer from a board that has moved on.
     expect(pinnedLines(SRC, '}, [live, proxy, parkChips, boardLanes, props.store, staffCardInHand, hasPriceFor])')).toBe(1)
-    expect(pinnedLines(SRC, '[boardLanes, sellDrawn.cells, hours, locked, hasPriceFor],')).toBe(1)
+    // ROUND 2 (2026-09-13, blind L1 MINOR 1) — the dep list follows `checksFor`'s
+    // own switch to the published layer (selling-engine-doors.test.ts §1).
+    expect(pinnedLines(SRC, '[boardLanes, sellPublished.cells, hours, locked, hasPriceFor],')).toBe(1)
   })
 
   /** ⚖ BREAKER-828 DELTA G2 (MAJOR) — THE TWO HELPERS THE WHOLE ITEM RESTS ON
