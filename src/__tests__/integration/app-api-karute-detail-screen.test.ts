@@ -88,7 +88,19 @@ const karuteGet = jest.fn(async (id: string) => {
 const KARUTE_UUID = '00000000-0000-4000-8000-000000000008'
 const TAKE = '11111111-1111-4111-8111-111111111111'
 const TAKE_KEY = `app_business-1_${TAKE}.mp4`
-const REC = {
+/** D3/D4 sharing (⚖ Liam 2026-09-13; 2026-09-14 design): core #83's column
+ *  is `shared_at?: string` — optional/absent by default, since readSharedAt
+ *  reads it through the SDK-1.34 trust boundary as `unknown`, so an absent
+ *  field is the same "not shared" as a genuinely un-shared row. */
+type RecFixture = {
+  id: string
+  audio_storage_path: string | null
+  duration_seconds: number | null
+  status: string
+  store_id: string | null
+  shared_at?: string
+}
+const REC: { current: RecFixture } = {
   current: {
     id: 'sess-1',
     audio_storage_path: TAKE_KEY as string | null,

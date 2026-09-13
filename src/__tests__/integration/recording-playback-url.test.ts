@@ -100,7 +100,17 @@ const KAR = {
     recording_session_id: SESSION,
   } as Record<string, unknown>,
 }
-const ROW = {
+/** D3/D4 sharing (⚖ Liam 2026-09-13; 2026-09-14 design): core #83's column,
+ *  absent by default — readSharedAt reads it as `unknown`. */
+type RowFixture = {
+  id: string
+  store_id: string | null
+  audio_storage_path: string | null
+  duration_seconds: number | null
+  status: string
+  shared_at?: string
+}
+const ROW: { current: RowFixture } = {
   current: {
     id: SESSION,
     store_id: null as string | null,
