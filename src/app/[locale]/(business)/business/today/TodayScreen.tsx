@@ -2742,13 +2742,19 @@ export function TodayScreen(props: TodayProps) {
     // line above. The line is kept only because the answer's type is
     // `| undefined`; naming the gate did not make it reachable.
     if (!originHeld) return honest
+    // ⚖ D-17 F2 — the same release, so a staged booking is never blamed for a 枠
+    // the clock already let go. Same function, same clock, same dial and the same
+    // board-scoped keep-back as the committed side at :2085 — `lostOn` subtracts
+    // these two boards, so a release on one of them alone IS a reported loss.
+    const originReleased = releaseTimed(originHeld, props.sell.nowMinute, beforeMin, keptBackHere).mask
+    if (!originReleased) return honest
     return honestHeld(
-      originHeld.filter((m) => !locked.includes(m.laneKey)),
+      originReleased.filter((m) => !locked.includes(m.laneKey)),
       originLanes,
       bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
       true,
     )
-  }, [honest, dayStaged, originLanes, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere, locked])
+  }, [honest, dayStaged, originLanes, ledgerFrame, hours.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere, locked])
   const dayOrigin = useMemo(
     () => (guardOn
       ? (dayStaged
