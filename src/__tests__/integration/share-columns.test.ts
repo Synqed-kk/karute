@@ -48,7 +48,7 @@ describe('readSharedAt', () => {
 
 describe('updateRecordingShare', () => {
   it('sends exactly { shared_at, shared_by_staff_id } to recordings.update — nothing else', async () => {
-    const update = jest.fn(async (_id: string, _input: unknown) => ({}))
+    const update = jest.fn(async () => ({}))
     const synqed = { recordings: { update } } as unknown as Parameters<typeof updateRecordingShare>[0]
     await updateRecordingShare(synqed, 'row-1', {
       shared_at: '2026-09-14T00:00:00.000Z',
@@ -62,7 +62,7 @@ describe('updateRecordingShare', () => {
   })
 
   it('an unshare write sends both fields null', async () => {
-    const update = jest.fn(async (_id: string, _input: unknown) => ({}))
+    const update = jest.fn(async () => ({}))
     const synqed = { recordings: { update } } as unknown as Parameters<typeof updateRecordingShare>[0]
     await updateRecordingShare(synqed, 'row-1', { shared_at: null, shared_by_staff_id: null })
     expect(update).toHaveBeenCalledWith('row-1', { shared_at: null, shared_by_staff_id: null })
