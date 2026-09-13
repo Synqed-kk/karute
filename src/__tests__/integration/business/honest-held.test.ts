@@ -273,6 +273,42 @@ describe('honest-held — against a brute-force oracle', () => {
     }
   })
 
+  // ⚖ ROUND 2 (2026-09-13, SPEC-R2 v4 amendment item 2) — `heldRoom` IS A LEGAL
+  // ASSIGNMENT, which is the only property the bed-aware sales layer's witness
+  // exit leans on. Two things make it legal and this leg asserts both on every
+  // one of the same 500 boards: the room reported for a held 枠 is one of THAT
+  // 枠's own free rooms, and two held 枠 that overlap in time are never reported
+  // on the same room. If either broke, the witness could prove 「on sale」 for an
+  // offer that really does take a kept 枠's bed — a money bug — so it is pinned
+  // here, beside the search that produces it, rather than in the sales layer.
+  it('reports a LEGAL room per held 枠 (`heldRoom`), on the same 500 random boards', () => {
+    for (let seed = 0; seed < 500; seed += 1) {
+      const { candidates, lanes, book } = randomBoard(seed)
+      const h = honestHeld(candidates, lanes, book, true)
+      const rows = h.byLane.flatMap((l) =>
+        l.held.map((s, i) => ({ key: `${l.laneKey}|${s.windowStart}`, room: l.heldRoom[i], rooms: l.heldRooms[i], start: s.start, end: s.end })),
+      )
+      const notOwnRoom = rows.filter((r) => !r.rooms.includes(r.room)).map((r) => `${r.key}→${r.room} ∉ [${r.rooms.join(',')}]`)
+      const clash: string[] = []
+      for (let a = 0; a < rows.length; a += 1) {
+        for (let b = a + 1; b < rows.length; b += 1) {
+          if (rows[a].room === rows[b].room && rows[a].start < rows[b].end && rows[b].start < rows[a].end) {
+            clash.push(`${rows[a].key} and ${rows[b].key} both on ${rows[a].room}`)
+          }
+        }
+      }
+      expect({ seed, notOwnRoom, clash }).toEqual({ seed, notOwnRoom: [], clash: [] })
+    }
+  })
+
+  // …and the gate-off answer reports no choice at all, because nothing asked the
+  // book: the witness exit reads that as 「no assignment to witness」 and falls
+  // through to the full search rather than proving a sale off an empty string.
+  it('the identity answer reports an EMPTY room per held 枠', () => {
+    const h = honestHeld(fixtureCandidates(), fixtureLanes(), fixtureBook(), false)
+    expect(h.byLane.map((l) => l.heldRoom)).toEqual([[''], [''], [''], ['']])
+  })
+
   // HONEST-COUNT ROUND 1 · fix 3 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1b-delta-verify.md MAJOR 1)
   // THE ORDINARY BUSY BOARD: n staff whose 確保 枠 all overlap, and n rooms any
   // of them may use. Every 枠 is holdable, so the honest answer is n — and it is
