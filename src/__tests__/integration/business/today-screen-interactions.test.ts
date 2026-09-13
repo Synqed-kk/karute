@@ -2350,6 +2350,17 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "sellStaffLanes,",
       "sharedRoomSub,",
       "sharedRoomTitle,",
+      // ⚖ ROUND 2 (2026-09-13) — SPEC-R2 §3.2. Six lines of Japanese, in the one
+      // home the board's words live in so a rule cannot be worded two ways: the
+      // withheld box's title and sub, the released mark's title and sub, and the
+      // 確保を戻す label with the toast that confirms it. Added, nothing renamed
+      // or removed.
+      "withheldTitle,",
+      "withheldSub,",
+      "releasedHeldTitle,",
+      "releasedHeldSub,",
+      "keepBackLabel,",
+      "keepBackToast,",
       "windowsOf,",
       "sidesAt,",
       "seedBed,",
@@ -3525,7 +3536,7 @@ describe('the drag emphasis follows the dragged length, and nothing else', () =>
 
   it('the screen keys the class off the dragged length and clears it on every exit', () => {
     // The two boxes ask about their OWN advertised length…
-    expect(SRC).toContain("`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}`")
+    expect(SRC).toContain("`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`")
     expect(SRC).toContain('packedHere && fitsDrag(c.e - c.s, dragLen)')
     // …a スキマ枠 is a discount, not a session, so it never takes the class.
     expect(SRC).not.toContain("'cell-gapfill fits'")
@@ -4634,7 +4645,7 @@ describe('予定ブロック move, resize and open — canon’s second pipeline
     // the block pipeline, so no window can claim to fit a 休憩.
     const blockPipe = SRC.slice(SRC.indexOf('function beginBlockDrag'), SRC.indexOf('function clearBlockDrag'))
     expect(blockPipe).not.toContain('setDragLen(')
-    expect(SRC).toContain("`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}`")
+    expect(SRC).toContain("`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`")
   })
 })
 

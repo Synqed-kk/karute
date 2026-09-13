@@ -167,6 +167,12 @@ import {
   sellStaffLanes,
   sharedRoomSub,
   sharedRoomTitle,
+  withheldTitle,
+  withheldSub,
+  releasedHeldTitle,
+  releasedHeldSub,
+  keepBackLabel,
+  keepBackToast,
   windowsOf,
   sidesAt,
   seedBed,
@@ -3095,6 +3101,26 @@ export function TodayScreen(props: TodayProps) {
         show('確保を解除しました。再読み込みすると戻ります')
       },
     })
+  }
+
+  /** ⚖ D-11 · ⚖ reversible-by-default — THE WAY BACK FROM AN AUTOMATIC RELEASE,
+   *  and it is a FACT rather than an undo.
+   *
+   *  The timed release writes nothing, so 「I want that one back」 cannot be a
+   *  deletion of anything: it is a KEEP-HELD fact, stamped with the board it was
+   *  pressed on exactly as a manual release is, and the derivation reads it on
+   *  the next render. `canReleaseHeld` gates it for the same reason it gates the
+   *  release — one spelling, and a staff member who cannot release cannot
+   *  un-release either. The button is not drawn for them at all, so nobody is
+   *  offered an action they would only be refused for (`releaseAsk`'s own rule). */
+  function keepBackAsk(laneKey: string, windowStart: number) {
+    if (!props.canReleaseHeld) return
+    setKeptBack((was) =>
+      was.some((r) => r.laneKey === laneKey && r.windowStart === windowStart && onShownBoard(r, board))
+        ? was
+        : [...was, { laneKey, windowStart, ...board }],
+    )
+    show(keepBackToast)
   }
 
   // ── the 仮押さえ gate ─────────────────────────────────────────────────────
@@ -7219,6 +7245,40 @@ export function TodayScreen(props: TodayProps) {
   const firstSharedLane = drawnLanes.find(
     (l) => l.group === 'staff' && laneRendered(l) && (honestByLane.get(l.key)?.shared.length ?? 0) > 0,
   )?.key
+  /** ⚖ D-12 · ADDENDUM 2 item 1 — IS THIS OFFER WITHHELD, AND WHOSE 枠 IS AHEAD
+   *  OF IT? Asked once per drawn box, off the ONE answer the memo above computed.
+   *
+   *  The box that comes back is the offer's OWN priced box, greyed — not a
+   *  sibling beside it — so the operator sees 「詰め込み・¥3,510・not on sale」 in
+   *  one object instead of a vanished offer and an unexplained note. The partner
+   *  is named on the shared box's own rule: only a row the operator can actually
+   *  see, and (⚖ D-14) only when that one 枠 is the whole reason. */
+  const withheldMark = (laneKey: string, start: number, end: number) => {
+    const key = offerKey(laneKey, start)
+    if (!withheld.keys.has(key)) return null
+    const blocker = withheld.blockedBy.get(key)
+    const withName = blocker != null && sellableLaneKeys.has(blocker)
+      ? (drawnLanes.find((l) => l.key === blocker)?.label ?? null)
+      : null
+    const title = withheldTitle(withName)
+    const sub = withheldSub(end - start)
+    return { key, title, sub, label: `${title}。${sub}` }
+  }
+  /** ⚖ 8/23 guided-tour law — the FIRST withheld box on the board registers its
+   *  section once, and the first released mark does the same, exactly as the held
+   *  and shared boxes above do. */
+  const firstWithheldLane = withheld.keys.size === 0
+    ? undefined
+    : drawnLanes.find(
+        (l) =>
+          l.group === 'staff' && laneRendered(l) &&
+          (sellDrawn.cells.some((c) => c.laneKey === l.key && withheld.keys.has(offerKey(c.laneKey, c.h)))
+            || gapDrawn.packed.some((c) => c.laneKey === l.key && withheld.keys.has(offerKey(c.laneKey, c.s)))
+            || gapDrawn.scraps.some((c) => c.laneKey === l.key && withheld.keys.has(offerKey(c.laneKey, c.s)))),
+      )?.key
+  const firstReleasedLane = drawnLanes.find(
+    (l) => l.group === 'staff' && laneRendered(l) && timedRelease.released.some((r) => r.laneKey === l.key),
+  )?.key
 
   function renderLane(lane: BoardLane) {
     if (!laneRendered(lane)) return null
@@ -7248,6 +7308,14 @@ export function TodayScreen(props: TodayProps) {
     // hours the law is holding for a 新規 (both rows: the pair carries one staff
     // lane key). The 確保 chip below paints over their span instead.
     const cells = sellDrawn.cells.filter(onThisLane)
+    /** ⚖ 8/23 guided-tour law — the ONE withheld box that registers the section,
+     *  in the order the row draws them (the sell layer, then the gap layer). */
+    const guideWithheldKey = firstWithheldLane !== lane.key
+      ? null
+      : ([
+          ...cells.map((c) => offerKey(c.laneKey, c.h)),
+          ...gapHere.map((c) => offerKey(c.laneKey, c.s)),
+        ].find((k) => withheld.keys.has(k)) ?? null)
     /** ⚖ v3 N2 — THE REST CUE'S COVER READS ALL CANDIDATES. A 枠 the netting
      *  demoted is still a 確保 span on the track, so a 清掃/満室 wash may not
      *  paint under it — flag 88's artifact one layer along. This list is the
@@ -7450,14 +7518,37 @@ export function TodayScreen(props: TodayProps) {
           {!isLocked &&
             cells.map((c) => {
               const span = place(c.h, c.h + 60, hours)
+              // ⚖ D-12 · ADDENDUM 2 item 1 — KEPT AND MUTED, NEVER VANISHED. The
+              // box is the offer's own, greyed, with its kind and its price still
+              // readable; the two lines say why it is not on sale. The WORDS ride
+              // on the staff row only: a bed row carries no price text and no
+              // name, so repeating the sentence there would make a screen reader
+              // read it twice for one offer.
+              const wh = withheldMark(c.laneKey, c.h, c.h + SELL_SLOT_MIN)
+              const whOwn = wh != null && c.group === 'staff'
               return (
                 <span
                   // A plain 販売可能 wash advertises one standard hour, always
                   // (canon :4867) — so it is the box a 60-minute card fits.
-                  className={`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}`}
+                  className={`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`}
                   key={`${lane.key}-${c.group}-${c.h}`}
-                  aria-hidden="true"
-                  style={{ '--x': `${span.x}%`, '--w': `${span.w}%`, '--tier': c.tier } as React.CSSProperties}
+                  // ⚖ ADDENDUM 2 item 1 — a `role="note"` with a label is not
+                  // hidden, so the muted box drops `aria-hidden` and announces the
+                  // reason instead. Every other box on this layer keeps it.
+                  role={whOwn ? 'note' : undefined}
+                  aria-hidden={whOwn ? undefined : 'true'}
+                  aria-label={whOwn ? wh.label : undefined}
+                  // ⚖ ADDENDUM 4 item 3 — ONE spelling of the offer's identity on
+                  // any wire, so a producer/consumer test can read the DOM by the
+                  // same key the layer withheld it under.
+                  data-key={whOwn ? wh.key : undefined}
+                  data-guide-title={whOwn && guideWithheldKey === wh.key ? '販売を見合わせている枠' : undefined}
+                  data-guide={
+                    whOwn && guideWithheldKey === wh.key
+                      ? '新規のお客様のために確保している枠が、この時間のベッドを先に使う予定です。確保が解除されると、この枠は通常どおり販売に戻ります。'
+                      : undefined
+                  }
+                  style={{ '--x': `${span.x}%`, '--w': `${span.w}%`, '--tier': c.tier, ...(whOwn ? { pointerEvents: 'none' as const } : {}) } as React.CSSProperties}
                 >
                   {/* ⚖ LABELS RULING (Liam 8/30, 案C) — THE BOX SAYS WHAT KIND
                       IT IS. Three washes on one row read as one price moving on
@@ -7474,6 +7565,8 @@ export function TodayScreen(props: TodayProps) {
                       one row down. The colours were already keyed by the box
                       class on every row, so the word is all that was missing. */}
                   <span className="cell-nametag">販売可能枠</span>
+                  {whOwn && <span className="held-title">{wh.title}</span>}
+                  {whOwn && <span className="held-sub">{wh.sub}</span>}
                   {c.group === 'staff' && c.price != null && <i>{money(c.price)}</i>}
                 </span>
               )
@@ -7494,15 +7587,29 @@ export function TodayScreen(props: TodayProps) {
               // orange, even though it is priced at full value. Nothing on this
               // layer has a border at rest; the ring belongs to the drag alone.
               const crumbHere = packedHere && isCrumbOffer(c, props.guard.standardSessionMin)
+              // ⚖ D-12 · ADDENDUM 2 item 1 — the same treatment as the sell box
+              // above, on the kind Liam's picture actually greys (the 詰め込み at
+              // c-03 14:30).
+              const wh = withheldMark(c.laneKey, c.s, c.e)
+              const whOwn = wh != null && c.group === 'staff'
               return (
                 <span
                   // A 詰め込み box advertises the length on its own label; a
                   // スキマ枠 advertises a discount, not a session, so canon gives
                   // it no drag emphasis at all and neither do we.
-                  className={`${packedHere ? 'cell-packed' : 'cell-gapfill'}${crumbHere ? ' crumb' : ''}${packedHere && fitsDrag(c.e - c.s, dragLen) ? ' fits' : ''}`}
+                  className={`${packedHere ? 'cell-packed' : 'cell-gapfill'}${crumbHere ? ' crumb' : ''}${packedHere && fitsDrag(c.e - c.s, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`}
                   key={`${lane.key}-${c.group}-${packedHere ? 'p' : 's'}-${c.s}`}
-                  aria-hidden="true"
-                  style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
+                  role={whOwn ? 'note' : undefined}
+                  aria-hidden={whOwn ? undefined : 'true'}
+                  aria-label={whOwn ? wh.label : undefined}
+                  data-key={whOwn ? wh.key : undefined}
+                  data-guide-title={whOwn && guideWithheldKey === wh.key ? '販売を見合わせている枠' : undefined}
+                  data-guide={
+                    whOwn && guideWithheldKey === wh.key
+                      ? '新規のお客様のために確保している枠が、この時間のベッドを先に使う予定です。確保が解除されると、この枠は通常どおり販売に戻ります。'
+                      : undefined
+                  }
+                  style={{ '--x': `${span.x}%`, '--w': `${span.w}%`, ...(whOwn ? { pointerEvents: 'none' as const } : {}) } as React.CSSProperties}
                 >
                   {/* canon `renderPackedCell` (:5211): a packed box carries its
                       LENGTH beside the price — ¥8,650（60分）— because a wide
@@ -7516,6 +7623,8 @@ export function TodayScreen(props: TodayProps) {
                       ⚖ LIAM RULING (2026-08-30) — ungated, same as the sell box
                       above it: the bed rows wear the word too. */}
                   <span className="cell-nametag">{packedHere ? '詰め込み' : 'スキマ枠'}</span>
+                  {whOwn && <span className="held-title">{wh.title}</span>}
+                  {whOwn && <span className="held-sub">{wh.sub}</span>}
                   {c.group === 'staff' && <i>{packedHere ? `${money(c.price)}（${c.e - c.s}分）` : money(c.price)}</i>}
                 </span>
               )
@@ -7597,6 +7706,53 @@ export function TodayScreen(props: TodayProps) {
                 </div>
               )
             })}
+          {/* ⚖ D-11 · SPEC-R2 §3.2 — THE 枠 THE CLOCK LET GO OF, SAID OUT LOUD.
+              An automatic change the operator did not make may not be silent:
+              the hours came back on sale, so the row says which hours, why, and
+              offers the one way back. The box itself is a `role="note"` in the
+              held box's own geometry and vocabulary — no black, no new colour —
+              and `pointer-events: none`, so the track's click still opens
+              新規予約を作成 over it; the 確保を戻す button is the ONE interactive
+              element and carries its own `pointer-events: auto`.
+              It deliberately does NOT wear `.cell-held`: this 枠 is no longer
+              held, and a held box here would be the board saying two things.
+              A manager who cannot release cannot un-release either, so the
+              button is not drawn for them at all (`keepBackAsk`'s own rule). */}
+          {!isLocked && lane.group === 'staff' &&
+            timedRelease.released
+              .filter((r) => r.laneKey === lane.key)
+              .map((r, i) => {
+                const span = place(r.span.start, r.span.end, hours)
+                const sub = releasedHeldSub(r.span.end - r.span.start, r.beforeMin)
+                return (
+                  <div
+                    className="cell-released"
+                    role="note"
+                    key={`released-${r.span.windowStart}`}
+                    data-key={offerKey(r.laneKey, r.span.windowStart)}
+                    style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
+                    aria-label={`${releasedHeldTitle}。${sub}`}
+                    data-guide-title={firstReleasedLane === lane.key && i === 0 ? '自動で解除された確保枠' : undefined}
+                    data-guide={
+                      firstReleasedLane === lane.key && i === 0
+                        ? 'オンラインでの新規受付が締め切られたため、確保していた枠を自動で販売に戻しました。まだ確保しておきたいときは「確保を戻す」を押してください。'
+                        : undefined
+                    }
+                  >
+                    <span className="held-title">{releasedHeldTitle}</span>
+                    <span className="held-sub">{sub}</span>
+                    {props.canReleaseHeld && (
+                      <button
+                        type="button"
+                        className="held-restore"
+                        onClick={() => keepBackAsk(lane.key, r.span.windowStart)}
+                      >
+                        {keepBackLabel}
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
           {landing?.laneKey === lane.key && landing.w > 0 && (
             <div className="drop-ghost" aria-hidden="true" style={{ '--x': `${landing.x}%`, '--w': `${landing.w}%` } as React.CSSProperties} />
           )}

@@ -3026,6 +3026,64 @@ export const sharedRoomTitle = (roomLabel: string, withName: string | null): str
 export const sharedRoomSub = (dur: number): string =>
   `${dur}分・確保枠の数には含めていません・オンラインでは販売していません`
 
+/** ⚖ D-10 · D-12 · SPEC-R2 §3.2 — THE WITHHELD OFFER'S OWN TWO LINES.
+ *
+ *  A vanished offer with no reason is the confusion the shared box exists to
+ *  prevent, so the box stays and says why. Three jobs, all in here so the board
+ *  cannot word one rule two ways:
+ *
+ *  1. THE KEPT 枠 COMES FIRST — that is the order of the promise book (⚖ D-10:
+ *     booking > kept 新規用 枠 > the store's own priced offer), so the line
+ *     names what is ahead of this hour rather than describing a bed.
+ *  2. NAME A PERSON ONLY WHEN THE OPERATOR CAN SEE THEM, the shared box's own
+ *     rule (`sharedRoomTitle`): a price-0 row holds a 枠 and draws no box, so a
+ *     line opening with that name would send the operator to an empty row.
+ *     ⚖ D-14 (4) narrows it further — the name is given only when ONE kept 枠 is
+ *     lost whichever room the offer takes; when different rooms cost different
+ *     枠 the honest line is the one without a name.
+ *  3. IT COMES BACK — 「販売に戻ります」, the same promise `reservedClause` makes,
+ *     because this is a hold and not a deletion.
+ *
+ *  // JP-NATIVE PASS PENDING */
+export const withheldTitle = (withName: string | null): string =>
+  (withName ? `${withName}の確保枠が先のため、いまは販売していません` : '新規用の確保枠が先のため、いまは販売していません')
+
+/** `dur` is the OFFER's own length, so no literal duration appears anywhere.
+ *  「ベッドが空いていません」 is the reason in the operator's own terms — the room
+ *  is the thing that is short, not the hour.
+ *
+ *  // JP-NATIVE PASS PENDING */
+export const withheldSub = (dur: number): string =>
+  `${dur}分・ベッドが空いていません・確保が解除されれば販売に戻ります`
+
+/** ⚖ D-11 · SPEC-R2 §3.2 — THE 枠 THE CLOCK LET GO OF, and its mark says so in
+ *  the same words the manual release's own toast uses (TodayScreen `releaseAsk`),
+ *  because it is the same event with a different hand on it.
+ *
+ *  // JP-NATIVE PASS PENDING */
+export const releasedHeldTitle = '確保を解除しました'
+
+/** `beforeMin` is quoted from the release that HAPPENED, never re-read from the
+ *  dial: the mark explains a past event, so a dial moved since must not silently
+ *  reword it. Both numbers are the facts' own.
+ *
+ *  // JP-NATIVE PASS PENDING */
+export const releasedHeldSub = (dur: number, beforeMin: number): string =>
+  `${dur}分・開始${beforeMin}分前に自動で解除`
+
+/** The one place 「確保を戻す」 is spelled — the mark's button and the toast that
+ *  confirms it are one act, and the label is read by the guided tour too.
+ *
+ *  // JP-NATIVE PASS PENDING */
+export const keepBackLabel = '確保を戻す'
+
+/** …and its toast, shaped exactly like the release's own
+ *  (「確保を解除しました。再読み込みすると戻ります」): what happened, then the one
+ *  thing that is true of every change on this board — nothing here persists.
+ *
+ *  // JP-NATIVE PASS PENDING */
+export const keepBackToast = '確保を戻しました。再読み込みすると元に戻ります'
+
 /** ⚖ FIX ROUND 2 (A + D, 2026-09-09) — THE BED TRUTH FOR ONE WINDOW.
  *
  *  ONE door, asked over two windows: the chip's own half hour (the WORD) and

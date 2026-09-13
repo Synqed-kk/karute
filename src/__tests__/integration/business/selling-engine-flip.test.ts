@@ -1390,7 +1390,16 @@ describe('6 — a manager releases ごろう’s held window, and the board re-d
     const screen = SRC('TodayScreen.tsx')
     // One consumption, like `canOverride` — a second gate elsewhere would split
     // the authority across two lines.
-    expect(screen.match(/props\.canReleaseHeld/g)).toHaveLength(1)
+    // ⚖ ROUND 2 (2026-09-13) — 1 → 3, and the pin's MEANING is unmoved: one
+    // AUTHORITY, now consumed by the two halves of one act. D-11 added the
+    // automatic release, so the board also has a way BACK from it, and 「a staff
+    // member who cannot release cannot un-release either」 is the same server
+    // answer read the same way — never a second gate with an opinion of its own.
+    // The three sites are anchored below, so a fourth cannot arrive quietly and
+    // a gate moved out of `releaseAsk` still reds the line under this one.
+    expect(screen.match(/props\.canReleaseHeld/g)).toHaveLength(3)
+    expect(screen).toContain('    if (!props.canReleaseHeld) return\n')
+    expect(screen).toContain('{props.canReleaseHeld && (\n')
     expect(screen).toContain('if (!props.canReleaseHeld) {\n      show(law)\n      return\n    }')
     // The manager's action is the board's EXISTING confirm-with-one-action
     // surface (the toast that already carries the block delete's undo) — no new
