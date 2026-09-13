@@ -11,6 +11,7 @@ import { resolveWebActorId } from '@/lib/audit-web'
 import { audit } from '@/lib/audit'
 import {
   PERMISSION_ROLES,
+  ROLE_PRESETS,
   presetCapabilities,
   effectiveCapabilities,
   synqedRoleToPreset,
@@ -196,13 +197,24 @@ export async function setStaffPermissionsCore(
   // (audit.view: Liam ruling 7/17; sync.view mirrors it, Liam ruling 7/24 /
   // packet 31 — Greptile #599 caught the missing twin; recordings.viewAll
   // joins them ⚖ 9/3 council, and this gate is now the ONLY way it can enter
-  // a stored override — the resolve chokepoint stopped stripping it).
+  // a stored override — the resolve chokepoint stopped stripping it). A
+  // capability the target's NEW role already carries by PRESET is not a
+  // grant — recordings.viewShared ships in the manager preset (D3), so
+  // promoting/re-saving a manager must not trip this gate the way it would
+  // for a genuine hand-add beyond the preset.
   const ownerGrantedOnlyAdds = added.filter(
     (c) =>
       c === 'audit.view' ||
       c === 'sync.view' ||
       c === 'recordings.viewAll' ||
-      c === 'recordings.viewShared',
+      // Owner-only ONLY as a HAND-ADD beyond the target's new role preset —
+      // `permissionRole` is validated above (:153) and can never be 'owner',
+      // so the owner preset (which carries everything) never enters this
+      // exemption; only manager (and any custom role someone later grants it
+      // to) can skip the gate here, and only when the preset already carries
+      // it.
+      (c === 'recordings.viewShared' &&
+        !ROLE_PRESETS[permissionRole].includes('recordings.viewShared')),
   )
   if (ownerGrantedOnlyAdds.length > 0) {
     const me = deps.callerStaffId
