@@ -13,6 +13,7 @@ import {
 import { RegenerateEntriesButton } from './RegenerateEntriesButton'
 import { RecordingTranscriptCard } from './RecordingTranscriptCard'
 import type { KaruteDetailRecording, KaruteDetailScreenDiscarded } from '@/lib/karute/detail-screen'
+import { durationParts } from '@/lib/karute/duration'
 import {
   CustomerMemoryCard,
   type CustomerMemorySnapshot,
@@ -286,14 +287,6 @@ function DiscardedFactsCard({
       )}
     </section>
   )
-}
-
-/** Whole minutes + zero-padded seconds — same shape as
- *  DiscardReasonsSection.tsx's own `durationParts` (not imported: that
- *  function is file-local/unexported there). */
-function durationParts(sec: number): { m: string; s: string } {
-  const whole = Math.max(0, Math.floor(sec))
-  return { m: String(Math.floor(whole / 60)), s: String(whole % 60).padStart(2, '0') }
 }
 
 /** JST-explicit (this codebase's standing rule for every business-fact

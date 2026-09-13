@@ -80,6 +80,7 @@ import {
   type DiscardReasonRow,
 } from '@/actions/recording-discards'
 import { BELOW_FLOOR_SEC } from '@/lib/recording/discard-floor'
+import { durationParts } from '@/lib/karute/duration'
 
 type TranscriptState =
   | { kind: 'loading' }
@@ -145,14 +146,6 @@ function useMeasuredWidth(ref: RefObject<HTMLElement | null>): number | null {
     return () => ro.disconnect()
   }, [ref])
   return width
-}
-
-/** Whole minutes + zero-padded seconds, the mock's 「4分12秒」 shape. Negative
- *  and fractional durations are floored to a real clock reading rather than
- *  rendered raw — core stores seconds, but a number we print is a claim. */
-function durationParts(sec: number): { m: string; s: string } {
-  const whole = Math.max(0, Math.floor(sec))
-  return { m: String(Math.floor(whole / 60)), s: String(whole % 60).padStart(2, '0') }
 }
 
 /** m:ss, the transcript's own left column. */
