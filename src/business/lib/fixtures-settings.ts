@@ -575,7 +575,7 @@ export const businessProfiles: ReadonlyArray<{ value: string; label: string }> =
  *        coarse_labels: Record<PermissionRoleKey, 'OWNER'|'ADMIN'|'STYLIST'|'ASSISTANT'>
  *      }
  *
- *  Karute's own `PERMISSION_ROLES` (`src/lib/auth/permissions.ts:51-58`) adopts
+ *  Karute's own `PERMISSION_ROLES` (`src/lib/auth/permissions.ts:59-66`) adopts
  *  SIX of the nine, and those six are the only ones with real preset grants
  *  behind them. So the room OFFERS six — inventing a Japanese label and an empty
  *  grant for `area_manager` / `trainee` / `accountant` would be the room making
@@ -584,7 +584,7 @@ export const businessProfiles: ReadonlyArray<{ value: string; label: string }> =
  *  than from a surprise at reconnect. Two disk-read pins hold both halves: the
  *  six against Karute's file, the nine against the SDK's. */
 export interface Rulebook {
-  /** All 18, in Karute's own source order, each with what it DOES in plain
+  /** All 19, in Karute's own source order, each with what it DOES in plain
    *  Japanese (⚖ 「plain names, never codes」 — the reader never sees a token). */
   capabilities: ReadonlyArray<{ token: string; label: string }>
   /** The 6 role presets, in Karute's own order, `custom` last. */
@@ -601,8 +601,8 @@ export interface Rulebook {
   unadoptedRoleKeys: readonly string[]
 }
 
-/** `src/lib/auth/permissions.ts:14-46` (CAPABILITIES) · `:51-58`
- *  (PERMISSION_ROLES) · `:64-90` (ROLE_PRESETS), all on `origin/main`. */
+/** `src/lib/auth/permissions.ts:14-54` (CAPABILITIES) · `:59-66`
+ *  (PERMISSION_ROLES) · `:72-98` (ROLE_PRESETS), all on `origin/main`. */
 export const rulebook: Rulebook = {
   capabilities: [
     { token: 'billing.manage', label: '契約・請求の管理' },
@@ -616,6 +616,7 @@ export const rulebook: Rulebook = {
     { token: 'data.export', label: 'データの書き出し・取り込み' },
     { token: 'records.delete', label: 'カルテ・顧客の削除' },
     { token: 'records.reassign', label: 'カルテの付け替え' },
+    { token: 'records.discardView', label: '破棄されたカルテの閲覧（内容を除く）' },
     { token: 'records.write', label: 'カルテの記録' },
     { token: 'recordings.viewAll', label: '全スタッフの録音の閲覧' },
     { token: 'analytics.viewAll', label: '売上分析の閲覧（店舗全体）' },
@@ -635,18 +636,18 @@ export const rulebook: Rulebook = {
     { key: 'custom', label: 'カスタム' },
   ],
   grants: {
-    // owner: ALL (`permissions.ts:66`).
+    // owner: ALL (`permissions.ts:74`).
     owner: [
       'billing.manage', 'business.manage', 'staff.invite', 'staff.manage', 'settings.manage',
       'menus.manage', 'audit.view', 'sync.view', 'data.export', 'records.delete',
-      'records.reassign', 'records.write', 'recordings.viewAll', 'analytics.viewAll',
+      'records.reassign', 'records.discardView', 'records.write', 'recordings.viewAll', 'analytics.viewAll',
       'stores.viewAll', 'alerts.manage', 'customers.view', 'bookings.manage',
     ],
     // manager: ALL minus billing.manage · business.manage · recordings.viewAll ·
-    // audit.view · sync.view (`permissions.ts:73-81`).
+    // audit.view · sync.view (`permissions.ts:81-89`).
     manager: [
       'staff.invite', 'staff.manage', 'settings.manage', 'menus.manage', 'data.export',
-      'records.delete', 'records.reassign', 'records.write', 'analytics.viewAll',
+      'records.delete', 'records.reassign', 'records.discardView', 'records.write', 'analytics.viewAll',
       'stores.viewAll', 'alerts.manage', 'customers.view', 'bookings.manage',
     ],
     senior: [
