@@ -1644,9 +1644,17 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
               // to online selling — as far as 「直前の空きは売らない」, which is the
               // boundary worth naming. The warning branch above is unchanged.
               // JP-NATIVE PASS R2 · REPORT-2.md A1 · A2 · A3 (⚖ ADOPTED).
+              // ⚖ D-20 (2), Codex N2 — AN EXPLICIT NUMBER EQUAL TO leadTimeMin IS
+              // THE SAME CLOSURE MOMENT AS LINKED. `autoReleaseTooShort` only
+              // caught `<`, so an explicit 120/120 or 30/30 pair fell through to
+              // A3's 「オンラインで販売できます」 — false: equality is D-11's own
+              // closure instant (linked IS that number by construction), so
+              // online 受付 has already closed the moment this 枠 releases, same
+              // as the linked branch. Strictly greater is the only case left for
+              // A3.
               guardrail: autoReleaseTooShort
                 ? '「直前の空きは売らない」より短くすると、解除してもオンラインでは売れません。店頭・電話でのみ扱えます。' // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
-                : autoReleaseDial === 'linked'
+                : autoReleaseDial === 'linked' || (typeof autoReleaseDial === 'number' && autoReleaseDial === opsConfig.leadTimeMin)
                   ? '解除と同時にオンライン受付が終わるため、店頭・電話でのみ扱えます。' // JP-NATIVE PASS R2 (REPORT-2.md A1)
                   : autoReleaseDial === null
                     ? '解除しないため、開始時刻まで確保したままです。' // JP-NATIVE PASS R2 (REPORT-2.md A2)

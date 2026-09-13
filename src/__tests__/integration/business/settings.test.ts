@@ -1527,6 +1527,20 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
       .toBe('解除しないため、開始時刻まで確保したままです。')
     expect((await rowFor(120)).trio!.guardrail)
       .toBe('解除後は、「直前の空きは売らない」までオンラインで販売できます。')
+
+    // ⚖ D-20 (2) (2026-09-14), Codex N2 — AN EXPLICIT NUMBER EQUAL TO
+    // leadTimeMin IS THE SAME CLOSURE MOMENT AS LINKED (A1), not A3: it fell
+    // through to A3's 「オンラインで販売できます」 before this fix, which is false
+    // — equality is D-11's own closure instant, the same truth linked states.
+    // Strictly greater (lead 60 / release 120, above) stays A3.
+    const rowWithLead = async (leadTimeMin: number, autoReleaseBeforeMin: number | 'linked' | null) => {
+      const props = await roomWithOpsConfig({ leadTimeMin, autoReleaseBeforeMin }, { store: STORE_A })
+      return rowsOf(props).find((r) => r.id === 'reserve.row-autorelease')!
+    }
+    expect((await rowWithLead(120, 120)).trio!.guardrail)
+      .toBe('解除と同時にオンライン受付が終わるため、店頭・電話でのみ扱えます。')
+    expect((await rowWithLead(30, 30)).trio!.guardrail)
+      .toBe('解除と同時にオンライン受付が終わるため、店頭・電話でのみ扱えます。')
   })
 
   it('leg 6 — round-trip: every wire value survives board and back, and undefined reads as linked', () => {
