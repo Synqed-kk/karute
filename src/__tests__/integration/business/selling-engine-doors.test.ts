@@ -777,16 +777,16 @@ describe('1 — the round gate', () => {
   // ⚖ ADDENDUM 4 item 2 (Liam 2026-09-13 21:4x) — THE NO-CYCLE PROOF AS A
   // WHOLE-LINE PIN. Both round-2 modules answer about board rows and a clock
   // VALUE, so their exports must stay free of screen types, React and any clock
-  // of their own. The import header, ordered and exhaustive, is that proof: one
-  // value import (`honestHeld`, whose own file imports only types) and types
-  // besides. A new import — or a reworded one — moves this array and prints the
-  // diff.
+  // of their own. The import header, ordered and exhaustive, is that proof:
+  // value imports (`honestHeld` and, as of ⚖ D-18 (3), `heldMaskOf` — both from
+  // `./honest-held`, whose own file imports only types) and types besides. A
+  // new import — or a reworded one — moves this array and prints the diff.
   it('⚖ ADDENDUM 4 — the two round-2 modules import types, one value, and no screen', () => {
     for (const [f, lines] of [
       ['bed-aware-sales.ts', [
         "import type { BoardLane } from '@/business/lib/today-board'",
         "import type { Asker, BedTruth } from './capacity-ledger'",
-        "import { honestHeld, type HonestHeld } from './honest-held'",
+        "import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'",
         "import type { ReservedLaneMask } from './reserved-mask'",
       ]],
       ['timed-release.ts', [

@@ -447,7 +447,8 @@ describe('the fixture data door', () => {
         // filter, the locked-lane list and the round gate live, and the two files
         // a sellability gate would look natural in are on the forbidden-reader
         // list one test over. It is a pure module whose every import is a TYPE
-        // except `honestHeld` — whose own imports are all types — so this arrow
+        // except `honestHeld` and, as of ⚖ D-18 (3), `heldMaskOf` — both from
+        // `./honest-held`, whose own imports are all types — so this arrow
         // adds no module to the graph below the screen: everything it names
         // (`./capacity-ledger`, `./honest-held`, `./reserved-mask`,
         // `@/business/lib/today-board`) is already on this list.
