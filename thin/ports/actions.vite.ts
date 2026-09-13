@@ -1403,6 +1403,50 @@ export const transcribeAndPersistDiscard = ((input) =>
     input,
   )) satisfies typeof import('@/actions/recording-discard-transcript').transcribeAndPersistDiscard
 
+// -- recording share toggle (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design
+// D6) — the recorder's own 共有 button on the transcript card. No
+// Idempotency-Key: the body is idempotent by state (the shared body's own
+// D6 step 5 no-op guard), same reasoning as the regenerate button's port.
+//
+// The wire only ever carries an AppApiErrorCode ('forbidden' | 'not_found' |
+// 'upstream_unavailable' | ...) — narrower and differently-spelled than the
+// web action's own error union, which the button was written against
+// (recording-share.ts). `no_recording` and `not_found` are genuinely
+// INDISTINGUISHABLE at the wire (the route maps both to the same 404 code —
+// see BUILD-REPORT-SHARE-B-2026-09-14.md's disclosed interpretation); this
+// mapping is honest about that rather than inventing a code the server never
+// sends.
+async function facadeSetRecordingShared(
+  karuteId: string,
+  shared: boolean,
+): Promise<
+  | { ok: true; shared: boolean }
+  | { ok: false; error: 'not_found' | 'no_recording' | 'forbidden' | 'upstream' }
+> {
+  try {
+    const res = await getDataPort().apiFetch(
+      '/api/app/v1/recordings/share',
+      jsonInit('POST', { karuteId, shared }),
+    )
+    const body = (await res.json().catch(() => null)) as
+      | { shared?: boolean; error?: { code?: string } }
+      | null
+    if (!res.ok) {
+      const code = body?.error?.code
+      const error = code === 'forbidden' || code === 'not_found' ? code : 'upstream'
+      return { ok: false, error }
+    }
+    return { ok: true, shared: body?.shared ?? shared }
+  } catch {
+    return { ok: false, error: 'upstream' }
+  }
+}
+export const setRecordingShared = ((karuteId, shared) =>
+  facadeSetRecordingShared(
+    karuteId,
+    shared,
+  )) satisfies typeof import('@/actions/recording-share').setRecordingShared
+
 // 破棄の記録 — the staffer's OWN monthly discard count (⚖ 8/25 ruling B, staff
 // half). STILL NOT AVAILABLE ON THE PHONE, and no longer for the same reason as
 // the manager screen: that screen is LIVE on thin now, off the two facade reads
