@@ -732,6 +732,35 @@ describe('1 — the round gate', () => {
     expect(gate).not.toMatch(/process\.env/)
   })
 
+  it('…and the sales gate is read at the screen boundary ONCE', () => {
+    const screen = SRC('TodayScreen.tsx')
+    // TWO reads over code with comment-led lines blanked: the shared gate import
+    // line, and the ONE memo it decides (the withheld set). A third read cannot
+    // arrive without moving this number.
+    expect([...codeOnly(screen).matchAll(/BED_AWARE_SALES/g)].length).toBe(2)
+    for (const line of [
+      "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
+      // The gate's ONE decision site, anchored whole: the last argument of the
+      // withheld memo's own call. Held by the count above as well as by this
+      // line, so neither a duplicate nor a move has anywhere to stand.
+      'BED_AWARE_SALES,',
+    ]) {
+      expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
+    }
+    // ⚖ SPEC-R2 §3.1 — AND THE PUBLISHED LAYERS ARE WHAT THE COUNTERS READ.
+    // `sellDrawn` is the DERIVATION (the row still draws the withheld box, muted
+    // — ADDENDUM 2 item 1); `sellPublished`/`gapPublished` are the on-sale set,
+    // and every counting surface reads those. A counter left on `sellDrawn`
+    // would count a box the board is greying out, which is R4's own lesson one
+    // law along — so the reader count is pinned, not just the memo.
+    expect({ drawnReaders: (codeOnly(screen).match(/sellDrawn\.staffBands/g) ?? []).length }).toEqual({ drawnReaders: 0 })
+    expect({ publishedReaders: (codeOnly(screen).match(/sellPublished\.staffBands/g) ?? []).length }).toEqual({ publishedReaders: 7 })
+    // …and `gapDrawn` reaches the four-kind counter through `gapPublished` too,
+    // so 「オンライン販売中 N窓」 and the chip answer out of one set.
+    expect({ line: 'packed', has: pinnedLine(screen, 'packed: heldCommitted ? gapPublished.packed : [],') }).toEqual({ line: 'packed', has: true })
+    expect({ line: 'scraps', has: pinnedLine(screen, 'scraps: heldCommitted ? gapPublished.scraps : [],') }).toEqual({ line: 'scraps', has: true })
+  })
+
   it('…and no module below the screen names the sales gate', () => {
     // ⚖ ROUND 2 — the same list as the honest gate's, plus the round's own two
     // modules: the withholding is applied at the screen and `on` arrives as a

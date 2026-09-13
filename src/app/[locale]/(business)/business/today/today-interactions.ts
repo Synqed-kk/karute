@@ -1611,6 +1611,39 @@ export function sellDrawnFor(layer: SellLayer, showPrice: boolean): SellLayer {
   return published.length === layer.cells.length ? layer : buildSellLayer(published, showPrice)
 }
 
+/** ⚖ D-10 · D-12 · SPEC-R2 §3.1 — WHAT THE BOARD PUBLISHES ONCE THE BEDS HAVE
+ *  HAD THEIR SAY, and it is `sellDrawnFor` one law along.
+ *
+ *  A standard hour whose only free room a kept 新規用 枠 is already holding may
+ *  not be counted as purchasable or sent to Reserve — but it is still DRAWN, in
+ *  the muted vocabulary, because a vanished offer with no reason is the
+ *  confusion the shared box exists to prevent (⚖ ADDENDUM 2 item 1). So the
+ *  DERIVATION keeps every cell and the PUBLICATION drops the withheld ones, and
+ *  every surface that counts reads the published layer.
+ *
+ *  WHY A PREDICATE AND NOT A SET: the offer's identity has ONE spelling
+ *  (`offerKey`, bed-aware-sales.ts) and it lives with the layer that computes
+ *  the withholding. Handing that spelling to this file would put it in two
+ *  homes; handing this file the QUESTION keeps it in one.
+ *
+ *  IDENTITY WHEN NOTHING IS WITHHELD — the very same object back, exactly as
+ *  `sellDrawnFor` above, so a gate-off round and a store whose beds are free
+ *  are byte-identical to today's board by construction.
+ *
+ *  ⚠ THE BANDS ARE REBUILT, deliberately. `buildSellLayer` groups adjacent
+ *  cells into bands, so a band that loses one hour in the middle SPLITS into
+ *  two — 「公開中の販売可能枠 N枠」 counts bands, and subtracting boxes from the
+ *  old count would print a number no band list agrees with. The tiers re-zone
+ *  with it, for the reason `sellDrawnFor` states. */
+export function sellPublishedFor(
+  layer: SellLayer,
+  withheld: (laneKey: string, start: number) => boolean,
+  showPrice: boolean,
+): SellLayer {
+  const published = layer.cells.filter((c) => !withheld(c.laneKey, c.h))
+  return published.length === layer.cells.length ? layer : buildSellLayer(published, showPrice)
+}
+
 /** ⚖ FIX ROUND F3 (blind-final L1#2) — THE MASK AS THE SALES DOOR MAY PUBLISH
  *  IT: the held set minus every lane the SELL door refuses outright.
  *

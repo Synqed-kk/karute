@@ -1769,7 +1769,7 @@ describe('7 — the fix round: the publication boundary', () => {
     // ⚖ Q3's one number is the board head's. This chip counts one of its four
     // kinds and now says which, in the board's own 案C word — the same word its
     // group wears in the press-open breakdown.
-    expect(screen).toContain('公開中の販売可能枠 {sellDrawn.staffBands.length}枠')
+    expect(screen).toContain('公開中の販売可能枠 {sellPublished.staffBands.length}枠')
     expect(screen).not.toContain('>公開中 {')
     const w = fixtureWorld()
     const on = door(w, shipped(), maskOf(w, shipped()))

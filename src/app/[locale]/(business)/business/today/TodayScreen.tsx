@@ -52,6 +52,7 @@ import {
   packedPrice,
   priceButtonCaption,
   money,
+  SELL_SLOT_MIN,
 } from '@/business/lib/canon-logic/pricing'
 import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 // ⚖ Liam 8/23 — the guided tour is EVERY Business page's now, so the engine this
@@ -162,6 +163,7 @@ import {
   sharesStore,
   sellDrawnFor,
   sellLayerFor,
+  sellPublishedFor,
   sellStaffLanes,
   sharedRoomSub,
   sharedRoomTitle,
@@ -189,6 +191,7 @@ import {
   type SellDrop,
   type WarnCardModel,
 } from './today-interactions'
+import { offerKey, withheldOffers, type OfferAsk } from './bed-aware-sales'
 import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
 import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
 import { heldCommittedFor } from './held-committed'
@@ -2321,6 +2324,67 @@ export function TodayScreen(props: TodayProps) {
     [gapClaims, salesDoor],
   )
 
+  /** ⚖ D-10 · D-12 · SPEC-R2 §2.3 / §3.1 — MAY THIS PRICED HOUR GO ON SALE,
+   *  NOW THAT THE KEPT 新規用 枠 HAVE THEIR BEDS? Asked ONCE, for the SETTLED
+   *  board, over the four kinds the board draws.
+   *
+   *  The hole this closes: the sell withholding reads the held mask PER LANE, so
+   *  a kept 枠 on ANOTHER row is invisible to it and the store sells the very bed
+   *  that 枠 needs (⚖ D-10, Liam's own words: 「the filler is hidden from the app
+   *  so nobody can book it and kill the new-customer session」).
+   *
+   *  THE ASK IS ONE PER OFFER, NOT ONE PER BOX: a sell offer's staff-row and
+   *  bed-row copies carry the same staff `laneKey`, so the pair is one question
+   *  and is withheld together — deduped by `offerKey` here rather than answered
+   *  twice.
+   *
+   *  SETTLED-ONLY DEPS, and that is the ruling rather than a preference: not one
+   *  of the three values that get a fresh identity on every pointer frame — the
+   *  board world's lanes, its per-frame book, the card in hand — is in this
+   *  list, so the netting this memo pays for never runs during a gesture. The
+   *  book is the SAME one the honest memo takes, `bookFor` with `FOREIGN_BOOKS`,
+   *  so this closure holds three scalars and a second bed truth about one board
+   *  cannot exist (spec §1). */
+  const withheld = useMemo(() => {
+    const storesOf = new Map(committedLanes.map((l) => [l.key, l.stores ?? null]))
+    const asks = new Map<string, OfferAsk>()
+    const ask = (laneKey: string, start: number, end: number) => {
+      const key = offerKey(laneKey, start)
+      if (!asks.has(key)) asks.set(key, { key, laneKey, start, end, stores: storesOf.get(laneKey) ?? null })
+    }
+    for (const c of sellDrawn.cells) ask(c.laneKey, c.h, c.h + SELL_SLOT_MIN)
+    for (const c of gapDrawn.packed) ask(c.laneKey, c.s, c.e)
+    for (const c of gapDrawn.scraps) ask(c.laneKey, c.s, c.e)
+    return withheldOffers(
+      [...asks.values()],
+      honest,
+      heldCommitted ? heldCommitted.filter((m) => !locked.includes(m.laneKey)) : [],
+      committedLanes,
+      bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+      BED_AWARE_SALES,
+    )
+  }, [sellDrawn, gapDrawn, honest, heldCommitted, locked, committedLanes, ledgerFrame])
+
+  /** ⚖ SPEC-R2 §3.1 — THE TWO PUBLISHED LAYERS, and they are the only thing the
+   *  counters read. `sellDrawn`/`gapDrawn` stay the DERIVATION: the row draws
+   *  the withheld offer muted, in its own priced box, because hiding it would be
+   *  the 「never vanished」 half of the rule broken (⚖ ADDENDUM 2 item 1).
+   *  Nothing withheld ⇒ the very same objects, by identity. */
+  const sellPublished = useMemo(
+    () => sellPublishedFor(sellDrawn, (laneKey, start) => withheld.keys.has(offerKey(laneKey, start)), showSlotPrice),
+    [sellDrawn, withheld, showSlotPrice],
+  )
+  const gapPublished = useMemo(
+    () =>
+      (withheld.keys.size === 0
+        ? gapDrawn
+        : {
+            packed: gapDrawn.packed.filter((c) => !withheld.keys.has(offerKey(c.laneKey, c.s))),
+            scraps: gapDrawn.scraps.filter((c) => !withheld.keys.has(offerKey(c.laneKey, c.s))),
+          }),
+    [gapDrawn, withheld],
+  )
+
   /** ⚖ SPEC-SELLING-ENGINE §8, RULED 8/30 (§13 Q3 — 「one number」) — WHAT IS ON
    *  SALE ONLINE, counted over all four kinds. Composed HERE, out of the four
    *  lists the board actually draws, so the chip and the boxes under it can
@@ -2330,13 +2394,13 @@ export function TodayScreen(props: TodayProps) {
   const shelf = useMemo(
     () =>
       onlineOffers({
-        sell: sellDrawn.staffBands,
+        sell: sellPublished.staffBands,
         // Gate off ⇒ the sell layer alone under its own heading, and canon's
         // own label back on the chip: the mask is the only thing that makes the
         // other three kinds part of the number, so an absent one is today's
         // counter by construction rather than by a second composer.
-        packed: heldCommitted ? gapDrawn.packed : [],
-        scraps: heldCommitted ? gapDrawn.scraps : [],
+        packed: heldCommitted ? gapPublished.packed : [],
+        scraps: heldCommitted ? gapPublished.scraps : [],
         // ⚖ FIX ROUND F4 — §4.5's own adapter, over the PUBLISHED mask: ONE
         // emission home for the reserved kind, and it is the one the operator
         // reads. Gate off ⇒ an empty mask ⇒ no rows, which is today's counter.
@@ -2349,7 +2413,7 @@ export function TodayScreen(props: TodayProps) {
         lanes: committedLanes,
         showPrice: showSlotPrice,
       }),
-    [heldCommitted, sellDrawn, gapDrawn, heldDrawn, honestDrawn, committedLanes, showSlotPrice],
+    [heldCommitted, sellPublished, gapPublished, heldDrawn, honestDrawn, committedLanes, showSlotPrice],
   )
 
   /** The 配置ガイド. `guardOn` is the STORE's protection policy; `guideMode` is
@@ -8133,7 +8197,7 @@ export function TodayScreen(props: TodayProps) {
               gap, which is a second total in all but name. It is not a total:
               it is one KIND of the four, and it says so in the board's own 案C
               word. The number and its unit are untouched. */}
-          <span className="chip ok">公開中の販売可能枠 {sellDrawn.staffBands.length}枠</span>
+          <span className="chip ok">公開中の販売可能枠 {sellPublished.staffBands.length}枠</span>
           {/* ⚖ NEW-WINDOW L-D — THE OTHER HALF OF THE DAY: how many 新規用に確保
               windows the store still holds, room-aware, on the settled board.
               ABSENT with the guard off — a store that holds nothing does not hold
@@ -8835,11 +8899,11 @@ export function TodayScreen(props: TodayProps) {
           <div className="incident-stat"><span>未判断</span><b className="warn">{props.incident.undecided}件</b></div>
           <div className="incident-stat"><span>連絡待ち</span><b>{proposalSent ? 0 : props.incident.waitingContact}件</b></div>
           {/* ⚖ R8 T4 — ONE LABEL PER NUMBER. This stat and the header chip
-              print the SAME `sellDrawn.staffBands.length`, and calling it 安全な空き
+              print the SAME `sellPublished.staffBands.length`, and calling it 安全な空き
               here made one count read as two facts about the same board. The
               chip's own words are the surviving name — no new vocabulary, and
               nothing about the number or its unit moves. */}
-          <div className="incident-stat"><span>公開中の販売可能枠</span><b>{sellDrawn.staffBands.length}枠</b></div>
+          <div className="incident-stat"><span>公開中の販売可能枠</span><b>{sellPublished.staffBands.length}枠</b></div>
           <div className="incident-action">
             <button className="btn" type="button" onClick={() => setSelected(props.incident!.caseId)}>影響を確認</button>
           </div>
@@ -9028,7 +9092,7 @@ export function TodayScreen(props: TodayProps) {
             </div>
             <span className="framing-sample">{framingSample(liveClamp.hi, liveClamp.lo, framing)}</span>
           </div>
-          {sellDrawn.staffBands.map((b) => (
+          {sellPublished.staffBands.map((b) => (
             <div className="slot-row" key={`${b.laneKey}-${b.hStart}`}>
               <span><strong>{hhmm(b.hStart)}–{hhmm(b.hEnd)} / {b.staff}</strong><span>基準 {yen(dialogs.pricing.base)} / 10円単位四捨五入</span></span>
               <b>{b.lo == null ? '—' : b.lo === b.hi ? money(b.lo) : `${money(b.lo)}〜${money(b.hi!)}`}</b>
@@ -9047,14 +9111,14 @@ export function TodayScreen(props: TodayProps) {
           <button
             className="btn primary"
             type="button"
-            disabled={sellDrawn.staffBands.length === 0 || !liveChanged}
+            disabled={sellPublished.staffBands.length === 0 || !liveChanged}
             onClick={() => {
               setAppliedPrice({ hi: liveClamp.hi, lo: liveClamp.lo })
               reserveRef.current?.close()
-              show(`${sellDrawn.staffBands.length}枠の公開価格をHQ範囲内で更新しました。再読み込みすると戻ります`)
+              show(`${sellPublished.staffBands.length}枠の公開価格をHQ範囲内で更新しました。再読み込みすると戻ります`)
             }}
           >
-            {priceButtonCaption(sellDrawn.staffBands.length, liveChanged)}
+            {priceButtonCaption(sellPublished.staffBands.length, liveChanged)}
           </button>
         </div>
       </dialog>
