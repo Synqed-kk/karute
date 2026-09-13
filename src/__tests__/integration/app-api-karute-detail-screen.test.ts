@@ -128,14 +128,17 @@ const rawKaruteFetch = jest.fn(async (path: string) => {
 // Default: empty (no STAFF discard events), so every pre-existing test above
 // (never discarded) is unaffected — resolveDiscardFacts only calls this when
 // karute.status === 'DISCARDED'.
-const recordingDiscardsList = jest.fn(async () => ({ events: [] as Array<{
-  id: string
-  recording_session_id: string
-  source: 'STAFF' | 'SYSTEM'
-  discarded_by: string | null
-  reason: string | null
-  created_at: string
-}> }))
+const recordingDiscardsList = jest.fn(async (opts?: { page?: number; page_size?: number }) => {
+  void opts // this default fixture ignores args; per-test mockImplementation below reads opts.page
+  return { events: [] as Array<{
+    id: string
+    recording_session_id: string
+    source: 'STAFF' | 'SYSTEM'
+    discarded_by: string | null
+    reason: string | null
+    created_at: string
+  }> }
+})
 const fakeClient = {
   karuteRecords: { get: (id: string) => karuteGet(id) },
   customers: { getConsent, listPhotos },
@@ -144,7 +147,10 @@ const fakeClient = {
   staffStores: { get: (id: string) => staffStoresGet(id) },
   stores: { get: jest.fn(async () => ({ id: 'store-b' })) },
   fetch: (path: string) => rawKaruteFetch(path),
-  recordingDiscards: { list: () => recordingDiscardsList() },
+  // Forwards the call's own options through — fix round 2's pagination tests
+  // (piece 4 below) key their per-page fixtures off `opts.page`, which a
+  // no-args passthrough could never see.
+  recordingDiscards: { list: (opts?: { page?: number; page_size?: number }) => recordingDiscardsList(opts) },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -1239,6 +1245,61 @@ describe('R8 discarded-record door — content (piece 4)', () => {
     expect(dto.discarded).not.toBeNull()
     expect(dto.discarded.reason).toBeNull()
     expect(dto.discarded.discardedByName).toBeNull()
+  })
+
+  // Fix round 2 (Greptile #909, finding 3): the SDK exposes no sort and server
+  // order is not a contract — a session with more than one page of STAFF
+  // discard events could show a stale reason/actor/time. resolveDiscardFacts
+  // must page the ledger to completion, THEN sort and pick the newest.
+  it('pages the STAFF discard ledger to completion before picking the newest — two pages, real newest on page 2 (fix round 2 / mutant: a one-page read shows page 1’s stale reason instead, RED)', async () => {
+    const page1 = Array.from({ length: 200 }, (_, i) => ({
+      id: `discard-p1-${i}`,
+      recording_session_id: 'sess-1',
+      source: 'STAFF' as const,
+      discarded_by: 'other-staff',
+      reason: 'stale reason',
+      created_at: '2026-06-01T00:00:00Z',
+    }))
+    const page2 = [
+      {
+        id: 'discard-p2-newest',
+        recording_session_id: 'sess-1',
+        source: 'STAFF' as const,
+        discarded_by: 'other-staff',
+        reason: 'the real newest reason',
+        created_at: '2026-06-03T00:00:00Z',
+      },
+    ]
+    recordingDiscardsList.mockImplementation(async (opts) => ({
+      events: opts?.page === 2 ? page2 : page1,
+    }))
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded.reason).toBe('the real newest reason')
+    // A full page-1 (200, the page_size) must fetch page 2; page 2 comes back
+    // short (1 < 200) and the loop must stop there.
+    expect(recordingDiscardsList).toHaveBeenCalledTimes(2)
+  })
+
+  it('a single short page of STAFF discards still resolves the newest — regression (fix round 2)', async () => {
+    recordingDiscardsList.mockImplementation(async () => ({
+      events: [
+        {
+          id: 'discard-1',
+          recording_session_id: 'sess-1',
+          source: 'STAFF' as const,
+          discarded_by: 'other-staff',
+          reason: 'テスト理由',
+          created_at: '2026-06-02T00:00:00Z',
+        },
+      ],
+    }))
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded.reason).toBe('テスト理由')
+    expect(recordingDiscardsList).toHaveBeenCalledTimes(1)
   })
 
   it('a LIVE record’s DTO carries discarded:null, contentWithheld:false — additive-only, everything else unchanged', async () => {

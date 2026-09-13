@@ -15,6 +15,18 @@ import {
   staffNameByIdAcrossCardsAndProfiles,
 } from '@/lib/synqed/staff-map'
 
+/** Core rejects a page_size above 200 on this family (the recordings/karute
+ *  validator, verified 2026-08-25 — see lib/recordings/inbox-read.ts's note).
+ *  It does NOT clamp; it 400s. (recording-discards.ts's own PAGE_SIZE is
+ *  module-private, so this is the same constant, not a shared import.) */
+const PAGE_SIZE = 200
+/** Fix round 2 (Greptile #909, finding 3): the SDK exposes no sort and server
+ *  order is not a contract, so a session with more than one page of STAFF
+ *  discard events could show a stale reason/actor/time. Page to completion
+ *  before sorting. 5 pages is a runaway guard, not an expected size — a
+ *  single session cannot honestly carry 1,000 staff discard events. */
+const MAX_PAGES = 5
+
 /**
  * R8 discarded-record door (⚖ Liam 2026-09-13, A6/A7) — the facts block's own
  * reads, on a CALLER-SUPPLIED client (web: cookie; facade: Bearer), so BOTH
@@ -54,12 +66,18 @@ export async function resolveDiscardFacts(
 
     if (!opts.recordingSessionId) return { discardLedger: null, recordStaffName }
 
-    const res = await synqed.recordingDiscards.list({
-      recording_session_id: opts.recordingSessionId,
-      source: 'STAFF',
-      page_size: 5,
-    })
-    const events = res?.events ?? []
+    const events: NonNullable<Awaited<ReturnType<typeof synqed.recordingDiscards.list>>>['events'] = []
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const res = await synqed.recordingDiscards.list({
+        recording_session_id: opts.recordingSessionId,
+        source: 'STAFF',
+        page,
+        page_size: PAGE_SIZE,
+      })
+      const batch = res?.events ?? []
+      events.push(...batch)
+      if (batch.length < PAGE_SIZE) break
+    }
     const newest = events
       .slice()
       .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0]
