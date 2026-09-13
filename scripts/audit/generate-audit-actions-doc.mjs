@@ -106,11 +106,13 @@ const LITERAL_ONLY_CATEGORY = {
   'recording.session_cleanup': 'recording',
   // Choke emit: src/lib/recording/share.ts#setRecordingSharedWithClient (via
   // its own emitShareAudit helper) — the recorder's own share toggle (⚖ Liam
-  // 2026-09-13 sharing law; 2026-09-14 design D6). Facade key recordings.share
-  // is a skip row with no coveredBy citation (its idempotent no-op return is
-  // a genuine non-audited success path CP2's walker cannot exempt) — same
-  // doctrine as recording.play above otherwise: no endpoint fires it alone,
-  // only this one choke point.
+  // 2026-09-13 sharing law; 2026-09-14 design D6). FIX ROUND 1: facade key
+  // recordings.share is a skip row citing emitShareAudit (audit.ts) — the
+  // HELPER, not the body, because the body's idempotent no-op return is a
+  // genuine non-audited success path CP2's walker cannot exempt, while the
+  // helper emits unconditionally on its one path (the uploadUrl/
+  // auditTakeNamed shape) — same doctrine as recording.play above otherwise:
+  // no endpoint fires it alone, only this one choke point.
   'recording.share': 'recording',
   // Choke emit: src/lib/recording/share.ts#setRecordingSharedWithClient (via
   // emitShareAudit) — the unshare twin of recording.share directly above.
