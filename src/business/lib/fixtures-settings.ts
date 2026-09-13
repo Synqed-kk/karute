@@ -619,7 +619,6 @@ export const rulebook: Rulebook = {
     { token: 'records.discardView', label: '破棄されたカルテの閲覧（内容を除く）' },
     { token: 'records.write', label: 'カルテの記録' },
     { token: 'recordings.viewAll', label: '全スタッフの録音の閲覧' },
-    { token: 'recordings.viewShared', label: '共有された録音の閲覧' },
     { token: 'analytics.viewAll', label: '売上分析の閲覧（店舗全体）' },
     { token: 'stores.viewAll', label: '全店舗の閲覧' },
     { token: 'alerts.manage', label: '離客・回数券のお知らせの操作' },
@@ -641,17 +640,15 @@ export const rulebook: Rulebook = {
     owner: [
       'billing.manage', 'business.manage', 'staff.invite', 'staff.manage', 'settings.manage',
       'menus.manage', 'audit.view', 'sync.view', 'data.export', 'records.delete',
-      'records.reassign', 'records.discardView', 'records.write', 'recordings.viewAll', 'recordings.viewShared',
-      'analytics.viewAll', 'stores.viewAll', 'alerts.manage', 'customers.view', 'bookings.manage',
+      'records.reassign', 'records.discardView', 'records.write', 'recordings.viewAll', 'analytics.viewAll',
+      'stores.viewAll', 'alerts.manage', 'customers.view', 'bookings.manage',
     ],
     // manager: ALL minus billing.manage · business.manage · recordings.viewAll ·
-    // audit.view · sync.view (`permissions.ts:81-89`). recordings.viewShared IS
-    // included — the exclusion filter doesn't name it, so it lands in the
-    // preset by construction (⚖ 2026-09-14 sharing design D3).
+    // audit.view · sync.view (`permissions.ts:81-89`).
     manager: [
       'staff.invite', 'staff.manage', 'settings.manage', 'menus.manage', 'data.export',
-      'records.delete', 'records.reassign', 'records.discardView', 'records.write', 'recordings.viewShared',
-      'analytics.viewAll', 'stores.viewAll', 'alerts.manage', 'customers.view', 'bookings.manage',
+      'records.delete', 'records.reassign', 'records.discardView', 'records.write', 'analytics.viewAll',
+      'stores.viewAll', 'alerts.manage', 'customers.view', 'bookings.manage',
     ],
     senior: [
       'records.write', 'records.delete', 'records.reassign', 'data.export',
