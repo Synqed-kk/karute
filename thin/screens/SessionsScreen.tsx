@@ -40,6 +40,7 @@ export function SessionsScreen() {
           staffList={dto.staffList}
           currentStaffId={dto.currentStaffId}
           customerOptions={dto.customerOptions}
+          viewerCanOpenDiscarded={dto.viewerCanOpenDiscarded ?? false}
         />
       )}
     </ScreenStates>

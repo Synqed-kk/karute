@@ -1096,3 +1096,52 @@ describe('pill counts', () => {
     expect(showingCount()).toBe(5)
   })
 })
+
+// R8 discarded-record door (⚖ Liam 2026-09-13, A8) — the list row's Link vs
+// inert-div threading. viewerCanOpenDiscarded (records.discardView) OR an
+// own-staff row makes a discarded row openable; the row's grey/「破棄済み」
+// look is unaffected either way (proven by karute-discarded-row.test.tsx at
+// the component level — this proves the VIEW computes the flag correctly
+// per row).
+describe('discarded row Link threading (viewerCanOpenDiscarded, A8)', () => {
+  const discardedRow = (id: string, staffId: string) => ({
+    ...item(id, '2026-08-20'),
+    staffId,
+    isDiscarded: true,
+  })
+
+  it('viewerCanOpenDiscarded=true makes EVERY discarded row a Link, regardless of staff', () => {
+    const { container } = renderList({
+      items: [discardedRow('d1', 'other-staff'), discardedRow('d2', 'other-staff')],
+      currentStaffId: 'me',
+      viewerCanOpenDiscarded: true,
+    })
+    expect(container.querySelectorAll('a[href="/karute/d1"]')).toHaveLength(1)
+    expect(container.querySelectorAll('a[href="/karute/d2"]')).toHaveLength(1)
+  })
+
+  it('viewerCanOpenDiscarded=false (default): only the OWN-staff discarded row is a Link, the other stays inert', () => {
+    const { container } = renderList({
+      items: [discardedRow('d1', 'me'), discardedRow('d2', 'other-staff')],
+      currentStaffId: 'me',
+    })
+    expect(container.querySelectorAll('a[href="/karute/d1"]')).toHaveLength(1)
+    expect(container.querySelectorAll('a[href="/karute/d2"]')).toHaveLength(0)
+  })
+
+  it('neither viewerCanOpenDiscarded nor own-staff: the row stays inert (today’s byte-identical behavior)', () => {
+    const { container } = renderList({
+      items: [discardedRow('d1', 'other-staff')],
+      currentStaffId: 'me',
+    })
+    expect(container.querySelectorAll('a[href="/karute/d1"]')).toHaveLength(0)
+  })
+
+  it('a live row is always a Link, regardless of viewerCanOpenDiscarded', () => {
+    const { container } = renderList({
+      items: [item('k1', '2026-08-20')],
+      viewerCanOpenDiscarded: false,
+    })
+    expect(container.querySelectorAll('a[href="/karute/k1"]')).toHaveLength(1)
+  })
+})

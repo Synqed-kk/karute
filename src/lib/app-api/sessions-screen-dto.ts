@@ -124,6 +124,14 @@ export const SessionsScreenWindowedDTO = SessionsScreenDTO.extend({
   /** YYYY-MM-DD (JST) — the oldest day the initial window reached. Feeds the
    *  さらに表示 label and the next chunk's `olderThan`. */
   windowStart: z.string().nullable().default(null),
+  /** R8 discarded-record door (⚖ Liam 2026-09-13, A8): does this viewer hold
+   *  records.discardView? Windowed-only, like discardedCount/hasMore/
+   *  windowStart above — a release-17 bundle never sees this key (the bare
+   *  legacy body stays byte-identical). `.optional()`, not `.default()`: a
+   *  release-18 phone that predates this field must not silently claim the
+   *  grant it never asked about — see the windowed body's own twin
+   *  assertion in sessions-screen-dto-window.test.ts. */
+  viewerCanOpenDiscarded: z.boolean().optional(),
 })
 
 export type SessionsScreenWindowedDTOType = z.infer<typeof SessionsScreenWindowedDTO>

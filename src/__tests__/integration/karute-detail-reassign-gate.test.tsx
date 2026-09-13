@@ -18,6 +18,13 @@
  */
 import { render, screen } from '@testing-library/react'
 
+// R8 discarded-record door: KaruteDetailView now calls useTranslations()/
+// useLocale() directly (DiscardedFactsCard) — every other next-intl call in
+// this tree was previously reached only through a mocked child component.
+jest.mock('next-intl', () => ({
+  useTranslations: () => (key: string) => key,
+  useLocale: () => 'ja',
+}))
 jest.mock('@/components/karute/redesign/detail/CustomerHeaderCard', () => ({
   CustomerHeaderCard: ({ actions }: { actions?: React.ReactNode }) => <div>{actions}</div>,
 }))

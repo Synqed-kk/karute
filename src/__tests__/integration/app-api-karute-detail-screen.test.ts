@@ -51,6 +51,14 @@ jest.mock('@/lib/auth/require-permission', () => ({
   capabilitiesForUser: jest.fn(async () => capabilities.current),
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
 }))
+// R8 discarded-record door: resolveDiscardFacts (actions/recording-discards)
+// reads the card roster for name resolution via the REAL staff-map.ts
+// (synqedStaffCardsForBusiness / staffNameByIdAcrossCardsAndProfiles) — no
+// mock needed here: @synqed-kk/client is already mocked below
+// (synqedStaffRoster), which is the only thing staff-map.ts's card read
+// touches, and lookupProfileIdForSynqedStaffIdForBusiness (the pre-existing
+// owner-translation tests further down) already exercises the real module
+// unmocked, so a staff-map mock here would silently break those.
 
 // Raw synqed karute record. staff_id drives the recording-privacy ACL.
 // recording_session_id: 'sess-1' on both the karute and the default photo
@@ -105,6 +113,32 @@ const outcomeGet = jest.fn(async (): Promise<OutcomeRow | null> => null)
  *  Default [] = floating staff → unrestricted within the tenant, so every
  *  pre-existing case is untouched. */
 const staffStoresGet = jest.fn(async (_id: string) => ({ store_ids: [] as string[] }))
+// R8 discarded-record door (⚖ 2026-09-13): readKaruteRawIncludingDiscarded's
+// raw retry — fires ONLY after karuteGet 404s. Defaults to 404 too (matching
+// karuteGet's own "unknown id" posture), so every pre-existing test above
+// (missing/cross-tenant ids) sees the SAME classified not_found it always
+// did, just via one extra hop. DISCARDED_KAR opts a specific id in.
+const DISCARDED_KAR = { current: null as Record<string, unknown> | null }
+const rawKaruteFetch = jest.fn(async (path: string) => {
+  const id = path.split('/karute-records/')[1]?.split('?')[0]
+  if (DISCARDED_KAR.current && id === DISCARDED_KAR.current.id) return DISCARDED_KAR.current
+  throw Object.assign(new Error('nope'), { status: 404 })
+})
+// R8 discarded-record door — the ledger read behind the facts block.
+// Default: empty (no STAFF discard events), so every pre-existing test above
+// (never discarded) is unaffected — resolveDiscardFacts only calls this when
+// karute.status === 'DISCARDED'.
+const recordingDiscardsList = jest.fn(async (opts?: { page?: number; page_size?: number }) => {
+  void opts // this default fixture ignores args; per-test mockImplementation below reads opts.page
+  return { events: [] as Array<{
+    id: string
+    recording_session_id: string
+    source: 'STAFF' | 'SYSTEM'
+    discarded_by: string | null
+    reason: string | null
+    created_at: string
+  }> }
+})
 const fakeClient = {
   karuteRecords: { get: (id: string) => karuteGet(id) },
   customers: { getConsent, listPhotos },
@@ -112,6 +146,11 @@ const fakeClient = {
   recordings: { get: (id: string) => recordingsGet(id) },
   staffStores: { get: (id: string) => staffStoresGet(id) },
   stores: { get: jest.fn(async () => ({ id: 'store-b' })) },
+  fetch: (path: string) => rawKaruteFetch(path),
+  // Forwards the call's own options through — fix round 2's pagination tests
+  // (piece 4 below) key their per-page fixtures off `opts.page`, which a
+  // no-args passthrough could never see.
+  recordingDiscards: { list: (opts?: { page?: number; page_size?: number }) => recordingDiscardsList(opts) },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -147,6 +186,7 @@ beforeEach(() => {
   staffStoresGet.mockResolvedValue({ store_ids: [] })
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   synqedStaffRoster.current = []
+  DISCARDED_KAR.current = null
   synqedStaffRosterRejects.current = false
   KAR.current = { id: '00000000-0000-4000-8000-000000000008', created_at: '2026-06-01T03:00:00Z', ai_summary: '・肩こり改善傾向', transcript: 'RAW TRANSCRIPT TEXT', business_id: 'business-1', customer_id: 'cust-1', staff_id: 'other-staff', recording_session_id: 'sess-1', entries: [{ id: 'e1', category: 'SYMPTOM', content: '肩こり', original_quote: null, confidence: 0.9, is_manual: false, created_at: '2026-06-01T03:05:00Z' }] }
   getConsent.mockResolvedValue({ consent: { policy_version: 'v0' } })
@@ -975,5 +1015,343 @@ describe('staffCanRegenerate — hide, never show-and-refuse', () => {
     const dto = await dtoFor()
     expect(dto.transcript).toBeNull()
     expect(dto.staffCanRegenerate).toBe(false)
+  })
+})
+
+// R8 discarded-record door (⚖ Liam 2026-09-13) — route-level ACCESS decision
+// (piece 3). The unit-level read-door/ACL behavior is already pinned in
+// discard-door-read.test.ts and discard-door-acl.test.ts; this exercises the
+// route's own wiring (the widened tenancy read + the refusal). Content
+// withholding (piece 4: dto.discarded / dto.contentWithheld) is tested where
+// it's built, further below.
+describe('R8 discarded-record door — access (piece 3)', () => {
+  const DISCARDED_UUID = '00000000-0000-4000-8000-000000000099'
+
+  beforeEach(() => {
+    DISCARDED_KAR.current = {
+      id: DISCARDED_UUID,
+      created_at: '2026-06-01T03:00:00Z',
+      ai_summary: '・肩こり改善傾向',
+      transcript: 'RAW TRANSCRIPT TEXT',
+      business_id: 'business-1',
+      customer_id: 'cust-1',
+      staff_id: 'other-staff',
+      recording_session_id: 'sess-1',
+      status: 'DISCARDED',
+      entries: [
+        {
+          id: 'e1',
+          category: 'SYMPTOM',
+          content: '肩こり',
+          original_quote: null,
+          confidence: 0.9,
+          is_manual: false,
+          created_at: '2026-06-01T03:05:00Z',
+        },
+      ],
+    }
+  })
+
+  const openDiscarded = () => GET(req({ headers: auth }), routeFor(DISCARDED_UUID))
+
+  it('a plain staffer — not the owner, no records.discardView — gets the SAME 404 as a missing id', async () => {
+    const res = await openDiscarded()
+    expect(res.status).toBe(404)
+    expect((await res.json()).error.code).toBe('not_found')
+  })
+
+  it('a records.discardView holder, unrestricted (allowedStoreIds null), opens it — 200', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    expect(res.status).toBe(200)
+  })
+
+  it('the record’s OWN staffer opens it, no capability needed — 200', async () => {
+    DISCARDED_KAR.current = { ...DISCARDED_KAR.current, staff_id: 'auth-user-1' }
+    const res = await openDiscarded()
+    expect(res.status).toBe(200)
+  })
+
+  it('a records.discardView holder clamped to a different store than the record → the SAME 404', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    DISCARDED_KAR.current = { ...DISCARDED_KAR.current, store_id: 'store-b' }
+    const res = await openDiscarded()
+    expect(res.status).toBe(404)
+  })
+
+  it('…and the SAME holder opens it once clamped to the record’s own store — 200', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    DISCARDED_KAR.current = { ...DISCARDED_KAR.current, store_id: 'store-a' }
+    const res = await openDiscarded()
+    expect(res.status).toBe(200)
+  })
+
+  it('a LIVE (non-discarded) record is completely unaffected — 200, unchanged', async () => {
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    expect(res.status).toBe(200)
+  })
+
+  // R8 fix round 1 (§5a / A11): the FACADE's own refusal, byte-identical to a
+  // genuinely missing id — not just "status 404 and code not_found" (which
+  // M25 proved does not catch a changed refusal string), but the actual
+  // serialized body and header shape. Same fake client, two ids: one that
+  // 404s on BOTH the get() and the raw retry (no such record exists at all),
+  // one that resolves via the raw retry to a real DISCARDED record this
+  // plain staffer is then refused by canOpenDiscardedRecord.
+  it('a genuinely MISSING id and a REFUSED discarded id return byte-identical bodies and the same header shape [mutant M25]', async () => {
+    const missingRes = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000404'))
+    const refusedRes = await openDiscarded()
+    expect(missingRes.status).toBe(404)
+    expect(refusedRes.status).toBe(missingRes.status)
+    expect(await refusedRes.text()).toBe(await missingRes.text())
+    // Header VALUES legitimately differ per request (request-id is server-
+    // minted fresh each call) — the shape, i.e. which headers are sent, must
+    // still match exactly.
+    const headerNames = (res: Response) => [...res.headers.keys()].sort()
+    expect(headerNames(refusedRes)).toEqual(headerNames(missingRes))
+  })
+})
+
+// R8 discarded-record door — CONTENT shape (piece 4). Builds on the access
+// tests above; every case here is already confirmed to open (200).
+describe('R8 discarded-record door — content (piece 4)', () => {
+  const DISCARDED_UUID = '00000000-0000-4000-8000-000000000099'
+
+  beforeEach(() => {
+    DISCARDED_KAR.current = {
+      id: DISCARDED_UUID,
+      created_at: '2026-06-01T03:00:00Z',
+      ai_summary: '・肩こり改善傾向',
+      transcript: 'RAW TRANSCRIPT TEXT',
+      business_id: 'business-1',
+      customer_id: 'cust-1',
+      staff_id: 'other-staff',
+      recording_session_id: 'sess-1',
+      status: 'DISCARDED',
+      entries: [
+        {
+          id: 'e1',
+          category: 'SYMPTOM',
+          content: '肩こり',
+          original_quote: null,
+          confidence: 0.9,
+          is_manual: false,
+          created_at: '2026-06-01T03:05:00Z',
+        },
+      ],
+    }
+    recordingDiscardsList.mockResolvedValue({
+      events: [
+        {
+          id: 'discard-1',
+          recording_session_id: 'sess-1',
+          source: 'STAFF',
+          discarded_by: 'other-staff',
+          reason: 'テスト理由',
+          created_at: '2026-06-02T00:00:00Z',
+        },
+      ],
+    })
+  })
+
+  const openDiscarded = () => GET(req({ headers: auth }), routeFor(DISCARDED_UUID))
+
+  it('a records.discardView holder, unrestricted, gets facts + reason present, EVERY content field withheld (assert each)', async () => {
+    // R8 fix round 1 (§4): a genuinely non-null outcome (no app-version
+    // header, so the #689 masking above never fires) to prove it is actually
+    // BLANKED by contentWithheld here, not merely absent by fixture default.
+    outcomeGet.mockResolvedValue({
+      outcome: 'success', reason: null, is_first_visit: false,
+      decided_at: '2026-06-01T00:00:00Z', auto_decided: false,
+    })
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.discarded.reason).toBe('テスト理由')
+    expect(dto.discarded.durationSeconds).toBe(742)
+    expect(dto.contentWithheld).toBe(true)
+    // Every content field, individually — A4/A11.
+    expect(dto.summaryBullets).toEqual([])
+    expect(dto.summaryRaw).toBeNull()
+    expect(dto.entries).toEqual([])
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+    expect(dto.photos).toEqual([])
+    // R8 fix round 1 (§4, ⚖ ruling): outcome + its typed reason is CONTENT.
+    expect(dto.outcome).toBeNull()
+  })
+
+  it('the record’s OWN staffer sees the FULL content, no capability needed — outcome included (⚖ §4: only withheld by contentWithheld)', async () => {
+    DISCARDED_KAR.current = { ...DISCARDED_KAR.current, staff_id: 'auth-user-1' }
+    outcomeGet.mockResolvedValue({
+      outcome: 'success', reason: null, is_first_visit: false,
+      decided_at: '2026-06-01T00:00:00Z', auto_decided: false,
+    })
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.contentWithheld).toBe(false)
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.entries.length).toBe(1)
+    expect(dto.summaryBullets.length).toBeGreaterThan(0)
+    expect(dto.outcome).toMatchObject({ outcome: 'success' })
+  })
+
+  it('a discardView holder who ALSO holds recordings.viewAll sees content too — recordings.viewAll alone cannot even OPEN the door (canOpenDiscardedRecord needs discardView or ownership)', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView', 'recordings.viewAll'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.contentWithheld).toBe(false)
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  it('recordings.viewAll ALONE (no discardView, not the owner) still gets the SAME 404 — content ACL never substitutes for the door', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    const res = await openDiscarded()
+    expect(res.status).toBe(404)
+  })
+
+  it('discardView+viewAll: staffCanReassignRecords/staffCanRegenerate are STILL false — read-only for everyone (A5)', async () => {
+    capabilities.current = new Set([
+      'customers.view', 'records.discardView', 'recordings.viewAll', 'records.write', 'records.reassign',
+    ])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.staffCanReassignRecords).toBe(false)
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  it('an OWNERLESS discarded record + manager (discardView) → withheld — never canViewTranscript’s "shared" branch (A4)', async () => {
+    DISCARDED_KAR.current = { ...DISCARDED_KAR.current, staff_id: null }
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.contentWithheld).toBe(true)
+    expect(dto.transcript).toBeNull()
+    expect(dto.summaryBullets).toEqual([])
+  })
+
+  it('a ledger read throw degrades discarded fields to null — the screen still opens, 200', async () => {
+    recordingDiscardsList.mockRejectedValueOnce(new Error('core down'))
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.discarded.reason).toBeNull()
+    expect(dto.discarded.discardedByName).toBeNull()
+  })
+
+  // Fix round 2 (Greptile #909, finding 3): the SDK exposes no sort and server
+  // order is not a contract — a session with more than one page of STAFF
+  // discard events could show a stale reason/actor/time. resolveDiscardFacts
+  // must page the ledger to completion, THEN sort and pick the newest.
+  it('pages the STAFF discard ledger to completion before picking the newest — two pages, real newest on page 2 (fix round 2 / mutant: a one-page read shows page 1’s stale reason instead, RED)', async () => {
+    const page1 = Array.from({ length: 200 }, (_, i) => ({
+      id: `discard-p1-${i}`,
+      recording_session_id: 'sess-1',
+      source: 'STAFF' as const,
+      discarded_by: 'other-staff',
+      reason: 'stale reason',
+      created_at: '2026-06-01T00:00:00Z',
+    }))
+    const page2 = [
+      {
+        id: 'discard-p2-newest',
+        recording_session_id: 'sess-1',
+        source: 'STAFF' as const,
+        discarded_by: 'other-staff',
+        reason: 'the real newest reason',
+        created_at: '2026-06-03T00:00:00Z',
+      },
+    ]
+    recordingDiscardsList.mockImplementation(async (opts) => ({
+      events: opts?.page === 2 ? page2 : page1,
+    }))
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded.reason).toBe('the real newest reason')
+    // A full page-1 (200, the page_size) must fetch page 2; page 2 comes back
+    // short (1 < 200) and the loop must stop there.
+    expect(recordingDiscardsList).toHaveBeenCalledTimes(2)
+  })
+
+  it('a single short page of STAFF discards still resolves the newest — regression (fix round 2)', async () => {
+    recordingDiscardsList.mockImplementation(async () => ({
+      events: [
+        {
+          id: 'discard-1',
+          recording_session_id: 'sess-1',
+          source: 'STAFF' as const,
+          discarded_by: 'other-staff',
+          reason: 'テスト理由',
+          created_at: '2026-06-02T00:00:00Z',
+        },
+      ],
+    }))
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded.reason).toBe('テスト理由')
+    expect(recordingDiscardsList).toHaveBeenCalledTimes(1)
+  })
+
+  it('a LIVE record’s DTO carries discarded:null, contentWithheld:false — additive-only, everything else unchanged', async () => {
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    const dto = await res.json()
+    expect(dto.discarded).toBeNull()
+    expect(dto.contentWithheld).toBe(false)
+    expect(dto.transcript).toBeNull() // unrelated ACL case, unchanged from its own pre-existing tests
+  })
+
+  it('the DTO parses fine with the new keys present, and (via KaruteDetailScreenDTO.parse directly) with them absent — rollback compat', () => {
+    const legacy = { ...({} as Record<string, unknown>) }
+    // A pre-PR server payload simply omits discarded/contentWithheld.
+    const minimal = {
+      karuteId: 'k1',
+      customerId: null,
+      outcome: null,
+      header: {
+        customerName: 'x', initials: 'x', karuteNumber: '#1', service: null,
+        sessionDateLong: 'x', staffName: null, phone: null, email: null,
+        age: null, gender: null, visitNumber: null, lastVisitDate: null,
+      },
+      sessionDateLong: 'x',
+      sessionDateIso: null,
+      entries: [],
+      summaryBullets: [],
+      transcript: null,
+      consentOnFile: false,
+      transcriptDurationLabel: null,
+      transcriptRestricted: false,
+      photos: [],
+      viewerRole: 'staff',
+      ...legacy,
+    }
+    const parsed = KaruteDetailScreenDTO.parse(minimal)
+    expect(parsed.discarded).toBeUndefined()
+    expect(parsed.contentWithheld).toBeUndefined()
+  })
+
+  // facade-audit.test.ts's karute.read/transcript_shown pin (cold-read §12)
+  // exercises the hook mechanism via a synthetic handler; this is the REAL
+  // route proving the same field for a withheld discarded open — an allowed,
+  // audited VIEW (not suppressed like a refused/404 open), whose
+  // transcript_shown is false because the content is withheld, not absent.
+  it('an allowed discarded open still emits karute.view, with transcript_shown:false (withheld, same field the live-record ACL cases already pin)', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const lines = await auditLines(async () => {
+      const res = await openDiscarded()
+      expect(res.status).toBe(200)
+    })
+    const views = lines.filter((l) => l.action === 'karute.view')
+    expect(views).toHaveLength(1)
+    expect(views[0].detail).toMatchObject({ transcript_shown: false })
   })
 })

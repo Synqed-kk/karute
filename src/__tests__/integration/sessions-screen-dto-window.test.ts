@@ -59,6 +59,9 @@ describe('SessionsScreenDTO — the legacy shape stays exactly the legacy shape'
     ])
     expect(JSON.stringify(parsed)).not.toContain('hasMore')
     expect(JSON.stringify(parsed)).not.toContain('windowStart')
+    // R8 discarded-record door (F6, 2026-09-13): the bare/legacy body must
+    // never carry this key either — same additive-only guarantee.
+    expect(JSON.stringify(parsed)).not.toContain('viewerCanOpenDiscarded')
     // Re-parsing its own output is a fixed point.
     expect(SessionsScreenDTO.parse(parsed)).toEqual(parsed)
   })
@@ -102,6 +105,32 @@ describe('SessionsScreenWindowedDTO — additive only', () => {
     expect(parsed.hasMore).toBe(false)
     expect(parsed.windowStart).toBeNull()
     expect(parsed.discardedCount).toBe(0)
+    // R8 (A8): `.optional()`, not `.default()` — absent stays absent, never
+    // a silent false claim about a grant the caller never asked about.
+    expect(parsed.viewerCanOpenDiscarded).toBeUndefined()
+  })
+
+  it('R8 discarded-record door (A8): viewerCanOpenDiscarded rides LAST, after every other windowed key, when the caller sets it', () => {
+    const parsed = SessionsScreenWindowedDTO.parse({
+      ...screen(),
+      hasMore: true,
+      windowStart: '2026-08-12',
+      viewerCanOpenDiscarded: true,
+    })
+    expect(Object.keys(parsed)).toEqual([
+      'items',
+      'placeholders',
+      'monthCount',
+      'total',
+      'staffList',
+      'currentStaffId',
+      'customerOptions',
+      'discardedCount',
+      'hasMore',
+      'windowStart',
+      'viewerCanOpenDiscarded',
+    ])
+    expect(parsed.viewerCanOpenDiscarded).toBe(true)
   })
 })
 

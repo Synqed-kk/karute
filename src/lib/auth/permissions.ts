@@ -27,6 +27,14 @@ export const CAPABILITIES = [
   'data.export',       // export / import customer + karute data
   'records.delete',    // delete customers / karute (destructive)
   'records.reassign',  // re-point a saved karute to another customer (audited)
+  'records.discardView', // open a discarded karute: its facts + the discard
+                       // reason (customer, staffer, date, duration, who
+                       // discarded, when, reason) — NEVER its content
+                       // (summary, entries, transcript, photos, AI), which
+                       // stays under the recording-privacy rule (the record's
+                       // own staffer sees everything; recordings.viewAll =
+                       // Liam-only). Owner + manager by preset (⚖ Liam
+                       // 2026-09-13; R8, update-26 packet).
   'records.write',     // record sessions, create / edit karute
   'recordings.viewAll',// read EVERY staff's raw transcript + hear its audio (vs.
                        // only your OWN). OWNER by preset; every other role only
