@@ -1086,6 +1086,26 @@ describe('R8 discarded-record door — access (piece 3)', () => {
     const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
     expect(res.status).toBe(200)
   })
+
+  // R8 fix round 1 (§5a / A11): the FACADE's own refusal, byte-identical to a
+  // genuinely missing id — not just "status 404 and code not_found" (which
+  // M25 proved does not catch a changed refusal string), but the actual
+  // serialized body and header shape. Same fake client, two ids: one that
+  // 404s on BOTH the get() and the raw retry (no such record exists at all),
+  // one that resolves via the raw retry to a real DISCARDED record this
+  // plain staffer is then refused by canOpenDiscardedRecord.
+  it('a genuinely MISSING id and a REFUSED discarded id return byte-identical bodies and the same header shape [mutant M25]', async () => {
+    const missingRes = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000404'))
+    const refusedRes = await openDiscarded()
+    expect(missingRes.status).toBe(404)
+    expect(refusedRes.status).toBe(missingRes.status)
+    expect(await refusedRes.text()).toBe(await missingRes.text())
+    // Header VALUES legitimately differ per request (request-id is server-
+    // minted fresh each call) — the shape, i.e. which headers are sent, must
+    // still match exactly.
+    const headerNames = (res: Response) => [...res.headers.keys()].sort()
+    expect(headerNames(refusedRes)).toEqual(headerNames(missingRes))
+  })
 })
 
 // R8 discarded-record door — CONTENT shape (piece 4). Builds on the access
