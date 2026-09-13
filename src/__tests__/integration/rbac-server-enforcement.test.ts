@@ -121,7 +121,11 @@ jest.mock('@/lib/synqed/client', () => {
     deleteEntry: jest.fn(async () => ({})),
     get: jest.fn(async () => ({ entries: [] })),
     update: jest.fn(async () => ({})),
-    list: jest.fn(async () => ({ karute_records: [], total: 0 })),
+    // Optional unused param (R4 repair, 2026-09-13): the fetch() shim below
+    // calls this with an options object; every existing call site still
+    // calls it bare, so this widens the TS signature without changing any
+    // runtime behavior.
+    list: jest.fn(async (_opts?: Record<string, unknown>) => ({ karute_records: [], total: 0 })),
   }
   const appointments = {
     create: jest.fn(async () => ({ id: 'appt-1' })),

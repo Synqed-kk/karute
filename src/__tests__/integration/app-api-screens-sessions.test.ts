@@ -59,7 +59,11 @@ const storesGet = jest.fn(async (id: string) => {
   return { id }
 })
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
-const karuteList = jest.fn(async () => ({ karute_records: KARUTE, total: KARUTE.length }))
+// Optional unused param (R4 repair, 2026-09-13): the fetch() shim below calls
+// this with an options object; every existing call site still calls it bare
+// or via mockImplementation/mockResolvedValue, so this widens the TS
+// signature without changing any runtime behavior.
+const karuteList = jest.fn(async (_opts?: Record<string, unknown>) => ({ karute_records: KARUTE, total: KARUTE.length }))
 const staffList = jest.fn(async () => ({ staff: [{ id: 'sstaff-1', user_id: 'staff-2' }] }))
 const fakeClient = {
   customers: { list: listCustomers },
