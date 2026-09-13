@@ -130,4 +130,91 @@ describe('RecordingShareToggle', () => {
       resolve({ ok: true, shared: false })
     })
   })
+
+  // FIX ROUND 1 (Fable line-audit, 2026-09-14): setBusy(false) used to run
+  // BEFORE router.refresh()'s round-trip resolved, so a successful share
+  // flashed back to the stale 管理者に共有 label for the length of that
+  // round-trip — reading as a failed tap. optimistic display fixes it.
+  it('after a successful share tap the chip shows 共有中 IMMEDIATELY, before any prop change', async () => {
+    setRecordingShared.mockResolvedValue({ ok: true, shared: true })
+    render(<RecordingShareToggle karuteId="k-1" shared={false} />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '管理者に共有' }))
+    })
+    // The `shared` PROP is still false (no rerender happened) — only the
+    // optimistic display should be showing 共有中 here.
+    expect(screen.getByRole('button', { name: '共有中' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '管理者に共有' })).not.toBeInTheDocument()
+  })
+
+  it('when the prop arrives as a genuinely NEW value (a real change) the display reverts to it instantly — no timer needed', async () => {
+    setRecordingShared.mockResolvedValue({ ok: true, shared: false })
+    const { rerender } = render(<RecordingShareToggle karuteId="k-1" shared={true} />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '共有中' }))
+    })
+    expect(screen.getByRole('button', { name: '管理者に共有' })).toBeInTheDocument()
+
+    // The refreshed DTO confirms the unshare (true → false is a REAL value
+    // transition React's prop-diff effect detects immediately) — still
+    // showing the same label proves the effect didn't have to wait for the
+    // settle timer here.
+    rerender(<RecordingShareToggle karuteId="k-1" shared={false} />)
+    expect(screen.getByRole('button', { name: '管理者に共有' })).toBeInTheDocument()
+  })
+
+  // DISCLOSED GAP (found while writing this exact test, per the packet's own
+  // scenario): for a BOOLEAN prop, "the server disagreed" can only mean the
+  // refetched value equals what `shared` ALREADY was before this tap — which
+  // is not a value CHANGE from this component's last render, so
+  // useEffect(…, [shared]) alone can never observe it (React's dependency
+  // diff sees no difference to react to). The settle TIMEOUT is what
+  // actually closes this case — bounded, not instant. Faked here rather than
+  // waited out for real.
+  it('when the prop later arrives back at the OLD value (server disagreed) the display reverts to 管理者に共有 once the settle timer fires', async () => {
+    jest.useFakeTimers()
+    try {
+      setRecordingShared.mockResolvedValue({ ok: true, shared: true })
+      const { rerender } = render(<RecordingShareToggle karuteId="k-1" shared={false} />)
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '管理者に共有' }))
+      })
+      expect(screen.getByRole('button', { name: '共有中' })).toBeInTheDocument()
+
+      // The refetched DTO says the write did NOT actually stick (another
+      // actor's write raced it, or core's second lock refused it after
+      // all) — the prop arrives back at false, identical to its own
+      // pre-tap value, so the prop-diff effect alone cannot see this.
+      rerender(<RecordingShareToggle karuteId="k-1" shared={false} />)
+      expect(screen.getByRole('button', { name: '共有中' })).toBeInTheDocument()
+
+      await act(async () => {
+        jest.advanceTimersByTime(5000)
+      })
+      expect(screen.getByRole('button', { name: '管理者に共有' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: '共有中' })).not.toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('a failed tap never leaves the optimistic state stuck — display returns to the real prop', async () => {
+    setRecordingShared.mockResolvedValueOnce({ ok: true, shared: true })
+    render(<RecordingShareToggle karuteId="k-1" shared={false} />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '管理者に共有' }))
+    })
+    expect(screen.getByRole('button', { name: '共有中' })).toBeInTheDocument()
+
+    // A second tap (narrowing back) FAILS — optimistic must clear rather
+    // than freeze on the mid-flight guess; with no prop change, that means
+    // falling back to the still-unrefreshed `shared` prop (false).
+    setRecordingShared.mockResolvedValueOnce({ ok: false, error: 'upstream' })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '共有中' }))
+    })
+    expect(setRecordingShared).toHaveBeenLastCalledWith('k-1', false)
+    expect(screen.getByRole('button', { name: '管理者に共有' })).toBeInTheDocument()
+    expect(screen.getByText('共有できませんでした')).toBeInTheDocument()
+  })
 })
