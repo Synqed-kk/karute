@@ -132,4 +132,47 @@ describe('thin actions port — karute window transport contract', () => {
       hasMore: false,
     })
   })
+
+  // D10 (PR-C, self-lighting): sharedOnly on the way out, freshSharedCount on
+  // the way back — NEVER `?? 0` on the count, unlike its two siblings above.
+  describe('D10 — sharedOnly + freshSharedCount', () => {
+    it('sends sharedOnly=true on the querystring only when the caller asks', async () => {
+      const apiFetch = jest.fn(async (path: string) => {
+        expect(path).toBe('/api/app/v1/karute/window?sharedOnly=true')
+        return new Response(JSON.stringify(okBody), { status: 200 })
+      })
+      port(apiFetch)
+      await loadKaruteWindow({ sharedOnly: true })
+    })
+
+    it('omits sharedOnly entirely when the caller does not ask (byte-identical to today)', async () => {
+      const apiFetch = jest.fn(async (path: string) => {
+        expect(path).toBe(
+          '/api/app/v1/karute/window?olderThan=2026-08-12&loadedCount=24',
+        )
+        return new Response(JSON.stringify(okBody), { status: 200 })
+      })
+      port(apiFetch)
+      await loadKaruteWindow({ olderThan: '2026-08-12', loadedCount: 24 })
+    })
+
+    it('passes freshSharedCount through untouched when core answers it', async () => {
+      port(
+        jest.fn(
+          async () =>
+            new Response(JSON.stringify({ ...okBody, freshSharedCount: 3 }), { status: 200 }),
+        ),
+      )
+      const res = await loadKaruteWindow({ sharedOnly: true })
+      expect('error' in res).toBe(false)
+      expect((res as { freshSharedCount?: number }).freshSharedCount).toBe(3)
+    })
+
+    it('leaves freshSharedCount undefined when core has not shipped shared_count yet — NEVER ?? 0', async () => {
+      port(jest.fn(async () => new Response(JSON.stringify(okBody), { status: 200 })))
+      const res = await loadKaruteWindow({ olderThan: '2026-08-12' })
+      expect('error' in res).toBe(false)
+      expect((res as { freshSharedCount?: number }).freshSharedCount).toBeUndefined()
+    })
+  })
 })

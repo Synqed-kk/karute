@@ -101,3 +101,53 @@ describe('buildSessionsListScreen — discarded row summary withholding (R3, F3b
     expect(item.summary).toBe('') // withheld regardless
   })
 })
+
+// D10 (PR-C, self-lighting): buildSessionsListScreen projects shared_at into
+// isShared (beside the isDiscarded spread) and passes sharedCount through
+// verbatim — the ONE builder every door reads through, same reasoning as the
+// discarded-summary contract above.
+describe('buildSessionsListScreen — D10 shared projection (self-lighting)', () => {
+  it('a row with shared_at set becomes isShared:true; an unshared row carries no isShared key at all', () => {
+    const rows: KaruteListRow[] = [
+      {
+        id: 'shared-1',
+        session_date: '2026-09-10',
+        created_at: '2026-09-10T00:00:00.000Z',
+        summary: 'まとめ',
+        transcript: '発話',
+        staff_profile_id: 'staff-1',
+        customer_id: 'business-1',
+        client_id: 'cust-1',
+        entries: [{ count: 1 }],
+        status: 'FINALIZED',
+        shared_at: '2026-09-11T00:00:00.000Z',
+      },
+      {
+        id: 'unshared-1',
+        session_date: '2026-09-10',
+        created_at: '2026-09-10T00:00:00.000Z',
+        summary: 'まとめ',
+        transcript: '発話',
+        staff_profile_id: 'staff-1',
+        customer_id: 'business-1',
+        client_id: 'cust-1',
+        entries: [{ count: 1 }],
+        status: 'FINALIZED',
+      },
+    ]
+    const screen = buildSessionsListScreen(baseArgs(rows))
+    const shared = screen.items.find((i) => i.id === 'shared-1')!
+    const unshared = screen.items.find((i) => i.id === 'unshared-1')!
+    expect(shared.isShared).toBe(true)
+    // Beside the isDiscarded spread's own convention: absent, not `false`.
+    expect(unshared.isShared).toBeUndefined()
+    expect('isShared' in unshared).toBe(false)
+  })
+
+  it('sharedCount passes through verbatim — present, absent, and zero all survive untouched (never defaulted)', () => {
+    const rows: KaruteListRow[] = []
+    expect(buildSessionsListScreen({ ...baseArgs(rows), sharedCount: 3 }).sharedCount).toBe(3)
+    expect(buildSessionsListScreen({ ...baseArgs(rows), sharedCount: 0 }).sharedCount).toBe(0)
+    expect(buildSessionsListScreen(baseArgs(rows)).sharedCount).toBeUndefined()
+  })
+})

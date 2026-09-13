@@ -424,6 +424,11 @@ describe('GET /api/app/v1/screens/sessions?window=1 — the release-18 windowed 
     const res = await GET(windowReq('?window=1', { headers: auth }), route)
     expect(res.status).toBe(200)
     const dto = await res.json()
+    // D10 (PR-C): viewerHoldsViewShared is UNCONDITIONAL (capabilities.has()
+    // always answers true/false), so it rides every windowed response —
+    // unlike sharedCount, which stays undefined (and so absent from the
+    // wire) until the karuteList double answers shared_count, per the block
+    // below.
     expect(Object.keys(dto)).toEqual([
       'items',
       'placeholders',
@@ -436,6 +441,7 @@ describe('GET /api/app/v1/screens/sessions?window=1 — the release-18 windowed 
       'hasMore',
       'windowStart',
       'viewerCanOpenDiscarded',
+      'viewerHoldsViewShared',
     ])
     expect(typeof dto.windowStart).toBe('string')
     expect(dto.discardedCount).toBe(0)
@@ -445,6 +451,8 @@ describe('GET /api/app/v1/screens/sessions?window=1 — the release-18 windowed 
     // R8 discarded-record door (⚖ Liam 2026-09-13, A8): this test's caller
     // holds no records.discardView (see the capability gate below).
     expect(dto.viewerCanOpenDiscarded).toBe(false)
+    // D10: nor recordings.viewShared (mockCapabilities above carries neither).
+    expect(dto.viewerHoldsViewShared).toBe(false)
   })
 
   it('reads through the DATE WALK (from/to windows), not the flat slab', async () => {
@@ -491,5 +499,76 @@ describe('GET /api/app/v1/screens/sessions?window=1 — the release-18 windowed 
       (c) => c[0]?.page_size === 1 && c[0]?.from && !c[0]?.include_discarded,
     )
     expect(unflaggedProbes).toHaveLength(1)
+  })
+})
+
+// D10 (PR-C, self-lighting): sharedCount + viewerHoldsViewShared on the
+// windowed screen read.
+describe('GET /api/app/v1/screens/sessions?window=1 — D10 sharedCount + viewerHoldsViewShared', () => {
+  beforeEach(() => {
+    karuteList.mockResolvedValue({ karute_records: FIXED_KARUTE, total: 1 })
+  })
+
+  it('carries sharedCount when the karute read answers shared_count', async () => {
+    karuteList.mockResolvedValue({
+      karute_records: FIXED_KARUTE,
+      total: 1,
+      discarded_count: 0,
+      shared_count: 4,
+    } as never)
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.sharedCount).toBe(4)
+  })
+
+  it('omits sharedCount entirely when core has not shipped shared_count yet (feature detection, never ?? 0)', async () => {
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.sharedCount).toBeUndefined()
+    expect('sharedCount' in dto).toBe(false)
+  })
+
+  it('viewerHoldsViewShared is true only when the caller holds recordings.viewShared', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['customers.view', 'stores.viewAll', 'recordings.viewShared']),
+    )
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.viewerHoldsViewShared).toBe(true)
+  })
+
+  it('a real sharedCount of 0 is a SHOWN value, not treated as absent', async () => {
+    karuteList.mockResolvedValue({
+      karute_records: FIXED_KARUTE,
+      total: 1,
+      discarded_count: 0,
+      shared_count: 0,
+    } as never)
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.sharedCount).toBe(0)
+    expect('sharedCount' in dto).toBe(true)
+  })
+})
+
+// D10 (PR-C): the bare/legacy path stays byte-identical — sharedCount and
+// viewerHoldsViewShared are windowed-only, exactly like discardedCount/
+// hasMore/windowStart/viewerCanOpenDiscarded.
+describe('GET /api/app/v1/screens/sessions — D10 bare call never carries the new keys', () => {
+  it('a bare call never carries sharedCount or viewerHoldsViewShared, even when the caller holds the capability and core answers shared_count', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['customers.view', 'stores.viewAll', 'recordings.viewShared']),
+    )
+    karuteList.mockResolvedValue({
+      karute_records: KARUTE,
+      total: KARUTE.length,
+      discarded_count: 0,
+      shared_count: 4,
+    } as never)
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(JSON.stringify(dto)).not.toContain('sharedCount')
+    expect(JSON.stringify(dto)).not.toContain('viewerHoldsViewShared')
   })
 })

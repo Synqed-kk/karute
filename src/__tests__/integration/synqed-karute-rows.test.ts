@@ -218,6 +218,111 @@ describe('mixed discarded Karute ledger read', () => {
   })
 })
 
+// D10 (PR-C, self-lighting): the shared-only read + the two new fields. Same
+// mixed/fetch path as the discarded ledger read above.
+describe('D10 — sharedOnly + shared_at + shared_count (self-lighting)', () => {
+  it('sharedOnly opts in via the mixed path — shared_only=true rides the URL', async () => {
+    const fetch = jest.fn(async () => ({
+      karute_records: [],
+      total: 0,
+      discarded_count: 0,
+      shared_count: 0,
+    }))
+    const client = { fetch, karuteRecords: { list: jest.fn() } } as never
+
+    await listSynqedKaruteRowsWithTotalOrThrow(client, {
+      storeId: 'store-1',
+      includeDiscarded: true,
+      sharedOnly: true,
+    })
+
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('shared_only=true'))
+  })
+
+  it('sharedOnly ALONE (no includeDiscarded) still routes through the mixed/fetch path — the plain SDK list() has no such param', async () => {
+    const fetch = jest.fn(async () => ({ karute_records: [], total: 0 }))
+    const list = jest.fn()
+    const client = { fetch, karuteRecords: { list } } as never
+
+    await listSynqedKaruteRowsWithTotalOrThrow(client, { storeId: 'store-1', sharedOnly: true })
+
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('shared_only=true'))
+    expect(list).not.toHaveBeenCalled()
+  })
+
+  it('shared_at surfaces as the row\'s shared_at through BOTH row-mapping functions', async () => {
+    const sharedAt = '2026-09-14T00:00:00.000Z'
+    const record = {
+      id: 'k1',
+      business_id: 'biz',
+      customer_id: 'cli1',
+      staff_id: 'st1',
+      ai_summary: 'sum',
+      transcript: 't',
+      created_at: '2026-05-29T00:00:00Z',
+      entry_count: 0,
+      shared_at: sharedAt,
+    }
+
+    const plainRows = await listSynqedKaruteRows(
+      asClient(async () => ({ karute_records: [record] })),
+    )
+    expect(plainRows[0].shared_at).toBe(sharedAt)
+
+    const { rows } = await listSynqedKaruteRowsWithTotalOrThrow(
+      asClient(async () => ({ karute_records: [record], total: 1 })),
+    )
+    expect(rows[0].shared_at).toBe(sharedAt)
+  })
+
+  it('shared_at absent maps to null on both row-mapping functions (never undefined-leaks-through as a truthy key)', async () => {
+    const record = {
+      id: 'k1',
+      business_id: 'biz',
+      customer_id: 'cli1',
+      staff_id: 'st1',
+      ai_summary: 'sum',
+      transcript: 't',
+      created_at: '2026-05-29T00:00:00Z',
+      entry_count: 0,
+    }
+    const plainRows = await listSynqedKaruteRows(
+      asClient(async () => ({ karute_records: [record] })),
+    )
+    expect(plainRows[0].shared_at).toBeNull()
+
+    const { rows } = await listSynqedKaruteRowsWithTotalOrThrow(
+      asClient(async () => ({ karute_records: [record], total: 1 })),
+    )
+    expect(rows[0].shared_at).toBeNull()
+  })
+
+  it('shared_count absent → sharedCount undefined (feature detection, NEVER ?? 0)', async () => {
+    const result = await listSynqedKaruteRowsWithTotalOrThrow(
+      asClient(async () => ({ karute_records: [], total: 0 })),
+    )
+    // The key MAY be present with an undefined value (a plain object literal,
+    // unlike screen-rows.ts's conditional isShared spread) — JSON.stringify
+    // drops it on the wire regardless; what matters is the VALUE, never `0`.
+    expect(result.sharedCount).toBeUndefined()
+  })
+
+  it('shared_count present (including a real zero) survives untouched', async () => {
+    const fetch = jest.fn(async () => ({
+      karute_records: [],
+      total: 0,
+      discarded_count: 0,
+      shared_count: 0,
+    }))
+    const client = { fetch, karuteRecords: { list: jest.fn() } } as never
+    const result = await listSynqedKaruteRowsWithTotalOrThrow(client, {
+      storeId: 'store-1',
+      includeDiscarded: true,
+    })
+    expect(result.sharedCount).toBe(0)
+  })
+})
+
 // The main-read + 今月-probe pairing MOVED to karute-window.ts in PR-2a (its
 // main leg is a date window now). Its independent-legs coverage moved with it:
 // src/__tests__/integration/karute-window.test.ts.
