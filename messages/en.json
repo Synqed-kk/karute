@@ -2395,9 +2395,12 @@
         "rescue": "Auto-restore",
         "watch": "Auto-check",
         "autoburn": "Auto-redeem",
-        "cleanup": "Auto-discard"
+        "cleanup": "Auto-discard",
+        "repair": "Data repair"
       },
       "actions": {
+        "merge_duplicate": "Merged duplicate customer",
+        "correct_pack_import_date": "Corrected pack import date",
         "customer": {
           "view": "Viewed customer record",
           "edit": "Edited customer info",
@@ -2539,6 +2542,8 @@
       "recordingUnresolved": "Recording",
       "durationSuffix": " · {n}s",
       "recordingStaff": "Staff: {name}",
+      "packUnresolved": "Ticket pack",
+      "packImportDateCorrected": "Import date {date}",
       "fold": {
         "count": "×{n}",
         "range": "{from}–{to}"

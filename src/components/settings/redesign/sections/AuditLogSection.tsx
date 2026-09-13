@@ -569,6 +569,20 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       const n = Array.isArray(detail.staff_ids) ? detail.staff_ids.length : 0
       return t('noSessionsToday.sub', { day, n })
     }
+    // UPDATE 26 (owner's 監査ログ, core PR #95's correct_pack_import_date
+    // row): target_type 'pack' rows resolve through resolveTargetLabels'
+    // pack branch (server, audit-log.ts) — same three-way honest-state rule
+    // as the recording branch above, NEVER the raw pack uuid. detail's
+    // corrected_date (yyyy-mm-dd, when present) rides as a suffix.
+    if (e.target_type === 'pack') {
+      const resolvedName = e.target_id ? targetLabels[e.target_id] : undefined
+      const base = resolvedName ?? t('packUnresolved')
+      const dateSuffix =
+        typeof detail.corrected_date === 'string'
+          ? ` · ${t('packImportDateCorrected', { date: detail.corrected_date })}`
+          : ''
+      return `${base}${dateSuffix}`
+    }
     return targetName
   }
 

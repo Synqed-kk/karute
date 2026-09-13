@@ -2395,9 +2395,12 @@
         "rescue": "自動復元",
         "watch": "自動チェック",
         "autoburn": "自動消化",
-        "cleanup": "自動破棄"
+        "cleanup": "自動破棄",
+        "repair": "データ修復"
       },
       "actions": {
+        "merge_duplicate": "重複した顧客を統合",
+        "correct_pack_import_date": "回数券の取込日を修正",
         "customer": {
           "view": "顧客記録を閲覧",
           "edit": "顧客情報を編集",
@@ -2539,6 +2542,8 @@
       "recordingUnresolved": "録音",
       "durationSuffix": "（{n}秒）",
       "recordingStaff": "担当: {name}",
+      "packUnresolved": "回数券",
+      "packImportDateCorrected": "取込日 {date}",
       "fold": {
         "count": "×{n}",
         "range": "{from}〜{to}"
