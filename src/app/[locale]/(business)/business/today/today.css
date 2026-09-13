@@ -1021,7 +1021,7 @@
        about — 「詰め込み（14:30–15:00・¥3,510）だけが灰色」 — stayed peach with an
        orange price at every width. Source order never got a say: specificity had
        already decided.
-     · Mid-drag, `.biz .timeline.dragging-live .cell-price.fits` (0,4,0) repaints
+     · Mid-drag, `.biz .timeline.dragging-live .cell-price.fits` (0,5,0) repaints
        a withheld hour with the landing wash and the blue ring, so the hour the
        store is NOT selling looks exactly like the hour it is (B1 §Deviations 7,
        now measured: the two frames are pixel-identical apart from the text).
@@ -1029,13 +1029,19 @@
    the rule it overrides and then wins on source order. No `!important`, no new
    colour (the same hatch and the same #64748b ink as above), no black. `.fits`
    keeps its whole drag meaning on every cell that is not withheld — which is
-   the point: a withheld hour is the one hour the wash must not promise. */
+   the point: a withheld hour is the one hour the wash must not promise.
+   ⚖ ROUND 2 blind round L1 MINOR 2 (2026-09-13) — one KIND rule was missed:
+   `.biz .timeline.dragging-live .cell-packed.crumb:not(.fits)` (0,6,0, :899)
+   still outweighed the two-deep rule above it, so a 詰め込み box painted the
+   orange crumb wash mid-drag. The dragging-live arm below now repeats
+   `.cell-withheld` a THIRD time (0,6,0) — later in source than :899, so it
+   wins on order — while the rest arm is untouched. */
 .biz .cell-withheld.cell-withheld,
-.biz .timeline.dragging-live .cell-withheld.cell-withheld { border: 1px dashed #cbd5e1; background: repeating-linear-gradient(135deg, #e6eaf0 0 5px, #f5f7fa 5px 10px); box-shadow: none; opacity: 1; }
+.biz .timeline.dragging-live .cell-withheld.cell-withheld.cell-withheld { border: 1px dashed #cbd5e1; background: repeating-linear-gradient(135deg, #e6eaf0 0 5px, #f5f7fa 5px 10px); box-shadow: none; opacity: 1; }
 .biz .cell-withheld.cell-withheld .cell-nametag,
-.biz .timeline.dragging-live .cell-withheld.cell-withheld .cell-nametag { color: #64748b; opacity: .75; }
+.biz .timeline.dragging-live .cell-withheld.cell-withheld.cell-withheld .cell-nametag { color: #64748b; opacity: .75; }
 .biz .cell-withheld.cell-withheld i,
-.biz .timeline.dragging-live .cell-withheld.cell-withheld i { color: #64748b; opacity: .8; }
+.biz .timeline.dragging-live .cell-withheld.cell-withheld.cell-withheld i { color: #64748b; opacity: .8; }
 /* ⚖ D-11 · SPEC-R2 §3.2 — THE RELEASED 枠'S MARK. The held box's geometry and
    vocabulary again, a shade paler because the state it reports is 「this is no
    longer being held」. It is `pointer-events: none` like every other state paint
