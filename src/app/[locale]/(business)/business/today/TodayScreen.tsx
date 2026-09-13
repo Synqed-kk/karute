@@ -7717,7 +7717,12 @@ export function TodayScreen(props: TodayProps) {
               It deliberately does NOT wear `.cell-held`: this 枠 is no longer
               held, and a held box here would be the board saying two things.
               A manager who cannot release cannot un-release either, so the
-              button is not drawn for them at all (`keepBackAsk`'s own rule). */}
+              button is not drawn for them at all (`keepBackAsk`'s own rule).
+              ⚖ D-16 (3), 2026-09-13 — the three children live inside one
+              `.held-note` span so the CSS can pin the WORDS into a small
+              top-right label while the box itself stays a pale full-span
+              backdrop: a note about a release may never hide what is on sale
+              underneath it. */}
           {!isLocked && lane.group === 'staff' &&
             timedRelease.released
               .filter((r) => r.laneKey === lane.key)
@@ -7739,17 +7744,19 @@ export function TodayScreen(props: TodayProps) {
                         : undefined
                     }
                   >
-                    <span className="held-title">{releasedHeldTitle}</span>
-                    <span className="held-sub">{sub}</span>
-                    {props.canReleaseHeld && (
-                      <button
-                        type="button"
-                        className="held-restore"
-                        onClick={() => keepBackAsk(lane.key, r.span.windowStart)}
-                      >
-                        {keepBackLabel}
-                      </button>
-                    )}
+                    <span className="held-note">
+                      <span className="held-title">{releasedHeldTitle}</span>
+                      <span className="held-sub">{sub}</span>
+                      {props.canReleaseHeld && (
+                        <button
+                          type="button"
+                          className="held-restore"
+                          onClick={() => keepBackAsk(lane.key, r.span.windowStart)}
+                        >
+                          {keepBackLabel}
+                        </button>
+                      )}
+                    </span>
                   </div>
                 )
               })}
