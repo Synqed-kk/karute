@@ -61,7 +61,9 @@ function makeClient(opts: {
     if (opts.row === 'missing') throw httpError(404)
     return { id: ROW_ID, store_id: null, shared_at: null, ...(opts.row ?? {}) }
   })
-  const update = jest.fn(async () => {
+  // params keep update.mock.calls typed as [string, unknown] for the cast at :83
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const update = jest.fn(async (_id: string, _input: unknown) => {
     if (opts.updateThrows) throw httpError(opts.updateThrows.status)
     return {}
   })
