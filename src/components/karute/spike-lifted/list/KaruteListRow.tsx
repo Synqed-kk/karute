@@ -38,12 +38,26 @@ interface Props {
    *  row's existence and honest state never depend on this flag — only
    *  whether a tap does something). */
   canOpen?: boolean
+  /** D10 (PR-C, WHO-SEES): does this viewer hold recordings.viewShared
+   *  (management)? Gates the 共有 chip together with `currentStaffId` below —
+   *  the recorder always sees her own shared rows marked, everyone else needs
+   *  the capability. Default false. */
+  viewerHoldsViewShared?: boolean
+  /** D10 (PR-C, WHO-SEES): the viewer's own staff id — the chip shows on
+   *  item.staffId === currentStaffId even without viewShared. Default null. */
+  currentStaffId?: string | null
 }
 
-export function KaruteListRow({ item, canOpen }: Props) {
+export function KaruteListRow({ item, canOpen, viewerHoldsViewShared = false, currentStaffId = null }: Props) {
   const t = useTranslations('karute.recordList')
   const staffColor = getStaffColorByKey(item.staffColorKey)
   const active = !item.isDiscarded
+  // D10 (PR-C, WHO-SEES): item.isShared is a fact; this is the visibility
+  // decision — a viewShared holder sees every shared row, the recorder always
+  // sees her OWN shared rows (⚖ Liam 9/13 sharing law), nobody else does.
+  const canSeeSharedChip =
+    item.isShared === true &&
+    (viewerHoldsViewShared || (currentStaffId != null && item.staffId === currentStaffId))
   const linkable = canOpen ?? active
   const rowClassName = cn(
     'relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 last:border-b-0 dark:border-white/5 md:gap-4',
@@ -106,6 +120,7 @@ export function KaruteListRow({ item, canOpen }: Props) {
             <span className="ml-auto flex shrink-0 items-center gap-1 md:hidden">
               <ConversionChip status={item.conversionStatus} />
               <AiChip status={item.aiStatus} />
+              {canSeeSharedChip && <SharedChip />}
             </span>
           )}
         </div>
@@ -165,6 +180,7 @@ export function KaruteListRow({ item, canOpen }: Props) {
         <div className="hidden shrink-0 items-center gap-1 md:flex">
           <ConversionChip status={item.conversionStatus} />
           <AiChip status={item.aiStatus} />
+          {canSeeSharedChip && <SharedChip />}
         </div>
       )}
     </>
@@ -228,6 +244,17 @@ function AiChip({ status }: { status: KaruteAiStatus }) {
     >
       <span aria-hidden>✦</span>
       <span>{t(status)}</span>
+    </span>
+  )
+}
+
+// D10 (PR-C): soft wash tier, like the AI/conversion siblings above — never a
+// solid fill (⚖ no-black-interactive; this chip is not interactive at all).
+function SharedChip() {
+  const t = useTranslations('karute.recordList')
+  return (
+    <span className="inline-flex h-5 items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-1.5 text-[10px] font-medium text-sky-700 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-300">
+      <span>{t('filters.shared')}</span>
     </span>
   )
 }
