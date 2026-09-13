@@ -435,12 +435,16 @@ describe('GET /api/app/v1/screens/sessions?window=1 — the release-18 windowed 
       'discardedCount',
       'hasMore',
       'windowStart',
+      'viewerCanOpenDiscarded',
     ])
     expect(typeof dto.windowStart).toBe('string')
     expect(dto.discardedCount).toBe(0)
     // 1 row loaded of a 1-row store → nothing older.
     expect(dto.hasMore).toBe(false)
     expect(dto.items).toHaveLength(1)
+    // R8 discarded-record door (⚖ Liam 2026-09-13, A8): this test's caller
+    // holds no records.discardView (see the capability gate below).
+    expect(dto.viewerCanOpenDiscarded).toBe(false)
   })
 
   it('reads through the DATE WALK (from/to windows), not the flat slab', async () => {

@@ -7,6 +7,7 @@
 
 import type { EntryAuthor } from '@synqed-kk/client'
 import { effectiveSummary } from '@/lib/karute/effective-summary'
+import { statusOf } from '@/lib/recording/take-binding'
 
 /** A karute record with its related customer + entries — the shape consumed by
  *  the detail page, the PDF/text exporters, and the karute-detail adapters.
@@ -35,6 +36,15 @@ export interface KaruteWithRelations {
    *  "next" = the visit happening right now. */
   appointment_id?: string | null
   recording_session_id: string | null
+  /** Core's workflow state (DRAFT/REVIEW/APPROVED/DISCARDED) — R8 discarded-
+   *  record door, 2026-09-13. `string`, deliberately NOT the SDK's own
+   *  KaruteStatus union: 1.34's type predates DISCARDED (core sends it; the
+   *  installed client type doesn't declare it), so a literal `=== 'DISCARDED'`
+   *  compare on the SDK-typed pre-mapper value fails tsc (TS2367) — this
+   *  widened field is the ONLY place `discarded` may be derived from.
+   *  Optional/additive: legacy/cached shapes that predate this field simply
+   *  omit it. */
+  status?: string
   profiles: { id: string; full_name: string } | null
   customers: { id: string; name: string } | null
   entries: Array<{
@@ -84,6 +94,9 @@ export function mapSynqedKaruteRecord(
     store_id?: string | null
     appointment_id?: string | null
     recording_session_id?: string | null
+    /** See KaruteWithRelations.status above — kept `string` here too, never
+     *  the SDK's KaruteStatus, for the same TS2367 reason. */
+    status?: string
     entries?: Array<{
       id: string
       category: string
@@ -116,6 +129,7 @@ export function mapSynqedKaruteRecord(
     appointment_id: rec.appointment_id ?? null,
     // '' is not a session — normalize empty string the same as absent/null.
     recording_session_id: rec.recording_session_id || null,
+    status: rec.status,
     // staff name unresolved here (synqed staff_id ≠ profile id); header renders '—'.
     profiles: null,
     customers: rec.customer_id
@@ -155,6 +169,62 @@ export async function getKaruteRecord(
     return mapSynqedKaruteRecord(rec, customerName)
   } catch (err) {
     console.error('[getKaruteRecord] synqed-core fetch failed:', err)
+    return null
+  }
+}
+
+/**
+ * Discarded-record sibling of {@link getKaruteRecord} (R8 discarded-record
+ * door, ⚖ Liam 2026-09-13). NEVER edits getKaruteRecord in place — this is a
+ * NEW function, used only by the /karute/[id] page, which decides AFTER this
+ * read (via canOpenDiscardedRecord) whether the viewer may actually see what
+ * came back; this reader itself never gates on the caller (own-ness cannot be
+ * known before the read completes — A1).
+ *
+ * Ordinary SDK get() first (identical to getKaruteRecord for a live record —
+ * zero behavior change there, no retry ever fires). Only a 404 retries ONCE
+ * via a raw business-scoped fetch with `include_discarded=true` (SDK 1.34
+ * predates the typed option — same raw-transport idiom as
+ * synqed-records.ts's listMixedKaruteRecords). A non-404 failure degrades to
+ * null immediately, same posture as getKaruteRecord — this sibling does NOT
+ * inherit getKaruteRecord's blanket catch-everything-then-decide; it branches
+ * on status BEFORE deciding to retry (cold-read SHOULD #3).
+ */
+export async function getKaruteRecordIncludingDiscarded(
+  id: string,
+): Promise<KaruteWithRelations | null> {
+  try {
+    const { getSynqedClient } = await import('@/lib/synqed/client')
+    const synqed = await getSynqedClient()
+
+    let rec: Parameters<typeof mapSynqedKaruteRecord>[0] | null = null
+    try {
+      rec = await synqed.karuteRecords.get(id)
+    } catch (err) {
+      if (statusOf(err) !== 404) {
+        console.error('[getKaruteRecordIncludingDiscarded] synqed-core fetch failed:', err)
+        return null
+      }
+      try {
+        rec = await synqed.fetch<Parameters<typeof mapSynqedKaruteRecord>[0]>(
+          `/karute-records/${id}?include_discarded=true`,
+        )
+      } catch (retryErr) {
+        console.error('[getKaruteRecordIncludingDiscarded] raw retry failed:', retryErr)
+        return null
+      }
+    }
+    if (!rec) return null
+
+    const { getCachedCustomerList } = await import('@/lib/customers/cached')
+    const customers = await getCachedCustomerList().catch(() => [])
+    const customerName = rec.customer_id
+      ? customers.find((c) => c.id === rec!.customer_id)?.name ?? null
+      : null
+
+    return mapSynqedKaruteRecord(rec, customerName)
+  } catch (err) {
+    console.error('[getKaruteRecordIncludingDiscarded] unexpected failure:', err)
     return null
   }
 }

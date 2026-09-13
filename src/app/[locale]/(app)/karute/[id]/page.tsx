@@ -3,7 +3,7 @@ import { renderStamp } from '@/lib/perf/render-stamp'
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 
-import { getKaruteRecord } from '@/lib/supabase/karute'
+import { getKaruteRecordIncludingDiscarded } from '@/lib/supabase/karute'
 import { getKaruteOutcome } from '@/lib/karute/outcome'
 import { KaruteDetailView } from '@/components/karute/redesign/detail/KaruteDetailView'
 import { PhotoRecordsServer } from '@/components/karute/redesign/detail/PhotoRecordsServer'
@@ -23,6 +23,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { can, getMyCapabilities } from '@/lib/auth/require-permission'
 import {
+  canOpenDiscardedRecord,
   canViewAllInStore,
   canViewTranscript,
   ownerHandReach,
@@ -36,6 +37,7 @@ import { getCustomer } from '@/lib/customers/queries'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
 import { auditWeb } from '@/lib/audit-web'
 import { lookupProfileIdForSynqedStaffId } from '@/lib/synqed/staff-map'
+import { resolveDiscardFacts } from '@/lib/karute/discard-facts'
 
 interface KaruteDetailPageProps {
   params: Promise<{ id: string; locale: string }>
@@ -59,8 +61,9 @@ export default async function KaruteDetailPage({
     canReassign,
     businessId,
     capabilities,
+    holdsDiscardView,
   ] = await Promise.all([
-    getKaruteRecord(id),
+    getKaruteRecordIncludingDiscarded(id),
     // Page to completion so the karute number resolves for an overflow customer.
     synqedPromise.then((synqed) =>
       listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
@@ -88,6 +91,10 @@ export default async function KaruteDetailPage({
     // rather than a second can() keeps `business.manage` out of the capability
     // log this page keeps for the READ (it is never asked as its own question).
     getMyCapabilities(),
+    // R8 discarded-record door (⚖ Liam 2026-09-13): joins the FIRST wave
+    // beside can('records.reassign') so the discard-door decision below costs
+    // no extra round-trip (cold-read F2).
+    can('records.discardView'),
   ])
   if (!karute) notFound()
 
@@ -137,7 +144,48 @@ export default async function KaruteDetailPage({
   const allowedStoreIds =
     storeScope === null || storeScope.degraded ? [] : storeScope.allowedStoreIds
 
+  // R8 discarded-record door (⚖ Liam 2026-09-13, F2′): decide BEFORE the
+  // customer-contact/consent/customer wave below runs, so a refused viewer
+  // never pays for reads past this point. The record already says whether it
+  // is discarded (karute.status, widened by the mapper — A2). A LIVE
+  // record's control flow below is byte-identical to today: this whole
+  // branch is skipped, and the existing `const recordingRead = await
+  // recordingPromise` further down (unchanged, still awaited beside the
+  // customer wave per ③ fix round 4) is the ONLY await on this promise.
+  if (karute.status === 'DISCARDED') {
+    // recordingPromise has been in flight since the top of this function;
+    // awaiting it here costs nothing extra (a second await on an
+    // already-settled/in-flight promise is free) — readDoorStoreId needs it
+    // to judge which store this record belongs to. Do NOT move the existing
+    // await further down for the live-record path (F2′) — awaiting the same
+    // promise twice is intentional, not a bug.
+    const earlyRecordingRead = await recordingPromise
+    const allowedToOpen = canOpenDiscardedRecord({
+      ownerStaffId: ownerProfileId,
+      viewerStaffId,
+      holdsDiscardView,
+      allowedStoreIds,
+      recordStoreId: readDoorStoreId(karute, earlyRecordingRead),
+    })
+    if (!allowedToOpen) notFound()
+  }
+
   const customerId = karute.client_id ?? null
+
+  // R8 discarded-record door (A6/A7): the facts block's own reads, fired
+  // alongside the customer wave below — ONLY for a karute already confirmed
+  // DISCARDED (and, by this point, already confirmed OPENABLE). A live
+  // record gets an already-resolved promise here, so this line costs nothing
+  // on the live-record path.
+  const discardFactsPromise =
+    karute.status === 'DISCARDED'
+      ? synqedPromise.then((synqed) =>
+          resolveDiscardFacts(synqed, businessId, {
+            recordingSessionId: karute.recording_session_id,
+            recordStaffId: ownerProfileId,
+          }),
+        )
+      : Promise.resolve({ discardLedger: null, recordStaffName: null })
 
   // Customer contact + consent are both cached per-customer with their own tag
   // invalidation. Photos are NOT awaited here; they're streamed in via a
@@ -160,6 +208,8 @@ export default async function KaruteDetailPage({
   // failed is no row, so the player disappears exactly as it did before (fix
   // round 6). Only the two store computations below see the sentinel.
   const recordingRow = recordingRead === 'unreadable' ? null : recordingRead
+  // R8: a second await on an already-settled promise for a live record — free.
+  const discardFacts = await discardFactsPromise
   // ⚖ R1′ — WHICH STORE JUDGES THIS KARUTE (③ fix round 3; Greptile #849). The
   // karute's own store leads; a karute that carries none inherits the RECORDING
   // row's, which since ③ names the branch the device was in. ONE spelling for
@@ -218,6 +268,8 @@ export default async function KaruteDetailPage({
     consentResult,
     customer,
     locale,
+    discardLedger: discardFacts.discardLedger,
+    recordStaffName: discardFacts.recordStaffName,
   })
 
   // Single-record open = a view event (Wave V, web twin of the facade hook's
@@ -260,11 +312,15 @@ export default async function KaruteDetailPage({
       recording={built.recording}
       staffCanReassignRecords={built.staffCanReassignRecords}
       staffCanRegenerate={built.staffCanRegenerate}
+      discarded={built.discarded}
+      contentWithheld={built.contentWithheld}
       // fallback=null, not a skeleton: the card is now only-when-photos, so a
       // photo-shaped placeholder would flash a box that then vanishes on every
       // karute with no linked photos (Liam 8/10, mock frame C).
       photosSlot={
-        customerId ? (
+        // R8 (A4/A5): photos are CONTENT — withheld exactly like every other
+        // content field when this viewer may see the facts but not the content.
+        customerId && !built.contentWithheld ? (
           <Suspense fallback={null}>
             <PhotoRecordsServer
               customerId={customerId}
@@ -275,7 +331,12 @@ export default async function KaruteDetailPage({
       }
       memory={null}
       bodyPredictionSlot={
-        customerId ? (
+        // R8 fix round 1 (§1): a discarded record must never have this
+        // Server Component element CREATED — it is handed as a prop to the
+        // 'use client' KaruteDetailView and the Flight renderer executes it
+        // (and its cache/audit writes) regardless of the client's own
+        // {!discarded && …} guard. Gate here, the same pattern as photosSlot.
+        built.discarded ? null : customerId ? (
           <Suspense fallback={<AIBodyPredictionPreview />}>
             <AIBodyPredictionSlot customerId={customerId} locale={locale} />
           </Suspense>
@@ -284,17 +345,20 @@ export default async function KaruteDetailPage({
         )
       }
       suggestedMessageSlot={
-        <Suspense fallback={<AIOutreachPreview />}>
-          <AISuggestedMessageSlot
-            karuteId={id}
-            customerId={customerId}
-            customerName={built.header.customerName}
-            summary={karute.summary ?? null}
-            locale={locale}
-            appointmentId={karute.appointment_id ?? null}
-            storeId={karute.store_id ?? null}
-          />
-        </Suspense>
+        // R8 fix round 1 (§1): same reasoning as bodyPredictionSlot above.
+        built.discarded ? null : (
+          <Suspense fallback={<AIOutreachPreview />}>
+            <AISuggestedMessageSlot
+              karuteId={id}
+              customerId={customerId}
+              customerName={built.header.customerName}
+              summary={karute.summary ?? null}
+              locale={locale}
+              appointmentId={karute.appointment_id ?? null}
+              storeId={karute.store_id ?? null}
+            />
+          </Suspense>
+        )
       }
     />
     </>

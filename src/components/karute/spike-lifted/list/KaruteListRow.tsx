@@ -30,15 +30,25 @@ import type {
 
 interface Props {
   item: KaruteListItem
+  /** R8 discarded-record door (⚖ Liam 2026-09-13): may this viewer OPEN this
+   *  row even though it's discarded (own record OR records.discardView,
+   *  computed by the caller)? Absent → today's `!item.isDiscarded` — never
+   *  hidden, only the tap target changes. The row's GREY + 「破棄済み」 look
+   *  and content-blank stay governed by `item.isDiscarded` alone (A8: the
+   *  row's existence and honest state never depend on this flag — only
+   *  whether a tap does something). */
+  canOpen?: boolean
 }
 
-export function KaruteListRow({ item }: Props) {
+export function KaruteListRow({ item, canOpen }: Props) {
   const t = useTranslations('karute.recordList')
   const staffColor = getStaffColorByKey(item.staffColorKey)
   const active = !item.isDiscarded
+  const linkable = canOpen ?? active
   const rowClassName = cn(
     'relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 last:border-b-0 dark:border-white/5 md:gap-4',
-    active ? 'hover:bg-muted/30 active:bg-muted/50' : 'opacity-70',
+    !active && 'opacity-70',
+    linkable && 'hover:bg-muted/30 active:bg-muted/50',
   )
 
   const content = (
@@ -160,7 +170,7 @@ export function KaruteListRow({ item }: Props) {
     </>
   )
 
-  if (!active) {
+  if (!linkable) {
     // R6 repair (2026-09-13, F6): a plain, non-interactive `<div>` takes no
     // `aria-disabled` — that attribute only has meaning on something that
     // could otherwise be operated (a button, a link). This row has no href

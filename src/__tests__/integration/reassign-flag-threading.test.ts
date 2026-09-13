@@ -33,6 +33,8 @@ const baseArgs: BuildKaruteDetailScreenArgs = {
   consentResult: null,
   customer: null,
   locale: 'ja',
+  discardLedger: null,
+  recordStaffName: null,
 }
 
 describe('buildKaruteDetailScreen — staffCanReassignRecords (pin 8a, shared chokepoint)', () => {

@@ -146,6 +146,22 @@ jest.mock('@/lib/staff', () => ({
 }))
 jest.mock('@/lib/synqed/staff-map', () => ({
   synqedStaffCardsForBusiness: jest.fn(async () => []),
+  // requireActual would drag in @synqed-kk/client's ESM export (staff-map.ts
+  // imports SynqedClient at module scope), which jest's CJS transform can't
+  // parse — same reason getKaruteRecord lazy-imports it. Reimplemented here
+  // instead: a pure, dependency-free 8-line join (R8 A7, 2026-09-13).
+  staffNameByIdAcrossCardsAndProfiles: (
+    roster: Array<{ id: string; full_name: string | null }>,
+    cards: Array<{ id: string; user_id: string | null; name: string | null }>,
+  ) => {
+    const profileNames = new Map(roster.map((s) => [s.id, s.full_name?.trim() ? s.full_name : null]))
+    const nameById = new Map(profileNames)
+    for (const card of cards) {
+      const name = (card.user_id ? profileNames.get(card.user_id) : null) ?? card.name
+      if (name) nameById.set(card.id, name)
+    }
+    return nameById
+  },
 }))
 jest.mock('@/lib/auth/require-permission', () => {
   const actual = jest.requireActual('@/lib/auth/require-permission')

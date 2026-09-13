@@ -14,7 +14,8 @@ jest.mock('@/lib/staff', () => ({
 }))
 const karuteRow = { current: { client_id: 'cust-9', summary: null } as Record<string, unknown> }
 jest.mock('@/lib/supabase/karute', () => ({
-  getKaruteRecord: jest.fn(async (id: string) => ({ id, ...karuteRow.current })),
+  // R8 discarded-record door: the page now reads through this sibling.
+  getKaruteRecordIncludingDiscarded: jest.fn(async (id: string) => ({ id, ...karuteRow.current })),
 }))
 jest.mock('@/lib/karute/outcome', () => ({ getKaruteOutcome: jest.fn(async () => null) }))
 // Slice ①: the page reads the recording behind the karute for the player's
@@ -71,9 +72,17 @@ jest.mock('@/lib/customers/customer-detail-cached', () => ({
 }))
 jest.mock('@/components/karute/redesign/detail/KaruteDetailView', () => ({ KaruteDetailView: () => null }))
 jest.mock('@/components/karute/redesign/detail/PhotoRecordsServer', () => ({ PhotoRecordsServer: () => null }))
+// R8 fix round 1 (§1): jest.fn-wrapped so a discarded-record test can assert
+// these are never even referenced — belt-and-braces alongside the prop check,
+// which is the assertion that actually goes RED if the page-level gate is
+// reverted (this harness calls KaruteDetailPage directly and never runs a
+// React/Flight renderer over the returned tree, so a component passed as a
+// JSX prop is never invoked here regardless — see the prop-null test below).
+const aiBodyPredictionSlotMock = jest.fn<null, unknown[]>(() => null)
+const aiSuggestedMessageSlotMock = jest.fn<null, unknown[]>(() => null)
 jest.mock('@/components/karute/redesign/detail/AiInsightSlots', () => ({
-  AIBodyPredictionSlot: () => null,
-  AISuggestedMessageSlot: () => null,
+  AIBodyPredictionSlot: (...args: unknown[]) => aiBodyPredictionSlotMock(...args),
+  AISuggestedMessageSlot: (...args: unknown[]) => aiSuggestedMessageSlotMock(...args),
 }))
 jest.mock('@/components/customers/redesign/profile/UpcomingAiFeatures', () => ({
   AIBodyPredictionPreview: () => null,
@@ -614,5 +623,105 @@ describe('KaruteDetailPage — staffCanRegenerate (hide, never show-and-refuse)'
     grantedCaps.current = new Set()
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
     expect(built().staffCanRegenerate).toBe(false)
+  })
+})
+
+// ── R8 fix round 1 (LENS §1, HIGH) — the WEB AI slots must be GATED AT THE
+// PAGE for a discarded record, the same pattern as photosSlot: the element is
+// never CREATED, not merely hidden by the client's `{!discarded && …}`. A
+// Server Component element handed as a prop into KaruteDetailView ('use
+// client') is executed by the Flight renderer during prop serialization
+// whether or not the client renders it — a live-only hide in the view leaks
+// the AI draft (and its cache/audit writes) into the page payload for a
+// discardView holder who must see facts only, never content.
+describe('KaruteDetailPage — discarded records never create the AI slots (R8 fix round 1, §1)', () => {
+  it('a DISCARDED record: bodyPredictionSlot and suggestedMessageSlot are never created (null, not a Suspense-wrapped element)', async () => {
+    buildSpy.mockReturnValue({
+      karuteId: 'k-1',
+      customerId: 'cust-9',
+      transcript: null,
+      header: { customerName: 'テスト 太郎' },
+      summary: null,
+      discarded: true,
+    } as never)
+    const props = await viewPropsFromPage()
+    expect(props.bodyPredictionSlot).toBeNull()
+    expect(props.suggestedMessageSlot).toBeNull()
+    // Belt and braces (see the mock comment above for why this is trivially
+    // true in this direct-call harness either way): the components are not
+    // even referenced.
+    expect(aiBodyPredictionSlotMock).not.toHaveBeenCalled()
+    expect(aiSuggestedMessageSlotMock).not.toHaveBeenCalled()
+  })
+
+  it('…and a LIVE record still creates both slots as before (regression pin)', async () => {
+    buildSpy.mockReturnValue({
+      karuteId: 'k-1',
+      customerId: 'cust-9',
+      transcript: null,
+      header: { customerName: 'テスト 太郎' },
+      summary: null,
+      discarded: false,
+    } as never)
+    const props = await viewPropsFromPage()
+    expect(props.bodyPredictionSlot).not.toBeNull()
+    expect(props.suggestedMessageSlot).not.toBeNull()
+  })
+})
+
+// ── R8 fix round 1 (LENS §3, MEDIUM) — THE WEB DOOR ITSELF WAS UNPINNED. The
+// facade half of canOpenDiscardedRecord/contentWithheld is covered elsewhere
+// (app-api-karute-detail-screen.test.ts); this page's OWN refusal, its own
+// photos-withhold branch, and the own-staffer bypass ran with no test at all —
+// deleting any one of them (LENS mutants M11, M20) left the whole battery
+// green. canOpenDiscardedRecord / readDoorStoreId run FOR REAL in this
+// harness (only next/navigation, staff, supabase/karute, synqed/*, auth/
+// require-permission, auth/store-scope, customers/*, audit-web and
+// detail-screen are mocked) — this is the real ACL, not a stub.
+describe('KaruteDetailPage — the discarded-record door itself (R8 fix round 1, §3)', () => {
+  it('a plain staffer (no capability, not the owner) opening a DISCARDED record → notFound() [mutant M11]', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, status: 'DISCARDED', staff_profile_id: 'other-staff',
+    }
+    grantedCaps.current = new Set()
+    await expect(
+      KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) }),
+    ).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  it('a records.discardView holder opens a DISCARDED record — page renders, and photos are withheld when contentWithheld [mutant M20]', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, status: 'DISCARDED', staff_profile_id: 'other-staff',
+    }
+    grantedCaps.current = new Set(['records.discardView'])
+    buildSpy.mockReturnValue({
+      karuteId: 'k-1',
+      customerId: 'cust-9',
+      transcript: null,
+      header: { customerName: 'テスト 太郎' },
+      summary: null,
+      discarded: true,
+      contentWithheld: true,
+    } as never)
+    const props = await viewPropsFromPage()
+    expect(props.photosSlot).toBeNull()
+  })
+
+  it('the record’s OWN staffer opens her own DISCARDED record — no capability needed, photos slot present', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, status: 'DISCARDED', staff_profile_id: 'staff-1',
+    }
+    grantedCaps.current = new Set()
+    buildSpy.mockReturnValue({
+      karuteId: 'k-1',
+      customerId: 'cust-9',
+      transcript: null,
+      header: { customerName: 'テスト 太郎' },
+      summary: null,
+      discarded: true,
+      contentWithheld: false,
+    } as never)
+    const props = await viewPropsFromPage()
+    expect(props.photosSlot).not.toBeNull()
   })
 })
