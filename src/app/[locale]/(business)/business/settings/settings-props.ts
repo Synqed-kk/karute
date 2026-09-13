@@ -1634,9 +1634,23 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
             scopeLabel: BUSINESS_SCOPE,
             trio: {
               base: `初期値: 直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`, // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+              // ⚖ D-17 F5 — THE SAFE STATE IS THREE DIFFERENT TRUTHS, so it is
+              // three sentences. One line stood here for all of them — 「解除され
+              // ても、そのままオンラインで販売できます。」 — and it is FALSE for the
+              // LINKED default, which is the shipped one: at the linked boundary
+              // online 受付 has just closed, so the 枠 comes back to 店頭・電話 and
+              // to nothing else. 解除しない releases nothing at all, and only an
+              // explicit cut-off at or beyond the lead time really does come back
+              // to online selling — as far as 「直前の空きは売らない」, which is the
+              // boundary worth naming. The warning branch above is unchanged.
+              // JP-NATIVE PASS R2 · REPORT-2.md A1 · A2 · A3 (⚖ ADOPTED).
               guardrail: autoReleaseTooShort
                 ? '「直前の空きは売らない」より短くすると、解除してもオンラインでは売れません。店頭・電話でのみ扱えます。' // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
-                : '解除されても、そのままオンラインで販売できます。', // JP-NATIVE PASS 2026-09-13 (REPORT.md follow-up)
+                : autoReleaseDial === 'linked'
+                  ? '解除と同時にオンライン受付が終わるため、店頭・電話でのみ扱えます。' // JP-NATIVE PASS R2 (REPORT-2.md A1)
+                  : autoReleaseDial === null
+                    ? '解除しないため、開始時刻まで確保したままです。' // JP-NATIVE PASS R2 (REPORT-2.md A2)
+                    : '解除後は、「直前の空きは売らない」までオンラインで販売できます。', // JP-NATIVE PASS R2 (REPORT-2.md A3)
             },
           },
         ),

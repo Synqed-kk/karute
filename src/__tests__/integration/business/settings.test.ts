@@ -1514,6 +1514,19 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
     expect((await rowFor(120)).trio!.guardrail).not.toBe(GUARDRAIL)
     expect((await rowFor('linked')).trio!.guardrail).not.toBe(GUARDRAIL)
     expect((await rowFor(null)).trio!.guardrail).not.toBe(GUARDRAIL)
+
+    // ⚖ D-17 F5 (2026-09-14) — AND THE SAFE STATE IS THREE DIFFERENT TRUTHS.
+    // One line stood here for all three — 「解除されても、そのままオンラインで
+    // 販売できます。」 — and it is FALSE for the linked default, which is the
+    // shipped one: at the linked boundary online booking has just closed, so
+    // the 枠 comes back to 店頭・電話 and to nothing else. The three lines are
+    // JP-NATIVE-R2/REPORT-2.md A1 · A2 · A3 (⚖ ADOPTED), verbatim.
+    expect((await rowFor('linked')).trio!.guardrail)
+      .toBe('解除と同時にオンライン受付が終わるため、店頭・電話でのみ扱えます。')
+    expect((await rowFor(null)).trio!.guardrail)
+      .toBe('解除しないため、開始時刻まで確保したままです。')
+    expect((await rowFor(120)).trio!.guardrail)
+      .toBe('解除後は、「直前の空きは売らない」までオンラインで販売できます。')
   })
 
   it('leg 6 — round-trip: every wire value survives board and back, and undefined reads as linked', () => {
