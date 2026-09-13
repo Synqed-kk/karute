@@ -126,47 +126,68 @@ describe('setRecordingSharedWithClient', () => {
     expect(lines).toHaveLength(0)
   })
 
-  it('a colleague (not the owner, even with viewAll — this door has no viewAll leg, D2) → forbidden, no write', async () => {
+  it('a colleague (not the owner, even with viewAll — this door has no viewAll leg, D2) → forbidden, no write, no audit row', async () => {
     const { synqed, update } = makeClient()
-    const result = await setRecordingSharedWithClient(synqed, actor({ staffId: 'someone-else' }), {
-      karuteId: KARUTE_ID,
-      shared: true,
+    let result: Awaited<ReturnType<typeof setRecordingSharedWithClient>> | undefined
+    const lines = await auditLines(async () => {
+      result = await setRecordingSharedWithClient(synqed, actor({ staffId: 'someone-else' }), {
+        karuteId: KARUTE_ID,
+        shared: true,
+      })
     })
     expect(result).toEqual({ error: 'forbidden' })
     expect(update).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
   })
 
-  it('an owner-hand holder (not on this roster, staffId null) → forbidden — nobody consents on her behalf (D2)', async () => {
+  it('an owner-hand holder (not on this roster, staffId null) → forbidden — nobody consents on her behalf (D2), no audit row', async () => {
     const { synqed, update } = makeClient()
-    const result = await setRecordingSharedWithClient(synqed, actor({ staffId: null }), {
-      karuteId: KARUTE_ID,
-      shared: true,
+    let result: Awaited<ReturnType<typeof setRecordingSharedWithClient>> | undefined
+    const lines = await auditLines(async () => {
+      result = await setRecordingSharedWithClient(synqed, actor({ staffId: null }), {
+        karuteId: KARUTE_ID,
+        shared: true,
+      })
     })
     expect(result).toEqual({ error: 'forbidden' })
     expect(update).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
   })
 
-  it('an ownerless karute → forbidden (no one to consent) — the read side\'s "no owner = shared" branch does NOT apply here', async () => {
+  it('an ownerless karute → forbidden (no one to consent) — the read side\'s "no owner = shared" branch does NOT apply here, no audit row', async () => {
     const { synqed, update } = makeClient({ karute: { staff_id: null } })
-    const result = await setRecordingSharedWithClient(synqed, actor(), { karuteId: KARUTE_ID, shared: true })
+    let result: Awaited<ReturnType<typeof setRecordingSharedWithClient>> | undefined
+    const lines = await auditLines(async () => {
+      result = await setRecordingSharedWithClient(synqed, actor(), { karuteId: KARUTE_ID, shared: true })
+    })
     expect(result).toEqual({ error: 'forbidden' })
     expect(update).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
   })
 
-  it('core 403 on the write (the two locks disagree, D7) → forbidden, and ONE warn line naming ids only', async () => {
+  it('core 403 on the write (the two locks disagree, D7) → forbidden, and ONE warn line naming ids only, no audit row', async () => {
+    // auditLines() can't wrap this one: it installs its own console.warn spy,
+    // and nesting that under this test's own `warn` spy would shadow the
+    // refusal line out of `warn.mock.calls` (mockImplementation replaces the
+    // console binding, it doesn't chain to the outer spy) — `refusals` below
+    // would silently come back empty. So this test captures both evt kinds
+    // itself, off the SAME single warn spy (+ a log spy for the 'audit' evt,
+    // which the read side emits via console.log per audit-lines.ts's doc).
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     const { synqed } = makeClient({ updateThrows: { status: 403 } })
     const result = await setRecordingSharedWithClient(synqed, actor(), { karuteId: KARUTE_ID, shared: true })
     expect(result).toEqual({ error: 'forbidden' })
-    const refusals = warn.mock.calls
-      .map((args) => {
-        try {
-          return JSON.parse(String(args[0]))
-        } catch {
-          return null
-        }
-      })
-      .filter((j): j is Record<string, unknown> => !!j && j.evt === 'recording_share_core_refused')
+    const parsed = [...logSpy.mock.calls, ...warn.mock.calls].map((args) => {
+      try {
+        return JSON.parse(String(args[0]))
+      } catch {
+        return null
+      }
+    })
+    const refusals = parsed.filter(
+      (j): j is Record<string, unknown> => !!j && j.evt === 'recording_share_core_refused',
+    )
     expect(refusals).toHaveLength(1)
     expect(refusals[0]).toEqual({
       evt: 'recording_share_core_refused',
@@ -174,28 +195,43 @@ describe('setRecordingSharedWithClient', () => {
       karute_id: KARUTE_ID,
       recording_session_id: ROW_ID,
     })
+    const auditRows = parsed.filter((j): j is Record<string, unknown> => !!j && j.evt === 'audit')
+    expect(auditRows).toHaveLength(0)
+    logSpy.mockRestore()
     warn.mockRestore()
   })
 
-  it('404 karute → not_found', async () => {
+  it('404 karute → not_found, no audit row', async () => {
     const { synqed } = makeClient({ karute: 'missing' })
-    const result = await setRecordingSharedWithClient(synqed, actor(), { karuteId: KARUTE_ID, shared: true })
+    let result: Awaited<ReturnType<typeof setRecordingSharedWithClient>> | undefined
+    const lines = await auditLines(async () => {
+      result = await setRecordingSharedWithClient(synqed, actor(), { karuteId: KARUTE_ID, shared: true })
+    })
     expect(result).toEqual({ error: 'not_found' })
+    expect(lines).toHaveLength(0)
   })
 
-  it('no recording_session_id → no_recording', async () => {
+  it('no recording_session_id → no_recording, no audit row', async () => {
     const { synqed } = makeClient({ karute: { recording_session_id: null } })
-    const result = await setRecordingSharedWithClient(synqed, actor(), { karuteId: KARUTE_ID, shared: true })
+    let result: Awaited<ReturnType<typeof setRecordingSharedWithClient>> | undefined
+    const lines = await auditLines(async () => {
+      result = await setRecordingSharedWithClient(synqed, actor(), { karuteId: KARUTE_ID, shared: true })
+    })
     expect(result).toEqual({ error: 'no_recording' })
+    expect(lines).toHaveLength(0)
   })
 
-  it('row 404 → no_recording', async () => {
+  it('row 404 → no_recording, no audit row', async () => {
     const { synqed } = makeClient({ row: 'missing' })
-    const result = await setRecordingSharedWithClient(synqed, actor(), { karuteId: KARUTE_ID, shared: true })
+    let result: Awaited<ReturnType<typeof setRecordingSharedWithClient>> | undefined
+    const lines = await auditLines(async () => {
+      result = await setRecordingSharedWithClient(synqed, actor(), { karuteId: KARUTE_ID, shared: true })
+    })
     expect(result).toEqual({ error: 'no_recording' })
+    expect(lines).toHaveLength(0)
   })
 
-  it('a non-404 throw on the karute read → upstream', async () => {
+  it('a non-404 throw on the karute read → upstream, no audit row', async () => {
     const synqed = {
       karuteRecords: {
         get: jest.fn(async () => {
@@ -204,14 +240,22 @@ describe('setRecordingSharedWithClient', () => {
       },
       recordings: { get: jest.fn(), update: jest.fn() },
     } as unknown as Parameters<typeof setRecordingSharedWithClient>[0]
-    const result = await setRecordingSharedWithClient(synqed, actor(), { karuteId: KARUTE_ID, shared: true })
+    let result: Awaited<ReturnType<typeof setRecordingSharedWithClient>> | undefined
+    const lines = await auditLines(async () => {
+      result = await setRecordingSharedWithClient(synqed, actor(), { karuteId: KARUTE_ID, shared: true })
+    })
     expect(result).toEqual({ error: 'upstream' })
+    expect(lines).toHaveLength(0)
   })
 
-  it('a non-404 throw on the write → upstream, never forbidden', async () => {
+  it('a non-404 throw on the write → upstream, never forbidden, no audit row', async () => {
     const { synqed, update } = makeClient({ updateThrows: { status: 500 } })
-    const result = await setRecordingSharedWithClient(synqed, actor(), { karuteId: KARUTE_ID, shared: true })
+    let result: Awaited<ReturnType<typeof setRecordingSharedWithClient>> | undefined
+    const lines = await auditLines(async () => {
+      result = await setRecordingSharedWithClient(synqed, actor(), { karuteId: KARUTE_ID, shared: true })
+    })
     expect(result).toEqual({ error: 'upstream' })
     expect(update).toHaveBeenCalledTimes(1)
+    expect(lines).toHaveLength(0)
   })
 })
