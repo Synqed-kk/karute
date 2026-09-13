@@ -673,7 +673,17 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // vendor 937,743 = 2,069,785 B, byte-identical across two clean builds
 // (node v24.16.0, C4 recipe, this merge tip) → ceiling 2,069,785 + 1,000 =
 // 2,070,785.
-const BUDGET_BYTES = 2_070_785
+//
+// R8 discarded-record door (update-26 PR 3, ⚖ Liam 2026-09-13): measured
+// cold on this machine per the C4 recipe, byte-identical across two clean
+// builds (node v24.16.0): en 133,316 · vendor 937,743 · index 1,001,494 =
+// 2,072,553 B. origin/main (0d57b1cca0f7d7dba5b8f7e72f65e3eed11232fa) freshly
+// measured the same way in a throwaway worktree, also byte-identical: en
+// 133,041 · vendor 937,743 · index 999,180 = 2,069,964 B — feature cost
+// +2,589 B (the new i18n strings, the facts-block component, the DTO/screen
+// threading). Ceiling = THIS measured number + 1,000 B, same convention as
+// every prior raise: 2,072,553 + 1,000 = 2,073,553.
+const BUDGET_BYTES = 2_073_553
 
 let dir
 try {
