@@ -11580,7 +11580,10 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, LENS-1-delta.md MINOR 4) — the
     // netting's own type comes with it: `honestDrawn` is a `Pick` of it now, so
     // the drawn half cannot carry the store's `total` on a narrowed row list.
-    "import { demoteShared, heldMaskOf, honestHeld, type HonestHeld } from './honest-held'",
+    // HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+    // frame for the rail) — `demoteShared` is deleted: the board world is netted
+    // by `honestHeld` itself now, and the rail's mask comes through `heldMaskOf`.
+    "import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'",
     "import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'",
     "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
   ]

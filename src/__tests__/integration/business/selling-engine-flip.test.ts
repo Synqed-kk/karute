@@ -1015,9 +1015,10 @@ describe('4 — what paints, and what stops', () => {
     expect(screen).toContain('data-guide={honest')
     // main's line, byte for byte, as the OFF arm.
     expect(screen).toContain("                : '新規のお客様のために店全体で確保している枠の数です。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'}")
-    // …and it is not a second read of the round's gate: the doors suite pins
-    // `HONEST_HELD` at exactly two code occurrences (the import and the memo),
-    // and a `HONEST_HELD ?` here would be a third.
+    // …and it is not a read of the round's gate at all: the doors suite pins
+    // `HONEST_HELD` at exactly three code occurrences (the import and the two
+    // memos — the settled netting and, since fix 6, the live one), and a
+    // `HONEST_HELD ?` here would be a fourth.
     expect(screen).not.toContain('data-guide={HONEST_HELD')
   })
 
@@ -1586,10 +1587,14 @@ describe('7 — the fix round: the publication boundary', () => {
     // `withheld` widens a span's REACH and never the number the sentence quotes,
     // and `dur` stays the span's own length — so the code is unchanged and the
     // claim is.
-    // ⚖ HONEST-COUNT ROUND 1 — the board world minus the 枠 the SETTLED board
-    // found it cannot honour (`demoteShared`, v3 N4). The world is not netted —
-    // it is rebuilt per pointer frame on a cold book — it is handed the settled
-    // answer's shared spans and drops what overlaps them.
+    // ⚖ HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+    // frame for the rail) — the board world minus the 枠 THIS board cannot
+    // honour. The world IS netted now: the same `honestHeld` runs on the live
+    // mask with the live lanes and the live book that mask was cut from, on
+    // every pointer frame, so a collision the tentative move creates is seen
+    // the frame it is created. (Until fix 6 it was handed the SETTLED answer's
+    // shared spans and dropped what overlapped them — `demoteShared`, v3 N4 —
+    // which could not see that case at all.)
     expect(screen).toContain('held: heldBoardHonest,')
     expect(screen).not.toContain('the two inputs are the two halves of one fact rather than two worlds')
 
@@ -2486,9 +2491,14 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
       'false',
       // ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — `heldBoard` became
       // `heldBoardHonest` at the ONE site that reads it: the rail explanation.
-      // It is still the BOARD world's mask, built in the same memo, minus the
-      // 枠 the settled board found it cannot honour. This is the review
-      // question the pin asks on purpose, and the PR body answers it.
+      // HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+      // frame for the rail) — and the answer to 「which mask is that?」 is now
+      // the LIVE board's own honest held set, netted per frame by Liam's
+      // ruling: same board mask, same memo, run through `honestHeld` with the
+      // live lanes and the live book instead of being demoted by the settled
+      // answer's shared spans. Still the BOARD world, still this one reader.
+      // This is the review question the pin asks on purpose, and the PR body
+      // answers it.
       'heldBoardHonest',
       'heldCommitted',
       'heldCommitted',

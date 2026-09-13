@@ -730,9 +730,16 @@ describe('1 — the round gate', () => {
     // and the single memo it decides.
     // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 2)
     // — and the specifier shares the gate module's ONE import line now. The
-    // count is unchanged at 2: `HONEST_HELD` appears once in the merged import
+    // count was unchanged at 2: `HONEST_HELD` appears once in the merged import
     // and once in the memo, exactly as it did across two lines.
-    expect([...codeOnly(screen).matchAll(/HONEST_HELD/g)].length).toBe(2)
+    // HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+    // frame for the rail) — AND IT IS 3 NOW, for a stated reason: the board
+    // world is netted by the same producer on every pointer frame, so the round
+    // has a SECOND memo and that memo must be gated too. Off ⇒ `heldBoard` raw,
+    // which is the board that shipped. Still ONE value, still read only in memo
+    // bodies at the top level of the component; the two memos are anchored
+    // whole below so a third read cannot arrive without saying what it is.
+    expect([...codeOnly(screen).matchAll(/HONEST_HELD/g)].length).toBe(3)
     for (const line of [
       "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
       '() => (HONEST_HELD && heldCommitted',
@@ -749,6 +756,17 @@ describe('1 — the round gate', () => {
       // not take a room from one that will; a price-0 row's 枠 IS protected and
       // does take one (spec v4).
       'heldCommitted.filter((m) => !locked.includes(m.laneKey)),',
+      // HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+      // frame for the rail) — THE SECOND GATED MEMO, the LIVE one. Same
+      // producer, same locked filter, and the LIVE inputs: `boardLanes` (the
+      // board with the tentative move on it) and `ledger.world` (the book that
+      // very mask was cut from — a second book would be a second bed truth on
+      // one frame). Its deps are the three per-frame values the settled memo is
+      // pinned NOT to carry, which is the ruling itself: the rail is netted per
+      // frame, the chip is not.
+      '() => (HONEST_HELD && heldBoard',
+      '? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true).byLane.map(heldMaskOf)',
+      '[heldBoard, locked, boardLanes, ledger],',
     ]) {
       expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
     }
@@ -2041,6 +2059,24 @@ describe('7 — the mask is built once per world per frame, and what it costs', 
     // whole of E1's cache and the reason the 19–41× naive cost is not paid.
     expect(handles()).toBe(staffLanesOf(w.lanes).length)
     expect(held.length).toBe(staffLanesOf(w.lanes).length)
+  })
+
+  // HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+  // frame for the rail) — AND THE LIVE NETTING ADDS NO BOOK TO THE FRAME.
+  // The ruling's cost line is 「the frame pays the SEARCH alone」, and that is
+  // only true while the live memo reads the book the frame has already built.
+  // The counts above are therefore unchanged by fix 6 — the netting mints no
+  // `newClientMask` handle and constructs no `BedTruth`; it asks `freeBedKeys`
+  // of `ledger.world`. This leg is that clause read off the screen, so a later
+  // round cannot quietly give the live memo a book of its own.
+  it('the live netting rides the frame\u2019s own book — it builds no second one', () => {
+    const screen = SRC('TodayScreen.tsx')
+    const i = screen.indexOf('const heldBoardHonest = useMemo(')
+    expect(i).toBeGreaterThan(-1)
+    const memo = screen.slice(i, screen.indexOf('\n  )', i))
+    expect({ readsTheFrameBook: memo.includes('ledger.world') }).toEqual({ readsTheFrameBook: true })
+    expect({ buildsOne: memo.includes('bookFor(') || memo.includes('bedViewsFor(') || memo.includes('bedTruthViews(') })
+      .toEqual({ buildsOne: false })
   })
 
   /** ⚠ WHAT THE GATE ACTUALLY ADDS TO A FRAME, and it is not only the mask.
