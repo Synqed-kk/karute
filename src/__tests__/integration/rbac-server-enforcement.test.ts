@@ -121,11 +121,7 @@ jest.mock('@/lib/synqed/client', () => {
     deleteEntry: jest.fn(async () => ({})),
     get: jest.fn(async () => ({ entries: [] })),
     update: jest.fn(async () => ({})),
-    // Optional unused param (R4 repair, 2026-09-13): the fetch() shim below
-    // calls this with an options object; every existing call site still
-    // calls it bare, so this widens the TS signature without changing any
-    // runtime behavior.
-    list: jest.fn(async (_opts?: Record<string, unknown>) => ({ karute_records: [], total: 0 })),
+    list: jest.fn(async () => ({ karute_records: [], total: 0 })),
   }
   const appointments = {
     create: jest.fn(async () => ({ id: 'appt-1' })),
@@ -169,7 +165,9 @@ jest.mock('@/lib/synqed/client', () => {
   // spy so `expect(karuteRecords.list).toHaveBeenCalled()` still holds.
   const fetch = jest.fn(async (path: string) => {
     const query = new URL(path, 'https://core.test').searchParams
-    return karuteRecords.list({
+    // Cast at the call site, not karuteRecords.list's declared signature —
+    // every OTHER call site calls it bare.
+    return (karuteRecords.list as unknown as (opts: Record<string, unknown>) => Promise<unknown>)({
       ...(query.get('customer_id') ? { customer_id: query.get('customer_id') } : {}),
       ...(query.get('store_id') ? { store_id: query.get('store_id') } : {}),
       ...(query.get('from') ? { from: query.get('from') } : {}),
