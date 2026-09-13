@@ -840,11 +840,14 @@ export function KaruteRecordListView({
 
   // PILL COUNTS — two kinds, and the split is deliberate.
   //
-  // すべて is the STORE total: the very freshStoreTotal the header's 全件
-  // renders (the same `storeTotal` state, plumbed once — never a second
-  // client-side read that could disagree with the header sitting inches above
-  // it on the same screen). The gap between it and the rows on screen is the
-  // one さらに表示 exists to close, and the header's 表示中 already names it.
+  // すべて is the STORE universe: active + discarded, the SAME expression the
+  // header's 全件 renders below (fix round 1, 2026-09-13: R1 widened the
+  // header to active+discarded but left this pill on storeTotal alone, so the
+  // two disagreed the instant a store had a discarded record — ⚖ a number
+  // says what it counts). storeUniverseTotal is computed once and read by
+  // both, so they cannot diverge again. The gap between it and the rows on
+  // screen is the one さらに表示 exists to close, and the header's 表示中
+  // already names it.
   //
   // EVERY OTHER PILL counts the rows its own tap reveals — ⚖ Liam 8/25 for
   // 今週 (see thisWeekCutoffYmd for the ruling and the completeness argument),
@@ -858,19 +861,22 @@ export function KaruteRecordListView({
   // explaining the gap. So it counts the LOADED discarded rows, same as every
   // other non-すべて pill; a discarded record outside the loaded window is
   // exactly what さらに表示 (or filtering to すべて) surfaces.
+  const storeUniverseTotal =
+    storeTotal === null ? null : storeTotal + (storeDiscardedCount ?? 0)
+
   const counts = useMemo(() => {
     const activeItems = allItems.filter(isActiveKarute)
     const countStatus = (status: KaruteListItem['aiStatus']) =>
       activeItems.filter((i) => i.aiStatus === status).length
     return {
-      all: storeTotal,
+      all: storeUniverseTotal,
       thisWeek: activeItems.filter((i) => isThisWeek(i, weekCutoff)).length,
       aiPending: countStatus('pending'),
       needsReview: countStatus('needsReview'),
       draft: countStatus('draft'),
       discarded: allItems.filter((i) => i.isDiscarded).length,
     } satisfies Record<KaruteListFilter, number | null>
-  }, [allItems, storeTotal, weekCutoff])
+  }, [allItems, storeUniverseTotal, weekCutoff])
 
   // Month view SWAPS the row set (PR-2b). The staff scope and the search box
   // still apply INSIDE a month — they answer "whose" and "which words", not
@@ -1026,26 +1032,33 @@ export function KaruteRecordListView({
             {/* R1 (2026-09-13 repair round): 全件 must name the SAME universe
              *  表示中 counts under すべて — filtered.length includes discarded
              *  rows there (:898), so 全 has to as well or 表示中 can read
-             *  larger than 全 (F1). storeDiscardedCount and storeTotal always
-             *  travel together (both legs of the SAME karuteData.data probe —
-             *  karute-window.ts's loadKaruteWindowRows reads them off one
-             *  storeProbe call), so treating a null discarded count as 0 here
-             *  never masks an independent leg failure — there is no such leg. */}
+             *  larger than 全 (F1). storeUniverseTotal (defined above, next to
+             *  the すべて pill it also feeds — fix round 1) is that universe;
+             *  storeDiscardedCount and storeTotal always travel together
+             *  (both legs of the SAME karuteData.data probe — karute-window.ts's
+             *  loadKaruteWindowRows reads them off one storeProbe call), so
+             *  treating a null discarded count as 0 here never masks an
+             *  independent leg failure — there is no such leg. */}
             {serverDegraded
               ? loadedCount > 0 && <span role="alert">{t('loadMoreFailed')}</span>
               : storeTotal !== null &&
                 (() => {
                   const discarded = storeDiscardedCount ?? 0
+                  // storeTotal is narrowed non-null by the guard above;
+                  // storeUniverseTotal can only be null when storeTotal is,
+                  // so this fallback is unreachable in practice — it exists
+                  // purely to satisfy that narrowing across the two variables.
+                  const universeTotal = storeUniverseTotal ?? storeTotal
                   if (discarded > 0) {
                     return monthCount !== null
                       ? t('statusLineDiscarded', {
-                          total: storeTotal + discarded,
+                          total: universeTotal,
                           discarded,
                           monthCount,
                           showingCount: filtered.length,
                         })
                       : t('statusLineNoMonthDiscarded', {
-                          total: storeTotal + discarded,
+                          total: universeTotal,
                           discarded,
                           showingCount: filtered.length,
                         })

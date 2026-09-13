@@ -439,4 +439,19 @@ describe('loadKaruteWindowWithMonthProbe', () => {
     )
     expect(result).toEqual({ data: null, monthProbe: null })
   })
+
+  it('R5 pin (2026-09-13, Y2): the 今月 probe carries NO include_discarded — dead plumbing, read by nobody', async () => {
+    // Re-adding `includeDiscarded: true` to the probe call routes it through
+    // listMixedKaruteRecords → synqed.fetch, which asClient's fetch always
+    // stamps `include_discarded: true` on the way back to fakeCore — this
+    // assertion goes RED the instant that happens.
+    const core = fakeCore([
+      rec('k1', '2026-08-24T01:00:00.000Z'),
+      rec('k2', '2026-08-24T02:00:00.000Z', 'DISCARDED'),
+    ])
+    await loadKaruteWindowWithMonthProbe(asClient(core.list), opts)
+    const probeCall = core.calls.find((c) => c.page_size === 1 && c.from === opts.monthFrom)
+    expect(probeCall).toBeDefined()
+    expect(probeCall?.include_discarded).not.toBe(true)
+  })
 })

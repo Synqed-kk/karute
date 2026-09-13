@@ -883,9 +883,11 @@ describe('pill counts', () => {
     expect(pillCount('discarded')).toBe(1)
     expect(screen.getByText('有効 花子')).toBeInTheDocument()
     // The ordinary ledger is mixed: retained discarded rows remain visible,
-    // while the active-only total on the すべて pill stays 1.
+    // and すべて now names the STORE UNIVERSE (fix round 1, 2026-09-13, Y1) —
+    // active total (1) + store-wide discarded (5) = 6, the same number the
+    // header's 全件 renders, never the active-only total alone.
     expect(screen.getByText('破棄 太郎')).toBeInTheDocument()
-    expect(pillCount('all')).toBe(1)
+    expect(pillCount('all')).toBe(6)
 
     fireEvent.click(pill('discarded'))
     expect(showingCount()).toBe(pillCount('discarded'))
@@ -984,5 +986,37 @@ describe('pill counts', () => {
     fireEvent.click(pill('thisWeek'))
     expect(screen.getByText('七日前 次郎')).toBeInTheDocument()
     expect(screen.queryByText('九日前 一郎')).not.toBeInTheDocument()
+  })
+
+  it('すべて names the STORE UNIVERSE (active+discarded) — matches the header 全件 (fix round 1, 2026-09-13, Y1)', () => {
+    // Lens probe case: storeTotal 2, storeDiscardedCount 3, 5 rows loaded (2
+    // active + 3 discarded) — before this fix すべて read storeTotal alone
+    // (2) while the header's 全件 already read 5, an inch apart on the same
+    // screen. On the unfixed `all: storeTotal` line this assertion goes RED
+    // (pillCount('all') reads 2); see BUILD-REPORT-ANTHONY-REPAIRS-2026-09-13.md
+    // for the pasted red run.
+    const active = [item('a1', jstYmd(0), '有効 一郎'), item('a2', jstYmd(1), '有効 二郎')]
+    const discardedRows = [
+      { ...item('d1', jstYmd(0), '破棄 一郎'), isDiscarded: true },
+      { ...item('d2', jstYmd(1), '破棄 二郎'), isDiscarded: true },
+      { ...item('d3', jstYmd(2), '破棄 三郎'), isDiscarded: true },
+    ]
+    renderList({
+      items: [...active, ...discardedRows],
+      total: 2,
+      discardedCount: 3,
+      monthCount: 4,
+    })
+
+    expect(pillCount('all')).toBe(5)
+    expect(
+      screen.getByText(
+        'statusLineDiscarded:{"total":5,"discarded":3,"monthCount":4,"showingCount":5}',
+      ),
+    ).toBeInTheDocument()
+
+    fireEvent.click(pill('all'))
+    expect(showingCount()).toBe(pillCount('all'))
+    expect(showingCount()).toBe(5)
   })
 })
