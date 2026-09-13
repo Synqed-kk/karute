@@ -7324,8 +7324,11 @@ export function TodayScreen(props: TodayProps) {
             || gapDrawn.packed.some((c) => c.laneKey === l.key && withheld.keys.has(offerKey(c.laneKey, c.s)))
             || gapDrawn.scraps.some((c) => c.laneKey === l.key && withheld.keys.has(offerKey(c.laneKey, c.s)))),
       )?.key
+  // ⚖ D-17 F7 — the mark's OWN visibility predicate: the row renders it under
+  // `!isLocked && lane.group === 'staff'`, so a locked lane's mark is never
+  // drawn and the tour's one registration for this kind went onto nothing.
   const firstReleasedLane = drawnLanes.find(
-    (l) => l.group === 'staff' && laneRendered(l) && timedRelease.released.some((r) => r.laneKey === l.key),
+    (l) => l.group === 'staff' && laneRendered(l) && !locked.includes(l.key) && timedRelease.released.some((r) => r.laneKey === l.key),
   )?.key
 
   function renderLane(lane: BoardLane) {
