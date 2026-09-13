@@ -1746,7 +1746,14 @@ describe('7 — the fix round: the publication boundary', () => {
     // the same position, under its own name now that the row also has a netted
     // one. What F5 is about is untouched: the cue still stands down over the
     // chips the operator can see, shared ones included.
-    expect(screen).toContain('restCueStarts(explainedHere, cells, gapHere, coverHere, lane.items, handId)')
+    // ⚖ D-17 F8 · spec §4 (2026-09-14) — `coverHere` → `coverForCues`, the same
+    // COMMITTED list in the same position PLUS this lane's released spans. What
+    // F5 is about is untouched: the cue still stands down over the boxes the
+    // operator can see, and a released mark is one of them. It is its own name
+    // rather than a wider `coverHere` because `coverHere` is also `heldHere`'s
+    // fallback with the netting off, where a released span would be DRAWN as a
+    // 確保 box on top of the mark that says it was let go.
+    expect(screen).toContain('restCueStarts(explainedHere, cells, gapHere, coverForCues, lane.items, handId)')
     // …and the board world's per-lane index is GONE, not merely unused: a second
     // held index on this screen is how the two worlds get mixed again.
     expect(screen).not.toContain('heldByLane')

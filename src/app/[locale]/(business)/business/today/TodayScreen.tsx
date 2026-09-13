@@ -7370,8 +7370,24 @@ export function TodayScreen(props: TodayProps) {
     /** ⚖ v3 N2 — THE REST CUE'S COVER READS ALL CANDIDATES. A 枠 the netting
      *  demoted is still a 確保 span on the track, so a 清掃/満室 wash may not
      *  paint under it — flag 88's artifact one layer along. This list is the
-     *  un-netted one and it is what `restCueStarts` takes, unchanged. */
+     *  un-netted one and it is what `restCueStarts` takes, unchanged.
+     *
+     *  ⚠ AND IT IS ALSO `heldHere`'s FALLBACK two lines down, which is why the
+     *  released spans do NOT join it — see `coverForCues`. */
     const coverHere = lane.group === 'staff' ? (heldDrawnByLane.get(lane.key) ?? []) : []
+    /** ⚖ D-17 F8 · spec §4 — the flag-88 wash never paints under a released mark.
+     *  The mark is a pale full-span box drawn on this very row, so the half hours
+     *  under it are not empty track any more than a 確保 box's are.
+     *
+     *  IT IS ITS OWN LIST RATHER THAN `coverHere` + the spans, and that is the
+     *  fix rather than a preference: with `HONEST_HELD` off `heldHere` falls back
+     *  to `coverHere`, so a released span added there would be DRAWN as a 確保
+     *  box on top of the very mark that says it was let go (measured on the
+     *  matrix: held boxes 3 → 4 at 13:30). The cue's coverage is the only
+     *  question the release belongs in. */
+    const coverForCues = lane.group === 'staff'
+      ? [...coverHere, ...timedRelease.released.filter((r) => r.laneKey === lane.key).map((r) => r.span)]
+      : coverHere
     /** ⚖ v3 N1 — …and the BOXES read the honest set, so a shared 枠 is drawn
      *  once, as itself, and never twice. */
     const honestHere = lane.group === 'staff' ? honestByLane.get(lane.key) : undefined
@@ -7412,7 +7428,9 @@ export function TodayScreen(props: TodayProps) {
           // ⚖ HONEST-COUNT ROUND 1 (v3 N2) — `coverHere`, not `heldHere`: the
           // cue stands down over EVERY 確保 span, including the ones the
           // netting could not honour, because the operator can see the box.
-          restCueStarts(explainedHere, cells, gapHere, coverHere, lane.items, handId)
+          // ⚖ D-17 F8 — …and `coverForCues`, not `coverHere`: a RELEASED span is
+          // a box the operator can see too (spec §4).
+          restCueStarts(explainedHere, cells, gapHere, coverForCues, lane.items, handId)
         : []
     // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
     // the lane's SIBLING, not its child. A `.lane` is a two-column grid, so a

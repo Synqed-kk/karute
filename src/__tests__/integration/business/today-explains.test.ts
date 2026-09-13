@@ -969,7 +969,14 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // read every candidate, because the operator can see the shared box and a
     // 清掃 wash under it is flag 88's artifact one layer along. Same
     // position, same law, one world — two questions.
-    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, coverHere, lane.items, handId)')
+    // ⚖ D-17 F8 · spec §4 (2026-09-14) — `coverHere` → `coverForCues`, the same
+    // COMMITTED list in the same position PLUS this lane's released spans. What
+    // F5 is about is untouched: the cue still stands down over the boxes the
+    // operator can see, and a released mark is one of them. It is its own name
+    // rather than a wider `coverHere` because `coverHere` is also `heldHere`'s
+    // fallback with the netting off, where a released span would be DRAWN as a
+    // 確保 box on top of the mark that says it was let go.
+    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, coverForCues, lane.items, handId)')
     // ⚖ LIAM RULING 1 + 2 (2026-09-09) — the filter is the CUE now. The source
     // of the three faces is still ONE value per chip: `railExplain` decides the
     // word and the mark together, in one return, so they cannot drift apart —
