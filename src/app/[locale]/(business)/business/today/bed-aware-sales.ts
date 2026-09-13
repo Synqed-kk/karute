@@ -22,6 +22,19 @@
 // netting still holds EVERY 枠 the unblocked answer holds — compared by IDENTITY
 // (`laneKey|windowStart`), never by bed and never by count.
 //
+// ⚖ D-17 / SPEC-R2 v7 AMENDMENT (2026-09-14, the Codex lens's F1 on 319fc7981)
+// — THE FALLBACK SEATS THE PUBLISHED SET, IT DOES NOT RE-OPTIMISE: the per-room
+// re-netting below is handed the HELD masks only (the identities `honest`
+// holds), never all the candidates it was netted from. It used to re-net
+// everything, so on a board whose first netting is inexact the blocked walk
+// could return an equal-size set that REPLACED a published 枠 and the layer
+// withheld an offer the store could sell — a consistent rename of the bed keys
+// flipped the verdict on the same physical board, which is the proof that the
+// question being asked was the wrong one. And when the restricted walk is itself
+// inexact its answer is UNRESOLVED: the offer is withheld (the safe direction —
+// the store never sells a bed a promise might need) and named in `unresolved`
+// so the report can count it.
+//
 // IT IS ASSIGNMENT-INDEPENDENT, which is why (ii) 「does the offer's drawn bed
 // collide with a kept 枠's assigned bed?」 is rejected: the netting's chosen bed is
 // a TIE-BREAK among equal-size solutions (`honest-held.ts:229`, `:253-255`), not a
@@ -35,7 +48,7 @@
 
 import type { BoardLane } from '@/business/lib/today-board'
 import type { Asker, BedTruth } from './capacity-ledger'
-import { honestHeld, type HonestHeld } from './honest-held'
+import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'
 import type { ReservedLaneMask } from './reserved-mask'
 
 /** One priced box the board draws, asked as a question. `stores` is the
@@ -56,6 +69,11 @@ export interface WithheldOffers {
   /** offer key → the lane key of the kept 枠 that is lost WHICHEVER room the
    *  offer takes. Absent when no single 枠 is the cause (see `blockerOf`). */
   readonly blockedBy: ReadonlyMap<string, string>
+  /** ⚖ D-17 / v7 — the offers whose verdict is WITHHELD because the restricted
+   *  walk ran out of budget rather than because a 枠 was really lost. A subset of
+   *  `keys`: the safe direction, said out loud so the report (and one day a
+   *  surface) can name it instead of it hiding inside the money answer. */
+  readonly unresolved: ReadonlySet<string>
 }
 
 /** ONE spelling of an offer's identity, on both sides of the seam. */
@@ -68,6 +86,7 @@ const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) =>
 const NOTHING: WithheldOffers = Object.freeze({
   keys: Object.freeze(new Set<string>()),
   blockedBy: Object.freeze(new Map<string, string>()),
+  unresolved: Object.freeze(new Set<string>()),
 })
 
 /** The kept 枠 a netting HOLDS, by identity. */
@@ -146,17 +165,36 @@ export function withheldOffers(
   // price — so every offer asking about the same (room, span) has the same answer,
   // and the sell boxes of a busy board sit on ONE lattice of spans. Exact by
   // purity; it lives and dies with the call, so nothing in it can go stale.
-  const netted = new Map<string, ReadonlySet<string>>()
-  const heldWithout = (room: string, start: number, end: number): ReadonlySet<string> => {
+  //
+  // ⚖ D-17 / SPEC-R2 v7 — AND IT SEATS THE PUBLISHED SET. `heldOnly` is
+  // `candidates` cut down to the spans `honest` actually holds, built ONCE here
+  // and handed to every re-netting below, so the question the walk answers is
+  // 「can the published 枠 still be seated with room r blocked?」 and not 「is
+  // there SOME equally large set?」. The answer is now a PAIR — the held ids and
+  // the walk's own `exact` — because a restricted walk that ran out of budget
+  // has not proved the loss it reports (see `unresolved` below).
+  // ⚖ D-18 (3) — built from `honest.byLane` itself (the AUTHORITATIVE side),
+  // not by re-filtering `candidates` against a `want` id set: `heldMaskOf`
+  // (`honest-held.ts:395`) is the one home for 「the held set as a mask」, and a
+  // `want` id can never lack a span this way, by construction, rather than by
+  // an unasserted pairing between `honest` and `candidates`. `byLane` mirrors
+  // `candidates` row for row, so behaviour is unchanged.
+  const heldOnly: readonly ReservedLaneMask[] = Object.freeze(
+    honest.byLane.filter((l) => l.held.length > 0).map(heldMaskOf),
+  )
+  const netted = new Map<string, { ids: ReadonlySet<string>; exact: boolean }>()
+  const heldWithout = (room: string, start: number, end: number): { ids: ReadonlySet<string>; exact: boolean } => {
     const memoKey = `${room}|${start}|${end}`
     const seen = netted.get(memoKey)
     if (seen) return seen
-    const after: ReadonlySet<string> = new Set(heldIds(honestHeld(candidates, lanes, blocked(book, room, start, end), true)))
+    const walk = honestHeld(heldOnly, lanes, blocked(book, room, start, end), true)
+    const after = { ids: new Set(heldIds(walk)) as ReadonlySet<string>, exact: walk.exact }
     netted.set(memoKey, after)
     return after
   }
   const keys = new Set<string>()
   const blockedBy = new Map<string, string>()
+  const unresolved = new Set<string>()
 
   for (const o of offers) {
     const rooms = book.freeBedKeys(o.start, o.end, { stores: o.stores })
@@ -240,8 +278,8 @@ export function withheldOffers(
     // re-nets the whole day and the store loses TWO 枠 — the overlapping one AND a
     // 枠 elsewhere that the netting swaps out for an equal-size alternative. Naming
     // the overlapping one would half-tell the truth, which is the one thing
-    // `sharedRoomTitle`'s rule forbids. So the box says 「新規用の確保枠が先のため、
-    // いまは販売していません」 and names nobody.
+    // `sharedRoomTitle`'s rule forbids. So the box says 「新規用の確保枠が優先」 and
+    // names nobody.
     //
     // ⚖ RULED (D-14 (d)): the guard is `roomUniverse >= 2`, not `> 0`. The exit
     // exists to avoid paying |rooms| re-nettings on a saturated board, and at ONE
@@ -271,23 +309,35 @@ export function withheldOffers(
     // per room however many rows draw it.
     const lostPer: string[][] = []
     let onSale = false
+    // ⚖ D-17 / v7 — an INEXACT restricted walk has not proved its loss list, so
+    // the verdict it feeds is recorded as unresolved. It never beats a room that
+    // really seats everything: a walk holding every `want` id EXHIBITS a legal
+    // seating, which is a witness whether or not the search finished.
+    let short = false
     for (const r of rooms) {
       const after = heldWithout(r, o.start, o.end)
-      const lost = want.filter((k) => !after.has(k))
+      const lost = want.filter((k) => !after.ids.has(k))
       if (lost.length === 0) {
         onSale = true
         break
       }
+      if (!after.exact) short = true
       lostPer.push(lost)
     }
     if (onSale) continue
 
     keys.add(o.key)
-    const blocker = blockerOf(hit, lostPer)
+    if (short) unresolved.add(o.key)
+    // ⚖ D-18 (2) — an UNRESOLVED verdict never names: `lostPer` off an inexact
+    // (`short`) walk has not proved its loss list, so `blockerOf` could hand
+    // back a 枠 the walk only failed to find, not one it actually proved lost.
+    // The naming rule's own discipline (above) — never name a reason the
+    // operator cannot check — applies to the walk's own verdict too.
+    const blocker = short ? null : blockerOf(hit, lostPer)
     if (blocker) blockedBy.set(o.key, blocker)
   }
 
-  return keys.size === 0 ? NOTHING : Object.freeze({ keys, blockedBy })
+  return keys.size === 0 ? NOTHING : Object.freeze({ keys, blockedBy, unresolved })
 }
 
 /** WHOSE 枠 THE BOX MAY NAME — and the rule is the shared box's own (「never

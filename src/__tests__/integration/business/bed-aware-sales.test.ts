@@ -483,6 +483,14 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
   ) => {
     const idsOf = (h: ReturnType<typeof honestHeld>) => h.byLane.flatMap((l) => l.held.map((s) => offerKey(l.laneKey, s.windowStart)))
     const want = idsOf(honest)
+    // ⚖ D-17 / SPEC-R2 v7 — ONE HOME FOR THE RULE IN THE TEST TOO: the reference
+    // re-nets the PUBLISHED held set, exactly as the module now does, because the
+    // question is 「can these 枠 still be seated?」 and not 「is some equally large
+    // set reachable?」. Spelled here from scratch, sharing no code with the module.
+    const wanted = new Set(want)
+    const heldOnly = candidates
+      .map((m) => maskOf(m.laneKey, m.spans.filter((sp) => wanted.has(offerKey(m.laneKey, sp.windowStart))) as ReservedSpan[]))
+      .filter((m) => m.spans.length > 0)
     const spans = honest.byLane.flatMap((l) => l.held.map((s) => ({ id: offerKey(l.laneKey, s.windowStart), laneKey: l.laneKey, start: s.start, end: s.end })))
     const keys: string[] = []
     const named = new Map<string, string>()
@@ -491,7 +499,7 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
       const rooms = book.freeBedKeys(o.start, o.end, { stores: o.stores })
       if (rooms.length === 0) continue
       const lostPer = rooms.map((r) => {
-        const after = new Set(idsOf(honestHeld(candidates, lanes, blockedFor(book, r, o.start, o.end), true)))
+        const after = new Set(idsOf(honestHeld(heldOnly, lanes, blockedFor(book, r, o.start, o.end), true)))
         return want.filter((k) => !after.has(k))
       })
       if (lostPer.some((lost) => lost.length === 0)) continue
@@ -619,5 +627,167 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
     expect(multiLossBoards).toBeGreaterThan(0)
     expect(fewerStaffThanRooms).toBeGreaterThan(0)
     expect(pigeonholedOffers).toBeGreaterThan(0)
+  })
+
+  // ⚖ D-17 / SPEC-R2 v7 — UNRESOLVED IS THE EXCEPTION, NOT THE ROAD. A restricted
+  // walk that runs out of budget withholds on the safe side, and the answer says
+  // so; these boards are far inside the node budget and never reach it, so a
+  // non-empty count here would mean the restricted walk got HARDER than the
+  // unrestricted one it replaced — the one regression v7 could cause.
+  it('…and none of the 500 boards leaves an offer UNRESOLVED', () => {
+    const unresolvedOn: string[] = []
+    const namedWhileUnresolved: string[] = []
+    for (let seed = 0; seed < 500; seed += 1) {
+      const b = board(seed)
+      const honest = honestHeld(b.candidates, b.lanes, b.book, true)
+      if (!honest.exact) continue
+      const w = withheldOffers(b.offers, honest, b.candidates, b.lanes, b.book, true)
+      if (w.unresolved.size) unresolvedOn.push(`seed ${seed} — ${[...w.unresolved].join(', ')}`)
+      // ⚖ D-18 (2) — an UNRESOLVED verdict never names. Vacuous on these 500
+      // boards (none reach `short`, which is exactly what the leg above
+      // already says) — the invariant stands as a stated contract here; the
+      // leg below reaches a real inexact walk and proves it live.
+      for (const k of w.unresolved) if (w.blockedBy.has(k)) namedWhileUnresolved.push(`seed ${seed} — ${k}`)
+    }
+    console.log(`unresolved: ${unresolvedOn.length} of 500 boards`)
+    expect(unresolvedOn).toEqual([])
+    expect(namedWhileUnresolved).toEqual([])
+  })
+
+  // ⚖ D-18 (2) MINOR 1 — a board whose RESTRICTED walk really does go inexact,
+  // built by hand (the 500-seed boards are too small — the leg above says so).
+  // A clique of N staff who can ALL use the same N−1 rooms (5-minute starts, 90
+  // minutes long, so every pair overlaps) is EXACTLY `honest-held.test.ts`'s own
+  // node-budget trip shape (`describe('honest-held — the node budget')`),
+  // re-spelled here one room short of the staff count so even the OUTER netting
+  // trips (`honest.exact === false`) rather than just the inner re-netting.
+  it('a board whose restricted walk goes UNRESOLVED never lets `blockedBy` name a 枠 for it (RED before ⚖ D-18 (2))', () => {
+    const N = 15
+    const R = N - 1
+    const rooms = Array.from({ length: R }, (_, i) => `bed-${String(i + 1).padStart(2, '0')}`)
+    const wins = Array.from({ length: N }, (_, i) => ({ laneKey: `p-${String(i).padStart(2, '0')}`, start: 600 + i * 5, end: 600 + i * 5 + 90 }))
+    const { book } = stubBook(() => rooms)
+    const candidates = wins.map((w) => maskOf(w.laneKey, [span(w.start, w.end)]))
+    const lanes = wins.map((w) => lane(w.laneKey))
+    const honest = honestHeld(candidates, lanes, book, true)
+    // The scene IS the scene: the outer netting itself has to give up for this
+    // leg to mean anything (an exact outer answer would make `heldOnly` below
+    // trivially small and re-netting cheap — the 500-board leg's own case).
+    expect(honest.exact).toBe(false)
+    // A wide offer straddling the busiest part of the clique, on a lane that
+    // holds nothing of its own.
+    const mid = 600 + Math.floor((N - 1) / 2) * 5
+    const offer: OfferAsk = { key: offerKey('x-offer', mid), laneKey: 'x-offer', start: mid, end: mid + 90, stores: null }
+    const w = withheldOffers([offer], honest, candidates, lanes, book, true)
+    // RED at 72cd65aff: this offer is UNRESOLVED (the restricted re-netting
+    // inside `heldWithout` also gives up) and `blockerOf` still named a lane —
+    // a box would print 「◯◯の確保枠が先のため」 on a loss the walk never proved.
+    expect(w.unresolved.has(offer.key)).toBe(true)
+    expect(w.keys.has(offer.key)).toBe(true)
+    expect(w.blockedBy.has(offer.key)).toBe(false)
+  })
+})
+
+// ⚖ D-17 / SPEC-R2 v7 — THE FALLBACK SEATS THE PUBLISHED SET, IT DOES NOT
+// RE-OPTIMISE, and this is the Codex lens's own board made executable.
+//
+// Five compatible beds, eleven 90-minute candidates, one 13:00–14:00 offer whose
+// two eligible rooms are both already carrying a published 枠. The old fallback
+// re-netted ALL candidates with a room blocked and compared held IDs, so the
+// blocked walk was free to return an equal-size set that REPLACED a published 枠
+// — the layer then withheld an offer the store could sell. And because the swap
+// comes out of `assign`'s own tie-break, a CONSISTENT RENAME of the bed keys
+// (the same physical board, different strings) flipped the verdict.
+//
+// Restricted to the held set the question is the one D-12 always stated — 「can
+// the PUBLISHED 枠 still be seated with room r blocked?」 — and the spelling of a
+// bed cannot reach it.
+describe('bed-aware-sales — ⚖ D-17 / v7: the fallback seats the published set', () => {
+  /** The lens's board, physically fixed; only the bed STRINGS move. */
+  const BEDS = ['r0', 'r2', 'r3', 'r4', 'r5']
+  const OCC: Array<[string, number, number]> = [
+    ['r0', 960, 1020],
+    ['r2', 960, 1050],
+    ['r3', 765, 795],
+    ['r4', 810, 840],
+    ['r5', 765, 795],
+  ]
+  const STARTS = [840, 990, 945, 930, 975, 840, 885, 990, 795, 900, 825]
+  const OFFER: [number, number] = [780, 840]
+
+  /** @param rename a consistent permutation of the bed keys — the board is the
+   *    same physical room table under any of them, so every answer must be too. */
+  const lensBoard = (rename: (k: string) => string) => {
+    const beds = BEDS.map(rename)
+    const occ = OCC.map(([k, s, e]) => [rename(k), s, e] as [string, number, number])
+    const { book } = stubBook((start, end) =>
+      beds.filter((b) => !occ.some(([k, s, e]) => k === b && s < end && start < e)),
+    )
+    const kept: Array<[string, number, number]> = STARTS.map((s, i) => [`L${i}`, s, s + 90])
+    const candidates = kept.map(([k, s, e]) => maskOf(k, [span(s, e)]))
+    const lanes = [...kept.map(([k]) => lane(k)), ...bedRows(...beds)]
+    const offer: OfferAsk = { key: offerKey('L0', OFFER[0]), laneKey: 'L0', start: OFFER[0], end: OFFER[1], stores: null }
+    return { book, candidates, lanes, offer, beds }
+  }
+
+  /** THE RESTRICTED WALK, run directly: can the PUBLISHED held set still be
+   *  seated with `room` blocked over the offer's span? This is the witness the
+   *  leg below asserts 「on sale」 with — it shares no code with the module. */
+  const seatsPublishedWithout = (b: ReturnType<typeof lensBoard>, honest: ReturnType<typeof honestHeld>, room: string) => {
+    const want = new Set(honest.byLane.flatMap((l) => l.held.map((s) => offerKey(l.laneKey, s.windowStart))))
+    const heldOnly = b.candidates
+      .map((m) => maskOf(m.laneKey, m.spans.filter((s) => want.has(offerKey(m.laneKey, s.windowStart))) as ReservedSpan[]))
+      .filter((m) => m.spans.length > 0)
+    const after = honestHeld(heldOnly, b.lanes, blockedFor(b.book, room, OFFER[0], OFFER[1]), true)
+    const got = new Set(after.byLane.flatMap((l) => l.held.map((s) => offerKey(l.laneKey, s.windowStart))))
+    return [...want].every((k) => got.has(k))
+  }
+
+  const verdict = (rename: (k: string) => string) => {
+    const b = lensBoard(rename)
+    const honest = honestHeld(b.candidates, b.lanes, b.book, true)
+    const w = withheldOffers([b.offer], honest, b.candidates, b.lanes, b.book, true)
+    return { b, honest, withheld: w.keys.has(b.offer.key) }
+  }
+
+  /** Consistent renames: the same physical board, different bed spellings. */
+  const swap = (a: string, c: string) => (k: string) => (k === a ? c : k === c ? a : k)
+  const RENAMES: Array<[string, (k: string) => string]> = [
+    ['identity', (k) => k],
+    ['r2↔r5', swap('r2', 'r5')],
+    ['r0↔r3', swap('r0', 'r3')],
+    ['r0↔r5', swap('r0', 'r5')],
+    ['r3↔r4', swap('r3', 'r4')],
+    ['reversed', (k) => BEDS[BEDS.length - 1 - BEDS.indexOf(k)]],
+  ]
+
+  it('the verdict is invariant under a consistent bed-key permutation, and the offer is ON SALE', () => {
+    const base = verdict((k) => k)
+    console.log(`lens board: honest.total = ${base.honest.total} · exact = ${base.honest.exact}`)
+    // THE STATE v7 EXISTS FOR, asserted rather than assumed: this board's own
+    // netting burns `HONEST_SEARCH_BUDGET`, which is exactly where the old
+    // fallback's 「equal size ⇒ same set」 argument stops holding.
+    expect(base.honest.exact).toBe(false)
+    expect(base.honest.total).toBe(8)
+    // The witness, computed from the board and not from the module: with EITHER
+    // eligible room blocked, the published set still seats.
+    const rooms = base.b.book.freeBedKeys(OFFER[0], OFFER[1], { stores: null })
+    console.log(`  offer's eligible rooms = ${JSON.stringify(rooms)}`)
+    for (const r of rooms) {
+      expect({ room: r, seats: seatsPublishedWithout(base.b, base.honest, r) }).toEqual({ room: r, seats: true })
+    }
+    const got = RENAMES.map(([name, f]) => `${name}: ${verdict(f).withheld ? 'WITHHELD' : 'on sale'}`)
+    console.log(`  verdicts under a consistent rename → ${got.join(' · ')}`)
+    expect(got).toEqual(RENAMES.map(([name]) => `${name}: on sale`))
+  })
+
+  it('the demo fixture leaves nothing UNRESOLVED, and an empty answer carries a frozen empty set', () => {
+    const f = fixture()
+    const w = withheldOffers(f.offers, f.honest, f.candidates, f.lanes, f.book, true)
+    console.log(`fixture: withheld ${[...w.keys].join(', ') || '-'} · unresolved ${w.unresolved.size}`)
+    expect([...w.unresolved]).toEqual([])
+    // …and the gate-off answer has the field too, so the screen's 「identity when
+    // the set is empty」 reading still holds by reference.
+    expect([...withheldOffers(f.offers, f.honest, f.candidates, f.lanes, f.book, false).unresolved]).toEqual([])
   })
 })
