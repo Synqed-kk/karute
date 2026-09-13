@@ -1446,6 +1446,10 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
   /** ONE OFFER, TWO CELLS. canon pushes a staff-row cell and a bed-row cell per
    *  window (availability :126-134); they are one advertisement and they move or
    *  go together. */
+  // Same formula as the exported `offerKey` in bed-aware-sales.ts (the wire
+  // spelling); kept local because this function is R4's offer-vs-offer seam and
+  // an import here would draw an arrow this file does not otherwise need.
+  // ROUND 2 line audit, 2026-09-13.
   const offerKey = (c: SellCell) => `${c.laneKey}|${c.h}`
   const decisions = new Map<string, { resourceKey: string; bed: string } | null>()
   const bySlot = new Map<number, SellCell[]>()
@@ -3042,17 +3046,19 @@ export const sharedRoomSub = (dur: number): string =>
  *     lost whichever room the offer takes; when different rooms cost different
  *     枠 the honest line is the one without a name.
  *  3. IT COMES BACK — 「販売に戻ります」, the same promise `reservedClause` makes,
- *     because this is a hold and not a deletion.
+ *     because this is a hold and not a deletion. The title does not say the hour
+ *     is off sale and the SUB does: 「確保が解除されれば販売に戻ります」 already
+ *     carries both halves, so the title is left to name what comes first.
  *
- *  // JP-NATIVE PASS PENDING */
+ *  // JP-NATIVE PASS 2026-09-13: 優先 label register (REPORT.md 1–2) */
 export const withheldTitle = (withName: string | null): string =>
-  (withName ? `${withName}の確保枠が先のため、いまは販売していません` : '新規用の確保枠が先のため、いまは販売していません')
+  (withName ? `${withName}の確保枠が優先` : '新規用の確保枠が優先')
 
 /** `dur` is the OFFER's own length, so no literal duration appears anywhere.
  *  「ベッドが空いていません」 is the reason in the operator's own terms — the room
  *  is the thing that is short, not the hour.
  *
- *  // JP-NATIVE PASS PENDING */
+ *  // JP-NATIVE PASS 2026-09-13: PASS as written */
 export const withheldSub = (dur: number): string =>
   `${dur}分・ベッドが空いていません・確保が解除されれば販売に戻ります`
 
@@ -3060,29 +3066,29 @@ export const withheldSub = (dur: number): string =>
  *  the same words the manual release's own toast uses (TodayScreen `releaseAsk`),
  *  because it is the same event with a different hand on it.
  *
- *  // JP-NATIVE PASS PENDING */
+ *  // JP-NATIVE PASS 2026-09-13: PASS as written */
 export const releasedHeldTitle = '確保を解除しました'
 
 /** `beforeMin` is quoted from the release that HAPPENED, never re-read from the
  *  dial: the mark explains a past event, so a dial moved since must not silently
  *  reword it. Both numbers are the facts' own.
  *
- *  // JP-NATIVE PASS PENDING */
+ *  // JP-NATIVE PASS 2026-09-13: PASS as written */
 export const releasedHeldSub = (dur: number, beforeMin: number): string =>
   `${dur}分・開始${beforeMin}分前に自動で解除`
 
 /** The one place 「確保を戻す」 is spelled — the mark's button and the toast that
  *  confirms it are one act, and the label is read by the guided tour too.
  *
- *  // JP-NATIVE PASS PENDING */
+ *  // JP-NATIVE PASS 2026-09-13: PASS as written */
 export const keepBackLabel = '確保を戻す'
 
 /** …and its toast, shaped exactly like the release's own
  *  (「確保を解除しました。再読み込みすると戻ります」): what happened, then the one
  *  thing that is true of every change on this board — nothing here persists.
  *
- *  // JP-NATIVE PASS PENDING */
-export const keepBackToast = '確保を戻しました。再読み込みすると元に戻ります'
+ *  // JP-NATIVE PASS 2026-09-13: the release toast's own second sentence (REPORT.md 6b) */
+export const keepBackToast = '確保を戻しました。再読み込みすると戻ります'
 
 /** ⚖ FIX ROUND 2 (A + D, 2026-09-09) — THE BED TRUTH FOR ONE WINDOW.
  *
