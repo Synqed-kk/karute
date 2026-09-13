@@ -109,12 +109,20 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
       // 今月 probe (PR-1b): lean page_size:1 read over the JST month window —
       // rows discarded, only .total read. Same failure contract (throws into
       // the 502 catch below — never a swallowed stale count).
+      //
+      // R5 repair (2026-09-13, F5): this probe's ONLY consumed field is
+      // `.total` (line below, `monthCount: monthProbe.total`) — no caller
+      // reads a discarded count off it. `includeDiscarded` used to ride along
+      // anyway, widening the ROWS the mixed read returns (rows are discarded
+      // here regardless) for zero behavioural gain, and under core's real
+      // contract (proven in R4/karute-window.test.ts's comment: `total`
+      // always excludes discarded, independent of the flag) it changed
+      // nothing about `.total` either — dropped.
       listSynqedKaruteRowsWithTotalOrThrow(synqed, {
         storeId: activeStore,
         from: monthStartIso,
         to: nowIso,
         page_size: 1,
-        includeDiscarded: windowed,
       }),
       synqed.staff.list({ page_size: 200 }),
     ])

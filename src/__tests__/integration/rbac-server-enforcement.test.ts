@@ -157,7 +157,26 @@ jest.mock('@/lib/synqed/client', () => {
     }),
     listPhotos: jest.fn(async () => ({ photos: [{ id: 'photo-1' }] })),
   }
-  const client = { karuteRecords, appointments, staffStores, stores, customers, packs, staff }
+  // R4 repair (2026-09-13, F4b): listMixedKaruteRecords now THROWS when a
+  // client has no fetch() — loadKaruteWindow always passes
+  // includeDiscarded:true, so the leap-date test below (which is meant to
+  // reach the real read) needs a real fetch() or it throws before ever
+  // calling karuteRecords.list. Routed through the SAME karuteRecords.list
+  // spy so `expect(karuteRecords.list).toHaveBeenCalled()` still holds.
+  const fetch = jest.fn(async (path: string) => {
+    const query = new URL(path, 'https://core.test').searchParams
+    // Cast at the call site, not karuteRecords.list's declared signature —
+    // every OTHER call site calls it bare.
+    return (karuteRecords.list as unknown as (opts: Record<string, unknown>) => Promise<unknown>)({
+      ...(query.get('customer_id') ? { customer_id: query.get('customer_id') } : {}),
+      ...(query.get('store_id') ? { store_id: query.get('store_id') } : {}),
+      ...(query.get('from') ? { from: query.get('from') } : {}),
+      ...(query.get('to') ? { to: query.get('to') } : {}),
+      ...(query.get('page') ? { page: Number(query.get('page')) } : {}),
+      ...(query.get('page_size') ? { page_size: Number(query.get('page_size')) } : {}),
+    })
+  })
+  const client = { karuteRecords, appointments, staffStores, stores, customers, packs, staff, fetch }
   return { getSynqedClient: jest.fn(async () => client) }
 })
 

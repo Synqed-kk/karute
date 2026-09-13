@@ -1396,6 +1396,8 @@
     "recordList": {
       "statusLine": "カルテ 全{total}件 ・ 今月 {monthCount}件 ・ 表示中 {showingCount}件",
       "statusLineNoMonth": "カルテ 全{total}件 ・ 表示中 {showingCount}件",
+      "statusLineDiscarded": "カルテ 全{total}件（うち破棄{discarded}件）・ 今月 {monthCount}件 ・ 表示中 {showingCount}件",
+      "statusLineNoMonthDiscarded": "カルテ 全{total}件（うち破棄{discarded}件）・ 表示中 {showingCount}件",
       "loadMore": "さらに表示（{date}以前のカルテ）",
       "addedCount": "{n}件を読み込みました",
       "loadMoreFailed": "読み込みに失敗しました。もう一度お試しください",

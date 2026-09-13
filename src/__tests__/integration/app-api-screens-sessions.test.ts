@@ -67,6 +67,34 @@ const fakeClient = {
   staffStores: { get: staffStoresGet },
   karuteRecords: { list: karuteList },
   staff: { list: staffList },
+  // R4 repair (2026-09-13, F4b): listMixedKaruteRecords now THROWS when a
+  // client has no fetch() (a fake production adapter must never silently
+  // report a fabricated discardedCount:0) — every windowed read
+  // (loadKaruteWindowRows always passes includeDiscarded:true) goes through
+  // it, so this double needs a real fetch() or the whole ?window=1
+  // describe block below 502s. Same query→opts translation as
+  // karute-window.test.ts's asClient, routed through the SAME karuteList
+  // mock so every existing assertion on karuteList.mock.calls is untouched.
+  fetch: jest.fn(async (path: string) => {
+    const query = new URL(path, 'https://core.test').searchParams
+    // Cast at the call site, not the mock's declared signature — karuteList
+    // is typed with no params (every OTHER call site calls it bare), so
+    // widening its signature would leave an unused param on those.
+    return (karuteList as unknown as (opts: Record<string, unknown>) => Promise<unknown>)({
+      ...(query.get('customer_id') ? { customer_id: query.get('customer_id') } : {}),
+      ...(query.get('store_id') ? { store_id: query.get('store_id') } : {}),
+      ...(query.get('from') ? { from: query.get('from') } : {}),
+      ...(query.get('to') ? { to: query.get('to') } : {}),
+      ...(query.get('page') ? { page: Number(query.get('page')) } : {}),
+      ...(query.get('page_size') ? { page_size: Number(query.get('page_size')) } : {}),
+      // R5 pin (2026-09-13, Y2): forward include_discarded back into the
+      // captured call, same idiom as karute-window.test.ts's asClient — a
+      // direct karuteRecords.list() call (the correct, non-mixed path) never
+      // carries this key at all, so it's the signal that distinguishes the
+      // two paths in karuteList.mock.calls.
+      include_discarded: query.get('include_discarded') === 'true',
+    })
+  }),
 }
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: jest.fn(() => fakeClient),
@@ -311,7 +339,13 @@ const windowReq = (qs: string, init: RequestInit = {}) =>
   new Request(`https://s/api/app/v1/screens/sessions${qs}`, init)
 // The shared karuteList mock is declared arg-less; the window walk calls it
 // WITH options, so read them back through one typed view.
-type KaruteListArgs = { from?: string; to?: string; store_id?: string; page_size?: number }
+type KaruteListArgs = {
+  from?: string
+  to?: string
+  store_id?: string
+  page_size?: number
+  include_discarded?: boolean
+}
 const karuteCalls = () =>
   karuteList.mock.calls as unknown as Array<[KaruteListArgs | undefined]>
 
@@ -435,5 +469,23 @@ describe('GET /api/app/v1/screens/sessions?window=1 — the release-18 windowed 
     const dto = await res.json()
     expect(dto.total).toBe(9)
     expect(dto.hasMore).toBe(true)
+  })
+
+  it('R5 pin (2026-09-13, Y2): the 今月 probe never rides the include_discarded/fetch path', async () => {
+    // Every page_size:1 read the WINDOWED main-row walk makes (storeProbe,
+    // the date-window probe) always sets includeDiscarded:true and so always
+    // goes through synqed.fetch, which (this file's fetch shim) stamps
+    // include_discarded:true on the way back into karuteList.mock.calls. The
+    // 今月 probe (route.ts's separate page_size:1, from/to read) reads only
+    // `.total` and, since R5, carries no includeDiscarded — it must be the
+    // ONE page_size:1+from call that does NOT carry the flag. Re-adding
+    // `includeDiscarded: windowed` to it (windowed is true for a ?window=1
+    // request) would flag it too, leaving zero unflagged candidates — the
+    // M4 mutant this pins RED.
+    await GET(windowReq('?window=1', { headers: auth }), route)
+    const unflaggedProbes = karuteCalls().filter(
+      (c) => c[0]?.page_size === 1 && c[0]?.from && !c[0]?.include_discarded,
+    )
+    expect(unflaggedProbes).toHaveLength(1)
   })
 })

@@ -156,6 +156,55 @@ function isThisWeek(item: KaruteListItem, cutoffYmd: string): boolean {
   return item.date >= cutoffYmd
 }
 
+/**
+ * Staff scope + search — ONE home (fix round 2, 2026-09-13, F1/F3). Both the
+ * count pills and the tap's own row list must apply the identical scoping,
+ * because ⚖ Liam 8/25's rule for every non-すべて pill is "counts the rows
+ * its own tap reveals", and a tap reveals rows AFTER the staff scope and
+ * search box already narrowed them — not the unscoped store. Two copies of
+ * this logic is exactly how 破棄済み (and 今週) drifted: the pill tallied
+ * `allItems` while the tap filtered the staff/search-narrowed set, so 自分
+ * scoped down to fewer rows than the pill promised. The pill filter itself
+ * (`filter`) is deliberately NOT applied here — callers layer that on top.
+ */
+function applyScope(
+  items: KaruteListItem[],
+  {
+    staffFilter,
+    currentStaffId,
+    searchQuery,
+  }: {
+    staffFilter: StaffFilterKey
+    currentStaffId: string | null | undefined
+    searchQuery: string
+  },
+): KaruteListItem[] {
+  let result = items
+
+  // Staff scope: 'all' shows every record; 'self' filters to the
+  // current viewer's records only; a specific id filters to that
+  // staff. Records with no staffId are kept on 'all', dropped
+  // on any specific scope.
+  if (staffFilter === 'self' && currentStaffId) {
+    result = result.filter((i) => i.staffId === currentStaffId)
+  } else if (staffFilter !== 'all' && staffFilter !== 'self') {
+    result = result.filter((i) => i.staffId === staffFilter)
+  }
+
+  const q = searchQuery.trim().toLowerCase()
+  if (q) {
+    result = result.filter((i) => {
+      return (
+        i.customerName.toLowerCase().includes(q) ||
+        i.service.toLowerCase().includes(q) ||
+        i.staffName.toLowerCase().includes(q) ||
+        i.summary.toLowerCase().includes(q)
+      )
+    })
+  }
+  return result
+}
+
 export function KaruteRecordListView({
   items,
   monthCount,
@@ -840,34 +889,52 @@ export function KaruteRecordListView({
 
   // PILL COUNTS — two kinds, and the split is deliberate.
   //
-  // すべて is the STORE total: the very freshStoreTotal the header's 全件
-  // renders (the same `storeTotal` state, plumbed once — never a second
-  // client-side read that could disagree with the header sitting inches above
-  // it on the same screen). The gap between it and the rows on screen is the
-  // one さらに表示 exists to close, and the header's 表示中 already names it.
+  // すべて is the STORE universe: active + discarded, the SAME expression the
+  // header's 全件 renders below (fix round 1, 2026-09-13: R1 widened the
+  // header to active+discarded but left this pill on storeTotal alone, so the
+  // two disagreed the instant a store had a discarded record — ⚖ a number
+  // says what it counts). storeUniverseTotal is computed once and read by
+  // both, so they cannot diverge again. The gap between it and the rows on
+  // screen is the one さらに表示 exists to close, and the header's 表示中
+  // already names it.
   //
-  // EVERY OTHER PILL counts the rows its own tap reveals — ⚖ Liam 8/25 for
-  // 今週 (see thisWeekCutoffYmd for the ruling and the completeness argument),
-  // and settled-not-pending for AI補完待ち/下書き: `aiStatus` is derived from
+  // EVERY OTHER PILL counts the rows its own tap reveals — which means AFTER
+  // the same staff scope and search the list applies (⚖ Liam 8/25 for 今週,
+  // see thisWeekCutoffYmd for the ruling and the completeness argument),
+  // settled-not-pending for AI補完待ち/下書き: `aiStatus` is derived from
   // each row's data shape (summary/transcript presence — see screen-rows.ts),
   // while core's own `status` field is the workflow axis
-  // (DRAFT/REVIEW/APPROVED), a different question that cannot back them.
-  //
-  // null (storeTotal unknown, or month view below) → SegmentedFilterBar renders
-  // that pill's LABEL ALONE. A count that can't be true is dropped, not guessed.
+  // (DRAFT/REVIEW/APPROVED), a different question that cannot back them — and
+  // 破棄済み (R2 repair, 2026-09-13, F2): storeDiscardedCount is the STORE-WIDE
+  // count, exactly the すべて exception this comment names above, but 破棄済み
+  // was never granted that exception and has no header line inches away
+  // explaining the gap. So it counts the LOADED discarded rows (after the
+  // same staff scope + search as the tap), same as every other non-すべて
+  // pill; a discarded record outside the loaded window is exactly what
+  // さらに表示 (or filtering to すべて) surfaces.
+  const storeUniverseTotal =
+    storeTotal === null ? null : storeTotal + (storeDiscardedCount ?? 0)
+
+  // Same scoping the tap's own filter applies below (applyScope) — see its
+  // doc comment for why this must be one function, not two copies.
+  const scopedAll = useMemo(
+    () => applyScope(allItems, { staffFilter, currentStaffId, searchQuery }),
+    [allItems, staffFilter, currentStaffId, searchQuery],
+  )
+
   const counts = useMemo(() => {
-    const activeItems = allItems.filter(isActiveKarute)
+    const activeItems = scopedAll.filter(isActiveKarute)
     const countStatus = (status: KaruteListItem['aiStatus']) =>
       activeItems.filter((i) => i.aiStatus === status).length
     return {
-      all: storeTotal,
+      all: storeUniverseTotal,
       thisWeek: activeItems.filter((i) => isThisWeek(i, weekCutoff)).length,
       aiPending: countStatus('pending'),
       needsReview: countStatus('needsReview'),
       draft: countStatus('draft'),
-      discarded: storeDiscardedCount,
+      discarded: scopedAll.filter((i) => i.isDiscarded).length,
     } satisfies Record<KaruteListFilter, number | null>
-  }, [allItems, storeTotal, storeDiscardedCount, weekCutoff])
+  }, [scopedAll, storeUniverseTotal, weekCutoff])
 
   // Month view SWAPS the row set (PR-2b). The staff scope and the search box
   // still apply INSIDE a month — they answer "whose" and "which words", not
@@ -880,17 +947,9 @@ export function KaruteRecordListView({
   )
 
   const filtered = useMemo(() => {
-    let result = displayItems
-
-    // Staff scope: 'all' shows every record; 'self' filters to the
-    // current viewer's records only; a specific id filters to that
-    // staff. Records with no staffId are kept on 'all', dropped
-    // on any specific scope.
-    if (staffFilter === 'self' && currentStaffId) {
-      result = result.filter((i) => i.staffId === currentStaffId)
-    } else if (staffFilter !== 'all' && staffFilter !== 'self') {
-      result = result.filter((i) => i.staffId === staffFilter)
-    }
+    // Staff scope + search — SAME function as the pill counts above
+    // (applyScope), so the two can never drift apart again.
+    let result = applyScope(displayItems, { staffFilter, currentStaffId, searchQuery })
 
     // SAME predicate, SAME cutoff as the pill's count above — that identity IS
     // the ⚖ ruling (thisWeekCutoffYmd). The second copy of this arithmetic that
@@ -904,17 +963,6 @@ export function KaruteRecordListView({
       else if (filter === 'draft') result = result.filter((i) => i.aiStatus === 'draft')
     }
 
-    const q = searchQuery.trim().toLowerCase()
-    if (q) {
-      result = result.filter((i) => {
-        return (
-          i.customerName.toLowerCase().includes(q) ||
-          i.service.toLowerCase().includes(q) ||
-          i.staffName.toLowerCase().includes(q) ||
-          i.summary.toLowerCase().includes(q)
-        )
-      })
-    }
     return result
   }, [displayItems, filter, weekCutoff, searchQuery, staffFilter, currentStaffId])
 
@@ -1020,19 +1068,51 @@ export function KaruteRecordListView({
              *  さらに表示 failure line: a background refresh that freezes the
              *  newest rows is exactly what a screen-reader user must hear —
              *  nothing on screen moved to tell them. */}
+            {/* R1 (2026-09-13 repair round): 全件 must name the SAME universe
+             *  表示中 counts under すべて — filtered.length includes discarded
+             *  rows there (:898), so 全 has to as well or 表示中 can read
+             *  larger than 全 (F1). storeUniverseTotal (defined above, next to
+             *  the すべて pill it also feeds — fix round 1) is that universe;
+             *  storeDiscardedCount and storeTotal always travel together
+             *  (both legs of the SAME karuteData.data probe — karute-window.ts's
+             *  loadKaruteWindowRows reads them off one storeProbe call), so
+             *  treating a null discarded count as 0 here never masks an
+             *  independent leg failure — there is no such leg. */}
             {serverDegraded
               ? loadedCount > 0 && <span role="alert">{t('loadMoreFailed')}</span>
               : storeTotal !== null &&
-                (monthCount !== null
-                  ? t('statusLine', {
-                      total: storeTotal,
-                      monthCount,
-                      showingCount: filtered.length,
-                    })
-                  : t('statusLineNoMonth', {
-                      total: storeTotal,
-                      showingCount: filtered.length,
-                    }))}
+                (() => {
+                  const discarded = storeDiscardedCount ?? 0
+                  // storeTotal is narrowed non-null by the guard above;
+                  // storeUniverseTotal can only be null when storeTotal is,
+                  // so this fallback is unreachable in practice — it exists
+                  // purely to satisfy that narrowing across the two variables.
+                  const universeTotal = storeUniverseTotal ?? storeTotal
+                  if (discarded > 0) {
+                    return monthCount !== null
+                      ? t('statusLineDiscarded', {
+                          total: universeTotal,
+                          discarded,
+                          monthCount,
+                          showingCount: filtered.length,
+                        })
+                      : t('statusLineNoMonthDiscarded', {
+                          total: universeTotal,
+                          discarded,
+                          showingCount: filtered.length,
+                        })
+                  }
+                  return monthCount !== null
+                    ? t('statusLine', {
+                        total: storeTotal,
+                        monthCount,
+                        showingCount: filtered.length,
+                      })
+                    : t('statusLineNoMonth', {
+                        total: storeTotal,
+                        showingCount: filtered.length,
+                      })
+                })()}
           </p>
           {/* + 新規カルテ — primary CTA. Opens the manual-entry dialog
            *  (NewKaruteDialog) so staff can backdate or log a session

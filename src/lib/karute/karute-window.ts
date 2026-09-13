@@ -377,8 +377,18 @@ export interface KaruteWindowWithMonthProbe {
    *  OMITS the 今月 count entirely rather than rendering 0; it never
    *  discards already-successfully-loaded rows just because this leg
    *  failed (fix round 1's shared-try/catch bug — Greptile PR #775 round 2:
-   *  a probe failure silently emptied the whole list). */
-  monthProbe: { total: number; discardedCount: number } | null
+   *  a probe failure silently emptied the whole list).
+   *
+   *  R5 repair (2026-09-13, F5): this shape used to also carry
+   *  `discardedCount`, populated by an `includeDiscarded: true` probe read
+   *  — dead plumbing, read by nobody (grepped every consumer; only
+   *  page.tsx's `karuteData.monthProbe?.total` reads this object, never
+   *  `.discardedCount`). R1's header fix reads `storeDiscardedCount` off
+   *  the WINDOW leg (`data.freshDiscardedCount`), a different probe
+   *  entirely, so it does not read this field either — removed rather than
+   *  left, and the probe call below no longer asks core to widen its rows
+   *  for a count nothing consumes. */
+  monthProbe: { total: number } | null
 }
 
 /**
@@ -417,7 +427,6 @@ export async function loadKaruteWindowWithMonthProbe(
       from: opts.monthFrom,
       to: opts.monthTo,
       page_size: 1,
-      includeDiscarded: true,
     }).catch((err: unknown) => {
       console.error('[loadKaruteWindowWithMonthProbe] 今月 probe failed:', err)
       return null
@@ -425,8 +434,6 @@ export async function loadKaruteWindowWithMonthProbe(
   ])
   return {
     data,
-    monthProbe: monthProbe
-      ? { total: monthProbe.total, discardedCount: monthProbe.discardedCount }
-      : null,
+    monthProbe: monthProbe ? { total: monthProbe.total } : null,
   }
 }

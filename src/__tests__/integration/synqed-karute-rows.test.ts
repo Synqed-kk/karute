@@ -174,6 +174,16 @@ describe('listSynqedKaruteRowsWithTotal', () => {
 })
 
 describe('mixed discarded Karute ledger read', () => {
+  it('a client with no fetch() THROWS — never a fabricated discardedCount:0 (R4 repair, 2026-09-13, F4b)', async () => {
+    const client = { karuteRecords: { list: jest.fn() } } as never
+    await expect(
+      listSynqedKaruteRowsWithTotalOrThrow(client, {
+        storeId: 'store-1',
+        includeDiscarded: true,
+      }),
+    ).rejects.toThrow(/no fetch\(\)/)
+  })
+
   it('explicitly opts in, preserves the split counts, and maps DISCARDED', async () => {
     const fetch = jest.fn(async () => ({
       karute_records: [{

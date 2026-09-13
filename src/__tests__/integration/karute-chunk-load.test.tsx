@@ -861,7 +861,7 @@ describe('pill counts', () => {
     expect(showingCount()).toBe(1)
   })
 
-  it('破棄済み uses its separate total and shows only non-actionable discarded rows', () => {
+  it('破棄済み counts the LOADED discarded rows, never the store-wide total (R2 repair, 2026-09-13, F2)', () => {
     const active = item('active', jstYmd(0), '有効 花子')
     const discarded = {
       ...item('discarded', jstYmd(1), '破棄 太郎'),
@@ -870,21 +870,137 @@ describe('pill counts', () => {
     renderList({
       items: [active, discarded],
       total: 1,
-      discardedCount: 1,
+      // 5, not 1: the store holds 5 discarded records total, but only ONE is
+      // loaded on screen. Before the fix the pill read `storeDiscardedCount`
+      // (5) while its own tap reveals 1 row — exactly the ⚖ 8/25 pill rule
+      // violation F2 names. This one-line fixture change is the mutant proof:
+      // on the unfixed `discarded: storeDiscardedCount` line this assertion
+      // goes RED (pillCount('discarded') reads 5); see
+      // BUILD-REPORT-ANTHONY-REPAIRS-2026-09-13.md for the pasted red run.
+      discardedCount: 5,
     })
 
     expect(pillCount('discarded')).toBe(1)
     expect(screen.getByText('有効 花子')).toBeInTheDocument()
     // The ordinary ledger is mixed: retained discarded rows remain visible,
-    // while the active-only total on the すべて pill stays 1.
+    // and すべて now names the STORE UNIVERSE (fix round 1, 2026-09-13, Y1) —
+    // active total (1) + store-wide discarded (5) = 6, the same number the
+    // header's 全件 renders, never the active-only total alone.
     expect(screen.getByText('破棄 太郎')).toBeInTheDocument()
-    expect(pillCount('all')).toBe(1)
+    expect(pillCount('all')).toBe(6)
 
     fireEvent.click(pill('discarded'))
     expect(showingCount()).toBe(pillCount('discarded'))
     expect(screen.queryByText('有効 花子')).not.toBeInTheDocument()
     expect(screen.getByText('破棄 太郎')).toBeInTheDocument()
-    expect(screen.getByText('破棄 太郎').closest('[aria-disabled="true"]')).toBeTruthy()
+    // R6 repair (2026-09-13, F6): a non-interactive div takes no
+    // aria-disabled — the gray `.opacity-70` styling (rowClassName's
+    // `active ? '...' : 'opacity-70'` branch) is the row's real inert
+    // marker now; see karute-discarded-row.test.tsx for the direct
+    // "no aria-disabled attribute anywhere" pin.
+    expect(screen.getByText('破棄 太郎').closest('.opacity-70')).toBeTruthy()
+  })
+
+  it('a discarded row\'s withheld summary is not a search oracle (R3 repair, 2026-09-13, F3b)', () => {
+    // screen-rows.ts now blanks a DISCARDED row's summary before it ever
+    // reaches this view (see screen-rows-discarded-summary.test.ts for that
+    // builder-level pin). This test is the CONSUMER half: even though this
+    // row's summary field is '' exactly as the fixed builder produces, prove
+    // the search box can't turn up the row via whatever its ORIGINAL raw
+    // summary would have said — searching for that word must find nothing,
+    // never a row that "matched" for no visible reason (the F3b(c) second-
+    // order bug: a presence/absence oracle over withheld content).
+    const active = item('active', jstYmd(0), '有効 花子')
+    const discarded = {
+      ...item('discarded', jstYmd(1), '破棄 次郎'),
+      summary: '', // withheld — the builder's fixed output, never the raw text
+      isDiscarded: true,
+    }
+    renderList({ items: [active, discarded], total: 1, discardedCount: 1 })
+
+    fireEvent.change(screen.getByPlaceholderText('searchPlaceholder'), {
+      // The word this discarded record's raw (pre-blank) summary carried —
+      // never shipped to this view at all post-fix.
+      target: { value: 'ヒミツの内容タグ' },
+    })
+    expect(screen.queryByText('破棄 次郎')).not.toBeInTheDocument()
+    expect(screen.queryByText('有効 花子')).not.toBeInTheDocument()
+  })
+
+  // Fix round 2 (2026-09-13, F1/F3): the pills above were counting from
+  // `allItems` UNSCOPED while the tap's own `filtered` applied staff scope
+  // + search FIRST — so 自分 (or a search word) narrowing to fewer rows than
+  // the pill promised. applyScope is now the one function both memos call;
+  // these pin the count/tap identity under staff scope and under search, for
+  // BOTH 破棄済み and 今週 — the rule is one home, not a 破棄済み special case.
+  describe('pills count AFTER staff scope and search — not the unscoped store (fix round 2, F1/F3)', () => {
+    const staffList = [
+      { id: 'staff-1', name: '田中 太郎', initials: '田中' },
+      { id: 'staff-2', name: '鈴木 花子', initials: '鈴木' },
+    ]
+    const selfToggle = () => screen.getByRole('button', { name: 'self' })
+
+    it('破棄済み: 自分 excludes another staff\'s loaded discarded row', () => {
+      const mine = { ...item('d-mine', jstYmd(0), '自分 一郎'), staffId: 'staff-1', isDiscarded: true }
+      const theirs = { ...item('d-theirs', jstYmd(1), '他人 二郎'), staffId: 'staff-2', isDiscarded: true }
+      renderList({
+        items: [mine, theirs],
+        total: 0,
+        discardedCount: 2,
+        staffList,
+        currentStaffId: 'staff-1',
+      })
+
+      fireEvent.click(selfToggle())
+      expect(pillCount('discarded')).toBe(1)
+      fireEvent.click(pill('discarded'))
+      expect(showingCount()).toBe(pillCount('discarded'))
+      expect(showingCount()).toBe(1)
+      expect(screen.getByText('自分 一郎')).toBeInTheDocument()
+      expect(screen.queryByText('他人 二郎')).not.toBeInTheDocument()
+    })
+
+    it('破棄済み: a search word narrows which loaded discarded rows count', () => {
+      const match = { ...item('d-match', jstYmd(0), '桜井 一郎'), isDiscarded: true }
+      const other = { ...item('d-other', jstYmd(1), '高橋 二郎'), isDiscarded: true }
+      renderList({ items: [match, other], total: 0, discardedCount: 2 })
+
+      fireEvent.change(screen.getByPlaceholderText('searchPlaceholder'), {
+        target: { value: '桜井' },
+      })
+      expect(pillCount('discarded')).toBe(1)
+      fireEvent.click(pill('discarded'))
+      expect(showingCount()).toBe(pillCount('discarded'))
+      expect(showingCount()).toBe(1)
+    })
+
+    it('今週: 自分 excludes another staff\'s loaded row — same rule, not a 破棄済み special case', () => {
+      const mine = { ...item('w-mine', jstYmd(0), '自分 花子'), staffId: 'staff-1' }
+      const theirs = { ...item('w-theirs', jstYmd(1), '他人 太郎'), staffId: 'staff-2' }
+      renderList({ items: [mine, theirs], total: 2, staffList, currentStaffId: 'staff-1' })
+
+      fireEvent.click(selfToggle())
+      expect(pillCount('thisWeek')).toBe(1)
+      fireEvent.click(pill('thisWeek'))
+      expect(showingCount()).toBe(pillCount('thisWeek'))
+      expect(showingCount()).toBe(1)
+      expect(screen.getByText('自分 花子')).toBeInTheDocument()
+      expect(screen.queryByText('他人 太郎')).not.toBeInTheDocument()
+    })
+
+    it('今週: a search word narrows which loaded rows count', () => {
+      const match = item('w-match', jstYmd(0), '桜井 花子')
+      const other = item('w-other', jstYmd(1), '高橋 太郎')
+      renderList({ items: [match, other], total: 2 })
+
+      fireEvent.change(screen.getByPlaceholderText('searchPlaceholder'), {
+        target: { value: '桜井' },
+      })
+      expect(pillCount('thisWeek')).toBe(1)
+      fireEvent.click(pill('thisWeek'))
+      expect(showingCount()).toBe(pillCount('thisWeek'))
+      expect(showingCount()).toBe(1)
+    })
   })
 
   it('今週 does NOT climb when さらに表示 appends OLDER rows', async () => {
@@ -946,5 +1062,37 @@ describe('pill counts', () => {
     fireEvent.click(pill('thisWeek'))
     expect(screen.getByText('七日前 次郎')).toBeInTheDocument()
     expect(screen.queryByText('九日前 一郎')).not.toBeInTheDocument()
+  })
+
+  it('すべて names the STORE UNIVERSE (active+discarded) — matches the header 全件 (fix round 1, 2026-09-13, Y1)', () => {
+    // Lens probe case: storeTotal 2, storeDiscardedCount 3, 5 rows loaded (2
+    // active + 3 discarded) — before this fix すべて read storeTotal alone
+    // (2) while the header's 全件 already read 5, an inch apart on the same
+    // screen. On the unfixed `all: storeTotal` line this assertion goes RED
+    // (pillCount('all') reads 2); see BUILD-REPORT-ANTHONY-REPAIRS-2026-09-13.md
+    // for the pasted red run.
+    const active = [item('a1', jstYmd(0), '有効 一郎'), item('a2', jstYmd(1), '有効 二郎')]
+    const discardedRows = [
+      { ...item('d1', jstYmd(0), '破棄 一郎'), isDiscarded: true },
+      { ...item('d2', jstYmd(1), '破棄 二郎'), isDiscarded: true },
+      { ...item('d3', jstYmd(2), '破棄 三郎'), isDiscarded: true },
+    ]
+    renderList({
+      items: [...active, ...discardedRows],
+      total: 2,
+      discardedCount: 3,
+      monthCount: 4,
+    })
+
+    expect(pillCount('all')).toBe(5)
+    expect(
+      screen.getByText(
+        'statusLineDiscarded:{"total":5,"discarded":3,"monthCount":4,"showingCount":5}',
+      ),
+    ).toBeInTheDocument()
+
+    fireEvent.click(pill('all'))
+    expect(showingCount()).toBe(pillCount('all'))
+    expect(showingCount()).toBe(5)
   })
 })
