@@ -800,6 +800,9 @@ describe('the fixture data door', () => {
         // section's own props file and handed through this one, so the route and
         // the evidence harness render the same assembly.
         './store-policy-props',
+        // ⚡ R2 BRANCH C — the dial's mapping pair (⚖ D-11); the empty-inventory
+        // fence on the seam file itself (below) is unchanged.
+        './store-policy-seam',
         '@/business/lib/data',
         '@/business/lib/fixtures',
         '@/business/lib/fixtures-analytics',

@@ -84,6 +84,9 @@ import {
   type SettingsSection,
 } from '@/business/lib/settings'
 import { storePolicyProps, type StorePolicyPropsInput } from './store-policy-props'
+// ⚡ R2 BRANCH C — the dial's ONE mapping (⚖ D-11, CONTRACTS-R2 §1): the row
+// imports the wire shape and the mapping pair, never re-derives them.
+import { AUTO_RELEASE_CHOICES, autoReleaseToWire } from './store-policy-seam'
 
 const JST = { timeZone: 'Asia/Tokyo' } as const
 const fmtDay = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', ...JST })
@@ -1517,6 +1520,14 @@ function sync(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
 
 function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
   void ctx
+  // ⚡ R2 BRANCH C — ⚖ D-11 / CONTRACTS-R2 §1. The guardrail is the SPEC's own
+  // rule (§2.4 「The dial」): it fires only when the stored value is an
+  // EXPLICIT number shorter than `leadTimeMin` — the linked default equals
+  // `leadTimeMin` by construction and can never trigger it, and 「解除しない」
+  // has no minute to compare. A fixed option list is the guardrail (no clamp
+  // code); this is the ONE sentence that says so or says the safe state.
+  const autoReleaseDial = opsConfig.autoReleaseBeforeMin
+  const autoReleaseTooShort = typeof autoReleaseDial === 'number' && autoReleaseDial < opsConfig.leadTimeMin
   return {
     ...base,
     kicker: 'Reserve設定',
@@ -1592,6 +1603,65 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
             guardrail: '制限なしにすると、準備の時間がない予約が入ります。締め切った空きは店頭・電話でのみ扱えます。',
           },
         }),
+        // ⚡ R2 BRANCH C — ⚖ D-11 (Liam 2026-09-13, 「Okay let's go with option
+        // A」). 確保を戻すために取り置く枠（新規用）を、開始のどれだけ前に自動で
+        // 解除するか。既定は「直前の空きは売らないと同じ」— 上のleadTimeMinを
+        // 都度参照する LINKED 値で、コピーした数字ではない（JP-NATIVE-R2/BRIEF.md
+        // items 9-11）。
+        row(
+          'reserve.row-autorelease',
+          '確保枠の自動解除',
+          '開始までこの時間を切った新規用の確保枠は、確保をやめて通常の販売に戻します。「解除しない」にすると、開始時刻まで確保したままです。', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+          [
+            sel(
+              'reserve.autorelease',
+              '確保枠の自動解除',
+              opts(
+                AUTO_RELEASE_CHOICES.map((choice): [string, string] => [
+                  choice,
+                  {
+                    linked: `直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`, // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+                    never: '解除しない', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+                    '30': '30分前まで', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+                    '120': '120分前まで', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+                  }[choice],
+                ]),
+              ),
+              autoReleaseToWire(opsConfig.autoReleaseBeforeMin),
+            ),
+          ],
+          {
+            scopeLabel: BUSINESS_SCOPE,
+            trio: {
+              base: `初期値: 直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`, // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+              // ⚖ D-17 F5 — THE SAFE STATE IS THREE DIFFERENT TRUTHS, so it is
+              // three sentences. One line stood here for all of them — 「解除され
+              // ても、そのままオンラインで販売できます。」 — and it is FALSE for the
+              // LINKED default, which is the shipped one: at the linked boundary
+              // online 受付 has just closed, so the 枠 comes back to 店頭・電話 and
+              // to nothing else. 解除しない releases nothing at all, and only an
+              // explicit cut-off at or beyond the lead time really does come back
+              // to online selling — as far as 「直前の空きは売らない」, which is the
+              // boundary worth naming. The warning branch above is unchanged.
+              // JP-NATIVE PASS R2 · REPORT-2.md A1 · A2 · A3 (⚖ ADOPTED).
+              // ⚖ D-20 (2), Codex N2 — AN EXPLICIT NUMBER EQUAL TO leadTimeMin IS
+              // THE SAME CLOSURE MOMENT AS LINKED. `autoReleaseTooShort` only
+              // caught `<`, so an explicit 120/120 or 30/30 pair fell through to
+              // A3's 「オンラインで販売できます」 — false: equality is D-11's own
+              // closure instant (linked IS that number by construction), so
+              // online 受付 has already closed the moment this 枠 releases, same
+              // as the linked branch. Strictly greater is the only case left for
+              // A3.
+              guardrail: autoReleaseTooShort
+                ? '「直前の空きは売らない」より短くすると、解除してもオンラインでは売れません。店頭・電話でのみ扱えます。' // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+                : autoReleaseDial === 'linked' || (typeof autoReleaseDial === 'number' && autoReleaseDial === opsConfig.leadTimeMin)
+                  ? '解除と同時にオンライン受付が終わるため、店頭・電話でのみ扱えます。' // JP-NATIVE PASS R2 (REPORT-2.md A1)
+                  : autoReleaseDial === null
+                    ? '解除しないため、開始時刻まで確保したままです。' // JP-NATIVE PASS R2 (REPORT-2.md A2)
+                    : '解除後は、「直前の空きは売らない」までオンラインで販売できます。', // JP-NATIVE PASS R2 (REPORT-2.md A3)
+            },
+          },
+        ),
       ], {
         preview: { template: 'お客様には{reserve.days}先まで、{reserve.grid}きざみの開始時刻を出します。{reserve.cutoff}で締め切り、{reserve.lead}の空きは出しません。スキマ枠は{reserve.gapfill}以上を{reserve.gapdisc}引きで掲載します。' },
         links: [{ label: 'ボードの操作の刻みは店舗情報・営業時間で', sectionId: 'store-hours' }],

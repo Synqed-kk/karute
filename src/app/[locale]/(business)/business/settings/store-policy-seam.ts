@@ -62,17 +62,63 @@ export const MINUTE_CHOICES: readonly NewClientMinutes[] = [60, 75, 90]
 export interface LiveStorePolicy {
   gap_guard_mode: GapGuardMode
   new_client_session_minutes: NewClientMinutes
+  /** no core column yet — DRAFT-ANTHONY-ASK-SETTINGS-FIELDS.md ⚡ 9/13 */
+  auto_release_before?: AutoReleaseBefore
 }
 
 /** The write, in core's own input shape. `acting_staff_id` is required by
  *  `SetStoreBookingPolicyInput`, and the `audit` event commits with the change —
  *  so the record of WHO moved a store's 確保 rules is audit-ready by
- *  construction rather than by a caller remembering to log it. */
+ *  construction rather than by a caller remembering to log it.
+ *
+ *  `changes` mirrors `LiveStorePolicy` by construction (`Partial<…>`), so
+ *  `auto_release_before` rides along the day the wire adds it — nothing here
+ *  needs its own edit. */
 export interface WriteStorePolicy {
   storeId: string
   changes: Partial<LiveStorePolicy>
   acting_staff_id: string
   audit: { action: string; summary: string }
+}
+
+/** core's wire spelling for ⚖ D-11's auto-release dial (⚡ CONTRACTS-R2 §1) —
+ *  write-constrained, the same discipline `NewClientMinutes` states above:
+ *  「a value the wire cannot take must not be offerable」. `'linked'` (the
+ *  default) follows `lead_time_min` at read time; `'never'` = 解除しない;
+ *  `'30'`/`'120'` are explicit minute overrides. No boolean-plus-number pair —
+ *  one field, one state. */
+export type AutoReleaseBefore = 'linked' | 'never' | '30' | '120'
+
+/** The choices, in render order — the ONE array the 設定 row's options are
+ *  built from, so the order has one home (mirrors `MINUTE_CHOICES` above). */
+export const AUTO_RELEASE_CHOICES: readonly AutoReleaseBefore[] = ['linked', 'never', '30', '120']
+
+/** The board's own type — `TodayScreen`'s `autoReleaseBeforeMin`
+ *  (`fixtures-today.ts`), unchanged by this file; the mapping below is the
+ *  ONE place it meets the wire. */
+export type AutoReleaseBoard = number | 'linked' | null
+
+/** ⚖ D-11 — THE PRODUCT DEFAULT LIVES HERE AND NOWHERE ELSE. A store core has
+ *  never written a value for (`undefined`) reads as `'linked'` — never `null`,
+ *  never a copied `60` — so a later change to `leadTimeMin` and the release
+ *  boundary can never drift apart. Every other value is a direct rename.
+ *
+ *  This is the reconnect's READ direction (CONTRACTS-R2 §1): it has no
+ *  production caller until `StorePolicyClient.get(storeId)` replaces the
+ *  fixture read in `page.tsx`, exactly as `gap_guard_mode`'s read has none
+ *  today; it exists now so the product default has ONE home before the wire
+ *  arrives. */
+export function autoReleaseFromWire(w: AutoReleaseBefore | undefined): AutoReleaseBoard {
+  if (w === undefined || w === 'linked') return 'linked'
+  if (w === 'never') return null
+  return Number(w)
+}
+
+/** The inverse of `autoReleaseFromWire` on the four offered values (the round-trip is pinned). Any OTHER number — unreachable at this SHA, since the wire only ever hands back `'30'`/`'120'` — rounds to the nearest offered choice, ties to the longer one; the ⚖ D-15 free-minute round (2026-09-13) replaces this rounding with the number itself. */
+export function autoReleaseToWire(v: AutoReleaseBoard): AutoReleaseBefore {
+  if (v === 'linked') return 'linked'
+  if (v === null) return 'never'
+  return Math.abs(30 - v) < Math.abs(120 - v) ? '30' : '120'
 }
 
 /** THE READ, and the whole of it. The board keeps its own lowercase spelling of

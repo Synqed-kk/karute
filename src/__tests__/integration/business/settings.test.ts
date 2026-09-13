@@ -90,6 +90,8 @@ import {
 } from '@/business/lib/settings'
 import { settingsHref } from '@/business/lib/settings-link'
 import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
+// ⚡ R2 BRANCH C — the dial's own mapping pair + choice list (⚖ D-11, CONTRACTS-R2 §1).
+import { AUTO_RELEASE_CHOICES, autoReleaseFromWire, autoReleaseToWire } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
@@ -1441,6 +1443,113 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ⚡ R2 BRANCH C — 確保枠の自動解除 (⚖ D-11, CONTRACTS-R2 §1, ADDENDUM 4 item 1).
+// The row sits directly under 直前の空きは売らない (`reserve.row-lead`); its
+// value is the ONE mapping in `store-policy-seam.ts`, never re-derived here.
+describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空きは売らない', () => {
+  /** `settingsProps` re-imported inside an isolated module registry with
+   *  `fixtures-today`'s `opsConfig` overridden — the only way to move
+   *  `leadTimeMin` / `autoReleaseBeforeMin` for one render, since `room()`'s own
+   *  input has no seam for them and `opsConfig` is a module constant. Same
+   *  `isolateModulesAsync` + dynamic-import idiom as `staff-current-user.test.ts`. */
+  const roomWithOpsConfig = async (
+    overrides: { leadTimeMin?: number; autoReleaseBeforeMin?: number | 'linked' | null },
+    input: { store?: string },
+  ) => {
+    jest.doMock('@/business/lib/fixtures-today', () => {
+      const actual = jest.requireActual('@/business/lib/fixtures-today')
+      return { ...actual, opsConfig: { ...actual.opsConfig, ...overrides } }
+    })
+    let mod!: typeof import('@/app/[locale]/(business)/business/settings/settings-props')
+    await jest.isolateModulesAsync(async () => {
+      mod = await import('@/app/[locale]/(business)/business/settings/settings-props')
+    })
+    jest.dontMock('@/business/lib/fixtures-today')
+    return (await mod.settingsProps({ locale: 'ja', store: input.store })).props
+  }
+
+  it('leg 1 — the value is `autoReleaseToWire(opsConfig.autoReleaseBeforeMin)`, and the options are AUTO_RELEASE_CHOICES in order', async () => {
+    const props = await room({ store: STORE_A })
+    const c = controlOf(props, 'reserve.autorelease')
+    expect(c.value).toBe(autoReleaseToWire(opsConfig.autoReleaseBeforeMin))
+    expect(c.value).toBe('linked') // the fixture's own default
+    expect(c.control.kind).toBe('select')
+    expect(c.control.kind === 'select' && c.control.options.map((o) => o.value)).toEqual([...AUTO_RELEASE_CHOICES])
+  })
+
+  it('leg 3 — the row sits IMMEDIATELY after 直前の空きは売らない (reserve.row-lead)', async () => {
+    const props = await room({ store: STORE_A })
+    const ids = rowsOf(props).map((r) => r.id)
+    const lead = ids.indexOf('reserve.row-lead')
+    expect(lead).toBeGreaterThanOrEqual(0)
+    expect(ids[lead + 1]).toBe('reserve.row-autorelease')
+  })
+
+  it('leg 4 — the linked label carries leadTimeMin, and a lead-time change moves it', async () => {
+    const props = await room({ store: STORE_A })
+    expect(
+      (controlOf(props, 'reserve.autorelease').control as { options: Array<{ value: string; label: string }> }).options.find(
+        (o) => o.value === 'linked',
+      )?.label,
+    ).toContain(`${opsConfig.leadTimeMin}分前`)
+
+    // ⚠ mutant (n)'s settings half — a stored 60 would not follow a moved lead
+    // time, so the label must be RE-READ, never typed.
+    const props90 = await roomWithOpsConfig({ leadTimeMin: 90 }, { store: STORE_A })
+    const linked90 = (
+      controlOf(props90, 'reserve.autorelease').control as { options: Array<{ value: string; label: string }> }
+    ).options.find((o) => o.value === 'linked')
+    expect(linked90?.label).toContain('（90分前まで）')
+    // …and the STORED value (still the linked default) is untouched by the label move.
+    expect(controlOf(props90, 'reserve.autorelease').value).toBe('linked')
+  })
+
+  it('leg 5 — the guardrail fires ONLY for an explicit number SHORTER than leadTimeMin', async () => {
+    const GUARDRAIL = '「直前の空きは売らない」より短くすると、解除してもオンラインでは売れません。店頭・電話でのみ扱えます。'
+    const rowFor = async (autoReleaseBeforeMin: number | 'linked' | null) => {
+      const props = await roomWithOpsConfig({ leadTimeMin: 60, autoReleaseBeforeMin }, { store: STORE_A })
+      return rowsOf(props).find((r) => r.id === 'reserve.row-autorelease')!
+    }
+    expect((await rowFor(30)).trio!.guardrail).toBe(GUARDRAIL)
+    expect((await rowFor(120)).trio!.guardrail).not.toBe(GUARDRAIL)
+    expect((await rowFor('linked')).trio!.guardrail).not.toBe(GUARDRAIL)
+    expect((await rowFor(null)).trio!.guardrail).not.toBe(GUARDRAIL)
+
+    // ⚖ D-17 F5 (2026-09-14) — AND THE SAFE STATE IS THREE DIFFERENT TRUTHS.
+    // One line stood here for all three — 「解除されても、そのままオンラインで
+    // 販売できます。」 — and it is FALSE for the linked default, which is the
+    // shipped one: at the linked boundary online booking has just closed, so
+    // the 枠 comes back to 店頭・電話 and to nothing else. The three lines are
+    // JP-NATIVE-R2/REPORT-2.md A1 · A2 · A3 (⚖ ADOPTED), verbatim.
+    expect((await rowFor('linked')).trio!.guardrail)
+      .toBe('解除と同時にオンライン受付が終わるため、店頭・電話でのみ扱えます。')
+    expect((await rowFor(null)).trio!.guardrail)
+      .toBe('解除しないため、開始時刻まで確保したままです。')
+    expect((await rowFor(120)).trio!.guardrail)
+      .toBe('解除後は、「直前の空きは売らない」までオンラインで販売できます。')
+
+    // ⚖ D-20 (2) (2026-09-14), Codex N2 — AN EXPLICIT NUMBER EQUAL TO
+    // leadTimeMin IS THE SAME CLOSURE MOMENT AS LINKED (A1), not A3: it fell
+    // through to A3's 「オンラインで販売できます」 before this fix, which is false
+    // — equality is D-11's own closure instant, the same truth linked states.
+    // Strictly greater (lead 60 / release 120, above) stays A3.
+    const rowWithLead = async (leadTimeMin: number, autoReleaseBeforeMin: number | 'linked' | null) => {
+      const props = await roomWithOpsConfig({ leadTimeMin, autoReleaseBeforeMin }, { store: STORE_A })
+      return rowsOf(props).find((r) => r.id === 'reserve.row-autorelease')!
+    }
+    expect((await rowWithLead(120, 120)).trio!.guardrail)
+      .toBe('解除と同時にオンライン受付が終わるため、店頭・電話でのみ扱えます。')
+    expect((await rowWithLead(30, 30)).trio!.guardrail)
+      .toBe('解除と同時にオンライン受付が終わるため、店頭・電話でのみ扱えます。')
+  })
+
+  it('leg 6 — round-trip: every wire value survives board and back, and undefined reads as linked', () => {
+    for (const w of AUTO_RELEASE_CHOICES) expect(autoReleaseToWire(autoReleaseFromWire(w))).toBe(w)
+    expect(autoReleaseFromWire(undefined)).toBe('linked')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ⚠⚠ THE RECURRENCE KILLER — READ THIS BEFORE ADDING ANY STRING TO THIS ROOM.
 //
 // THE CLASS: an INTERNAL CODE reaching the reader (room 8's N8-1, which room 9
@@ -2332,7 +2441,7 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     // vocabulary with the fold (their ONE home is 予約と確保, where #812 renders
     // them as segments sized by its own sheet). The geometry law still holds for
     // every over-wide choice this room still states.
-    for (const id of ['pricing.framing', 'reserve.cutoff', 'reserve.gapfill', 'reserve.gapdisc', 'reserve.lead', 'reserve.free']) {
+    for (const id of ['pricing.framing', 'reserve.cutoff', 'reserve.gapfill', 'reserve.gapdisc', 'reserve.lead', 'reserve.autorelease', 'reserve.free']) {
       expect({ id, shape: controlOf(props, id).control.kind }).toEqual({ id, shape: 'select' })
     }
     // …and the segments that REMAIN are the short ones: no single-choice segment
