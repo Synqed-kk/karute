@@ -715,7 +715,28 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // baseline's env-stamp inlining differs). Ceiling is set from the LARGER of
 // the two tip measurements (the CI recipe) plus 1,000 B, same convention as
 // every prior raise: 2,074,679 + 1,000 = 2,075,679.
-const BUDGET_BYTES = 2_075_679
+//
+// PR-C fix round 1 (2026-09-14): the manager's 共有 list — the 「共有」 pill
+// (computed filterKeys), the row chip (SharedChip, both slots), the shared
+// list mode (its own row cache + fetch + さらに表示 continuation, shaped like
+// 月ジャンプ), and one i18n string (filters.shared) ×2 locales. Measured cold
+// on this machine per the C4 recipe, byte-identical across two clean builds
+// WITHIN THIS WORKTREE (node v24.16.0): plain recipe en 133,643 · index
+// 1,005,770 · vendor 937,743 = 2,077,156 B; the CI recipe (same env ci.yml
+// exports — the longer dummy stamps inline a few bytes larger) also
+// byte-identical across two builds: en 133,643 · index 1,005,847 · vendor
+// 937,743 = 2,077,233 B. The base tip this fix round replants onto
+// (9481219d195dc5c651695111d195819304056b11, PR-B's own final tip) freshly
+// measured the same way in a throwaway detached worktree (~/karute-budgetbase2,
+// removed after), both recipes byte-identical across two builds: plain en
+// 133,627 · index 1,003,233 · vendor 937,743 = 2,074,603 B; CI en 133,627 ·
+// index 1,003,310 · vendor 937,743 = 2,074,680 B — feature cost +2,553 B
+// either way (the two recipes agree on the delta; only the baseline's
+// env-stamp inlining differs, same pattern as every prior raise above).
+// Ceiling is set from the LARGER of the two tip measurements (the CI recipe)
+// plus 1,000 B, same convention as every prior raise:
+// 2,077,233 + 1,000 = 2,078,233.
+const BUDGET_BYTES = 2_078_233
 
 let dir
 try {
