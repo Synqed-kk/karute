@@ -1611,7 +1611,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         row(
           'reserve.row-autorelease',
           '確保枠の自動解除',
-          '開始まで残りこの時間を切った新規用の確保枠は、確保をやめて通常の販売に戻します。「解除しない」にすると、開始時刻まで確保したままです。', // JP-NATIVE PASS PENDING
+          '開始までこの時間を切った新規用の確保枠は、確保をやめて通常の販売に戻します。「解除しない」にすると、開始時刻まで確保したままです。', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
           [
             sel(
               'reserve.autorelease',
@@ -1620,10 +1620,10 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
                 AUTO_RELEASE_CHOICES.map((choice): [string, string] => [
                   choice,
                   {
-                    linked: `直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前）`, // JP-NATIVE PASS PENDING
-                    never: '解除しない', // JP-NATIVE PASS PENDING
-                    '30': '30分前', // JP-NATIVE PASS PENDING
-                    '120': '120分前', // JP-NATIVE PASS PENDING
+                    linked: `直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`, // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+                    never: '解除しない', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+                    '30': '30分前まで', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+                    '120': '120分前まで', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
                   }[choice],
                 ]),
               ),
@@ -1633,10 +1633,10 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           {
             scopeLabel: BUSINESS_SCOPE,
             trio: {
-              base: '初期値: 直前の空きは売らないと同じ', // JP-NATIVE PASS PENDING
+              base: `初期値: 直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`, // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
               guardrail: autoReleaseTooShort
-                ? '「直前の空きは売らない」より短くすると、解除してもオンラインでは売れません。店頭・電話のみになります。' // JP-NATIVE PASS PENDING (BRIEF item 11)
-                : '「直前の空きは売らない」と同じか、それより長いため、いまはオンライン販売に影響しません。', // JP-NATIVE PASS PENDING
+                ? '「直前の空きは売らない」より短くすると、解除してもオンラインでは売れません。店頭・電話でのみ扱えます。' // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+                : '解除されても、そのままオンラインで販売できます。', // JP-NATIVE PASS 2026-09-13 (REPORT.md follow-up)
             },
           },
         ),

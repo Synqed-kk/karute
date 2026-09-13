@@ -1499,13 +1499,13 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
     const linked90 = (
       controlOf(props90, 'reserve.autorelease').control as { options: Array<{ value: string; label: string }> }
     ).options.find((o) => o.value === 'linked')
-    expect(linked90?.label).toContain('（90分前）')
+    expect(linked90?.label).toContain('（90分前まで）')
     // …and the STORED value (still the linked default) is untouched by the label move.
     expect(controlOf(props90, 'reserve.autorelease').value).toBe('linked')
   })
 
   it('leg 5 — the guardrail fires ONLY for an explicit number SHORTER than leadTimeMin', async () => {
-    const GUARDRAIL = '「直前の空きは売らない」より短くすると、解除してもオンラインでは売れません。店頭・電話のみになります。'
+    const GUARDRAIL = '「直前の空きは売らない」より短くすると、解除してもオンラインでは売れません。店頭・電話でのみ扱えます。'
     const rowFor = async (autoReleaseBeforeMin: number | 'linked' | null) => {
       const props = await roomWithOpsConfig({ leadTimeMin: 60, autoReleaseBeforeMin }, { store: STORE_A })
       return rowsOf(props).find((r) => r.id === 'reserve.row-autorelease')!

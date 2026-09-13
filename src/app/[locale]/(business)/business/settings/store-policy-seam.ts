@@ -108,17 +108,10 @@ export function autoReleaseFromWire(w: AutoReleaseBefore | undefined): AutoRelea
   return Number(w)
 }
 
-/** The exact inverse of `autoReleaseFromWire`. A board number that is not
- *  itself an offered choice (30/120 — an older stored value, or ±Infinity/NaN)
- *  rounds to the nearest one by the same rule `nearestChoice` states above:
- *  ties, and every non-finite value except `-Infinity`, go to the LONGER
- *  choice. Unreachable off the fixture; stated so the asymmetry is honest
- *  rather than silent. */
+/** The exact inverse of `autoReleaseFromWire`: the nearest offered choice wins, ties going to the longer one. */
 export function autoReleaseToWire(v: AutoReleaseBoard): AutoReleaseBefore {
   if (v === 'linked') return 'linked'
   if (v === null) return 'never'
-  if (v === 30 || v === 120) return v === 30 ? '30' : '120'
-  if (!Number.isFinite(v)) return v === -Infinity ? '30' : '120'
   return Math.abs(30 - v) < Math.abs(120 - v) ? '30' : '120'
 }
 
