@@ -1355,3 +1355,169 @@ describe('R8 discarded-record door — content (piece 4)', () => {
     expect(views[0].detail).toMatchObject({ transcript_shown: false })
   })
 })
+
+// ── D3/D4/D5/D8/D9 sharing — the layer-off matrix (D14, ⚖ Liam 2026-09-13
+// sharing law; 2026-09-14 design). S = the row is shared (shared_at set) ·
+// V = the viewer holds recordings.viewShared (store-reachable) · A =
+// recordings.viewAll · X = the record is discarded. Every case below reuses
+// the SAME default fixture (KAR.current owned by 'other-staff', viewer
+// auth-user-1/practitioner, store-unclamped) unless it says otherwise.
+describe('D14: the sharing layer-off matrix (recordings.viewShared, D3/D4/D5/D8)', () => {
+  const shareRow = () => {
+    REC.current = { ...REC.current, shared_at: '2026-09-14T00:00:00.000Z' }
+  }
+  const holdsViewShared = () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewShared'])
+  }
+  const dtoFor = async (id = KARUTE_UUID) => {
+    const res = await GET(req({ headers: auth }), routeFor(id))
+    return res.json()
+  }
+
+  // ⚖ ALL-OFF = TODAY, BYTE-FOR-BYTE. Captured from a real run against the
+  // exact default fixture (never hand-guessed — the packet forbids `git
+  // stash`/`git show … > /tmp/x` to diff against origin/main; this literal
+  // IS the origin/main behavior, verified by every pre-existing ACL test in
+  // this file that pins the SAME restricted/recording:null answer for this
+  // exact fixture). The only new thing here is the additive `share` block,
+  // and every one of its four fields is the honest "nothing to see" answer.
+  it('all-off (¬S ¬V): the DTO is byte-for-byte today\'s answer, plus the additive share block', async () => {
+    const dto = await dtoFor()
+    expect(dto).toEqual({
+      karuteId: '00000000-0000-4000-8000-000000000008',
+      customerId: 'cust-1',
+      outcome: null,
+      header: {
+        customerName: '山田 花子',
+        initials: '山花',
+        karuteNumber: '#00001',
+        service: null,
+        sessionDateLong: '2026年6月1日(月)',
+        staffName: null,
+        phone: '090',
+        email: 'h@example.com',
+        age: 36,
+        gender: '女性',
+        visitNumber: 3,
+        lastVisitDate: '2026年5月1日',
+      },
+      sessionDateLong: '2026年6月1日(月)',
+      sessionDateIso: '2026-06-01',
+      entries: [
+        { id: 'e1', category: 'concern', time: '12:05', body: '肩こり', original_ai_content: null },
+      ],
+      summaryBullets: ['肩こり改善傾向'],
+      summaryRaw: '・肩こり改善傾向',
+      summaryEdited: false,
+      transcript: null,
+      consentOnFile: true,
+      transcriptDurationLabel: null,
+      transcriptRestricted: true,
+      recording: null,
+      photos: [{ id: 'p1', signedUrl: 'https://x/p1', category: 'before', caption: null }],
+      viewerRole: 'practitioner',
+      staffCanReassignRecords: false,
+      staffCanRegenerate: false,
+      discarded: null,
+      contentWithheld: false,
+      share: { canShare: false, shared: false, sharedAt: null, viaShare: false },
+    })
+  })
+
+  it('S alone: a shared row read by a viewer WITHOUT recordings.viewShared is still restricted, recording null', async () => {
+    shareRow()
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+    expect(dto.share).toEqual({ canShare: false, shared: true, sharedAt: '2026-09-14T00:00:00.000Z', viaShare: false })
+  })
+
+  it('V alone: a viewShared holder on an UNSHARED row is still restricted', async () => {
+    holdsViewShared()
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+    expect(dto.share).toEqual({ canShare: false, shared: false, sharedAt: null, viaShare: false })
+  })
+
+  it('S+V: transcript + recording + share.viaShare true', async () => {
+    shareRow()
+    holdsViewShared()
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.transcriptRestricted).toBe(false)
+    expect(dto.recording).toEqual({ audioPresent: true, durationSeconds: 742, status: 'COMPLETED' })
+    expect(dto.share.viaShare).toBe(true)
+    expect(dto.share.shared).toBe(true)
+  })
+
+  it('S+V, viewer clamped to a DIFFERENT store than the record: restricted — the manager\'s window widens WHOSE recordings, never WHICH stores', async () => {
+    shareRow()
+    holdsViewShared()
+    KAR.current = { ...KAR.current, store_id: 'store-b' }
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+  })
+
+  // The discard DOOR itself is untouched by sharing (design's own "facts door
+  // untouched") — canOpenDiscardedRecord still needs discardView or ownership
+  // regardless of V/S, so a discarded record is reachable here via V+D
+  // together; once OPEN, sharing decides CONTENT exactly as it does on a live
+  // record (⚖ Liam 9/13 "shared-with = as shared").
+  it('S+V+D+X (discarded, door open via discardView): contentWithheld false — "shared-with = as shared" — facts unchanged', async () => {
+    shareRow()
+    capabilities.current = new Set(['customers.view', 'recordings.viewShared', 'records.discardView'])
+    DISCARDED_KAR.current = { ...KAR.current, id: '00000000-0000-4000-8000-000000000099', status: 'DISCARDED' }
+    const dto = await dtoFor('00000000-0000-4000-8000-000000000099')
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.contentWithheld).toBe(false)
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  // The unreachable combo the door itself refuses: V alone (no discardView,
+  // not the owner) on a DISCARDED record still gets the same classified 404
+  // as any other refused viewer — sharing never opens the discard door.
+  it('S+V, DISCARDED, discardView NOT held: the door refuses (404) — sharing never opens the discard door', async () => {
+    shareRow()
+    holdsViewShared()
+    DISCARDED_KAR.current = { ...KAR.current, id: '00000000-0000-4000-8000-000000000098', status: 'DISCARDED' }
+    const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000098'))
+    expect(res.status).toBe(404)
+  })
+
+  it('A on, S off: unchanged reach — the pre-existing viewAll branch is untouched by sharing', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.share).toEqual({ canShare: false, shared: false, sharedAt: null, viaShare: false })
+  })
+
+  it('own record + S: share.canShare true, shared true, viaShare false (her own read is not "because of the share")', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+    shareRow()
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.share).toEqual({ canShare: true, shared: true, sharedAt: '2026-09-14T00:00:00.000Z', viaShare: false })
+  })
+
+  it('ownerless + S: open (unchanged, D-14\'s shared answer), viaShare false — the "no owner = shared" branch is NOT what let this through', async () => {
+    KAR.current = { ...KAR.current, staff_id: null }
+    shareRow()
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.share.viaShare).toBe(false)
+  })
+
+  it('S+V: staffCanRegenerate stays false — D15, share grants READ only', async () => {
+    shareRow()
+    holdsViewShared()
+    capabilities.current.add('records.write')
+    const dto = await dtoFor()
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+})

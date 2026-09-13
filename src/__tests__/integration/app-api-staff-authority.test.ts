@@ -351,6 +351,59 @@ describe('PUT /api/app/v1/staff/[id]/permissions — authz invariants', () => {
     })
   })
 
+  // ── recordings.viewShared (D3/D4 sharing, ⚖ Liam 2026-09-13; 2026-09-14
+  // design) — the same owner-only-add shape as recordings.viewAll above, its
+  // own refusal string, and never smuggling in the broader grant.
+
+  it("recordings.viewShared grant is owner-only: a manager ticking it for a practitioner is refused ('Only the owner can grant shared-recording access.'), no write, no audit row", async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'recordings.viewShared']))
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Manager', display_role: 'manager' },
+    ])
+    selectResults = [
+      nonOwnerTarget,
+      { display_role: 'manager', permission_role: 'manager' }, // caller's own row
+    ]
+    const lines = await auditLines(async () => {
+      const res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'custom',
+          capabilities: ['recordings.viewShared'],
+        }),
+        params('staff-9'),
+      )
+      expect(res.status).toBe(200)
+      expect((await res.json()).error).toMatch(/Only the owner can grant shared-recording access/i)
+    })
+    expect(lastUpdate).toBeNull()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('the owner grants recordings.viewShared → stored override carries exactly that capability and NOT recordings.viewAll', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'recordings.viewShared']))
+    selectResults = [
+      nonOwnerTarget,
+      { display_role: 'owner', permission_role: 'owner' }, // caller's own row — the owner
+    ]
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'custom',
+          capabilities: ['recordings.viewShared'],
+        }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    // Stored override carries EXACTLY the ticked set — not recordings.viewAll.
+    expect(lastUpdate).toEqual({ permission_role: 'custom', permissions: ['recordings.viewShared'] })
+    expect((lastUpdate as { permissions: string[] }).permissions).not.toContain('recordings.viewAll')
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ action: 'settings.permissions_change', target_id: 'staff-9' })
+  })
+
   it("the OWNER unticking it stores null when the rest matches the preset, and the detail says 'revoked'", async () => {
     mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'recordings.viewAll']))
     // Target currently HOLDS the grant through a stored override.
