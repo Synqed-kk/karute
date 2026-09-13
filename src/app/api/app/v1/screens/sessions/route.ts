@@ -64,6 +64,11 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
   // named follow-up in the lane queue, tracked, never silently dropped.
   const windowed = new URL(ctx.req.url).searchParams.get('window') === '1'
 
+  // F1 fix (PR-C fix round 1): computed here (not inside the try below) so
+  // it's in scope for BOTH the builder call and the DTO's windowed-only
+  // field further down — one capability read, never two that could drift.
+  const viewerHoldsViewShared = ctx.identity.capabilities.has('recordings.viewShared')
+
   let screen: ReturnType<typeof buildSessionsListScreen>
   let windowRead: KaruteWindow | null = null
   try {
@@ -174,6 +179,7 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
       total: storeTotal,
       discardedCount: storeDiscardedCount,
       sharedCount: storeSharedCount,
+      viewerHoldsViewShared,
     })
   } catch (err) {
     if (err instanceof AppApiError) throw err
@@ -192,8 +198,9 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
         // R8 discarded-record door (A8) — windowed-only, same reasoning as
         // discardedCount/hasMore/windowStart above.
         viewerCanOpenDiscarded: ctx.identity.capabilities.has('records.discardView'),
-        // D10 (PR-C) — same windowed-only reasoning.
-        viewerHoldsViewShared: ctx.identity.capabilities.has('recordings.viewShared'),
+        // D10 (PR-C) — same windowed-only reasoning; the hoisted variable
+        // above (F1 fix) is the SAME read the builder call used.
+        viewerHoldsViewShared,
       })
     : SessionsScreenDTO.parse(screen)
   return ok(ctx, dto)

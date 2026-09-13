@@ -462,3 +462,35 @@ describe('loadKaruteWindow refuses calendar-impossible input (Greptile PR #779 P
     expect(karuteRecords.list).toHaveBeenCalled()
   })
 })
+
+// F1 fix (PR-C fix round 1, ⚖ "the wire must not tell a colleague a share
+// happened"): a sharedOnly request from a non-holder must be refused
+// HONESTLY, never silently served as the full unfiltered list.
+describe('F1 fix (PR-C fix round 1): loadKaruteWindow refuses sharedOnly without recordings.viewShared', () => {
+  // Restores the file's own default (`can` resolves true for everything) so
+  // this block's override never leaks into a later test.
+  afterEach(() => {
+    can.mockImplementation(async () => true)
+  })
+
+  it('sharedOnly WITHOUT the capability → { error: "forbidden" }, no reads at all', async () => {
+    can.mockImplementation(async (capability: string) => capability !== 'recordings.viewShared')
+    const result = await loadKaruteWindow({ sharedOnly: true })
+    expect(result).toEqual({ error: 'forbidden' })
+    expect(karuteRecords.list).not.toHaveBeenCalled()
+  })
+
+  it('sharedOnly WITH the capability reaches the read (the gate is capability-specific, not a blanket refusal)', async () => {
+    can.mockImplementation(async () => true)
+    const result = await loadKaruteWindow({ sharedOnly: true })
+    expect(result).not.toEqual({ error: 'forbidden' })
+    expect(karuteRecords.list).toHaveBeenCalled()
+  })
+
+  it('a PLAIN request (no sharedOnly) never consults the gate\'s refusal path, even for a non-holder', async () => {
+    can.mockImplementation(async (capability: string) => capability !== 'recordings.viewShared')
+    const result = await loadKaruteWindow({})
+    expect(result).not.toEqual({ error: 'forbidden' })
+    expect(karuteRecords.list).toHaveBeenCalled()
+  })
+})

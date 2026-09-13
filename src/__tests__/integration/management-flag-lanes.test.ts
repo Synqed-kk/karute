@@ -233,6 +233,9 @@ describe('顧客 / カルテ rosters are never server-filtered (⚖ 2026-09-01 o
       >[0]['synqedStaff'],
       monthCount: 0,
       total: 0,
+      // F1 fix (PR-C fix round 1): now required — unrelated to this test's
+      // own roster-completeness concern, so a plain false.
+      viewerHoldsViewShared: false,
     })
     expect(screen.staffList.map((s) => s.id)).toEqual([SATO, KITANO])
     expect(screen.staffList.find((s) => s.id === KITANO)?.isManagement).toBe(true)

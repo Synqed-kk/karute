@@ -131,7 +131,21 @@ export default async function KaruteRecordsListPage() {
   // D10 (PR-C, self-lighting): undefined (leg failed OR core hasn't shipped
   // shared_count yet) collapses to null here — either way the pill must not
   // exist. NEVER `?? 0` (feature detection: a real 0 is a shown value).
-  const displaySharedCount = karuteData.data?.freshSharedCount ?? null
+  //
+  // F1 fix (PR-C fix round 1, ⚖ "the wire must not tell a colleague a share
+  // happened"): core has no concept of recordings.viewShared — it returns
+  // shared_count unconditionally to whoever asks — so this line is the ONLY
+  // gate for this particular read (loadKaruteWindowWithMonthProbe is a plain
+  // server-to-server call with no capability awareness of its own, unlike
+  // the loadKaruteWindow action/route F1(b) gates). Without `holdsViewShared
+  // ? … : null` here, a non-holder's browser would still receive the real
+  // count in this Server Component's RSC payload (inspectable client-side)
+  // even though the pill stays hidden — the SAME leak F1 closes for the
+  // builder's own sharedCount and for the append/window doors, one hop
+  // earlier in this specific read path.
+  const displaySharedCount = holdsViewShared
+    ? (karuteData.data?.freshSharedCount ?? null)
+    : null
 
   // #496 store clamp: the 担当 picker only offers staff assigned to the active
   // store (or floating staff) — the full roster was leaking every branch's
@@ -152,6 +166,12 @@ export default async function KaruteRecordsListPage() {
     monthCount: displayMonthCount ?? 0,
     total: displayTotal ?? 0,
     discardedCount: displayDiscardedCount ?? 0,
+    // F1 fix (PR-C fix round 1): REQUIRED — gates isShared per row (a
+    // colleague's shared row never carries the flag unless she holds the
+    // capability or it's her own record) even though this page bypasses
+    // screen.sharedCount itself (displaySharedCount below reads the window
+    // leg directly, same as displayTotal/displayDiscardedCount).
+    viewerHoldsViewShared: holdsViewShared,
   })
 
   return (

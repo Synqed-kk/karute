@@ -69,6 +69,17 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
     )
   }
 
+  // F1 fix (PR-C fix round 1, ⚖ "the wire must not tell a colleague a share
+  // happened"): a sharedOnly request from a non-holder is refused HONESTLY —
+  // never silently served as the full unfiltered list (which would let
+  // anyone with customers.view discover who has a share by row counts).
+  // OUTSIDE the try/catch below for the same reason the store clamp is: this
+  // throw must reach the client as its real status, never a swallowed 502.
+  const holdsViewShared = ctx.identity.capabilities.has('recordings.viewShared')
+  if (parsed.data.sharedOnly === 'true' && !holdsViewShared) {
+    throw new AppApiError('forbidden', 'recordings.viewShared required for sharedOnly')
+  }
+
   const synqed = newSynqedClient(ctx.identity.businessId)
 
   // Store clamp BEFORE any data read — its store_forbidden throws must reach
@@ -123,6 +134,8 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
       monthCount: 0,
       total: window.freshStoreTotal,
       discardedCount: window.freshDiscardedCount,
+      // F1 fix (PR-C fix round 1): REQUIRED — gates isShared per row.
+      viewerHoldsViewShared: holdsViewShared,
     })
 
     return ok(ctx, {
@@ -132,8 +145,11 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
       freshDiscardedCount: window.freshDiscardedCount,
       // D10 (PR-C, self-lighting): JSON.stringify drops an undefined key, so
       // this is silently absent from the wire until core ships shared_count —
-      // never `?? 0` (see jsonResponse in handler.ts).
-      freshSharedCount: window.freshSharedCount,
+      // never `?? 0` (see jsonResponse in handler.ts). F1 fix (PR-C fix round
+      // 1): also undefined for a non-holder even when core DID answer it —
+      // the default walk's さらに表示 responses used to carry this to
+      // everyone.
+      freshSharedCount: holdsViewShared ? window.freshSharedCount : undefined,
       hasMore: window.hasMore,
     })
   } catch (err) {

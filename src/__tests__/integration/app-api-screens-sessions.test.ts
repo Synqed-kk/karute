@@ -509,7 +509,10 @@ describe('GET /api/app/v1/screens/sessions?window=1 — D10 sharedCount + viewer
     karuteList.mockResolvedValue({ karute_records: FIXED_KARUTE, total: 1 })
   })
 
-  it('carries sharedCount when the karute read answers shared_count', async () => {
+  it('carries sharedCount when the karute read answers shared_count — FOR A HOLDER (F1 fix, PR-C fix round 1)', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['customers.view', 'stores.viewAll', 'recordings.viewShared']),
+    )
     karuteList.mockResolvedValue({
       karute_records: FIXED_KARUTE,
       total: 1,
@@ -521,7 +524,10 @@ describe('GET /api/app/v1/screens/sessions?window=1 — D10 sharedCount + viewer
     expect(dto.sharedCount).toBe(4)
   })
 
-  it('omits sharedCount entirely when core has not shipped shared_count yet (feature detection, never ?? 0)', async () => {
+  it('omits sharedCount entirely when core has not shipped shared_count yet, even for a holder (feature detection, never ?? 0)', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['customers.view', 'stores.viewAll', 'recordings.viewShared']),
+    )
     const res = await GET(windowReq('?window=1', { headers: auth }), route)
     const dto = await res.json()
     expect(dto.sharedCount).toBeUndefined()
@@ -537,7 +543,10 @@ describe('GET /api/app/v1/screens/sessions?window=1 — D10 sharedCount + viewer
     expect(dto.viewerHoldsViewShared).toBe(true)
   })
 
-  it('a real sharedCount of 0 is a SHOWN value, not treated as absent', async () => {
+  it('a real sharedCount of 0 is a SHOWN value for a holder, not treated as absent', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['customers.view', 'stores.viewAll', 'recordings.viewShared']),
+    )
     karuteList.mockResolvedValue({
       karute_records: FIXED_KARUTE,
       total: 1,
@@ -548,6 +557,72 @@ describe('GET /api/app/v1/screens/sessions?window=1 — D10 sharedCount + viewer
     const dto = await res.json()
     expect(dto.sharedCount).toBe(0)
     expect('sharedCount' in dto).toBe(true)
+  })
+
+  // F1 fix (PR-C fix round 1) — the packet's own named test, end-to-end
+  // through the real facade route (not just the builder unit test): a
+  // colleague's shared row never carries isShared for a non-holder, but the
+  // recorder's OWN shared row still does; a holder sees both.
+  it('F1: a NON-holder gets no isShared on a colleague\'s shared row, but DOES see it on her own', async () => {
+    // FIXED_KARUTE's row belongs to staff_id 'sstaff-1' → profile 'staff-2'
+    // (staffList mock); the caller here is auth-user-1 — a colleague's row.
+    const ownRow = {
+      id: 'rec-own',
+      customer_id: 'cust-1',
+      created_at: FIXED,
+      session_date: FIXED,
+      ai_summary: 'まとめ',
+      transcript: '発話',
+      // staff_id maps straight through when no synqed-staff translation entry
+      // exists for it — same fallback rule screen-rows.ts documents.
+      staff_id: 'auth-user-1',
+      business_id: 'business-1',
+      entry_count: 1,
+    }
+    karuteList.mockResolvedValue({
+      karute_records: [{ ...FIXED_KARUTE[0], shared_at: '2026-09-14T00:00:00.000Z' }, { ...ownRow, shared_at: '2026-09-14T00:00:00.000Z' }],
+      total: 2,
+      discarded_count: 0,
+    } as never)
+
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    const colleagueRow = dto.items.find((i: { id: string }) => i.id === 'rec-1')
+    const ownItem = dto.items.find((i: { id: string }) => i.id === 'rec-own')
+    expect(colleagueRow.isShared).toBeUndefined()
+    expect(ownItem.isShared).toBe(true)
+  })
+
+  it('F1: a HOLDER sees isShared on a colleague\'s shared row too', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['customers.view', 'stores.viewAll', 'recordings.viewShared']),
+    )
+    karuteList.mockResolvedValue({
+      karute_records: [{ ...FIXED_KARUTE[0], shared_at: '2026-09-14T00:00:00.000Z' }],
+      total: 1,
+      discarded_count: 0,
+    } as never)
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.items.find((i: { id: string }) => i.id === 'rec-1').isShared).toBe(true)
+  })
+
+  // F1 fix (PR-C fix round 1): the wire must not tell a colleague a share
+  // happened — a non-holder gets NO sharedCount even when core answers one.
+  it('F1: sharedCount is absent for a NON-holder even when core answers a real shared_count', async () => {
+    // mockCapabilities defaults to ['customers.view', 'stores.viewAll'] — no
+    // recordings.viewShared (see the top-of-file beforeEach).
+    karuteList.mockResolvedValue({
+      karute_records: FIXED_KARUTE,
+      total: 1,
+      discarded_count: 0,
+      shared_count: 4,
+    } as never)
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.sharedCount).toBeUndefined()
+    expect('sharedCount' in dto).toBe(false)
+    expect(dto.viewerHoldsViewShared).toBe(false)
   })
 })
 
