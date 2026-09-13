@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { CheckCircle2, ChevronDown, Lock, Mic } from 'lucide-react'
+import { ChevronDown, Lock, Mic } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { RecordingPlayer } from './RecordingPlayer'
@@ -24,6 +24,8 @@ const PENDING_STATUSES = new Set(['RECORDING', 'UPLOADING', 'PROCESSING'])
 interface RecordingTranscriptCardProps {
   karuteId: string
   transcript: string | null
+  /** Kept on the wire; no longer rendered here — ⚖ Liam 9/14: the consent
+   *  gate + date live on the recording screen. */
   consentOnFile: boolean
   /** Pre-formatted duration ("12:34" or "—"). */
   durationLabel?: string | null
@@ -36,15 +38,20 @@ interface RecordingTranscriptCardProps {
    *  about one: an old record looks exactly as it did before the player
    *  existed (⚖ 9/3, mock frame F5). */
   recording?: KaruteDetailRecording | null
+  /** D8 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): true when THIS
+   *  viewer sees the content ONLY because its own staffer shared it —
+   *  renders the one quiet subtitle line under the title, same slot the
+   *  duration line uses. Never true alongside `restricted`. */
+  viaShare?: boolean
 }
 
 export function RecordingTranscriptCard({
   karuteId,
   transcript,
-  consentOnFile,
   durationLabel,
   restricted,
   recording,
+  viaShare,
 }: RecordingTranscriptCardProps) {
   const t = useTranslations('karuteDetail')
   const hasPlayer = Boolean(recording?.audioPresent)
@@ -84,13 +91,18 @@ export function RecordingTranscriptCard({
             <span className="text-sm font-semibold text-foreground">
               {t('transcript.title')}
             </span>
-            {consentOnFile && (
-              <span className="inline-flex h-[22px] items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 text-[11px] font-semibold text-emerald-500">
-                <CheckCircle2 size={11} />
-                <span>{t('transcript.consentOnFile')}</span>
-              </span>
-            )}
           </div>
+          {/* D8 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): the
+           *  manager's-eye subtitle — why she can read a colleague's card.
+           *  Quieter than a chip (Fable pixel review 9/14 00:1x), same slot
+           *  the duration line uses; both may render together (a shared,
+           *  transcript-only card with no player still states duration AND
+           *  the share reason). */}
+          {viaShare && (
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              {t('transcript.viaShare')}
+            </div>
+          )}
           {/* NOT when a player is present (mock D-6): the scrub row already
            *  states the total, and two different lengths for one recording is
            *  the bug this line would reintroduce. */}

@@ -18,11 +18,41 @@ export function canViewTranscript(opts: {
   ownerStaffId: string | null
   viewerStaffId: string | null
   canViewAll: boolean
+  /** The recording is SHARED and this viewer holds recordings.viewShared
+   *  within store reach — computed by the caller with sharedWithViewer().
+   *  Default false = today's law, byte-identical for every existing caller;
+   *  the ACT doors never pass it (⚖ Liam 2026-09-13 sharing law; 2026-09-14
+   *  design D4). */
+  sharedWith?: boolean
 }): boolean {
-  const { ownerStaffId, viewerStaffId, canViewAll } = opts
+  const { ownerStaffId, viewerStaffId, canViewAll, sharedWith = false } = opts
   if (!ownerStaffId) return true
   if (canViewAll) return true
+  if (sharedWith) return true
   return viewerStaffId != null && viewerStaffId === ownerStaffId
+}
+
+/**
+ * What "shared" means for the recording-privacy ACL — the ONE home for the
+ * question, so no caller can drift from it (⚖ Liam 2026-09-13 sharing law;
+ * 2026-09-14 design D4). A recording is readable-because-shared when its OWN
+ * row is shared (`sharedAt != null`) AND this viewer holds
+ * `recordings.viewShared` WITHIN their store reach — reusing
+ * `canViewAllInStore` verbatim (never a second store compare, this file's own
+ * rule): the manager's window widens WHOSE recordings, never WHICH stores,
+ * exactly as `recordings.viewAll` already does.
+ */
+export function sharedWithViewer(opts: {
+  holdsViewShared: boolean
+  sharedAt: string | null
+  allowedStoreIds: readonly string[] | null
+  recordStoreId: string | null | undefined | 'unreadable'
+}): boolean {
+  const { holdsViewShared, sharedAt, allowedStoreIds, recordStoreId } = opts
+  return (
+    sharedAt != null &&
+    canViewAllInStore({ canViewAll: holdsViewShared, allowedStoreIds, recordStoreId })
+  )
 }
 
 /**

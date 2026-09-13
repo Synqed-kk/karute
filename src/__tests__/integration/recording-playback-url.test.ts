@@ -100,7 +100,17 @@ const KAR = {
     recording_session_id: SESSION,
   } as Record<string, unknown>,
 }
-const ROW = {
+/** D3/D4 sharing (⚖ Liam 2026-09-13; 2026-09-14 design): core #83's column,
+ *  absent by default — readSharedAt reads it as `unknown`. */
+type RowFixture = {
+  id: string
+  store_id: string | null
+  audio_storage_path: string | null
+  duration_seconds: number | null
+  status: string
+  shared_at?: string
+}
+const ROW: { current: RowFixture } = {
   current: {
     id: SESSION,
     store_id: null as string | null,
@@ -175,7 +185,7 @@ const req = (karuteId?: string) =>
 const mint = (actor: Partial<Parameters<typeof mintPlaybackUrlWithClient>[1]> = {}) =>
   mintPlaybackUrlWithClient(
     fakeClient as unknown as Parameters<typeof mintPlaybackUrlWithClient>[0],
-    { actorId: 'auth-user-1', staffId: 'auth-user-1', businessId: 'business-1', canViewAll: false, allowedStoreIds: null, source: 'web', ...actor },
+    { actorId: 'auth-user-1', staffId: 'auth-user-1', businessId: 'business-1', canViewAll: false, canViewShared: false, allowedStoreIds: null, source: 'web', ...actor },
     { karuteId: KARUTE_ID },
   )
 
@@ -450,6 +460,7 @@ describe('mintPlaybackUrlWithClient — the device’s object first, the rescue 
       karute_id: KARUTE_ID,
       ttl_s: 3600,
       rescued: false,
+      via: 'own',
       staff_id: 'auth-user-1',
     })
   })
@@ -466,6 +477,7 @@ describe('mintPlaybackUrlWithClient — the device’s object first, the rescue 
       karute_id: KARUTE_ID,
       ttl_s: 3600,
       rescued: true,
+      via: 'own',
       staff_id: 'auth-user-1',
     })
   })
@@ -619,6 +631,65 @@ describe('mintPlaybackUrlWithClient — ONE row per mint (claim 4)', () => {
       file: 'src/lib/recording/playback-url.ts',
       symbols: ['mintPlaybackUrlWithClient'],
     })
+  })
+})
+
+// D3/D4/D9 sharing (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design) — the
+// sound door's half: a SEPARATE floor from canViewAll, gated on the row's own
+// shared_at, clamped by store the same way, and never break-glass.
+describe('mintPlaybackUrlWithClient — recordings.viewShared (D3/D4/D9 sharing)', () => {
+  beforeEach(() => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff' }
+  })
+
+  it("a viewShared holder hears a SHARED colleague's take: audit row via:'shared', breakGlass:false", async () => {
+    ROW.current = { ...ROW.current, shared_at: '2026-09-14T00:00:00.000Z' }
+    const r = { current: undefined as unknown }
+    const lines = await auditLines(async () => {
+      r.current = await mint({ staffId: 'someone-else', canViewShared: true })
+    })
+    expect('url' in (r.current as object)).toBe(true)
+    const plays = lines.filter((l) => l.action === 'recording.play')
+    expect(plays).toHaveLength(1)
+    expect(plays[0]).toMatchObject({ break_glass: false })
+    expect(plays[0].detail).toMatchObject({ via: 'shared' })
+  })
+
+  it('a viewShared holder is FORBIDDEN on an unshared take', async () => {
+    const r = await mint({ staffId: 'someone-else', canViewShared: true })
+    expect(r).toEqual({ error: 'forbidden' })
+  })
+
+  it("the recorder's own listen carries via:'own'", async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1' } // her own take
+    const lines = await auditLines(() => mint())
+    const plays = lines.filter((l) => l.action === 'recording.play')
+    expect(plays[0].detail).toMatchObject({ via: 'own' })
+    expect(plays[0].break_glass).toBe(false)
+  })
+
+  it("viewAll listen carries via:'view_all', breakGlass:true (unchanged)", async () => {
+    const lines = await auditLines(() => mint({ staffId: 'someone-else', canViewAll: true }))
+    const plays = lines.filter((l) => l.action === 'recording.play')
+    expect(plays[0]).toMatchObject({ break_glass: true })
+    expect(plays[0].detail).toMatchObject({ via: 'view_all' })
+  })
+
+  it('viewShared is clamped by store like viewAll', async () => {
+    ROW.current = { ...ROW.current, shared_at: '2026-09-14T00:00:00.000Z' }
+    // KAR.current.store_id defaults to 'store-9' (top-of-file beforeEach).
+    const elsewhere = await mint({
+      staffId: 'someone-else',
+      canViewShared: true,
+      allowedStoreIds: ['store-a'],
+    })
+    expect(elsewhere).toEqual({ error: 'forbidden' })
+    const sameStore = await mint({
+      staffId: 'someone-else',
+      canViewShared: true,
+      allowedStoreIds: ['store-9'],
+    })
+    expect('url' in sameStore).toBe(true)
   })
 })
 

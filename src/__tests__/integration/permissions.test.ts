@@ -155,6 +155,28 @@ describe('RBAC permission model', () => {
     expect(effectiveCapabilities('owner', ['recordings.viewAll']).has('recordings.viewAll')).toBe(true)
   })
 
+  it('recordings.viewShared: owner + manager by preset, senior/practitioner/frontdesk/custom not; never implies recordings.viewAll', () => {
+    expect(new Set(ROLE_PRESETS.owner).has('recordings.viewShared')).toBe(true)
+    expect(new Set(ROLE_PRESETS.manager).has('recordings.viewShared')).toBe(true)
+    for (const role of ['senior', 'practitioner', 'frontdesk', 'custom'] as const) {
+      expect(new Set(ROLE_PRESETS[role]).has('recordings.viewShared')).toBe(false)
+    }
+    // A named grant on any non-owner role resolves as-is, and carries
+    // NOTHING beyond itself — ticking viewShared never smuggles in viewAll
+    // (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design D3/D12).
+    const granted = effectiveCapabilities('practitioner', [
+      ...presetCapabilities('practitioner'),
+      'recordings.viewShared',
+    ])
+    expect(granted.has('recordings.viewShared')).toBe(true)
+    expect(granted.has('recordings.viewAll')).toBe(false)
+    // No override → the preset. Owner and manager hold it (preset); the other
+    // roles' explicit allowlists never do.
+    expect(effectiveCapabilities('practitioner', null).has('recordings.viewShared')).toBe(false)
+    expect(effectiveCapabilities('manager', null).has('recordings.viewShared')).toBe(true)
+    expect(effectiveCapabilities('owner', null).has('recordings.viewShared')).toBe(true)
+  })
+
   it('a null override falls back to the role preset', () => {
     expect(effectiveCapabilities('practitioner', null)).toEqual(
       new Set(presetCapabilities('practitioner')),

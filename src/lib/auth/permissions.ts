@@ -42,6 +42,13 @@ export const CAPABILITIES = [
                        // (⚖ 9/3 council; the 7/16 recorder-private default
                        // stands; owner-only ADD enforced in actions/
                        // permissions.ts). AI summary + entries stay shared.
+  'recordings.viewShared', // play + read the recordings staff SHARED with
+                       // management (shared_at set on the row) — the manager's
+                       // window; owner + manager by preset; every other role
+                       // only by the OWNER's explicit per-person override
+                       // (owner-only ADD in actions/permissions.ts); NEVER
+                       // implies recordings.viewAll (⚖ Liam 2026-09-13 sharing
+                       // law; 2026-09-14 design).
   'analytics.viewAll', // whole-salon analytics / coaching (vs. own-only)
   'stores.viewAll',    // see EVERY store's karute + customers (vs. own store only).
                        // Without it, a staff member is clamped to their

@@ -77,6 +77,12 @@ export interface KaruteDetailViewProps {
    *  arriving here is already server-blanked (this component adds no
    *  additional hiding beyond the write controls). */
   contentWithheld?: boolean
+  /** D8 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): what the
+   *  transcript card's share control needs. Only `viaShare` is read by this
+   *  component in PR-A (the read side) — threaded straight to
+   *  RecordingTranscriptCard's subtitle line; `canShare`/`shared`/`sharedAt`
+   *  are for the share BUTTON, PR-B. Absent/null = today (no line). */
+  share?: { canShare: boolean; shared: boolean; sharedAt: string | null; viaShare: boolean } | null
 }
 
 export function KaruteDetailView({
@@ -102,6 +108,7 @@ export function KaruteDetailView({
   staffCanRegenerate,
   discarded,
   contentWithheld,
+  share,
 }: KaruteDetailViewProps) {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
@@ -216,6 +223,7 @@ export function KaruteDetailView({
             // null here when withheld, so the card renders nothing.
             restricted={transcriptRestricted && !discarded}
             recording={recording}
+            viaShare={share?.viaShare}
           />
           {/* Layer 1 staff-private coaching panel — renders null
            *  for owners (role gate inside the component). Currently
