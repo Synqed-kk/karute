@@ -63,6 +63,22 @@ export interface HonestLane {
   readonly held: readonly ReservedSpan[]
   /** Every room free for `held[i]` over its whole span, in key order. */
   readonly heldRooms: readonly (readonly string[])[]
+  /** ⚖ ROUND 2 (2026-09-13) — SPEC-R2 v4 amendment item 2 — THE WALK'S OWN
+   *  CHOICE for `held[i]`: the room `assign()` gave it, one of `heldRooms[i]`.
+   *
+   *  It is a TIE-BREAK and not a promise to a physical bed (see `assign`'s own
+   *  header), so nothing may READ it as 「this 枠 will be in this room」. It is
+   *  exported for exactly one caller — the bed-aware sales layer's witness exit
+   *  — which uses it to prove an offer is ON SALE without re-netting: the walk
+   *  already produced a legal assignment, so a room NO overlapping held 枠 was
+   *  given stays free with that room blocked, and every held 枠 is still held.
+   *  The witness can only prove 「on sale」 early; a 「withheld」 verdict still
+   *  needs the full search over every room, which is what keeps that layer's
+   *  answer assignment-INDEPENDENT.
+   *
+   *  `''` per held span on the identity path below (the gate off), where nobody
+   *  asked the book anything and there is no choice to report. */
+  readonly heldRoom: readonly string[]
   readonly shared: readonly SharedSpan[]
 }
 
@@ -104,6 +120,7 @@ function identity(candidates: readonly ReservedLaneMask[]): HonestHeld {
       laneKey: m.laneKey,
       held: m.spans,
       heldRooms: Object.freeze(m.spans.map(() => Object.freeze([] as string[]))),
+      heldRoom: Object.freeze(m.spans.map(() => '')),
       shared: Object.freeze([] as SharedSpan[]),
     })
   })
@@ -171,6 +188,7 @@ export function honestHeld(
   const byLane = candidates.map((m) => {
     const held: ReservedSpan[] = []
     const heldRooms: (readonly string[])[] = []
+    const heldRoom: string[] = []
     const shared: SharedSpan[] = []
     for (const span of m.spans) {
       const i = at.get(`${m.laneKey}|${span.windowStart}`)
@@ -179,6 +197,9 @@ export function honestHeld(
       if (c && taken !== null) {
         held.push(span)
         heldRooms.push(c.rooms)
+        // ⚖ ROUND 2 — the walk's CHOICE, beside the 枠's own free rooms. See
+        // `HonestLane.heldRoom`: a tie-break reported, never a promise.
+        heldRoom.push(taken)
         continue
       }
       const rooms = c?.rooms ?? []
@@ -208,6 +229,7 @@ export function honestHeld(
       laneKey: m.laneKey,
       held: Object.freeze(held),
       heldRooms: Object.freeze(heldRooms),
+      heldRoom: Object.freeze(heldRoom),
       shared: Object.freeze(shared),
     })
   })
