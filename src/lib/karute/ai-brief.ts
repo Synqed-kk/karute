@@ -315,7 +315,11 @@ async function computeAiPreSessionBrief(
       // v14: cautions = restrictions only — a liked intensity/style preference
       // is barred from the caution box (field bug 2026-07-15: 「強めの圧が好み」
       // rendered inside 注意（施術前に必ず） next to real safety facts).
-      v: 14,
+      // v15: non-clinical cautions now include 服用中の薬・手術歴・体内金属/医療機器
+      // (#905) — without the bump, up to 24h of cached briefs (1-day TTL,
+      // setCachedAI below) would keep serving the pre-#905 wording, missing
+      // exactly the safety facts that change exists to surface.
+      v: 15,
       c: customerId,
       // The prompt's opening line reads both (fleet round 7/25): a corrected
       // name or an incremented visit count (walk-ins bump it with no new
@@ -354,8 +358,14 @@ async function computeAiPreSessionBrief(
     }
 
     async function generate(): Promise<AiBrief> {
-      // De-bodywork (v9): the caution taxonomy and teaching examples follow
-      // the business's clinical posture — a nail salon never reads 体内金属.
+      // R7 repair (2026-09-13, F8 — ⚖ Liam 9/13 ruled, superseding the v9
+      // comment this replaces): known medications / surgery history /
+      // implanted devices ARE listed for every business type — the model
+      // ranks by relevance to the service. `clinical` still selects which
+      // TAXONOMY STRING and TEACHING EXAMPLE the prompt uses per business
+      // type (a nail salon's phrasing/framing still differs from a clinical
+      // one's), but it no longer withholds those safety facts from either
+      // branch — #905 put them in the non-clinical string too (below).
       const clinical = tok.clinicalPosture !== 'service'
       const cautionTaxonomy = clinical
         ? '既往歴・手術歴・体内金属・服用中の薬・アレルギー・痛がった箇所・強さの上限や禁止の指示（「強くしないで」等 — 「強めが好き」等の好みは注意ではない）・サービスへの不安'

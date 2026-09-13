@@ -60,8 +60,9 @@ describe('ai-brief memory block v12', () => {
     expect(SRC).not.toContain('if (memory.length === 0 && records.some')
   })
 
-  it('cache version bumped to 14', () => {
-    expect(SRC).toContain('v: 14,')
+  it('cache version bumped to 15 (R7 repair, 2026-09-13, F7 — #905 changed cautionTaxonomy and left v14)', () => {
+    expect(SRC).toContain('v: 15,')
+    expect(SRC).not.toContain('v: 14,')
   })
 
   // Field bug 2026-07-15: 「強めの圧が好み」 (a preference) rendered inside the
@@ -80,6 +81,18 @@ describe('ai-brief memory block v12', () => {
     expect(SRC).toContain(
       "'アレルギー・体質・服用中の薬・手術歴・体内金属や医療機器などサービスの安全性に関わる既往・過去のトラブルや悪い反応・嫌がったこと・サービスへの不安'",
     )
+  })
+
+  // R7 repair (2026-09-13, F8 — ⚖ Liam 9/13 ruled to KEEP #905's list, not
+  // revert it): the v9 comment three lines above `clinical` claimed "a nail
+  // salon never reads 体内金属" — exactly the opposite of what the code above
+  // now does (the non-clinical taxonomy string DOES carry 体内金属/医療機器).
+  // A stale comment that contradicts its own code is worse than none.
+  it('the stale v9 "a nail salon never reads 体内金属" comment is gone, replaced by the current ruling', () => {
+    expect(SRC).not.toContain('a nail salon never reads 体内金属')
+    expect(SRC).not.toContain('De-bodywork (v9)')
+    expect(SRC).toContain('ARE listed for every business type')
+    expect(SRC).toContain('⚖ Liam 9/13')
   })
 
   // Adversarial review on the bar itself: barred from cautions, a standing
