@@ -72,9 +72,17 @@ jest.mock('@/lib/customers/customer-detail-cached', () => ({
 }))
 jest.mock('@/components/karute/redesign/detail/KaruteDetailView', () => ({ KaruteDetailView: () => null }))
 jest.mock('@/components/karute/redesign/detail/PhotoRecordsServer', () => ({ PhotoRecordsServer: () => null }))
+// R8 fix round 1 (§1): jest.fn-wrapped so a discarded-record test can assert
+// these are never even referenced — belt-and-braces alongside the prop check,
+// which is the assertion that actually goes RED if the page-level gate is
+// reverted (this harness calls KaruteDetailPage directly and never runs a
+// React/Flight renderer over the returned tree, so a component passed as a
+// JSX prop is never invoked here regardless — see the prop-null test below).
+const aiBodyPredictionSlotMock = jest.fn((..._args: unknown[]) => null)
+const aiSuggestedMessageSlotMock = jest.fn((..._args: unknown[]) => null)
 jest.mock('@/components/karute/redesign/detail/AiInsightSlots', () => ({
-  AIBodyPredictionSlot: () => null,
-  AISuggestedMessageSlot: () => null,
+  AIBodyPredictionSlot: (...args: unknown[]) => aiBodyPredictionSlotMock(...args),
+  AISuggestedMessageSlot: (...args: unknown[]) => aiSuggestedMessageSlotMock(...args),
 }))
 jest.mock('@/components/customers/redesign/profile/UpcomingAiFeatures', () => ({
   AIBodyPredictionPreview: () => null,
@@ -615,5 +623,48 @@ describe('KaruteDetailPage — staffCanRegenerate (hide, never show-and-refuse)'
     grantedCaps.current = new Set()
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
     expect(built().staffCanRegenerate).toBe(false)
+  })
+})
+
+// ── R8 fix round 1 (LENS §1, HIGH) — the WEB AI slots must be GATED AT THE
+// PAGE for a discarded record, the same pattern as photosSlot: the element is
+// never CREATED, not merely hidden by the client's `{!discarded && …}`. A
+// Server Component element handed as a prop into KaruteDetailView ('use
+// client') is executed by the Flight renderer during prop serialization
+// whether or not the client renders it — a live-only hide in the view leaks
+// the AI draft (and its cache/audit writes) into the page payload for a
+// discardView holder who must see facts only, never content.
+describe('KaruteDetailPage — discarded records never create the AI slots (R8 fix round 1, §1)', () => {
+  it('a DISCARDED record: bodyPredictionSlot and suggestedMessageSlot are never created (null, not a Suspense-wrapped element)', async () => {
+    buildSpy.mockReturnValue({
+      karuteId: 'k-1',
+      customerId: 'cust-9',
+      transcript: null,
+      header: { customerName: 'テスト 太郎' },
+      summary: null,
+      discarded: true,
+    } as never)
+    const props = await viewPropsFromPage()
+    expect(props.bodyPredictionSlot).toBeNull()
+    expect(props.suggestedMessageSlot).toBeNull()
+    // Belt and braces (see the mock comment above for why this is trivially
+    // true in this direct-call harness either way): the components are not
+    // even referenced.
+    expect(aiBodyPredictionSlotMock).not.toHaveBeenCalled()
+    expect(aiSuggestedMessageSlotMock).not.toHaveBeenCalled()
+  })
+
+  it('…and a LIVE record still creates both slots as before (regression pin)', async () => {
+    buildSpy.mockReturnValue({
+      karuteId: 'k-1',
+      customerId: 'cust-9',
+      transcript: null,
+      header: { customerName: 'テスト 太郎' },
+      summary: null,
+      discarded: false,
+    } as never)
+    const props = await viewPropsFromPage()
+    expect(props.bodyPredictionSlot).not.toBeNull()
+    expect(props.suggestedMessageSlot).not.toBeNull()
   })
 })

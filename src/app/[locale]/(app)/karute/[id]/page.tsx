@@ -331,7 +331,12 @@ export default async function KaruteDetailPage({
       }
       memory={null}
       bodyPredictionSlot={
-        customerId ? (
+        // R8 fix round 1 (§1): a discarded record must never have this
+        // Server Component element CREATED — it is handed as a prop to the
+        // 'use client' KaruteDetailView and the Flight renderer executes it
+        // (and its cache/audit writes) regardless of the client's own
+        // {!discarded && …} guard. Gate here, the same pattern as photosSlot.
+        built.discarded ? null : customerId ? (
           <Suspense fallback={<AIBodyPredictionPreview />}>
             <AIBodyPredictionSlot customerId={customerId} locale={locale} />
           </Suspense>
@@ -340,17 +345,20 @@ export default async function KaruteDetailPage({
         )
       }
       suggestedMessageSlot={
-        <Suspense fallback={<AIOutreachPreview />}>
-          <AISuggestedMessageSlot
-            karuteId={id}
-            customerId={customerId}
-            customerName={built.header.customerName}
-            summary={karute.summary ?? null}
-            locale={locale}
-            appointmentId={karute.appointment_id ?? null}
-            storeId={karute.store_id ?? null}
-          />
-        </Suspense>
+        // R8 fix round 1 (§1): same reasoning as bodyPredictionSlot above.
+        built.discarded ? null : (
+          <Suspense fallback={<AIOutreachPreview />}>
+            <AISuggestedMessageSlot
+              karuteId={id}
+              customerId={customerId}
+              customerName={built.header.customerName}
+              summary={karute.summary ?? null}
+              locale={locale}
+              appointmentId={karute.appointment_id ?? null}
+              storeId={karute.store_id ?? null}
+            />
+          </Suspense>
+        )
       }
     />
     </>
