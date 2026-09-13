@@ -50,6 +50,9 @@ export const GET = facadeHandler('recordings.playbackUrl', async (ctx) => {
 
   const synqed = newSynqedClient(businessId)
   const canViewAll = ctx.identity.capabilities.has('recordings.viewAll')
+  // D3/D4 sharing (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): a
+  // SEPARATE floor, never widened by canViewAll.
+  const canViewShared = ctx.identity.capabilities.has('recordings.viewShared')
 
   const result = await mintPlaybackUrlWithClient(
     synqed,
@@ -60,10 +63,12 @@ export const GET = facadeHandler('recordings.playbackUrl', async (ctx) => {
       staffId,
       businessId,
       canViewAll,
+      canViewShared,
       // The grant widens WHOSE recordings, never WHICH stores (⚖ 8/17 store
-      // isolation; Greptile #848 point 2). Resolved ONLY for a viewAll caller,
-      // and a failed assignment read arrives as [] — fail closed, never widened.
-      allowedStoreIds: canViewAll
+      // isolation; Greptile #848 point 2). Resolved when EITHER named-grant
+      // floor is held (D3/D4), and a failed assignment read arrives as [] —
+      // fail closed, never widened.
+      allowedStoreIds: canViewAll || canViewShared
         ? await viewerAllowedStoreIds({
             synqed,
             authUserId: ctx.identity.authUserId,

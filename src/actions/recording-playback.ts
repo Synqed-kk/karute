@@ -21,10 +21,11 @@ import { mintPlaybackUrlWithClient } from '@/lib/recording/playback-url'
 /** The viewer's store assignment for the recording ACL, web transport. `null` =
  *  unrestricted (`stores.viewAll` or floating staff); `[]` = we could not read
  *  it, which the ACL fails closed on — never widened into "every store"
- *  (⚖ 8/17 store isolation). Resolved ONLY when it can matter, so an assignment
- *  blip can never cost a recorder her own take. */
-async function viewerAllowedStoreIds(canViewAll: boolean): Promise<readonly string[] | null> {
-  if (!canViewAll) return null
+ *  (⚖ 8/17 store isolation). Resolved ONLY when it can matter (`recordings.
+ *  viewAll` OR `recordings.viewShared`, D3/D4 sharing), so an assignment blip
+ *  can never cost a recorder her own take. */
+async function viewerAllowedStoreIds(needsStoreCheck: boolean): Promise<readonly string[] | null> {
+  if (!needsStoreCheck) return null
   try {
     const scope = await resolveStoreScope()
     return scope.degraded ? [] : scope.allowedStoreIds
@@ -52,7 +53,7 @@ export async function mintRecordingPlaybackUrl(
   }
 
   try {
-    const [businessId, actorId, staffId, canViewAll] = await Promise.all([
+    const [businessId, actorId, staffId, canViewAll, canViewShared] = await Promise.all([
       getBusinessId(),
       // WHO is asking, vs WHICH roster identity the ACL compares — always both.
       resolveUserId(),
@@ -61,6 +62,10 @@ export async function mintRecordingPlaybackUrl(
       // grantable per person by the owner only — and nothing else (fix round 2).
       // The viewer's STORE reach narrows it below (⚖ 8/17); nothing widens it.
       can('recordings.viewAll'),
+      // D3/D4 sharing (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): a
+      // SEPARATE floor, never widened by canViewAll — the body only admits it
+      // against a row its own staffer actually shared.
+      can('recordings.viewShared'),
     ])
     if (!businessId) return { ok: false, error: 'forbidden' }
 
@@ -71,10 +76,12 @@ export async function mintRecordingPlaybackUrl(
         staffId,
         businessId,
         canViewAll,
+        canViewShared,
         // The grant widens WHOSE recordings, never WHICH stores (⚖ 8/17;
         // Greptile #848 point 2) — the door compares this against the row's own
         // store_id, and a recorder's own take never reaches that branch.
-        allowedStoreIds: await viewerAllowedStoreIds(canViewAll),
+        // Resolved when EITHER named-grant floor is held (D3/D4).
+        allowedStoreIds: await viewerAllowedStoreIds(canViewAll || canViewShared),
         source: 'web',
       },
       { karuteId },

@@ -34,8 +34,10 @@ import {
   canViewTranscript,
   ownerHandReach,
   readDoorStoreId,
+  sharedWithViewer,
 } from '@/lib/auth/recording-acl'
 import { statusOf } from '@/lib/recording/take-binding'
+import { readSharedAt } from '@/lib/recording/share-columns'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
@@ -145,6 +147,8 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     const holdsRecordingsViewAll = ctx.identity.capabilities.has('recordings.viewAll')
     // R8 discarded-record door (⚖ Liam 2026-09-13).
     const holdsDiscardView = ctx.identity.capabilities.has('records.discardView')
+    // D3/D4 sharing (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design).
+    const holdsViewShared = ctx.identity.capabilities.has('recordings.viewShared')
 
     const customerName = customerId
       ? allCustomers.customers.find((c) => c.id === customerId)?.name ?? null
@@ -164,8 +168,10 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
     // Widened for R8 (⚖ Liam 2026-09-13): a discardView-only caller pays for
     // this resolution too — the discard door's store isolation reuses this
-    // exact scope (A3). A caller holding neither key still pays nothing.
-    const allowedStoreIds = holdsRecordingsViewAll || holdsDiscardView
+    // exact scope (A3). Widened again for D3/D4 sharing (⚖ 2026-09-14 design):
+    // a viewShared-only caller needs the same scope for sharedWithViewer's
+    // store clamp. A caller holding none of the three still pays nothing.
+    const allowedStoreIds = holdsRecordingsViewAll || holdsDiscardView || holdsViewShared
         ? await viewerAllowedStoreIds({
             synqed,
             authUserId: ctx.identity.authUserId,
@@ -181,6 +187,16 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     // show-and-refuse, nor open where the row knows better.
     const canViewAllRecordings = canViewAllInStore({
       canViewAll: holdsRecordingsViewAll,
+      allowedStoreIds,
+      recordStoreId: readDoorStoreId(karute, recordingRead),
+    })
+    // D3/D4 sharing: the row already fetched above, read through the SDK-1.34
+    // trust boundary — 'unreadable' reads as no shared_at (readSharedAt only
+    // accepts an object with a genuine string field).
+    const sharedAt = readSharedAt(recordingRead)
+    const sharedWith = sharedWithViewer({
+      holdsViewShared,
+      sharedAt,
       allowedStoreIds,
       recordStoreId: readDoorStoreId(karute, recordingRead),
     })
@@ -254,6 +270,8 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       outcome: outcomeForClient,
       viewerStaffId,
       canViewAllRecordings,
+      sharedWith,
+      sharedAt,
       recordingRow,
       businessId,
       staffCanReassignRecords: ctx.identity.capabilities.has('records.reassign'),

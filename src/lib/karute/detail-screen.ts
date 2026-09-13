@@ -114,6 +114,14 @@ export interface KaruteDetailScreen {
    *  transcriptRestricted true, recording null (photos [] — screen-level,
    *  outside this builder). */
   contentWithheld: boolean
+  /** D8 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): what the
+   *  transcript card's share control needs. null when the karute has no
+   *  recording row (nothing to share). canShare = this viewer is the
+   *  record's own staffer, the record is live, and a recording exists;
+   *  shared = the row IS shared (sharedAt != null); viaShare = this viewer
+   *  sees the content ONLY because of the share (not the owner, not a
+   *  viewAll holder, sharedWith true). */
+  share: { canShare: boolean; shared: boolean; sharedAt: string | null; viaShare: boolean } | null
 }
 
 /** The discarded-record door's facts block (A6). Non-null exactly when the
@@ -138,6 +146,15 @@ export interface BuildKaruteDetailScreenArgs {
   /** Recording-privacy ACL inputs (#4). */
   viewerStaffId: string | null
   canViewAllRecordings: boolean
+  /** D3/D4 (⚖ Liam 2026-09-13 sharing law): whether THIS viewer may see the
+   *  content of a SHARED recording — computed by the caller with
+   *  sharedWithViewer() (recordings.viewShared ∧ sharedAt != null ∧
+   *  store-reachable). */
+  sharedWith: boolean
+  /** The row's shared_at, read by the caller via readSharedAt() — feeds the
+   *  screen's `share` block (D8) verbatim; null = never shared, or the
+   *  recording row could not be read. */
+  sharedAt: string | null
   /** The core recording row behind this karute's session, or null when there is
    *  no session id, the row is gone, or the read FAILED (D-8: an accessory read
    *  that blipped costs the player, never the karute). The CALLER fetches — this
@@ -189,6 +206,8 @@ export function buildKaruteDetailScreen(
     outcome,
     viewerStaffId,
     canViewAllRecordings,
+    sharedWith,
+    sharedAt,
     recordingRow,
     businessId,
     staffCanReassignRecords,
@@ -217,8 +236,10 @@ export function buildKaruteDetailScreen(
   // A4: the withhold predicate is deliberately NOT canViewTranscript — its
   // "no owner = shared" branch would hand a manager the content of an
   // OWNERLESS discarded record, and ⚖ says never the content (the stricter
-  // side of the ruling).
-  const contentWithheld = isDiscarded && !isOwnRecord && !canViewAllRecordings
+  // side of the ruling). ⚖ Liam 9/13 "shared-with = as shared": a viewer who
+  // may read this recording because it was SHARED sees a discarded record's
+  // content exactly as the owner/viewAll branches already do.
+  const contentWithheld = isDiscarded && !isOwnRecord && !canViewAllRecordings && !sharedWith
 
   // Recording privacy (#4): the raw transcript is private to the recording
   // staffer — only they (or a recordings.viewAll role) see the text. A record
@@ -231,6 +252,7 @@ export function buildKaruteDetailScreen(
     ownerStaffId,
     viewerStaffId,
     canViewAll: canViewAllRecordings,
+    sharedWith,
   })
   const visibleTranscript = canSeeTranscript ? transcript : null
   const transcriptRestricted = !canSeeTranscript && Boolean(transcript)
@@ -269,6 +291,21 @@ export function buildKaruteDetailScreen(
           status: recordingRow.status,
         }
       : null
+
+  // D8: the transcript card's share control. null when there is no recording
+  // row at all (nothing to share). canShare is the record's OWN staffer's
+  // question — hers to press, on a LIVE record only (⚖ Liam 9/13: nobody
+  // consents on her behalf, and a discarded record has no card to press it
+  // from). viaShare answers "why can THIS viewer read it" — true only when
+  // the share is the REASON, not a coincidence alongside ownership/viewAll.
+  const share = recordingRow
+    ? {
+        canShare: isOwnRecord && !isDiscarded,
+        shared: sharedAt != null,
+        sharedAt,
+        viaShare: !isOwnRecord && !canViewAllRecordings && sharedWith,
+      }
+    : null
 
   // Sequential per-tenant number from the shared customer list — matches the
   // karute list and customer profile (#00007).
@@ -352,5 +389,6 @@ export function buildKaruteDetailScreen(
         }
       : null,
     contentWithheld,
+    share,
   }
 }

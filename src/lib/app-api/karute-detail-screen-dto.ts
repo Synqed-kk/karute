@@ -105,6 +105,17 @@ const DiscardedSchema = z.object({
   durationSeconds: z.number().nullable(),
 })
 
+// D8 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): what the transcript
+// card's share control needs. canShare/shared/viaShare are server-decided
+// exactly like `transcriptRestricted` above, so the phone and the web page
+// can never derive a different answer from the same raw wave.
+const ShareSchema = z.object({
+  canShare: z.boolean(),
+  shared: z.boolean(),
+  sharedAt: z.string().nullable(),
+  viaShare: z.boolean(),
+})
+
 export const KaruteDetailScreenDTO = z.object({
   karuteId: z.string(),
   customerId: z.string().nullable(),
@@ -159,6 +170,11 @@ export const KaruteDetailScreenDTO = z.object({
   /** True when this viewer sees the facts but not the content (A4).
    *  `.optional()` for the same compat reason. */
   contentWithheld: z.boolean().optional(),
+  /** D8: null when the karute has no recording row (nothing to share).
+   *  `.nullable().optional()` for the same compat reason as `recording`
+   *  above — a cached facade payload minted before this field existed must
+   *  still parse. */
+  share: ShareSchema.nullable().optional(),
 })
 
 export type KaruteDetailScreenDTOType = z.infer<typeof KaruteDetailScreenDTO>

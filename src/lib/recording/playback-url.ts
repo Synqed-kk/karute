@@ -61,8 +61,14 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
-import { canViewAllInStore, canViewTranscript, readDoorStoreId } from '@/lib/auth/recording-acl'
+import {
+  canViewAllInStore,
+  canViewTranscript,
+  readDoorStoreId,
+  sharedWithViewer,
+} from '@/lib/auth/recording-acl'
 import { parseRecordingKey } from '@/lib/recording/key-grammar'
+import { readSharedAt } from '@/lib/recording/share-columns'
 import { resolveTakeAudio } from '@/lib/recording/take-audio'
 import { serverHoldsTakeRow } from '@/lib/recording/take-binding'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -94,6 +100,12 @@ export interface PlaybackActor {
    *  person by the owner only — still ONE capability, still the whole floor).
    *  Silently, per ⚖ 9/3 — no staff ping, no sentence. */
   canViewAll: boolean
+  /** `recordings.viewShared` — whether this viewer may hear/read a take on a
+   *  row its OWN staffer shared (⚖ Liam 2026-09-13 sharing law; 2026-09-14
+   *  design D3/D4). A separate capability from `canViewAll`, never widened by
+   *  it: `sharedWithViewer` reads it only against a row whose shared_at is
+   *  actually set. */
+  canViewShared: boolean
   /** The stores this viewer is assigned to, or null when unrestricted
    *  (`stores.viewAll`, or floating staff). The CALLER resolves it — web via
    *  resolveStoreScope, facade via resolveStoreForRequest — and a degraded
@@ -203,15 +215,30 @@ export async function mintPlaybackUrlWithClient(
   //    Because all three doors take the same input, they cannot disagree about
   //    one karute: no show-and-refuse (the page's own rule), and no door open
   //    where its sibling is shut.
+  //
+  //    D3/D4 sharing (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): the
+  //    SAME store id feeds `sharedWithViewer` — the manager's window widens
+  //    WHOSE recordings, never WHICH stores, exactly like the viewAll branch
+  //    above it. Both booleans are named here (not inlined) because the audit
+  //    row below (claim 4) needs to know WHICH branch let this listen through.
+  const recordStoreId = readDoorStoreId(karute, row)
+  const canViewAllHere = canViewAllInStore({
+    canViewAll: actor.canViewAll,
+    allowedStoreIds: actor.allowedStoreIds,
+    recordStoreId,
+  })
+  const sharedWithHere = sharedWithViewer({
+    holdsViewShared: actor.canViewShared,
+    sharedAt: readSharedAt(row),
+    allowedStoreIds: actor.allowedStoreIds,
+    recordStoreId,
+  })
   if (
     !canViewTranscript({
       ownerStaffId,
       viewerStaffId: actor.staffId,
-      canViewAll: canViewAllInStore({
-        canViewAll: actor.canViewAll,
-        allowedStoreIds: actor.allowedStoreIds,
-        recordStoreId: readDoorStoreId(karute, row),
-      }),
+      canViewAll: canViewAllHere,
+      sharedWith: sharedWithHere,
     })
   ) {
     return { error: 'forbidden' }
@@ -295,6 +322,25 @@ export async function mintPlaybackUrlWithClient(
   // 7. ONE ROW PER MINT (claim 4). Legal hygiene, never a notification: an
   //    owner listening to a staffer's take is `breakGlass`, and nobody is told.
   //    ⚖ 8/17 doc law keeps content out of details — ids and the TTL only.
+  //
+  //    D9 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): `via` says WHICH
+  //    branch of the ACL let this listen through — 'own' when the row is the
+  //    recorder's (or ownerless, D-14's shared answer), 'view_all' when the
+  //    named grant admitted a non-recorder, else the ACL could only have
+  //    passed via `sharedWithHere` above, so 'shared'. `breakGlass` is now
+  //    keyed on `via` instead of the raw owner compare: a SHARED listen is
+  //    consented, not privileged, and must never break-glass; a bare owner
+  //    compare could not tell it apart from the viewAll branch it used to
+  //    stand in for exclusively. Every pre-existing row is untouched — before
+  //    this PR the only way a non-owner passed the ACL was `canViewAllHere`,
+  //    so `via` can only be 'own' or 'view_all' for any listen that predates
+  //    sharing, exactly what the old expression already computed.
+  const isOwnListen = ownerStaffId === null || ownerStaffId === actor.staffId
+  const via: 'own' | 'view_all' | 'shared' = isOwnListen
+    ? 'own'
+    : canViewAllHere
+      ? 'view_all'
+      : 'shared'
   audit({
     category: 'recording',
     action: 'recording.play',
@@ -310,7 +356,7 @@ export async function mintPlaybackUrlWithClient(
     targetType: 'recording',
     targetId: row.id,
     severity: 'notice',
-    breakGlass: ownerStaffId !== null && ownerStaffId !== actor.staffId,
+    breakGlass: via === 'view_all',
     // ⚖ ONE FLAG, NO KEY (8/17 doc law: ids, numbers and flags). `rescued`
     // says the bytes signed were the nightly job's rebuild rather than the
     // device's own take — which is what makes a shorter-than-expected listen
@@ -319,6 +365,7 @@ export async function mintPlaybackUrlWithClient(
       karute_id: input.karuteId,
       ttl_s: PLAYBACK_URL_TTL_S,
       rescued: resolved.rescued,
+      via,
       // customer_id/staff_id (2026-09-10 widen, §v2): off the karute row
       // already fetched above — never a second lookup. staff_id is the
       // TRANSLATED owner id (ownerStaffId, same id space the ACL compare and

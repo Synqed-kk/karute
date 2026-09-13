@@ -28,8 +28,10 @@ import {
   canViewTranscript,
   ownerHandReach,
   readDoorStoreId,
+  sharedWithViewer,
 } from '@/lib/auth/recording-acl'
 import { statusOf } from '@/lib/recording/take-binding'
+import { readSharedAt } from '@/lib/recording/share-columns'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { listAllCustomers } from '@/lib/customers/list-all'
@@ -62,6 +64,7 @@ export default async function KaruteDetailPage({
     businessId,
     capabilities,
     holdsDiscardView,
+    holdsViewShared,
   ] = await Promise.all([
     getKaruteRecordIncludingDiscarded(id),
     // Page to completion so the karute number resolves for an overflow customer.
@@ -95,6 +98,9 @@ export default async function KaruteDetailPage({
     // beside can('records.reassign') so the discard-door decision below costs
     // no extra round-trip (cold-read F2).
     can('records.discardView'),
+    // D3/D4 sharing (⚖ Liam 2026-09-13; 2026-09-14 design): joins the FIRST
+    // wave for the same reason — independent of the karute, no extra hop.
+    can('recordings.viewShared'),
   ])
   if (!karute) notFound()
 
@@ -222,6 +228,17 @@ export default async function KaruteDetailPage({
     recordStoreId: readDoorStoreId(karute, recordingRead),
   })
 
+  // D3/D4 sharing (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): the row
+  // already fetched above, read through the SDK-1.34 trust boundary — the
+  // 'unreadable' sentinel reads as no shared_at, same posture as the player.
+  const sharedAt = readSharedAt(recordingRead)
+  const sharedWith = sharedWithViewer({
+    holdsViewShared,
+    sharedAt,
+    allowedStoreIds,
+    recordStoreId: readDoorStoreId(karute, recordingRead),
+  })
+
   // ⚠ HIDE, NEVER SHOW-AND-REFUSE (⚖ 9/3 named grant; fix round 4). The READ is
   // `recordings.viewAll`; the ACT — rewriting a colleague's record — is the
   // owner's two keys. This is the SERVER'S OWN expression, character for
@@ -260,6 +277,8 @@ export default async function KaruteDetailPage({
     outcome,
     viewerStaffId,
     canViewAllRecordings,
+    sharedWith,
+    sharedAt,
     recordingRow,
     businessId,
     staffCanReassignRecords: canReassign,

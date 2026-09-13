@@ -25,6 +25,8 @@ const baseArgs: BuildKaruteDetailScreenArgs = {
   outcome: null,
   viewerStaffId: null,
   canViewAllRecordings: false,
+  sharedWith: false,
+  sharedAt: null,
   recordingRow: null,
   businessId: 'biz-1',
   staffCanReassignRecords: false,
