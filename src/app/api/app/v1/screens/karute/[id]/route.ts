@@ -40,6 +40,7 @@ import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { scopeKarutePhotos } from '@/lib/karute/scoped-photos'
+import { resolveDiscardFacts } from '@/actions/recording-discards'
 
 // Node runtime: the synqed SDK + node:crypto verifier are server-only.
 export const runtime = 'nodejs'
@@ -214,6 +215,17 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       }
     }
 
+    // R8 (A6/A7): the facts block's own reads — ONLY for an allowed
+    // discarded record (never for a live one; never for a refused viewer,
+    // which already threw above).
+    const discardFacts =
+      karute.status === 'DISCARDED'
+        ? await resolveDiscardFacts(synqed, businessId, {
+            recordingSessionId: karute.recording_session_id,
+            recordStaffId: ownerProfileId,
+          })
+        : { discardLedger: null, recordStaffName: null }
+
     // Merge→shell-update window gate (#689 P1). Fielded shells (iOS ≤4.6,
     // Android ≤code 12) parse this screen with a BAKED strict outcome enum
     // that predates 'revisit' — one such row hard-fails their ENTIRE detail
@@ -271,17 +283,23 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       consentResult: consent ? { consent: consent.consent ?? null } : null,
       customer,
       locale,
+      discardLedger: discardFacts.discardLedger,
+      recordStaffName: discardFacts.recordStaffName,
     })
 
     // Karute-scoped display (packet PR 9a): the screens facade must not leak
     // the customer's whole photo gallery onto a single karute — same rule as
     // the web page (PhotoRecordsServer), shared via scopeKarutePhotos.
-    const photos = scopeKarutePhotos(photoRows, karute.recording_session_id).map((p) => ({
-      id: p.id,
-      signedUrl: p.signed_url,
-      category: p.category,
-      caption: p.caption,
-    }))
+    // R8 (A4/A5): photos are CONTENT — withheld exactly like every other
+    // content field when this viewer may see the facts but not the content.
+    const photos = built.contentWithheld
+      ? []
+      : scopeKarutePhotos(photoRows, karute.recording_session_id).map((p) => ({
+          id: p.id,
+          signedUrl: p.signed_url,
+          category: p.category,
+          caption: p.caption,
+        }))
 
     const dto = KaruteDetailScreenDTO.parse({ ...built, photos, viewerRole })
     // karute.view audit detail (Wave V, canon's transcriptShown mandate): the

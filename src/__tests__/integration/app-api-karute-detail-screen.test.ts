@@ -51,6 +51,14 @@ jest.mock('@/lib/auth/require-permission', () => ({
   capabilitiesForUser: jest.fn(async () => capabilities.current),
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
 }))
+// R8 discarded-record door: resolveDiscardFacts (actions/recording-discards)
+// reads the card roster for name resolution via the REAL staff-map.ts
+// (synqedStaffCardsForBusiness / staffNameByIdAcrossCardsAndProfiles) — no
+// mock needed here: @synqed-kk/client is already mocked below
+// (synqedStaffRoster), which is the only thing staff-map.ts's card read
+// touches, and lookupProfileIdForSynqedStaffIdForBusiness (the pre-existing
+// owner-translation tests further down) already exercises the real module
+// unmocked, so a staff-map mock here would silently break those.
 
 // Raw synqed karute record. staff_id drives the recording-privacy ACL.
 // recording_session_id: 'sess-1' on both the karute and the default photo
@@ -116,6 +124,18 @@ const rawKaruteFetch = jest.fn(async (path: string) => {
   if (DISCARDED_KAR.current && id === DISCARDED_KAR.current.id) return DISCARDED_KAR.current
   throw Object.assign(new Error('nope'), { status: 404 })
 })
+// R8 discarded-record door — the ledger read behind the facts block.
+// Default: empty (no STAFF discard events), so every pre-existing test above
+// (never discarded) is unaffected — resolveDiscardFacts only calls this when
+// karute.status === 'DISCARDED'.
+const recordingDiscardsList = jest.fn(async () => ({ events: [] as Array<{
+  id: string
+  recording_session_id: string
+  source: 'STAFF' | 'SYSTEM'
+  discarded_by: string | null
+  reason: string | null
+  created_at: string
+}> }))
 const fakeClient = {
   karuteRecords: { get: (id: string) => karuteGet(id) },
   customers: { getConsent, listPhotos },
@@ -124,6 +144,7 @@ const fakeClient = {
   staffStores: { get: (id: string) => staffStoresGet(id) },
   stores: { get: jest.fn(async () => ({ id: 'store-b' })) },
   fetch: (path: string) => rawKaruteFetch(path),
+  recordingDiscards: { list: () => recordingDiscardsList() },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -1064,5 +1085,178 @@ describe('R8 discarded-record door — access (piece 3)', () => {
   it('a LIVE (non-discarded) record is completely unaffected — 200, unchanged', async () => {
     const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
     expect(res.status).toBe(200)
+  })
+})
+
+// R8 discarded-record door — CONTENT shape (piece 4). Builds on the access
+// tests above; every case here is already confirmed to open (200).
+describe('R8 discarded-record door — content (piece 4)', () => {
+  const DISCARDED_UUID = '00000000-0000-4000-8000-000000000099'
+
+  beforeEach(() => {
+    DISCARDED_KAR.current = {
+      id: DISCARDED_UUID,
+      created_at: '2026-06-01T03:00:00Z',
+      ai_summary: '・肩こり改善傾向',
+      transcript: 'RAW TRANSCRIPT TEXT',
+      business_id: 'business-1',
+      customer_id: 'cust-1',
+      staff_id: 'other-staff',
+      recording_session_id: 'sess-1',
+      status: 'DISCARDED',
+      entries: [
+        {
+          id: 'e1',
+          category: 'SYMPTOM',
+          content: '肩こり',
+          original_quote: null,
+          confidence: 0.9,
+          is_manual: false,
+          created_at: '2026-06-01T03:05:00Z',
+        },
+      ],
+    }
+    recordingDiscardsList.mockResolvedValue({
+      events: [
+        {
+          id: 'discard-1',
+          recording_session_id: 'sess-1',
+          source: 'STAFF',
+          discarded_by: 'other-staff',
+          reason: 'テスト理由',
+          created_at: '2026-06-02T00:00:00Z',
+        },
+      ],
+    })
+  })
+
+  const openDiscarded = () => GET(req({ headers: auth }), routeFor(DISCARDED_UUID))
+
+  it('a records.discardView holder, unrestricted, gets facts + reason present, EVERY content field withheld (assert each)', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.discarded.reason).toBe('テスト理由')
+    expect(dto.discarded.durationSeconds).toBe(742)
+    expect(dto.contentWithheld).toBe(true)
+    // Every content field, individually — A4/A11.
+    expect(dto.summaryBullets).toEqual([])
+    expect(dto.summaryRaw).toBeNull()
+    expect(dto.entries).toEqual([])
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+    expect(dto.photos).toEqual([])
+  })
+
+  it('the record’s OWN staffer sees the FULL content, no capability needed', async () => {
+    DISCARDED_KAR.current = { ...DISCARDED_KAR.current, staff_id: 'auth-user-1' }
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.contentWithheld).toBe(false)
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.entries.length).toBe(1)
+    expect(dto.summaryBullets.length).toBeGreaterThan(0)
+  })
+
+  it('a discardView holder who ALSO holds recordings.viewAll sees content too — recordings.viewAll alone cannot even OPEN the door (canOpenDiscardedRecord needs discardView or ownership)', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView', 'recordings.viewAll'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.contentWithheld).toBe(false)
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  it('recordings.viewAll ALONE (no discardView, not the owner) still gets the SAME 404 — content ACL never substitutes for the door', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    const res = await openDiscarded()
+    expect(res.status).toBe(404)
+  })
+
+  it('discardView+viewAll: staffCanReassignRecords/staffCanRegenerate are STILL false — read-only for everyone (A5)', async () => {
+    capabilities.current = new Set([
+      'customers.view', 'records.discardView', 'recordings.viewAll', 'records.write', 'records.reassign',
+    ])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.staffCanReassignRecords).toBe(false)
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  it('an OWNERLESS discarded record + manager (discardView) → withheld — never canViewTranscript’s "shared" branch (A4)', async () => {
+    DISCARDED_KAR.current = { ...DISCARDED_KAR.current, staff_id: null }
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.contentWithheld).toBe(true)
+    expect(dto.transcript).toBeNull()
+    expect(dto.summaryBullets).toEqual([])
+  })
+
+  it('a ledger read throw degrades discarded fields to null — the screen still opens, 200', async () => {
+    recordingDiscardsList.mockRejectedValueOnce(new Error('core down'))
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.discarded.reason).toBeNull()
+    expect(dto.discarded.discardedByName).toBeNull()
+  })
+
+  it('a LIVE record’s DTO carries discarded:null, contentWithheld:false — additive-only, everything else unchanged', async () => {
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    const dto = await res.json()
+    expect(dto.discarded).toBeNull()
+    expect(dto.contentWithheld).toBe(false)
+    expect(dto.transcript).toBeNull() // unrelated ACL case, unchanged from its own pre-existing tests
+  })
+
+  it('the DTO parses fine with the new keys present, and (via KaruteDetailScreenDTO.parse directly) with them absent — rollback compat', () => {
+    const legacy = { ...({} as Record<string, unknown>) }
+    // A pre-PR server payload simply omits discarded/contentWithheld.
+    const minimal = {
+      karuteId: 'k1',
+      customerId: null,
+      outcome: null,
+      header: {
+        customerName: 'x', initials: 'x', karuteNumber: '#1', service: null,
+        sessionDateLong: 'x', staffName: null, phone: null, email: null,
+        age: null, gender: null, visitNumber: null, lastVisitDate: null,
+      },
+      sessionDateLong: 'x',
+      sessionDateIso: null,
+      entries: [],
+      summaryBullets: [],
+      transcript: null,
+      consentOnFile: false,
+      transcriptDurationLabel: null,
+      transcriptRestricted: false,
+      photos: [],
+      viewerRole: 'staff',
+      ...legacy,
+    }
+    const parsed = KaruteDetailScreenDTO.parse(minimal)
+    expect(parsed.discarded).toBeUndefined()
+    expect(parsed.contentWithheld).toBeUndefined()
+  })
+
+  // facade-audit.test.ts's karute.read/transcript_shown pin (cold-read §12)
+  // exercises the hook mechanism via a synthetic handler; this is the REAL
+  // route proving the same field for a withheld discarded open — an allowed,
+  // audited VIEW (not suppressed like a refused/404 open), whose
+  // transcript_shown is false because the content is withheld, not absent.
+  it('an allowed discarded open still emits karute.view, with transcript_shown:false (withheld, same field the live-record ACL cases already pin)', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const lines = await auditLines(async () => {
+      const res = await openDiscarded()
+      expect(res.status).toBe(200)
+    })
+    const views = lines.filter((l) => l.action === 'karute.view')
+    expect(views).toHaveLength(1)
+    expect(views[0].detail).toMatchObject({ transcript_shown: false })
   })
 })

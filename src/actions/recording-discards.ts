@@ -22,7 +22,10 @@
 import { newSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
 import { getBusinessId, getCurrentUserStaffId, staffListByBusinessOrThrow } from '@/lib/staff'
-import { synqedStaffCardsForBusiness } from '@/lib/synqed/staff-map'
+import {
+  synqedStaffCardsForBusiness,
+  staffNameByIdAcrossCardsAndProfiles,
+} from '@/lib/synqed/staff-map'
 import { paginateDedupe } from '@/lib/customers/paginate'
 import { INBOX_WINDOW_MS } from '@/lib/recordings/inbox'
 import { jstStartOfMonth } from '@/lib/date/jst'
@@ -340,6 +343,68 @@ function upstreamStatus(err: unknown): number | null {
 }
 
 /**
+ * R8 discarded-record door (⚖ Liam 2026-09-13, A6/A7) — the facts block's own
+ * reads, on a CALLER-SUPPLIED client (web: cookie; facade: Bearer), so BOTH
+ * doors call the SAME body and never derive a different set of facts. Reuses
+ * the SAME lifted name-join (staffNameByIdAcrossCardsAndProfiles) the manager
+ * ledger read above uses — one home, not two implementations.
+ *
+ * NEVER throws: every read inside degrades independently, and the whole
+ * function degrades to all-null fields on any unexpected failure (D-8 photos
+ * posture — an accessory read that blipped must cost a FACT, never the
+ * screen). Callers invoke this ONLY for a karute already known to be
+ * DISCARDED (and only after the viewer is confirmed allowed to open it) —
+ * this function does not itself gate anything.
+ */
+export async function resolveDiscardFacts(
+  synqed: Pick<ReturnType<typeof newSynqedClient>, 'recordingDiscards'>,
+  businessId: string,
+  opts: { recordingSessionId: string | null; recordStaffId: string | null },
+): Promise<{
+  discardLedger: { reason: string | null; discardedByName: string | null; discardedAt: string | null } | null
+  recordStaffName: string | null
+}> {
+  const degraded = { discardLedger: null, recordStaffName: null }
+  try {
+    const [roster, cards] = await Promise.all([
+      staffListByBusinessOrThrow(businessId).catch((err: unknown) => {
+        console.warn('[resolveDiscardFacts] staff name fill degraded:', err)
+        return [] as Awaited<ReturnType<typeof staffListByBusinessOrThrow>>
+      }),
+      // Already graceful by contract — [] on any failure, never a throw.
+      synqedStaffCardsForBusiness(businessId),
+    ])
+    const nameById = staffNameByIdAcrossCardsAndProfiles(roster, cards)
+    const recordStaffName = opts.recordStaffId
+      ? (nameById.get(opts.recordStaffId) ?? null)
+      : null
+
+    if (!opts.recordingSessionId) return { discardLedger: null, recordStaffName }
+
+    const res = await synqed.recordingDiscards.list({
+      recording_session_id: opts.recordingSessionId,
+      source: 'STAFF',
+      page_size: 5,
+    })
+    const events = res?.events ?? []
+    const newest = events
+      .slice()
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0]
+    const discardLedger = newest
+      ? {
+          reason: newest.reason ?? null,
+          discardedByName: newest.discarded_by ? (nameById.get(newest.discarded_by) ?? null) : null,
+          discardedAt: newest.created_at ?? null,
+        }
+      : null
+    return { discardLedger, recordStaffName }
+  } catch (err) {
+    console.warn('[resolveDiscardFacts] degraded — the facts block shows what it can:', err)
+    return degraded
+  }
+}
+
+/**
  * The 破棄の記録 list itself, on a CALLER-SUPPLIED client — the ONE body both
  * doors run (P-B, the 監査ログ precedent: listAuditLogWithClient). The web
  * action below resolves its client from the cookie identity; the facade route
@@ -430,25 +495,10 @@ export async function listDiscardReasonsWithClient(
         })
       : null,
   ])
-  // A BLANK profile name is not a name. `'' ?? card.name` is `''`, so a
-  // linked card whose profile carries an empty (or whitespace-only)
-  // full_name lost the card's own name too and read 担当者不明 on a row we
-  // could have named honestly. Normalised here, at the one place the profile
-  // side is built, so both the card fallback below and the profile-keyed
-  // rows get the same answer.
-  const profileNames = new Map<string, string | null>(
-    roster.map((s) => [s.id, s.full_name?.trim() ? s.full_name : null]),
-  )
-  const nameById = new Map(profileNames)
-  for (const card of cards) {
-    // The profile's own full_name when the card is linked — that is the name
-    // the rest of karute shows. Else the card's own name, so a departed or
-    // unlinked staffer is still named honestly instead of erased. Read from
-    // `profileNames`, never from the map being written, so the answer cannot
-    // depend on roster order.
-    const name = (card.user_id ? profileNames.get(card.user_id) : null) ?? card.name
-    if (name) nameById.set(card.id, name)
-  }
+  // Two id spaces, one lookup — lifted into staff-map.ts (R8 A7, 2026-09-13)
+  // so the discarded-record door's own name resolution can reuse it without
+  // re-implementing the profile↔card join.
+  const nameById = staffNameByIdAcrossCardsAndProfiles(roster, cards)
 
   const rows: DiscardReasonRow[] = usable
     .map((e) => {

@@ -38,6 +38,8 @@ const buildArgs = (karute: ReturnType<typeof mapSynqedKaruteRecord>) => ({
   consentResult: null,
   customer: null,
   locale: 'ja',
+  discardLedger: null,
+  recordStaffName: null,
 })
 
 describe('summary derivation seam (mapper → builder → DTO)', () => {

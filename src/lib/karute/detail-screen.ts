@@ -99,6 +99,35 @@ export interface KaruteDetailScreen {
    *  the ACT is the owner's two keys, so a named grantee reads a colleague's
    *  words and may not rewrite them. Hide the control, never show-and-refuse. */
   staffCanRegenerate: boolean
+  /** R8 discarded-record door (⚖ Liam 2026-09-13): non-null exactly when this
+   *  karute's status is DISCARDED. The facts + discard reason a
+   *  `records.discardView` holder (or the record's own staffer) may see —
+   *  never the content, which is separately withheld via `contentWithheld`
+   *  below. Every field independently best-effort (a ledger read failure
+   *  degrades the field to null, never the screen — A7). */
+  discarded: KaruteDetailScreenDiscarded | null
+  /** True when this viewer may see the FACTS but not the CONTENT of a
+   *  discarded record (A4: discarded && !isOwn && !canViewAllRecordings —
+   *  deliberately NOT canViewTranscript, whose "no owner = shared" branch
+   *  would hand a manager an OWNERLESS discarded record's content). When
+   *  true: summaryBullets [], summaryRaw null, entries [], transcript null +
+   *  transcriptRestricted true, recording null (photos [] — screen-level,
+   *  outside this builder). */
+  contentWithheld: boolean
+}
+
+/** The discarded-record door's facts block (A6). Non-null exactly when the
+ *  karute is DISCARDED. */
+export interface KaruteDetailScreenDiscarded {
+  reason: string | null
+  discardedByName: string | null
+  discardedAt: string | null
+  /** The roster name of the record's OWN staffer (ownerProfileId) — best-
+   *  effort; the detail HEADER shows no staff name today on either door
+   *  (pre-existing, not this door's concern), so this facts block resolves
+   *  it itself. */
+  recordStaffName: string | null
+  durationSeconds: number | null
 }
 
 export interface BuildKaruteDetailScreenArgs {
@@ -135,6 +164,20 @@ export interface BuildKaruteDetailScreenArgs {
   consentResult: { consent: unknown } | null
   customer: DemographicCustomer | null
   locale: string
+  /** R8 discarded-record door (A7): the discard ledger's newest STAFF-sourced
+   *  event for this karute's recording session — the caller resolves it
+   *  (synqed.recordingDiscards.list + the lifted staffNameByIdAcrossCardsAndProfiles
+   *  helper) and degrades every field to null on failure, never fails the
+   *  screen. null when the karute isn't discarded, or nothing could be read. */
+  discardLedger: {
+    reason: string | null
+    discardedByName: string | null
+    discardedAt: string | null
+  } | null
+  /** R8 (A6): the roster name of the karute's OWN staffer (ownerProfileId,
+   *  already translated into karute.staff_profile_id by the caller) — best-
+   *  effort, resolved via the same lifted name-join. */
+  recordStaffName: string | null
 }
 
 export function buildKaruteDetailScreen(
@@ -154,6 +197,8 @@ export function buildKaruteDetailScreen(
     consentResult,
     customer,
     locale,
+    discardLedger,
+    recordStaffName,
   } = args
 
   const customerId = karute.client_id ?? null
@@ -162,6 +207,19 @@ export function buildKaruteDetailScreen(
   const summaryBullets = karuteSummaryToBullets(karute)
   const transcript = karute.transcript ?? null
 
+  // R8 discarded-record door (⚖ Liam 2026-09-13). `discarded` is derived
+  // ONLY from this widened, post-mapper field — never from a pre-mapper SDK
+  // value (cold-read MUST-FIX #1: the SDK's own KaruteStatus type predates
+  // 'DISCARDED', so a literal compare on the raw value fails tsc).
+  const isDiscarded = karute.status === 'DISCARDED'
+  const ownerStaffId = karute.staff_profile_id ?? null
+  const isOwnRecord = viewerStaffId != null && viewerStaffId === ownerStaffId
+  // A4: the withhold predicate is deliberately NOT canViewTranscript — its
+  // "no owner = shared" branch would hand a manager the content of an
+  // OWNERLESS discarded record, and ⚖ says never the content (the stricter
+  // side of the ruling).
+  const contentWithheld = isDiscarded && !isOwnRecord && !canViewAllRecordings
+
   // Recording privacy (#4): the raw transcript is private to the recording
   // staffer — only they (or a recordings.viewAll role) see the text. A record
   // with no owner (legacy/manual) is shared. Withholding the transcript still
@@ -169,7 +227,6 @@ export function buildKaruteDetailScreen(
   // allowed: `staffCanRegenerate` carries the server's own answer, because the
   // READ is `recordings.viewAll` and the ACT is the owner's two keys
   // (⚖ 9/3 named grant; fix round 4).
-  const ownerStaffId = karute.staff_profile_id ?? null
   const canSeeTranscript = canViewTranscript({
     ownerStaffId,
     viewerStaffId,
@@ -261,16 +318,35 @@ export function buildKaruteDetailScreen(
     sessionDateLong: header.sessionDateLong,
     sessionDateIso:
       (karute.session_date ?? karute.created_at)?.slice(0, 10) ?? null,
-    entries: sessionEntries,
-    summaryBullets,
-    summaryRaw: karute.summary ?? null,
-    summaryEdited: karute.summary_edited ?? false,
-    transcript: visibleTranscript,
+    // A4 (withhold, contentWithheld only): summaryBullets [], entries [],
+    // transcript null + transcriptRestricted true, recording null.
+    entries: contentWithheld ? [] : sessionEntries,
+    summaryBullets: contentWithheld ? [] : summaryBullets,
+    // A5 (read-only for EVERYONE once discarded, owner included — not only
+    // contentWithheld): summaryRaw null disables the 詳細記録 pencil's
+    // canEdit check regardless of who is viewing; the bullets above still
+    // render for the owner/viewAll holder since only `entries`/
+    // `summaryBullets` are content-gated by `contentWithheld`.
+    summaryRaw: isDiscarded ? null : (karute.summary ?? null),
+    summaryEdited: contentWithheld ? false : (karute.summary_edited ?? false),
+    transcript: contentWithheld ? null : visibleTranscript,
     consentOnFile,
     transcriptDurationLabel: null,
-    transcriptRestricted,
-    recording,
-    staffCanReassignRecords,
-    staffCanRegenerate,
+    transcriptRestricted: contentWithheld ? true : transcriptRestricted,
+    recording: contentWithheld ? null : recording,
+    // A5: a discarded record is read-only for everyone, owner included —
+    // server truth, not only the screen (never widen a write).
+    staffCanReassignRecords: isDiscarded ? false : staffCanReassignRecords,
+    staffCanRegenerate: isDiscarded ? false : staffCanRegenerate,
+    discarded: isDiscarded
+      ? {
+          reason: discardLedger?.reason ?? null,
+          discardedByName: discardLedger?.discardedByName ?? null,
+          discardedAt: discardLedger?.discardedAt ?? null,
+          recordStaffName: recordStaffName ?? null,
+          durationSeconds: recordingRow?.duration_seconds ?? null,
+        }
+      : null,
+    contentWithheld,
   }
 }

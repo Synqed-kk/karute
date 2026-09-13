@@ -37,6 +37,7 @@ import { getCustomer } from '@/lib/customers/queries'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
 import { auditWeb } from '@/lib/audit-web'
 import { lookupProfileIdForSynqedStaffId } from '@/lib/synqed/staff-map'
+import { resolveDiscardFacts } from '@/actions/recording-discards'
 
 interface KaruteDetailPageProps {
   params: Promise<{ id: string; locale: string }>
@@ -171,6 +172,21 @@ export default async function KaruteDetailPage({
 
   const customerId = karute.client_id ?? null
 
+  // R8 discarded-record door (A6/A7): the facts block's own reads, fired
+  // alongside the customer wave below — ONLY for a karute already confirmed
+  // DISCARDED (and, by this point, already confirmed OPENABLE). A live
+  // record gets an already-resolved promise here, so this line costs nothing
+  // on the live-record path.
+  const discardFactsPromise =
+    karute.status === 'DISCARDED'
+      ? synqedPromise.then((synqed) =>
+          resolveDiscardFacts(synqed, businessId, {
+            recordingSessionId: karute.recording_session_id,
+            recordStaffId: ownerProfileId,
+          }),
+        )
+      : Promise.resolve({ discardLedger: null, recordStaffName: null })
+
   // Customer contact + consent are both cached per-customer with their own tag
   // invalidation. Photos are NOT awaited here; they're streamed in via a
   // Suspense boundary below so the shell paints first.
@@ -192,6 +208,8 @@ export default async function KaruteDetailPage({
   // failed is no row, so the player disappears exactly as it did before (fix
   // round 6). Only the two store computations below see the sentinel.
   const recordingRow = recordingRead === 'unreadable' ? null : recordingRead
+  // R8: a second await on an already-settled promise for a live record — free.
+  const discardFacts = await discardFactsPromise
   // ⚖ R1′ — WHICH STORE JUDGES THIS KARUTE (③ fix round 3; Greptile #849). The
   // karute's own store leads; a karute that carries none inherits the RECORDING
   // row's, which since ③ names the branch the device was in. ONE spelling for
@@ -250,6 +268,8 @@ export default async function KaruteDetailPage({
     consentResult,
     customer,
     locale,
+    discardLedger: discardFacts.discardLedger,
+    recordStaffName: discardFacts.recordStaffName,
   })
 
   // Single-record open = a view event (Wave V, web twin of the facade hook's
@@ -292,11 +312,15 @@ export default async function KaruteDetailPage({
       recording={built.recording}
       staffCanReassignRecords={built.staffCanReassignRecords}
       staffCanRegenerate={built.staffCanRegenerate}
+      discarded={built.discarded}
+      contentWithheld={built.contentWithheld}
       // fallback=null, not a skeleton: the card is now only-when-photos, so a
       // photo-shaped placeholder would flash a box that then vanishes on every
       // karute with no linked photos (Liam 8/10, mock frame C).
       photosSlot={
-        customerId ? (
+        // R8 (A4/A5): photos are CONTENT — withheld exactly like every other
+        // content field when this viewer may see the facts but not the content.
+        customerId && !built.contentWithheld ? (
           <Suspense fallback={null}>
             <PhotoRecordsServer
               customerId={customerId}

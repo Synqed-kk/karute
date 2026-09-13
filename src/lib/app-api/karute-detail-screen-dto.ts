@@ -94,6 +94,17 @@ const RecordingSchema = z.object({
   status: z.string(),
 })
 
+// R8 discarded-record door (⚖ Liam 2026-09-13) — the facts block (A6). Every
+// field independently best-effort (a ledger read failure degrades a single
+// field to null, never the screen).
+const DiscardedSchema = z.object({
+  reason: z.string().nullable(),
+  discardedByName: z.string().nullable(),
+  discardedAt: z.string().nullable(),
+  recordStaffName: z.string().nullable(),
+  durationSeconds: z.number().nullable(),
+})
+
 export const KaruteDetailScreenDTO = z.object({
   karuteId: z.string(),
   customerId: z.string().nullable(),
@@ -139,6 +150,15 @@ export const KaruteDetailScreenDTO = z.object({
    *  shows-and-refuses. Seeing the transcript is no longer the same question:
    *  the READ is `recordings.viewAll`, the ACT is the owner's two keys. */
   staffCanRegenerate: z.boolean().optional(),
+  /** R8 discarded-record door (⚖ Liam 2026-09-13, A10): non-null exactly
+   *  when this karute is DISCARDED. `.optional()` for the same compat
+   *  reason as staffCanRegenerate above — a pre-PR phone ignores the key
+   *  entirely (zod's default object parse strips unknown keys), and a
+   *  pre-PR SERVER simply omits it. */
+  discarded: DiscardedSchema.nullable().optional(),
+  /** True when this viewer sees the facts but not the content (A4).
+   *  `.optional()` for the same compat reason. */
+  contentWithheld: z.boolean().optional(),
 })
 
 export type KaruteDetailScreenDTOType = z.infer<typeof KaruteDetailScreenDTO>

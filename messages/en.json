@@ -526,6 +526,7 @@
       "at": "Discarded at",
       "staff": "Staff",
       "duration": "Length",
+      "durationValue": "{m}m {s}s",
       "unknown": "Unknown",
       "withheld": "Only the staff who ran this session can view its content."
     }

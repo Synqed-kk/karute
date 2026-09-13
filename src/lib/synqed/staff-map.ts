@@ -189,6 +189,36 @@ export async function synqedStaffCardsForBusiness(businessId: string): Promise<S
   }
 }
 
+/**
+ * ONE name lookup keyed by BOTH id spaces — profiles (login uuid) and synqed
+ * staff cards. Lifted verbatim (R8 A7, 2026-09-13) out of
+ * actions/recording-discards.ts's listDiscardReasonsWithClient, which was
+ * inline and could not be reused (that file is 'use server', so it cannot
+ * export a plain synchronous helper — every export becomes a server action).
+ * This module is the natural home: it already owns StaffEntry and the card
+ * roster read.
+ *
+ * A profile's own name wins when the card links to one (`card.user_id`
+ * resolves in `roster`); the card's OWN name is the fallback, so a departed
+ * or unlinked staffer is still named honestly instead of erased. A blank
+ * profile full_name is not a name (`?? card.name` on '' would still be '',
+ * losing the card's own name too) — normalised to null before the join.
+ */
+export function staffNameByIdAcrossCardsAndProfiles(
+  roster: ReadonlyArray<{ id: string; full_name: string | null }>,
+  cards: readonly StaffEntry[],
+): Map<string, string | null> {
+  const profileNames = new Map<string, string | null>(
+    roster.map((s) => [s.id, s.full_name?.trim() ? s.full_name : null]),
+  )
+  const nameById = new Map(profileNames)
+  for (const card of cards) {
+    const name = (card.user_id ? profileNames.get(card.user_id) : null) ?? card.name
+    if (name) nameById.set(card.id, name)
+  }
+  return nameById
+}
+
 /** Cookie path twin — resolves businessId via getBusinessId(). Guards that
  *  await too (a broken session can throw) so this twin never throws either. */
 export async function lookupProfileIdForSynqedStaffId(
