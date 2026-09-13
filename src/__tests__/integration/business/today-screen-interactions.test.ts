@@ -6643,7 +6643,13 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // `inHand` is null with nothing in flight → the strip keeps canon's resting
     // face (✓/△/—) and no × exists anywhere on the board (⚖ 37, no leak).
     expect(SRC).toContain('const inHand = useMemo<LandingAsk | null>(() => {')
-    expect(SRC).toContain('    return null\n  }, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])')
+    // HONEST-COUNT ROUND 1 · fix 7 FIX-UP (2026-09-13) — `staffCardInHand`
+    // joined the list: the memo now reads it, so it must be listed too.
+    // Placed BEFORE `hasPriceFor` (order is inert for a dep array) so
+    // `hasPriceFor` stays the last item, exactly as the R8 T1 armour below
+    // requires — `hasPriceFor,` immediately followed by another name reads as
+    // "bound as an argument or a parameter" to that guard.
+    expect(SRC).toContain('    return null\n  }, [live, proxy, parkChips, boardLanes, props.store, staffCardInHand, hasPriceFor])')
     // ⚖ 52 — the mark that means "this stops you" appears exactly where release
     // is inert, and its class comes off the blocked verdict alone.
     // ⚖ FIX ROUND 2 (G1, 2026-09-09) — the class composition was LIFTED out of the
@@ -12012,7 +12018,7 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     expect(codeOnly(INT)).not.toContain('hasPriceFor')
     // ⚖ FIX ROUND 1 (blind round 1, L1 F1) — and both hooks that ask it LIST
     // it, so neither can answer from a board that has moved on.
-    expect(pinnedLines(SRC, '}, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])')).toBe(1)
+    expect(pinnedLines(SRC, '}, [live, proxy, parkChips, boardLanes, props.store, staffCardInHand, hasPriceFor])')).toBe(1)
     expect(pinnedLines(SRC, '[boardLanes, sellDrawn.cells, hours, locked, hasPriceFor],')).toBe(1)
   })
 

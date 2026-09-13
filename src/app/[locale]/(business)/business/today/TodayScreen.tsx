@@ -2788,7 +2788,7 @@ export function TodayScreen(props: TodayProps) {
       }
     }
     return null
-  }, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])
+  }, [live, proxy, parkChips, boardLanes, props.store, staffCardInHand, hasPriceFor])
 
   /** ⚖ LIVE-WHILE-DRAGGING §3 — THE GESTURE'S OWN MEMO, and the one switch that
    *  turns the live packing question on.
