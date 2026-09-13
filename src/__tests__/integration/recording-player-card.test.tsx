@@ -164,6 +164,36 @@ describe('the card’s states', () => {
   })
 })
 
+// D8 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): the 同意確認済 pill is
+// GONE from this card — the consent gate + date now live on the recording
+// screen — and the manager's-eye viaShare subtitle takes its slot instead.
+describe('the share subtitle (D8) and the removed consent pill', () => {
+  it('consentOnFile no longer renders a pill, even when true', () => {
+    const { container } = card({ consentOnFile: true })
+    expect(screen.queryByText('同意確認済')).toBeNull()
+    expect(container.textContent).not.toContain('同意確認済')
+  })
+
+  it('viaShare renders the one quiet subtitle line under the title', () => {
+    card({ viaShare: true })
+    expect(screen.getByText('録音を担当したスタッフが共有')).toBeTruthy()
+  })
+
+  it('viaShare absent/false renders no subtitle line', () => {
+    const { container } = card({ viaShare: false })
+    expect(container.textContent).not.toContain('録音を担当したスタッフが共有')
+    const { container: containerAbsent } = card()
+    expect(containerAbsent.textContent).not.toContain('録音を担当したスタッフが共有')
+  })
+
+  // Structurally guaranteed by the early return on `restricted` — pinned so a
+  // future refactor that merges the two branches cannot leak the subtitle in.
+  it('viaShare is never shown on a restricted card', () => {
+    const { container } = card({ restricted: true, viaShare: true })
+    expect(container.textContent).not.toContain('録音を担当したスタッフが共有')
+  })
+})
+
 describe('the controls', () => {
   it('the FIRST tap mints exactly once and sets the element’s src', async () => {
     card()

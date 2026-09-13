@@ -333,6 +333,7 @@ export default async function KaruteDetailPage({
       staffCanRegenerate={built.staffCanRegenerate}
       discarded={built.discarded}
       contentWithheld={built.contentWithheld}
+      share={built.share}
       // fallback=null, not a skeleton: the card is now only-when-photos, so a
       // photo-shaped placeholder would flash a box that then vanishes on every
       // karute with no linked photos (Liam 8/10, mock frame C).

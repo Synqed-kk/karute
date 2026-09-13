@@ -517,7 +517,8 @@
       "playbackUnavailable": "Couldn’t play this recording",
       "noTranscript": "No transcript yet",
       "restrictedTitle": "Recording · transcript",
-      "restricted": "Only the staff who recorded this session can view the transcript. The summary above is shared."
+      "restricted": "Only the staff who recorded this session can view the transcript (unless they've shared it). The summary above is shared.",
+      "viaShare": "Shared by the staff who recorded this session"
     },
     "discarded": {
       "title": "Discarded",

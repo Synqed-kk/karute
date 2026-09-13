@@ -106,6 +106,7 @@ export function KaruteDetailScreen({ id }: { id: string }) {
             staffCanRegenerate={dto.staffCanRegenerate ?? false}
             discarded={dto.discarded ?? null}
             contentWithheld={dto.contentWithheld ?? false}
+            share={dto.share ?? null}
             memory={null}
             photosSlot={<PhotoRecordsCard photos={dto.photos} />}
             bodyPredictionSlot={<BodyPredictionSlot customerId={dto.customerId} locale={locale} />}
