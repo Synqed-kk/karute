@@ -7626,9 +7626,19 @@ export function TodayScreen(props: TodayProps) {
                     style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
                     aria-label={`${releasedHeldTitle}。${sub}`}
                     data-guide-title={firstReleasedLane === lane.key && i === 0 ? '自動で解除された確保枠' : undefined}
+                    // ⚖ D-17 F6 — THE BUBBLE STATES THE CONFIGURED MOMENT. It
+                    // used to say 「オンラインでの新規受付が締め切られたため」
+                    // unconditionally, which is false for an explicit release
+                    // earlier than the lead time (120 against a 60-minute lead):
+                    // online booking is still open and the 枠 went back on sale
+                    // anyway. The number is the MARK'S OWN `beforeMin` — the
+                    // cut-off this 枠 was actually let go at, which is what the
+                    // sub-line beside it already quotes — and never the dial,
+                    // because 'linked' is not a number.
+                    // JP-NATIVE PASS R2 · REPORT-2.md line B (⚖ ADOPTED).
                     data-guide={
                       firstReleasedLane === lane.key && i === 0
-                        ? 'オンラインでの新規受付が締め切られたため、確保していた枠を自動で販売に戻しました。まだ確保しておきたいときは「確保を戻す」を押してください。'
+                        ? `開始${r.beforeMin}分前になったため、確保していた枠を自動で解除し、通常どおり販売に戻しました。まだ確保しておきたいときは「確保を戻す」を押してください。`
                         : undefined
                     }
                   >
