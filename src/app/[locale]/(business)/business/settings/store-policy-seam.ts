@@ -101,14 +101,20 @@ export type AutoReleaseBoard = number | 'linked' | null
 /** ⚖ D-11 — THE PRODUCT DEFAULT LIVES HERE AND NOWHERE ELSE. A store core has
  *  never written a value for (`undefined`) reads as `'linked'` — never `null`,
  *  never a copied `60` — so a later change to `leadTimeMin` and the release
- *  boundary can never drift apart. Every other value is a direct rename. */
+ *  boundary can never drift apart. Every other value is a direct rename.
+ *
+ *  This is the reconnect's READ direction (CONTRACTS-R2 §1): it has no
+ *  production caller until `StorePolicyClient.get(storeId)` replaces the
+ *  fixture read in `page.tsx`, exactly as `gap_guard_mode`'s read has none
+ *  today; it exists now so the product default has ONE home before the wire
+ *  arrives. */
 export function autoReleaseFromWire(w: AutoReleaseBefore | undefined): AutoReleaseBoard {
   if (w === undefined || w === 'linked') return 'linked'
   if (w === 'never') return null
   return Number(w)
 }
 
-/** The exact inverse of `autoReleaseFromWire`: the nearest offered choice wins, ties going to the longer one. */
+/** The inverse of `autoReleaseFromWire` on the four offered values (the round-trip is pinned). Any OTHER number — unreachable at this SHA, since the wire only ever hands back `'30'`/`'120'` — rounds to the nearest offered choice, ties to the longer one; the ⚖ D-15 free-minute round (2026-09-13) replaces this rounding with the number itself. */
 export function autoReleaseToWire(v: AutoReleaseBoard): AutoReleaseBefore {
   if (v === 'linked') return 'linked'
   if (v === null) return 'never'
