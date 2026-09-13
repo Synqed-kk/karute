@@ -162,6 +162,10 @@ import {
   sharesStore,
   sellDrawnFor,
   sellLayerFor,
+  sellStaffLanes,
+  sharedRoomSub,
+  sharedRoomTitle,
+  windowsOf,
   sidesAt,
   seedBed,
   seedSpanIn,
@@ -188,8 +192,9 @@ import {
 import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
 import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
 import { heldCommittedFor } from './held-committed'
+import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'
 import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'
-import { SELLING_ENGINE_LAW } from './selling-engine-gate'
+import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'
 
 const HINT = '見本データのため実行できません'
 
@@ -2014,6 +2019,72 @@ export function TodayScreen(props: TodayProps) {
     [committedLanes, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
   )
 
+  /** ⚖ HONEST-COUNT ROUND 1 (Liam 2026-09-12 21:1x) — WHAT THE ROOMS CAN
+   *  HONOUR, once per SETTLED board.
+   *
+   *  The mask above is a per-lane answer: it never asks whether a ROOM is free
+   *  for all of the 枠 it published at the same time. On the demo store four
+   *  are published and three can ever be given, because ごろう 14:30-16:00 and
+   *  あずさ 15:05-16:35 each have one free room and it is the same one.
+   *
+   *  The netting takes the CHIP'S OWN lane set — staff rows with a window minus
+   *  the locked ones, price-0 rows INCLUDED, exactly what the day walk counts.
+   *  A price-0 row's 枠 is still PROTECTED even though nobody can buy it online
+   *  (`heldDrawnFor`'s own header says that asymmetry is the law), so its room
+   *  really is spoken for and filtering it out here would have quietly dropped
+   *  the day layer's warning for that row.
+   *
+   *  The book is taken the way `windowDoorOn` below takes it — `bookFor` with
+   *  `FOREIGN_BOOKS`, a module-level cache, so this closure holds three scalars
+   *  and not a per-frame identity. `null` for the lift: this is the SETTLED
+   *  board and a protected window's subject is a NEW client. */
+  const honest = useMemo(
+    () => (HONEST_HELD && heldCommitted
+      ? honestHeld(
+          heldCommitted.filter((m) => !locked.includes(m.laneKey)),
+          committedLanes,
+          bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+          true,
+        )
+      : undefined),
+    [heldCommitted, locked, committedLanes, ledgerFrame],
+  )
+
+  /** ⚖ SPEC-HONEST-COUNT v5 (1) — THE SALE FILTER, ON TOP OF THE ONE NETTING.
+   *
+   *  ONE lane-key set, read out of `sellStaffLanes` rather than re-spelling
+   *  `listPrice > 0` (`heldDrawnFor`'s own ONE SPELLING law), and TWO named
+   *  values from it — the same pairing `heldCommitted`/`heldDrawn` already
+   *  uses one screen over. `honest` is what is COUNTED (the chip, the day
+   *  layer); `honestDrawn` is what is DRAWN (the row's boxes, the online 確保
+   *  rows). Never the filter before the netting: a row nobody can buy from
+   *  still takes a room. */
+  const sellableLaneKeys = useMemo(
+    () => new Set(sellStaffLanes(committedLanes, locked).filter((l) => !l.locked).map((l) => l.key)),
+    [committedLanes, locked],
+  )
+  /** HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 4)
+   *  — THE DRAWN HALF IS ONLY ROWS. It used to be a whole `HonestHeld` carrying
+   *  the STORE's `total` beside a narrowed `byLane`, which is a typed value that
+   *  contradicts itself: nothing read `.total` off it, but nothing stopped the
+   *  next reader either, and that reader would have put the store's number on a
+   *  narrowed surface. It has the rows and nothing else now, so the wrong number
+   *  is not there to be read. The counted half is `honest`, which is whole. */
+  const honestDrawn = useMemo(
+    (): Pick<HonestHeld, 'byLane'> | undefined =>
+      (honest ? { byLane: honest.byLane.filter((l) => sellableLaneKeys.has(l.laneKey)) } : undefined),
+    [honest, sellableLaneKeys],
+  )
+  /** ⚖ v3 N1 — the DRAWING's per-lane index. `heldDrawnByLane` below is KEPT
+   *  UNCHANGED beside it and keeps feeding the rest cue: the cue's job is to
+   *  stand down over every 確保 span, shared ones included, so it reads ALL
+   *  candidates while the boxes and the online rows read the honest set. Two
+   *  maps because they are two questions. */
+  const honestByLane = useMemo(
+    () => new Map((honestDrawn?.byLane ?? []).map((l) => [l.laneKey, l])),
+    [honestDrawn],
+  )
+
   /** THE PACKING DIALS, ONE SPELLING (⚖ spec §5). `gapLayerFor` derives the
    *  layer from them and the fragment fallback calls the very same UNCHANGED
    *  engine with them — two passes, one set of prices and one decomposition, so
@@ -2210,11 +2281,16 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ FIX ROUND F4 — §4.5's own adapter, over the PUBLISHED mask: ONE
         // emission home for the reserved kind, and it is the one the operator
         // reads. Gate off ⇒ an empty mask ⇒ no rows, which is today's counter.
-        reserved: reservedOffersFor(heldDrawn),
+        // ⚖ HONEST-COUNT ROUND 1 — …and over the HONEST half of it. A 枠 the
+        // rooms cannot honour beside its neighbour is not an offer Reserve may
+        // show, so the reserved rows drop with the chip. `heldMaskOf` is a
+        // rename of one honest row into the mask shape this adapter takes, so
+        // 「reserved rows ≡ honest held 枠」 stays true by construction.
+        reserved: reservedOffersFor(honestDrawn ? honestDrawn.byLane.map(heldMaskOf) : heldDrawn),
         lanes: committedLanes,
         showPrice: showSlotPrice,
       }),
-    [heldCommitted, sellDrawn, gapDrawn, heldDrawn, committedLanes, showSlotPrice],
+    [heldCommitted, sellDrawn, gapDrawn, heldDrawn, honestDrawn, committedLanes, showSlotPrice],
   )
 
   /** The 配置ガイド. `guardOn` is the STORE's protection policy; `guideMode` is
@@ -2366,6 +2442,38 @@ export function TodayScreen(props: TodayProps) {
     [boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],
   )
 
+  /** ⚖ HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+   *  frame for the rail) — THE BOARD WORLD IS NETTED, ON EVERY FRAME.
+   *
+   *  It used to be handed the SETTLED board's shared spans and demote what
+   *  collided with them (`demoteShared`, spec v3 N4), which could not see a
+   *  collision the TENTATIVE MOVE ITSELF creates — Greptile's P1 on #904. Liam
+   *  ruled the cost in: the live mask is netted by the SAME producer the
+   *  settled answer uses, with the LIVE lanes and the LIVE book that mask was
+   *  cut from (`ledger.world` — never a second book; a second one would be a
+   *  second bed truth on the same frame, which is the one thing spec §1
+   *  forbids). Measured: fixture 0.06 ms p95 · 30 staff × 10 rooms 0.40 ms ·
+   *  60 × 20 0.81 ms, and the book already exists per frame, so the frame pays
+   *  the search alone.
+   *
+   *  The locked filter is the SETTLED memo's, spelled the same way: a row
+   *  シフトロック has taken off sale may not take a room from a row it is still
+   *  selling (spec §2.1).
+   *
+   *  ONE READER: `held:` at the rail explanation below. The chip, the day
+   *  layer's warning, the row boxes and the online 確保 rows stay on the
+   *  SETTLED `honest`/`honestDrawn` — by design they do not move mid-gesture.
+   *
+   *  AT REST `boardLanes` IS the committed board and `ledger.world` its book,
+   *  so this is the settled answer computed twice and the rail's words do not
+   *  move (the four-width renders are byte-identical). */
+  const heldBoardHonest = useMemo(
+    () => (HONEST_HELD && heldBoard
+      ? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true).byLane.map(heldMaskOf)
+      : heldBoard),
+    [heldBoard, locked, boardLanes, ledger],
+  )
+
   /** ⚖ NEW-WINDOW — THE DAY QUESTION'S OWN DOOR, and it is the SETTLED board's.
    *
    *  `bedDoorFor` cannot be used here: its closure holds `boardLanes`, `ledger`
@@ -2436,9 +2544,15 @@ export function TodayScreen(props: TodayProps) {
   /** THE HEADER CHIP'S NUMBER — gated on `guardOn` ALONE, because the header reads
    *  it AT REST. A pending gate here would print 「新規用に確保 0枠」 on a store
    *  whose guard is on and whose day is untouched. */
+  /** ⚖ HONEST-COUNT ROUND 1 — ONE PRODUCER FOR THE HEADER AND THE WARNING.
+   *  `windowsOf` is the honest set in the day layer's own shape, so the chip
+   *  below and the 「this landing costs the store」 sentence read the same
+   *  answer the row's boxes are drawn from. The legacy walk stays as the
+   *  law-off fallback: with the round gate off `honest` is `undefined` and this
+   *  line is byte-for-byte the one that shipped. */
   const dayCommitted = useMemo(
-    () => (guardOn ? windowsOn(committedLanes, inputOn(committedLanes)) : EMPTY_WINDOWS),
-    [guardOn, committedLanes, inputOn],
+    () => (guardOn ? (honest ? windowsOf(honest, committedLanes) : windowsOn(committedLanes, inputOn(committedLanes))) : EMPTY_WINDOWS),
+    [guardOn, honest, committedLanes, inputOn],
   )
   /** THE 元に戻す BOARD. It collapses to `committedLanes` when nothing is staged,
    *  so this memo — and only this one — may take the pending gate. */
@@ -2448,9 +2562,56 @@ export function TodayScreen(props: TodayProps) {
       : committedLanes),
     [dayStaged, placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, bedMovesWithoutPending, props.bedCleanupMinutes, committedLanes],
   )
+  /** ⚖ HONEST-COUNT ROUND 1 — THE 元に戻す BOARD'S OWN HONEST SET.
+   *
+   *  `lostOn` subtracts two settled boards, so both of them have to come out of
+   *  the SAME producer: an honest 「after」 against a legacy 「before」 would
+   *  report a lane losing a 枠 the netting had simply stopped counting, on every
+   *  staged card. It is built only while a gesture is STAGED — the at-rest
+   *  collapse below is kept — which is the cadence the legacy walk already had.
+   *
+   *  HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 1)
+   *  — THE GATE, NAMED. This call used to pass the literal `true` and lean on
+   *  the early return above it for its safety. That was argued rather than
+   *  structural, and it is the exact shape `held-committed.ts`'s own header
+   *  names as the one a text pin cannot see: a hardcoded argument contains no
+   *  comparison and no `'off'`, so nothing in the suite would have noticed it
+   *  drifting. It costs one identifier to make the 元に戻す board's own mask ask
+   *  the same gate every other board on this screen asks. */
+  const honestOrigin = useMemo(() => {
+    if (!honest || !dayStaged) return honest
+    const originHeld = heldCommittedFor({
+      gateOn: SELLING_ENGINE_LAW,
+      lanes: originLanes,
+      frame: ledgerFrame,
+      bookOf: bedViewsFor,
+      closeMin: hours.close,
+      nowMin: props.sell.nowMinute,
+      guard: props.guard.config,
+      gapGuardMode: props.guard.mode,
+      released: releasedHere,
+    })
+    // HONEST-COUNT ROUND 1 · fix 3 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1b-delta-verify.md MINOR 1)
+    // STILL DEAD, for the same reason as before: `heldCommittedFor` answers
+    // `undefined` exactly when `gateOn` is false, and if the law were off
+    // `honest` would be `undefined` too, so the memo has already returned one
+    // line above. The line is kept only because the answer's type is
+    // `| undefined`; naming the gate did not make it reachable.
+    if (!originHeld) return honest
+    return honestHeld(
+      originHeld.filter((m) => !locked.includes(m.laneKey)),
+      originLanes,
+      bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+      true,
+    )
+  }, [honest, dayStaged, originLanes, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere, locked])
   const dayOrigin = useMemo(
-    () => (guardOn ? (dayStaged ? windowsOn(originLanes, inputOn(originLanes)) : dayCommitted) : EMPTY_WINDOWS),
-    [guardOn, dayStaged, originLanes, inputOn, dayCommitted],
+    () => (guardOn
+      ? (dayStaged
+          ? (honestOrigin ? windowsOf(honestOrigin, originLanes) : windowsOn(originLanes, inputOn(originLanes)))
+          : dayCommitted)
+      : EMPTY_WINDOWS),
+    [guardOn, dayStaged, honestOrigin, originLanes, inputOn, dayCommitted],
   )
   // ⚖ FIX ROUND F5 — the board world's per-lane index is GONE, not merely
   // unused: the rest cue was its only reader and it now reads the committed
@@ -2991,7 +3152,15 @@ export function TodayScreen(props: TodayProps) {
         // was judged on the board world with the hand lifted, and after
         // ⚖ MICROFIX N1 the mask is cut from that same occupancy — so the
         // sentence and the chip it hangs under are one answer about one board.
-        held: heldBoard,
+        // ⚖ HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted
+        // per frame for the rail) — …and minus the 枠 THIS board cannot honour.
+        // The netting runs on the live mask itself, so a collision the card in
+        // the hand creates is spoken to on the frame it is created; at rest
+        // this is the settled answer, so the strip's 新規用 word and the
+        // header's number cannot disagree about the same half hour.
+        // THE ONLY READER of `heldBoardHonest` — the chip, the day layer, the
+        // boxes and the online 確保 rows stay on the settled answer.
+        held: heldBoardHonest,
         // ⚖ FIX ROUND F1 — …over exactly the extent the withholding reached.
         // ⚖ MICROFIX N2 — AND THIS ONE IS THE SALES DOOR'S, which is a DIFFERENT
         // world; the line that stood here claimed the two inputs were "two
@@ -3027,7 +3196,7 @@ export function TodayScreen(props: TodayProps) {
       }),
     [
       rails, handBoard, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode,
-      heldBoard, bedsOver, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt,
+      heldBoardHonest, bedsOver, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt,
     ],
   )
 
@@ -6897,8 +7066,20 @@ export function TodayScreen(props: TodayProps) {
    *  while other lanes' chips were on screen — a section that silently fails to
    *  self-register. (No `locked` test any more: `heldDrawn` has already dropped
    *  those lanes, one spelling — see `heldDrawnFor`.) */
+  /** ⚖ HONEST-COUNT ROUND 1 — …and it is the DRAWN box that has to exist, so
+   *  the walk asks the honest set when there is one. A row whose only 枠 was
+   *  demoted to shared draws no held box, and the tour entry would have landed
+   *  on nothing. */
   const firstHeldLane = drawnLanes.find(
-    (l) => l.group === 'staff' && laneRendered(l) && (heldDrawnByLane.get(l.key)?.length ?? 0) > 0,
+    (l) =>
+      l.group === 'staff' &&
+      laneRendered(l) &&
+      (honestByLane.get(l.key)?.held.length ?? heldDrawnByLane.get(l.key)?.length ?? 0) > 0,
+  )?.key
+  /** ⚖ 8/23 guided-tour law — the FIRST shared box on the board registers its
+   *  own section once, exactly as the held box above does. */
+  const firstSharedLane = drawnLanes.find(
+    (l) => l.group === 'staff' && laneRendered(l) && (honestByLane.get(l.key)?.shared.length ?? 0) > 0,
   )?.key
 
   function renderLane(lane: BoardLane) {
@@ -6929,7 +7110,16 @@ export function TodayScreen(props: TodayProps) {
     // hours the law is holding for a 新規 (both rows: the pair carries one staff
     // lane key). The 確保 chip below paints over their span instead.
     const cells = sellDrawn.cells.filter(onThisLane)
-    const heldHere = lane.group === 'staff' ? (heldDrawnByLane.get(lane.key) ?? []) : []
+    /** ⚖ v3 N2 — THE REST CUE'S COVER READS ALL CANDIDATES. A 枠 the netting
+     *  demoted is still a 確保 span on the track, so a 清掃/満室 wash may not
+     *  paint under it — flag 88's artifact one layer along. This list is the
+     *  un-netted one and it is what `restCueStarts` takes, unchanged. */
+    const coverHere = lane.group === 'staff' ? (heldDrawnByLane.get(lane.key) ?? []) : []
+    /** ⚖ v3 N1 — …and the BOXES read the honest set, so a shared 枠 is drawn
+     *  once, as itself, and never twice. */
+    const honestHere = lane.group === 'staff' ? honestByLane.get(lane.key) : undefined
+    const heldHere = honestHere ? honestHere.held : coverHere
+    const sharedHere = honestHere?.shared ?? []
     const rail = railByLane.get(lane.key)
     /** ⚖ flag 44 (2) — WHERE THE INVISIBLE BLOCKER ACTUALLY IS. A chip wearing
      *  満室/清掃/新規 is refusing over something that is not drawn on this row,
@@ -6962,7 +7152,10 @@ export function TodayScreen(props: TodayProps) {
           // Ruling 1 puts the word on half hours the engine refused for their
           // POCKET, which are the ones with a card on them; the chip still says
           // 満室 and the track keeps its「empty track only」rule.
-          restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items, handId)
+          // ⚖ HONEST-COUNT ROUND 1 (v3 N2) — `coverHere`, not `heldHere`: the
+          // cue stands down over EVERY 確保 span, including the ones the
+          // netting could not honour, because the operator can see the box.
+          restCueStarts(explainedHere, cells, gapHere, coverHere, lane.items, handId)
         : []
     // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
     // the lane's SIBLING, not its child. A `.lane` is a two-column grid, so a
@@ -7227,6 +7420,43 @@ export function TodayScreen(props: TodayProps) {
                   <span className="held-title">新規用に確保</span>
                   <span className="held-sub">{h.end - h.start}分・オンラインで新規のお客様に販売中</span>
                 </button>
+              )
+            })}
+          {/* ⚖ HONEST-COUNT ROUND 1 (Liam 2026-09-12 21:1x) — 「a slot that
+              shares its only room is shown as such, never hidden, never counted
+              twice」. The held box's own geometry in the board's existing muted
+              hatch vocabulary — no black, no new colour, no press, because
+              there is no rule to say on it that the box above does not already
+              say. It is NOT in the header's number and NOT in the online 確保
+              rows; its hours stay off sale all the same, and the line says so. */}
+          {!isLocked &&
+            sharedHere.map((s) => {
+              const span = place(s.start, s.end, hours)
+              const roomLabel = drawnLanes.find((l) => l.key === s.sharedRoom)?.label ?? s.sharedRoom
+              // The partner is named only when the operator can SEE it: a
+              // price-0 row holds a 枠 and draws no box at all.
+              const withName = sellableLaneKeys.has(s.withLaneKey)
+                ? (drawnLanes.find((l) => l.key === s.withLaneKey)?.label ?? null)
+                : null
+              const title = sharedRoomTitle(roomLabel, withName)
+              const sub = sharedRoomSub(s.end - s.start)
+              return (
+                <div
+                  className="cell-shared"
+                  role="note"
+                  key={`shared-${s.start}`}
+                  style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
+                  aria-label={`${title}。${sub}`}
+                  data-guide-title={firstSharedLane === lane.key && s === sharedHere[0] ? 'ベッドを共有している確保枠' : undefined}
+                  data-guide={
+                    firstSharedLane === lane.key && s === sharedHere[0]
+                      ? 'このベッドを必要とする確保枠が重なっているため、実際にお使いいただけるのは片方だけです。こちらは確保枠の数には入れておらず、オンラインでは販売していません。'
+                      : undefined
+                  }
+                >
+                  <span className="held-title">{title}</span>
+                  <span className="held-sub">{sub}</span>
+                </div>
               )
             })}
           {landing?.laneKey === lane.key && landing.w > 0 && (
@@ -7838,7 +8068,22 @@ export function TodayScreen(props: TodayProps) {
             <span
               className="chip ok"
               data-guide-title="新規用に確保"
-              data-guide="新規のお客様のために店全体で確保している枠の数です。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。"
+              // ⚖ HONEST-COUNT ROUND 1 — the clause states BOTH of the things
+              // the operator cannot read off the number itself: it is what the
+              // rooms can honour against TODAY'S bookings (the hours already on
+              // sale are not subtracted), and it includes 確保枠 on rows that
+              // sell nothing online, which the board draws no box for.
+              // JP-NATIVE PASS DONE 2026-09-13 (JP-NATIVE-HONEST-COUNT/REPORT.md)
+              //
+              // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW.md H2)
+              // — …AND ONLY WHEN THE NUMBER IS THE NETTED ONE. With the round
+              // off the chip prints the per-lane enumeration's Σ, and those two
+              // sentences would have told the operator it was room-aware when it
+              // is not. Asked of `honest` — the value `dayCommitted` itself was
+              // built from — so this is not a second read of the gate.
+              data-guide={honest
+                ? '新規のお客様のために店全体で確保している枠の数です。今日の予約に対してベッドが用意できる数で、販売中の枠は差し引いていません。オンライン販売をしていないスタッフの確保枠も含みます。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'
+                : '新規のお客様のために店全体で確保している枠の数です。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'}
             >
               新規用に確保 {dayCommitted.total}枠
             </span>

@@ -2966,6 +2966,33 @@ export const reservedClause = (dur: number): string =>
 export const reservedSentence = (start: number, end: number): string =>
   `新規用に確保（${clockOf(start)}〜${clockOf(end)}）。${reservedClause(end - start)}`
 
+/** ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — THE SHARED 枠'S OWN TWO LINES.
+ *
+ *  A 枠 the rooms cannot honour beside its neighbour is DRAWN — hiding it would
+ *  be the 「never hidden」 half of Liam's sentence broken — and it is not
+ *  counted. The words have three jobs and they are all in here so the board
+ *  cannot word one rule two ways:
+ *
+ *  1. LEAD WITH THE ROOM. The partner may be a row the board draws nothing on
+ *     (a price-0 staff row is protected but not sold), so a line that opened
+ *     with a person's name would send the operator to an empty row. `withName`
+ *     is therefore optional and the room is never optional.
+ *  2. NOT COUNTED — said plainly, because the header's number is the thing the
+ *     operator is trying to reconcile.
+ *  3. AND THE HOURS ARE STILL OFF SALE. This is the fact 「確保数に含まず」 alone
+ *     does not carry: the store keeps holding those hours back from online sale
+ *     even though it says it cannot honour the 枠 (nothing is oversold — that
+ *     is the point). It deliberately does NOT repeat the held box's
+ *     「オンラインで新規のお客様に販売中」, which would say the opposite.
+ *
+ *  // JP-NATIVE PASS DONE 2026-09-13 (JP-NATIVE-HONEST-COUNT/REPORT.md) */
+export const sharedRoomTitle = (roomLabel: string, withName: string | null): string =>
+  withName ? `${roomLabel}を${withName}の確保枠と共有` : `${roomLabel}をほかの確保枠と共有`
+
+/** // JP-NATIVE PASS DONE 2026-09-13 (JP-NATIVE-HONEST-COUNT/REPORT.md) */
+export const sharedRoomSub = (dur: number): string =>
+  `${dur}分・確保枠の数には含めていません・オンラインでは販売していません`
+
 /** ⚖ FIX ROUND 2 (A + D, 2026-09-09) — THE BED TRUTH FOR ONE WINDOW.
  *
  *  ONE door, asked over two windows: the chip's own half hour (the WORD) and
@@ -6750,6 +6777,40 @@ export function windowsOn(lanes: BoardLane[], input: RailInput): DayWindows {
     for (const pocket of pockets) starts.push(...engine.protectedCapacity(pocket, null, ctx).beforeStarts)
     total += starts.length
     byLane.push({ laneKey: lane.key, label: lane.label, starts, listPrice: lane.listPrice })
+  }
+  return { total, byLane }
+}
+
+/** ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — THE SAME DAY ANSWER, OUT OF THE
+ *  HONEST SET.
+ *
+ *  `windowsOn` above walks the guard lane by lane and never asks whether the
+ *  ROOMS can honour all of its answers at once. `honest-held.ts` asks exactly
+ *  that, once per settled board, and this is the adapter that hands its answer
+ *  back in the shape the day layer already speaks — so `lostOn` below is
+ *  unchanged and the before/after of a landing are two readings of ONE
+ *  producer rather than two producers that happen to agree at rest.
+ *
+ *  `windowsOn` KEEPS ITS NAME AND ITS BODY: 設定's guardrail line is a server
+ *  props builder with no capacity book and six protected durations
+ *  (`settings/store-policy-props.ts:225`), so it cannot read the honest set,
+ *  and the board-vs-設定 gap is a named residual for its own round.
+ *
+ *  The shape is structural rather than an import of `HonestHeld`, so this file
+ *  keeps its 「type-only, no cycle」 relationship with the netting exactly as it
+ *  has one with `reserved-mask`. */
+export function windowsOf(
+  honest: { readonly byLane: readonly { readonly laneKey: string; readonly held: readonly ReservedSpan[] }[] },
+  lanes: readonly BoardLane[],
+): DayWindows {
+  const laneOf = new Map(lanes.map((l) => [l.key, l]))
+  const byLane: DayWindows['byLane'] = []
+  let total = 0
+  for (const row of honest.byLane) {
+    const lane = laneOf.get(row.laneKey)
+    if (lane == null) continue
+    total += row.held.length
+    byLane.push({ laneKey: row.laneKey, label: lane.label, starts: row.held.map((s) => s.windowStart), listPrice: lane.listPrice })
   }
   return { total, byLane }
 }

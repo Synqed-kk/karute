@@ -1973,7 +1973,10 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // dark, `heldCommittedFor`'s `gateOn` false with them. A count of READS was
     // never a count of BINDINGS, so the bindings are banned and the import is
     // the only site left.
-    const GATE_IMPORT = "import { SELLING_ENGINE_LAW } from './selling-engine-gate'"
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 2)
+    // — ONE import line from this module, so the binding site the ban is about
+    // is one line and not two.
+    const GATE_IMPORT = "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'"
     expect({ gateImports: pinnedLines(SRC, GATE_IMPORT) }).toEqual({ gateImports: 1 })
     expect({
       declarations: (CODE.match(/\b(?:const|let|var|function|class|import\s+type)\s+SELLING_ENGINE_LAW\b/g) ?? []).length,
@@ -2332,6 +2335,14 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "sharesStore,",
       "sellDrawnFor,",
       "sellLayerFor,",
+      // ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — four specifiers the honest
+      // 確保 count needs at the screen: the sale-filter lane set it narrows
+      // the drawn half with, the two JP lines of the shared box, and the day
+      // layer adapter that reads the netting in `windowsOn`'s own shape.
+      "sellStaffLanes,",
+      "sharedRoomSub,",
+      "sharedRoomTitle,",
+      "windowsOf,",
       "sidesAt,",
       "seedBed,",
       "seedSpanIn,",
@@ -2652,7 +2663,12 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // ⚖ NEW-WINDOW (2026-09-12) — 3 → 4, COUNTED BY A RUN. The third door is
     // `windowDoorOn`'s, and it is named right here: it asks the book for a
     // SETTLED board with nothing lifted, which is the day question's own world.
-    expect(SRC.split('bookFor(').length - 1).toBe(4)
+    // ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — 4 → 6. The netting asks the same
+    // SETTLED-board question `windowDoorOn` asks, on the committed board and
+    // (while a gesture is staged) on the 元に戻す board, so it takes its book
+    // through the same module-level cache rather than a closure that gets a
+    // fresh identity on every pointer frame.
+    expect(SRC.split('bookFor(').length - 1).toBe(6)
     expect(SRC).not.toContain('bedViewsFor(committedLanes')
     expect(SRC).toContain('gateOn: SELLING_ENGINE_LAW,')
     expect(SRC).toContain('bookOf: bedViewsFor,')
@@ -11555,8 +11571,21 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     "import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'",
     "import { fallbackCellsFor, type FallbackResult } from './fallback-cells'",
     "import { heldCommittedFor } from './held-committed'",
+    // ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — the netting, and its own round gate.
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 2)
+    // — ONE line from `selling-engine-gate`, not two. The round shipped them
+    // split so the pinned `SELLING_ENGINE_LAW` import line would stay
+    // byte-identical; this manifest was edited anyway, so the split bought a
+    // duplicate import line and nothing else.
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, LENS-1-delta.md MINOR 4) — the
+    // netting's own type comes with it: `honestDrawn` is a `Pick` of it now, so
+    // the drawn half cannot carry the store's `total` on a narrowed row list.
+    // HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+    // frame for the rail) — `demoteShared` is deleted: the board world is netted
+    // by `honestHeld` itself now, and the rail's mask comes through `heldMaskOf`.
+    "import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'",
     "import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'",
-    "import { SELLING_ENGINE_LAW } from './selling-engine-gate'",
+    "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
   ]
 
   /** ⚖ FIX ROUND 3 (BREAKER-828 F1 + F3) — the whole binder, as two lines. */

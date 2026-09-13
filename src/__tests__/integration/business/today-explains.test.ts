@@ -64,6 +64,8 @@ import {
   seedBed,
   sellLayerFor,
   sidesAt,
+  windowsOf,
+  windowsOn,
   type GuardRail,
   type Move,
   type Moves,
@@ -71,7 +73,9 @@ import {
   type RailCue,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
-import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { TodayScreen, bedDoor, bedViewsFor, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
+import { reservedMaskFor } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 
@@ -958,7 +962,14 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // refused for their POCKET, which are exactly the ones with a card, a break
     // or an absence drawn across them. The chip keeps its word; the LANE keeps
     // 「empty track only」. Nothing about 「one source, three faces」 moved.
-    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere, lane.items, handId)')
+    // ⚖ HONEST-COUNT ROUND 1 (2026-09-13), SPEC-HONEST-COUNT v3 N2 — the
+    // fourth argument is now `coverHere`, the UN-netted committed list. The
+    // boxes drawn on the row read the honest set (a 枠 the rooms cannot
+    // honour is drawn as shared, not as held); the CUE's cover must still
+    // read every candidate, because the operator can see the shared box and a
+    // 清掃 wash under it is flag 88's artifact one layer along. Same
+    // position, same law, one world — two questions.
+    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, coverHere, lane.items, handId)')
     // ⚖ LIAM RULING 1 + 2 (2026-09-09) — the filter is the CUE now. The source
     // of the three faces is still ONE value per chip: `railExplain` decides the
     // word and the mark together, in one return, so they cannot drift apart —
@@ -1827,6 +1838,96 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
 // copy and forgotten in the other two leaves two suites reading the blind
 // version — which is exactly how F5's blind spot lived in three places at once.
 // Every suite asserts all three copies are byte-identical, marker to marker.
+// ═══════════════════════════════════════════════════════════════════════════
+// HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-2-matrix.md N4)
+// `windowsOf` — THE DAY LAYER'S ADAPTER OVER THE HONEST SET.
+//
+// L2's own mutant (zero the `listPrice` this adapter pushes) survived H1–H4,
+// J1–J10 and the whole 21-suite family battery; it died only on #898's final
+// pin, which asserts the computed ¥ sentence for a different reason entirely.
+// So the adapter had no coverage of its own, and a ¥ regression through it
+// would have been caught by an unrelated round's pin or not at all.
+//
+// Two questions here, and they are different questions: what the adapter
+// BUILDS out of a row (the shape, field by field), and that on a board where
+// the rooms refuse nobody it is the same day answer as `windowsOn` — the
+// producer the chip read before this round, and the one 設定 still reads.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('windowsOf — the day layer over the honest set', () => {
+  const span = (start: number, len: number) => ({ start, end: start + len, windowStart: start })
+
+  it('carries the lane\u2019s own label and 定価, one row per lane, total = \u03a3 held', () => {
+    const a = lane({ key: 'p-01', group: 'staff', label: '見本 いちろう', listPrice: 7000 })
+    const b = lane({ key: 'p-02', group: 'staff', label: '見本 じろう', listPrice: 9220 })
+    const honest = {
+      byLane: [
+        { laneKey: 'p-01', held: [span(600, 90), span(780, 90)] },
+        { laneKey: 'p-02', held: [span(660, 90)] },
+      ],
+    }
+    // The ¥ is the LOST LANE'S OWN — what the store loses on いちろう's window is
+    // priced at いちろう's rate — so this adapter may never take it off the lane
+    // the card lands on, and may never drop it.
+    expect(windowsOf(honest, [a, b])).toEqual({
+      total: 3,
+      byLane: [
+        { laneKey: 'p-01', label: '見本 いちろう', starts: [600, 780], listPrice: 7000 },
+        { laneKey: 'p-02', label: '見本 じろう', starts: [660], listPrice: 9220 },
+      ],
+    })
+  })
+
+  it('publishes the WINDOW start, not the span start, and drops a row the world does not carry', () => {
+    const a = lane({ key: 'p-01', group: 'staff', listPrice: 7000 })
+    const honest = {
+      byLane: [
+        // a clipped span: the 枠 the store published began at 10:00.
+        { laneKey: 'p-01', held: [{ start: 615, end: 690, windowStart: 600 }] },
+        { laneKey: 'ghost', held: [span(600, 90)] },
+      ],
+    }
+    expect(windowsOf(honest, [a])).toEqual({
+      total: 1,
+      byLane: [{ laneKey: 'p-01', label: 'p-01', starts: [600], listPrice: 7000 }],
+    })
+  })
+
+  it('is the same day answer as windowsOn on a board where the rooms refuse nobody', () => {
+    // THE IDENTITY CASE. Two staff, two beds, an empty day: every 枠 either
+    // staff publishes has a room of its own, so the netting holds all of them
+    // and the honest day answer must equal the per-lane enumeration's — the
+    // producer 設定 still reads and the chip read before this round.
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 いちろう', listPrice: 7000 }),
+      lane({ key: 'p-02', group: 'staff', label: '見本 じろう', listPrice: 9220 }),
+      lane({ key: 'bed-01', group: 'beds' }),
+      lane({ key: 'bed-02', group: 'beds' }),
+    ]
+    const frame = { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }
+    const views = bedViewsFor(lanes, frame, null)
+    const book = views.world
+    const mask = reservedMaskFor({
+      lanes, closeMin: HOURS.close, nowMin: null, guard: GUARD,
+      gapGuardMode: 'standard', book, released: [], excludeId: null,
+    })
+    const honest = honestHeld(mask, lanes, book, true)
+    const input = {
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+      nowMinute: null, locked: [], guard: GUARD, excludeId: null,
+      placementFeasible: undefined,
+      protectedWindowFeasible: bedDoor(views, lanes, null),
+      resting: null, restingWindowFeasible: undefined,
+    }
+    const legacy = windowsOn(lanes, input)
+    // The board really does publish something — an identity between two empty
+    // answers would prove nothing.
+    expect({ total: legacy.total, over: legacy.total > 0, shared: honest.byLane.flatMap((l) => l.shared) })
+      .toEqual({ total: legacy.total, over: true, shared: [] })
+    expect(windowsOf(honest, lanes)).toEqual(legacy)
+  })
+})
+
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('⚖ BREAKER-828 G3 — the three codeOnly copies are byte-identical', () => {

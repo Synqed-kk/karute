@@ -924,7 +924,8 @@
 
    z-index 1 — level with `.cell-packed`, above the rest cue and the wash, under
    every card. Nothing else can be inside a held span, so it never competes. */
-.biz .cell-held {
+.biz .cell-held,
+.biz .cell-shared {
   position: absolute;
   top: 4px;
   bottom: 4px;
@@ -950,16 +951,44 @@
   cursor: pointer;
   touch-action: manipulation;
 }
-.biz .cell-held .held-title { font-size: 10px; font-weight: 700; line-height: 1; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.biz .cell-held .held-sub { font-size: 9px; line-height: 1.2; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.biz .cell-held .held-title,
+.biz .cell-shared .held-title { font-size: 10px; font-weight: 700; line-height: 1; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.biz .cell-held .held-sub,
+.biz .cell-shared .held-sub { font-size: 9px; line-height: 1.2; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — THE SHARED 枠.
+   Same box, said quieter: the board's own muted hatch (the 9/9 rail/hatch
+   round's two greys, the 清掃 mark's gradient at box strength) instead of the
+   flat fill, so a glance separates 『we are holding this』 from 『we cannot
+   actually honour this one』 without a second colour entering the page. No
+   accent, no black, no press — there is no rule on it the held box does not
+   already carry.
+
+   ⚖ HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MAJOR 1)
+   …and BECAUSE it has no press, it stands aside like every other state paint on
+   this track. F6's law below says it in as many words: 『every other layer on
+   this track is pointer-events: none, so the track's own click is what 配置モード's
+   landing and 新規予約を作成 both run on』. The held box is that law's deliberate
+   exception because it ANSWERS; this box answers nothing, so at rest it was
+   swallowing あずさ's minutes and giving the operator neither a dialog nor a
+   landing. It is a state paint like the rest cue and the 詰め込み/スキマ boxes,
+   and it carries their rule. `cursor: default` stays — harmless, and true. */
+.biz .cell-shared { cursor: default; pointer-events: none; border-color: #cbd5e1; background: repeating-linear-gradient(135deg, #e6eaf0 0 5px, #f5f7fa 5px 10px); }
+/* ⚖ HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW.md H4)
+   HONEST-COUNT ROUND 1 · fix 4 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW-2.md R1)
+   — both lines take the HELD box's own title ink, #475569; 「quieter」 is
+   carried by the hatch and the paler dashed border, not by the words. */
+.biz .cell-shared .held-title { color: #475569; font-weight: 600; }
+.biz .cell-shared .held-sub { color: #475569; }
 /* 表示設定 ▸ 空き枠表示「非表示」 takes the whole sell layer off the board, and
    the 確保 chip goes with it — the operator asked for a board with no window
    layer on it. 淡色表示/ドラッグ時のみ are about a SALE being loud or quiet and
    deliberately do not touch this: a held window is a state, and hiding the
    reason a stretch is empty is flag 44's defect. A locked lane sells nothing
    online at all (the toggle's own words), so it holds nothing to show. */
-.biz .timeline.sell-off .cell-held { display: none; }
-.biz .lane.locked .cell-held { display: none; }
+.biz .timeline.sell-off .cell-held,
+.biz .timeline.sell-off .cell-shared { display: none; }
+.biz .lane.locked .cell-held,
+.biz .lane.locked .cell-shared { display: none; }
 /* ⚖ FIX ROUND F6 (blind-final L2#3) — A PLACEMENT GOES THROUGH THE CHIP.
    Every other layer on this track is `pointer-events: none`, so the track's own
    click is what 配置モード's landing and 新規予約を作成 both run on

@@ -57,7 +57,7 @@ import {
 import { fallbackCellsFor, type FallbackResult } from '@/app/[locale]/(business)/business/today/fallback-cells'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { reservedMaskFor, type ReservedLaneMask } from '@/app/[locale]/(business)/business/today/reserved-mask'
-import { SELLING_ENGINE_LAW } from '@/app/[locale]/(business)/business/today/selling-engine-gate'
+import { HONEST_HELD, SELLING_ENGINE_LAW } from '@/app/[locale]/(business)/business/today/selling-engine-gate'
 import { bedDoor, bedViewsFor, TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import {
   explainRails,
@@ -706,6 +706,72 @@ describe('1 — the round gate', () => {
     expect(gate).not.toMatch(/process\.env/)
   })
 
+  // ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — SPEC-HONEST-COUNT.md §2.5. The
+  // netting round gets its own gate in this same module and under the same
+  // clauses, because the file a netting gate would look natural in
+  // (`reserved-mask.ts`) is on the forbidden-reader list below — a gate there
+  // would slip the text pin while breaking the law the pin exists to enforce.
+  it('the honest 確保 count ships ON, and its gate lives here too', () => {
+    expect(HONEST_HELD).toBe(true)
+    const gate = SRC('selling-engine-gate.ts')
+    expect(gate).toContain('export const HONEST_HELD: boolean = true')
+    expect(gate).not.toMatch(/process\.env/)
+  })
+
+  it('…and the honest gate is read at the screen boundary ONCE', () => {
+    // ⚖ HONEST-COUNT ROUND 1 — the same five files may not name it either: the
+    // netting is applied at the screen and `on` arrives as a parameter, so a
+    // read anywhere below would put the round's state in two places.
+    const readers = ['today-interactions.ts', 'capacity-ledger.ts', 'reserved-mask.ts', 'fallback-cells.ts', 'held-committed.ts', 'honest-held.ts']
+    for (const f of readers) expect({ f, has: SRC(f).includes('HONEST_HELD') }).toEqual({ f, has: false })
+    const screen = SRC('TodayScreen.tsx')
+    // ONE read, counted over code with comment-led lines blanked (a count that
+    // includes prose is a count a decoy inflates — BREAKER-827 F1): the import,
+    // and the single memo it decides.
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 2)
+    // — and the specifier shares the gate module's ONE import line now. The
+    // count was unchanged at 2: `HONEST_HELD` appears once in the merged import
+    // and once in the memo, exactly as it did across two lines.
+    // HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+    // frame for the rail) — AND IT IS 3 NOW, for a stated reason: the board
+    // world is netted by the same producer on every pointer frame, so the round
+    // has a SECOND memo and that memo must be gated too. Off ⇒ `heldBoard` raw,
+    // which is the board that shipped. Still ONE value, still read only in memo
+    // bodies at the top level of the component; the two memos are anchored
+    // whole below so a third read cannot arrive without saying what it is.
+    expect([...codeOnly(screen).matchAll(/HONEST_HELD/g)].length).toBe(3)
+    for (const line of [
+      "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
+      '() => (HONEST_HELD && heldCommitted',
+      // ⚖ AND THE MEMO IS A SETTLED-BOARD MEMO. Every name in its dependency
+      // list is a settled value; not one of them is `boardLanes`, `ledger` or
+      // `handId`, the three that get a fresh identity on every pointer frame
+      // (TodayScreen's own words at the `windowDoorOn` comment). That is what
+      // keeps the netting's cost — candidates × compatible rooms `allocateBed`
+      // searches — off the drag path, and an edit that adds a per-frame value
+      // here reds this line rather than being measured later by someone else.
+      '[heldCommitted, locked, committedLanes, ledgerFrame],',
+      // …and the netting's input is the CHIP's own lane set: staff rows with a
+      // window, minus the locked ones. A locked row sells nothing, so its 枠 may
+      // not take a room from one that will; a price-0 row's 枠 IS protected and
+      // does take one (spec v4).
+      'heldCommitted.filter((m) => !locked.includes(m.laneKey)),',
+      // HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+      // frame for the rail) — THE SECOND GATED MEMO, the LIVE one. Same
+      // producer, same locked filter, and the LIVE inputs: `boardLanes` (the
+      // board with the tentative move on it) and `ledger.world` (the book that
+      // very mask was cut from — a second book would be a second bed truth on
+      // one frame). Its deps are the three per-frame values the settled memo is
+      // pinned NOT to carry, which is the ruling itself: the rail is netted per
+      // frame, the chip is not.
+      '() => (HONEST_HELD && heldBoard',
+      '? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true).byLane.map(heldMaskOf)',
+      '[heldBoard, locked, boardLanes, ledger],',
+    ]) {
+      expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
+    }
+  })
+
   it('is read at the screen boundary ONLY — never in a layer, a predicate or a handler', () => {
     // ⚖ R5 POST-MERGE — `held-committed.ts` joins the list on the same terms as
     // its four siblings: it is a caller-side wrapper over the mask, so if it
@@ -776,8 +842,13 @@ describe('1 — the round gate', () => {
     // Received: 8`). The eighth read is `windowDoorOn`, the SETTLED boards' own
     // gated door: the day walk asks the same room question the rail asks, so it
     // is gated the same way, and it is whole-line anchored below like the rest.
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 1)
+    // — 8 → 9. The ninth read is the 元に戻す board's own mask: it used to pass
+    // a hardcoded `true` and rest on an early return for its safety, which is
+    // the one shape a text pin cannot see. The gate is named there now, so the
+    // safety is structural, and this count is what holds it.
     const reads = [...codeOnly(screen).matchAll(/SELLING_ENGINE_LAW/g)].length
-    expect(reads).toBe(8)
+    expect(reads).toBe(9)
     // ⚖ D1 — and the number does not move when `codeOnly` learns about block
     // comments: all five reads are code, none of the six raw occurrences the
     // pre-armour count saw ever sat inside a block the new filter removes.
@@ -793,7 +864,9 @@ describe('1 — the round gate', () => {
     // out of); `null` for the reason the rail asks `null`, a new client is
     // never the card in hand.
     for (const line of [
-      "import { SELLING_ENGINE_LAW } from './selling-engine-gate'",
+      // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, LENS-1-delta.md MINOR 2) — one
+      // line from this module, shared with `HONEST_HELD`.
+      "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
       'gateOn: SELLING_ENGINE_LAW,',
       // ⚖ FRAME-SEAM (2026-09-12) — THE RAIL'S TWO GATED DOORS TAKE THE HAND'S
       // BOARD. The strip judged every chip on `boardLanes` while the drop judged
@@ -862,7 +935,9 @@ describe('1 — the round gate', () => {
     // 0). So: the import is the ONE binding site, every other binding shape is
     // banned, and the fifth read is pinned as a line inside the memo it decides.
     const CODE = codeOnly(screen)
-    const GATE_IMPORT = "import { SELLING_ENGINE_LAW } from './selling-engine-gate'"
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, LENS-1-delta.md MINOR 2) — the
+    // ONE import line from this module, both specifiers on it.
+    const GATE_IMPORT = "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'"
     expect({ gateImports: pinnedLines(screen, GATE_IMPORT) }).toEqual({ gateImports: 1 })
     expect({
       declarations: (CODE.match(/\b(?:const|let|var|function|class|import\s+type)\s+SELLING_ENGINE_LAW\b/g) ?? []).length,
@@ -1984,6 +2059,24 @@ describe('7 — the mask is built once per world per frame, and what it costs', 
     // whole of E1's cache and the reason the 19–41× naive cost is not paid.
     expect(handles()).toBe(staffLanesOf(w.lanes).length)
     expect(held.length).toBe(staffLanesOf(w.lanes).length)
+  })
+
+  // HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+  // frame for the rail) — AND THE LIVE NETTING ADDS NO BOOK TO THE FRAME.
+  // The ruling's cost line is 「the frame pays the SEARCH alone」, and that is
+  // only true while the live memo reads the book the frame has already built.
+  // The counts above are therefore unchanged by fix 6 — the netting mints no
+  // `newClientMask` handle and constructs no `BedTruth`; it asks `freeBedKeys`
+  // of `ledger.world`. This leg is that clause read off the screen, so a later
+  // round cannot quietly give the live memo a book of its own.
+  it('the live netting rides the frame\u2019s own book — it builds no second one', () => {
+    const screen = SRC('TodayScreen.tsx')
+    const i = screen.indexOf('const heldBoardHonest = useMemo(')
+    expect(i).toBeGreaterThan(-1)
+    const memo = screen.slice(i, screen.indexOf('\n  )', i))
+    expect({ readsTheFrameBook: memo.includes('ledger.world') }).toEqual({ readsTheFrameBook: true })
+    expect({ buildsOne: memo.includes('bookFor(') || memo.includes('bedViewsFor(') || memo.includes('bedTruthViews(') })
+      .toEqual({ buildsOne: false })
   })
 
   /** ⚠ WHAT THE GATE ACTUALLY ADDS TO A FRAME, and it is not only the mask.
