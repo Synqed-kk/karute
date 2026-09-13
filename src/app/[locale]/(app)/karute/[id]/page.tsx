@@ -37,7 +37,7 @@ import { getCustomer } from '@/lib/customers/queries'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
 import { auditWeb } from '@/lib/audit-web'
 import { lookupProfileIdForSynqedStaffId } from '@/lib/synqed/staff-map'
-import { resolveDiscardFacts } from '@/actions/recording-discards'
+import { resolveDiscardFacts } from '@/lib/karute/discard-facts'
 
 interface KaruteDetailPageProps {
   params: Promise<{ id: string; locale: string }>

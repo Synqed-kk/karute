@@ -40,7 +40,7 @@ import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { scopeKarutePhotos } from '@/lib/karute/scoped-photos'
-import { resolveDiscardFacts } from '@/actions/recording-discards'
+import { resolveDiscardFacts } from '@/lib/karute/discard-facts'
 
 // Node runtime: the synqed SDK + node:crypto verifier are server-only.
 export const runtime = 'nodejs'
