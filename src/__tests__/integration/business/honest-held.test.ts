@@ -13,7 +13,6 @@
 // than about the netting.
 
 import {
-  demoteShared,
   heldMaskOf,
   honestHeld,
   HONEST_SEARCH_BUDGET,
@@ -436,103 +435,6 @@ describe('honest-held — the node budget', () => {
     const a = tripBoard()
     const b = tripBoard()
     expect(picture(honestHeld(a.candidates, a.lanes, a.book, true))).toEqual(picture(honestHeld(b.candidates, b.lanes, b.book, true)))
-  })
-})
-
-describe('demoteShared — the board world', () => {
-  const settled = () => honestHeld(fixtureCandidates(), fixtureLanes(), fixtureBook(), true)
-
-  it('drops a board-world span that OVERLAPS a settled shared 枠, not only one with the same start', () => {
-    // ⚖ v3 N4(2) — the board world cuts its pockets with the hand lifted, so a
-    // lift can re-enumerate あずさ's 枠 five minutes along. An exact-start key
-    // would miss it and the strip would speak 新規用 over a 枠 the chip does not
-    // count.
-    const board = [maskOf('p-05', [span(870, 90)]), maskOf('p-06', [span(910, 90)])]
-    const out = demoteShared(board, settled())!
-    expect(out.map((m) => ({ laneKey: m.laneKey, spans: m.spans.map((s) => hhmm(s.start)), n: m.protectedCount }))).toEqual([
-      { laneKey: 'p-05', spans: ['14:30'], n: 1 },
-      { laneKey: 'p-06', spans: [], n: 0 },
-    ])
-  })
-
-  it('keeps a span on the SAME lane that does not overlap the shared one', () => {
-    // The key is lane + OVERLAP, and the overlap test is a real half-open
-    // interval test on BOTH sides: あずさ's own earlier 枠 (08:00-09:30, nowhere
-    // near her shared 15:05-16:35) is not the 枠 the settled board demoted, and
-    // the rail must keep speaking over it. A one-sided test (`a.start < b.end`
-    // alone) would swallow every span earlier in the day.
-    // HONEST-COUNT ROUND 1 · fix 5 (2026-09-13, Greptile P1 on #904 — live rails)
-    // — ごろうの 14:30 枠 joined this board. It was always the precondition of
-    // the case (the demotion this leg is about is HIS collision); since fix 5
-    // the demotion also LIFTS when his 枠 is not on the live board, so a board
-    // that left it out would now be asking the other question.
-    const board = [maskOf('p-05', [span(870, 90)]), maskOf('p-06', [span(480, 90), span(905, 90), span(1020, 90)])]
-    const out = demoteShared(board, settled())!
-    expect(out.find((m) => m.laneKey === 'p-06')!.spans.map((s) => hhmm(s.start))).toEqual(['08:00', '17:00'])
-  })
-
-  it('is the IDENTITY when nothing is shared, so the gate off is the board that ships', () => {
-    const board = [maskOf('p-05', [span(870, 90)])]
-    const nothingShared = honestHeld(fixtureCandidates().slice(0, 2), fixtureLanes().slice(0, 2), fixtureBook(), true)
-    expect(demoteShared(board, nothingShared)).toBe(board)
-    expect(demoteShared(board, undefined)).toBe(board)
-    expect(demoteShared(undefined, settled())).toBeUndefined()
-  })
-
-  // HONEST-COUNT ROUND 1 · fix 5 (2026-09-13, Greptile P1 on #904 — live rails)
-  // A settled shared 枠 demotes a live span only while ITS OWN COLLISION is
-  // still on the board. Mid-gesture the board world already carries the
-  // tentative move while the settled answer still describes the board before
-  // it, so the winner's 枠 can be gone from the live mask — and a collision
-  // that has left the board may not keep a rail quiet.
-
-  it('LIFTS the demotion when the winner\u2019s 枠 has left the live mask — the collision is not on this board', () => {
-    // ごろう's 14:30 枠 is in the hand and re-cut at 08:00, so ベッド2 is
-    // nobody's over 15:05–16:35 and あずさ's row really can honour hers. The
-    // settled answer still names her the shared one — that is the settled
-    // board's word — but it cannot silence a rail whose partner has moved.
-    const board = [maskOf('p-05', [span(480, 90)]), maskOf('p-06', [span(905, 90)])]
-    const out = demoteShared(board, settled())!
-    expect(out.map((m) => ({ laneKey: m.laneKey, spans: m.spans.map((s) => hhmm(s.start)), n: m.protectedCount }))).toEqual([
-      { laneKey: 'p-05', spans: ['08:00'], n: 1 },
-      { laneKey: 'p-06', spans: ['15:05'], n: 1 },
-    ])
-    // …and no row moved, so it is the SAME array — a lifted collision costs the
-    // board world nothing at all.
-    expect(out).toBe(board)
-  })
-
-  it('keeps demoting the 枠 the SEARCH left unfilled — no claimant named, so nothing can have left', () => {
-    // `withLaneKey === ''` is the one case with no collision to lose: the 枠
-    // was left unheld by HONEST_SEARCH_BUDGET rather than by a partner. It
-    // keeps demoting, which is the conservative direction and the same word
-    // the settled chip took.
-    const noClaimant: HonestHeld = {
-      byLane: [
-        { laneKey: 'p-06', held: [], heldRooms: [], shared: [{ ...span(905, 90), rooms: [], sharedRoom: '', withLaneKey: '', withWindowStart: -1 }] },
-      ],
-      total: 0,
-      exact: false,
-    }
-    const board = [maskOf('p-06', [span(905, 90)])]
-    expect(demoteShared(board, noClaimant)![0].spans).toEqual([])
-  })
-
-  it('the SAME-LANE winner: demoted while the 10:00 枠 is on the board, kept when it is not', () => {
-    // One lane can publish two 枠 (pocket order) and the later one names its
-    // OWN row as the winner. The winner is then a 枠 OTHER than the one being
-    // demoted — the live 11:00 span may never count as its own collision.
-    const book = stubBook((start, _end, stores) => (stores?.[0] === 'p-01' && (start === 600 || start === 660) ? ['bed-01'] : []))
-    const oneLane = honestHeld([maskOf('p-01', [span(600, 90), span(660, 90)])], [lane('p-01', ['p-01'])], book, true)
-    expect(picture(oneLane).shared).toEqual(['p-01 11:00-12:30→bed-01 with p-01'])
-    // Both live spans overlap the shared 11:00 枠 and the 10:00 winner is on
-    // the board, so both go — the pre-fix-5 answer on this board, unchanged.
-    const both = demoteShared([maskOf('p-01', [span(600, 90), span(660, 90)])], oneLane)!
-    expect(both[0].spans.map((s) => hhmm(s.start))).toEqual([])
-    // Lift the 10:00 枠 and the 11:00 one is the only 枠 left: it is not its
-    // own winner, so the rail speaks over it again.
-    const lifted = [maskOf('p-01', [span(660, 90)])]
-    expect(demoteShared(lifted, oneLane)).toBe(lifted)
   })
 })
 

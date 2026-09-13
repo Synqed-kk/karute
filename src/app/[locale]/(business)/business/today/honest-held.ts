@@ -11,10 +11,9 @@
 //
 // WHERE IT SITS. Phase 1.5: after the per-lane enumeration (`reserved-mask.ts`,
 // byte-untouched, whose own header forbids it from knowing `locked` or the
-// publication filter) and after the caller's own locked-lane filter, ONCE per
-// SETTLED board. The board world — the per-pointer-frame mask the staff door
-// reads — is never netted; it is handed the settled answer's shared spans and
-// demotes them (`demoteShared`), which is one Set-free overlap test per span.
+// publication filter) and after the caller's own locked-lane filter, once per
+// SETTLED board — and, since ⚖ Liam 2026-09-13, once per POINTER FRAME on the
+// board world too, for the rail alone (see the paragraph above `heldMaskOf`).
 //
 // IT DECIDES NOTHING ABOUT WHAT IS SOLD. A 枠 this module calls SHARED keeps
 // every other property it had: its minutes stay withheld from online sale, stay
@@ -356,58 +355,17 @@ function components(flat: readonly Candidate[]): number[][] {
   return out
 }
 
-/** THE BOARD WORLD'S DEMOTION (spec §3.4 + v3 N4).
+/** THE BOARD WORLD IS NETTED PER FRAME — HONEST-COUNT ROUND 1 · fix 6
+ *  (2026-09-13, ⚖ Liam: board world netted per frame for the rail).
  *
- *  The per-pointer-frame mask the staff door and the rail word read is never
- *  netted — it answers per-lane questions and a store-wide netting on every
- *  frame would be the cost this round refuses to pay. Instead it is handed the
- *  SETTLED board's shared spans and drops the spans that collide with them.
- *
- *  THE KEY IS LANE + TIME OVERLAP, not the guard's exact `windowStart`. The
- *  board world cuts its pockets with the hand LIFTED, so a lift can re-open a
- *  pocket and the greedy can re-enumerate at different starts; an exact-start
- *  key would miss then, and the strip would say 新規用 over a 枠 the settled
- *  chip does not count for the length of a gesture. Overlap under-holds the
- *  word for that gesture instead, which is the safe direction.
- *
- *  HONEST-COUNT ROUND 1 · fix 5 (2026-09-13, Greptile P1 on #904 — live rails)
- *  — AND ONLY WHILE THE COLLISION IS STILL ON THE BOARD. Mid-gesture the live
- *  mask already carries the tentative move while `honest` still describes the
- *  settled board, so a settled shared 枠 demotes a live span only while its
- *  WINNER (`withLaneKey`, a 枠 OTHER than the one being demoted) still holds an
- *  overlapping 枠 in the LIVE mask — lift ごろう's 14:30 枠 and あずさ's row gets
- *  its word back for the gesture. `withLaneKey === ''` (the budget's own
- *  unfilled 枠, no claimant at all) keeps demoting. The other half — a NEW
- *  collision the live board CREATES — stays main's word until the drop: seeing
- *  it needs the per-frame netting ⚖ v3 N4 refuses to pay for.
- *
- *  IDENTITY WHEN NOTHING IS SHARED — the same array comes back, so the round
- *  gate off is byte-identical to today's board rather than equal-by-inspection. */
-export function demoteShared(
-  mask: readonly ReservedLaneMask[] | undefined,
-  honest: HonestHeld | undefined,
-): readonly ReservedLaneMask[] | undefined {
-  if (!mask || !honest) return mask
-  const sharedBy = new Map<string, readonly SharedSpan[]>()
-  for (const l of honest.byLane) if (l.shared.length > 0) sharedBy.set(l.laneKey, l.shared)
-  if (sharedBy.size === 0) return mask
-  const liveSpans = new Map(mask.map((m) => [m.laneKey, m.spans]))
-  /** Is the 枠 that TOOK the room still on this board? One overlap scan of the
-   *  winner's own lane — on the fixture, ごろう's one span, so one test. */
-  const winnerHolds = (h: SharedSpan, self: ReservedSpan) =>
-    h.withLaneKey === '' ||
-    (liveSpans.get(h.withLaneKey) ?? []).some((w) => w !== self && overlaps(w.start, w.end, h.start, h.end))
-  let moved = false
-  const out = mask.map((m) => {
-    const shared = sharedBy.get(m.laneKey)
-    if (!shared) return m
-    const kept = m.spans.filter((s) => !shared.some((h) => overlaps(s.start, s.end, h.start, h.end) && winnerHolds(h, s)))
-    if (kept.length === m.spans.length) return m
-    moved = true
-    return Object.freeze({ laneKey: m.laneKey, spans: Object.freeze(kept), protectedCount: kept.length })
-  })
-  return moved ? Object.freeze(out) : mask
-}
+ *  There is no board-world demotion any more. The screen runs THIS function a
+ *  second time, on the live mask with the live lanes and the live book that
+ *  mask was cut from, and maps the answer through `heldMaskOf` below — so a
+ *  collision the tentative move CREATES is seen on the frame it is created,
+ *  which the old 「hand the board world the settled shared spans」 trade could
+ *  not do. Measured cost of one netting: fixture 0.06 ms p95 · 30 staff × 10
+ *  rooms 0.40 ms · 60 × 20 0.81 ms, and the live book already exists per frame,
+ *  so the frame pays the search alone. ONE reader: the rail explanation. */
 
 /** One honest row as the mask shape every existing consumer already takes —
  *  `reservedOffersFor` and `heldDrawnFor`'s output are this. A straight rename,
