@@ -1390,7 +1390,16 @@ describe('6 — a manager releases ごろう’s held window, and the board re-d
     const screen = SRC('TodayScreen.tsx')
     // One consumption, like `canOverride` — a second gate elsewhere would split
     // the authority across two lines.
-    expect(screen.match(/props\.canReleaseHeld/g)).toHaveLength(1)
+    // ⚖ ROUND 2 (2026-09-13) — 1 → 3, and the pin's MEANING is unmoved: one
+    // AUTHORITY, now consumed by the two halves of one act. D-11 added the
+    // automatic release, so the board also has a way BACK from it, and 「a staff
+    // member who cannot release cannot un-release either」 is the same server
+    // answer read the same way — never a second gate with an opinion of its own.
+    // The three sites are anchored below, so a fourth cannot arrive quietly and
+    // a gate moved out of `releaseAsk` still reds the line under this one.
+    expect(screen.match(/props\.canReleaseHeld/g)).toHaveLength(3)
+    expect(screen).toContain('    if (!props.canReleaseHeld) return\n')
+    expect(screen).toContain('{props.canReleaseHeld && (\n')
     expect(screen).toContain('if (!props.canReleaseHeld) {\n      show(law)\n      return\n    }')
     // The manager's action is the board's EXISTING confirm-with-one-action
     // surface (the toast that already carries the block delete's undo) — no new
@@ -1571,7 +1580,22 @@ describe('7 — the fix round: the publication boundary', () => {
 
   it('F1 — and the screen is wired that way: the published layer, and what it withheld', () => {
     const screen = SRC('TodayScreen.tsx')
+    // ⚖ D-17 F4, CORRECTED BY ⚖ D-18 (1) (2026-09-14) — F4 moved BOTH
+    // `sellCells`/`claims` to the published lists, and that also moved the
+    // OWN-ROW `advertised` predicate (F1's own question) off the drawn list, so
+    // a withheld box — still drawn, muted, on its own row — read as ad-less
+    // again. The anchor now names FOUR lines, not two: `sellCells`/`claims` move
+    // BACK to `sellDrawn`/`drawnClaims` (F1's finding, restored — every GEOMETRY
+    // and COVERAGE input, INCLUDING this row's own ad-less question, is the
+    // drawn list), and the two NEW opts `soldCells`/`soldClaims` carry the
+    // published lists to the one place that still needs them: the OTHER row's
+    // sold cue. 「別の枠で販売中」 claims that somebody's sale took this person's
+    // only bed, and a withheld offer is not a sale — that question alone reads
+    // what is actually for sale.
     expect(screen).toContain('sellCells: sellDrawn.cells,')
+    expect(screen).toContain('claims: drawnClaims,')
+    expect(screen).toContain('soldCells: sellPublished.cells,')
+    expect(screen).toContain('soldClaims: publishedClaims,')
     expect(screen).toContain('withheld: sell.cells.filter(isHeldBound),')
     // The DERIVATION still exists and is still what the fallback's survivor set
     // reads.
@@ -1601,7 +1625,10 @@ describe('7 — the fix round: the publication boundary', () => {
     // ⚖ MICROFIX N1 — and the board-world instance lifts the hand, which is the
     // lift `guardRailsFor` was already making on its own pockets. Proven as
     // behaviour in reserved-mask.test.ts §9; this is the WIRING half.
-    const memo = screen.indexOf('const heldBoard = useMemo(')
+    // ⚖ ROUND 2 (2026-09-13) — the timed release: the producer memo is
+    // `heldBoardRaw` now; `excludeId: handId,` is still inside it. Mechanical
+    // whole-line rename.
+    const memo = screen.indexOf('const heldBoardRaw = useMemo(')
     expect(memo).toBeGreaterThan(-1)
     expect(screen.slice(memo, memo + 700)).toContain('excludeId: handId,')
   })
@@ -1727,7 +1754,14 @@ describe('7 — the fix round: the publication boundary', () => {
     // the same position, under its own name now that the row also has a netted
     // one. What F5 is about is untouched: the cue still stands down over the
     // chips the operator can see, shared ones included.
-    expect(screen).toContain('restCueStarts(explainedHere, cells, gapHere, coverHere, lane.items, handId)')
+    // ⚖ D-17 F8 · spec §4 (2026-09-14) — `coverHere` → `coverForCues`, the same
+    // COMMITTED list in the same position PLUS this lane's released spans. What
+    // F5 is about is untouched: the cue still stands down over the boxes the
+    // operator can see, and a released mark is one of them. It is its own name
+    // rather than a wider `coverHere` because `coverHere` is also `heldHere`'s
+    // fallback with the netting off, where a released span would be DRAWN as a
+    // 確保 box on top of the mark that says it was let go.
+    expect(screen).toContain('restCueStarts(explainedHere, cells, gapHere, coverForCues, lane.items, handId)')
     // …and the board world's per-lane index is GONE, not merely unused: a second
     // held index on this screen is how the two worlds get mixed again.
     expect(screen).not.toContain('heldByLane')
@@ -1749,6 +1783,8 @@ describe('7 — the fix round: the publication boundary', () => {
     // that box — grouping it in here is what let it swallow あずさ's minutes at
     // rest and answer nothing.
     expect(css).toContain('.biz .timeline.placing .cell-held,\n.biz .timeline.dragging-live .cell-held { pointer-events: none; }')
+    // ⚖ ROUND 2 blind round L1 MAJOR 1 (2026-09-13) — the released mark's pill stands aside in the same two modes
+    expect(css).toContain('.biz .timeline.placing .cell-released .held-restore,\n.biz .timeline.dragging-live .cell-released .held-restore { pointer-events: none; }')
     // …and the base rule is where the shared box says it, once, for every frame.
     expect(css).toContain('.biz .cell-shared { cursor: default; pointer-events: none;')
     // Both classes are ones the screen already sets — no new switch.
@@ -1766,7 +1802,7 @@ describe('7 — the fix round: the publication boundary', () => {
     // ⚖ Q3's one number is the board head's. This chip counts one of its four
     // kinds and now says which, in the board's own 案C word — the same word its
     // group wears in the press-open breakdown.
-    expect(screen).toContain('公開中の販売可能枠 {sellDrawn.staffBands.length}枠')
+    expect(screen).toContain('公開中の販売可能枠 {sellPublished.staffBands.length}枠')
     expect(screen).not.toContain('>公開中 {')
     const w = fixtureWorld()
     const on = door(w, shipped(), maskOf(w, shipped()))
@@ -2378,7 +2414,11 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     // stays (POSTMERGE finding 7): the pass-through memo is short, and a slice
     // that ever over-read into the neighbouring `gapDials` memo would be a
     // false red rather than a silent pass.
-    const START = 'const heldCommitted = useMemo('
+    // ⚖ ROUND 2 (2026-09-13) — the timed release: the pass-through producer is
+    // `heldCommittedRaw` now and the NAME `heldCommitted` stays on the released
+    // answer. The CALL anchor `heldCommittedFor({` below is still true inside the
+    // renamed memo. Mechanical whole-line rename.
+    const START = 'const heldCommittedRaw = useMemo('
     const startIdx = screen.indexOf(START)
     expect(startIdx).toBeGreaterThanOrEqual(0)
     const endIdx = screen.indexOf('\n  )', startIdx + START.length)
@@ -2671,7 +2711,17 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
     // Codex's mutant inserts `if (dayStaged) return honest` ABOVE this line, so
     // the two lines stop being adjacent and this anchor goes RED. It is the
     // repo-side half of a fact the rig proves by rendering.
+    //
+    // \u2696 D-20 (1) (2026-09-14) \u2014 the origin mask's PRODUCTION (`originHeld` /
+    // `heldCommittedFor`) moved out to its own `originReleased` memo, shared
+    // with `dayOrigin`'s netting-off arm; `honestOrigin`'s body shrank to the
+    // netting alone, so the line immediately below the guard is now the new
+    // `if (!originReleased) return honest` \u2014 same mutant, same adjacency, new
+    // second line. That second line is the `| undefined` type guard and is
+    // unreachable in practice (the law-off case already returned on the line
+    // above because `honest` is undefined too) \u2014 kept on purpose; the pin's
+    // subject is the adjacency, not that line's liveness (\u2696 D-21 (3)).
     const screen = SRC('TodayScreen.tsx')
-    expect(screen).toContain('const honestOrigin = useMemo(() => {\n    if (!honest || !dayStaged) return honest\n    const originHeld = heldCommittedFor({')
+    expect(screen).toContain('const honestOrigin = useMemo(() => {\n    if (!honest || !dayStaged) return honest\n    if (!originReleased) return honest')
   })
 })

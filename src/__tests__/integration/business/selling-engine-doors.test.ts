@@ -57,7 +57,7 @@ import {
 import { fallbackCellsFor, type FallbackResult } from '@/app/[locale]/(business)/business/today/fallback-cells'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { reservedMaskFor, type ReservedLaneMask } from '@/app/[locale]/(business)/business/today/reserved-mask'
-import { HONEST_HELD, SELLING_ENGINE_LAW } from '@/app/[locale]/(business)/business/today/selling-engine-gate'
+import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from '@/app/[locale]/(business)/business/today/selling-engine-gate'
 import { bedDoor, bedViewsFor, TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import {
   explainRails,
@@ -718,6 +718,89 @@ describe('1 — the round gate', () => {
     expect(gate).not.toMatch(/process\.env/)
   })
 
+  // ⚖ ROUND 2 (2026-09-13) — the timed release — SPEC-R2 §2.6. The bed-aware sales
+  // layer gets its own gate in this same module and under the same clauses. The
+  // file a sales gate would look natural in is `bed-aware-sales.ts`, and that
+  // module takes `on` as a PARAMETER — a gate inside it would give one round two
+  // homes, which is the whole reason this file exists. The release half has NO
+  // gate of its own on purpose: 「解除しない」 (`beforeMin === null`) is a real
+  // product value, not construction scaffolding.
+  it('the bed-aware sales layer ships ON, and its gate lives here too', () => {
+    expect(BED_AWARE_SALES).toBe(true)
+    const gate = SRC('selling-engine-gate.ts')
+    expect(gate).toContain('export const BED_AWARE_SALES: boolean = true')
+    expect(gate).not.toMatch(/process\.env/)
+  })
+
+  it('…and the sales gate is read at the screen boundary ONCE', () => {
+    const screen = SRC('TodayScreen.tsx')
+    // TWO reads over code with comment-led lines blanked: the shared gate import
+    // line, and the ONE memo it decides (the withheld set). A third read cannot
+    // arrive without moving this number.
+    expect([...codeOnly(screen).matchAll(/BED_AWARE_SALES/g)].length).toBe(2)
+    for (const line of [
+      "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
+      // The gate's ONE decision site, anchored whole: the last argument of the
+      // withheld memo's own call. Held by the count above as well as by this
+      // line, so neither a duplicate nor a move has anywhere to stand.
+      'BED_AWARE_SALES,',
+    ]) {
+      expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
+    }
+    // ⚖ SPEC-R2 §3.1 — AND THE PUBLISHED LAYERS ARE WHAT THE COUNTERS READ.
+    // `sellDrawn` is the DERIVATION (the row still draws the withheld box, muted
+    // — ADDENDUM 2 item 1); `sellPublished`/`gapPublished` are the on-sale set,
+    // and every counting surface reads those. A counter left on `sellDrawn`
+    // would count a box the board is greying out, which is R4's own lesson one
+    // law along — so the reader count is pinned, not just the memo.
+    expect({ drawnReaders: (codeOnly(screen).match(/sellDrawn\.staffBands/g) ?? []).length }).toEqual({ drawnReaders: 0 })
+    expect({ publishedReaders: (codeOnly(screen).match(/sellPublished\.staffBands/g) ?? []).length }).toEqual({ publishedReaders: 7 })
+    // ROUND 2 (2026-09-13, blind L1 MINOR 1) — `checksFor`'s 判断 check row was
+    // reading `sellDrawn.cells` (the derivation) while its own comment promised
+    // the published layer: anchored so it cannot drift back.
+    expect({ line: 'checksFor', has: pinnedLine(screen, 'for (const c of sellPublished.cells) {') }).toEqual({ line: 'checksFor', has: true })
+    // …and `gapDrawn` reaches the four-kind counter through `gapPublished` too,
+    // so 「オンライン販売中 N窓」 and the chip answer out of one set.
+    expect({ line: 'packed', has: pinnedLine(screen, 'packed: heldCommitted ? gapPublished.packed : [],') }).toEqual({ line: 'packed', has: true })
+    expect({ line: 'scraps', has: pinnedLine(screen, 'scraps: heldCommitted ? gapPublished.scraps : [],') }).toEqual({ line: 'scraps', has: true })
+  })
+
+  it('…and no module below the screen names the sales gate', () => {
+    // ⚖ ROUND 2 — the same list as the honest gate's, plus the round's own two
+    // modules: the withholding is applied at the screen and `on` arrives as a
+    // parameter, so a read anywhere below would put the round's state in two
+    // places.
+    const readers = ['today-interactions.ts', 'capacity-ledger.ts', 'reserved-mask.ts', 'fallback-cells.ts', 'held-committed.ts', 'honest-held.ts', 'bed-aware-sales.ts', 'timed-release.ts']
+    for (const f of readers) expect({ f, has: SRC(f).includes('BED_AWARE_SALES') }).toEqual({ f, has: false })
+  })
+
+  // ⚖ ADDENDUM 4 item 2 (Liam 2026-09-13 21:4x) — THE NO-CYCLE PROOF AS A
+  // WHOLE-LINE PIN. Both round-2 modules answer about board rows and a clock
+  // VALUE, so their exports must stay free of screen types, React and any clock
+  // of their own. The import header, ordered and exhaustive, is that proof:
+  // value imports (`honestHeld` and, as of ⚖ D-18 (3), `heldMaskOf` — both from
+  // `./honest-held`, whose own file imports only types) and types besides. A
+  // new import — or a reworded one — moves this array and prints the diff.
+  it('⚖ ADDENDUM 4 — the two round-2 modules import types, one value, and no screen', () => {
+    for (const [f, lines] of [
+      ['bed-aware-sales.ts', [
+        "import type { BoardLane } from '@/business/lib/today-board'",
+        "import type { Asker, BedTruth } from './capacity-ledger'",
+        "import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'",
+        "import type { ReservedLaneMask } from './reserved-mask'",
+      ]],
+      ['timed-release.ts', [
+        "import type { ReleasedWindow, ReservedLaneMask, ReservedSpan } from './reserved-mask'",
+      ]],
+    ] as const) {
+      const src = SRC(f)
+      expect({ f, imports: src.split('\n').filter((l) => /\bfrom\s*['\"]/.test(l)).map((l) => l.trim()) }).toEqual({ f, imports: [...lines] })
+      // …and no clock of their own, over CODE (the headers say 「no timer」 in
+      // as many words, and a prose mention may not red this).
+      expect({ f, clock: /Date\.now|setInterval|setTimeout|new Date/.test(codeOnly(src)) }).toEqual({ f, clock: false })
+    }
+  })
+
   it('…and the honest gate is read at the screen boundary ONCE', () => {
     // ⚖ HONEST-COUNT ROUND 1 — the same five files may not name it either: the
     // netting is applied at the screen and `on` arrives as a parameter, so a
@@ -741,7 +824,7 @@ describe('1 — the round gate', () => {
     // whole below so a third read cannot arrive without saying what it is.
     expect([...codeOnly(screen).matchAll(/HONEST_HELD/g)].length).toBe(3)
     for (const line of [
-      "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
+      "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
       '() => (HONEST_HELD && heldCommitted',
       // ⚖ AND THE MEMO IS A SETTLED-BOARD MEMO. Every name in its dependency
       // list is a settled value; not one of them is `boardLanes`, `ledger` or
@@ -870,7 +953,7 @@ describe('1 — the round gate', () => {
     for (const line of [
       // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, LENS-1-delta.md MINOR 2) — one
       // line from this module, shared with `HONEST_HELD`.
-      "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
+      "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
       'gateOn: SELLING_ENGINE_LAW,',
       // ⚖ FRAME-SEAM (2026-09-12) — THE RAIL'S TWO GATED DOORS TAKE THE HAND'S
       // BOARD. The strip judged every chip on `boardLanes` while the drop judged
@@ -941,7 +1024,7 @@ describe('1 — the round gate', () => {
     const CODE = codeOnly(screen)
     // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, LENS-1-delta.md MINOR 2) — the
     // ONE import line from this module, both specifiers on it.
-    const GATE_IMPORT = "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'"
+    const GATE_IMPORT = "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'"
     expect({ gateImports: pinnedLines(screen, GATE_IMPORT) }).toEqual({ gateImports: 1 })
     expect({
       declarations: (CODE.match(/\b(?:const|let|var|function|class|import\s+type)\s+SELLING_ENGINE_LAW\b/g) ?? []).length,
@@ -953,8 +1036,12 @@ describe('1 — the round gate', () => {
     const CODE_SANS_GATE_IMPORT = CODE.replace(anchoredLine(GATE_IMPORT), '')
     expect(CODE_SANS_GATE_IMPORT).not.toMatch(/\(\s*SELLING_ENGINE_LAW\b/)
     expect(CODE_SANS_GATE_IMPORT).not.toMatch(/[,{]\s*SELLING_ENGINE_LAW\s*[,}]/)
+    // ⚖ ROUND 2 (2026-09-13) — the timed release: the producer memo is
+    // `heldBoardRaw` now; the NAME `heldBoard` stays on the released answer so
+    // every reader follows with no edit of its own. A mechanical whole-line
+    // rename — this slice is still the producer's own call.
     const heldBoard = uniqueSlice(
-      'const heldBoard = useMemo(',
+      'const heldBoardRaw = useMemo(',
       '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
     )
     expect({

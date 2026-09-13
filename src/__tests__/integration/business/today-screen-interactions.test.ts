@@ -1976,7 +1976,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MINOR 2)
     // — ONE import line from this module, so the binding site the ban is about
     // is one line and not two.
-    const GATE_IMPORT = "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'"
+    const GATE_IMPORT = "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'"
     expect({ gateImports: pinnedLines(SRC, GATE_IMPORT) }).toEqual({ gateImports: 1 })
     expect({
       declarations: (CODE.match(/\b(?:const|let|var|function|class|import\s+type)\s+SELLING_ENGINE_LAW\b/g) ?? []).length,
@@ -1992,8 +1992,11 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // suite used to hold by its COUNT alone — is a whole line, counted ONCE
     // over the file, and inside the memo whose answer it decides. `true` in its
     // place leaves the slice a line short: red here, and red again on the count.
+    // ⚖ ROUND 2 (2026-09-13) — the timed release: the producer memo is
+    // `heldBoardRaw` now (the NAME `heldBoard` stays on the released answer).
+    // Mechanical whole-line rename; the slice is the same call.
     const heldBoard = uniqueSlice(
-      'const heldBoard = useMemo(',
+      'const heldBoardRaw = useMemo(',
       '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
     )
     expect({
@@ -2335,6 +2338,11 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "sharesStore,",
       "sellDrawnFor,",
       "sellLayerFor,",
+      // ⚖ ROUND 2 (2026-09-13) — SPEC-R2 §3.1. `sellDrawnFor` one law along: the
+      // layer minus the offers the beds cannot honour, rebuilt so the bands (and
+      // the 公開中 count that reads them) split where the withholding split them.
+      // Added, nothing renamed or removed.
+      "sellPublishedFor,",
       // ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — four specifiers the honest
       // 確保 count needs at the screen: the sale-filter lane set it narrows
       // the drawn half with, the two JP lines of the shared box, and the day
@@ -2342,6 +2350,17 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "sellStaffLanes,",
       "sharedRoomSub,",
       "sharedRoomTitle,",
+      // ⚖ ROUND 2 (2026-09-13) — SPEC-R2 §3.2. Six lines of Japanese, in the one
+      // home the board's words live in so a rule cannot be worded two ways: the
+      // withheld box's title and sub, the released mark's title and sub, and the
+      // 確保を戻す label with the toast that confirms it. Added, nothing renamed
+      // or removed.
+      "withheldTitle,",
+      "withheldSub,",
+      "releasedHeldTitle,",
+      "releasedHeldSub,",
+      "keepBackLabel,",
+      "keepBackToast,",
       "windowsOf,",
       "sidesAt,",
       "seedBed,",
@@ -2668,7 +2687,25 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // (while a gesture is staged) on the 元に戻す board, so it takes its book
     // through the same module-level cache rather than a closure that gets a
     // fresh identity on every pointer frame.
-    expect(SRC.split('bookFor(').length - 1).toBe(6)
+    // ⚖ ROUND 2 (2026-09-13) — 6 → 7. The seventh way in is the withheld memo
+    // (SPEC-R2 §3.1): the sellability test is asked about the SETTLED board, so
+    // it takes the very book the honest memo takes — same arguments, same
+    // module-level `FOREIGN_BOOKS` cache, so the same object comes back. The
+    // pin's meaning is unmoved: still ONE door, still every way in through the
+    // cache and never through a per-frame closure.
+    // ⚖ D-17 F3 (2026-09-14) — 7 → 8. The eighth way in is the day layer's
+    // HONEST-off arm: with the law ON and the netting OFF the header reads the
+    // RELEASED mask in the day layer's shape, which it gets from the one netting
+    // function asked with `on: false`. It is the SAME expression the honest and
+    // the withheld memos take (same lanes, same frame, same `FOREIGN_BOOKS`
+    // record), so it is a cache hit and not a second book — which is exactly what
+    // this pin exists to keep true.
+    // ⚖ D-20 (1) (2026-09-14) — 8 → 9. The ninth way in is `dayOrigin`'s OWN
+    // netting-off arm — the same middle case `dayCommitted` already had, now
+    // given to the 元に戻す board too so its released mask stops being compared
+    // against a legacy raw walk. Same `originLanes`/`ledgerFrame`/`FOREIGN_BOOKS`
+    // triple as `honestOrigin`'s own call above it, so it is the same cache key.
+    expect(SRC.split('bookFor(').length - 1).toBe(9)
     expect(SRC).not.toContain('bedViewsFor(committedLanes')
     expect(SRC).toContain('gateOn: SELLING_ENGINE_LAW,')
     expect(SRC).toContain('bookOf: bedViewsFor,')
@@ -3511,7 +3548,7 @@ describe('the drag emphasis follows the dragged length, and nothing else', () =>
 
   it('the screen keys the class off the dragged length and clears it on every exit', () => {
     // The two boxes ask about their OWN advertised length…
-    expect(SRC).toContain("`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}`")
+    expect(SRC).toContain("`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`")
     expect(SRC).toContain('packedHere && fitsDrag(c.e - c.s, dragLen)')
     // …a スキマ枠 is a discount, not a session, so it never takes the class.
     expect(SRC).not.toContain("'cell-gapfill fits'")
@@ -4620,7 +4657,7 @@ describe('予定ブロック move, resize and open — canon’s second pipeline
     // the block pipeline, so no window can claim to fit a 休憩.
     const blockPipe = SRC.slice(SRC.indexOf('function beginBlockDrag'), SRC.indexOf('function clearBlockDrag'))
     expect(blockPipe).not.toContain('setDragLen(')
-    expect(SRC).toContain("`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}`")
+    expect(SRC).toContain("`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`")
   })
 })
 
@@ -11577,6 +11614,11 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     "import { useSessionEdits, type ParkChip } " + "fr" + "om '../../BusinessSessionEdits'",
     "import { useTopbarAction } " + "fr" + "om '../../BusinessTopbar'",
     "} from './today-interactions'",
+    // ⚖ ROUND 2 (2026-09-13) — the bed-aware sales layer: the sellability test
+    // and the ONE spelling of an offer's identity (⚖ ADDENDUM 4 item 3, the key
+    // the row's boxes carry as `data-key`). Pure, every import of its own a TYPE
+    // except `honestHeld`, whose file imports only types.
+    "import { offerKey, withheldOffers, type OfferAsk } from './bed-aware-sales'",
     "import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'",
     "import { fallbackCellsFor, type FallbackResult } from './fallback-cells'",
     "import { heldCommittedFor } from './held-committed'",
@@ -11594,7 +11636,11 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // by `honestHeld` itself now, and the rail's mask comes through `heldMaskOf`.
     "import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'",
     "import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'",
-    "import { HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
+    "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
+    // ⚖ ROUND 2 (2026-09-13) — the timed release of a kept 新規用 枠. Pure, every
+    // import of its own a TYPE, so this arrow adds no module to the graph below
+    // the screen.
+    "import { releaseTimed } from './timed-release'",
   ]
 
   /** ⚖ FIX ROUND 3 (BREAKER-828 F1 + F3) — the whole binder, as two lines. */
@@ -12019,7 +12065,9 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // ⚖ FIX ROUND 1 (blind round 1, L1 F1) — and both hooks that ask it LIST
     // it, so neither can answer from a board that has moved on.
     expect(pinnedLines(SRC, '}, [live, proxy, parkChips, boardLanes, props.store, staffCardInHand, hasPriceFor])')).toBe(1)
-    expect(pinnedLines(SRC, '[boardLanes, sellDrawn.cells, hours, locked, hasPriceFor],')).toBe(1)
+    // ROUND 2 (2026-09-13, blind L1 MINOR 1) — the dep list follows `checksFor`'s
+    // own switch to the published layer (selling-engine-doors.test.ts §1).
+    expect(pinnedLines(SRC, '[boardLanes, sellPublished.cells, hours, locked, hasPriceFor],')).toBe(1)
   })
 
   /** ⚖ BREAKER-828 DELTA G2 (MAJOR) — THE TWO HELPERS THE WHOLE ITEM RESTS ON
@@ -12331,16 +12379,22 @@ describe('⚖ R8 GAP-11 — the dragged card’s time follows the landing', () =
 describe('⚖ R8 T4 — the incident stat and the header chip name one count once', () => {
   const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
 
-  it('both surfaces print sellDrawn.staffBands.length under the SAME words', () => {
+  it('both surfaces print sellPublished.staffBands.length under the SAME words', () => {
     const code = codeOnly(SRC)
     // The chip and the stat, each pinned as the whole line it is.
-    expect(pinnedLines(SRC, '<span className="chip ok">公開中の販売可能枠 {sellDrawn.staffBands.length}枠</span>')).toBe(1)
-    expect(pinnedLines(SRC, '<div className="incident-stat"><span>公開中の販売可能枠</span><b>{sellDrawn.staffBands.length}枠</b></div>')).toBe(1)
+    // ⚖ ROUND 2 (2026-09-13) — SPEC-R2 §3.1: both surfaces read the PUBLISHED
+    // layer now. `sellDrawn` is the derivation (the row still draws a withheld
+    // offer, muted); a counter left on it would print a number for a box the
+    // board is greying out, which is R4's own lesson one law along. Mechanical
+    // whole-line rename on both; the pin's meaning — two labels, one number,
+    // said the same way — is unmoved.
+    expect(pinnedLines(SRC, '<span className="chip ok">公開中の販売可能枠 {sellPublished.staffBands.length}枠</span>')).toBe(1)
+    expect(pinnedLines(SRC, '<div className="incident-stat"><span>公開中の販売可能枠</span><b>{sellPublished.staffBands.length}枠</b></div>')).toBe(1)
     // Two LABELS for one derivation, and they are the same words. (The number
     // itself appears a third time, inside the 公開価格 button's toast — a
     // sentence about what was just updated, not a name for the count.)
     expect((code.match(/公開中の販売可能枠/g) ?? []).length).toBe(2)
-    expect((code.match(/sellDrawn\.staffBands\.length}枠/g) ?? []).length).toBe(3)
+    expect((code.match(/sellPublished\.staffBands\.length}枠/g) ?? []).length).toBe(3)
     // 安全な空き was the second NAME for that one count, and it is retired —
     // gone from the rendered board and from every comment that taught it.
     expect(code).not.toContain('安全な空き')

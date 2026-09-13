@@ -1446,6 +1446,10 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
   /** ONE OFFER, TWO CELLS. canon pushes a staff-row cell and a bed-row cell per
    *  window (availability :126-134); they are one advertisement and they move or
    *  go together. */
+  // Same formula as the exported `offerKey` in bed-aware-sales.ts (the wire
+  // spelling); kept local because this function is R4's offer-vs-offer seam and
+  // an import here would draw an arrow this file does not otherwise need.
+  // ROUND 2 line audit, 2026-09-13.
   const offerKey = (c: SellCell) => `${c.laneKey}|${c.h}`
   const decisions = new Map<string, { resourceKey: string; bed: string } | null>()
   const bySlot = new Map<number, SellCell[]>()
@@ -1611,6 +1615,39 @@ export function sellDrawnFor(layer: SellLayer, showPrice: boolean): SellLayer {
   return published.length === layer.cells.length ? layer : buildSellLayer(published, showPrice)
 }
 
+/** ⚖ D-10 · D-12 · SPEC-R2 §3.1 — WHAT THE BOARD PUBLISHES ONCE THE BEDS HAVE
+ *  HAD THEIR SAY, and it is `sellDrawnFor` one law along.
+ *
+ *  A standard hour whose only free room a kept 新規用 枠 is already holding may
+ *  not be counted as purchasable or sent to Reserve — but it is still DRAWN, in
+ *  the muted vocabulary, because a vanished offer with no reason is the
+ *  confusion the shared box exists to prevent (⚖ ADDENDUM 2 item 1). So the
+ *  DERIVATION keeps every cell and the PUBLICATION drops the withheld ones, and
+ *  every surface that counts reads the published layer.
+ *
+ *  WHY A PREDICATE AND NOT A SET: the offer's identity has ONE spelling
+ *  (`offerKey`, bed-aware-sales.ts) and it lives with the layer that computes
+ *  the withholding. Handing that spelling to this file would put it in two
+ *  homes; handing this file the QUESTION keeps it in one.
+ *
+ *  IDENTITY WHEN NOTHING IS WITHHELD — the very same object back, exactly as
+ *  `sellDrawnFor` above, so a gate-off round and a store whose beds are free
+ *  are byte-identical to today's board by construction.
+ *
+ *  ⚠ THE BANDS ARE REBUILT, deliberately. `buildSellLayer` groups adjacent
+ *  cells into bands, so a band that loses one hour in the middle SPLITS into
+ *  two — 「公開中の販売可能枠 N枠」 counts bands, and subtracting boxes from the
+ *  old count would print a number no band list agrees with. The tiers re-zone
+ *  with it, for the reason `sellDrawnFor` states. */
+export function sellPublishedFor(
+  layer: SellLayer,
+  withheld: (laneKey: string, start: number) => boolean,
+  showPrice: boolean,
+): SellLayer {
+  const published = layer.cells.filter((c) => !withheld(c.laneKey, c.h))
+  return published.length === layer.cells.length ? layer : buildSellLayer(published, showPrice)
+}
+
 /** ⚖ FIX ROUND F3 (blind-final L1#2) — THE MASK AS THE SALES DOOR MAY PUBLISH
  *  IT: the held set minus every lane the SELL door refuses outright.
  *
@@ -1711,9 +1748,9 @@ export interface OnlineCounter {
 }
 
 export function onlineOffers(input: {
-  /** The PUBLISHED sell layer's staff bands (`sellDrawnFor`, held-bound gone). */
+  /** The PUBLISHED sell layer's staff bands (`sellPublishedFor` — held-bound gone AND the bed-withheld offers gone; ROUND 2). */
   sell: readonly SellBand[]
-  /** …and the gap layer AS DRAWN — the §5 fallback's additions included. */
+  /** …and the gap layer as PUBLISHED (`gapPublished`: the §5 fallback's additions included, the bed-withheld cells removed; ROUND 2). */
   packed: readonly GapCell[]
   scraps: readonly GapCell[]
   /** ⚖ FIX ROUND F4 (blind-final L1#4 ≡ L2#8) — §4.5's OWN EMISSION, not the
@@ -2993,6 +3030,66 @@ export const sharedRoomTitle = (roomLabel: string, withName: string | null): str
 export const sharedRoomSub = (dur: number): string =>
   `${dur}分・確保枠の数には含めていません・オンラインでは販売していません`
 
+/** ⚖ D-10 · D-12 · SPEC-R2 §3.2 — THE WITHHELD OFFER'S OWN TWO LINES.
+ *
+ *  A vanished offer with no reason is the confusion the shared box exists to
+ *  prevent, so the box stays and says why. Three jobs, all in here so the board
+ *  cannot word one rule two ways:
+ *
+ *  1. THE KEPT 枠 COMES FIRST — that is the order of the promise book (⚖ D-10:
+ *     booking > kept 新規用 枠 > the store's own priced offer), so the line
+ *     names what is ahead of this hour rather than describing a bed.
+ *  2. NAME A PERSON ONLY WHEN THE OPERATOR CAN SEE THEM, the shared box's own
+ *     rule (`sharedRoomTitle`): a price-0 row holds a 枠 and draws no box, so a
+ *     line opening with that name would send the operator to an empty row.
+ *     ⚖ D-14 (4) narrows it further — the name is given only when ONE kept 枠 is
+ *     lost whichever room the offer takes; when different rooms cost different
+ *     枠 the honest line is the one without a name.
+ *  3. IT COMES BACK — 「販売に戻ります」, the same promise `reservedClause` makes,
+ *     because this is a hold and not a deletion. The title does not say the hour
+ *     is off sale and the SUB does: 「確保が解除されれば販売に戻ります」 already
+ *     carries both halves, so the title is left to name what comes first.
+ *
+ *  // JP-NATIVE PASS 2026-09-13: 優先 label register (REPORT.md 1–2) */
+export const withheldTitle = (withName: string | null): string =>
+  (withName ? `${withName}の確保枠が優先` : '新規用の確保枠が優先')
+
+/** `dur` is the OFFER's own length, so no literal duration appears anywhere.
+ *  「ベッドが空いていません」 is the reason in the operator's own terms — the room
+ *  is the thing that is short, not the hour.
+ *
+ *  // JP-NATIVE PASS 2026-09-13: PASS as written */
+export const withheldSub = (dur: number): string =>
+  `${dur}分・ベッドが空いていません・確保が解除されれば販売に戻ります`
+
+/** ⚖ D-11 · SPEC-R2 §3.2 — THE 枠 THE CLOCK LET GO OF, and its mark says so in
+ *  the same words the manual release's own toast uses (TodayScreen `releaseAsk`),
+ *  because it is the same event with a different hand on it.
+ *
+ *  // JP-NATIVE PASS 2026-09-13: PASS as written */
+export const releasedHeldTitle = '確保を解除しました'
+
+/** `beforeMin` is quoted from the release that HAPPENED, never re-read from the
+ *  dial: the mark explains a past event, so a dial moved since must not silently
+ *  reword it. Both numbers are the facts' own.
+ *
+ *  // JP-NATIVE PASS 2026-09-13: PASS as written */
+export const releasedHeldSub = (dur: number, beforeMin: number): string =>
+  `${dur}分・開始${beforeMin}分前に自動で解除`
+
+/** The one place 「確保を戻す」 is spelled — the mark's button and the toast that
+ *  confirms it are one act, and the label is read by the guided tour too.
+ *
+ *  // JP-NATIVE PASS 2026-09-13: PASS as written */
+export const keepBackLabel = '確保を戻す'
+
+/** …and its toast, shaped exactly like the release's own
+ *  (「確保を解除しました。再読み込みすると戻ります」): what happened, then the one
+ *  thing that is true of every change on this board — nothing here persists.
+ *
+ *  // JP-NATIVE PASS 2026-09-13: the release toast's own second sentence (REPORT.md 6b) */
+export const keepBackToast = '確保を戻しました。再読み込みすると戻ります'
+
 /** ⚖ FIX ROUND 2 (A + D, 2026-09-09) — THE BED TRUTH FOR ONE WINDOW.
  *
  *  ONE door, asked over two windows: the chip's own half hour (the WORD) and
@@ -3492,6 +3589,18 @@ export function explainRails(
      *  reads `drops`, a separate input. */
     sellCells: readonly SellCell[]
     claims: readonly GapCell[]
+    /** ⚖ D-18 (1) — THE OTHER ROW'S SOLD CUE, AND ONLY THAT, off the PUBLISHED
+     *  lists. `sellCells`/`claims` above stay the DRAWN lists (a withheld offer
+     *  is still drawn, muted, on its own row, and the paint above must keep
+     *  seeing it — that is the whole of `sellHere`/`gapHere`/`advertised`).
+     *  `boxesElsewhere` → `soldElsewhere` is the one question about SOMEBODY
+     *  ELSE's row — a WITHHELD offer cannot be bought by anybody, so that
+     *  question alone reads what is actually for sale. Optional (more than
+     *  three call sites, most of them tests with nothing withheld): defaults to
+     *  `sellCells`/`claims`, which is byte-identical to before this fix where
+     *  nothing is withheld. */
+    soldCells?: readonly SellCell[]
+    soldClaims?: readonly GapCell[]
     /** ⚖ 75(i) — what building that layer threw away. */
     drops: readonly SellDrop[]
     /** ⚖ 44 FIX ROUND (blind lens 4, SF2) — SOMETHING IS IN THE OPERATOR'S HAND,
@@ -3682,11 +3791,16 @@ export function explainRails(
     // carrying the ROOM each one stands on. Staff rows only: the bed row is the
     // same offer drawn a second time. `resourceKey` is what makes §A's question
     // a real check rather than a heuristic — the box says which bed it took.
+    // ⚖ D-18 (1) — off `soldCells`/`soldClaims` (the PUBLISHED lists), NOT
+    // `sellCells`/`claims`: this is the one question about what somebody else
+    // can actually buy, so a withheld offer nobody can buy must not appear here.
+    const soldCellsSrc = opts.soldCells ?? opts.sellCells
+    const soldClaimsSrc = opts.soldClaims ?? opts.claims
     const boxesElsewhere: Array<{ laneKey: string; resourceKey: string; s: number; e: number }> = [
-      ...opts.sellCells
+      ...soldCellsSrc
         .filter((s) => s.group === 'staff' && s.laneKey !== rail.laneKey)
         .map((s) => ({ laneKey: s.laneKey, resourceKey: s.resourceKey, s: s.h, e: s.h + SELL_SLOT_MIN })),
-      ...opts.claims
+      ...soldClaimsSrc
         .filter((g) => g.group === 'staff' && g.laneKey !== rail.laneKey)
         .map((g) => ({ laneKey: g.laneKey, resourceKey: g.resourceKey, s: g.s, e: g.e })),
     ]

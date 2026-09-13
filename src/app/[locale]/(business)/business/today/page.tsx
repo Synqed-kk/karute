@@ -545,6 +545,11 @@ export default async function TodayPage({
         gapFillMinMin: planes.opsConfig.gapFillMinMin,
         blockStepMin: planes.opsConfig.blockStepMin,
         leadTimeMin: planes.opsConfig.leadTimeMin,
+        // ⚖ ROUND 2 (2026-09-13) — the timed release's own dial, beside the
+        // lead time it is linked to. `'linked'` means 「read `leadTimeMin` at
+        // read time」 and is what the store ships with; the screen resolves it
+        // in one memo so the two can never drift apart.
+        autoReleaseBeforeMin: planes.opsConfig.autoReleaseBeforeMin,
         mode: planes.opsConfig.gapGuardMode === 'strict' ? 'strict' : 'standard',
       },
     },

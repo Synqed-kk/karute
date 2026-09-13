@@ -902,6 +902,56 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     ]
     expect(ask(lanes, { claims }).get('p-05')!.get(start)!.sentence).not.toContain('販売枠')
   })
+
+  it('⚖ D-18 (1) — a WITHHELD drawn box does not empty its own row, and does not leak into another row’s sold cue', () => {
+    // p-05's box is DRAWN (`sellCells`) but withheld — excluded from
+    // `soldCells`, the PUBLISHED list. p-06's box is on both: an ordinary
+    // published box. p-06's box starts at the next non-blocked cell on the
+    // 30-minute grid and a sell box spans `SELL_SLOT_MIN` (60), so the two
+    // boxes OVERLAP by 30 minutes — that overlap is what makes
+    // `boxesElsewhere` non-empty on p-05's rail. The own-row half (ad-less /
+    // taker / sold cue) is carried end-to-end by lane pin R19 at the real
+    // call site — at this level only the other-row half can go RED
+    // (⚖ D-18 addendum).
+    const lanes = twoStaff()
+    const start = okStart(lanes)
+    const otherStart = railsOn(lanes)
+      .find((r) => r.laneKey === 'p-06')!
+      .cells.find((c) => c.state !== 'blocked' && c.start !== start)!.start
+    const withheldBox = sellAt('p-05', start)
+    const publishedBoxOnY = sellAt('p-06', otherStart)
+    // A real free-bed door, so `soldElsewhere` actually runs the walk instead
+    // of bailing at `opts.bedsOver == null` — a wired door is what makes the
+    // "no claim" assertion below mean something rather than pass by default.
+    const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
+    const bedsOver = (laneKey: string, s: number, e: number) => {
+      const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
+      if (!lane) return null
+      const asker = { stores: lane.stores, requiresPrivate: false }
+      const answer = truth.bedFor(s, e, asker)
+      if (!answer.compatibleRoomsExist) return null
+      return { full: answer.laneKey === null, keys: () => truth.freeBedKeys(s, e, asker) }
+    }
+    const said = ask(lanes, {
+      sellCells: [withheldBox, publishedBoxOnY], // DRAWN — the withheld box still stands here
+      soldCells: [publishedBoxOnY], // PUBLISHED — the withheld box is gone
+      bedsOver,
+    })
+    // OWN ROW (p-05, over its own withheld hour). RED at 72cd65aff: `advertised`
+    // read the published list only, so this window flipped ad-less
+    // (`この開始には販売可能枠が出ていません`) over a box the operator can see
+    // drawn, muted, right there.
+    const x = said.get('p-05')!.get(start)!
+    expect(x.sentence).not.toContain('この開始には販売可能枠が出ていません')
+    expect(x.sentence).not.toContain('別のスタッフ') // no taker named
+    expect(x.cue?.kind).not.toBe('sold') // no sold cue on the own row
+    // OTHER ROW (p-06, asked about the SAME window p-05's box occupies). R16
+    // (D-17 F4's own fix) stays: `boxesElsewhere` reads the PUBLISHED list,
+    // which never carried the withheld box, so p-06 cannot claim p-05's
+    // withheld box as a sale that took its bed.
+    const y = said.get('p-06')!.get(start)!
+    expect(y.cue?.kind).not.toBe('sold')
+  })
 })
 
 describe('§6 — the cues are ONE decision, so they cannot appear apart', () => {
@@ -969,7 +1019,14 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // read every candidate, because the operator can see the shared box and a
     // 清掃 wash under it is flag 88's artifact one layer along. Same
     // position, same law, one world — two questions.
-    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, coverHere, lane.items, handId)')
+    // ⚖ D-17 F8 · spec §4 (2026-09-14) — `coverHere` → `coverForCues`, the same
+    // COMMITTED list in the same position PLUS this lane's released spans. What
+    // F5 is about is untouched: the cue still stands down over the boxes the
+    // operator can see, and a released mark is one of them. It is its own name
+    // rather than a wider `coverHere` because `coverHere` is also `heldHere`'s
+    // fallback with the netting off, where a released span would be DRAWN as a
+    // 確保 box on top of the mark that says it was let go.
+    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, coverForCues, lane.items, handId)')
     // ⚖ LIAM RULING 1 + 2 (2026-09-09) — the filter is the CUE now. The source
     // of the three faces is still ONE value per chip: `railExplain` decides the
     // word and the mark together, in one return, so they cannot drift apart —
