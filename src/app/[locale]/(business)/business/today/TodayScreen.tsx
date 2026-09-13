@@ -2740,6 +2740,37 @@ export function TodayScreen(props: TodayProps) {
       : committedLanes),
     [dayStaged, placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, bedMovesWithoutPending, props.bedCleanupMinutes, committedLanes],
   )
+  /** ⚖ D-20 (1) — ONE ORIGIN MASK, TWO CONSUMERS. `honestOrigin` used to
+   *  produce the released mask ITSELF, gated behind `!honest` — so with
+   *  `HONEST_HELD` off (`honest` undefined) this memo never ran, and
+   *  `dayOrigin` fell to the RAW unreleased `windowsOn(originLanes, …)` while
+   *  `dayCommitted`'s D-17 F3 arm kept reading the released mask (that arm
+   *  answers `SELLING_ENGINE_LAW`, never the netting). `lostOn` subtracts the
+   *  two boards, so with the netting off ANY staged move had a released 枠
+   *  blamed on itself. The production moves here, independent of `honest`,
+   *  computed whenever a day is staged and the law is on (`heldCommittedFor`
+   *  answers `undefined` exactly when it is off) — the same gate the
+   *  committed side's own held mask already asks. */
+  const originReleased = useMemo(() => {
+    if (!dayStaged) return undefined
+    const originHeld = heldCommittedFor({
+      gateOn: SELLING_ENGINE_LAW,
+      lanes: originLanes,
+      frame: ledgerFrame,
+      bookOf: bedViewsFor,
+      closeMin: hours.close,
+      nowMin: props.sell.nowMinute,
+      guard: props.guard.config,
+      gapGuardMode: props.guard.mode,
+      released: releasedHere,
+    })
+    if (!originHeld) return undefined
+    // ⚖ D-17 F2 — the same release, so a staged booking is never blamed for a 枠
+    // the clock already let go. Same function, same clock, same dial and the same
+    // board-scoped keep-back as the committed side at :2085 — `lostOn` subtracts
+    // these two boards, so a release on one of them alone IS a reported loss.
+    return releaseTimed(originHeld, props.sell.nowMinute, beforeMin, keptBackHere).mask
+  }, [dayStaged, originLanes, ledgerFrame, hours.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere])
   /** ⚖ HONEST-COUNT ROUND 1 — THE 元に戻す BOARD'S OWN HONEST SET.
    *
    *  `lostOn` subtracts two settled boards, so both of them have to come out of
@@ -2755,32 +2786,13 @@ export function TodayScreen(props: TodayProps) {
    *  names as the one a text pin cannot see: a hardcoded argument contains no
    *  comparison and no `'off'`, so nothing in the suite would have noticed it
    *  drifting. It costs one identifier to make the 元に戻す board's own mask ask
-   *  the same gate every other board on this screen asks. */
+   *  the same gate every other board on this screen asks.
+   *
+   *  ⚖ D-20 (1) — the mask production moved to `originReleased` above (shared
+   *  with `dayOrigin`'s law-on/netting-off arm), so this body shrinks to the
+   *  netting alone. */
   const honestOrigin = useMemo(() => {
     if (!honest || !dayStaged) return honest
-    const originHeld = heldCommittedFor({
-      gateOn: SELLING_ENGINE_LAW,
-      lanes: originLanes,
-      frame: ledgerFrame,
-      bookOf: bedViewsFor,
-      closeMin: hours.close,
-      nowMin: props.sell.nowMinute,
-      guard: props.guard.config,
-      gapGuardMode: props.guard.mode,
-      released: releasedHere,
-    })
-    // HONEST-COUNT ROUND 1 · fix 3 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1b-delta-verify.md MINOR 1)
-    // STILL DEAD, for the same reason as before: `heldCommittedFor` answers
-    // `undefined` exactly when `gateOn` is false, and if the law were off
-    // `honest` would be `undefined` too, so the memo has already returned one
-    // line above. The line is kept only because the answer's type is
-    // `| undefined`; naming the gate did not make it reachable.
-    if (!originHeld) return honest
-    // ⚖ D-17 F2 — the same release, so a staged booking is never blamed for a 枠
-    // the clock already let go. Same function, same clock, same dial and the same
-    // board-scoped keep-back as the committed side at :2085 — `lostOn` subtracts
-    // these two boards, so a release on one of them alone IS a reported loss.
-    const originReleased = releaseTimed(originHeld, props.sell.nowMinute, beforeMin, keptBackHere).mask
     if (!originReleased) return honest
     return honestHeld(
       originReleased.filter((m) => !locked.includes(m.laneKey)),
@@ -2788,14 +2800,31 @@ export function TodayScreen(props: TodayProps) {
       bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
       true,
     )
-  }, [honest, dayStaged, originLanes, ledgerFrame, hours.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere, locked])
+  }, [honest, dayStaged, originReleased, originLanes, ledgerFrame, locked])
+  /** ⚖ D-20 (1) — the middle arm mirrors `dayCommitted`'s own: with the netting
+   *  off but the law on and a released origin mask in hand, read that RELEASED
+   *  mask in the day layer's shape (`on: false`, the identity answer) instead
+   *  of falling straight to the raw unreleased legacy walk. The true law-off
+   *  fallback (`originReleased === undefined`) is unchanged. */
   const dayOrigin = useMemo(
     () => (guardOn
       ? (dayStaged
-          ? (honestOrigin ? windowsOf(honestOrigin, originLanes) : windowsOn(originLanes, inputOn(originLanes)))
+          ? (honestOrigin
+              ? windowsOf(honestOrigin, originLanes)
+              : originReleased
+                ? windowsOf(
+                    honestHeld(
+                      originReleased.filter((m) => !locked.includes(m.laneKey)),
+                      originLanes,
+                      bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+                      false,
+                    ),
+                    originLanes,
+                  )
+                : windowsOn(originLanes, inputOn(originLanes)))
           : dayCommitted)
       : EMPTY_WINDOWS),
-    [guardOn, dayStaged, honestOrigin, originLanes, inputOn, dayCommitted],
+    [guardOn, dayStaged, honestOrigin, originReleased, originLanes, ledgerFrame, locked, inputOn, dayCommitted],
   )
   // ⚖ FIX ROUND F5 — the board world's per-lane index is GONE, not merely
   // unused: the rest cue was its only reader and it now reads the committed

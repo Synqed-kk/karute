@@ -2700,7 +2700,12 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // the withheld memos take (same lanes, same frame, same `FOREIGN_BOOKS`
     // record), so it is a cache hit and not a second book — which is exactly what
     // this pin exists to keep true.
-    expect(SRC.split('bookFor(').length - 1).toBe(8)
+    // ⚖ D-20 (1) (2026-09-14) — 8 → 9. The ninth way in is `dayOrigin`'s OWN
+    // netting-off arm — the same middle case `dayCommitted` already had, now
+    // given to the 元に戻す board too so its released mask stops being compared
+    // against a legacy raw walk. Same `originLanes`/`ledgerFrame`/`FOREIGN_BOOKS`
+    // triple as `honestOrigin`'s own call above it, so it is the same cache key.
+    expect(SRC.split('bookFor(').length - 1).toBe(9)
     expect(SRC).not.toContain('bedViewsFor(committedLanes')
     expect(SRC).toContain('gateOn: SELLING_ENGINE_LAW,')
     expect(SRC).toContain('bookOf: bedViewsFor,')
