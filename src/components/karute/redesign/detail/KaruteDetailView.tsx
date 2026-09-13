@@ -78,10 +78,10 @@ export interface KaruteDetailViewProps {
    *  additional hiding beyond the write controls). */
   contentWithheld?: boolean
   /** D8 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): what the
-   *  transcript card's share control needs. Only `viaShare` is read by this
-   *  component in PR-A (the read side) — threaded straight to
-   *  RecordingTranscriptCard's subtitle line; `canShare`/`shared`/`sharedAt`
-   *  are for the share BUTTON, PR-B. Absent/null = today (no line). */
+   *  transcript card's share control needs. `viaShare` threads straight to
+   *  RecordingTranscriptCard's subtitle line; `canShare`/`shared` thread to
+   *  its share BUTTON (PR-B, D11) — `sharedAt` stays unread here (the button
+   *  only needs the boolean). Absent/null = today (no line, no button). */
   share?: { canShare: boolean; shared: boolean; sharedAt: string | null; viaShare: boolean } | null
 }
 
@@ -224,6 +224,7 @@ export function KaruteDetailView({
             restricted={transcriptRestricted && !discarded}
             recording={recording}
             viaShare={share?.viaShare}
+            share={share ? { canShare: share.canShare, shared: share.shared } : null}
           />
           {/* Layer 1 staff-private coaching panel — renders null
            *  for owners (role gate inside the component). Currently

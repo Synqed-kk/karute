@@ -518,7 +518,11 @@
       "noTranscript": "文字起こしはまだありません",
       "restrictedTitle": "録音 ・ 文字起こし",
       "restricted": "この文字起こしは録音を担当したスタッフのみ閲覧できます（本人が共有した場合を除く）。上の要約は共有されます。",
-      "viaShare": "録音を担当したスタッフが共有"
+      "viaShare": "録音を担当したスタッフが共有",
+      "share": "管理者に共有",
+      "sharing": "共有中…",
+      "shared": "共有中",
+      "shareFailed": "共有できませんでした"
     },
     "discarded": {
       "title": "破棄済み",
@@ -2519,12 +2523,14 @@
           "no_sessions_today": "本日の録音なし",
           "play": "録音を再生",
           "session_cleanup": "録音を破棄",
+          "share": "録音を共有",
           "take_named": "録音のアップロード先を発行（既存セッション）",
           "take_refused_has_record": "二重紐付けを拒否",
           "transcribe": "録音を文字起こし",
           "transcribe_failed": "文字起こしに失敗",
           "transcribe_refused": "録音の文字起こしを見送り（利用上限）",
-          "transcribe_storm": "同じ録音連続文字起こし"
+          "transcribe_storm": "同じ録音連続文字起こし",
+          "unshare": "録音の共有を解除"
         }
       },
       "burnError": {
