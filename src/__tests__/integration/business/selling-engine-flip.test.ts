@@ -2717,7 +2717,10 @@ describe('8 — the staged origin board keeps the store\u2019s loss sayable', ()
     // with `dayOrigin`'s netting-off arm; `honestOrigin`'s body shrank to the
     // netting alone, so the line immediately below the guard is now the new
     // `if (!originReleased) return honest` \u2014 same mutant, same adjacency, new
-    // second line.
+    // second line. That second line is the `| undefined` type guard and is
+    // unreachable in practice (the law-off case already returned on the line
+    // above because `honest` is undefined too) \u2014 kept on purpose; the pin's
+    // subject is the adjacency, not that line's liveness (\u2696 D-21 (3)).
     const screen = SRC('TodayScreen.tsx')
     expect(screen).toContain('const honestOrigin = useMemo(() => {\n    if (!honest || !dayStaged) return honest\n    if (!originReleased) return honest')
   })

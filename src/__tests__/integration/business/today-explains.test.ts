@@ -906,8 +906,13 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
   it('⚖ D-18 (1) — a WITHHELD drawn box does not empty its own row, and does not leak into another row’s sold cue', () => {
     // p-05's box is DRAWN (`sellCells`) but withheld — excluded from
     // `soldCells`, the PUBLISHED list. p-06's box is on both: an ordinary
-    // published box, at a different start on the same bed (`twoStaff()` has
-    // only bed-01), so the two boxes never collide on the same minute.
+    // published box. p-06's box starts at the next non-blocked cell on the
+    // 30-minute grid and a sell box spans `SELL_SLOT_MIN` (60), so the two
+    // boxes OVERLAP by 30 minutes — that overlap is what makes
+    // `boxesElsewhere` non-empty on p-05's rail. The own-row half (ad-less /
+    // taker / sold cue) is carried end-to-end by lane pin R19 at the real
+    // call site — at this level only the other-row half can go RED
+    // (⚖ D-18 addendum).
     const lanes = twoStaff()
     const start = okStart(lanes)
     const otherStart = railsOn(lanes)
