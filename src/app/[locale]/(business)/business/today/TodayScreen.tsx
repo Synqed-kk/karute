@@ -3339,17 +3339,20 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ R3 one world — the operator's own staged card is named as theirs
         // rather than as a stranger's.
         stagedId: pending?.id ?? null,
-        // ⚖ FIX ROUND F1 + ⚖ D-17 F4 — BOTH HALVES, AND THEY ARE DIFFERENT
-        // QUESTIONS. The PAINT decides empty board space, which is 75(i)'s whole
-        // job — fed `sell.cells` this map went silent over stretches the law had
-        // emptied, on the strength of boxes nobody could see, so every input that
-        // decides geometry or coverage below stays on the DRAWN lists. The SALE
-        // decides the sold cue: 「別の枠で販売中」 is a claim that somebody's sale
-        // took this person's only bed, and a WITHHELD offer is drawn muted and
-        // cannot be bought by anybody — so these two inputs, and only these two,
-        // read the PUBLISHED lists.
-        sellCells: sellPublished.cells,
-        claims: publishedClaims,
+        // ⚖ FIX ROUND F1 + ⚖ D-17 F4, CORRECTED BY ⚖ D-18 (1) — BOTH HALVES,
+        // AND THEY ARE DIFFERENT QUESTIONS, FED BY DIFFERENT INPUTS. `sellCells`/
+        // `claims` decide the PAINT (`advertised`, geometry, coverage — 75(i)'s
+        // whole job, INCLUDING this row's own ad-less question), so they stay on
+        // the DRAWN lists: a withheld offer is still drawn, muted, on its own
+        // row, and the paint must keep seeing it. `soldCells`/`soldClaims` feed
+        // ONLY `boxesElsewhere` → `soldElsewhere`, the OTHER row's sold cue —
+        // 「別の枠で販売中」 is a claim that somebody's sale took this person's
+        // only bed, and a WITHHELD offer cannot be bought by anybody, so that one
+        // question, and only that one, reads the PUBLISHED lists.
+        sellCells: sellDrawn.cells,
+        claims: drawnClaims,
+        soldCells: sellPublished.cells,
+        soldClaims: publishedClaims,
         drops: sellDrops,
         inHand: inHand != null,
         sellDisplayed: sellMode !== 'off',
@@ -3403,7 +3406,7 @@ export function TodayScreen(props: TodayProps) {
         },
       }),
     [
-      rails, handBoard, railDur, handId, pending?.id, sell, sellPublished, publishedClaims, sellDrops, inHand, sellMode,
+      rails, handBoard, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellPublished, publishedClaims, sellDrops, inHand, sellMode,
       heldBoardHonest, bedsOver, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt,
     ],
   )

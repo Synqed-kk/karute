@@ -3589,6 +3589,18 @@ export function explainRails(
      *  reads `drops`, a separate input. */
     sellCells: readonly SellCell[]
     claims: readonly GapCell[]
+    /** ⚖ D-18 (1) — THE OTHER ROW'S SOLD CUE, AND ONLY THAT, off the PUBLISHED
+     *  lists. `sellCells`/`claims` above stay the DRAWN lists (a withheld offer
+     *  is still drawn, muted, on its own row, and the paint above must keep
+     *  seeing it — that is the whole of `sellHere`/`gapHere`/`advertised`).
+     *  `boxesElsewhere` → `soldElsewhere` is the one question about SOMEBODY
+     *  ELSE's row — a WITHHELD offer cannot be bought by anybody, so that
+     *  question alone reads what is actually for sale. Optional (more than
+     *  three call sites, most of them tests with nothing withheld): defaults to
+     *  `sellCells`/`claims`, which is byte-identical to before this fix where
+     *  nothing is withheld. */
+    soldCells?: readonly SellCell[]
+    soldClaims?: readonly GapCell[]
     /** ⚖ 75(i) — what building that layer threw away. */
     drops: readonly SellDrop[]
     /** ⚖ 44 FIX ROUND (blind lens 4, SF2) — SOMETHING IS IN THE OPERATOR'S HAND,
@@ -3779,11 +3791,16 @@ export function explainRails(
     // carrying the ROOM each one stands on. Staff rows only: the bed row is the
     // same offer drawn a second time. `resourceKey` is what makes §A's question
     // a real check rather than a heuristic — the box says which bed it took.
+    // ⚖ D-18 (1) — off `soldCells`/`soldClaims` (the PUBLISHED lists), NOT
+    // `sellCells`/`claims`: this is the one question about what somebody else
+    // can actually buy, so a withheld offer nobody can buy must not appear here.
+    const soldCellsSrc = opts.soldCells ?? opts.sellCells
+    const soldClaimsSrc = opts.soldClaims ?? opts.claims
     const boxesElsewhere: Array<{ laneKey: string; resourceKey: string; s: number; e: number }> = [
-      ...opts.sellCells
+      ...soldCellsSrc
         .filter((s) => s.group === 'staff' && s.laneKey !== rail.laneKey)
         .map((s) => ({ laneKey: s.laneKey, resourceKey: s.resourceKey, s: s.h, e: s.h + SELL_SLOT_MIN })),
-      ...opts.claims
+      ...soldClaimsSrc
         .filter((g) => g.group === 'staff' && g.laneKey !== rail.laneKey)
         .map((g) => ({ laneKey: g.laneKey, resourceKey: g.resourceKey, s: g.s, e: g.e })),
     ]

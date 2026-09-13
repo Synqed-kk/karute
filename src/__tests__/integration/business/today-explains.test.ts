@@ -902,6 +902,51 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     ]
     expect(ask(lanes, { claims }).get('p-05')!.get(start)!.sentence).not.toContain('販売枠')
   })
+
+  it('⚖ D-18 (1) — a WITHHELD drawn box does not empty its own row, and does not leak into another row’s sold cue', () => {
+    // p-05's box is DRAWN (`sellCells`) but withheld — excluded from
+    // `soldCells`, the PUBLISHED list. p-06's box is on both: an ordinary
+    // published box, at a different start on the same bed (`twoStaff()` has
+    // only bed-01), so the two boxes never collide on the same minute.
+    const lanes = twoStaff()
+    const start = okStart(lanes)
+    const otherStart = railsOn(lanes)
+      .find((r) => r.laneKey === 'p-06')!
+      .cells.find((c) => c.state !== 'blocked' && c.start !== start)!.start
+    const withheldBox = sellAt('p-05', start)
+    const publishedBoxOnY = sellAt('p-06', otherStart)
+    // A real free-bed door, so `soldElsewhere` actually runs the walk instead
+    // of bailing at `opts.bedsOver == null` — a wired door is what makes the
+    // "no claim" assertion below mean something rather than pass by default.
+    const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
+    const bedsOver = (laneKey: string, s: number, e: number) => {
+      const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
+      if (!lane) return null
+      const asker = { stores: lane.stores, requiresPrivate: false }
+      const answer = truth.bedFor(s, e, asker)
+      if (!answer.compatibleRoomsExist) return null
+      return { full: answer.laneKey === null, keys: () => truth.freeBedKeys(s, e, asker) }
+    }
+    const said = ask(lanes, {
+      sellCells: [withheldBox, publishedBoxOnY], // DRAWN — the withheld box still stands here
+      soldCells: [publishedBoxOnY], // PUBLISHED — the withheld box is gone
+      bedsOver,
+    })
+    // OWN ROW (p-05, over its own withheld hour). RED at 72cd65aff: `advertised`
+    // read the published list only, so this window flipped ad-less
+    // (`この開始には販売可能枠が出ていません`) over a box the operator can see
+    // drawn, muted, right there.
+    const x = said.get('p-05')!.get(start)!
+    expect(x.sentence).not.toContain('この開始には販売可能枠が出ていません')
+    expect(x.sentence).not.toContain('別のスタッフ') // no taker named
+    expect(x.cue?.kind).not.toBe('sold') // no sold cue on the own row
+    // OTHER ROW (p-06, asked about the SAME window p-05's box occupies). R16
+    // (D-17 F4's own fix) stays: `boxesElsewhere` reads the PUBLISHED list,
+    // which never carried the withheld box, so p-06 cannot claim p-05's
+    // withheld box as a sale that took its bed.
+    const y = said.get('p-06')!.get(start)!
+    expect(y.cue?.kind).not.toBe('sold')
+  })
 })
 
 describe('§6 — the cues are ONE decision, so they cannot appear apart', () => {

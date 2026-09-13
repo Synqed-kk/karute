@@ -1580,14 +1580,22 @@ describe('7 — the fix round: the publication boundary', () => {
 
   it('F1 — and the screen is wired that way: the published layer, and what it withheld', () => {
     const screen = SRC('TodayScreen.tsx')
-    // ⚖ D-17 F4 (2026-09-14) — `sellDrawn.cells` → `sellPublished.cells` here,
-    // and `drawnClaims` → `publishedClaims` beside it. F1's finding is unmoved:
-    // the map may not go silent over stretches the law emptied, which is why
-    // every GEOMETRY and COVERAGE input below is still the drawn list. What
-    // moved is the SOLD CUE's two inputs: 「別の枠で販売中」 claims that somebody's
-    // sale took this person's only bed, and a withheld offer is not a sale.
-    expect(screen).toContain('sellCells: sellPublished.cells,')
-    expect(screen).toContain('claims: publishedClaims,')
+    // ⚖ D-17 F4, CORRECTED BY ⚖ D-18 (1) (2026-09-14) — F4 moved BOTH
+    // `sellCells`/`claims` to the published lists, and that also moved the
+    // OWN-ROW `advertised` predicate (F1's own question) off the drawn list, so
+    // a withheld box — still drawn, muted, on its own row — read as ad-less
+    // again. The anchor now names FOUR lines, not two: `sellCells`/`claims` move
+    // BACK to `sellDrawn`/`drawnClaims` (F1's finding, restored — every GEOMETRY
+    // and COVERAGE input, INCLUDING this row's own ad-less question, is the
+    // drawn list), and the two NEW opts `soldCells`/`soldClaims` carry the
+    // published lists to the one place that still needs them: the OTHER row's
+    // sold cue. 「別の枠で販売中」 claims that somebody's sale took this person's
+    // only bed, and a withheld offer is not a sale — that question alone reads
+    // what is actually for sale.
+    expect(screen).toContain('sellCells: sellDrawn.cells,')
+    expect(screen).toContain('claims: drawnClaims,')
+    expect(screen).toContain('soldCells: sellPublished.cells,')
+    expect(screen).toContain('soldClaims: publishedClaims,')
     expect(screen).toContain('withheld: sell.cells.filter(isHeldBound),')
     // The DERIVATION still exists and is still what the fallback's survivor set
     // reads.
