@@ -1431,7 +1431,8 @@
         "aiPending": "AI補完待ち",
         "needsReview": "レビュー要",
         "draft": "下書き",
-        "discarded": "破棄済み"
+        "discarded": "破棄済み",
+        "shared": "共有"
       },
       "dateGroup": {
         "today": "本日",
