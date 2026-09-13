@@ -138,8 +138,7 @@ export function withheldOffers(
   )
   // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 3 — THE ONE ROOM UNIVERSE the pigeonhole
   // counts against: the board's own bed rows. A board drawn without them (a unit
-  // suite whose book is a stub) has none and the exit never fires — which is why
-  // the guard below is `> 0` and not merely the comparison.
+  // suite whose book is a stub) has none and the exit never fires.
   const roomUniverse = lanes.filter((l) => l.group === 'beds').length
   // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 2 — THE MEMO, for this call and no
   // longer. `honestHeld(candidates, lanes, blocked(book, r, start, end), true)`
@@ -244,12 +243,21 @@ export function withheldOffers(
     // `sharedRoomTitle`'s rule forbids. So the box says 「新規用の確保枠が先のため、
     // いまは販売していません」 and names nobody.
     //
-    // ⚠ THE OPEN QUESTION, STATED (report §STOP): on a saturated board rule 4 CAN
-    // name — 112 of the 500 boards' withheld offers have one — and this exit gives
-    // up that name to save every netting. Paying for the name means paying the
-    // |rooms| nettings the exit exists to avoid, on exactly the boards that lag.
-    // Cost vs the person's name in the box: not a builder's call.
-    if (roomUniverse > 0) {
+    // ⚖ RULED (D-14 (d)): the guard is `roomUniverse >= 2`, not `> 0`. The exit
+    // exists to avoid paying |rooms| re-nettings on a saturated board, and at ONE
+    // room there is nothing to avoid — the per-room loop below then runs exactly
+    // once, and the name it can give (the store where a name is most useful) is
+    // worth that one memoised netting. So a one-bed store keeps its exact name
+    // through the loop; a two-or-more-room board pays zero nettings there and
+    // gives up the name — always the generic line above (the exit still never
+    // names). On a saturated board rule 4 CAN name — 112 of the 500 boards'
+    // withheld offers have one — and this is exactly the name that is given up.
+    //
+    // And it needs a REAL assignment: an IDENTITY `honest` (the netting's gate
+    // off) reports `''` for every held 枠's room, with no legality guarantee, so
+    // counting rooms against it would count against nothing — `usedRooms.has('')`
+    // must fall the pigeonhole through to the search below, same as the witness.
+    if (roomUniverse >= 2 && !usedRooms.has('')) {
       const covering = (t: number) => hit.reduce((n, h) => (h.start <= t && t < h.end ? n + 1 : n), 0)
       const steps = [o.start, ...hit.map((h) => h.start).filter((t) => t > o.start && t < o.end)]
       if (steps.some((t) => covering(t) >= roomUniverse)) {

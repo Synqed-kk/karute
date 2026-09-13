@@ -344,6 +344,49 @@ describe('bed-aware-sales — the one-bed store', () => {
     const none = honestHeld([], lanes, book, true)
     expect(setOf(withheldOffers(ONE_OFFERS.map(askOf), none, [], lanes, book, true))).toEqual([])
   })
+
+  // ⚖ ROUND 2 · step 1d (⚖ D-14 (d)) — THE PIGEONHOLE NEEDS TWO OR MORE ROOMS.
+  // Same board, now with the board's ONE bed row present (`roomUniverse === 1`).
+  // The pigeonhole exists to avoid paying |rooms| nettings on a saturated board;
+  // at one room there is nothing to avoid, so the guard is `>= 2` and the offer
+  // still reaches the per-room loop — which is exact and names ごろう's stand-in.
+  it('…and a one-bed board (one `group: "beds"` lane) keeps the exact name — the pigeonhole needs TWO OR MORE rooms', () => {
+    const { book } = tableBook([...ONE_KEPT, ...ONE_OFFERS])
+    const candidates = ONE_KEPT.map(([k, s, e]) => maskOf(k, [span(s, e)]))
+    const lanes = [...['a', 'b', 'c'].map((k) => lane(k)), ...bedRows('bed-01')]
+    const honest = honestHeld(candidates, lanes, book, true)
+    expect(honest.total).toBe(ONE_KEPT.length)
+    const w = withheldOffers(ONE_OFFERS.map(askOf), honest, candidates, lanes, book, true)
+    console.log('one-bed pigeonhole guard: withheld =', setOf(w), 'blockedBy =', [...w.blockedBy])
+    expect(setOf(w)).toEqual([offerKey('c', 630)])
+    expect(w.blockedBy.get(offerKey('c', 630))).toBe('a')
+  })
+
+  // ⚖ ROUND 2 · step 1d (coordinator amendment) — THE PIGEONHOLE NEEDS A REAL
+  // ASSIGNMENT TOO. An IDENTITY `honest` (the netting's own gate off) reports
+  // `''` for every held 枠's room — no legality guarantee — so counting rooms
+  // against it would count against nothing; `usedRooms.has('')` must fall the
+  // pigeonhole through to the search exactly as the witness already does.
+  it('…and an IDENTITY honest (the netting off) never fires the pigeonhole — it pays real nettings', () => {
+    const rows: Array<[string, number, number, string[]]> = [
+      ['x', 600, 690, ['bed-01']],
+      ['y', 605, 695, ['bed-02']],
+      ['z', 610, 650, ['bed-01', 'bed-02']],
+    ]
+    const { book, asks } = tableBook(rows)
+    const candidates = rows.slice(0, 2).map(([k, s, e]) => maskOf(k, [span(s, e)]))
+    const lanes = [...['x', 'y', 'z'].map((k) => lane(k)), ...bedRows('bed-01', 'bed-02')]
+    const honest = honestHeld(candidates, lanes, book, false) // IDENTITY: heldRoom = ''
+    const roomUniverse = lanes.filter((l) => l.group === 'beds').length
+    expect(honest.total).toBe(roomUniverse) // still "saturated" by count alone
+    const offer = askOf(rows[2])
+    const rooms = book.freeBedKeys(offer.start, offer.end, { stores: null })
+    const before = asks.length
+    withheldOffers([offer], honest, candidates, lanes, book, true)
+    const nettings = (asks.length - before - 1) / candidates.length
+    console.log('identity honest: nettings =', nettings, '(0 would mean the pigeonhole wrongly fired on a fake assignment)')
+    expect(nettings).toBe(rooms.length)
+  })
 })
 
 describe('bed-aware-sales — whose 枠 the box may name', () => {
@@ -475,7 +518,10 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
     const universe = lanes.filter((l) => l.group === 'beds').length
     const spans = honest.byLane.flatMap((l) => l.held.map((s) => ({ start: s.start, end: s.end })))
     const out = new Set<string>()
-    if (universe === 0) return out
+    // ⚖ step 1d (D-14 (d)): the module's own guard is `roomUniverse >= 2`, not
+    // `> 0` — mirrored here so this reference names exactly the offers the real
+    // exit decides.
+    if (universe < 2) return out
     for (const o of offers) {
       const hit = spans.filter((s) => o.start < s.end && s.start < o.end)
       const covering = (t: number) => hit.filter((s) => s.start <= t && t < s.end).length
