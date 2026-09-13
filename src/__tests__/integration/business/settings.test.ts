@@ -803,14 +803,17 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
   })
 
   // ⚖ S17 · C7 — RE-DERIVED. The pin used to assert EIGHT capabilities, taken
-  // from canon's staff MOCK's `CAP_ORDER`; the product's own list is EIGHTEEN.
-  it('the staff matrix is KARUTE’s own nineteen capabilities, in plain words', async () => {
+  // from canon's staff MOCK's `CAP_ORDER`; the product's own list grew to
+  // NINETEEN, then TWENTY with recordings.viewShared (⚖ 2026-09-14 sharing
+  // design D3/F2 — the token sits right after recordings.viewAll, the same
+  // position Karute's own CAPABILITIES array carries it).
+  it('the staff matrix is KARUTE’s own twenty capabilities, in plain words', async () => {
     const props = await room({ store: STORE_A })
     const grid = controlsOf(props).find((c) => c.id.startsWith('staff.caps-'))!
     expect(grid.control.kind).toBe('chips')
     const options = grid.control.kind === 'chips' ? grid.control.options : []
     expect(options.map((o) => o.value)).toEqual(rulebook.capabilities.map((c) => c.token))
-    expect(options).toHaveLength(19)
+    expect(options).toHaveLength(20)
     // ⚠ AND NOT ONE OF THEM IS SPELLED AS A TOKEN. Karute's own file carries the
     // tokens with English comments; ⚖ 「plain names, never codes」 means the grid
     // wears the product's own language (S9L-2, kept).
@@ -818,7 +821,7 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
       expect({ value: o.value, plain: !/\./.test(o.label) && o.label.length > 0 })
         .toEqual({ value: o.value, plain: true })
     }
-    // ⚠ AND IT IS A GRID, NOT A RAG (⚖ mock D9): nineteen chips wrapping freely
+    // ⚠ AND IT IS A GRID, NOT A RAG (⚖ mock D9): twenty chips wrapping freely
     // is the readability defect this round is for.
     expect(grid.control.kind === 'chips' && grid.control.grid).toBe(true)
   })
@@ -833,7 +836,9 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     const caps = src.slice(src.indexOf('export const CAPABILITIES = ['), src.indexOf('] as const', src.indexOf('export const CAPABILITIES = [')))
     const tokens = [...caps.matchAll(/^\s*'([a-z]+\.[a-zA-Z]+)',/gm)].map((m) => m[1])
     expect(tokens).toEqual(rulebook.capabilities.map((c) => c.token))
-    expect(tokens).toHaveLength(19)
+    // ⚖ 2026-09-14 sharing design D3/F2: recordings.viewShared bumped this
+    // from nineteen to twenty.
+    expect(tokens).toHaveLength(20)
 
     const roles = src.slice(src.indexOf('export const PERMISSION_ROLES = ['), src.indexOf('] as const', src.indexOf('export const PERMISSION_ROLES = [')))
     const roleKeys = [...roles.matchAll(/^\s*'([a-z]+)',/gm)].map((m) => m[1])
