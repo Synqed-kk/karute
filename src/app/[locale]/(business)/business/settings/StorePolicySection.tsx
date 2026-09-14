@@ -147,6 +147,12 @@ export function commitMinutes(text: string, lastGood: number, ceiling: number): 
   return commitNumberField(raw, lastGood, SLOT_MIN, ceiling, '分')
 }
 
+/** ⚖ D-28 — an emptied box nudges from the committed value, never from
+ *  `Number('') = 0`. */
+export function nudgeBase(text: string, lastGood: number): number {
+  return text.trim() === '' ? lastGood : Number(text)
+}
+
 export interface StorePolicyProps {
   storeKey: string
   storeLabel: string
@@ -364,6 +370,12 @@ const { min: TIGHT_MIN, max: TIGHT_MAX } = CALENDAR_TIGHT_RANGE
  *  (⚠SETTINGS-BATCH). ONE sentence, reused, so eight rows cannot drift into
  *  eight different promises. */
 const PENDING_NOTE = 'この設定はまだ保存できません。画面での動きだけ確認できます'
+/** ⚖ D-28 — THE ONE WARN SENTENCE, all three free-text fields. Byte-identical
+ *  to the blind native pass (JP-NATIVE-R3/A1-WARN-LINE.md): ⚖ D-27 keeps what
+ *  was typed on screen, so the old sentence — which claimed the non-digit
+ *  characters had just been erased — was describing something that no longer
+ *  happens. */
+const NON_DIGIT_WARN = '数字以外は保存されません。欄を離れると前の値に戻ります'
 /** The padlock the approved warn card opens its provenance line with — the same
  *  path today.css's own card draws, so the preview is the card. */
 const WC_LOCK_PATH = 'M4 7V5a4 4 0 018 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 10-4 0v2z'
@@ -497,13 +509,13 @@ export function StorePolicySection(props: StorePolicySectionProps) {
    *  effect at once) — it still routes through `commitMinutes` here so both
    *  fields share one shape and one message/clamp behaviour. */
   function nudgeMinutes(delta: number) {
-    const next = clampSlot(dials.minutes + delta, props.dayLenMin)
+    const next = clampSlot(nudgeBase(minutesText, lastGoodMinutes.current) + delta, props.dayLenMin)
     const commit = commitMinutes(String(next), lastGoodMinutes.current, props.dayLenMin)
     lastGoodMinutes.current = commit.value
     setMinutesText(String(commit.value)); setMinutes(commit.value); setMinutesWarn(false); setMinutesMsg(commit.message)
   }
   function nudgeSlot(delta: number) {
-    const next = clampSlot(dials.slot + delta, props.dayLenMin)
+    const next = clampSlot(nudgeBase(slotText, lastGoodSlot.current) + delta, props.dayLenMin)
     const commit = commitMinutes(String(next), lastGoodSlot.current, props.dayLenMin)
     lastGoodSlot.current = commit.value
     setSlotText(String(commit.value)); setSlotWarn(false); setSlotMsg(commit.message)
@@ -1013,7 +1025,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
             </div>
             <p className={`st-ctrl-d${minutesWarn || minutesMsg !== null ? ' warn' : ' dim'}`} aria-live="polite">
               {minutesWarn
-                ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'
+                ? NON_DIGIT_WARN
                 : (minutesMsg ?? '数字以外は保存されません')}
             </p>
             {/* ⚖ THE GUARDRAIL, from the store's real day through the guard
@@ -1131,7 +1143,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                 everyone else — the two readers would be told different things. */}
             <p className={`st-ctrl-d${slotWarn || slotMsg !== null ? ' warn' : ' dim'}`} aria-live="polite">
               {slotWarn
-                ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'
+                ? NON_DIGIT_WARN
                 : (slotMsg ?? '数字以外は保存されません')}
             </p>
             <Collapse open={detOpen['slot'] === true} id="st-det-bg.slot" reduced={props.reduced}>
@@ -1170,7 +1182,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       in the live region while the operator steps down to 0, and
                       「0にすると橙は出ません」 — the one state this row exists to say
                       out loud — never gets its turn. */}
-                  <button type="button" aria-label="1枠減らす" onClick={() => { const next = clampCalendarTight(Number(tightText) - 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}>−</button>
+                  <button type="button" aria-label="1枠減らす" onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current) - 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}>−</button>
                   <input
                     id="stTight"
                     type="text"
@@ -1196,7 +1208,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       setTightMsg(commit.message)
                     }}
                   />
-                  <button type="button" aria-label="1枠増やす" onClick={() => { const next = clampCalendarTight(Number(tightText) + 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}>＋</button>
+                  <button type="button" aria-label="1枠増やす" onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current) + 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}>＋</button>
                 </div>
                 <span className="st-step-u">枠</span>
             </div>
@@ -1205,7 +1217,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                 オフ状態を黙っているつまみは、ミス防止の失敗そのもの（⚖ 8/21）。 */}
             <p className={`st-ctrl-d${tightWarn || tightMsg !== null ? ' warn' : ' dim'}`} aria-live="polite">
               {tightWarn
-                ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'
+                ? NON_DIGIT_WARN
                 : (tightMsg ?? (tightText.trim() === '0' ? '0にすると橙は出ません' : '数字以外は保存されません'))}
             </p>
             <Collapse open={detOpen['tight'] === true} id="st-det-bg.tight" reduced={props.reduced}>

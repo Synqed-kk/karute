@@ -28,7 +28,7 @@ import { createGapGuard } from '@/business/lib/canon-logic/gap-guard'
 import { freePockets } from '@/business/lib/canon-logic/availability'
 import type { BoardLane } from '@/business/lib/today-board'
 import { dayLengthMin, liveFieldsFrom, readMinutes, saveRefusal, sceneKeyFor } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
-import { clampSlot, commitMinutes, computeScene, type SceneInput } from '@/app/[locale]/(business)/business/settings/StorePolicySection'
+import { clampSlot, commitMinutes, computeScene, nudgeBase, type SceneInput } from '@/app/[locale]/(business)/business/settings/StorePolicySection'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
@@ -592,6 +592,29 @@ describe('⚖ D-15 RULED — 新規のお客様の確保 is ANY positive minutes
   })
 })
 
+describe('⚖ D-28 — the warn line says what is true; a nudge from an empty box starts at the committed value', () => {
+  it('the sentence — one named constant, three call sites, byte-identical to the native pass', () => {
+    // JP-NATIVE-R3/A1-WARN-LINE.md, copied byte for byte.
+    const NATIVE_SENTENCE = '数字以外は保存されません。欄を離れると前の値に戻ります'
+    const OLD_SENTENCE = '数字以外は保存されません。いま入力した文字から、数字以外を消しました'
+    expect(SCREEN_CODE).not.toContain(OLD_SENTENCE)
+    expect((SCREEN_CODE.match(/NON_DIGIT_WARN/g) ?? []).length).toBe(4) // 1 declaration + 3 call sites
+    expect(SCREEN_CODE).toContain(`const NON_DIGIT_WARN = '${NATIVE_SENTENCE}'`)
+  })
+
+  it('nudgeBase — an emptied box nudges from the committed value, never from Number(\'\') = 0', () => {
+    expect(nudgeBase('', 90)).toBe(90)
+    expect(nudgeBase('100', 90)).toBe(100)
+    expect(nudgeBase('  ', 90)).toBe(90)
+  })
+
+  it('source pin — every ± handler calls nudgeBase(', () => {
+    // 1 declaration + 4 call sites: nudgeMinutes, nudgeSlot, and the tight
+    // field's two inline ± handlers.
+    expect((SCREEN_CODE.match(/nudgeBase\(/g) ?? []).length).toBe(5)
+  })
+})
+
 // ── ⚖ D-25 — fix round 1 on A1 (the read goes through the parser; one home
 // for OFF and for the ceiling; the browser gets geometry only) ─────────────
 
@@ -1135,7 +1158,7 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // is asserted piece by piece: three DIFFERENT strings in one live region, so
     // whichever state the field is in, the region's text really moves.
     expect(SCREEN_CODE).toContain("{slotWarn")
-    expect(SCREEN_CODE).toContain("? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'")
+    expect(SCREEN_CODE).toContain("? NON_DIGIT_WARN") // ⚖ D-28 — the sentence's one home
     expect(SCREEN_CODE).toContain(": (slotMsg ?? '数字以外は保存されません')}")
     // …and the new sentence is the room's ONE rule for an emptied number field,
     // not a second copy of it written for this section (⚖ D-25 F3 — through
@@ -1190,8 +1213,10 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // press CLEARS the commit sentence (⚖ COLD-READ C4), or a stale
     // 「0枠から5枠のあいだで…」 from an earlier blur sits over the 0 state.
     // ⚖ D-27 — and it is a COMMIT too, so `lastGoodTight` moves with it.
-    expect(SCREEN_CODE).toContain('onClick={() => { const next = clampCalendarTight(Number(tightText) - 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}')
-    expect(SCREEN_CODE).toContain('onClick={() => { const next = clampCalendarTight(Number(tightText) + 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}')
+    // ⚖ D-28 — and the base it steps from is `nudgeBase`, not a bare `Number(…)`,
+    // so a press from an EMPTIED box starts at the committed value, not at 0.
+    expect(SCREEN_CODE).toContain('onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current) - 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}')
+    expect(SCREEN_CODE).toContain('onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current) + 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}')
     expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.max + 1)).toBe(CALENDAR_TIGHT_RANGE.max)
     expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.min - 1)).toBe(CALENDAR_TIGHT_RANGE.min)
 
@@ -1229,7 +1254,7 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // ⚖ D-27 — same shape as slot's warn flag: a `.test`, no stripping.
     expect(SCREEN_CODE).toContain('setTightWarn(/[^0-9]/.test(e.target.value))')
     expect(SCREEN_CODE).toContain("`st-ctrl-d${tightWarn || tightMsg !== null ? ' warn' : ' dim'}`")
-    expect(SCREEN_CODE).toContain("? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'")
+    expect(SCREEN_CODE).toContain("? NON_DIGIT_WARN") // ⚖ D-28 — the sentence's one home
     // ⚖ COLD-READ C6 — ONE FACT, ONE SENTENCE: the live line and the ?-tour step
     // say the off-state in the SAME words (the room's own ⚖ R3-2 rule).
     expect(SCREEN_CODE).toContain(": (tightMsg ?? (tightText.trim() === '0' ? '0にすると橙は出ません' : '数字以外は保存されません'))}")
