@@ -12,6 +12,8 @@
  * SCREEN never sees them; it runs on our fixtures.
  */
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   clampPriceInputs,
   discountNote,
@@ -625,7 +627,13 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
       expect(staffCells).toHaveLength(expectedCount)
       const bands = mergeBands(cells)
       const lastCell = staffCells[staffCells.length - 1]
-      expect(bands.find((b) => b.group === 'staff')?.hEnd).toBe(lastCell.h + slot)
+      // The band CONTAINING the last cell, not merely the first band: below
+      // gridMin (45 < 60) consecutive cells do not touch (a slot ending at
+      // :45 past the hour leaves a 15-minute gap before the next hour's
+      // start), so the day splits into several one-cell bands — cells sorted
+      // ascending means that band is the LAST staff band mergeBands emits.
+      const staffBands = bands.filter((b) => b.group === 'staff')
+      expect(staffBands[staffBands.length - 1].hEnd).toBe(lastCell.h + slot)
     }
   })
 
@@ -672,6 +680,15 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     const run = () => deriveSellableCells({ ...flat, sellSlotMin: slot, staffLanes: [staff()], resourceLanes: [bed()], now: null })
     expect(run).not.toThrow()
     expect(run()).toEqual([])
+  })
+
+  it('⚖ D-15/D-24 pin 9(c) — availability.ts carries no SELL_SLOT_MIN token in its CODE (the engine reads the value; only a doc comment may name the sibling constant)', () => {
+    const src = readFileSync(join(process.cwd(), 'src/business/lib/canon-logic/availability.ts'), 'utf8')
+    // Strip block comments (incl. /** doc */) and line comments before looking
+    // for the token — the field's own doc is ALLOWED to name canon's sibling
+    // constant (`SELL_SLOT_MIN`) for context; no executable line may.
+    const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(codeOnly).not.toContain('SELL_SLOT_MIN')
   })
 
   it('bands merge adjacent hours of the SAME tier, and break at a tier change', () => {

@@ -542,7 +542,7 @@ describe('§4 — ⚖ 75(i): the collector observes, and the clause never invent
   const layerWith = (claims: GapCell[], onDrop?: (d: SellDrop) => void) => {
     const { price, depth } = priceOf(REAL)
     return sellLayerFor(oneRoom(), REAL.hours, {
-      gridMin: 60, nowMinute: null, locked: [], showPrice: true,
+      gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true,
       hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth,
       reconcile: { claims, cleanupMinutesByBed: {}, onDrop },
     })
@@ -642,7 +642,7 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
           const claims = [...gap.packed, ...gap.scraps]
           const drops: SellDrop[] = []
           const sell = sellLayerFor(REAL.lanes, REAL.hours, {
-            gridMin, nowMinute: REAL.sell.nowMinute, locked: [], showPrice: true,
+            gridMin, sellSlotMin: 60, nowMinute: REAL.sell.nowMinute, locked: [], showPrice: true,
             hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth,
             reconcile: {
               claims, cleanupMinutesByBed: REAL.bedCleanupMinutes,
@@ -1613,6 +1613,7 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     const claims = [...gap.packed, ...gap.scraps]
     const sell = sellLayerFor(lanes, REAL.hours, {
       gridMin: REAL.sell.gridMin,
+      sellSlotMin: REAL.sell.sellSlotMin,
       nowMinute: REAL.sell.nowMinute,
       locked: [],
       showPrice: true,

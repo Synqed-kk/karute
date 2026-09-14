@@ -520,6 +520,7 @@ export default async function TodayPage({
     // (src/business/lib/canon-logic/availability.ts).
     sell: {
       gridMin: planes.opsConfig.reserveStartGridMin,
+      sellSlotMin: planes.opsConfig.sellSlotMin,
       nowMinute: dayOffset === 0 ? planes.boardNow : null,
     },
     // スキマガード. The engine's config is assembled ONCE, here, from the store's

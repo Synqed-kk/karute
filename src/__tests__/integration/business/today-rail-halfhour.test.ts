@@ -277,6 +277,7 @@ function readBoard(lanes: BoardLane[]): BoardRead {
   const drops: SellDrop[] = []
   const sell = sellLayerFor(lanes, REAL.hours, {
     gridMin: REAL.sell.gridMin,
+    sellSlotMin: REAL.sell.sellSlotMin,
     nowMinute: REAL.sell.nowMinute,
     locked: [],
     showPrice: true,

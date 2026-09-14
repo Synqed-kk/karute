@@ -576,7 +576,7 @@ export interface TodayProps {
    *  `BoardBooking.price` the 予約時価格 fact line reads. */
   pricedIds: string[]
   /** The dials the 販売可能枠 derivation runs on — see the header. */
-  sell: { gridMin: number; nowMinute: number | null }
+  sell: { gridMin: number; sellSlotMin: number; nowMinute: number | null }
   /** スキマガード. `mode` is the STORE's protection policy (店舗設定); `config`
    *  is what the engine itself reads. The 表示設定 segment beside it is a
    *  personal display preference and cannot change either. */
@@ -2213,6 +2213,7 @@ export function TodayScreen(props: TodayProps) {
       const sellDrops: SellDrop[] = []
       const sell = sellLayerFor(committedLanes, hours, {
         gridMin: props.sell.gridMin,
+        sellSlotMin: props.sell.sellSlotMin,
         nowMinute: props.sell.nowMinute,
         locked,
         showPrice: showSlotPrice,

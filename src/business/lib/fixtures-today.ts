@@ -392,12 +392,14 @@ export const opsConfig = {
   gapFillMinMin: 30,
   gapFillDiscountPct: 10,
   standardSessionMin: 60,
-  /** ⚖ D-15 (round 3, A2) — THE LENGTH OF ONE 販売可能枠, freed from canon's
-   *  `SELL_SLOT_MIN` constant (`canon-logic/pricing.ts:37`). Round 3 slice B1
-   *  owns wiring the board itself to read this value; until then the board
-   *  still reads canon's own constant, and this is the store's own number —
-   *  live in 設定, not yet the thing the board draws from. Same default (60)
-   *  so nothing on screen moves before B1 lands. */
+  /** ⚖ D-15 (round 3, B1) — THE LENGTH OF ONE 販売可能枠. The board's ENGINE
+   *  (`deriveSellableCells` / `mergeBands`, `canon-logic/availability.ts`) now
+   *  reads THIS value, threaded through `page.tsx` → `props.sell.sellSlotMin`
+   *  → `sellLayerFor`. `SELL_SLOT_MIN` (`canon-logic/pricing.ts:37`) is still
+   *  what the not-yet-moved readers spell — `today-interactions.ts`'s other
+   *  sites, `capacity-ledger.ts`, `fallback-cells.ts` and the three test
+   *  imports — B2's job. Same default (60) so nothing on screen moves before
+   *  B2 finishes the move. */
   sellSlotMin: 60,
   /** ⚖ Liam 2026-08-21 — 販売可能な最小の長さ. Under this the board advertises
    *  nothing: the leftover stays plain track. Fragments are a salvage market,
