@@ -56,7 +56,6 @@
 // while a hand is holding a card.
 
 import type { GapCell, SellCell } from '@/business/lib/canon-logic/availability'
-import { SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
 import type { BoardLane } from '@/business/lib/today-board'
 // ⚖ SPEC-SELLING-ENGINE §2 — TYPE-ONLY. The mask imports `BedTruth` from this
 // file (also type-only) and `laneSpans` from today-interactions as a value; a
@@ -862,7 +861,7 @@ export function boardOffers(sellCells: readonly SellCell[], gapCells: readonly G
     const sorted = [...cells].sort((a, b) => a.h - b.h)
     let run: OfferInput | null = null
     for (const c of sorted) {
-      const end = c.h + SELL_SLOT_MIN
+      const end = c.e
       if (run && c.h <= run.end) {
         run.end = Math.max(run.end, end)
         continue

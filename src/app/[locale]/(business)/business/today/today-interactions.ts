@@ -26,7 +26,7 @@ import {
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext, type GuardPlacement, type GuardReason, type GuardResult, type GuardService } from '@/business/lib/canon-logic/gap-guard'
-import { gapFillPrice, gapFillRawTotal, money, packedPrice, priceAt, priceLabel, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
+import { gapFillPrice, gapFillRawTotal, money, packedPrice, priceAt, priceLabel, type PriceFrame } from '@/business/lib/canon-logic/pricing'
 import {
   computeChecks,
   confirmCaption,
@@ -1314,8 +1314,10 @@ export interface SellReconcile {
 export interface SellDrop {
   /** The staff lane the dropped offer was advertised on. */
   laneKey: string
-  /** Its slot start — the offer spans `[h, h + SELL_SLOT_MIN)`. */
+  /** Its slot start — the offer spans `[h, e)`. */
   h: number
+  /** The offer's own end, copied from the dropped cell — never `h + constant`. */
+  e: number
   kind: 'lane' | 'room'
   /** `room` drops only: the lane whose claim kept the room. */
   takerLaneKey?: string
@@ -1358,8 +1360,8 @@ export interface SellDrop {
  *  this comment used to claim "a re-bedding can never hand two people the same
  *  room for the same hour", which is true PER SLOT only). `taken` is minted
  *  inside the per-slot loop, exactly as canon mints `claimed` inside its own
- *  (availability.ts:117), while `SELL_SLOT_MIN` is fixed at 60. So at `gridMin`
- *  30 a re-bedded 15:30 offer can land on a room a surviving 15:00 offer still
+ *  (availability.ts:117), while every offer's own length is the cell's own
+ *  `e`. So at `gridMin` 30 a re-bedded 15:30 offer can land on a room a surviving 15:00 offer still
  *  holds, and the two overlap. That is the OPTION side of the distinction above
  *  and it is legal: both are alternatives on one room's menu, and one booking
  *  takes the menu away. What the cap really guarantees is the per-slot form —
@@ -1407,7 +1409,7 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
     const pad = turnaround(resourceKey)
     return (
       held.find(
-        (p) => p.end + pad > cell.h && p.start - pad < cell.h + SELL_SLOT_MIN && keepsTheRoom() === 'gap',
+        (p) => p.end + pad > cell.h && p.start - pad < cell.e && keepsTheRoom() === 'gap',
       ) ?? null
     )
   }
@@ -1439,7 +1441,7 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
    *  emissions of a box carry the staff `laneKey` (availability.ts:372-373), so
    *  the pair matching twice is the same answer twice. */
   const busyLane = (cell: SellCell) =>
-    input.claims.some((g) => g.laneKey === cell.laneKey && g.s < cell.h + SELL_SLOT_MIN && cell.h < g.e)
+    input.claims.some((g) => g.laneKey === cell.laneKey && g.s < cell.e && cell.h < g.e)
 
   const storesOf = new Map(lanes.filter((l) => l.group === 'staff').map((l) => [l.key, l.stores]))
 
@@ -1471,7 +1473,7 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
       // is left free for somebody else's loser to land on.
       if (busyLane(c)) {
         decisions.set(offerKey(c), null)
-        input.onDrop?.({ laneKey: c.laneKey, h: c.h, kind: 'lane' })
+        input.onDrop?.({ laneKey: c.laneKey, h: c.h, e: c.e, kind: 'lane' })
       } else if (promised(c.resourceKey, c)) losers.push(c)
       else taken.add(c.resourceKey)
     }
@@ -1487,14 +1489,14 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
         // 個室のみ tag, so the offer takes a standard room first like anyone else.
         requiresPrivate: false,
         start: c.h,
-        end: c.h + SELL_SLOT_MIN,
+        end: c.e,
       })
       if (found.laneKey === null) {
         decisions.set(offerKey(c), null)
         // The room this offer lost, and to whom. Read from the SAME `promisedBy`
         // the loser was selected by, so the taker named here is by construction
         // the promise that took the room — never a second guess at it.
-        input.onDrop?.({ laneKey: c.laneKey, h: c.h, kind: 'room', takerLaneKey: promisedBy(c.resourceKey, c)?.laneKey })
+        input.onDrop?.({ laneKey: c.laneKey, h: c.h, e: c.e, kind: 'room', takerLaneKey: promisedBy(c.resourceKey, c)?.laneKey })
         continue
       }
       taken.add(found.laneKey)
@@ -1688,7 +1690,7 @@ function tagHeldBound(cells: SellCell[], held: readonly ReservedLaneMask[]): Sel
     // Both emissions of one offer carry the STAFF lane key (availability.ts
     // :126-134), so the pair is tagged together and the bed row can never
     // disagree with the row it is drawn under.
-    if (!insideHeld(byLane.get(c.laneKey), c.h, c.h + SELL_SLOT_MIN)) return c
+    if (!insideHeld(byLane.get(c.laneKey), c.h, c.e)) return c
     const tagged: HeldBoundSellCell = { ...c, heldBound: true }
     return tagged
   })
@@ -3801,7 +3803,7 @@ export function explainRails(
     const boxesElsewhere: Array<{ laneKey: string; resourceKey: string; s: number; e: number }> = [
       ...soldCellsSrc
         .filter((s) => s.group === 'staff' && s.laneKey !== rail.laneKey)
-        .map((s) => ({ laneKey: s.laneKey, resourceKey: s.resourceKey, s: s.h, e: s.h + SELL_SLOT_MIN })),
+        .map((s) => ({ laneKey: s.laneKey, resourceKey: s.resourceKey, s: s.h, e: s.e })),
       ...soldClaimsSrc
         .filter((g) => g.group === 'staff' && g.laneKey !== rail.laneKey)
         .map((g) => ({ laneKey: g.laneKey, resourceKey: g.resourceKey, s: g.s, e: g.e })),
@@ -3877,9 +3879,9 @@ export function explainRails(
       let start = h.start
       let end = h.end
       for (const c of withheldHere) {
-        if (!overlaps(c.h, c.h + SELL_SLOT_MIN, h.start, h.end)) continue
+        if (!overlaps(c.h, c.e, h.start, h.end)) continue
         start = Math.min(start, c.h)
-        end = Math.max(end, c.h + SELL_SLOT_MIN)
+        end = Math.max(end, c.e)
       }
       return { start, end, dur: h.end - h.start }
     })
@@ -3887,7 +3889,7 @@ export function explainRails(
     for (const c of rail.cells) {
       const end = c.start + opts.dur
       const advertised =
-        sellHere.some((s) => overlaps(s.h, s.h + SELL_SLOT_MIN, c.start, end)) ||
+        sellHere.some((s) => overlaps(s.h, s.e, c.start, end)) ||
         gapHere.some((g) => overlaps(g.s, g.e, c.start, end))
       // ⚖ §2(c) — HELD IS NOT AD-LESS. It is kept apart from `advertised`
       // deliberately: nothing IS advertised here, and calling it so would be the
@@ -3907,7 +3909,7 @@ export function explainRails(
       // lookup already declares, and both windows quote the same dial anyway.
       const reserved = heldExtents.find((h) => c.start < h.end && h.start < end)
       const halfEmpty = staff != null && !laneCovers(staff.items, c.start, c.start + RAIL_STEP_MIN, opts.handId)
-      const taker = advertised || reserved ? undefined : roomDrops.find((d) => overlaps(d.h, d.h + SELL_SLOT_MIN, c.start, end))
+      const taker = advertised || reserved ? undefined : roomDrops.find((d) => overlaps(d.h, d.e, c.start, end))
       // The drop's own taker first — it is the one case where the board KNOWS
       // which promise took the room — then the box the operator can see.
       // ⚖ FIX ROUND 4 (H10, MD1-MINOR-2) — ASKED ONLY WHERE IT IS READ. The
@@ -3940,7 +3942,7 @@ export function explainRails(
         halfEmpty &&
         !reservedHalf &&
         opts.sellDisplayed &&
-        !sellHere.some((s) => overlaps(s.h, s.h + SELL_SLOT_MIN, c.start, halfEnd)) &&
+        !sellHere.some((s) => overlaps(s.h, s.e, c.start, halfEnd)) &&
         !gapHere.some((g) => overlaps(g.s, g.e, c.start, halfEnd)) &&
         soldElsewhere(c.start, halfEnd) != null
       // ⚖ LIAM RULING 1 (2026-09-09) — THIS CHIP'S OWN HALF HOUR, asked once and
@@ -4087,7 +4089,7 @@ export function explainRails(
  *  operator can see the box that broke it. */
 export function restCueStarts(
   explained: ReadonlyMap<number, { cue: RailCue | null }>,
-  /** This lane's advertised hours, spanning `[h, h + SELL_SLOT_MIN)`. */
+  /** This lane's advertised hours, spanning `[h, e)` — the cell's own end. */
   sellHere: readonly SellCell[],
   /** …and its 詰め込み／スキマ枠 promises, which advertise the span they draw. */
   gapHere: readonly GapCell[],
@@ -4129,7 +4131,7 @@ export function restCueStarts(
   // `RAIL_STEP_MIN` is the rail's own step and so the cue's own width — the same
   // span `renderLane` gives the mark it paints from each start returned here.
   const covered = (start: number) =>
-    sellHere.some((s) => s.h < start + RAIL_STEP_MIN && start < s.h + SELL_SLOT_MIN) ||
+    sellHere.some((s) => s.h < start + RAIL_STEP_MIN && start < s.e) ||
     gapHere.some((g) => g.s < start + RAIL_STEP_MIN && start < g.e) ||
     heldHere.some((h) => h.start < start + RAIL_STEP_MIN && start < h.end) ||
     laneCovers(itemsHere, start, start + RAIL_STEP_MIN, handId)
@@ -7322,8 +7324,8 @@ export const holdResumeAt = (progress: number, now: number): number => now - pro
  *  card fit at full value" — so the drag reveals the whole layer and only the
  *  windows advertising the dragged booking's own length take the emphasis.
  *
- *  A plain 販売可能 wash advertises one standard session, always (canon's
- *  `SELL_SLOT_MIN`, :4867); a 詰め込み box advertises the span it draws, which is
+ *  A plain 販売可能 wash advertises the cell's own `e`, always (canon's
+ *  slot walk, :4867); a 詰め込み box advertises the span it draws, which is
  *  the （60分）/（30分） on its own label. `null` means nothing is in flight, and
  *  then nothing is emphasised — the board at rest is untouched.
  *

@@ -82,7 +82,7 @@ export interface SellInput {
    *  start Reserve's own rules could not take. */
   gridMin: number
   /** The length of one sellable slot, the store's own number —
-   *  `opsConfig.sellSlotMin`; canon fixed it at `SELL_SLOT_MIN`. */
+   *  `opsConfig.sellSlotMin`; canon fixed it at `DEFAULT_SELL_SLOT_MIN`. */
   sellSlotMin: number
   /** Minutes-from-midnight "now" on the day being shown, or null for a future
    *  day where the whole day is still sellable. Past hours are not inventory. */

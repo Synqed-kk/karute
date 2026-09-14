@@ -44,7 +44,7 @@
 // needs no drop at all. When `S === 60 && kGrid === kPack` (availability.ts:427)
 // the packer offers only what `gapFillPieces` hands back — the ends OUTSIDE
 // [gridStart, gridEnd) — and leaves the middle "to the sell layer", which sells
-// `SELL_SLOT_MIN` slots and nothing else. A leftover SHORTER than one slot is
+// `sellSlotMin` slots and nothing else. A leftover SHORTER than one slot is
 // therefore advertised by NOBODY. Measured (PROBE-R5R6 §3, tip 4d10d4d5): at
 // gridMin=30 / S=60 a 50-minute pocket with two beds standing empty advertises
 // ZERO of its 50 minutes at the store's shipped floor. See `gridHoleWindows`.
@@ -93,7 +93,6 @@ import {
   type SellStaffLane,
   type Span,
 } from '@/business/lib/canon-logic/availability'
-import { SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
 import type { BoardLane } from '@/business/lib/today-board'
 import type { ReservedLaneMask } from './reserved-mask'
 import {
@@ -108,8 +107,9 @@ import {
 
 /** Every dial the packing layer takes, minus the two lane lists this pass
  *  builds itself. Derived from canon's own input type so a dial added there
- *  arrives here rather than being quietly dropped. */
-export type FallbackDials = Omit<GapPackingInput, 'staffLanes' | 'resourceLanes'>
+ *  arrives here rather than being quietly dropped — plus `sellSlotMin`, the
+ *  store's own sellable-slot length — the same value the engine was handed. */
+export type FallbackDials = Omit<GapPackingInput, 'staffLanes' | 'resourceLanes'> & { sellSlotMin: number }
 
 /** Where a fallback cell came from.
  *
@@ -244,7 +244,7 @@ function roomsInClassOrder(lanes: readonly BoardLane[], staff: BoardLane): Board
  *
  *  `gapFillPieces(s, e, gridMin)` IS the packer's answer to "what of this pocket
  *  do I offer" on that branch; the pocket minus that answer is what the branch
- *  handed to the sell layer. The sell layer's unit is `SELL_SLOT_MIN`, so a
+ *  handed to the sell layer. The sell layer's unit is `sellSlotMin`, so a
  *  leftover SHORTER than one slot is minutes the GRID branch handed to
  *  nobody OR that a sell slot may already cover — the arithmetic alone only
  *  proves the first at gridMin ≤ 30; at gridMin=45 a hole can sit entirely
@@ -265,7 +265,7 @@ function roomsInClassOrder(lanes: readonly BoardLane[], staff: BoardLane): Board
  *     have recovered nothing.
  *  Canon's own function answers both without either being spelled here.
  *
- *  EMPTY AT `gridMin === SELL_SLOT_MIN`, and that is a THEOREM — which is what
+ *  EMPTY AT `gridMin === sellSlotMin`, and that is a THEOREM — which is what
  *  makes the shipped board (gridMin 60) pay nothing for this trigger:
  *   · first shape — the leftover is the grid-aligned core, both ends multiples
  *     of `gridMin`, so its length is a whole number of 60s and never under one
@@ -283,18 +283,18 @@ function roomsInClassOrder(lanes: readonly BoardLane[], staff: BoardLane): Board
  *  「minutes the GRID branch handed to nobody OR that a sell slot may already
  *  cover」 and starts including minutes the sell layer could reach if it were
  *  asked differently. The declared ceiling is
- *  `gridMin < SELL_SLOT_MIN`; the settings round that builds the 予約開始グリッド
+ *  `gridMin < sellSlotMin`; the settings round that builds the 予約開始グリッド
  *  dial must either constrain that dial's domain or extend this trigger WITH a
  *  measurement (rider filed). The g=90 case is PINNED as a refusal, so the day
  *  someone widens the guard without measuring, a test says so. */
-export function gridHoleWindows(s: number, e: number, dials: Pick<FallbackDials, 'gridMin' | 'sessionMin'>): Iv[] {
-  const { gridMin, sessionMin } = dials
-  if (sessionMin !== SELL_SLOT_MIN || gridMin >= SELL_SLOT_MIN) return []
+export function gridHoleWindows(s: number, e: number, dials: Pick<FallbackDials, 'gridMin' | 'sessionMin' | 'sellSlotMin'>): Iv[] {
+  const { gridMin, sessionMin, sellSlotMin } = dials
+  if (sessionMin !== sellSlotMin || gridMin >= sellSlotMin) return []
   // The GRID branch's own condition. `kGrid > kPack` is canon's throw, never a
   // mode signal (availability.ts:421-426) — not this pass's to raise, and not a
   // branch it can be on either, so it is simply not the class.
   if (kGridCount(s, e, gridMin, sessionMin) !== kPackCount(s, e, sessionMin)) return []
-  return subtract([{ s, e }], gapFillPieces(s, e, gridMin)).filter((w) => w.e - w.s < SELL_SLOT_MIN)
+  return subtract([{ s, e }], gapFillPieces(s, e, gridMin)).filter((w) => w.e - w.s < sellSlotMin)
 }
 
 /** THE FRAGMENTS the reconcile's drops left behind, for every lane that lost
@@ -305,17 +305,17 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
   const lostByLane = new Map<string, Iv[]>()
   for (const d of input.dropped) {
     const held = lostByLane.get(d.laneKey)
-    const span = { s: d.h, e: d.h + SELL_SLOT_MIN }
+    const span = { s: d.h, e: d.e }
     if (held) held.push(span)
     else lostByLane.set(d.laneKey, [span])
   }
   /** ⚖ R6 B1 — THE ONE COMPARISON THAT KEEPS THE SHIPPED BOARD FREE. It is
    *  `gridHoleWindows`' own guard, restated so the walk can be refused whole.
-   *  At `gridMin === SELL_SLOT_MIN` — the shipped 60 — the class is provably
+   *  At `gridMin === sellSlotMin` — the shipped 60 — the class is provably
    *  empty, so a board with nothing dropped still pays exactly what it paid
    *  before this trigger existed: nothing. ABOVE 60 the emptiness is a
    *  DECLARED REFUSAL rather than a theorem — see `gridHoleWindows` (⚖ D3). */
-  const gridHoles = input.dials.sessionMin === SELL_SLOT_MIN && input.dials.gridMin < SELL_SLOT_MIN
+  const gridHoles = input.dials.sessionMin === input.dials.sellSlotMin && input.dials.gridMin < input.dials.sellSlotMin
   if (lostByLane.size === 0 && !gridHoles) return EMPTY
 
   const turnaround = (roomKey: string) => {
@@ -336,7 +336,7 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
         .map((c) => ({ s: c.s - pad, e: c.e + pad })),
       ...input.survivors
         .filter((c) => c.group === 'staff' && c.resourceKey === room.key)
-        .map((c) => ({ s: c.h - pad, e: c.h + SELL_SLOT_MIN + pad })),
+        .map((c) => ({ s: c.h - pad, e: c.e + pad })),
     ]
   }
 
@@ -422,7 +422,7 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
       ...input.claims.filter((c) => c.laneKey === lane.key).map((c) => ({ s: c.s, e: c.e })),
       ...input.survivors
         .filter((c) => c.group === 'staff' && c.laneKey === lane.key)
-        .map((c) => ({ s: c.h, e: c.h + SELL_SLOT_MIN })),
+        .map((c) => ({ s: c.h, e: c.e })),
     ]
     const rooms = roomsInClassOrder(input.lanes, lane)
     const heldSpans = heldByLane.get(lane.key) ?? []
@@ -440,7 +440,7 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
        *  The drop class asks about the WHOLE pocket at the store's own grid,
        *  exactly as it did before ⚖ R6. The grid-hole class asks only about the
        *  minutes the GRID branch offered to nobody, and it asks at
-       *  `SELL_SLOT_MIN` — NOT to move the customer's start grid, but because
+       *  the sell layer's own `sellSlotMin` — NOT to move the customer's start grid, but because
        *  `gapFillPieces` is the only door canon has for a leftover and it hands
        *  a run back WHOLE only when the run is shorter than the grid it is asked
        *  about (availability.ts:312, the mechanism this file's header already
@@ -456,7 +456,7 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
       if (lost.some((l) => overlaps(l, whole))) windows.push({ iv: whole, gridMin: input.dials.gridMin })
       if (gridHoles) {
         for (const hole of gridHoleWindows(whole.s, whole.e, input.dials)) {
-          windows.push({ iv: hole, gridMin: SELL_SLOT_MIN })
+          windows.push({ iv: hole, gridMin: input.dials.sellSlotMin })
         }
       }
       if (windows.length === 0) continue

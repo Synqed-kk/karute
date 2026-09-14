@@ -790,18 +790,18 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
   it('a room-drop names the TAKER by their label — and never this lane itself', () => {
     const lanes = twoStaff()
     const start = okStart(lanes)
-    const named = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-06' }] })
+    const named = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, e: start + 60, kind: 'room', takerLaneKey: 'p-06' }] })
     expect(named.get('p-05')!.get(start)!.sentence)
       .toContain('ベッドは別のスタッフ（見本 かおる）の枠が使うため、ここには販売可能枠を出していません')
 
     // ⚖ 44 FIX ROUND (blind lens 1, F4/F5) — 別の = ANOTHER. A drop whose winner
     // is this very lane cannot be its subject, so it falls to the bare clause.
-    const own = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-05' }] })
+    const own = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, e: start + 60, kind: 'room', takerLaneKey: 'p-05' }] })
     expect(own.get('p-05')!.get(start)!.sentence).toContain('この開始には販売可能枠が出ていません')
     expect(own.get('p-05')!.get(start)!.sentence).not.toContain('別のスタッフ')
 
     // A `lane` drop is the person's own promise: the box IS drawn, no clause.
-    const laneDrop = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'lane' }] })
+    const laneDrop = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, e: start + 60, kind: 'lane' }] })
     expect(laneDrop.get('p-05')!.get(start)!.sentence).toContain('この開始には販売可能枠が出ていません')
     expect(laneDrop.get('p-05')!.get(start)!.sentence).not.toContain('別のスタッフ')
   })
@@ -883,7 +883,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // chip on the board — about a display the operator turned off themselves.
     const lanes = twoStaff()
     const start = okStart(lanes)
-    const off = ask(lanes, { sellDisplayed: false, drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-06' }] })
+    const off = ask(lanes, { sellDisplayed: false, drops: [{ laneKey: 'p-05', h: start, e: start + 60, kind: 'room', takerLaneKey: 'p-06' }] })
     expect(off.get('p-05')!.get(start)!.sentence).not.toContain('販売可能枠')
     // Every other sentence is untouched by the dial: it is the CLAUSE that is
     // gated, never the board's own answer.
@@ -907,7 +907,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // p-05's box is DRAWN (`sellCells`) but withheld — excluded from
     // `soldCells`, the PUBLISHED list. p-06's box is on both: an ordinary
     // published box. p-06's box starts at the next non-blocked cell on the
-    // 30-minute grid and a sell box spans `SELL_SLOT_MIN` (60), so the two
+    // 30-minute grid and a sell box spans the cell's own `e` (60 here), so the two
     // boxes OVERLAP by 30 minutes — that overlap is what makes
     // `boxesElsewhere` non-empty on p-05's rail. The own-row half (ad-less /
     // taker / sold cue) is carried end-to-end by lane pin R19 at the real
@@ -1338,10 +1338,13 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
   })
 
   it('the band carries the three words and their three meanings, verbatim from the mock', () => {
-    // ⚖ NATIVE PASS (2026-08-26, three rounds on the mock). These glosses are
-    // carried, never re-written: re-writing them here would spend that pass.
+    // ⚖ NATIVE PASS (2026-08-26, three rounds on the mock). The packed/scrap
+    // glosses are carried, never re-written. The sell gloss was rewritten in
+    // R3/B2/F1 (⚖ D-15/D-45): it hardcoded 1時間, the STORE's own slot length
+    // — it now reads the one source, `props.sell.sellSlotMin`, never a second
+    // hop or a literal.
     expect(SRC).toContain(
-      `<span className="lk lk-sell"><i /><b>販売可能枠</b><span>いま出ている価格で売り出している1時間</span></span>`,
+      '<span className="lk lk-sell"><i /><b>販売可能枠</b><span>{`いま出ている価格で売り出している${props.sell.sellSlotMin}分`}</span></span>',
     )
     expect(SRC).toContain(
       `<span className="lk lk-packed"><i /><b>詰め込み</b><span>空きに収めた1回分（満額）</span></span>`,
@@ -1351,6 +1354,12 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     )
     // Three, and only three: the legend names the layers the board can draw.
     expect((SRC.match(/className="lk lk-/g) ?? [])).toHaveLength(3)
+    // The legend must never hardcode a slot length again: no literal 60 and
+    // no 1時間 on the sell layer's own line (⚖ D-15 — the unit is 分 at every
+    // value, the whole page speaks in minutes).
+    const sellLegendLine = SRC.match(/<span className="lk lk-sell">.*<\/span><\/span>/)?.[0] ?? ''
+    expect(sellLegendLine).not.toMatch(/\b60\b/)
+    expect(sellLegendLine).not.toContain('1時間')
     // The word in the legend wears the colour the word ON THE BOX wears — that
     // pairing is the whole mechanism, so both ends are pinned.
     expect(CSS).toContain('.biz .layer-legend .lk-sell b, .biz .layer-legend .lk-packed b { color: var(--indigo); }')

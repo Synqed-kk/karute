@@ -310,7 +310,11 @@ describe('the fixture data door', () => {
       // worth nothing.
       'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-today', 'react'],
       'src/business/lib/fixtures.ts': ['./clock'],
-      'src/business/lib/fixtures-today.ts': ['./fixtures'],
+      // ⚖ D-15/D-24 (B2) — `./canon-logic/pricing` JOINED this inventory,
+      // deliberately: `sellSlotMin` reads `DEFAULT_SELL_SLOT_MIN` from the
+      // engine's own default rather than restating the number as a second
+      // literal (canon-logic is pure, so nothing about this reaches a door).
+      'src/business/lib/fixtures-today.ts': ['./canon-logic/pricing', './fixtures'],
       'src/business/lib/fixtures-reservations.ts': [],
       'src/business/lib/fixtures-analytics.ts': ['./fixtures'],
       // 売上分析's derivations. It reads the board's OWN predicates

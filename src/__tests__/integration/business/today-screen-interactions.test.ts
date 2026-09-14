@@ -3472,7 +3472,7 @@ describe('the crumbs of one leftover combine into one offer', () => {
     // proven on the layers themselves in fallback-cells.test.ts §8/§9.)
     expect(SRC).toContain('        ...gapDials,\n        minSellableMin: props.guard.minSellableMin,\n        locked,')
     expect(SRC).toContain(
-      '      minSellableMin: props.guard.minSellableMin,\n      dials: gapPackingDials(committedLanes, gapDials),',
+      '      minSellableMin: props.guard.minSellableMin,\n      // ⚖ D-15/D-24 — the ONE source, `props.sell.sellSlotMin`, never a literal.\n      dials: { ...gapPackingDials(committedLanes, gapDials), sellSlotMin: props.sell.sellSlotMin },',
     )
     expect(SRC.split('minSellableMin: props.guard.minSellableMin').length - 1).toBe(2)
     // ⚖ R6 — NOTHING on this layer wears a border at rest. The ring is the
@@ -3546,9 +3546,24 @@ describe('the drag emphasis follows the dragged length, and nothing else', () =>
     expect(packed.filter((c) => fitsDrag(c.e - c.s, 90))).toHaveLength(0)
   })
 
+  it('⚖ D-15/D-24/B2 — at a NON-default sellSlotMin (45) a 45-minute card fits the box and a 60-minute one does not', () => {
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', window: { from: 840, until: 1050 }, untilLabel: '17:30' }),
+      lane({ key: 'bed-01', group: 'beds' }),
+    ]
+    const sell = sellLayerFor(lanes, HOURS, { gridMin: 60, sellSlotMin: 45, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 })
+    const hourBoxes = sell.cells.filter((c) => c.group === 'staff')
+    expect(hourBoxes.length).toBeGreaterThan(0)
+    // The box advertises the cell's own length — 45, not the shipped 60 — so a
+    // 45-minute card fits it and a 60-minute one does not.
+    expect(hourBoxes.every((c) => c.e - c.h === 45)).toBe(true)
+    expect(hourBoxes.filter((c) => fitsDrag(c.e - c.h, 45))).toHaveLength(hourBoxes.length)
+    expect(hourBoxes.filter((c) => fitsDrag(c.e - c.h, 60))).toHaveLength(0)
+  })
+
   it('the screen keys the class off the dragged length and clears it on every exit', () => {
     // The two boxes ask about their OWN advertised length…
-    expect(SRC).toContain("`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`")
+    expect(SRC).toContain("`cell-price${fitsDrag(c.e - c.h, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`")
     expect(SRC).toContain('packedHere && fitsDrag(c.e - c.s, dragLen)')
     // …a スキマ枠 is a discount, not a session, so it never takes the class.
     expect(SRC).not.toContain("'cell-gapfill fits'")
@@ -4657,7 +4672,7 @@ describe('予定ブロック move, resize and open — canon’s second pipeline
     // the block pipeline, so no window can claim to fit a 休憩.
     const blockPipe = SRC.slice(SRC.indexOf('function beginBlockDrag'), SRC.indexOf('function clearBlockDrag'))
     expect(blockPipe).not.toContain('setDragLen(')
-    expect(SRC).toContain("`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`")
+    expect(SRC).toContain("`cell-price${fitsDrag(c.e - c.h, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`")
   })
 })
 

@@ -62,6 +62,7 @@ import {
   gapLayerFor,
   keepsTheRoom,
   sellLayerFor,
+  type SellDrop,
   type SellReconcile,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
@@ -256,8 +257,9 @@ const roomsAt = (layer: SellLayer, h: number) =>
  *  R4's own fix came to have zero fixture-level coverage. §6 now calls it too.
  *
  *  ponytail: the literal 60 is deliberate and stays. This is an INDEPENDENT
- *  reading of the same overlap the code makes with `SELL_SLOT_MIN` — importing
- *  the constant would let a wrong slot length agree with itself and pass. */
+ *  reading of the same overlap the code makes with `DEFAULT_SELL_SLOT_MIN` —
+ *  importing the constant would let a wrong slot length agree with itself and
+ *  pass. */
 const doubleAdvertised = (layers: { sell: SellLayer; claims: readonly GapCell[] }) =>
   layers.sell.cells
     .filter((c) => c.group === 'staff')
@@ -269,12 +271,12 @@ const doubleAdvertised = (layers: { sell: SellLayer; claims: readonly GapCell[] 
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('§1 — the distinction, and the one place it is spelled', () => {
-  const cell = (resourceKey: string, h: number, laneKey = 'p-01') => ({
+  const cell = (resourceKey: string, h: number, laneKey = 'p-01', slot = 60) => ({
     laneKey,
     resourceKey,
     group: 'staff' as const,
     h,
-    e: h + 60,
+    e: h + slot,
     staff: laneKey,
     bed: resourceKey,
     price: 7000,
@@ -284,8 +286,8 @@ describe('§1 — the distinction, and the one place it is spelled', () => {
   it('a MENU of overlapping starts on one room is ONE claim on that room', () => {
     // 15:00 / 15:30 / 16:00 on ベッド1 — at gridMin 30 canon really does emit
     // these, because `claimed` is minted fresh inside its per-slot loop while
-    // SELL_SLOT_MIN is fixed at 60. The customer picks one and the other two
-    // stop existing, so the room is claimed once, over the run.
+    // DEFAULT_SELL_SLOT_MIN is fixed at 60. The customer picks one and the
+    // other two stop existing, so the room is claimed once, over the run.
     const offers = boardOffers([cell('bed-01', 900), cell('bed-01', 930), cell('bed-01', 960)], [])
     expect(offers).toEqual([{ resourceKey: 'bed-01', start: 900, end: 1020, kind: 'sell', laneKey: 'p-01' }])
   })
@@ -301,6 +303,21 @@ describe('§1 — the distinction, and the one place it is spelled', () => {
     // rule would then judge, and a booking grid offering 15:00 and 16:00 on one
     // room is not promising both at once.
     expect(boardOffers([cell('bed-01', 900), cell('bed-01', 960)], [])).toEqual([
+      { resourceKey: 'bed-01', start: 900, end: 1020, kind: 'sell', laneKey: 'p-01' },
+    ])
+  })
+
+  it('⚖ D-24/B2 — two real 45-minute cells with a genuine 15-minute gap are TWO runs; the same cells at 60 still merge into one (unchanged)', () => {
+    // capacity-ledger's own reader now reads each cell's own `e`, not
+    // `c.h + 60`, so a store whose sellSlotMin is 45 sees the real gap between
+    // [900,945) and [960,1005) — they never touch, so they are two claims.
+    expect(boardOffers([cell('bed-01', 900, 'p-01', 45), cell('bed-01', 960, 'p-01', 45)], [])).toEqual([
+      { resourceKey: 'bed-01', start: 900, end: 945, kind: 'sell', laneKey: 'p-01' },
+      { resourceKey: 'bed-01', start: 960, end: 1005, kind: 'sell', laneKey: 'p-01' },
+    ])
+    // At 60 the same two starts touch exactly at 960 (unchanged — the leg above
+    // already proves it; restated here beside the 45-minute case for contrast).
+    expect(boardOffers([cell('bed-01', 900, 'p-01', 60), cell('bed-01', 960, 'p-01', 60)], [])).toEqual([
       { resourceKey: 'bed-01', start: 900, end: 1020, kind: 'sell', laneKey: 'p-01' },
     ])
   })
@@ -517,6 +534,20 @@ describe('§3 — the reconciliation is a room’s question, not a row’s', () 
     // only boxes on the same drawn row, and these two are not.
     const onSameRow = (a: { laneKey: string }, b: { laneKey: string }) => a.laneKey === b.laneKey
     expect(onSameRow({ laneKey: 'p-01' }, { laneKey: 'p-02' })).toBe(false)
+  })
+
+  it('⚖ D-24/B2 — the room-drop carries the CELL’S OWN end, not h + 60: at sellSlotMin 45 the drop’s e is 945', () => {
+    const dropped: SellDrop[] = []
+    sellLayerFor(crossRow(), HOURS, {
+      ...SELL_OPTS,
+      sellSlotMin: 45,
+      reconcile: {
+        claims: promise('p-02', 'bed-01', 900, 945),
+        cleanupMinutesByBed: {},
+        onDrop: (d) => dropped.push(d),
+      },
+    })
+    expect(dropped).toContainEqual({ laneKey: 'p-01', h: 900, e: 945, kind: 'room', takerLaneKey: 'p-02' })
   })
 
   it('a promise that does NOT overlap leaves the hour alone', () => {
