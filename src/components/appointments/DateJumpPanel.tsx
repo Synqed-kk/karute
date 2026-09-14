@@ -249,7 +249,6 @@ export function DateJumpPanel({
     // stateRef (not `state`) on purpose: this must run when the VISIBLE month
     // changes or finishes loading, never on every cache write — a failed month
     // would otherwise re-request itself forever.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, state.visibleMonth, visibleLoaded, loadMonthCells])
 
   // ── cells ────────────────────────────────────────────────────────────────
