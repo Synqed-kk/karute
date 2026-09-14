@@ -1220,6 +1220,10 @@ export function longestOpenDayMin(
     const close = hhmmMinutes(String(d.close))
     if (open === null || close === null) continue
     const len = close - open
+    // ⚖ D-38 — an inverted or zero-length day does not count; an all-inverted
+    // week answers null → the control's own max; overnight hours are a
+    // queued model change, not a floor of 1.
+    if (len <= 0) continue
     if (max === null || len > max) max = len
   }
   return max === null ? null : Math.max(1, max)

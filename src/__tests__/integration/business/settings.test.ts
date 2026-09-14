@@ -2433,6 +2433,15 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // …a garbage time on one day is SKIPPED, not thrown, and does not poison
     // the day that does parse.
     expect(longestOpenDayMin([day(true, 'garbage', '19:00'), day(true, '10:00', '19:00')])).toBe(540)
+    // ⚖ D-38 — an inverted (overnight) day is a non-positive length, not a
+    // day counted at a floored 1 minute: the exact 「typed number rewritten
+    // into another number」 defect a stale floor would ship.
+    expect(longestOpenDayMin([day(true, '22:00', '02:00')])).toBeNull()
+    // …and beside a real day, the inverted one is simply skipped — the real
+    // day's own length still wins the ceiling.
+    expect(longestOpenDayMin([day(true, '22:00', '02:00'), day(true, '10:00', '19:00')])).toBe(540)
+    // …open === close is the same non-positive case (zero-length day).
+    expect(longestOpenDayMin([day(true, '10:00', '10:00')])).toBeNull()
   })
 
   it('⚖ C2 — 臨時休業 adds, removes, and refuses a duplicate date in the wire’s own words', async () => {
@@ -2682,6 +2691,22 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(SCREEN_CODE).toContain(
       'dayLenMin={longestOpenDayMin(WEEK_CEILING.days.map((d) => ({ on: values[d.on], open: values[d.open], close: values[d.close] }))) ?? policy.dayLenMin}',
     )
+  })
+
+  it('⚖ D-38 (NEW-2) — every WEEK_CEILING id is one storeHours() actually builds, and each carries its real kind', async () => {
+    const props = await settingsProps({ locale: 'ja', store: STORE_A })
+    // …every id `WEEK_CEILING` names is IN the payload — a rename here would
+    // make every day skip and fall back to the server-baked ceiling with the
+    // rest of the battery green, the D-36 bug back silently.
+    const byId = new Map(controlsOf(props.props).map((c) => [c.id, c]))
+    for (const d of WEEK_CEILING.days) {
+      expect(byId.has(d.on)).toBe(true)
+      expect(byId.has(d.open)).toBe(true)
+      expect(byId.has(d.close)).toBe(true)
+      expect(byId.get(d.on)!.control.kind).toBe('switch')
+      expect(byId.get(d.open)!.control.kind).toBe('time')
+      expect(byId.get(d.close)!.control.kind).toBe('time')
+    }
   })
 
   it('⚖ D-31/D-32 F4 §C — the four zero-capable rows carry their zeroLabel, byte-identical to the JP file', async () => {
