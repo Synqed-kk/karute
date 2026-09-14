@@ -1,3 +1,7 @@
+import type { WeeklyHours } from '@synqed-kk/client'
+import { partsInJst, ymdInJst } from '@/lib/date/jst'
+import { jstMidnight } from '@/lib/date/calendar-range'
+
 export type WeekdayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
 
 export interface DailyOperatingHours {
@@ -29,8 +33,14 @@ export const DEFAULT_OPERATING_HOURS: OperatingHours = {
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
 
+/** The weekday of `date` IN JST. `date.getDay()` reads the RUNTIME calendar —
+ *  UTC on Vercel — so a booking day that starts at 00:00 JST (15:00 UTC the
+ *  day before) resolved to the PREVIOUS weekday and picked the wrong day's
+ *  opening hours for every evening of the week. partsInJst().weekday is the
+ *  same 0=Sun…6=Sat numbering getDay() used (see reservation.ts:137-141, which
+ *  already builds the month grid's leading padding off it). */
 export function getWeekdayKey(date: Date): WeekdayKey {
-  return JS_DAY_TO_KEY[date.getDay()] ?? 'mon'
+  return JS_DAY_TO_KEY[partsInJst(date).weekday] ?? 'mon'
 }
 
 export function formatMinuteOfDay(minute: number): string {
@@ -72,25 +82,35 @@ export function validateOperatingHours(hours: OperatingHours): Partial<Record<We
   return errors
 }
 
-function normalizeDailyHours(value: unknown): DailyOperatingHours {
-  if (!value || typeof value !== 'object') {
-    return { ...DEFAULT_DAILY_OPERATING_HOURS }
-  }
+/** ONE parse of a raw blob weekday: the day the salon actually SAVED, or null
+ *  when the entry is absent / malformed / open-after-close. normalizeDailyHours
+ *  defaults off it and savedWeekdays reports it, so "is this day saved?" and
+ *  "what hours does this day have?" can never drift apart. */
+function parseDailyHours(value: unknown): DailyOperatingHours | null {
+  if (!value || typeof value !== 'object') return null
 
   const candidate = value as { openMinute?: unknown; closeMinute?: unknown }
   const openMinute = isFiniteNumber(candidate.openMinute) ? Math.round(candidate.openMinute) : NaN
   const closeMinute = isFiniteNumber(candidate.closeMinute) ? Math.round(candidate.closeMinute) : NaN
 
-  if (!Number.isInteger(openMinute) || !Number.isInteger(closeMinute)) {
-    return { ...DEFAULT_DAILY_OPERATING_HOURS }
-  }
+  if (!Number.isInteger(openMinute) || !Number.isInteger(closeMinute)) return null
 
   const normalized: DailyOperatingHours = { openMinute, closeMinute }
-  if (validateDailyOperatingHours(normalized)) {
-    return { ...DEFAULT_DAILY_OPERATING_HOURS }
-  }
+  return validateDailyOperatingHours(normalized) ? null : normalized
+}
 
-  return normalized
+function normalizeDailyHours(value: unknown): DailyOperatingHours {
+  return parseDailyHours(value) ?? { ...DEFAULT_DAILY_OPERATING_HOURS }
+}
+
+/** The weekdays whose RAW org-settings entry exists and validates — i.e. the
+ *  days the salon really configured, as opposed to the ones normalizeOperatingHours
+ *  silently filled with the 10:00–24:00 default. The 稼働/空き cells may only
+ *  claim a capacity on a SAVED day; on a defaulted one they say 未設定. */
+export function savedWeekdays(raw: unknown): WeekdayKey[] {
+  const source =
+    raw && typeof raw === 'object' ? (raw as Partial<Record<WeekdayKey, unknown>>) : {}
+  return WEEKDAY_KEYS.filter((key) => parseDailyHours(source[key]) !== null)
 }
 
 export function normalizeOperatingHours(value: unknown): OperatingHours {
@@ -124,4 +144,136 @@ export function utcToLocalDayAndMinute(date: Date, tzOffsetMinutes: number): {
     dayKey: JS_DAY_TO_KEY[localDate.getUTCDay()] ?? 'mon',
     minuteOfDay: localDate.getUTCHours() * 60 + localDate.getUTCMinutes(),
   }
+}
+
+// ── THE 予約 NUMBERS' HOURS SOURCE — one resolver, one home ─────────────────
+//
+// ⚠ TWO NULLS, TWO MEANINGS (mirrored from src/business/lib/settings.ts:1156-1160,
+// which documents the same wire): `weekly_hours[day] = null` (or an absent day)
+// says 「this store is closed on Mondays」, while `weekly_hours = null` says
+// 「this store has never configured hours at all」 — confusing them either
+// invents a 定休日 or throws the hours filter away entirely.
+//
+// Precedence, per day: an ad-hoc 臨時休業 date → the store's own weekly_hours →
+// the business-wide operating_hours blob → the 10:00–24:00 default (hoursSaved
+// false). Nothing else in the 予約 numbers may resolve hours.
+
+/** What one JST day's hours actually are, and how much we may claim about them.
+ *  `saved` = a human really set this day (a store weekly_hours entry, a closed
+ *  date, or a saved org blob day) — the 稼働/空き conjunct. `closed` = 定休日 or
+ *  臨時休業. `minutes` is 0 when closed. */
+export type DayHoursFact = {
+  minutes: number
+  openMinute: number
+  closeMinute: number
+  saved: boolean
+  closed: boolean
+}
+
+const CLOSED_FACT: DayHoursFact = {
+  minutes: 0,
+  openMinute: 0,
+  closeMinute: 0,
+  saved: true,
+  closed: true,
+}
+
+/** 'HH:MM' → minutes from midnight, or null when the wire value is malformed. */
+function minuteOfHhmm(value: unknown): number | null {
+  if (typeof value !== 'string') return null
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value)
+  if (!m) return null
+  const hour = Number(m[1])
+  const minute = Number(m[2])
+  if (hour > 24 || minute > 59) return null
+  const total = hour * 60 + minute
+  return total <= 24 * 60 ? total : null
+}
+
+export interface DayHoursInput {
+  date: Date
+  /** The store's own weekly window (`storePolicies.get(storeId).weekly_hours`),
+   *  or null when there is no store to ask / the store never configured hours.
+   *  Only this field of StoreBookingPolicy is consumed — and the package barrel
+   *  does not re-export StoreBookingPolicy itself, only WeeklyHours. */
+  weeklyHours: WeeklyHours | null
+  /** 臨時休業 dates as JST YYYY-MM-DD. */
+  closedDates: ReadonlySet<string>
+  orgHours: OperatingHours | null | undefined
+  /** The org blob weekdays a human actually saved (savedWeekdays). */
+  orgSaved: ReadonlySet<WeekdayKey>
+}
+
+export function resolveDayHours(input: DayHoursInput): DayHoursFact {
+  const key = getWeekdayKey(input.date)
+
+  if (input.closedDates.has(ymdInJst(input.date))) return { ...CLOSED_FACT }
+
+  const weekly = input.weeklyHours
+  if (weekly != null) {
+    const day = weekly[key]
+    // null OR absent = 定休日. This is the first of the two nulls above.
+    if (day == null) return { ...CLOSED_FACT }
+    const open = minuteOfHhmm(day.open)
+    const close = minuteOfHhmm(day.close)
+    if (open != null && close != null && open < close) {
+      return {
+        minutes: close - open,
+        openMinute: open,
+        closeMinute: close,
+        saved: true,
+        closed: false,
+      }
+    }
+    // A malformed window vouches for nothing — fall through to the org blob and
+    // let THAT decide whether the day counts as saved.
+  }
+
+  const day = getOperatingHoursForDate(input.orgHours, input.date)
+  return {
+    minutes: Math.max(0, day.closeMinute - day.openMinute),
+    openMinute: day.openMinute,
+    closeMinute: day.closeMinute,
+    saved: input.orgSaved.has(key),
+    closed: false,
+  }
+}
+
+/** The JST calendar days a [fromIso, toIso] fetch window covers, plus the
+ *  YYYY-MM-DD pair the closed-days read wants (`to` is EXCLUSIVE — the SDK's
+ *  own contract, dist/store-policies.d.ts). One home so the web action and the
+ *  facade route can never disagree about which days a window contains. */
+export function jstWindowDays(
+  fromIso: string,
+  toIso: string,
+): { days: Date[]; fromYmd: string; toExclusiveYmd: string } {
+  const start = partsInJst(new Date(fromIso))
+  const lastYmd = ymdInJst(new Date(toIso))
+  const cursor = jstMidnight(start.year, start.month, start.day)
+  const days: Date[] = []
+  // Whole-day setDate arithmetic on a JST-midnight instant preserves the
+  // time-of-day, so the JST date steps correctly under a UTC runtime
+  // (calendar-range.ts's own rule). The bound is a guard, not a policy: the
+  // widest window this feeds is a month grid (~45 days).
+  while (days.length < 400 && ymdInJst(cursor) <= lastYmd) {
+    days.push(new Date(cursor))
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  const after = days.length ? new Date(days[days.length - 1]) : new Date(cursor)
+  after.setDate(after.getDate() + 1)
+  return {
+    days,
+    fromYmd: days.length ? ymdInJst(days[0]) : lastYmd,
+    toExclusiveYmd: ymdInJst(after),
+  }
+}
+
+/** resolveDayHours for every day of a window, keyed by JST YYYY-MM-DD. */
+export function resolveWindowHours(
+  days: readonly Date[],
+  ctx: Omit<DayHoursInput, 'date'>,
+): Map<string, DayHoursFact> {
+  const facts = new Map<string, DayHoursFact>()
+  for (const date of days) facts.set(ymdInJst(date), resolveDayHours({ ...ctx, date }))
+  return facts
 }
