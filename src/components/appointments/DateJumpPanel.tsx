@@ -227,29 +227,55 @@ export function DateJumpPanel({
   }, [open, rendered])
 
   // ── the data door ────────────────────────────────────────────────────────
+  // A month read is a CACHE write, not a UI write, so it is never cancelled:
+  // the answer is wanted whichever month is on screen by the time it lands.
+  // Cancelling on every dep change stranded the most ordinary gesture there is
+  // — open the panel, tap › before the prefetch answers, and the month you land
+  // on sat at 「予約状況を読み込み中」 forever, because `pending` reads as "in
+  // flight" and the request it was waiting on had been thrown away. The only
+  // guard is UNMOUNT.
+  const mountedRef = useRef(true)
+  useEffect(
+    () => () => {
+      mountedRef.current = false
+    },
+    [],
+  )
+  // The months with a promise actually outstanding. A pending cache entry with
+  // no promise behind it cannot exist: this set is what makes a second request
+  // for the same month impossible, and every settle clears its key.
+  const inFlightRef = useRef<Set<MonthKey>>(new Set())
+
+  const requestMonth = useCallback(
+    (key: MonthKey) => {
+      if (inFlightRef.current.has(key)) return
+      inFlightRef.current.add(key)
+      dispatch({ type: 'pending', month: key })
+      loadMonthCells(key).then(
+        (cells) => {
+          inFlightRef.current.delete(key)
+          if (mountedRef.current) {
+            dispatch({ type: 'loaded', month: key, cells: toMonthGridCells(cells) })
+          }
+        },
+        () => {
+          inFlightRef.current.delete(key)
+          if (mountedRef.current) dispatch({ type: 'failed', month: key })
+        },
+      )
+    },
+    [loadMonthCells],
+  )
+
   const visibleEntry = state.cache.get(state.visibleMonth)
   const visibleLoaded = visibleEntry?.status === 'loaded'
   useEffect(() => {
     if (!open) return
-    let alive = true
-    for (const key of monthsToLoad(stateRef.current)) {
-      dispatch({ type: 'pending', month: key })
-      loadMonthCells(key).then(
-        (cells) => {
-          if (alive) dispatch({ type: 'loaded', month: key, cells: toMonthGridCells(cells) })
-        },
-        () => {
-          if (alive) dispatch({ type: 'failed', month: key })
-        },
-      )
-    }
-    return () => {
-      alive = false
-    }
+    for (const key of monthsToLoad(stateRef.current)) requestMonth(key)
     // stateRef (not `state`) on purpose: this must run when the VISIBLE month
     // changes or finishes loading, never on every cache write — a failed month
     // would otherwise re-request itself forever.
-  }, [open, state.visibleMonth, visibleLoaded, loadMonthCells])
+  }, [open, state.visibleMonth, visibleLoaded, requestMonth])
 
   // ── cells ────────────────────────────────────────────────────────────────
   const today = useMemo(() => jstStartOfToday(), [])

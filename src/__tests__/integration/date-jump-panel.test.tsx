@@ -307,6 +307,113 @@ describe('pending is not empty, and a failure says so', () => {
   })
 })
 
+/**
+ * R1 — the blind round's HIGH finding. Open the panel and tap › before the
+ * prefetch answers (on a phone that is most of the time: each month read
+ * re-runs the whole appointments screen assembly) and the month you land on
+ * used to sit at 「予約状況を読み込み中」 forever — the effect's cleanup threw
+ * the request away, and `pending` reads as "someone is already on it".
+ */
+describe('a month read in flight when you turn the page still lands', () => {
+  /** A loader whose promises the test resolves by hand, one month at a time. */
+  function deferredLoader() {
+    const pendingByMonth = new Map<
+      string,
+      { resolve: (c: MonthCellDTOType[]) => void; reject: (e: Error) => void }
+    >()
+    const calls: string[] = []
+    const load = jest.fn(
+      (key: string) =>
+        new Promise<MonthCellDTOType[]>((resolve, reject) => {
+          calls.push(key)
+          pendingByMonth.set(key, { resolve, reject })
+        }),
+    )
+    return { load, calls, pendingByMonth }
+  }
+
+  it('resolving after a › tap fills the month in, and revisiting it shows the dots', async () => {
+    const { load, calls, pendingByMonth } = deferredLoader()
+    renderView({ loadMonthCells: load })
+    await openPanel()
+    await waitFor(() => expect(calls).toContain('2026-09'))
+
+    // September lands; its neighbours go out and stay unresolved.
+    await act(async () => {
+      pendingByMonth.get('2026-09')!.resolve(monthCells('2026-09'))
+    })
+    await waitFor(() => expect(calls).toContain('2026-10'))
+
+    // Turn the page onto the month whose read is still in flight.
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    await waitFor(() => expect(title()).toHaveTextContent('2026年10月'))
+
+    // The answer arrives AFTER the move — it must still land.
+    await act(async () => {
+      pendingByMonth.get('2026-10')!.resolve(monthCells('2026-10', 7))
+    })
+    await waitFor(() => expect(within(dialog).getByRole('status')).toHaveTextContent(''))
+
+    // …and walking back and forth shows real counts, with no second request.
+    const before = load.mock.calls.length
+    fireEvent.click(within(dialog).getByRole('button', { name: 'prev' }))
+    await waitFor(() => expect(title()).toHaveTextContent('2026年9月'))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    await waitFor(() => expect(title()).toHaveTextContent('2026年10月'))
+    const centre = within(dialog).getAllByTestId('month-grid')[1]
+    expect(within(centre).getAllByRole('button')[0]).toHaveTextContent('7')
+    // Already answered and already cached — no duplicate read for that month.
+    expect(load.mock.calls.filter((c) => c[0] === '2026-10')).toHaveLength(1)
+    expect(load.mock.calls.length).toBeGreaterThanOrEqual(before)
+  })
+
+  it('a rejection after a › tap shows the failed line, and a revisit re-requests it', async () => {
+    const { load, calls, pendingByMonth } = deferredLoader()
+    renderView({ loadMonthCells: load })
+    await openPanel()
+    await act(async () => {
+      pendingByMonth.get('2026-09')!.resolve(monthCells('2026-09'))
+    })
+    await waitFor(() => expect(calls).toContain('2026-10'))
+
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    await waitFor(() => expect(title()).toHaveTextContent('2026年10月'))
+
+    await act(async () => {
+      pendingByMonth.get('2026-10')!.reject(new Error('core down'))
+    })
+    await waitFor(() =>
+      expect(within(dialog).getByRole('status')).toHaveTextContent('dateJump.failed'),
+    )
+
+    // Leave and come back: a failed month is asked for again.
+    const asked = () => load.mock.calls.filter((c) => c[0] === '2026-10').length
+    expect(asked()).toBe(1)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'prev' }))
+    await waitFor(() => expect(title()).toHaveTextContent('2026年9月'))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    await waitFor(() => expect(asked()).toBe(2))
+  })
+
+  it('never fires two reads for the same month at once', async () => {
+    const { load, pendingByMonth } = deferredLoader()
+    renderView({ loadMonthCells: load })
+    await openPanel()
+    const dialog = screen.getByRole('dialog')
+    // Walk out and back while every read is still open.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    await waitFor(() => expect(title()).toHaveTextContent('2026年10月'))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'prev' }))
+    await waitFor(() => expect(title()).toHaveTextContent('2026年9月'))
+    await act(async () => {})
+    for (const key of pendingByMonth.keys()) {
+      expect(load.mock.calls.filter((c) => c[0] === key)).toHaveLength(1)
+    }
+  })
+})
+
 describe('the hidden native date input is gone', () => {
   it('AppointmentsView no longer renders one — the chip is the only door to a date', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
