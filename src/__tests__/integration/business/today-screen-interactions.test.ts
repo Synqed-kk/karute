@@ -3472,7 +3472,7 @@ describe('the crumbs of one leftover combine into one offer', () => {
     // proven on the layers themselves in fallback-cells.test.ts §8/§9.)
     expect(SRC).toContain('        ...gapDials,\n        minSellableMin: props.guard.minSellableMin,\n        locked,')
     expect(SRC).toContain(
-      '      minSellableMin: props.guard.minSellableMin,\n      dials: gapPackingDials(committedLanes, gapDials),',
+      '      minSellableMin: props.guard.minSellableMin,\n      // ⚖ D-15/D-24 — the ONE source, `props.sell.sellSlotMin`, never a literal.\n      dials: { ...gapPackingDials(committedLanes, gapDials), sellSlotMin: props.sell.sellSlotMin },',
     )
     expect(SRC.split('minSellableMin: props.guard.minSellableMin').length - 1).toBe(2)
     // ⚖ R6 — NOTHING on this layer wears a border at rest. The ring is the

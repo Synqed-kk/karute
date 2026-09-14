@@ -2314,9 +2314,22 @@ export function TodayScreen(props: TodayProps) {
       // `gapDrawn` unfloored, so the same 20-minute orphan the native layer
       // deletes was drawn when it came out of the fallback instead.
       minSellableMin: props.guard.minSellableMin,
-      dials: gapPackingDials(committedLanes, gapDials),
+      // ⚖ D-15/D-24 — the ONE source, `props.sell.sellSlotMin`, never a literal.
+      dials: { ...gapPackingDials(committedLanes, gapDials), sellSlotMin: props.sell.sellSlotMin },
     })
-  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, locked, props.guard.minSellableMin, gapDials])
+  }, [
+    heldCommitted,
+    committedLanes,
+    hours.close,
+    sellDrops,
+    sell,
+    gapClaims,
+    props.bedCleanupMinutes,
+    locked,
+    props.guard.minSellableMin,
+    gapDials,
+    props.sell.sellSlotMin,
+  ])
 
   /** WHAT THE BOARD DRAWS, and what the explanation layer reads as promised:
    *  the gap layer plus the fallback's additions. Gate off ⇒ the same objects,

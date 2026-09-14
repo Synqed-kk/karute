@@ -302,16 +302,19 @@ function readBoard(lanes: BoardLane[]): BoardRead {
         held,
         locked: [],
         minSellableMin: REAL.guard.minSellableMin,
-        dials: gapPackingDials(lanes, {
-          gridMin: REAL.sell.gridMin,
-          sessionMin: dur,
-          gapFillMin: REAL.guard.gapFillMinMin,
-          gapFillDiscountPct: REAL.guard.gapFillDiscountPct,
-          nowMinute: REAL.sell.nowMinute,
-          frame: priceFrame,
-          depth,
-          guard: REAL.guard.config,
-        }),
+        dials: {
+          ...gapPackingDials(lanes, {
+            gridMin: REAL.sell.gridMin,
+            sessionMin: dur,
+            gapFillMin: REAL.guard.gapFillMinMin,
+            gapFillDiscountPct: REAL.guard.gapFillDiscountPct,
+            nowMinute: REAL.sell.nowMinute,
+            frame: priceFrame,
+            depth,
+            guard: REAL.guard.config,
+          }),
+          sellSlotMin: REAL.sell.sellSlotMin,
+        },
       })
     : null
   const drawnPacked = door ? [...gap.packed, ...door.packed] : gap.packed
