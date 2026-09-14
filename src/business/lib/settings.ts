@@ -357,7 +357,11 @@ export type ControlKind =
   // ⚖ D-15 (round 3, A2) — `max: null` = NO CEILING (a 「minutes before
   // start」/「days ahead」/「hours before」 field has no honest bound from the
   // store's own day). A number is a LENGTH's derived ceiling; never a constant.
-  | { kind: 'number'; min: number; max: number | null; step: number; unit: string }
+  // ⚖ D-31/D-32 F4 — `zeroLabel` is the short state a reader reads at 0
+  // (「制限なし」/「販売しない」/…), carried on the control so `labelOfValue` can
+  // answer every reader (a preview sentence, this field's own display) from
+  // ONE place rather than each one re-deciding what 0 means.
+  | { kind: 'number'; min: number; max: number | null; step: number; unit: string; zeroLabel?: string }
   | { kind: 'time' }
   /** ⚖ S17 · C2 — a calendar date, `YYYY-MM-DD`, which is the wire's own
    *  spelling for `StoreClosedDay.date`. The native control, so a phone gets its
@@ -674,7 +678,9 @@ export function labelOfValue(control: ControlKind, value: RowValue): string {
       return control.options.filter((o) => picked.includes(o.value)).map((o) => o.label).join('・')
     }
     case 'number':
-      return `${String(value)}${control.unit}`
+      // ⚖ D-31/D-32 F4 — 0 reads as the STATE it is (「制限なし」…), never as
+      // 「0分」 with the meaning quietly flipped underneath it.
+      return Number(value) === 0 && control.zeroLabel ? control.zeroLabel : `${String(value)}${control.unit}`
     default:
       return String(value)
   }

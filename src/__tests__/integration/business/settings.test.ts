@@ -1421,6 +1421,13 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(CSS_CODE).toContain('.biz .pg-settings .st-numline .st-field-msg:empty { display: none; }')
   })
 
+  it('⚖ D-31/D-32 F4 — the zero state reads beside the unit, reusing `st-unit`\'s own style', () => {
+    expect(SCREEN_CODE).toContain('{k.zeroLabel && Number(text) === 0 && <span className="st-unit">{k.zeroLabel}</span>}')
+    // …and it is a SIBLING span, not a replacement — the field still says what
+    // it measures.
+    expect(SCREEN_CODE).toContain('{k.unit && <span className="st-unit">{k.unit}</span>}')
+  })
+
   it('⚖ D-15 (round 3, A2) — a field with NO CEILING gets a floor-only message, never 「…Infinity…」', () => {
     // A field whose `max` is Infinity can only ever be clamped UP to the
     // floor (nothing exceeds Infinity), so the two-sided range sentence would
@@ -2581,6 +2588,81 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // never left behind as dead code with no disclosure.
     expect(PROPS_CODE).not.toContain('WIN_BACK_MIN')
     expect(PROPS_CODE).not.toContain('RETENTION_MIN_MONTHS')
+  })
+
+  it('⚖ D-31/D-32 F4 §C — the four zero-capable rows carry their zeroLabel, byte-identical to the JP file', async () => {
+    const props = await room({ store: STORE_A })
+    const zeroLabelOf = (id: string) => {
+      const c = controlOf(props, id).control
+      return c.kind === 'number' ? c.zeroLabel : undefined
+    }
+    expect(zeroLabelOf('reserve.cutoff')).toBe('締め切らない')
+    expect(zeroLabelOf('reserve.lead')).toBe('制限なし')
+    expect(zeroLabelOf('reserve.gapfill')).toBe('販売しない')
+    expect(zeroLabelOf('reserve.free')).toBe('いつでも無料')
+    // …and `labelOfValue` answers the zeroLabel exactly at 0, the real number
+    // otherwise — the SAME function the preview sentence and this field's own
+    // display both read through.
+    const cutoffCtrl = controlOf(props, 'reserve.cutoff').control
+    expect(labelOfValue(cutoffCtrl, '120')).toBe('120分')
+    expect(labelOfValue(cutoffCtrl, '0')).toBe('締め切らない')
+  })
+
+  it('⚖ D-31/D-32 F4 §B — each zero-capable row’s description states what 0 means, verbatim', async () => {
+    const props = await room({ store: STORE_A })
+    const descOf = (id: string) => rowsOf(props).find((r) => r.id === id)!.description
+    expect(descOf('reserve.row-cutoff')).toBe('予約開始時刻の何分前に、オンラインの受付を締め切るかです。0にすると、締め切らずに直前まで受け付けます。')
+    expect(descOf('reserve.row-lead')).toBe('開始までこの時間を切った空きは、お客様に出しません。0にすると、直前の空きも制限なく出します。')
+    expect(descOf('reserve.row-gapfill')).toBe('予約と予約のあいだにできる空きのうち、開始時刻の刻みに乗らない端の部分だけを特価で売ります。0にすると、スキマ枠そのものを販売しません。')
+    expect(descOf('reserve.row-free')).toBe('この時刻より前のキャンセルは、キャンセル料がかかりません。0にすると、開始直前までキャンセル料がかかりません。')
+  })
+
+  it('⚖ D-31/D-32 F4 §D — RED-FIRST: the lead/gapfill guardrails no longer name a deleted option, verbatim', async () => {
+    const props = await room({ store: STORE_A })
+    const guardrailOf = (id: string) => rowsOf(props).find((r) => r.id === id)!.trio!.guardrail
+    expect(guardrailOf('reserve.row-lead')).toBe('0にすると、準備の時間がない予約が入ります。締め切った空きは店頭・電話でのみ扱えます。')
+    expect(guardrailOf('reserve.row-gapfill')).toBe('0にすると、スキマ枠の販売そのものをやめます。それ以外は、この長さに届かない端を掲載しません。刻みを細かくするほど端は小さくなり、この枠自体が縮みます。')
+    // RED-FIRST: the OLD sentences named a deleted option / read backwards at
+    // 0 — gone from the whole payload, not merely reworded in one spot.
+    const payload = JSON.stringify(props)
+    expect(payload).not.toContain('制限なしにすると')
+    expect(payload).not.toContain('この長さより短い端は掲載しません。刻みを細かくするほど端は小さくなり')
+  })
+
+  it('⚖ D-31 §A fix — the block preview reads a LABEL at both a real number and the zero state', async () => {
+    const props = await room({ store: STORE_A })
+    const seed = seedOf(props)
+    const kinds = Object.fromEntries(controlsOf(props).map((c) => [c.id, c.control]))
+    const label = (values: Record<string, RowValue>) => (id: string) => (kinds[id] ? labelOfValue(kinds[id], values[id]) : null)
+    const windowBlock = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!
+    expect(fillTemplate(windowBlock.preview!.template, label(seed))).toBe(
+      'お客様には30日先まで、60分きざみの開始時刻を出します。直前締切は120分、直前の空き制限は60分、スキマ枠の販売は30分です。対象のスキマ枠は10%引きで掲載します。',
+    )
+
+    // ⚖ D-31 — AND THE ZERO STATE READS AS THE STATE, not 「0分」 with the
+    // meaning reversed underneath it.
+    jest.doMock('@/business/lib/fixtures-today', () => {
+      const actual = jest.requireActual('@/business/lib/fixtures-today')
+      return { ...actual, opsConfig: { ...actual.opsConfig, leadTimeMin: 0, gapFillMinMin: 0 } }
+    })
+    let mod0!: typeof import('@/app/[locale]/(business)/business/settings/settings-props')
+    await jest.isolateModulesAsync(async () => {
+      mod0 = await import('@/app/[locale]/(business)/business/settings/settings-props')
+    })
+    jest.dontMock('@/business/lib/fixtures-today')
+    const props0 = (await mod0.settingsProps({ locale: 'ja', store: STORE_A })).props
+    const seed0 = seedOf(props0)
+    const kinds0 = Object.fromEntries(controlsOf(props0).map((c) => [c.id, c.control]))
+    const label0 = (values: Record<string, RowValue>) => (id: string) => (kinds0[id] ? labelOfValue(kinds0[id], values[id]) : null)
+    const windowBlock0 = sectionOf(props0, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!
+    const rendered0 = fillTemplate(windowBlock0.preview!.template, label0(seed0))
+    expect(rendered0).toContain('直前の空き制限は制限なし')
+    expect(rendered0).toContain('スキマ枠の販売は販売しない')
+    // …neither zero-capable clause prints a bare 「0分」 any more — each reads
+    // as the STATE it is instead (the 60分きざみ clause is unrelated to either
+    // zeroed field, so it is excluded rather than asserting no "0分" at all).
+    expect(rendered0).not.toContain('直前の空き制限は0分')
+    expect(rendered0).not.toContain('スキマ枠の販売は0分')
   })
 
   it('⚖ mock D4 — the lead that points at the live card is TRUE at both widths', async () => {

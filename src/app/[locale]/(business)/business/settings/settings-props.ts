@@ -276,13 +276,15 @@ const num = (
   step: number,
   unit: string,
   locked?: string,
+  // ⚖ D-31/D-32 F4 — the short label 0 reads as (「制限なし」 etc.).
+  zeroLabel?: string,
   // ⚖ D-32 F1 — a lock that follows a LIVE sibling control; see
   // `RowControl.lockedWhen`.
   lockedWhen?: RowControl['lockedWhen'],
 ): RowControl => ({
   id,
   aria,
-  control: { kind: 'number', min, max, step, unit },
+  control: { kind: 'number', min, max, step, unit, ...(zeroLabel ? { zeroLabel } : {}) },
   value: String(value),
   ...(locked ? { locked } : {}),
   ...(lockedWhen ? { lockedWhen } : {}),
@@ -1593,8 +1595,8 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         // `cutoff_minutes` (dist/types.d.ts:1054) is minutes. A reader thinks in
         // 「2時間前」 and the wire keeps 120; holding hours here and multiplying
         // at the seam is where a factor of 60 goes missing between two rounds.
-        row('reserve.row-cutoff', '直前締切', '予約開始時刻の何分前に、オンラインの受付を締め切るかです。', [
-          num('reserve.cutoff', '直前締切', d.cutoffMinutes, 0, null, 1, '分'),
+        row('reserve.row-cutoff', '直前締切', '予約開始時刻の何分前に、オンラインの受付を締め切るかです。0にすると、締め切らずに直前まで受け付けます。', [
+          num('reserve.cutoff', '直前締切', d.cutoffMinutes, 0, null, 1, '分', undefined, '締め切らない'),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
@@ -1630,13 +1632,13 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
             guardrail: '短くすると、ボードに出る販売可能枠の数が増えます。長くすると、まとまった空きしか枠になりません。',
           },
         }),
-        row('reserve.row-gapfill', 'スキマ枠の販売', '予約と予約のあいだにできる空きのうち、開始時刻の刻みに乗らない端の部分だけを特価で売ります。', [
-          num('reserve.gapfill', 'スキマ枠の販売', opsConfig.gapFillMinMin, 0, dayLen, 1, '分'),
+        row('reserve.row-gapfill', 'スキマ枠の販売', '予約と予約のあいだにできる空きのうち、開始時刻の刻みに乗らない端の部分だけを特価で売ります。0にすると、スキマ枠そのものを販売しません。', [
+          num('reserve.gapfill', 'スキマ枠の販売', opsConfig.gapFillMinMin, 0, dayLen, 1, '分', undefined, '販売しない'),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
             base: '初期値: 30分',
-            guardrail: 'この長さより短い端は掲載しません。刻みを細かくするほど端は小さくなり、この枠自体が縮みます。',
+            guardrail: '0にすると、スキマ枠の販売そのものをやめます。それ以外は、この長さに届かない端を掲載しません。刻みを細かくするほど端は小さくなり、この枠自体が縮みます。',
           },
         }),
         row('reserve.row-gapdisc', 'スキマ割', '端のスキマ枠に適用する割引です。時間帯ごとの価格から、この割合を引いて掲載します。', [
@@ -1648,13 +1650,13 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
             guardrail: '最大割引ライン（定価の−30%）を下回ることはありません。',
           },
         }),
-        row('reserve.row-lead', '直前の空きは売らない', '開始までこの時間を切った空きは、お客様に出しません。', [
-          num('reserve.lead', '直前の空きは売らない', opsConfig.leadTimeMin, 0, null, 1, '分'),
+        row('reserve.row-lead', '直前の空きは売らない', '開始までこの時間を切った空きは、お客様に出しません。0にすると、直前の空きも制限なく出します。', [
+          num('reserve.lead', '直前の空きは売らない', opsConfig.leadTimeMin, 0, null, 1, '分', undefined, '制限なし'),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
             base: '初期値: 60分前まで',
-            guardrail: '制限なしにすると、準備の時間がない予約が入ります。締め切った空きは店頭・電話でのみ扱えます。',
+            guardrail: '0にすると、準備の時間がない予約が入ります。締め切った空きは店頭・電話でのみ扱えます。',
           },
         }),
         // ⚡ R2 BRANCH C — ⚖ D-11 (Liam 2026-09-13, 「Okay let's go with option
@@ -1700,6 +1702,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
               null,
               1,
               '分',
+              undefined,
               undefined,
               // ⚖ D-32 F1 — LOCKED, NOT HIDDEN, and now read against the LIVE
               // select rather than baked into this render: a server-computed
@@ -1751,7 +1754,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         ),
       ], {
-        preview: { template: 'お客様には{reserve.days}先まで、{reserve.grid}きざみの開始時刻を出します。{reserve.cutoff}で締め切り、{reserve.lead}の空きは出しません。スキマ枠は{reserve.gapfill}以上を{reserve.gapdisc}引きで掲載します。' },
+        preview: { template: 'お客様には{reserve.days}先まで、{reserve.grid}きざみの開始時刻を出します。直前締切は{reserve.cutoff}、直前の空き制限は{reserve.lead}、スキマ枠の販売は{reserve.gapfill}です。対象のスキマ枠は{reserve.gapdisc}引きで掲載します。' },
         links: [{ label: 'ボードの操作の刻みは店舗情報・営業時間で', sectionId: 'store-hours' }],
         audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -6))}（受付ウィンドウを変更）`,
       }),
@@ -1770,8 +1773,8 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         links: [{ label: 'スキマガードの設定は予約と確保で', sectionId: 'booking-guard' }],
       }),
       block('reserve.cancel', 'キャンセル規定', 'お客様都合のキャンセルと、ご連絡のないキャンセルの扱いです。', [
-        row('reserve.row-free', '無料キャンセル期限', 'この時刻より前のキャンセルは、キャンセル料がかかりません。', [
-          num('reserve.free', '無料キャンセル期限', d.cancelFreeUntilHours, 0, null, 1, '時間'),
+        row('reserve.row-free', '無料キャンセル期限', 'この時刻より前のキャンセルは、キャンセル料がかかりません。0にすると、開始直前までキャンセル料がかかりません。', [
+          num('reserve.free', '無料キャンセル期限', d.cancelFreeUntilHours, 0, null, 1, '時間', undefined, 'いつでも無料'),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
