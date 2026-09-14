@@ -138,20 +138,24 @@ export function computeScene(input: SceneInput, mode: GapGuardMode, minutes: num
  *  substring (`setMinutes(commit.value)`) a snap elsewhere on the path could
  *  dodge. Same shape `commitNumberField` already gives every free-minute
  *  field: `SLOT_MIN` floor, the caller's own ceiling, '分' unit. */
-export function isPositiveIntegerText(text: string): boolean { const t = text.trim(); const n = Number(t); return t !== '' && Number.isInteger(n) && n > 0 }
+// ⚖ D-30 — digits only: `Number()` would accept 1e2 / 0x10 / +5 and rewrite
+// the text into another number.
+export function isIntegerTextAtLeast(text: string, floor: number): boolean { const t = text.trim(); return /^[0-9]+$/.test(t) && Number(t) >= floor }
 
 export function commitMinutes(text: string, lastGood: number, ceiling: number): { value: number; message: string | null } {
   // ⚖ D-27 — typed text is never rewritten into a different number; anything
   // that is not a positive integer restores the previous value and says so.
-  const raw = isPositiveIntegerText(text) ? text.trim() : ''
+  const raw = isIntegerTextAtLeast(text, SLOT_MIN) ? text.trim() : ''
   return commitNumberField(raw, lastGood, SLOT_MIN, ceiling, '分')
 }
 
 /** ⚖ D-28 — an emptied box nudges from the committed value, never from
  *  `Number('') = 0`. ⚖ D-29 — the nudge starts from the committed value
- *  whenever the box holds anything the commit would refuse. */
-export function nudgeBase(text: string, lastGood: number): number {
-  return isPositiveIntegerText(text) ? Number(text) : lastGood
+ *  whenever the box holds anything the commit would refuse. ⚖ D-30 — the
+ *  floor is the field's own: `SLOT_MIN` for the minute fields, `TIGHT_MIN`
+ *  for 残りわずかの目安, which allows 0. */
+export function nudgeBase(text: string, lastGood: number, floor: number): number {
+  return isIntegerTextAtLeast(text, floor) ? Number(text.trim()) : lastGood
 }
 
 export interface StorePolicyProps {
@@ -510,13 +514,13 @@ export function StorePolicySection(props: StorePolicySectionProps) {
    *  effect at once) — it still routes through `commitMinutes` here so both
    *  fields share one shape and one message/clamp behaviour. */
   function nudgeMinutes(delta: number) {
-    const next = clampSlot(nudgeBase(minutesText, lastGoodMinutes.current) + delta, props.dayLenMin)
+    const next = clampSlot(nudgeBase(minutesText, lastGoodMinutes.current, SLOT_MIN) + delta, props.dayLenMin)
     const commit = commitMinutes(String(next), lastGoodMinutes.current, props.dayLenMin)
     lastGoodMinutes.current = commit.value
     setMinutesText(String(commit.value)); setMinutes(commit.value); setMinutesWarn(false); setMinutesMsg(commit.message)
   }
   function nudgeSlot(delta: number) {
-    const next = clampSlot(nudgeBase(slotText, lastGoodSlot.current) + delta, props.dayLenMin)
+    const next = clampSlot(nudgeBase(slotText, lastGoodSlot.current, SLOT_MIN) + delta, props.dayLenMin)
     const commit = commitMinutes(String(next), lastGoodSlot.current, props.dayLenMin)
     lastGoodSlot.current = commit.value
     setSlotText(String(commit.value)); setSlotWarn(false); setSlotMsg(commit.message)
@@ -1183,7 +1187,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       in the live region while the operator steps down to 0, and
                       「0にすると橙は出ません」 — the one state this row exists to say
                       out loud — never gets its turn. */}
-                  <button type="button" aria-label="1枠減らす" onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current) - 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}>−</button>
+                  <button type="button" aria-label="1枠減らす" onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current, TIGHT_MIN) - 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}>−</button>
                   <input
                     id="stTight"
                     type="text"
@@ -1197,11 +1201,9 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       setTightText(e.target.value)
                     }}
                     onBlur={() => {
-                      // ⚖ D-27 — same guard as `commitMinutes`, at this field's own
-                      // floor (0 is legal — it is how a store turns the 橙 tier off).
-                      const t = tightText.trim()
-                      const n = Number(t)
-                      const raw = t !== '' && Number.isInteger(n) && n >= TIGHT_MIN ? t : ''
+                      // ⚖ D-30 — same predicate `commitMinutes` uses, at this field's
+                      // own floor (0 is legal — it is how a store turns the 橙 tier off).
+                      const raw = isIntegerTextAtLeast(tightText, TIGHT_MIN) ? tightText.trim() : ''
                       const commit = commitNumberField(raw, lastGoodTight.current, TIGHT_MIN, TIGHT_MAX, '枠')
                       lastGoodTight.current = commit.value
                       setTightText(String(commit.value))
@@ -1209,7 +1211,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       setTightMsg(commit.message)
                     }}
                   />
-                  <button type="button" aria-label="1枠増やす" onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current) + 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}>＋</button>
+                  <button type="button" aria-label="1枠増やす" onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current, TIGHT_MIN) + 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}>＋</button>
                 </div>
                 <span className="st-step-u">枠</span>
             </div>

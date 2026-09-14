@@ -28,7 +28,7 @@ import { createGapGuard } from '@/business/lib/canon-logic/gap-guard'
 import { freePockets } from '@/business/lib/canon-logic/availability'
 import type { BoardLane } from '@/business/lib/today-board'
 import { dayLengthMin, liveFieldsFrom, readMinutes, saveRefusal, sceneKeyFor } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
-import { clampSlot, commitMinutes, computeScene, isPositiveIntegerText, nudgeBase, type SceneInput } from '@/app/[locale]/(business)/business/settings/StorePolicySection'
+import { clampSlot, commitMinutes, computeScene, isIntegerTextAtLeast, nudgeBase, type SceneInput } from '@/app/[locale]/(business)/business/settings/StorePolicySection'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
@@ -603,16 +603,22 @@ describe('⚖ D-28 — the warn line says what is true; a nudge from an empty bo
   })
 
   it('nudgeBase — an emptied box nudges from the committed value, never from Number(\'\') = 0', () => {
-    expect(nudgeBase('', 90)).toBe(90)
-    expect(nudgeBase('100', 90)).toBe(100)
-    expect(nudgeBase('  ', 90)).toBe(90)
+    expect(nudgeBase('', 90, 1)).toBe(90)
+    expect(nudgeBase('100', 90, 1)).toBe(100)
+    expect(nudgeBase('  ', 90, 1)).toBe(90)
     // ⚖ D-29 — a box holding anything commitMinutes would refuse (kept as
     // typed, never rewritten) nudges from the committed value too, not from
     // Number(text) on garbage/non-integer/non-positive text.
-    expect(nudgeBase('abc', 90)).toBe(90)
-    expect(nudgeBase('1.5', 90)).toBe(90)
-    expect(nudgeBase('-5', 90)).toBe(90)
-    expect(nudgeBase('0', 90)).toBe(90)
+    expect(nudgeBase('abc', 90, 1)).toBe(90)
+    expect(nudgeBase('1.5', 90, 1)).toBe(90)
+    expect(nudgeBase('-5', 90, 1)).toBe(90)
+    expect(nudgeBase('0', 90, 1)).toBe(90)
+    // ⚖ D-30 — JS numeric notation restores too, at any floor.
+    expect(nudgeBase('1e2', 90, 1)).toBe(90)
+    // ⚖ D-30 — the floor is the field's own: '0' is refused at SLOT_MIN (1)
+    // but IS a real value at the tight field's own floor (0) — the − press
+    // clamps 0-1 back to 0, the ＋ press gives 1, and nudgeBase itself answers 0.
+    expect(nudgeBase('0', 2, 0)).toBe(0)
   })
 
   it('source pin — every ± handler calls nudgeBase(', () => {
@@ -620,21 +626,41 @@ describe('⚖ D-28 — the warn line says what is true; a nudge from an empty bo
     // field's two inline ± handlers.
     expect((SCREEN_CODE.match(/nudgeBase\(/g) ?? []).length).toBe(5)
   })
+
+  it('source pin — every nudgeBase call site passes a floor argument', () => {
+    expect(SCREEN_CODE).toContain('nudgeBase(minutesText, lastGoodMinutes.current, SLOT_MIN)')
+    expect(SCREEN_CODE).toContain('nudgeBase(slotText, lastGoodSlot.current, SLOT_MIN)')
+    expect((SCREEN_CODE.match(/nudgeBase\(tightText, lastGoodTight\.current, TIGHT_MIN\)/g) ?? []).length).toBe(2)
+  })
 })
 
-describe('⚖ D-29 — isPositiveIntegerText, the one predicate commitMinutes and nudgeBase both call', () => {
-  it('true only for a positive-integer-shaped text', () => {
-    expect(isPositiveIntegerText('75')).toBe(true)
-    expect(isPositiveIntegerText('1.5')).toBe(false)
-    expect(isPositiveIntegerText('')).toBe(false)
-    expect(isPositiveIntegerText('abc')).toBe(false)
-    expect(isPositiveIntegerText('0')).toBe(false)
-    expect(isPositiveIntegerText('-5')).toBe(false)
+describe("⚖ D-30 — isIntegerTextAtLeast, digits only, at or above the field's own floor", () => {
+  it('true only for a bare-digit text at or above the floor — no JS numeric notation', () => {
+    expect(isIntegerTextAtLeast('75', 1)).toBe(true)
+    expect(isIntegerTextAtLeast('1.5', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('abc', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('0', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('-5', 1)).toBe(false)
+    // ⚖ D-30 — Greptile pass 2, issue 1: `Number()` accepts JS numeric
+    // notation the field never shows the operator typing, and rewrites the
+    // text into a different number — 「1e2」 commits 100, 「0x10」 commits 16,
+    // 「+5」 commits 5.
+    expect(isIntegerTextAtLeast('1e2', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('0x10', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('+5', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('０', 1)).toBe(false) // full-width digit — not [0-9]
+    expect(isIntegerTextAtLeast(' 75 ', 1)).toBe(true) // trims
+    // ⚖ D-30 — Greptile pass 2, issue 2: the floor is the field's own; 0 is
+    // refused at SLOT_MIN (1) but legal at TIGHT_MIN (0).
+    expect(isIntegerTextAtLeast('0', 0)).toBe(true)
   })
 
-  it('source pin — commitMinutes and nudgeBase both call isPositiveIntegerText(', () => {
-    expect(SCREEN_CODE).toContain("isPositiveIntegerText(text) ? text.trim() : ''")
-    expect(SCREEN_CODE).toContain('isPositiveIntegerText(text) ? Number(text) : lastGood')
+  it('source pin — no isPositiveIntegerText left; commitMinutes, nudgeBase and the tight onBlur all call isIntegerTextAtLeast( with a floor', () => {
+    expect(SCREEN_CODE).not.toContain('isPositiveIntegerText')
+    expect(SCREEN_CODE).toContain("isIntegerTextAtLeast(text, SLOT_MIN) ? text.trim() : ''")
+    expect(SCREEN_CODE).toContain('isIntegerTextAtLeast(text, floor) ? Number(text.trim()) : lastGood')
+    expect(SCREEN_CODE).toContain("isIntegerTextAtLeast(tightText, TIGHT_MIN) ? tightText.trim() : ''")
   })
 })
 
@@ -676,6 +702,12 @@ describe('⚖ D-25 — the read goes through readMinutes, and the two accepted s
     expect(commitMinutes('1.5', 90, 600)).toEqual(commitMinutes('', 90, 600))
     expect(commitMinutes('-5', 90, 600)).toEqual(commitMinutes('', 90, 600))
     expect(commitMinutes('abc100', 90, 600)).toEqual(commitMinutes('', 90, 600))
+    // ⚖ D-30 — Greptile pass 2, issue 1: JS numeric notation restores too,
+    // rather than being rewritten into another number (1e2 → 100, 0x10 → 16,
+    // +5 → 5 were the room's own bug).
+    expect(commitMinutes('1e2', 90, 600)).toEqual(commitMinutes('', 90, 600))
+    expect(commitMinutes('0x10', 90, 600)).toEqual(commitMinutes('', 90, 600))
+    expect(commitMinutes('+5', 90, 600)).toEqual(commitMinutes('', 90, 600))
     const over = commitMinutes('700', 90, 600)
     expect(over.value).toBe(600)
     expect(over.message).not.toBeNull()
@@ -1225,11 +1257,11 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // 1 · THE BOUNDS ARE THE BOARD'S, destructured once, never re-typed.
     expect(SCREEN_CODE).toContain('const { min: TIGHT_MIN, max: TIGHT_MAX } = CALENDAR_TIGHT_RANGE')
     expect(SCREEN_CODE).not.toMatch(/TIGHT_(MIN|MAX)\s*=\s*\d/)
-    // ⚖ D-27 — the raw text meets the SAME guard `commitMinutes` uses (a
-    // positive-integer shape, at this field's own floor) BEFORE it reaches
-    // `commitNumberField`, so '1.5'/'-5'/'abc'/'' all restore rather than
-    // being rewritten into another number.
-    expect(SCREEN_CODE).toContain("const raw = t !== '' && Number.isInteger(n) && n >= TIGHT_MIN ? t : ''")
+    // ⚖ D-30 — the raw text meets the SAME predicate `commitMinutes` uses (a
+    // bare-digit shape, at this field's own floor) BEFORE it reaches
+    // `commitNumberField`, so '1.5'/'-5'/'abc'/''/'1e2' all restore rather
+    // than being rewritten into another number.
+    expect(SCREEN_CODE).toContain("const raw = isIntegerTextAtLeast(tightText, TIGHT_MIN) ? tightText.trim() : ''")
     expect(SCREEN_CODE).toContain('const commit = commitNumberField(raw, lastGoodTight.current, TIGHT_MIN, TIGHT_MAX, \'枠\')')
     // …and the ± stepper reaches for the SAME clamp the page clamps with, so a
     // press can never land on a value the month would refuse to paint — and each
@@ -1238,8 +1270,8 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // ⚖ D-27 — and it is a COMMIT too, so `lastGoodTight` moves with it.
     // ⚖ D-28 — and the base it steps from is `nudgeBase`, not a bare `Number(…)`,
     // so a press from an EMPTIED box starts at the committed value, not at 0.
-    expect(SCREEN_CODE).toContain('onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current) - 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}')
-    expect(SCREEN_CODE).toContain('onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current) + 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}')
+    expect(SCREEN_CODE).toContain('onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current, TIGHT_MIN) - 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}')
+    expect(SCREEN_CODE).toContain('onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current, TIGHT_MIN) + 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}')
     expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.max + 1)).toBe(CALENDAR_TIGHT_RANGE.max)
     expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.min - 1)).toBe(CALENDAR_TIGHT_RANGE.min)
 
@@ -1248,14 +1280,15 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // painted another, and neither surface would be wrong on its own).
     expect(SCREEN_CODE).toContain('const [tightText, setTightText] = useState(String(policy.calendarTightMax))')
     expect(SCREEN_CODE).toContain('const lastGoodTight = useRef(clampCalendarTight(policy.calendarTightMax))')
-    // ⚠ AND 0 IS A VALUE THE FIELD REMEMBERS. `n > TIGHT_MIN` here would mean a
+    // ⚠ AND 0 IS A VALUE THE FIELD REMEMBERS. A `>` floor here would mean a
     // store that dialled the tier OFF and then emptied the box is handed 2 back —
     // the tier switched back on without anyone choosing that.
-    // ⚖ D-27 — the `lastGood*`-tracking useEffect this used to pin is gone
-    // (lastGood now moves only on a commit); the same `>=` floor lives in the
-    // onBlur guard above instead, pinned there.
-    expect(SCREEN_CODE).toContain('n >= TIGHT_MIN')
-    expect(SCREEN_CODE).not.toContain('n > TIGHT_MIN')
+    // ⚖ D-30 — the `>=` floor now lives in the ONE shared predicate
+    // (`isIntegerTextAtLeast`), called here with this field's own floor —
+    // never a second, locally-typed comparison that could drift from it.
+    expect(SCREEN_CODE).toContain('Number(t) >= floor')
+    expect(SCREEN_CODE).toContain('isIntegerTextAtLeast(tightText, TIGHT_MIN)')
+    expect(SCREEN_CODE).not.toMatch(/n\s*>\s*TIGHT_MIN/)
 
     // 2 · THE BLUR RULE, DRIVEN — the room's one rule for a number field, with
     // this field's unit and this field's bounds.
