@@ -399,7 +399,9 @@ export const opsConfig = {
    *  what the not-yet-moved readers spell — `today-interactions.ts`'s other
    *  sites, `capacity-ledger.ts`, `fallback-cells.ts` and the three test
    *  imports — B2's job. Same default (60) so nothing on screen moves before
-   *  B2 finishes the move. */
+   *  B2 finishes the move — the box's own width (`TodayScreen.tsx`'s
+   *  `place(c.h, c.h + 60, …)`), the drag fits check and the claims book are
+   *  the readers that would show a different value first. */
   sellSlotMin: 60,
   /** ⚖ Liam 2026-08-21 — 販売可能な最小の長さ. Under this the board advertises
    *  nothing: the leftover stays plain track. Fragments are a salvage market,

@@ -28,6 +28,7 @@ import {
   priceLabel,
   tierOf,
   CURVE_MAX_DIP,
+  DENSITY_CEILING,
 } from '@/business/lib/canon-logic/pricing'
 import {
   computeChecks,
@@ -635,6 +636,40 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
       const staffBands = bands.filter((b) => b.group === 'staff')
       expect(staffBands[staffBands.length - 1].hEnd).toBe(lastCell.h + slot)
     }
+  })
+
+  // ⚖ D-40 — below the start grid (45 < gridMin 60) consecutive 枠 stop
+  // touching, so every 枠 becomes its own band; two free lanes at 45 push the
+  // band count past DENSITY_CEILING and the density verdict flips the sell
+  // tint off. The bands are HONEST — one spanning the gap between 枠 would
+  // paint unsellable time, the ⚖ 8/9 defect class — so the split is correct;
+  // the open question is whether a hardcoded band count is the right density
+  // test at a slot shorter than the grid. B2's matrix single at 45 answers
+  // that, and when it changes the verdict this leg MOVES visibly.
+  it('⚖ D-40 — below the start grid, every 枠 is its own band and the density verdict can flip', () => {
+    // Two free lanes, one bed EACH — not the `[null]` fallback used elsewhere
+    // in this file for a bed-less store, which caps the sale to ONE lane per
+    // hour (`deriveSellableCells`' `claimed.size >= freeBeds.length` break)
+    // and so cannot show two lanes fragmenting independently.
+    const staffLanes = [staff(), staff({ key: 's2', name: '見本 じろう' })]
+    const resourceLanes = [bed(), bed({ key: 'b2', name: 'ベッド2' })]
+
+    const cells45 = deriveSellableCells({ ...flat, sellSlotMin: 45, staffLanes, resourceLanes, now: null })
+    const staffCells45 = cells45.filter((c) => c.group === 'staff')
+    const layer45 = buildSellLayer(cells45, true)
+    // Derived from the same walk the 45/75 leg above runs, times the two free
+    // lanes: 10:00–19:00 at 45 walks 9 starts per lane → 2 × 9 = 18.
+    let perLaneCount = 0
+    for (let sm = flat.open; sm + 45 <= flat.close; sm += flat.gridMin) perLaneCount += 1
+    expect(staffCells45).toHaveLength(perLaneCount * staffLanes.length)
+    expect(layer45.staffBands).toHaveLength(staffCells45.length)
+    expect(layer45.degraded).toBe(layer45.staffBands.length > DENSITY_CEILING)
+    expect(layer45.degraded).toBe(true)
+
+    const cells60 = deriveSellableCells({ ...flat, sellSlotMin: 60, staffLanes, resourceLanes, now: null })
+    const layer60 = buildSellLayer(cells60, true)
+    expect(layer60.staffBands).toHaveLength(2)
+    expect(layer60.degraded).toBe(false)
   })
 
   it('⚖ D-15/D-24 — the identity leg: at the shipped default (60), every cell and band is byte-identical to the OLD `h + 60` formula', () => {

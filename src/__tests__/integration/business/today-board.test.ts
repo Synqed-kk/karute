@@ -687,7 +687,7 @@ describe('今日の運営 screen', () => {
     expect(run).not.toThrow()
     const sell45 = run()
     const staffCells = sell45.cells.filter((c) => c.group === 'staff')
-    // Disclosed, not asserted further: at 45 the CHIP/count readers (窓 count,
+    // Disclosed, not asserted further: at 45 the CHIP/count readers (枠 count,
     // price label) still read off these same cells and move with them — that
     // is B1's own derivation, unchanged. This pin does not touch anything the
     // still-60-by-constant readers (B2) own.
