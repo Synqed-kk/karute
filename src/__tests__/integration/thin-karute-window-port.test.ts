@@ -201,6 +201,32 @@ describe('thin actions port — karute window transport contract', () => {
       expect(await loadKaruteWindow({ sharedOnly: true })).toEqual({ error: 'forbidden' })
     })
 
+    // H2b (PR-C fix round 4): the SAME 403 + code 'forbidden' also fires for
+    // ensureCapability's customers.view guard (route.ts:56, unrelated to
+    // sharedOnly) — the port must NOT collapse that one to the 'forbidden'
+    // literal too. Pre-existing, out-of-scope mismatch with the web door's
+    // own customers.view refusal (a different sentence, actions/karute.ts):
+    // left exactly as it was, never "fixed" here.
+    it("a 403 with code 'forbidden' but NO sharedOnly on the request keeps the message passthrough", async () => {
+      port(
+        jest.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                error: {
+                  code: 'forbidden',
+                  message: 'Missing capability: customers.view',
+                },
+              }),
+              { status: 403 },
+            ),
+        ),
+      )
+      expect(await loadKaruteWindow({ olderThan: '2026-08-12' })).toEqual({
+        error: 'Missing capability: customers.view',
+      })
+    })
+
     it('a 403 with a DIFFERENT code keeps today\'s message-passthrough mapping', async () => {
       port(
         jest.fn(

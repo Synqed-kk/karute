@@ -619,17 +619,27 @@ async function facadeLoadKaruteWindow(input: {
         })
       | null
     if (!res.ok || !body) {
-      // H2 fix (PR-C fix round 3): "the thin and web rejection semantics
-      // identical" — the web action returns `{ error: 'forbidden' }` for a
-      // sharedOnly request from a non-holder (actions/karute.ts), and the
-      // facade route throws AppApiError('forbidden', …) for the same refusal
-      // (route.ts), which serializes as `{ error: { code: 'forbidden',
-      // message } }` (app-api/errors.ts errorBody). Map that ONE code back
-      // to the same literal the web door returns, so a consumer of this
-      // port's result sees an identical contract on both doors — never the
-      // 403's English sentence on the phone alone. Every other code/status
-      // keeps today's message-passthrough unchanged.
-      if (res.status === 403 && body?.error?.code === 'forbidden') return { error: 'forbidden' }
+      // H2 fix (PR-C fix round 3, narrowed fix round 4): "the thin and web
+      // rejection semantics identical" — the web action returns `{ error:
+      // 'forbidden' }` for a sharedOnly request from a non-holder
+      // (actions/karute.ts), and the facade route throws
+      // AppApiError('forbidden', …) for the same refusal (route.ts), which
+      // serializes as `{ error: { code: 'forbidden', message } }`
+      // (app-api/errors.ts errorBody). Map that ONE code back to the same
+      // literal the web door returns — but ONLY when THIS request was
+      // sharedOnly: ensureCapability (require-permission.ts) throws the SAME
+      // 'forbidden' code for the unrelated customers.view guard the route
+      // also runs (route.ts:56), and an unscoped mapping swallowed that
+      // refusal's message too. The web door's customers.view refusal
+      // (requireCapability's sentence, caught generically in
+      // actions/karute.ts) was already a DIFFERENT literal from this port's
+      // message-passthrough before fix round 3 — that mismatch is
+      // pre-existing and out of scope, left exactly as it was. Every other
+      // code/status, and every 403 whose request was not sharedOnly, keeps
+      // today's message-passthrough unchanged.
+      if (res.status === 403 && body?.error?.code === 'forbidden' && input.sharedOnly) {
+        return { error: 'forbidden' }
+      }
       return { error: body?.error?.message ?? `Request failed (${res.status})` }
     }
     // A malformed 200 must read as an ERROR, never as "no more history" — a
