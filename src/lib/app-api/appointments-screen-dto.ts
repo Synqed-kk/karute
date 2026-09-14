@@ -67,6 +67,10 @@ export const MonthCellDTO = z.object({
   count: z.number(),
   density: z.enum(['empty', 'light', 'medium', 'busy']),
 })
+/** JSON shape of one 月 grid cell — the wire type the date-jump panel's
+ *  month loader returns on BOTH doors (facade GET on the phone, server action
+ *  on web), so neither host hand-rolls its own. */
+export type MonthCellDTOType = z.infer<typeof MonthCellDTO>
 
 export const AppointmentsScreenDTO = z.object({
   /** Echo of the resolved query params — the view treats them as canon. */
