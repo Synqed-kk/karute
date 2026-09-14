@@ -172,6 +172,27 @@
       "empty": "予約なし",
       "more": "他"
     },
+    "weekRows": {
+      "summary": "{from}〜{to} · 予約 {count}件",
+      "summaryNew": " · 新規 {n}",
+      "summaryReturning": " · 再来 {n}",
+      "count": "予約",
+      "utilization": "稼働",
+      "free": "空き",
+      "bookedTime": "予約時間",
+      "new": "新規",
+      "returning": "再来",
+      "cancelled": "キャンセル",
+      "noShow": "無断",
+      "unset": "未設定",
+      "closed": "休",
+      "countValue": "{n}件",
+      "hours": "{h}時間",
+      "minutes": "{m}分",
+      "loading": "予約状況を読み込み中",
+      "failed": "予約状況を取得できませんでした",
+      "rowAria": "{date} 予約{n}件"
+    },
     "status": {
       "booked": "予約済",
       "in_session": "施術中",

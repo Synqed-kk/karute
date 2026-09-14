@@ -172,6 +172,27 @@
       "empty": "No bookings",
       "more": "more"
     },
+    "weekRows": {
+      "summary": "{from}–{to} · {count} bookings",
+      "summaryNew": " · New {n}",
+      "summaryReturning": " · Returning {n}",
+      "count": "Bookings",
+      "utilization": "Utilization",
+      "free": "Free",
+      "bookedTime": "Booked time",
+      "new": "New",
+      "returning": "Returning",
+      "cancelled": "Cancelled",
+      "noShow": "No-show",
+      "unset": "Not set",
+      "closed": "Closed",
+      "countValue": "{n}",
+      "hours": "{h}h",
+      "minutes": "{m}m",
+      "loading": "Loading bookings…",
+      "failed": "Couldn't load bookings",
+      "rowAria": "{date} — {n} bookings"
+    },
     "status": {
       "booked": "Booked",
       "in_session": "In session",
