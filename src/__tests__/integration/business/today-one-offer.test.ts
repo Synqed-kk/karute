@@ -270,12 +270,12 @@ const doubleAdvertised = (layers: { sell: SellLayer; claims: readonly GapCell[] 
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('§1 — the distinction, and the one place it is spelled', () => {
-  const cell = (resourceKey: string, h: number, laneKey = 'p-01') => ({
+  const cell = (resourceKey: string, h: number, laneKey = 'p-01', slot = 60) => ({
     laneKey,
     resourceKey,
     group: 'staff' as const,
     h,
-    e: h + 60,
+    e: h + slot,
     staff: laneKey,
     bed: resourceKey,
     price: 7000,
@@ -302,6 +302,21 @@ describe('§1 — the distinction, and the one place it is spelled', () => {
     // rule would then judge, and a booking grid offering 15:00 and 16:00 on one
     // room is not promising both at once.
     expect(boardOffers([cell('bed-01', 900), cell('bed-01', 960)], [])).toEqual([
+      { resourceKey: 'bed-01', start: 900, end: 1020, kind: 'sell', laneKey: 'p-01' },
+    ])
+  })
+
+  it('⚖ D-24/B2 — two real 45-minute cells with a genuine 15-minute gap are TWO runs; the same cells at 60 still merge into one (unchanged)', () => {
+    // capacity-ledger's own reader now reads each cell's own `e`, not
+    // `c.h + 60`, so a store whose sellSlotMin is 45 sees the real gap between
+    // [900,945) and [960,1005) — they never touch, so they are two claims.
+    expect(boardOffers([cell('bed-01', 900, 'p-01', 45), cell('bed-01', 960, 'p-01', 45)], [])).toEqual([
+      { resourceKey: 'bed-01', start: 900, end: 945, kind: 'sell', laneKey: 'p-01' },
+      { resourceKey: 'bed-01', start: 960, end: 1005, kind: 'sell', laneKey: 'p-01' },
+    ])
+    // At 60 the same two starts touch exactly at 960 (unchanged — the leg above
+    // already proves it; restated here beside the 45-minute case for contrast).
+    expect(boardOffers([cell('bed-01', 900, 'p-01', 60), cell('bed-01', 960, 'p-01', 60)], [])).toEqual([
       { resourceKey: 'bed-01', start: 900, end: 1020, kind: 'sell', laneKey: 'p-01' },
     ])
   })
