@@ -103,6 +103,20 @@ describe('件 parity — month cell, week row and day total are ONE number', () 
       appointmentsToMonthCells(block, DAY, DAY, TODAY).find((c) => c.id === '2026-09-15')!
         .count,
     ).toBe(0)
+
+    // The `kind` check standing on its OWN: core's type says customer_id is
+    // null only on BLOCK rows, but the count must not lean on that. A hold that
+    // names a customer is still a hold, not a visit.
+    const blockWithCustomer = [appt({ id: 'block-named', kind: 'BLOCK' })]
+    expect(isCountedBooking(blockWithCustomer[0])).toBe(false)
+    expect(
+      appointmentsToWeekData(blockWithCustomer, DAY, DAY, 480, TODAY, 'ja')[0].count,
+    ).toBe(0)
+    expect(
+      appointmentsToMonthCells(blockWithCustomer, DAY, DAY, TODAY).find(
+        (c) => c.id === '2026-09-15',
+      )!.count,
+    ).toBe(0)
   })
 
   it('a customerless BOOKING row never counts (mutant m2)', () => {

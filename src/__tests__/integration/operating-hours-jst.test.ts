@@ -4,9 +4,21 @@
  * getWeekdayKey read `date.getDay()`, i.e. the RUNTIME calendar — UTC on
  * Vercel. A JST day begins at 15:00 UTC the day before, so every evening of
  * the week resolved to the PREVIOUS weekday and picked the wrong day's opening
- * hours. Pinned to TZ=UTC to mirror the deploy, which is where the bug lives.
+ * hours.
+ *
+ * ⚠ RUN THIS UNDER TZ=UTC to make it DISCRIMINATING. The bug only exists where
+ * the runtime calendar differs from JST, so on a JST developer machine getDay()
+ * happens to give the right answer and nothing here can catch the regression.
+ * CI and Vercel are both UTC, where it does. `process.env.TZ` set inside a jest
+ * test file does NOT take effect (measured: the same assignment works in plain
+ * node but is a no-op under jest's sandbox — calendar-range.test.ts carries the
+ * same idiom with the same limitation), so it is the ENV that must carry it:
+ *
+ *     TZ=UTC npx jest src/__tests__/integration/operating-hours-jst.test.ts
+ *
+ * The assertions below are correct under either runtime; only their power to
+ * fail on a regression depends on it.
  */
-process.env.TZ = 'UTC'
 
 import { getWeekdayKey, savedWeekdays } from '@/lib/operating-hours'
 

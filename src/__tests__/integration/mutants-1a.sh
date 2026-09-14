@@ -18,6 +18,11 @@ if [[ -n "$(git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN")"
   exit 1
 fi
 
+# TZ=UTC mirrors Vercel and CI. m5 (the JST weekday) is ONLY discriminating
+# there: on a JST developer machine the runtime calendar already agrees with
+# JST, so date.getDay() gives the right answer and no assertion can catch it.
+export TZ=UTC
+
 run() { # run <mutant-id> <file> <named test path> <test name filter>
   local id=$1 file=$2 suite=$3 name=$4
   if npx jest "$suite" -t "$name" --silent >/dev/null 2>&1; then
