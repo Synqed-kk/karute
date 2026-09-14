@@ -91,10 +91,12 @@ import {
   clampInt,
   commitNumberField,
   controlIdsOf,
+  effectiveCeiling,
   effectiveLock,
   fillTemplate,
   keepCardOffHeading,
   labelOfValue,
+  longestOpenDayMin,
   matchesQuery,
   PREFS_DEFAULT,
   prefsKey,
@@ -103,6 +105,7 @@ import {
   rowsOfBlock,
   searchTextOf,
   sectionDirty,
+  WEEK_CEILING,
   writePrefs,
   type CollectionRows,
   type ControlKind,
@@ -1102,6 +1105,13 @@ export function SettingsScreen(props: SettingsScreenProps) {
               tourOpen={tourOpen}
               reduced={reduced}
               {...policy}
+              // ⚖ D-36 — THE A1 FIELD, the same live derivation the six
+              // LENGTH rows now read: `WEEK_CEILING`'s own ids (never a
+              // second spelling of them) mapped through this render's live
+              // `values`, falling back to the server's own `policy.dayLenMin`
+              // only when no day counts (every day off) — one truth for the
+              // whole page rather than a server-baked answer beside a live one.
+              dayLenMin={longestOpenDayMin(WEEK_CEILING.days.map((d) => ({ on: values[d.on], open: values[d.open], close: values[d.close] }))) ?? policy.dayLenMin}
               render={(slots) =>
                 columnAnd(
                   <div className="st-main">{slots.main}</div>,
@@ -2087,7 +2097,7 @@ function Control({
   }
 
   if (k.kind === 'number') {
-    return <NumberField c={c} k={k} value={value} locked={locked} inert={inert} noop={noop} onChange={onChange} />
+    return <NumberField c={c} k={k} value={value} values={values} locked={locked} inert={inert} noop={noop} onChange={onChange} />
   }
 
   if (k.kind === 'time') {
@@ -2162,6 +2172,7 @@ function NumberField({
   c,
   k,
   value,
+  values,
   locked,
   inert,
   noop,
@@ -2170,17 +2181,22 @@ function NumberField({
   c: RowControl
   k: Extract<ControlKind, { kind: 'number' }>
   value: RowValue
+  /** ⚖ D-36 — every sibling control's value, so `effectiveCeiling` can read a
+   *  `ceilingFrom` LENGTH row's ceiling against the weekly hours the reader
+   *  has ACTUALLY set, the same live-sibling shape `effectiveLock` uses. */
+  values: Record<string, RowValue>
   locked: boolean
   inert: Record<string, string | undefined>
   noop: () => void
   onChange: (id: string, v: RowValue) => void
 }) {
   const text = String(value ?? '')
-  // ⚖ D-15 (round 3, A2) — NO CEILING (`k.max === null`) TRAVELS AS Infinity
-  // past this point: `clampInt`/`commitNumberField` only ever clamp UP toward
-  // it, never down, so Infinity is the honest "no ceiling" the field's math
-  // already understands.
-  const ceiling = k.max ?? Number.POSITIVE_INFINITY
+  // ⚖ D-36 — THE LIVE CEILING, read once: `ceilingLive` is the DOM `max`
+  // attribute's own value (omitted, never `Infinity`, when there is none);
+  // `ceiling` is the same answer with the honest "no ceiling" `Infinity` the
+  // field's math already understands (⚖ D-15).
+  const ceilingLive = effectiveCeiling(c, values)
+  const ceiling = ceilingLive ?? Number.POSITIVE_INFINITY
   const lastGood = useRef<number>(clampInt(Number(text), k.min, ceiling))
   const [message, setMessage] = useState<string | null>(null)
   // ⚖ D-27/D-30 — `lastGood` MOVES ONLY ON A COMMIT (this field's one commit
@@ -2196,7 +2212,7 @@ function NumberField({
         type="number"
         inputMode="numeric"
         min={k.min}
-        max={k.max ?? undefined}
+        max={ceilingLive ?? undefined}
         step={k.step}
         aria-label={c.aria}
         value={text}

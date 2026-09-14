@@ -42,6 +42,7 @@ import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/
 import {
   accessFor,
   blockingError,
+  effectiveCeiling,
   effectiveLock,
   fillTemplate,
   firstOpenSection,
@@ -284,6 +285,39 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     // A server-baked `locked` still wins outright — `lockedWhen` only fires
     // where there is no static answer already.
     expect(effectiveLock({ ...numberField, locked: 'baked' }, { 'reserve.autorelease': 'minutes' })).toBe('baked')
+  })
+
+  // ⚖ D-36 (2) — the live TWIN of D-32 F1's lock: a LENGTH row's ceiling
+  // follows the weekly hours the reader can move on this very page, read
+  // against the CURRENT `values` the same house pattern as `effectiveLock`.
+  it('⚖ D-36 (2) — effectiveCeiling: a LENGTH row’s ceiling follows the LIVE weekly hours', () => {
+    const ceilingFrom = {
+      days: [
+        { on: 'store-hours.day-1', open: 'store-hours.open-1', close: 'store-hours.close-1' },
+        { on: 'store-hours.day-2', open: 'store-hours.open-2', close: 'store-hours.close-2' },
+      ],
+    }
+    const numberField: RowControl = {
+      id: 'reserve.grid', aria: '', control: { kind: 'number', min: 1, max: 540, step: 1, unit: '分' }, value: '60', ceilingFrom,
+    }
+    // 月曜 extended to 08:00–20:00 raises the ceiling, live.
+    expect(effectiveCeiling(numberField, {
+      'store-hours.day-1': true, 'store-hours.open-1': '08:00', 'store-hours.close-1': '20:00',
+      'store-hours.day-2': true, 'store-hours.open-2': '10:00', 'store-hours.close-2': '19:00',
+    })).toBe(720)
+    // Every named day off → falls back to the control's own `max`, never `null`.
+    expect(effectiveCeiling(numberField, {
+      'store-hours.day-1': false, 'store-hours.open-1': '10:00', 'store-hours.close-1': '19:00',
+      'store-hours.day-2': false, 'store-hours.open-2': '10:00', 'store-hours.close-2': '19:00',
+    })).toBe(540)
+    // No `ceilingFrom` at all → the control's own `max`, unchanged.
+    expect(effectiveCeiling({ ...numberField, ceilingFrom: undefined }, {})).toBe(540)
+    // A 「before start」 control (`max: null`, no `ceilingFrom`) stays uncapped.
+    const beforeStart: RowControl = { id: 'reserve.days', aria: '', control: { kind: 'number', min: 1, max: null, step: 1, unit: '日' }, value: '30' }
+    expect(effectiveCeiling(beforeStart, {})).toBeNull()
+    // A non-number control never has a ceiling to answer.
+    const sw: RowControl = { id: 'store-hours.day-1', aria: '', control: { kind: 'switch', onLabel: '', offLabel: '' }, value: true }
+    expect(effectiveCeiling(sw, {})).toBeNull()
   })
 
   it('⚖ prefers-reduced-motion reaches the SPRINGS, not only the stylesheet', () => {

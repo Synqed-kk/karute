@@ -67,6 +67,7 @@ import {
   gateOf,
   hhmm,
   labelOfValue,
+  longestOpenDayMin,
   PREFS_DEFAULT,
   previewTemplate,
   RAIL,
@@ -76,7 +77,9 @@ import {
   searchTextOf,
   sectionById,
   sectionDirty,
+  WEEK_CEILING,
   weekDaysOf,
+  weeklyHoursFrom,
   weeklyHoursPayload,
   type RowControl,
   type RowValue,
@@ -155,6 +158,14 @@ const rowsOf = (props: SettingsProps) => props.sections.flatMap((s) => s.blocks.
 const trioRows = (props: SettingsProps) => rowsOf(props).filter((r) => r.trio)
 const seedOf = (props: SettingsProps): Record<string, RowValue> =>
   Object.fromEntries(controlsOf(props).map((c) => [c.id, c.value]))
+
+/** ⚖ D-36 — the SAME weekly-rows derivation `settings-props.ts`'s module-level
+ *  `dayLen` and `effectiveCeiling`'s live answer both run, so a pin here can
+ *  never quietly diverge into a second, typed 540. */
+const weeklyDayLen = (): number | null => longestOpenDayMin(
+  Object.values(weeklyHoursFrom(hhmm(operatingHours.open), hhmm(operatingHours.close), closedWeekday))
+    .map((day) => ({ on: day !== null, open: day?.open ?? '', close: day?.close ?? '' })),
+)
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ ONE TRUTH — every value this room shows is READ from the room that ships it', () => {
@@ -1398,7 +1409,12 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     // it has no preset or nudge button), never on every keystroke — the
     // per-keystroke effect this room's own StorePolicySection fields carried
     // before those rulings is GONE from here too.
-    expect(SCREEN_CODE).toContain('const ceiling = k.max ?? Number.POSITIVE_INFINITY')
+    // ⚖ D-36 — THE CEILING IS LIVE: `effectiveCeiling(c, values)` replaces the
+    // server-baked `k.max` here, so a LENGTH row's ceiling follows the weekly
+    // hours the reader can move on this very page (RowControl.ceilingFrom).
+    expect(SCREEN_CODE).toContain('const ceilingLive = effectiveCeiling(c, values)')
+    expect(SCREEN_CODE).toContain('const ceiling = ceilingLive ?? Number.POSITIVE_INFINITY')
+    expect(SCREEN_CODE).not.toContain('const ceiling = k.max ?? Number.POSITIVE_INFINITY')
     expect(SCREEN_CODE).toContain('const lastGood = useRef<number>(clampInt(Number(text), k.min, ceiling))')
     expect(SCREEN_CODE).not.toContain('n >= k.min && n <= k.max) lastGood.current')
     expect((SCREEN_CODE.match(/lastGood\.current = /g) ?? []).length).toBe(1) // ONE home: the onBlur commit
@@ -1416,7 +1432,9 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(SCREEN_CODE).toContain('onChange(c.id, String(commit.value))')
     // ⚖ D-15 (round 3, A2) — NO CEILING (`k.max === null`) omits the DOM
     // `max` attribute rather than rendering `max={Infinity}` (not valid HTML).
-    expect(SCREEN_CODE).toContain('max={k.max ?? undefined}')
+    // ⚖ D-36 — and the attribute now reads the LIVE ceiling too.
+    expect(SCREEN_CODE).toContain('max={ceilingLive ?? undefined}')
+    expect(SCREEN_CODE).not.toContain('max={k.max ?? undefined}')
     // …and the sentence has a home on the face, in a region that stays mounted
     // so a screen reader hears it CHANGE (⚖ F10's own lesson).
     expect(SCREEN_CODE).toContain('<span className="st-field-msg" role="status">{message ?? \'\'}</span>')
@@ -1820,6 +1838,11 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     const key = path[path.length - 1] ?? ''
     if (MACHINE_KEYS.has(key)) return true
     if (path.includes('attrs')) return true
+    // ⚖ D-36 — `RowControl.ceilingFrom` names the LIVE SIBLING ids
+    // (`store-hours.day-N` / `open-N` / `close-N`) `effectiveCeiling` reads,
+    // exactly the shape `attrs`/`requires` already are: an id the SCREEN uses,
+    // never a string a reader meets.
+    if (path.includes('ceilingFrom')) return true
     if ((key === 'value' || key === 'hex') && path.includes('options')) return true
     if (key === 'value' && path[path.length - 2] === undefined) return false
     return key === 'value' && isKeyedControl(root)
@@ -2390,6 +2413,28 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(Object.keys(allOff)).toHaveLength(7)
   })
 
+  it('⚖ D-36 (1) — longestOpenDayMin: the LONGEST open day, never the first or the shortest', () => {
+    const day = (on: boolean, open: string, close: string) => ({ on, open, close })
+    // …six ordinary 10:00–19:00 days plus one 定休日 → the fixture's own pair.
+    expect(longestOpenDayMin([
+      day(true, '10:00', '19:00'), day(true, '10:00', '19:00'), day(true, '10:00', '19:00'),
+      day(true, '10:00', '19:00'), day(true, '10:00', '19:00'), day(true, '10:00', '19:00'),
+      day(false, '10:00', '19:00'),
+    ])).toBe(540)
+    // …one day EXTENDED to 08:00–20:00 raises the ceiling for the WHOLE row.
+    expect(longestOpenDayMin([
+      day(true, '08:00', '20:00'), day(true, '10:00', '19:00'), day(false, '10:00', '19:00'),
+    ])).toBe(720)
+    // …one day SHORTENED to 10:00–14:00 while another stays 10:00–19:00 keeps
+    // the LONGEST day, not the one the reader just touched.
+    expect(longestOpenDayMin([day(true, '10:00', '14:00'), day(true, '10:00', '19:00')])).toBe(540)
+    // …every day off → no honest bound exists at all.
+    expect(longestOpenDayMin([day(false, '10:00', '19:00'), day(false, '08:00', '20:00')])).toBeNull()
+    // …a garbage time on one day is SKIPPED, not thrown, and does not poison
+    // the day that does parse.
+    expect(longestOpenDayMin([day(true, 'garbage', '19:00'), day(true, '10:00', '19:00')])).toBe(540)
+  })
+
   it('⚖ C2 — 臨時休業 adds, removes, and refuses a duplicate date in the wire’s own words', async () => {
     const props = await room({ store: STORE_A })
     const block = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.closures')!
@@ -2557,13 +2602,20 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
   })
 
   it('⚖ D-15 (round 3, A2) — every LENGTH row’s ceiling is the store’s own operating day, never a constant', async () => {
-    // ⚠ `dayLen` is READ off `operatingHours`, not typed — a real ceiling
-    // moves with the store's day, never a fixed number this room invented.
+    // ⚠ `dayLen` is READ off the WEEKLY ROWS (⚖ D-36 — the exact derivation
+    // `effectiveCeiling` runs live, never a fixed number this room invented,
+    // and never `operatingHours.close − operatingHours.open` directly — that
+    // was the OLD server-only spelling D-36 found stale against a live page).
     const props = await room({ store: STORE_A })
-    const dayLen = operatingHours.close - operatingHours.open
+    const dayLen = weeklyDayLen()
     for (const id of ['reserve.grid', 'reserve.session', 'reserve.sellslot', 'reserve.gapfill', 'store-hours.block-step']) {
       const c = controlOf(props, id)
       expect(c.control.kind === 'number' && c.control.max).toBe(dayLen)
+      // ⚖ D-36 — AND THE CEILING FOLLOWS THE LIVE WEEKLY HOURS: every LENGTH
+      // row carries `ceilingFrom`, the one shared `WEEK_CEILING` ids, so a
+      // manager who extends a day on this very page raises this row's
+      // ceiling without a reload.
+      expect(c.ceilingFrom).toEqual(WEEK_CEILING)
     }
     // …and the four 「before start」/「days ahead」/「hours before」 fields have
     // NO ceiling at all (⚖ D-15's own rule: no honest bound exists for them).
@@ -2585,7 +2637,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
 
   it('⚖ D-32 F3 — the sweep’s gap: 清掃時間・再来促し・保存期間 are free duration fields too, their old caps gone', async () => {
     const props = await room({ store: STORE_A })
-    const dayLen = operatingHours.close - operatingHours.open
+    const dayLen = weeklyDayLen()
     for (const r of resources.filter((r) => r.store_id === STORE_A)) {
       const c = controlOf(props, `people.cleanup-${r.id}`)
       expect({
@@ -2597,6 +2649,9 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
         unit: c.control.kind === 'number' ? c.control.unit : null,
       }).toEqual({ id: r.id, kind: 'number', min: 0, max: dayLen, step: 1, unit: '分' })
       expect(c.value).toBe(String(r.cleanup_minutes))
+      // ⚖ D-36 — 清掃時間 is one of the six LENGTH rows: the same shared
+      // `WEEK_CEILING` ids, never a per-row spelling of them.
+      expect(c.ceilingFrom).toEqual(WEEK_CEILING)
     }
     const shapeOf = (id: string) => {
       const c = controlOf(props, id).control
@@ -2610,6 +2665,23 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // never left behind as dead code with no disclosure.
     expect(PROPS_CODE).not.toContain('WIN_BACK_MIN')
     expect(PROPS_CODE).not.toContain('RETENTION_MIN_MONTHS')
+  })
+
+  it('⚖ D-36 (5) — the A1 field’s dayLenMin and the LENGTH rows’ ceiling start from the SAME live derivation', async () => {
+    const props = await room({ store: STORE_A })
+    const policy = await policyOf({ store: STORE_A })
+    const expected = weeklyDayLen()
+    // …#812's own ceiling (`store-policy-props.ts`'s `dayLenMin`) and every
+    // LENGTH row's ceiling on THIS page are the same initial number, because
+    // both are `longestOpenDayMin` over the same weekly rows.
+    expect(policy.dayLenMin).toBe(expected)
+    expect(controlOf(props, 'reserve.grid').control).toMatchObject({ max: expected })
+    // …and the screen mounts #812's section with a LIVE override of that
+    // field, spelled through the one shared `WEEK_CEILING`, never a second
+    // ids list — the source line the D-36 fix actually added.
+    expect(SCREEN_CODE).toContain(
+      'dayLenMin={longestOpenDayMin(WEEK_CEILING.days.map((d) => ({ on: values[d.on], open: values[d.open], close: values[d.close] }))) ?? policy.dayLenMin}',
+    )
   })
 
   it('⚖ D-31/D-32 F4 §C — the four zero-capable rows carry their zeroLabel, byte-identical to the JP file', async () => {

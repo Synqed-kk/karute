@@ -420,6 +420,13 @@ export interface RowControl {
    *  stretched to cover both. Read together with `locked` by `effectiveLock`,
    *  the ONE place a control's live lock is decided. */
   lockedWhen?: { controlId: string; unless: string; reason: Record<string, string> }
+  /** ⚖ D-36 — A LENGTH's ceiling follows the WEEKLY HOURS the reader can move
+   *  on this very page, not a number baked in at render time. `days` names the
+   *  live sibling ids (a weekday's 営業する switch + its two `time` controls);
+   *  `effectiveCeiling` reads them against the CURRENT `values` the same way
+   *  `lockedWhen` reads a live sibling for a lock. Set only on the six LENGTH
+   *  rows whose honest bound is the store's own operating day. */
+  ceilingFrom?: { days: Array<{ on: string; open: string; close: string }> }
 }
 
 export interface Trio {
@@ -709,6 +716,19 @@ export function effectiveLock(c: RowControl, values: Record<string, RowValue>): 
   const live = values[controlId]
   if (live === unless) return undefined
   return reason[String(live)]
+}
+
+/** ⚖ D-36 — A NUMBER CONTROL'S LIVE CEILING, decided in ONE place beside
+ *  `effectiveLock` so `NumberField`'s ceiling, its `max` attribute and its
+ *  clamp read the exact same answer. Not a `number` control → `null` (nothing
+ *  to cap). `ceilingFrom` set → the longest open day over the LIVE weekly
+ *  values, falling back to the control's own `max` only when no day counts
+ *  (every day off); no `ceilingFrom` → the control's own `max`, unchanged. */
+export function effectiveCeiling(c: RowControl, values: Record<string, RowValue>): number | null {
+  if (c.control.kind !== 'number') return null
+  if (!c.ceilingFrom) return c.control.max
+  const days = c.ceilingFrom.days.map((d) => ({ on: values[d.on], open: values[d.open], close: values[d.close] }))
+  return longestOpenDayMin(days) ?? c.control.max
 }
 
 /** `{control-id}` → that control's current label. An id the block does not hold
@@ -1171,6 +1191,50 @@ export function weeklyHoursFrom(open: string, close: string, closedWeekday: numb
     out[key] = Number(num) === closedWeekday ? null : { open, close }
   }
   return out
+}
+
+/** The inverse of `hhmm` — `null` for anything that is not a valid `HH:MM`. */
+function hhmmMinutes(s: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s)
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null
+  return h * 60 + min
+}
+
+/** ⚖ D-36 — THE LIVE TWIN of a settings page's own day-length ceiling: the
+ *  longest `close − open` over the days whose 営業する switch is on, parsing
+ *  each pair as `HH:MM`. A day whose switch is off, or whose time does not
+ *  parse, does not count. `null` when no day counts (every day off). Floored
+ *  at 1 like `dayLengthMin` (`store-policy-seam.ts`) — the same honest bound,
+ *  now read against whatever the reader has ACTUALLY set rather than the
+ *  fixture's one pair. */
+export function longestOpenDayMin(
+  days: Array<{ on: RowValue; open: RowValue; close: RowValue }>,
+): number | null {
+  let max: number | null = null
+  for (const d of days) {
+    if (d.on !== true) continue
+    const open = hhmmMinutes(String(d.open))
+    const close = hhmmMinutes(String(d.close))
+    if (open === null || close === null) continue
+    const len = close - open
+    if (max === null || len > max) max = len
+  }
+  return max === null ? null : Math.max(1, max)
+}
+
+/** ⚖ D-36 — the seven weekday control ids `storeHours()` builds
+ *  (settings-props.ts), exported so a LENGTH row's live ceiling and the A1
+ *  field's live ceiling read the exact same ids rather than a second
+ *  spelling of them. */
+export const WEEK_CEILING: { days: Array<{ on: string; open: string; close: string }> } = {
+  days: Object.keys(WEEKDAY_OF).map((n) => ({
+    on: `store-hours.day-${n}`,
+    open: `store-hours.open-${n}`,
+    close: `store-hours.close-${n}`,
+  })),
 }
 
 /** WHAT THE RECONNECT PR WILL SEND, built from what the reader actually did.

@@ -60,9 +60,11 @@ import {
   firstOpenSection,
   gateOf,
   hhmm,
+  longestOpenDayMin,
   minutesLabel,
   RAIL,
   sectionById,
+  WEEK_CEILING,
   WEEKDAY_OF,
   weeklyHoursFrom,
   yen,
@@ -281,6 +283,9 @@ const num = (
   // ⚖ D-32 F1 — a lock that follows a LIVE sibling control; see
   // `RowControl.lockedWhen`.
   lockedWhen?: RowControl['lockedWhen'],
+  // ⚖ D-36 — a LENGTH's ceiling follows the LIVE weekly hours; see
+  // `RowControl.ceilingFrom`.
+  ceilingFrom?: RowControl['ceilingFrom'],
 ): RowControl => ({
   id,
   aria,
@@ -288,6 +293,7 @@ const num = (
   value: String(value),
   ...(locked ? { locked } : {}),
   ...(lockedWhen ? { lockedWhen } : {}),
+  ...(ceilingFrom ? { ceilingFrom } : {}),
 })
 const tim = (id: string, aria: string, value: string): RowControl => ({ id, aria, control: { kind: 'time' }, value })
 const chips = (
@@ -559,6 +565,25 @@ function bookingGuard(base: SectionBase): SettingsSection {
   }
 }
 
+// ⚖ D-36 — THE SERVER MAX FOR EVERY LENGTH ROW, hoisted to ONE module-level
+// value so `storeHours`, `peopleEquipment` and `reserveAcceptance` never
+// answer three different ceilings for the same store. Computed from the SAME
+// weekly rows `storeHours()` builds (`weeklyHoursFrom`) — the live twin,
+// `effectiveCeiling` (settings.ts), runs the identical `longestOpenDayMin`
+// once the reader edits a day, so the initial render and the live answer
+// cannot disagree. `operatingHours`/`closedWeekday` are module-level fixture
+// data, not per-request, so this is a module-level derivation rather than a
+// per-call helper. `dayLengthMin` is the fallback for the case
+// `longestOpenDayMin` cannot occur on this fixture (every day closed) — the
+// same floor-at-1 answer the old direct read gave.
+const dayLen = longestOpenDayMin(
+  Object.values(weeklyHoursFrom(hhmm(operatingHours.open), hhmm(operatingHours.close), closedWeekday)).map((day) => ({
+    on: day !== null,
+    open: day?.open ?? '',
+    close: day?.close ?? '',
+  })),
+) ?? dayLengthMin({ open: operatingHours.open, close: operatingHours.close })
+
 // ── 店舗情報・営業時間 ──────────────────────────────────────────────────────
 
 const WEEKDAYS: Array<[number, string]> = [
@@ -570,11 +595,6 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
   // ⚖ C1 — the plane boundary, and the ONE place the seven days come into being.
   const fallbackWindow = { open: hhmm(operatingHours.open), close: hhmm(operatingHours.close) }
   const weekly = weeklyHoursFrom(fallbackWindow.open, fallbackWindow.close, closedWeekday)
-  // ⚖ D-15 (round 3, A2) — THE DERIVED CEILING for 予定ブロックの移動単位, the
-  // one LENGTH this block still asks for a number. Same derivation, same
-  // source (`operatingHours`), as `store-policy-props.ts`'s own `dayLenMin` —
-  // the weekly table's own per-day max is a queued refinement (PLAN-R3 §3).
-  const dayLen = dayLengthMin({ open: operatingHours.open, close: operatingHours.close })
   const closedName = `${WEEKDAYS.find(([n]) => n === closedWeekday)?.[1] ?? ''}曜`
   return {
     ...base,
@@ -652,7 +672,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           { link: { label: '予約と確保を開く', sectionId: 'booking-guard' } },
         ),
         row('store-hours.row-block-step', '予定ブロックの移動単位', '休憩・準備・記録・レジ・清掃を動かすときの刻みです。', [
-          num('store-hours.block-step', '予定ブロックの移動単位', opsConfig.blockStepMin, 1, dayLen, 1, '分'),
+          num('store-hours.block-step', '予定ブロックの移動単位', opsConfig.blockStepMin, 1, dayLen, 1, '分', undefined, undefined, undefined, WEEK_CEILING),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -882,10 +902,6 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
   const nameOf = new Map(staff.map((s) => [s.id, s.full_name]))
   const roster = Object.keys(d.staffActive)
   const beds = resources.filter((r) => r.store_id === ctx.storeId)
-  // ⚖ D-32 F3 (round 3, A2) — the A2 sweep's own gap: 清掃時間 is a LENGTH with
-  // a hardcoded cap (60) and step (5), the exact shape ⚖ D-15 forbids. Same
-  // derived ceiling every other length row in this round uses.
-  const dayLen = dayLengthMin({ open: operatingHours.open, close: operatingHours.close })
   return {
     ...base,
     kicker: '店舗運営',
@@ -905,7 +921,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
       block('people.equipment', '設備・枠', `この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。`, beds.map((r) =>
         row(`people.row-${r.id}`, r.name, r.note, [
           seg(`people.class-${r.id}`, `${r.name}の種類`, opts([['standard', '施術室'], ['private', '個室']]), r.room_class),
-          num(`people.cleanup-${r.id}`, `${r.name}の清掃時間`, r.cleanup_minutes, 0, dayLen, 1, '分'),
+          num(`people.cleanup-${r.id}`, `${r.name}の清掃時間`, r.cleanup_minutes, 0, dayLen, 1, '分', undefined, undefined, undefined, WEEK_CEILING),
         ])), {
         facts: [
           `いまこの店舗には設備が${people(beds.length)}あります。`,
@@ -1580,12 +1596,6 @@ const RESERVE_PREVIEW_DISCOUNT = '対象のスキマ枠は{reserve.gapdisc}引�
 
 function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
   void ctx
-  // ⚖ D-15 (round 3, A2) — THE DERIVED CEILING, one home, same source
-  // (`operatingHours`) `storeHours` and `store-policy-props.ts`'s `dayLenMin`
-  // already read. Every LENGTH row below is refused only past the store's own
-  // operating day; a 「minutes before start」/「days ahead」/「hours before」
-  // field has no honest bound from it and passes `null` instead.
-  const dayLen = dayLengthMin({ open: operatingHours.open, close: operatingHours.close })
   // ⚡ R2 BRANCH C — ⚖ D-11 / CONTRACTS-R2 §1. The guardrail is the SPEC's own
   // rule (§2.4 「The dial」): it fires only when the stored value is an
   // EXPLICIT number shorter than `leadTimeMin` — the linked default equals
@@ -1633,7 +1643,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           source: 'コアは「分」で持ちます（2時間前 = 120分）',
         }),
         row('reserve.row-grid', 'お客様が選べる開始時刻', 'お客様がReserveで選べる開始時刻の刻みです。コースの長さはメニュー側の設定に従います。', [
-          num('reserve.grid', 'お客様が選べる開始時刻', opsConfig.reserveStartGridMin, 1, dayLen, 1, '分'),
+          num('reserve.grid', 'お客様が選べる開始時刻', opsConfig.reserveStartGridMin, 1, dayLen, 1, '分', undefined, undefined, undefined, WEEK_CEILING),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1642,7 +1652,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-session', '標準セッションの長さ', '1回分の施術の標準的な長さです。空き時間にこの長さが何回まるごと収まるかを先に数えます。', [
-          num('reserve.session', '標準セッションの長さ', opsConfig.standardSessionMin, 1, dayLen, 1, '分'),
+          num('reserve.session', '標準セッションの長さ', opsConfig.standardSessionMin, 1, dayLen, 1, '分', undefined, undefined, undefined, WEEK_CEILING),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1651,7 +1661,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-sellslot', '販売する枠の長さ', '今日の運営のボードが、まとまった空きを1つの「販売可能枠」として出すときの長さです。', [
-          num('reserve.sellslot', '販売する枠の長さ', opsConfig.sellSlotMin, 1, dayLen, 1, '分'),
+          num('reserve.sellslot', '販売する枠の長さ', opsConfig.sellSlotMin, 1, dayLen, 1, '分', undefined, undefined, undefined, WEEK_CEILING),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1660,7 +1670,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-gapfill', 'スキマ枠の販売', '予約と予約のあいだにできる空きのうち、開始時刻の刻みに乗らない端の部分だけを特価で売ります。0にすると、スキマ枠そのものを販売しません。', [
-          num('reserve.gapfill', 'スキマ枠の販売', opsConfig.gapFillMinMin, 0, dayLen, 1, '分', undefined, GAPFILL_ZERO_LABEL),
+          num('reserve.gapfill', 'スキマ枠の販売', opsConfig.gapFillMinMin, 0, dayLen, 1, '分', undefined, GAPFILL_ZERO_LABEL, undefined, WEEK_CEILING),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
