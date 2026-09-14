@@ -1081,7 +1081,8 @@ describe('7 — the sweep and the residual-class measurement', () => {
 // THE DEFECT, measured at tip 4d10d4d5 (PROBE-R5R6 §3). `deriveGapPackingCells`
 // takes its GRID branch when `S === 60 && kGrid === kPack` (availability.ts:427)
 // and then offers only what `gapFillPieces` hands back. The rest it leaves "to
-// the sell layer", which sells `SELL_SLOT_MIN` slots and nothing else — so a
+// the sell layer", which sells the store's `sellSlotMin` slots and nothing
+// else — so a
 // leftover shorter than one slot reaches NOBODY. At gridMin=30 a 50-minute
 // pocket with two beds standing empty advertised ZERO of its 50 minutes at the
 // store's own floor. At the shipped gridMin=60 the same pocket sold whole.
@@ -1196,7 +1197,7 @@ describe('8 — the GRID hole is closed at sub-60 grids (⚖ R6 B1)', () => {
 
   it('⚖ D-15/D-24/B2 — the recovery follows the LIVE dial, not the shipped 60 (closes the sweep’s §2 find)', () => {
     // The sweep's own find: a 90-minute session door already turns the
-    // shipped-60 recovery off silently (sessionMin 90 !== SELL_SLOT_MIN 60 took
+    // shipped-60 recovery off silently (sessionMin 90 !== DEFAULT_SELL_SLOT_MIN 60 took
     // the else branch above, case (d)). At a store whose sellSlotMin is ALSO
     // 90, sessionMin === sellSlotMin holds again and the recovery is LIVE —
     // the same 900-950/gridMin-30 core as case (a) above, arithmetic unchanged.
@@ -1235,7 +1236,7 @@ describe('8 — the GRID hole is closed at sub-60 grids (⚖ R6 B1)', () => {
    *
    *  §8's other pins ask `gridHoleWindows` for a window list and then ask the
    *  battery whether the board sold it — which is the function blessing its own
-   *  output: turn the `< SELL_SLOT_MIN` filter at fallback-cells :268 into
+   *  output: turn the `< sellSlotMin` filter at fallback-cells :268 into
    *  `<=` and 1699 tests stay green while sell-reachable inventory is invented.
    *  Every column below is HAND-SPELLED arithmetic — what canon offers, what is
    *  therefore left, how long that is, and whether one 60-minute sell slot can
@@ -1283,9 +1284,10 @@ describe('8 — the GRID hole is closed at sub-60 grids (⚖ R6 B1)', () => {
       why: 'THE `<=` KILLER · a 60-minute leftover is NOT recovered — one sell slot reaches it exactly',
       s: 900, e: 960, gridMin: 30,
       // gridStart = 900, gridEnd = 960: the whole pocket is the aligned core and
-      // canon offers neither sliver. 60 minutes is one `SELL_SLOT_MIN` on the
-      // grid, so the sell layer advertises it and recovering it here would put
-      // two producers on one minute. `< SELL_SLOT_MIN` refuses; `<=` would not.
+      // canon offers neither sliver. 60 minutes is one `DEFAULT_SELL_SLOT_MIN`
+      // on the grid, so the sell layer advertises it and recovering it here
+      // would put two producers on one minute. `< sellSlotMin` refuses;
+      // `<=` would not.
       canonOffers: [],
       leftover: [{ s: 900, e: 960 }],
       holes: [],
@@ -1320,7 +1322,7 @@ describe('8 — the GRID hole is closed at sub-60 grids (⚖ R6 B1)', () => {
       // gridEnd <= gridStart, so canon offers [45, min(45+90, 155)) = [45,135)
       // and 135-155 reaches nobody — a genuine 20-minute hole. `gridHoleWindows`
       // answers [] anyway: above one slot the recovery is an unmeasured
-      // generalization, so the trigger's domain stops at `< SELL_SLOT_MIN`.
+      // generalization, so the trigger's domain stops at `< sellSlotMin`.
       canonOffers: [{ s: 45, e: 135 }],
       leftover: [{ s: 135, e: 155 }],
       holes: [],

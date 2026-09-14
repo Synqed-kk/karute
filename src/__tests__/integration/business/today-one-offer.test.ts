@@ -257,8 +257,9 @@ const roomsAt = (layer: SellLayer, h: number) =>
  *  R4's own fix came to have zero fixture-level coverage. §6 now calls it too.
  *
  *  ponytail: the literal 60 is deliberate and stays. This is an INDEPENDENT
- *  reading of the same overlap the code makes with `SELL_SLOT_MIN` — importing
- *  the constant would let a wrong slot length agree with itself and pass. */
+ *  reading of the same overlap the code makes with `DEFAULT_SELL_SLOT_MIN` —
+ *  importing the constant would let a wrong slot length agree with itself and
+ *  pass. */
 const doubleAdvertised = (layers: { sell: SellLayer; claims: readonly GapCell[] }) =>
   layers.sell.cells
     .filter((c) => c.group === 'staff')
@@ -285,8 +286,8 @@ describe('§1 — the distinction, and the one place it is spelled', () => {
   it('a MENU of overlapping starts on one room is ONE claim on that room', () => {
     // 15:00 / 15:30 / 16:00 on ベッド1 — at gridMin 30 canon really does emit
     // these, because `claimed` is minted fresh inside its per-slot loop while
-    // SELL_SLOT_MIN is fixed at 60. The customer picks one and the other two
-    // stop existing, so the room is claimed once, over the run.
+    // DEFAULT_SELL_SLOT_MIN is fixed at 60. The customer picks one and the
+    // other two stop existing, so the room is claimed once, over the run.
     const offers = boardOffers([cell('bed-01', 900), cell('bed-01', 930), cell('bed-01', 960)], [])
     expect(offers).toEqual([{ resourceKey: 'bed-01', start: 900, end: 1020, kind: 'sell', laneKey: 'p-01' }])
   })

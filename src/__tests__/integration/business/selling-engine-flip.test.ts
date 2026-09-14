@@ -397,7 +397,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
   const drops: SellDrop[] = []
   const sell = sellLayerFor(w.lanes, w.hours, {
     gridMin: c.gridMin,
-    sellSlotMin: 60,
+    sellSlotMin: REAL.sell.sellSlotMin,
     nowMinute: w.now,
     locked: [],
     showPrice: true,
@@ -421,9 +421,11 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
         locked: [],
         // ⚖ R6 B1 — the screen hands the pass the store's own display floor, so
         // this composer does too (TodayScreen `salesDoor`). A door that differs
-        // from the screen's proves the wrong board.
+        // from the screen's proves the wrong board — now true by construction:
+        // both dials read REAL.sell.sellSlotMin, the same source the screen
+        // itself reads (⚖ D-45 L1 F6).
         minSellableMin: w.minSellableMin,
-        dials: { ...gapPackingDials(w.lanes, dialOpts), sellSlotMin: 60 },
+        dials: { ...gapPackingDials(w.lanes, dialOpts), sellSlotMin: REAL.sell.sellSlotMin },
       })
     : null
   const gapDrawn = fallback

@@ -604,7 +604,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]): Door {
   const drops: SellDrop[] = []
   const sell = sellLayerFor(w.lanes, w.hours, {
     gridMin: c.gridMin,
-    sellSlotMin: 60,
+    sellSlotMin: REAL.sell.sellSlotMin,
     nowMinute: w.now,
     locked: [],
     showPrice: true,
@@ -626,7 +626,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]): Door {
         // ⚖ Greptile #815 — the same `locked: []` this composer already hands
         // `gap`/`sell` above (this file's worlds model no locked lanes).
         locked: [],
-        dials: { ...gapPackingDials(w.lanes, dialOpts), sellSlotMin: 60 },
+        dials: { ...gapPackingDials(w.lanes, dialOpts), sellSlotMin: REAL.sell.sellSlotMin },
       })
     : null
   const gapDrawn = fallback
@@ -2059,7 +2059,7 @@ describe('5 — a held window explains itself, and is not explained away', () =>
     const held = maskOf(w, c)
     const seen: SellDrop[] = []
     const { price, depth } = priceOf()
-    const base = { gridMin: c.gridMin, sellSlotMin: 60, nowMinute: w.now, locked: [], showPrice: true, hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth, held }
+    const base = { gridMin: c.gridMin, sellSlotMin: REAL.sell.sellSlotMin, nowMinute: w.now, locked: [], showPrice: true, hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth, held }
     const withDrops = sellLayerFor(w.lanes, w.hours, {
       ...base,
       reconcile: { claims: door(w, c, held).claims, cleanupMinutesByBed: w.cleanup, onDrop: (d) => seen.push(d) },
