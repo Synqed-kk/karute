@@ -726,12 +726,19 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     expect(codeOnly).not.toContain('SELL_SLOT_MIN')
   })
 
-  it('⚖ D-15/D-24/B2 census pin — the whole of src/ CODE: zero readers of SELL_SLOT_MIN, exactly two of DEFAULT_SELL_SLOT_MIN', () => {
+  it('⚖ D-15/D-24/B2/F1 census pin — the whole of src/ RAW text: SELL_SLOT_MIN and DEFAULT_SELL_SLOT_MIN each only in their named homes', () => {
     // Walks every .ts/.tsx under src/, __tests__ excluded (their own imports
-    // are commit 5's own concern, not B2's rename). Strips comments the same
-    // way pin 9(c) does — a doc line naming either spelling is fine, only CODE
-    // is asked. The word boundary means the new spelling never accidentally
-    // matches the old token as a substring.
+    // are commit 5's own concern, not B2's rename). NO comment-stripping: a
+    // strip that regexes for /* ... */ opens a pseudo-comment at the first
+    // literal `/*` inside ANY string or template on the tree (e.g. `'file
+    // must be an image (image/* content-type)'`, `` `src/lib/app-api/*` ``)
+    // and swallows every real line up to the next `*/` — on this tree that
+    // hid up to 2,554 characters of live code in 10 files (83 `export`
+    // tokens vanished), a green result that proves nothing (⚖ D-45, L1 F4).
+    // A token inside a plain string is CODE and must be caught — strings are
+    // code — so this pin reads each file as-is and checks the RAW text
+    // against a named allowlist instead. Word-bounded, so the new spelling
+    // never accidentally matches the old token as a substring.
     const root = join(process.cwd(), 'src')
     const files: string[] = []
     const walk = (dir: string) => {
@@ -743,17 +750,32 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
       }
     }
     walk(root)
-    const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
     const oldHits: string[] = []
     const newHits: string[] = []
     for (const file of files) {
-      const code = stripComments(readFileSync(file, 'utf8'))
+      const code = readFileSync(file, 'utf8')
       const rel = file.slice(root.length + 1)
       if (/\bSELL_SLOT_MIN\b/.test(code)) oldHits.push(rel)
       if (/\bDEFAULT_SELL_SLOT_MIN\b/.test(code)) newHits.push(rel)
     }
-    expect(oldHits).toEqual([])
-    expect(newHits.sort()).toEqual(['business/lib/canon-logic/pricing.ts', 'business/lib/fixtures-today.ts'])
+    // SELL_SLOT_MIN (old spelling) survives only as a comment in exactly two
+    // files: pricing.ts's own doc (naming canon's sibling constant for
+    // context) and capacity-ledger.ts:702-703's D-24-locked prose (frozen,
+    // outside this PR's allowed hunk).
+    expect(oldHits.sort()).toEqual([
+      'app/[locale]/(business)/business/today/capacity-ledger.ts',
+      'business/lib/canon-logic/pricing.ts',
+    ])
+    // DEFAULT_SELL_SLOT_MIN (new spelling) lives in exactly three files: the
+    // rename + definition (pricing.ts), the fixture that reads the default
+    // (fixtures-today.ts), and availability.ts's one doc line naming it —
+    // that doc hit only surfaces now that the strip is gone (it was always
+    // there, the old comment-stripping pin just couldn't see it).
+    expect(newHits.sort()).toEqual([
+      'business/lib/canon-logic/availability.ts',
+      'business/lib/canon-logic/pricing.ts',
+      'business/lib/fixtures-today.ts',
+    ])
   })
 
   it('bands merge adjacent hours of the SAME tier, and break at a tier change', () => {
