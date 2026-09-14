@@ -74,7 +74,13 @@ import {
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
 import { Collapse, DetailToggle } from './Collapse'
-import { StorePolicySection, STORE_POLICY_ANCHORS, STORE_POLICY_HEADINGS, type StorePolicyProps } from './StorePolicySection'
+import {
+  isIntegerTextAtLeast,
+  StorePolicySection,
+  STORE_POLICY_ANCHORS,
+  STORE_POLICY_HEADINGS,
+  type StorePolicyProps,
+} from './StorePolicySection'
 import {
   addToCollection,
   blockDirty,
@@ -85,16 +91,21 @@ import {
   clampInt,
   commitNumberField,
   controlIdsOf,
+  effectiveCeiling,
+  effectiveLock,
   fillTemplate,
   keepCardOffHeading,
   labelOfValue,
+  longestOpenDayMin,
   matchesQuery,
   PREFS_DEFAULT,
   prefsKey,
+  previewTemplate,
   readPrefs,
   rowsOfBlock,
   searchTextOf,
   sectionDirty,
+  WEEK_CEILING,
   writePrefs,
   type CollectionRows,
   type ControlKind,
@@ -1094,6 +1105,13 @@ export function SettingsScreen(props: SettingsScreenProps) {
               tourOpen={tourOpen}
               reduced={reduced}
               {...policy}
+              // ⚖ D-36 — THE A1 FIELD, the same live derivation the six
+              // LENGTH rows now read: `WEEK_CEILING`'s own ids (never a
+              // second spelling of them) mapped through this render's live
+              // `values`, falling back to the server's own `policy.dayLenMin`
+              // only when no day counts (every day off) — one truth for the
+              // whole page rather than a server-baked answer beside a live one.
+              dayLenMin={longestOpenDayMin(WEEK_CEILING.days.map((d) => ({ on: values[d.on], open: values[d.open], close: values[d.close] }))) ?? policy.dayLenMin}
               render={(slots) =>
                 columnAnd(
                   <div className="st-main">{slots.main}</div>,
@@ -1591,7 +1609,7 @@ function Block({
           )}
         >
           <div className="st-pv-note">いまの設定での見え方</div>
-          <p className="st-pv-text">{fillTemplate(block.preview.template, labelFor)}</p>
+          <p className="st-pv-text">{fillTemplate(previewTemplate(block.preview, values), labelFor)}</p>
           {block.preview.attrs && (
             <div className="st-pv-board">
               <div className="st-pv-row"><span>10:00 見本 あかり 様</span><span>テスト整体 60分</span></div>
@@ -1783,11 +1801,11 @@ function WeekTable({
           <div className={`st-week-row${on ? '' : ' is-off'}`} role="row" key={r.id}>
             <span className="st-week-day" role="cell">{r.label}</span>
             <span className="st-week-cell" role="cell">
-              {openCtl && <Control row={r} c={openCtl} value={values[openCtl.id]} onChange={onChange} reduced={reduced} />}
+              {openCtl && <Control row={r} c={openCtl} value={values[openCtl.id]} values={values} onChange={onChange} reduced={reduced} />}
             </span>
             {times.map((c) => (
               <span className="st-week-cell" role="cell" key={c.id}>
-                <Control row={r} c={c} value={values[c.id]} onChange={onChange} reduced={reduced} />
+                <Control row={r} c={c} value={values[c.id]} values={values} onChange={onChange} reduced={reduced} />
               </span>
             ))}
           </div>
@@ -1838,7 +1856,7 @@ function Row({
    *  the same way (which is to say: it does not fold). 「why can I not change
    *  this」 is read before the press, not after it. */
   const lockReasons = [
-    ...row.controls.map((c) => c.locked),
+    ...row.controls.map((c) => effectiveLock(c, values)),
     ...row.controls.map((c) => (c.control.kind === 'chips' ? c.control.keep?.reason : undefined)),
   ].filter((r): r is string => r !== undefined)
   const detailId = `st-det-${row.id}`
@@ -1880,7 +1898,7 @@ function Row({
         )}
         {groupTimes(row.controls).map((group) =>
           group.length === 1 ? (
-            <Control key={group[0].id} row={row} c={group[0]} value={values[group[0].id]} onChange={onChange} reduced={reduced} />
+            <Control key={group[0].id} row={row} c={group[0]} value={values[group[0].id]} values={values} onChange={onChange} reduced={reduced} />
           ) : (
             // ⚠ A TIME RANGE IS ONE THING, SO IT WRAPS AS ONE THING. Two `time`
             // fields side by side in a narrow column left the switch beside them
@@ -1892,7 +1910,7 @@ function Row({
               {group.map((c, i) => (
                 <span className="st-timepart" key={c.id}>
                   {i > 0 && <span className="st-tilde" aria-hidden="true">〜</span>}
-                  <Control row={row} c={c} value={values[c.id]} onChange={onChange} reduced={reduced} />
+                  <Control row={row} c={c} value={values[c.id]} values={values} onChange={onChange} reduced={reduced} />
                 </span>
               ))}
             </span>
@@ -1939,12 +1957,17 @@ function Control({
   row,
   c,
   value,
+  values,
   onChange,
   reduced,
 }: {
   row: SettingsRow
   c: RowControl
   value: RowValue
+  /** ⚖ D-32 F1 — every sibling control's value, so a `lockedWhen` lock can be
+   *  read against what the reader has ACTUALLY picked rather than against
+   *  what this render's payload was built with. */
+  values: Record<string, RowValue>
   onChange: (id: string, v: RowValue) => void
   /** ⚠ THE TWO CONTROLS WHOSE STATE TRAVELS NEED IT. A spring is JS, so the
    *  sheet's `prefers-reduced-motion` block cannot reach it — the thumbs would
@@ -1955,13 +1978,14 @@ function Control({
   reduced: boolean
 }) {
   const k = c.control
-  const locked = c.locked !== undefined
+  const lockedReason = effectiveLock(c, values)
+  const locked = lockedReason !== undefined
   /** A locked control stays FOCUSABLE (`aria-disabled`, never `disabled`) so its
    *  reason is reachable by keyboard and screen reader; the reason rides the
    *  accessible name as well, because a screen reader drops `title` once a
    *  description is present. */
   const inert = locked
-    ? { 'aria-disabled': 'true' as const, title: c.locked, 'aria-label': `${c.aria} — ${c.locked}` }
+    ? { 'aria-disabled': 'true' as const, title: lockedReason, 'aria-label': `${c.aria} — ${lockedReason}` }
     : {}
   /** ⚠ A CONTROLLED FIELD ALWAYS GETS AN `onChange`, EVEN WHEN IT IS LOCKED.
    *  React treats `value` without one as a read-only field and warns on every
@@ -2073,7 +2097,7 @@ function Control({
   }
 
   if (k.kind === 'number') {
-    return <NumberField c={c} k={k} value={value} locked={locked} inert={inert} noop={noop} onChange={onChange} />
+    return <NumberField c={c} k={k} value={value} values={values} locked={locked} inert={inert} noop={noop} onChange={onChange} />
   }
 
   if (k.kind === 'time') {
@@ -2143,12 +2167,12 @@ function Control({
  *  ⚠ THE MEMORY IS THE LAST ACCEPTED VALUE, not the last saved one. A reader who
  *  moves 30 → 45 and then clears the box gets 45 back: 45 is what they last told
  *  this page, and restoring the saved 30 would be the room undoing a change they
- *  made on purpose. It is tracked from the VALUE rather than from the blur, so
- *  the stepper's ± and a preset that writes the field are remembered too. */
+ *  made on purpose. */
 function NumberField({
   c,
   k,
   value,
+  values,
   locked,
   inert,
   noop,
@@ -2157,18 +2181,30 @@ function NumberField({
   c: RowControl
   k: Extract<ControlKind, { kind: 'number' }>
   value: RowValue
+  /** ⚖ D-36 — every sibling control's value, so `effectiveCeiling` can read a
+   *  `ceilingFrom` LENGTH row's ceiling against the weekly hours the reader
+   *  has ACTUALLY set, the same live-sibling shape `effectiveLock` uses. */
+  values: Record<string, RowValue>
   locked: boolean
   inert: Record<string, string | undefined>
   noop: () => void
   onChange: (id: string, v: RowValue) => void
 }) {
   const text = String(value ?? '')
-  const lastGood = useRef<number>(clampInt(Number(text), k.min, k.max))
+  // ⚖ D-36 — THE LIVE CEILING, read once: `ceilingLive` is the DOM `max`
+  // attribute's own value (omitted, never `Infinity`, when there is none);
+  // `ceiling` is the same answer with the honest "no ceiling" `Infinity` the
+  // field's math already understands (⚖ D-15).
+  const ceilingLive = effectiveCeiling(c, values)
+  const ceiling = ceilingLive ?? Number.POSITIVE_INFINITY
+  const lastGood = useRef<number>(clampInt(Number(text), k.min, ceiling))
   const [message, setMessage] = useState<string | null>(null)
-  useEffect(() => {
-    const n = Number(text.trim())
-    if (text.trim() !== '' && Number.isFinite(n) && n >= k.min && n <= k.max) lastGood.current = Math.round(n)
-  }, [text, k.min, k.max])
+  // ⚖ D-27/D-30 — `lastGood` MOVES ONLY ON A COMMIT (this field's one commit
+  // moment is blur; it has no preset or custom nudge button), never on every
+  // keystroke — the per-keystroke effect this room's own StorePolicySection
+  // field carried was the exact defect those rulings fixed there: a value
+  // typed but not yet committed would be "remembered" and restored over the
+  // reader's own last real choice.
   return (
     <span className="st-numline">
       <input
@@ -2176,7 +2212,7 @@ function NumberField({
         type="number"
         inputMode="numeric"
         min={k.min}
-        max={k.max}
+        max={ceilingLive ?? undefined}
         step={k.step}
         aria-label={c.aria}
         value={text}
@@ -2185,13 +2221,36 @@ function NumberField({
         // ⚠ THE CLAMP FIRES ON COMMIT, NOT PER KEYSTROKE. A clamp that ran on
         // every character makes 「1」 unreachable on the way to 「14」 — the
         // guardrail would be fighting the reader instead of protecting them.
+        //
+        // ⚖ D-27/D-30 — AND A NON-INTEGER TEXT IS MEANINGLESS INPUT, NEVER A
+        // NUMBER TO ROUND. Handing raw text straight to `commitNumberField`
+        // would silently rewrite 「1.5」→2, 「1e2」→100, 「-5」→5 — the exact
+        // "typed text rewritten into another number" defect those rulings
+        // found on this room's own StorePolicySection fields.
+        // `isIntegerTextAtLeast` is THAT fix's shared predicate (imported
+        // above from `./StorePolicySection` — the fence `foundation.test.ts`
+        // pins is already open for it, since this screen already imports the
+        // section for its component), reused rather than re-spelled: digits
+        // only, at or above this field's own floor; anything else is handed
+        // to `commitNumberField` as `''`, which restores the previous value
+        // and says so.
         onBlur={locked ? undefined : (e) => {
-          const commit = commitNumberField(e.target.value, lastGood.current, k.min, k.max, k.unit ?? '')
+          const raw = isIntegerTextAtLeast(e.target.value, k.min) ? e.target.value.trim() : ''
+          const commit = commitNumberField(raw, lastGood.current, k.min, ceiling, k.unit ?? '')
+          lastGood.current = commit.value
           setMessage(commit.message)
           onChange(c.id, String(commit.value))
         }}
       />
       {k.unit && <span className="st-unit">{k.unit}</span>}
+      {/* ⚖ D-31/D-32 F4 — THE ZERO STATE READS AS THE STATE, beside the unit
+          slot rather than replacing it: the reader sees both what the field
+          measures and, at 0, what that measurement currently means. Reuses
+          `st-unit`'s own small neutral text rather than a new rule.
+          ⚖ D-33 R1 — keyed on `text === '0'`, the committed zero (a commit
+          always leaves `text` as `String(commit.value)`), not `Number(text)
+          === 0`, which also reads true for an empty box mid-edit. */}
+      {k.zeroLabel && text === '0' && <span className="st-unit">{k.zeroLabel}</span>}
       {/* ⚠ THE REGION IS ALWAYS MOUNTED and its TEXT is what changes (⚖ F10's
           own lesson, one section over): a live region that appears and vanishes
           is announced unevenly, and one whose text never changes is silent. The
