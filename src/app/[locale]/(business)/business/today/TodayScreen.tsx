@@ -52,7 +52,6 @@ import {
   packedPrice,
   priceButtonCaption,
   money,
-  SELL_SLOT_MIN,
 } from '@/business/lib/canon-logic/pricing'
 import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 // ⚖ Liam 8/23 — the guided tour is EVERY Business page's now, so the engine this
@@ -2374,7 +2373,7 @@ export function TodayScreen(props: TodayProps) {
       const key = offerKey(laneKey, start)
       if (!asks.has(key)) asks.set(key, { key, laneKey, start, end, stores: storesOf.get(laneKey) ?? null })
     }
-    for (const c of sellDrawn.cells) ask(c.laneKey, c.h, c.h + SELL_SLOT_MIN)
+    for (const c of sellDrawn.cells) ask(c.laneKey, c.h, c.e)
     for (const c of gapDrawn.packed) ask(c.laneKey, c.s, c.e)
     for (const c of gapDrawn.scraps) ask(c.laneKey, c.s, c.e)
     return withheldOffers(
@@ -3952,7 +3951,7 @@ export function TodayScreen(props: TodayProps) {
         // draws grey.
         for (const c of sellPublished.cells) {
           if ((lane.group === 'staff' ? c.laneKey : c.resourceKey) !== lane.key) continue
-          const cell = place(c.h, c.h + 60, hours)
+          const cell = place(c.h, c.e, hours)
           spans.push({ id: `sell-${c.h}-${lane.key}`, x: cell.x, w: cell.w, title: '販売可能枠', derived: true, parked: false })
         }
       }
@@ -7708,20 +7707,20 @@ export function TodayScreen(props: TodayProps) {
               })}
           {!isLocked &&
             cells.map((c) => {
-              const span = place(c.h, c.h + 60, hours)
+              const span = place(c.h, c.e, hours)
               // ⚖ D-12 · ADDENDUM 2 item 1 — KEPT AND MUTED, NEVER VANISHED. The
               // box is the offer's own, greyed, with its kind and its price still
               // readable; the two lines say why it is not on sale. The WORDS ride
               // on the staff row only: a bed row carries no price text and no
               // name, so repeating the sentence there would make a screen reader
               // read it twice for one offer.
-              const wh = withheldMark(c.laneKey, c.h, c.h + SELL_SLOT_MIN)
+              const wh = withheldMark(c.laneKey, c.h, c.e)
               const whOwn = wh != null && c.group === 'staff'
               return (
                 <span
-                  // A plain 販売可能 wash advertises one standard hour, always
-                  // (canon :4867) — so it is the box a 60-minute card fits.
-                  className={`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`}
+                  // The box advertises the cell's own length; a card of that
+                  // length fits.
+                  className={`cell-price${fitsDrag(c.e - c.h, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`}
                   key={`${lane.key}-${c.group}-${c.h}`}
                   // ⚖ ADDENDUM 2 item 1 — a `role="note"` with a label is not
                   // hidden, so the muted box drops `aria-hidden` and announces the
