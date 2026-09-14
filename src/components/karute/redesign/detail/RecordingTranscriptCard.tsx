@@ -121,7 +121,14 @@ export function RecordingTranscriptCard({
           )}
         </div>
         {share?.canShare && !restricted && (
-          <RecordingShareToggle karuteId={karuteId} shared={share.shared} />
+          // ⚠ KEYED BY THE KARUTE (Greptile round 4, G1 — same defect class as
+          // the RecordingPlayer key below). Web same-route navigation reuses
+          // this component in the same tree position; without the key, a
+          // record left mid-tap (busy/optimistic) carried its pending state
+          // into the NEXT karute's control whenever `shared` didn't change
+          // (nothing else resets useState), and a late response could land on
+          // the wrong record.
+          <RecordingShareToggle key={karuteId} karuteId={karuteId} shared={share.shared} />
         )}
         {body && (
           <button

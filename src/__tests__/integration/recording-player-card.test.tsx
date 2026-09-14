@@ -50,6 +50,8 @@ jest.mock('@/lib/ports/recording-port', () => ({
 // in jsdom, and @/actions/recording-share is a 'use server' module).
 jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh: jest.fn() }) }))
 jest.mock('@/actions/recording-share', () => ({ setRecordingShared: jest.fn() }))
+import { setRecordingShared } from '@/actions/recording-share'
+const setRecordingSharedMock = setRecordingShared as jest.Mock
 
 const recorderState = { current: 'idle' as 'idle' | 'recording' | 'paused' | 'recorded' }
 jest.mock('@/hooks/use-global-recorder', () => ({
@@ -243,6 +245,54 @@ describe('the share toggle (D11) — header wiring', () => {
     // job, not this suite's).
     const header = screen.getByText('録音 ・ 文字起こし').closest('header')
     expect(header?.className).toMatch(/items-center/)
+    expect(screen.getByRole('button', { name: '管理者に共有' })).toBeTruthy()
+  })
+
+  // ⚠ G1 (Greptile round 4, P1). Web same-route navigation from one karute to
+  // another reuses this component in the same tree position — same defect
+  // class as the player's own key (above). Without `key={karuteId}` on the
+  // toggle, a record left mid-tap (busy/optimistic) on karute A carried its
+  // pending state straight into karute B's control when B has the SAME
+  // `shared` value (no prop change to reset it), and A's late-arriving
+  // response could then land on B's control.
+  it('navigating A→B in the same tree position resets the toggle even when `shared` is unchanged (no cross-record state)', async () => {
+    let resolveA!: (v: { ok: true; shared: boolean }) => void
+    setRecordingSharedMock.mockReturnValueOnce(
+      new Promise((r) => {
+        resolveA = r
+      }),
+    )
+    const view = render(
+      <RecordingTranscriptCard
+        karuteId="kar-A"
+        transcript="A"
+        consentOnFile
+        recording={REC}
+        share={{ canShare: true, shared: false }}
+      />,
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '管理者に共有' }))
+    })
+    expect(screen.getByRole('button', { name: '共有中…' })).toBeDisabled() // busy, mid-tap on A
+
+    // Same-route nav to karute B — SAME shared value (false), so the `shared`
+    // prop never changes. A fresh instance must render idle, never A's busy.
+    view.rerender(
+      <RecordingTranscriptCard
+        karuteId="kar-B"
+        transcript="B"
+        consentOnFile
+        recording={REC}
+        share={{ canShare: true, shared: false }}
+      />,
+    )
+    expect(screen.getByRole('button', { name: '管理者に共有' })).not.toBeDisabled()
+
+    // A's in-flight response landing late must never reach B's (remounted) control.
+    await act(async () => {
+      resolveA({ ok: true, shared: true })
+    })
     expect(screen.getByRole('button', { name: '管理者に共有' })).toBeTruthy()
   })
 })
