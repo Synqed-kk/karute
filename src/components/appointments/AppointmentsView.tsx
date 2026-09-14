@@ -91,10 +91,18 @@ interface AppointmentsViewProps {
 // hook, ref or open-state prop for it — but `dateDisplay` IS a ReactNode, so
 // the chip's own copy carries the marker these rules select on. Scoped to the
 // wrapper below; no package change, and no marker just means no pressed state.
-const CHIP = 'button:has([data-date-jump-chip])'
-const CHIP_CHEVRON = `[&_${CHIP}>svg]:transition-transform [&_${CHIP}>svg]:duration-[160ms] [&_${CHIP}>svg]:motion-reduce:transition-none`
+// The chip's own colors are plain single-class utilities, so :has() outranks
+// them on specificity and the order these land in the sheet doesn't matter.
+//
+// Spelled out in FULL, never composed from a shared `button:has(…)` constant:
+// Tailwind extracts class candidates from source TEXT, so an interpolated
+// class name generates no CSS at all and the pressed state dies silently
+// (verified against the built stylesheet, which is the only honest check).
+const CHIP_CHEVRON =
+  '[&_button:has([data-date-jump-chip])>svg]:transition-transform [&_button:has([data-date-jump-chip])>svg]:duration-[160ms] [&_button:has([data-date-jump-chip])>svg]:motion-reduce:transition-none'
 // R13 selected recipe (CLAUDE.md) — never a solid fill.
-const CHIP_OPEN = `[&_${CHIP}]:border-primary [&_${CHIP}]:bg-primary/8 [&_${CHIP}]:text-primary [&_${CHIP}>svg]:rotate-180`
+const CHIP_OPEN =
+  '[&_button:has([data-date-jump-chip])]:border-primary [&_button:has([data-date-jump-chip])]:bg-primary/8 [&_button:has([data-date-jump-chip])]:text-primary [&_button:has([data-date-jump-chip])>svg]:rotate-180'
 
 // formatLongDate / formatCompactDate / formatYmd all delegate to the JST
 // helpers — karute is Japan-targeted, so display always reflects Tokyo
