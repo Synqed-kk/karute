@@ -84,6 +84,7 @@ jest.mock('@synqed-kk/ui', () => {
   }
 })
 
+import { StrictMode } from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
@@ -108,11 +109,15 @@ function monthCells(monthKey: string, count = 4): MonthCellDTOType[] {
 function renderView({
   view = 'day' as DayWeekMonthView,
   loadMonthCells = jest.fn(async (key: string) => monthCells(key)),
+  strict = false,
 }: {
   view?: DayWeekMonthView
   loadMonthCells?: (key: string) => Promise<MonthCellDTOType[]>
+  /** Wrap in <StrictMode>, i.e. what `next dev` and the shell's `vite dev`
+   *  actually run: mount → unmount → remount, effects double-invoked. */
+  strict?: boolean
 } = {}) {
-  render(
+  const tree = (
     <AppointmentsView
       staff={[]}
       activeStaffId={null}
@@ -133,8 +138,9 @@ function renderView({
       staffFilter="all"
       menus={[]}
       loadMonthCells={loadMonthCells}
-    />,
+    />
   )
+  render(strict ? <StrictMode>{tree}</StrictMode> : tree)
   return { loadMonthCells }
 }
 
@@ -712,6 +718,46 @@ describe('a tap storm on the arrows lands every month asked for', () => {
       jest.advanceTimersByTime(2000)
     })
     expect(title()).toHaveTextContent('2026年9月')
+  })
+})
+
+/**
+ * R9 — the blocker the delta-verify found inside R1's own fix. React 19's
+ * StrictMode mounts, runs effects, unmounts (cleanup) and remounts; an unmount
+ * guard set once at declaration and only ever cleared latches false for the
+ * component's life, and every month read is then discarded — bit for bit the
+ * symptom R1 exists to kill. Dev-only (React does not double-invoke in a
+ * production build), which is exactly where the first browser pass happens:
+ * `next dev` defaults to strict, and thin/main.tsx wraps the shell in it.
+ */
+describe('under StrictMode (what next dev and vite dev actually run)', () => {
+  it('a month read still lands: the dots render and the status line is empty', async () => {
+    const loadMonthCells = jest.fn(async (key: string) => monthCells(key, 7))
+    renderView({ loadMonthCells, strict: true })
+    await openPanel()
+
+    const dialog = screen.getByRole('dialog')
+    await waitFor(() => expect(within(dialog).getByRole('status')).toHaveTextContent(''))
+    const centre = within(dialog).getAllByTestId('month-grid')[1]
+    expect(within(centre).getAllByRole('button')[0]).toHaveTextContent('7')
+    // And the neighbours were prefetched, which only happens once the visible
+    // month's read has actually been applied.
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-10'))
+    expect(loadMonthCells).toHaveBeenCalledWith('2026-08')
+  })
+
+  it('a failed read still reaches the failed line', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const loadMonthCells = jest.fn(async () => {
+      throw new Error('core down')
+    })
+    renderView({ loadMonthCells, strict: true })
+    await openPanel()
+    const dialog = screen.getByRole('dialog')
+    await waitFor(() =>
+      expect(within(dialog).getByRole('status')).toHaveTextContent('dateJump.failed'),
+    )
+    warn.mockRestore()
   })
 })
 

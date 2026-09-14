@@ -246,14 +246,19 @@ export function DateJumpPanel({
   // — open the panel, tap › before the prefetch answers, and the month you land
   // on sat at 「予約状況を読み込み中」 forever, because `pending` reads as "in
   // flight" and the request it was waiting on had been thrown away. The only
-  // guard is UNMOUNT.
+  // guard is UNMOUNT — and it is re-armed in the effect BODY, not just cleared
+  // in the cleanup. StrictMode mounts, runs effects, unmounts and remounts; a
+  // cleanup-only guard latches false for the component's life there, and every
+  // month read is discarded — the very symptom this fix exists to kill, in
+  // exactly the two environments the first browser pass runs in (`next dev`
+  // defaults to strict; thin/main.tsx wraps the shell in it).
   const mountedRef = useRef(true)
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
       mountedRef.current = false
-    },
-    [],
-  )
+    }
+  }, [])
   // The months with a promise actually outstanding. A pending cache entry with
   // no promise behind it cannot exist: this set is what makes a second request
   // for the same month impossible, and every settle clears its key.
