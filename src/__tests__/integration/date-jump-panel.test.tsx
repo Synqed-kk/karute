@@ -835,11 +835,17 @@ describe('a day tap during a month slide goes to the day that was tapped', () =>
     expect(title()).toHaveTextContent('2026年9月')
 
     const grid = screen.getByRole('dialog').querySelector<HTMLElement>('.touch-none')!
+    // jsdom ships no pointer capture, and capture is the whole of the device
+    // safety here: it retargets the CLICK to the grid, so a drag that started
+    // on a day cell cannot navigate to the month that just landed under it.
+    const setPointerCapture = jest.fn()
+    Object.assign(grid, { setPointerCapture })
     pointer('pointerdown', grid, { pointerId: 2, clientX: 200, clientY: 100 })
     // Past the axis-lock threshold, horizontally: this IS a drag.
     pointer('pointermove', grid, { pointerId: 2, clientX: 160, clientY: 102 })
     // The month that was sliding has landed, so the drag starts from rest.
     expect(title()).toHaveTextContent('2026年10月')
+    expect(setPointerCapture).toHaveBeenCalledWith(2)
     pointer('pointerup', grid, { pointerId: 2, clientX: 160, clientY: 102 })
     await act(async () => {
       jest.advanceTimersByTime(2000)
