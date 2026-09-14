@@ -790,18 +790,18 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
   it('a room-drop names the TAKER by their label — and never this lane itself', () => {
     const lanes = twoStaff()
     const start = okStart(lanes)
-    const named = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-06' }] })
+    const named = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, e: start + 60, kind: 'room', takerLaneKey: 'p-06' }] })
     expect(named.get('p-05')!.get(start)!.sentence)
       .toContain('ベッドは別のスタッフ（見本 かおる）の枠が使うため、ここには販売可能枠を出していません')
 
     // ⚖ 44 FIX ROUND (blind lens 1, F4/F5) — 別の = ANOTHER. A drop whose winner
     // is this very lane cannot be its subject, so it falls to the bare clause.
-    const own = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-05' }] })
+    const own = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, e: start + 60, kind: 'room', takerLaneKey: 'p-05' }] })
     expect(own.get('p-05')!.get(start)!.sentence).toContain('この開始には販売可能枠が出ていません')
     expect(own.get('p-05')!.get(start)!.sentence).not.toContain('別のスタッフ')
 
     // A `lane` drop is the person's own promise: the box IS drawn, no clause.
-    const laneDrop = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'lane' }] })
+    const laneDrop = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, e: start + 60, kind: 'lane' }] })
     expect(laneDrop.get('p-05')!.get(start)!.sentence).toContain('この開始には販売可能枠が出ていません')
     expect(laneDrop.get('p-05')!.get(start)!.sentence).not.toContain('別のスタッフ')
   })
@@ -883,7 +883,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // chip on the board — about a display the operator turned off themselves.
     const lanes = twoStaff()
     const start = okStart(lanes)
-    const off = ask(lanes, { sellDisplayed: false, drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-06' }] })
+    const off = ask(lanes, { sellDisplayed: false, drops: [{ laneKey: 'p-05', h: start, e: start + 60, kind: 'room', takerLaneKey: 'p-06' }] })
     expect(off.get('p-05')!.get(start)!.sentence).not.toContain('販売可能枠')
     // Every other sentence is untouched by the dial: it is the CLAUSE that is
     // gated, never the board's own answer.

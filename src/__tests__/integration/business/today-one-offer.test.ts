@@ -62,6 +62,7 @@ import {
   gapLayerFor,
   keepsTheRoom,
   sellLayerFor,
+  type SellDrop,
   type SellReconcile,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
@@ -517,6 +518,20 @@ describe('§3 — the reconciliation is a room’s question, not a row’s', () 
     // only boxes on the same drawn row, and these two are not.
     const onSameRow = (a: { laneKey: string }, b: { laneKey: string }) => a.laneKey === b.laneKey
     expect(onSameRow({ laneKey: 'p-01' }, { laneKey: 'p-02' })).toBe(false)
+  })
+
+  it('⚖ D-24/B2 — the room-drop carries the CELL’S OWN end, not h + 60: at sellSlotMin 45 the drop’s e is 945', () => {
+    const dropped: SellDrop[] = []
+    sellLayerFor(crossRow(), HOURS, {
+      ...SELL_OPTS,
+      sellSlotMin: 45,
+      reconcile: {
+        claims: promise('p-02', 'bed-01', 900, 945),
+        cleanupMinutesByBed: {},
+        onDrop: (d) => dropped.push(d),
+      },
+    })
+    expect(dropped).toContainEqual({ laneKey: 'p-01', h: 900, e: 945, kind: 'room', takerLaneKey: 'p-02' })
   })
 
   it('a promise that does NOT overlap leaves the hour alone', () => {

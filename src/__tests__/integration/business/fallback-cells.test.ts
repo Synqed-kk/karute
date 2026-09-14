@@ -653,7 +653,7 @@ function privateScene(withStandardRoom: boolean): { lanes: BoardLane[]; dropped:
   })
   return {
     lanes: withStandardRoom ? [staff, standard, priv] : [staff, priv],
-    dropped: [{ laneKey: 'p-01', h: 900, kind: 'room' }],
+    dropped: [{ laneKey: 'p-01', h: 900, e: 960, kind: 'room' }],
   }
 }
 
@@ -1511,7 +1511,7 @@ describe('9 — merge, then floor, then kind: the fallback finishes as the nativ
   /** The reconcile's own payload for 「this lane lost its 15:00 offer to a room
    *  clash」 — the trigger the drop class exists for, handed in rather than
    *  provoked, so the scene is exactly the length under test and nothing else. */
-  const dropAt = (h: number): SellDrop[] => [{ laneKey: 'p-01', h, kind: 'room' } as SellDrop]
+  const dropAt = (h: number): SellDrop[] => [{ laneKey: 'p-01', h, e: h + 60, kind: 'room' }]
   const pass = (w: World, d: Dials, dropped: SellDrop[]) =>
     fallbackCellsFor({
       lanes: w.lanes,

@@ -77,7 +77,7 @@ import {
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
-import { type GapCell } from '@/business/lib/canon-logic/availability'
+import { type GapCell, type SellCell } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
 import { clampPriceInputs, SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
 import { STORE_A } from '@/business/lib/fixtures'
@@ -916,6 +916,36 @@ describe('3 — the counter tells the truth by kind', () => {
         })
       }
     }
+  })
+})
+
+// ── ⚖ D-15/D-24/D-40/B2 · tagHeldBound READS THE CELL'S OWN END ────────────
+
+describe('⚖ B2 — a held window is judged against the cell’s own end, not the constant', () => {
+  it('a 45-minute cell [900,945) is NOT held-bound by a window that only touches it at 945; the same window widened to start at 940 DOES bind it', () => {
+    const lanes = [lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })]
+    const cellAt900 = (cells: readonly SellCell[]) => cells.find((c) => c.group === 'staff' && c.h === 900)!
+    const run = (start: number, end: number) =>
+      sellLayerFor(lanes, SYNTH_HOURS, {
+        gridMin: 60,
+        sellSlotMin: 45,
+        nowMinute: null,
+        locked: [],
+        showPrice: true,
+        hi: 9000,
+        hqMin: 5000,
+        depth: 9,
+        held: [{ laneKey: 'p-01', protectedCount: 1, spans: [{ start, end, windowStart: start }] }],
+      })
+
+    // Touching only — the real cell ends at 945, the held window starts there.
+    const touching = run(945, 960)
+    expect(cellAt900(touching.cells).e).toBe(945)
+    expect(isHeldBound(cellAt900(touching.cells))).toBe(false)
+
+    // Overlapping — the held window reaches back into the cell's own span.
+    const overlapping = run(940, 960)
+    expect(isHeldBound(cellAt900(overlapping.cells))).toBe(true)
   })
 })
 
