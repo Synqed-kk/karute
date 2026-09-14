@@ -1231,7 +1231,7 @@ describe('顧客一覧 screen', () => {
     const clamped = await props(STORE_A)
     expect(clamped!.grouped).toBe(false)
     expect(clamped!.rows.every((r) => r.storeLabel === null)).toBe(true)
-    expect(clamped!.lensLabel).toBe('テスト銀座店')
+    expect(clamped!.lensLabel).toBe('テスト東京店')
   })
   it('no ?store= opens on the operator’s own store, NOT the merged view (⚖ 8/20)', async () => {
     // すべての店舗 left the sidebar switcher, so the bare URL must land clamped.
@@ -1239,7 +1239,7 @@ describe('顧客一覧 screen', () => {
     // reconnect; the data layer's own viewAll behavior is covered above.
     const bare = await props()
     expect(bare!.grouped).toBe(false)
-    expect(bare!.lensLabel).toBe('テスト銀座店')
+    expect(bare!.lensLabel).toBe('テスト東京店')
     expect(bare!.rows.every((r) => r.storeLabel === null)).toBe(true)
     expect(bare!.rows).toEqual((await props(STORE_A))!.rows)
   })

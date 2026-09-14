@@ -1058,8 +1058,8 @@ describe('the props assembly — the two gates, above the serializer', () => {
     expect(jsonA).not.toContain('K-0011')
     expect(jsonB).not.toContain('K-0001')
     // …nor the other store's own name or id.
-    expect(jsonA).not.toContain('テスト代官山店')
-    expect(jsonB).not.toContain('テスト銀座店')
+    expect(jsonA).not.toContain('テスト横浜店')
+    expect(jsonB).not.toContain('テスト東京店')
   })
 
   it('every card’s action targets a live room and CARRIES the current lens', async () => {
@@ -1078,7 +1078,7 @@ describe('the props assembly — the two gates, above the serializer', () => {
   it('an unknown ?store= opens on the operator’s own store, never a merge', async () => {
     const { props, storeKey } = await askAiProps({ locale: 'ja', store: 'store-does-not-exist' })
     expect(storeKey).toBe(STORE_A)
-    expect(props.lensLabel).toBe('テスト銀座店')
+    expect(props.lensLabel).toBe('テスト東京店')
     // ⚖ N-STORES: this is a per-store room and the count of stores never enters
     // the page — the switcher is the shell's, and すべての店舗 is not offered.
     expect(JSON.stringify(props)).not.toContain('すべての店舗')

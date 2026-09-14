@@ -286,7 +286,7 @@ export interface StoreDials {
  *  SECOND deletes its own copy and reads the other's — the 設定 room reads room
  *  8's list, or room 8 reads this one. Two copies must not survive a merge. */
 const ginza: StoreDials = {
-  profile: { address: '東京都中央区銀座見本1-2-3 3F', phone: '03-0000-0001', photo: null },
+  profile: { address: '東京都テスト区テスト町1-1-1 3F', phone: '03-0000-0001', photo: null },
   closures: [
     { dayOffset: 8, note: '設備メンテナンスのため' },
     // ⚠ THIS ROW'S REASON HAD TO CHANGE WITH C2. It used to be a 特別営業 entry
@@ -403,7 +403,7 @@ const ginza: StoreDials = {
 
 const daikanyama: StoreDials = {
   ...ginza,
-  profile: { address: '東京都渋谷区代官山見本4-5-6 1F', phone: '03-0000-0002', photo: null },
+  profile: { address: '東京都テスト区テスト町2-2-2 1F', phone: '03-0000-0002', photo: null },
   closures: [{ dayOffset: 5, note: '内装工事のため' }],
   menuVisible: { 'menu-04': true, 'menu-05': true, 'menu-06': false },
   tickets: [{ name: 'テストヘッドケア45分 回数券（10回）', unitPrice: 5800, menuId: 'menu-05' }],

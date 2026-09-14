@@ -594,15 +594,15 @@ describe('the store lens', () => {
   it("keeps another store's NAME out of the payload under a clamp (isolation law)", async () => {
     const p = await load(STORE_A)
     expect(p.rows.every((r) => r.storeLabel === null)).toBe(true)
-    expect(JSON.stringify(p.rows)).not.toContain('テスト代官山店')
+    expect(JSON.stringify(p.rows)).not.toContain('テスト横浜店')
     // Under viewAll the label IS the point: every row names its own store, and
     // none of them is left unlabelled. (The 「店舗未設定」 fallback is still in
     // the page for a null store_id; ⚖ 8/20 removed the demo-world row that
     // exercised it, because a booking no store owns is an impossible state.)
     const all = await loadAll()
     expect(all.rows.every((r) => r.storeLabel != null && r.storeLabel !== '店舗未設定')).toBe(true)
-    expect(all.rows.find((r) => r.id === 'apt-12')!.storeLabel).toBe('テスト銀座店')
-    expect(all.rows.find((r) => r.id === 'apt-13')!.storeLabel).toBe('テスト代官山店')
+    expect(all.rows.find((r) => r.id === 'apt-12')!.storeLabel).toBe('テスト東京店')
+    expect(all.rows.find((r) => r.id === 'apt-13')!.storeLabel).toBe('テスト横浜店')
   })
 
   it('gates itself: a denied session 404s the page, not just the layout', async () => {

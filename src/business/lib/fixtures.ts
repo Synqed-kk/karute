@@ -30,8 +30,8 @@ export const STORE_B = 'store-test-daikanyama'
 
 export interface FixtureStore { id: string; name: string }
 export const stores: FixtureStore[] = [
-  { id: STORE_A, name: 'テスト銀座店' },
-  { id: STORE_B, name: 'テスト代官山店' },
+  { id: STORE_A, name: 'テスト東京店' },
+  { id: STORE_B, name: 'テスト横浜店' },
 ]
 
 /** The business the shell names. One tenant, two stores. */
