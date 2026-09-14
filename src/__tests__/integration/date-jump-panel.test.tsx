@@ -248,11 +248,19 @@ describe('walking the calendar', () => {
     const dialog = screen.getByRole('dialog')
 
     expect(title()).toHaveTextContent('2026年9月')
+    const chevron = title().querySelector('svg')!
+    expect(chevron.style.transform).toBe('none')
+
     fireEvent.click(title())
     // Level 2: the year, and twelve month chips.
     await waitFor(() =>
       expect(within(dialog).getByRole('button', { expanded: true })).toHaveTextContent('2026年'),
     )
+    // The chevron turns over with the level — the approved visual, and the one
+    // piece of the title's state a mutation could delete unnoticed.
+    expect(
+      within(dialog).getByRole('button', { expanded: true }).querySelector('svg')!.style.transform,
+    ).toBe('rotate(180deg)')
     expect(within(dialog).getAllByRole('button', { pressed: false }).length).toBe(11)
     expect(within(dialog).getAllByRole('button', { pressed: true })).toHaveLength(1)
 
