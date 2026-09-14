@@ -615,10 +615,23 @@ async function facadeLoadKaruteWindow(input: {
     const res = await getDataPort().apiFetch(`/api/app/v1/karute/window?${qs.toString()}`)
     const body = (await res.json().catch(() => null)) as
       | (Partial<import('@/actions/karute').KaruteWindowPage> & {
-          error?: { message?: string }
+          error?: { code?: string; message?: string }
         })
       | null
-    if (!res.ok || !body) return { error: body?.error?.message ?? `Request failed (${res.status})` }
+    if (!res.ok || !body) {
+      // H2 fix (PR-C fix round 3): "the thin and web rejection semantics
+      // identical" — the web action returns `{ error: 'forbidden' }` for a
+      // sharedOnly request from a non-holder (actions/karute.ts), and the
+      // facade route throws AppApiError('forbidden', …) for the same refusal
+      // (route.ts), which serializes as `{ error: { code: 'forbidden',
+      // message } }` (app-api/errors.ts errorBody). Map that ONE code back
+      // to the same literal the web door returns, so a consumer of this
+      // port's result sees an identical contract on both doors — never the
+      // 403's English sentence on the phone alone. Every other code/status
+      // keeps today's message-passthrough unchanged.
+      if (res.status === 403 && body?.error?.code === 'forbidden') return { error: 'forbidden' }
+      return { error: body?.error?.message ?? `Request failed (${res.status})` }
+    }
     // A malformed 200 must read as an ERROR, never as "no more history" — a
     // silent empty window would end the list early and look like the truth.
     if (!Array.isArray(body.items) || typeof body.windowStart !== 'string') {

@@ -175,4 +175,57 @@ describe('thin actions port — karute window transport contract', () => {
       expect((res as { freshSharedCount?: number }).freshSharedCount).toBeUndefined()
     })
   })
+
+  // H2 (PR-C fix round 3, Greptile's finding on #917): the phone's refusal
+  // must equal the web action's. The web action returns `{ error: 'forbidden' }`
+  // for a sharedOnly request from a non-holder; the facade route threw the
+  // same refusal as a 403 whose body carries `code: 'forbidden'`, but this
+  // port used to surface only the English message sentence — a different
+  // contract on each door for the identical refusal.
+  describe('H2 — the sharedOnly forbidden refusal maps to the SAME literal the web door returns', () => {
+    it("a 403 with code 'forbidden' maps to { error: 'forbidden' } — not the message sentence", async () => {
+      port(
+        jest.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                error: {
+                  code: 'forbidden',
+                  message: 'recordings.viewShared required for sharedOnly',
+                },
+              }),
+              { status: 403 },
+            ),
+        ),
+      )
+      expect(await loadKaruteWindow({ sharedOnly: true })).toEqual({ error: 'forbidden' })
+    })
+
+    it('a 403 with a DIFFERENT code keeps today\'s message-passthrough mapping', async () => {
+      port(
+        jest.fn(
+          async () =>
+            new Response(
+              JSON.stringify({ error: { code: 'store_forbidden', message: 'store-id outside your assignment' } }),
+              { status: 403 },
+            ),
+        ),
+      )
+      expect(await loadKaruteWindow({ olderThan: '2026-08-12' })).toEqual({
+        error: 'store-id outside your assignment',
+      })
+    })
+
+    it('a 500 keeps today\'s message-passthrough mapping (code is irrelevant off 403)', async () => {
+      port(
+        jest.fn(
+          async () =>
+            new Response(JSON.stringify({ error: { code: 'internal', message: 'Internal error' } }), {
+              status: 500,
+            }),
+        ),
+      )
+      expect(await loadKaruteWindow({ olderThan: '2026-08-12' })).toEqual({ error: 'Internal error' })
+    })
+  })
 })
