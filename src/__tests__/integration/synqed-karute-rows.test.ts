@@ -221,7 +221,7 @@ describe('mixed discarded Karute ledger read', () => {
 // D10 (PR-C, self-lighting): the shared-only read + the two new fields. Same
 // mixed/fetch path as the discarded ledger read above.
 describe('D10 — sharedOnly + shared_at + shared_count (self-lighting)', () => {
-  it('sharedOnly opts in via the mixed path — shared_only=true rides the URL', async () => {
+  it('a caller that explicitly asks for BOTH knobs gets both on the wire — this function\'s own generic pass-through contract, not a description of any real caller', async () => {
     const fetch = jest.fn(async () => ({
       karute_records: [],
       total: 0,
@@ -236,7 +236,18 @@ describe('D10 — sharedOnly + shared_at + shared_count (self-lighting)', () => 
       sharedOnly: true,
     })
 
-    // F2 fix (PR-C fix round 1): BOTH knobs together → both ride the wire.
+    // F2 fix (PR-C fix round 1): BOTH knobs together → both ride the wire —
+    // this function honors whatever the caller passes, independently.
+    //
+    // H1 UPDATE (PR-C fix round 3): this is a generic capability test of
+    // listMixedKaruteRecords' own pass-through — it drives the two flags
+    // directly and is NOT a description of what karute-window.ts's walk
+    // actually sends. As of H1, NO caller in this codebase ever passes both
+    // true at once: the walk derives `includeDiscarded: !sharedOnly` at every
+    // one of its four call sites, so a shared-mode read is always
+    // shared_only=true WITHOUT include_discarded (see the sibling test right
+    // below, and karute-window.test.ts's "excludes discarded rows" describe
+    // block for the walk-level proof).
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining('shared_only=true'))
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining('include_discarded=true'))
   })

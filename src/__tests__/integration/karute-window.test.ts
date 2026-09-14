@@ -473,6 +473,68 @@ describe('loadKaruteWindowRows — sharedOnly (D10, PR-C, self-lighting)', () =>
   })
 })
 
+// H1 (PR-C fix round 3, Greptile's finding on #917): shared mode must read
+// the SAME set the 共有 pill counts — non-discarded shared rows only. Every
+// read in the walk used to pass includeDiscarded unconditionally while
+// sharedOnly threaded beside it, so shared_only=true would return shared
+// rows INCLUDING discarded ones (⚖ 8/25: a pill counts exactly the rows its
+// tap shows; discarded shared rows belong to 破棄済み mode).
+describe('loadKaruteWindowRows — sharedOnly excludes discarded rows (H1, PR-C fix round 3)', () => {
+  it('a DISCARDED shared row never rides shared mode\'s results, and no call in the walk asks for discarded rows', async () => {
+    const core = fakeCore([
+      rec('shared-active', '2026-08-24T01:00:00.000Z', 'FINALIZED', '2026-08-24T01:00:00.000Z'),
+      rec('shared-discarded', '2026-08-24T02:00:00.000Z', 'DISCARDED', '2026-08-24T02:00:00.000Z'),
+    ])
+    const res = await loadKaruteWindowRows(asClient(core.list), { now: NOW, sharedOnly: true })
+
+    // Only the non-discarded shared row comes back.
+    expect(res.rows.map((r) => r.id)).toEqual(['shared-active'])
+    expect(res.freshStoreTotal).toBe(1)
+    // freshDiscardedCount is still reported (H1 (b): the wire shape is
+    // unchanged in shared mode — the mode just has no 破棄済み pill to show
+    // it on) but it must never leak the discarded row into `rows`.
+    expect(res.freshDiscardedCount).toBe(1)
+
+    // No call in the walk (storeProbe, the epoch-loop probe, or the page
+    // read) ever asks for discarded rows while sharedOnly is set.
+    expect(core.calls.length).toBeGreaterThan(0)
+    expect(core.calls.every((c) => c.shared_only === true)).toBe(true)
+    expect(core.calls.every((c) => !c.include_discarded)).toBe(true)
+  })
+
+  it('a window whose ONLY shared rows are discarded is SKIPPED, not opened as an empty window — the walk continues to the next real one', async () => {
+    const core = fakeCore([
+      // Recent window: a shared row, but DISCARDED — must not end the walk
+      // with an honest-looking empty result.
+      rec('recent-shared-discarded', '2026-08-24T01:00:00.000Z', 'DISCARDED', '2026-08-24T01:00:00.000Z'),
+      // An older, real (non-discarded) shared row three probe-windows back —
+      // same placement the "skips EMPTY windows" test above uses.
+      rec('older-shared-active', '2026-07-06T01:00:00.000Z', 'FINALIZED', '2026-07-06T01:00:00.000Z'),
+    ])
+    const res = await loadKaruteWindowRows(asClient(core.list), { now: NOW, sharedOnly: true })
+
+    expect(res.rows.map((r) => r.id)).toEqual(['older-shared-active'])
+    // The walk reached all the way to the epoch floor's last probed window,
+    // not the recent (discarded-only) one — proof it skipped rather than
+    // stopping on the empty-looking hit.
+    expect(res.windowStart).toBe(KARUTE_SESSION_DATE_EPOCH)
+    const probes = core.calls.filter((c) => c.page_size === 1 && c.from)
+    expect(probes.length).toBe(4)
+  })
+
+  it('the default walk (sharedOnly off) still sends include_discarded=true on every call — byte-identical to today', async () => {
+    const core = fakeCore([
+      rec('k-active', '2026-08-24T01:00:00.000Z'),
+      rec('k-discarded', '2026-08-24T02:00:00.000Z', 'DISCARDED'),
+    ])
+    const res = await loadKaruteWindowRows(asClient(core.list), { now: NOW })
+
+    expect(res.rows.map((r) => r.id).sort()).toEqual(['k-active', 'k-discarded'])
+    expect(core.calls.length).toBeGreaterThan(0)
+    expect(core.calls.every((c) => c.include_discarded === true)).toBe(true)
+  })
+})
+
 // T3 (fix round 2, L2 LOW-1, optional but cheap)
 describe('loadKaruteWindowRows — T3: shared_count entirely omitted from core\'s response', () => {
   it('freshSharedCount is undefined at this hop when core never answers shared_count at all (never 0)', async () => {

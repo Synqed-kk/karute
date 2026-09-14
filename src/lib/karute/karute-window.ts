@@ -204,7 +204,12 @@ async function pageWindowToCompletion(
       to: opts.to,
       page,
       page_size: KARUTE_WINDOW_PAGE_SIZE,
-      includeDiscarded: true,
+      // H1 fix (PR-C fix round 3): derived, never a second flag — shared
+      // mode must read the SAME set the 共有 pill counts (non-discarded
+      // shared rows only; §CORE ORDER 2b). The default walk (sharedOnly
+      // off) stays byte-identical to today: `!undefined` = true, so every
+      // existing read here is unaffected.
+      includeDiscarded: !opts.sharedOnly,
       sharedOnly: opts.sharedOnly,
     }),
   )
@@ -237,7 +242,9 @@ async function legacySweep(
       storeId,
       page,
       page_size: KARUTE_WINDOW_PAGE_SIZE,
-      includeDiscarded: true,
+      // H1 fix (PR-C fix round 3): see pageWindowToCompletion's comment —
+      // same derivation, same default-walk guarantee.
+      includeDiscarded: !sharedOnly,
       sharedOnly,
     }),
   )
@@ -290,13 +297,31 @@ export async function loadKaruteWindowRows(
   // Fresh store total on EVERY call — hasMore must never ride a snapshot taken
   // when the page was first rendered. sharedOnly threads through so the
   // shared-mode probe reads the SHARED universe's size, not the whole store's.
+  // H1 fix (PR-C fix round 3): includeDiscarded derived like the two page
+  // readers above — total/discardedCount are counted server-side
+  // UNCONDITIONALLY either way (core services/karute.service.ts, verified at
+  // origin/main e32c91659), so this has no effect on the two numbers below;
+  // it keeps the ONE rule ("shared mode never asks for discarded rows")
+  // uniform across every read of the walk rather than special-casing probes.
   const storeProbe = await listSynqedKaruteRowsWithTotalOrThrow(synqed, {
     storeId,
     page_size: 1,
-    includeDiscarded: true,
+    includeDiscarded: !opts.sharedOnly,
     sharedOnly: opts.sharedOnly,
   })
   const freshStoreTotal = storeProbe.total
+  // H1 (b) (PR-C fix round 3): discarded_count is ALWAYS the discarded-row
+  // count for the query's base where, independent of include_discarded
+  // (verified at core source, services/karute.service.ts:172-192 @
+  // origin/main e32c91659: `total`/`discardedCount` are computed from
+  // `nonDiscardedWhere`/`discardedWhere` unconditionally — only `rowsWhere`,
+  // which decides what comes back in `rows`, is gated by the flag). Once
+  // §CORE ORDER ships, core folds `shared_only` into the SAME base where as
+  // every other filter, so under sharedOnly this is the discarded-AND-shared
+  // count, not the whole store's — still a real, well-defined number. The
+  // wire shape stays UNCHANGED for shared mode on purpose (no special case):
+  // the mode simply has no 破棄済み pill to show it on, so nothing reads it
+  // there today — never stripped to undefined for that reason alone.
   const freshDiscardedCount = storeProbe.discardedCount
   const freshSharedCount = storeProbe.sharedCount
 
@@ -363,10 +388,20 @@ export async function loadKaruteWindowRows(
       from,
       to,
       page_size: 1,
-      includeDiscarded: true,
+      // H1 fix (PR-C fix round 3): see pageWindowToCompletion's comment.
+      includeDiscarded: !opts.sharedOnly,
       sharedOnly: opts.sharedOnly,
     })
-    if (probeRes.total + probeRes.discardedCount > 0) {
+    // H1 (a) (PR-C fix round 3): in shared mode the page read above never
+    // fetches discarded rows (includeDiscarded is false), so a window whose
+    // ONLY shared rows are discarded must be judged EMPTY here too — total
+    // alone, not total+discardedCount — or the walk would "hit" it, page it,
+    // get zero rows back, and hand the caller an honest-looking empty window
+    // instead of skipping straight to the next real one. The default walk
+    // (sharedOnly off) is untouched: it still fetches discarded rows, so the
+    // sum is still the right measure of "anything here at all".
+    const windowHasRows = opts.sharedOnly ? probeRes.total > 0 : probeRes.total + probeRes.discardedCount > 0
+    if (windowHasRows) {
       const rows = await pageWindowToCompletion(synqed, { storeId, from, to, sharedOnly: opts.sharedOnly })
       return {
         rows,
@@ -374,6 +409,15 @@ export async function loadKaruteWindowRows(
         freshStoreTotal,
         freshDiscardedCount,
         freshSharedCount,
+        // H1 (c) (PR-C fix round 3): no change needed here — hasMore was
+        // already driven entirely by `freshStoreTotal`/`freshDiscardedCount`,
+        // both read off the SAME storeProbe at the top of this call, which
+        // is itself sharedOnly-scoped. In shared mode a discarded-only
+        // window is skipped by (a) above rather than fetched, so `rows`
+        // never includes rows this formula's denominator can't eventually
+        // account for; a discarded-shared-only tail still converges via the
+        // legacy sweep (forced `hasMore: false`), same as the default walk's
+        // own skip-then-sweep path.
         hasMore: karuteHasMore(loadedCount + rows.length, freshStoreTotal, freshDiscardedCount),
       }
     }
