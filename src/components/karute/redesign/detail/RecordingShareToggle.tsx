@@ -83,9 +83,11 @@ export function RecordingShareToggle({ karuteId, shared }: RecordingShareToggleP
         aria-pressed={shown}
         className={cn(
           'inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-70',
+          // CLAUDE.md R13's selected/pressed recipe (chips/options): bg-primary/8
+          // text-primary + border-primary — never a literal sky color.
           shown
-            ? 'border border-sky-500/30 bg-sky-500/10 text-sky-600'
-            : 'border border-border text-muted-foreground hover:border-sky-500/30 hover:text-sky-600',
+            ? 'border border-primary bg-primary/8 text-primary'
+            : 'border border-border text-muted-foreground hover:border-primary hover:text-primary',
         )}
       >
         {busy ? (

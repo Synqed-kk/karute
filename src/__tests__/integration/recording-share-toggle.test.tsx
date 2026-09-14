@@ -73,11 +73,17 @@ describe('RecordingShareToggle', () => {
     expect(refresh).toHaveBeenCalledTimes(1)
   })
 
-  it('shared renders the washed 「共有中」 chip, aria-pressed=true', () => {
+  // ⚠ G4 (Greptile round 4, P2). CLAUDE.md's R13 selected/pressed recipe
+  // (`bg-primary/8 text-primary` + `border-primary`), not literal sky colors
+  // — the repo-wide chip/option idiom, not a one-off.
+  it('shared renders the washed 「共有中」 chip using the repo\'s selected-state recipe (bg-primary/8 + border-primary + text-primary), aria-pressed=true', () => {
     render(<RecordingShareToggle karuteId="k-1" shared={true} />)
     const button = screen.getByRole('button', { name: '共有中' })
     expect(button).toHaveAttribute('aria-pressed', 'true')
-    expect(button.className).toMatch(/sky-500/)
+    expect(button.className).toMatch(/border-primary/)
+    expect(button.className).toMatch(/bg-primary\/8/)
+    expect(button.className).toMatch(/text-primary/)
+    expect(button.className).not.toMatch(/sky-500/)
   })
 
   it('tap on the shared chip → setRecordingShared(id, false) — one-tap narrowing, no confirm', async () => {
