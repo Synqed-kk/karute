@@ -10,6 +10,7 @@ import { getAppointmentsInRange } from '@/actions/appointments'
 import { getCachedDayAgenda } from '@/lib/appointments/day-agenda-cached'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCachedMenuOptions, scopeMenuOptions } from '@/lib/menus/cached'
+import { getAppointmentWindow } from '@/actions/appointments-window'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
 import { listAllPackUsage } from '@/lib/packs/store'
 import { getBusinessId } from '@/lib/staff'
@@ -23,6 +24,7 @@ import { ymdInJst } from '@/lib/date/jst'
 import {
   computeWeekRange,
   computeMonthRange,
+  jstEndOfDay,
 } from '@/lib/date/calendar-range'
 
 // Param parsing + the whole Stage-2 derivation live in
@@ -79,24 +81,27 @@ export default async function AppointmentsPage({
   // a WRITE-offer posture, not the read plane's. `null` = clamped with no store
   // to name: an EMPTY combobox, never the business-wide one (customerLensFor).
   const customerLens = customerLensFor(storeScope)
+  // Hoisted out of the wave: the window reads below need the viewer's id to turn
+  // ?staff=self into a CORE staff id. resolveStoreScope above already resolved
+  // it (store-scope.ts:68) and it is React-cache'd, so this costs nothing.
+  const activeStaffId = await t.phase('activeStaffId', () => getCurrentUserStaffId())
 
   const [
     {
       data: { user },
     },
     staffList,
-    activeStaffId,
     orgSettings,
     customers,
     dayAppointments,
     businessId,
-    weekRangeAppts,
-    monthRangeAppts,
+    weekWindow,
+    monthWindow,
+    dayWindow,
     menuOptions,
   ] = await Promise.all([
     t.phase('auth.getUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
-    t.phase('activeStaffId', () => getCurrentUserStaffId()),
     t.phase('orgSettings', () => getOrgSettings()),
     t.phase('customerList', async () =>
       customerLens === null ? [] : getCachedCustomerList(customerLens),
@@ -108,19 +113,39 @@ export default async function AppointmentsPage({
     // so web edits repaint immediately (envelope in day-agenda-cached.ts).
     t.phase('day.appointments', () => getCachedDayAgenda(selectedDateStr)),
     t.phase('businessId', () => getBusinessId().catch(() => null)),
+    // The window reads THROW (unlike the old getAppointmentsInRange, which
+    // caught everything into []): a core outage must surface as an error, never
+    // as a calm empty week. They also carry the 担当/自分 filter, the terminal
+    // partitions and each day's resolved opening hours.
     t.phase('range.week', () =>
       weekRange
-        ? getAppointmentsInRange(
+        ? getAppointmentWindow(
             weekRange.rangeFrom.toISOString(),
             weekRange.rangeTo.toISOString(),
+            staffFilter,
+            activeStaffId,
           )
         : Promise.resolve(null),
     ),
     t.phase('range.month', () =>
       monthRange
-        ? getAppointmentsInRange(
+        ? getAppointmentWindow(
             monthRange.rangeFrom.toISOString(),
             monthRange.rangeTo.toISOString(),
+            staffFilter,
+            activeStaffId,
+          )
+        : Promise.resolve(null),
+    ),
+    // Day view has no bigger window to read the day line's numbers out of, so
+    // it reads its own single JST day (selectedDate is already JST midnight).
+    t.phase('range.day', () =>
+      view === 'day'
+        ? getAppointmentWindow(
+            selectedDate.toISOString(),
+            jstEndOfDay(selectedDate).toISOString(),
+            staffFilter,
+            activeStaffId,
           )
         : Promise.resolve(null),
     ),
@@ -191,8 +216,15 @@ export default async function AppointmentsPage({
     dayAppointments,
     weekRange,
     monthRange,
-    weekRangeAppts,
-    monthRangeAppts,
+    weekRangeAppts: null,
+    monthRangeAppts: null,
+    weekWindow,
+    monthWindow,
+    dayWindow,
+    // Exactly one window is read per view, and it carries that window's days.
+    hoursFacts: new Map(
+      (weekWindow ?? monthWindow ?? dayWindow)?.hoursFacts ?? [],
+    ),
     enrichment,
     packUsage,
   })
