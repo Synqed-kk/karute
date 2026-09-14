@@ -435,7 +435,7 @@ export const takes: FixtureTake[] = [
     // 5日前, 代官山 — THE OTHER STORE'S DISCARD, and its reason carries a string
     // that appears NOWHERE ELSE in the world. That is what makes the
     // leaves-nothing-behind pin a search rather than an argument: the 銀座
-    // props are scanned for 「代官山側の破棄理由」 and for this staffer's name.
+    // props are scanned for 「横浜側の破棄理由」 and for this staffer's name.
     id: 'rs-0021',
     appointment_id: 'apt-11',
     store_id: null,
