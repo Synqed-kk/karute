@@ -281,8 +281,10 @@ export function DateJumpPanel({
   const today = useMemo(() => jstStartOfToday(), [])
   const cellsFor = useCallback(
     (key: MonthKey): MonthGridCell[] => {
+      // Whatever this month last answered with, even while it is being
+      // re-read: a refresh must not blink real dots back to bare numbers.
       const entry = state.cache.get(key)
-      if (entry?.status === 'loaded' && entry.cells) return entry.cells
+      if (entry?.cells) return entry.cells
       // PENDING ≠ EMPTY: the day numbers (and today's circle) with no counts —
       // built by the SAME builder, from no appointments.
       const { monthStart, monthEnd } = computeMonthRange(firstDayOfMonthKey(key))
@@ -442,7 +444,10 @@ export function DateJumpPanel({
   const prevKey = shiftMonthKey(state.visibleMonth, -1)
   const nextKey = shiftMonthKey(state.visibleMonth, 1)
   const monthTitle = formatMonthTitleJst(firstDayOfMonthKey(state.visibleMonth), locale)
-  const status = visibleEntry?.status ?? 'pending'
+  // A month with cells on screen says nothing: a background refresh is not
+  // news, and a failed refresh still leaves real (if older) counts to read.
+  // Only a month that has NEVER answered gets a line.
+  const status = visibleEntry?.cells ? 'loaded' : (visibleEntry?.status ?? 'pending')
   const atMonths = state.level === 'months'
   const [visibleYear, visibleMonthNumber] = splitMonthKey(state.visibleMonth)
 

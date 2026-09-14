@@ -414,6 +414,72 @@ describe('a month read in flight when you turn the page still lands', () => {
   })
 })
 
+/**
+ * R2 — the counts must not live as long as the page. Book a customer into next
+ * month, reopen the panel: the panel used to issue ZERO reads and show the old
+ * number. It now re-reads on every open while the cached dots stay visible.
+ */
+describe('reopening re-reads the months, showing the old counts meanwhile', () => {
+  const closePanel = async () => {
+    fireEvent.click(chip())
+    await waitFor(() => expect(panel()).toBeNull())
+  }
+
+  it('asks for the visible month again on every open', async () => {
+    const loadMonthCells = jest.fn(async (key: string) => monthCells(key))
+    renderView({ loadMonthCells })
+    await openPanel()
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-08'))
+    const firstRound = loadMonthCells.mock.calls.filter((c) => c[0] === '2026-09').length
+    expect(firstRound).toBe(1)
+
+    await closePanel()
+    await openPanel()
+    await waitFor(() =>
+      expect(loadMonthCells.mock.calls.filter((c) => c[0] === '2026-09')).toHaveLength(2),
+    )
+  })
+
+  it('shows the cached dots during the refresh — no loading line, no blank grid', async () => {
+    let release: (cells: MonthCellDTOType[]) => void = () => {}
+    const loadMonthCells = jest.fn((key: string) =>
+      key === '2026-09' && release !== undefined
+        ? new Promise<MonthCellDTOType[]>((resolve) => {
+            release = resolve
+          })
+        : Promise.resolve(monthCells(key)),
+    )
+    renderView({ loadMonthCells })
+    await openPanel()
+    await act(async () => {
+      release(monthCells('2026-09', 4))
+    })
+    let dialog = screen.getByRole('dialog')
+    await waitFor(() => expect(within(dialog).getByRole('status')).toHaveTextContent(''))
+
+    await closePanel()
+    await openPanel()
+    dialog = screen.getByRole('dialog')
+    // The re-read is in flight (its promise is held), and the panel is showing
+    // the counts it already had — not a loading line over bare day numbers.
+    await waitFor(() =>
+      expect(loadMonthCells.mock.calls.filter((c) => c[0] === '2026-09')).toHaveLength(2),
+    )
+    expect(within(dialog).getByRole('status')).toHaveTextContent('')
+    const centre = within(dialog).getAllByTestId('month-grid')[1]
+    expect(within(centre).getAllByRole('button')[0]).toHaveTextContent('4')
+
+    // …and the fresh answer replaces them.
+    await act(async () => {
+      release(monthCells('2026-09', 9))
+    })
+    await waitFor(() => {
+      const pane = within(screen.getByRole('dialog')).getAllByTestId('month-grid')[1]
+      expect(within(pane).getAllByRole('button')[0]).toHaveTextContent('9')
+    })
+  })
+})
+
 describe('the hidden native date input is gone', () => {
   it('AppointmentsView no longer renders one — the chip is the only door to a date', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports

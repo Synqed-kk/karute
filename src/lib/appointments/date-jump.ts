@@ -32,7 +32,13 @@ export interface MonthCellData {
 
 export interface MonthEntry {
   status: 'pending' | 'loaded' | 'failed'
+  /** The last cells this month actually answered with, kept across a re-read:
+   *  a revalidating month keeps showing its real dots rather than blinking
+   *  back to bare day numbers. Absent = this month has never answered. */
   cells?: MonthGridCell[]
+  /** Set on every open: these cells are still worth showing, but they are old
+   *  enough to re-ask for. Cleared the moment the re-read starts. */
+  stale?: boolean
 }
 
 export interface DateJumpState {
@@ -124,17 +130,23 @@ export function dateJumpReducer(
   switch (action.type) {
     case 'open': {
       // Re-opening keeps whatever months were already fetched — the cache is
-      // the whole point — but the seed (the page's own 月 data) is always the
-      // freshest truth for its month.
-      const next: DateJumpState = {
+      // the whole point — but every one of them is now STALE: a booking made
+      // since the last open must not leave the panel showing yesterday's
+      // number. Stale is not empty: the cells stay on screen while the re-read
+      // runs (no shimmer, no loading line), and only a month that has never
+      // answered shows a status line at all.
+      const cache = new Map<MonthKey, MonthEntry>()
+      for (const [key, entry] of state.cache) cache.set(key, { ...entry, stale: true })
+      // The seed (the page's own 月 data) was just built by the server — it is
+      // the freshest truth for its month, so it replaces rather than ages.
+      if (action.seed) cache.set(action.month, { status: 'loaded', cells: action.seed })
+      return {
         ...state,
         visibleMonth: action.month,
         level: 'grid',
         year: splitMonthKey(action.month)[0],
+        cache,
       }
-      return action.seed
-        ? withEntry(next, action.month, { status: 'loaded', cells: action.seed })
-        : next
     }
     case 'shiftMonth':
       return setMonth(state, shiftMonthKey(state.visibleMonth, action.delta))
@@ -149,17 +161,33 @@ export function dateJumpReducer(
     case 'shiftYear':
       return { ...state, year: state.year + action.delta }
     case 'pending':
-      return withEntry(state, action.month, { status: 'pending' })
+      // Keeps whatever this month last answered with (and drops `stale`, so
+      // the re-read is not offered a second time while it is running).
+      return withEntry(state, action.month, {
+        status: 'pending',
+        cells: state.cache.get(action.month)?.cells,
+      })
     case 'loaded':
       return withEntry(state, action.month, { status: 'loaded', cells: action.cells })
     case 'failed':
-      return withEntry(state, action.month, { status: 'failed' })
+      // Same: a failed REFRESH leaves the real (if older) counts on screen
+      // rather than blanking a month the staff member could already read.
+      return withEntry(state, action.month, {
+        status: 'failed',
+        cells: state.cache.get(action.month)?.cells,
+      })
   }
 }
 
 function setMonth(state: DateJumpState, month: MonthKey): DateJumpState {
   if (month === state.visibleMonth) return state
   return { ...state, visibleMonth: month, level: 'grid' }
+}
+
+/** A month is worth asking for when it has never answered, when its last
+ *  answer was a failure, or when an open has aged it. */
+function wants(entry: MonthEntry | undefined): boolean {
+  return !entry || entry.status === 'failed' || entry.stale === true
 }
 
 /**
@@ -170,16 +198,15 @@ function setMonth(state: DateJumpState, month: MonthKey): DateJumpState {
  * member is looking at. A FAILED month is offered again, which is how a retry
  * happens on the next visit: the panel only re-asks when the visible month
  * changes or when it finishes loading, so a month that just failed is not
- * re-requested in a loop while it is on screen.
+ * re-requested in a loop while it is on screen. A STALE month is offered on
+ * exactly the same terms — that is what makes the counts refresh instead of
+ * living as long as the page does.
  */
 export function monthsToLoad(state: DateJumpState): MonthKey[] {
   const visible = state.cache.get(state.visibleMonth)
-  if (!visible || visible.status === 'failed') return [state.visibleMonth]
-  if (visible.status === 'pending') return []
+  if (wants(visible)) return [state.visibleMonth]
+  if (visible?.status === 'pending') return []
   return [shiftMonthKey(state.visibleMonth, 1), shiftMonthKey(state.visibleMonth, -1)].filter(
-    (key) => {
-      const entry = state.cache.get(key)
-      return !entry || entry.status === 'failed'
-    },
+    (key) => wants(state.cache.get(key)),
   )
 }

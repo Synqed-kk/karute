@@ -157,6 +157,75 @@ describe('monthsToLoad — the whole fetch policy', () => {
   })
 })
 
+/**
+ * R2 — the blind round's freshness finding. The cache used to live as long as
+ * the page: book a customer into next month, reopen the panel, read the old
+ * number. Reopening now ages every cached month without emptying it.
+ */
+describe('re-opening refreshes the counts without blanking them', () => {
+  it('marks every cached month stale and offers the visible one again', () => {
+    const loaded = reduce(
+      initialDateJumpState('2026-09'),
+      { type: 'loaded', month: '2026-09', cells: SEPT },
+      { type: 'loaded', month: '2026-10', cells: SEPT },
+    )
+    // Nothing to do while the panel stays open.
+    expect(monthsToLoad(loaded)).toEqual(['2026-08'])
+
+    const reopened = reduce(loaded, { type: 'open', month: '2026-09' })
+    expect(reopened.cache.get('2026-09')).toMatchObject({ status: 'loaded', stale: true })
+    expect(reopened.cache.get('2026-10')).toMatchObject({ status: 'loaded', stale: true })
+    // Stale is offered on exactly the same terms as missing — visible first.
+    expect(monthsToLoad(reopened)).toEqual(['2026-09'])
+  })
+
+  it('keeps the stale cells on screen while the re-read runs, then swaps them', () => {
+    const reopened = reduce(
+      initialDateJumpState('2026-09'),
+      { type: 'loaded', month: '2026-09', cells: SEPT },
+      { type: 'open', month: '2026-09' },
+    )
+    const reading = reduce(reopened, { type: 'pending', month: '2026-09' })
+    // Pending, but the old cells are still there to render — and `stale` is
+    // gone, so the re-read is not offered a second time while it runs.
+    expect(reading.cache.get('2026-09')).toEqual({ status: 'pending', cells: SEPT })
+    expect(monthsToLoad(reading)).toEqual([])
+
+    const fresh = [cell('2026-09-02')]
+    const done = reduce(reading, { type: 'loaded', month: '2026-09', cells: fresh })
+    expect(done.cache.get('2026-09')).toEqual({ status: 'loaded', cells: fresh })
+    expect(monthsToLoad(done)).toEqual(['2026-10', '2026-08'])
+  })
+
+  it('a failed REFRESH keeps the cells it already had — only a never-answered month is bare', () => {
+    const refreshFailed = reduce(
+      initialDateJumpState('2026-09'),
+      { type: 'loaded', month: '2026-09', cells: SEPT },
+      { type: 'open', month: '2026-09' },
+      { type: 'pending', month: '2026-09' },
+      { type: 'failed', month: '2026-09' },
+    )
+    expect(refreshFailed.cache.get('2026-09')).toEqual({ status: 'failed', cells: SEPT })
+
+    const neverAnswered = reduce(initialDateJumpState('2026-09'), {
+      type: 'failed',
+      month: '2026-09',
+    })
+    expect(neverAnswered.cache.get('2026-09')?.cells).toBeUndefined()
+  })
+
+  it('the 月-view seed replaces its month rather than ageing it', () => {
+    const reopened = reduce(
+      initialDateJumpState('2026-09'),
+      { type: 'loaded', month: '2026-09', cells: [cell('2026-09-03')] },
+      { type: 'open', month: '2026-09', seed: SEPT },
+    )
+    expect(reopened.cache.get('2026-09')).toEqual({ status: 'loaded', cells: SEPT })
+    // Fresh from the server this render — nothing to re-ask for.
+    expect(monthsToLoad(reopened)).toEqual(['2026-10', '2026-08'])
+  })
+})
+
 describe('levels', () => {
   it('opens the month chips on the VISIBLE month year, wherever the year row was left', () => {
     const state = reduce(
