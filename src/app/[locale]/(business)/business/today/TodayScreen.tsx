@@ -9014,7 +9014,7 @@ export function TodayScreen(props: TodayProps) {
                 sit against otherwise, and the layer wears no border at rest by
                 ⚖ flag 39. No new colour on either count. */}
             <div className="layer-legend">
-              <span className="lk lk-sell"><i /><b>販売可能枠</b><span>いま出ている価格で売り出している1時間</span></span>
+              <span className="lk lk-sell"><i /><b>販売可能枠</b><span>{`いま出ている価格で売り出している${props.sell.sellSlotMin}分`}</span></span>
               <span className="lk lk-packed"><i /><b>詰め込み</b><span>空きに収めた1回分（満額）</span></span>
               <span className="lk lk-scrap"><i /><b>スキマ枠</b><span>余った時間の割引枠</span></span>
             </div>

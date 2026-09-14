@@ -1338,10 +1338,13 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
   })
 
   it('the band carries the three words and their three meanings, verbatim from the mock', () => {
-    // ⚖ NATIVE PASS (2026-08-26, three rounds on the mock). These glosses are
-    // carried, never re-written: re-writing them here would spend that pass.
+    // ⚖ NATIVE PASS (2026-08-26, three rounds on the mock). The packed/scrap
+    // glosses are carried, never re-written. The sell gloss was rewritten in
+    // R3/B2/F1 (⚖ D-15/D-45): it hardcoded 1時間, the STORE's own slot length
+    // — it now reads the one source, `props.sell.sellSlotMin`, never a second
+    // hop or a literal.
     expect(SRC).toContain(
-      `<span className="lk lk-sell"><i /><b>販売可能枠</b><span>いま出ている価格で売り出している1時間</span></span>`,
+      '<span className="lk lk-sell"><i /><b>販売可能枠</b><span>{`いま出ている価格で売り出している${props.sell.sellSlotMin}分`}</span></span>',
     )
     expect(SRC).toContain(
       `<span className="lk lk-packed"><i /><b>詰め込み</b><span>空きに収めた1回分（満額）</span></span>`,
@@ -1351,6 +1354,12 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     )
     // Three, and only three: the legend names the layers the board can draw.
     expect((SRC.match(/className="lk lk-/g) ?? [])).toHaveLength(3)
+    // The legend must never hardcode a slot length again: no literal 60 and
+    // no 1時間 on the sell layer's own line (⚖ D-15 — the unit is 分 at every
+    // value, the whole page speaks in minutes).
+    const sellLegendLine = SRC.match(/<span className="lk lk-sell">.*<\/span><\/span>/)?.[0] ?? ''
+    expect(sellLegendLine).not.toMatch(/\b60\b/)
+    expect(sellLegendLine).not.toContain('1時間')
     // The word in the legend wears the colour the word ON THE BOX wears — that
     // pairing is the whole mechanism, so both ends are pinned.
     expect(CSS).toContain('.biz .layer-legend .lk-sell b, .biz .layer-legend .lk-packed b { color: var(--indigo); }')
