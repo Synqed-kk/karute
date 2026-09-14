@@ -68,6 +68,7 @@ import {
   hhmm,
   labelOfValue,
   PREFS_DEFAULT,
+  previewTemplate,
   RAIL,
   readPrefs,
   matchesQuery,
@@ -79,6 +80,7 @@ import {
   weeklyHoursPayload,
   type RowControl,
   type RowValue,
+  type SettingsBlock,
   type SettingsProps,
   type SettingsSection,
 } from '@/business/lib/settings'
@@ -1597,21 +1599,37 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
 
   it('leg 4 — the linked label carries leadTimeMin, and a lead-time change moves it', async () => {
     const props = await room({ store: STORE_A })
-    expect(
-      (controlOf(props, 'reserve.autorelease').control as { options: Array<{ value: string; label: string }> }).options.find(
+    const linkedOptOf = (p: SettingsProps) =>
+      (controlOf(p, 'reserve.autorelease').control as { options: Array<{ value: string; label: string }> }).options.find(
         (o) => o.value === 'linked',
-      )?.label,
-    ).toContain(`${opsConfig.leadTimeMin}分前`)
+      )
+    expect(linkedOptOf(props)?.label).toContain(`${opsConfig.leadTimeMin}分前`)
+    // ⚖ D-34 item 9 — ONE spelling (`linkedLabel`), read at both the select's
+    // option and the row's own 初期値 line; byte-unchanged at the fixture (60).
+    expect(linkedOptOf(props)?.label).toBe(`直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`)
+    expect(rowsOf(props).find((r) => r.id === 'reserve.row-autorelease')!.trio!.base)
+      .toBe(`初期値: 直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`)
 
     // ⚠ mutant (n)'s settings half — a stored 60 would not follow a moved lead
     // time, so the label must be RE-READ, never typed.
     const props90 = await roomWithOpsConfig({ leadTimeMin: 90 }, { store: STORE_A })
-    const linked90 = (
-      controlOf(props90, 'reserve.autorelease').control as { options: Array<{ value: string; label: string }> }
-    ).options.find((o) => o.value === 'linked')
+    const linked90 = linkedOptOf(props90)
     expect(linked90?.label).toContain('（90分前まで）')
     // …and the STORED value (still the linked default) is untouched by the label move.
     expect(controlOf(props90, 'reserve.autorelease').value).toBe('linked')
+
+    // ⚖ D-34 item 9 — at leadTimeMin 0 the parenthesis is DROPPED: one zero,
+    // one spelling, matching the lead row's own 「制限なし」 rather than a
+    // second 「0分前まで」 beside it.
+    const props0 = await roomWithOpsConfig({ leadTimeMin: 0 }, { store: STORE_A })
+    const linked0 = linkedOptOf(props0)
+    expect(linked0?.label).toBe('直前の空きは売らないと同じ')
+    expect(linked0?.label).not.toContain('（')
+    expect(linked0?.label).not.toContain('0分')
+    const base0 = rowsOf(props0).find((r) => r.id === 'reserve.row-autorelease')!.trio!.base
+    expect(base0).toBe('初期値: 直前の空きは売らないと同じ')
+    expect(base0).not.toContain('（')
+    expect(base0).not.toContain('0分')
   })
 
   it('leg 5 — the guardrail fires ONLY for an explicit number SHORTER than leadTimeMin', async () => {
@@ -2602,7 +2620,8 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     }
     expect(zeroLabelOf('reserve.cutoff')).toBe('締め切らない')
     expect(zeroLabelOf('reserve.lead')).toBe('制限なし')
-    expect(zeroLabelOf('reserve.gapfill')).toBe('販売しない')
+    // ⚖ D-35 (1) — 「販売しない」→「販売なし」 (JP-NATIVE-R3/A2-ZERO-PREVIEW.md §1).
+    expect(zeroLabelOf('reserve.gapfill')).toBe('販売なし')
     expect(zeroLabelOf('reserve.free')).toBe('いつでも無料')
     // …and `labelOfValue` answers the zeroLabel exactly at 0, the real number
     // otherwise — the SAME function the preview sentence and this field's own
@@ -2633,7 +2652,8 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     jest.dontMock('@/business/lib/fixtures-today')
     const props0 = (await mod0.settingsProps({ locale: 'ja', store: STORE_A })).props
     const aside0 = asideLineOf(props0, 'スキマ枠')
-    expect(aside0).toBe('販売しない')
+    // ⚖ D-35 (1) — 「販売しない」→「販売なし」 (JP-NATIVE-R3/A2-ZERO-PREVIEW.md §1).
+    expect(aside0).toBe('販売なし')
     expect(aside0).not.toContain('0分')
     expect(aside0).not.toContain('%引き')
 
@@ -2670,7 +2690,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     const kinds = Object.fromEntries(controlsOf(props).map((c) => [c.id, c.control]))
     const label = (values: Record<string, RowValue>) => (id: string) => (kinds[id] ? labelOfValue(kinds[id], values[id]) : null)
     const windowBlock = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!
-    expect(fillTemplate(windowBlock.preview!.template, label(seed))).toBe(
+    expect(fillTemplate(previewTemplate(windowBlock.preview!, seed), label(seed))).toBe(
       'お客様には30日先まで、60分きざみの開始時刻を出します。直前締切は120分、直前の空き制限は60分、スキマ枠の販売は30分です。対象のスキマ枠は10%引きで掲載します。',
     )
 
@@ -2690,14 +2710,73 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     const kinds0 = Object.fromEntries(controlsOf(props0).map((c) => [c.id, c.control]))
     const label0 = (values: Record<string, RowValue>) => (id: string) => (kinds0[id] ? labelOfValue(kinds0[id], values[id]) : null)
     const windowBlock0 = sectionOf(props0, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!
-    const rendered0 = fillTemplate(windowBlock0.preview!.template, label0(seed0))
+    // ⚖ D-35 (2) — the discount sentence contradicts a gap-fill of zero, so
+    // `previewTemplate` drops it before `fillTemplate` runs — the same order
+    // the screen's own call site now uses.
+    const rendered0 = fillTemplate(previewTemplate(windowBlock0.preview!, seed0), label0(seed0))
     expect(rendered0).toContain('直前の空き制限は制限なし')
-    expect(rendered0).toContain('スキマ枠の販売は販売しない')
+    // ⚖ D-35 (1) — GAPFILL_ZERO_LABEL is 「販売なし」 now (was 「販売しない」, broken
+    // register — JP-NATIVE-R3/A2-ZERO-PREVIEW.md §1).
+    expect(rendered0).toContain('スキマ枠の販売は販売なし')
     // …neither zero-capable clause prints a bare 「0分」 any more — each reads
     // as the STATE it is instead (the 60分きざみ clause is unrelated to either
     // zeroed field, so it is excluded rather than asserting no "0分" at all).
     expect(rendered0).not.toContain('直前の空き制限は0分')
     expect(rendered0).not.toContain('スキマ枠の販売は0分')
+    // ⚖ D-35 (2) pin (iii) — the all-zero case: the discount sentence is gone
+    // (no 「引き」 anywhere) and the rendered sentence ends on the dropped
+    // gap-fill clause.
+    expect(rendered0.endsWith('スキマ枠の販売は販売なしです。')).toBe(true)
+    expect(rendered0).not.toContain('引き')
+  })
+
+  it('⚖ D-34 item 8 — a box the reader has just CLEARED (mid-edit) never reads as the committed zero', async () => {
+    const props = await room({ store: STORE_A })
+    const seed = seedOf(props)
+    const kinds = Object.fromEntries(controlsOf(props).map((c) => [c.id, c.control]))
+    const label = (values: Record<string, RowValue>) => (id: string) => (kinds[id] ? labelOfValue(kinds[id], values[id]) : null)
+    const windowBlock = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!
+    // ⚠ RED under the D-34 item 8 revert (`Number(value) === 0`): `Number('')
+    // === 0` would make this cleared box read as the committed zero.
+    const clearedValues = { ...seed, 'reserve.cutoff': '' }
+    const rendered = fillTemplate(previewTemplate(windowBlock.preview!, clearedValues), label(clearedValues))
+    expect(rendered).not.toContain('締め切らない')
+    // …the pre-existing mid-edit shape (a bare unit with nothing in front of
+    // it) is what an empty string DOES render as — recorded, not this pin's
+    // job to fix.
+    expect(rendered).toContain('直前締切は分')
+  })
+
+  it('⚖ D-35 (2) pin (i) — previewTemplate driven directly: drops the sentence at "0", keeps it otherwise, no-op with no dropWhen', async () => {
+    const props = await room({ store: STORE_A })
+    const seed = seedOf(props)
+    const windowBlock = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!
+    const preview = windowBlock.preview!
+    const dropped = previewTemplate(preview, { ...seed, 'reserve.gapfill': '0' })
+    expect(dropped).not.toContain('引き')
+    // …exactly the named sentence is gone, nothing else about the template moved.
+    expect(dropped + preview.dropWhen!.sentence).toBe(preview.template)
+    const kept = previewTemplate(preview, { ...seed, 'reserve.gapfill': '30' })
+    expect(kept).toBe(preview.template)
+    const noDropWhen: SettingsBlock['preview'] = { template: preview.template }
+    expect(previewTemplate(noDropWhen!, seed)).toBe(preview.template)
+  })
+
+  it('⚖ D-35 (2) pin (ii) — a guard leg: the Reserve window template really contains the sentence it can drop', async () => {
+    const props = await room({ store: STORE_A })
+    const preview = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!.preview!
+    expect(preview.dropWhen?.controlId).toBe('reserve.gapfill')
+    expect(preview.dropWhen?.is).toBe('0')
+    expect(preview.dropWhen!.sentence).toBe('対象のスキマ枠は{reserve.gapdisc}引きで掲載します。')
+    // …a silent no-op drop (a `sentence` the template never contained) is
+    // exactly the failure this leg catches.
+    expect(preview.template.includes(preview.dropWhen!.sentence)).toBe(true)
+  })
+
+  it('⚖ D-35 (2) pin (iv) — the screen resolves the block preview through previewTemplate before fillTemplate, at the one call site', () => {
+    expect(SCREEN_CODE).toContain('fillTemplate(previewTemplate(block.preview, values), labelFor)')
+    // …and the action-result template (a different feature, D-35 does not touch it).
+    expect(SCREEN_CODE).toContain("fillTemplate(action.template, labelFor)")
   })
 
   it('⚖ mock D4 — the lead that points at the live card is TRUE at both widths', async () => {

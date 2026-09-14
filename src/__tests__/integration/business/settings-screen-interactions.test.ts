@@ -963,7 +963,9 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
   it('the preview is FILLED from the live values, never printed raw', () => {
     // A template printed as it stands would show `{store-hours.booking-step}` to
     // a shop owner — the dead preview and the internal-code leak in one edit.
-    expect(SRC_CODE).toContain('{fillTemplate(block.preview.template, labelFor)}')
+    // ⚖ D-35 (2) — `previewTemplate` resolves `dropWhen` BEFORE the fill, at
+    // the same one call site.
+    expect(SRC_CODE).toContain('{fillTemplate(previewTemplate(block.preview, values), labelFor)}')
     expect(SRC_CODE).toContain('return labelOfValue(kind, values[id])')
   })
 

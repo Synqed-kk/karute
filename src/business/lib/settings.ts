@@ -358,7 +358,7 @@ export type ControlKind =
   // start」/「days ahead」/「hours before」 field has no honest bound from the
   // store's own day). A number is a LENGTH's derived ceiling; never a constant.
   // ⚖ D-31/D-32 F4 — `zeroLabel` is the short state a reader reads at 0
-  // (「制限なし」/「販売しない」/…), carried on the control so `labelOfValue` can
+  // (「制限なし」/「販売なし」/…), carried on the control so `labelOfValue` can
   // answer every reader (a preview sentence, this field's own display) from
   // ONE place rather than each one re-deciding what 0 means.
   | { kind: 'number'; min: number; max: number | null; step: number; unit: string; zeroLabel?: string }
@@ -507,8 +507,14 @@ export interface SettingsBlock {
   /** THE DEAD-LEVER LAW, GENERALISED. `template` is resolved against the LIVE
    *  values, so a press really rewrites a sentence the reader is looking at —
    *  canon's own 「このページ内プレビュー」. `{control-id}` is substituted with
-   *  that control's current LABEL. */
-  preview: { template: string; attrs?: Record<string, string> } | null
+   *  that control's current LABEL.
+   *
+   *  ⚖ D-35 — `dropWhen` names ONE sentence that CONTRADICTS a zero state
+   *  (「売らない」 said, then a discount clause for the thing not sold in the
+   *  next breath): a sentence that contradicts a zero state is dropped, not
+   *  reworded — the aside already does the same at D-33 R2. See
+   *  `previewTemplate` below, the one place this is resolved. */
+  preview: { template: string; attrs?: Record<string, string>; dropWhen?: { controlId: string; is: string; sentence: string } } | null
   /** A block-level action button — canon's エクスポートする, 需要履歴をリセット,
    *  招待を送信する, 接続をリクエストする. Pressing it resolves `template` into
    *  the block's result line. `requires` names a chips control that must not be
@@ -680,7 +686,11 @@ export function labelOfValue(control: ControlKind, value: RowValue): string {
     case 'number':
       // ⚖ D-31/D-32 F4 — 0 reads as the STATE it is (「制限なし」…), never as
       // 「0分」 with the meaning quietly flipped underneath it.
-      return Number(value) === 0 && control.zeroLabel ? control.zeroLabel : `${String(value)}${control.unit}`
+      // ⚖ D-34 item 8 — keyed on the COMMITTED zero (`'0'` as text), never
+      // `Number(value) === 0`: the field writes every keystroke into the
+      // live values map, and `Number('') === 0` would make a box the reader
+      // has just cleared read as the zero state before they retype anything.
+      return String(value) === '0' && control.zeroLabel ? control.zeroLabel : `${String(value)}${control.unit}`
     default:
       return String(value)
   }
@@ -707,6 +717,19 @@ export function effectiveLock(c: RowControl, values: Record<string, RowValue>): 
  *  suite pins the untouched form. */
 export function fillTemplate(template: string, label: (id: string) => string | null): string {
   return template.replace(/\{([a-z0-9.-]+)\}/gi, (whole, id: string) => label(id) ?? whole)
+}
+
+/** ⚖ D-35 — a block's preview template, resolved for `dropWhen` BEFORE
+ *  `fillTemplate` runs: when the named control's live value equals `is`, the
+ *  one named `sentence` is removed (a plain, single replace of the exact
+ *  string); otherwise the template is returned unchanged. The template
+ *  still CONTAINS the sentence either way — dropping it is a fact about the
+ *  live values, never about the template's own text. */
+export function previewTemplate(preview: NonNullable<SettingsBlock['preview']>, values: Record<string, RowValue>): string {
+  if (preview.dropWhen && String(values[preview.dropWhen.controlId]) === preview.dropWhen.is) {
+    return preview.template.replace(preview.dropWhen.sentence, '')
+  }
+  return preview.template
 }
 
 /** ⚠ ARRAY VALUES COMPARE BY CONTENT, NOT BY REFERENCE. A chips control whose

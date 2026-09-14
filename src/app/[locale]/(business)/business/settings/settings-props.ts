@@ -1553,8 +1553,30 @@ function sync(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
 
 /** ⚖ D-33 R2 — one spelling for the gap-fill row's `zeroLabel` and the
  *  aside's own reading of the same zero, hoisted so the two payload paths
- *  can never drift apart. */
-const GAPFILL_ZERO_LABEL = '販売しない'
+ *  can never drift apart. ⚖ D-35 (1) — 「販売しない」 → 「販売なし」: the native
+ *  pass found the verb form breaking the page's register the moment a
+ *  preview sentence puts 「です」 right after it (JP-NATIVE-R3/A2-ZERO-
+ *  PREVIEW.md §1); 「なし」止め matches 「制限なし」 beside it. */
+const GAPFILL_ZERO_LABEL = '販売なし'
+
+/** ⚖ D-34 item 9 — ONE spelling for the 確保枠の自動解除 row's linked clause,
+ *  read at both the select's option label and the row's own 初期値 line: at
+ *  a lead time of 0 the parenthesis is DROPPED (「直前の空きは売らないと同じ」
+ *  alone — the sentence already says it follows the lead row, and that row
+ *  carries the word 「制限なし」), otherwise the accepted line is unchanged.
+ *  No new Japanese — an accepted line minus a clause. */
+const linkedLabel = (leadTimeMin: number) =>
+  leadTimeMin === 0 ? '直前の空きは売らないと同じ' : `直前の空きは売らないと同じ（${leadTimeMin}分前まで）`
+
+/** ⚖ D-35 (2) — the Reserve window's block preview split at the ONE sentence
+ *  `previewTemplate` can drop: 「売らないと言った直後に対象の枠を割引掲載する」
+ *  reads as a contradiction at gap-fill 0 that no wording absorbs (native
+ *  read, JP-NATIVE-R3/A2-ZERO-PREVIEW.md §3) — the aside already solves the
+ *  same shape at D-33 R2. `HEAD + DISCOUNT` is byte-identical to §A's
+ *  template; the concatenation is the one thing a pin holds to. */
+const RESERVE_PREVIEW_HEAD =
+  'お客様には{reserve.days}先まで、{reserve.grid}きざみの開始時刻を出します。直前締切は{reserve.cutoff}、直前の空き制限は{reserve.lead}、スキマ枠の販売は{reserve.gapfill}です。'
+const RESERVE_PREVIEW_DISCOUNT = '対象のスキマ枠は{reserve.gapdisc}引きで掲載します。'
 
 function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
   void ctx
@@ -1684,7 +1706,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
               'reserve.autorelease',
               '確保枠の自動解除',
               opts([
-                ['linked', `直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`], // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+                ['linked', linkedLabel(opsConfig.leadTimeMin)], // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
                 ['never', '解除しない'], // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
                 ['minutes', '分で指定'], // FLAG — new JP, blind native pass before Liam sees it
               ]),
@@ -1729,7 +1751,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           {
             scopeLabel: BUSINESS_SCOPE,
             trio: {
-              base: `初期値: 直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`, // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+              base: `初期値: ${linkedLabel(opsConfig.leadTimeMin)}`, // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
               // ⚖ D-17 F5 — THE SAFE STATE IS THREE DIFFERENT TRUTHS, so it is
               // three sentences. One line stood here for all of them — 「解除され
               // ても、そのままオンラインで販売できます。」 — and it is FALSE for the
@@ -1759,7 +1781,10 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         ),
       ], {
-        preview: { template: 'お客様には{reserve.days}先まで、{reserve.grid}きざみの開始時刻を出します。直前締切は{reserve.cutoff}、直前の空き制限は{reserve.lead}、スキマ枠の販売は{reserve.gapfill}です。対象のスキマ枠は{reserve.gapdisc}引きで掲載します。' },
+        preview: {
+          template: RESERVE_PREVIEW_HEAD + RESERVE_PREVIEW_DISCOUNT,
+          dropWhen: { controlId: 'reserve.gapfill', is: '0', sentence: RESERVE_PREVIEW_DISCOUNT },
+        },
         links: [{ label: 'ボードの操作の刻みは店舗情報・営業時間で', sectionId: 'store-hours' }],
         audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -6))}（受付ウィンドウを変更）`,
       }),

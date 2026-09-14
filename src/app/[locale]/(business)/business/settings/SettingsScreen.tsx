@@ -98,6 +98,7 @@ import {
   matchesQuery,
   PREFS_DEFAULT,
   prefsKey,
+  previewTemplate,
   readPrefs,
   rowsOfBlock,
   searchTextOf,
@@ -1598,7 +1599,7 @@ function Block({
           )}
         >
           <div className="st-pv-note">いまの設定での見え方</div>
-          <p className="st-pv-text">{fillTemplate(block.preview.template, labelFor)}</p>
+          <p className="st-pv-text">{fillTemplate(previewTemplate(block.preview, values), labelFor)}</p>
           {block.preview.attrs && (
             <div className="st-pv-board">
               <div className="st-pv-row"><span>10:00 見本 あかり 様</span><span>テスト整体 60分</span></div>
