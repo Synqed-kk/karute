@@ -458,8 +458,18 @@ export function DateJumpPanel({
         ? `translateX(${-slide * 100}%)`
         : 'translateX(0)'
 
-  const pane = (key: MonthKey, ref: RefObject<HTMLDivElement | null>, className?: string) => (
-    <div ref={ref} className={cn('w-full', className)}>
+  // `offscreen` panes stay MOUNTED (the slide needs them drawn) but are inert:
+  // ~40 day buttons per pane in a month clipped out of view were in the tab
+  // order, and the previous month's pane sits FIRST in DOM order, so tabbing
+  // off the header walked into a month nobody could see — and Enter there
+  // navigated to a date nobody chose.
+  const pane = (
+    key: MonthKey,
+    ref: RefObject<HTMLDivElement | null>,
+    className?: string,
+    offscreen = false,
+  ) => (
+    <div ref={ref} className={cn('w-full', className)} inert={offscreen || undefined}>
       <MonthGrid
         cells={cellsFor(key)}
         copy={{ weekdayLabels }}
@@ -552,6 +562,10 @@ export function DateJumpPanel({
               transitionDuration: reduced ? '0ms' : '160ms',
             }}
             aria-hidden={atMonths}
+            // aria-hidden on a subtree whose ~110 buttons stayed focusable is
+            // the aria-hidden-focus violation; inert is what actually takes
+            // them out of the tab order.
+            inert={atMonths || undefined}
           >
             <div
               ref={gridRef}
@@ -575,9 +589,9 @@ export function DateJumpPanel({
                       : `transform ${SLIDE_MS}ms cubic-bezier(0.32,0.72,0,1)`,
                 }}
               >
-                {pane(prevKey, paneRefs.prev, 'absolute -left-full top-0')}
+                {pane(prevKey, paneRefs.prev, 'absolute -left-full top-0', true)}
                 {pane(state.visibleMonth, paneRefs.current)}
-                {pane(nextKey, paneRefs.next, 'absolute left-full top-0')}
+                {pane(nextKey, paneRefs.next, 'absolute left-full top-0', true)}
               </div>
             </div>
 
@@ -648,6 +662,7 @@ export function DateJumpPanel({
               transitionDuration: reduced ? '0ms' : '160ms',
             }}
             aria-hidden={!atMonths}
+            inert={!atMonths || undefined}
           >
             <div className="grid grid-cols-4 gap-2">
               {Array.from({ length: 12 }, (_, i) => {
@@ -658,7 +673,6 @@ export function DateJumpPanel({
                     key={month}
                     type="button"
                     aria-pressed={isCurrent}
-                    tabIndex={atMonths ? undefined : -1}
                     onClick={() => jumpToMonth(monthKeyOf(state.year, month))}
                     className={cn(
                       'inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border text-sm font-semibold tabular-nums transition-transform duration-100 active:scale-[0.97]',

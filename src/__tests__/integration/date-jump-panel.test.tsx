@@ -480,6 +480,62 @@ describe('reopening re-reads the months, showing the old counts meanwhile', () =
   })
 })
 
+/**
+ * R3 — the blind round counted ~110 invisible day buttons in the tab order,
+ * seventy of them belonging to months clipped out of view, and level 1 keeping
+ * all of them focusable under aria-hidden while level 2 was open (the
+ * aria-hidden-focus violation). `inert` is what actually removes a subtree.
+ */
+describe('only what is on screen is reachable by keyboard', () => {
+  /** jsdom does not implement inert's focus behaviour, so count the way a
+   *  browser would: focusable elements with no inert ancestor. */
+  const reachable = () =>
+    Array.from(
+      screen.getByRole('dialog').querySelectorAll<HTMLElement>('button, [tabindex]'),
+    ).filter((el) => !el.closest('[inert]'))
+
+  it('the previous and next month panes are out of the tab order', async () => {
+    renderView()
+    await openPanel()
+    await waitFor(() => expect(screen.getAllByTestId('month-grid')).toHaveLength(3))
+
+    const panes = screen.getAllByTestId('month-grid')
+    expect(panes[0].closest('[inert]')).not.toBeNull() // previous month
+    expect(panes[1].closest('[inert]')).toBeNull() // the month on screen
+    expect(panes[2].closest('[inert]')).not.toBeNull() // next month
+
+    // Every day button that IS reachable belongs to the centre pane.
+    const days = reachable().filter((el) => el.hasAttribute('data-day'))
+    expect(days.length).toBeGreaterThan(0)
+    expect(days.every((el) => panes[1].contains(el))).toBe(true)
+  })
+
+  it('level 1 leaves the tab order while the month chips are up, and comes back', async () => {
+    renderView()
+    await openPanel()
+    const dialog = screen.getByRole('dialog')
+    const grid = () => within(dialog).getAllByTestId('month-grid')[1]
+    const chips = () => within(dialog).queryAllByRole('button', { pressed: false })
+
+    expect(grid().closest('[inert]')).toBeNull()
+    expect(reachable().some((el) => el.hasAttribute('data-day'))).toBe(true)
+
+    fireEvent.click(title())
+    await waitFor(() =>
+      expect(within(dialog).getByRole('button', { expanded: true })).toHaveTextContent('2026年'),
+    )
+    // The grid, its legend and 今日 are all gone from the tab order…
+    expect(grid().closest('[inert]')).not.toBeNull()
+    expect(reachable().some((el) => el.hasAttribute('data-day'))).toBe(false)
+    // …and the twelve month chips are the reachable controls instead.
+    expect(chips().every((el) => !el.closest('[inert]'))).toBe(true)
+
+    fireEvent.click(within(dialog).getByRole('button', { expanded: true }))
+    await waitFor(() => expect(grid().closest('[inert]')).toBeNull())
+    expect(reachable().some((el) => el.hasAttribute('data-day'))).toBe(true)
+  })
+})
+
 describe('the hidden native date input is gone', () => {
   it('AppointmentsView no longer renders one — the chip is the only door to a date', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
