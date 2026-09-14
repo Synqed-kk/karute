@@ -23,8 +23,8 @@ export interface StaffPerformance {
   focusAreas: string[] // categorical labels
   isTopPerformer: boolean
   /** True when this staff has completed CoachingConsentDialog
-   *  with status='granted'. Owner-side mutations (assign module,
-   *  show in StaffPerformanceTable) should gate on this. */
+   *  with status='granted'. Personal AI coaching depends on consent;
+   *  module assignment does not (COACHING_VISIBILITY_MODEL §7). */
   consentGiven: boolean
   /** Drill-down only: months at the salon (header sub-label). */
   tenureMonths?: number
