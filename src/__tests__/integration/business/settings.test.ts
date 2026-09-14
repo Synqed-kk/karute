@@ -91,7 +91,7 @@ import {
 import { settingsHref } from '@/business/lib/settings-link'
 import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
 // ⚡ R2 BRANCH C — the dial's own mapping pair + choice list (⚖ D-11, CONTRACTS-R2 §1).
-import { AUTO_RELEASE_CHOICES, autoReleaseFromWire, autoReleaseToWire } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
+import { AUTO_RELEASE_CHOICES, autoReleaseFromWire, autoReleaseToWire, NEW_CLIENT_DEFAULT_MIN } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
@@ -1564,6 +1564,63 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
     // fabricated number — the same doctrine ⚖ D-11 states for `undefined`.
     expect(autoReleaseFromWire('0' as never)).toBe('linked')
     expect(autoReleaseFromWire('abc' as never)).toBe('linked')
+  })
+
+  it('⚖ D-25 F6 — a widened choice ships its own honest label, never a blank one', () => {
+    // The day A2 adds a fifth choice, the four-key lookup returns `undefined`
+    // — the cast tells tsc not to look — so the fallback is the behaviour fix.
+    expect(PROPS_CODE).toContain('?? `${choice}分前まで`')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ D-25 — fix round 1 on A1: the READ goes through the parser, and the
+// browser gets geometry only (privacy at the reconnect boundary).
+describe('⚖ D-25 F1 — the stored value meets readMinutes before it becomes newClientMinutes', () => {
+  /** Same `isolateModulesAsync` + `doMock` idiom `roomWithOpsConfig` above
+   *  uses, scoped to `newClientSessionMin` — the only way to move that
+   *  module constant for one render. Returns the SECTION's own `storePolicy`
+   *  (not `.props`), since `newClientMinutes` lives there. */
+  const policyWithNewClientMin = async (newClientSessionMin: number, input: { store?: string }) => {
+    jest.doMock('@/business/lib/fixtures-today', () => {
+      const actual = jest.requireActual('@/business/lib/fixtures-today')
+      return { ...actual, opsConfig: { ...actual.opsConfig, newClientSessionMin } }
+    })
+    let mod!: typeof import('@/app/[locale]/(business)/business/settings/settings-props')
+    await jest.isolateModulesAsync(async () => {
+      mod = await import('@/app/[locale]/(business)/business/settings/settings-props')
+    })
+    jest.dontMock('@/business/lib/fixtures-today')
+    const { storePolicy } = await mod.settingsProps({ locale: 'ja', store: input.store })
+    if (storePolicy === null) throw new Error('this reader is not given 予約と確保’s payload')
+    return storePolicy
+  }
+
+  it('a meaningless stored value reads as the product default, never a fabricated 0', async () => {
+    // `operatingHours` is 10:00–19:00 (540 minutes) — the fixture's own
+    // ceiling, so 10000 is refused the same way 0 is: too long, not too short.
+    expect((await policyWithNewClientMin(0, { store: STORE_A })).policy.newClientMinutes).toBe(NEW_CLIENT_DEFAULT_MIN)
+    expect((await policyWithNewClientMin(100, { store: STORE_A })).policy.newClientMinutes).toBe(100)
+    expect((await policyWithNewClientMin(10000, { store: STORE_A })).policy.newClientMinutes).toBe(NEW_CLIENT_DEFAULT_MIN)
+  })
+
+  it('⚖ F7 — no customer name reaches the browser payload; the lanes cross with geometry only', async () => {
+    const storePolicy = await policyOf({ store: STORE_A })
+    const wire = JSON.stringify(storePolicy.sceneInput)
+    // Three of TODAY's real STORE_A customers (`fixtures.ts` `appointments()`,
+    // day-0 slots apt-12 / apt-25 / apt-14) — the exact names
+    // `today-board.ts`'s `title`/`label` carried before the boundary blanked
+    // them. RED-FIRST, run by hand against efaa1615c before `blankLaneNames`
+    // landed (`store-policy-props.ts` temporarily reverted to `lanes,`):
+    //   Expected substring: not "見本 いつき"
+    //   Received string: "{\"lanes\":[{...,\"items\":[...,\"title\":\"見本 いつき\",
+    //     \"tag\":\"【ベッド1】\",...,\"label\":\"10:00–11:00 見本 いつき様 / 新規 /
+    //     見本 しろう / ベッド1 / 確定・施術\"}...]}...}"
+    //   at settings.test.ts:1617
+    // — failed as expected; GREEN after the revert was undone.
+    for (const name of ['見本 いつき', 'テスト えいた', '見本 かえる']) {
+      expect(wire).not.toContain(name)
+    }
   })
 })
 

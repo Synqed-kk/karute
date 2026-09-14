@@ -50,7 +50,7 @@ import {
 } from '@/business/lib/data'
 import { buildLanes, dayBookings, hhmm, minuteOf, place, type BoardLane, type BuildInput, type Hours } from '@/business/lib/today-board'
 import { clampCalendarTight, guardVerdictAt, lossOf } from '../today/today-interactions'
-import { liveFieldsFrom, saveRefusal } from './store-policy-seam'
+import { dayLengthMin, liveFieldsFrom, NEW_CLIENT_DEFAULT_MIN, readMinutes, saveRefusal } from './store-policy-seam'
 import { type SceneInput, type StorePolicyProps } from './StorePolicySection'
 
 const DAY_MS = 86_400_000
@@ -157,6 +157,10 @@ export async function storePolicyProps({
   const bookings = dayBookings(input)
   const lanes = buildLanes(input, bookings)
   const hours: Hours = { open: planes.operatingHours.open, close: planes.operatingHours.close }
+  // ⚖ D-25 F1/F11 — ONE HOME, computed once: the same ceiling reads the
+  // stored value through `readMinutes` below AND ships as `dayLenMin` for
+  // the client's own commit (`props.dayLenMin` in `StorePolicySection`).
+  const dayLenMin = dayLengthMin(hours)
   const staffLanes = lanes.filter((l) => l.group === 'staff' && l.window != null)
   const dur = planes.opsConfig.standardSessionMin
 
@@ -204,6 +208,21 @@ export async function storePolicyProps({
   const sampleLane: BoardLane | null = picked?.lane ?? null
   const sampleStart = picked?.start ?? 0
 
+  /** ⚖ D-25 F7 — THE LANES CROSS TO THE BROWSER WITH GEOMETRY ONLY. The two
+   *  engines `sceneInput` feeds (`protectedCapacityOf`, `guardVerdictAt`)
+   *  read `items[].startMin/endMin/x/w/kind`, the lane's own
+   *  `window`/`group`/`key`/`stores`/`roomClass`/`listPrice` — never a naming
+   *  field. Blanked HERE, at the boundary, rather than trusted to "nobody
+   *  renders it": `title`/`tag`/`label` (all carry or compose
+   *  `today-board.ts`'s `customerName`) → `''`, `caseId`/`ticketCat`/
+   *  `ticketCore` → `null`. `key` stays — an opaque id
+   *  (`${bookingId}-${suffix}`), not a name. Type unchanged (`BoardLane[]`). */
+  const blankLaneNames = (ls: BoardLane[]): BoardLane[] =>
+    ls.map((l) => ({
+      ...l,
+      items: l.items.map((it) => ({ ...it, title: '', tag: '', label: '', caseId: null, ticketCat: null, ticketCore: null })),
+    }))
+
   /** ⚖ D-15 — THE LENGTH IS FREE, SO THE SCENE MOVES CLIENT-SIDE. A scene can
    *  no longer be precomputed per fixed choice (there is no fixed choice); the
    *  browser now asks `computeScene` (`StorePolicySection.tsx`) for the guard's
@@ -219,7 +238,7 @@ export async function storePolicyProps({
    *  so everything else (`services`, `protectedLabel`, `gapFillMinMin`,
    *  `blockStepMin`, `leadTimeMin`) is exactly this object, computed once. */
   const sceneInput: SceneInput = {
-    lanes,
+    lanes: blankLaneNames(lanes),
     hours,
     stepMin: RAIL_STEP_MIN,
     dur,
@@ -306,7 +325,14 @@ export async function storePolicyProps({
       // turned the guard ON without anyone pressing anything.
       mode: live.gap_guard_mode,
       holdToConfirm: planes.opsConfig.overrideHoldToConfirm,
-      newClientMinutes: live.new_client_session_minutes,
+      // ⚖ D-25 F1 — THE READ GOES THROUGH THE PARSER. `liveFieldsFrom` never
+      // refuses a read (a store whose value the wire cannot yet re-accept is
+      // still honestly readable); this is where that raw number meets the
+      // three refusals, so a meaningless stored value (0, negative, a
+      // fraction) cannot reopen the fabricated 「0枠」 alarm 9/1 F4b killed.
+      // Unreachable on the fixture today (`fixtures-today.ts` ships 90), real
+      // the moment the wire replaces it.
+      newClientMinutes: readMinutes(live.new_client_session_minutes, dayLenMin) ?? NEW_CLIENT_DEFAULT_MIN,
       heldRankAccess: planes.opsConfig.heldRankAccess,
       // すき間の販売 — the store's own 販売可能な最小の長さ is what turns it off:
       // above zero the board advertises the leftovers, at zero it does not
@@ -334,7 +360,7 @@ export async function storePolicyProps({
     sceneInput,
     // ⚖ D-15 — THE DERIVED CEILING. A length is refused only past the store's
     // own operating day; never a number this file invents.
-    dayLenMin: hours.close - hours.open,
+    dayLenMin,
     sample:
       sampleLane === null
         ? null

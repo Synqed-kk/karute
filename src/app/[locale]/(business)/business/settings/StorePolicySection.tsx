@@ -120,11 +120,26 @@ export function computeScene(input: SceneInput, mode: GapGuardMode, minutes: num
     guard: { ...input.guardBase, newClientSessionMin: minutes, mode: strict ? ('strict' as const) : ('standard' as const) },
   })
   const capacity = protectedCapacityOf(input.lanes, railInput(false))
+  // ⚖ D-25 F2 — THE SEAM'S OWN OFF ANSWER, ASKED HERE TOO. This used to spell
+  // `mode === 'OFF'` inline — a second, coincidentally-matching definition of
+  // OFF beside the screen's own `sceneKeyFor(mode, minutes) === null`. One
+  // home now: the two can no longer drift apart because there is only one of
+  // them to drift.
   const cell =
-    mode === 'OFF' || input.sampleLaneKey === null
+    sceneKeyFor(mode, minutes) === null || input.sampleLaneKey === null
       ? null
       : guardVerdictAt(input.lanes, input.sampleLaneKey, input.sampleStart, railInput(mode === 'STRICT'))
   return { capacity, cell }
+}
+
+/** ⚖ D-25 F3 — THE FREE-LENGTH COMMIT, LIFTED TO ONE PURE HOME. Both 新規の
+ *  お客様の確保 and 予約の刻み call this from their own onBlur; before this it
+ *  was a four-line body repeated at each call site, pinned only by a source
+ *  substring (`setMinutes(commit.value)`) a snap elsewhere on the path could
+ *  dodge. Same shape `commitNumberField` already gives every free-minute
+ *  field: `SLOT_MIN` floor, the caller's own ceiling, '分' unit. */
+export function commitMinutes(text: string, lastGood: number, ceiling: number): { value: number; message: string | null } {
+  return commitNumberField(text, lastGood, SLOT_MIN, ceiling, '分')
 }
 
 export interface StorePolicyProps {
@@ -508,7 +523,10 @@ export function StorePolicySection(props: StorePolicySectionProps) {
   /** ⚖ 9/1 (fix round 1 F4) — WHETHER THERE IS A SCENE TO PREVIEW AT ALL: the
    *  guard is OFF for this store, so there is no verdict to preview and the
    *  card below is not drawn. The seam still owns the OFF answer (`null`), so
-   *  this screen and `computeScene` cannot disagree about what OFF means. */
+   *  this screen and `computeScene` cannot disagree about what OFF means —
+   *  ⚖ D-25 F2: `computeScene`'s own cell branch asks `sceneKeyFor` too now,
+   *  the same call this line makes, so the claim is true by construction and
+   *  not merely by two spellings agreeing today. */
   const guardOff = sceneKeyFor(mode, minutes) === null
   /** ⚖ 9/1 (fix round 1 F4b) — AND AT OFF THE CAPACITY IS STILL THE REAL ONE.
    *  A `{ capacity: 0 }` fallback would print the amber 「この長さでは…ひとつも
@@ -526,6 +544,14 @@ export function StorePolicySection(props: StorePolicySectionProps) {
    *  card — only a completed commit does, exactly like every other engine read
    *  in this room. */
   const scene = useMemo(() => computeScene(props.sceneInput, mode, minutes), [props.sceneInput, mode, minutes])
+  /** ⚖ D-25 F4 — THE BOX CAN READ SOMETHING THE CARD HAS NOT SEEN YET. The
+   *  typed value already drives the preset chip (`dials.minutes`, above); the
+   *  capacity line below still read the OLD committed `minutes` mid-edit, so a
+   *  manager could type 100, watch プリセット flip to カスタム, and read 90分's
+   *  count beside it as the answer to what they just typed (⚖ 8/21
+   *  mistake-proofing: staff CAN'T err). No new state — this is the same
+   *  `minutesText`/`minutes` pair already held, compared at render. */
+  const minutesPending = minutesText.trim() !== String(minutes)
 
   /** THE CARD, composed by the BOARD'S OWN function. Every branch of it —
    *  the three faces, the hold/press/approval commit, the provenance line, the
@@ -952,7 +978,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       setMinutesText(clean)
                     }}
                     onBlur={() => {
-                      const commit = commitNumberField(minutesText, lastGoodMinutes.current, SLOT_MIN, props.dayLenMin, '分')
+                      const commit = commitMinutes(minutesText, lastGoodMinutes.current, props.dayLenMin)
                       setMinutesText(String(commit.value))
                       setMinutes(commit.value)
                       setMinutesWarn(false)
@@ -971,11 +997,19 @@ export function StorePolicySection(props: StorePolicySectionProps) {
             </p>
             {/* ⚖ THE GUARDRAIL, from the store's real day through the guard
                 engine's own `protectedCapacity` — never a count this room
-                derives. ⚖ 8/25 — the number says WHAT it counts. */}
-            <p className={`st-ctrl-d${scene.capacity === 0 ? ' warn' : ' dim'}`} aria-live="polite">
-              {scene.capacity === 0
-                ? `この長さでは、この店舗の1日に新規のお客様の確保枠をひとつも作れません（0枠）`
-                : `この店舗では、1日に新規のお客様の確保枠を${scene.capacity}枠作れます`}
+                derives. ⚖ 8/25 — the number says WHAT it counts.
+                ⚖ D-25 F4 — AND ONLY WHILE THE FIELD AGREES WITH WHAT IS
+                COMMITTED. While typed ≠ committed, this line says so instead
+                of showing the pre-edit count — modelled on this room's own
+                save-bar 反映されます grammar (「保存はこの画面の中だけに反映され
+                ます」, below). Same `st-ctrl-d dim` class, `aria-live`
+                unchanged; no new sentence spelled twice. */}
+            <p className={`st-ctrl-d${minutesPending || scene.capacity !== 0 ? ' dim' : ' warn'}`} aria-live="polite">
+              {minutesPending
+                ? '入力中です。欄を離れると反映されます'
+                : scene.capacity === 0
+                  ? `この長さでは、この店舗の1日に新規のお客様の確保枠をひとつも作れません（0枠）`
+                  : `この店舗では、1日に新規のお客様の確保枠を${scene.capacity}枠作れます`}
             </p>
           </section>
 
@@ -1050,7 +1084,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                        what it did. Out of range still clamps, and says which
                        range. */
                     onBlur={() => {
-                      const commit = commitNumberField(slotText, lastGoodSlot.current, SLOT_MIN, props.dayLenMin, '分')
+                      const commit = commitMinutes(slotText, lastGoodSlot.current, props.dayLenMin)
                       setSlotText(String(commit.value))
                       setSlotWarn(false)
                       setSlotMsg(commit.message)
@@ -1270,8 +1304,17 @@ export function StorePolicySection(props: StorePolicySectionProps) {
  *  `!(x >= SLOT_MIN)` rather than `x < SLOT_MIN` for the one reason that
  *  spelling exists in this codebase: NaN fails EVERY comparison, so `<` would
  *  let an empty or non-numeric field through and `String(NaN)` would land
- *  「NaN」 in the box. Same shape as `impactOf`'s own `!(protectedDur > 0)`. */
-function clampSlot(value: number, ceiling: number): number {
+ *  「NaN」 in the box. Same shape as `impactOf`'s own `!(protectedDur > 0)`.
+ *
+ *  ⚖ D-25 L2 FOLD (m5) — EXPORTED so its own ceiling is pinned directly
+ *  (`settings-room.test.ts`), not only through the nudge buttons that call
+ *  it: nothing else in the battery drove `clampSlot`'s return value on its
+ *  own, so a mutant dropping `Math.min(ceiling, …)` survived the whole
+ *  battery green. The committed value stays safe either way
+ *  (`commitNumberField`'s own `clampInt` re-clamps to the same ceiling on
+ *  blur) — this only ever affects the live text box between a nudge click
+ *  and the next blur. */
+export function clampSlot(value: number, ceiling: number): number {
   if (!(Number.isFinite(value) && value >= SLOT_MIN)) return SLOT_MIN
   return Math.min(ceiling, Math.round(value))
 }

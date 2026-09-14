@@ -1624,12 +1624,17 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
                   // field); `AUTO_RELEASE_CHOICES` is unchanged in A1, so
                   // `choice` is one of exactly these four at runtime — the cast
                   // is a type-only fix for that widening, not a behaviour change.
+                  // ⚖ D-25 F6 — AND THE FALLBACK IS THE BEHAVIOUR FIX: the day
+                  // A2 adds a fifth choice, the four-key lookup would return
+                  // `undefined` and tsc — told not to look by the cast — would
+                  // not catch it. `?? `${choice}分前まで`` below means a widened
+                  // choice ships its own honest label instead of a blank one.
                   {
                     linked: `直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`, // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
                     never: '解除しない', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
                     '30': '30分前まで', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
                     '120': '120分前まで', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
-                  }[choice as 'linked' | 'never' | '30' | '120'],
+                  }[choice as 'linked' | 'never' | '30' | '120'] ?? `${choice}分前まで`,
                 ]),
               ),
               autoReleaseToWire(opsConfig.autoReleaseBeforeMin),

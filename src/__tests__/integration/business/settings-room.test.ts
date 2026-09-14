@@ -27,8 +27,8 @@ import { commitNumberField } from '@/business/lib/settings'
 import { createGapGuard } from '@/business/lib/canon-logic/gap-guard'
 import { freePockets } from '@/business/lib/canon-logic/availability'
 import type { BoardLane } from '@/business/lib/today-board'
-import { liveFieldsFrom, readMinutes, saveRefusal, sceneKeyFor } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
-import { computeScene, type SceneInput } from '@/app/[locale]/(business)/business/settings/StorePolicySection'
+import { dayLengthMin, liveFieldsFrom, readMinutes, saveRefusal, sceneKeyFor } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
+import { clampSlot, commitMinutes, computeScene, type SceneInput } from '@/app/[locale]/(business)/business/settings/StorePolicySection'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
@@ -455,11 +455,14 @@ describe('⚖ D-15 RULED — 新規のお客様の確保 is ANY positive minutes
     // 新規のお客様の確保, then 予約の刻み, then 残りわずかの目安.
     const inputs = openingTags(SCREEN_CODE, 'input')
     expect(inputs.map((t) => /id="(\w+)"/.exec(t)?.[1])).toEqual(['stMinutes', 'stSlot', 'stTight'])
-    // …and it commits through the SAME function the sibling fields use, never a
-    // second copy of the empty-box/out-of-range fallback.
-    expect(SCREEN_CODE).toContain("commitNumberField(minutesText, lastGoodMinutes.current, SLOT_MIN, props.dayLenMin, '分')")
+    // …and it commits through the SAME pure function BOTH free-length fields
+    // call — not a per-field copy of `commitNumberField`'s own four-line body
+    // (⚖ D-25 F3). A snap anywhere on either call site goes red here, not
+    // just at one field's own spelling.
+    expect(SCREEN_CODE).toContain('commitMinutes(minutesText, lastGoodMinutes.current, props.dayLenMin)')
+    expect(SCREEN_CODE).toContain('commitMinutes(slotText, lastGoodSlot.current, props.dayLenMin)')
     // ⚖ NEVER SNAPPED — the committed value IS `commit.value` (whatever
-    // `commitNumberField` actually accepted), never a nearby fixed choice.
+    // `commitMinutes` actually accepted), never a nearby fixed choice.
     expect(SCREEN_CODE).toContain('setMinutes(commit.value)')
   })
 
@@ -468,9 +471,15 @@ describe('⚖ D-15 RULED — 新規のお客様の確保 is ANY positive minutes
       .toEqual({ gap_guard_mode: 'STANDARD', new_client_session_minutes: 90 })
     expect(liveFieldsFrom({ gapGuardMode: 'strict', newClientSessionMinutes: 60 }).gap_guard_mode).toBe('STRICT')
     expect(liveFieldsFrom({ gapGuardMode: 'off', newClientSessionMinutes: 75 }).gap_guard_mode).toBe('OFF')
+    // ⚖ D-25 F9 — the READ side is honest OFF the old three-choice ladder too:
+    // a stored value the write union cannot re-accept still reads as itself.
+    expect(liveFieldsFrom({ gapGuardMode: 'standard', newClientSessionMinutes: 100 }).new_client_session_minutes).toBe(100)
     // …and the page reads them THROUGH it, so the reconnect is one function body.
     expect(PAGE_CODE).toContain('liveFieldsFrom({')
     expect(PAGE_CODE).toContain('live.new_client_session_minutes')
+    // ⚖ D-25 F1 — AND THE RAW READ MEETS THE PARSER before it becomes the
+    // policy's `newClientMinutes`; the default is the seam's ONE home for it.
+    expect(PAGE_CODE).toContain('readMinutes(live.new_client_session_minutes, dayLenMin) ?? NEW_CLIENT_DEFAULT_MIN')
   })
 
   it('⚖ F4 — the guard’s THIRD state crosses whole, and is never collapsed into STANDARD', () => {
@@ -512,7 +521,9 @@ describe('⚖ D-15 RULED — 新規のお客様の確保 is ANY positive minutes
     // missing lookup used to fall back to — so the honest number is there even
     // with the guard off, and `cell` alone is what OFF suppresses.
     expect(SCREEN_CODE).toContain('const capacity = protectedCapacityOf(input.lanes, railInput(false))')
-    expect(SCREEN_CODE).toContain("mode === 'OFF' || input.sampleLaneKey === null")
+    // ⚖ D-25 F2 — computeScene's own OFF check asks the SEAM now, the same
+    // call the screen's `guardOff` makes, not a second inline spelling of it.
+    expect(SCREEN_CODE).toContain("sceneKeyFor(mode, minutes) === null || input.sampleLaneKey === null")
 
     // The rule itself, driven against the REAL `computeScene` — not a hand
     // re-implementation of it, which is exactly how ⚖ 54's class of bug hides.
@@ -548,6 +559,87 @@ describe('⚖ D-15 RULED — 新規のお客様の確保 is ANY positive minutes
     expect(SCREEN_CODE).toContain("aria-pressed={mode === 'STRICT'}")
     expect(SCREEN_CODE).toContain("aria-pressed={mode === 'STANDARD'}")
     expect(SCREEN_CODE).not.toMatch(/aria-pressed=\{!strict\}/)
+  })
+})
+
+// ── ⚖ D-25 — fix round 1 on A1 (the read goes through the parser; one home
+// for OFF and for the ceiling; the browser gets geometry only) ─────────────
+
+describe('⚖ D-25 — the read goes through readMinutes, and the two accepted sets are pinned equal', () => {
+  it('equivalence — readMinutes accepts v ⇔ commitNumberField(String(v), 90, 1, 600, \'分\') commits v UNCLAMPED, at the same ceiling', () => {
+    for (const v of [1, 45, 60, 75, 90, 100, 240, 600, 601, 0, -5, 1.5, Number.NaN]) {
+      const accepted = readMinutes(v, 600) !== null
+      const commit = commitNumberField(String(v), 90, 1, 600, '分')
+      const committedUnclamped = commit.message === null && commit.value === v
+      expect({ v, accepted }).toEqual({ v, accepted: committedUnclamped })
+    }
+  })
+
+  it('dayLengthMin is the ONE ceiling — floored at 1 so a zero-length day cannot refuse everything', () => {
+    expect(dayLengthMin({ open: 600, close: 1140 })).toBe(540)
+    expect(dayLengthMin({ open: 600, close: 600 })).toBe(1)
+    // ⚖ D-25 F11 — a closed-all-day store would otherwise derive a ceiling of
+    // 0, and `clampInt(n, 1, 0)` answers 0 for every n (`Math.min(0, …)`).
+    expect(dayLengthMin({ open: 600, close: 599 })).toBe(1)
+  })
+
+  it('commitMinutes IS commitNumberField at the field\'s own floor — driven, not asserted', () => {
+    expect(commitMinutes('100', 90, 600)).toEqual({ value: 100, message: null })
+    const empty = commitMinutes('', 90, 600)
+    expect(empty.value).toBe(90)
+    expect(empty.message).not.toBeNull()
+    const zero = commitMinutes('0', 90, 600)
+    expect(zero.value).toBe(1)
+    expect(zero.message).not.toBeNull()
+    const over = commitMinutes('700', 90, 600)
+    expect(over.value).toBe(600)
+    expect(over.message).not.toBeNull()
+  })
+
+  /** ⚖ D-25 L2 FOLD (m5) — `clampSlot`'s own return value, pinned directly.
+   *  Nothing else in the battery drove it (only the nudge buttons call it),
+   *  so a mutant dropping its `Math.min(ceiling, …)` survived the whole
+   *  battery green — confirmed RED-first against that exact mutant before
+   *  this pin existed (FIX-REPORT-R3-A1-F1, gate 6). */
+  it('clampSlot floors AND ceilings, standalone', () => {
+    expect(clampSlot(700, 600)).toBe(600)
+    expect(clampSlot(0, 600)).toBe(1)
+    expect(clampSlot(Number.NaN, 600)).toBe(1)
+    expect(clampSlot(75, 600)).toBe(75)
+  })
+
+  it('⚖ F8 — computeScene itself, driven across the free range: capacity non-increasing, OFF === STANDARD at every m, OFF cell always null', () => {
+    const lane: BoardLane = {
+      key: 'p-01', group: 'staff', label: 'テスト', sub: '', absentNote: null, mine: false,
+      items: [], window: { from: 600, until: 1200 }, untilLabel: null, listPrice: 7000, stores: null, roomClass: null,
+    }
+    const sceneInput: SceneInput = {
+      lanes: [lane],
+      hours: { open: 600, close: 1200 },
+      stepMin: 30,
+      dur: 60,
+      nowMinute: null,
+      sampleLaneKey: lane.key,
+      sampleStart: 900,
+      guardBase: { services: [{ name: '見本', dur: 60 }], protectedLabel: '新規', gapFillMinMin: 0, blockStepMin: 15, leadTimeMin: 0 },
+    }
+    let prevCapacity = Infinity
+    for (const m of [1, 45, 60, 75, 90, 100, 240]) {
+      const std = computeScene(sceneInput, 'STANDARD', m)
+      const off = computeScene(sceneInput, 'OFF', m)
+      expect(std.capacity).toBeLessThanOrEqual(prevCapacity)
+      prevCapacity = std.capacity
+      expect(off.capacity).toBe(std.capacity)
+      expect(off.cell).toBeNull()
+    }
+  })
+
+  it('⚖ F7 — the browser payload carries geometry, not the store\'s naming fields', () => {
+    // The two engines read `items[].startMin/endMin/x/w/kind` and the lane's
+    // own `window`/`group`/`key`/`stores`/`roomClass`/`listPrice` — never a
+    // naming field. Blanked at the boundary, source-pinned here.
+    expect(PAGE_CODE).toContain('title: \'\', tag: \'\', label: \'\', caseId: null, ticketCat: null, ticketCore: null')
+    expect(PAGE_CODE).toContain('lanes: blankLaneNames(lanes)')
   })
 })
 
@@ -969,8 +1061,9 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     expect(SCREEN_CODE).toContain("? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'")
     expect(SCREEN_CODE).toContain(": (slotMsg ?? '数字以外は保存されません')}")
     // …and the new sentence is the room's ONE rule for an emptied number field,
-    // not a second copy of it written for this section.
-    expect(SCREEN_CODE).toContain('const commit = commitNumberField(slotText, lastGoodSlot.current, SLOT_MIN, props.dayLenMin, \'分\')')
+    // not a second copy of it written for this section (⚖ D-25 F3 — through
+    // `commitMinutes`, the one pure home both free-length fields call).
+    expect(SCREEN_CODE).toContain('const commit = commitMinutes(slotText, lastGoodSlot.current, props.dayLenMin)')
     expect(SCREEN_CODE).toContain('setSlotMsg(commit.message)')
     expect(SCREEN_CODE).not.toContain('setSlotText(String(clampSlot(Number(slotText))))')
     // The two states are DIFFERENT text, which is the whole of the fix — a region

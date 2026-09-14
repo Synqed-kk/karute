@@ -66,8 +66,12 @@ export interface LiveStorePolicy {
 /** ⚖ D-15 — THE ONE HOME OF THE THREE REFUSALS. Every duration in a SYNQED
  *  product is a per-store setting holding ANY positive number of minutes; the
  *  only meaningless values are non-finite, non-integer, ≤ 0, or longer than a
- *  bound the caller derives (never a number this file invents). Every wire
- *  read and every row commit goes through this function.
+ *  bound the caller derives (never a number this file invents). ⚖ D-25 F1 —
+ *  the one home of the three refusals for every value arriving from the wire
+ *  or the stored policy; the section's own field commits through the page's
+ *  `commitNumberField` with the same floor and ceiling — the two accepted
+ *  sets are identical and pinned so (`settings-room.test.ts`'s equivalence
+ *  leg).
  *
  *  `ceiling`: `null` for a field with no honest derivation from the store's
  *  hours (a 「minutes before start」/「days ahead」 field — a 1-week cut-off is a
@@ -79,6 +83,16 @@ export function readMinutes(raw: unknown, ceiling: number | null): number | null
   if (ceiling !== null && n > ceiling) return null
   return n
 }
+
+/** ⚖ D-25 F1 — the product default for a store that never wrote a value =
+ *  core's own `POLICY_DEFAULTS.new_client_session_minutes` (synqed-core
+ *  `src/services/store-policy.service.ts:37` at #87's head); ⚖ D-15 allows
+ *  exactly this default and nothing else fixed. */
+export const NEW_CLIENT_DEFAULT_MIN = 90
+
+/** ⚖ D-25 F1/F11 — the derived ceiling, one home; floored at 1 so a
+ *  zero-length day cannot refuse everything. */
+export const dayLengthMin = (h: { open: number; close: number }): number => Math.max(1, h.close - h.open)
 
 /** The write, in core's own input shape. `acting_staff_id` is required by
  *  `SetStoreBookingPolicyInput`, and the `audit` event commits with the change —
