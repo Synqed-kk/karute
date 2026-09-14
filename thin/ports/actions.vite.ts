@@ -604,19 +604,44 @@ async function facadeLoadKaruteWindow(input: {
   olderThan?: string
   month?: string
   loadedCount?: number
+  sharedOnly?: boolean
 }): Promise<import('@/actions/karute').KaruteWindowPage | { error: string }> {
   try {
     const qs = new URLSearchParams()
     if (input.olderThan) qs.set('olderThan', input.olderThan)
     if (input.month) qs.set('month', input.month)
     if (input.loadedCount != null) qs.set('loadedCount', String(input.loadedCount))
+    if (input.sharedOnly) qs.set('sharedOnly', 'true')
     const res = await getDataPort().apiFetch(`/api/app/v1/karute/window?${qs.toString()}`)
     const body = (await res.json().catch(() => null)) as
       | (Partial<import('@/actions/karute').KaruteWindowPage> & {
-          error?: { message?: string }
+          error?: { code?: string; message?: string }
         })
       | null
-    if (!res.ok || !body) return { error: body?.error?.message ?? `Request failed (${res.status})` }
+    if (!res.ok || !body) {
+      // H2 fix (PR-C fix round 3, narrowed fix round 4): "the thin and web
+      // rejection semantics identical" — the web action returns `{ error:
+      // 'forbidden' }` for a sharedOnly request from a non-holder
+      // (actions/karute.ts), and the facade route throws
+      // AppApiError('forbidden', …) for the same refusal (route.ts), which
+      // serializes as `{ error: { code: 'forbidden', message } }`
+      // (app-api/errors.ts errorBody). Map that ONE code back to the same
+      // literal the web door returns — but ONLY when THIS request was
+      // sharedOnly: ensureCapability (require-permission.ts) throws the SAME
+      // 'forbidden' code for the unrelated customers.view guard the route
+      // also runs (route.ts:56), and an unscoped mapping swallowed that
+      // refusal's message too. The web door's customers.view refusal
+      // (requireCapability's sentence, caught generically in
+      // actions/karute.ts) was already a DIFFERENT literal from this port's
+      // message-passthrough before fix round 3 — that mismatch is
+      // pre-existing and out of scope, left exactly as it was. Every other
+      // code/status, and every 403 whose request was not sharedOnly, keeps
+      // today's message-passthrough unchanged.
+      if (res.status === 403 && body?.error?.code === 'forbidden' && input.sharedOnly) {
+        return { error: 'forbidden' }
+      }
+      return { error: body?.error?.message ?? `Request failed (${res.status})` }
+    }
     // A malformed 200 must read as an ERROR, never as "no more history" — a
     // silent empty window would end the list early and look like the truth.
     if (!Array.isArray(body.items) || typeof body.windowStart !== 'string') {
@@ -627,6 +652,9 @@ async function facadeLoadKaruteWindow(input: {
       windowStart: body.windowStart,
       freshStoreTotal: body.freshStoreTotal ?? 0,
       freshDiscardedCount: body.freshDiscardedCount ?? 0,
+      // D10 (PR-C, self-lighting): NEVER `?? 0` — undefined stays undefined,
+      // exactly like every other hop of this field.
+      freshSharedCount: body.freshSharedCount,
       hasMore: body.hasMore ?? false,
     }
   } catch (err) {

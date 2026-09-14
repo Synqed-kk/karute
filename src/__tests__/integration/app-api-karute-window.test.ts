@@ -74,6 +74,8 @@ jest.mock('@/lib/synqed/client', () => ({
         ...(query.get('to') ? { to: query.get('to') } : {}),
         ...(query.get('page') ? { page: Number(query.get('page')) } : {}),
         ...(query.get('page_size') ? { page_size: Number(query.get('page_size')) } : {}),
+        // D10 (PR-C, self-lighting)
+        ...(query.get('shared_only') === 'true' ? { shared_only: true } : {}),
       })
     },
   }),
@@ -214,5 +216,107 @@ describe('GET /api/app/v1/karute/window', () => {
     karuteRecordsList.mockRejectedValue(new Error('core down'))
     const res = await GET(req(), route)
     expect(res.status).toBe(502)
+  })
+
+  // D10 (PR-C, self-lighting): freshSharedCount only appears on the wire once
+  // core answers with shared_count — JSON.stringify drops an undefined key,
+  // so the existing byte-shape pin above stays green until then.
+  describe('D10 — sharedOnly + freshSharedCount (self-lighting)', () => {
+    it('carries freshSharedCount when core answers shared_count — FOR A HOLDER (F1 fix, PR-C fix round 1)', async () => {
+      capabilities.current = new Set(['customers.view', 'recordings.viewShared'])
+      karuteRecordsList.mockResolvedValue({
+        karute_records: KARUTE,
+        total: 1,
+        discarded_count: 0,
+        shared_count: 3,
+      })
+      const res = await GET(req(), route)
+      const body = await res.json()
+      expect(body.freshSharedCount).toBe(3)
+      expect(Object.keys(body).sort()).toEqual([
+        'freshDiscardedCount',
+        'freshSharedCount',
+        'freshStoreTotal',
+        'hasMore',
+        'items',
+        'windowStart',
+      ])
+    })
+
+    it('omits freshSharedCount entirely when core has not shipped shared_count yet, even for a holder (feature detection, never ?? 0)', async () => {
+      capabilities.current = new Set(['customers.view', 'recordings.viewShared'])
+      const res = await GET(req(), route)
+      const body = await res.json()
+      expect(body.freshSharedCount).toBeUndefined()
+      expect('freshSharedCount' in body).toBe(false)
+      // The existing byte-shape pin — untouched.
+      expect(Object.keys(body).sort()).toEqual([
+        'freshDiscardedCount',
+        'freshStoreTotal',
+        'hasMore',
+        'items',
+        'windowStart',
+      ])
+    })
+
+    it('a real shared_count of 0 is a SHOWN value for a holder, not treated as absent', async () => {
+      capabilities.current = new Set(['customers.view', 'recordings.viewShared'])
+      karuteRecordsList.mockResolvedValue({
+        karute_records: KARUTE,
+        total: 1,
+        discarded_count: 0,
+        shared_count: 0,
+      })
+      const res = await GET(req(), route)
+      const body = await res.json()
+      expect(body.freshSharedCount).toBe(0)
+      expect('freshSharedCount' in body).toBe(true)
+    })
+
+    // F1 fix (PR-C fix round 1): freshSharedCount goes out ONLY when the
+    // viewer holds viewShared, even when core DID answer shared_count.
+    it('F1: freshSharedCount is absent for a NON-holder even when core answers a real shared_count', async () => {
+      capabilities.current = new Set(['customers.view'])
+      karuteRecordsList.mockResolvedValue({
+        karute_records: KARUTE,
+        total: 1,
+        discarded_count: 0,
+        shared_count: 3,
+      })
+      // sharedOnly is NOT set here — a plain default-walk read still must
+      // not leak the count to a non-holder (F1(b)'s second half).
+      const res = await GET(req(), route)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.freshSharedCount).toBeUndefined()
+      expect('freshSharedCount' in body).toBe(false)
+    })
+
+    it('?sharedOnly=true threads shared_only into every read of the walk — FOR A HOLDER', async () => {
+      capabilities.current = new Set(['customers.view', 'recordings.viewShared'])
+      const res = await GET(req('?sharedOnly=true'), route)
+      expect(res.status).toBe(200)
+      expect(karuteRecordsList.mock.calls.length).toBeGreaterThan(1)
+      for (const [opts] of karuteRecordsList.mock.calls) {
+        expect(opts.shared_only).toBe(true)
+      }
+    })
+
+    // F1(b) — the packet's own named test: sharedOnly without the
+    // capability → 403, never a silently-served full list.
+    it('F1: ?sharedOnly=true WITHOUT recordings.viewShared → 403, no reads', async () => {
+      capabilities.current = new Set(['customers.view'])
+      const res = await GET(req('?sharedOnly=true'), route)
+      expect(res.status).toBe(403)
+      expect(karuteRecordsList).not.toHaveBeenCalled()
+    })
+
+    it('sharedOnly absent by default: no read carries shared_only', async () => {
+      const res = await GET(req(), route)
+      expect(res.status).toBe(200)
+      for (const [opts] of karuteRecordsList.mock.calls) {
+        expect(opts.shared_only).toBeUndefined()
+      }
+    })
   })
 })

@@ -218,6 +218,133 @@ describe('mixed discarded Karute ledger read', () => {
   })
 })
 
+// D10 (PR-C, self-lighting): the shared-only read + the two new fields. Same
+// mixed/fetch path as the discarded ledger read above.
+describe('D10 — sharedOnly + shared_at + shared_count (self-lighting)', () => {
+  it('a caller that explicitly asks for BOTH knobs gets both on the wire — this function\'s own generic pass-through contract, not a description of any real caller', async () => {
+    const fetch = jest.fn(async () => ({
+      karute_records: [],
+      total: 0,
+      discarded_count: 0,
+      shared_count: 0,
+    }))
+    const client = { fetch, karuteRecords: { list: jest.fn() } } as never
+
+    await listSynqedKaruteRowsWithTotalOrThrow(client, {
+      storeId: 'store-1',
+      includeDiscarded: true,
+      sharedOnly: true,
+    })
+
+    // F2 fix (PR-C fix round 1): BOTH knobs together → both ride the wire —
+    // this function honors whatever the caller passes, independently.
+    //
+    // H1 UPDATE (PR-C fix round 3): this is a generic capability test of
+    // listMixedKaruteRecords' own pass-through — it drives the two flags
+    // directly and is NOT a description of what karute-window.ts's walk
+    // actually sends. As of H1, NO caller in this codebase ever passes both
+    // true at once: the walk derives `includeDiscarded: !sharedOnly` at every
+    // one of its four call sites, so a shared-mode read is always
+    // shared_only=true WITHOUT include_discarded (see the sibling test right
+    // below, and karute-window.test.ts's "excludes discarded rows" describe
+    // block for the walk-level proof).
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('shared_only=true'))
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('include_discarded=true'))
+  })
+
+  it('sharedOnly ALONE (no includeDiscarded) still routes through the mixed/fetch path — the plain SDK list() has no such param', async () => {
+    const fetch = jest.fn(async () => ({ karute_records: [], total: 0 }))
+    const list = jest.fn()
+    const client = { fetch, karuteRecords: { list } } as never
+
+    await listSynqedKaruteRowsWithTotalOrThrow(client, { storeId: 'store-1', sharedOnly: true })
+
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('shared_only=true'))
+    expect(list).not.toHaveBeenCalled()
+    // F2 fix (PR-C fix round 1): sharedOnly ALONE must NOT stamp
+    // include_discarded on the wire — verified at core source
+    // (synqed-core validations/karute.ts:104-115 + services/karute.service.ts
+    // :172-178,188-189) that an absent include_discarded is byte-identical
+    // to the plain SDK list()'s own non-discarded-only behaviour, so this
+    // used to (before the fix) pull DISCARDED rows into a sharedOnly-alone
+    // read — a behaviour the default walk never has.
+    const url = (fetch.mock.calls[0] as unknown as [string])[0]
+    expect(url).not.toContain('include_discarded')
+  })
+
+  it('shared_at surfaces as the row\'s shared_at through BOTH row-mapping functions', async () => {
+    const sharedAt = '2026-09-14T00:00:00.000Z'
+    const record = {
+      id: 'k1',
+      business_id: 'biz',
+      customer_id: 'cli1',
+      staff_id: 'st1',
+      ai_summary: 'sum',
+      transcript: 't',
+      created_at: '2026-05-29T00:00:00Z',
+      entry_count: 0,
+      shared_at: sharedAt,
+    }
+
+    const plainRows = await listSynqedKaruteRows(
+      asClient(async () => ({ karute_records: [record] })),
+    )
+    expect(plainRows[0].shared_at).toBe(sharedAt)
+
+    const { rows } = await listSynqedKaruteRowsWithTotalOrThrow(
+      asClient(async () => ({ karute_records: [record], total: 1 })),
+    )
+    expect(rows[0].shared_at).toBe(sharedAt)
+  })
+
+  it('shared_at absent maps to null on both row-mapping functions (never undefined-leaks-through as a truthy key)', async () => {
+    const record = {
+      id: 'k1',
+      business_id: 'biz',
+      customer_id: 'cli1',
+      staff_id: 'st1',
+      ai_summary: 'sum',
+      transcript: 't',
+      created_at: '2026-05-29T00:00:00Z',
+      entry_count: 0,
+    }
+    const plainRows = await listSynqedKaruteRows(
+      asClient(async () => ({ karute_records: [record] })),
+    )
+    expect(plainRows[0].shared_at).toBeNull()
+
+    const { rows } = await listSynqedKaruteRowsWithTotalOrThrow(
+      asClient(async () => ({ karute_records: [record], total: 1 })),
+    )
+    expect(rows[0].shared_at).toBeNull()
+  })
+
+  it('shared_count absent → sharedCount undefined (feature detection, NEVER ?? 0)', async () => {
+    const result = await listSynqedKaruteRowsWithTotalOrThrow(
+      asClient(async () => ({ karute_records: [], total: 0 })),
+    )
+    // The key MAY be present with an undefined value (a plain object literal,
+    // unlike screen-rows.ts's conditional isShared spread) — JSON.stringify
+    // drops it on the wire regardless; what matters is the VALUE, never `0`.
+    expect(result.sharedCount).toBeUndefined()
+  })
+
+  it('shared_count present (including a real zero) survives untouched', async () => {
+    const fetch = jest.fn(async () => ({
+      karute_records: [],
+      total: 0,
+      discarded_count: 0,
+      shared_count: 0,
+    }))
+    const client = { fetch, karuteRecords: { list: jest.fn() } } as never
+    const result = await listSynqedKaruteRowsWithTotalOrThrow(client, {
+      storeId: 'store-1',
+      includeDiscarded: true,
+    })
+    expect(result.sharedCount).toBe(0)
+  })
+})
+
 // The main-read + 今月-probe pairing MOVED to karute-window.ts in PR-2a (its
 // main leg is a date window now). Its independent-legs coverage moved with it:
 // src/__tests__/integration/karute-window.test.ts.

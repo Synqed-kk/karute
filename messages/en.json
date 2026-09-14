@@ -1431,7 +1431,8 @@
         "aiPending": "AI pending",
         "needsReview": "Needs review",
         "draft": "Draft",
-        "discarded": "Discarded"
+        "discarded": "Discarded",
+        "shared": "Shared"
       },
       "dateGroup": {
         "today": "Today",

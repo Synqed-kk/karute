@@ -33,6 +33,11 @@ function baseArgs(rows: KaruteListRow[]) {
     >[0]['synqedStaff'],
     monthCount: 0,
     total: 0,
+    // F1 fix (PR-C fix round 1): now required. Neutral default — none of
+    // this file's own discarded-summary rows carry shared_at, so this
+    // choice never affects them either way; the D10 block below overrides
+    // it explicitly per case.
+    viewerHoldsViewShared: false,
   }
 }
 
@@ -99,5 +104,92 @@ describe('buildSessionsListScreen — discarded row summary withholding (R3, F3b
     const item = screen.items[0]
     expect(item.aiStatus).toBe('summarized')
     expect(item.summary).toBe('') // withheld regardless
+  })
+})
+
+// D10 (PR-C, self-lighting) + F1 fix (PR-C fix round 1, ⚖ "the wire must not
+// tell a colleague a share happened"): buildSessionsListScreen projects
+// shared_at into isShared (beside the isDiscarded spread) ONLY for a
+// viewShared holder or the row's own recorder, and passes sharedCount
+// through ONLY for a holder — the ONE builder every door reads through, same
+// reasoning as the discarded-summary contract above.
+describe('buildSessionsListScreen — D10 shared projection, F1-gated (self-lighting)', () => {
+  const sharedRow = (id: string, overrides: Partial<KaruteListRow> = {}): KaruteListRow => ({
+    id,
+    session_date: '2026-09-10',
+    created_at: '2026-09-10T00:00:00.000Z',
+    summary: 'まとめ',
+    transcript: '発話',
+    staff_profile_id: 'staff-1',
+    customer_id: 'business-1',
+    client_id: 'cust-1',
+    entries: [{ count: 1 }],
+    status: 'FINALIZED',
+    shared_at: '2026-09-11T00:00:00.000Z',
+    ...overrides,
+  })
+
+  it('a viewShared holder sees isShared:true on a COLLEAGUE\'s shared row', () => {
+    const rows = [sharedRow('shared-1')]
+    const screen = buildSessionsListScreen({
+      ...baseArgs(rows),
+      viewerHoldsViewShared: true,
+      currentStaffId: 'someone-else',
+    })
+    expect(screen.items.find((i) => i.id === 'shared-1')!.isShared).toBe(true)
+  })
+
+  it('a NON-holder gets NO isShared on a colleague\'s shared row — the wire stays silent (F1)', () => {
+    const rows = [sharedRow('shared-1')]
+    const screen = buildSessionsListScreen({
+      ...baseArgs(rows),
+      viewerHoldsViewShared: false,
+      currentStaffId: 'someone-else',
+    })
+    const item = screen.items.find((i) => i.id === 'shared-1')!
+    expect(item.isShared).toBeUndefined()
+    expect('isShared' in item).toBe(false)
+  })
+
+  it('a NON-holder STILL sees isShared on her OWN shared row (recordStaffProfileId === currentStaffId)', () => {
+    // No synqed-staff translation entry for 'staff-1' in baseArgs, so
+    // recordStaffProfileId falls back to the raw staff_profile_id verbatim —
+    // the SAME id KaruteListItem.staffId carries.
+    const rows = [sharedRow('shared-own')]
+    const screen = buildSessionsListScreen({
+      ...baseArgs(rows),
+      viewerHoldsViewShared: false,
+      currentStaffId: 'staff-1',
+    })
+    expect(screen.items.find((i) => i.id === 'shared-own')!.isShared).toBe(true)
+  })
+
+  it('an unshared row carries no isShared key regardless of viewer', () => {
+    const rows = [sharedRow('unshared-1', { shared_at: undefined })]
+    const screen = buildSessionsListScreen({ ...baseArgs(rows), viewerHoldsViewShared: true })
+    const item = screen.items.find((i) => i.id === 'unshared-1')!
+    expect(item.isShared).toBeUndefined()
+    expect('isShared' in item).toBe(false)
+  })
+
+  it('sharedCount ships ONLY for a viewShared holder — present/zero pass through for a holder, undefined for a non-holder even when a real count was passed in (F1, never `?? 0`)', () => {
+    const rows: KaruteListRow[] = []
+    expect(
+      buildSessionsListScreen({ ...baseArgs(rows), viewerHoldsViewShared: true, sharedCount: 3 })
+        .sharedCount,
+    ).toBe(3)
+    expect(
+      buildSessionsListScreen({ ...baseArgs(rows), viewerHoldsViewShared: true, sharedCount: 0 })
+        .sharedCount,
+    ).toBe(0)
+    expect(
+      buildSessionsListScreen({ ...baseArgs(rows), viewerHoldsViewShared: true }).sharedCount,
+    ).toBeUndefined()
+    // The F1 gate itself: a non-holder gets undefined EVEN THOUGH a real
+    // count was passed in — the count never reaches the wire for her.
+    expect(
+      buildSessionsListScreen({ ...baseArgs(rows), viewerHoldsViewShared: false, sharedCount: 3 })
+        .sharedCount,
+    ).toBeUndefined()
   })
 })

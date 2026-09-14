@@ -1097,6 +1097,263 @@ describe('pill counts', () => {
   })
 })
 
+// D10 (PR-C, self-lighting): the 共有 pill + shared mode — a second list mode
+// shaped like 月ジャンプ, but reusing the DEFAULT backward walk with
+// sharedOnly threaded through (see karute-window.test.ts for that plumbing;
+// this file proves the VIEW's own wiring: pill existence, its count, the tap,
+// leaving the mode, and さらに表示 inside it).
+describe('共有 pill + shared mode (D10, PR-C)', () => {
+  const sharedPillQuery = () => screen.queryByRole('button', { name: /^filters\.shared/ })
+  const sharedPill = () => screen.getByRole('button', { name: /^filters\.shared/ })
+  const allPill = () => screen.getByRole('button', { name: /^filters\.all/ })
+
+  it('共有 pill hidden without sharedCount, even for a viewShared holder', () => {
+    renderList({ viewerHoldsViewShared: true })
+    expect(sharedPillQuery()).not.toBeInTheDocument()
+  })
+
+  it('hidden for a viewer without viewShared even WITH a count', () => {
+    renderList({ sharedCount: 3 })
+    expect(sharedPillQuery()).not.toBeInTheDocument()
+  })
+
+  it('共有 names the STORE-WIDE count, never a loaded tally — none of the loaded rows are shared, yet the pill shows the server count', () => {
+    renderList({ sharedCount: 5, viewerHoldsViewShared: true })
+    expect(sharedPill().textContent).toBe('filters.shared5')
+  })
+
+  it('a real sharedCount of 0 still shows the pill (0 !== undefined — the feature-detection law)', () => {
+    renderList({ sharedCount: 0, viewerHoldsViewShared: true })
+    expect(sharedPill().textContent).toBe('filters.shared0')
+  })
+
+  // F3 fix (PR-C fix round 1): the state's own doc comment claimed the
+  // DEFAULT walk's さらに表示 (fetchOlder) refreshes storeSharedCount — the
+  // code never did until this fix. Not the shared-mode fetch: the ordinary
+  // load-more button, outside shared mode entirely.
+  it('F3: a fetchOlder response carrying freshSharedCount updates the 共有 pill\'s count', async () => {
+    loadKaruteWindow.mockResolvedValue({
+      items: [],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 9,
+      freshDiscardedCount: 0,
+      freshSharedCount: 5,
+      hasMore: false,
+    })
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+    expect(sharedPill().textContent).toBe('filters.shared1')
+
+    await act(async () => {
+      fireEvent.click(loadMoreButton())
+    })
+
+    expect(sharedPill().textContent).toBe('filters.shared5')
+  })
+
+  it('F3: a fetchOlder response WITHOUT freshSharedCount leaves the pill\'s count untouched (F1(b): a non-holder\'s response never carries it)', async () => {
+    loadKaruteWindow.mockResolvedValue({
+      items: [],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 9,
+      freshDiscardedCount: 0,
+      hasMore: false,
+    })
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+    expect(sharedPill().textContent).toBe('filters.shared1')
+
+    await act(async () => {
+      fireEvent.click(loadMoreButton())
+    })
+
+    expect(sharedPill().textContent).toBe('filters.shared1')
+  })
+
+  it('tap enters shared mode: ONE loadKaruteWindow({sharedOnly:true}) call, the list SWAPS, and any OTHER pill leaves the mode', async () => {
+    loadKaruteWindow.mockResolvedValue({
+      items: [item('shared-1', '2026-01-05', '共有 花子')],
+      windowStart: '2026-01-05',
+      freshStoreTotal: 1,
+      freshDiscardedCount: 0,
+      freshSharedCount: 1,
+      hasMore: false,
+    })
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+
+    await act(async () => {
+      fireEvent.click(sharedPill())
+    })
+
+    expect(loadKaruteWindow).toHaveBeenCalledTimes(1)
+    expect(loadKaruteWindow).toHaveBeenCalledWith({ sharedOnly: true })
+    await waitFor(() => expect(screen.getByText('共有 花子')).toBeInTheDocument())
+    // The default window's own rows are swapped OUT, not merged in.
+    expect(screen.queryByText('山田 花子')).not.toBeInTheDocument()
+    expect(sharedPill()).toHaveAttribute('aria-pressed', 'true')
+
+    // ANY other pill tap leaves shared mode — the default window is restored
+    // from state, no refetch (mirrors the month-mode "leaving" rule exactly).
+    fireEvent.click(allPill())
+    expect(loadKaruteWindow).toHaveBeenCalledTimes(1)
+    expect(screen.getAllByText('山田 花子')).toHaveLength(2)
+    expect(screen.queryByText('共有 花子')).not.toBeInTheDocument()
+  })
+
+  it('さらに表示 inside shared mode continues with olderThan + sharedOnly — the mode\'s OWN boundary/loadedCount, never the default walk\'s', async () => {
+    loadKaruteWindow.mockImplementation(
+      async (input: { sharedOnly?: boolean; olderThan?: string }) => {
+        if (input.sharedOnly && !input.olderThan) {
+          return {
+            items: [item('shared-1', '2026-01-05', '共有 一号')],
+            windowStart: '2026-01-05',
+            freshStoreTotal: 2,
+            freshDiscardedCount: 0,
+            freshSharedCount: 2,
+            hasMore: true,
+          }
+        }
+        return {
+          items: [item('shared-2', '2025-12-20', '共有 二号')],
+          windowStart: '2025-12-20',
+          freshStoreTotal: 2,
+          freshDiscardedCount: 0,
+          freshSharedCount: 2,
+          hasMore: false,
+        }
+      },
+    )
+    renderList({ sharedCount: 2, viewerHoldsViewShared: true })
+
+    await act(async () => {
+      fireEvent.click(sharedPill())
+    })
+    await waitFor(() => expect(screen.getByText('共有 一号')).toBeInTheDocument())
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /loadMore/ }))
+    })
+    await waitFor(() => expect(screen.getByText('共有 二号')).toBeInTheDocument())
+    // Both rows now on screen — an append inside the mode, not a swap.
+    expect(screen.getByText('共有 一号')).toBeInTheDocument()
+
+    expect(loadKaruteWindow).toHaveBeenLastCalledWith({
+      sharedOnly: true,
+      olderThan: '2026-01-05',
+      loadedCount: 1,
+    })
+  })
+
+  it('a store switch (storeId prop change) exits shared mode', () => {
+    loadKaruteWindow.mockResolvedValue({
+      items: [item('shared-1', '2026-01-05', '共有 花子')],
+      windowStart: '2026-01-05',
+      freshStoreTotal: 1,
+      freshDiscardedCount: 0,
+      freshSharedCount: 1,
+      hasMore: false,
+    })
+    const { rerender } = renderList({
+      sharedCount: 1,
+      viewerHoldsViewShared: true,
+      storeId: 'store-A',
+    })
+    fireEvent.click(sharedPill())
+    rerender(listEl({ sharedCount: 1, viewerHoldsViewShared: true, storeId: 'store-B' }))
+    // Back to the default view — the pill is no longer pressed.
+    expect(sharedPill()).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  // T2 (fix round 2, L2 MED-2): mode exclusivity between shared mode and
+  // 月ジャンプ was untested in EITHER direction — mirrors the store-switch
+  // test above, which already proves a THIRD kind of exit from shared mode.
+  const monthChip = () => screen.getByRole('button', { name: /^\d{4}年\d{1,2}月$/ })
+
+  it('T2(a): entering shared mode then picking a month EXITS shared mode', async () => {
+    loadKaruteWindow.mockImplementation(
+      async (input: { sharedOnly?: boolean; month?: string }) => {
+        if (input.sharedOnly) {
+          return {
+            items: [item('shared-1', '2026-01-05', '共有 花子')],
+            windowStart: '2026-01-05',
+            freshStoreTotal: 1,
+            freshDiscardedCount: 0,
+            freshSharedCount: 1,
+            hasMore: false,
+          }
+        }
+        // Month path (PR-2b ±1 widening): only the picked month itself
+        // carries the fixture row; the two neighbour-window calls are empty.
+        return {
+          items: input.month === '2026-07' ? [item('july-1', '2026-07-10', '七月 太郎')] : [],
+          windowStart: `${input.month}-01`,
+          freshStoreTotal: 9,
+          hasMore: false,
+        }
+      },
+    )
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+
+    await act(async () => {
+      fireEvent.click(sharedPill())
+    })
+    await waitFor(() => expect(screen.getByText('共有 花子')).toBeInTheDocument())
+    expect(sharedPill()).toHaveAttribute('aria-pressed', 'true')
+
+    // 2026年7月 is the session-date epoch floor — always offered, whatever
+    // rows happen to be loaded (karute-month-jump.test.tsx's own pin).
+    fireEvent.click(monthChip())
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: '2026年7月' }))
+    })
+
+    await waitFor(() => expect(screen.getByText('七月 太郎')).toBeInTheDocument())
+    expect(screen.queryByText('共有 花子')).not.toBeInTheDocument()
+    expect(sharedPill()).toHaveAttribute('aria-pressed', 'false')
+    const monthCalls = loadKaruteWindow.mock.calls.filter(
+      ([a]: [{ month?: string }]) => a.month,
+    )
+    expect(monthCalls.length).toBeGreaterThan(0)
+    expect(monthCalls.every(([a]: [{ sharedOnly?: boolean }]) => !a.sharedOnly)).toBe(true)
+  })
+
+  it('T2(b): entering month mode then tapping 共有 EXITS month mode (the reverse direction)', async () => {
+    loadKaruteWindow.mockImplementation(
+      async (input: { sharedOnly?: boolean; month?: string }) => {
+        if (input.sharedOnly) {
+          return {
+            items: [item('shared-1', '2026-01-05', '共有 花子')],
+            windowStart: '2026-01-05',
+            freshStoreTotal: 1,
+            freshDiscardedCount: 0,
+            freshSharedCount: 1,
+            hasMore: false,
+          }
+        }
+        return { items: [], windowStart: `${input.month}-01`, freshStoreTotal: 9, hasMore: false }
+      },
+    )
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+
+    fireEvent.click(monthChip())
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: '2026年7月' }))
+    })
+    expect(monthChip().textContent).toBe('2026年7月')
+
+    await act(async () => {
+      fireEvent.click(sharedPill())
+    })
+
+    expect(monthChip().textContent).not.toBe('2026年7月')
+    await waitFor(() => expect(screen.getByText('共有 花子')).toBeInTheDocument())
+    expect(sharedPill()).toHaveAttribute('aria-pressed', 'true')
+    const sharedCalls = loadKaruteWindow.mock.calls.filter(
+      ([a]: [{ sharedOnly?: boolean }]) => a.sharedOnly,
+    )
+    expect(sharedCalls).toHaveLength(1)
+    expect(sharedCalls[0][0]).toEqual({ sharedOnly: true })
+  })
+})
+
 // R8 discarded-record door (⚖ Liam 2026-09-13, A8) — the list row's Link vs
 // inert-div threading. viewerCanOpenDiscarded (records.discardView) OR an
 // own-staff row makes a discarded row openable; the row's grey/「破棄済み」

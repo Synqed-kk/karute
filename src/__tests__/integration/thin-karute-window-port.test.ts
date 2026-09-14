@@ -132,4 +132,126 @@ describe('thin actions port — karute window transport contract', () => {
       hasMore: false,
     })
   })
+
+  // D10 (PR-C, self-lighting): sharedOnly on the way out, freshSharedCount on
+  // the way back — NEVER `?? 0` on the count, unlike its two siblings above.
+  describe('D10 — sharedOnly + freshSharedCount', () => {
+    it('sends sharedOnly=true on the querystring only when the caller asks', async () => {
+      const apiFetch = jest.fn(async (path: string) => {
+        expect(path).toBe('/api/app/v1/karute/window?sharedOnly=true')
+        return new Response(JSON.stringify(okBody), { status: 200 })
+      })
+      port(apiFetch)
+      await loadKaruteWindow({ sharedOnly: true })
+    })
+
+    it('omits sharedOnly entirely when the caller does not ask (byte-identical to today)', async () => {
+      const apiFetch = jest.fn(async (path: string) => {
+        expect(path).toBe(
+          '/api/app/v1/karute/window?olderThan=2026-08-12&loadedCount=24',
+        )
+        return new Response(JSON.stringify(okBody), { status: 200 })
+      })
+      port(apiFetch)
+      await loadKaruteWindow({ olderThan: '2026-08-12', loadedCount: 24 })
+    })
+
+    it('passes freshSharedCount through untouched when core answers it', async () => {
+      port(
+        jest.fn(
+          async () =>
+            new Response(JSON.stringify({ ...okBody, freshSharedCount: 3 }), { status: 200 }),
+        ),
+      )
+      const res = await loadKaruteWindow({ sharedOnly: true })
+      expect('error' in res).toBe(false)
+      expect((res as { freshSharedCount?: number }).freshSharedCount).toBe(3)
+    })
+
+    it('leaves freshSharedCount undefined when core has not shipped shared_count yet — NEVER ?? 0', async () => {
+      port(jest.fn(async () => new Response(JSON.stringify(okBody), { status: 200 })))
+      const res = await loadKaruteWindow({ olderThan: '2026-08-12' })
+      expect('error' in res).toBe(false)
+      expect((res as { freshSharedCount?: number }).freshSharedCount).toBeUndefined()
+    })
+  })
+
+  // H2 (PR-C fix round 3, Greptile's finding on #917): the phone's refusal
+  // must equal the web action's. The web action returns `{ error: 'forbidden' }`
+  // for a sharedOnly request from a non-holder; the facade route threw the
+  // same refusal as a 403 whose body carries `code: 'forbidden'`, but this
+  // port used to surface only the English message sentence — a different
+  // contract on each door for the identical refusal.
+  describe('H2 — the sharedOnly forbidden refusal maps to the SAME literal the web door returns', () => {
+    it("a 403 with code 'forbidden' maps to { error: 'forbidden' } — not the message sentence", async () => {
+      port(
+        jest.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                error: {
+                  code: 'forbidden',
+                  message: 'recordings.viewShared required for sharedOnly',
+                },
+              }),
+              { status: 403 },
+            ),
+        ),
+      )
+      expect(await loadKaruteWindow({ sharedOnly: true })).toEqual({ error: 'forbidden' })
+    })
+
+    // H2b (PR-C fix round 4): the SAME 403 + code 'forbidden' also fires for
+    // ensureCapability's customers.view guard (route.ts:56, unrelated to
+    // sharedOnly) — the port must NOT collapse that one to the 'forbidden'
+    // literal too. Pre-existing, out-of-scope mismatch with the web door's
+    // own customers.view refusal (a different sentence, actions/karute.ts):
+    // left exactly as it was, never "fixed" here.
+    it("a 403 with code 'forbidden' but NO sharedOnly on the request keeps the message passthrough", async () => {
+      port(
+        jest.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                error: {
+                  code: 'forbidden',
+                  message: 'Missing capability: customers.view',
+                },
+              }),
+              { status: 403 },
+            ),
+        ),
+      )
+      expect(await loadKaruteWindow({ olderThan: '2026-08-12' })).toEqual({
+        error: 'Missing capability: customers.view',
+      })
+    })
+
+    it('a 403 with a DIFFERENT code keeps today\'s message-passthrough mapping', async () => {
+      port(
+        jest.fn(
+          async () =>
+            new Response(
+              JSON.stringify({ error: { code: 'store_forbidden', message: 'store-id outside your assignment' } }),
+              { status: 403 },
+            ),
+        ),
+      )
+      expect(await loadKaruteWindow({ olderThan: '2026-08-12' })).toEqual({
+        error: 'store-id outside your assignment',
+      })
+    })
+
+    it('a 500 keeps today\'s message-passthrough mapping (code is irrelevant off 403)', async () => {
+      port(
+        jest.fn(
+          async () =>
+            new Response(JSON.stringify({ error: { code: 'internal', message: 'Internal error' } }), {
+              status: 500,
+            }),
+        ),
+      )
+      expect(await loadKaruteWindow({ olderThan: '2026-08-12' })).toEqual({ error: 'Internal error' })
+    })
+  })
 })

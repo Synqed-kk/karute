@@ -1626,6 +1626,9 @@ export type KaruteWindowPage = {
   windowStart: string
   freshStoreTotal: number
   freshDiscardedCount: number
+  /** D10 (PR-C, self-lighting): see {@link KaruteWindow.freshSharedCount} —
+   *  `undefined` until core ships `shared_count`, never defaulted to 0. */
+  freshSharedCount?: number
   hasMore: boolean
 }
 
@@ -1652,6 +1655,8 @@ export async function loadKaruteWindow(input: {
   olderThan?: string
   month?: string
   loadedCount?: number
+  /** D10 (PR-C): the manager's 共有 list mode — see loadKaruteWindowRows. */
+  sharedOnly?: boolean
 }): Promise<KaruteWindowPage | { error: string }> {
   try {
     await requireCapability('customers.view')
@@ -1667,6 +1672,18 @@ export async function loadKaruteWindow(input: {
     }
     if (input.month !== undefined && !isValidKaruteMonth(input.month)) {
       return { error: 'month must be a real calendar month (YYYY-MM)' }
+    }
+
+    // F1 fix (PR-C fix round 1, ⚖ "the wire must not tell a colleague a
+    // share happened"): ONE capability read, reused below for BOTH the
+    // sharedOnly refusal and the builder's row-level isShared gate — never
+    // two reads that could drift. A sharedOnly request from a non-holder is
+    // refused HONESTLY (never silently served as the full unfiltered list —
+    // that would let anyone with customers.view discover who has a share by
+    // comparing row counts).
+    const holdsViewShared = await can('recordings.viewShared')
+    if (input.sharedOnly && !holdsViewShared) {
+      return { error: 'forbidden' }
     }
 
     const [synqed, scope, businessId] = await Promise.all([
@@ -1694,6 +1711,7 @@ export async function loadKaruteWindow(input: {
           olderThan: input.olderThan,
           month: input.month,
           loadedCount: input.loadedCount,
+          sharedOnly: input.sharedOnly,
         }),
         synqed.staff.list({ page_size: 200 }),
       ])
@@ -1711,6 +1729,8 @@ export async function loadKaruteWindow(input: {
       monthCount: 0,
       total: window.freshStoreTotal,
       discardedCount: window.freshDiscardedCount,
+      // F1 fix (PR-C fix round 1): REQUIRED — gates isShared per row.
+      viewerHoldsViewShared: holdsViewShared,
     })
 
     return {
@@ -1718,6 +1738,10 @@ export async function loadKaruteWindow(input: {
       windowStart: window.windowStart,
       freshStoreTotal: window.freshStoreTotal,
       freshDiscardedCount: window.freshDiscardedCount,
+      // F1 fix (PR-C fix round 1): the default walk's さらに表示 responses
+      // used to carry this to EVERY viewer — now undefined for a non-holder,
+      // never `?? 0`.
+      freshSharedCount: holdsViewShared ? window.freshSharedCount : undefined,
       hasMore: window.hasMore,
     }
   } catch (err) {

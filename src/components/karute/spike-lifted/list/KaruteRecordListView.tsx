@@ -97,6 +97,19 @@ interface Props {
    *  ANY discarded row via records.discardView? (own-record rows open
    *  regardless — computed per row alongside this flag.) Default false. */
   viewerCanOpenDiscarded?: boolean
+  /** D10 (PR-C, self-lighting): store-wide count of shared karute. null =
+   *  either the leg failed OR core has not shipped `shared_count` yet — the
+   *  two are indistinguishable here on purpose (the wire's `undefined`
+   *  already collapsed to null one hop up, in page.tsx / SessionsScreen.tsx):
+   *  EITHER WAY the 「共有」 pill must not exist. NEVER default this to 0 — a
+   *  real 0 is a shown value once core answers; only absence hides the
+   *  pill. */
+  sharedCount?: number | null
+  /** D10 (PR-C): does this viewer hold recordings.viewShared (management)?
+   *  The pill needs BOTH this AND sharedCount !== null; the row chip's own
+   *  gate lives in KaruteListRow (viewerHoldsViewShared OR the row's own
+   *  recorder). Default false. */
+  viewerHoldsViewShared?: boolean
 }
 
 // `needsReview` intentionally omitted from the visible filter row —
@@ -106,7 +119,7 @@ interface Props {
 // the filter lights up automatically once ANTHONY adds a
 // `karute_records.review_needed boolean` column and we set the
 // status in page.tsx's derivation block (see types.ts ANTHONY note).
-const FILTER_KEYS: KaruteListFilter[] = [
+const BASE_FILTER_KEYS: KaruteListFilter[] = [
   'all',
   'thisWeek',
   'aiPending',
@@ -221,6 +234,8 @@ export function KaruteRecordListView({
   currentStaffId = null,
   customerOptions = [],
   viewerCanOpenDiscarded = false,
+  sharedCount = null,
+  viewerHoldsViewShared = false,
 }: Props) {
   const t = useTranslations('karute.recordList')
   const tHead = useTranslations('karute')
@@ -246,6 +261,13 @@ export function KaruteRecordListView({
   const [windowStart, setWindowStart] = useState<string | null>(initialWindowStart)
   const [storeTotal, setStoreTotal] = useState<number | null>(total)
   const [storeDiscardedCount, setStoreDiscardedCount] = useState<number | null>(discardedCount)
+  // D10 (PR-C, self-lighting): the storeTotal/storeDiscardedCount pattern —
+  // seeded from the prop, refreshed from every window response below
+  // (fetchOlder AND the shared-mode fetch, since sharedCount is store-wide
+  // and independent of which mode is on screen). No purge/rewind is tied to
+  // it: unlike a deleted-row total decrease or a store switch, entering or
+  // leaving shared mode never invalidates the default walk's own cache.
+  const [storeSharedCount, setStoreSharedCount] = useState<number | null>(sharedCount)
   const [serverHasMore, setServerHasMore] = useState(initialHasMore)
   const [loadingMore, setLoadingMore] = useState(false)
   // Generation counter for the purge-vs-in-flight race (fix round 4). The
@@ -459,6 +481,14 @@ export function KaruteRecordListView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [total, discardedCount])
 
+  // D10: a plain prop-sync, deliberately separate from the purge-carrying
+  // effect above — sharedCount has no purge/rewind of its own (see the state
+  // declaration's doc comment).
+  useEffect(() => {
+    setStoreSharedCount(sharedCount)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedCount])
+
   async function fetchOlder(announce: boolean) {
     if (!windowStart || loadingMore) return
     setLoadingMore(true)
@@ -518,6 +548,12 @@ export function KaruteRecordListView({
       // not carry the newly-added count yet. Treat those as the pre-feature
       // value instead of poisoning the combined total with `undefined`.
       setStoreDiscardedCount(res.freshDiscardedCount ?? 0)
+      // F3 fix (PR-C fix round 1): this line was MISSING — the state's own
+      // doc comment already claimed the default walk's さらに表示 responses
+      // refresh storeSharedCount, but the code never did it. With F1(b) a
+      // non-holder's response never carries this field at all (undefined,
+      // never `?? 0`), so the guard here stays honest either way.
+      if (res.freshSharedCount !== undefined) setStoreSharedCount(res.freshSharedCount)
       setServerHasMore(res.hasMore)
       // Focus stays on the button — nothing is focused here, and the button
       // never carries a native `disabled` attribute for the browser to blur
@@ -588,6 +624,24 @@ export function KaruteRecordListView({
   const monthGen = useRef(0)
   const monthMode = activeMonth !== null
 
+  // 共有 (D10, PR-C): a SECOND list mode, self-lighting — only reachable when
+  // the pill exists (storeSharedCount !== null && viewerHoldsViewShared). The
+  // month-mode SHAPE (its own row cache, entered/left like a pill, mutually
+  // exclusive with month mode) but the READ reuses the DEFAULT backward walk
+  // (shared_at has no calendar-boundary problem — no ±1 widening the way
+  // 月ジャンプ needs; loadKaruteWindowRows just threads `sharedOnly` through
+  // every call in the SAME walk).
+  const [sharedMode, setSharedMode] = useState(false)
+  const [sharedItems, setSharedItems] = useState<KaruteListItem[] | null>(null)
+  const [sharedLoading, setSharedLoading] = useState(false)
+  const [sharedError, setSharedError] = useState(false)
+  const [sharedWindowStart, setSharedWindowStart] = useState<string | null>(null)
+  const [sharedHasMore, setSharedHasMore] = useState(false)
+  // Same generation-guard idiom as monthGen/fetchGen: a fetch still in flight
+  // when the viewer leaves shared mode (or re-enters it) describes a state
+  // that no longer exists.
+  const sharedGen = useRef(0)
+
   // The JST calendar month containing today — the top of the picker and the
   // chip's label while nothing is picked. JST-explicit for the same reason
   // every other date in this file is (PR-2a fix round 5): a UTC server or a
@@ -620,6 +674,17 @@ export function KaruteRecordListView({
     setMonthItems(null)
     setMonthLoading(false)
     setMonthError(false)
+  }
+
+  /** Leave shared mode — mirrors exitMonth's shape exactly (D10, PR-C). */
+  function exitSharedMode() {
+    sharedGen.current += 1
+    setSharedMode(false)
+    setSharedItems(null)
+    setSharedLoading(false)
+    setSharedError(false)
+    setSharedWindowStart(null)
+    setSharedHasMore(false)
   }
 
   // STORE SWITCH — every row this component holds belongs to the store that was
@@ -668,6 +733,7 @@ export function KaruteRecordListView({
   if (storeId !== prevStoreId) {
     setPrevStoreId(storeId)
     exitMonth()
+    exitSharedMode()
     rewindToFirstWindow()
 
     // CONTEXT-ONLY resets. These belong HERE and deliberately NOT in the shared
@@ -686,6 +752,7 @@ export function KaruteRecordListView({
     // total long enough for さらに表示 to flash in and out.
     setStoreTotal(total)
     setStoreDiscardedCount(discardedCount)
+    setStoreSharedCount(sharedCount)
     // Store A's retry line, its last announcement, and its reveal row (which
     // NAMES a store A customer) all stop being true at the switch. The request
     // id bump lands an in-flight reveal into nothing, same as the two
@@ -733,6 +800,10 @@ export function KaruteRecordListView({
   }
 
   async function pickMonth(month: string) {
+    // D10: the month selector and the 共有 pill are mutually exclusive modes —
+    // picking a month always leaves shared mode first (mirrors pickFilter's
+    // own `if (monthMode) exitMonth()`).
+    if (sharedMode) exitSharedMode()
     // Picking the CURRENT month is how you come back (⛔ no 「今月に戻る」
     // button — a v1 invention the mock lacks). The default view already IS this
     // month's newest rows plus さらに表示; re-fetching it as a month would
@@ -827,10 +898,82 @@ export function KaruteRecordListView({
 
   /** Any count-pill tap LEAVES month view, carrying that filter into the
    *  default window (packet §PR-2b). Tapping the already-active pill still
-   *  leaves — the tap's meaning is "show me this across the whole list". */
+   *  leaves — the tap's meaning is "show me this across the whole list".
+   *  D10 (PR-C): 「共有」 is a SECOND MODE, not an ordinary filter — tapping it
+   *  enters shared mode (own fetch, own row cache) instead of setting
+   *  `filter`; tapping any OTHER pill leaves shared mode exactly the way any
+   *  pill tap leaves month view. */
   function pickFilter(key: KaruteListFilter) {
     if (monthMode) exitMonth()
+    if (key === 'shared') {
+      if (!sharedMode) void enterSharedMode()
+      return
+    }
+    if (sharedMode) exitSharedMode()
     setFilter(key)
+  }
+
+  /** Enter shared mode: ONE loadKaruteWindow({sharedOnly:true}) call, no
+   *  olderThan/loadedCount — the mode's OWN first window, exactly the shape
+   *  a fresh mount reads the default walk's first window. */
+  async function enterSharedMode() {
+    const gen = ++sharedGen.current
+    setSharedMode(true)
+    setSharedItems(null)
+    setSharedLoading(true)
+    setSharedError(false)
+    setFilter('all')
+    try {
+      const res = await loadKaruteWindow({ sharedOnly: true })
+      if (gen !== sharedGen.current) return
+      if ('error' in res) {
+        setSharedError(true)
+        setSharedItems([])
+        return
+      }
+      setSharedItems(res.items)
+      setSharedWindowStart(res.windowStart)
+      if (res.freshSharedCount !== undefined) setStoreSharedCount(res.freshSharedCount)
+      setSharedHasMore(res.hasMore)
+    } catch {
+      if (gen !== sharedGen.current) return
+      setSharedError(true)
+      setSharedItems([])
+    } finally {
+      if (gen === sharedGen.current) setSharedLoading(false)
+    }
+  }
+
+  /** さらに表示 INSIDE shared mode — continues with olderThan + sharedOnly,
+   *  the mode's own boundary/loadedCount, never the default walk's. */
+  async function fetchSharedOlder() {
+    if (!sharedWindowStart || sharedLoading) return
+    const gen = sharedGen.current
+    setSharedLoading(true)
+    setSharedError(false)
+    try {
+      const res = await loadKaruteWindow({
+        sharedOnly: true,
+        olderThan: sharedWindowStart,
+        loadedCount: sharedItems?.length ?? 0,
+      })
+      if (gen !== sharedGen.current) return
+      if ('error' in res) {
+        setSharedError(true)
+        return
+      }
+      const seen = new Set((sharedItems ?? []).map((i) => i.id))
+      const fresh = res.items.filter((i) => !seen.has(i.id))
+      setSharedItems((prev) => [...(prev ?? []), ...fresh])
+      setSharedWindowStart(res.windowStart)
+      if (res.freshSharedCount !== undefined) setStoreSharedCount(res.freshSharedCount)
+      setSharedHasMore(res.hasMore)
+    } catch {
+      if (gen !== sharedGen.current) return
+      setSharedError(true)
+    } finally {
+      if (gen === sharedGen.current) setSharedLoading(false)
+    }
   }
 
   // Content-swap scroll reset (AuditLogSection's idiom): entering or leaving a
@@ -938,17 +1081,36 @@ export function KaruteRecordListView({
       needsReview: countStatus('needsReview'),
       draft: countStatus('draft'),
       discarded: scopedAll.filter((i) => i.isDiscarded).length,
+      // D10 (PR-C): 「共有」 is すべて's OTHER exception (see the comment
+      // above this block) — a STORE-WIDE server count, never a loaded/scoped
+      // tally, because 8/25's "the pill counts what its tap shows" is exactly
+      // what this delivers: the tap's own read is server-scoped to
+      // shared_only=true under the SAME where core counts this number with.
+      shared: storeSharedCount,
     } satisfies Record<KaruteListFilter, number | null>
-  }, [scopedAll, storeUniverseTotal, weekCutoff])
+  }, [scopedAll, storeUniverseTotal, weekCutoff, storeSharedCount])
 
-  // Month view SWAPS the row set (PR-2b). The staff scope and the search box
-  // still apply INSIDE a month — they answer "whose" and "which words", not
-  // "which dates", so a month lens never contradicts them. The count-pill
-  // filter is always 'all' in here: pickMonth resets it, and any pill tap
-  // leaves.
+  // D10 (PR-C): the pill only EXISTS once core answers with a real count AND
+  // this viewer holds the capability — self-lighting, the needsReview-pill
+  // precedent (this file's own FILTER_KEYS comment) generalized to a
+  // server-shaped feature flag instead of a schema column.
+  const filterKeys = useMemo<KaruteListFilter[]>(
+    () =>
+      storeSharedCount !== null && viewerHoldsViewShared
+        ? [...BASE_FILTER_KEYS, 'shared']
+        : BASE_FILTER_KEYS,
+    [storeSharedCount, viewerHoldsViewShared],
+  )
+
+  // Month view SWAPS the row set (PR-2b); shared mode does too (D10) — the
+  // two are mutually exclusive (pickMonth/pickFilter each leave the other).
+  // The staff scope and the search box still apply INSIDE either — they
+  // answer "whose" and "which words", not "which dates"/"which share state".
+  // The count-pill filter is always 'all' in both: pickMonth/enterSharedMode
+  // reset it, and any OTHER pill tap leaves.
   const displayItems = useMemo(
-    () => (monthMode ? (monthItems ?? []) : allItems),
-    [monthMode, monthItems, allItems],
+    () => (sharedMode ? (sharedItems ?? []) : monthMode ? (monthItems ?? []) : allItems),
+    [sharedMode, sharedItems, monthMode, monthItems, allItems],
   )
 
   const filtered = useMemo(() => {
@@ -1024,6 +1186,16 @@ export function KaruteRecordListView({
       weekday: 'short',
     }).format(dt)
   }
+
+  // D10 (PR-C): さらに表示 inside shared mode continues with the MODE's own
+  // boundary/loading/error, never the default walk's — one button, one
+  // handler, so the two can never diverge (mirrors how loadedCount vs
+  // showingCount stay one formula each).
+  const activeWindowStart = sharedMode ? sharedWindowStart : windowStart
+  const activeHasMore = sharedMode ? sharedHasMore : hasMore
+  const activeLoading = sharedMode ? sharedLoading : loadingMore
+  const activeLoadError = sharedMode ? sharedError : loadError
+  const handleLoadMore = () => void (sharedMode ? fetchSharedOlder() : fetchOlder(true))
 
   return (
     // Owns its own px-4 md:px-6 — the (app) layout provides no horizontal
@@ -1197,7 +1369,7 @@ export function KaruteRecordListView({
        *  clip the chip's anchored panel. */}
       <div className="flex flex-wrap items-center gap-2 pt-3">
         <SegmentedFilterBar
-          segments={FILTER_KEYS.map((key) => ({
+          segments={filterKeys.map((key) => ({
             key,
             label: t(`filters.${key}`),
             // LABELS ONLY while a month is picked (PR-2b): the row-counting
@@ -1206,7 +1378,7 @@ export function KaruteRecordListView({
             // screen either. Dropped, never guessed.
             count: monthMode ? null : counts[key],
           }))}
-          active={filter}
+          active={sharedMode ? 'shared' : filter}
           onChange={pickFilter}
         />
         <KaruteMonthSelector
@@ -1225,7 +1397,17 @@ export function KaruteRecordListView({
         {/* A month's rows are still coming: say so. The 「カルテはまだ
          *  ありません」 empty state below would name that month as EMPTY while
          *  its rows are in flight — a load reported as a fact. */}
-        {monthMode && monthItems === null ? (
+        {sharedMode && sharedItems === null ? (
+          <div className="px-6 py-12 text-center">
+            <p className="text-sm text-muted-foreground">{tCommon('loading')}</p>
+          </div>
+        ) : sharedMode && sharedError ? (
+          <div className="px-6 py-12 text-center">
+            <p role="alert" className="text-sm text-muted-foreground">
+              {t('loadMoreFailed')}
+            </p>
+          </div>
+        ) : monthMode && monthItems === null ? (
           <div className="px-6 py-12 text-center">
             <p className="text-sm text-muted-foreground">{tCommon('loading')}</p>
           </div>
@@ -1275,6 +1457,8 @@ export function KaruteRecordListView({
                         viewerCanOpenDiscarded ||
                         (currentStaffId != null && item.staffId === currentStaffId)
                       }
+                      viewerHoldsViewShared={viewerHoldsViewShared}
+                      currentStaffId={currentStaffId}
                     />
                   ))}
                 </div>
@@ -1304,8 +1488,11 @@ export function KaruteRecordListView({
        *  chunk starts from. */}
       {/* HIDDEN in month view (PR-2b): a month is fetched whole, so there is
        *  nothing older to walk to — the button would offer history it cannot
-       *  reach from here. Come back via the chip's current month. */}
-      {!monthMode && hasMore && windowStart && (
+       *  reach from here. Come back via the chip's current month. Shared mode
+       *  (D10) is NOT hidden here — unlike month mode it IS a resumed backward
+       *  walk, just scoped — activeWindowStart/activeHasMore below carry its
+       *  own boundary/flag instead of the default walk's. */}
+      {!monthMode && activeHasMore && activeWindowStart && (
         <div className="flex flex-col items-center gap-1 pt-3">
           {/* NO native `disabled` (fix round 2): the browser BLURS a focused
            *  element the instant it becomes disabled, so the tapped button lost
@@ -1317,22 +1504,22 @@ export function KaruteRecordListView({
            *  the `disabled:` variants used to. */}
           <button
             type="button"
-            onClick={() => void fetchOlder(true)}
-            aria-busy={loadingMore}
+            onClick={handleLoadMore}
+            aria-busy={activeLoading}
             className={`inline-flex h-9 items-center justify-center rounded-full border border-border bg-card px-4 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground${
-              loadingMore ? ' cursor-not-allowed opacity-40' : ''
+              activeLoading ? ' cursor-not-allowed opacity-40' : ''
             }`}
           >
-            {loadingMore
+            {activeLoading
               ? tCommon('loading')
-              : t('loadMore', { date: formatBoundaryDate(windowStart) })}
+              : t('loadMore', { date: formatBoundaryDate(activeWindowStart) })}
           </button>
           {/* role="alert" (fix round 2): this line IS the failure messaging now
            *  — it announces on mount, which covers the SILENT ?since restore
            *  too. Before, a restore failure was visible but never spoken, and a
            *  manual tap spoke through the aria-live region while also showing
            *  this line: one failure, announced twice. */}
-          {loadError && (
+          {activeLoadError && (
             <p role="alert" className="text-xs text-muted-foreground">
               {t('loadMoreFailed')}
             </p>

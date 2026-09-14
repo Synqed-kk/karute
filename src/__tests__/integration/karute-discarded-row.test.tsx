@@ -86,3 +86,55 @@ describe('discarded Karute row', () => {
     expect(container.querySelector('a')).toBeNull()
   })
 })
+
+// D10 (PR-C, WHO-SEES): the 共有 chip — both slots (mobile + desktop both
+// render in jsdom, CSS-hidden only), gated by viewerHoldsViewShared OR the
+// row's own recorder.
+describe('the 共有 row chip (D10, WHO-SEES)', () => {
+  const sharedItem: KaruteListItem = { ...item, isShared: true }
+
+  it('is absent when the row is not shared at all, regardless of viewer', () => {
+    render(<KaruteListRow item={item} viewerHoldsViewShared currentStaffId="staff-1" />)
+    expect(screen.queryAllByText('filters.shared')).toHaveLength(0)
+  })
+
+  it('shows in BOTH chip slots for a viewShared holder, on a colleague\'s shared row', () => {
+    render(<KaruteListRow item={sharedItem} viewerHoldsViewShared currentStaffId="someone-else" />)
+    // One in the mobile slot, one in the desktop slot — both render in jsdom.
+    expect(screen.getAllByText('filters.shared')).toHaveLength(2)
+  })
+
+  it('shows for the recorder on her OWN shared row, even without viewShared', () => {
+    render(
+      <KaruteListRow item={sharedItem} viewerHoldsViewShared={false} currentStaffId="staff-1" />,
+    )
+    expect(screen.getAllByText('filters.shared')).toHaveLength(2)
+  })
+
+  it('is HIDDEN for a practitioner on a COLLEAGUE\'s shared row (no viewShared, not her own) — the WHO-SEES gate (M6)', () => {
+    render(
+      <KaruteListRow
+        item={sharedItem}
+        viewerHoldsViewShared={false}
+        currentStaffId="someone-else"
+      />,
+    )
+    expect(screen.queryAllByText('filters.shared')).toHaveLength(0)
+  })
+
+  it('is hidden with no viewer props at all (the defaults: viewerHoldsViewShared=false, currentStaffId=null)', () => {
+    render(<KaruteListRow item={sharedItem} />)
+    expect(screen.queryAllByText('filters.shared')).toHaveLength(0)
+  })
+
+  it('soft wash tier — no black/solid fill (⚖ no-black-interactive)', () => {
+    const { container } = render(
+      <KaruteListRow item={sharedItem} viewerHoldsViewShared currentStaffId="staff-1" />,
+    )
+    // The text sits in its own inner <span>; the chip's classes live on its
+    // parent (the outer <span> SharedChip returns).
+    const chip = screen.getAllByText('filters.shared')[0].parentElement!
+    expect(chip.className).toContain('bg-sky-50')
+    expect(chip.className).not.toMatch(/(^|\s)bg-(black|foreground)(\s|$)/)
+  })
+})

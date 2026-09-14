@@ -47,6 +47,9 @@ const QuerySchema = z.object({
   olderThan: z.string().refine(isValidKaruteYmd).optional(),
   month: z.string().refine(isValidKaruteMonth).optional(),
   loadedCount: z.coerce.number().int().min(0).optional(),
+  // D10 (PR-C): the manager's 共有 list mode — a literal 'true'/absent, the
+  // same shape isValidKaruteYmd's siblings use for a boolean query flag.
+  sharedOnly: z.literal('true').optional(),
 })
 
 export const GET = facadeHandler('karute.window', async (ctx) => {
@@ -57,12 +60,24 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
     olderThan: url.searchParams.get('olderThan') ?? undefined,
     month: url.searchParams.get('month') ?? undefined,
     loadedCount: url.searchParams.get('loadedCount') ?? undefined,
+    sharedOnly: url.searchParams.get('sharedOnly') ?? undefined,
   })
   if (!parsed.success) {
     throw new AppApiError(
       'validation',
       'olderThan must be a real calendar date (YYYY-MM-DD), month a real calendar month (YYYY-MM), loadedCount a non-negative integer',
     )
+  }
+
+  // F1 fix (PR-C fix round 1, ⚖ "the wire must not tell a colleague a share
+  // happened"): a sharedOnly request from a non-holder is refused HONESTLY —
+  // never silently served as the full unfiltered list (which would let
+  // anyone with customers.view discover who has a share by row counts).
+  // OUTSIDE the try/catch below for the same reason the store clamp is: this
+  // throw must reach the client as its real status, never a swallowed 502.
+  const holdsViewShared = ctx.identity.capabilities.has('recordings.viewShared')
+  if (parsed.data.sharedOnly === 'true' && !holdsViewShared) {
+    throw new AppApiError('forbidden', 'recordings.viewShared required for sharedOnly')
   }
 
   const synqed = newSynqedClient(ctx.identity.businessId)
@@ -94,6 +109,7 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
         olderThan: parsed.data.olderThan,
         month: parsed.data.month,
         loadedCount: parsed.data.loadedCount,
+        sharedOnly: parsed.data.sharedOnly === 'true',
       }),
       synqed.staff.list({ page_size: 200 }),
     ])
@@ -118,6 +134,8 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
       monthCount: 0,
       total: window.freshStoreTotal,
       discardedCount: window.freshDiscardedCount,
+      // F1 fix (PR-C fix round 1): REQUIRED — gates isShared per row.
+      viewerHoldsViewShared: holdsViewShared,
     })
 
     return ok(ctx, {
@@ -125,6 +143,13 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
       windowStart: window.windowStart,
       freshStoreTotal: window.freshStoreTotal,
       freshDiscardedCount: window.freshDiscardedCount,
+      // D10 (PR-C, self-lighting): JSON.stringify drops an undefined key, so
+      // this is silently absent from the wire until core ships shared_count —
+      // never `?? 0` (see jsonResponse in handler.ts). F1 fix (PR-C fix round
+      // 1): also undefined for a non-holder even when core DID answer it —
+      // the default walk's さらに表示 responses used to carry this to
+      // everyone.
+      freshSharedCount: holdsViewShared ? window.freshSharedCount : undefined,
       hasMore: window.hasMore,
     })
   } catch (err) {
