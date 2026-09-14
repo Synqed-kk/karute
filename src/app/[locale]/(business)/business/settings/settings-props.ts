@@ -1619,12 +1619,17 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
               opts(
                 AUTO_RELEASE_CHOICES.map((choice): [string, string] => [
                   choice,
+                  // ⚖ D-15 widened `AutoReleaseBefore` past this row's own four
+                  // literals (A2 still owns turning this select into a free
+                  // field); `AUTO_RELEASE_CHOICES` is unchanged in A1, so
+                  // `choice` is one of exactly these four at runtime — the cast
+                  // is a type-only fix for that widening, not a behaviour change.
                   {
                     linked: `直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`, // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
                     never: '解除しない', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
                     '30': '30分前まで', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
                     '120': '120分前まで', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
-                  }[choice],
+                  }[choice as 'linked' | 'never' | '30' | '120'],
                 ]),
               ),
               autoReleaseToWire(opsConfig.autoReleaseBeforeMin),
