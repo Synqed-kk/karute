@@ -26,11 +26,15 @@
 // one-line description of what it changes/turns off」 — every 説明 below is the
 // mock's, verbatim).
 //
-// ⚖ 1b RULED — 新規のお客様の確保 is THREE CHIPS (60分/75分/90分), not the mock's
-// free stepper: `SetStoreBookingPolicyInput.new_client_session_minutes` is the
-// literal union `60 | 75 | 90`, so a stepper could offer 150 and the wire would
-// refuse it. A control that can name a value the store cannot save is a lie with
-// a number in it. `MINUTE_CHOICES` in `./store-policy-seam.ts` is that enum.
+// ⚖ 1b RULED, SUPERSEDED BY D-15 (2026-09-13) — 新規のお客様の確保 used to be
+// THREE CHIPS (60分/75分/90分) because core's write side was the literal union
+// `60 | 75 | 90` and a control that can name a value the store cannot save is a
+// lie with a number in it. Liam's ruling now forbids the OPPOSITE lie — a
+// business whose real length is 75 minutes shown three choices none of which is
+// 75. The field is free again, the mock's own shape (`store-policy-seam.ts`'s
+// `readMinutes` is the ONE home of what a typed value may say); the write side
+// still lags the wire (CORE-10, PLAN-R3-FREE-DURATIONS.md §6) and that debt is
+// carried at the seam, not answered by narrowing the control back to three.
 //
 // THE PREVIEW IS THE SHIPPED CARD, not a drawing of one: it imports
 // `warnFaceFor` — the board's own composer — and paints the model it hands back
@@ -39,23 +43,119 @@
 // ¥) is decided by that function and by nothing here, which is what makes the
 // preview an honest answer to 「what will my staff actually see?」.
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { commitNumberField } from '@/business/lib/settings'
-import { CALENDAR_TIGHT_RANGE, clampCalendarTight, overrideLevelFor, warnFaceFor, type OverrideLevel, type RailCell } from '../today/today-interactions'
+import {
+  CALENDAR_TIGHT_RANGE,
+  clampCalendarTight,
+  guardVerdictAt,
+  overrideLevelFor,
+  protectedCapacityOf,
+  warnFaceFor,
+  type OverrideLevel,
+  type RailCell,
+} from '../today/today-interactions'
 import type { PriceFrame } from '@/business/lib/canon-logic/pricing'
+import type { BoardLane } from '@/business/lib/today-board'
 import { Collapse, DetailToggle } from './Collapse'
-import { MINUTE_CHOICES, sceneKeyFor, type GapGuardMode, type NewClientMinutes } from './store-policy-seam'
+import { sceneKeyFor, type GapGuardMode } from './store-policy-seam'
 
-/** The 確保 verdict + capacity at ONE pair of dial values, evaluated on the
- *  server against the store's real day. Keyed `standard:90` / `strict:60`. */
+/** The 確保 verdict + capacity at ONE pair of dial values, computed CLIENT-SIDE
+ *  now (⚖ D-15 — the length is free, so there is no fixed set of pairs left to
+ *  precompute server-side). `capacity` is the ENGINE'S own count of 新規
+ *  windows the day can hold at this length (`protectedCapacity`, over the
+ *  day's own `freePockets`) — never derived here, one basis, ⚖ 54. `cell` is
+ *  the guard's verdict at the sample landing; `null` = the day has no landing
+ *  that costs the store a protected window, so there is no warn card to show. */
 export interface StorePolicyScene {
-  /** The ENGINE'S own count of 新規 windows the day can hold at this length
-   *  (`protectedCapacity`, over the day's own `freePockets`). Never derived
-   *  here — one basis, ⚖ 54. */
   capacity: number
-  /** The guard's verdict at the sample landing. `null` = the day has no landing
-   *  that costs the store a protected window, so there is no warn card to show. */
   cell: RailCell | null
+}
+
+/** ⚖ D-15 — EVERYTHING `computeScene` NEEDS THAT IS DATA, assembled once on
+ *  the server (`store-policy-props.ts`) so the browser can re-evaluate the
+ *  scene on every blur with no data access and no arithmetic of its own beyond
+ *  the two engine functions themselves.
+ *
+ *  `guardBase` is `guardConfigFor`'s own inputs (`store-policy-props.ts`)
+ *  MINUS the two fields that depend on the live dials — `newClientSessionMin`
+ *  (the typed minutes) and `mode` (STANDARD/STRICT) — which `computeScene`
+ *  fills in per call. Read `guardConfigFor`: those two are its ONLY
+ *  minutes/strict-dependent fields, so this is the whole of the rest of it. */
+export interface SceneInput {
+  lanes: BoardLane[]
+  hours: { open: number; close: number }
+  stepMin: number
+  dur: number
+  nowMinute: number | null
+  sampleLaneKey: string | null
+  sampleStart: number
+  guardBase: {
+    services: Array<{ name: string; dur: number }>
+    protectedLabel: string
+    gapFillMinMin: number
+    blockStepMin: number
+    leadTimeMin: number
+  }
+}
+
+/** THE SCENE, computed where the free length lives now: in the browser, on
+ *  every blur of the 新規のお客様の確保 field. Same two engine functions
+ *  (`protectedCapacityOf`, `guardVerdictAt`) `store-policy-props.ts` called
+ *  server-side per fixed choice until ⚖ D-15; same `RailInput` shape
+ *  `railInputFor` there has always built. ⚠ CAPACITY IS ALWAYS ASKED UNDER
+ *  STANDARD (`mode === 'STANDARD'`, never the live `mode`) — it does not
+ *  depend on strict/standard at all (the reason lives beside `scene.capacity`
+ *  below), and asking it any other way would be a second, disagreeing
+ *  derivation. `cell` is `null` at OFF or with no sample landing to preview. */
+export function computeScene(input: SceneInput, mode: GapGuardMode, minutes: number): StorePolicyScene {
+  const railInput = (strict: boolean) => ({
+    open: input.hours.open,
+    close: input.hours.close,
+    stepMin: input.stepMin,
+    dur: input.dur,
+    protectedDur: minutes,
+    nowMinute: input.nowMinute,
+    locked: [] as string[],
+    guard: { ...input.guardBase, newClientSessionMin: minutes, mode: strict ? ('strict' as const) : ('standard' as const) },
+  })
+  const capacity = protectedCapacityOf(input.lanes, railInput(false))
+  // ⚖ D-25 F2 — THE SEAM'S OWN OFF ANSWER, ASKED HERE TOO. This used to spell
+  // `mode === 'OFF'` inline — a second, coincidentally-matching definition of
+  // OFF beside the screen's own `sceneKeyFor(mode, minutes) === null`. One
+  // home now: the two can no longer drift apart because there is only one of
+  // them to drift.
+  const cell =
+    sceneKeyFor(mode, minutes) === null || input.sampleLaneKey === null
+      ? null
+      : guardVerdictAt(input.lanes, input.sampleLaneKey, input.sampleStart, railInput(mode === 'STRICT'))
+  return { capacity, cell }
+}
+
+/** ⚖ D-25 F3 — THE FREE-LENGTH COMMIT, LIFTED TO ONE PURE HOME. Both 新規の
+ *  お客様の確保 and 予約の刻み call this from their own onBlur; before this it
+ *  was a four-line body repeated at each call site, pinned only by a source
+ *  substring (`setMinutes(commit.value)`) a snap elsewhere on the path could
+ *  dodge. Same shape `commitNumberField` already gives every free-minute
+ *  field: `SLOT_MIN` floor, the caller's own ceiling, '分' unit. */
+// ⚖ D-30 — digits only: `Number()` would accept 1e2 / 0x10 / +5 and rewrite
+// the text into another number.
+export function isIntegerTextAtLeast(text: string, floor: number): boolean { const t = text.trim(); return /^[0-9]+$/.test(t) && Number(t) >= floor }
+
+export function commitMinutes(text: string, lastGood: number, ceiling: number): { value: number; message: string | null } {
+  // ⚖ D-27 — typed text is never rewritten into a different number; anything
+  // that is not a positive integer restores the previous value and says so.
+  const raw = isIntegerTextAtLeast(text, SLOT_MIN) ? text.trim() : ''
+  return commitNumberField(raw, lastGood, SLOT_MIN, ceiling, '分')
+}
+
+/** ⚖ D-28 — an emptied box nudges from the committed value, never from
+ *  `Number('') = 0`. ⚖ D-29 — the nudge starts from the committed value
+ *  whenever the box holds anything the commit would refuse. ⚖ D-30 — the
+ *  floor is the field's own: `SLOT_MIN` for the minute fields, `TIGHT_MIN`
+ *  for 残りわずかの目安, which allows 0. */
+export function nudgeBase(text: string, lastGood: number, floor: number): number {
+  return isIntegerTextAtLeast(text, floor) ? Number(text.trim()) : lastGood
 }
 
 export interface StorePolicyProps {
@@ -75,8 +175,9 @@ export interface StorePolicyProps {
     mode: GapGuardMode
     /** ⚠SETTINGS-BATCH — `overrideHoldToConfirm`. */
     holdToConfirm: boolean
-    /** core `new_client_session_minutes`. */
-    newClientMinutes: NewClientMinutes
+    /** core `new_client_session_minutes`. ⚖ D-15 — any positive integer, no
+     *  fixed ladder; the ceiling is `dayLenMin` below. */
+    newClientMinutes: number
     /** ⚠SETTINGS-BATCH — `heldRankAccess`. */
     heldRankAccess: 'closed' | 'silver' | 'gold' | 'platinum'
     /** ⚠SETTINGS-BATCH — the store advertises its leftovers (`minSellableMin`). */
@@ -91,7 +192,11 @@ export interface StorePolicyProps {
      *  今日の運営 page makes: one clamp, two readers. */
     calendarTightMax: number
   }
-  scenes: Record<string, StorePolicyScene>
+  sceneInput: SceneInput
+  /** ⚖ D-15 — THE DERIVED CEILING for every free-minute field in this section:
+   *  the store's own operating day, in minutes (`hours.close − hours.open`).
+   *  Never a number this file invents. */
+  dayLenMin: number
   sample: {
     laneKey: string
     laneLabel: string
@@ -224,7 +329,7 @@ type Perm = 'staff' | 'approve' | 'manager'
 type Rank = StorePolicyProps['policy']['heldRankAccess']
 /** One dial state, and the mock's own key set — 名指しロック is deliberately NOT
  *  in it (see `PRESETS`). */
-interface Dials { perm: Perm; hold: boolean; mode: GapGuardMode; gaps: boolean; minutes: NewClientMinutes; rank: Rank; slot: number }
+interface Dials { perm: Perm; hold: boolean; mode: GapGuardMode; gaps: boolean; minutes: number; rank: Rank; slot: number }
 
 /** ⚖ the mock's three presets, value for value. 名指しロック is a PER-PERSON
  *  exception rather than a policy dial, so it lives outside this set and
@@ -249,9 +354,16 @@ const RANK_OPTIONS: Array<[Rank, string]> = [
   ['platinum', 'プラチナ以上'],
 ]
 
-/** 予約の刻み's own bounds, the mock's. */
-const SLOT_MIN = 5
-const SLOT_MAX = 60
+/** ⚖ D-15 — THE FLOOR, SHARED BY BOTH FREE-MINUTE FIELDS IN THIS SECTION
+ *  (予約の刻み and 新規のお客様の確保): any positive integer's smallest member.
+ *  Not a step — the old 5-minute granularity is gone, the ± buttons below move
+ *  by `NUDGE_MIN` as a convenience only, and typing is free. Each field's
+ *  CEILING is `props.dayLenMin`, the store's own operating day — read at the
+ *  call site, never spelled here. */
+const SLOT_MIN = 1
+/** The ± buttons' own step — a convenience default, never a cap: nothing stops
+ *  a typed value that is not a multiple of it. */
+const NUDGE_MIN = 5
 
 /** 残りわずかの目安's bounds — READ FROM THE DIAL'S OWN HOME, never spelled here
  *  (⚖ Liam 9/12). The board's paint, this room's stepper and its blur commit all
@@ -263,6 +375,12 @@ const { min: TIGHT_MIN, max: TIGHT_MAX } = CALENDAR_TIGHT_RANGE
  *  (⚠SETTINGS-BATCH). ONE sentence, reused, so eight rows cannot drift into
  *  eight different promises. */
 const PENDING_NOTE = 'この設定はまだ保存できません。画面での動きだけ確認できます'
+/** ⚖ D-28 — THE ONE WARN SENTENCE, all three free-text fields. Byte-identical
+ *  to the blind native pass (JP-NATIVE-R3/A1-WARN-LINE.md): ⚖ D-27 keeps what
+ *  was typed on screen, so the old sentence — which claimed the non-digit
+ *  characters had just been erased — was describing something that no longer
+ *  happens. */
+const NON_DIGIT_WARN = '数字以外は保存されません。欄を離れると前の値に戻ります'
 /** The padlock the approved warn card opens its provenance line with — the same
  *  path today.css's own card draws, so the preview is the card. */
 const WC_LOCK_PATH = 'M4 7V5a4 4 0 018 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 10-4 0v2z'
@@ -279,7 +397,15 @@ export function StorePolicySection(props: StorePolicySectionProps) {
   // OFF until the operator presses one of the dial's two positions on purpose.
   const [mode, setMode] = useState<GapGuardMode>(policy.mode)
   const [gaps, setGaps] = useState(policy.gapSelling)
-  const [minutes, setMinutes] = useState<NewClientMinutes>(policy.newClientMinutes)
+  // ⚖ D-15 — 新規のお客様の確保 IS NOW 予約の刻み'S OWN SHAPE: TEXT while typing
+  // (`minutesText`), a COMMITTED number the scene/card actually read (`minutes`,
+  // changed only on blur — see the render leg in PKT-BUILD-R3-A1.md commit 2),
+  // and the same last-good/warn/message trio the field beside it uses.
+  const [minutesText, setMinutesText] = useState(String(policy.newClientMinutes))
+  const [minutes, setMinutes] = useState(policy.newClientMinutes)
+  const [minutesWarn, setMinutesWarn] = useState(false)
+  const [minutesMsg, setMinutesMsg] = useState<string | null>(null)
+  const lastGoodMinutes = useRef(clampSlot(Number(minutesText), props.dayLenMin))
   const [rank, setRank] = useState<Rank>(policy.heldRankAccess)
   // 予約の刻み is held as TEXT while it is being typed — a half-typed 「1」 on the
   // way to 「15」 must not clamp itself to 5 under the operator's fingers. The
@@ -291,7 +417,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
    *  the floor. Tracked from the value, so the ± stepper and a preset that
    *  rewrites the field are remembered the same way typing is. */
   const [slotMsg, setSlotMsg] = useState<string | null>(null)
-  const lastGoodSlot = useRef(clampSlot(Number(slotText)))
+  const lastGoodSlot = useRef(clampSlot(Number(slotText), props.dayLenMin))
   /** ⚖ Liam 9/12 — 残りわずかの目安, held exactly like 予約の刻み above it: TEXT
    *  while it is being typed (a half-typed 「1」 on the way to 「4」 must not
    *  commit itself under the operator's fingers), committed on blur, with the
@@ -352,17 +478,12 @@ export function StorePolicySection(props: StorePolicySectionProps) {
     setAdvOpen((now) => (now ? was : now))
   }, [props.tourOpen])
 
-  useEffect(() => {
-    const n = Number(slotText.trim())
-    if (slotText.trim() !== '' && Number.isFinite(n) && n >= SLOT_MIN && n <= SLOT_MAX) lastGoodSlot.current = Math.round(n)
-  }, [slotText])
+  // ⚖ D-27 — `lastGood*` moves ONLY on a commit (blur / nudge / preset /
+  // initial), never on a keystroke. The three effects that used to update it
+  // on every valid keystroke are gone; each `lastGood*.current =` assignment
+  // now sits beside the committed-value set it belongs to.
 
-  useEffect(() => {
-    const n = Number(tightText.trim())
-    if (tightText.trim() !== '' && Number.isFinite(n) && n >= TIGHT_MIN && n <= TIGHT_MAX) lastGoodTight.current = Math.round(n)
-  }, [tightText])
-
-  const dials: Dials = { perm, hold, mode, gaps, minutes, rank, slot: Number(slotText) }
+  const dials: Dials = { perm, hold, mode, gaps, minutes: Number(minutesText), rank, slot: Number(slotText) }
   const activePreset =
     Object.keys(PRESETS).find((k) => {
       const p = PRESETS[k]
@@ -373,7 +494,36 @@ export function StorePolicySection(props: StorePolicySectionProps) {
   function choosePreset(key: string) {
     const p = PRESETS[key]
     setPerm(p.perm); setHold(p.hold); setMode(p.mode); setGaps(p.gaps)
-    setMinutes(p.minutes); setRank(p.rank); setSlotText(String(p.slot))
+    // A preset press is a commit, not typing — both the text and the value the
+    // scene reads move together, same as every other dial a preset sets.
+    setMinutesText(String(p.minutes)); setMinutes(p.minutes); setMinutesWarn(false); setMinutesMsg(null)
+    lastGoodMinutes.current = p.minutes
+    setRank(p.rank); setSlotText(String(p.slot))
+    lastGoodSlot.current = p.slot
+  }
+
+  /** ⚖ D-26 N1 — A NUDGE IS A COMMIT TOO, same as `choosePreset` above: the
+   *  manager clicked a BUTTON, not a keystroke, so there is no blur coming to
+   *  reconcile typed vs committed. Before this fix the ± handlers moved only
+   *  `minutesText`, leaving `minutesPending` true forever after one press — the
+   *  card kept the old length and the line underneath told the manager to
+   *  「欄を離れる」 a field they were never in. `commitMinutes` is the same pure
+   *  function `onBlur` already calls; a nudge just supplies its own candidate
+   *  instead of the typed text. 予約の刻み has no separate committed state
+   *  (`dials.slot` reads `slotText` directly, so its old nudge already took
+   *  effect at once) — it still routes through `commitMinutes` here so both
+   *  fields share one shape and one message/clamp behaviour. */
+  function nudgeMinutes(delta: number) {
+    const next = clampSlot(nudgeBase(minutesText, lastGoodMinutes.current, SLOT_MIN) + delta, props.dayLenMin)
+    const commit = commitMinutes(String(next), lastGoodMinutes.current, props.dayLenMin)
+    lastGoodMinutes.current = commit.value
+    setMinutesText(String(commit.value)); setMinutes(commit.value); setMinutesWarn(false); setMinutesMsg(commit.message)
+  }
+  function nudgeSlot(delta: number) {
+    const next = clampSlot(nudgeBase(slotText, lastGoodSlot.current, SLOT_MIN) + delta, props.dayLenMin)
+    const commit = commitMinutes(String(next), lastGoodSlot.current, props.dayLenMin)
+    lastGoodSlot.current = commit.value
+    setSlotText(String(commit.value)); setSlotWarn(false); setSlotMsg(commit.message)
   }
   // ── the live preview ──────────────────────────────────────────────────────
 
@@ -408,28 +558,38 @@ export function StorePolicySection(props: StorePolicySectionProps) {
     return perm === 'approve' && base === 'allow-warned' ? 'needs-approval' : base
   })()
 
-  /** ⚖ 9/1 (fix round 1 F4) — WHICH SCENE THESE DIALS ASK FOR, and `null` when
-   *  they ask for none: the guard is OFF for this store, so there is no verdict
-   *  to preview and the card below is not drawn at all. The seam owns the mapping
-   *  so the page (which BUILDS the scenes) and this screen (which reads them)
-   *  cannot spell the key two ways. */
-  const sceneKey = sceneKeyFor(mode, minutes)
-  const guardOff = sceneKey === null
+  /** ⚖ 9/1 (fix round 1 F4) — WHETHER THERE IS A SCENE TO PREVIEW AT ALL: the
+   *  guard is OFF for this store, so there is no verdict to preview and the
+   *  card below is not drawn. The seam still owns the OFF answer (`null`), so
+   *  this screen and `computeScene` cannot disagree about what OFF means —
+   *  ⚖ D-25 F2: `computeScene`'s own cell branch asks `sceneKeyFor` too now,
+   *  the same call this line makes, so the claim is true by construction and
+   *  not merely by two spellings agreeing today. */
+  const guardOff = sceneKeyFor(mode, minutes) === null
   /** ⚖ 9/1 (fix round 1 F4b) — AND AT OFF THE CAPACITY IS STILL THE REAL ONE.
-   *  The `{ capacity: 0 }` fallback made the guardrail line print the amber
-   *  「この長さでは…ひとつも作れません（0枠）」 at every OFF store — a room-tight
-   *  alarm about a day that is not tight, invented by a missing key rather than
-   *  measured. The number does not depend on the mode at all (the page computes
-   *  it once per 長さ and stores the same value under both keys), so the honest
-   *  one is right there under STANDARD. CAPACITY ONLY: `cell` stays null, so the
-   *  card is suppressed exactly as an off store's card must be.
+   *  A `{ capacity: 0 }` fallback would print the amber 「この長さでは…ひとつも
+   *  作れません（0枠）」 at every OFF store — a room-tight alarm about a day that
+   *  is not tight, invented rather than measured. `computeScene` asks the
+   *  engine under STANDARD regardless of `mode` (the number does not depend on
+   *  it at all), so the honest one is right there even with the guard off, and
+   *  `cell` stays `null` so the card stays suppressed. It is also the point of
+   *  the line at OFF — 作れます is a potential, true in every mode, and an
+   *  owner deciding whether to switch the guard ON deserves to see what the
+   *  day can hold BEFORE they switch it (⚖ 8/21 mistake-proofing).
    *
-   *  It is also the point of the line at OFF — 作れます is a potential, true in
-   *  every mode, and an owner deciding whether to switch the guard ON deserves to
-   *  see what the day can hold BEFORE they switch it (⚖ 8/21 mistake-proofing). */
-  const scene = sceneKey === null
-    ? { capacity: props.scenes[sceneKeyFor('STANDARD', minutes)!]?.capacity ?? 0, cell: null }
-    : props.scenes[sceneKey] ?? { capacity: 0, cell: null }
+   *  ⚖ D-15 — COMMITTED, NOT TYPED. `minutes` is the last BLURRED value (see
+   *  the field below), so a keystroke mid-edit never repaints this line or the
+   *  card — only a completed commit does, exactly like every other engine read
+   *  in this room. */
+  const scene = useMemo(() => computeScene(props.sceneInput, mode, minutes), [props.sceneInput, mode, minutes])
+  /** ⚖ D-25 F4 — THE BOX CAN READ SOMETHING THE CARD HAS NOT SEEN YET. The
+   *  typed value already drives the preset chip (`dials.minutes`, above); the
+   *  capacity line below still read the OLD committed `minutes` mid-edit, so a
+   *  manager could type 100, watch プリセット flip to カスタム, and read 90分's
+   *  count beside it as the answer to what they just typed (⚖ 8/21
+   *  mistake-proofing: staff CAN'T err). No new state — this is the same
+   *  `minutesText`/`minutes` pair already held, compared at render. */
+  const minutesPending = minutesText.trim() !== String(minutes)
 
   /** THE CARD, composed by the BOARD'S OWN function. Every branch of it —
    *  the three faces, the hold/press/approval commit, the provenance line, the
@@ -835,22 +995,59 @@ export function StorePolicySection(props: StorePolicySectionProps) {
               <div className="st-dial-label"><h3 id="stMinutesLabel">新規のお客様の確保</h3></div>
               <p className="st-dial-desc">新規のお客様のために確保する施術時間の長さ</p>
             </div>
-            {/* ⚖ 1b RULED — three fixed choices, because the wire's own type
-                is `60 | 75 | 90`. The mock's stepper is superseded. */}
+            {/* ⚖ D-15 — ANY POSITIVE MINUTES, the same free-field shape 予約の
+                刻み uses below: text input + ±NUDGE_MIN nudge, committed on
+                blur. Typing is free; only the committed value (`minutes`)
+                ever reaches the scene or the card. */}
             <div className="st-dial-ctl">
-              <div className="sp-seg" role="group" aria-labelledby="stMinutesLabel">
-                {MINUTE_CHOICES.map((m) => (
-                  <button key={m} type="button" className={minutes === m ? 'on' : undefined} aria-pressed={minutes === m} onClick={() => setMinutes(m)}>{m}分</button>
-                ))}
+              <div className="st-step">
+                <div className="st-step-g">
+                  <button type="button" aria-label={`${NUDGE_MIN}分減らす`} onClick={() => nudgeMinutes(-NUDGE_MIN)}>−</button>
+                  <input
+                    id="stMinutes"
+                    type="text"
+                    inputMode="numeric"
+                    aria-labelledby="stMinutesLabel"
+                    value={minutesText}
+                    onChange={(e) => {
+                      setMinutesMsg(null)
+                      setMinutesWarn(/[^0-9]/.test(e.target.value))
+                      setMinutesText(e.target.value)
+                    }}
+                    onBlur={() => {
+                      const commit = commitMinutes(minutesText, lastGoodMinutes.current, props.dayLenMin)
+                      lastGoodMinutes.current = commit.value
+                      setMinutesText(String(commit.value))
+                      setMinutes(commit.value)
+                      setMinutesWarn(false)
+                      setMinutesMsg(commit.message)
+                    }}
+                  />
+                  <button type="button" aria-label={`${NUDGE_MIN}分増やす`} onClick={() => nudgeMinutes(NUDGE_MIN)}>＋</button>
+                </div>
+                <span className="st-step-u">分</span>
               </div>
             </div>
+            <p className={`st-ctrl-d${minutesWarn || minutesMsg !== null ? ' warn' : ' dim'}`} aria-live="polite">
+              {minutesWarn
+                ? NON_DIGIT_WARN
+                : (minutesMsg ?? '数字以外は保存されません')}
+            </p>
             {/* ⚖ THE GUARDRAIL, from the store's real day through the guard
                 engine's own `protectedCapacity` — never a count this room
-                derives. ⚖ 8/25 — the number says WHAT it counts. */}
-            <p className={`st-ctrl-d${scene.capacity === 0 ? ' warn' : ' dim'}`} aria-live="polite">
-              {scene.capacity === 0
-                ? `この長さでは、この店舗の1日に新規のお客様の確保枠をひとつも作れません（0枠）`
-                : `この店舗では、1日に新規のお客様の確保枠を${scene.capacity}枠作れます`}
+                derives. ⚖ 8/25 — the number says WHAT it counts.
+                ⚖ D-25 F4 — AND ONLY WHILE THE FIELD AGREES WITH WHAT IS
+                COMMITTED. While typed ≠ committed, this line says so instead
+                of showing the pre-edit count — modelled on this room's own
+                save-bar 反映されます grammar (「保存はこの画面の中だけに反映され
+                ます」, below). Same `st-ctrl-d dim` class, `aria-live`
+                unchanged; no new sentence spelled twice. */}
+            <p className={`st-ctrl-d${minutesPending || scene.capacity !== 0 ? ' dim' : ' warn'}`} aria-live="polite">
+              {minutesPending
+                ? '入力中です。欄を離れると反映されます'
+                : scene.capacity === 0
+                  ? `この長さでは、この店舗の1日に新規のお客様の確保枠をひとつも作れません（0枠）`
+                  : `この店舗では、1日に新規のお客様の確保枠を${scene.capacity}枠作れます`}
             </p>
           </section>
 
@@ -895,7 +1092,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
             <div className="st-dial-ctl">
               <div className="st-step">
                 <div className="st-step-g">
-                  <button type="button" aria-label="5分減らす" onClick={() => setSlotText(String(clampSlot(dials.slot - SLOT_MIN)))}>−</button>
+                  <button type="button" aria-label={`${NUDGE_MIN}分減らす`} onClick={() => nudgeSlot(-NUDGE_MIN)}>−</button>
                   <input
                     id="stSlot"
                     type="text"
@@ -904,7 +1101,6 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                     value={slotText}
                     onChange={(e) => {
                       setSlotMsg(null)
-                      const clean = e.target.value.replace(/[^0-9]/g, '')
                       // ⚖ 9/1 (fix round 2 D3) — SET EVERY KEYSTROKE, never only
                       // on rejection. `setSlotWarn(true)` alone cleared only on
                       // blur, so 「…消しました」 stood over the NEXT, clean
@@ -913,8 +1109,11 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       // replaced. (ponytail: two identical rejections in a row
                       // still cannot re-announce — aria-live fires on change, and
                       // the text is unchanged. Known ceiling, accepted.)
-                      setSlotWarn(clean !== e.target.value)
-                      setSlotText(clean)
+                      // ⚖ D-27 — the text is kept AS TYPED (no stripping); the
+                      // warn line still lights while a non-digit is present, but
+                      // the commit — not this handler — decides what is saved.
+                      setSlotWarn(/[^0-9]/.test(e.target.value))
+                      setSlotText(e.target.value)
                     }}
                     /* ⚖ S17 fix round 4 · M4 — AN EMPTY BOX IS NOT A NUMBER, so
                        it does not become one silently. Clearing 30 and tabbing
@@ -925,13 +1124,14 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                        what it did. Out of range still clamps, and says which
                        range. */
                     onBlur={() => {
-                      const commit = commitNumberField(slotText, lastGoodSlot.current, SLOT_MIN, SLOT_MAX, '分')
+                      const commit = commitMinutes(slotText, lastGoodSlot.current, props.dayLenMin)
+                      lastGoodSlot.current = commit.value
                       setSlotText(String(commit.value))
                       setSlotWarn(false)
                       setSlotMsg(commit.message)
                     }}
                   />
-                  <button type="button" aria-label="5分増やす" onClick={() => setSlotText(String(clampSlot(dials.slot + SLOT_MIN)))}>＋</button>
+                  <button type="button" aria-label={`${NUDGE_MIN}分増やす`} onClick={() => nudgeSlot(NUDGE_MIN)}>＋</button>
                 </div>
                 <span className="st-step-u">分</span>
             </div>
@@ -948,7 +1148,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                 everyone else — the two readers would be told different things. */}
             <p className={`st-ctrl-d${slotWarn || slotMsg !== null ? ' warn' : ' dim'}`} aria-live="polite">
               {slotWarn
-                ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'
+                ? NON_DIGIT_WARN
                 : (slotMsg ?? '数字以外は保存されません')}
             </p>
             <Collapse open={detOpen['slot'] === true} id="st-det-bg.slot" reduced={props.reduced}>
@@ -987,7 +1187,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       in the live region while the operator steps down to 0, and
                       「0にすると橙は出ません」 — the one state this row exists to say
                       out loud — never gets its turn. */}
-                  <button type="button" aria-label="1枠減らす" onClick={() => { setTightMsg(null); setTightText(String(clampCalendarTight(Number(tightText) - 1))) }}>−</button>
+                  <button type="button" aria-label="1枠減らす" onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current, TIGHT_MIN) - 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}>−</button>
                   <input
                     id="stTight"
                     type="text"
@@ -996,18 +1196,22 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                     value={tightText}
                     onChange={(e) => {
                       setTightMsg(null)
-                      const clean = e.target.value.replace(/[^0-9]/g, '')
-                      setTightWarn(clean !== e.target.value)
-                      setTightText(clean)
+                      // ⚖ D-27 — text kept as typed; the commit decides what saves.
+                      setTightWarn(/[^0-9]/.test(e.target.value))
+                      setTightText(e.target.value)
                     }}
                     onBlur={() => {
-                      const commit = commitNumberField(tightText, lastGoodTight.current, TIGHT_MIN, TIGHT_MAX, '枠')
+                      // ⚖ D-30 — same predicate `commitMinutes` uses, at this field's
+                      // own floor (0 is legal — it is how a store turns the 橙 tier off).
+                      const raw = isIntegerTextAtLeast(tightText, TIGHT_MIN) ? tightText.trim() : ''
+                      const commit = commitNumberField(raw, lastGoodTight.current, TIGHT_MIN, TIGHT_MAX, '枠')
+                      lastGoodTight.current = commit.value
                       setTightText(String(commit.value))
                       setTightWarn(false)
                       setTightMsg(commit.message)
                     }}
                   />
-                  <button type="button" aria-label="1枠増やす" onClick={() => { setTightMsg(null); setTightText(String(clampCalendarTight(Number(tightText) + 1))) }}>＋</button>
+                  <button type="button" aria-label="1枠増やす" onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current, TIGHT_MIN) + 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}>＋</button>
                 </div>
                 <span className="st-step-u">枠</span>
             </div>
@@ -1016,7 +1220,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                 オフ状態を黙っているつまみは、ミス防止の失敗そのもの（⚖ 8/21）。 */}
             <p className={`st-ctrl-d${tightWarn || tightMsg !== null ? ' warn' : ' dim'}`} aria-live="polite">
               {tightWarn
-                ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'
+                ? NON_DIGIT_WARN
                 : (tightMsg ?? (tightText.trim() === '0' ? '0にすると橙は出ません' : '数字以外は保存されません'))}
             </p>
             <Collapse open={detOpen['tight'] === true} id="st-det-bg.tight" reduced={props.reduced}>
@@ -1138,11 +1342,24 @@ export function StorePolicySection(props: StorePolicySectionProps) {
   return <>{props.render({ main, card: cardSlot, save, jump: STORE_POLICY_ANCHORS, onAnchorJump })}</>
 }
 
-/** 予約の刻み's clamp. `!(x >= SLOT_MIN)` rather than `x < SLOT_MIN` for the one
- *  reason that spelling exists in this codebase: NaN fails EVERY comparison, so
- *  `<` would let an empty or non-numeric field through and `String(NaN)` would
- *  land 「NaN」 in the box. Same shape as `impactOf`'s own `!(protectedDur > 0)`. */
-function clampSlot(value: number): number {
+/** The shared nudge-clamp for 予約の刻み AND 新規のお客様の確保 — ⚖ D-15 gave
+ *  both fields the same floor (`SLOT_MIN`, any positive integer's smallest
+ *  member) and the same kind of ceiling (the store's own day, read at the call
+ *  site rather than spelled here), so one function serves both nudge pairs.
+ *  `!(x >= SLOT_MIN)` rather than `x < SLOT_MIN` for the one reason that
+ *  spelling exists in this codebase: NaN fails EVERY comparison, so `<` would
+ *  let an empty or non-numeric field through and `String(NaN)` would land
+ *  「NaN」 in the box. Same shape as `impactOf`'s own `!(protectedDur > 0)`.
+ *
+ *  ⚖ D-25 L2 FOLD (m5) — EXPORTED so its own ceiling is pinned directly
+ *  (`settings-room.test.ts`), not only through the nudge buttons that call
+ *  it: nothing else in the battery drove `clampSlot`'s return value on its
+ *  own, so a mutant dropping `Math.min(ceiling, …)` survived the whole
+ *  battery green. The committed value stays safe either way
+ *  (`commitNumberField`'s own `clampInt` re-clamps to the same ceiling on
+ *  blur) — this only ever affects the live text box between a nudge click
+ *  and the next blur. */
+export function clampSlot(value: number, ceiling: number): number {
   if (!(Number.isFinite(value) && value >= SLOT_MIN)) return SLOT_MIN
-  return Math.min(SLOT_MAX, Math.round(value))
+  return Math.min(ceiling, Math.round(value))
 }

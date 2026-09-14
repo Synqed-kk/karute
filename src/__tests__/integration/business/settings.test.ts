@@ -91,7 +91,7 @@ import {
 import { settingsHref } from '@/business/lib/settings-link'
 import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
 // ⚡ R2 BRANCH C — the dial's own mapping pair + choice list (⚖ D-11, CONTRACTS-R2 §1).
-import { AUTO_RELEASE_CHOICES, autoReleaseFromWire, autoReleaseToWire } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
+import { AUTO_RELEASE_CHOICES, autoReleaseFromWire, autoReleaseToWire, NEW_CLIENT_DEFAULT_MIN } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
@@ -488,7 +488,11 @@ describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be ma
     const probes: Array<[string, string]> = [
       ...policy.roster.map((r) => ['a roster name', JSON.stringify(r.name)] as [string, string]),
       ...policy.policy.lockedOut.map((v) => ['a named restriction', JSON.stringify(v)] as [string, string]),
-      ...Object.keys(policy.scenes).map((k) => ['a policy value', JSON.stringify(k)] as [string, string]),
+      // ⚖ D-15 — `scenes` is gone (the length is free, so there is nothing fixed
+      // left to precompute); `sceneInput.guardBase.services` is the same-shaped
+      // replacement probe — the store's own menu names, carried into the
+      // client-side scene computation's inputs.
+      ...policy.sceneInput.guardBase.services.map((s) => ['a policy value', JSON.stringify(s.name)] as [string, string]),
       ['the sample landing', JSON.stringify(policy.sample!.summary)],
       ['the pricing frame', `"hqMax":${policy.sample!.frame.hqMax}`],
       ['the pricing frame', `"lo":${policy.sample!.frame.lo}`],
@@ -1468,13 +1472,31 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
     return (await mod.settingsProps({ locale: 'ja', store: input.store })).props
   }
 
-  it('leg 1 — the value is `autoReleaseToWire(opsConfig.autoReleaseBeforeMin)`, and the options are AUTO_RELEASE_CHOICES in order', async () => {
+  it('leg 1 — the value is `autoReleaseToWire(opsConfig.autoReleaseBeforeMin)`, and the options are AUTO_RELEASE_CHOICES in order, plus the current value only when it is off-list', async () => {
     const props = await room({ store: STORE_A })
     const c = controlOf(props, 'reserve.autorelease')
-    expect(c.value).toBe(autoReleaseToWire(opsConfig.autoReleaseBeforeMin))
-    expect(c.value).toBe('linked') // the fixture's own default
+    const wire = autoReleaseToWire(opsConfig.autoReleaseBeforeMin)
+    expect(c.value).toBe(wire)
+    expect(c.value).toBe('linked') // the fixture's own default — on-list, so no append here
     expect(c.control.kind).toBe('select')
-    expect(c.control.kind === 'select' && c.control.options.map((o) => o.value)).toEqual([...AUTO_RELEASE_CHOICES])
+    const expected = AUTO_RELEASE_CHOICES.includes(wire) ? [...AUTO_RELEASE_CHOICES] : [...AUTO_RELEASE_CHOICES, wire]
+    expect(c.control.kind === 'select' && c.control.options.map((o) => o.value)).toEqual(expected)
+  })
+
+  /** ⚖ D-26 F5 — THE ROW REPORTS THE STORE'S REAL VALUE. Before this fix a
+   *  store on 45 (widened by ⚖ D-15, unreachable by the fixed four choices)
+   *  handed the select a value none of its options carried — the control
+   *  silently fell back to showing 「直前の空きは売らないと同じ」, a wrong
+   *  statement about the store's own setting. `AUTO_RELEASE_CHOICES` PLUS the
+   *  wire value when it is not among them, labelled by the F6 fallback. */
+  it('⚖ D-26 F5 — a store on an off-list value gets a row that reports it, not the linked default', async () => {
+    const props = await roomWithOpsConfig({ autoReleaseBeforeMin: 45 }, { store: STORE_A })
+    const c = controlOf(props, 'reserve.autorelease')
+    expect(c.value).toBe('45')
+    expect(c.control.kind).toBe('select')
+    const options = c.control.kind === 'select' ? c.control.options : []
+    expect(options.map((o) => o.value)).toContain('45')
+    expect(options.find((o) => o.value === '45')?.label).toBe('45分前まで')
   })
 
   it('leg 3 — the row sits IMMEDIATELY after 直前の空きは売らない (reserve.row-lead)', async () => {
@@ -1546,6 +1568,77 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
   it('leg 6 — round-trip: every wire value survives board and back, and undefined reads as linked', () => {
     for (const w of AUTO_RELEASE_CHOICES) expect(autoReleaseToWire(autoReleaseFromWire(w))).toBe(w)
     expect(autoReleaseFromWire(undefined)).toBe('linked')
+  })
+
+  it('⚖ D-15 leg 7 — ANY positive minute round-trips, not only the two A2 still offers', () => {
+    // `AUTO_RELEASE_CHOICES` stays `['linked','never','30','120']` in A1 (A2
+    // owns the row); the WIRE TYPE is free now, and a value the row does not
+    // yet offer still round-trips honestly through the seam.
+    expect(autoReleaseToWire(autoReleaseFromWire('45'))).toBe('45')
+    expect(autoReleaseToWire(autoReleaseFromWire('1'))).toBe('1')
+    expect(autoReleaseFromWire('45')).toBe(45)
+    expect(autoReleaseFromWire('1')).toBe(1)
+    // An unreadable digit string falls to the product default, never to a
+    // fabricated number — the same doctrine ⚖ D-11 states for `undefined`.
+    expect(autoReleaseFromWire('0' as never)).toBe('linked')
+    expect(autoReleaseFromWire('abc' as never)).toBe('linked')
+  })
+
+  it('⚖ D-25 F6 — a widened choice ships its own honest label, never a blank one', () => {
+    // The day A2 adds a fifth choice, the four-key lookup returns `undefined`
+    // — the cast tells tsc not to look — so the fallback is the behaviour fix.
+    expect(PROPS_CODE).toContain('?? `${choice}分前まで`')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ D-25 — fix round 1 on A1: the READ goes through the parser, and the
+// browser gets geometry only (privacy at the reconnect boundary).
+describe('⚖ D-25 F1 — the stored value meets readMinutes before it becomes newClientMinutes', () => {
+  /** Same `isolateModulesAsync` + `doMock` idiom `roomWithOpsConfig` above
+   *  uses, scoped to `newClientSessionMin` — the only way to move that
+   *  module constant for one render. Returns the SECTION's own `storePolicy`
+   *  (not `.props`), since `newClientMinutes` lives there. */
+  const policyWithNewClientMin = async (newClientSessionMin: number, input: { store?: string }) => {
+    jest.doMock('@/business/lib/fixtures-today', () => {
+      const actual = jest.requireActual('@/business/lib/fixtures-today')
+      return { ...actual, opsConfig: { ...actual.opsConfig, newClientSessionMin } }
+    })
+    let mod!: typeof import('@/app/[locale]/(business)/business/settings/settings-props')
+    await jest.isolateModulesAsync(async () => {
+      mod = await import('@/app/[locale]/(business)/business/settings/settings-props')
+    })
+    jest.dontMock('@/business/lib/fixtures-today')
+    const { storePolicy } = await mod.settingsProps({ locale: 'ja', store: input.store })
+    if (storePolicy === null) throw new Error('this reader is not given 予約と確保’s payload')
+    return storePolicy
+  }
+
+  it('a meaningless stored value reads as the product default, never a fabricated 0', async () => {
+    // `operatingHours` is 10:00–19:00 (540 minutes) — the fixture's own
+    // ceiling, so 10000 is refused the same way 0 is: too long, not too short.
+    expect((await policyWithNewClientMin(0, { store: STORE_A })).policy.newClientMinutes).toBe(NEW_CLIENT_DEFAULT_MIN)
+    expect((await policyWithNewClientMin(100, { store: STORE_A })).policy.newClientMinutes).toBe(100)
+    expect((await policyWithNewClientMin(10000, { store: STORE_A })).policy.newClientMinutes).toBe(NEW_CLIENT_DEFAULT_MIN)
+  })
+
+  it('⚖ F7 — no customer name reaches the browser payload; the lanes cross with geometry only', async () => {
+    const storePolicy = await policyOf({ store: STORE_A })
+    const wire = JSON.stringify(storePolicy.sceneInput)
+    // Three of TODAY's real STORE_A customers (`fixtures.ts` `appointments()`,
+    // day-0 slots apt-12 / apt-25 / apt-14) — the exact names
+    // `today-board.ts`'s `title`/`label` carried before the boundary blanked
+    // them. RED-FIRST, run by hand against efaa1615c before `blankLaneNames`
+    // landed (`store-policy-props.ts` temporarily reverted to `lanes,`):
+    //   Expected substring: not "見本 いつき"
+    //   Received string: "{\"lanes\":[{...,\"items\":[...,\"title\":\"見本 いつき\",
+    //     \"tag\":\"【ベッド1】\",...,\"label\":\"10:00–11:00 見本 いつき様 / 新規 /
+    //     見本 しろう / ベッド1 / 確定・施術\"}...]}...}"
+    //   at settings.test.ts:1617
+    // — failed as expected; GREEN after the revert was undone.
+    for (const name of ['見本 いつき', 'テスト えいた', '見本 かえる']) {
+      expect(wire).not.toContain(name)
+    }
   })
 })
 

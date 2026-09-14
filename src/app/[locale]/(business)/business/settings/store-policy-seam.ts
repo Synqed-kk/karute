@@ -43,17 +43,14 @@
  *  so the mapping lives at the seam and nowhere else. */
 export type GapGuardMode = 'OFF' | 'STANDARD' | 'STRICT'
 
-/** core `new_client_session_minutes`. ⚠ THE WRITE SIDE IS AN ENUM, not a
- *  number: `SetStoreBookingPolicyInput.new_client_session_minutes?: 60 | 75 | 90`.
- *  ⚖ Liam 9/1 ruled the UI to those three fixed choices rather than widening the
- *  wire — 「3-chip 60/75/90」 — so the mock's free stepper is superseded and this
- *  type is the reason why. A value the wire cannot take must not be offerable. */
-export type NewClientMinutes = 60 | 75 | 90
-
-/** The chips, in the order they render. Derived from nothing — this IS the wire
- *  enum, written once, read by the server page (which evaluates the guard at
- *  each) and by the room's chips. */
-export const MINUTE_CHOICES: readonly NewClientMinutes[] = [60, 75, 90]
+/** core `new_client_session_minutes`. ⚖ D-15 (2026-09-13) — THE WIRE IS A PLAIN
+ *  POSITIVE INTEGER, no list, no cap, no step. Core's own WRITE side is still
+ *  the 15-value union `SetStoreBookingPolicyInput.new_client_session_minutes?:
+ *  60 | 75 | 90` (`@synqed-kk/client` 1.34.0, `types.d.ts:1074`) — that is the
+ *  debt CORE-10's correction (PLAN-R3-FREE-DURATIONS.md §6) removes. Until it
+ *  lands, the seam accepts any positive integer and the play-phase fixture
+ *  stands in for the wire; the reconnect swaps `liveFieldsFrom`'s body and
+ *  nothing downstream moves — the whole point of this file. */
 
 /** What the two live fields are, together — core's own shape, narrowed to the
  *  two this room owns. `StorePolicyClient.get()` returns a superset of it (the
@@ -61,10 +58,41 @@ export const MINUTE_CHOICES: readonly NewClientMinutes[] = [60, 75, 90]
  *  which is a DIFFERENT dial family and a later round's screens. */
 export interface LiveStorePolicy {
   gap_guard_mode: GapGuardMode
-  new_client_session_minutes: NewClientMinutes
+  new_client_session_minutes: number
   /** no core column yet — DRAFT-ANTHONY-ASK-SETTINGS-FIELDS.md ⚡ 9/13 */
   auto_release_before?: AutoReleaseBefore
 }
+
+/** ⚖ D-15 — THE ONE HOME OF THE THREE REFUSALS. Every duration in a SYNQED
+ *  product is a per-store setting holding ANY positive number of minutes; the
+ *  only meaningless values are non-finite, non-integer, ≤ 0, or longer than a
+ *  bound the caller derives (never a number this file invents). ⚖ D-25 F1 —
+ *  the one home of the three refusals for every value arriving from the wire
+ *  or the stored policy; the section's own field commits through the page's
+ *  `commitNumberField` with the same floor and ceiling — the two accepted
+ *  sets are identical and pinned so (`settings-room.test.ts`'s equivalence
+ *  leg).
+ *
+ *  `ceiling`: `null` for a field with no honest derivation from the store's
+ *  hours (a 「minutes before start」/「days ahead」 field — a 1-week cut-off is a
+ *  real business's choice); a number for a LENGTH, where the caller has already
+ *  derived it from the store's own operating day. */
+export function readMinutes(raw: unknown, ceiling: number | null): number | null {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) return null
+  if (ceiling !== null && n > ceiling) return null
+  return n
+}
+
+/** ⚖ D-25 F1 — the product default for a store that never wrote a value =
+ *  core's own `POLICY_DEFAULTS.new_client_session_minutes` (synqed-core
+ *  `src/services/store-policy.service.ts:37` at #87's head); ⚖ D-15 allows
+ *  exactly this default and nothing else fixed. */
+export const NEW_CLIENT_DEFAULT_MIN = 90
+
+/** ⚖ D-25 F1/F11 — the derived ceiling, one home; floored at 1 so a
+ *  zero-length day cannot refuse everything. */
+export const dayLengthMin = (h: { open: number; close: number }): number => Math.max(1, h.close - h.open)
 
 /** The write, in core's own input shape. `acting_staff_id` is required by
  *  `SetStoreBookingPolicyInput`, and the `audit` event commits with the change —
@@ -81,16 +109,17 @@ export interface WriteStorePolicy {
   audit: { action: string; summary: string }
 }
 
-/** core's wire spelling for ⚖ D-11's auto-release dial (⚡ CONTRACTS-R2 §1) —
- *  write-constrained, the same discipline `NewClientMinutes` states above:
- *  「a value the wire cannot take must not be offerable」. `'linked'` (the
- *  default) follows `lead_time_min` at read time; `'never'` = 解除しない;
- *  `'30'`/`'120'` are explicit minute overrides. No boolean-plus-number pair —
- *  one field, one state. */
-export type AutoReleaseBefore = 'linked' | 'never' | '30' | '120'
+/** core's wire spelling for ⚖ D-11's auto-release dial (⚡ CONTRACTS-R2 §1),
+ *  widened under ⚖ D-15: `'linked'` (the default) follows `lead_time_min` at
+ *  read time; `'never'` = 解除しない; any other value is a digit string of any
+ *  positive minute count (`readMinutes` governs which strings are honoured —
+ *  no boolean-plus-number pair, one field, one state). */
+export type AutoReleaseBefore = 'linked' | 'never' | `${number}`
 
 /** The choices, in render order — the ONE array the 設定 row's options are
- *  built from, so the order has one home (mirrors `MINUTE_CHOICES` above). */
+ *  built from, so the order has one home. `'30'`/`'120'` are A2's own row
+ *  (queued, unchanged in A1); D-15 widens what a typed digit string may say,
+ *  not this list. */
 export const AUTO_RELEASE_CHOICES: readonly AutoReleaseBefore[] = ['linked', 'never', '30', '120']
 
 /** The board's own type — `TodayScreen`'s `autoReleaseBeforeMin`
@@ -111,14 +140,19 @@ export type AutoReleaseBoard = number | 'linked' | null
 export function autoReleaseFromWire(w: AutoReleaseBefore | undefined): AutoReleaseBoard {
   if (w === undefined || w === 'linked') return 'linked'
   if (w === 'never') return null
-  return Number(w)
+  // An unreadable digit string (never written by this seam, but the wire is
+  // not this file's to trust blindly) falls to the product default rather
+  // than to a fabricated number.
+  return readMinutes(w, null) ?? 'linked'
 }
 
-/** The inverse of `autoReleaseFromWire` on the four offered values (the round-trip is pinned). Any OTHER number — unreachable at this SHA, since the wire only ever hands back `'30'`/`'120'` — rounds to the nearest offered choice, ties to the longer one; the ⚖ D-15 free-minute round (2026-09-13) replaces this rounding with the number itself. */
+/** The inverse of `autoReleaseFromWire`. ⚖ D-15 (2026-09-13) replaces the old
+ *  nearest-of-two rounding with the number itself — any positive integer round-
+ *  trips as its own digit string. */
 export function autoReleaseToWire(v: AutoReleaseBoard): AutoReleaseBefore {
   if (v === 'linked') return 'linked'
   if (v === null) return 'never'
-  return Math.abs(30 - v) < Math.abs(120 - v) ? '30' : '120'
+  return `${v}` as AutoReleaseBefore
 }
 
 /** THE READ, and the whole of it. The board keeps its own lowercase spelling of
@@ -133,39 +167,17 @@ export function autoReleaseToWire(v: AutoReleaseBoard): AutoReleaseBefore {
  *  the values here — a second door into the fixtures would be exactly the thing
  *  that door exists to prevent.
  *
- *  ⚠ `new_client_session_minutes` is a plain `number` on the READ side of core's
- *  own type and the `60 | 75 | 90` union only on the write. A store whose stored
- *  value is off that ladder (an older row, or one HQ set another way) is
- *  therefore READABLE and not re-offerable, which is the honest reading of
- *  core's own asymmetry: the chips fall back to the nearest choice they can
- *  actually save rather than showing a value pressing them would silently
- *  change. */
+ *  ⚖ D-15 (2026-09-13) — `new_client_session_minutes` READS as the plain
+ *  `number` it always was on core's read side (`types.d.ts:1060`); nothing is
+ *  rounded to a nearby choice any more. The WRITE side stays the 15-value union
+ *  until CORE-10's correction lands (the comment above this interface), so a
+ *  store whose value the wire cannot yet re-accept is still honestly readable
+ *  — this function never refuses a read. */
 export function liveFieldsFrom(board: { gapGuardMode: 'off' | 'standard' | 'strict'; newClientSessionMinutes: number }): LiveStorePolicy {
   return {
     gap_guard_mode: board.gapGuardMode.toUpperCase() as GapGuardMode,
-    new_client_session_minutes: nearestChoice(board.newClientSessionMinutes),
+    new_client_session_minutes: board.newClientSessionMinutes,
   }
-}
-
-/** The chip a stored minute value maps onto. Exact match wins; anything else
- *  takes the nearest choice the wire will accept, and ties go to the LONGER one
- *  — a store that had been holding more time for new customers should not be
- *  quietly moved to holding less. */
-export function nearestChoice(minutes: number): NewClientMinutes {
-  // NaN carries no value at all, so it keeps the LONGEST choice — the hold-more-
-  // time doctrine this comment states, applied to a store whose stored value
-  // tells us nothing. ±Infinity is different: it carries a DIRECTION, and every
-  // `|m − ±∞|` is equally Infinite, so the reduce below ties all three and hands
-  // back the longest either way — 「shorter than every choice we offer」 answered
-  // with the longest window. The two ends are named instead of tied.
-  if (!Number.isFinite(minutes)) {
-    return minutes === -Infinity ? MINUTE_CHOICES[0] : MINUTE_CHOICES[MINUTE_CHOICES.length - 1]
-  }
-  return MINUTE_CHOICES.reduce((best, m) =>
-    Math.abs(m - minutes) < Math.abs(best - minutes) || (Math.abs(m - minutes) === Math.abs(best - minutes) && m > best)
-      ? m
-      : best,
-  )
 }
 
 /** Why a save cannot happen right now, or `null` when it could. ONE sentence,
@@ -205,5 +217,5 @@ export function saveRefusal(roles: readonly string[], operatorRole: string): str
  *  its two positions. That is the store's own truth rather than a fabricated
  *  one, and the day the wire reconnects an OFF store stays OFF unless the
  *  operator moves the dial on purpose. */
-export const sceneKeyFor = (mode: GapGuardMode, minutes: NewClientMinutes): string | null =>
+export const sceneKeyFor = (mode: GapGuardMode, minutes: number): string | null =>
   mode === 'OFF' ? null : `${mode === 'STRICT' ? 'strict' : 'standard'}:${minutes}`

@@ -1528,6 +1528,16 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
   // code); this is the ONE sentence that says so or says the safe state.
   const autoReleaseDial = opsConfig.autoReleaseBeforeMin
   const autoReleaseTooShort = typeof autoReleaseDial === 'number' && autoReleaseDial < opsConfig.leadTimeMin
+  // ⚖ D-26 F5 — THE ROW REPORTS THE STORE'S REAL VALUE. `AUTO_RELEASE_CHOICES`
+  // is still the fixed four (A2 owns widening this row); a store D-15 already
+  // let move past them handed the select a value none of its options carried,
+  // and the control silently fell back to the first option's label — a wrong
+  // statement about the store's own setting. Appended, in order, only when
+  // off-list, so the four stay a stable prefix and every existing index holds.
+  const autoReleaseWire = autoReleaseToWire(autoReleaseDial)
+  const autoReleaseOptions = AUTO_RELEASE_CHOICES.includes(autoReleaseWire)
+    ? AUTO_RELEASE_CHOICES
+    : [...AUTO_RELEASE_CHOICES, autoReleaseWire]
   return {
     ...base,
     kicker: 'Reserve設定',
@@ -1617,17 +1627,27 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
               'reserve.autorelease',
               '確保枠の自動解除',
               opts(
-                AUTO_RELEASE_CHOICES.map((choice): [string, string] => [
+                autoReleaseOptions.map((choice): [string, string] => [
                   choice,
+                  // ⚖ D-15 widened `AutoReleaseBefore` past this row's own four
+                  // literals (A2 still owns turning this select into a free
+                  // field); `AUTO_RELEASE_CHOICES` is unchanged in A1, so a
+                  // fifth entry here is only ever ⚖ D-26 F5's own append — the
+                  // cast is a type-only fix for the widening, not a behaviour
+                  // change.
+                  // ⚖ D-25 F6 — AND THE FALLBACK IS THE BEHAVIOUR FIX: the
+                  // four-key lookup returns `undefined` for anything outside
+                  // them — the cast told tsc not to look — so an appended
+                  // choice ships its own honest label instead of a blank one.
                   {
                     linked: `直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`, // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
                     never: '解除しない', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
                     '30': '30分前まで', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
                     '120': '120分前まで', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
-                  }[choice],
+                  }[choice as 'linked' | 'never' | '30' | '120'] ?? `${choice}分前まで`,
                 ]),
               ),
-              autoReleaseToWire(opsConfig.autoReleaseBeforeMin),
+              autoReleaseWire,
             ),
           ],
           {

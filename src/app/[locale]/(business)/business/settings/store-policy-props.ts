@@ -49,9 +49,9 @@ import {
   type StoreLens,
 } from '@/business/lib/data'
 import { buildLanes, dayBookings, hhmm, minuteOf, place, type BoardLane, type BuildInput, type Hours } from '@/business/lib/today-board'
-import { clampCalendarTight, guardVerdictAt, lossOf, protectedCapacityOf, type RailCell } from '../today/today-interactions'
-import { liveFieldsFrom, MINUTE_CHOICES, saveRefusal, sceneKeyFor } from './store-policy-seam'
-import { type StorePolicyProps, type StorePolicyScene } from './StorePolicySection'
+import { clampCalendarTight, guardVerdictAt, lossOf } from '../today/today-interactions'
+import { dayLengthMin, liveFieldsFrom, NEW_CLIENT_DEFAULT_MIN, readMinutes, saveRefusal } from './store-policy-seam'
+import { type SceneInput, type StorePolicyProps } from './StorePolicySection'
 
 const DAY_MS = 86_400_000
 /** The rail's own question — 「could a 60分 placement start here」 — asked at the
@@ -157,6 +157,10 @@ export async function storePolicyProps({
   const bookings = dayBookings(input)
   const lanes = buildLanes(input, bookings)
   const hours: Hours = { open: planes.operatingHours.open, close: planes.operatingHours.close }
+  // ⚖ D-25 F1/F11 — ONE HOME, computed once: the same ceiling reads the
+  // stored value through `readMinutes` below AND ships as `dayLenMin` for
+  // the client's own commit (`props.dayLenMin` in `StorePolicySection`).
+  const dayLenMin = dayLengthMin(hours)
   const staffLanes = lanes.filter((l) => l.group === 'staff' && l.window != null)
   const dur = planes.opsConfig.standardSessionMin
 
@@ -204,33 +208,57 @@ export async function storePolicyProps({
   const sampleLane: BoardLane | null = picked?.lane ?? null
   const sampleStart = picked?.start ?? 0
 
-  /** The guard's verdict at that landing, and the day's 確保 capacity, at EVERY
-   *  value the two chips can take — six small evaluations, done here so the
-   *  browser can re-paint the card on a chip press without any data access or
-   *  any arithmetic of its own.
+  /** ⚖ D-25 F7 — THE LANES CROSS TO THE BROWSER WITH GEOMETRY ONLY. The two
+   *  engines `sceneInput` feeds (`protectedCapacityOf`, `guardVerdictAt`)
+   *  read `items[].startMin/endMin/x/w/kind`, the lane's own
+   *  `window`/`group`/`key`/`stores`/`roomClass`/`listPrice` — never a naming
+   *  field. Blanked HERE, at the boundary, rather than trusted to "nobody
+   *  renders it": `title`/`tag`/`label` (all carry or compose
+   *  `today-board.ts`'s `customerName`) → `''`, `ticketCat`/`ticketCore` →
+   *  `null`. `key` stays — an opaque id (`${bookingId}-${suffix}`), not a
+   *  name. ⚖ D-26 N2 — `caseId` (`b.id`, `today-board.ts`) stays too, for the
+   *  same reason: an opaque booking id, not a name, and the one blanked field
+   *  an engine actually reads (`laneSpans`'s exclusion filter,
+   *  `today-interactions.ts`) — a no-op today (nothing sets `excludeId`
+   *  through this path yet) but nulling it here was a latent trap for the day
+   *  something does; `key` already embeds it (`${caseId}-cleanup`), so
+   *  blanking `caseId` never even removed the id from the payload. Type
+   *  unchanged (`BoardLane[]`). */
+  const blankLaneNames = (ls: BoardLane[]): BoardLane[] =>
+    ls.map((l) => ({
+      ...l,
+      items: l.items.map((it) => ({ ...it, title: '', tag: '', label: '', ticketCat: null, ticketCore: null })),
+    }))
+
+  /** ⚖ D-15 — THE LENGTH IS FREE, SO THE SCENE MOVES CLIENT-SIDE. A scene can
+   *  no longer be precomputed per fixed choice (there is no fixed choice); the
+   *  browser now asks `computeScene` (`StorePolicySection.tsx`) for the guard's
+   *  verdict at whatever the operator has typed, on a re-paint with no data
+   *  access and no arithmetic of its own — the SAME two engine functions
+   *  (`protectedCapacityOf`, `guardVerdictAt`) this file used to call here, run
+   *  there instead, against the SAME `railInputFor`-shaped input this file has
+   *  always assembled.
    *
-   *  ⚖ ONE BASIS. The capacity number is the ENGINE'S own `protectedCapacity`
-   *  over the day's own `freePockets` — never a count this room derives — for
-   *  the same reason the warn card's ¥ is asked of canon's pricing door: a
-   *  second spelling of 「how many 新規 windows does this day hold」 is ⚖ 54's
-   *  disease, and it is exactly the number the guardrail line is about.
-   *
-   *  ⚖ 9/1 (fix round 1 F5) — AND THE WALK ITSELF NOW LIVES BESIDE `lossOf`,
-   *  drivable. Spelled out here it was a number no test could reach, so a
-   *  fabricated capacity shipped green through 1676 of them; as
-   *  `protectedCapacityOf` it is the board's own function on the board's own
-   *  inputs, and the room's suite drives it against the engine directly. */
-  const scenes: Record<string, StorePolicyScene> = {}
-  for (const minutes of MINUTE_CHOICES) {
-    const capacity = protectedCapacityOf(lanes, railInputFor(minutes, false))
-    for (const strict of [false, true]) {
-      const cell: RailCell | null =
-        sampleLane === null ? null : guardVerdictAt(lanes, sampleLane.key, sampleStart, railInputFor(minutes, strict))
-      // ⚖ 9/1 (fix round 1 F4) — the key is the SEAM'S, so the room has one
-      // spelling of 「which scene do these dials ask for」 and the OFF store's
-      // answer (there is no scene) is decided in the same place.
-      scenes[sceneKeyFor(strict ? 'STRICT' : 'STANDARD', minutes)!] = { capacity, cell }
-    }
+   *  `guardBase` is `guardConfigFor`'s own inputs MINUS the two that depend on
+   *  `minutes`/`strict` (`newClientSessionMin`, `mode`) — read `guardConfigFor`
+   *  above: `newClientSessionMin: minutes` is its ONLY minutes-dependent field,
+   *  so everything else (`services`, `protectedLabel`, `gapFillMinMin`,
+   *  `blockStepMin`, `leadTimeMin`) is exactly this object, computed once. */
+  const sceneInput: SceneInput = {
+    lanes: blankLaneNames(lanes),
+    hours,
+    stepMin: RAIL_STEP_MIN,
+    dur,
+    nowMinute: planes.boardNow,
+    sampleLaneKey: sampleLane?.key ?? null,
+    sampleStart,
+    guardBase: {
+      services: menus.map((m) => ({ name: m.name, dur: m.duration_minutes })),
+      protectedLabel: '新規',
+      gapFillMinMin: planes.opsConfig.gapFillMinMin,
+      blockStepMin: planes.opsConfig.blockStepMin,
+      leadTimeMin: planes.opsConfig.leadTimeMin,
+    },
   }
 
   /** The confirm surface's own ✓/× rows for that landing, from the FROZEN engine
@@ -304,7 +332,14 @@ export async function storePolicyProps({
       // turned the guard ON without anyone pressing anything.
       mode: live.gap_guard_mode,
       holdToConfirm: planes.opsConfig.overrideHoldToConfirm,
-      newClientMinutes: live.new_client_session_minutes,
+      // ⚖ D-25 F1 — THE READ GOES THROUGH THE PARSER. `liveFieldsFrom` never
+      // refuses a read (a store whose value the wire cannot yet re-accept is
+      // still honestly readable); this is where that raw number meets the
+      // three refusals, so a meaningless stored value (0, negative, a
+      // fraction) cannot reopen the fabricated 「0枠」 alarm 9/1 F4b killed.
+      // Unreachable on the fixture today (`fixtures-today.ts` ships 90), real
+      // the moment the wire replaces it.
+      newClientMinutes: readMinutes(live.new_client_session_minutes, dayLenMin) ?? NEW_CLIENT_DEFAULT_MIN,
       heldRankAccess: planes.opsConfig.heldRankAccess,
       // すき間の販売 — the store's own 販売可能な最小の長さ is what turns it off:
       // above zero the board advertises the leftovers, at zero it does not
@@ -329,7 +364,10 @@ export async function storePolicyProps({
       // row opens on the shipped 2 instead.
       calendarTightMax: clampCalendarTight(planes.opsConfig.calendarTightMax),
     },
-    scenes,
+    sceneInput,
+    // ⚖ D-15 — THE DERIVED CEILING. A length is refused only past the store's
+    // own operating day; never a number this file invents.
+    dayLenMin,
     sample:
       sampleLane === null
         ? null
