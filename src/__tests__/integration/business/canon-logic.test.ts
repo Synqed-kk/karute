@@ -12,7 +12,7 @@
  * SCREEN never sees them; it runs on our fixtures.
  */
 
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   clampPriceInputs,
@@ -724,6 +724,36 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     // constant (`SELL_SLOT_MIN`) for context; no executable line may.
     const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
     expect(codeOnly).not.toContain('SELL_SLOT_MIN')
+  })
+
+  it('⚖ D-15/D-24/B2 census pin — the whole of src/ CODE: zero readers of SELL_SLOT_MIN, exactly two of DEFAULT_SELL_SLOT_MIN', () => {
+    // Walks every .ts/.tsx under src/, __tests__ excluded (their own imports
+    // are commit 5's own concern, not B2's rename). Strips comments the same
+    // way pin 9(c) does — a doc line naming either spelling is fine, only CODE
+    // is asked. The word boundary means the new spelling never accidentally
+    // matches the old token as a substring.
+    const root = join(process.cwd(), 'src')
+    const files: string[] = []
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === '__tests__') continue
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (/\.tsx?$/.test(entry.name)) files.push(full)
+      }
+    }
+    walk(root)
+    const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    const oldHits: string[] = []
+    const newHits: string[] = []
+    for (const file of files) {
+      const code = stripComments(readFileSync(file, 'utf8'))
+      const rel = file.slice(root.length + 1)
+      if (/\bSELL_SLOT_MIN\b/.test(code)) oldHits.push(rel)
+      if (/\bDEFAULT_SELL_SLOT_MIN\b/.test(code)) newHits.push(rel)
+    }
+    expect(oldHits).toEqual([])
+    expect(newHits.sort()).toEqual(['business/lib/canon-logic/pricing.ts', 'business/lib/fixtures-today.ts'])
   })
 
   it('bands merge adjacent hours of the SAME tier, and break at a tier change', () => {

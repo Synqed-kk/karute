@@ -35,9 +35,9 @@ export const DENSITY_CEILING = 12
 
 /** canon `SELL_SLOT_MIN` (:4867). THE DEFAULT for a store that never wrote
  *  `sellSlotMin` — the engine reads the store's value (`SellInput.sellSlotMin`);
- *  this constant is what the fixture default and the not-yet-moved readers
- *  (B2) still spell. */
-export const SELL_SLOT_MIN = 60
+ *  its only readers are the fixture default and, at reconnect, the seam
+ *  (`readMinutes(raw, ceiling) ?? DEFAULT_SELL_SLOT_MIN`). */
+export const DEFAULT_SELL_SLOT_MIN = 60
 
 /** canon's ¥ formatter (`money`, :2736) — same output as the board's `yen`. */
 export const money = (n: number) => `¥${Math.round(n).toLocaleString('ja-JP')}`
