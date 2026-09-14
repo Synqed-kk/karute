@@ -116,12 +116,6 @@ export interface WriteStorePolicy {
  *  no boolean-plus-number pair, one field, one state). */
 export type AutoReleaseBefore = 'linked' | 'never' | `${number}`
 
-/** The choices, in render order — the ONE array the 設定 row's options are
- *  built from, so the order has one home. `'30'`/`'120'` are A2's own row
- *  (queued, unchanged in A1); D-15 widens what a typed digit string may say,
- *  not this list. */
-export const AUTO_RELEASE_CHOICES: readonly AutoReleaseBefore[] = ['linked', 'never', '30', '120']
-
 /** The board's own type — `TodayScreen`'s `autoReleaseBeforeMin`
  *  (`fixtures-today.ts`), unchanged by this file; the mapping below is the
  *  ONE place it meets the wire. */

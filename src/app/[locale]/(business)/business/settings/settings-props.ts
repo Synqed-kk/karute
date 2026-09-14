@@ -71,7 +71,6 @@ import {
   weeklyHoursFrom,
   WIN_BACK_MAX,
   WIN_BACK_MIN,
-  withCurrent,
   yen,
   type ControlOption,
   type RailEntry,
@@ -84,9 +83,10 @@ import {
   type SettingsSection,
 } from '@/business/lib/settings'
 import { storePolicyProps, type StorePolicyPropsInput } from './store-policy-props'
-// ⚡ R2 BRANCH C — the dial's ONE mapping (⚖ D-11, CONTRACTS-R2 §1): the row
-// imports the wire shape and the mapping pair, never re-derives them.
-import { AUTO_RELEASE_CHOICES, autoReleaseToWire } from './store-policy-seam'
+// ⚖ D-15 (round 3, A2) — ONE HOME FOR THE DERIVED CEILING (the store's own
+// operating day, floored at 1) — the same function `store-policy-props.ts`
+// already uses for 予約と確保's own `dayLenMin`.
+import { dayLengthMin } from './store-policy-seam'
 
 const JST = { timeZone: 'Asia/Tokyo' } as const
 const fmtDay = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', ...JST })
@@ -258,8 +258,6 @@ interface Ctx {
 }
 
 const opts = (pairs: Array<[string, string]>): ControlOption[] => pairs.map(([value, label]) => ({ value, label }))
-const minuteOpts = (list: readonly number[], current: number): ControlOption[] =>
-  withCurrent(list, current).map((m) => ({ value: String(m), label: minutesLabel(m) }))
 
 const seg = (id: string, aria: string, options: ControlOption[], value: string, locked?: string): RowControl =>
   ({ id, aria, control: { kind: 'segment', options }, value, ...(locked ? { locked } : {}) })
@@ -273,8 +271,19 @@ const txt = (
   value: string,
   extra: { placeholder?: string; maxLength?: number; required?: boolean } = {},
 ): RowControl => ({ id, aria, control: { kind: 'text', ...extra }, value })
-const num = (id: string, aria: string, value: number, min: number, max: number, step: number, unit: string): RowControl =>
-  ({ id, aria, control: { kind: 'number', min, max, step, unit }, value: String(value) })
+// ⚖ D-15 (round 3, A2) — `max: null` = NO CEILING, for a 「minutes before
+// start」/「days ahead」/「hours before」 field with no honest bound; a number is
+// a LENGTH's own derived ceiling (the store's day), never a constant.
+const num = (
+  id: string,
+  aria: string,
+  value: number,
+  min: number,
+  max: number | null,
+  step: number,
+  unit: string,
+  locked?: string,
+): RowControl => ({ id, aria, control: { kind: 'number', min, max, step, unit }, value: String(value), ...(locked ? { locked } : {}) })
 const tim = (id: string, aria: string, value: string): RowControl => ({ id, aria, control: { kind: 'time' }, value })
 const chips = (
   id: string,
@@ -556,6 +565,11 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
   // ⚖ C1 — the plane boundary, and the ONE place the seven days come into being.
   const fallbackWindow = { open: hhmm(operatingHours.open), close: hhmm(operatingHours.close) }
   const weekly = weeklyHoursFrom(fallbackWindow.open, fallbackWindow.close, closedWeekday)
+  // ⚖ D-15 (round 3, A2) — THE DERIVED CEILING for 予定ブロックの移動単位, the
+  // one LENGTH this block still asks for a number. Same derivation, same
+  // source (`operatingHours`), as `store-policy-props.ts`'s own `dayLenMin` —
+  // the weekly table's own per-day max is a queued refinement (PLAN-R3 §3).
+  const dayLen = dayLengthMin({ open: operatingHours.open, close: operatingHours.close })
   const closedName = `${WEEKDAYS.find(([n]) => n === closedWeekday)?.[1] ?? ''}曜`
   return {
     ...base,
@@ -633,7 +647,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           { link: { label: '予約と確保を開く', sectionId: 'booking-guard' } },
         ),
         row('store-hours.row-block-step', '予定ブロックの移動単位', '休憩・準備・記録・レジ・清掃を動かすときの刻みです。', [
-          seg('store-hours.block-step', '予定ブロックの移動単位', minuteOpts([5, 10, 15, 30], opsConfig.blockStepMin), String(opsConfig.blockStepMin)),
+          num('store-hours.block-step', '予定ブロックの移動単位', opsConfig.blockStepMin, 1, dayLen, 1, '分'),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1520,24 +1534,26 @@ function sync(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
 
 function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
   void ctx
+  // ⚖ D-15 (round 3, A2) — THE DERIVED CEILING, one home, same source
+  // (`operatingHours`) `storeHours` and `store-policy-props.ts`'s `dayLenMin`
+  // already read. Every LENGTH row below is refused only past the store's own
+  // operating day; a 「minutes before start」/「days ahead」/「hours before」
+  // field has no honest bound from it and passes `null` instead.
+  const dayLen = dayLengthMin({ open: operatingHours.open, close: operatingHours.close })
   // ⚡ R2 BRANCH C — ⚖ D-11 / CONTRACTS-R2 §1. The guardrail is the SPEC's own
   // rule (§2.4 「The dial」): it fires only when the stored value is an
   // EXPLICIT number shorter than `leadTimeMin` — the linked default equals
   // `leadTimeMin` by construction and can never trigger it, and 「解除しない」
-  // has no minute to compare. A fixed option list is the guardrail (no clamp
-  // code); this is the ONE sentence that says so or says the safe state.
+  // has no minute to compare. This still reads the board value, never a list.
   const autoReleaseDial = opsConfig.autoReleaseBeforeMin
   const autoReleaseTooShort = typeof autoReleaseDial === 'number' && autoReleaseDial < opsConfig.leadTimeMin
-  // ⚖ D-26 F5 — THE ROW REPORTS THE STORE'S REAL VALUE. `AUTO_RELEASE_CHOICES`
-  // is still the fixed four (A2 owns widening this row); a store D-15 already
-  // let move past them handed the select a value none of its options carried,
-  // and the control silently fell back to the first option's label — a wrong
-  // statement about the store's own setting. Appended, in order, only when
-  // off-list, so the four stay a stable prefix and every existing index holds.
-  const autoReleaseWire = autoReleaseToWire(autoReleaseDial)
-  const autoReleaseOptions = AUTO_RELEASE_CHOICES.includes(autoReleaseWire)
-    ? AUTO_RELEASE_CHOICES
-    : [...AUTO_RELEASE_CHOICES, autoReleaseWire]
+  // ⚖ D-15 (round 3, A2) — THE ROW IS THREE STATES, NOT A LIST OF NUMBERS:
+  // 'linked'/'never' stay the two non-numeric states (a select), and any
+  // positive minute count is a free field beside it — `AUTO_RELEASE_CHOICES`
+  // (the fixed '30'/'120' pair, D-26 F5's own append-when-off-list patch) is
+  // gone with the list it existed to widen.
+  const autoReleaseMode: 'linked' | 'never' | 'minutes' =
+    autoReleaseDial === 'linked' ? 'linked' : autoReleaseDial === null ? 'never' : 'minutes'
   return {
     ...base,
     kicker: 'Reserve設定',
@@ -1546,30 +1562,32 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
     blocks: [
       block('reserve.window', '受付ウィンドウ', 'お客様がオンラインで予約できる期間です。', [
         row('reserve.row-days', '何日先まで受け付けるか', 'この日数を超える先の予約は、オンラインでは受け付けません（店頭・電話は対象外です）。', [
-          num('reserve.days', '何日先まで受け付けるか', d.bookingOpenDays, 1, 90, 1, '日'),
+          num('reserve.days', '何日先まで受け付けるか', d.bookingOpenDays, 1, null, 1, '日'),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
             base: '初期値: 30日',
-            guardrail: '上限は90日です。長すぎると、先の予定が変わったときのキャンセルが増えます。',
+            // ⚖ D-15 (round 3, A2) — the 90日の上限 is dropped (a cap constant
+            // D-15 forbids); a long window is a real business's own choice.
+            guardrail: '長すぎると、先の予定が変わったときのキャンセルが増えます。',
           },
         }),
         // ⚖ S17 · C6 — THE LABEL IS HOURS, THE VALUE IS MINUTES, because
         // `cutoff_minutes` (dist/types.d.ts:1054) is minutes. A reader thinks in
         // 「2時間前」 and the wire keeps 120; holding hours here and multiplying
         // at the seam is where a factor of 60 goes missing between two rounds.
-        row('reserve.row-cutoff', '直前締切', '予約開始時刻の何時間前に、オンラインの受付を締め切るかです。', [
-          sel('reserve.cutoff', '直前締切', opts([['60', '1時間前'], ['120', '2時間前'], ['180', '3時間前'], ['360', '6時間前']]), String(d.cutoffMinutes)),
+        row('reserve.row-cutoff', '直前締切', '予約開始時刻の何分前に、オンラインの受付を締め切るかです。', [
+          num('reserve.cutoff', '直前締切', d.cutoffMinutes, 0, null, 1, '分'),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
-            base: '初期値: 2時間前',
+            base: '初期値: 120分前',
             guardrail: '締切のあとの空きは、店頭・電話でのみ扱えます。短くすると直前の準備が間に合わなくなります。',
           },
           source: 'コアは「分」で持ちます（2時間前 = 120分）',
         }),
         row('reserve.row-grid', 'お客様が選べる開始時刻', 'お客様がReserveで選べる開始時刻の刻みです。コースの長さはメニュー側の設定に従います。', [
-          seg('reserve.grid', 'お客様が選べる開始時刻', minuteOpts([15, 30, 60], opsConfig.reserveStartGridMin), String(opsConfig.reserveStartGridMin)),
+          num('reserve.grid', 'お客様が選べる開始時刻', opsConfig.reserveStartGridMin, 1, dayLen, 1, '分'),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1578,7 +1596,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-session', '標準セッションの長さ', '1回分の施術の標準的な長さです。空き時間にこの長さが何回まるごと収まるかを先に数えます。', [
-          seg('reserve.session', '標準セッションの長さ', minuteOpts([30, 45, 60, 90], opsConfig.standardSessionMin), String(opsConfig.standardSessionMin)),
+          num('reserve.session', '標準セッションの長さ', opsConfig.standardSessionMin, 1, dayLen, 1, '分'),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1586,8 +1604,17 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
             guardrail: '収められる本数を、区切りの良い開始時刻より優先します。長くすると、収まる本数が減ります。',
           },
         }),
+        row('reserve.row-sellslot', '販売する枠の長さ', '今日の運営のボードが、まとまった空きを1つの「販売可能枠」として出すときの長さです。', [
+          num('reserve.sellslot', '販売する枠の長さ', opsConfig.sellSlotMin, 1, dayLen, 1, '分'),
+        ], {
+          scopeLabel: BUSINESS_SCOPE,
+          trio: {
+            base: '初期値: 60分',
+            guardrail: '短くすると、ボードに出る販売可能枠の数が増えます。長くすると、まとまった空きしか枠になりません。',
+          },
+        }),
         row('reserve.row-gapfill', 'スキマ枠の販売', '予約と予約のあいだにできる空きのうち、開始時刻の刻みに乗らない端の部分だけを特価で売ります。', [
-          sel('reserve.gapfill', 'スキマ枠の販売', opts([['0', '販売しない'], ['15', '15分'], ['30', '30分'], ['45', '45分'], ['60', '60分']]), String(opsConfig.gapFillMinMin)),
+          num('reserve.gapfill', 'スキマ枠の販売', opsConfig.gapFillMinMin, 0, dayLen, 1, '分'),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1605,7 +1632,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-lead', '直前の空きは売らない', '開始までこの時間を切った空きは、お客様に出しません。', [
-          sel('reserve.lead', '直前の空きは売らない', opts([['0', '制限なし'], ['30', '30分前まで'], ['60', '60分前まで'], ['120', '120分前まで']]), String(opsConfig.leadTimeMin)),
+          num('reserve.lead', '直前の空きは売らない', opsConfig.leadTimeMin, 0, null, 1, '分'),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1623,31 +1650,35 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           '確保枠の自動解除',
           '開始までこの時間を切った新規用の確保枠は、確保をやめて通常の販売に戻します。「解除しない」にすると、開始時刻まで確保したままです。', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
           [
+            // ⚖ D-15 (round 3, A2) — THREE STATES, TWO CONTROLS. 'linked'/
+            // 'never' are states, not numbers, so they stay a select; a
+            // positive minute count is the ONE number this row can hold, so
+            // it gets its own free field beside the select rather than a
+            // fixed '30'/'120' pair (⚖ D-26 F5's append-when-off-list patch,
+            // now gone with the list it existed to widen).
             sel(
               'reserve.autorelease',
               '確保枠の自動解除',
-              opts(
-                autoReleaseOptions.map((choice): [string, string] => [
-                  choice,
-                  // ⚖ D-15 widened `AutoReleaseBefore` past this row's own four
-                  // literals (A2 still owns turning this select into a free
-                  // field); `AUTO_RELEASE_CHOICES` is unchanged in A1, so a
-                  // fifth entry here is only ever ⚖ D-26 F5's own append — the
-                  // cast is a type-only fix for the widening, not a behaviour
-                  // change.
-                  // ⚖ D-25 F6 — AND THE FALLBACK IS THE BEHAVIOUR FIX: the
-                  // four-key lookup returns `undefined` for anything outside
-                  // them — the cast told tsc not to look — so an appended
-                  // choice ships its own honest label instead of a blank one.
-                  {
-                    linked: `直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`, // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
-                    never: '解除しない', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
-                    '30': '30分前まで', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
-                    '120': '120分前まで', // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
-                  }[choice as 'linked' | 'never' | '30' | '120'] ?? `${choice}分前まで`,
-                ]),
-              ),
-              autoReleaseWire,
+              opts([
+                ['linked', `直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`], // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+                ['never', '解除しない'], // JP-NATIVE PASS 2026-09-13 (REPORT.md 9–11)
+                ['minutes', '分で指定'], // FLAG — new JP, blind native pass before Liam sees it
+              ]),
+              autoReleaseMode,
+            ),
+            num(
+              'reserve.autorelease-min',
+              '確保枠の自動解除（分）',
+              autoReleaseMode === 'minutes' ? (autoReleaseDial as number) : opsConfig.leadTimeMin,
+              1,
+              null,
+              1,
+              '分',
+              // ⚖ 8/21 mistake-proofing — LOCKED, NOT HIDDEN: the field stays
+              // reachable and the reason is a visible sentence (`RowControl`'s
+              // own `locked` pattern), never a `disabled` a reader cannot ask
+              // about. FLAG — new JP, blind native pass before Liam sees it.
+              autoReleaseMode === 'minutes' ? undefined : '「分で指定」を選ぶと変更できます',
             ),
           ],
           {
@@ -1703,7 +1734,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
       }),
       block('reserve.cancel', 'キャンセル規定', 'お客様都合のキャンセルと、ご連絡のないキャンセルの扱いです。', [
         row('reserve.row-free', '無料キャンセル期限', 'この時刻より前のキャンセルは、キャンセル料がかかりません。', [
-          sel('reserve.free', '無料キャンセル期限', opts([['12', '12時間前'], ['24', '24時間前'], ['48', '48時間前']]), String(d.cancelFreeUntilHours)),
+          num('reserve.free', '無料キャンセル期限', d.cancelFreeUntilHours, 0, null, 1, '時間'),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
