@@ -1436,7 +1436,13 @@ async function facadeSetRecordingShared(
       const error = code === 'forbidden' || code === 'not_found' ? code : 'upstream'
       return { ok: false, error }
     }
-    return { ok: true, shared: body?.shared ?? shared }
+    // A 2xx must carry the server's OWN confirmed `shared` to count as
+    // success — `body?.shared ?? shared` used to fall back to the REQUESTED
+    // value on any malformed/empty body, reporting a false "confirmed"
+    // success (the toggle then displayed it as durable truth, never
+    // revisiting it).
+    if (typeof body?.shared !== 'boolean') return { ok: false, error: 'upstream' }
+    return { ok: true, shared: body.shared }
   } catch {
     return { ok: false, error: 'upstream' }
   }

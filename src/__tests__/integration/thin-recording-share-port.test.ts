@@ -48,6 +48,21 @@ describe('thin actions port — recording share toggle', () => {
     await expect(setRecordingShared('karute-1', false)).resolves.toEqual({ ok: true, shared: false })
   })
 
+  // ⚠ G2 (Greptile round 4, P1). A confirmed `shared: true`/`false` is the
+  // ONLY thing a 2xx may report as success — `body?.shared ?? shared` used to
+  // fall back to the REQUESTED value on any malformed/empty 2xx body, which
+  // reported a false "server-confirmed" success (the toggle then displayed it
+  // as durable, never revisiting it).
+  it('a 2xx with a malformed body ({} — no `shared` field) → { ok: false, error: "upstream" }, never a guessed confirmation', async () => {
+    port(async () => new Response(JSON.stringify({}), { status: 200 }))
+    await expect(setRecordingShared('karute-1', true)).resolves.toEqual({ ok: false, error: 'upstream' })
+  })
+
+  it('a 2xx with a non-JSON body → { ok: false, error: "upstream" }', async () => {
+    port(async () => new Response('not json', { status: 200 }))
+    await expect(setRecordingShared('karute-1', true)).resolves.toEqual({ ok: false, error: 'upstream' })
+  })
+
   it('a 403 body → { ok: false, error: "forbidden" }', async () => {
     port(async () => new Response(errorBody('forbidden'), { status: 403 }))
     await expect(setRecordingShared('karute-1', true)).resolves.toEqual({ ok: false, error: 'forbidden' })
