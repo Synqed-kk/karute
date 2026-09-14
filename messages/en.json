@@ -518,7 +518,11 @@
       "noTranscript": "No transcript yet",
       "restrictedTitle": "Recording · transcript",
       "restricted": "Only the staff who recorded this session can view the transcript (unless they've shared it). The summary above is shared.",
-      "viaShare": "Shared by the staff who recorded this session"
+      "viaShare": "Shared by the staff who recorded this session",
+      "share": "Share with managers",
+      "sharing": "Sharing…",
+      "shared": "Shared",
+      "shareFailed": "Couldn’t share this recording"
     },
     "discarded": {
       "title": "Discarded",
@@ -2519,12 +2523,14 @@
           "no_sessions_today": "No recording sessions today",
           "play": "Played recording",
           "session_cleanup": "Recording discarded",
+          "share": "Shared recording",
           "take_named": "Recording upload address issued (existing session)",
           "take_refused_has_record": "Refused a duplicate link to a saved recording",
           "transcribe": "Transcribed recording",
           "transcribe_failed": "Transcription failed",
           "transcribe_refused": "Recording transcription declined (usage limit)",
-          "transcribe_storm": "Recording transcribed repeatedly"
+          "transcribe_storm": "Recording transcribed repeatedly",
+          "unshare": "Unshared recording"
         }
       },
       "burnError": {

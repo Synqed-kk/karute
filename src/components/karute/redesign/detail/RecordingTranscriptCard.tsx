@@ -6,6 +6,7 @@ import { ChevronDown, Lock, Mic } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { RecordingPlayer } from './RecordingPlayer'
+import { RecordingShareToggle } from './RecordingShareToggle'
 import type { KaruteDetailRecording } from '@/lib/karute/detail-screen'
 
 /** Statuses whose transcript has not landed YET — the audio is already safe, so
@@ -43,6 +44,12 @@ interface RecordingTranscriptCardProps {
    *  renders the one quiet subtitle line under the title, same slot the
    *  duration line uses. Never true alongside `restricted`. */
   viaShare?: boolean
+  /** D11 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design, PR-B): the
+   *  recorder's own share toggle. `canShare` is the record's OWN staffer's
+   *  question — hers to press, on a live record only — so the button renders
+   *  ONLY when true; a colleague, a viewAll holder or a shared-with reader
+   *  never sees it. null/absent = no button, same as today. */
+  share?: { canShare: boolean; shared: boolean } | null
 }
 
 export function RecordingTranscriptCard({
@@ -52,6 +59,7 @@ export function RecordingTranscriptCard({
   restricted,
   recording,
   viaShare,
+  share,
 }: RecordingTranscriptCardProps) {
   const t = useTranslations('karuteDetail')
   const hasPlayer = Boolean(recording?.audioPresent)
@@ -112,6 +120,16 @@ export function RecordingTranscriptCard({
             </div>
           )}
         </div>
+        {share?.canShare && !restricted && (
+          // ⚠ KEYED BY THE KARUTE (Greptile round 4, G1 — same defect class as
+          // the RecordingPlayer key below). Web same-route navigation reuses
+          // this component in the same tree position; without the key, a
+          // record left mid-tap (busy/optimistic) carried its pending state
+          // into the NEXT karute's control whenever `shared` didn't change
+          // (nothing else resets useState), and a late response could land on
+          // the wrong record.
+          <RecordingShareToggle key={karuteId} karuteId={karuteId} shared={share.shared} />
+        )}
         {body && (
           <button
             type="button"

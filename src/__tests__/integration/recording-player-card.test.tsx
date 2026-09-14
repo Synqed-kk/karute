@@ -43,6 +43,16 @@ jest.mock('@/lib/ports/recording-port', () => ({
   getRecordingPipelinePort: () => ({ mintPlaybackUrl }),
 }))
 
+// D11 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design, PR-B): the share
+// toggle's own dependencies — only ever exercised by the tests below that
+// pass `share.canShare: true`, but this file's harness needs them declared
+// regardless (a real next/navigation router has no context to mount against
+// in jsdom, and @/actions/recording-share is a 'use server' module).
+jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh: jest.fn() }) }))
+jest.mock('@/actions/recording-share', () => ({ setRecordingShared: jest.fn() }))
+import { setRecordingShared } from '@/actions/recording-share'
+const setRecordingSharedMock = setRecordingShared as jest.Mock
+
 const recorderState = { current: 'idle' as 'idle' | 'recording' | 'paused' | 'recorded' }
 jest.mock('@/hooks/use-global-recorder', () => ({
   // The hook is the RENDER snapshot; recorderIsLive is the LIVE read the guard
@@ -191,6 +201,99 @@ describe('the share subtitle (D8) and the removed consent pill', () => {
   it('viaShare is never shown on a restricted card', () => {
     const { container } = card({ restricted: true, viaShare: true })
     expect(container.textContent).not.toContain('録音を担当したスタッフが共有')
+  })
+})
+
+// D11 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design, PR-B): the share
+// toggle button in the header. The button's OWN behavior (tap/busy/failure)
+// is pinned in recording-share-toggle.test.tsx — this file owns only the
+// CARD's own wiring: whether the button renders at all, and where.
+describe('the share toggle (D11) — header wiring', () => {
+  it('share.canShare renders the toggle button in the header', () => {
+    card({ share: { canShare: true, shared: false } })
+    expect(screen.getByRole('button', { name: '管理者に共有' })).toBeTruthy()
+  })
+
+  it('share.canShare false renders no toggle button', () => {
+    card({ share: { canShare: false, shared: false } })
+    expect(screen.queryByRole('button', { name: '管理者に共有' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '共有中' })).toBeNull()
+  })
+
+  it('share absent/null renders no toggle button (today, unchanged)', () => {
+    card()
+    expect(screen.queryByRole('button', { name: '管理者に共有' })).toBeNull()
+  })
+
+  it('share.shared renders the 「共有中」 chip, not the idle label', () => {
+    card({ share: { canShare: true, shared: true } })
+    expect(screen.getByRole('button', { name: '共有中' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '管理者に共有' })).toBeNull()
+  })
+
+  it('the toggle never renders on a restricted card, even if share.canShare were somehow true', () => {
+    const { container } = card({ restricted: true, share: { canShare: true, shared: false } })
+    expect(container.textContent).not.toContain('管理者に共有')
+  })
+
+  it('the title never breaks to a second line with the toggle present (393px-equivalent: narrow header, both controls fit)', () => {
+    card({ share: { canShare: true, shared: false } })
+    // The title span and the toggle share the same flex row; asserting they
+    // are both present and the header keeps its single flex row class is the
+    // jsdom-reachable proxy for "never drops to a second row" (no real
+    // viewport in this environment — the 393px sweep is the browser lens's
+    // job, not this suite's).
+    const header = screen.getByText('録音 ・ 文字起こし').closest('header')
+    expect(header?.className).toMatch(/items-center/)
+    expect(screen.getByRole('button', { name: '管理者に共有' })).toBeTruthy()
+  })
+
+  // ⚠ G1 (Greptile round 4, P1). Web same-route navigation from one karute to
+  // another reuses this component in the same tree position — same defect
+  // class as the player's own key (above). Without `key={karuteId}` on the
+  // toggle, a record left mid-tap (busy/optimistic) on karute A carried its
+  // pending state straight into karute B's control when B has the SAME
+  // `shared` value (no prop change to reset it), and A's late-arriving
+  // response could then land on B's control.
+  it('navigating A→B in the same tree position resets the toggle even when `shared` is unchanged (no cross-record state)', async () => {
+    let resolveA!: (v: { ok: true; shared: boolean }) => void
+    setRecordingSharedMock.mockReturnValueOnce(
+      new Promise((r) => {
+        resolveA = r
+      }),
+    )
+    const view = render(
+      <RecordingTranscriptCard
+        karuteId="kar-A"
+        transcript="A"
+        consentOnFile
+        recording={REC}
+        share={{ canShare: true, shared: false }}
+      />,
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '管理者に共有' }))
+    })
+    expect(screen.getByRole('button', { name: '共有中…' })).toBeDisabled() // busy, mid-tap on A
+
+    // Same-route nav to karute B — SAME shared value (false), so the `shared`
+    // prop never changes. A fresh instance must render idle, never A's busy.
+    view.rerender(
+      <RecordingTranscriptCard
+        karuteId="kar-B"
+        transcript="B"
+        consentOnFile
+        recording={REC}
+        share={{ canShare: true, shared: false }}
+      />,
+    )
+    expect(screen.getByRole('button', { name: '管理者に共有' })).not.toBeDisabled()
+
+    // A's in-flight response landing late must never reach B's (remounted) control.
+    await act(async () => {
+      resolveA({ ok: true, shared: true })
+    })
+    expect(screen.getByRole('button', { name: '管理者に共有' })).toBeTruthy()
   })
 })
 

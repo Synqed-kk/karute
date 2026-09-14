@@ -104,6 +104,19 @@ const LITERAL_ONLY_CATEGORY = {
   // (facade key recordings.session.delete is a skip row — same doctrine).
   // INTERIM: goes away with P5's kept-discard build, and this line with it.
   'recording.session_cleanup': 'recording',
+  // Choke emit: src/lib/recording/share.ts#setRecordingSharedWithClient (via
+  // its own emitShareAudit helper) — the recorder's own share toggle (⚖ Liam
+  // 2026-09-13 sharing law; 2026-09-14 design D6). FIX ROUND 1: facade key
+  // recordings.share is a skip row citing emitShareAudit (audit.ts) — the
+  // HELPER, not the body, because the body's idempotent no-op return is a
+  // genuine non-audited success path CP2's walker cannot exempt, while the
+  // helper emits unconditionally on its one path (the uploadUrl/
+  // auditTakeNamed shape) — same doctrine as recording.play above otherwise:
+  // no endpoint fires it alone, only this one choke point.
+  'recording.share': 'recording',
+  // Choke emit: src/lib/recording/share.ts#setRecordingSharedWithClient (via
+  // emitShareAudit) — the unshare twin of recording.share directly above.
+  'recording.unshare': 'recording',
   // Choke emit: src/lib/recording/mint-take-url.ts#auditTakeNamed (the private
   // helper mintTakeUploadUrl calls only for a CLIENT-NAMED take; facade key
   // recordings.uploadUrl stays a skip row citing it).

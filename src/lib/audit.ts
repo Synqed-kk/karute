@@ -292,6 +292,7 @@ export type FacadeEndpointKey =
   | 'recordings.playbackUrl'
   | 'recordings.session.delete'
   | 'recordings.session.mint'
+  | 'recordings.share'
   | 'recordings.uploadUrl'
   | 'recovery.day_facts'
   | 'screens.appointments'
@@ -792,6 +793,28 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // 'mutation' row here would double-log every facade discard.
   'recordings.session.delete': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient' },
   'recordings.session.mint': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
+  // The recorder's own share toggle (⚖ Liam 2026-09-13 sharing law; 2026-09-14
+  // design D6). Same doctrine as the writers above: the shared body
+  // (setRecordingSharedWithClient, src/lib/recording/share.ts) alone knows
+  // whether a toggle actually WROTE anything — the idempotent no-op (already
+  // in the requested state) writes and audits nothing, and the generic hook
+  // would emit on every 2xx including that no-op. FIX ROUND 1 (Fable
+  // line-audit, 2026-09-14): the citation names the HELPER, not the body —
+  // src/lib/recording/share.ts#emitShareAudit, the private, unconditional
+  // emit primitive setRecordingSharedWithClient's one writing branch calls —
+  // because the BODY's own idempotent no-op return is an honest
+  // non-audited success path (D6 step 5) CP2's coveredBy walker
+  // (audit-coveredby.test.ts) has no `unproven` allowance for; citing the
+  // body would fail that gate over a return the design deliberately leaves
+  // silent. Same shape as the uploadUrl/auditTakeNamed row below: a skip row
+  // citing a PRIVATE helper that emits unconditionally on its one path, so
+  // the citation proves.
+  'recordings.share': {
+    kind: 'skip',
+    category: 'recording',
+    action: '',
+    coveredBy: 'src/lib/recording/share.ts#emitShareAudit',
+  },
   // The mint's OWN row (capture pipeline PR2 fix round 2) is
   // recording.take_named, emitted at the shared core for a CLIENT-NAMED take
   // only — the case where the caller names a take it may not own (storage

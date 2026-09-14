@@ -1403,6 +1403,62 @@ export const transcribeAndPersistDiscard = ((input) =>
     input,
   )) satisfies typeof import('@/actions/recording-discard-transcript').transcribeAndPersistDiscard
 
+// -- recording share toggle (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design
+// D6) — the recorder's own 共有 button on the transcript card. No
+// Idempotency-Key: the body is idempotent by state (the shared body's own
+// D6 step 5 no-op guard), same reasoning as the regenerate button's port.
+//
+// The wire carries an AppApiErrorCode ('forbidden' | 'not_found' |
+// 'upstream_unavailable' | ...) — narrower and differently-spelled than the
+// web action's own error union, which the button was written against
+// (recording-share.ts) — plus, for the no-recording case, a
+// `reason: 'no_recording'` SIBLING key merged onto the same `not_found` body
+// (route.ts; errors.ts's errorBody spreads AppApiError.detail directly into
+// the JSON `error` object — see handler.ts:169 → errors.ts:97-99 — so the
+// wire key is `error.reason`, never a separate AppApiErrorCode; the union
+// stays closed). `no_recording` and a genuinely missing karute used to be
+// INDISTINGUISHABLE here (both arrived as bare `not_found`) — they no longer
+// are: this port reads that `reason` and maps it through.
+async function facadeSetRecordingShared(
+  karuteId: string,
+  shared: boolean,
+): Promise<
+  | { ok: true; shared: boolean }
+  | { ok: false; error: 'not_found' | 'no_recording' | 'forbidden' | 'upstream' }
+> {
+  try {
+    const res = await getDataPort().apiFetch(
+      '/api/app/v1/recordings/share',
+      jsonInit('POST', { karuteId, shared }),
+    )
+    const body = (await res.json().catch(() => null)) as
+      | { shared?: boolean; error?: { code?: string; reason?: string } }
+      | null
+    if (!res.ok) {
+      const code = body?.error?.code
+      if (code === 'not_found' && body?.error?.reason === 'no_recording') {
+        return { ok: false, error: 'no_recording' }
+      }
+      const error = code === 'forbidden' || code === 'not_found' ? code : 'upstream'
+      return { ok: false, error }
+    }
+    // A 2xx must carry the server's OWN confirmed `shared` to count as
+    // success — `body?.shared ?? shared` used to fall back to the REQUESTED
+    // value on any malformed/empty body, reporting a false "confirmed"
+    // success (the toggle then displayed it as durable truth, never
+    // revisiting it).
+    if (typeof body?.shared !== 'boolean') return { ok: false, error: 'upstream' }
+    return { ok: true, shared: body.shared }
+  } catch {
+    return { ok: false, error: 'upstream' }
+  }
+}
+export const setRecordingShared = ((karuteId, shared) =>
+  facadeSetRecordingShared(
+    karuteId,
+    shared,
+  )) satisfies typeof import('@/actions/recording-share').setRecordingShared
+
 // 破棄の記録 — the staffer's OWN monthly discard count (⚖ 8/25 ruling B, staff
 // half). STILL NOT AVAILABLE ON THE PHONE, and no longer for the same reason as
 // the manager screen: that screen is LIVE on thin now, off the two facade reads

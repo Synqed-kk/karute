@@ -328,3 +328,19 @@
   src/lib/ai/transcribe.ts#runMeteredTranscription (AUDITED_CORES). A
   SUCCESSFUL call is still never refunded — the no-refund ruling is unchanged ·
   Fable (BLIND-LENS-SPEND-f7ca094.md MEDIUM 2 / PACKET-SPEND-FIX5-2026-09-08 C1)
+- 2026-09-14 · SDK_WRITE_ALLOWLIST:src/lib/recording/share-columns.ts::recordings.update · the
+  recorder's own share toggle (⚖ Liam 2026-09-13 sharing law) — the D13 typed
+  write wrapper (updateRecordingShare) sends shared_at/shared_by_staff_id through
+  SDK 1.34's untyped UpdateRecordingInput cast, the same "SDK predates the columns"
+  shape as every other recordings.update call on this list. Silent by design, same
+  reasoning as discard.ts#stampRecordingDuration above: the write sits ONE call
+  below the emit, not lexically inside it — setRecordingSharedWithClient
+  (src/lib/recording/share.ts, AUDITED_CORES via its own emitShareAudit helper)
+  awaits this call and then, on its one WRITING branch, emits recording.share /
+  recording.unshare, which dominates its own return; the idempotent no-op branch
+  (D6 step 5: already in the requested state) never reaches this call at all, so
+  no write is ever silent in substance — only in the walker's lexical reach. Time-
+  boxed like every other SDK-1.34 predates-the-columns entry: DELETE this file at
+  client 1.35, once the SDK's own types carry shared_at/shared_by_staff_id and the
+  cast is no longer needed · Fable (DESIGN-SHARE-2026-09-14.md D6/D13,
+  PKT-SHARE-B-2026-09-14.md C1/C2 — Liam signed off the design 9/14 01:0x)

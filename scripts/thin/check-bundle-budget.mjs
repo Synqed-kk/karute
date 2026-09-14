@@ -697,7 +697,25 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // WITHIN THIS WORKTREE (node v24.16.0): en 133,316 · vendor 937,743 · index
 // 1,001,394 = 2,072,453 B — 100 B smaller than the pre-fix-round tip above.
 // Ceiling = THIS measured number + 1,000 B: 2,072,453 + 1,000 = 2,073,453.
-const BUDGET_BYTES = 2_073_453
+//
+// PR-B fix round 3 (2026-09-14): recording sharing — the share proxy
+// (thin/ports/actions.vite.ts), RecordingShareToggle, and six new catalog
+// keys ×2 locales (transcript.share/sharing/shared/shareFailed +
+// audit.share/unshare). Measured cold on this machine per the C4 recipe,
+// byte-identical across two clean builds WITHIN THIS WORKTREE (node
+// v24.16.0): plain recipe en 133,627 · index 1,003,257 · vendor 937,743 =
+// 2,074,627 B; the CI recipe (same env ci.yml exports — the longer dummy
+// stamps inline a few bytes larger) also byte-identical across two builds:
+// en 133,627 · index 1,003,309 · vendor 937,743 = 2,074,679 B. origin/main
+// (b6f2340819e3766a36dc159c2fbafe9e44522f1a) freshly measured the same way
+// in a throwaway worktree, both recipes byte-identical across two builds:
+// plain en 133,458 · index 1,001,559 · vendor 937,743 = 2,072,760 B; CI en
+// 133,458 · index 1,001,611 · vendor 937,743 = 2,072,812 B — feature cost
+// +1,867 B either way (the two recipes agree on the delta; only the
+// baseline's env-stamp inlining differs). Ceiling is set from the LARGER of
+// the two tip measurements (the CI recipe) plus 1,000 B, same convention as
+// every prior raise: 2,074,679 + 1,000 = 2,075,679.
+const BUDGET_BYTES = 2_075_679
 
 let dir
 try {
