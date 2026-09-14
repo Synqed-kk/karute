@@ -71,10 +71,14 @@ export const POST = facadeHandler('recordings.share', async (ctx) => {
     if (result.error === 'not_found') throw new AppApiError('not_found', 'karute not found')
     // A genuinely distinct reason from `not_found` (the karute exists;
     // nothing to share hangs off it), but AppApiErrorCode carries no
-    // separate wire code for it — same 404 status, a distinguishing
-    // message. See the build report's disclosed interpretation.
+    // separate wire code for it — the union stays closed. Same 404 status,
+    // distinguished instead by `detail.reason`: errors.ts's errorBody
+    // spreads `detail` directly into the JSON `error` object (handler.ts:169
+    // → errors.ts:97-99), so the wire key is `error.reason`, a sibling of
+    // `code`/`message` — not a nested `error.detail`. The port below reads
+    // exactly that key.
     if (result.error === 'no_recording') {
-      throw new AppApiError('not_found', 'no recording behind this karute')
+      throw new AppApiError('not_found', 'no recording behind this karute', { reason: 'no_recording' })
     }
     throw new AppApiError('upstream_unavailable', 'the share could not be recorded')
   }

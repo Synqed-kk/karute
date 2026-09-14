@@ -1408,14 +1408,17 @@ export const transcribeAndPersistDiscard = ((input) =>
 // Idempotency-Key: the body is idempotent by state (the shared body's own
 // D6 step 5 no-op guard), same reasoning as the regenerate button's port.
 //
-// The wire only ever carries an AppApiErrorCode ('forbidden' | 'not_found' |
+// The wire carries an AppApiErrorCode ('forbidden' | 'not_found' |
 // 'upstream_unavailable' | ...) — narrower and differently-spelled than the
 // web action's own error union, which the button was written against
-// (recording-share.ts). `no_recording` and `not_found` are genuinely
-// INDISTINGUISHABLE at the wire (the route maps both to the same 404 code —
-// see BUILD-REPORT-SHARE-B-2026-09-14.md's disclosed interpretation); this
-// mapping is honest about that rather than inventing a code the server never
-// sends.
+// (recording-share.ts) — plus, for the no-recording case, a
+// `reason: 'no_recording'` SIBLING key merged onto the same `not_found` body
+// (route.ts; errors.ts's errorBody spreads AppApiError.detail directly into
+// the JSON `error` object — see handler.ts:169 → errors.ts:97-99 — so the
+// wire key is `error.reason`, never a separate AppApiErrorCode; the union
+// stays closed). `no_recording` and a genuinely missing karute used to be
+// INDISTINGUISHABLE here (both arrived as bare `not_found`) — they no longer
+// are: this port reads that `reason` and maps it through.
 async function facadeSetRecordingShared(
   karuteId: string,
   shared: boolean,
@@ -1429,10 +1432,13 @@ async function facadeSetRecordingShared(
       jsonInit('POST', { karuteId, shared }),
     )
     const body = (await res.json().catch(() => null)) as
-      | { shared?: boolean; error?: { code?: string } }
+      | { shared?: boolean; error?: { code?: string; reason?: string } }
       | null
     if (!res.ok) {
       const code = body?.error?.code
+      if (code === 'not_found' && body?.error?.reason === 'no_recording') {
+        return { ok: false, error: 'no_recording' }
+      }
       const error = code === 'forbidden' || code === 'not_found' ? code : 'upstream'
       return { ok: false, error }
     }

@@ -130,18 +130,27 @@ describe('POST /api/app/v1/recordings/share', () => {
     expect(res.status).toBe(403)
   })
 
-  it('maps not_found → 404', async () => {
+  it('maps not_found → 404, with NO `reason` on the body (the karute itself is missing — genuinely distinct from no_recording)', async () => {
     shareResult.current = { error: 'not_found' }
     const res = await post({ karuteId: 'k-1', shared: true })
     expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body.error.reason).toBeUndefined()
   })
 
-  it('maps no_recording → 404 with a distinguishing message (no AppApiErrorCode of its own — disclosed interpretation)', async () => {
+  // ⚠ G3 (Greptile round 4, P2). AppApiErrorCode stays a closed union (still
+  // `not_found`), but the body now carries `reason: 'no_recording'` — a
+  // sibling of `code`/`message` (errors.ts's errorBody spreads
+  // AppApiError.detail directly into the JSON `error` object; see
+  // handler.ts:169 → errors.ts:97-99) — so the phone can tell a genuinely
+  // missing karute apart from an existing one with nothing to share.
+  it('maps no_recording → 404 with a distinguishing message AND body.error.reason === "no_recording" (no AppApiErrorCode of its own)', async () => {
     shareResult.current = { error: 'no_recording' }
     const res = await post({ karuteId: 'k-1', shared: true })
     expect(res.status).toBe(404)
     const body = await res.json()
     expect(body.error.message).toMatch(/no recording/i)
+    expect(body.error.reason).toBe('no_recording')
   })
 
   it('maps upstream → 502', async () => {

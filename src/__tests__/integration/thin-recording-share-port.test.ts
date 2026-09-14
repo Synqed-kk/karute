@@ -68,9 +68,26 @@ describe('thin actions port — recording share toggle', () => {
     await expect(setRecordingShared('karute-1', true)).resolves.toEqual({ ok: false, error: 'forbidden' })
   })
 
-  it('a 404 body (not_found OR no_recording, indistinguishable at the wire) → { ok: false, error: "not_found" }', async () => {
+  it('a bare 404 body (not_found, no reason) → { ok: false, error: "not_found" } — the karute itself is missing', async () => {
     port(async () => new Response(errorBody('not_found'), { status: 404 }))
     await expect(setRecordingShared('karute-1', true)).resolves.toEqual({ ok: false, error: 'not_found' })
+  })
+
+  // ⚠ G3 (Greptile round 4, P2). `not_found` + `reason: 'no_recording'` (the
+  // sibling key route.ts now sets via AppApiError's `detail`) is no longer
+  // folded into a plain `not_found` — it tells apart a genuinely missing
+  // karute from an existing one with nothing to share.
+  it('a 404 body with reason:no_recording → { ok: false, error: "no_recording" }', async () => {
+    port(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: { code: 'not_found', message: 'no recording behind this karute', reason: 'no_recording' },
+          }),
+          { status: 404 },
+        ),
+    )
+    await expect(setRecordingShared('karute-1', true)).resolves.toEqual({ ok: false, error: 'no_recording' })
   })
 
   it.each([
