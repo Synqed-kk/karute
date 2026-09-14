@@ -99,6 +99,9 @@ function chipButton(anchor: HTMLElement | null): HTMLElement | null {
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false)
   useEffect(() => {
+    // A DOM without matchMedia (jsdom) means "no preference expressed" — the
+    // panel keeps its motion rather than refusing to mount.
+    if (typeof window.matchMedia !== 'function') return
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
     setReduced(mq.matches)
     const onChange = () => setReduced(mq.matches)
