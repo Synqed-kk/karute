@@ -144,6 +144,19 @@ function renderView({
   return { loadMonthCells }
 }
 
+/** jsdom ships no PointerEvent, so fireEvent.pointerDown/Move arrive with
+ *  pointerId and clientX/Y undefined — which silently sends the panel's axis
+ *  lock down the wrong branch. Build the event and hang the properties on it. */
+function pointer(
+  type: 'pointerdown' | 'pointermove' | 'pointerup',
+  el: Element,
+  init: { pointerId: number; clientX: number; clientY: number },
+) {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.assign(event, init)
+  fireEvent(el, event)
+}
+
 const chip = () => screen.getByTestId('date-chip')
 const panel = () => screen.queryByRole('dialog')
 const openPanel = async () => {
@@ -758,6 +771,86 @@ describe('under StrictMode (what next dev and vite dev actually run)', () => {
       expect(within(dialog).getByRole('status')).toHaveTextContent('dateJump.failed'),
     )
     warn.mockRestore()
+  })
+})
+
+/**
+ * R10 — the wrong-date navigation the delta-verify drove out. Tapping a day
+ * while a month slide was in flight committed the slide on POINTERDOWN, so the
+ * panes re-keyed between pointerdown and click: she tapped 9/1 and landed on
+ * 10/1 (or, if the node she touched had been unmounted, nothing happened at
+ * all). A tap is not a drag — only a gesture that claims the x-axis commits.
+ */
+describe('a day tap during a month slide goes to the day that was tapped', () => {
+  const centrePane = () => within(screen.getByRole('dialog')).getAllByTestId('month-grid')[1]
+
+  beforeEach(() => {
+    jest.useFakeTimers()
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  const openWithFakeTimers = async () => {
+    fireEvent.click(chip())
+    await act(async () => {
+      jest.advanceTimersByTime(0)
+    })
+    return screen.getByRole('dialog')
+  }
+
+  it('navigates to THAT cell, not the same square of the next month', async () => {
+    renderView()
+    const dialog = await openWithFakeTimers()
+    // A slide is in flight and has not committed yet.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    const cell = within(centrePane()).getAllByRole('button')[0]
+    expect(cell).toHaveAttribute('data-day', '2026-09-01')
+
+    // The finger goes down on the cell the staff member can see…
+    pointer('pointerdown', cell, { pointerId: 1, clientX: 40, clientY: 40 })
+    // …and the grid under it must not have changed by the time the tap lands.
+    expect(within(centrePane()).getAllByRole('button')[0]).toHaveAttribute(
+      'data-day',
+      '2026-09-01',
+    )
+    fireEvent.click(within(centrePane()).getAllByRole('button')[0])
+
+    await waitFor(() => expect(push).toHaveBeenCalled())
+    expect(push.mock.calls[0][0]).toContain('date=2026-09-01')
+  })
+
+  it('a real drag still commits the slide in flight before it takes over', async () => {
+    renderView()
+    const dialog = await openWithFakeTimers()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    expect(title()).toHaveTextContent('2026年9月')
+
+    const grid = screen.getByRole('dialog').querySelector<HTMLElement>('.touch-none')!
+    pointer('pointerdown', grid, { pointerId: 2, clientX: 200, clientY: 100 })
+    // Past the axis-lock threshold, horizontally: this IS a drag.
+    pointer('pointermove', grid, { pointerId: 2, clientX: 160, clientY: 102 })
+    // The month that was sliding has landed, so the drag starts from rest.
+    expect(title()).toHaveTextContent('2026年10月')
+    pointer('pointerup', grid, { pointerId: 2, clientX: 160, clientY: 102 })
+    await act(async () => {
+      jest.advanceTimersByTime(2000)
+    })
+  })
+
+  it('a tap leaves the in-flight slide to its own timer', async () => {
+    renderView()
+    const dialog = await openWithFakeTimers()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    // A pointerdown that never becomes a drag changes nothing on its own…
+    pointer('pointerdown', centrePane(), { pointerId: 3, clientX: 40, clientY: 40 })
+    expect(title()).toHaveTextContent('2026年9月')
+    pointer('pointerup', centrePane(), { pointerId: 3, clientX: 40, clientY: 40 })
+    // …and the slide still lands where it was going.
+    await act(async () => {
+      jest.advanceTimersByTime(2000)
+    })
+    expect(title()).toHaveTextContent('2026年10月')
   })
 })
 

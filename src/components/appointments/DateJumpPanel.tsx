@@ -434,9 +434,10 @@ export function DateJumpPanel({
   } | null>(null)
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    // A finger on the glass is a new intention — land what is moving and drop
-    // anything the arrows still owed.
-    commitSlide(false)
+    // Deliberately does NOT touch the slide. A finger on the glass is not yet
+    // a drag, and committing here changed the month under the finger between
+    // pointerdown and click: she tapped 9/1 and landed on 10/1. A tap leaves
+    // the slide in flight to its own timer, and the cell's own Date navigates.
     gesture.current = {
       id: e.pointerId,
       x0: e.clientX,
@@ -456,7 +457,16 @@ export function DateJumpPanel({
     if (g.axis === 'none') {
       if (Math.abs(dx) < AXIS_LOCK_PX && Math.abs(dy) < AXIS_LOCK_PX) return
       g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y'
-      if (g.axis === 'x') e.currentTarget.setPointerCapture(e.pointerId)
+      if (g.axis === 'x') {
+        // NOW it is a drag, and a drag is a new intention: land what is moving
+        // and drop what the arrows still owed, so the finger takes over from
+        // rest. No cell can be tapped past this point — the pointer is
+        // captured by the grid.
+        commitSlide(false)
+        // Optional call: a stub DOM may not implement pointer capture, and the
+        // drag still works without it.
+        e.currentTarget.setPointerCapture?.(e.pointerId)
+      }
     }
     if (g.axis === 'y') {
       if (dy <= -SWIPE_UP_PX) {
