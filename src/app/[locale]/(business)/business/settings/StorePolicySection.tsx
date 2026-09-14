@@ -139,7 +139,12 @@ export function computeScene(input: SceneInput, mode: GapGuardMode, minutes: num
  *  dodge. Same shape `commitNumberField` already gives every free-minute
  *  field: `SLOT_MIN` floor, the caller's own ceiling, '分' unit. */
 export function commitMinutes(text: string, lastGood: number, ceiling: number): { value: number; message: string | null } {
-  return commitNumberField(text, lastGood, SLOT_MIN, ceiling, '分')
+  // ⚖ D-27 — typed text is never rewritten into a different number; anything
+  // that is not a positive integer restores the previous value and says so.
+  const t = text.trim()
+  const n = Number(t)
+  const raw = t !== '' && Number.isInteger(n) && n > 0 ? t : ''
+  return commitNumberField(raw, lastGood, SLOT_MIN, ceiling, '分')
 }
 
 export interface StorePolicyProps {
@@ -456,20 +461,10 @@ export function StorePolicySection(props: StorePolicySectionProps) {
     setAdvOpen((now) => (now ? was : now))
   }, [props.tourOpen])
 
-  useEffect(() => {
-    const n = Number(slotText.trim())
-    if (slotText.trim() !== '' && Number.isFinite(n) && n >= SLOT_MIN && n <= props.dayLenMin) lastGoodSlot.current = Math.round(n)
-  }, [slotText, props.dayLenMin])
-
-  useEffect(() => {
-    const n = Number(tightText.trim())
-    if (tightText.trim() !== '' && Number.isFinite(n) && n >= TIGHT_MIN && n <= TIGHT_MAX) lastGoodTight.current = Math.round(n)
-  }, [tightText])
-
-  useEffect(() => {
-    const n = Number(minutesText.trim())
-    if (minutesText.trim() !== '' && Number.isFinite(n) && n >= SLOT_MIN && n <= props.dayLenMin) lastGoodMinutes.current = Math.round(n)
-  }, [minutesText, props.dayLenMin])
+  // ⚖ D-27 — `lastGood*` moves ONLY on a commit (blur / nudge / preset /
+  // initial), never on a keystroke. The three effects that used to update it
+  // on every valid keystroke are gone; each `lastGood*.current =` assignment
+  // now sits beside the committed-value set it belongs to.
 
   const dials: Dials = { perm, hold, mode, gaps, minutes: Number(minutesText), rank, slot: Number(slotText) }
   const activePreset =
@@ -485,7 +480,9 @@ export function StorePolicySection(props: StorePolicySectionProps) {
     // A preset press is a commit, not typing — both the text and the value the
     // scene reads move together, same as every other dial a preset sets.
     setMinutesText(String(p.minutes)); setMinutes(p.minutes); setMinutesWarn(false); setMinutesMsg(null)
+    lastGoodMinutes.current = p.minutes
     setRank(p.rank); setSlotText(String(p.slot))
+    lastGoodSlot.current = p.slot
   }
 
   /** ⚖ D-26 N1 — A NUDGE IS A COMMIT TOO, same as `choosePreset` above: the
@@ -502,11 +499,13 @@ export function StorePolicySection(props: StorePolicySectionProps) {
   function nudgeMinutes(delta: number) {
     const next = clampSlot(dials.minutes + delta, props.dayLenMin)
     const commit = commitMinutes(String(next), lastGoodMinutes.current, props.dayLenMin)
+    lastGoodMinutes.current = commit.value
     setMinutesText(String(commit.value)); setMinutes(commit.value); setMinutesWarn(false); setMinutesMsg(commit.message)
   }
   function nudgeSlot(delta: number) {
     const next = clampSlot(dials.slot + delta, props.dayLenMin)
     const commit = commitMinutes(String(next), lastGoodSlot.current, props.dayLenMin)
+    lastGoodSlot.current = commit.value
     setSlotText(String(commit.value)); setSlotWarn(false); setSlotMsg(commit.message)
   }
   // ── the live preview ──────────────────────────────────────────────────────
@@ -995,12 +994,12 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                     value={minutesText}
                     onChange={(e) => {
                       setMinutesMsg(null)
-                      const clean = e.target.value.replace(/[^0-9]/g, '')
-                      setMinutesWarn(clean !== e.target.value)
-                      setMinutesText(clean)
+                      setMinutesWarn(/[^0-9]/.test(e.target.value))
+                      setMinutesText(e.target.value)
                     }}
                     onBlur={() => {
                       const commit = commitMinutes(minutesText, lastGoodMinutes.current, props.dayLenMin)
+                      lastGoodMinutes.current = commit.value
                       setMinutesText(String(commit.value))
                       setMinutes(commit.value)
                       setMinutesWarn(false)
@@ -1085,7 +1084,6 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                     value={slotText}
                     onChange={(e) => {
                       setSlotMsg(null)
-                      const clean = e.target.value.replace(/[^0-9]/g, '')
                       // ⚖ 9/1 (fix round 2 D3) — SET EVERY KEYSTROKE, never only
                       // on rejection. `setSlotWarn(true)` alone cleared only on
                       // blur, so 「…消しました」 stood over the NEXT, clean
@@ -1094,8 +1092,11 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       // replaced. (ponytail: two identical rejections in a row
                       // still cannot re-announce — aria-live fires on change, and
                       // the text is unchanged. Known ceiling, accepted.)
-                      setSlotWarn(clean !== e.target.value)
-                      setSlotText(clean)
+                      // ⚖ D-27 — the text is kept AS TYPED (no stripping); the
+                      // warn line still lights while a non-digit is present, but
+                      // the commit — not this handler — decides what is saved.
+                      setSlotWarn(/[^0-9]/.test(e.target.value))
+                      setSlotText(e.target.value)
                     }}
                     /* ⚖ S17 fix round 4 · M4 — AN EMPTY BOX IS NOT A NUMBER, so
                        it does not become one silently. Clearing 30 and tabbing
@@ -1107,6 +1108,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                        range. */
                     onBlur={() => {
                       const commit = commitMinutes(slotText, lastGoodSlot.current, props.dayLenMin)
+                      lastGoodSlot.current = commit.value
                       setSlotText(String(commit.value))
                       setSlotWarn(false)
                       setSlotMsg(commit.message)
@@ -1168,7 +1170,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       in the live region while the operator steps down to 0, and
                       「0にすると橙は出ません」 — the one state this row exists to say
                       out loud — never gets its turn. */}
-                  <button type="button" aria-label="1枠減らす" onClick={() => { setTightMsg(null); setTightText(String(clampCalendarTight(Number(tightText) - 1))) }}>−</button>
+                  <button type="button" aria-label="1枠減らす" onClick={() => { const next = clampCalendarTight(Number(tightText) - 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}>−</button>
                   <input
                     id="stTight"
                     type="text"
@@ -1177,18 +1179,24 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                     value={tightText}
                     onChange={(e) => {
                       setTightMsg(null)
-                      const clean = e.target.value.replace(/[^0-9]/g, '')
-                      setTightWarn(clean !== e.target.value)
-                      setTightText(clean)
+                      // ⚖ D-27 — text kept as typed; the commit decides what saves.
+                      setTightWarn(/[^0-9]/.test(e.target.value))
+                      setTightText(e.target.value)
                     }}
                     onBlur={() => {
-                      const commit = commitNumberField(tightText, lastGoodTight.current, TIGHT_MIN, TIGHT_MAX, '枠')
+                      // ⚖ D-27 — same guard as `commitMinutes`, at this field's own
+                      // floor (0 is legal — it is how a store turns the 橙 tier off).
+                      const t = tightText.trim()
+                      const n = Number(t)
+                      const raw = t !== '' && Number.isInteger(n) && n >= TIGHT_MIN ? t : ''
+                      const commit = commitNumberField(raw, lastGoodTight.current, TIGHT_MIN, TIGHT_MAX, '枠')
+                      lastGoodTight.current = commit.value
                       setTightText(String(commit.value))
                       setTightWarn(false)
                       setTightMsg(commit.message)
                     }}
                   />
-                  <button type="button" aria-label="1枠増やす" onClick={() => { setTightMsg(null); setTightText(String(clampCalendarTight(Number(tightText) + 1))) }}>＋</button>
+                  <button type="button" aria-label="1枠増やす" onClick={() => { const next = clampCalendarTight(Number(tightText) + 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}>＋</button>
                 </div>
                 <span className="st-step-u">枠</span>
             </div>

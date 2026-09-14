@@ -618,12 +618,42 @@ describe('⚖ D-25 — the read goes through readMinutes, and the two accepted s
     const empty = commitMinutes('', 90, 600)
     expect(empty.value).toBe(90)
     expect(empty.message).not.toBeNull()
+    // ⚖ D-27 — REWRITTEN LEG: '0' used to clamp to the floor (1) with a range
+    // message; that was the room's original bug (⚖ Greptile pass 1 on #918,
+    // issue 1) — 0 is not a positive integer, so it is meaningless input, not
+    // an in-range-but-low one, and the commit RESTORES the previous value
+    // exactly like '1.5' / '-5' / 'abc100' / '' do, never a rewritten number.
     const zero = commitMinutes('0', 90, 600)
-    expect(zero.value).toBe(1)
+    expect(zero.value).toBe(90)
     expect(zero.message).not.toBeNull()
+    // ⚖ D-27 — non-integer and negative typed text restore the same way.
+    expect(commitMinutes('1.5', 90, 600)).toEqual(commitMinutes('', 90, 600))
+    expect(commitMinutes('-5', 90, 600)).toEqual(commitMinutes('', 90, 600))
+    expect(commitMinutes('abc100', 90, 600)).toEqual(commitMinutes('', 90, 600))
     const over = commitMinutes('700', 90, 600)
     expect(over.value).toBe(600)
     expect(over.message).not.toBeNull()
+    // …and an in-range positive integer is accepted in silence, unchanged.
+    expect(commitMinutes('75', 90, 600)).toEqual({ value: 75, message: null })
+  })
+
+  /** ⚖ D-27 — `lastGood*` MOVES ONLY ON A COMMIT, never on a keystroke. The
+   *  three `useEffect`s that used to update it on every valid keystroke are
+   *  gone (confirmed RED-first: restoring any one of them — FIX-REPORT-R3-
+   *  A1-F3 mutant 3 — makes 「type 100, clear, blur」 restore 100, not 90, and
+   *  this pin is what catches it, since no behavioural render test drives this
+   *  room). `Math.round(n)` was that deleted effect's own spelling and
+   *  appears nowhere else in the file, so its return is a clean tripwire. */
+  it('⚖ D-27 — no useEffect writes lastGood*; every write sits beside a commit', () => {
+    expect(SCREEN_CODE).not.toContain('lastGoodMinutes.current = Math.round(n)')
+    expect(SCREEN_CODE).not.toContain('lastGoodSlot.current = Math.round(n)')
+    expect(SCREEN_CODE).not.toContain('lastGoodTight.current = Math.round(n)')
+    // …and the writes that DO exist are the commit sites named in D-27: a
+    // preset press, a nudge/± press, or a blur — never a keystroke effect.
+    const countOf = (needle: string) => SCREEN_CODE.split(needle).length - 1
+    expect(countOf('lastGoodMinutes.current =')).toBe(3) // choosePreset · nudgeMinutes · onBlur
+    expect(countOf('lastGoodSlot.current =')).toBe(3) // choosePreset · nudgeSlot · onBlur
+    expect(countOf('lastGoodTight.current =')).toBe(3) // − button · + button · onBlur
   })
 
   /** ⚖ D-25 L2 FOLD (m5) — `clampSlot`'s own return value, pinned directly.
@@ -1087,9 +1117,11 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // would let an empty field through and `String(NaN)` would land 「NaN」 in the
     // box. Same shape as `impactOf`'s own `!(protectedDur > 0)`.
     expect(SCREEN_CODE).toContain('if (!(Number.isFinite(value) && value >= SLOT_MIN)) return SLOT_MIN')
-    // …and the field itself refuses non-digits at the keystroke, so the clamp is
-    // the second line of defence rather than the only one.
-    expect(SCREEN_CODE).toContain("replace(/[^0-9]/g, '')")
+    // ⚖ D-27 — the field no longer refuses non-digits at the keystroke: typed
+    // text is kept AS TYPED (never rewritten into another number), and the
+    // commit — not the keystroke — is what refuses a non-integer. `clampSlot`
+    // above is the only clamp left, so it is the ONLY line of defence now.
+    expect(SCREEN_CODE).not.toContain('replace(/[^0-9]/g')
   })
 
   it('⚖ F10 — the rejection is SAID, not only coloured (WCAG 1.4.1)', () => {
@@ -1119,11 +1151,15 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // cleared only on blur, so 「…消しました」 stood over the next CLEAN keystroke,
     // announcing something that had just not happened. The flag now answers the
     // keystroke it is about.
-    expect(SCREEN_CODE).toContain('setSlotWarn(clean !== e.target.value)')
+    // ⚖ D-27 — the flag no longer comes from a stripped/kept comparison (there
+    // is no stripping left): it reads the same keystroke through a `.test`,
+    // the field's warn line lighting while a non-digit is present without the
+    // text itself ever being rewritten.
+    expect(SCREEN_CODE).toContain('setSlotWarn(/[^0-9]/.test(e.target.value))')
     expect(SCREEN_CODE).not.toContain('if (clean !== e.target.value) setSlotWarn(true)')
     // Driven on the keystroke rule itself: rejected → true, and the very next
     // clean keystroke → false, which is the stale case.
-    const warns = (typed: string) => typed.replace(/[^0-9]/g, '') !== typed
+    const warns = (typed: string) => /[^0-9]/.test(typed)
     expect(warns('1a')).toBe(true)
     expect(warns('15')).toBe(false)
     expect(warns('')).toBe(false)
@@ -1143,13 +1179,19 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // 1 · THE BOUNDS ARE THE BOARD'S, destructured once, never re-typed.
     expect(SCREEN_CODE).toContain('const { min: TIGHT_MIN, max: TIGHT_MAX } = CALENDAR_TIGHT_RANGE')
     expect(SCREEN_CODE).not.toMatch(/TIGHT_(MIN|MAX)\s*=\s*\d/)
-    expect(SCREEN_CODE).toContain("const commit = commitNumberField(tightText, lastGoodTight.current, TIGHT_MIN, TIGHT_MAX, '枠')")
+    // ⚖ D-27 — the raw text meets the SAME guard `commitMinutes` uses (a
+    // positive-integer shape, at this field's own floor) BEFORE it reaches
+    // `commitNumberField`, so '1.5'/'-5'/'abc'/'' all restore rather than
+    // being rewritten into another number.
+    expect(SCREEN_CODE).toContain("const raw = t !== '' && Number.isInteger(n) && n >= TIGHT_MIN ? t : ''")
+    expect(SCREEN_CODE).toContain('const commit = commitNumberField(raw, lastGoodTight.current, TIGHT_MIN, TIGHT_MAX, \'枠\')')
     // …and the ± stepper reaches for the SAME clamp the page clamps with, so a
     // press can never land on a value the month would refuse to paint — and each
     // press CLEARS the commit sentence (⚖ COLD-READ C4), or a stale
     // 「0枠から5枠のあいだで…」 from an earlier blur sits over the 0 state.
-    expect(SCREEN_CODE).toContain('onClick={() => { setTightMsg(null); setTightText(String(clampCalendarTight(Number(tightText) - 1))) }}')
-    expect(SCREEN_CODE).toContain('onClick={() => { setTightMsg(null); setTightText(String(clampCalendarTight(Number(tightText) + 1))) }}')
+    // ⚖ D-27 — and it is a COMMIT too, so `lastGoodTight` moves with it.
+    expect(SCREEN_CODE).toContain('onClick={() => { const next = clampCalendarTight(Number(tightText) - 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}')
+    expect(SCREEN_CODE).toContain('onClick={() => { const next = clampCalendarTight(Number(tightText) + 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}')
     expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.max + 1)).toBe(CALENDAR_TIGHT_RANGE.max)
     expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.min - 1)).toBe(CALENDAR_TIGHT_RANGE.min)
 
@@ -1161,7 +1203,11 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // ⚠ AND 0 IS A VALUE THE FIELD REMEMBERS. `n > TIGHT_MIN` here would mean a
     // store that dialled the tier OFF and then emptied the box is handed 2 back —
     // the tier switched back on without anyone choosing that.
-    expect(SCREEN_CODE).toContain('n >= TIGHT_MIN && n <= TIGHT_MAX')
+    // ⚖ D-27 — the `lastGood*`-tracking useEffect this used to pin is gone
+    // (lastGood now moves only on a commit); the same `>=` floor lives in the
+    // onBlur guard above instead, pinned there.
+    expect(SCREEN_CODE).toContain('n >= TIGHT_MIN')
+    expect(SCREEN_CODE).not.toContain('n > TIGHT_MIN')
 
     // 2 · THE BLUR RULE, DRIVEN — the room's one rule for a number field, with
     // this field's unit and this field's bounds.
@@ -1180,7 +1226,8 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // 効かない state is silent is the mistake-proofing failure this room exists
     // to prevent, so 0 is explained on the face rather than left to be noticed
     // on the calendar.
-    expect(SCREEN_CODE).toContain('setTightWarn(clean !== e.target.value)')
+    // ⚖ D-27 — same shape as slot's warn flag: a `.test`, no stripping.
+    expect(SCREEN_CODE).toContain('setTightWarn(/[^0-9]/.test(e.target.value))')
     expect(SCREEN_CODE).toContain("`st-ctrl-d${tightWarn || tightMsg !== null ? ' warn' : ' dim'}`")
     expect(SCREEN_CODE).toContain("? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'")
     // ⚖ COLD-READ C6 — ONE FACT, ONE SENTENCE: the live line and the ?-tour step
