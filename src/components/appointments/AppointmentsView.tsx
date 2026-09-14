@@ -30,11 +30,14 @@ import {
   type ReservationStaffEntry,
 } from '@/components/karute/spike-lifted/reservation/ReservationStaffFilter'
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
+import { DateJumpPanel } from '@/components/appointments/DateJumpPanel'
 import { NewBookingDialog } from '@/components/appointments/NewBookingDialog'
 import { BookingActionSheetWrapper } from '@/components/appointments/BookingActionSheetWrapper'
 import { CancelBookingSheet } from '@/components/appointments/CancelBookingSheet'
+import { cn } from '@/lib/utils'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { AppointmentRow } from '@/actions/appointments'
+import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import type { CachedMenuOption } from '@/lib/menus/cached'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
@@ -76,7 +79,22 @@ interface AppointmentsViewProps {
   /** Active menu catalog for the booking dialog's picker. Degraded-allowed:
    *  absent/[] just means the dialog keeps its free-text service field. */
   menus?: CachedMenuOption[]
+  /** The date-jump panel's month reader, injected by the host: the web page
+   *  passes the getMonthCells server action, the thin screen passes a facade
+   *  GET (that route is Bearer-only, so the two cannot share one door — see
+   *  getMonthCells' comment). A rejection is honest: that month shows its
+   *  「取得できませんでした」 line and retries on the next visit. */
+  loadMonthCells: (monthKey: string) => Promise<MonthCellDTOType[]>
 }
+
+// The header's date chip is rendered by @synqed-kk/ui, which exposes no class
+// hook, ref or open-state prop for it — but `dateDisplay` IS a ReactNode, so
+// the chip's own copy carries the marker these rules select on. Scoped to the
+// wrapper below; no package change, and no marker just means no pressed state.
+const CHIP = 'button:has([data-date-jump-chip])'
+const CHIP_CHEVRON = `[&_${CHIP}>svg]:transition-transform [&_${CHIP}>svg]:duration-[160ms] [&_${CHIP}>svg]:motion-reduce:transition-none`
+// R13 selected recipe (CLAUDE.md) — never a solid fill.
+const CHIP_OPEN = `[&_${CHIP}]:border-primary [&_${CHIP}]:bg-primary/8 [&_${CHIP}]:text-primary [&_${CHIP}>svg]:rotate-180`
 
 // formatLongDate / formatCompactDate / formatYmd all delegate to the JST
 // helpers — karute is Japan-targeted, so display always reflects Tokyo
@@ -112,7 +130,11 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   // it on scroll. Bell returns when recording stops.
   const { state: recState } = useGlobalRecorder()
   const isRecording = recState === 'recording' || recState === 'paused'
-  const datePickerRef = useRef<HTMLInputElement>(null)
+  // 日付ジャンプ (2026-09-14): the chip opens the app's own calendar panel.
+  // The hidden native date input it used to call showPicker() on is GONE —
+  // one door to a date, and the OS wheel was never the one staff wanted.
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const dateJumpAnchorRef = useRef<HTMLDivElement>(null)
 
   const view = props.initialView
   const selectedDate = new Date(props.selectedDateIso)
@@ -159,23 +181,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     navigateTo(view, today)
   }
   function handlePickDate() {
-    const input = datePickerRef.current
-    if (!input) return
-    if (typeof input.showPicker === 'function') {
-      input.showPicker()
-    } else {
-      input.focus()
-      input.click()
-    }
-  }
-  function handlePickerChange(value: string) {
-    if (!value) return
-    const [y, m, d] = value.split('-').map(Number)
-    if (!y || !m || !d) return
-    // Interpret the picker's YYYY-MM-DD as JST midnight, so the cursor
-    // lands on the same calendar day in Tokyo regardless of runtime tz.
-    const ymd = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-    navigateTo(view, new Date(`${ymd}T00:00:00+09:00`))
+    setPickerOpen((o) => !o)
   }
 
   const headerDate = selectedDate
@@ -190,17 +196,6 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     // both carry borders — 12px read as touching; 16px matches the
     // 顧客/カルテ header rhythm.
     <div className="relative space-y-4 px-4 md:px-6">
-      {/* Hidden native date picker; opened by the header's date button. */}
-      <input
-        ref={datePickerRef}
-        type="date"
-        defaultValue={ymdInJst(selectedDate)}
-        onChange={(e) => handlePickerChange(e.target.value)}
-        className="sr-only"
-        aria-hidden="true"
-        tabIndex={-1}
-      />
-
       {/* ─────────────────────────────────────────────────────────────
        *  Sticky title bar — 予約 + bell. Pattern matches the existing
        *  CustomersListHeader / KaruteRecordListView sticky bars so the
@@ -263,6 +258,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  (the "intentional black button" — carve-out killed by Liam 8/6)
        *  are gone; the package defaults now render Today + new-booking in
        *  the accent. */}
+      {/* The anchor for the date-jump panel: the chip and the panel live in
+       *  ONE box, so a pointerdown on the chip is never "outside" the panel
+       *  (which would close it just as the chip's own click reopens it). */}
+      <div
+        ref={dateJumpAnchorRef}
+        className={cn('relative', CHIP_CHEVRON, pickerOpen && CHIP_OPEN)}
+      >
       <ReservationPageHeader
         // Header structure contract (Liam 8/7): mb-0 kills the package's
         // baked mb-4 — and, same property, the page's space-y-4 margin
@@ -270,8 +272,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         // wrapper below owns the whole 24px seam. Same natural-height
         // row as 顧客/カルテ (32px controls set the height).
         className="mb-0"
-        dateDisplay={formatLongDateJst(headerDate, locale)}
-        dateDisplayCompact={formatCompactDateJst(headerDate, locale)}
+        dateDisplay={
+          <span data-date-jump-chip>{formatLongDateJst(headerDate, locale)}</span>
+        }
+        dateDisplayCompact={
+          <span data-date-jump-chip>{formatCompactDateJst(headerDate, locale)}</span>
+        }
         onPrev={handlePrev}
         onNext={handleNext}
         onToday={handleToday}
@@ -303,6 +309,20 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           nextLabel: tReservation('next'),
         }}
       />
+
+      <DateJumpPanel
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        anchorRef={dateJumpAnchorRef}
+        selectedDate={selectedDate}
+        // In 月 mode the page already holds this month's cells — no fetch.
+        seedCells={view === 'month' ? props.monthData : null}
+        loadMonthCells={props.loadMonthCells}
+        // MODE PRESERVED: picking a day never switches 日/週/月.
+        onPickDay={(date) => navigateTo(view, date)}
+        weekdayLabels={monthWeekdayLabels}
+      />
+      </div>
 
       {/* Chrome: Day/Week/Month toggle + Self/All segmented + per-staff pills
        *  Row 1: DWM toggle (localized via copy prop — defaults to English
