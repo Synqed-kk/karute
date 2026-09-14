@@ -599,6 +599,72 @@ describe('prefers-reduced-motion: reduce', () => {
   })
 })
 
+/**
+ * R6 — the stress lens fired five › clicks in a single tick (no paint frame,
+ * no timer tick between them) and the panel landed on 12月: two of the five
+ * deltas were lost to a race between the commit timer and a deferred restart.
+ * Taps are queued now, so no tap a staff member made can be dropped.
+ */
+describe('a tap storm on the arrows lands every month asked for', () => {
+  const openWithFakeTimers = async () => {
+    fireEvent.click(chip())
+    await act(async () => {
+      jest.advanceTimersByTime(0)
+    })
+    return screen.getByRole('dialog')
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers()
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('five › taps in one tick end five months on, not three', async () => {
+    renderView()
+    const dialog = await openWithFakeTimers()
+    expect(title()).toHaveTextContent('2026年9月')
+
+    const next = within(dialog).getByRole('button', { name: 'next' })
+    for (let i = 0; i < 5; i += 1) fireEvent.click(next)
+
+    await act(async () => {
+      jest.advanceTimersByTime(2000)
+    })
+    // 2026-09 + 5
+    expect(title()).toHaveTextContent('2027年2月')
+  })
+
+  it('five ‹ taps in one tick end five months back', async () => {
+    renderView()
+    const dialog = await openWithFakeTimers()
+    const prev = within(dialog).getByRole('button', { name: 'prev' })
+    for (let i = 0; i < 5; i += 1) fireEvent.click(prev)
+
+    await act(async () => {
+      jest.advanceTimersByTime(2000)
+    })
+    expect(title()).toHaveTextContent('2026年4月')
+  })
+
+  it('taps that cancel each other out leave the month where it started', async () => {
+    renderView()
+    const dialog = await openWithFakeTimers()
+    const next = within(dialog).getByRole('button', { name: 'next' })
+    const prev = within(dialog).getByRole('button', { name: 'prev' })
+    fireEvent.click(next)
+    fireEvent.click(next)
+    fireEvent.click(prev)
+    fireEvent.click(prev)
+
+    await act(async () => {
+      jest.advanceTimersByTime(2000)
+    })
+    expect(title()).toHaveTextContent('2026年9月')
+  })
+})
+
 describe('the hidden native date input is gone', () => {
   it('AppointmentsView no longer renders one — the chip is the only door to a date', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports

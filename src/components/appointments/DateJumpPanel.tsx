@@ -322,48 +322,85 @@ export function DateJumpPanel({
   // read it inside one React batch, where the state value is still the old one.
   const slideRef = useRef(0)
 
-  const commitSlide = useCallback(() => {
+  /** Months still owed to the taps already made, signed. A tap never fights
+   *  the slide in flight — it is added here and honoured when that one lands,
+   *  so no tap can be lost however fast they arrive. */
+  const owedRef = useRef(0)
+
+  const clearCommitTimer = () => {
     if (commitTimer.current) {
       clearTimeout(commitTimer.current)
       commitTimer.current = null
     }
-    const k = slideRef.current
-    if (k === 0) return
-    slideRef.current = 0
-    setSlide(0)
-    dispatch({ type: 'shiftMonth', delta: k })
-  }, [])
+  }
 
   const startSlide = useCallback(
     (delta: number) => {
+      // Always arm exactly one timer: a stale one left running was how the
+      // fast-tap case lost months.
+      clearCommitTimer()
       slideRef.current = delta
       setDrag(null)
       setSlide(delta)
-      commitTimer.current = setTimeout(commitSlide, reduced ? 0 : SLIDE_MS)
+      commitTimer.current = setTimeout(
+        () => {
+          commitTimer.current = null
+          commitRef.current()
+        },
+        reduced ? 0 : SLIDE_MS,
+      )
     },
-    [commitSlide, reduced],
+    [reduced],
   )
+
+  /** Land the slide in flight (if any) and, unless told otherwise, start the
+   *  next month the taps are still owed. */
+  const commitSlide = useCallback(
+    (drain = true) => {
+      clearCommitTimer()
+      const k = slideRef.current
+      if (k !== 0) {
+        slideRef.current = 0
+        setSlide(0)
+        dispatch({ type: 'shiftMonth', delta: k })
+      }
+      if (!drain) {
+        owedRef.current = 0
+        return
+      }
+      const owed = owedRef.current
+      if (owed === 0) return
+      owedRef.current = 0
+      // One month animates; anything beyond it (a tap storm) is applied at
+      // once, so the calendar lands where the taps asked without sliding for a
+      // second after the finger has stopped.
+      const step = owed > 0 ? 1 : -1
+      if (owed !== step) dispatch({ type: 'shiftMonth', delta: owed - step })
+      startSlide(step)
+    },
+    [startSlide],
+  )
+
+  // The timer is armed inside startSlide, which cannot close over commitSlide
+  // (they call each other). One ref keeps the pair honest.
+  const commitRef = useRef(commitSlide)
+  commitRef.current = commitSlide
 
   const goMonth = useCallback(
     (delta: number) => {
-      // A second tap mid-slide lands the month in flight first and starts the
-      // next one on the FOLLOWING frame — the transition is interruptible, not
-      // queued. Doing both in one batch would leave the track parked at the
-      // same offset, and staff tapping › three times to reach 12月 would watch
-      // two of the three months arrive without moving.
       if (slideRef.current !== 0) {
-        commitSlide()
-        requestAnimationFrame(() => startSlide(delta))
+        // Queued, not raced: the month in flight finishes and this one follows.
+        owedRef.current += delta
         return
       }
       startSlide(delta)
     },
-    [commitSlide, startSlide],
+    [startSlide],
   )
 
   const jumpToMonth = useCallback(
     (key: MonthKey) => {
-      commitSlide()
+      commitSlide(false)
       slideRef.current = 0
       setSlide(0)
       setDrag(null)
@@ -392,7 +429,9 @@ export function DateJumpPanel({
   } | null>(null)
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    commitSlide()
+    // A finger on the glass is a new intention — land what is moving and drop
+    // anything the arrows still owed.
+    commitSlide(false)
     gesture.current = {
       id: e.pointerId,
       x0: e.clientX,
