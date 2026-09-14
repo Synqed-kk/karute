@@ -28,7 +28,7 @@ import { createGapGuard } from '@/business/lib/canon-logic/gap-guard'
 import { freePockets } from '@/business/lib/canon-logic/availability'
 import type { BoardLane } from '@/business/lib/today-board'
 import { dayLengthMin, liveFieldsFrom, readMinutes, saveRefusal, sceneKeyFor } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
-import { clampSlot, commitMinutes, computeScene, nudgeBase, type SceneInput } from '@/app/[locale]/(business)/business/settings/StorePolicySection'
+import { clampSlot, commitMinutes, computeScene, isPositiveIntegerText, nudgeBase, type SceneInput } from '@/app/[locale]/(business)/business/settings/StorePolicySection'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
@@ -606,12 +606,35 @@ describe('⚖ D-28 — the warn line says what is true; a nudge from an empty bo
     expect(nudgeBase('', 90)).toBe(90)
     expect(nudgeBase('100', 90)).toBe(100)
     expect(nudgeBase('  ', 90)).toBe(90)
+    // ⚖ D-29 — a box holding anything commitMinutes would refuse (kept as
+    // typed, never rewritten) nudges from the committed value too, not from
+    // Number(text) on garbage/non-integer/non-positive text.
+    expect(nudgeBase('abc', 90)).toBe(90)
+    expect(nudgeBase('1.5', 90)).toBe(90)
+    expect(nudgeBase('-5', 90)).toBe(90)
+    expect(nudgeBase('0', 90)).toBe(90)
   })
 
   it('source pin — every ± handler calls nudgeBase(', () => {
     // 1 declaration + 4 call sites: nudgeMinutes, nudgeSlot, and the tight
     // field's two inline ± handlers.
     expect((SCREEN_CODE.match(/nudgeBase\(/g) ?? []).length).toBe(5)
+  })
+})
+
+describe('⚖ D-29 — isPositiveIntegerText, the one predicate commitMinutes and nudgeBase both call', () => {
+  it('true only for a positive-integer-shaped text', () => {
+    expect(isPositiveIntegerText('75')).toBe(true)
+    expect(isPositiveIntegerText('1.5')).toBe(false)
+    expect(isPositiveIntegerText('')).toBe(false)
+    expect(isPositiveIntegerText('abc')).toBe(false)
+    expect(isPositiveIntegerText('0')).toBe(false)
+    expect(isPositiveIntegerText('-5')).toBe(false)
+  })
+
+  it('source pin — commitMinutes and nudgeBase both call isPositiveIntegerText(', () => {
+    expect(SCREEN_CODE).toContain("isPositiveIntegerText(text) ? text.trim() : ''")
+    expect(SCREEN_CODE).toContain('isPositiveIntegerText(text) ? Number(text) : lastGood')
   })
 })
 
