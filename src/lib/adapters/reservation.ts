@@ -1,6 +1,8 @@
 import type { Appointment } from '@synqed-kk/client'
 import type { MonthGridCell, WeekDayCardData, MonthDensityBucket } from '@synqed-kk/ui'
 import { partsInJst, ymdInJst } from '@/lib/date/jst'
+import { isCountedBooking } from '@/lib/appointments/by-date'
+import type { DayHoursFact } from '@/lib/operating-hours'
 
 // ---------------------------------------------------------------------------
 // Adapter: synqed-core Appointment[] -> WeekDayCardData[] / MonthGridCell[]
@@ -37,6 +39,57 @@ function durationMinutes(a: Appointment): number {
   return Math.max(0, Math.round((end - start) / 60000))
 }
 
+/** One week row: the package's WeekDayCardData plus the 予約 numbers' own
+ *  facts. Structurally assignable to WeekDayCardData[], so the npm WeekDayCard
+ *  keeps rendering these rows verbatim until the app-local seven-row component
+ *  replaces it. */
+export type WeekDayRowData = WeekDayCardData & {
+  /** The row's JST calendar day, YYYY-MM-DD — the id every 予約 surface keys
+   *  and navigates by (?date= takes this spelling). */
+  dateIso: string
+  /** May 稼働/空き claim a number for this day at all (the five-conjunct rule
+   *  below)? False → the cell shows 未設定 or takes the next metric, and
+   *  availableMinutes is the old week-average arithmetic, not a capacity. */
+  capacityDefensible: boolean
+  /** A human really set this day's hours (store weekly_hours, a closed date, or
+   *  a saved org-blob day). */
+  hoursSaved: boolean
+  /** 定休日 or 臨時休業. */
+  closed: boolean
+  cancelledCount: number
+  noShowDayCount: number
+  /** PKT-2 owns the producer; 0 here so the wire shape lands one release early. */
+  returningCount: number
+}
+
+/** Do any two of the day's counted bookings overlap? A single staffer whose
+ *  bookings overlap is two chairs wearing one name, so the day's capacity is
+ *  not one person's opening hours. */
+function hasOverlap(rows: Appointment[]): boolean {
+  // ponytail: O(n²) over ONE day's bookings (tens at most) — a sweep line here
+  // would be cleverness nobody can check at 3am.
+  for (let i = 0; i < rows.length; i++) {
+    const aStart = new Date(rows[i].starts_at).getTime()
+    const aEnd = aStart + durationMinutes(rows[i]) * 60_000
+    for (let j = i + 1; j < rows.length; j++) {
+      const bStart = new Date(rows[j].starts_at).getTime()
+      const bEnd = bStart + durationMinutes(rows[j]) * 60_000
+      if (aStart < bEnd && bStart < aEnd) return true
+    }
+  }
+  return false
+}
+
+/** Per-JST-day counts of a terminal partition. */
+function countByDay(rows: Appointment[] | undefined): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const a of rows ?? []) {
+    const key = isoDay(new Date(a.starts_at))
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return counts
+}
+
 export function appointmentsToWeekData(
   appointments: Appointment[],
   weekStart: Date,
@@ -47,7 +100,15 @@ export function appointmentsToWeekData(
   // Client ids flagged new (QR `is_existing_customer === false`) — drives the
   // per-day "new customer" chip. Empty set = no new-customer highlighting.
   newCustomerIds: Set<string> = new Set(),
-): WeekDayCardData[] {
+  /** The window's CANCELLED / NO_SHOW bookings (fetchAppointmentWindow's own
+   *  partitions). Absent = the counts render 0, today's behaviour. */
+  terminal?: { cancelled: Appointment[]; noShow: Appointment[] },
+  /** That day's resolved hours, keyed by JST YYYY-MM-DD (resolveWindowHours).
+   *  Absent = no day is defensible, so nothing claims a capacity. */
+  hoursFacts?: ReadonlyMap<string, DayHoursFact>,
+  /** The salon's solo_mode capability — the first conjunct. */
+  soloMode?: boolean,
+): WeekDayRowData[] {
   // Localized short weekday (日/月… in ja, Sun/Mon… in en). The package's
   // WeekDayCard renders this verbatim, so it has to be localized at the source.
   const weekdayFmt = new Intl.DateTimeFormat(locale, {
@@ -63,13 +124,19 @@ export function appointmentsToWeekData(
     else buckets.set(key, [a])
   }
 
-  const days: WeekDayCardData[] = []
+  const cancelledByDay = countByDay(terminal?.cancelled)
+  const noShowByDay = countByDay(terminal?.noShow)
+
+  const days: WeekDayRowData[] = []
   const cursor = new Date(weekStart)
   while (cursor <= weekEnd) {
     const key = isoDay(cursor)
-    const dayAppts = (buckets.get(key) ?? []).slice().sort((a, b) =>
-      a.starts_at.localeCompare(b.starts_at),
-    )
+    // The caller already hands over COUNTED rows; re-applying the one predicate
+    // here is the guard that keeps a second 件 definition from ever appearing
+    // (a legacy caller passing a raw range gets the same truth).
+    const dayAppts = (buckets.get(key) ?? [])
+      .filter(isCountedBooking)
+      .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
 
     const bookedMinutes = dayAppts.reduce((sum, a) => sum + durationMinutes(a), 0)
     // Capacity = open hours × the staff who actually worked that day (≥1), so
@@ -85,6 +152,21 @@ export function appointmentsToWeekData(
       shortName: a.title ?? '—',
     }))
 
+    // ⚖ STRESS-S F1 — capacity is NEVER derived from who got booked. All five
+    // conjuncts, or the day claims nothing. (A truncated window never reaches
+    // this adapter, so the fifth conjunct is guaranteed upstream.)
+    const fact = hoursFacts?.get(key)
+    const bookedStaff = new Set(
+      dayAppts.map((a) => a.staff_id).filter((id): id is string => id != null),
+    )
+    const capacityDefensible =
+      soloMode === true &&
+      bookedStaff.size <= 1 &&
+      !hasOverlap(dayAppts) &&
+      fact != null &&
+      fact.saved &&
+      !fact.closed
+
     const cp = partsInJst(cursor)
     days.push({
       dateNumber: cp.day,
@@ -93,7 +175,20 @@ export function appointmentsToWeekData(
       isToday: sameYMD(cursor, today),
       count: dayAppts.length,
       bookedMinutes,
-      availableMinutes: businessHoursMinutes * Math.max(1, staffOnDay),
+      // Two-faced on purpose until the app-local row lands: the day's SAVED
+      // minutes when the conjunction holds, else today's exact arithmetic so
+      // the npm WeekDayCard renders byte-identically. capacityDefensible +
+      // hoursSaved carry the truth (spec §9).
+      availableMinutes: capacityDefensible
+        ? fact.minutes
+        : businessHoursMinutes * Math.max(1, staffOnDay),
+      dateIso: key,
+      capacityDefensible,
+      hoursSaved: fact?.saved ?? false,
+      closed: fact?.closed ?? false,
+      cancelledCount: cancelledByDay.get(key) ?? 0,
+      noShowDayCount: noShowByDay.get(key) ?? 0,
+      returningCount: 0,
       newCustomerCount: dayAppts.filter((a) => a.customer_id && newCustomerIds.has(a.customer_id))
         .length,
       remindersPending: 0,
@@ -125,7 +220,10 @@ export function appointmentsToMonthCells(
   today: Date,
 ): MonthGridCell[] {
   const buckets = new Map<string, number>()
+  // Same guard as the week adapter above: ONE 件 definition, so a month cell
+  // and its week row can never disagree about the same day.
   for (const a of appointments) {
+    if (!isCountedBooking(a)) continue
     const key = isoDay(new Date(a.starts_at))
     buckets.set(key, (buckets.get(key) ?? 0) + 1)
   }
