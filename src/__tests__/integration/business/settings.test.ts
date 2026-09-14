@@ -488,7 +488,11 @@ describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be ma
     const probes: Array<[string, string]> = [
       ...policy.roster.map((r) => ['a roster name', JSON.stringify(r.name)] as [string, string]),
       ...policy.policy.lockedOut.map((v) => ['a named restriction', JSON.stringify(v)] as [string, string]),
-      ...Object.keys(policy.scenes).map((k) => ['a policy value', JSON.stringify(k)] as [string, string]),
+      // ⚖ D-15 — `scenes` is gone (the length is free, so there is nothing fixed
+      // left to precompute); `sceneInput.guardBase.services` is the same-shaped
+      // replacement probe — the store's own menu names, carried into the
+      // client-side scene computation's inputs.
+      ...policy.sceneInput.guardBase.services.map((s) => ['a policy value', JSON.stringify(s.name)] as [string, string]),
       ['the sample landing', JSON.stringify(policy.sample!.summary)],
       ['the pricing frame', `"hqMax":${policy.sample!.frame.hqMax}`],
       ['the pricing frame', `"lo":${policy.sample!.frame.lo}`],
@@ -1546,6 +1550,20 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
   it('leg 6 — round-trip: every wire value survives board and back, and undefined reads as linked', () => {
     for (const w of AUTO_RELEASE_CHOICES) expect(autoReleaseToWire(autoReleaseFromWire(w))).toBe(w)
     expect(autoReleaseFromWire(undefined)).toBe('linked')
+  })
+
+  it('⚖ D-15 leg 7 — ANY positive minute round-trips, not only the two A2 still offers', () => {
+    // `AUTO_RELEASE_CHOICES` stays `['linked','never','30','120']` in A1 (A2
+    // owns the row); the WIRE TYPE is free now, and a value the row does not
+    // yet offer still round-trips honestly through the seam.
+    expect(autoReleaseToWire(autoReleaseFromWire('45'))).toBe('45')
+    expect(autoReleaseToWire(autoReleaseFromWire('1'))).toBe('1')
+    expect(autoReleaseFromWire('45')).toBe(45)
+    expect(autoReleaseFromWire('1')).toBe(1)
+    // An unreadable digit string falls to the product default, never to a
+    // fabricated number — the same doctrine ⚖ D-11 states for `undefined`.
+    expect(autoReleaseFromWire('0' as never)).toBe('linked')
+    expect(autoReleaseFromWire('abc' as never)).toBe('linked')
   })
 })
 

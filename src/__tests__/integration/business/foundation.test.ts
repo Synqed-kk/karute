@@ -859,6 +859,14 @@ describe('the fixture data door', () => {
         // was edited. `settings.ts` is PURE (empty import inventory, pinned
         // above), so nothing follows it in.
         '@/business/lib/settings',
+        // ⚖ D-15 — `computeScene` (the free-length scene, ⚡ PKT-BUILD-R3-A1
+        // commit 2) lives HERE rather than in `store-policy-props.ts` (SERVER-
+        // ONLY — its own `@/business/lib/data` import would follow it into the
+        // client bundle) or `store-policy-seam.ts` (its import inventory is
+        // pinned EMPTY on purpose, the reconnect fence below). `BoardLane` is
+        // the one type its `SceneInput` needs that neither file already carries
+        // in.
+        '@/business/lib/today-board',
         'react',
       ],
       // …and the ASSEMBLY is #812's own page body: the same doors, the same
