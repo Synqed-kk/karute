@@ -451,9 +451,9 @@ export const takes: FixtureTake[] = [
     discarded: {
       minute: 13 * 60 + 15,
       by_staff_card_id: 'c-02',
-      reason: '代官山側の破棄理由: 空調の音が大きく、会話がほとんど聞き取れない状態でした。',
+      reason: '横浜側の破棄理由: 空調の音が大きく、会話がほとんど聞き取れない状態でした。',
       transcript: [
-        { start_time: 31, end_time: 66, text: '代官山側の文字起こし: ええと、すみません、少し聞き取りにくいのですが。' },
+        { start_time: 31, end_time: 66, text: '横浜側の文字起こし: ええと、すみません、少し聞き取りにくいのですが。' },
       ],
     },
   },
