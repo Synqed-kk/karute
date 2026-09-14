@@ -466,6 +466,36 @@ describe('⚖ D-15 RULED — 新規のお客様の確保 is ANY positive minutes
     expect(SCREEN_CODE).toContain('setMinutes(commit.value)')
   })
 
+  /** ⚖ D-26 N1 — A NUDGE IS A COMMIT, same as `choosePreset`. Before this fix
+   *  the ± handlers moved only the typed text, so `minutesPending` stayed true
+   *  forever after one press — the card kept the old length and the line
+   *  underneath told the manager to leave a field they were never in. Both
+   *  handlers now route through the SAME `commitMinutes` `onBlur` already
+   *  calls (SOURCE-pinned — the closures themselves cannot be called from this
+   *  suite, the house ceiling above), and the composition they use is driven
+   *  directly through its two exported pure halves. */
+  it('⚖ D-26 N1 — both ± handlers commit through `commitMinutes`, and the composition round-trips', () => {
+    expect(SCREEN_CODE).toContain('function nudgeMinutes(delta: number)')
+    expect(SCREEN_CODE).toContain('function nudgeSlot(delta: number)')
+    expect(SCREEN_CODE).toContain('commitMinutes(String(next), lastGoodMinutes.current, props.dayLenMin)')
+    expect(SCREEN_CODE).toContain('commitMinutes(String(next), lastGoodSlot.current, props.dayLenMin)')
+    expect(SCREEN_CODE).toContain('onClick={() => nudgeMinutes(-NUDGE_MIN)}')
+    expect(SCREEN_CODE).toContain('onClick={() => nudgeMinutes(NUDGE_MIN)}')
+    expect(SCREEN_CODE).toContain('onClick={() => nudgeSlot(-NUDGE_MIN)}')
+    expect(SCREEN_CODE).toContain('onClick={() => nudgeSlot(NUDGE_MIN)}')
+
+    // The composition itself — `commitMinutes(String(clampSlot(current + delta,
+    // ceiling)), lastGood, ceiling)` — driven directly through the two
+    // exported pure functions both handlers are built from.
+    const nudge = (current: number, delta: number, ceiling: number) =>
+      commitMinutes(String(clampSlot(current + delta, ceiling)), current, ceiling)
+    expect(nudge(90, 5, 600)).toEqual({ value: 95, message: null })
+    // clampSlot already caps the candidate AT the ceiling (600), so
+    // commitMinutes receives an in-range value and stays silent — no
+    // over-ceiling message, because there is nothing left to clamp.
+    expect(nudge(598, 5, 600)).toEqual({ value: 600, message: null })
+  })
+
   it('the two live fields cross the seam in CORE’s own spellings', () => {
     expect(liveFieldsFrom({ gapGuardMode: 'standard', newClientSessionMinutes: 90 }))
       .toEqual({ gap_guard_mode: 'STANDARD', new_client_session_minutes: 90 })
@@ -638,8 +668,23 @@ describe('⚖ D-25 — the read goes through readMinutes, and the two accepted s
     // The two engines read `items[].startMin/endMin/x/w/kind` and the lane's
     // own `window`/`group`/`key`/`stores`/`roomClass`/`listPrice` — never a
     // naming field. Blanked at the boundary, source-pinned here.
-    expect(PAGE_CODE).toContain('title: \'\', tag: \'\', label: \'\', caseId: null, ticketCat: null, ticketCore: null')
+    expect(PAGE_CODE).toContain('title: \'\', tag: \'\', label: \'\', ticketCat: null, ticketCore: null')
     expect(PAGE_CODE).toContain('lanes: blankLaneNames(lanes)')
+  })
+
+  /** ⚖ D-26 N2 — `caseId` is an opaque booking id (`b.id`, `today-board.ts`),
+   *  the same class as `key`, and the one blanked field `laneSpans`'s
+   *  exclusion filter actually reads (`today-interactions.ts`). Nulling it was
+   *  a latent trap for the day an `excludeId` is wired through — source-pinned
+   *  here since the transform's closure cannot be called from this suite (the
+   *  house ceiling above): the object spread (`...it`) runs BEFORE the
+   *  remaining overrides, and `caseId` is no longer one of them, so whatever
+   *  `caseId` the item arrived with survives by construction. */
+  it('⚖ D-26 N2 — caseId is not a name, and survives blankLaneNames', () => {
+    expect(PAGE_CODE).toContain(
+      '{ ...it, title: \'\', tag: \'\', label: \'\', ticketCat: null, ticketCore: null }',
+    )
+    expect(PAGE_CODE).not.toContain('caseId: null')
   })
 })
 

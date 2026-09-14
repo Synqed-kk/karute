@@ -214,13 +214,20 @@ export async function storePolicyProps({
    *  `window`/`group`/`key`/`stores`/`roomClass`/`listPrice` — never a naming
    *  field. Blanked HERE, at the boundary, rather than trusted to "nobody
    *  renders it": `title`/`tag`/`label` (all carry or compose
-   *  `today-board.ts`'s `customerName`) → `''`, `caseId`/`ticketCat`/
-   *  `ticketCore` → `null`. `key` stays — an opaque id
-   *  (`${bookingId}-${suffix}`), not a name. Type unchanged (`BoardLane[]`). */
+   *  `today-board.ts`'s `customerName`) → `''`, `ticketCat`/`ticketCore` →
+   *  `null`. `key` stays — an opaque id (`${bookingId}-${suffix}`), not a
+   *  name. ⚖ D-26 N2 — `caseId` (`b.id`, `today-board.ts`) stays too, for the
+   *  same reason: an opaque booking id, not a name, and the one blanked field
+   *  an engine actually reads (`laneSpans`'s exclusion filter,
+   *  `today-interactions.ts`) — a no-op today (nothing sets `excludeId`
+   *  through this path yet) but nulling it here was a latent trap for the day
+   *  something does; `key` already embeds it (`${caseId}-cleanup`), so
+   *  blanking `caseId` never even removed the id from the payload. Type
+   *  unchanged (`BoardLane[]`). */
   const blankLaneNames = (ls: BoardLane[]): BoardLane[] =>
     ls.map((l) => ({
       ...l,
-      items: l.items.map((it) => ({ ...it, title: '', tag: '', label: '', caseId: null, ticketCat: null, ticketCore: null })),
+      items: l.items.map((it) => ({ ...it, title: '', tag: '', label: '', ticketCat: null, ticketCore: null })),
     }))
 
   /** ⚖ D-15 — THE LENGTH IS FREE, SO THE SCENE MOVES CLIENT-SIDE. A scene can

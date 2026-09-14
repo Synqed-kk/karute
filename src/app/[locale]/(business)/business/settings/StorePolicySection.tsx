@@ -487,6 +487,28 @@ export function StorePolicySection(props: StorePolicySectionProps) {
     setMinutesText(String(p.minutes)); setMinutes(p.minutes); setMinutesWarn(false); setMinutesMsg(null)
     setRank(p.rank); setSlotText(String(p.slot))
   }
+
+  /** ⚖ D-26 N1 — A NUDGE IS A COMMIT TOO, same as `choosePreset` above: the
+   *  manager clicked a BUTTON, not a keystroke, so there is no blur coming to
+   *  reconcile typed vs committed. Before this fix the ± handlers moved only
+   *  `minutesText`, leaving `minutesPending` true forever after one press — the
+   *  card kept the old length and the line underneath told the manager to
+   *  「欄を離れる」 a field they were never in. `commitMinutes` is the same pure
+   *  function `onBlur` already calls; a nudge just supplies its own candidate
+   *  instead of the typed text. 予約の刻み has no separate committed state
+   *  (`dials.slot` reads `slotText` directly, so its old nudge already took
+   *  effect at once) — it still routes through `commitMinutes` here so both
+   *  fields share one shape and one message/clamp behaviour. */
+  function nudgeMinutes(delta: number) {
+    const next = clampSlot(dials.minutes + delta, props.dayLenMin)
+    const commit = commitMinutes(String(next), lastGoodMinutes.current, props.dayLenMin)
+    setMinutesText(String(commit.value)); setMinutes(commit.value); setMinutesWarn(false); setMinutesMsg(commit.message)
+  }
+  function nudgeSlot(delta: number) {
+    const next = clampSlot(dials.slot + delta, props.dayLenMin)
+    const commit = commitMinutes(String(next), lastGoodSlot.current, props.dayLenMin)
+    setSlotText(String(commit.value)); setSlotWarn(false); setSlotMsg(commit.message)
+  }
   // ── the live preview ──────────────────────────────────────────────────────
 
   /** ⚖ WHO the preview is standing in for. The スタッフ seat is the sample
@@ -964,7 +986,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
             <div className="st-dial-ctl">
               <div className="st-step">
                 <div className="st-step-g">
-                  <button type="button" aria-label={`${NUDGE_MIN}分減らす`} onClick={() => setMinutesText(String(clampSlot(dials.minutes - NUDGE_MIN, props.dayLenMin)))}>−</button>
+                  <button type="button" aria-label={`${NUDGE_MIN}分減らす`} onClick={() => nudgeMinutes(-NUDGE_MIN)}>−</button>
                   <input
                     id="stMinutes"
                     type="text"
@@ -985,7 +1007,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       setMinutesMsg(commit.message)
                     }}
                   />
-                  <button type="button" aria-label={`${NUDGE_MIN}分増やす`} onClick={() => setMinutesText(String(clampSlot(dials.minutes + NUDGE_MIN, props.dayLenMin)))}>＋</button>
+                  <button type="button" aria-label={`${NUDGE_MIN}分増やす`} onClick={() => nudgeMinutes(NUDGE_MIN)}>＋</button>
                 </div>
                 <span className="st-step-u">分</span>
               </div>
@@ -1054,7 +1076,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
             <div className="st-dial-ctl">
               <div className="st-step">
                 <div className="st-step-g">
-                  <button type="button" aria-label={`${NUDGE_MIN}分減らす`} onClick={() => setSlotText(String(clampSlot(dials.slot - NUDGE_MIN, props.dayLenMin)))}>−</button>
+                  <button type="button" aria-label={`${NUDGE_MIN}分減らす`} onClick={() => nudgeSlot(-NUDGE_MIN)}>−</button>
                   <input
                     id="stSlot"
                     type="text"
@@ -1090,7 +1112,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       setSlotMsg(commit.message)
                     }}
                   />
-                  <button type="button" aria-label={`${NUDGE_MIN}分増やす`} onClick={() => setSlotText(String(clampSlot(dials.slot + NUDGE_MIN, props.dayLenMin)))}>＋</button>
+                  <button type="button" aria-label={`${NUDGE_MIN}分増やす`} onClick={() => nudgeSlot(NUDGE_MIN)}>＋</button>
                 </div>
                 <span className="st-step-u">分</span>
             </div>

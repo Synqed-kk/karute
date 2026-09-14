@@ -1472,13 +1472,31 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
     return (await mod.settingsProps({ locale: 'ja', store: input.store })).props
   }
 
-  it('leg 1 — the value is `autoReleaseToWire(opsConfig.autoReleaseBeforeMin)`, and the options are AUTO_RELEASE_CHOICES in order', async () => {
+  it('leg 1 — the value is `autoReleaseToWire(opsConfig.autoReleaseBeforeMin)`, and the options are AUTO_RELEASE_CHOICES in order, plus the current value only when it is off-list', async () => {
     const props = await room({ store: STORE_A })
     const c = controlOf(props, 'reserve.autorelease')
-    expect(c.value).toBe(autoReleaseToWire(opsConfig.autoReleaseBeforeMin))
-    expect(c.value).toBe('linked') // the fixture's own default
+    const wire = autoReleaseToWire(opsConfig.autoReleaseBeforeMin)
+    expect(c.value).toBe(wire)
+    expect(c.value).toBe('linked') // the fixture's own default — on-list, so no append here
     expect(c.control.kind).toBe('select')
-    expect(c.control.kind === 'select' && c.control.options.map((o) => o.value)).toEqual([...AUTO_RELEASE_CHOICES])
+    const expected = AUTO_RELEASE_CHOICES.includes(wire) ? [...AUTO_RELEASE_CHOICES] : [...AUTO_RELEASE_CHOICES, wire]
+    expect(c.control.kind === 'select' && c.control.options.map((o) => o.value)).toEqual(expected)
+  })
+
+  /** ⚖ D-26 F5 — THE ROW REPORTS THE STORE'S REAL VALUE. Before this fix a
+   *  store on 45 (widened by ⚖ D-15, unreachable by the fixed four choices)
+   *  handed the select a value none of its options carried — the control
+   *  silently fell back to showing 「直前の空きは売らないと同じ」, a wrong
+   *  statement about the store's own setting. `AUTO_RELEASE_CHOICES` PLUS the
+   *  wire value when it is not among them, labelled by the F6 fallback. */
+  it('⚖ D-26 F5 — a store on an off-list value gets a row that reports it, not the linked default', async () => {
+    const props = await roomWithOpsConfig({ autoReleaseBeforeMin: 45 }, { store: STORE_A })
+    const c = controlOf(props, 'reserve.autorelease')
+    expect(c.value).toBe('45')
+    expect(c.control.kind).toBe('select')
+    const options = c.control.kind === 'select' ? c.control.options : []
+    expect(options.map((o) => o.value)).toContain('45')
+    expect(options.find((o) => o.value === '45')?.label).toBe('45分前まで')
   })
 
   it('leg 3 — the row sits IMMEDIATELY after 直前の空きは売らない (reserve.row-lead)', async () => {
