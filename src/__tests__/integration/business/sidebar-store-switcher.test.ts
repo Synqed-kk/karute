@@ -18,7 +18,7 @@ import { wireStorePicker } from '@/app/[locale]/(business)/BusinessSidebar'
  *  aria-current="true" exactly as the switcher marks it. */
 function panel(currentIndex: number) {
   const pop = document.createElement('div')
-  const rows = ['テスト銀座店', 'テスト代官山店'].map((name, i) => {
+  const rows = ['テスト東京店', 'テスト横浜店'].map((name, i) => {
     const a = document.createElement('a')
     a.className = 'store-opt'
     a.href = `/ja/business/customers?store=s${i + 1}`

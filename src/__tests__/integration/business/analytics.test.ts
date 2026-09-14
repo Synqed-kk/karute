@@ -389,7 +389,7 @@ describe('one fixture world', () => {
   /**
    * D-D, at the page level. Every yen the reader sees is a whole yen — not just
    * the ranking's average, but the 統計 row's averages and any figure a merged
-   * lens weights. テスト代官山店's 12-month LTV average is 32,841.666…, so the
+   * lens weights. テスト横浜店's 12-month LTV average is 32,841.666…, so the
    * fixture genuinely forces a fraction and this cannot be green by luck.
    */
   it('no figure on the page prints a fraction of a yen, except the ONE named rate', async () => {
@@ -754,11 +754,11 @@ describe('store isolation', () => {
     try {
       const b = await room({ store: STORE_B })
       const names = b.ranking!.byMetric.total.rows.map((r) => r.name)
-      // p-01 / p-04 / p-06 work テスト銀座店 only.
+      // p-01 / p-04 / p-06 work テスト東京店 only.
       expect(names).not.toContain('見本 はなこ')
       expect(names).not.toContain('見本 しろう')
       expect(names).not.toContain('見本 あずさ')
-      expect(JSON.stringify(b)).not.toContain('テスト銀座店')
+      expect(JSON.stringify(b)).not.toContain('テスト東京店')
       const a = await room({ store: STORE_A })
       expect(yenNumber(a.tiles![0].value)).not.toBe(yenNumber(b.tiles![0].value))
     } finally {
@@ -933,7 +933,7 @@ describe('売上の内訳', () => {
     try {
       const p = await room({ store: STORE_B })
       const labels = p.trend!.menuSegments.map((s) => s.label)
-      expect(labels).not.toContain('テスト整体 60分') // a テスト銀座店 menu
+      expect(labels).not.toContain('テスト整体 60分') // a テスト東京店 menu
       expect(labels).toContain('その他')
     } finally {
       restore()

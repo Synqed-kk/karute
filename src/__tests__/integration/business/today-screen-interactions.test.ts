@@ -5531,7 +5531,7 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
  *  in the round's evidence folder. */
 describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => {
   const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
-  const CHIP_HOME = { store: 'store-test-ginza', storeLabel: 'テスト銀座店' }
+  const CHIP_HOME = { store: 'store-test-ginza', storeLabel: 'テスト東京店' }
 
   it('⚖ 46 — the chip may be CARRIED to another store, and refused there by name', () => {
     // Its own board: nothing to say, place it.
@@ -5539,7 +5539,7 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     // A foreign board: refused, and the sentence names the chip's OWN store —
     // the operator is looking at 代官山 and has to be told where to go.
     const msg = foreignStoreRefusal(CHIP_HOME, 'store-test-daikanyama')
-    expect(msg).toContain('テスト銀座店')
+    expect(msg).toContain('テスト東京店')
     expect(msg).not.toContain('代官山')
     // …and it names the way out, because the × still works from anywhere.
     expect(msg).toContain('×')
@@ -6498,12 +6498,12 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
   })
 
   it('⚖ 46 — a chip from another store is 置けない before anything else is asked', () => {
-    const v = verdict(board(), { foreignRefusal: 'テスト銀座店の予約です。…' }, cellOf('blocked', 'なにか'))
+    const v = verdict(board(), { foreignRefusal: 'テスト東京店の予約です。…' }, cellOf('blocked', 'なにか'))
     expect(v.kind).toBe('blocked')
     // FIRST, ahead of every other reason: the operator is on the wrong board, and
     // telling them about a room on a board that may not take the booking at all
     // is advice about an impossible placement.
-    expect(v.reason).toBe('テスト銀座店の予約です。…')
+    expect(v.reason).toBe('テスト東京店の予約です。…')
   })
 
   it('a release that found no lane is 置けない, not a silent no-op (⚖ 47)', () => {
@@ -8108,7 +8108,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
   it('⚖ 73 — every refusal names WHICH KIND of floor it is, at the one verdict home', () => {
     const cases: Array<[string, LandingVerdict, 'hard' | 'hard-room' | 'policy']> = [
       // FACTS. No authority on this board makes any of these true.
-      ['⚖ 46 foreign store', verdict(board(), { foreignRefusal: 'テスト銀座店の予約です。…' }, cellOf('blocked', 'x')), 'hard'],
+      ['⚖ 46 foreign store', verdict(board(), { foreignRefusal: 'テスト東京店の予約です。…' }, cellOf('blocked', 'x')), 'hard'],
       ['no lane', verdict(board(), { staffLane: null }), 'hard'],
       ['store-mismatch bed row', landingVerdict(
         [lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'] }), lane({ key: 'bed-09', group: 'beds', label: 'ベッド9', stores: ['store-b'] })],
@@ -8373,7 +8373,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // 満室 solved nothing, so it names nothing — never a stale carry.
     expect(verdict(board({ beds: busyBeds }), {}, cellOf('safe', '')).bedLane).toBeNull()
     // A stop that fires BEFORE the walk reaches them honestly reports none.
-    const early = verdict(board(), { foreignRefusal: 'テスト銀座店の予約です。…' })
+    const early = verdict(board(), { foreignRefusal: 'テスト東京店の予約です。…' })
     expect(early.bedLane).toBeNull()
     expect(early.checks).toEqual([])
   })

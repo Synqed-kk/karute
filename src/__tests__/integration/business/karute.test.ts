@@ -148,8 +148,8 @@ describe('⚠ THE FIXTURE FENCE — the plane ADDS, and states nothing the world
       ...menus.map((m) => m.name),
       STORE_A,
       STORE_B,
-      'テスト銀座店',
-      'テスト代官山店',
+      'テスト東京店',
+      'テスト横浜店',
     ]
     const hits = forbidden.filter((needle) => PLANE_CODE.includes(needle))
     expect({ hits }).toEqual({ hits: [] })
@@ -445,9 +445,9 @@ describe('⚖ STORE ISOLATION, both directions, and LEAVES NOTHING BEHIND', () =
     for (const id of ['K-0011', 'K-0012', 'K-0013']) expect(a).not.toContain(id)
     for (const id of ['K-0001', 'K-0005', 'K-0010']) expect(b).not.toContain(id)
     // …nor the other store's own name, nor a summary only the other store has.
-    expect(a).not.toContain('テスト代官山店')
+    expect(a).not.toContain('テスト横浜店')
     expect(a).not.toContain('目の疲れ')
-    expect(b).not.toContain('テスト銀座店')
+    expect(b).not.toContain('テスト東京店')
     expect(b).not.toContain('肩から背中の張り')
     // …nor a customer only the other store ever served.
     expect(b).not.toContain('見本 そら')
