@@ -4672,7 +4672,7 @@ describe('販売可能枠の表示 means what it says, at any band count', () =>
     // A 13-band day is exactly the case canon degraded. The layer still SAYS so.
     const cells: SellCell[] = Array.from({ length: DENSITY_CEILING + 1 }, (_, i) => ({
       laneKey: `p-${i}`, resourceKey: `bed-${i}`, group: 'staff' as const,
-      staff: `s${i}`, bed: `bed-${i}`, h: 600 + i * 60, price: 6600 + i * 10, tier: 2 as const,
+      staff: `s${i}`, bed: `bed-${i}`, h: 600 + i * 60, e: 600 + i * 60 + 60, price: 6600 + i * 10, tier: 2 as const,
     }))
     const layer = buildSellLayer(cells, true)
     expect(layer.staffBands.length).toBeGreaterThan(DENSITY_CEILING)

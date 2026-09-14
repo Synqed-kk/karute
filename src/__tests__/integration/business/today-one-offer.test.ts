@@ -273,6 +273,7 @@ describe('§1 — the distinction, and the one place it is spelled', () => {
     resourceKey,
     group: 'staff' as const,
     h,
+    e: h + 60,
     staff: laneKey,
     bed: resourceKey,
     price: 7000,

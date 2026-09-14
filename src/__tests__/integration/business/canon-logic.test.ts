@@ -53,6 +53,7 @@ import {
   kPackCount,
   mergeBands,
   trackFree,
+  type SellBand,
   type SellResourceLane,
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
@@ -511,7 +512,7 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     key: 's1', name: '見本 しろう', from: 10 * 60, until: 19 * 60, locked: false, occupied: [], listPrice: 7000, stores: null, ...over,
   })
   const bed = (over: Partial<SellResourceLane> = {}): SellResourceLane => ({ key: 'b1', name: 'ベッド1', occupied: [], storeId: 'store-a', ...over })
-  const flat = { open: HOURS.open, close: HOURS.close, gridMin: 60, priceFor: () => 7000 }
+  const flat = { open: HOURS.open, close: HOURS.close, gridMin: 60, sellSlotMin: 60, priceFor: () => 7000 }
 
   it('trackFree is a plain interval test, back-to-back included', () => {
     const busy = [{ start: 600, end: 660 }]
@@ -606,11 +607,78 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     expect(deriveSellableCells({ ...flat, staffLanes: [staff({ locked: true })], resourceLanes: [bed()], now: null })).toEqual([])
   })
 
+  // ⚖ D-15/D-24 (round 3, B1) — the sellable slot's length is a VALUE the
+  // engine is handed (`SellInput.sellSlotMin`), not the frozen `SELL_SLOT_MIN`
+  // constant. B1 is the layer alone + the thread from the store to the
+  // engine; it is NOT the day every reader agrees at 45 (B2 moves the
+  // remaining readers off the constant).
+  it('⚖ D-15/D-24 — sellSlotMin at 45 and at 75: every cell spans exactly its own slot, the count matches the grid, and bands close at the last cell’s own end', () => {
+    for (const slot of [45, 75]) {
+      const cells = deriveSellableCells({ ...flat, sellSlotMin: slot, staffLanes: [staff()], resourceLanes: [bed()], now: null })
+      const staffCells = cells.filter((c) => c.group === 'staff')
+      expect(staffCells.length).toBeGreaterThan(0)
+      expect(staffCells.every((c) => c.e === c.h + slot)).toBe(true)
+      // The expected count comes from the SAME walk the engine runs — no typed
+      // constant standing in for the grid's own arithmetic.
+      let expectedCount = 0
+      for (let sm = flat.open; sm + slot <= flat.close; sm += flat.gridMin) expectedCount += 1
+      expect(staffCells).toHaveLength(expectedCount)
+      const bands = mergeBands(cells)
+      const lastCell = staffCells[staffCells.length - 1]
+      expect(bands.find((b) => b.group === 'staff')?.hEnd).toBe(lastCell.h + slot)
+    }
+  })
+
+  it('⚖ D-15/D-24 — the identity leg: at the shipped default (60), every cell and band is byte-identical to the OLD `h + 60` formula', () => {
+    const cells = deriveSellableCells({ ...flat, staffLanes: [staff()], resourceLanes: [bed()], now: null })
+    expect(cells.length).toBeGreaterThan(0)
+    expect(cells.every((c) => c.e - c.h === 60)).toBe(true)
+    const bands = mergeBands(cells)
+    // The proof a store at the default sees byte-identical bands: a band list
+    // built inline with the OLD formula (hEnd = h + 60), the same tier-merge
+    // rule mergeBands itself runs — never a re-import of the function under test.
+    const byLane = new Map<string, typeof cells>()
+    for (const c of cells) {
+      const k = `${c.group}:${c.group === 'staff' ? c.laneKey : c.resourceKey}`
+      const list = byLane.get(k)
+      if (list) list.push(c)
+      else byLane.set(k, [c])
+    }
+    const oldBands: SellBand[] = []
+    for (const arr of byLane.values()) {
+      arr.sort((a, b) => a.h - b.h)
+      let cur: SellBand | null = null
+      for (const c of arr) {
+        if (cur && c.h <= cur.hEnd && c.tier === cur.tier) {
+          cur.hEnd = Math.max(cur.hEnd, c.h + 60)
+          if (c.price != null) {
+            cur.lo = cur.lo == null ? c.price : Math.min(cur.lo, c.price)
+            cur.hi = cur.hi == null ? c.price : Math.max(cur.hi, c.price)
+          }
+        } else {
+          cur = {
+            laneKey: c.laneKey, resourceKey: c.resourceKey, group: c.group, staff: c.staff,
+            tier: c.tier, lo: c.price, hi: c.price, hStart: c.h, hEnd: c.h + 60,
+          }
+          oldBands.push(cur)
+        }
+      }
+    }
+    expect(bands).toEqual(oldBands)
+  })
+
+  it('⚖ D-15/D-24 — a slot longer than the day yields zero cells and no throw', () => {
+    const slot = flat.close - flat.open + 1
+    const run = () => deriveSellableCells({ ...flat, sellSlotMin: slot, staffLanes: [staff()], resourceLanes: [bed()], now: null })
+    expect(run).not.toThrow()
+    expect(run()).toEqual([])
+  })
+
   it('bands merge adjacent hours of the SAME tier, and break at a tier change', () => {
     const cells = [
-      { laneKey: 's1', resourceKey: 'b1', group: 'staff' as const, h: 600, staff: 'A', bed: 'B', price: 7000, tier: 1 as const },
-      { laneKey: 's1', resourceKey: 'b1', group: 'staff' as const, h: 660, staff: 'A', bed: 'B', price: 7000, tier: 1 as const },
-      { laneKey: 's1', resourceKey: 'b1', group: 'staff' as const, h: 720, staff: 'A', bed: 'B', price: 9000, tier: 3 as const },
+      { laneKey: 's1', resourceKey: 'b1', group: 'staff' as const, h: 600, e: 660, staff: 'A', bed: 'B', price: 7000, tier: 1 as const },
+      { laneKey: 's1', resourceKey: 'b1', group: 'staff' as const, h: 660, e: 720, staff: 'A', bed: 'B', price: 7000, tier: 1 as const },
+      { laneKey: 's1', resourceKey: 'b1', group: 'staff' as const, h: 720, e: 780, staff: 'A', bed: 'B', price: 9000, tier: 3 as const },
     ]
     const bands = mergeBands(cells)
     expect(bands).toHaveLength(2)
@@ -631,7 +699,7 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
   it('E9c: past the density ceiling, tint degrades to drag-only', () => {
     // 13 lanes each holding one lonely hour = 13 bands, one over the ceiling.
     const many = Array.from({ length: 13 }, (_, i) => ({
-      laneKey: `s${i}`, resourceKey: 'b1', group: 'staff' as const, h: 600 + i * 60,
+      laneKey: `s${i}`, resourceKey: 'b1', group: 'staff' as const, h: 600 + i * 60, e: 600 + i * 60 + 60,
       staff: `A${i}`, bed: 'B', price: 7000 + i * 100, tier: 1 as const,
     }))
     expect(buildSellLayer(many, true).degraded).toBe(true)

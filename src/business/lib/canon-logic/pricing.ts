@@ -33,7 +33,10 @@ export const CURVE_MAX_DIP = 1 - Math.min(...Object.values(SELL_CURVE))
  *  mode degrades to drag-only rather than turning the board into confetti. */
 export const DENSITY_CEILING = 12
 
-/** canon `SELL_SLOT_MIN` (:4867). One sellable window is one hour. */
+/** canon `SELL_SLOT_MIN` (:4867). THE DEFAULT for a store that never wrote
+ *  `sellSlotMin` — the engine reads the store's value (`SellInput.sellSlotMin`);
+ *  this constant is what the fixture default and the not-yet-moved readers
+ *  (B2) still spell. */
 export const SELL_SLOT_MIN = 60
 
 /** canon's ¥ formatter (`money`, :2736) — same output as the board's `yen`. */
