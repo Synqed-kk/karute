@@ -738,7 +738,7 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // 2,077,233 + 1,000 = 2,078,233.
 //
 // RAISED 2026-09-14 for the 予約 date-jump panel, ⚖ 8/25: 2,078,233 →
-// 2,092,870. A FEATURE raise, not a method correction — the method is
+// 2,093,051. A FEATURE raise, not a method correction — the method is
 // unchanged from the 2026-09-02 entry above (release-length placeholder env,
 // emptied thin/dist).
 //
@@ -752,14 +752,14 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // The month reads go through the screen GET this screen already calls
 // (view=month + the day wanted) — no new endpoint and no new audit action.
 //
-// Measured at the FIX-ROUND-1 tip with the CI recipe, byte-identical across
+// Measured at the FIX-ROUND-2 tip with the CI recipe, byte-identical across
 // two clean builds from an emptied thin/dist (node v24.16.0, vite 6.4.3):
-// en 133,757 · index 1,020,370 · vendor 937,743 = 2,091,870 B — 13,637 B over
+// en 133,757 · index 1,020,551 · vendor 937,743 = 2,092,051 B — 13,818 B over
 // the ceiling above, which is the breach this raise answers. The base it sits
 // on (origin/main c712c4d56c022c9fc5493b3cbca6dd99eae5e56d, measured the same
 // way from a `git archive` of that tree in a scratch dir, also byte-identical
 // across two clean builds) is en 133,643 · index 1,006,122 · vendor 937,743 =
-// 2,077,508 B, so the panel costs the phone +14,362 B: +14,248 B of index
+// 2,077,508 B, so the panel costs the phone +14,543 B: +14,429 B of index
 // (the panel, its pure state layer and the ja copy) and +114 B of the en
 // chunk (that locale's three new lines). Vendor is untouched — no new
 // dependency; the calendar is the MonthGrid the 月 view already ships.
@@ -771,8 +771,8 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // as exact to the byte across environments.
 //
 // Ceiling = the tip measurement + 1,000 B, same convention as every prior
-// raise: 2,091,870 + 1,000 = 2,092,870.
-const BUDGET_BYTES = 2_092_870
+// raise: 2,092,051 + 1,000 = 2,093,051.
+const BUDGET_BYTES = 2_093_051
 
 let dir
 try {
