@@ -1551,6 +1551,11 @@ function sync(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
 
 // ── Reserve 受付 ────────────────────────────────────────────────────────────
 
+/** ⚖ D-33 R2 — one spelling for the gap-fill row's `zeroLabel` and the
+ *  aside's own reading of the same zero, hoisted so the two payload paths
+ *  can never drift apart. */
+const GAPFILL_ZERO_LABEL = '販売しない'
+
 function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
   void ctx
   // ⚖ D-15 (round 3, A2) — THE DERIVED CEILING, one home, same source
@@ -1633,7 +1638,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-gapfill', 'スキマ枠の販売', '予約と予約のあいだにできる空きのうち、開始時刻の刻みに乗らない端の部分だけを特価で売ります。0にすると、スキマ枠そのものを販売しません。', [
-          num('reserve.gapfill', 'スキマ枠の販売', opsConfig.gapFillMinMin, 0, dayLen, 1, '分', undefined, '販売しない'),
+          num('reserve.gapfill', 'スキマ枠の販売', opsConfig.gapFillMinMin, 0, dayLen, 1, '分', undefined, GAPFILL_ZERO_LABEL),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1823,7 +1828,15 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
       title: 'この値の出どころ',
       lines: [
         { label: 'お客様の開始時刻', value: `${minutesLabel(opsConfig.reserveStartGridMin)}きざみ（今日の運営の公開レイヤーが読む値）` },
-        { label: 'スキマ枠', value: `${minutesLabel(opsConfig.gapFillMinMin)}以上・${opsConfig.gapFillDiscountPct}%引き` },
+        {
+          label: 'スキマ枠',
+          // ⚖ D-33 R2 — at 0 this reads the row's own zero label alone: no
+          // discount clause for a slot that is not sold.
+          value:
+            opsConfig.gapFillMinMin === 0
+              ? GAPFILL_ZERO_LABEL
+              : `${minutesLabel(opsConfig.gapFillMinMin)}以上・${opsConfig.gapFillDiscountPct}%引き`,
+        },
         { label: 'スキマガード', value: '予約と確保で変更します' },
         { label: '営業時間', value: '店舗情報・営業時間で変更します' },
       ],

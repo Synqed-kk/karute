@@ -2229,8 +2229,11 @@ function NumberField({
       {/* ⚖ D-31/D-32 F4 — THE ZERO STATE READS AS THE STATE, beside the unit
           slot rather than replacing it: the reader sees both what the field
           measures and, at 0, what that measurement currently means. Reuses
-          `st-unit`'s own small neutral text rather than a new rule. */}
-      {k.zeroLabel && Number(text) === 0 && <span className="st-unit">{k.zeroLabel}</span>}
+          `st-unit`'s own small neutral text rather than a new rule.
+          ⚖ D-33 R1 — keyed on `text === '0'`, the committed zero (a commit
+          always leaves `text` as `String(commit.value)`), not `Number(text)
+          === 0`, which also reads true for an empty box mid-edit. */}
+      {k.zeroLabel && text === '0' && <span className="st-unit">{k.zeroLabel}</span>}
       {/* ⚠ THE REGION IS ALWAYS MOUNTED and its TEXT is what changes (⚖ F10's
           own lesson, one section over): a live region that appears and vanishes
           is announced unevenly, and one whose text never changes is silent. The

@@ -1422,7 +1422,11 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
   })
 
   it('⚖ D-31/D-32 F4 — the zero state reads beside the unit, reusing `st-unit`\'s own style', () => {
-    expect(SCREEN_CODE).toContain('{k.zeroLabel && Number(text) === 0 && <span className="st-unit">{k.zeroLabel}</span>}')
+    // ⚖ D-33 R1 — keyed on the COMMITTED text `'0'`, not `Number(text) === 0`:
+    // `Number('') === 0` too, so that check also fired for a box the reader
+    // had just cleared mid-edit, before blur.
+    expect(SCREEN_CODE).toContain('{k.zeroLabel && text === \'0\' && <span className="st-unit">{k.zeroLabel}</span>}')
+    expect(SCREEN_CODE).not.toContain('Number(text) === 0')
     // …and it is a SIBLING span, not a replacement — the field still says what
     // it measures.
     expect(SCREEN_CODE).toContain('{k.unit && <span className="st-unit">{k.unit}</span>}')
@@ -2606,6 +2610,37 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     const cutoffCtrl = controlOf(props, 'reserve.cutoff').control
     expect(labelOfValue(cutoffCtrl, '120')).toBe('120分')
     expect(labelOfValue(cutoffCtrl, '0')).toBe('締め切らない')
+  })
+
+  it('⚖ D-33 R2 — the aside\'s gap-fill line reads the zero state, one spelling with the row\'s own zeroLabel', async () => {
+    const props = await room({ store: STORE_A })
+    const asideLineOf = (p: SettingsProps, label: string) =>
+      sectionOf(p, 'reserve-acceptance').aside!.lines.find((l) => l.label === label)!.value
+    // (a) at the fixture (gapFillMinMin: 30) the line is byte-unchanged.
+    expect(asideLineOf(props, 'スキマ枠')).toBe('30分以上・10%引き')
+
+    // (b) under the suite's opsConfig override door with gapFillMinMin: 0 the
+    // aside reads the row's own zero label alone — no discount clause for a
+    // slot that is not sold.
+    jest.doMock('@/business/lib/fixtures-today', () => {
+      const actual = jest.requireActual('@/business/lib/fixtures-today')
+      return { ...actual, opsConfig: { ...actual.opsConfig, gapFillMinMin: 0 } }
+    })
+    let mod0!: typeof import('@/app/[locale]/(business)/business/settings/settings-props')
+    await jest.isolateModulesAsync(async () => {
+      mod0 = await import('@/app/[locale]/(business)/business/settings/settings-props')
+    })
+    jest.dontMock('@/business/lib/fixtures-today')
+    const props0 = (await mod0.settingsProps({ locale: 'ja', store: STORE_A })).props
+    const aside0 = asideLineOf(props0, 'スキマ枠')
+    expect(aside0).toBe('販売しない')
+    expect(aside0).not.toContain('0分')
+    expect(aside0).not.toContain('%引き')
+
+    // (c) the row's own zeroLabel and the aside's zero value are the SAME
+    // string, read through the two payload paths — not a typed literal twice.
+    const gapfillCtrl0 = controlOf(props0, 'reserve.gapfill').control
+    expect(gapfillCtrl0.kind === 'number' ? gapfillCtrl0.zeroLabel : undefined).toBe(aside0)
   })
 
   it('⚖ D-31/D-32 F4 §B — each zero-capable row’s description states what 0 means, verbatim', async () => {
