@@ -736,7 +736,37 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Ceiling is set from the LARGER of the two tip measurements (the CI recipe)
 // plus 1,000 B, same convention as every prior raise:
 // 2,077,233 + 1,000 = 2,078,233.
-const BUDGET_BYTES = 2_078_233
+//
+// RAISED 2026-09-14 for the 予約 date-jump panel, ⚖ 8/25: 2,078,233 →
+// 2,092,180. A FEATURE raise, not a method correction — the method is
+// unchanged from the 2026-09-02 entry above (release-length placeholder env,
+// emptied thin/dist).
+//
+// What is in the phone for the bytes: the date chip 「9/14(月) ▾」 now opens
+// the app's own calendar instead of calling showPicker() on a hidden native
+// date input, which on a phone read to staff as "nothing there". The panel
+// carries the 月 view's own cells (density dot + count) for ANY month, so
+// 「来月どんな感じ？」 is answered without leaving the day; the month title
+// opens the year's twelve chips for a far jump; a month that has not loaded
+// shows its day numbers with a status line rather than a grid of zero counts.
+// The month reads go through the screen GET this screen already calls
+// (view=month + the day wanted) — no new endpoint and no new audit action.
+//
+// Measured at this round's tip with the CI recipe, byte-identical across two
+// clean builds from an emptied thin/dist: en 133,757 · index 1,019,680 ·
+// vendor 937,743 = 2,091,180 B — 12,947 B over the ceiling above, which is the
+// breach this raise answers. The base it sits on (origin/main
+// c712c4d56c022c9fc5493b3cbca6dd99eae5e56d, measured the same way from a
+// `git archive` of that tree in a scratch dir, also byte-identical across two
+// clean builds) is en 133,643 · index 1,006,122 · vendor 937,743 =
+// 2,077,508 B, so the panel costs the phone +13,672 B: +13,558 B of index
+// (the panel, its pure state layer and the ja copy) and +114 B of the en
+// chunk (that locale's three new lines). Vendor is untouched — no new
+// dependency; the calendar is the MonthGrid the 月 view already ships.
+//
+// Ceiling = the tip measurement + 1,000 B, same convention as every prior
+// raise: 2,091,180 + 1,000 = 2,092,180.
+const BUDGET_BYTES = 2_092_180
 
 let dir
 try {
