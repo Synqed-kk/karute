@@ -80,6 +80,18 @@ const COMMIT_VELOCITY = 0.5
 /** Upward travel that closes the panel. */
 const SWIPE_UP_PX = 40
 
+/**
+ * The press feedback every button in the panel shares, and the reduced-motion
+ * answer to it. Gated in JS rather than with a `motion-reduce:` utility on
+ * purpose: Tailwind v4 emits `active:scale-[0.97]` as the standalone
+ * `scale: .97` property (read back from the built stylesheet), so
+ * `transform: none` cannot cancel it, and a `motion-reduce:scale-100` loses to
+ * `:active` on specificity. Dropping the class is the only version that
+ * actually leaves opacity alone, which is what L5 asks for.
+ */
+const PRESS = 'transition-transform duration-100 active:scale-[0.97]'
+const PRESS_REDUCED = 'transition-none'
+
 /** The marker AppointmentsView puts inside the header's date chip: the chip is
  *  rendered by @synqed-kk/ui with no ref, class hook or aria-expanded prop, and
  *  its `dateDisplay` props are ReactNodes — so the marker rides in on the copy
@@ -147,6 +159,7 @@ export function DateJumpPanel({
   const locale = useLocale()
   const t = useTranslations('reservation')
   const reduced = usePrefersReducedMotion()
+  const press = reduced ? PRESS_REDUCED : PRESS
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
@@ -524,7 +537,10 @@ export function DateJumpPanel({
             type="button"
             aria-label={t('prev')}
             onClick={() => (atMonths ? dispatch({ type: 'shiftYear', delta: -1 }) : goMonth(-1))}
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-border bg-card text-muted-foreground transition-transform duration-100 hover:bg-muted active:scale-[0.97]"
+            className={cn(
+              'inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-border bg-card text-muted-foreground hover:bg-muted',
+              press,
+            )}
           >
             <ChevronLeft className="size-4" aria-hidden />
           </button>
@@ -533,7 +549,10 @@ export function DateJumpPanel({
             id={titleId}
             aria-expanded={atMonths}
             onClick={() => dispatch({ type: 'setLevel', level: atMonths ? 'grid' : 'months' })}
-            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] text-sm font-semibold tabular-nums text-foreground transition-transform duration-100 hover:bg-muted active:scale-[0.97]"
+            className={cn(
+              'inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] text-sm font-semibold tabular-nums text-foreground hover:bg-muted',
+              press,
+            )}
           >
             <span>
               {atMonths ? formatYearTitleJst(jstMidnight(state.year, 1, 1), locale) : monthTitle}
@@ -551,7 +570,10 @@ export function DateJumpPanel({
             type="button"
             aria-label={t('next')}
             onClick={() => (atMonths ? dispatch({ type: 'shiftYear', delta: 1 }) : goMonth(1))}
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-border bg-card text-muted-foreground transition-transform duration-100 hover:bg-muted active:scale-[0.97]"
+            className={cn(
+              'inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-border bg-card text-muted-foreground hover:bg-muted',
+              press,
+            )}
           >
             <ChevronRight className="size-4" aria-hidden />
           </button>
@@ -648,7 +670,10 @@ export function DateJumpPanel({
                   onPickDay(today)
                   onClose()
                 }}
-                className="inline-flex h-8 items-center rounded-[var(--radius-sm)] px-2 text-sm font-medium text-primary transition-transform duration-100 hover:bg-primary/10 active:scale-[0.97]"
+                className={cn(
+                  'inline-flex h-8 items-center rounded-[var(--radius-sm)] px-2 text-sm font-medium text-primary hover:bg-primary/10',
+                  press,
+                )}
               >
                 {t('today')}
               </button>
@@ -680,7 +705,8 @@ export function DateJumpPanel({
                     aria-pressed={isCurrent}
                     onClick={() => jumpToMonth(monthKeyOf(state.year, month))}
                     className={cn(
-                      'inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border text-sm font-semibold tabular-nums transition-transform duration-100 active:scale-[0.97]',
+                      'inline-flex h-11 items-center justify-center rounded-[var(--radius-sm)] border text-sm font-semibold tabular-nums',
+                      press,
                       isCurrent
                         ? 'border-primary bg-primary/8 text-primary'
                         : 'border-border bg-card text-foreground hover:bg-muted',

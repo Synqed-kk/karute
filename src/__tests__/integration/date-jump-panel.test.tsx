@@ -544,6 +544,61 @@ describe('only what is on screen is reachable by keyboard', () => {
   })
 })
 
+/**
+ * R5 / R7a — prefers-reduced-motion. jsdom ships no matchMedia, so the panel's
+ * reduced branch had zero coverage: a mutant that hard-returned `false` from
+ * the hook survived the whole suite.
+ */
+describe('prefers-reduced-motion: reduce', () => {
+  /** Stub matchMedia so the hook can answer, and hand back a cleanup. */
+  function stubMotion(matches: boolean) {
+    const original = window.matchMedia
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('prefers-reduced-motion') ? matches : false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia
+    return () => {
+      window.matchMedia = original
+    }
+  }
+
+  it('drops the press scale from every button in the panel', async () => {
+    const restore = stubMotion(true)
+    try {
+      renderView()
+      await openPanel()
+      const dialog = screen.getByRole('dialog')
+      const pressables = within(dialog).getAllByRole('button')
+      expect(pressables.length).toBeGreaterThan(0)
+      expect(pressables.some((b) => b.className.includes('active:scale'))).toBe(false)
+    } finally {
+      restore()
+    }
+  })
+
+  it('keeps the press scale when no preference is expressed', async () => {
+    const restore = stubMotion(false)
+    try {
+      renderView()
+      await openPanel()
+      const dialog = screen.getByRole('dialog')
+      expect(
+        within(dialog)
+          .getAllByRole('button')
+          .some((b) => b.className.includes('active:scale-[0.97]')),
+      ).toBe(true)
+    } finally {
+      restore()
+    }
+  })
+})
+
 describe('the hidden native date input is gone', () => {
   it('AppointmentsView no longer renders one — the chip is the only door to a date', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
