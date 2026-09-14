@@ -420,6 +420,33 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(totalRangeBookings).toBe(1)
   })
 
+  // The 予約 date-jump panel's PHONE month door: the shell has no server
+  // actions, so it re-reads THIS route with view=month and any day of the month
+  // it wants. No new endpoint and no new audit action — but until now nothing
+  // pinned that an arbitrary ?date= actually returns THAT month's grid.
+  it('?view=month&date=<a day in another month> returns that month\'s cells', async () => {
+    const res = await GET(
+      req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2027-03-11'),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.view).toBe('month')
+    expect(dto.weekData).toBeNull()
+    // 2027-03-01 is a Monday and March has 31 days → 5 clean rows.
+    expect(dto.monthData).toHaveLength(35)
+    expect(dto.monthData!.filter((c) => c.inMonth)).toHaveLength(31)
+    expect(dto.monthData![0].id).toBe('2027-03-01')
+    // Not today's month, so nothing in it is today — and no cell lies about it.
+    expect(dto.monthData!.some((c) => c.isToday)).toBe(false)
+    // The range read asked core for that month's window, padded for the grid's
+    // outside-month cells (computeMonthRange: ±7 days).
+    const rangeStarts = (listAppointments.mock.calls as unknown as { from?: string }[][]).map(
+      (c) => c[0]?.from,
+    )
+    expect(rangeStarts).toContain(new Date('2027-02-22T00:00:00+09:00').toISOString())
+  })
+
   it('store staff lens: pickers clamp to the store, row names keep the full roster, cross-store viewer default clears', async () => {
     // Viewer is clamped to store-A; the lens says only Yuko works there.
     staffStoresGet.mockResolvedValue({ store_ids: ['store-A'] })
