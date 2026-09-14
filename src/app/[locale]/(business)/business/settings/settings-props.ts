@@ -277,23 +277,25 @@ const num = (
   max: number | null,
   step: number,
   unit: string,
-  locked?: string,
-  // ⚖ D-31/D-32 F4 — the short label 0 reads as (「制限なし」 etc.).
-  zeroLabel?: string,
-  // ⚖ D-32 F1 — a lock that follows a LIVE sibling control; see
-  // `RowControl.lockedWhen`.
-  lockedWhen?: RowControl['lockedWhen'],
-  // ⚖ D-36 — a LENGTH's ceiling follows the LIVE weekly hours; see
-  // `RowControl.ceilingFrom`.
-  ceilingFrom?: RowControl['ceilingFrom'],
+  opts?: {
+    locked?: string
+    // ⚖ D-31/D-32 F4 — the short label 0 reads as (「制限なし」 etc.).
+    zeroLabel?: string
+    // ⚖ D-32 F1 — a lock that follows a LIVE sibling control; see
+    // `RowControl.lockedWhen`.
+    lockedWhen?: RowControl['lockedWhen']
+    // ⚖ D-36 — a LENGTH's ceiling follows the LIVE weekly hours; see
+    // `RowControl.ceilingFrom`.
+    ceilingFrom?: RowControl['ceilingFrom']
+  },
 ): RowControl => ({
   id,
   aria,
-  control: { kind: 'number', min, max, step, unit, ...(zeroLabel ? { zeroLabel } : {}) },
+  control: { kind: 'number', min, max, step, unit, ...(opts?.zeroLabel ? { zeroLabel: opts.zeroLabel } : {}) },
   value: String(value),
-  ...(locked ? { locked } : {}),
-  ...(lockedWhen ? { lockedWhen } : {}),
-  ...(ceilingFrom ? { ceilingFrom } : {}),
+  ...(opts?.locked ? { locked: opts.locked } : {}),
+  ...(opts?.lockedWhen ? { lockedWhen: opts.lockedWhen } : {}),
+  ...(opts?.ceilingFrom ? { ceilingFrom: opts.ceilingFrom } : {}),
 })
 const tim = (id: string, aria: string, value: string): RowControl => ({ id, aria, control: { kind: 'time' }, value })
 const chips = (
@@ -672,7 +674,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           { link: { label: '予約と確保を開く', sectionId: 'booking-guard' } },
         ),
         row('store-hours.row-block-step', '予定ブロックの移動単位', '休憩・準備・記録・レジ・清掃を動かすときの刻みです。', [
-          num('store-hours.block-step', '予定ブロックの移動単位', opsConfig.blockStepMin, 1, dayLen, 1, '分', undefined, undefined, undefined, WEEK_CEILING),
+          num('store-hours.block-step', '予定ブロックの移動単位', opsConfig.blockStepMin, 1, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -921,7 +923,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
       block('people.equipment', '設備・枠', `この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。`, beds.map((r) =>
         row(`people.row-${r.id}`, r.name, r.note, [
           seg(`people.class-${r.id}`, `${r.name}の種類`, opts([['standard', '施術室'], ['private', '個室']]), r.room_class),
-          num(`people.cleanup-${r.id}`, `${r.name}の清掃時間`, r.cleanup_minutes, 0, dayLen, 1, '分', undefined, undefined, undefined, WEEK_CEILING),
+          num(`people.cleanup-${r.id}`, `${r.name}の清掃時間`, r.cleanup_minutes, 0, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ])), {
         facts: [
           `いまこの店舗には設備が${people(beds.length)}あります。`,
@@ -1633,7 +1635,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         // 「2時間前」 and the wire keeps 120; holding hours here and multiplying
         // at the seam is where a factor of 60 goes missing between two rounds.
         row('reserve.row-cutoff', '直前締切', '予約開始時刻の何分前に、オンラインの受付を締め切るかです。0にすると、締め切らずに直前まで受け付けます。', [
-          num('reserve.cutoff', '直前締切', d.cutoffMinutes, 0, null, 1, '分', undefined, '締め切らない'),
+          num('reserve.cutoff', '直前締切', d.cutoffMinutes, 0, null, 1, '分', { zeroLabel: '締め切らない' }),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
@@ -1643,7 +1645,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           source: 'コアは「分」で持ちます（2時間前 = 120分）',
         }),
         row('reserve.row-grid', 'お客様が選べる開始時刻', 'お客様がReserveで選べる開始時刻の刻みです。コースの長さはメニュー側の設定に従います。', [
-          num('reserve.grid', 'お客様が選べる開始時刻', opsConfig.reserveStartGridMin, 1, dayLen, 1, '分', undefined, undefined, undefined, WEEK_CEILING),
+          num('reserve.grid', 'お客様が選べる開始時刻', opsConfig.reserveStartGridMin, 1, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1652,7 +1654,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-session', '標準セッションの長さ', '1回分の施術の標準的な長さです。空き時間にこの長さが何回まるごと収まるかを先に数えます。', [
-          num('reserve.session', '標準セッションの長さ', opsConfig.standardSessionMin, 1, dayLen, 1, '分', undefined, undefined, undefined, WEEK_CEILING),
+          num('reserve.session', '標準セッションの長さ', opsConfig.standardSessionMin, 1, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1661,7 +1663,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-sellslot', '販売する枠の長さ', '今日の運営のボードが、まとまった空きを1つの「販売可能枠」として出すときの長さです。', [
-          num('reserve.sellslot', '販売する枠の長さ', opsConfig.sellSlotMin, 1, dayLen, 1, '分', undefined, undefined, undefined, WEEK_CEILING),
+          num('reserve.sellslot', '販売する枠の長さ', opsConfig.sellSlotMin, 1, dayLen, 1, '分', { ceilingFrom: WEEK_CEILING }),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1670,7 +1672,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-gapfill', 'スキマ枠の販売', '予約と予約のあいだにできる空きのうち、開始時刻の刻みに乗らない端の部分だけを特価で売ります。0にすると、スキマ枠そのものを販売しません。', [
-          num('reserve.gapfill', 'スキマ枠の販売', opsConfig.gapFillMinMin, 0, dayLen, 1, '分', undefined, GAPFILL_ZERO_LABEL, undefined, WEEK_CEILING),
+          num('reserve.gapfill', 'スキマ枠の販売', opsConfig.gapFillMinMin, 0, dayLen, 1, '分', { zeroLabel: GAPFILL_ZERO_LABEL, ceilingFrom: WEEK_CEILING }),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1688,7 +1690,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-lead', '直前の空きは売らない', '開始までこの時間を切った空きは、お客様に出しません。0にすると、直前の空きも制限なく出します。', [
-          num('reserve.lead', '直前の空きは売らない', opsConfig.leadTimeMin, 0, null, 1, '分', undefined, '制限なし'),
+          num('reserve.lead', '直前の空きは売らない', opsConfig.leadTimeMin, 0, null, 1, '分', { zeroLabel: '制限なし' }),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1739,21 +1741,21 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
               null,
               1,
               '分',
-              undefined,
-              undefined,
-              // ⚖ D-32 F1 — LOCKED, NOT HIDDEN, and now read against the LIVE
-              // select rather than baked into this render: a server-computed
-              // `locked` here never re-evaluates once the reader picks
-              // 「分で指定」, so the field renders locked forever. `effectiveLock`
-              // (SettingsScreen.tsx) reads this against the CURRENT
-              // `reserve.autorelease` value on every render instead.
-              // FLAG — new JP, blind native pass before Liam sees it.
               {
-                controlId: 'reserve.autorelease',
-                unless: 'minutes',
-                reason: {
-                  linked: '「直前の空きは売らないと同じ」を選んでいるため、上の行と同じ値です。「分で指定」を選ぶと変更できます',
-                  never: '「解除しない」を選んでいるため、この数は使われません。「分で指定」を選ぶと変更できます',
+                // ⚖ D-32 F1 — LOCKED, NOT HIDDEN, and now read against the LIVE
+                // select rather than baked into this render: a server-computed
+                // `locked` here never re-evaluates once the reader picks
+                // 「分で指定」, so the field renders locked forever. `effectiveLock`
+                // (SettingsScreen.tsx) reads this against the CURRENT
+                // `reserve.autorelease` value on every render instead.
+                // FLAG — new JP, blind native pass before Liam sees it.
+                lockedWhen: {
+                  controlId: 'reserve.autorelease',
+                  unless: 'minutes',
+                  reason: {
+                    linked: '「直前の空きは売らないと同じ」を選んでいるため、上の行と同じ値です。「分で指定」を選ぶと変更できます',
+                    never: '「解除しない」を選んでいるため、この数は使われません。「分で指定」を選ぶと変更できます',
+                  },
                 },
               },
             ),
@@ -1814,7 +1816,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
       }),
       block('reserve.cancel', 'キャンセル規定', 'お客様都合のキャンセルと、ご連絡のないキャンセルの扱いです。', [
         row('reserve.row-free', '無料キャンセル期限', 'この時刻より前のキャンセルは、キャンセル料がかかりません。0にすると、開始直前までキャンセル料がかかりません。', [
-          num('reserve.free', '無料キャンセル期限', d.cancelFreeUntilHours, 0, null, 1, '時間', undefined, 'いつでも無料'),
+          num('reserve.free', '無料キャンセル期限', d.cancelFreeUntilHours, 0, null, 1, '時間', { zeroLabel: 'いつでも無料' }),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
