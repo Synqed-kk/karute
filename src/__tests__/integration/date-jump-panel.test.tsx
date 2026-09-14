@@ -854,6 +854,87 @@ describe('a day tap during a month slide goes to the day that was tapped', () =>
   })
 })
 
+/**
+ * R11 — the delta-verify's F2/F3, one root: a commit timer nobody owns. Tap ›,
+ * tap the month title 60 ms later, and the year chips opened and then closed
+ * themselves while the staff member was reading them (the commit dispatches
+ * shiftMonth, and setMonth resets the level to the grid). Same timer moved the
+ * panel off the month it had just reopened on.
+ */
+describe('a slide in flight cannot move the panel behind your back', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  const openWithFakeTimers = async () => {
+    fireEvent.click(chip())
+    await act(async () => {
+      jest.advanceTimersByTime(0)
+    })
+    return screen.getByRole('dialog')
+  }
+  const atLevelTwo = (dialog: HTMLElement) =>
+    within(dialog).queryByRole('button', { expanded: true }) !== null
+
+  it('the year chips stay open when › was tapped a moment before', async () => {
+    renderView()
+    const dialog = await openWithFakeTimers()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    fireEvent.click(title())
+    expect(atLevelTwo(dialog)).toBe(true)
+
+    await act(async () => {
+      jest.advanceTimersByTime(2000)
+    })
+    // Still up, and nothing yanked it away.
+    expect(atLevelTwo(dialog)).toBe(true)
+
+    // Back to the grid: the month that was in flight LANDED, it was not lost.
+    fireEvent.click(within(dialog).getByRole('button', { expanded: true }))
+    await waitFor(() => expect(title()).toHaveTextContent('2026年10月'))
+  })
+
+  it('the chips show the landed month year, across a year boundary', async () => {
+    renderView()
+    const dialog = await openWithFakeTimers()
+    // Jump to December, then tap › so the month in flight is January 2027.
+    fireEvent.click(title())
+    fireEvent.click(within(dialog).getByRole('button', { name: '12月' }))
+    await waitFor(() => expect(title()).toHaveTextContent('2026年12月'))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    fireEvent.click(title())
+
+    expect(within(dialog).getByRole('button', { expanded: true })).toHaveTextContent('2027年')
+    await act(async () => {
+      jest.advanceTimersByTime(2000)
+    })
+    expect(within(dialog).getByRole('button', { expanded: true })).toHaveTextContent('2027年')
+  })
+
+  it('reopening mid-slide opens on the page month and stays there', async () => {
+    renderView()
+    const dialog = await openWithFakeTimers()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+
+    // Close and reopen inside the slide's own 220 ms.
+    fireEvent.click(chip())
+    fireEvent.click(chip())
+    await act(async () => {
+      jest.advanceTimersByTime(0)
+    })
+    expect(title()).toHaveTextContent('2026年9月')
+
+    await act(async () => {
+      jest.advanceTimersByTime(2000)
+    })
+    // No stray commit walked it forward.
+    expect(title()).toHaveTextContent('2026年9月')
+  })
+})
+
 describe('the hidden native date input is gone', () => {
   it('AppointmentsView no longer renders one — the chip is the only door to a date', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports

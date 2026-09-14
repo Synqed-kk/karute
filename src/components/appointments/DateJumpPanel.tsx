@@ -422,6 +422,22 @@ export function DateJumpPanel({
     [],
   )
 
+  // Opening or closing starts the slide machine over: land nothing, owe
+  // nothing, arm nothing. A timer left running across a close fired ~220 ms
+  // later and walked the panel off the month it had just reopened on — and
+  // landing it instead would be the same bug, since the month it wants is the
+  // one the reopen just replaced.
+  useEffect(() => {
+    if (commitTimer.current) {
+      clearTimeout(commitTimer.current)
+      commitTimer.current = null
+    }
+    owedRef.current = 0
+    slideRef.current = 0
+    setSlide(0)
+    setDrag(null)
+  }, [open])
+
   // ── gestures: horizontal = month, upward = close ─────────────────────────
   const gesture = useRef<{
     id: number
@@ -602,7 +618,15 @@ export function DateJumpPanel({
             type="button"
             id={titleId}
             aria-expanded={atMonths}
-            onClick={() => dispatch({ type: 'setLevel', level: atMonths ? 'grid' : 'months' })}
+            onClick={() => {
+              // Land the month in flight BEFORE the level changes: its commit
+              // would otherwise fire ~220 ms later, and shiftMonth resets the
+              // level to the grid — the year chips closed themselves while the
+              // staff member was reading them. Committing first also means the
+              // chips open on the year of the month that actually landed.
+              if (!atMonths) commitSlide(false)
+              dispatch({ type: 'setLevel', level: atMonths ? 'grid' : 'months' })
+            }}
             className={cn(
               'inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] text-sm font-semibold tabular-nums text-foreground hover:bg-muted',
               press,
