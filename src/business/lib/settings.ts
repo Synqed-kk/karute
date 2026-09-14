@@ -364,7 +364,10 @@ export type ControlKind =
   | { kind: 'switch'; onLabel: string; offLabel: string }
   | { kind: 'select'; options: ControlOption[] }
   | { kind: 'text'; placeholder?: string; maxLength?: number; required?: boolean }
-  | { kind: 'number'; min: number; max: number; step: number; unit: string }
+  // ⚖ D-15 (round 3, A2) — `max: null` = NO CEILING (a 「minutes before
+  // start」/「days ahead」/「hours before」 field has no honest bound from the
+  // store's own day). A number is a LENGTH's derived ceiling; never a constant.
+  | { kind: 'number'; min: number; max: number | null; step: number; unit: string }
   | { kind: 'time' }
   /** ⚖ S17 · C2 — a calendar date, `YYYY-MM-DD`, which is the wire's own
    *  spelling for `StoreClosedDay.date`. The native control, so a phone gets its
@@ -969,6 +972,13 @@ export function commitNumberField(raw: string, previous: number, min: number, ma
   }
   const value = clampInt(n, min, max)
   if (value === Math.round(n)) return { value, message: null }
+  // ⚖ D-15 (round 3, A2) — A FIELD WITH NO CEILING (`max === Infinity`, the
+  // caller's translation of `RowControl`'s `max: null`) can only ever be
+  // clamped UP to the floor — nothing exceeds Infinity — so the two-sided
+  // range sentence would print 「…からInfinity分のあいだで…」. The floor-only
+  // sentence says the true rule instead. FLAGGED for the blind native pass —
+  // modelled on the two-sided sentence just below (same page, same register).
+  if (max === Infinity) return { value, message: `${min}${unit}以上で設定できます。${value}${unit}にしました` }
   return { value, message: `${min}${unit}から${max}${unit}のあいだで設定できます。${value}${unit}にしました` }
 }
 

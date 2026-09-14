@@ -74,7 +74,13 @@ import {
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
 import { Collapse, DetailToggle } from './Collapse'
-import { StorePolicySection, STORE_POLICY_ANCHORS, STORE_POLICY_HEADINGS, type StorePolicyProps } from './StorePolicySection'
+import {
+  isIntegerTextAtLeast,
+  StorePolicySection,
+  STORE_POLICY_ANCHORS,
+  STORE_POLICY_HEADINGS,
+  type StorePolicyProps,
+} from './StorePolicySection'
 import {
   addToCollection,
   blockDirty,
@@ -2163,12 +2169,19 @@ function NumberField({
   onChange: (id: string, v: RowValue) => void
 }) {
   const text = String(value ?? '')
-  const lastGood = useRef<number>(clampInt(Number(text), k.min, k.max))
+  // ⚖ D-15 (round 3, A2) — NO CEILING (`k.max === null`) TRAVELS AS Infinity
+  // past this point: `clampInt`/`commitNumberField` only ever clamp UP toward
+  // it, never down, so Infinity is the honest "no ceiling" the field's math
+  // already understands.
+  const ceiling = k.max ?? Number.POSITIVE_INFINITY
+  const lastGood = useRef<number>(clampInt(Number(text), k.min, ceiling))
   const [message, setMessage] = useState<string | null>(null)
-  useEffect(() => {
-    const n = Number(text.trim())
-    if (text.trim() !== '' && Number.isFinite(n) && n >= k.min && n <= k.max) lastGood.current = Math.round(n)
-  }, [text, k.min, k.max])
+  // ⚖ D-27/D-30 — `lastGood` MOVES ONLY ON A COMMIT (this field's one commit
+  // moment is blur; it has no preset or custom nudge button), never on every
+  // keystroke — the per-keystroke effect this room's own StorePolicySection
+  // field carried was the exact defect those rulings fixed there: a value
+  // typed but not yet committed would be "remembered" and restored over the
+  // reader's own last real choice.
   return (
     <span className="st-numline">
       <input
@@ -2176,7 +2189,7 @@ function NumberField({
         type="number"
         inputMode="numeric"
         min={k.min}
-        max={k.max}
+        max={k.max ?? undefined}
         step={k.step}
         aria-label={c.aria}
         value={text}
@@ -2185,8 +2198,23 @@ function NumberField({
         // ⚠ THE CLAMP FIRES ON COMMIT, NOT PER KEYSTROKE. A clamp that ran on
         // every character makes 「1」 unreachable on the way to 「14」 — the
         // guardrail would be fighting the reader instead of protecting them.
+        //
+        // ⚖ D-27/D-30 — AND A NON-INTEGER TEXT IS MEANINGLESS INPUT, NEVER A
+        // NUMBER TO ROUND. Handing raw text straight to `commitNumberField`
+        // would silently rewrite 「1.5」→2, 「1e2」→100, 「-5」→5 — the exact
+        // "typed text rewritten into another number" defect those rulings
+        // found on this room's own StorePolicySection fields.
+        // `isIntegerTextAtLeast` is THAT fix's shared predicate (imported
+        // above from `./StorePolicySection` — the fence `foundation.test.ts`
+        // pins is already open for it, since this screen already imports the
+        // section for its component), reused rather than re-spelled: digits
+        // only, at or above this field's own floor; anything else is handed
+        // to `commitNumberField` as `''`, which restores the previous value
+        // and says so.
         onBlur={locked ? undefined : (e) => {
-          const commit = commitNumberField(e.target.value, lastGood.current, k.min, k.max, k.unit ?? '')
+          const raw = isIntegerTextAtLeast(e.target.value, k.min) ? e.target.value.trim() : ''
+          const commit = commitNumberField(raw, lastGood.current, k.min, ceiling, k.unit ?? '')
+          lastGood.current = commit.value
           setMessage(commit.message)
           onChange(c.id, String(commit.value))
         }}
