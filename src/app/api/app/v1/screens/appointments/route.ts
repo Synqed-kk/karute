@@ -28,16 +28,27 @@ import { enrichCustomers, type CustomerEnrichment } from '@/lib/customers/list-e
 import { listAllPackUsageWithClient, type CustomerPackUsage } from '@/lib/packs/store'
 import { customerLensFor, storeStaffIdSetForBusiness } from '@/lib/auth/store-scope'
 import {
+  emptyAppointmentWindow,
+  fetchAppointmentWindow,
   getAppointmentsByDateWithClient,
-  getAppointmentsInRangeWithClient,
 } from '@/lib/appointments/by-date'
 import {
   buildAppointmentsScreen,
   parseDateParam,
   parseStaffParam,
   parseViewParam,
+  resolveFetchStaffId,
 } from '@/lib/appointments/screen'
-import { computeMonthRange, computeWeekRange } from '@/lib/date/calendar-range'
+import {
+  computeMonthRange,
+  computeWeekRange,
+  jstEndOfDay,
+} from '@/lib/date/calendar-range'
+import {
+  jstWindowDays,
+  resolveWindowHours,
+  type WeekdayKey,
+} from '@/lib/operating-hours'
 import { ymdInJst } from '@/lib/date/jst'
 
 export const runtime = 'nodejs'
@@ -100,34 +111,98 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     ])
     const nameById = new Map(customers.map((c) => [c.id, c.name]))
 
-    // Wave 2 — the appointment windows + the store's staff lens.
-    const [dayAppointments, weekRangeAppts, monthRangeAppts, storeStaffIds] =
-      await Promise.all([
-        // includeCancelled: the agenda is the ONE consumer that renders
-        // terminal rows (キャンセル済み / 無断 tombstones in their slot).
-        getAppointmentsByDateWithClient(synqed, selectedDateStr, {
-          storeId,
-          nameById,
-          includeCancelled: true,
-        }),
-        weekRange
-          ? getAppointmentsInRangeWithClient(
-              synqed,
-              weekRange.rangeFrom.toISOString(),
-              weekRange.rangeTo.toISOString(),
-              { storeId },
-            )
-          : Promise.resolve(null),
-        monthRange
-          ? getAppointmentsInRangeWithClient(
-              synqed,
-              monthRange.rangeFrom.toISOString(),
-              monthRange.rangeTo.toISOString(),
-              { storeId },
-            )
-          : Promise.resolve(null),
-        storeStaffIdSetForBusiness(staffList, clamp.storeId, businessId),
-      ])
+    // The caller's roster row (page's getCurrentUserStaffId) — keyed by the
+    // CONFIRMED auth id, same as the record screen. Resolved BEFORE wave 2
+    // because the window reads need it to turn ?staff=self into a core staff
+    // id; it needs nothing but the roster wave 1 already returned.
+    const selfRow = staffList.find((s) => s.id === ctx.identity.authUserId) ?? null
+
+    // ONE extra roster read, and only when a filter is actually on:
+    // appointments.staff_id is a CORE staff id while the roster and the URL
+    // carry PROFILE ids, so an unmapped id would filter the week to nothing.
+    const coreStaffByProfileId = new Map<string, string>()
+    if (staffFilter !== 'all') {
+      const { staff } = await synqed.staff.list({ page_size: 200 })
+      for (const member of staff) {
+        if (member.user_id) coreStaffByProfileId.set(member.user_id, member.id)
+      }
+    }
+    const { staffId, unknown } = resolveFetchStaffId(
+      staffFilter,
+      selfRow?.id ?? null,
+      coreStaffByProfileId,
+    )
+    // A filter naming somebody the roster cannot place gets ZERO rows, never
+    // the whole salon's week.
+    const windowFor = (fromIso: string, toIso: string) =>
+      unknown
+        ? Promise.resolve(emptyAppointmentWindow())
+        : fetchAppointmentWindow(synqed, fromIso, toIso, { storeId, staffId })
+
+    // The one window this view actually reads — its days drive the hours facts
+    // and the 臨時休業 range below.
+    const spanFrom = weekRange?.rangeFrom ?? monthRange?.rangeFrom ?? selectedDate
+    const spanTo = weekRange?.rangeTo ?? monthRange?.rangeTo ?? jstEndOfDay(selectedDate)
+    const span = jstWindowDays(spanFrom.toISOString(), spanTo.toISOString())
+
+    // Wave 2 — the appointment windows, the store's hours, the staff lens.
+    // Every read here THROWS into the 502 catch below: a failed bookings or
+    // hours read must reach the phone as an error, never as a calm empty week.
+    const [
+      dayAppointments,
+      weekWindow,
+      monthWindow,
+      dayWindow,
+      policy,
+      closedDays,
+      storeStaffIds,
+    ] = await Promise.all([
+      // includeCancelled: the agenda is the ONE consumer that renders
+      // terminal rows (キャンセル済み / 無断 tombstones in their slot).
+      getAppointmentsByDateWithClient(synqed, selectedDateStr, {
+        storeId,
+        nameById,
+        includeCancelled: true,
+      }),
+      weekRange
+        ? windowFor(
+            weekRange.rangeFrom.toISOString(),
+            weekRange.rangeTo.toISOString(),
+          )
+        : Promise.resolve(null),
+      monthRange
+        ? windowFor(
+            monthRange.rangeFrom.toISOString(),
+            monthRange.rangeTo.toISOString(),
+          )
+        : Promise.resolve(null),
+      // Day view has no bigger window to read the day line's numbers out of.
+      view === 'day'
+        ? windowFor(
+            selectedDate.toISOString(),
+            jstEndOfDay(selectedDate).toISOString(),
+          )
+        : Promise.resolve(null),
+      // No catch: storePolicies.get answers the PLATFORM DEFAULTS for a store
+      // with no row of its own (`source: 'default'`, the SDK's own contract in
+      // dist/store-policies.d.ts), so "no policy row" is a normal 200. Anything
+      // that throws here is a real outage and belongs in the 502.
+      storeId ? synqed.storePolicies.get(storeId) : Promise.resolve(null),
+      storeId
+        ? synqed.storePolicies.listClosedDays(storeId, {
+            from: span.fromYmd,
+            to: span.toExclusiveYmd, // exclusive, per the SDK's own contract
+          })
+        : Promise.resolve({ closed_days: [] as { date: string }[] }),
+      storeStaffIdSetForBusiness(staffList, clamp.storeId, businessId),
+    ])
+
+    const hoursFacts = resolveWindowHours(span.days, {
+      weeklyHours: policy?.weekly_hours ?? null,
+      closedDates: new Set(closedDays.closed_days.map((d) => d.date)),
+      orgHours: orgSettings?.operating_hours,
+      orgSaved: new Set<WeekdayKey>(orgSettings?.operating_hours_saved ?? []),
+    })
 
     // Stage 2 — enrichment for today's clients + the pack pills (page parity:
     // pack read is graceful, 回数券 off skips it entirely).
@@ -146,10 +221,6 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         : Promise.resolve(new Map<string, CustomerPackUsage>()),
     ])
 
-    // The caller's roster row (page's getCurrentUserStaffId) — keyed by the
-    // CONFIRMED auth id, same as the record screen.
-    const selfRow = staffList.find((s) => s.id === ctx.identity.authUserId) ?? null
-
     const screen = buildAppointmentsScreen({
       locale,
       now: new Date(),
@@ -163,8 +234,12 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       dayAppointments,
       weekRange,
       monthRange,
-      weekRangeAppts,
-      monthRangeAppts,
+      weekRangeAppts: null,
+      monthRangeAppts: null,
+      weekWindow,
+      monthWindow,
+      dayWindow,
+      hoursFacts,
       enrichment,
       packUsage,
     })
@@ -199,6 +274,9 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         businessHours: screen.businessHours,
         weekData: screen.weekData,
         weekStartIso: screen.weekStartIso,
+        dayTotals: screen.dayTotals,
+        monthStartIso: screen.monthStartIso,
+        truncated: screen.truncated,
         monthData:
           screen.monthData?.map((c) => ({
             id: c.id,
