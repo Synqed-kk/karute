@@ -1205,11 +1205,13 @@ function hhmmMinutes(s: string): number | null {
 
 /** ⚖ D-36 — THE LIVE TWIN of a settings page's own day-length ceiling: the
  *  longest `close − open` over the days whose 営業する switch is on, parsing
- *  each pair as `HH:MM`. A day whose switch is off, or whose time does not
- *  parse, does not count. `null` when no day counts (every day off). Floored
- *  at 1 like `dayLengthMin` (`store-policy-seam.ts`) — the same honest bound,
- *  now read against whatever the reader has ACTUALLY set rather than the
- *  fixture's one pair. */
+ *  each pair as `HH:MM`. A day whose switch is off, whose time does not
+ *  parse, or whose length is not positive (⚖ D-38 — an inverted overnight
+ *  pair, or open == close) does not count. `null` when no day counts (every
+ *  day off, or every counted day inverted) — the caller falls back to the
+ *  control's own max. The `Math.max(1, …)` floor is kept as a defensive
+ *  bound only (every counted length is already ≥ 1), matching
+ *  `dayLengthMin`'s floor in `store-policy-seam.ts`. */
 export function longestOpenDayMin(
   days: Array<{ on: RowValue; open: RowValue; close: RowValue }>,
 ): number | null {
