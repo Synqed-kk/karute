@@ -907,7 +907,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // p-05's box is DRAWN (`sellCells`) but withheld — excluded from
     // `soldCells`, the PUBLISHED list. p-06's box is on both: an ordinary
     // published box. p-06's box starts at the next non-blocked cell on the
-    // 30-minute grid and a sell box spans `SELL_SLOT_MIN` (60), so the two
+    // 30-minute grid and a sell box spans the cell's own `e` (60 here), so the two
     // boxes OVERLAP by 30 minutes — that overlap is what makes
     // `boxesElsewhere` non-empty on p-05's rail. The own-row half (ad-less /
     // taker / sold cue) is carried end-to-end by lane pin R19 at the real

@@ -79,7 +79,7 @@ import {
 import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
 import { type GapCell, type SellCell } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
-import { clampPriceInputs, SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
+import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
 import { STORE_A } from '@/business/lib/fixtures'
 import { opsConfig } from '@/business/lib/fixtures-today'
 import { cleanupBlocks, hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
@@ -423,7 +423,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
         // this composer does too (TodayScreen `salesDoor`). A door that differs
         // from the screen's proves the wrong board.
         minSellableMin: w.minSellableMin,
-        dials: gapPackingDials(w.lanes, dialOpts),
+        dials: { ...gapPackingDials(w.lanes, dialOpts), sellSlotMin: 60 },
       })
     : null
   const gapDrawn = fallback
@@ -489,7 +489,7 @@ function offeredMinutes(d: Door, laneKey: string): Set<number> {
   const out = new Set<number>()
   for (const s of d.sellDrawn.cells) {
     if (s.group !== 'staff' || s.laneKey !== laneKey) continue
-    for (let m = s.h; m < s.h + SELL_SLOT_MIN; m += 5) out.add(m)
+    for (let m = s.h; m < s.e; m += 5) out.add(m)
   }
   for (const g of [...d.gapDrawn.packed, ...d.gapDrawn.scraps]) {
     if (g.group !== 'staff' || g.laneKey !== laneKey) continue
@@ -610,7 +610,7 @@ describe('1 — the HELD-SWEEP, all six invariants', () => {
     // span. The bed-row copy carries the STAFF lane key on the sell layer and
     // its own on the gap layer, so both spellings are asked.
     for (const s of on.sellDrawn.cells) {
-      if (inHeld(s.laneKey, s.h, s.h + SELL_SLOT_MIN)) broken.push(`(i) sell ${s.group} ${s.laneKey}@${hhmm(s.h)} drawn inside a held window`)
+      if (inHeld(s.laneKey, s.h, s.e)) broken.push(`(i) sell ${s.group} ${s.laneKey}@${hhmm(s.h)} drawn inside a held window`)
     }
     for (const g of [...on.gapDrawn.packed, ...on.gapDrawn.scraps]) {
       if (inHeld(g.laneKey, g.s, g.e)) broken.push(`(i) gap ${g.group} ${g.laneKey} ${span(g.s, g.e)} drawn inside a held window`)
@@ -1066,7 +1066,7 @@ describe('4 — what paints, and what stops', () => {
     const bedSide = on.sellDrawn.cells.filter((s) => s.group === 'beds')
     expect(bedSide.length).toBeGreaterThan(0)
     for (const s of bedSide) {
-      expect((byLane.get(s.laneKey) ?? []).some((h) => meets(s.h, s.h + SELL_SLOT_MIN, h.start, h.end))).toBe(false)
+      expect((byLane.get(s.laneKey) ?? []).some((h) => meets(s.h, s.e, h.start, h.end))).toBe(false)
     }
   })
 

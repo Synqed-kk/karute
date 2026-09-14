@@ -81,7 +81,7 @@ import {
   type SellCell,
 } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig } from '@/business/lib/canon-logic/gap-guard'
-import { clampPriceInputs, gapFillPrice, packedPrice, SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
+import { clampPriceInputs, gapFillPrice, packedPrice } from '@/business/lib/canon-logic/pricing'
 import { STORE_A } from '@/business/lib/fixtures'
 import { cleanupBlocks, hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 import { createClient } from '@/lib/supabase/server'
