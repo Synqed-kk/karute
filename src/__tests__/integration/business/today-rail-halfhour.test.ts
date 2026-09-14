@@ -277,6 +277,7 @@ function readBoard(lanes: BoardLane[]): BoardRead {
   const drops: SellDrop[] = []
   const sell = sellLayerFor(lanes, REAL.hours, {
     gridMin: REAL.sell.gridMin,
+    sellSlotMin: REAL.sell.sellSlotMin,
     nowMinute: REAL.sell.nowMinute,
     locked: [],
     showPrice: true,
@@ -612,7 +613,7 @@ describe('§R-B — しろう’s quiet 14:30 says where the sale went (shot 1.3
         },
         ...over,
       })
-    const box: SellCell = { laneKey: 'c-03', resourceKey: 'bed-02', group: 'staff', staff: 'c-03', bed: 'ベッド2', h: 870, price: 7010, tier: 2 }
+    const box: SellCell = { laneKey: 'c-03', resourceKey: 'bed-02', group: 'staff', staff: 'c-03', bed: 'ベッド2', h: 870, e: 930, price: 7010, tier: 2 }
     // With the box drawn and the layer on screen, the mark and the name appear.
     expect(ask({ sellCells: [box] }).get('p-04')!.get(870)!.cue).toEqual({ kind: 'sold', label: ['別の枠で', '販売中'] })
     // 表示設定 → 空き枠表示「非表示」 hides every box, so EVERY window is ad-less
@@ -1802,8 +1803,8 @@ describe('§F3 — the sold mark is a HALF-HOUR fact, not the 60-minute verdict�
     const views = bedViewsFor(lanes, DAY_FRAME(), null)
     const dur = REAL.guard.standardSessionMin
     const rails = railsOn(lanes)
-    const box: SellCell = { laneKey: 'c-03', resourceKey: 'bed-02', group: 'staff', staff: 'c-03', bed: 'ベッド2', h: 870, price: 7010, tier: 2 }
-    const mine: SellCell = { ...box, laneKey: 'p-04', staff: 'p-04', h: 900 }
+    const box: SellCell = { laneKey: 'c-03', resourceKey: 'bed-02', group: 'staff', staff: 'c-03', bed: 'ベッド2', h: 870, e: 930, price: 7010, tier: 2 }
+    const mine: SellCell = { ...box, laneKey: 'p-04', staff: 'p-04', h: 900, e: 960 }
     const ask = (over: Partial<Parameters<typeof explainRails>[2]>) =>
       explainRails(rails, lanes, {
         dur, handId: null, stagedId: null, sellCells: [box], claims: [], drops: [], inHand: false, sellDisplayed: true,
@@ -1892,7 +1893,7 @@ describe('§A — 別の枠で販売中 means the ONLY free bed went elsewhere (
     ...Array.from({ length: rooms }, (_, i) => handLane({ key: `bed-0${i + 1}`, group: 'beds', label: `ベッド${i + 1}` })),
   ]
   const boxOn = (laneKey: string, resourceKey: string, h: number): SellCell => ({
-    laneKey, resourceKey, group: 'staff', staff: laneKey, bed: resourceKey, h, price: 7000, tier: 2,
+    laneKey, resourceKey, group: 'staff', staff: laneKey, bed: resourceKey, h, e: h + 60, price: 7000, tier: 2,
   })
   const askSpare = (lanes: BoardLane[], sellCells: SellCell[]) =>
     explainHand(lanes, { sellCells, bedsOver: handDoor(lanes) }).get('p-05')!.get(720)!
@@ -2030,7 +2031,7 @@ describe('§C — one gate for the round: no door, nothing derived (L2-m1)', () 
       const lanes = b.lanes
       const dur = REAL.guard.standardSessionMin
       const rails = railsOn(lanes)
-      const box: SellCell = { laneKey: 'c-03', resourceKey: 'bed-02', group: 'staff', staff: 'c-03', bed: 'ベッド2', h: 870, price: 7010, tier: 2 }
+      const box: SellCell = { laneKey: 'c-03', resourceKey: 'bed-02', group: 'staff', staff: 'c-03', bed: 'ベッド2', h: 870, e: 930, price: 7010, tier: 2 }
       const common = {
         dur, handId: null, stagedId: null, sellCells: [box], claims: [], drops: [],
         inHand: false, sellDisplayed: true,
@@ -2120,7 +2121,7 @@ describe('§H1 — the door answers on the board the chip is judged on (D1-M1)',
     handLane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [handItem({ key: 'hb', caseId: 'apt-hand' }, 780, 840)] }),
     handLane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
   ]
-  const box: SellCell = { laneKey: 'p-02', resourceKey: 'bed-02', group: 'staff', staff: 'p-02', bed: 'ベッド2', h: 780, price: 7000, tier: 2 }
+  const box: SellCell = { laneKey: 'p-02', resourceKey: 'bed-02', group: 'staff', staff: 'p-02', bed: 'ベッド2', h: 780, e: 840, price: 7000, tier: 2 }
 
   /** The strip as the SCREEN builds it mid-gesture: the rails lift the card in
    *  hand (`excludeId`, `placementFeasible: bedDoorFor(handId)`), and the
@@ -2236,7 +2237,7 @@ describe('§H2 — a ⇄ chip carries no row note (D1-M2)', () => {
     handLane({ key: 'bed-02', group: 'beds', label: 'ベッド2', items: [handItem({ key: 'y', caseId: 'apt-y', title: '見本 そら' }, 600, 1140)] }),
     handLane({ key: 'bed-03', group: 'beds', label: 'ベッド3', items: [handItem({ key: 'z', caseId: 'apt-z', title: '見本 かえる' }, 600, 810)] }),
   ]
-  const dualBox: SellCell = { laneKey: 'p-06', resourceKey: 'bed-01', group: 'staff', staff: 'p-06', bed: 'ベッド1', h: 780, price: 7000, tier: 2 }
+  const dualBox: SellCell = { laneKey: 'p-06', resourceKey: 'bed-01', group: 'staff', staff: 'p-06', bed: 'ベッド1', h: 780, e: 840, price: 7000, tier: 2 }
   const dual = () => {
     const lanes = dualScene()
     return explainHand(lanes, {
@@ -2468,7 +2469,7 @@ describe('§J1 — the sold note’s hold gate is the HALF HOUR’s (Greptile #8
     handLane({ key: 'p-02', group: 'staff', label: '見本 かおる' }),
     handLane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
   ]
-  const box: SellCell = { laneKey: 'p-02', resourceKey: 'bed-01', group: 'staff', staff: 'p-02', bed: 'ベッド1', h: 870, price: 7000, tier: 2 }
+  const box: SellCell = { laneKey: 'p-02', resourceKey: 'bed-01', group: 'staff', staff: 'p-02', bed: 'ベッド1', h: 870, e: 930, price: 7000, tier: 2 }
   /** 15:00〜16:30 held on あずさ — after the 14:30 chip's own half hour, inside
    *  the hour it judges. */
   const HELD = [{ laneKey: 'p-01', protectedCount: 1, spans: [{ start: 900, end: 990, windowStart: 900 }] }]

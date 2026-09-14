@@ -595,7 +595,7 @@ describe('the board answers to its own moves', () => {
 })
 
 describe('the sell layer moves with the board', () => {
-  const opts = { gridMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
+  const opts = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
 
   it('a free lane and a free bed advertise the whole day; a booking on either takes its hour off sale', () => {
     const lanes = [lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })]
@@ -1524,7 +1524,7 @@ describe('the window layers price the committed board, never the card in flight'
     newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
     mode: 'standard' as const,
   }
-  const sellOpts = { gridMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
+  const sellOpts = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
   const gapOpts = {
     gridMin: 60, sessionMin: 60, gapFillMin: 30, gapFillDiscountPct: 10, nowMinute: null,
     locked: [], frame: { hi: 7260, lo: 6600, hqMin: 6600, hqMax: 7260 }, depth: 9, guard: GUARD,
@@ -3525,7 +3525,7 @@ describe('the drag emphasis follows the dragged length, and nothing else', () =>
       lane({ key: 'p-01', group: 'staff', window: { from: 840, until: 1050 }, untilLabel: '17:30' }),
       lane({ key: 'bed-01', group: 'beds' }),
     ]
-    const sell = sellLayerFor(lanes, HOURS, { gridMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 })
+    const sell = sellLayerFor(lanes, HOURS, { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 })
     const gap = gapLayerFor(lanes, {
       gridMin: 60, sessionMin: 60, gapFillMin: 30, gapFillDiscountPct: 10, nowMinute: null,
       locked: [], frame: { hi: 7260, lo: 6600, hqMin: 6600, hqMax: 7260 }, depth: 9, guard: GUARD,
@@ -4672,7 +4672,7 @@ describe('販売可能枠の表示 means what it says, at any band count', () =>
     // A 13-band day is exactly the case canon degraded. The layer still SAYS so.
     const cells: SellCell[] = Array.from({ length: DENSITY_CEILING + 1 }, (_, i) => ({
       laneKey: `p-${i}`, resourceKey: `bed-${i}`, group: 'staff' as const,
-      staff: `s${i}`, bed: `bed-${i}`, h: 600 + i * 60, price: 6600 + i * 10, tier: 2 as const,
+      staff: `s${i}`, bed: `bed-${i}`, h: 600 + i * 60, e: 600 + i * 60 + 60, price: 6600 + i * 10, tier: 2 as const,
     }))
     const layer = buildSellLayer(cells, true)
     expect(layer.staffBands.length).toBeGreaterThan(DENSITY_CEILING)
@@ -5497,7 +5497,7 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     // bed emits no cell however free the staff lane is. Reported as a missing
     // 販売可能枠; it is the pairing cap doing its job, and selling the hour would
     // put the board's own advertisement over a room that cannot hold it.
-    const opts = { gridMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
+    const opts = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
     const oneBedTaken = [
       lane({ key: 'p-01', group: 'staff' }),
       lane({ key: 'bed-01', group: 'beds', items: [booking({ key: 'z', caseId: 'apt-8' }, 720, 780)] }),

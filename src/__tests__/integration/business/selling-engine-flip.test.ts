@@ -397,6 +397,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
   const drops: SellDrop[] = []
   const sell = sellLayerFor(w.lanes, w.hours, {
     gridMin: c.gridMin,
+    sellSlotMin: 60,
     nowMinute: w.now,
     locked: [],
     showPrice: true,

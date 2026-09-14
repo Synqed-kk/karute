@@ -156,6 +156,7 @@ function layersOf(
   const claims = [...gap.packed, ...gap.scraps]
   const sell = sellLayerFor(lanes, props.hours, {
     gridMin: dials.gridMin,
+    sellSlotMin: props.sell.sellSlotMin,
     nowMinute: props.sell.nowMinute,
     locked: [],
     showPrice: true,
@@ -226,7 +227,7 @@ function lane(over: Partial<BoardLane> & Pick<BoardLane, 'key' | 'group'>): Boar
   }
 }
 
-const SELL_OPTS = { gridMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
+const SELL_OPTS = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
 
 /** A スキマ枠-shaped promise on one room, as `gapLayerFor` emits them: a staff
  *  row copy and a bed row copy of the same box. */
@@ -273,6 +274,7 @@ describe('§1 — the distinction, and the one place it is spelled', () => {
     resourceKey,
     group: 'staff' as const,
     h,
+    e: h + 60,
     staff: laneKey,
     bed: resourceKey,
     price: 7000,
@@ -1213,7 +1215,7 @@ describe('§7 — the cost, on real timers', () => {
         guard: REAL.guard.config,
       })
       const claims = [...gap.packed, ...gap.scraps]
-      const base = { gridMin: 60, nowMinute: null, locked: [], showPrice: true, hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth }
+      const base = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth }
       const bare = sellLayerFor(lanes, HOURS, base)
       const layer = sellLayerFor(lanes, HOURS, { ...base, reconcile: rec(claims) })
       // WHAT THE RECONCILIATION ACTUALLY DID on this board — the number that

@@ -732,6 +732,7 @@ describe('P4 — no dial combination annihilates a layer, and the book agrees at
         for (const minSellableMin of MIN_SELLABLE) {
           const sell = sellLayerFor(lanes, SYNTH_HOURS, {
             gridMin,
+            sellSlotMin: 60,
             nowMinute: null,
             locked: [],
             showPrice: true,

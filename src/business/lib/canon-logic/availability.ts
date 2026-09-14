@@ -13,7 +13,7 @@
 // (:4906–4914). Painting a slot the business cannot honour is the ⚖ 8/9 defect
 // class — sample data with impossible states — so the pairing is load-bearing.
 
-import { SELL_SLOT_MIN, DENSITY_CEILING, priceLabel, tierOf } from './pricing'
+import { DENSITY_CEILING, priceLabel, tierOf } from './pricing'
 
 export interface Span {
   start: number
@@ -63,6 +63,9 @@ export interface SellCell {
   group: 'staff' | 'beds'
   /** Slot start, minutes from midnight. */
   h: number
+  /** Slot end, minutes from midnight = `h + sellSlotMin`; every reader reads
+   *  THIS, never a constant (B2 finishes the move). */
+  e: number
   staff: string
   bed: string
   price: number | null
@@ -78,6 +81,9 @@ export interface SellInput {
    *  from. The store's lever lives in Reserve受付; the board never advertises a
    *  start Reserve's own rules could not take. */
   gridMin: number
+  /** The length of one sellable slot, the store's own number —
+   *  `opsConfig.sellSlotMin`; canon fixed it at `SELL_SLOT_MIN`. */
+  sellSlotMin: number
   /** Minutes-from-midnight "now" on the day being shown, or null for a future
    *  day where the whole day is still sellable. Past hours are not inventory. */
   now: number | null
@@ -87,13 +93,13 @@ export interface SellInput {
 
 /** canon `deriveSellableCells` (:4868). */
 export function deriveSellableCells(input: SellInput): SellCell[] {
-  const { staffLanes, resourceLanes, open, close, gridMin } = input
+  const { staffLanes, resourceLanes, open, close, gridMin, sellSlotMin } = input
   const cells: SellCell[] = []
   /** canon (:4878–4882): 「過ぎた時間は売れない」— and "now" is rounded UP to the
    *  grid, so 13:24 on a 60-minute grid first sells 14:00. */
   const firstMin = Math.max(open, Math.ceil((input.now ?? open) / gridMin) * gridMin)
-  for (let sm = firstMin; sm + SELL_SLOT_MIN <= close; sm += gridMin) {
-    const end = sm + SELL_SLOT_MIN
+  for (let sm = firstMin; sm + sellSlotMin <= close; sm += gridMin) {
+    const end = sm + sellSlotMin
     const hourOfSlot = Math.floor(sm / 60)
     const bedsExist = resourceLanes.length > 0
     /** canon :4895 — `bedsExist ? bedLanes.filter(…) : [null]`. A store with no
@@ -124,12 +130,12 @@ export function deriveSellableCells(input: SellInput): SellCell[] {
       if (bed === undefined) continue
       claimed.add(bed?.key ?? '')
       cells.push({
-        laneKey: s.key, resourceKey: bed?.key ?? '', group: 'staff', h: sm,
+        laneKey: s.key, resourceKey: bed?.key ?? '', group: 'staff', h: sm, e: end,
         staff: s.name, bed: bed?.name ?? '', price: input.priceFor(s, hourOfSlot), tier: 1,
       })
       if (bed == null) continue
       cells.push({
-        laneKey: s.key, resourceKey: bed.key, group: 'beds', h: sm,
+        laneKey: s.key, resourceKey: bed.key, group: 'beds', h: sm, e: end,
         staff: s.name, bed: bed.name, price: null, tier: 1,
       })
     }
@@ -166,7 +172,7 @@ export function mergeBands(cells: SellCell[]): SellBand[] {
     let cur: SellBand | null = null
     for (const c of arr) {
       if (cur && c.h <= cur.hEnd && c.tier === cur.tier) {
-        cur.hEnd = Math.max(cur.hEnd, c.h + SELL_SLOT_MIN)
+        cur.hEnd = Math.max(cur.hEnd, c.e)
         if (c.price != null) {
           cur.lo = cur.lo == null ? c.price : Math.min(cur.lo, c.price)
           cur.hi = cur.hi == null ? c.price : Math.max(cur.hi, c.price)
@@ -174,7 +180,7 @@ export function mergeBands(cells: SellCell[]): SellBand[] {
       } else {
         cur = {
           laneKey: c.laneKey, resourceKey: c.resourceKey, group: c.group, staff: c.staff,
-          tier: c.tier, lo: c.price, hi: c.price, hStart: c.h, hEnd: c.h + SELL_SLOT_MIN,
+          tier: c.tier, lo: c.price, hi: c.price, hStart: c.h, hEnd: c.e,
         }
         bands.push(cur)
       }

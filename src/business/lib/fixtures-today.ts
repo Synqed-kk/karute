@@ -392,12 +392,11 @@ export const opsConfig = {
   gapFillMinMin: 30,
   gapFillDiscountPct: 10,
   standardSessionMin: 60,
-  /** ⚖ D-15 (round 3, A2) — THE LENGTH OF ONE 販売可能枠, freed from canon's
-   *  `SELL_SLOT_MIN` constant (`canon-logic/pricing.ts:37`). Round 3 slice B1
-   *  owns wiring the board itself to read this value; until then the board
-   *  still reads canon's own constant, and this is the store's own number —
-   *  live in 設定, not yet the thing the board draws from. Same default (60)
-   *  so nothing on screen moves before B1 lands. */
+  /** THE LENGTH OF ONE 販売可能枠 — read by 設定 (A2) and carried to the board's
+   *  props (B1, `page.tsx` → `props.sell.sellSlotMin`). The engine takes the
+   *  length as a value (`SellInput.sellSlotMin`) but the screen hands it the
+   *  default until B2 connects THIS number together with every reader (⚖
+   *  D-42). `SELL_SLOT_MIN` (`canon-logic/pricing.ts`) is that default. */
   sellSlotMin: 60,
   /** ⚖ Liam 2026-08-21 — 販売可能な最小の長さ. Under this the board advertises
    *  nothing: the leftover stays plain track. Fragments are a salvage market,

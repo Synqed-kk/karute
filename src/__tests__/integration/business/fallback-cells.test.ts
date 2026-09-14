@@ -194,6 +194,7 @@ function run(w: World, d: Dials, held: readonly ReservedLaneMask[] = [], locked:
   const dropped: SellDrop[] = []
   const sell = sellLayerFor(w.lanes, w.hours, {
     gridMin: d.gridMin,
+    sellSlotMin: 60,
     nowMinute: w.now,
     locked,
     showPrice: true,

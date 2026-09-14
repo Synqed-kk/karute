@@ -1,5 +1,5 @@
 {
-  "emittedAt": "a1f8f03f0",
+  "emittedAt": "20824a4a4",
   "instant": "2026-08-19T00:00:00Z",
   "cells": {
     "STORE_A": {
@@ -44,8 +44,8 @@
         "n": 6
       },
       "sellLayerFor": {
-        "sha256": "45fda3093c175f6ba6bc7d4f24a8559ef4a8fbf14c0b6be631650a6e756c0667",
-        "bytes": 7190,
+        "sha256": "3c20149d15647bb696baf572bdac3fb20474cdc1b6b283599304fb995918b5cd",
+        "bytes": 7410,
         "n": 2
       },
       "bedTruthViews": {
@@ -101,8 +101,8 @@
         "n": 6
       },
       "sellLayerFor": {
-        "sha256": "9d3ad43173f0499a0d95acdb898d570526e5610c183f701fcd91bcfe9f790e89",
-        "bytes": 5056,
+        "sha256": "b08e9f7eeb96a9d489b82c5684aba9c4cbb07a26b484a2b6e9bca081f41e9ba4",
+        "bytes": 5224,
         "n": 2
       },
       "bedTruthViews": {
@@ -158,8 +158,8 @@
         "n": 6
       },
       "sellLayerFor": {
-        "sha256": "cb7b3a0328ced9a58341ed371a04f406afa744d7cfb87cfb8acd637efd9fa1d5",
-        "bytes": 10536,
+        "sha256": "97b33b34551bfed6218bbb6bbc2fb728a700279f5802117d13717afa6f05268e",
+        "bytes": 10860,
         "n": 2
       },
       "bedTruthViews": {

@@ -1528,6 +1528,7 @@ export function sellLayerFor(
   hours: Hours,
   opts: {
     gridMin: number
+    sellSlotMin: number
     nowMinute: number | null
     locked: string[]
     showPrice: boolean
@@ -1549,6 +1550,7 @@ export function sellLayerFor(
     open: hours.open,
     close: hours.close,
     gridMin: opts.gridMin,
+    sellSlotMin: opts.sellSlotMin,
     now: opts.nowMinute,
     priceFor: (lane, hour) => priceAt(lane.listPrice, hour, opts.hi, opts.hqMin, opts.depth),
   })

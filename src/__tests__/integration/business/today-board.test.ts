@@ -621,10 +621,94 @@ describe('今日の運営 screen', () => {
     expect(p.hours.labels).toHaveLength(p.hours.count)
     expect(p.hours.labels[0]).toBe(String(operatingHours.open / 60))
     expect(p.sell.gridMin).toBe(opsConfig.reserveStartGridMin)
+    // ⚖ D-15/D-24 pin 9(a) — the L1→L3 seam contract at the default: the
+    // page's own props.sell carries the store's sellSlotMin, not a literal.
+    expect(p.sell.sellSlotMin).toBe(opsConfig.sellSlotMin)
     expect(p.sell.nowMinute).toBe(boardNow)
     expect(p.dayLabel).toContain('2026年')
     expect(p.nowFraction).toBeGreaterThan(0)
     expect(p.nowLabel).toBe('13:24')
+  })
+
+  /** ⚖ D-15/D-24 pin 9(a), the non-default half — the SAME override door
+   *  `settings.test.ts`'s `roomWithOpsConfig` uses for `fixtures-today`'s
+   *  `opsConfig` (an isolated module registry + `jest.doMock`, the only way to
+   *  move a module constant for one render), aimed at the today page instead
+   *  of settings-props. Proves the seam carries a NON-default number end to
+   *  end, not just the shipped default agreeing with itself. */
+  const boardWithOpsConfig = async (overrides: { sellSlotMin?: number }, store?: string) => {
+    jest.doMock('@/business/lib/fixtures-today', () => {
+      const actual = jest.requireActual('@/business/lib/fixtures-today')
+      return { ...actual, opsConfig: { ...actual.opsConfig, ...overrides } }
+    })
+    let pageMod!: typeof import('@/app/[locale]/(business)/business/today/page')
+    let screenMod!: typeof import('@/app/[locale]/(business)/business/today/TodayScreen')
+    await jest.isolateModulesAsync(async () => {
+      pageMod = await import('@/app/[locale]/(business)/business/today/page')
+      screenMod = await import('@/app/[locale]/(business)/business/today/TodayScreen')
+    })
+    jest.dontMock('@/business/lib/fixtures-today')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const find = (node: any): any => {
+      if (!node || typeof node !== 'object') return null
+      if (node.type === screenMod.TodayScreen) return node.props
+      const kids = node.props?.children
+      for (const kid of Array.isArray(kids) ? kids.flat() : [kids]) {
+        const hit = find(kid)
+        if (hit) return hit
+      }
+      return null
+    }
+    const node = await pageMod.default({
+      params: Promise.resolve({ locale: 'ja' }),
+      searchParams: Promise.resolve(store ? { store } : {}),
+    })
+    return find(node) as import('@/app/[locale]/(business)/business/today/TodayScreen').TodayProps
+  }
+
+  it('⚖ D-15/D-24 pin 9(a) — a store at a NON-default sellSlotMin (45) reaches props.sell.sellSlotMin end to end', async () => {
+    const p = await boardWithOpsConfig({ sellSlotMin: 45 }, STORE_A)
+    expect(p.sell.sellSlotMin).toBe(45)
+  })
+
+  it('⚖ D-42 — the screen hands the engine the default until B2 (B2 flips this pin)', () => {
+    // A source-text pin, not a runtime one: `today-screen-interactions.test.ts`
+    // (the file that renders `TodayScreen`) has no DOM renderer and no
+    // @testing-library in its own import fence, so there is no way to reach
+    // the drawn cells there. The seam this pins is one line — `sellLayerFor`'s
+    // `sellSlotMin` argument inside `TodayScreen.tsx` — so the exact line is
+    // the honest proof: it still reads the DEFAULT, not the prop, no matter
+    // what the store's own number (pin 9(a), above) carries.
+    const screen = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
+      'utf8',
+    )
+    expect(screen.match(/sellSlotMin: SELL_SLOT_MIN,/g) ?? []).toHaveLength(1)
+    expect(screen.match(/sellSlotMin: props\.sell\.sellSlotMin/g) ?? []).toHaveLength(0)
+  })
+
+  it('⚖ D-15/D-24 pin 9(b) — sellLayerFor at a non-default slot (45) on the real fixture board: every drawn cell spans exactly 45 minutes, and the layer builds without throwing', async () => {
+    const p = await board(STORE_A)
+    const run = () =>
+      sellLayerFor(p.lanes, p.hours, {
+        gridMin: p.sell.gridMin,
+        sellSlotMin: 45,
+        nowMinute: p.sell.nowMinute,
+        locked: [],
+        showPrice: true,
+        hi: p.dialogs.pricing.hqMax,
+        hqMin: p.dialogs.pricing.hqMin,
+        depth: 9,
+      })
+    expect(run).not.toThrow()
+    const sell45 = run()
+    const staffCells = sell45.cells.filter((c) => c.group === 'staff')
+    // Disclosed, not asserted further: at 45 the CHIP/count readers (枠 count,
+    // price label) still read off these same cells and move with them — that
+    // is B1's own derivation, unchanged. This pin does not touch anything the
+    // still-60-by-constant readers (B2) own.
+    expect(staffCells.length).toBeGreaterThan(0)
+    expect(staffCells.every((c) => c.e - c.h === 45)).toBe(true)
   })
 
   it('F — staff lanes and bed lanes both render, with cards, breaks and blocks', async () => {
@@ -777,6 +861,7 @@ describe('今日の運営 screen', () => {
     const layer = (locked: string[]) =>
       sellLayerFor(p.lanes, p.hours, {
         gridMin: p.sell.gridMin,
+        sellSlotMin: p.sell.sellSlotMin,
         nowMinute: p.sell.nowMinute,
         locked,
         showPrice: true,
@@ -1075,7 +1160,7 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
     // whole point of turning the feature off rather than just hiding the paint.
     const layerOn = (lanes: BoardLane[]) =>
       sellLayerFor(lanes, operatingHours, {
-        gridMin: 30, nowMinute: null, locked: [], showPrice: true, hi: 9000, hqMin: 5000, depth: 9,
+        gridMin: 30, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 9000, hqMin: 5000, depth: 9,
       })
     const bedOf = (lanes: BoardLane[]) => lanes.find((l) => l.key === 'bed-01')!
     const covers = (lanes: BoardLane[], at: number) =>

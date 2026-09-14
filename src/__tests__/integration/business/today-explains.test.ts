@@ -542,7 +542,7 @@ describe('§4 — ⚖ 75(i): the collector observes, and the clause never invent
   const layerWith = (claims: GapCell[], onDrop?: (d: SellDrop) => void) => {
     const { price, depth } = priceOf(REAL)
     return sellLayerFor(oneRoom(), REAL.hours, {
-      gridMin: 60, nowMinute: null, locked: [], showPrice: true,
+      gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true,
       hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth,
       reconcile: { claims, cleanupMinutesByBed: {}, onDrop },
     })
@@ -642,7 +642,7 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
           const claims = [...gap.packed, ...gap.scraps]
           const drops: SellDrop[] = []
           const sell = sellLayerFor(REAL.lanes, REAL.hours, {
-            gridMin, nowMinute: REAL.sell.nowMinute, locked: [], showPrice: true,
+            gridMin, sellSlotMin: 60, nowMinute: REAL.sell.nowMinute, locked: [], showPrice: true,
             hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth,
             reconcile: {
               claims, cleanupMinutesByBed: REAL.bedCleanupMinutes,
@@ -759,7 +759,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
       ...over,
     })
   const sellAt = (laneKey: string, h: number): SellCell => ({
-    laneKey, resourceKey: 'bed-01', group: 'staff', staff: laneKey, bed: 'ベッド1', h, price: 7000, tier: 2,
+    laneKey, resourceKey: 'bed-01', group: 'staff', staff: laneKey, bed: 'ベッド1', h, e: h + 60, price: 7000, tier: 2,
   })
   /** The first start on p-05 the board did not refuse — where ⚖ 75(i) lives. */
   const okStart = (lanes: BoardLane[]) => railsOn(lanes).find((r) => r.laneKey === 'p-05')!.cells.find((c) => c.state !== 'blocked')!.start
@@ -1068,7 +1068,7 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
   const startsOf = (cues: readonly { start: number; end: number }[]): number[] =>
     cues.flatMap((c) => Array.from({ length: (c.end - c.start) / 30 }, (_, i) => c.start + i * 30))
   const sellAt = (h: number): SellCell => ({
-    laneKey: 'p-01', resourceKey: 'bed-01', group: 'staff', staff: 'p-01', bed: 'ベッド1', h, price: 7000, tier: 2,
+    laneKey: 'p-01', resourceKey: 'bed-01', group: 'staff', staff: 'p-01', bed: 'ベッド1', h, e: h + 60, price: 7000, tier: 2,
   })
   const gapAt = (s: number, e: number): GapCell => ({
     laneKey: 'p-01', resourceKey: 'bed-01', group: 'staff', staff: 'p-01', s, e, price: 5000,
@@ -1613,6 +1613,7 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     const claims = [...gap.packed, ...gap.scraps]
     const sell = sellLayerFor(lanes, REAL.hours, {
       gridMin: REAL.sell.gridMin,
+      sellSlotMin: REAL.sell.sellSlotMin,
       nowMinute: REAL.sell.nowMinute,
       locked: [],
       showPrice: true,
