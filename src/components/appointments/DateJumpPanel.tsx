@@ -273,22 +273,25 @@ export function DateJumpPanel({
   const [drag, setDrag] = useState<number | null>(null)
   const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // The direction in flight, in a ref as well as state: the handlers below
+  // read it inside one React batch, where the state value is still the old one.
+  const slideRef = useRef(0)
+
   const commitSlide = useCallback(() => {
     if (commitTimer.current) {
       clearTimeout(commitTimer.current)
       commitTimer.current = null
     }
-    setSlide((k) => {
-      if (k !== 0) dispatch({ type: 'shiftMonth', delta: k })
-      return 0
-    })
+    const k = slideRef.current
+    if (k === 0) return
+    slideRef.current = 0
+    setSlide(0)
+    dispatch({ type: 'shiftMonth', delta: k })
   }, [])
 
-  const goMonth = useCallback(
+  const startSlide = useCallback(
     (delta: number) => {
-      // A second tap mid-slide lands the first month, then starts the next —
-      // the transition is interruptible, never queued.
-      commitSlide()
+      slideRef.current = delta
       setDrag(null)
       setSlide(delta)
       commitTimer.current = setTimeout(commitSlide, reduced ? 0 : SLIDE_MS)
@@ -296,9 +299,28 @@ export function DateJumpPanel({
     [commitSlide, reduced],
   )
 
+  const goMonth = useCallback(
+    (delta: number) => {
+      // A second tap mid-slide lands the month in flight first and starts the
+      // next one on the FOLLOWING frame — the transition is interruptible, not
+      // queued. Doing both in one batch would leave the track parked at the
+      // same offset, and staff tapping › three times to reach 12月 would watch
+      // two of the three months arrive without moving.
+      if (slideRef.current !== 0) {
+        commitSlide()
+        requestAnimationFrame(() => startSlide(delta))
+        return
+      }
+      startSlide(delta)
+    },
+    [commitSlide, startSlide],
+  )
+
   const jumpToMonth = useCallback(
     (key: MonthKey) => {
       commitSlide()
+      slideRef.current = 0
+      setSlide(0)
       setDrag(null)
       dispatch({ type: 'setMonth', month: key })
       dispatch({ type: 'setLevel', level: 'grid' })
@@ -376,7 +398,7 @@ export function DateJumpPanel({
     const far = width > 0 && Math.abs(dx) > width * COMMIT_FRACTION
     const flick = Math.abs(g.velocity) > COMMIT_VELOCITY
     setDrag(null)
-    if (far || flick) goMonth(dx < 0 ? 1 : -1)
+    if (far || flick) startSlide(dx < 0 ? 1 : -1)
   }
 
   // ── height: 5-row and 6-row months differ; follow the pane in view ────────
