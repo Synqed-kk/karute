@@ -16,7 +16,7 @@ import {
   type AppointmentsScreenDTOType,
 } from '@/lib/app-api/appointments-screen-dto'
 import { ymdInJst } from '@/lib/date/jst'
-import { useDataPort } from '@/lib/ports/data-port'
+import { getDataPort } from '@/lib/ports/data-port'
 import { warmBriefsForToday } from '../data/brief-warm'
 import { warmRecordForBookings } from '../data/screen-prefetch'
 import { getThinLocale } from '../locale'
@@ -88,7 +88,10 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
   // endpoint and no new audit action. NO staff param: the 月 counts are
   // store-wide (the filter touches reservationViews only, see
   // lib/appointments/screen.ts), and sending one would quietly shrink them.
-  const port = useDataPort()
+  // getDataPort(), not the context accessor: this is the same singleton
+  // ScreenBoundary's own DTO fetch reads (ScreenBoundary.tsx:216), so the
+  // month door and the screen it belongs to can never resolve to two
+  // different ports.
   const loadMonthCells = useCallback(
     async (monthKey: string) => {
       const qs = new URLSearchParams({
@@ -96,7 +99,9 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
         date: `${monthKey}-01`,
         locale: getThinLocale(),
       })
-      const res = await port.apiFetch(`/api/app/v1/screens/appointments?${qs.toString()}`)
+      const res = await getDataPort().apiFetch(
+        `/api/app/v1/screens/appointments?${qs.toString()}`,
+      )
       if (!res.ok) throw new Error(`date-jump month read failed: ${res.status}`)
       const monthDto = AppointmentsScreenDTO.parse(await res.json())
       // Never silently empty: no monthData means the read did not answer the
@@ -104,7 +109,7 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       if (!monthDto.monthData) throw new Error('date-jump month read returned no monthData')
       return monthDto.monthData
     },
-    [port],
+    [],
   )
 
   return (

@@ -178,6 +178,19 @@ describe('opening and closing', () => {
     await waitFor(() => expect(chip()).toHaveAttribute('aria-expanded', 'false'))
   })
 
+  it('Escape hands focus back to the chip', async () => {
+    renderView()
+    await openPanel()
+    // Focus starts inside the panel, not on the chip.
+    expect(document.activeElement).not.toBe(chip())
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(chip()).toHaveAttribute('aria-expanded', 'false'))
+    // The panel is what the keyboard was inside of — dismissing it must not
+    // drop the caret at the top of the document.
+    expect(document.activeElement).toBe(chip())
+  })
+
   it('an Escape mid-IME-composition belongs to the input method, not the panel', async () => {
     renderView()
     await openPanel()
@@ -578,6 +591,43 @@ describe('prefers-reduced-motion: reduce', () => {
       expect(pressables.length).toBeGreaterThan(0)
       expect(pressables.some((b) => b.className.includes('active:scale'))).toBe(false)
     } finally {
+      restore()
+    }
+  })
+
+  it('opens with no transform at all — fades only', async () => {
+    const restore = stubMotion(true)
+    try {
+      renderView()
+      await openPanel()
+      // Not 'scaleY(0.96) translateY(-4px)' on the first frame and not a
+      // transform transition after it: under reduce there is nothing to move.
+      expect(screen.getByRole('dialog').style.transform).toBe('none')
+    } finally {
+      restore()
+    }
+  })
+
+  it('commits a month with a 0 ms timer instead of sliding', async () => {
+    const restore = stubMotion(true)
+    jest.useFakeTimers()
+    try {
+      renderView()
+      fireEvent.click(chip())
+      await act(async () => {
+        jest.advanceTimersByTime(0)
+      })
+      const dialog = screen.getByRole('dialog')
+      expect(title()).toHaveTextContent('2026年9月')
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+      // Zero, not the 220 ms slide — the month is simply there.
+      await act(async () => {
+        jest.advanceTimersByTime(0)
+      })
+      expect(title()).toHaveTextContent('2026年10月')
+    } finally {
+      jest.useRealTimers()
       restore()
     }
   })
