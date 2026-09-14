@@ -235,22 +235,12 @@ export function firstOpenSection(access: SettingsAccess): RailEntry | null {
 // guardrail, and the number it refuses to cross is stated in its own comment so
 // the screen can print the same sentence the code enforces.
 
-/** 再来促し. Under two weeks the nudge reaches customers who are simply not due
- *  yet; past a year it reaches people who have moved away. */
-export const WIN_BACK_MIN = 14
-export const WIN_BACK_MAX = 365
-export function clampWinBackDays(days: number): number {
-  return clampInt(days, WIN_BACK_MIN, WIN_BACK_MAX)
-}
-
-/** コーチングの保存期間, months. Under three months a trajectory has no baseline
- *  to be a trajectory against; past three years the record outlives the person
- *  it is about. */
-export const RETENTION_MIN_MONTHS = 3
-export const RETENTION_MAX_MONTHS = 36
-export function clampCoachingRetention(months: number): number {
-  return clampInt(months, RETENTION_MIN_MONTHS, RETENTION_MAX_MONTHS)
-}
+// ⚖ D-32 F3 (round 3, A2) — 再来促し (`contact.winback`) and コーチングの保存期間
+// (`coaching.retention`) used to clamp here (14…365 / 3…36) — the exact
+// hardcoded-cap-and-step shape ⚖ D-15 forbids for a duration, found by the
+// A2 sweep's own gap. Both are now free positive fields (`settings-props.ts`),
+// clamped by nothing but their own floor; the two clamps and their bounds are
+// deleted rather than left as dead code with no production reader.
 
 /** 判断に必要なセッション数. Room 8's own bar, carried by value with its cite:
  *  `coaching.ts FLOOR_MIN/FLOOR_MAX` on that branch. Below ten a coin flip
@@ -413,6 +403,19 @@ export interface RowControl {
    *  permission the reader does not hold. The reason is VISIBLE, never a
    *  tooltip, and it is canon refusing rather than this room refusing. */
   locked?: string
+  /** ⚖ D-32 F1 — A LOCK THAT FOLLOWS A LIVE SIBLING, not one baked into this
+   *  render's payload. `locked` answers a question the SERVER already knows
+   *  (本部設定, a permission); some locks depend on another control THIS
+   *  READER can move in the same section (確保枠の自動解除's number field,
+   *  locked only while the mode select beside it is not 「分で指定」) — a
+   *  server-computed `locked` for that case never re-evaluates once the
+   *  reader moves the select, and the lock never lifts. `unless` is the one
+   *  value of `controlId` that unlocks; `reason` is keyed by `controlId`'s
+   *  CURRENT value, because two different sibling states can be two
+   *  different honest reasons (⚖ D-32 F2) rather than one sentence
+   *  stretched to cover both. Read together with `locked` by `effectiveLock`,
+   *  the ONE place a control's live lock is decided. */
+  lockedWhen?: { controlId: string; unless: string; reason: Record<string, string> }
 }
 
 export interface Trio {
@@ -675,6 +678,21 @@ export function labelOfValue(control: ControlKind, value: RowValue): string {
     default:
       return String(value)
   }
+}
+
+/** ⚖ D-32 F1 — A CONTROL'S LIVE LOCK, decided in ONE place so the reason a
+ *  row PRINTS beside it (`Row`'s `st-why`) and the reason that actually
+ *  disables it (`Control`'s `inert`) can never disagree. `locked` wins when
+ *  the server already knows the answer; otherwise `lockedWhen` is read
+ *  against the CURRENT `values` — the live sibling, not the value this
+ *  control's own payload was built with. `undefined` = unlocked. */
+export function effectiveLock(c: RowControl, values: Record<string, RowValue>): string | undefined {
+  if (c.locked !== undefined) return c.locked
+  if (!c.lockedWhen) return undefined
+  const { controlId, unless, reason } = c.lockedWhen
+  const live = values[controlId]
+  if (live === unless) return undefined
+  return reason[String(live)]
 }
 
 /** `{control-id}` → that control's current label. An id the block does not hold
@@ -1055,14 +1073,11 @@ export function yen(amount: number): string {
   return `¥${amount.toLocaleString('ja-JP')}`
 }
 
-/** ⚠ THE SEGMENTED CONTROL'S OPTION LIST HAS TO CONTAIN THE STORE'S OWN VALUE.
- *  canon rules that silently rounding a stored value to the nearest preset makes
- *  「現在値をプリセット」 a lie (fable-settings-store-hours.html:4218-4231). So a
- *  value outside the preset list is ADDED to it, in order, and the reader sees
- *  the truth rather than a nearby number. */
-export function withCurrent(options: readonly number[], current: number): number[] {
-  return options.includes(current) ? [...options] : [...options, current].sort((a, b) => a - b)
-}
+// ⚖ D-32 F7 (round 3, A2) — `withCurrent` (the segmented-control preset
+// widener) lost its last production caller when A2 converted every fixed
+// option list it served into a free `num` field; its only readers at this
+// tip were its own two unit legs, so it is deleted with them rather than
+// kept as dead code nothing points at any more.
 
 /** A minutes-from-midnight number as canon prints a time field's value. The
  *  world's planes hold minutes; a `time` control needs `HH:MM`. */

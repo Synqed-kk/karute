@@ -54,8 +54,6 @@ import {
   accessFor,
   BOOKING_GUARD_ID,
   clampCoachingFloor,
-  clampCoachingRetention,
-  clampWinBackDays,
   COACHING_FLOOR_MAX,
   COACHING_FLOOR_MIN,
   dayTitle,
@@ -64,13 +62,9 @@ import {
   hhmm,
   minutesLabel,
   RAIL,
-  RETENTION_MAX_MONTHS,
-  RETENTION_MIN_MONTHS,
   sectionById,
   WEEKDAY_OF,
   weeklyHoursFrom,
-  WIN_BACK_MAX,
-  WIN_BACK_MIN,
   yen,
   type ControlOption,
   type RailEntry,
@@ -101,7 +95,6 @@ const fmtClock = new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-
  *  repeats, so 「61日」 on the row and 「14日」 in its guardrail are the same
  *  spelling by construction. */
 const days = (n: number) => `${n}日`
-const months = (n: number) => `${n}か月`
 const people = (n: number) => `${n}名`
 const times = (n: number) => `${n}回`
 
@@ -283,7 +276,17 @@ const num = (
   step: number,
   unit: string,
   locked?: string,
-): RowControl => ({ id, aria, control: { kind: 'number', min, max, step, unit }, value: String(value), ...(locked ? { locked } : {}) })
+  // ⚖ D-32 F1 — a lock that follows a LIVE sibling control; see
+  // `RowControl.lockedWhen`.
+  lockedWhen?: RowControl['lockedWhen'],
+): RowControl => ({
+  id,
+  aria,
+  control: { kind: 'number', min, max, step, unit },
+  value: String(value),
+  ...(locked ? { locked } : {}),
+  ...(lockedWhen ? { lockedWhen } : {}),
+})
 const tim = (id: string, aria: string, value: string): RowControl => ({ id, aria, control: { kind: 'time' }, value })
 const chips = (
   id: string,
@@ -877,6 +880,10 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
   const nameOf = new Map(staff.map((s) => [s.id, s.full_name]))
   const roster = Object.keys(d.staffActive)
   const beds = resources.filter((r) => r.store_id === ctx.storeId)
+  // ⚖ D-32 F3 (round 3, A2) — the A2 sweep's own gap: 清掃時間 is a LENGTH with
+  // a hardcoded cap (60) and step (5), the exact shape ⚖ D-15 forbids. Same
+  // derived ceiling every other length row in this round uses.
+  const dayLen = dayLengthMin({ open: operatingHours.open, close: operatingHours.close })
   return {
     ...base,
     kicker: '店舗運営',
@@ -896,7 +903,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
       block('people.equipment', '設備・枠', `この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。`, beds.map((r) =>
         row(`people.row-${r.id}`, r.name, r.note, [
           seg(`people.class-${r.id}`, `${r.name}の種類`, opts([['standard', '施術室'], ['private', '個室']]), r.room_class),
-          num(`people.cleanup-${r.id}`, `${r.name}の清掃時間`, r.cleanup_minutes, 0, 60, 5, '分'),
+          num(`people.cleanup-${r.id}`, `${r.name}の清掃時間`, r.cleanup_minutes, 0, dayLen, 1, '分'),
         ])), {
         facts: [
           `いまこの店舗には設備が${people(beds.length)}あります。`,
@@ -994,7 +1001,9 @@ function payments(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
 // ── 顧客・連絡 ──────────────────────────────────────────────────────────────
 
 function customerContact(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
-  const winBack = clampWinBackDays(d.winBackDays)
+  // ⚖ D-32 F3 (round 3, A2) — no ceiling: a 「days ahead」-shaped field has no
+  // honest bound from the store's own day, same doctrine as `reserve.days`.
+  const winBack = d.winBackDays
   return {
     ...base,
     kicker: '再来促し',
@@ -1003,12 +1012,15 @@ function customerContact(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
     blocks: [
       block('contact.winback', '再来促し', '最後のご来店からこの日数が経つと、カルテにお声がけの案が出るようになります。', [
         row('contact.row-winback', '再来促しの日数', '短すぎるとまだ来る時期でない方に届き、長すぎると引っ越された方に届きます。', [
-          num('contact.winback', '再来促しの日数', winBack, WIN_BACK_MIN, WIN_BACK_MAX, 1, '日'),
+          num('contact.winback', '再来促しの日数', winBack, 1, null, 1, '日'),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
             base: '初期値: 61日',
-            guardrail: `${days(WIN_BACK_MIN)}より短くも、${days(WIN_BACK_MAX)}より長くも設定できません。`,
+            // ⚖ D-15 doctrine (JP-NATIVE-R3/A2-FIX-LINES.md §F) — the result,
+            // not a cap constant. The short side is already in the row's own
+            // description above.
+            guardrail: '長すぎると、来なくなったお客様にも声をかけ続けることになります。',
             businessType: '業種による初期値: 来店の間隔は業種で大きく違うため、業種ごとの初期値を持ちます。',
           },
         }),
@@ -1365,7 +1377,9 @@ function recording(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection 
 // ── コーチング ──────────────────────────────────────────────────────────────
 
 function coaching(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
-  const retention = clampCoachingRetention(d.coachingRetentionMonths)
+  // ⚖ D-32 F3 (round 3, A2) — no ceiling, same doctrine as `reserve.days`.
+  // `coaching.floor` (a session COUNT, not a duration) is unchanged.
+  const retention = d.coachingRetentionMonths
   const floor = clampCoachingFloor(d.coachingSampleFloor)
   return {
     ...base,
@@ -1408,12 +1422,15 @@ function coaching(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
       }),
       block('coaching.records', '記録と判断', 'どれくらい記録を持ち、いつから区分を出してよいかです。', [
         row('coaching.row-retention', '記録の保存期間', '振り返りの記録をどれくらいの期間もっておくかです。', [
-          num('coaching.retention', '記録の保存期間', retention, RETENTION_MIN_MONTHS, RETENTION_MAX_MONTHS, 1, 'か月'),
+          num('coaching.retention', '記録の保存期間', retention, 1, null, 1, 'か月'),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
             base: '初期値: 12か月',
-            guardrail: `${months(RETENTION_MIN_MONTHS)}より短くも、${months(RETENTION_MAX_MONTHS)}より長くも設定できません。短すぎると前と比べられず、長すぎると本人が辞めたあとも記録が残ります。`,
+            // ⚖ D-15 doctrine (JP-NATIVE-R3/A2-FIX-LINES.md §F) — the cap
+            // sentence is dropped; the two-sided consequence it already had
+            // stands on its own as an unlimited-field guardrail.
+            guardrail: '短すぎると前と比べられず、長すぎると本人が辞めたあとも記録が残ります。',
           },
         }),
         row('coaching.row-floor', '判断に必要なセッション数', 'この回数に届くまでは、そのスタッフの区分を出しません。「まだ判断できません」と表示します。', [
@@ -1669,16 +1686,36 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
             num(
               'reserve.autorelease-min',
               '確保枠の自動解除（分）',
+              // ⚖ D-32 F2 — 'minutes' shows the explicit value; 'linked' shows
+              // leadTimeMin HONESTLY (it IS that number by construction);
+              // 'never' shows the same number too, but the LOCK REASON below
+              // says it goes unused, rather than the row implying a release
+              // time that does not exist. DISCLOSED NARROWING of D-32's own
+              // wording ("the last explicit minutes if any" under 'never'):
+              // the wire (`AutoReleaseBefore`) keeps no separate "last
+              // explicit minutes" once the state is 'never', so there is
+              // nothing else honest to show back — see the fix report.
               autoReleaseMode === 'minutes' ? (autoReleaseDial as number) : opsConfig.leadTimeMin,
               1,
               null,
               1,
               '分',
-              // ⚖ 8/21 mistake-proofing — LOCKED, NOT HIDDEN: the field stays
-              // reachable and the reason is a visible sentence (`RowControl`'s
-              // own `locked` pattern), never a `disabled` a reader cannot ask
-              // about. FLAG — new JP, blind native pass before Liam sees it.
-              autoReleaseMode === 'minutes' ? undefined : '「分で指定」を選ぶと変更できます',
+              undefined,
+              // ⚖ D-32 F1 — LOCKED, NOT HIDDEN, and now read against the LIVE
+              // select rather than baked into this render: a server-computed
+              // `locked` here never re-evaluates once the reader picks
+              // 「分で指定」, so the field renders locked forever. `effectiveLock`
+              // (SettingsScreen.tsx) reads this against the CURRENT
+              // `reserve.autorelease` value on every render instead.
+              // FLAG — new JP, blind native pass before Liam sees it.
+              {
+                controlId: 'reserve.autorelease',
+                unless: 'minutes',
+                reason: {
+                  linked: '「直前の空きは売らないと同じ」を選んでいるため、上の行と同じ値です。「分で指定」を選ぶと変更できます',
+                  never: '「解除しない」を選んでいるため、この数は使われません。「分で指定」を選ぶと変更できます',
+                },
+              },
             ),
           ],
           {

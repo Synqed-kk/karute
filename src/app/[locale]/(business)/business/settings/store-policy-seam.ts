@@ -142,11 +142,33 @@ export function autoReleaseFromWire(w: AutoReleaseBefore | undefined): AutoRelea
 
 /** The inverse of `autoReleaseFromWire`. ⚖ D-15 (2026-09-13) replaces the old
  *  nearest-of-two rounding with the number itself — any positive integer round-
- *  trips as its own digit string. */
+ *  trips as its own digit string.
+ *
+ *  ⚖ D-32 F8 — kept for symmetry with `autoReleaseFromWire` (same status: it
+ *  has no production caller until `StorePolicyClient.get(storeId)` replaces
+ *  the fixture read — the room's two controls write through
+ *  `autoReleaseWireFrom` below, not through here). Dead code is honest when
+ *  it says so. */
 export function autoReleaseToWire(v: AutoReleaseBoard): AutoReleaseBefore {
   if (v === 'linked') return 'linked'
   if (v === null) return 'never'
   return `${v}` as AutoReleaseBefore
+}
+
+/** ⚖ D-32 N1 — THE ROW'S TWO CONTROLS HAVE ONE COMPOSITION HOME, HERE.
+ *  `reserve.autorelease` (the mode select) and `reserve.autorelease-min` (the
+ *  minute field beside it) are one wire value; the reconnect's writer
+ *  composes them through this function and nowhere else, so a save path
+ *  invented at reconnect time cannot spell the three states differently than
+ *  this file's own read side (`autoReleaseFromWire`) already does. An
+ *  unreadable minutes value under 'minutes' falls to the product default
+ *  ('linked') rather than to a fabricated number — the same doctrine
+ *  `autoReleaseFromWire` applies to a wire value it cannot trust. */
+export function autoReleaseWireFrom(mode: 'linked' | 'never' | 'minutes', minutes: unknown): AutoReleaseBefore {
+  if (mode === 'linked') return 'linked'
+  if (mode === 'never') return 'never'
+  const n = readMinutes(minutes, null)
+  return n === null ? 'linked' : (`${n}` as AutoReleaseBefore)
 }
 
 /** THE READ, and the whole of it. The board keeps its own lowercase spelling of

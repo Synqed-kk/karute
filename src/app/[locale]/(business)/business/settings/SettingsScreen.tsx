@@ -91,6 +91,7 @@ import {
   clampInt,
   commitNumberField,
   controlIdsOf,
+  effectiveLock,
   fillTemplate,
   keepCardOffHeading,
   labelOfValue,
@@ -1789,11 +1790,11 @@ function WeekTable({
           <div className={`st-week-row${on ? '' : ' is-off'}`} role="row" key={r.id}>
             <span className="st-week-day" role="cell">{r.label}</span>
             <span className="st-week-cell" role="cell">
-              {openCtl && <Control row={r} c={openCtl} value={values[openCtl.id]} onChange={onChange} reduced={reduced} />}
+              {openCtl && <Control row={r} c={openCtl} value={values[openCtl.id]} values={values} onChange={onChange} reduced={reduced} />}
             </span>
             {times.map((c) => (
               <span className="st-week-cell" role="cell" key={c.id}>
-                <Control row={r} c={c} value={values[c.id]} onChange={onChange} reduced={reduced} />
+                <Control row={r} c={c} value={values[c.id]} values={values} onChange={onChange} reduced={reduced} />
               </span>
             ))}
           </div>
@@ -1844,7 +1845,7 @@ function Row({
    *  the same way (which is to say: it does not fold). 「why can I not change
    *  this」 is read before the press, not after it. */
   const lockReasons = [
-    ...row.controls.map((c) => c.locked),
+    ...row.controls.map((c) => effectiveLock(c, values)),
     ...row.controls.map((c) => (c.control.kind === 'chips' ? c.control.keep?.reason : undefined)),
   ].filter((r): r is string => r !== undefined)
   const detailId = `st-det-${row.id}`
@@ -1886,7 +1887,7 @@ function Row({
         )}
         {groupTimes(row.controls).map((group) =>
           group.length === 1 ? (
-            <Control key={group[0].id} row={row} c={group[0]} value={values[group[0].id]} onChange={onChange} reduced={reduced} />
+            <Control key={group[0].id} row={row} c={group[0]} value={values[group[0].id]} values={values} onChange={onChange} reduced={reduced} />
           ) : (
             // ⚠ A TIME RANGE IS ONE THING, SO IT WRAPS AS ONE THING. Two `time`
             // fields side by side in a narrow column left the switch beside them
@@ -1898,7 +1899,7 @@ function Row({
               {group.map((c, i) => (
                 <span className="st-timepart" key={c.id}>
                   {i > 0 && <span className="st-tilde" aria-hidden="true">〜</span>}
-                  <Control row={row} c={c} value={values[c.id]} onChange={onChange} reduced={reduced} />
+                  <Control row={row} c={c} value={values[c.id]} values={values} onChange={onChange} reduced={reduced} />
                 </span>
               ))}
             </span>
@@ -1945,12 +1946,17 @@ function Control({
   row,
   c,
   value,
+  values,
   onChange,
   reduced,
 }: {
   row: SettingsRow
   c: RowControl
   value: RowValue
+  /** ⚖ D-32 F1 — every sibling control's value, so a `lockedWhen` lock can be
+   *  read against what the reader has ACTUALLY picked rather than against
+   *  what this render's payload was built with. */
+  values: Record<string, RowValue>
   onChange: (id: string, v: RowValue) => void
   /** ⚠ THE TWO CONTROLS WHOSE STATE TRAVELS NEED IT. A spring is JS, so the
    *  sheet's `prefers-reduced-motion` block cannot reach it — the thumbs would
@@ -1961,13 +1967,14 @@ function Control({
   reduced: boolean
 }) {
   const k = c.control
-  const locked = c.locked !== undefined
+  const lockedReason = effectiveLock(c, values)
+  const locked = lockedReason !== undefined
   /** A locked control stays FOCUSABLE (`aria-disabled`, never `disabled`) so its
    *  reason is reachable by keyboard and screen reader; the reason rides the
    *  accessible name as well, because a screen reader drops `title` once a
    *  description is present. */
   const inert = locked
-    ? { 'aria-disabled': 'true' as const, title: c.locked, 'aria-label': `${c.aria} — ${c.locked}` }
+    ? { 'aria-disabled': 'true' as const, title: lockedReason, 'aria-label': `${c.aria} — ${lockedReason}` }
     : {}
   /** ⚠ A CONTROLLED FIELD ALWAYS GETS AN `onChange`, EVEN WHEN IT IS LOCKED.
    *  React treats `value` without one as a read-only field and warns on every
@@ -2149,8 +2156,7 @@ function Control({
  *  ⚠ THE MEMORY IS THE LAST ACCEPTED VALUE, not the last saved one. A reader who
  *  moves 30 → 45 and then clears the box gets 45 back: 45 is what they last told
  *  this page, and restoring the saved 30 would be the room undoing a change they
- *  made on purpose. It is tracked from the VALUE rather than from the blur, so
- *  the stepper's ± and a preset that writes the field are remembered too. */
+ *  made on purpose. */
 function NumberField({
   c,
   k,

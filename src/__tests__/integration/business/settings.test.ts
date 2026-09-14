@@ -57,12 +57,11 @@ import {
   clampCoachingFloor,
   controlIdsOfBlock,
   dayTitle,
-  clampCoachingRetention,
-  clampWinBackDays,
   COACHING_FLOOR_MAX,
   COACHING_FLOOR_MIN,
   commitNumberField,
   controlIdsOf,
+  effectiveLock,
   fillTemplate,
   firstOpenSection,
   gateOf,
@@ -71,8 +70,6 @@ import {
   PREFS_DEFAULT,
   RAIL,
   readPrefs,
-  RETENTION_MAX_MONTHS,
-  RETENTION_MIN_MONTHS,
   matchesQuery,
   sameValue,
   searchTextOf,
@@ -80,9 +77,6 @@ import {
   sectionDirty,
   weekDaysOf,
   weeklyHoursPayload,
-  WIN_BACK_MAX,
-  WIN_BACK_MIN,
-  withCurrent,
   type RowControl,
   type RowValue,
   type SettingsProps,
@@ -93,7 +87,7 @@ import { settingsProps } from '@/app/[locale]/(business)/business/settings/setti
 // ⚡ R2 BRANCH C / ⚖ D-15 (round 3, A2) — the dial's own mapping pair.
 // `AUTO_RELEASE_CHOICES` is gone with the fixed select it existed to widen
 // (A2 turned the row into a select of two STATES plus a free minute field).
-import { autoReleaseFromWire, autoReleaseToWire, NEW_CLIENT_DEFAULT_MIN } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
+import { autoReleaseFromWire, autoReleaseToWire, autoReleaseWireFrom, NEW_CLIENT_DEFAULT_MIN } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
@@ -1350,18 +1344,20 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(SCREEN_CODE).toContain('{detail.length > 0 && (')
   })
 
-  it('every clamp refuses the harmful end, both ways, and survives a non-number', () => {
-    expect(clampWinBackDays(1)).toBe(WIN_BACK_MIN)
-    expect(clampWinBackDays(9999)).toBe(WIN_BACK_MAX)
-    expect(clampWinBackDays(61)).toBe(61)
-    expect(clampCoachingRetention(0)).toBe(RETENTION_MIN_MONTHS)
-    expect(clampCoachingRetention(999)).toBe(RETENTION_MAX_MONTHS)
+  it('every REMAINING clamp refuses the harmful end, both ways, and survives a non-number', () => {
+    // ⚖ D-32 F3 (round 3, A2) — `clampWinBackDays`/`clampCoachingRetention`
+    // are GONE with the hardcoded caps ⚖ D-15 forbids for a duration
+    // (`contact.winback`/`coaching.retention` are free fields now). 判断に
+    // 必要なセッション数 is a session COUNT, not a duration, and keeps its clamp.
     expect(clampCoachingFloor(1)).toBe(COACHING_FLOOR_MIN)
     expect(clampCoachingFloor(500)).toBe(COACHING_FLOOR_MAX)
     // ⚠ NaN IS NOT ZERO. `Math.min(NaN, …)` is NaN and a NaN on screen prints as
     // 「NaN日」 — the clamp answers the SAFE end instead.
-    expect(clampWinBackDays(Number.NaN)).toBe(WIN_BACK_MIN)
     expect(clampCoachingFloor(Number.POSITIVE_INFINITY)).toBe(COACHING_FLOOR_MIN)
+    expect(LIB_CODE).not.toContain('clampWinBackDays')
+    expect(LIB_CODE).not.toContain('clampCoachingRetention')
+    expect(LIB_CODE).not.toContain('WIN_BACK_MIN')
+    expect(LIB_CODE).not.toContain('RETENTION_MIN_MONTHS')
   })
 
   it('a number field is corrected ON COMMIT, never while it is being typed — and an EMPTY box is not a number', () => {
@@ -1376,11 +1372,14 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     // Against ⚖ 8/21 mistake-proofing that is the dial harming the store
     // quietly. The clamp itself is unchanged — same floor, same ceiling, same
     // commit-time firing — and what is new is the fallback and the sentence.
-    const win = (raw: string, prev: number) => commitNumberField(raw, prev, WIN_BACK_MIN, WIN_BACK_MAX, '日')
+    // ⚖ D-32 F3 (round 3, A2) — `commitNumberField` is generic; 14/365 are
+    // arbitrary two-sided bounds exercising its own behaviour, no longer tied
+    // to the (now free) 再来促し row's own constants.
+    const win = (raw: string, prev: number) => commitNumberField(raw, prev, 14, 365, '日')
     // out of range still CLAMPS, and now says which range it was held to…
-    expect(win('4000', 30).value).toBe(WIN_BACK_MAX)
-    expect(win('4000', 30).message).toBe(`${WIN_BACK_MIN}日から${WIN_BACK_MAX}日のあいだで設定できます。${WIN_BACK_MAX}日にしました`)
-    expect(win('1', 30).value).toBe(WIN_BACK_MIN)
+    expect(win('4000', 30).value).toBe(365)
+    expect(win('4000', 30).message).toBe('14日から365日のあいだで設定できます。365日にしました')
+    expect(win('1', 30).value).toBe(14)
     // …a number inside the guardrail goes in as typed, and says NOTHING…
     expect(win('61', 30)).toEqual({ value: 61, message: null })
     // …and an empty or unreadable box is handed the PREVIOUS value back, out loud.
@@ -1389,7 +1388,7 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(win('abc', 45)).toEqual({ value: 45, message: '数字を入れてください。前の値の45日に戻しました' })
     // …the fallback is itself inside the guardrail, so a previous value that has
     // gone stale cannot smuggle a forbidden number back in.
-    expect(win('', 9999).value).toBe(WIN_BACK_MAX)
+    expect(win('', 9999).value).toBe(365)
     // THE FIELD REMEMBERS THE LAST ACCEPTED VALUE, not the last saved one: a
     // reader who moves 30 → 45 and then clears the box gets 45 back, because 45
     // is what they last told this page — ⚖ D-27/D-30 (round 3, A2): that
@@ -1470,11 +1469,11 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(SCREEN_CODE).toContain("className={`st-readout${k.numeric ? '' : ' is-phrase'}`}")
   })
 
-  it('a stored value outside the presets is ADDED to them, never rounded away', () => {
-    // canon's own ruling (fable-settings-store-hours.html:4218-4231): silently
-    // showing the nearest preset makes 「現在値をプリセット」 a lie.
-    expect(withCurrent([15, 30, 60], 20)).toEqual([15, 20, 30, 60])
-    expect(withCurrent([15, 30, 60], 30)).toEqual([15, 30, 60])
+  it('⚖ D-32 F7 (round 3, A2) — `withCurrent` is gone with its last production caller', () => {
+    // Every fixed option list `withCurrent` used to widen (予約の刻み,
+    // 標準セッションの長さ, 予定ブロックの移動単位, …) is a free `num` field now
+    // (⚖ D-15) — there is no preset list left to add a stored value to.
+    expect(LIB_CODE).not.toContain('withCurrent')
   })
 
   it('an array value compares by CONTENT — a chip set is not permanently dirty', () => {
@@ -1518,6 +1517,13 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
    *  than as a fourth/fifth select option — ⚖ D-26 F5's append-when-off-list
    *  patch (and the widening it protected against) no longer applies: a
    *  `num` control has no option list to fall off of. */
+  // ⚖ D-32 F1/F2 — THE LOCK REASON, byte-identical to JP-NATIVE-R3/A2-FIX-
+  // LINES.md §E, keyed by the mode it explains.
+  const AUTORELEASE_MIN_REASON = {
+    linked: '「直前の空きは売らないと同じ」を選んでいるため、上の行と同じ値です。「分で指定」を選ぶと変更できます',
+    never: '「解除しない」を選んでいるため、この数は使われません。「分で指定」を選ぶと変更できます',
+  }
+
   it('leg 1 — the select is the MODE (linked / never / minutes), a closed three-option list', async () => {
     const props = await room({ store: STORE_A })
     const c = controlOf(props, 'reserve.autorelease')
@@ -1528,11 +1534,16 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
     // …and the number sibling shows leadTimeMin (the linked implied value)
     // while the mode is not 'minutes', LOCKED rather than hidden — a reader
     // may still see and ask about a control they cannot yet move (⚖ 8/21
-    // mistake-proofing).
+    // mistake-proofing). ⚖ D-32 F1 — the SERVER no longer bakes `locked`
+    // (that never re-evaluates once the reader moves the select); it
+    // declares `lockedWhen`, and `effectiveLock` reads it against the LIVE
+    // select value — proven here at the exact value this render seeds.
     const n = controlOf(props, 'reserve.autorelease-min')
     expect(n.control.kind).toBe('number')
     expect(n.value).toBe(String(opsConfig.leadTimeMin))
-    expect(n.locked).toBe('「分で指定」を選ぶと変更できます')
+    expect(n.locked).toBeUndefined()
+    expect(n.lockedWhen).toEqual({ controlId: 'reserve.autorelease', unless: 'minutes', reason: AUTORELEASE_MIN_REASON })
+    expect(effectiveLock(n, { [c.id]: c.value })).toBe(AUTORELEASE_MIN_REASON.linked)
   })
 
   it('⚖ D-15 (round 3, A2) — a store on an explicit minute value selects "minutes" and the number field unlocks to it', async () => {
@@ -1543,6 +1554,11 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
     expect(n.control.kind).toBe('number')
     expect(n.value).toBe('45')
     expect(n.locked).toBeUndefined()
+    // ⚖ D-32 F1 — and the LIVE evaluation really unlocks it (this is the leg
+    // a props-only `locked` field could never prove: the field is locked at
+    // the tip this fix starts from, forever, because the server bakes the
+    // answer once and the screen never re-asks it).
+    expect(effectiveLock(n, { [sel.id]: sel.value })).toBeUndefined()
   })
 
   it('⚖ D-15 (round 3, A2) — "never" is the other closed state, and its number stays locked at leadTimeMin', async () => {
@@ -1551,7 +1567,13 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
     expect(sel.value).toBe('never')
     const n = controlOf(props, 'reserve.autorelease-min')
     expect(n.value).toBe(String(opsConfig.leadTimeMin))
-    expect(n.locked).toBe('「分で指定」を選ぶと変更できます')
+    expect(n.locked).toBeUndefined()
+    expect(n.lockedWhen).toEqual({ controlId: 'reserve.autorelease', unless: 'minutes', reason: AUTORELEASE_MIN_REASON })
+    // ⚖ D-32 F2 — 「解除しない」 no longer stands beside a release time that does
+    // not exist: the reason SAYS the number is unused, rather than the old
+    // static `locked` sentence ("「分で指定」を選ぶと変更できます" alone) that
+    // let a reader believe leadTimeMin was a real release boundary here.
+    expect(effectiveLock(n, { [sel.id]: sel.value })).toBe(AUTORELEASE_MIN_REASON.never)
   })
 
   it('leg 3 — the row sits IMMEDIATELY after 直前の空きは売らない (reserve.row-lead)', async () => {
@@ -1641,6 +1663,18 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
     // fabricated number — the same doctrine ⚖ D-11 states for `undefined`.
     expect(autoReleaseFromWire('0' as never)).toBe('linked')
     expect(autoReleaseFromWire('abc' as never)).toBe('linked')
+  })
+
+  it('⚖ D-32 N1 — `autoReleaseWireFrom` composes the row’s TWO controls into the ONE wire value', () => {
+    // ⚖ D-32 N1 — the reconnect's writer has one composition home now, and
+    // this is it: the row's mode select + minute field in, the wire value
+    // out, matching `autoReleaseFromWire`'s own read-side doctrine.
+    expect(autoReleaseWireFrom('minutes', 45)).toBe('45')
+    expect(autoReleaseWireFrom('linked', 45)).toBe('linked')
+    expect(autoReleaseWireFrom('never', 45)).toBe('never')
+    // An unreadable minutes value under 'minutes' falls to the product
+    // default ('linked'), never to a fabricated number.
+    expect(autoReleaseWireFrom('minutes', 'abc')).toBe('linked')
   })
 
   /** ⚖ D-15 (round 3, A2) — RETIRES ⚖ D-25 F6's pin. F6 protected the
@@ -1856,7 +1890,11 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     // A screen reader drops `title` once a description is present, so the reason
     // rides the accessible name — which means a code in the reason is a code
     // spoken aloud on every focus.
-    expect(SCREEN_CODE).toContain("'aria-label': `${c.aria} — ${c.locked}`")
+    // ⚖ D-32 F1 — the reason is now `effectiveLock(c, values)`'s result (a
+    // LIVE lock, not the server-baked `c.locked`), read once and reused for
+    // both `title` and `aria-label` — same claim, new variable.
+    expect(SCREEN_CODE).toContain("'aria-label': `${c.aria} — ${lockedReason}`")
+    expect(SCREEN_CODE).toContain('const lockedReason = effectiveLock(c, values)')
     expect(SCREEN_CODE).toContain("'aria-disabled': 'true' as const")
     // `aria-disabled`, never `disabled`, on a locked control: it has to stay
     // focusable for its reason to be reachable by keyboard. The two `disabled`
@@ -2504,6 +2542,45 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
       const c = controlOf(props, id)
       expect(c.control.kind === 'number' && c.control.max).toBeNull()
     }
+    // ⚖ D-32 F6 — AND THE FLOOR, since a floor with no pin is a mutant
+    // (1 → 0, or 0 → -1) nothing in this battery would notice.
+    for (const id of ['reserve.days', 'reserve.grid', 'reserve.session', 'reserve.sellslot', 'store-hours.block-step', 'reserve.autorelease-min']) {
+      const c = controlOf(props, id)
+      expect({ id, min: c.control.kind === 'number' ? c.control.min : null }).toEqual({ id, min: 1 })
+    }
+    for (const id of ['reserve.cutoff', 'reserve.gapfill', 'reserve.lead', 'reserve.free']) {
+      const c = controlOf(props, id)
+      expect({ id, min: c.control.kind === 'number' ? c.control.min : null }).toEqual({ id, min: 0 })
+    }
+  })
+
+  it('⚖ D-32 F3 — the sweep’s gap: 清掃時間・再来促し・保存期間 are free duration fields too, their old caps gone', async () => {
+    const props = await room({ store: STORE_A })
+    const dayLen = operatingHours.close - operatingHours.open
+    for (const r of resources.filter((r) => r.store_id === STORE_A)) {
+      const c = controlOf(props, `people.cleanup-${r.id}`)
+      expect({
+        id: r.id,
+        kind: c.control.kind,
+        min: c.control.kind === 'number' ? c.control.min : null,
+        max: c.control.kind === 'number' ? c.control.max : null,
+        step: c.control.kind === 'number' ? c.control.step : null,
+        unit: c.control.kind === 'number' ? c.control.unit : null,
+      }).toEqual({ id: r.id, kind: 'number', min: 0, max: dayLen, step: 1, unit: '分' })
+      expect(c.value).toBe(String(r.cleanup_minutes))
+    }
+    const shapeOf = (id: string) => {
+      const c = controlOf(props, id).control
+      return c.kind === 'number' ? { min: c.min, max: c.max, step: c.step, unit: c.unit } : null
+    }
+    expect(shapeOf('contact.winback')).toEqual({ min: 1, max: null, step: 1, unit: '日' })
+    expect(controlOf(props, 'contact.winback').value).toBe(String(storeDials[STORE_A].winBackDays))
+    expect(shapeOf('coaching.retention')).toEqual({ min: 1, max: null, step: 1, unit: 'か月' })
+    expect(controlOf(props, 'coaching.retention').value).toBe(String(storeDials[STORE_A].coachingRetentionMonths))
+    // …and the old caps are gone from the payload and the room's own source —
+    // never left behind as dead code with no disclosure.
+    expect(PROPS_CODE).not.toContain('WIN_BACK_MIN')
+    expect(PROPS_CODE).not.toContain('RETENTION_MIN_MONTHS')
   })
 
   it('⚖ mock D4 — the lead that points at the live card is TRUE at both widths', async () => {

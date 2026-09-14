@@ -42,6 +42,7 @@ import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/
 import {
   accessFor,
   blockingError,
+  effectiveLock,
   fillTemplate,
   firstOpenSection,
   keepCardOffHeading,
@@ -53,6 +54,7 @@ import {
   sectionDirty,
   writePrefs,
   type ControlKind,
+  type RowControl,
   type RowValue,
   type SettingsSection,
 } from '@/business/lib/settings'
@@ -219,7 +221,11 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     // same KIND of sentence — 「why can I not change this」 — so it is the same
     // line, and the CLAIM this pin makes (that reason does not fold) is
     // unchanged. Both sources are read here so neither can quietly leave.
-    expect(SRC_CODE).toContain('...row.controls.map((c) => c.locked),')
+    // ⚖ D-32 F1 — the reason is `effectiveLock(c, values)` now (a LIVE lock,
+    // not the server-baked `c.locked`), so a lock that depends on a sibling
+    // control (確保枠の自動解除's number field) still prints its reason here
+    // rather than silently losing it the moment it stops being static.
+    expect(SRC_CODE).toContain('...row.controls.map((c) => effectiveLock(c, values)),')
     expect(SRC_CODE).toContain("...row.controls.map((c) => (c.control.kind === 'chips' ? c.control.keep?.reason : undefined)),")
     expect(SRC_CODE).toMatch(/\{lockReasons\.map\(\(r\) => \(\s*<p className="st-why" key=\{r\}>\{r\}<\/p>/)
     // …and it is rendered OUTSIDE the disclosure: the reason appears before the
@@ -254,6 +260,30 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     expect(SRC_CODE).toContain('raised: boolean,')
     expect(SRC_CODE).toContain('changed > 0,')
     expect(SRC_CODE).toMatch(/\(\) => false,\s*\n\s*false,/)
+  })
+
+  // ⚖ D-32 F1 — LENS-1's own words: "a props-only leg cannot prove this [the
+  // field unlocking], so it belongs with the screen-code pins." `effectiveLock`
+  // is the exact function `Control`/`Row` call on every render (pinned above
+  // and in `SettingsScreen.tsx`'s own `const lockedReason = effectiveLock(c,
+  // values)` line); driving it directly over a fabricated live-values map is
+  // this file's own house pattern for a pure interaction rule the territory
+  // fence will not let a suite mount React to prove instead.
+  it('⚖ D-32 F1 — a lock that follows a LIVE sibling really unlocks when the reader moves it', () => {
+    const lockedWhen = {
+      controlId: 'reserve.autorelease',
+      unless: 'minutes',
+      reason: { linked: 'E1 — linked', never: 'E2 — never' },
+    }
+    const numberField: RowControl = { id: 'reserve.autorelease-min', aria: '', control: { kind: 'number', min: 1, max: null, step: 1, unit: '分' }, value: '60', lockedWhen }
+    // 「分で指定」 (minutes) — the ONE value `unless` names — really unlocks it.
+    expect(effectiveLock(numberField, { 'reserve.autorelease': 'minutes' })).toBeUndefined()
+    // Any other live value stays locked, with THAT value's own reason.
+    expect(effectiveLock(numberField, { 'reserve.autorelease': 'linked' })).toBe('E1 — linked')
+    expect(effectiveLock(numberField, { 'reserve.autorelease': 'never' })).toBe('E2 — never')
+    // A server-baked `locked` still wins outright — `lockedWhen` only fires
+    // where there is no static answer already.
+    expect(effectiveLock({ ...numberField, locked: 'baked' }, { 'reserve.autorelease': 'minutes' })).toBe('baked')
   })
 
   it('⚖ prefers-reduced-motion reaches the SPRINGS, not only the stylesheet', () => {
