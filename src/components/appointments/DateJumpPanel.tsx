@@ -258,8 +258,13 @@ export function DateJumpPanel({
             dispatch({ type: 'loaded', month: key, cells: toMonthGridCells(cells) })
           }
         },
-        () => {
+        (error) => {
           inFlightRef.current.delete(key)
+          // Degraded is allowed, silent is not (the same line the facade's
+          // menus read is held to, app-api/screens/appointments/route.ts:92-98):
+          // staff get a Japanese line, and whoever reads the console gets the
+          // cause. Never rethrown — the panel keeps working without counts.
+          console.warn('[date-jump] month read failed', { month: key, error })
           if (mountedRef.current) dispatch({ type: 'failed', month: key })
         },
       )

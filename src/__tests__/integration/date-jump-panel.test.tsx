@@ -293,10 +293,18 @@ describe('pending is not empty, and a failure says so', () => {
     const loadMonthCells = jest.fn(async () => {
       throw new Error('upstream down')
     })
+    // R4 — degraded is allowed, silent is not: the cause reaches the console.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     renderView({ loadMonthCells })
     await openPanel()
 
     const dialog = screen.getByRole('dialog')
+    await waitFor(() => expect(warn).toHaveBeenCalled())
+    expect(warn).toHaveBeenCalledWith(
+      '[date-jump] month read failed',
+      expect.objectContaining({ month: '2026-09', error: expect.any(Error) }),
+    )
+    warn.mockRestore()
     await waitFor(() =>
       expect(within(dialog).getByRole('status')).toHaveTextContent('dateJump.failed'),
     )
