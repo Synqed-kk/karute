@@ -91,13 +91,128 @@ export async function getAppointmentsByDateWithClient(
     })
 }
 
+/** How many pages the week/month window will read before it gives up. 6 × 500
+ *  = 3000 bookings across a 45-day window — an order of magnitude past any
+ *  real salon month. Past it the window reports `truncated` and drops every
+ *  row: a LOW number on a booking screen is a worse lie than a failed read. */
+export const MAX_RANGE_PAGES = 6
+const RANGE_PAGE_SIZE = 500
+
+/**
+ * THE 予約 count predicate — one definition for month cells, week rows, the day
+ * total, the month line and the week summary (spec §8). Nothing else re-spells
+ * it; the adapter re-applies THIS function rather than repeating the rule.
+ *
+ *   kind        — a BLOCK row (「オーナー業務」, a bed hold) is capacity, not a
+ *                 booking. An absent kind reads as BOOKING (pre-kind rows).
+ *   customer_id — a booking with nobody in it is not a visit.
+ *   status      — CANCELLED / NO_SHOW are tombstones (isTerminalStatus).
+ *
+ * Staff is deliberately OPTIONAL: an unassigned booking is still a booking.
+ * (The day LIST separately requires a staff_id to draw a lane — a rendering
+ * constraint, not a counting one.)
+ */
+export function isCountedBooking(a: Appointment): boolean {
+  return (
+    (a.kind ?? 'BOOKING') === 'BOOKING' &&
+    a.customer_id != null &&
+    !isTerminalStatus(a.status)
+  )
+}
+
+/** One fetched window, already partitioned by the ONE predicate above.
+ *  `truncated` = the window could not be read to exhaustion; every array is
+ *  then EMPTY and no number derived from it may render. */
+export type AppointmentWindow = {
+  counted: Appointment[]
+  cancelled: Appointment[]
+  noShow: Appointment[]
+  truncated: boolean
+}
+
+const EMPTY_WINDOW: AppointmentWindow = {
+  counted: [],
+  cancelled: [],
+  noShow: [],
+  truncated: false,
+}
+
+/** An empty window that is NOT a failure — what a caller passes when the staff
+ *  filter names somebody the roster cannot place (zero rows is the honest
+ *  answer there; an UNFILTERED window would be the whole salon's day). */
+export function emptyAppointmentWindow(): AppointmentWindow {
+  return { ...EMPTY_WINDOW, counted: [], cancelled: [], noShow: [] }
+}
+
+/**
+ * The week/month/day window read: paged to exhaustion against core's `total`
+ * (the auto-burn / audit-watch idiom, src/lib/audit-watch/run.ts:130-134) and
+ * partitioned by `isCountedBooking`.
+ *
+ * The old single-page read silently capped at 500 rows, so a busy month simply
+ * lost its tail and rendered a plausible-but-low count. This pages instead, and
+ * when the cap is genuinely hit it reports `truncated` with EVERY array empty —
+ * the caller renders the failed-read state, never a number.
+ *
+ * `staffId` is the CORE staff id (appointments.staff_id's id space), applied AT
+ * THE FETCH so the 担当/自分 filter reaches the week and month numbers instead
+ * of only the day list.
+ */
+export async function fetchAppointmentWindow(
+  synqed: Pick<SynqedClient, 'appointments'>,
+  fromIso: string,
+  toIso: string,
+  opts: { storeId?: string; staffId?: string | null } = {},
+): Promise<AppointmentWindow> {
+  const rows: Appointment[] = []
+  let total = 0
+  for (let page = 1; page <= MAX_RANGE_PAGES; page++) {
+    const res = await synqed.appointments.list({
+      from: fromIso,
+      to: toIso,
+      page,
+      page_size: RANGE_PAGE_SIZE,
+      store_id: opts.storeId ?? undefined,
+      staff_id: opts.staffId ?? undefined,
+    })
+    total = res.total
+    rows.push(...res.appointments)
+    if (res.appointments.length === 0 || rows.length >= res.total) break
+  }
+  // Fewer rows than core says exist = we did not see the whole window, whether
+  // the cap stopped us or the pages ran dry early. Either way the counts would
+  // be low, so nothing survives.
+  if (rows.length < total) return { ...EMPTY_WINDOW, truncated: true }
+
+  const counted: Appointment[] = []
+  const cancelled: Appointment[] = []
+  const noShow: Appointment[] = []
+  for (const a of rows) {
+    if (isCountedBooking(a)) {
+      counted.push(a)
+      continue
+    }
+    // The terminal partitions are BOOKING rows WITH a customer — a cancelled
+    // BLOCK is not a cancellation anybody wants counted. BLOCK rows land in no
+    // array at all.
+    if ((a.kind ?? 'BOOKING') !== 'BOOKING' || a.customer_id == null) continue
+    if (a.status === 'CANCELLED') cancelled.push(a)
+    else if (a.status === 'NO_SHOW') noShow.push(a)
+  }
+  return { counted, cancelled, noShow, truncated: false }
+}
+
 /**
  * Range fetch on the given client — the week/month overview's read, factored
  * out of the web `getAppointmentsInRange` action (design-parity P-B) so the
  * facade appointments-screen GET reproduces the same window without the
- * cookie helpers. Terminal (CANCELLED/NO_SHOW) bookings are dropped here —
- * the week/month card shapes carry no terminal flag, so this filter is the
- * only gate keeping tombstones out of counts/utilization/density.
+ * cookie helpers.
+ *
+ * Now a thin delegate to `fetchAppointmentWindow` above: it returns the
+ * COUNTED rows, so BLOCK and customerless rows are dropped alongside the
+ * terminal ones, and the window is paged rather than capped at 500. Kept (same
+ * signature, same `Promise<Appointment[]>`) because the 予約 date-jump branch's
+ * `getMonthCells` calls it and must keep compiling.
  */
 export async function getAppointmentsInRangeWithClient(
   synqed: Pick<SynqedClient, 'appointments'>,
@@ -105,11 +220,5 @@ export async function getAppointmentsInRangeWithClient(
   toIso: string,
   opts: { storeId?: string } = {},
 ): Promise<Appointment[]> {
-  const list = await synqed.appointments.list({
-    from: fromIso,
-    to: toIso,
-    page_size: 500,
-    store_id: opts.storeId ?? undefined,
-  })
-  return list.appointments.filter((a) => !isTerminalStatus(a.status))
+  return (await fetchAppointmentWindow(synqed, fromIso, toIso, opts)).counted
 }
