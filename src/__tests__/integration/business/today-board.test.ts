@@ -671,20 +671,20 @@ describe('今日の運営 screen', () => {
     expect(p.sell.sellSlotMin).toBe(45)
   })
 
-  it('⚖ D-42 — the screen hands the engine the default until B2 (B2 flips this pin)', () => {
+  it('⚖ D-42/B2 — the screen hands the engine the store’s own number now, not the default', () => {
     // A source-text pin, not a runtime one: `today-screen-interactions.test.ts`
     // (the file that renders `TodayScreen`) has no DOM renderer and no
     // @testing-library in its own import fence, so there is no way to reach
     // the drawn cells there. The seam this pins is one line — `sellLayerFor`'s
-    // `sellSlotMin` argument inside `TodayScreen.tsx` — so the exact line is
-    // the honest proof: it still reads the DEFAULT, not the prop, no matter
-    // what the store's own number (pin 9(a), above) carries.
+    // `sellSlotMin` argument inside `TodayScreen.tsx` — B2's commit 0 flips it
+    // to the store's own number, connected because every downstream reader
+    // now agrees with the cell's own `e`.
     const screen = readFileSync(
       join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
       'utf8',
     )
-    expect(screen.match(/sellSlotMin: SELL_SLOT_MIN,/g) ?? []).toHaveLength(1)
-    expect(screen.match(/sellSlotMin: props\.sell\.sellSlotMin/g) ?? []).toHaveLength(0)
+    expect(screen.match(/sellSlotMin: props\.sell\.sellSlotMin,/g) ?? []).toHaveLength(1)
+    expect(screen.match(/sellSlotMin: SELL_SLOT_MIN,/g) ?? []).toHaveLength(0)
   })
 
   it('⚖ D-15/D-24 pin 9(b) — sellLayerFor at a non-default slot (45) on the real fixture board: every drawn cell spans exactly 45 minutes, and the layer builds without throwing', async () => {
