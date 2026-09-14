@@ -63,7 +63,12 @@ describe('appointmentsToWeekData — unconfirmed is never the cancelled count', 
       'ja',
     )
     const monday = days[0]
-    expect(monday.count).toBe(2) // both bucketed on Monday
+    // RE-PINNED (PKT-1a): this used to assert `count: 2`, i.e. the 件 number
+    // counting two CANCELLED rows as bookings. That was the lie the 予約 numbers
+    // foundation exists to end — a cancelled booking is a tombstone, not a
+    // visit. The count is now 0; the cancellations are reported separately
+    // through `cancelledCount` (see booking-count-parity.test.ts).
+    expect(monday.count).toBe(0)
     expect(monday.unconfirmed).toBe(0) // was 2 (mislabeled) before the fix
   })
 })

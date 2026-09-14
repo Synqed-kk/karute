@@ -238,7 +238,13 @@ const dayRows = [
     source: 'MANUAL',
   },
 ]
-const listAppointments = jest.fn(async () => ({ appointments: dayRows }))
+// `total` rides every response: ListAppointmentsResponse declares it and the
+// window read pages against it (PKT-1a). Without it the pager cannot tell a
+// complete window from a truncated one.
+const listAppointments = jest.fn(async () => ({
+  appointments: dayRows,
+  total: dayRows.length,
+}))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const fakeClient = {
   stores: {
@@ -251,6 +257,13 @@ const fakeClient = {
     get: jest.fn(async () => ({})),
   },
   staffStores: { get: staffStoresGet },
+  // Per-store opening hours + 臨時休業 (PKT-1a): core answers the platform
+  // DEFAULTS for a store with no row of its own, which is what `source:
+  // 'default'` with a null weekly_hours means here.
+  storePolicies: {
+    get: jest.fn(async () => ({ weekly_hours: null, source: 'default' })),
+    listClosedDays: jest.fn(async () => ({ closed_days: [] })),
+  },
   appointments: { list: listAppointments },
   karuteRecords: { list: jest.fn(async () => ({ karute_records: [] })) },
   staff: {
@@ -303,7 +316,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockCapabilities.mockResolvedValue(new Set(['customers.view']))
   staffStoresGet.mockResolvedValue({ store_ids: [] })
-  listAppointments.mockResolvedValue({ appointments: dayRows })
+  listAppointments.mockResolvedValue({ appointments: dayRows, total: dayRows.length })
   storeStaffIdSetForBusiness.mockResolvedValue(null)
   getCachedMenuOptionsFor.mockResolvedValue(MENU_ROWS)
   clampOverride.current = null
@@ -500,7 +513,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(dto.reservationStaff.map((s) => s.id)).toEqual(['auth-user-1', 'profile-2'])
 
     // Nothing on the books that day → the lane goes.
-    listAppointments.mockResolvedValue({ appointments: [] })
+    listAppointments.mockResolvedValue({ appointments: [], total: 0 })
     dto = await dtoOf(await GET(req(), route))
     expect(dto.reservationStaff.map((s) => s.id)).toEqual(['auth-user-1'])
     // …while the 担当 filter / booking-picker roster array keeps everyone
