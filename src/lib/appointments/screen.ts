@@ -20,6 +20,7 @@ import { staffRoleLabel } from '@/lib/staff/role-label'
 import {
   appointmentsToWeekData,
   appointmentsToMonthCells,
+  appointmentsToMonthFacts,
   type WeekDayRowData,
 } from '@/lib/adapters/reservation'
 import type { AppointmentWindow } from '@/lib/appointments/by-date'
@@ -32,7 +33,7 @@ import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import { jstStartOfToday, partsInJst } from '@/lib/date/jst'
 import { jstMidnight } from '@/lib/date/calendar-range'
 import { isClassBoundBusinessType } from '@/lib/welcome/business-types'
-import type { LaneKind } from '@/lib/capacity/capacity'
+import type { CapacityFact, LaneKind } from '@/lib/capacity/capacity'
 import type { computeWeekRange, computeMonthRange } from '@/lib/date/calendar-range'
 
 export function parseDateParam(value: string | undefined): Date {
@@ -143,6 +144,13 @@ export interface AppointmentsScreen {
   weekData: WeekDayRowData[] | null
   weekStartIso: string | null
   monthData: MonthGridCell[] | null
+  /** The month's capacity facts, keyed by the cell's own id (JST YYYY-MM-DD),
+   *  beside the cells rather than inside them: MonthGridCell is the package's
+   *  type and cannot grow app fields. Built from the SAME rows and the same
+   *  counted-row predicate as the cells, so a cell's dot and its percentage
+   *  can never describe different days. In-month days only — the padding
+   *  cells render no numbers. */
+  monthFacts: ReadonlyMap<string, CapacityFact> | null
   monthStartIso: string | null
   /** The SELECTED day's row, from the same adapter the week rows come from —
    *  so the day line and the week row can never disagree. Null when no window
@@ -448,6 +456,7 @@ export function buildAppointmentsScreen(
 
   let weekData: WeekDayRowData[] | null = null
   let monthData: MonthGridCell[] | null = null
+  let monthFacts: ReadonlyMap<string, CapacityFact> | null = null
   let weekStartIso: string | null = null
   let monthStartIso: string | null = null
 
@@ -463,6 +472,14 @@ export function buildAppointmentsScreen(
         monthRange.monthStart,
         monthRange.monthEnd,
         now,
+      )
+      // The same rows, the same month, one call beside the other — the cells
+      // and their facts cannot come from different reads.
+      monthFacts = appointmentsToMonthFacts(
+        monthWin.counted,
+        monthRange.monthStart,
+        monthRange.monthEnd,
+        { hoursFacts, soloMode, rosterHeadcount: capacityRoster, laneKind },
       )
     }
     monthStartIso = monthRange.monthStart.toISOString()
@@ -493,6 +510,7 @@ export function buildAppointmentsScreen(
     weekData,
     weekStartIso,
     monthData,
+    monthFacts,
     monthStartIso,
     dayTotals,
     truncated,

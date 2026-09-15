@@ -52,6 +52,7 @@ import {
 } from '@/lib/operating-hours'
 import { ymdInJst } from '@/lib/date/jst'
 import { coreBusinessType } from '@/lib/welcome/business-types'
+import { capacityRowFields } from '@/lib/adapters/reservation'
 
 export const runtime = 'nodejs'
 
@@ -301,6 +302,10 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             isToday: c.isToday,
             count: c.count,
             density: c.density,
+            // The cell's own capacity fact, keyed by the same id the cell
+            // carries. An out-of-month padding cell has none and takes the
+            // no-capacity defaults — it renders no numbers either way.
+            ...capacityRowFields(screen.monthFacts?.get(c.id)),
           })) ?? null,
       }),
     )
