@@ -860,7 +860,22 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     summaryReturning, and "Please try again" on the failed line.
 //   vendor   937,800 → 937,791 (−9 B) — NOT ours: same package version, one
 //     import fewer reaching it now that WeekDayCard is gone.
-const BUDGET_BYTES = 2_104_241
+// RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R1 (the grid placement + the
+// truncated week signal): 2,104,241 → 2,104,545. Same CI recipe, emptied
+// thin/dist, byte-identical across two clean builds on the final code tip,
+// same content hashes both times (node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock):
+//   en 134,148 · index 1,031,606 · vendor 937,791 = 2,103,545 B.
+// Ceiling = 2,103,545 + 1,000. The previous ceiling still passed (696 B of
+// headroom left); re-measured anyway so the ceiling keeps tracking the build.
+//
+// Where the +304 B went, measured per chunk:
+//   index  1,031,302 → 1,031,606 (+304 B) — ours, all of it: `placeForGrid`
+//     and its isDuration helper in metric-menu.ts, and the view's `truncated`
+//     prop + the `weekFailed` expression it feeds. No new string.
+//   en       134,148 → 134,148 — unchanged to the byte.
+//   vendor   937,791 → 937,791 — unchanged to the byte.
+const BUDGET_BYTES = 2_104_545
 
 let dir
 try {
