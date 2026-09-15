@@ -16,6 +16,12 @@ type ByDateClient = Pick<SynqedClient, 'appointments' | 'karuteRecords' | 'staff
  * client. `nameById` is the caller's customer-name source (web: the cached list;
  * facade: listAllCustomers). Terminal (CANCELLED/NO_SHOW) rows are dropped unless
  * `includeCancelled` — the recording-target picker must never auto-select one.
+ *
+ * BLOCK rows never come back: a capacity hold is not a visit (isCountedBooking's
+ * first clause, one rule). A booking with NO staff_id still does not come back
+ * either — this list draws lanes, and a lane needs a staffer. That is the one
+ * place the day list and the 件 count deliberately differ, and it is pinned in
+ * booking-count-parity.test.ts.
  */
 export async function getAppointmentsByDateWithClient(
   synqed: ByDateClient,
@@ -62,6 +68,13 @@ export async function getAppointmentsByDateWithClient(
 
   return list.appointments
     .filter((a): a is typeof a & { staff_id: string; customer_id: string } =>
+      // `kind` is the guard every day surface was missing. AppointmentRow has
+      // no kind field, so a BLOCK hold (「オーナー業務」) that happens to carry a
+      // customer rendered as an ordinary visit here — on the agenda, in the
+      // recorder's booking picker and on the phone — and pushed
+      // 「本日の予約 N件」 one above the week row's 件 for the same day (L4-3).
+      // One guard in the function every day caller routes through.
+      (a.kind ?? 'BOOKING') === 'BOOKING' &&
       a.staff_id != null && a.customer_id != null &&
       (includeCancelled ? true : !isTerminalStatus(a.status)))
     .map((a) => {

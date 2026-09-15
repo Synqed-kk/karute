@@ -13,7 +13,10 @@ import {
   appointmentsToMonthCells,
 } from '@/lib/adapters/reservation'
 import { buildAppointmentsScreen } from '@/lib/appointments/screen'
-import { isCountedBooking } from '@/lib/appointments/by-date'
+import {
+  getAppointmentsByDateWithClient,
+  isCountedBooking,
+} from '@/lib/appointments/by-date'
 
 // Tue 2026-09-15 JST.
 const DAY = new Date('2026-09-15T00:00:00+09:00')
@@ -131,5 +134,43 @@ describe('件 parity — month cell, week row and day total are ONE number', () 
   it('a row with no `kind` at all reads as a BOOKING (pre-kind rows)', () => {
     const legacy = [{ ...appt({ id: 'legacy' }), kind: undefined } as unknown as Appointment]
     expect(isCountedBooking(legacy[0])).toBe(true)
+  })
+})
+
+describe('the day LIST and the 件 number — one BLOCK rule, one declared gap', () => {
+  /** A stand-in for core serving one JST day. */
+  function dayClient(rows: Appointment[]) {
+    return {
+      appointments: { list: jest.fn(async () => ({ appointments: rows, total: rows.length })) },
+      karuteRecords: { list: jest.fn(async () => ({ karute_records: [] })) },
+      staff: { list: jest.fn(async () => ({ staff: [{ id: 's1', user_id: 'p1', name: '—' }], total: 1 })) },
+    } as never
+  }
+
+  it('a BLOCK row carrying a customer is in NEITHER the day list nor 件', async () => {
+    // AppointmentRow has no `kind` field, so before the guard this hold drew a
+    // customer card on the agenda, offered itself to the recorder's booking
+    // picker, and pushed 「本日の予約」 one above the week row's 件.
+    const rows = [
+      appt({ id: 'ok-1' }),
+      appt({ id: 'block-named', kind: 'BLOCK', title: 'オーナー業務' }),
+    ]
+    const list = await getAppointmentsByDateWithClient(dayClient(rows), '2026-09-15', {
+      nameById: new Map(),
+    })
+    expect(list.map((r) => r.id)).toEqual(['ok-1'])
+    expect(rows.filter(isCountedBooking).map((a) => a.id)).toEqual(['ok-1'])
+  })
+
+  it('DECLARED DIVERGENCE: an unassigned booking counts in 件 but draws no lane', async () => {
+    // Staff is optional for the COUNT (spec §8) and required by the day list,
+    // which draws one lane per staffer. Out of scope for 1a — pinned so 1b
+    // inherits a known number instead of a surprise.
+    const rows = [appt({ id: 'ok-1' }), appt({ id: 'no-staff-1', customer_id: 'c5', staff_id: null })]
+    const list = await getAppointmentsByDateWithClient(dayClient(rows), '2026-09-15', {
+      nameById: new Map(),
+    })
+    expect(list.map((r) => r.id)).toEqual(['ok-1'])
+    expect(rows.filter(isCountedBooking)).toHaveLength(2)
   })
 })
