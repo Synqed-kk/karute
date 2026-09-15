@@ -142,9 +142,56 @@ describe('the loaded day', () => {
     expect(r.textContent).not.toContain('60分')
   })
 
-  it('a cancelled booking keeps its slot and says so', () => {
-    renderCard({ rows: [booking(1, { isCancelled: true, displayStatus: 'completed' })] })
-    expect(screen.getByText(CARD.cancelled)).toBeTruthy()
+  // R1-3 (LENS-1 #3) — the card is the SUMMARY of the 予約N件 beside it, so its
+  // rows are that number's rows. The day page stays the ledger and keeps
+  // drawing tombstones; here a cancellation is simply not one of the five.
+  it('counts the SAME set as 予約N件 — cancelled and no-show rows are not in the five', () => {
+    const { container } = renderCard({
+      rows: [
+        booking(1),
+        booking(2, { isCancelled: true, displayStatus: 'completed' }),
+        booking(3),
+        booking(4, { isNoShow: true, displayStatus: 'completed' }),
+        booking(5, { isCancelled: true, displayStatus: 'completed' }),
+        booking(6, { isCancelled: true, displayStatus: 'completed' }),
+        booking(7),
+      ],
+      dayTotals: row({ count: 3, cancelledCount: 3, noShowDayCount: 1 }),
+    })
+    expect(rowsOf(container)).toHaveLength(3)
+    expect(screen.getByText('テスト1')).toBeTruthy()
+    expect(screen.getByText('テスト3')).toBeTruthy()
+    expect(screen.getByText('テスト7')).toBeTruthy()
+    expect(screen.queryByText('テスト2')).toBeNull()
+    expect(screen.queryByText(CARD.cancelled)).toBeNull()
+    expect(screen.queryByText(CARD.noShow)).toBeNull()
+    // three shown out of three counted — 「3件 … 他N件」 can no longer disagree.
+    expect(screen.queryByText(/^他/)).toBeNull()
+  })
+
+  it('a day whose bookings were ALL cancelled is an empty day, not five tombstones under 0件', () => {
+    const { container } = renderCard({
+      rows: [1, 2, 3, 4, 5, 6].map((n) =>
+        booking(n, { isCancelled: true, displayStatus: 'completed' }),
+      ),
+      dayTotals: row({ count: 0, cancelledCount: 6 }),
+    })
+    expect(rowsOf(container)).toHaveLength(0)
+    expect(screen.queryByText(/^他/)).toBeNull()
+    expect(screen.getByText(WEEK_ROWS.noBookings)).toBeTruthy()
+    expect(screen.getByText(WEEK_ROWS.openDay)).toBeTruthy()
+  })
+
+  it('他N件 counts only past the counted rows — six bookings + four tombstones', () => {
+    renderCard({
+      rows: [
+        ...[1, 2, 3, 4, 5, 6].map((n) => booking(n)),
+        ...[7, 8, 9].map((n) => booking(n, { isCancelled: true, displayStatus: 'completed' })),
+        booking(10, { isNoShow: true, displayStatus: 'completed' }),
+      ],
+      dayTotals: row({ count: 6, cancelledCount: 3, noShowDayCount: 1 }),
+    })
+    expect(screen.getByText('他1件')).toBeTruthy()
   })
 
   it('has NO date header — the chip already names the day (§v11b)', () => {

@@ -72,10 +72,21 @@ export function SelectedDayCard({
   // calls: 休 stands only on a closed day with nothing booked. A closed day
   // that HAS bookings is an open day as far as this card is concerned.
   const closed = dayTotals !== null && isClosedRow(dayTotals)
+  // R1-3 (LENS-1 #3) — ONE 件 definition on one card (spec §10). 予約N件 on the
+  // line above is the day's COUNTED bookings (`isCountedBooking` — a real
+  // booking, with somebody in it, that is not a tombstone). `rows` is the day
+  // agenda's read, which is `includeCancelled: true` by design: the agenda is
+  // the LEDGER and draws cancellations as tombstones. This card is the SUMMARY
+  // of the number beside it, so it counts what that number counts — through the
+  // app's own spelling of the predicate on a view row, the same filter the
+  // desktop grid and the phone list already use. Without it a day with 3
+  // bookings and 4 cancellations printed 「3件 … 他2件」, and a day whose six
+  // bookings were all cancelled printed 「0件」 above five キャンセル済み rows.
+  const counted = rows.filter((r) => !r.isCancelled && !r.isNoShow)
   // The day page sorts by start time and lists terminal rows in their own
   // slot; the first five here are the first five THERE, so 他N件 and the day
   // page can never disagree about what the sixth row is.
-  const sorted = [...rows].sort((a, b) => a.startTimeHm.localeCompare(b.startTimeHm))
+  const sorted = [...counted].sort((a, b) => a.startTimeHm.localeCompare(b.startTimeHm))
   const top = closed ? [] : sorted.slice(0, MAX_ROWS)
   const extra = closed ? 0 : sorted.length - top.length
 
