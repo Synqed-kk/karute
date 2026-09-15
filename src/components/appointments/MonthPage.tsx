@@ -53,6 +53,10 @@ interface MonthPageProps {
    *  grid numbers, no month line — exactly as the week does (spec §4). */
   failed?: boolean
   onPickDay: (dateIso: string) => void
+  /** A LEADING/TRAILING cell's day. Its month is not this page's, so the page
+   *  moves to that month with that day selected (the mock's own behaviour,
+   *  R1-2) — a different destination from `onPickDay`, which opens a day. */
+  onPickOtherMonthDay: (dateIso: string) => void
 }
 
 /** The dot's band, through ONE door.
@@ -131,6 +135,7 @@ export function MonthPage({
   pending,
   failed,
   onPickDay,
+  onPickOtherMonthDay,
 }: MonthPageProps) {
   const t = useTranslations('reservation.weekRows')
   const tMonth = useTranslations('reservation.month')
@@ -214,18 +219,37 @@ export function MonthPage({
         <div className="grid grid-cols-7">
           {cells.map((cell) => {
             const number = dayNumber(cell.id)
-            // mock `.cell.out`: a muted filler. It is INERT — the page's month
-            // is the month the chip names, and a tap that silently moved it
-            // would be a second, unnamed way to navigate. aria-hidden for the
-            // same reason: it is not a day of this month.
+            // mock `.cell.out`: a muted filler that is STILL A DAY you can tap
+            // — `cellsHTML` gives every cell its `data-go`, and the delegated
+            // handler makes no `out` check (MOCK 976, 1325-1329), so a trailing
+            // 「1」 moves the page to the next month with that day selected.
+            // R1-2 (D-1): 4a built these inert off the packet's sentence; the
+            // mock is the order. Muted stays muted — the tap is the only thing
+            // they gain, and it goes through onPickOtherMonthDay, never
+            // onPickDay: the destination is a different MONTH, not a day page.
+            //
+            // The name is the DATE alone, which already carries the month
+            // (「8/31(月)」): the count behind an out-of-month cell is zeroed by
+            // the adapter, so 「予約 0件」 would be a claim about a day this
+            // month's read never counted.
             if (!cell.inMonth) {
               return (
-                <div
+                <button
                   key={cell.id}
-                  aria-hidden
+                  type="button"
+                  data-month-cell
+                  data-out
+                  onClick={() => onPickOtherMonthDay(cell.id)}
+                  aria-label={formatCompactDateJst(jstWallTimeToDate(cell.id, '00:00'), locale)}
                   className={cn(
                     MONTH_CELL,
                     'bg-[var(--color-bg-muted)]/40',
+                    // The same one-property, named-curve transition the
+                    // in-month cells carry (D-9) — one cell vocabulary.
+                    'transition-[background-color] duration-[120ms] ease-[ease]',
+                    'hover:bg-[var(--color-bg-card-hover)] active:bg-[var(--color-bg-card-hover)]',
+                    'motion-reduce:transition-none',
+                    'outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50',
                     '[&:nth-child(7n)]:border-r-0',
                   )}
                 >
@@ -235,7 +259,7 @@ export function MonthPage({
                     {number}
                   </span>
                   <span className={COUNT_ROW} />
-                </div>
+                </button>
               )
             }
 

@@ -617,6 +617,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             // no month line — exactly as WeekRows does with `failed`.
             failed={monthFailed}
             onPickDay={(iso) => navigateTo('day', jstWallTimeToDate(iso, '00:00'))}
+            // R1-2 (D-1) — a leading/trailing cell belongs to the month either
+            // side, so tapping it MOVES THE PAGE to that month with that day
+            // selected, exactly as the mock's grid handler does. It never opens
+            // a day page: the staff member tapped a date in a month they are
+            // not looking at, and the answer to that is to show them the month.
+            onPickOtherMonthDay={(iso) => navigateTo('month', jstWallTimeToDate(iso, '00:00'))}
           />
         ) : (
           /* 「データがありません」 — reached only while a router transition is

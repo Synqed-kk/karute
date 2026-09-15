@@ -106,6 +106,7 @@ type MonthPageProps = {
   pending?: boolean
   failed?: boolean
   onPickDay: (iso: string) => void
+  onPickOtherMonthDay: (iso: string) => void
 }
 let monthPageProps: MonthPageProps | null = null
 jest.mock('@/components/appointments/MonthPage', () => ({
@@ -331,6 +332,14 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     monthPageProps!.onPickDay('2026-09-17')
     expect(pushed[0]).toContain('date=2026-09-17')
     expect(pushed[0]).toContain('view=day')
+  })
+
+  it('a FILLER tap moves the page to THAT month, never to a day page (R1-2)', () => {
+    renderView(MONTH_VIEW)
+    monthPageProps!.onPickOtherMonthDay('2026-10-01')
+    expect(pushed).toHaveLength(1)
+    expect(pushed[0]).toContain('view=month')
+    expect(pushed[0]).toContain('date=2026-10-01')
   })
 
   it('the month line s pending state is the router transition, like the week s', () => {

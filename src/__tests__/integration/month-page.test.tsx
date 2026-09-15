@@ -122,7 +122,17 @@ const baseProps = {
   typeSlot: 'off' as const,
   locale: 'ja',
   onPickDay: jest.fn(),
+  onPickOtherMonthDay: jest.fn(),
 }
+
+/** The days that BELONG to the rendered month. Since R1-2 the leading and
+ *  trailing fillers are buttons too, so 「every button」 is no longer 「every
+ *  day of this month」. */
+const IN_MONTH = '[data-month-cell]:not([data-out])'
+
+/** Those cells as elements, in calendar order — what 「the 15th button」 meant
+ *  before the fillers became buttons too. */
+const days = () => Array.from(document.querySelectorAll<HTMLElement>(IN_MONTH))
 
 describe('MonthPage — the grid', () => {
   it('renders 35 cells for a 5-row month and 42 for a 6-row one', () => {
@@ -139,11 +149,51 @@ describe('MonthPage — the grid', () => {
     expect(container.querySelectorAll('[class*="h-[46px]"]')).toHaveLength(35)
   })
 
-  it('only in-month cells are pressable — the fillers are inert', () => {
+  // R1-2 (D-1): the mock gives EVERY cell a `data-go` and its handler makes no
+  // `out` check (MOCK 976, 1325-1329) — 4a's inert fillers came from the
+  // packet's sentence, not the mock. Every cell is a button now; what differs
+  // is where it goes.
+  it('every cell is pressable — the fillers too', () => {
     const { MonthPage } = loadMonthPage()
-    render(<MonthPage {...baseProps} cells={monthCells(2026, 9)} />)
-    // September 2026 has 30 days; the leading/trailing fillers render as divs.
-    expect(screen.getAllByRole('button')).toHaveLength(30)
+    const { container } = render(<MonthPage {...baseProps} cells={monthCells(2026, 9)} />)
+    // September 2026 starts on a Tuesday and runs 30 days: 1 leading filler +
+    // 30 days + 4 trailing = 35 cells, all of them buttons.
+    expect(screen.getAllByRole('button')).toHaveLength(35)
+    expect(container.querySelectorAll(IN_MONTH)).toHaveLength(30)
+    expect(container.querySelectorAll('[data-month-cell][data-out]')).toHaveLength(5)
+  })
+
+  it('a filler tap MOVES THE MONTH — the other handler, never the day one', () => {
+    const { MonthPage } = loadMonthPage()
+    const onPickDay = jest.fn()
+    const onPickOtherMonthDay = jest.fn()
+    const { container } = render(
+      <MonthPage
+        {...baseProps}
+        cells={monthCells(2026, 9)}
+        onPickDay={onPickDay}
+        onPickOtherMonthDay={onPickOtherMonthDay}
+      />,
+    )
+    const fillers = container.querySelectorAll('[data-month-cell][data-out]')
+    // The leading filler is 8月31日; the first trailing one is 10月1日.
+    fireEvent.click(fillers[0])
+    fireEvent.click(fillers[1])
+    expect(onPickOtherMonthDay.mock.calls).toEqual([['2026-08-31'], ['2026-10-01']])
+    expect(onPickDay).not.toHaveBeenCalled()
+  })
+
+  it('a filler stays muted, and its NAME carries the month it belongs to', () => {
+    const { MonthPage } = loadMonthPage()
+    const { container } = render(<MonthPage {...baseProps} cells={monthCells(2026, 9)} />)
+    const filler = container.querySelector('[data-month-cell][data-out]')!
+    // 「8/31(月)」 — a date from another month must never read as this month's.
+    expect(filler.getAttribute('aria-label')).toBe('8/31(月)')
+    // Muted: the filler's own wash and the pale number, unchanged by R1-2.
+    expect(filler.getAttribute('class')).toContain('bg-[var(--color-bg-muted)]/40')
+    expect(filler.querySelector('span')!.getAttribute('class')).toContain('text-zinc-300')
+    // And no count, ever — the adapter zeroes an out-of-month cell.
+    expect(filler.textContent).toBe('31')
   })
 
   it('prints the JST day number even on a UTC runtime', () => {
@@ -152,18 +202,18 @@ describe('MonthPage — the grid', () => {
     // number here comes off `cell.id`, which is already the JST day.
     const { MonthPage } = loadMonthPage()
     render(<MonthPage {...baseProps} cells={monthCells(2026, 9)} />)
-    const numbers = screen.getAllByRole('button').map((b) => b.querySelector('span')!.textContent)
+    const numbers = days().map((b) => b.querySelector('span')!.textContent)
     // 1..30, in order, with nothing shifted a day back. `toContain('1')` would
     // pass on a shifted 「31」 — measured: that exact mutant survived it.
     expect(numbers).toEqual(Array.from({ length: 30 }, (_, i) => String(i + 1)))
-    expect(screen.getAllByRole('button')[0].getAttribute('aria-label')).toContain('9/1(火)')
+    expect(days()[0].getAttribute('aria-label')).toContain('9/1(火)')
   })
 
   it('a tap hands back that cell s own dateIso', () => {
     const { MonthPage } = loadMonthPage()
     const onPickDay = jest.fn()
     render(<MonthPage {...baseProps} cells={monthCells(2026, 9)} onPickDay={onPickDay} />)
-    fireEvent.click(screen.getAllByRole('button')[15])
+    fireEvent.click(days()[15])
     expect(onPickDay).toHaveBeenCalledWith('2026-09-16')
   })
 })
@@ -179,7 +229,7 @@ describe('MonthPage — the two marks never read as one', () => {
         selectedDateIso="2026-09-20"
       />,
     )
-    const buttons = screen.getAllByRole('button')
+    const buttons = days()
     const today = buttons[13].querySelector('span')!
     const selected = buttons[19].querySelector('span')!
     expect(today.className).toMatch(/bg-primary/)
@@ -209,7 +259,7 @@ describe('MonthPage — 休', () => {
   it('a closed day with NOTHING booked shows 休 instead of a count', () => {
     const { MonthPage } = loadMonthPage({ closedDays: true })
     render(<MonthPage {...baseProps} cells={closedGrid} />)
-    const cellEl = screen.getAllByRole('button')[15]
+    const cellEl = days()[15]
     expect(cellEl.textContent).toContain('休')
     expect(cellEl.getAttribute('aria-label')).toBe('9/16(水) 休')
   })
@@ -217,7 +267,7 @@ describe('MonthPage — 休', () => {
   it('a closed day WITH bookings shows its numbers, never 休 (⚖ lead ruling)', () => {
     const { MonthPage } = loadMonthPage({ closedDays: true })
     render(<MonthPage {...baseProps} cells={closedGrid} />)
-    const cellEl = screen.getAllByRole('button')[16]
+    const cellEl = days()[16]
     expect(cellEl.textContent).not.toContain('休')
     expect(cellEl.textContent).toContain('4')
     expect(cellEl.getAttribute('aria-label')).toBe('9/17(木) 予約 4件')
@@ -238,7 +288,7 @@ describe('MonthPage — the cell s one piece of motion', () => {
     // `ease`, and it transitions background-color ONLY.
     const { MonthPage } = loadMonthPage()
     render(<MonthPage {...baseProps} cells={monthCells(2026, 9)} />)
-    const cls = screen.getAllByRole('button')[0].className
+    const cls = days()[0].className
     expect(cls).toContain('ease-[ease]')
     expect(cls).toContain('transition-[background-color]')
     expect(cls).toContain('duration-[120ms]')
