@@ -2305,7 +2305,7 @@
         "resetConfirm": "This clears this store's own hours and puts it back on the company-wide default.",
         "resetConfirmYes": "Reset to default",
         "resetDone": "Back on the company-wide default",
-        "clampedMidnight": "The default's 24:00 can't be held in this field, so it saves as 23:59.",
+        "clampedMidnight": "The default's 24:00 is saved as 23:59 on this screen.",
         "closedToggleLabel": "Set {day} as closed",
         "openAria": "{day} opening time",
         "closeAria": "{day} closing time"

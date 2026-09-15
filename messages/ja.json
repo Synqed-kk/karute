@@ -2302,10 +2302,10 @@
         "invalidWindow": "開店時間は閉店時間より前に設定してください。",
         "weekIncomplete": "7曜日すべてを一度に保存します。画面を開き直してもう一度お試しください。",
         "resetToDefault": "全店共通の初期値に戻す",
-        "resetConfirm": "この店舗だけの営業時間を消して、全店共通の初期値に戻します。",
+        "resetConfirm": "この店舗だけの営業時間の設定を解除し、全店共通の初期値に戻します。",
         "resetConfirmYes": "初期値に戻す",
         "resetDone": "全店共通の初期値に戻しました",
-        "clampedMidnight": "初期値の24:00はこの欄で扱えないため、23:59として保存されます。",
+        "clampedMidnight": "初期値の24:00はこの画面では23:59として保存されます。",
         "closedToggleLabel": "{day}曜日を休業にする",
         "openAria": "{day}曜日の開店時間",
         "closeAria": "{day}曜日の閉店時間"
