@@ -427,12 +427,24 @@ export function WeekRows({
                     className={cn(
                       // R3-17 — mock `.wkdate i{color:var(--sub)}`, the middle
                       // grey; same dark pair as the summary line.
+                      //
+                      // R3c-3 — on the today wash (rgba(37,99,235,.08) over
+                      // white = #eef3fd), zinc-500 measures 4.34:1 (R3b-1's
+                      // own footnote), under the 4.5:1 word floor. zinc-600 on
+                      // that wash measures 6.94:1 — the today variant only.
+                      // Dark: the today wash composites to #1e232d
+                      // (rgba(96,165,250,.08) over #18181b); zinc-400 there
+                      // still measures 6.00:1, clearing 4.5:1, so the dark
+                      // pair is unchanged. Other rows keep zinc-500
+                      // dark:zinc-400.
                       'text-[11px] font-bold leading-none',
                       isSat
                         ? 'text-primary'
                         : isSun
                           ? 'text-red-600 dark:text-red-400'
-                          : 'text-zinc-500 dark:text-zinc-400',
+                          : isToday
+                            ? 'text-zinc-600 dark:text-zinc-400'
+                            : 'text-zinc-500 dark:text-zinc-400',
                     )}
                   >
                     {row.weekdayLabel}

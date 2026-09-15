@@ -937,11 +937,38 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     page's own grid is an addition, not a swap.
 //   en       134,204 → 134,204 — unchanged to the byte (no new JA string).
 //   vendor   937,791 → 937,791 — unchanged to the byte.
-//
-// Two clean laps per tip (thin/dist emptied before each), byte-identical and
-// same content hashes both times: node v24.16.0, @synqed-kk/ui 0.3.2,
-// installed == lock.
-const BUDGET_BYTES = 2_110_901
+// RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R3c (R3c-1 — rowAria's
+// date→cells join, R3c-3 — the today row's weekday letter tone) and a
+// MEASUREMENT-METHOD correction: DELTA-VERIFY-1B-WIRE-R3-2026-09-15.md §6
+// flagged the R3b comment above (1,032,969 B) as 389 B higher than its own
+// independent re-measurement (1,032,580 B) of the SAME tip. Reproduced here:
+// building with only `VITE_SHELL_MODE=local` set (no VITE_FACADE_URL /
+// VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY / VITE_BUILD_COMMIT /
+// VITE_BUILD_NUMBER — matching DELTA-VERIFY's own battery line, which names
+// only VITE_SHELL_MODE) measures index = 1,032,619 B on this round's tip —
+// 390 B smaller than the full-env figure below, the same gap DELTA-VERIFY
+// found. The workflow's thin bundle gate step (.github/workflows/ci.yml) sets
+// all six vars every run; the earlier local figure(s) were measured with five
+// of them unset, so Vite inlined shorter (`undefined`/absent) literals in
+// place of the CI recipe's release-length fakes. This entry is measured with
+// the workflow's own exact env, values copied from the checked-in step
+// (nothing here is or resembles a credential — the same public, obviously-
+// fake values CI itself uses):
+//   VITE_SHELL_MODE=local
+//   VITE_FACADE_URL=https://ci-dummy.invalid
+//   VITE_SUPABASE_URL=https://ci-dummy-xxxxxxxxxxx.supabase.co
+//   VITE_SUPABASE_ANON_KEY=<208-char 'not-a-key-xxx…' placeholder, verbatim
+//     from the workflow file>
+//   VITE_BUILD_COMMIT=cidummyx
+//   VITE_BUILD_NUMBER=00
+// Commands, in order (thin/dist emptied before each lap):
+//   npx --no -- vite build --config thin/vite.config.ts
+//   node scripts/thin/check-bundle-budget.mjs
+// Byte-identical (content hashes match) across two clean builds on the final
+// code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,033,009 · vendor 937,791 = 2,105,004 B.
+// Ceiling = 2,105,004 + 1,000.
+const BUDGET_BYTES = 2_106_004
 
 let dir
 try {
