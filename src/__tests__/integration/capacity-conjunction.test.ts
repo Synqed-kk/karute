@@ -126,6 +126,43 @@ describe('F1 — each conjunct false ALONE flips it', () => {
     expect(day.availableMinutes).toBe(FALLBACK * 1)
   })
 
+  it('booked PAST the saved window — 稼働 would read 117% (mutant m11)', () => {
+    // One staffer, 08:00–19:40 JST against a saved 10:00–20:00 (600 min) day.
+    // Nothing else fails: solo, one staffer, no overlap, hours saved, open.
+    const day = row([
+      appt({ starts_at: '2026-09-14T23:00:00Z', duration_minutes: 700 }),
+    ])
+    expect(day.bookedMinutes).toBe(700)
+    expect(day.capacityDefensible).toBe(false)
+    expect(day.availableMinutes).toBe(FALLBACK * 1)
+  })
+
+  it('STAFFLESS rows push the day past 100% — 稼働 would read 110%', () => {
+    // The ≤1-staffer conjunct only looks at non-null staff ids, so three
+    // unassigned bookings sail past it while their minutes still count.
+    // 480 + 3×60 = 660 against a 600-minute day.
+    const day = row([
+      appt({ starts_at: '2026-09-15T01:00:00Z', duration_minutes: 480 }),
+      appt({ id: 'u1', staff_id: null, starts_at: '2026-09-15T10:00:00Z' }),
+      appt({ id: 'u2', staff_id: null, starts_at: '2026-09-15T11:00:00Z' }),
+      appt({ id: 'u3', staff_id: null, starts_at: '2026-09-15T12:00:00Z' }),
+    ])
+    expect(day.bookedMinutes).toBe(660)
+    expect(day.capacityDefensible).toBe(false)
+    // The fallback counts DISTINCT staff_id values on the day, null included —
+    // pre-existing arithmetic, unchanged here.
+    expect(day.availableMinutes).toBe(FALLBACK * 2)
+  })
+
+  it('a day booked to exactly its saved minutes is still defensible', () => {
+    const day = row([
+      appt({ starts_at: '2026-09-15T01:00:00Z', duration_minutes: 600 }),
+    ])
+    expect(day.bookedMinutes).toBe(600)
+    expect(day.capacityDefensible).toBe(true)
+    expect(day.availableMinutes).toBe(600)
+  })
+
   it('no hours fact at all (the window carried none)', () => {
     const day = row(ONE_STAFFER, { fact: null })
     expect(day.capacityDefensible).toBe(false)

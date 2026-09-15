@@ -66,6 +66,11 @@ run m7 $HOURS src/__tests__/integration/resolve-day-hours.test.ts 'an ABSENT wee
 perl -0pi -e 's/return \{ staffId: null, unknown: true \}/return { staffId: null, unknown: false }/' $SCREEN
 run m8 $SCREEN src/__tests__/integration/resolve-fetch-staff-id.test.ts 'cannot place'
 
+# m11 — 稼働 is allowed past 100% again: the day claims a capacity its own
+# bookings already overran.
+perl -0pi -e 's/bookedMinutes <= fact\.minutes/true/' $ADAPTER
+run m11 $ADAPTER src/__tests__/integration/capacity-conjunction.test.ts 'booked PAST the saved window'
+
 # m9 — the WEB action's unplaceable filter falls back to a FETCH: one stylist's
 # 自分 week becomes the whole salon's, under her name.
 perl -0pi -e 's/^    unknown\n      \? Promise\.resolve/    !unknown\n      ? Promise.resolve/m' $ACTION

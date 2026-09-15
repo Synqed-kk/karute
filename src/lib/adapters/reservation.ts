@@ -165,7 +165,13 @@ export function appointmentsToWeekData(
       !hasOverlap(dayAppts) &&
       fact != null &&
       fact.saved &&
-      !fact.closed
+      !fact.closed &&
+      // A day booked past its own saved window is proof the denominator is
+      // wrong, not proof the salon ran at 117%: unassigned rows and bookings
+      // outside opening hours both land here. The day claims nothing and falls
+      // back to the old arithmetic — 稼働 never renders above 100% (spec §8,
+      // STRESS-S F1).
+      bookedMinutes <= fact.minutes
 
     const cp = partsInJst(cursor)
     days.push({
