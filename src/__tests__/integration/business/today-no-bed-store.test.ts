@@ -58,7 +58,7 @@ import { bedDoor, bedViewsFor, TodayScreen, type TodayProps } from '@/app/[local
 import { HONEST_HELD } from '@/app/[locale]/(business)/business/today/selling-engine-gate'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
-import type { GapCell } from '@/business/lib/canon-logic/availability'
+import { trackFree, type GapCell } from '@/business/lib/canon-logic/availability'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { readFileSync } from 'node:fs'
@@ -323,12 +323,13 @@ describe('G4 — the sell layer: staff cells only', () => {
     expect(sell.cells.every((c) => c.resourceKey === '')).toBe(true)
   })
 
-  // ⚖ DISCLOSED, NOT FIXED (out of scope: availability.ts) — canon's own cap:
-  // a no-resource store sells at most ONE start per hour across all its staff
-  // (canon-logic.test.ts:522-536, `[null]` index-wise pairing). This fixture's
-  // one floating trainer cannot show the cap biting (there is nothing to
-  // contend with); a synthetic two-staff no-bed board prints it instead.
-  it('DISCLOSURE — the one-start-per-hour cap on a two-staff no-bed board (queued, not this slice)', () => {
+  // ⚖ DISCLOSED PIN MOVE (⚖ D-53 (c) R1, N0) — the cap this test used to
+  // record is CLOSED: the seam now passes `needsUnit`, so a no-unit store's
+  // staff sell on staff time alone with no cap — the count per hour is the
+  // number of FREE staff, not one. This fixture's two store-bound staff (both
+  // free the whole day, nothing to contend with) print [2]; G1 closed. This
+  // test is the RECORD of that, with its ⚖ reason, not a queued defect.
+  it('the no-unit rule closes the one-start-per-hour cap on a two-staff no-bed board (⚖ D-53 (c) R1, G1)', () => {
     const hours: Hours = { open: GYM.hours.open, close: GYM.hours.close }
     const staffLane = (key: string, label: string): BoardLane => ({
       key, group: 'staff', label, sub: '', absentNote: null, mine: false, items: [],
@@ -345,7 +346,7 @@ describe('G4 — the sell layer: staff cells only', () => {
     for (const c of sell.cells) perHour.set(c.h, (perHour.get(c.h) ?? 0) + 1)
     const counts = [...new Set(perHour.values())]
     console.log('G4-DISCLOSURE', { perHour: Object.fromEntries(perHour), counts })
-    expect(counts).toEqual([1])
+    expect(counts).toEqual([2])
   })
 })
 
@@ -707,5 +708,214 @@ describe('G12 — Greptile P1-1, pinned as NOT a defect (⚖ D-52 (g))', () => {
     expect(gymVerdict.kind).toBe('blocked')
     expect(gymVerdict.floor).toBe('hard-room')
     expect(gymVerdict.reason).toBe('この店舗には個室がありません。個室のある店舗へ移してください')
+  })
+})
+
+// ⚖ D-53 (c) R1 — N0's SEEDED SELL-LAYER FAMILY (PKT-BUILD-N0-SELL-NO-UNIT.md
+// item 7). No generator ever pointed at `sellLayerFor` with a STORE-BOUND
+// no-unit roster before this: the shipped fixture's only no-unit lane (STORE_C)
+// has a single FLOATING trainer (c-03), which is structurally blind to G2 (a
+// floating staff always answers `needsUnit → true` — DESIGN-D-53 §9 R1). This
+// family builds a unit store (store-a, real beds) beside a store-BOUND no-unit
+// store (store-z, zero beds — never `null`), through the real seam
+// (`sellLayerFor`), on ≥200 seeded boards.
+describe('⚖ D-53 (c) R1 — N0 seeded family: a store-bound no-unit roster beside a unit store', () => {
+  function mulberry32(seed: number) {
+    let a = seed >>> 0
+    return () => {
+      a |= 0
+      a = (a + 0x6d2b79f5) | 0
+      let t = Math.imul(a ^ (a >>> 15), 1 | a)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+  }
+
+  const N0_OPEN = 600
+  const N0_CLOSE = 1080
+  const GRIDS = [15, 30, 60]
+  const SLOTS = [45, 60, 90]
+  const DURS = [30, 45, 60, 90]
+  const overlaps = (a: { start: number; end: number }, s: number, e: number) => a.start < e && s < a.end
+
+  function n0Item(key: string, start: number, end: number): BoardItem {
+    return {
+      key, kind: 'booking', state: 'confirmed', category: null, x: 0, w: 0,
+      startMin: start, endMin: end, title: '', tag: '', time: '',
+      ticketCat: null, ticketCore: null, held: false, micro: false, caseId: key, label: '',
+    }
+  }
+
+  function n0StaffLane(key: string, stores: string[] | null, items: BoardItem[] = []): BoardLane {
+    return {
+      key, group: 'staff', label: key, sub: '', absentNote: null, mine: false, items,
+      window: { from: N0_OPEN, until: N0_CLOSE }, untilLabel: hhmm(N0_CLOSE),
+      listPrice: 7000, stores, roomClass: null,
+    }
+  }
+
+  function n0BedLane(key: string, storeId: string, items: BoardItem[] = []): BoardLane {
+    return {
+      key, group: 'beds', label: key, sub: '', absentNote: null, mine: false, items,
+      window: null, untilLabel: null, listPrice: 0, stores: [storeId], roomClass: 'standard',
+    }
+  }
+
+  /** A unit store (store-a) beside a STORE-BOUND no-unit store (store-z), plus
+   *  a floating staff on half the seeds. Every store-a bed is deliberately
+   *  double-booked solid for the FIRST sellable slot (decision point (ii)/(e):
+   *  a mixed board with every unit busy still sells the no-unit store's free
+   *  staff) — forced, not left to chance, so every seed exercises it; store-z's
+   *  own random bookings are kept OUT of that same slot so its staff are
+   *  provably free there. */
+  function genN0Board(seed: number) {
+    const rnd = mulberry32(seed)
+    const pick = <T,>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)]
+    const gridMin = pick(GRIDS)
+    const sellSlotMin = pick(SLOTS)
+
+    const numStaffA = 2 + Math.floor(rnd() * 5) // 2..6
+    const numBeds = 1 + Math.floor(rnd() * 4) // 1..4
+    const numBookingsA = Math.floor(rnd() * 7) // 0..6
+    const numStaffZ = 1 + Math.floor(rnd() * 5) // 1..5
+    const numBookingsZ = Math.floor(rnd() * 5) // 0..4
+    const hasFloating = seed % 2 === 0 // half the seeds, exactly
+
+    const aStaffKeys = Array.from({ length: numStaffA }, (_, i) => `a-staff-${seed}-${i}`)
+    const bedKeys = Array.from({ length: numBeds }, (_, i) => `a-bed-${seed}-${i}`)
+    const zStaffKeys = Array.from({ length: numStaffZ }, (_, i) => `z-staff-${seed}-${i}`)
+    const floatingKey = hasFloating ? `float-${seed}` : null
+
+    const aStaffOccupied = new Map<string, Array<{ start: number; end: number }>>(aStaffKeys.map((k) => [k, []]))
+    const bedOccupied = new Map<string, Array<{ start: number; end: number }>>(bedKeys.map((k) => [k, []]))
+    const zStaffOccupied = new Map<string, Array<{ start: number; end: number }>>(zStaffKeys.map((k) => [k, []]))
+
+    // store-a bookings: a real staff+bed pair, rejection-sampled against both.
+    for (let i = 0; i < numBookingsA; i += 1) {
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const staffKey = pick(aStaffKeys)
+        const bedKey = pick(bedKeys)
+        const start = N0_OPEN + Math.floor(rnd() * 24) * 15
+        const dur = pick(DURS)
+        const end = start + dur
+        if (end > N0_CLOSE) continue
+        if (aStaffOccupied.get(staffKey)!.some((o) => overlaps(o, start, end))) continue
+        if (bedOccupied.get(bedKey)!.some((o) => overlaps(o, start, end))) continue
+        aStaffOccupied.get(staffKey)!.push({ start, end })
+        bedOccupied.get(bedKey)!.push({ start, end })
+        break
+      }
+    }
+    // THE FORCED LOCKDOWN: every store-a bed busy for the whole first slot.
+    for (const bedKey of bedKeys) bedOccupied.get(bedKey)!.push({ start: N0_OPEN, end: N0_OPEN + sellSlotMin })
+
+    // store-z bookings: staff only (no beds exist on this store to pair with),
+    // and never inside the lockdown slot — so (e) always has a free z-staff.
+    for (let i = 0; i < numBookingsZ; i += 1) {
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const staffKey = pick(zStaffKeys)
+        const start = N0_OPEN + sellSlotMin + Math.floor(rnd() * 20) * 15
+        const dur = pick(DURS)
+        const end = start + dur
+        if (end > N0_CLOSE) continue
+        if (zStaffOccupied.get(staffKey)!.some((o) => overlaps(o, start, end))) continue
+        zStaffOccupied.get(staffKey)!.push({ start, end })
+        break
+      }
+    }
+
+    const aStaffLanes = aStaffKeys.map((k) =>
+      n0StaffLane(k, ['store-a'], aStaffOccupied.get(k)!.map((o, i) => n0Item(`${k}-b${i}`, o.start, o.end))),
+    )
+    const bedLanes = bedKeys.map((k) =>
+      n0BedLane(k, 'store-a', bedOccupied.get(k)!.map((o, i) => n0Item(`${k}-b${i}`, o.start, o.end))),
+    )
+    const zStaffLanes = zStaffKeys.map((k) =>
+      n0StaffLane(k, ['store-z'], zStaffOccupied.get(k)!.map((o, i) => n0Item(`${k}-b${i}`, o.start, o.end))),
+    )
+    const floatingLane = floatingKey ? n0StaffLane(floatingKey, null) : null
+
+    const unitLanes = [...aStaffLanes, ...bedLanes]
+    const lanes = [...unitLanes, ...zStaffLanes, ...(floatingLane ? [floatingLane] : [])]
+
+    return {
+      lanes, unitLanes, zStaffLanes, floatingLane, floatingKey, gridMin, sellSlotMin, zStaffKeys,
+      zFreeAt: (staffKey: string, s: number, e: number) => trackFree(zStaffOccupied.get(staffKey) ?? [], s, e),
+    }
+  }
+
+  it('≥200 seeded boards: G1 no-cap, G2 mixed-board honesty, byte-identical isolation, floating pairing', () => {
+    const hours: Hours = { open: N0_OPEN, close: N0_CLOSE }
+    const { price, depth } = priceOf()
+    const SEEDS = 220
+    let totalNoUnitCells = 0
+    let totalUnitCells = 0
+    let totalBands = 0
+    let floatingSeeds = 0
+
+    for (let seed = 1; seed <= SEEDS; seed += 1) {
+      const b = genN0Board(seed)
+      const opts = {
+        gridMin: b.gridMin, sellSlotMin: b.sellSlotMin, nowMinute: null, locked: [],
+        showPrice: true, hi: price.hi, hqMin: GYM.dialogs.pricing.hqMin, depth,
+      }
+      const mixed = sellLayerFor(b.lanes, hours, opts)
+      const unitOnlyLanes = b.floatingLane ? [...b.unitLanes, b.floatingLane] : b.unitLanes
+      const unitOnly = sellLayerFor(unitOnlyLanes, hours, opts)
+      const noUnitOnly = sellLayerFor(b.zStaffLanes, hours, opts)
+
+      const zKeySet = new Set(b.zStaffKeys)
+      const mixedNoUnitCells = mixed.cells.filter((c) => zKeySet.has(c.laneKey))
+      const mixedUnitCells = mixed.cells.filter((c) => !zKeySet.has(c.laneKey))
+
+      // (a) the no-unit store's cells = one per FREE staff per slot, all resourceKey ''
+      expect(mixedNoUnitCells.every((c) => c.resourceKey === '' && c.bed === '')).toBe(true)
+      const bySlot = new Map<number, number>()
+      for (const c of mixedNoUnitCells) bySlot.set(c.h, (bySlot.get(c.h) ?? 0) + 1)
+      for (let sm = N0_OPEN; sm + b.sellSlotMin <= N0_CLOSE; sm += b.gridMin) {
+        const end = sm + b.sellSlotMin
+        const freeCount = b.zStaffKeys.filter((k) => b.zFreeAt(k, sm, end)).length
+        expect({ seed, sm, count: bySlot.get(sm) ?? 0 }).toEqual({ seed, sm, count: freeCount })
+      }
+
+      // (b)/(c) byte-identical EXCEPT `tier`: `buildSellLayer`'s tiering is a
+      // GLOBAL min/max reduction over every staff cell IN THE LAYER (pre-existing,
+      // unrelated to N0 — the same crosstalk exists on any two-store board today);
+      // adding or removing the other store's cells can shift the price pool and
+      // relabel a tier bucket without moving the underlying `price`. The
+      // additive-only law N0 owns is about WHICH cells exist and their own
+      // fields, not this shared display bucket, so it is stripped before the
+      // isolation checks below.
+      const noTier = (cells: typeof mixed.cells) => cells.map((c) => ({ ...c, tier: 1 as const }))
+
+      // (b) the unit store's (+ floating's) cells are byte-identical with/without the no-unit store
+      expect(noTier(mixedUnitCells)).toEqual(noTier(unitOnly.cells))
+
+      // (c) the no-unit store's cells are byte-identical to its own clamped board
+      expect(noTier(mixedNoUnitCells)).toEqual(noTier(noUnitOnly.cells))
+
+      // (d) the floating staff (when present) always pairs with a real unit — never unitless
+      if (b.floatingLane) {
+        floatingSeeds += 1
+        const floatCells = mixed.cells.filter((c) => c.laneKey === b.floatingKey)
+        expect(floatCells.every((c) => c.resourceKey !== '')).toBe(true)
+      }
+
+      // (e) the forced lockdown slot: every store-a bed busy, store-z's staff still sell
+      const lockdownCount = mixed.cells.filter((c) => c.h === N0_OPEN && zKeySet.has(c.laneKey)).length
+      expect({ seed, lockdownCount }).toEqual({ seed, lockdownCount: b.zStaffKeys.length })
+
+      // (f) nothing throws; the chip's own count tracks staffBands.length
+      expect(mixed.chipLabel.startsWith(`オンライン販売中 ${mixed.staffBands.length}`)).toBe(true)
+
+      totalNoUnitCells += mixedNoUnitCells.length
+      totalUnitCells += mixedUnitCells.length
+      totalBands += mixed.bands.length
+    }
+
+    console.log('N0 seeded sell-layer family', {
+      seeds: SEEDS, floatingSeeds, totalNoUnitCells, totalUnitCells, totalBands, failures: 0,
+    })
+    expect(SEEDS).toBeGreaterThanOrEqual(200)
   })
 })
