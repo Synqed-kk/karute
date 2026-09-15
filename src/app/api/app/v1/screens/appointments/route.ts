@@ -275,6 +275,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         dayTotals: screen.dayTotals,
         monthStartIso: screen.monthStartIso,
         truncated: screen.truncated,
+        soloMode: screen.soloMode,
         monthData:
           screen.monthData?.map((c) => ({
             id: c.id,

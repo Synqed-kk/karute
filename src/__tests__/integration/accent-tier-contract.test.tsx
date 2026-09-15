@@ -396,3 +396,98 @@ describe('録音履歴 inbox rows (Build F1)', () => {
     expect(handwrite.className).not.toMatch(cls('bg-primary'))
   })
 })
+
+// R3-10 — the week rows' and day line's adjudicated accent sites. ⚖ §v11c
+// turned 新規 blue on four surfaces (day line · week rows · month line ·
+// selected-day card) and deliberately NOT on the week summary, and the 稼働
+// mid band is accent-as-text on an informational cell. Both are rulings, not
+// accidents — but nothing pinned them here, so a blind mutant that swapped
+// 新規 to the green band colour passed the whole suite (LENS-2 M6). The next
+// accent sweep would have "fixed" them silently.
+describe('week rows + day numbers line — the adjudicated accent sites (R3-10)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { WeekRows } = require('@/components/appointments/WeekRows') as typeof import('@/components/appointments/WeekRows')
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { DayNumbersLine } = require('@/components/appointments/DayNumbersLine') as typeof import('@/components/appointments/DayNumbersLine')
+  type Row = Parameters<typeof DayNumbersLine>[0]['row']
+
+  // 50% of a defensible day → the MID band; typeSlot 'new' puts 新規 on both
+  // surfaces (today's doors pass 'off', so this is the PKT-2 shape the tones
+  // were ruled for).
+  const row = {
+    dateNumber: 15,
+    monthNumber: 9,
+    weekdayLabel: '火',
+    isToday: false,
+    count: 11,
+    bookedMinutes: 240,
+    availableMinutes: 480,
+    newCustomerCount: 5,
+    remindersPending: 0,
+    consentPending: 0,
+    unconfirmed: 0,
+    visibleBookings: [],
+    hiddenCount: 0,
+    dateIso: '2026-09-15',
+    capacityDefensible: true,
+    hoursSaved: true,
+    closed: false,
+    cancelledCount: 2,
+    noShowDayCount: 0,
+    returningCount: 2,
+  } as unknown as NonNullable<Row>
+
+  const weekProps = {
+    weekStartIso: '2026-09-15',
+    selectedDateIso: '2026-09-15',
+    todayIso: '2026-09-15',
+    soloMode: false,
+    typeSlot: 'new' as const,
+    locale: 'ja',
+    onPickDay: () => {},
+  }
+
+  function newValue(root: HTMLElement): HTMLElement {
+    const svg = root.querySelector('[data-new-spark]')!
+    return (svg.closest('[data-week-value]') ?? svg.parentElement) as HTMLElement
+  }
+
+  it('the WEEK cell 新規 value and its spark carry the accent token, never a band colour', () => {
+    const { container } = render(<WeekRows {...weekProps} rows={[row]} />)
+    const value = newValue(container)
+    expect(value.className).toContain('text-[var(--reservation-new-chip-bg)]')
+    expect(value.className).not.toMatch(/text-(green|amber)-/)
+    // the spark inherits currentColor from that same value span
+    expect(value.querySelector('svg')).not.toBeNull()
+  })
+
+  it('the DAY LINE 新規 value and its spark carry the accent token', () => {
+    const { container } = render(
+      <DayNumbersLine row={row} soloMode={false} typeSlot="new" locale="ja" />,
+    )
+    const svg = container.querySelector('[data-new-spark]')!
+    expect(svg.getAttribute('class')).toContain('text-[var(--reservation-new-chip-bg)]')
+    const value = svg.parentElement!.querySelector('b')!
+    expect(value.className).toContain('text-[var(--reservation-new-chip-bg)]')
+    expect(value.className).not.toMatch(/text-(green|amber)-/)
+  })
+
+  it('the 稼働 mid band is text-primary on BOTH surfaces', () => {
+    const week = render(<WeekRows {...weekProps} rows={[row]} />)
+    const weekCells = Array.from(week.container.querySelectorAll('[data-week-value]'))
+    expect(weekCells.some((v) => v.className.includes('text-primary'))).toBe(true)
+    week.unmount()
+    const day = render(<DayNumbersLine row={row} soloMode={false} typeSlot="new" locale="ja" />)
+    const dayValues = Array.from(day.container.querySelectorAll('b'))
+    expect(dayValues.some((v) => v.className.includes('text-primary'))).toBe(true)
+  })
+
+  it('the week SUMMARY keeps 新規 ink — §v11c did not touch this one', () => {
+    const { getByTestId } = render(<WeekRows {...weekProps} rows={[row]} />)
+    const summary = getByTestId('week-summary')
+    expect(summary.innerHTML).not.toMatch(/reservation-new-chip-bg/)
+    for (const b of Array.from(summary.querySelectorAll('b'))) {
+      expect(b.className).toContain('text-[var(--color-text)]')
+    }
+  })
+})

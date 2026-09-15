@@ -160,6 +160,11 @@
       "legendMedium": "普通",
       "legendBusy": "混雑"
     },
+    "dateJump": {
+      "loading": "予約状況を読み込み中…",
+      "failed": "予約状況を取得できませんでした。もう一度お試しください。",
+      "legendCount": "数字＝その日の予約件数"
+    },
     "weekCard": {
       "today": "今日",
       "bookings": "件",
@@ -171,6 +176,29 @@
       "pending": "未確定",
       "empty": "予約なし",
       "more": "他"
+    },
+    "weekRows": {
+      "summaryRange": "{from}〜{to}",
+      "sep": "·",
+      "count": "予約",
+      "utilization": "稼働",
+      "free": "空き",
+      "bookedTime": "予約時間",
+      "new": "新規",
+      "returning": "再来",
+      "cancelled": "キャンセル",
+      "noShow": "無断",
+      "unset": "未設定",
+      "closed": "休",
+      "countValue": "{n}件",
+      "countLine": "{n}件",
+      "hours": "{h}時間",
+      "minutes": "{m}分",
+      "loading": "予約状況を読み込み中…",
+      "failed": "予約状況を取得できませんでした。もう一度お試しください。",
+      "rowAria": "{date}、{cells}",
+      "ariaSep": "、",
+      "ariaLoading": "読み込み中"
     },
     "status": {
       "booked": "予約済",

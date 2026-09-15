@@ -83,6 +83,10 @@ export const MonthCellDTO = z.object({
   count: z.number(),
   density: z.enum(['empty', 'light', 'medium', 'busy']),
 })
+/** JSON shape of one 月 grid cell — the wire type the date-jump panel's
+ *  month loader returns on BOTH doors (facade GET on the phone, server action
+ *  on web), so neither host hand-rolls its own. */
+export type MonthCellDTOType = z.infer<typeof MonthCellDTO>
 
 export const AppointmentsScreenDTO = z.object({
   /** Echo of the resolved query params — the view treats them as canon. */
@@ -179,6 +183,10 @@ export const AppointmentsScreenDTO = z.object({
    *  failed rather than showing a low number. Same bundle-skew default; false
    *  is today's (silently-truncating) behaviour. */
   truncated: z.boolean().default(false),
+  /** The salon's `solo_mode` capability, resolved server-side (screen.ts) so
+   *  the view never reads org settings — the thin door carries none. Same
+   *  bundle-skew default; false is today's behaviour. */
+  soloMode: z.boolean().default(false),
 })
 
 export type AppointmentsScreenDTOType = z.infer<typeof AppointmentsScreenDTO>
