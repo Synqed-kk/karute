@@ -21,13 +21,22 @@
 //     anchored panel — the idiom, not the component: the content is a
 //     calendar, not a list.
 //
-// MOTION is plain CSS transitions on inline transforms (the business shell's
-// makeSpring is business territory and is deliberately not imported): open
-// 180 ms / close 140 ms ease-out from the chip, month change a 220 ms
-// horizontal slide the finger can interrupt, level 1⇄2 a 160 ms blur
-// crossfade. `prefers-reduced-motion` drops every transform and leaves the
-// fades — read in JS as well as CSS, because the month commit is driven by a
-// timer that must fire immediately when the animation is off.
+// MOTION is the STUDIO SPRING, ported from the approved mock rather than
+// re-described: src/lib/motion/spring.ts is the mock's own `makeSpring`
+// (DATE-JUMP-PICKER-MOCK.html:465-496, response 0.30, damping 1.0). Two
+// instances of it own the moving pixels and write them every frame through
+// refs — the panel's opacity/transform plus the scrim's opacity (MOCK
+// 1061-1067), and the month track's x in pixels plus the grid's height while a
+// shift is armed (MOCK 1069-1093). React sets none of those properties and no
+// CSS transition is declared for them: a transition fighting a per-frame write
+// is a second motion language on one element, and a transition cannot be
+// handed a flick's velocity.
+//
+// The chevron, the level 1⇄2 blur crossfade and the press scale stay plain CSS
+// cubic-beziers (design §3) — they are states, not gestures.
+// `prefers-reduced-motion` keeps the fades and drops the transforms: the open
+// spring still runs (the panel fades in), its `apply` simply writes no
+// transform, and the slide spring lands every `set` instantly.
 
 import {
   useCallback,
@@ -45,6 +54,7 @@ import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { MonthGrid, type MonthGridCell } from '@synqed-kk/ui'
 import { useLocale, useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
+import { makeSpring, type Spring, type SpringOptions } from '@/lib/motion/spring'
 import { appointmentsToMonthCells } from '@/lib/adapters/reservation'
 import { computeMonthRange, jstMidnight } from '@/lib/date/calendar-range'
 import {
@@ -67,16 +77,12 @@ import {
   type MonthKey,
 } from '@/lib/appointments/date-jump'
 
-/** ms — kept beside the class strings that spell the same numbers. */
-const OPEN_MS = 180
-const CLOSE_MS = 140
-const SLIDE_MS = 220
-/** Finger travel before the gesture claims an axis. */
-const AXIS_LOCK_PX = 10
-/** Fraction of the grid's width that commits a month on release. */
-const COMMIT_FRACTION = 0.4
-/** px/ms — a flick commits regardless of distance. */
-const COMMIT_VELOCITY = 0.5
+/** Finger travel before the gesture claims an axis (MOCK 1345). */
+const AXIS_LOCK_PX = 6
+/** Fraction of the grid's width that commits a month on release (MOCK 1365). */
+const COMMIT_FRACTION = 0.25
+/** px/s — a flick commits regardless of distance (MOCK 1365-1366). */
+const COMMIT_VELOCITY = 550
 /** Upward travel that closes the panel. */
 const SWIPE_UP_PX = 40
 
@@ -162,7 +168,11 @@ export function DateJumpPanel({
   const press = reduced ? PRESS_REDUCED : PRESS
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
+  const scrimRef = useRef<HTMLDivElement>(null)
+  /** The height wrapper the months slide inside — the mock's `gridWrap`. */
   const gridRef = useRef<HTMLDivElement>(null)
+  /** The three-pane strip the spring translates — the mock's `track`. */
+  const trackRef = useRef<HTMLDivElement>(null)
   const paneRefs = {
     prev: useRef<HTMLDivElement>(null),
     current: useRef<HTMLDivElement>(null),
@@ -178,20 +188,77 @@ export function DateJumpPanel({
   const stateRef = useRef(state)
   stateRef.current = state
 
+  // ── the panel's own spring: open and close (MOCK 1061-1067, 1095-1113) ────
+  // `reduced` is read through a ref rather than closed over: the springs are
+  // built once, and the media query can answer after they exist.
+  const reducedRef = useRef(reduced)
+  reducedRef.current = reduced
+
   // Mount/unmount around the close animation so the panel is really gone
   // (no stray tab stops) once it has faded out.
   const [rendered, setRendered] = useState(open)
-  const [shown, setShown] = useState(false)
-  useEffect(() => {
+  /** Has this mount had its CLOSED style written yet? Cleared at rest, so a
+   *  reopen mid-close continues instead of re-seating. */
+  const seatedRef = useRef(false)
+
+  // D1 — the OPEN spring never runs `reduced`. Design §3 asks for "fades only",
+  // so under reduce the fade still plays at full speed and only the transform
+  // is dropped (in `apply`). The mock jumps instantly there; §3 outranks it.
+  const openOpts = useRef<SpringOptions>({
+    response: 0.3,
+    damping: 1,
+    eps: 0.004,
+    onRest: (p) => {
+      if (p !== 0) return
+      seatedRef.current = false
+      setRendered(false)
+    },
+  }).current
+  const openSpringRef = useRef<Spring | null>(null)
+  if (!openSpringRef.current) {
+    openSpringRef.current = makeSpring((p) => {
+      const dialog = panelRef.current
+      if (dialog) {
+        dialog.style.opacity = String(p)
+        dialog.style.transform = reducedRef.current
+          ? 'none'
+          : `scaleY(${(0.96 + 0.04 * p).toFixed(4)}) translateY(${(-4 * (1 - p)).toFixed(2)}px)`
+      }
+      // The scrim's own class carries the mock's alpha (bg-foreground/20 ≈ the
+      // mock's rgba(17,20,24,.22) × 0.9), so the spring writes p, not p × 0.9.
+      const scrim = scrimRef.current
+      if (scrim) scrim.style.opacity = String(p)
+    }, openOpts)
+  }
+  const openSpring = openSpringRef.current
+
+  // THE PRODUCTION FIX, BY CONSTRUCTION. `jump(0)` writes the closed style
+  // synchronously in the commit that mounted the panel and BEFORE the browser
+  // paints it, so the first picture of this element is always the closed one —
+  // and every frame after it is written by the spring itself, not inferred by
+  // the transition engine from a style delta it may never have seen. The old
+  // code mounted closed and flipped open one rAF later: production's faster JS
+  // put both commits inside a single frame, the browser painted only the open
+  // state, and the panel snapped into place with no animation at all.
+  useLayoutEffect(() => {
     if (open) {
-      setRendered(true)
-      const id = requestAnimationFrame(() => setShown(true))
-      return () => cancelAnimationFrame(id)
+      if (!rendered) {
+        setRendered(true)
+        return
+      }
+      if (!seatedRef.current) {
+        seatedRef.current = true
+        openSpring.jump(0)
+      }
+      // Reopening mid-close picks up from wherever the fade got to — the same
+      // path back, interruptible, never a jump to 0.
+      openSpring.set(1)
+      return
     }
-    setShown(false)
-    const id = setTimeout(() => setRendered(false), CLOSE_MS)
-    return () => clearTimeout(id)
-  }, [open])
+    if (rendered) openSpring.set(0)
+  }, [open, rendered, openSpring])
+
+  useEffect(() => () => openSpring.stop(), [openSpring])
 
   // Every open starts on the page's current month again — the panel is a jump
   // tool, not a place you leave a cursor. Already-fetched months stay cached.
@@ -316,148 +383,151 @@ export function DateJumpPanel({
     [state.cache, today],
   )
 
-  // ── month slide ──────────────────────────────────────────────────────────
-  // `slide` is the committed direction being animated; `drag` is the live
-  // finger offset. Transitions run only when the finger is off the glass.
-  const [slide, setSlide] = useState(0)
-  const [drag, setDrag] = useState<number | null>(null)
-  const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // ── month slide + swipe: the mock's slideSpring (MOCK 1069-1093, 1134-1149,
+  //    1332-1374) ──────────────────────────────────────────────────────────
+  // The spring's value IS the track's x in pixels, and while a shift is armed
+  // it interpolates the grid's height between the two months' row counts. Both
+  // used to be CSS transitions with a commit timer behind them; the timer was
+  // the thing that could lose a tap, and a transition cannot be handed the
+  // velocity of a flick.
+  /** The shift this travel commits when the spring comes to rest. */
+  const pendingRef = useRef(0)
+  const hFromRef = useRef<number | null>(null)
+  const hToRef = useRef<number | null>(null)
+  /** Bumped by every new slide request so the layout effect below starts the
+   *  travel AFTER the panes have re-keyed — the heights it measures are then
+   *  the two months actually on screen. */
+  const [travel, setTravel] = useState(0)
 
-  // The direction in flight, in a ref as well as state: the handlers below
-  // read it inside one React batch, where the state value is still the old one.
-  const slideRef = useRef(0)
-
-  /** Months still owed to the taps already made, signed. A tap never fights
-   *  the slide in flight — it is added here and honoured when that one lands,
-   *  so no tap can be lost however fast they arrive. */
-  const owedRef = useRef(0)
-
-  const clearCommitTimer = () => {
-    if (commitTimer.current) {
-      clearTimeout(commitTimer.current)
-      commitTimer.current = null
-    }
-  }
-
-  const startSlide = useCallback(
-    (delta: number) => {
-      // Always arm exactly one timer: a stale one left running was how the
-      // fast-tap case lost months.
-      clearCommitTimer()
-      slideRef.current = delta
-      setDrag(null)
-      setSlide(delta)
-      commitTimer.current = setTimeout(
-        () => {
-          commitTimer.current = null
-          commitRef.current()
-        },
-        reduced ? 0 : SLIDE_MS,
-      )
-    },
-    [reduced],
-  )
-
-  /** Land the slide in flight (if any) and, unless told otherwise, start the
-   *  next month the taps are still owed. */
-  const commitSlide = useCallback(
-    (drain = true) => {
-      clearCommitTimer()
-      const k = slideRef.current
-      if (k !== 0) {
-        slideRef.current = 0
-        setSlide(0)
-        dispatch({ type: 'shiftMonth', delta: k })
-      }
-      if (!drain) {
-        owedRef.current = 0
-        return
-      }
-      const owed = owedRef.current
-      if (owed === 0) return
-      owedRef.current = 0
-      // One month animates; anything beyond it (a tap storm) is applied at
-      // once, so the calendar lands where the taps asked without sliding for a
-      // second after the finger has stopped.
-      const step = owed > 0 ? 1 : -1
-      if (owed !== step) dispatch({ type: 'shiftMonth', delta: owed - step })
-      startSlide(step)
-    },
-    [startSlide],
-  )
-
-  // The timer is armed inside startSlide, which cannot close over commitSlide
-  // (they call each other). One ref keeps the pair honest.
-  const commitRef = useRef(commitSlide)
-  commitRef.current = commitSlide
-
-  const goMonth = useCallback(
-    (delta: number) => {
-      if (slideRef.current !== 0) {
-        // Queued, not raced: the month in flight finishes and this one follows.
-        owedRef.current += delta
-        return
-      }
-      startSlide(delta)
-    },
-    [startSlide],
-  )
-
-  const jumpToMonth = useCallback(
-    (key: MonthKey) => {
-      commitSlide(false)
-      slideRef.current = 0
-      setSlide(0)
-      setDrag(null)
-      dispatch({ type: 'setMonth', month: key })
-      dispatch({ type: 'setLevel', level: 'grid' })
-    },
-    [commitSlide],
-  )
-
-  useEffect(
-    () => () => {
-      if (commitTimer.current) clearTimeout(commitTimer.current)
-    },
-    [],
-  )
-
-  // Opening or closing starts the slide machine over: land nothing, owe
-  // nothing, arm nothing. A timer left running across a close fired ~220 ms
-  // later and walked the panel off the month it had just reopened on — and
-  // landing it instead would be the same bug, since the month it wants is the
-  // one the reopen just replaced.
-  useEffect(() => {
-    if (commitTimer.current) {
-      clearTimeout(commitTimer.current)
-      commitTimer.current = null
-    }
-    owedRef.current = 0
-    slideRef.current = 0
-    setSlide(0)
-    setDrag(null)
-  }, [open])
-
-  // ── gestures: horizontal = month, upward = close ─────────────────────────
+  /** The live gesture. Declared here because the re-seat effect has to know
+   *  whether a finger is on the glass. */
   const gesture = useRef<{
     id: number
     x0: number
     y0: number
+    dx: number
+    dir: number
     lastX: number
     lastT: number
     velocity: number
     axis: 'none' | 'x' | 'y'
   } | null>(null)
 
+  /** How far a month travels. The fallback is the mock's own (MOCK 1088): a
+   *  DOM that has never laid out still has to produce a finite target. */
+  const paneW = useCallback(() => gridRef.current?.clientWidth || 377, [])
+
+  /** MOCK 1090-1093 — the two heights the slide interpolates between. `0`
+   *  disarms and hands the height back to the pane in flow. */
+  const armHeights = useCallback((k: number) => {
+    if (!k) {
+      hFromRef.current = null
+      hToRef.current = null
+      if (gridRef.current) gridRef.current.style.height = ''
+      return
+    }
+    hFromRef.current = paneRefs.current.current?.offsetHeight ?? null
+    hToRef.current = (k > 0 ? paneRefs.next.current : paneRefs.prev.current)?.offsetHeight ?? null
+    // paneRefs is a stable object of stable refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /** MOCK 1079-1087. Lands the armed shift. The track's re-seat and the height
+   *  reset are NOT done here: they belong to the same paint as the pane
+   *  re-key, which is the layout effect below — otherwise one frame shows the
+   *  month that just landed sitting at the old month's offset. */
+  const commitPending = useCallback(() => {
+    const k = pendingRef.current
+    if (!k) return
+    pendingRef.current = 0
+    hFromRef.current = null
+    hToRef.current = null
+    dispatch({ type: 'shiftMonth', delta: k })
+  }, [])
+  const commitPendingRef = useRef(commitPending)
+  commitPendingRef.current = commitPending
+
+  const slideOpts = useRef<SpringOptions>({
+    response: 0.3,
+    damping: 1,
+    eps: 0.4,
+    onRest: () => commitPendingRef.current(),
+  }).current
+  // Reduced motion: every `set` lands instantly. The design gives a slide no
+  // fade to play instead, so the month is simply there.
+  slideOpts.reduced = reduced
+  const slideSpringRef = useRef<Spring | null>(null)
+  if (!slideSpringRef.current) {
+    slideSpringRef.current = makeSpring((x) => {
+      const track = trackRef.current
+      if (track) track.style.transform = `translate3d(${x}px,0,0)`
+      const wrap = gridRef.current
+      const from = hFromRef.current
+      const to = hToRef.current
+      if (wrap && from !== null && to !== null) {
+        const t = Math.min(1, Math.abs(x) / Math.max(1, wrap.clientWidth || 377))
+        wrap.style.height = `${(from + (to - from) * t).toFixed(1)}px`
+      }
+    }, slideOpts)
+  }
+  const slideSpring = slideSpringRef.current
+  useEffect(() => () => slideSpring.stop(), [slideSpring])
+
+  // Every pane re-key and every new slide request lands here, BEFORE paint:
+  // re-seat the track, arm the heights of the months now on screen, and start
+  // the travel that is waiting.
+  useLayoutEffect(() => {
+    const g = gesture.current
+    if (g && g.axis === 'x') {
+      // A finger owns the track — re-seat under it, not at 0.
+      slideSpring.jump(g.dx)
+      armHeights(g.dir)
+      return
+    }
+    slideSpring.jump(0)
+    const k = pendingRef.current
+    armHeights(k)
+    if (k) slideSpring.set(-k * paneW())
+  }, [travel, state.visibleMonth, slideSpring, armHeights, paneW])
+
+  /** MOCK 1134-1141. A second tap mid-slide LANDS the first instantly and then
+   *  slides the next: the taps cannot race each other, because each one closes
+   *  the travel before it opens its own. No queue, no commit timer. */
+  const goMonth = useCallback((delta: number) => {
+    commitPendingRef.current()
+    pendingRef.current = delta
+    setTravel((n) => n + 1)
+  }, [])
+
+  /** MOCK 1143-1149. */
+  const jumpToMonth = useCallback((key: MonthKey) => {
+    pendingRef.current = 0
+    setTravel((n) => n + 1)
+    dispatch({ type: 'setMonth', month: key })
+    dispatch({ type: 'setLevel', level: 'grid' })
+  }, [])
+
+  // Opening or closing starts the slide over: land nothing, arm nothing. A
+  // travel left in flight across a close walked the panel off the month it had
+  // just reopened on.
+  useLayoutEffect(() => {
+    pendingRef.current = 0
+    slideSpring.jump(0)
+    armHeights(0)
+  }, [open, slideSpring, armHeights])
+
+  // ── gestures: horizontal = month, upward = close ─────────────────────────
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    // Deliberately does NOT touch the slide. A finger on the glass is not yet
-    // a drag, and committing here changed the month under the finger between
-    // pointerdown and click: she tapped 9/1 and landed on 10/1. A tap leaves
-    // the slide in flight to its own timer, and the cell's own Date navigates.
+    // Deliberately does NOT touch the slide — the mock's pointerdown commits,
+    // and this app's does not (R10): committing here changed the month under
+    // the finger between pointerdown and click, and she tapped 9/1 and landed
+    // on 10/1. A tap leaves the travel in flight to its own spring.
     gesture.current = {
       id: e.pointerId,
       x0: e.clientX,
       y0: e.clientY,
+      dx: 0,
+      dir: 0,
       lastX: e.clientX,
       lastT: e.timeStamp,
       velocity: 0,
@@ -475,10 +545,9 @@ export function DateJumpPanel({
       g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y'
       if (g.axis === 'x') {
         // NOW it is a drag, and a drag is a new intention: land what is moving
-        // and drop what the arrows still owed, so the finger takes over from
-        // rest. No cell can be tapped past this point — the pointer is
-        // captured by the grid.
-        commitSlide(false)
+        // so the finger takes over from rest. No cell can be tapped past this
+        // point — the pointer is captured by the grid.
+        commitPending()
         // Optional call: a stub DOM may not implement pointer capture, and the
         // drag still works without it.
         e.currentTarget.setPointerCapture?.(e.pointerId)
@@ -492,40 +561,43 @@ export function DateJumpPanel({
       return
     }
     const dt = Math.max(1, e.timeStamp - g.lastT)
-    g.velocity = (e.clientX - g.lastX) / dt
+    // px/s — the unit the spring's nudge speaks (MOCK 1351).
+    g.velocity = ((e.clientX - g.lastX) / dt) * 1000
     g.lastX = e.clientX
     g.lastT = e.timeStamp
-    setDrag(dx)
+    const k0 = dx < 0 ? 1 : -1
+    if (k0 !== g.dir) {
+      g.dir = k0
+      armHeights(k0)
+    }
+    g.dx = dx
+    slideSpring.jump(dx)
+    e.preventDefault()
   }
 
   const onPointerEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
     const g = gesture.current
     gesture.current = null
-    if (!g || g.axis !== 'x') {
-      setDrag(null)
-      return
-    }
+    if (!g || g.axis !== 'x') return
     if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId)
     }
-    const width = gridRef.current?.clientWidth ?? 0
-    const dx = e.clientX - g.x0
-    const far = width > 0 && Math.abs(dx) > width * COMMIT_FRACTION
-    const flick = Math.abs(g.velocity) > COMMIT_VELOCITY
-    setDrag(null)
-    if (far || flick) startSlide(dx < 0 ? 1 : -1)
+    // MOCK 1364-1370: distance OR speed commits, and the flick's velocity is
+    // handed into the spring so the release continues the throw.
+    const dx = slideSpring.value()
+    const width = paneW()
+    const k =
+      dx < -width * COMMIT_FRACTION || g.velocity < -COMMIT_VELOCITY
+        ? 1
+        : dx > width * COMMIT_FRACTION || g.velocity > COMMIT_VELOCITY
+          ? -1
+          : 0
+    slideSpring.nudge(g.velocity)
+    pendingRef.current = k
+    armHeights(k)
+    slideSpring.set(k ? -k * width : 0)
   }
 
-  // ── height: 5-row and 6-row months differ; follow the pane in view ────────
-  const [height, setHeight] = useState<number | undefined>(undefined)
-  useLayoutEffect(() => {
-    if (!rendered || state.level !== 'grid') return
-    const pane =
-      slide > 0 ? paneRefs.next.current : slide < 0 ? paneRefs.prev.current : paneRefs.current.current
-    if (pane) setHeight(pane.offsetHeight)
-    // paneRefs is a stable object of stable refs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rendered, state.level, state.visibleMonth, slide, visibleLoaded])
 
   if (!rendered) return null
 
@@ -538,13 +610,6 @@ export function DateJumpPanel({
   const status = visibleEntry?.cells ? 'loaded' : (visibleEntry?.status ?? 'pending')
   const atMonths = state.level === 'months'
   const [visibleYear, visibleMonthNumber] = splitMonthKey(state.visibleMonth)
-
-  const trackTransform =
-    drag !== null
-      ? `translateX(${drag}px)`
-      : slide !== 0
-        ? `translateX(${-slide * 100}%)`
-        : 'translateX(0)'
 
   // `offscreen` panes stay MOUNTED (the slide needs them drawn) but are inert:
   // ~40 day buttons per pane in a month clipped out of view were in the tab
@@ -576,13 +641,10 @@ export function DateJumpPanel({
       {/* Scrim over the content the panel hangs in front of. Full-bleed: the
        *  page wrapper's px-4/md:px-6 gutters are part of what it covers. */}
       <div
+        ref={scrimRef}
         aria-hidden
         onPointerDown={onClose}
-        className="absolute -left-4 -right-4 top-full z-30 h-screen bg-foreground/20 transition-opacity md:-left-6 md:-right-6"
-        style={{
-          opacity: shown ? 1 : 0,
-          transitionDuration: `${shown ? 150 : CLOSE_MS}ms`,
-        }}
+        className="absolute -left-4 -right-4 top-full z-30 h-screen bg-foreground/20 md:-left-6 md:-right-6"
       />
 
       <div
@@ -594,13 +656,9 @@ export function DateJumpPanel({
         // The shell's tab-swipe must not change the screen under an open
         // overlay (thin/gestures.ts walks for this tag).
         data-gesture-inert=""
-        className="absolute inset-x-0 top-full z-40 mt-2 origin-top overflow-hidden rounded-xl border border-border bg-card shadow-lg outline-none transition-[opacity,transform] ease-[cubic-bezier(0.23,1,0.32,1)]"
-        style={{
-          opacity: shown ? 1 : 0,
-          // prefers-reduced-motion: fades only — no transform to animate.
-          transform: shown || reduced ? 'none' : 'translateY(-4px) scaleY(0.96)',
-          transitionDuration: `${shown ? OPEN_MS : CLOSE_MS}ms`,
-        }}
+        // The opacity and transform are the open spring's, written every
+        // frame through panelRef — React must not set them here.
+        className="absolute inset-x-0 top-full z-40 mt-2 origin-top overflow-hidden rounded-xl border border-border bg-card shadow-lg outline-none"
       >
         <div className="flex items-center gap-1 border-b border-black/5 px-2 py-2">
           <button
@@ -619,12 +677,14 @@ export function DateJumpPanel({
             id={titleId}
             aria-expanded={atMonths}
             onClick={() => {
-              // Land the month in flight BEFORE the level changes: its commit
-              // would otherwise fire ~220 ms later, and shiftMonth resets the
-              // level to the grid — the year chips closed themselves while the
-              // staff member was reading them. Committing first also means the
-              // chips open on the year of the month that actually landed.
-              if (!atMonths) commitSlide(false)
+              // Land the month in flight BEFORE the level changes: it would
+              // otherwise land ~300 ms later, and shiftMonth resets the level
+              // to the grid — the year chips closed themselves while the staff
+              // member was reading them. Committing first also means the chips
+              // open on the year of the month that actually landed.
+              // (commitPending's shiftMonth is itself what re-seats the
+              // track, in the layout effect on the new month.)
+              if (!atMonths) commitPending()
               dispatch({ type: 'setLevel', level: atMonths ? 'grid' : 'months' })
             }}
             className={cn(
@@ -672,28 +732,18 @@ export function DateJumpPanel({
             // them out of the tab order.
             inert={atMonths || undefined}
           >
+            {/* The height is the pane in flow's own at rest, and the slide
+              *  spring's interpolation while a shift is armed — never React's,
+              *  or a re-render mid-slide would stamp the resting one back on. */}
             <div
               ref={gridRef}
               className="relative touch-none overflow-hidden"
-              style={{
-                height,
-                transition: drag !== null || reduced ? 'none' : `height ${SLIDE_MS}ms cubic-bezier(0.32,0.72,0,1)`,
-              }}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerEnd}
               onPointerCancel={onPointerEnd}
             >
-              <div
-                className="relative w-full"
-                style={{
-                  transform: trackTransform,
-                  transition:
-                    drag !== null || reduced
-                      ? 'none'
-                      : `transform ${SLIDE_MS}ms cubic-bezier(0.32,0.72,0,1)`,
-                }}
-              >
+              <div ref={trackRef} className="relative w-full">
                 {pane(prevKey, paneRefs.prev, 'absolute -left-full top-0', true)}
                 {pane(state.visibleMonth, paneRefs.current)}
                 {pane(nextKey, paneRefs.next, 'absolute left-full top-0', true)}
