@@ -2,11 +2,18 @@
 // never a hand-built unit suffix (⚖ all-languages rule). Shared by the week
 // rows' 予約時間/空き cells and the day line.
 
-/** next-intl's useTranslations() return shape, narrowed to what this module
- *  needs (key + optional interpolation values -> string). Values match
- *  use-intl's own TranslationValues (string | number | Date) — `unknown`
- *  here would make every real translator (whose values param is narrower)
- *  unassignable to this type. */
+/** The shape of a next-intl translator, narrowed to what this module needs
+ *  (key + optional interpolation values -> string). Values match use-intl's
+ *  own TranslationValues (string | number | Date) — `unknown` here would make
+ *  every real translator (whose values param is narrower) unassignable to
+ *  this type.
+ *
+ *  The namespace hook is deliberately never spelled with its opening bracket
+ *  anywhere in this file: i18n-client-messages-closure.test.ts walks it (it
+ *  is now inside /appointments' client-dictionary closure) counting hook-name
+ *  + bracket occurrences, and it strips only full-line `//` comments — so a
+ *  doc-comment mention inside a block comment reads to that walk as an
+ *  unscannable call site and fails the suite. */
 export type Translate = (key: string, values?: Record<string, string | number | Date>) => string
 
 /** 「4時間30分」(both nonzero) / 「4時間」(M=0 omits 分) / 「45分」(H=0) /
