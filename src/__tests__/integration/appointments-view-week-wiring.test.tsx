@@ -68,6 +68,33 @@ jest.mock('@/components/appointments/DateJumpPanel', () => ({
     return null
   },
 }))
+// B4 — the switch registry, live-editable. A test flips ONE field and renders;
+// no module reload, because this view is full of real React hooks and a second
+// React instance is a worse test than no test.
+// Lazy on purpose: jest hoists every `jest.mock` above the imports, so the
+// copy is taken the first time a component actually reads a switch.
+let mockSwitchState: Record<string, boolean> | null = null
+function mockSwitches(): Record<string, boolean> {
+  if (!mockSwitchState) {
+    mockSwitchState = {
+      ...(jest.requireActual('@/lib/appointments/booking-switches') as {
+        BOOKING_SWITCHES: Record<string, boolean>
+      }).BOOKING_SWITCHES,
+    }
+  }
+  return mockSwitchState
+}
+/** The values as the app SHIPS them — read through the real registry, so
+ *  「the card is ON」 is proven by the constant and not by this harness. */
+const mockShipped = (): Record<string, boolean> =>
+  (jest.requireActual('@/lib/appointments/booking-switches') as {
+    BOOKING_SWITCHES: Record<string, boolean>
+  }).BOOKING_SWITCHES
+jest.mock('@/lib/appointments/booking-switches', () => ({
+  get BOOKING_SWITCHES() {
+    return mockSwitches()
+  },
+}))
 jest.mock('@/components/appointments/NewBookingDialog', () => ({ NewBookingDialog: () => null }))
 jest.mock('@/components/appointments/BookingActionSheetWrapper', () => ({
   BookingActionSheetWrapper: () => null,
@@ -116,7 +143,24 @@ jest.mock('@/components/appointments/MonthPage', () => ({
   },
 }))
 
-import { render } from '@testing-library/react'
+type SelectedDayCardProps = {
+  dateIso: string
+  rows: unknown[]
+  dayTotals: WeekDayRowData | null
+  soloMode: boolean
+  locale: string
+  pending?: boolean
+  onOpenDay: (iso: string) => void
+}
+let cardProps: SelectedDayCardProps | null = null
+jest.mock('@/components/appointments/SelectedDayCard', () => ({
+  SelectedDayCard: (props: SelectedDayCardProps) => {
+    cardProps = props
+    return <div data-testid="selected-day-card" />
+  },
+}))
+
+import { act, render } from '@testing-library/react'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { firstDayOfMonthKey, shiftMonthKey } from '@/lib/appointments/date-jump'
 import type { MonthCell, WeekDayRowData } from '@/lib/adapters/reservation'
@@ -175,8 +219,21 @@ const MONTH_VIEW = {
   monthStartIso: '2026-08-31T15:00:00.000Z',
 }
 
+/** Re-render the SAME tree with new server props — the second half of a
+ *  navigation, which is the only thing that can clear a held tap. */
+let rerender: ((ui: React.ReactElement) => void) | null = null
+function rerenderWith(over: Record<string, unknown> = {}) {
+  rerender!(viewWith(over))
+}
+
 function renderView(over: Record<string, unknown> = {}) {
-  return render(
+  const r = render(viewWith(over))
+  rerender = r.rerender
+  return r
+}
+
+function viewWith(over: Record<string, unknown> = {}) {
+  return (
     <AppointmentsView
       staff={[]}
       activeStaffId={null}
@@ -200,13 +257,16 @@ function renderView(over: Record<string, unknown> = {}) {
       menus={[]}
       loadMonthCells={async () => []}
       {...over}
-    />,
+    />
   )
 }
 
 beforeEach(() => {
   weekRowsProps = null
   monthPageProps = null
+  cardProps = null
+  rerender = null
+  Object.assign(mockSwitches(), mockShipped())
   pushed.length = 0
   for (const k of Object.keys(uiProps)) delete uiProps[k]
   for (const k of Object.keys(panelProps)) delete panelProps[k]
@@ -328,11 +388,84 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     expect(monthPageProps!.typeSlot).toBe('off')
   })
 
-  it('a cell tap opens THAT day — the JST day, not a UTC-midnight parse of it', () => {
+  // B1/B4 — this used to open the day page. The month page is a place you
+  // READ now: the tap selects, the card answers, the day is one more tap away.
+  it('a cell tap SELECTS that day and STAYS on the month (B1)', () => {
     renderView(MONTH_VIEW)
     monthPageProps!.onPickDay('2026-09-17')
+    expect(pushed).toHaveLength(1)
     expect(pushed[0]).toContain('date=2026-09-17')
+    expect(pushed[0]).toContain('view=month')
+    expect(pushed[0]).not.toContain('view=day')
+  })
+
+  it('the ring moves on the FINGER — the tapped day is the selection before the server answers (B3)', () => {
+    renderView(MONTH_VIEW)
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
+    act(() => monthPageProps!.onPickDay('2026-09-17'))
+    // No new props have arrived — the URL push is all that happened — and the
+    // ring is already on the tapped day.
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-17')
+  })
+
+  it('an ARROW after a tap wins: the held day never outlives the page it was tapped from', () => {
+    renderView(MONTH_VIEW)
+    act(() => monthPageProps!.onPickDay('2026-09-17'))
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-17')
+    // The page moves somewhere else entirely (a month arrow lands on the 1st).
+    act(() => header().onNext())
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-17')
+    // …and the moment the server's answer is a DIFFERENT day, the real
+    // selection takes over again rather than the stale tap.
+    rerenderWith({ ...MONTH_VIEW, selectedDateIso: '2026-10-01T00:00:00+09:00' })
+    expect(monthPageProps!.selectedDateIso).toBe('2026-10-01')
+  })
+
+  it('the card gets the tapped day and its pending flag while the answer is in flight', () => {
+    renderView(MONTH_VIEW)
+    expect(cardProps!.pending).toBe(false)
+    act(() => monthPageProps!.onPickDay('2026-09-17'))
+    expect(cardProps!.dateIso).toBe('2026-09-17')
+    expect(cardProps!.pending).toBe(true)
+  })
+
+  it('the card carries the SAME payload the page already holds — no second read (B1)', () => {
+    renderView({ ...MONTH_VIEW, dayTotals: weekRow(0), reservationViews: [] })
+    expect(cardProps!.dayTotals).not.toBeNull()
+    expect(cardProps!.rows).toEqual([])
+    expect(cardProps!.soloMode).toBe(true)
+  })
+
+  it('the card door opens the day page, keeping ?staff= (B2)', () => {
+    renderView({ ...MONTH_VIEW, staffFilter: 'staff-9' })
+    cardProps!.onOpenDay('2026-09-17')
     expect(pushed[0]).toContain('view=day')
+    expect(pushed[0]).toContain('date=2026-09-17')
+    expect(pushed[0]).toContain('staff=staff-9')
+  })
+
+  it('a FAILED month renders no card — the page says the read failed, once (B2)', () => {
+    renderView({ ...MONTH_VIEW, monthData: null, truncated: true })
+    expect(cardProps).toBeNull()
+  })
+
+  // B4 — the switch is honest when OFF: there is no card for the selection to
+  // fill, so the tap keeps doing what it did before this piece and opens the
+  // day. What it must never do is nothing.
+  it('SWITCH OFF: no card, and a cell tap opens the DAY page again (B4)', () => {
+    mockSwitches().selectedDayCard = false
+    renderView(MONTH_VIEW)
+    expect(cardProps).toBeNull()
+    monthPageProps!.onPickDay('2026-09-17')
+    expect(pushed).toHaveLength(1)
+    expect(pushed[0]).toContain('view=day')
+    expect(pushed[0]).toContain('date=2026-09-17')
+  })
+
+  it('SHIPPED: the card really is on — proven through the registry, not a mock value', () => {
+    expect(mockShipped().selectedDayCard).toBe(true)
+    renderView(MONTH_VIEW)
+    expect(cardProps).not.toBeNull()
   })
 
   it('a FILLER tap moves the page to THAT month, never to a day page (R1-2)', () => {
