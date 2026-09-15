@@ -198,7 +198,10 @@
       "failed": "予約状況を取得できませんでした。もう一度お試しください。",
       "rowAria": "{date}、{cells}",
       "ariaSep": "、",
-      "ariaLoading": "読み込み中"
+      "ariaLoading": "読み込み中",
+      "moreRows": "他{n}件",
+      "openDay": "この日を開く →",
+      "noBookings": "この日の予約はまだありません"
     },
     "status": {
       "booked": "予約済",

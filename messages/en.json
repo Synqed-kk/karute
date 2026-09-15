@@ -198,7 +198,10 @@
       "failed": "Couldn't load bookings. Please try again.",
       "rowAria": "{date} — {cells}",
       "ariaSep": ", ",
-      "ariaLoading": "Loading"
+      "ariaLoading": "Loading",
+      "moreRows": "{n} more",
+      "openDay": "Open this day →",
+      "noBookings": "No bookings yet for this day"
     },
     "status": {
       "booked": "Booked",
