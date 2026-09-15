@@ -497,6 +497,51 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     expect(after.props.children).toBe(before.props.children)
   })
 
+  // R1-6c (LENS-3 #3 + #4) — the 日/週 pending wrapper dims to 50 % and sets
+  // `pointer-events: none` for the whole round trip, which is right for views
+  // that LEAVE on a tap. PIECE 4b routed the month page's primary gesture
+  // through it: the grid, the ring the finger had just landed and the card all
+  // washed out, and a second day tap during a pending read was silently
+  // dropped. The month branch is not inside it any more.
+  it('the 月 branch is OUTSIDE the pending wrapper — a cell tap never locks or dims the page', () => {
+    const { container, getByTestId } = renderView(MONTH_VIEW)
+    getByTestId('month-page')
+    expect(container.querySelector('[data-pending-dim]')).toBeNull()
+    expect(getByTestId('month-page').closest('[data-pending-dim]')).toBeNull()
+    expect(getByTestId('selected-day-card').closest('[data-pending-dim]')).toBeNull()
+  })
+
+  it('…and the 日/週 treatment is untouched — those views still dim and block', () => {
+    const { container } = renderView()
+    const dim = container.querySelector('[data-pending-dim]')!
+    expect(dim).not.toBeNull()
+    expect(dim.className).toContain('transition-opacity')
+    expect(container.querySelector('[data-testid="week-rows"]')!.closest('[data-pending-dim]')).toBe(
+      dim,
+    )
+  })
+
+  it('a tap during a pending read REPLACES the pending move — the latest finger wins', () => {
+    renderView(MONTH_VIEW)
+    act(() => monthPageProps!.onPickDay('2026-09-20'))
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-20')
+    // a second tap ~220 ms later, before anything has answered
+    act(() => monthPageProps!.onPickDay('2026-09-02'))
+    expect(pushed).toHaveLength(2)
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-02')
+    expect(cardProps!.dateIso).toBe('2026-09-02')
+    expect(cardProps!.pending).toBe(true)
+    // the SUPERSEDED read answers first — its answer is not the finger's day,
+    // so it does not move the ring and it does not end the pending state
+    rerenderWith({ ...MONTH_VIEW, selectedDateIso: '2026-09-20T00:00:00+09:00' })
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-02')
+    expect(cardProps!.pending).toBe(true)
+    // …and the latest one settles it
+    rerenderWith({ ...MONTH_VIEW, selectedDateIso: '2026-09-02T00:00:00+09:00' })
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-02')
+    expect(cardProps!.pending).toBe(false)
+  })
+
   it('the card gets the tapped day and its pending flag while the answer is in flight', () => {
     renderView(MONTH_VIEW)
     expect(cardProps!.pending).toBe(false)

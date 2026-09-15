@@ -570,7 +570,94 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  page: chrome rows = space-y-3 (12px, tight); agenda → summary
        *  stats = space-y-6 (24px, generous so the eye reads them as
        *  distinct sections rather than a continuation of the list). */}
+      {/* R1-6 (LENS-3 #3 + #4) — the 月 branch sits OUTSIDE the pending
+       *  wrapper below, and that is the whole point of PIECE 4b. The wrapper's
+       *  `pointer-events-none opacity-50` is the 日/週 treatment: those views
+       *  LEAVE on a tap, and blocking input for the round trip is what stops a
+       *  second 翌日 tap re-pushing a stale-derived date. Since 4b a 月 cell tap
+       *  STAYS, so that same wrapper was locking the page's primary gesture for
+       *  the whole read — a second day tap during a pending one vanished with no
+       *  acknowledgement at all — and washing the grid, the ring the finger had
+       *  just landed and the card down to 50 % under a second, longer curve that
+       *  fought the card's own 120 ms. The month page keeps its input and its
+       *  full strength; the card's two shims are what says "working", and a tap
+       *  during a pending read simply replaces the pending move. `aria-busy`
+       *  stays — it says busy without taking the page away. */}
+      {view === 'month' && (monthFailed || props.monthData) ? (
+        /* The app-local month grid + month line (spec §4 / mock §v10-§v11c),
+         *  replacing @synqed-kk/ui's MonthGrid ON THE PAGE. The package grid
+         *  has no selected day, no 休 cell, and prints its day numbers from a
+         *  raw Date — the runtime's local day, which on the UTC server is
+         *  yesterday's. The pop-down keeps rendering through it (approved,
+         *  byte-frozen); the page does not. */
+        /* ONE block, not two: the grid and its card are one thing, and the 8 px
+         *  between them is the mock's own seam (`.dayline{margin:0 0 8px}`'s
+         *  rhythm), not the page's 24 px section gap. It is a direct child of
+         *  the page's own `space-y-4` now, exactly where the dimmed wrapper
+         *  used to sit, so the gap above it is unchanged. */
+          <div aria-busy={isPending}>
+          <MonthPage
+            cells={props.monthData ?? []}
+            // B3 — the OPTIMISTIC day, so the ring lands under the finger; it
+            // is the real selection the rest of the time.
+            selectedDateIso={shownDayIso}
+            todayIso={ymdInJst(today)}
+            weekdayLabels={monthWeekdayLabels}
+            // PKT-2 owns the strict 新規/再来 producer; today's
+            // newCustomerCount is the QR import flag and must not print
+            // (spec §8). 'off' = the month line is 予約 alone, never a
+            // substitute metric in that slot.
+            typeSlot="off"
+            locale={props.locale}
+            // The router transition IS the month line's pending state, exactly
+            // as it is the week's: mid-move the total on screen is the month
+            // being left.
+            pending={isPending}
+            // A cut-off read renders the failed line ALONE — no grid numbers,
+            // no month line — exactly as WeekRows does with `failed`.
+            failed={monthFailed}
+            // B1 — tap a day = STAY. The month page is a place you read, not a
+            // launcher: the tap moves the selection and the card below answers
+            // it. The day page is one more tap away, through the card's door.
+            onPickDay={handlePickMonthDay}
+            // R1-2 (D-1) — a leading/trailing cell belongs to the month either
+            // side, so tapping it MOVES THE PAGE to that month with that day
+            // selected, exactly as the mock's grid handler does. It never opens
+            // a day page: the staff member tapped a date in a month they are
+            // not looking at, and the answer to that is to show them the month.
+            onPickOtherMonthDay={(iso) => navigateTo('month', jstWallTimeToDate(iso, '00:00'))}
+          />
+          {/* B2 — what the tap is FOR. It reads the payload the page already
+           *  holds (the selected day's rows + its dayTotals ride in with the
+           *  month cells), so it costs no read of its own.
+           *
+           *  `mt-2` is the mock's 8 px seam to the grid card, and it is the
+           *  only rule on it now: this block carries no space-y of its own, so
+           *  the grid and the card sit at the mock's 8 px and nothing else.
+           *
+           *  A failed month renders no card at all — the page already SAYS the
+           *  read failed, and a calm empty card under that sentence would take
+           *  it back. */}
+          {BOOKING_SWITCHES.selectedDayCard && !monthFailed && (
+            <SelectedDayCard
+              className="mt-2"
+              dateIso={shownDayIso}
+              rows={props.reservationViews}
+              dayTotals={props.dayTotals}
+              soloMode={props.soloMode}
+              locale={props.locale}
+              // The answer for the tapped day has not landed yet: on the web
+              // the transition is still running, on the phone the DTO is still
+              // in flight, and in BOTH cases the rows on screen are the day
+              // being moved away from.
+              pending={isPending || shownDayIso !== selectedIso}
+              onOpenDay={(iso) => navigateTo('day', jstWallTimeToDate(iso, '00:00'))}
+            />
+          )}
+          </div>
+      ) : (
       <div
+        data-pending-dim
         className={`space-y-6 transition-opacity duration-150 ${isPending ? 'pointer-events-none opacity-50' : ''}`}
         aria-busy={isPending}
       >
@@ -668,80 +755,6 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             // tap would open the wrong day for the whole JST morning.
             onPickDay={(iso) => navigateTo('day', jstWallTimeToDate(iso, '00:00'))}
           />
-        ) : view === 'month' && (monthFailed || props.monthData) ? (
-          /* The app-local month grid + month line (spec §4 / mock §v10-§v11c),
-           *  replacing @synqed-kk/ui's MonthGrid ON THE PAGE. The package grid
-           *  has no selected day, no 休 cell, and prints its day numbers from a
-           *  raw Date — the runtime's local day, which on the UTC server is
-           *  yesterday's. The pop-down keeps rendering through it (approved,
-           *  byte-frozen); the page does not. */
-          /* ONE child of the page's space-y-6 rhythm, not two: the grid and
-           *  its card are one block, and the 8 px between them is the mock's
-           *  own seam (`.dayline{margin:0 0 8px}`'s rhythm), not the page's
-           *  24 px section gap. Measured 24 before this wrapper existed — an
-           *  `mt-2` on a space-y SIBLING collapses against the 24 px the rule
-           *  puts on its neighbour and loses. */
-          <div>
-          <MonthPage
-            cells={props.monthData ?? []}
-            // B3 — the OPTIMISTIC day, so the ring lands under the finger; it
-            // is the real selection the rest of the time.
-            selectedDateIso={shownDayIso}
-            todayIso={ymdInJst(today)}
-            weekdayLabels={monthWeekdayLabels}
-            // PKT-2 owns the strict 新規/再来 producer; today's
-            // newCustomerCount is the QR import flag and must not print
-            // (spec §8). 'off' = the month line is 予約 alone, never a
-            // substitute metric in that slot.
-            typeSlot="off"
-            locale={props.locale}
-            // The router transition IS the month line's pending state, exactly
-            // as it is the week's: mid-move the total on screen is the month
-            // being left.
-            pending={isPending}
-            // A cut-off read renders the failed line ALONE — no grid numbers,
-            // no month line — exactly as WeekRows does with `failed`.
-            failed={monthFailed}
-            // B1 — tap a day = STAY. The month page is a place you read, not a
-            // launcher: the tap moves the selection and the card below answers
-            // it. The day page is one more tap away, through the card's door.
-            onPickDay={handlePickMonthDay}
-            // R1-2 (D-1) — a leading/trailing cell belongs to the month either
-            // side, so tapping it MOVES THE PAGE to that month with that day
-            // selected, exactly as the mock's grid handler does. It never opens
-            // a day page: the staff member tapped a date in a month they are
-            // not looking at, and the answer to that is to show them the month.
-            onPickOtherMonthDay={(iso) => navigateTo('month', jstWallTimeToDate(iso, '00:00'))}
-          />
-          {/* B2 — what the tap is FOR. It reads the payload the page already
-           *  holds (the selected day's rows + its dayTotals ride in with the
-           *  month cells), so it costs no read of its own.
-           *
-           *  `mt-2` is the mock's 8 px seam to the grid card and it OUTRANKS
-           *  the wrapper's space-y-6: v4 space-y is a zero-specificity
-           *  `:where()` rule, the same reason DayNumbersLine owns its own
-           *  `mb-2` on the 日 page.
-           *
-           *  A failed month renders no card at all — the page already SAYS the
-           *  read failed, and a calm empty card under that sentence would take
-           *  it back. */}
-          {BOOKING_SWITCHES.selectedDayCard && !monthFailed && (
-            <SelectedDayCard
-              className="mt-2"
-              dateIso={shownDayIso}
-              rows={props.reservationViews}
-              dayTotals={props.dayTotals}
-              soloMode={props.soloMode}
-              locale={props.locale}
-              // The answer for the tapped day has not landed yet: on the web
-              // the transition is still running, on the phone the DTO is still
-              // in flight, and in BOTH cases the rows on screen are the day
-              // being moved away from.
-              pending={isPending || shownDayIso !== selectedIso}
-              onOpenDay={(iso) => navigateTo('day', jstWallTimeToDate(iso, '00:00'))}
-            />
-          )}
-          </div>
         ) : (
           /* 「データがありません」 — reached only while a router transition is
            *  still in flight and that view's first data has not arrived yet.
@@ -753,6 +766,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           </div>
         )}
       </div>
+      )}
 
       <NewBookingDialog
         open={dialogOpen}

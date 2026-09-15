@@ -15,6 +15,7 @@
 //
 // The rows are the DAY LIST's own compact row (`CompactRowContent`), imported
 // rather than rebuilt — this page must not invent a third row style.
+import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { formatCompactDateJst, jstWallTimeToDate } from '@/lib/date/jst'
@@ -32,6 +33,13 @@ import { DayNumbersLine } from './DayNumbersLine'
 /** mock `seldayHTML`: `rows.slice(0,5)` — §v11 point 4, five rows freed by the
  *  compressed grid above. Everything past it is counted into 他N件. */
 const MAX_ROWS = 5
+
+/** mock `.selfade{transition:opacity .12s ease}` + `selectMonthDay` (mock
+ *  936-951). R1-6: the fade is a property of the GESTURE, not of the network —
+ *  the mock drops opacity to 0, REPLACES the content inside this timer, and
+ *  brings it back, so the swap is never seen and a tap that resolves instantly
+ *  still plays the whole sequence. */
+const FADE_MS = 120
 
 interface SelectedDayCardProps {
   /** The day the card describes, YYYY-MM-DD. During a move this is the day the
@@ -63,16 +71,67 @@ export function SelectedDayCard({
   dayTotals,
   soloMode,
   locale,
-  pending,
+  pending = false,
   onOpenDay,
   className,
 }: SelectedDayCardProps) {
   const t = useTranslations('reservation.weekRows')
 
+  // R1-6 (LENS-3 #1 + #2) — what the card is PAINTING. Hanging the fade on
+  // `pending` made ONE gesture play three different motions: a warm tap answered
+  // from the router cache in ~22 ms and hard-cut at full opacity with no fade at
+  // all (back-and-forth between two days, the likeliest scanning pattern here,
+  // had no motion whatsoever), while a cold one held an EMPTY bordered box for
+  // the whole round trip — the shims that exist to fill that gap were rendered
+  // inside the very element the flag faded to zero.
+  //
+  // So the props become the painted content only at the END of a 120 ms window,
+  // which is the mock's own machine: fade out → swap behind the zero → fade in,
+  // every time. The window is opened by whatever CHANGES the card — the tap
+  // (`handlePickMonthDay` moves the day this card describes before any answer
+  // exists) and the answer arriving on a card that is showing shims. It is
+  // self-clearing, so the network can neither skip it nor extend it.
+  const [painted, setPainted] = useState({ dateIso, rows, dayTotals, pending })
+  const [fading, setFading] = useState(false)
+  // A swap the card must HIDE: the day it describes changed, or it is crossing
+  // between the answer and the shims. A same-day refresh (a booking created, a
+  // revalidate) is not one — those rows just land.
+  const swapping = painted.dateIso !== dateIso || painted.pending !== pending
+
+  useEffect(() => {
+    if (!swapping) {
+      setPainted((p) =>
+        p.rows === rows && p.dayTotals === dayTotals ? p : { ...p, rows, dayTotals },
+      )
+      return
+    }
+    // The mock's REDUCE branch replaces the content and never touches opacity
+    // (mock 946), so there is no window at all: the swap is instant and the card
+    // is never dark. Read here rather than at render — the server has no media
+    // query and a hydration mismatch would be a worse bug than the one below.
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setPainted({ dateIso, rows, dayTotals, pending })
+      return
+    }
+    setFading(true)
+    const timer = setTimeout(() => {
+      setPainted({ dateIso, rows, dayTotals, pending })
+      setFading(false)
+    }, FADE_MS)
+    return () => clearTimeout(timer)
+  }, [swapping, dateIso, rows, dayTotals, pending])
+
+  // Everything below reads the PAINTED content, never the live props: during
+  // the window the card is still the day it is fading out of, right down to
+  // which day its door opens.
+  const shownRows = painted.rows
+  const shownTotals = painted.dayTotals
+  const shownPending = painted.pending
+
   // ⚖ lead ruling (spec §8), through the ONE predicate every 予約 surface
   // calls: 休 stands only on a closed day with nothing booked. A closed day
   // that HAS bookings is an open day as far as this card is concerned.
-  const closed = dayTotals !== null && isClosedRow(dayTotals)
+  const closed = shownTotals !== null && isClosedRow(shownTotals)
   // R1-3 (LENS-1 #3) — ONE 件 definition on one card (spec §10). 予約N件 on the
   // line above is the day's COUNTED bookings (`isCountedBooking` — a real
   // booking, with somebody in it, that is not a tombstone). `rows` is the day
@@ -83,7 +142,7 @@ export function SelectedDayCard({
   // desktop grid and the phone list already use. Without it a day with 3
   // bookings and 4 cancellations printed 「3件 … 他2件」, and a day whose six
   // bookings were all cancelled printed 「0件」 above five キャンセル済み rows.
-  const counted = rows.filter((r) => !r.isCancelled && !r.isNoShow)
+  const counted = shownRows.filter((r) => !r.isCancelled && !r.isNoShow)
   // The day page sorts by start time and lists terminal rows in their own
   // slot; the first five here are the first five THERE, so 他N件 and the day
   // page can never disagree about what the sixth row is.
@@ -105,7 +164,7 @@ export function SelectedDayCard({
       // named with the same compact JST date the chip prints — one formatter,
       // so the name and the chip can never drift.
       role="region"
-      aria-label={formatCompactDateJst(jstWallTimeToDate(dateIso, '00:00'), locale)}
+      aria-label={formatCompactDateJst(jstWallTimeToDate(painted.dateIso, '00:00'), locale)}
       className={cn(
         'overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-card)] shadow-[0_1px_2px_rgba(0,0,0,0.04)]',
         // R1-5 (LENS-1 #6) — the CARD owns its top breathing room, not the line
@@ -117,28 +176,31 @@ export function SelectedDayCard({
         className,
       )}
     >
-      {/* mock `.selfade{transition:opacity .12s ease}` — B3. The mock swaps its
-       *  content behind a local 120 ms timer; here the swap is a server round
-       *  trip, so the SAME sequence falls out of the pending flag: fade out
-       *  (120 ms) → the content changes while it is invisible → fade in. Never
-       *  two contents at once, and opacity is the only property that moves, so
-       *  the whole thing stays on the compositor.
+      {/* mock `.selfade{transition:opacity .12s ease}` — B3, driven by the
+       *  WINDOW above and never by the network flag. Opacity is the only
+       *  property that moves, so the whole thing stays on the compositor, and
+       *  the content underneath changes only while this is at zero: never two
+       *  contents at once, never a swap at full opacity.
+       *
+       *  `inert` while it is invisible closes LENS-1 #5 for the window too: an
+       *  `opacity: 0` subtree keeps its tab order and its hit-testing, so the
+       *  outgoing door was reachable by Tab and by touch mid-fade.
        *
        *  REDUCED MOTION is the mock's own REDUCE branch — `fade.innerHTML =
        *  seldayHTML(d)` with the opacity never touched at all. So it is not
        *  enough to drop the transition: the card must not go dark either, or a
        *  reduced-motion user gets the one thing the setting exists to prevent,
        *  a panel blinking out and back. `motion-reduce:opacity-100` keeps it
-       *  lit and lets the content swap under them — the day line's own two
-       *  shims, then the day. (The variant wins at equal specificity by
-       *  landing after `opacity-0` in the sheet, the same mechanism WeekRows'
-       *  muted press relies on; read back from the BUILT stylesheet.) */}
+       *  lit (the variant wins at equal specificity by landing after
+       *  `opacity-0` in the BUILT sheet), and the window above never opens for
+       *  them, so what it keeps lit is the truth and not the previous day. */}
       <div
         data-sel-fade
+        inert={fading}
         className={cn(
           'transition-opacity duration-[120ms] ease-[ease]',
           'motion-reduce:transition-none motion-reduce:opacity-100',
-          pending ? 'opacity-0' : 'opacity-100',
+          fading ? 'opacity-0' : 'opacity-100',
         )}
       >
         {/* mock `.listcard .statline{padding:12px 14px 2px}` — §v11b: the
@@ -152,8 +214,8 @@ export function SelectedDayCard({
          *  cannot jump while the answer is in flight. A closed day renders
          *  「0件」「休」 here and the card stops. */}
         <DayNumbersLine
-          row={dayTotals}
-          pending={pending}
+          row={shownTotals}
+          pending={shownPending}
           soloMode={soloMode}
           // PKT-2 owns the strict 新規/再来 producer; today's newCustomerCount
           // is the QR import flag and must not print (spec §8).
@@ -172,7 +234,7 @@ export function SelectedDayCard({
          *  the invisible 44 px door stayed focusable and hit-testable and
          *  opened the day the page had left. Spec §4's 「pending → two
          *  shimmers, nothing else」 is a DOM rule, not an opacity one. */}
-        {!pending && (
+        {!shownPending && (
           <>
             {/* mock `.row` + `.row{border-bottom:1px solid var(--hair)}` — the
              *  hairline stays on the LAST row too, because something always
@@ -219,9 +281,12 @@ export function SelectedDayCard({
             {!closed && (
               <button
                 type="button"
-                onClick={() => onOpenDay(dateIso)}
+                onClick={() => onOpenDay(painted.dateIso)}
                 className={cn(
-                  'm-2.5 flex h-11 w-[calc(100%-20px)] items-center justify-center gap-[5px] rounded-[12px]',
+                  // R1-6 (LENS-3 #6) — no `gap-[5px]`: the arrow lives inside
+                  // the string (「この日を開く →」), so the flex container has a
+                  // single text child and the mock's own gap never applied.
+                  'm-2.5 flex h-11 w-[calc(100%-20px)] items-center justify-center rounded-[12px]',
                   'bg-primary/8 text-[14px] font-bold text-primary',
                   'transition-[scale] duration-100 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]',
                   'motion-reduce:transition-none motion-reduce:active:scale-100',

@@ -7,7 +7,7 @@
  * point: an empty day and a day whose read has not landed must never look
  * alike, and a closed day must not offer a door into nothing.
  */
-import { render, screen, fireEvent } from '@testing-library/react'
+import { act, render, screen, fireEvent } from '@testing-library/react'
 import type { WeekDayRowData } from '@/lib/adapters/reservation'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 import { formatCompactDateJst, jstWallTimeToDate } from '@/lib/date/jst'
@@ -93,8 +93,8 @@ function booking(n: number, over: Partial<ReservationView> = {}): ReservationVie
   } as ReservationView
 }
 
-function renderCard(over: Partial<Parameters<typeof SelectedDayCard>[0]> = {}) {
-  return render(
+function cardEl(over: Partial<Parameters<typeof SelectedDayCard>[0]> = {}) {
+  return (
     <SelectedDayCard
       dateIso="2026-09-16"
       rows={[]}
@@ -103,8 +103,34 @@ function renderCard(over: Partial<Parameters<typeof SelectedDayCard>[0]> = {}) {
       locale="ja"
       onOpenDay={jest.fn()}
       {...over}
-    />,
+    />
   )
+}
+
+function renderCard(over: Partial<Parameters<typeof SelectedDayCard>[0]> = {}) {
+  return render(cardEl(over))
+}
+
+/** The card's own fade window (SelectedDayCard's FADE_MS / the mock's 120 ms). */
+const FADE_MS = 120
+
+/** jsdom ships no matchMedia at all, which is the NOT-reduced answer the card
+ *  reads through `?.`; this is the other one. */
+function reduceMotion(on: boolean) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    configurable: true,
+    value: (query: string) => ({
+      matches: on,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  })
 }
 
 const rowsOf = (c: HTMLElement) => c.querySelectorAll('[data-selected-day-card] > * > .relative')
@@ -334,7 +360,14 @@ describe('pending', () => {
   })
 })
 
-describe('MOTION (B3) — the mock s .selfade, one property, reduced motion instant', () => {
+describe('MOTION (B3 · R1-6) — the mock s .selfade, driven by the TAP', () => {
+  beforeEach(() => jest.useFakeTimers())
+  afterEach(() => {
+    act(() => void jest.runOnlyPendingTimers())
+    jest.useRealTimers()
+    delete (window as { matchMedia?: unknown }).matchMedia
+  })
+
   it('fades on OPACITY alone, 120ms, the mock s own curve', () => {
     const { container } = renderCard({ rows: [booking(1)] })
     const fade = container.querySelector('[data-sel-fade]')!
@@ -363,10 +396,92 @@ describe('MOTION (B3) — the mock s .selfade, one property, reduced motion inst
     // a panel blinking out — exactly what the setting exists to prevent.
     const { container } = renderCard({ rows: [booking(1)], pending: true })
     const fade = container.querySelector('[data-sel-fade]')!
-    expect(fade.className).toContain('opacity-0')
     expect(fade.className).toContain('motion-reduce:opacity-100')
-    // …and what they see under it is the pending state, not the day's numbers.
+    // …and what they see is the pending state, not the day being left.
     expect(container.querySelector('[data-day-line]')!.querySelectorAll('.reservation-shim')).toHaveLength(2)
+    expect(screen.queryByText('テスト1')).toBeNull()
+  })
+
+  // R1-6a/b (LENS-3 #1 + #2) — the fade belongs to the TAP. It used to be
+  // `pending ? opacity-0 : opacity-100`, i.e. bound to the network: a warm tap
+  // (router cache, ~22 ms) never stayed pending long enough for the transition
+  // to start and hard-cut at opacity 1, while a cold one held an empty bordered
+  // box for the whole round trip with the shims rendered inside the thing the
+  // same flag had faded to zero. One gesture, three motions.
+  it('a WARM tap plays the WHOLE sequence — 0, the swap behind it, then 1', () => {
+    const view = renderCard({ dateIso: '2026-09-16', rows: [booking(1)] })
+    const fade = () => view.container.querySelector('[data-sel-fade]')!
+    expect(fade().className).toContain('opacity-100')
+
+    // the tap: the card's day moves before any answer exists
+    view.rerender(cardEl({ dateIso: '2026-09-17', rows: [booking(1)], pending: true }))
+    expect(fade().className).toContain('opacity-0')
+
+    // the router cache answers in 22 ms — far inside the window, which neither
+    // ends early nor swaps early
+    act(() => void jest.advanceTimersByTime(22))
+    view.rerender(cardEl({ dateIso: '2026-09-17', rows: [booking(9)] }))
+    expect(fade().className).toContain('opacity-0')
+    expect(screen.queryByText('テスト9')).toBeNull()
+    expect(screen.getByText('テスト1')).toBeTruthy()
+
+    // …and only at the end of it does the content change and come back
+    act(() => void jest.advanceTimersByTime(FADE_MS))
+    expect(fade().className).toContain('opacity-100')
+    expect(screen.getByText('テスト9')).toBeTruthy()
+    expect(screen.queryByText('テスト1')).toBeNull()
+  })
+
+  it('a COLD tap is LIT with the two shims after the window — never an empty box', () => {
+    const view = renderCard({ dateIso: '2026-09-16', rows: [booking(1)] })
+    const fade = () => view.container.querySelector('[data-sel-fade]')!
+    view.rerender(cardEl({ dateIso: '2026-09-17', rows: [booking(1)], pending: true }))
+
+    act(() => void jest.advanceTimersByTime(200))
+    // t = 200 ms, the answer is still out there
+    expect(fade().className).toContain('opacity-100')
+    expect(
+      view.container.querySelector('[data-day-line]')!.querySelectorAll('.reservation-shim'),
+    ).toHaveLength(2)
+    expect(screen.queryByText('テスト1')).toBeNull()
+    expect(screen.queryByText(WEEK_ROWS.openDay)).toBeNull()
+
+    // the answer lands at 800 ms — the shims fade out, the day fades in
+    act(() => void jest.advanceTimersByTime(600))
+    view.rerender(cardEl({ dateIso: '2026-09-17', rows: [booking(9)] }))
+    expect(fade().className).toContain('opacity-0')
+    act(() => void jest.advanceTimersByTime(FADE_MS))
+    expect(fade().className).toContain('opacity-100')
+    expect(screen.getByText('テスト9')).toBeTruthy()
+  })
+
+  it('the invisible half of the window is INERT — no Tab into an outgoing door', () => {
+    const view = renderCard({ dateIso: '2026-09-16', rows: [booking(1)] })
+    const fade = () => view.container.querySelector('[data-sel-fade]')!
+    expect(fade().hasAttribute('inert')).toBe(false)
+    view.rerender(cardEl({ dateIso: '2026-09-17', rows: [booking(1)], pending: true }))
+    expect(fade().hasAttribute('inert')).toBe(true)
+    act(() => void jest.advanceTimersByTime(FADE_MS))
+    expect(fade().hasAttribute('inert')).toBe(false)
+  })
+
+  it('a same-day refresh just lands — new rows, no window, no flicker', () => {
+    const view = renderCard({ dateIso: '2026-09-16', rows: [booking(1)] })
+    view.rerender(cardEl({ dateIso: '2026-09-16', rows: [booking(1), booking(2)] }))
+    expect(view.container.querySelector('[data-sel-fade]')!.className).toContain('opacity-100')
+    expect(screen.getByText('テスト2')).toBeTruthy()
+  })
+
+  it('under REDUCE the swap is instant — no window, no dark card, no stale day', () => {
+    reduceMotion(true)
+    const view = renderCard({ dateIso: '2026-09-16', rows: [booking(1)] })
+    view.rerender(cardEl({ dateIso: '2026-09-17', rows: [booking(1)], pending: true }))
+    // no timer ran: the shims are already there and the card never went to 0
+    expect(view.container.querySelector('[data-sel-fade]')!.className).toContain('opacity-100')
+    expect(
+      view.container.querySelector('[data-day-line]')!.querySelectorAll('.reservation-shim'),
+    ).toHaveLength(2)
+    expect(screen.queryByText('テスト1')).toBeNull()
   })
 
   it('the door press is the app s own press — one property, the app s curve', () => {
