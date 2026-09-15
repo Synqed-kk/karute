@@ -40,9 +40,28 @@ const createAppointment = jest.fn(async (): Promise<unknown> => ({ id: 'appt-1' 
 jest.mock('@/actions/appointments', () => ({
   createAppointment: (...args: unknown[]) => createAppointment(...(args as [])),
 }))
+jest.mock('@/lib/karute/take-store', () => ({}))
 
 import { NewBookingDialog } from '@/components/appointments/NewBookingDialog'
+import { setDataPort } from '@/lib/ports/data-port'
+// ⚖ R1-1 — the PHONE's own path to this same dialog: the shell swaps
+// @/actions/* for this port, so the phone half is proved by driving the real
+// port over a stubbed facade response and handing the dialog what comes out.
+import { createAppointment as phonePort } from '../../../thin/ports/actions.vite'
 import ja from '../../../messages/ja.json'
+
+/** Route the dialog's action through the REAL thin port, over a facade body. */
+function throughThePhonePort(body: unknown) {
+  setDataPort({
+    apiFetch: async () => ({ ok: true, status: 200, json: async () => body }),
+  } as unknown as Parameters<typeof setDataPort>[0])
+  createAppointment.mockImplementation(() => phonePort({
+    staffProfileId: 'staff-1',
+    clientId: 'cust-1',
+    startTime: '2026-05-11T04:00:00.000Z',
+    durationMinutes: 60,
+  }) as Promise<unknown>)
+}
 
 const CUSTOMER = { id: 'cust-1', name: '佐藤 花子' }
 const STAFF = [{ id: 'staff-1', name: '田中 美咲' }]
@@ -122,5 +141,37 @@ describe('what the staffer reads when the door closes', () => {
     await save()
 
     expect(toastError).toHaveBeenCalledWith('This time slot overlaps with an existing booking.')
+  })
+})
+
+// ⚖ R1-1 — the SAME dialog, reached the way the phone reaches it. Before the
+// port carried the refusal whole, this block toasted the developer-facing
+// English string while the computer above toasted Japanese.
+describe('the phone door — the same dialog, through the thin port', () => {
+  it("speaks Japanese for the store's own 定休日, exactly as the computer does", async () => {
+    throughThePhonePort({
+      error: 'This day is closed — pick another day.',
+      code: 'closed_day',
+      level: 'store',
+      kind: 'weekday',
+    })
+
+    await save()
+
+    expect(toastError).toHaveBeenCalledWith(LINES.closedDayStore)
+    expect(toastError).not.toHaveBeenCalledWith(expect.stringContaining('This day is closed'))
+  })
+
+  it('speaks Japanese for a 臨時休業 date too', async () => {
+    throughThePhonePort({
+      error: 'This day is closed — pick another day.',
+      code: 'closed_day',
+      level: 'store',
+      kind: 'closed_date',
+    })
+
+    await save()
+
+    expect(toastError).toHaveBeenCalledWith(LINES.closedDayDate)
   })
 })
