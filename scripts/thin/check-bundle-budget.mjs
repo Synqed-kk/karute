@@ -968,8 +968,18 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // laps on the final code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed
 // == lock):
 //   en 134,204 · index 1,033,603 · vendor 937,791 = 2,105,598 B.
-// Ceiling = 2,105,598 + 1,000.
-const BUDGET_BYTES = 2_106_598
+// RE-MEASURED 2026-09-15 for the 1c-B fix round (R1). The round is a
+// correction, not a feature: the screen stopped carrying its own capacity
+// arithmetic and reads the model's numbers instead, so index came DOWN.
+// index 1,033,603 → 1,033,476 (−127 B); en and vendor unchanged to the byte.
+// Measured the workflow's own way (the same six env vars listed above, same
+// two commands, thin/dist emptied before each lap) and byte-identical with
+// matching content hashes across two clean laps on the final code tip (node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,033,476 · vendor 937,791 = 2,105,471 B.
+// Ceiling = 2,105,471 + 1,000 — re-based DOWN, because a tripwire that keeps
+// the slack a fix gave back is not a tripwire.
+const BUDGET_BYTES = 2_106_471
 
 let dir
 try {
