@@ -211,11 +211,21 @@ describe('WeekRows — the mock’s §v5/§v6 geometry, ported rule for rule', (
     expect(cell.className).not.toContain('flex-col')
   })
 
-  it('the grid is the mock’s fixed 120/100 two-column block that never flexes (mock .wkgrid{flex:0 0 auto})', () => {
+  it('the grid is a fixed 130/100 two-column block that never flexes (mock .wkgrid{flex:0 0 auto}, wide column +10px per R2-2)', () => {
+    // ⚖ R2-2 (lead, 2026-09-15) — the ONE recorded deviation from the mock's
+    // geometry: column 1 is 130 px, not the mock's 120. The mock's fixtures
+    // were whole hours (「12時間」); a real day carries minutes, and
+    // 「稼働時間 12時間30分」 measures 130.03 px (label 44 + gap 5 + value 81),
+    // which at 120 px ran 2 px INTO its neighbour's box (D-2 of
+    // FIX-REPORT-1B-WIRE-R1). Everything else in the row geometry is the
+    // mock's, unchanged. jsdom cannot measure text, so this pins the class
+    // string; the pixel proof is Playwright's, at 393 px, in the lane
+    // evidence folder.
     const WeekRows = loadWeekRows()
     const { container } = render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
     const grid = container.querySelector('[data-week-grid]')!
-    expect(grid.className).toContain('grid-cols-[120px_100px]')
+    expect(grid.className).toContain('grid-cols-[130px_100px]')
+    expect(grid.className).not.toContain('grid-cols-[120px_100px]')
     expect(grid.className).toContain('shrink-0')
     expect(grid.className).not.toContain('flex-1')
   })

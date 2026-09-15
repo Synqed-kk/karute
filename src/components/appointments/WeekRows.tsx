@@ -296,10 +296,20 @@ export function WeekRows({
               {/* mock `.wkgrid{flex:0 0 auto;display:grid;
                *  grid-template-columns:120px 100px;row-gap:7px;column-gap:8px}`
                *  — FIXED columns are the whole point (a long value can never
-               *  move its neighbour), so the block must not flex. */}
+               *  move its neighbour), so the block must not flex.
+               *
+               *  ⚖ R2-2 — the wide column is 130 px here, the ONE recorded
+               *  deviation from that rule. The mock's fixtures were whole
+               *  hours (「12時間」); a real day carries minutes, and
+               *  「稼働時間 12時間30分」 measures 130.03 px (label 44 + gap 5 +
+               *  value 81), so at 120 px it ran 2 px into 無断's box (D-2 of
+               *  FIX-REPORT-1B-WIRE-R1). +10 px is invisible to the eye and
+               *  keeps the collision impossible; every other number in this
+               *  row — gap 8, row-gap 7, the padding, the 52 px date column,
+               *  the `ml-auto` chevron — is the mock's, untouched. */}
               <div
                 data-week-grid
-                className="grid shrink-0 grid-cols-[120px_100px] gap-x-2 gap-y-[7px]"
+                className="grid shrink-0 grid-cols-[130px_100px] gap-x-2 gap-y-[7px]"
               >
                 {closed ? (
                   // mock `.wkgrid .closedcell{grid-column:1/-1}` +

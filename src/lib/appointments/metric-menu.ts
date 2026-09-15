@@ -163,7 +163,7 @@ function isDuration(cell: Cell): boolean {
   return cell.key === 'bookedTime' || cell.key === 'free'
 }
 
-/** The week grid is `120px 100px` (WeekRows.tsx `.wkgrid`) and fills
+/** The week grid is `130px 100px` (WeekRows.tsx `.wkgrid`, R2-2) and fills
  *  row-major, so cells 1+3 sit in the WIDE column and cells 2+4 in the narrow
  *  one. A duration does not fit 100 px: on a store whose capacity is not
  *  defensible — every store today, Dev Salon included — the fill order put

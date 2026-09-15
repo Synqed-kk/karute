@@ -179,7 +179,7 @@ describe('未設定 — only when the sole failing conjunct is the hours one', (
 })
 
 describe('placeForGrid — a DURATION never sits in the 100 px column (R1-1, D10)', () => {
-  // The week grid is `120px 100px` (WeekRows.tsx `.wkgrid`) and fills
+  // The week grid is `130px 100px` (WeekRows.tsx `.wkgrid`, R2-2) and fills
   // row-major, so cells 1+3 land in the WIDE column and cells 2+4 in the
   // narrow one. 「稼働時間 6時間30分」 does not fit 100 px — on the live Dev
   // Salon week it overflowed its box (D10). The last step of weekRowCells
