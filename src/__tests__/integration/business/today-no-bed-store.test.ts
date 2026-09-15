@@ -1013,6 +1013,20 @@ describe('⚖ D-53 (c) R1 — N0 seeded family: a store-bound no-unit roster bes
       })
       expect(twoStoreFreeCells.every((c) => c.resourceKey !== '')).toBe(true)
 
+      // variant 1b — a SECOND store-a bed lane, also free all day: the
+      // 2-bed board records the rule's positive half (the 1-bed board only
+      // ever sees this staff absent under the cap); under mutant g3 both
+      // boards go RED.
+      const freeBed2 = n0BedLane('p1-a-bed-2', 'store-a')
+      const free2 = sellLayerFor([aStaff, freeBed, freeBed2, zStaff, twoStore], hours, opts)
+      const twoStoreFreeCells2 = free2.cells.filter((c) => c.laneKey === 'p1-two-store')
+      console.log('P1-1 2-bed free board', {
+        twoBedCount: twoStoreFreeCells2.length,
+        allPaired: twoStoreFreeCells2.every((c) => c.resourceKey !== ''),
+      })
+      expect(twoStoreFreeCells2.length).toBeGreaterThan(0)
+      expect(twoStoreFreeCells2.every((c) => c.resourceKey !== '')).toBe(true)
+
       // variant 2 — the one bed BUSY over the first slot: the two-store
       // staff sells nothing there (they still need a unit and none is
       // free), while the store-z-only staff still sells their staff-time
