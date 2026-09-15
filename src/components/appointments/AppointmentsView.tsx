@@ -305,7 +305,14 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     )
   }
 
-  const headerDate = selectedDate
+  // The chip names the SELECTED day, and §v11b is why that matters here: the
+  // card below has no date header precisely because this chip already says
+  // which day it describes. So in 月 mode the chip follows the ring — held tap
+  // included — or for the whole round trip the ring sits on one day while the
+  // only thing naming a day says another. 日/週 are untouched: nothing there
+  // moves ahead of the server.
+  const headerDate =
+    view === 'month' ? jstWallTimeToDate(shownDayIso, '00:00') : selectedDate
 
   return (
     // System padding rule: page wrapper owns its horizontal padding

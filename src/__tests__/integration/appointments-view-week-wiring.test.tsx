@@ -421,6 +421,34 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     expect(monthPageProps!.selectedDateIso).toBe('2026-10-01')
   })
 
+  it('the CHIP follows the ring in 月 mode — one day named, not two (§v11b)', () => {
+    renderView(MONTH_VIEW)
+    const chipText = () =>
+      (
+        (uiProps.ReservationPageHeader as Record<string, unknown>).dateDisplayCompact as {
+          props: { children: string }
+        }
+      ).props.children
+    const before = chipText()
+    act(() => monthPageProps!.onPickDay('2026-09-17'))
+    const chipAfter = (uiProps.ReservationPageHeader as Record<string, unknown>)
+      .dateDisplayCompact as { props: { children: string } }
+    // The card carries no date header of its own, so a chip that lagged the
+    // ring would leave the selected day unnamed for the whole round trip.
+    expect(chipAfter.props.children).toContain('17')
+    expect(chipAfter.props.children).not.toBe(before)
+  })
+
+  it('日/週 chips never run ahead of the server', () => {
+    renderView()
+    const before = (uiProps.ReservationPageHeader as Record<string, unknown>)
+      .dateDisplayCompact as { props: { children: string } }
+    act(() => weekRowsProps!.onPickDay('2026-09-17'))
+    const after = (uiProps.ReservationPageHeader as Record<string, unknown>)
+      .dateDisplayCompact as { props: { children: string } }
+    expect(after.props.children).toBe(before.props.children)
+  })
+
   it('the card gets the tapped day and its pending flag while the answer is in flight', () => {
     renderView(MONTH_VIEW)
     expect(cardProps!.pending).toBe(false)
