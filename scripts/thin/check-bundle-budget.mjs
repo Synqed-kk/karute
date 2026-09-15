@@ -870,7 +870,31 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // documents that failure mode at 255 B (bake 21); the lengths above are the
 // workflow's, verified 24 / 40 / 208 / 8 / 2 before each build. Run the recipe
 // exactly and 1,023,074 reproduces here to the byte.
-const BUDGET_BYTES = 2_095_689
+//
+// RE-MEASURED 2026-09-15 for fix round 6 on that repair (#921 R6-1/R6-2/R6-3):
+// 2,095,689 → 2,096,112. Same CI recipe as every entry above (release-length
+// placeholder env, emptied thin/dist), byte-identical across two clean builds
+// on the final code tip, same content hashes both times (en-BO9I1Y-_,
+// index-BY3xTWjB, vendor-DYJ_XPt6):
+// en 133,776 · index 1,023,536 · vendor 937,800 = 2,095,112 B. Ceiling =
+// 2,095,112 + 1,000.
+//
+// +423 B, all in the index chunk, split at the source by building the seam
+// alone (this round's panel reverted to the round-5 tip, same recipe) rather
+// than guessing:
+//   index  1,023,113 → 1,023,127 (+14 B) — R6-1, the 予約 seam. The wrapper's
+//     class string went from "pt-6" to "pt-[9px] mb-[11px]": 18 characters
+//     against 4. Exactly 14.
+//   index  1,023,127 → 1,023,536 (+409 B) — R6-2/R6-3, the deferred draw: the
+//     set of months allowed to be drawn, the callback that adds to it, the
+//     one-month-per-frame effect, and the conditional inside the pane. Comments
+//     are stripped by the bundler and cost nothing here.
+//   en      133,776 → 133,776 — unchanged to the byte. No new string anywhere
+//     in the round, in either locale.
+//   vendor   937,800 → 937,800 — untouched: no dependency moved, and
+//     `npm install` at STEP 0 found @synqed-kk/ui already at the lock's 0.3.2,
+//     so the lockfile was restored unchanged.
+const BUDGET_BYTES = 2_096_112
 
 let dir
 try {
