@@ -261,18 +261,17 @@ export function WeekRows({
           {typeSlot !== 'off' && (
             <>
               <Separator t={t} />
-              <span>{t(typeSlot === 'new' ? 'new' : 'returning')}</span>
+              <span>{t('new')}</span>
               {pending ? <SummaryPill /> : (
-                // R3-4 — the sum is computed INSIDE the gate that prints it.
-                // Hoisted above, `newCustomerCount` was read on every render
-                // whatever the typeSlot, and today that field is the QR import
-                // flag, not the 新規 count PKT-2 will produce (spec §8). Dead
-                // compute one careless edit away from printing a wrong number.
+                // R3-4 — the sum is computed INSIDE the gate that prints
+                // it, never hoisted above: a number nothing is about to render
+                // is one careless edit away from being rendered wrong.
+                // ⚖ PKT-2 — `newCustomerCount` is now the honest 新規 count
+                // (people whose first visit is that day), not the QR import
+                // flag it carried while this slot was 'off' everywhere.
+                // Closed days are already out of `openRows`.
                 <b className={SUMMARY_NUMBER}>
-                  {openRows.reduce(
-                    (sum, r) => sum + (typeSlot === 'new' ? r.newCustomerCount : r.returningCount),
-                    0,
-                  )}
+                  {openRows.reduce((sum, r) => sum + r.newCustomerCount, 0)}
                 </b>
               )}
             </>
