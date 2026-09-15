@@ -139,13 +139,15 @@ describe('WeekRows — summary line', () => {
   it('excludes a closed row\'s counts from the summary sums', () => {
     const WeekRows = loadWeekRows({ closedDays: true })
     // A synthetic closed row (count 0, switch ON → isClosedRow true) carrying
-    // a poisoned newCustomerCount — only reachable in a test fixture, but it
-    // isolates the exclusion: the correct sum must ignore it regardless of
-    // what the row's other fields say.
-    const rows = sevenDays()
+    // a poisoned newCustomerCount, with every OTHER row's set to 0 — only
+    // reachable in a test fixture, but it isolates the exclusion: the
+    // correct 新規 sum must read 0 (the poison never lands), where a leak
+    // would read 999.
+    const rows = sevenDays(new Array(7).fill({ newCustomerCount: 0 }))
     rows[0] = row({ dateIso: rows[0].dateIso, dateNumber: rows[0].dateNumber, closed: true, count: 0, newCustomerCount: 999 })
     render(<WeekRows {...baseProps} rows={rows} onPickDay={jest.fn()} />)
     const summary = screen.getByTestId('week-summary')
+    expect(summary.textContent).toContain('新規 0')
     expect(summary.textContent).not.toMatch(/999/)
   })
 })
