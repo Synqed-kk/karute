@@ -201,7 +201,7 @@ export function MonthPage({
         {/* mock `.pagecal .calhead span{height:26px;padding:0;font-size:12px}`
          *  + `.calhead{border-bottom:1px solid var(--hair)}`. 土 accent, 日 red
          *  — the week rows' own two colours. */}
-        <div className="grid grid-cols-7 border-b border-zinc-100 dark:border-zinc-800">
+        <div className="grid grid-cols-7 border-b border-zinc-200/70 dark:border-zinc-800">
           {weekdayLabels.map((label, i) => (
             <div
               key={label}
@@ -411,7 +411,7 @@ export function MonthPage({
 // (`:nth-child(7n)`), and the card's own `overflow-hidden` trims the last row's
 // bottom hairline against the legend, exactly as the mock's does.
 const MONTH_CELL =
-  'flex h-[46px] flex-col items-center gap-0.5 border-b border-r border-zinc-100 pt-1 dark:border-zinc-800'
+  'flex h-[46px] flex-col items-center gap-0.5 border-b border-r border-zinc-200/70 pt-1 dark:border-zinc-800'
 
 // mock `.pagecal .cell .n{font-size:14px;width:24px;height:24px;
 // border-radius:999px}`

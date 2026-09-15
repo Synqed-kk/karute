@@ -357,12 +357,16 @@ export function WeekRows({
                 // R3-17 — mock `--hair` (#eef0f2) for the row rule against
                 // `--line` (#e6e8eb) for the card edge: two deliberately
                 // different greys, so the block reads as a card with hairlines
-                // inside it rather than a ruled table. Both pointed at
-                // `--color-border`. zinc-100 is the lighter step; on dark the
-                // zinc scale has nothing between the card's own background
-                // (#18181b) and its edge (#27272a), so the dark pair keeps
-                // today's relationship.
-                'flex min-h-[76px] w-full items-center gap-2.5 border-b border-zinc-100 py-3 pl-3 pr-2.5 text-left last:border-b-0 dark:border-zinc-800',
+                // inside it rather than a ruled table.
+                // R2-6 (LENS-3 #2) — zinc-100 (#f4f4f5) measured ~35% weaker
+                // than the mock's --hair on real pixels; `border-zinc-200/70`
+                // (≈#ececee over white) is the ONE hair token, shared with the
+                // month grid's own cell borders (MonthPage.tsx) — still
+                // lighter than the card edge (`--color-border`, zinc-200's
+                // full strength). On dark the zinc scale has nothing between
+                // the card's own background (#18181b) and its edge (#27272a),
+                // so the dark pair keeps today's relationship.
+                'flex min-h-[76px] w-full items-center gap-2.5 border-b border-zinc-200/70 py-3 pl-3 pr-2.5 text-left last:border-b-0 dark:border-zinc-800',
                 // MOTION (W-I), read off the mock's own cascade: `.wkrow`
                 // (line 144) sets `transition:background-color .12s ease`, but
                 // `[data-press]` (line 282) re-declares the same SHORTHAND at

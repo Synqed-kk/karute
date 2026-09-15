@@ -222,6 +222,20 @@ describe('MonthPage — the grid', () => {
     fireEvent.click(days()[15])
     expect(onPickDay).toHaveBeenCalledWith('2026-09-16')
   })
+
+  // R2-6 (LENS-3 #2) — the header row and every cell share the ONE hair token
+  // with the week rows (WeekRows.tsx), not the weaker zinc-100 the mock's own
+  // pixels disagreed with.
+  it('the header row and the cells carry the shared hair token, not zinc-100', () => {
+    const { MonthPage } = loadMonthPage()
+    const { container } = render(<MonthPage {...baseProps} cells={monthCells(2026, 9)} />)
+    const header = container.querySelector('[data-month-grid] > div:first-child')!
+    expect(header.className).toContain('border-zinc-200/70')
+    expect(header.className).not.toContain('border-zinc-100')
+    const firstCell = container.querySelector('[data-month-cell]')!
+    expect(firstCell.className).toContain('border-zinc-200/70')
+    expect(firstCell.className).not.toContain('border-zinc-100')
+  })
 })
 
 describe('MonthPage — the two marks never read as one', () => {

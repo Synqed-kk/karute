@@ -516,9 +516,12 @@ describe('WeekRows — the mock’s three greys, not one (R3-17)', () => {
     expect(container.querySelector('[data-week-chevron]')!.getAttribute('class')).toContain(
       'text-zinc-300',
     )
-    // mock --hair (#eef0f2) vs the card's own --line (#e6e8eb)
+    // mock --hair (#eef0f2) vs the card's own --line (#e6e8eb). R2-6: zinc-100
+    // measured ~35% weaker than --hair on real pixels; border-zinc-200/70 is
+    // the shared hair token, the SAME one the month grid's cells now carry.
     const row0 = screen.getAllByRole('button')[0]
-    expect(row0.className).toContain('border-zinc-100')
+    expect(row0.className).toContain('border-zinc-200/70')
+    expect(row0.className).not.toContain('border-zinc-100')
     expect(row0.className).not.toContain('border-[var(--color-border)]')
     // mock .listcard{overflow:hidden} — the today wash must not square off the
     // card's 16 px corner
