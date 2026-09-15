@@ -41,14 +41,19 @@ function appt(over: Partial<Appointment> = {}): Appointment {
   } as unknown as Appointment
 }
 
-// 2 real bookings · 1 cancelled · 1 no-show · 1 BLOCK (no customer) · 1 booking
-// with a customer and NO staff. The 件 number is 3: staff is optional, the two
+// 2 real bookings · 1 cancelled · 2 no-show · 1 BLOCK (no customer) · 1 booking
+// with a customer and NO staff. The 件 number is 3: staff is optional, the
 // tombstones are not visits, and a BLOCK is capacity, not a booking.
+//
+// The cancelled/no-show counts are deliberately ASYMMETRIC (1 vs 2). With one
+// of each, swapping the two counters in the adapter passed this whole file —
+// the suite only caught it through an unrelated route fixture (L2 own-1a).
 const ROWS = [
   appt({ id: 'ok-1' }),
   appt({ id: 'ok-2', customer_id: 'c2', staff_id: 's2', starts_at: '2026-09-15T04:00:00Z' }),
   appt({ id: 'cancelled-1', customer_id: 'c3', status: 'CANCELLED' }),
   appt({ id: 'noshow-1', customer_id: 'c4', status: 'NO_SHOW' }),
+  appt({ id: 'noshow-2', customer_id: 'c6', status: 'NO_SHOW', starts_at: '2026-09-15T06:00:00Z' }),
   appt({ id: 'block-1', kind: 'BLOCK', customer_id: null, title: 'オーナー業務' }),
   // NOTE: the day LIST drops this unassigned row (it has no lane to draw), which
   // is existing rendering behaviour and out of scope here. The COUNT keeps it.
@@ -68,7 +73,7 @@ describe('件 parity — month cell, week row and day total are ONE number', () 
     expect(week).toHaveLength(1)
     expect(week[0].count).toBe(3)
     expect(week[0].cancelledCount).toBe(1)
-    expect(week[0].noShowDayCount).toBe(1)
+    expect(week[0].noShowDayCount).toBe(2)
 
     const cells = appointmentsToMonthCells(counted, DAY, DAY, TODAY)
     const cell = cells.find((c) => c.id === '2026-09-15')!
@@ -95,7 +100,7 @@ describe('件 parity — month cell, week row and day total are ONE number', () 
     })
     expect(screen.dayTotals?.count).toBe(3)
     expect(screen.dayTotals?.cancelledCount).toBe(1)
-    expect(screen.dayTotals?.noShowDayCount).toBe(1)
+    expect(screen.dayTotals?.noShowDayCount).toBe(2)
     expect(screen.dayTotals?.dateIso).toBe('2026-09-15')
   })
 
