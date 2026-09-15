@@ -153,6 +153,9 @@ export function utcToLocalDayAndMinute(date: Date, tzOffsetMinutes: number): {
 // says 「this store is closed on Mondays」, while `weekly_hours = null` says
 // 「this store has never configured hours at all」 — confusing them either
 // invents a 定休日 or throws the hours filter away entirely.
+// An EMPTY object `{}` reads as the second, not the first [LEAD RULING]: a
+// store must never be closed for a whole week by a save that said nothing.
+// One key is enough to switch the store's own week on.
 //
 // Precedence, per day: an ad-hoc 臨時休業 date → the store's own weekly_hours →
 // the business-wide operating_hours blob → the 10:00–24:00 default (hoursSaved
@@ -210,7 +213,12 @@ export function resolveDayHours(input: DayHoursInput): DayHoursFact {
   if (input.closedDates.has(ymdInJst(input.date))) return { ...CLOSED_FACT }
 
   const weekly = input.weeklyHours
-  if (weekly != null) {
+  // An object with NO keys at all is not "closed every day" — it is a store
+  // that has not configured hours, so it falls through to the org blob. The
+  // absent-day rule only means 定休日 once the store has said SOMETHING about
+  // its week; reading `{}` literally would black out a whole store's week off
+  // an empty save, silently, with hoursSaved claiming a human meant it.
+  if (weekly != null && Object.keys(weekly).length > 0) {
     const day = weekly[key]
     // null OR absent = 定休日. This is the first of the two nulls above.
     if (day == null) return { ...CLOSED_FACT }
