@@ -48,6 +48,17 @@ jest.mock('@/actions/org-settings', () => ({
   getOrgSettings: async () => ({ ticket_packs_enabled: false, operating_hours: null }),
 }))
 jest.mock('@/actions/appointments', () => ({ getAppointmentsInRange: async () => [] }))
+// The page's window read (PKT-1a) is the same class of seam as the range read
+// above — this suite is about the PICKER scope, not the booking numbers.
+jest.mock('@/actions/appointments-window', () => ({
+  getAppointmentWindow: async () => ({
+    counted: [],
+    cancelled: [],
+    noShow: [],
+    truncated: false,
+    hoursFacts: [],
+  }),
+}))
 jest.mock('@/lib/appointments/day-agenda-cached', () => ({ getCachedDayAgenda: async () => [] }))
 jest.mock('@/lib/customers/list-enrich', () => ({ enrichCustomers: async () => new Map() }))
 jest.mock('@/lib/packs/store', () => ({ listAllPackUsage: async () => new Map() }))

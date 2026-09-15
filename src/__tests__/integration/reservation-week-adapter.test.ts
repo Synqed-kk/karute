@@ -52,6 +52,37 @@ describe('appointmentsToWeekData — locale-aware weekday (was hardcoded English
   })
 })
 
+describe('appointmentsToWeekData — the fallback denominator counts COUNTED rows', () => {
+  it("a BLOCK under another staffer no longer makes them 'working' (600, not 1200)", () => {
+    // ⚠ DECLARED CHANGE (L4-2). availableMinutes on a NON-defensible day uses
+    // the same arithmetic as before — businessHoursMinutes × max(1, staff who
+    // worked) — but it now sees only the counted rows. On main this day handed
+    // the adapter the BLOCK too, counted two staffers and answered 1200; 稼働%
+    // therefore halved. A bed hold is not a second chair, so 600 is the truer
+    // number. Pinned so the shift has a home instead of surprising 1b.
+    const days = appointmentsToWeekData(
+      [
+        appt({ id: 'booking-1', staff_id: 'sA' }),
+        appt({
+          id: 'block-1',
+          kind: 'BLOCK',
+          customer_id: null,
+          staff_id: 'sB',
+          starts_at: '2024-06-03T04:00:00Z',
+        } as Partial<Appointment>),
+      ],
+      WEEK_START,
+      WEEK_END,
+      600,
+      TODAY,
+      'ja',
+    )
+    expect(days[0].count).toBe(1)
+    expect(days[0].availableMinutes).toBe(600)
+    expect(days[0].capacityDefensible).toBe(false)
+  })
+})
+
 describe('appointmentsToWeekData — unconfirmed is never the cancelled count', () => {
   it('keeps unconfirmed at 0 even with CANCELLED appointments', () => {
     const days = appointmentsToWeekData(
@@ -63,7 +94,12 @@ describe('appointmentsToWeekData — unconfirmed is never the cancelled count', 
       'ja',
     )
     const monday = days[0]
-    expect(monday.count).toBe(2) // both bucketed on Monday
+    // RE-PINNED (PKT-1a): this used to assert `count: 2`, i.e. the 件 number
+    // counting two CANCELLED rows as bookings. That was the lie the 予約 numbers
+    // foundation exists to end — a cancelled booking is a tombstone, not a
+    // visit. The count is now 0; the cancellations are reported separately
+    // through `cancelledCount` (see booking-count-parity.test.ts).
+    expect(monday.count).toBe(0)
     expect(monday.unconfirmed).toBe(0) // was 2 (mislabeled) before the fix
   })
 })

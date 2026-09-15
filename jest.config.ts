@@ -1,6 +1,15 @@
 import type { Config } from 'jest'
 import nextJest from 'next/jest.js'
 
+// Vercel and CI both run UTC; a Japanese developer's Mac runs JST. Several
+// suites pin a JST weekday or a JST day boundary, and under a JST runtime the
+// BUGGY spelling (date.getDay(), a raw getDate()) agrees with the fixed one —
+// so those regression tests silently stop discriminating locally and only CI
+// catches a revert (L1 F2). Set here, in the parent process, before any worker
+// forks: workers inherit process.env, while assigning TZ inside a test file is
+// a no-op under jest's worker sandbox (calendar-range.test.ts documents that).
+process.env.TZ = 'UTC'
+
 const createJestConfig = nextJest({
   // Provide the path to your Next.js app to load next.config.js and .env files in your test environment
   dir: './',
