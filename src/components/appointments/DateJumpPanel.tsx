@@ -95,7 +95,8 @@ const SWIPE_UP_PX = 40
  * `:active` on specificity. Dropping the class is the only version that
  * actually leaves opacity alone, which is what L5 asks for.
  */
-const PRESS = 'transition-transform duration-100 active:scale-[0.97]'
+const PRESS =
+  'transition-transform duration-100 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]'
 const PRESS_REDUCED = 'transition-none'
 
 /** The marker AppointmentsView puts inside the header's date chip: the chip is
