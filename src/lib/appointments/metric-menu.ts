@@ -170,24 +170,29 @@ function capacityShown(row: WeekDayRowData): boolean {
   return row.capacityMinutes != null
 }
 
-/** ⚖ S3b (PKT-1c-B) — 未設定 reads the FACT, not a guess about the store.
+/** ⚖ S3b (PKT-1c-B), narrowed by R1-10 — 未設定 reads the FACT, and only the
+ *  fact that its promise is true for.
  *
- *  未設定 says exactly one thing: 「this day's hours are not set — set them and
- *  a number appears here」. That promise is only honest when hours are the ONLY
- *  thing missing, which used to be approximated by `soloMode && !hoursSaved`:
- *  it read 未設定 to a solo store whose roster was unreadable (where saving
- *  hours changes nothing), and withheld it from a multi-staff store whose only
- *  gap was its hours (where saving them is the whole fix).
+ *  未設定 says exactly one thing: 「this day's hours are not set — set them and a
+ *  number appears here」. S3b replaced the old `soloMode && !hoursSaved` guess
+ *  with the module's reason, which is what let a multi-staff store see it at
+ *  all; R1-10 removes the second reason it was reading.
  *
- *  The capacity module answers it directly. It checks lane kind → roster →
- *  hours IN THAT ORDER, so an hours reason PROVES the store is not class-bound
- *  and its roster was known. 'hours-not-saved' = the day fell to the
- *  10:00–24:00 default; 'hours-unresolved' = no hours reached this day at all.
- *  A closed day carries its own reason and is never 未設定 (⚖ 休 is a fact,
- *  not a missing setting), and a null reason — an older server across a bundle
- *  skew — falls through to the next metric rather than inventing one. */
+ *  'hours-not-saved' IS the promise: the day fell through to the 10:00–24:00
+ *  platform default, so saving this store's hours is the whole fix.
+ *  'hours-unresolved' is not. It fires when no hours fact reached this day (a
+ *  window/plumbing gap, on a store that may well have saved them) or when the
+ *  saved window does not run forwards — 10:00–10:00, a malformed row. Telling a
+ *  store that set its hours to go and set its hours is a lie in both halves, so
+ *  that day takes the next metric instead.
+ *
+ *  A closed day carries its own reason and is never 未設定 (⚖ 休 is a fact, not
+ *  a missing setting), a roster or class-bound reason never reaches it (the
+ *  module checks kind → roster → hours IN THAT ORDER, so an hours reason PROVES
+ *  the rest was known), and 'unknown' — a door that never looked — falls
+ *  through rather than inventing a setting to blame. */
 function unsetShown(row: WeekDayRowData): boolean {
-  return row.capacityReason === 'hours-not-saved' || row.capacityReason === 'hours-unresolved'
+  return row.capacityReason === 'hours-not-saved'
 }
 
 /** 稼働: the defensible percentage → 未設定 (hours are the only thing missing)

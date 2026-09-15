@@ -181,15 +181,36 @@ describe('未設定 — only when the hours are the ONLY thing missing (S3b)', (
     expect(weekRowCells(r, { soloMode: false, typeSlot: 'off', t })[1].key).toBe('unset')
   })
 
-  it('no hours reached this day at all → unset as well', () => {
+  it('⚖ R1-10 — hours that ARE saved but malformed take the next metric, never 未設定', () => {
+    // 'hours-unresolved' fires two ways, and neither keeps 未設定's promise: no
+    // hours fact reached this day (a plumbing gap, on a store that may well
+    // have saved them), or the saved window does not run forwards — 10:00–10:00.
+    // Telling a store that set its hours to go and set its hours is a lie.
     const { weekRowCells } = loadMetricMenu()
     const r = row({
       capacityDefensible: false,
-      hoursSaved: false,
+      hoursSaved: true,
+      hoursSource: 'store',
       closed: false,
       capacityReason: 'hours-unresolved',
     })
-    expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t })[1].key).toBe('unset')
+    expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t }).map((c) => c.key)).not.toContain(
+      'unset',
+    )
+  })
+
+  it('⚖ R1-10 — and the day that really has none is still 未設定, so the promise survives', () => {
+    // The pair: one reason keeps it, the other does not, and the difference is
+    // whether saving hours actually fixes the day.
+    const { weekRowCells } = loadMetricMenu()
+    const notSaved = row({
+      capacityDefensible: false,
+      hoursSaved: false,
+      hoursSource: 'default',
+      closed: false,
+      capacityReason: 'hours-not-saved',
+    })
+    expect(weekRowCells(notSaved, { soloMode: true, typeSlot: 'off', t })[1].key).toBe('unset')
   })
 
   it('MUTANT m7 — a store whose ROSTER could not be read never sees 未設定', () => {
@@ -220,9 +241,12 @@ describe('未設定 — only when the hours are the ONLY thing missing (S3b)', (
     )
   })
 
-  it('an older server sending no reason falls through, never inventing 未設定', () => {
+  it('a door that never looked falls through, never inventing 未設定', () => {
+    // R1-8 gives that row the reason 'unknown'; an older server that sends no
+    // reason at all parses to the same thing. Neither is a missing setting.
     const { weekRowCells } = loadMetricMenu()
     const r = row({ capacityDefensible: false, hoursSaved: false, closed: false })
+    expect(r.capacityReason).toBe('unknown')
     expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t }).map((c) => c.key)).not.toContain(
       'unset',
     )
