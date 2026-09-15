@@ -114,9 +114,8 @@ const resolveSynqedStaffId = jest.fn(async (profileId: string) => {
   if (profileId === PROFILE_ID) return CORE_STAFF_ID
   throw new Error('no synqed staff record')
 })
-const lookupSynqedStaffIdForBusiness = jest.fn(
-  async (profileId: string, _businessId: string): Promise<string | null> =>
-    profileId === PROFILE_ID ? CORE_STAFF_ID : null,
+const lookupSynqedStaffIdForBusiness = jest.fn<Promise<string | null>, [string, string]>(
+  async (profileId) => (profileId === PROFILE_ID ? CORE_STAFF_ID : null),
 )
 jest.mock('@/lib/synqed/staff-map', () => ({
   resolveSynqedStaffId: (profileId: string) => resolveSynqedStaffId(profileId),
@@ -196,9 +195,8 @@ beforeEach(() => {
     if (profileId === PROFILE_ID) return CORE_STAFF_ID
     throw new Error('no synqed staff record')
   })
-  lookupSynqedStaffIdForBusiness.mockImplementation(
-    async (profileId: string, _businessId: string) =>
-      profileId === PROFILE_ID ? CORE_STAFF_ID : null,
+  lookupSynqedStaffIdForBusiness.mockImplementation(async (profileId) =>
+    profileId === PROFILE_ID ? CORE_STAFF_ID : null,
   )
   storesList.mockResolvedValue({ stores: [] })
   staffStoresCounts.mockResolvedValue({ counts: {} })
