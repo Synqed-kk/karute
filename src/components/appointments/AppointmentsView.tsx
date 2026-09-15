@@ -271,7 +271,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  (which would close it just as the chip's own click reopens it). */}
       <div
         ref={dateJumpAnchorRef}
-        className={cn('relative', CHIP_CHEVRON, pickerOpen && CHIP_OPEN)}
+        className={cn('relative mb-0', CHIP_CHEVRON, pickerOpen && CHIP_OPEN)}
       >
       <ReservationPageHeader
         // Header structure contract (Liam 8/7): mb-0 kills the package's
@@ -279,6 +279,11 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         // (v4 space-y is a zero-specificity :where() rule) — so the pt-6
         // wrapper below owns the whole 24px seam. Same natural-height
         // row as 顧客/カルテ (32px controls set the height).
+        // The anchor wrapper above carries mb-0 too, and for the second
+        // half of that reason: since the date-jump panel moved the anchor
+        // in between, IT is the direct child space-y-4 measures — this
+        // header is a grandchild, so its own mb-0 no longer meets the
+        // :where() rule it used to cancel (measured: 40px seam, not 24).
         className="mb-0"
         dateDisplay={
           <span data-date-jump-chip>{formatLongDateJst(headerDate, locale)}</span>
