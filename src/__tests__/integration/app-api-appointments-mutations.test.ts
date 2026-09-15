@@ -184,6 +184,12 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockCapabilities.mockResolvedValue(new Set(['bookings.manage']))
   staffStoresGet.mockResolvedValue({ store_ids: [] })
+  // ⚖ R1-2 — the core now resolves the LANDING store itself, so every create
+  // reaches a real store's policy (never the old "no clamp → no read" path).
+  // These two therefore have to be re-seeded per test, or one case's closed
+  // week leaks into the next one's happy path.
+  policyGet.mockResolvedValue({ weekly_hours: null })
+  listClosedDays.mockResolvedValue({ closed_days: [] })
   listPacks.mockResolvedValue([])
   apptGet.mockResolvedValue({
     id: 'appt-1',
@@ -278,6 +284,19 @@ describe('POST /api/app/v1/appointments (create)', () => {
     )
     expect(res.status).toBe(200)
     expect((await res.json()).error).toMatch(/operating hours/)
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  // ⚖ R1-2 — the PURE half still runs ahead of the create-on-miss resolver;
+  // only the store-dependent half moved behind it.
+  it('an unparseable startTime → { error } BEFORE the resolver runs (no staff-mint side effect)', async () => {
+    const { resolveSynqedStaffIdForBusiness } = jest.requireMock('@/lib/synqed/staff-map')
+    const res = await createPOST(
+      post(CREATE_URL, { ...CREATE_BODY, startTime: 'tomorrow' }),
+      noParams,
+    )
+    expect(res.status).toBe(200)
+    expect((await res.json()).error).toBe('Invalid appointment start time.')
     expect(resolveSynqedStaffIdForBusiness).not.toHaveBeenCalled()
     expect(apptCreate).not.toHaveBeenCalled()
   })
@@ -285,8 +304,7 @@ describe('POST /api/app/v1/appointments (create)', () => {
   // ⚖ PKT-1c-C — the phone answers with the IDENTICAL body the web action
   // returns, so the ONE dialog both doors render picks the same line. 2026-07-21
   // is a Tuesday in JST; this store saved its week with Tuesday left out.
-  it('a closed weekday → the same { error } + provenance the web action returns, before the resolver runs', async () => {
-    const { resolveSynqedStaffIdForBusiness } = jest.requireMock('@/lib/synqed/staff-map')
+  it('a closed weekday → the same { error } + provenance the web action returns', async () => {
     staffStoresGet.mockResolvedValue({ store_ids: ['store-B'] })
     policyGet.mockResolvedValue({
       weekly_hours: {
@@ -310,7 +328,30 @@ describe('POST /api/app/v1/appointments (create)', () => {
       level: 'store',
       kind: 'weekday',
     })
-    expect(resolveSynqedStaffIdForBusiness).not.toHaveBeenCalled()
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  // ⚖ R1-2 / LENS-4 HIGH-2 — a viewAll phone identity sends no store-id
+  // header, so the clamp resolves nothing. The row still lands in the booked
+  // staff's own store, and that store's 定休日 is what decides.
+  it('refuses on the LANDING store when the caller sends no store-id header', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['bookings.manage', 'stores.viewAll']))
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    policyGet.mockResolvedValue({
+      weekly_hours: {
+        mon: { open: '10:00', close: '19:00' },
+        wed: { open: '10:00', close: '19:00' },
+        thu: { open: '10:00', close: '19:00' },
+        fri: { open: '10:00', close: '19:00' },
+        sat: { open: '10:00', close: '19:00' },
+        sun: { open: '10:00', close: '19:00' },
+      },
+    })
+
+    const res = await createPOST(post(CREATE_URL, CREATE_BODY), noParams)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ code: 'closed_day', level: 'store' })
     expect(apptCreate).not.toHaveBeenCalled()
   })
 

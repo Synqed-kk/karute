@@ -15,10 +15,10 @@ import { isTerminalStatus, type AppStatus } from '@/lib/appointments/status'
 import { listCustomerPacks } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import {
+  validateAppointmentInput,
   validateAppointmentTime,
   type AppointmentInput,
 } from '@/lib/appointments'
-import { fetchBookingDayHours } from '@/lib/appointments/day-hours'
 import { appointmentsToMonthCells, monthCellsToDTO } from '@/lib/adapters/reservation'
 import { newCountByDay } from '@/lib/appointments/first-visit'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
@@ -86,60 +86,57 @@ export async function createAppointment(input: AppointmentInput) {
 
   // Validate BEFORE any resolution: resolveSynqedStaffId can CREATE a staff
   // record on miss — invalid input must not leave that side effect behind.
-  // (The core re-validates for the facade path; the check is pure.)
+  // This is the PURE half (duration, start time); it needs no store, touches
+  // nothing and cannot throw.
   //
-  // ⚖ PKT-1c-C — the closed-day rule needs the BOOKING'S store, so the cookie
-  // clamp moved ABOVE the validation. Everything hoisted here is a pure READ
-  // (a client factory, a cookie read, an RBAC scope lookup); the one
-  // side-effecting resolver, resolveSynqedStaffId, still runs only after the
-  // validator has passed — the invariant this comment has always protected.
-  const [synqed, orgSettings, activeStore] = await Promise.all([
-    getSynqedClient(),
-    getOrgSettings(),
-    getActiveStoreId(),
-  ])
-  // Clamp the cookie. Honor it ONLY when the viewer may act in that store
-  // (viewAll → allowedStoreIds null, or it's one of their assigned stores —
-  // the same clamp getAppointmentById applies to reads); a branch-restricted
-  // staff's stale / out-of-scope cookie is treated as unset. The unset path
-  // falls through to the core's defaultBookingStore — NOT
-  // resolveStoreScope().storeId, which would regress a viewAll staff's
-  // unset-cookie booking from "the booked staff's store" to "primary store".
-  // The scope lookup only runs when a cookie is actually set.
-  let cookieStore: string | null = null
-  if (activeStore) {
-    const scope = await resolveStoreScope()
-    cookieStore =
-      !scope.allowedStoreIds || scope.allowedStoreIds.includes(activeStore)
-        ? activeStore
-        : null
-  }
-  // Store isolation: the closed-days / weekly-hours read is keyed by the
-  // CLAMPED store id, never the raw cookie and never a guess — a
-  // store-restricted staffer can only ever trigger their own store's policy.
-  const dayHours = await fetchBookingDayHours(
-    synqed,
-    cookieStore,
-    new Date(input.startTime),
-    orgSettings?.operating_hours_saved,
-  )
-  const hoursError = await validateAppointmentTime(
-    input,
-    orgSettings?.operating_hours,
-    dayHours,
-  )
-  if (hoursError) return hoursError
+  // ⚖ R1-2 — the closed-day half moved INSIDE createAppointmentCore, because
+  // the store it must judge is the store the row LANDS in, and that is only
+  // known once the booked staff's core id is resolved. So the honest ordering
+  // is: pure checks → resolver → landing store → that store's hours. The
+  // side effect the old ordering protected against was junk input minting a
+  // staff record; a closed-day refusal is a roster staffer on a real day, and
+  // the resolver is idempotent for one.
+  const inputError = validateAppointmentInput(input)
+  if (inputError) return inputError
 
   try {
+    // ⚖ R1-3 / LENS-4 LOW-7 — inside the try: getSynqedClient() → getBusinessId()
+    // throws when there is no membership, and this action's callers await it
+    // WITHOUT a try/catch (the same reason the gate above uses can()).
+    const [synqed, orgSettings, activeStore] = await Promise.all([
+      getSynqedClient(),
+      getOrgSettings(),
+      getActiveStoreId(),
+    ])
+    // Clamp the cookie. Honor it ONLY when the viewer may act in that store
+    // (viewAll → allowedStoreIds null, or it's one of their assigned stores —
+    // the same clamp getAppointmentById applies to reads); a branch-restricted
+    // staff's stale / out-of-scope cookie is treated as unset. The unset path
+    // falls through to the core's defaultBookingStore — NOT
+    // resolveStoreScope().storeId, which would regress a viewAll staff's
+    // unset-cookie booking from "the booked staff's store" to "primary store".
+    // The scope lookup only runs when a cookie is actually set.
+    let cookieStore: string | null = null
+    if (activeStore) {
+      const scope = await resolveStoreScope()
+      cookieStore =
+        !scope.allowedStoreIds || scope.allowedStoreIds.includes(activeStore)
+          ? activeStore
+          : null
+    }
     const [synqedStaffId, auditActor] = await Promise.all([
       resolveSynqedStaffId(input.staffProfileId),
       resolveWebAuditContext(),
     ])
+    // Store isolation: the core keys its weekly-hours / closed-days read to
+    // `preferredStoreId ?? defaultBookingStore` — the clamped cookie, or an id
+    // derived server-side from the booked staff. Never the raw cookie, never a
+    // guess, never another store.
     const result = await createAppointmentCore(synqed, input, {
       synqedStaffId,
       preferredStoreId: cookieStore,
       operatingHours: orgSettings?.operating_hours,
-      dayHours,
+      orgSaved: orgSettings?.operating_hours_saved,
       actor: { ...auditActor, source: 'web', requestId: crypto.randomUUID() },
     })
     if ('id' in result) {

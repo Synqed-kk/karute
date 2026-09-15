@@ -16,12 +16,8 @@
 //   • 無断 (no-show) reason is the ONE fixed code, never a staff choice.
 
 import { SynqedError, type SynqedClient } from '@synqed-kk/client'
-import type {
-  AppointmentInput,
-  BookingDayHours,
-  BookingTimeRefusal,
-} from '@/lib/appointments'
-import { validateAppointmentTime } from '@/lib/appointments'
+import type { AppointmentInput, BookingTimeRefusal } from '@/lib/appointments'
+import { validateAppointmentInput, validateAppointmentTime } from '@/lib/appointments'
 import {
   CANCEL_REASON_SAME_DAY_CONTACT,
   CANCEL_REASONS,
@@ -121,26 +117,43 @@ export async function createAppointmentCore(
     synqedStaffId: string
     preferredStoreId: string | null
     operatingHours: unknown
-    /** ⚖ PKT-1c-C — the booking store's own hours facts for the booking's day,
-     *  fetched by the door (fetchBookingDayHours) against the SAME store id it
-     *  clamped into preferredStoreId. Required, not optional: a door that
-     *  forgot it would silently reopen the closed day for its whole path. */
-    dayHours: BookingDayHours
+    /** ⚖ R1-2 — the org blob's SAVED weekdays. The store half of the hours
+     *  question is read HERE, not handed in: a caller that read it against the
+     *  store it happened to be looking at would be asking a different store
+     *  than the row lands in. */
+    orgSaved: readonly WeekdayKey[] | undefined
     actor: BookingActor
   },
 ): Promise<{ id: string } | BookingTimeRefusal> {
-  const hoursError = await validateAppointmentTime(input, deps.operatingHours, deps.dayHours)
-  // Refused BEFORE anything reaches core: no appointment row, and no audit row
-  // claiming one (⚖ PKT-1c-C S4 — the audit() call below is the only writer in
-  // this core and it sits past this return).
-  if (hoursError) return hoursError
+  // The pure half runs at both doors too, ahead of their side-effecting staff
+  // resolver. Repeated here because this core is the LAST wall: a future caller
+  // that forgets its own pre-check is still refused.
+  const inputError = validateAppointmentInput(input)
+  if (inputError) return inputError
 
   const startTime = new Date(input.startTime)
   const endTime = new Date(startTime.getTime() + input.durationMinutes * 60000)
 
   try {
+    // ⚖ R1-2 — the door judges the store the row will LAND in. `storeId` is
+    // resolved FIRST and then used twice: once to ask that store's own hours,
+    // once as the row's store. Before this, the check asked whatever the door's
+    // clamp produced — and in a single-store salon that is nothing at all (the
+    // store switcher never renders below two stores, so the cookie is never
+    // set), while the row still landed in a real store with a real 定休日. The
+    // screen painted 休 and the door took the booking.
     const storeId =
       deps.preferredStoreId ?? (await defaultBookingStore(synqed, deps.synqedStaffId))
+    // Isolation is unchanged: this id is the door's clamped store, or one
+    // derived server-side from the booked staff's own assignment / the tenant
+    // primary — never client input, and never another store.
+    const dayHours = await fetchBookingDayHours(synqed, storeId, startTime, deps.orgSaved)
+    const hoursError = await validateAppointmentTime(input, deps.operatingHours, dayHours)
+    // Refused BEFORE anything reaches core: no appointment row, and no audit row
+    // claiming one (⚖ PKT-1c-C S4 — the audit() call below is the only writer in
+    // this core and it sits past this return).
+    if (hoursError) return hoursError
+
     const appt = await synqed.appointments.create({
       customer_id: input.clientId,
       staff_id: deps.synqedStaffId,
@@ -602,9 +615,19 @@ export async function updateAppointmentCore(
         Math.round(
           (new Date(appt.ends_at).getTime() - new Date(appt.starts_at).getTime()) / 60_000,
         )
+      // ⚖ R1-2 — the same rule as create: the day is judged against the store
+      // the row LANDS in. A row whose store_id is null (BLOCK rows, some
+      // imports) used to reach `fetchBookingDayHours(null)`, which asks nobody
+      // — so any storeless booking could be rescheduled onto a 定休日 or a
+      // 臨時休業 with nothing to refuse it. It resolves the same way create
+      // does, off the booking's own staff.
+      const landingStaffId = patch.staffId ?? appt.staff_id
+      const landingStoreId =
+        appt.store_id ??
+        (landingStaffId ? await defaultBookingStore(synqed, landingStaffId) : null)
       const dayHours = await fetchBookingDayHours(
         synqed,
-        appt.store_id,
+        landingStoreId,
         new Date(startTime),
         hours.orgSaved,
       )

@@ -302,9 +302,56 @@ describe('the web door — createAppointment', () => {
     })
     expect(apptCreate).not.toHaveBeenCalled()
     expect(lines).toHaveLength(0)
-    // The refusal stops AT THE DOOR — it never reaches the resolver, which can
-    // CREATE a staff record on miss, nor the core behind it.
+  })
+
+  // ⚖ R1-2, the honest ordering. The PURE half still runs ahead of the
+  // resolver (which CREATES a staff record on miss), because junk input must
+  // not leave that side effect behind. The closed-day half cannot: the store
+  // it must judge is the store the row lands in, and that is only knowable
+  // once the booked staff's core id is resolved.
+  it('refuses junk input before the resolver can mint a staff record', async () => {
+    const result = await createAppointment({
+      ...bookingInput('not-a-date'),
+      staffProfileId: 'staff-unknown',
+    })
+
+    expect(result).toMatchObject({ error: 'Invalid appointment start time.' })
     expect(resolveSynqedStaffId).not.toHaveBeenCalled()
+    expect(policyGet).not.toHaveBeenCalled()
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  // ⚖ R1-2 / LENS-4 BLOCKER — the state of EVERY single-store salon: the store
+  // switcher never renders below two stores, so the active-store cookie is
+  // never written. The door used to ask nobody and the row still landed in the
+  // staff's own store, whose Monday is 定休日. The screen painted 休; the door
+  // took the booking.
+  it('refuses on the staff’s own store when NO cookie is set at all', async () => {
+    getActiveStoreId.mockResolvedValue(null)
+    policyGet.mockResolvedValue({ weekly_hours: CLOSED_ON_MONDAY })
+
+    const result = await createAppointment(bookingInput(MON_1300_JST))
+
+    expect(policyGet).toHaveBeenCalledWith('store-ginza')
+    expect(result).toMatchObject({ code: 'closed_day', level: 'store', kind: 'weekday' })
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  // The all-stores viewer with no pin: same answer, same store — the one the
+  // core lands the row in.
+  it('refuses on the landing store for a viewAll staffer with no pin', async () => {
+    getActiveStoreId.mockResolvedValue(null)
+    resolveStoreScope.mockResolvedValue({
+      storeId: null as never,
+      viewAll: true,
+      allowedStoreIds: null,
+    })
+    policyGet.mockResolvedValue({ weekly_hours: CLOSED_ON_MONDAY })
+
+    const result = await createAppointment(bookingInput(MON_1300_JST))
+
+    expect(policyGet).toHaveBeenCalledWith('store-ginza')
+    expect(result).toMatchObject({ code: 'closed_day' })
   })
 
   it('refuses a 臨時休業 date the same way', async () => {
@@ -343,7 +390,9 @@ describe('the web door — createAppointment', () => {
 
   // Store isolation: an out-of-scope cookie is treated as unset (the clamp this
   // action has always applied), so a restricted staffer cannot make the app read
-  // — let alone be refused by — another store's policy.
+  // — let alone be refused by — another store's policy. ⚖ R1-2 sharpened the
+  // pin: the clamped-out cookie is not "no policy read", it is "their OWN
+  // store's policy", because that is where the row lands.
   it('never reads another store’s policy when the cookie points outside the staffer’s scope', async () => {
     getActiveStoreId.mockResolvedValue('store-daikanyama')
     resolveStoreScope.mockResolvedValue({
@@ -354,8 +403,9 @@ describe('the web door — createAppointment', () => {
 
     const result = await createAppointment(bookingInput(MON_1300_JST))
 
-    expect(policyGet).not.toHaveBeenCalled()
-    expect(listClosedDays).not.toHaveBeenCalled()
+    expect(policyGet).not.toHaveBeenCalledWith('store-daikanyama')
+    expect(listClosedDays).not.toHaveBeenCalledWith('store-daikanyama', expect.anything())
+    expect(policyGet).toHaveBeenCalledWith('store-ginza')
     expect(result).toEqual({ id: 'appt-new' })
   })
 
@@ -377,6 +427,8 @@ describe('the web door — createAppointment', () => {
 // facade and the web action both do — it refuses before `appointments.create`.
 describe('the core — createAppointmentCore', () => {
   it('refuses a closed day itself, so no caller can be the way in', async () => {
+    policyGet.mockResolvedValue({ weekly_hours: CLOSED_ON_MONDAY })
+
     const result = await createAppointmentCore(
       fakeClient as never,
       bookingInput(MON_1300_JST),
@@ -384,12 +436,35 @@ describe('the core — createAppointmentCore', () => {
         synqedStaffId: 'staff-core-1',
         preferredStoreId: 'store-ginza',
         operatingHours: ORG_HOURS,
-        dayHours: dayHours({ weeklyHours: CLOSED_ON_MONDAY as never }),
+        orgSaved: ALL_WEEKDAYS as never,
         actor: { actorId: 'auth-user-1', businessId: 'business-1', source: 'web' },
       },
     )
 
     expect(result).toMatchObject({ code: 'closed_day' })
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  // ⚖ R1-2 — the whole point: with no preferred store the row lands in
+  // defaultBookingStore, so THAT is the store whose hours decide.
+  it('asks the store the row will LAND in when no store was preferred', async () => {
+    policyGet.mockResolvedValue({ weekly_hours: CLOSED_ON_MONDAY })
+
+    const result = await createAppointmentCore(
+      fakeClient as never,
+      bookingInput(MON_1300_JST),
+      {
+        synqedStaffId: 'staff-core-1',
+        preferredStoreId: null,
+        operatingHours: ORG_HOURS,
+        orgSaved: ALL_WEEKDAYS as never,
+        actor: { actorId: 'auth-user-1', businessId: 'business-1', source: 'web' },
+      },
+    )
+
+    // staffStores.get resolves the single assignment — the landing store.
+    expect(policyGet).toHaveBeenCalledWith('store-ginza')
+    expect(result).toMatchObject({ code: 'closed_day', level: 'store', kind: 'weekday' })
     expect(apptCreate).not.toHaveBeenCalled()
   })
 })
@@ -424,6 +499,30 @@ describe('the reschedule door — updateAppointment', () => {
     await updateAppointment('appt-1', { startTime: TUE_1300_JST })
 
     expect(policyGet).toHaveBeenCalledWith('store-daikanyama')
+  })
+
+  // ⚖ R1-2 / LENS-3 MEDIUM-5 — a row with no store of its own (BLOCK rows,
+  // some imports) used to ask nobody, so it could be moved onto any store's
+  // 定休日. It resolves its landing store the way create does.
+  it('resolves the landing store for a booking whose store_id is null', async () => {
+    apptGet.mockResolvedValue({
+      id: 'appt-1',
+      status: 'SCHEDULED',
+      customer_id: 'cust-1',
+      staff_id: 'staff-core-1',
+      store_id: null,
+      starts_at: '2026-05-12T04:00:00.000Z',
+      ends_at: '2026-05-12T05:00:00.000Z',
+      duration_minutes: 60,
+      created_at: '2026-05-01T00:00:00.000Z',
+    } as never)
+    policyGet.mockResolvedValue({ weekly_hours: CLOSED_ON_MONDAY })
+
+    const result = await updateAppointment('appt-1', { startTime: MON_1300_JST })
+
+    expect(policyGet).toHaveBeenCalledWith('store-ginza')
+    expect(result).toMatchObject({ code: 'closed_day', level: 'store', kind: 'weekday' })
+    expect(apptUpdate).not.toHaveBeenCalled()
   })
 
   it('still reschedules onto an open day', async () => {

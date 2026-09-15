@@ -52,19 +52,38 @@ export type BookingTimeRefusal = {
   kind?: 'weekday' | 'closed_date'
 }
 
+/**
+ * The PURE half of the rule: everything judgeable from the input alone — no
+ * store, no network, no throw.
+ *
+ * ⚖ R1-2 — the store-dependent half moved INSIDE the booking core, where the
+ * store the row will LAND in is resolved. But both doors must still refuse
+ * junk input BEFORE resolveSynqedStaffId, which CREATES a staff record on
+ * miss — the invariant those call sites have always protected. So this is the
+ * gate they run first, and validateAppointmentTime runs it again as its own
+ * first step: one set of rules, written once, so the two can never drift.
+ */
+export function validateAppointmentInput(input: AppointmentInput): BookingTimeRefusal | null {
+  if (!Number.isInteger(input.durationMinutes) || input.durationMinutes <= 0) {
+    return { error: 'Duration must be a positive number of minutes.' }
+  }
+
+  if (Number.isNaN(new Date(input.startTime).getTime())) {
+    return { error: 'Invalid appointment start time.' }
+  }
+
+  return null
+}
+
 export async function validateAppointmentTime(
   input: AppointmentInput,
   operatingHours: unknown,
   dayHours: BookingDayHours,
 ): Promise<BookingTimeRefusal | null> {
-  if (!Number.isInteger(input.durationMinutes) || input.durationMinutes <= 0) {
-    return { error: 'Duration must be a positive number of minutes.' }
-  }
+  const inputError = validateAppointmentInput(input)
+  if (inputError) return inputError
 
   const startDate = new Date(input.startTime)
-  if (Number.isNaN(startDate.getTime())) {
-    return { error: 'Invalid appointment start time.' }
-  }
 
   // ⚖ PKT-1c-C — the closed-day door, ONE home. Nothing refused a booking on a
   // closed day before this check existed, which is exactly why a 休 day could
