@@ -108,7 +108,9 @@ describe('the thin 予約 door — the numbers reach the shared view', () => {
   })
 
   it('an OLD server that sends neither key degrades to false / null, never undefined', async () => {
-    const { dayTotals: _d, soloMode: _s, ...legacy } = DTO
+    const legacy: Record<string, unknown> = { ...DTO }
+    delete legacy.dayTotals
+    delete legacy.soloMode
     await mountScreen(legacy)
     expect(capturedProps!.soloMode).toBe(false)
     expect(capturedProps!.dayTotals).toBeNull()

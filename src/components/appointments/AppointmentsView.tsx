@@ -8,10 +8,8 @@ import {
   DayWeekMonthToggle,
   MonthGrid,
   ReservationPageHeader,
-  WeekDayCard,
   type DayWeekMonthView,
   type MonthGridCell,
-  type WeekDayCardData,
 } from '@synqed-kk/ui'
 import { useTranslations, useLocale } from 'next-intl'
 import { Bell, CalendarPlus } from 'lucide-react'
@@ -21,6 +19,7 @@ import {
   formatCompactDateJst,
   formatLongDateJst,
   jstStartOfToday,
+  jstWallTimeToDate,
   ymdInJst,
 } from '@/lib/date/jst'
 import { ReservationGrid } from '@/components/reservation/ReservationGrid'
@@ -31,6 +30,7 @@ import {
 } from '@/components/karute/spike-lifted/reservation/ReservationStaffFilter'
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
 import { DayNumbersLine } from '@/components/appointments/DayNumbersLine'
+import { WeekRows } from '@/components/appointments/WeekRows'
 import { DateJumpPanel } from '@/components/appointments/DateJumpPanel'
 import { NewBookingDialog } from '@/components/appointments/NewBookingDialog'
 import { BookingActionSheetWrapper } from '@/components/appointments/BookingActionSheetWrapper'
@@ -64,7 +64,7 @@ interface AppointmentsViewProps {
   initialAppointments?: AppointmentRow[]
   initialView: DayWeekMonthView
   selectedDateIso: string
-  weekData: WeekDayCardData[] | null
+  weekData: WeekDayRowData[] | null
   weekStartIso: string | null
   monthData: MonthGridCell[] | null
   monthStartIso: string | null
@@ -495,10 +495,26 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             )}
           </>
         ) : view === 'week' && props.weekData && props.weekStartIso ? (
-          <WeekGridSection
-            data={props.weekData}
+          /* The app-local seven-row week (spec §3 / mock §v5-§v6), replacing
+           *  @synqed-kk/ui's WeekDayCard grid: the package card cannot show a
+           *  single number 1a put on the wire. The rolling 7 days from the
+           *  selected day are KEPT (spec F6) — `computeWeekRange` still owns
+           *  the range; never the mock's Monday snap. */
+          <WeekRows
+            rows={props.weekData}
             weekStartIso={props.weekStartIso}
-            onPickDay={(date) => navigateTo('day', date)}
+            selectedDateIso={ymdInJst(selectedDate)}
+            todayIso={ymdInJst(today)}
+            soloMode={props.soloMode}
+            // PKT-2 owns the strict 新規/再来 producer; today's
+            // newCustomerCount is the QR import flag and must not print
+            // (spec §8). 'off' = the fill order supplies the fourth cell.
+            typeSlot="off"
+            locale={props.locale}
+            // jstWallTimeToDate, not `new Date(iso)`: a bare parse of
+            // "2026-09-17" is UTC midnight, which is the 16th in JST — the
+            // tap would open the wrong day for the whole JST morning.
+            onPickDay={(iso) => navigateTo('day', jstWallTimeToDate(iso, '00:00'))}
           />
         ) : view === 'month' && props.monthData ? (
           <div className="md:h-[calc(100vh-260px)]">
@@ -552,57 +568,6 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         open={notificationsOpen}
         onClose={() => setNotificationsOpen(false)}
       />
-    </div>
-  )
-}
-
-function WeekGridSection({
-  data,
-  weekStartIso,
-  onPickDay,
-}: {
-  data: WeekDayCardData[]
-  weekStartIso: string
-  onPickDay: (date: Date) => void
-}) {
-  const locale = useLocale()
-  const t = useTranslations('reservation.weekCard')
-  const weekStart = new Date(weekStartIso)
-  const copy = {
-    todayBadge: t('today'),
-    bookingsCountSuffix: t('bookings'),
-    utilizedLabel: t('utilized'),
-    openLabel: t('open'),
-    newLabel: t('new'),
-    reminderLabel: t('reminder'),
-    consentLabel: t('consent'),
-    pendingLabel: t('pending'),
-    emptyLabel: t('empty'),
-    moreLabel: t('more'),
-  }
-  const formatOpenDuration = (minutes: number) => {
-    const h = Math.floor(minutes / 60)
-    const m = minutes % 60
-    if (locale.startsWith('ja')) {
-      return h > 0 ? (m > 0 ? `${h}時間${m}分` : `${h}時間`) : `${m}分`
-    }
-    return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`
-  }
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
-      {data.map((day, i) => {
-        const date = new Date(weekStart)
-        date.setDate(date.getDate() + i)
-        return (
-          <WeekDayCard
-            key={i}
-            data={day}
-            copy={copy}
-            formatOpenDuration={formatOpenDuration}
-            onPick={() => onPickDay(date)}
-          />
-        )
-      })}
     </div>
   )
 }

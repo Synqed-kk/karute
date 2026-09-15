@@ -196,3 +196,63 @@ describe('WeekRows — no hardcoded display strings', () => {
     expect(withoutComments.match(/[ぁ-んァ-ン一-龥]/g)).toBeNull()
   })
 })
+
+describe('WeekRows — the mock’s §v5/§v6 geometry, ported rule for rule', () => {
+  it('a metric cell is label-LEFT-of-value on a shared baseline (mock .wkcell{display:flex;align-items:baseline;gap:5px}), never stacked', () => {
+    const WeekRows = loadWeekRows()
+    const { container } = render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    const cell = container.querySelector('[data-week-cell]')!
+    expect(cell.className).toContain('items-baseline')
+    expect(cell.className).toContain('gap-[5px]')
+    expect(cell.className).not.toContain('flex-col')
+  })
+
+  it('the grid is the mock’s fixed 120/100 two-column block that never flexes (mock .wkgrid{flex:0 0 auto})', () => {
+    const WeekRows = loadWeekRows()
+    const { container } = render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    const grid = container.querySelector('[data-week-grid]')!
+    expect(grid.className).toContain('grid-cols-[120px_100px]')
+    expect(grid.className).toContain('shrink-0')
+    expect(grid.className).not.toContain('flex-1')
+  })
+
+  it('the chevron is pushed right by the row itself (mock .wkchev{margin-left:auto})', () => {
+    const WeekRows = loadWeekRows()
+    const { container } = render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    // an <svg>'s .className is an SVGAnimatedString, not a string
+    expect(container.querySelector('[data-week-chevron]')!.getAttribute('class')).toContain('ml-auto')
+  })
+
+  it('the row carries the mock’s box and its background transition', () => {
+    const WeekRows = loadWeekRows()
+    render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    const cls = screen.getAllByRole('button')[0].className
+    for (const rule of [
+      'min-h-[76px]', // .wkrow{min-height:76px}
+      'gap-2.5', // .wkrow{gap:10px}
+      'py-3', // .wkrow{padding:12px …}
+      'pl-3', // … 12px left
+      'pr-2.5', // … 10px right
+      'transition-[background-color', // .wkrow{transition:background-color …}
+    ]) {
+      expect(cls).toContain(rule)
+    }
+  })
+
+  it('the 新規 spark PRECEDES its value in the cell (mock: cellHTML(lb, SPARK + val))', () => {
+    const WeekRows = loadWeekRows()
+    const { container } = render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    // typeSlot 'new' → the fourth cell is 新規, the only sparked one.
+    const sparked = container.querySelector('svg.lucide-sparkles')!.closest('[data-week-value]')!
+    expect(sparked.firstElementChild!.tagName.toLowerCase()).toBe('svg')
+    expect(sparked.textContent).toBe('1')
+  })
+
+  it('every metric value is tabular (mock .wkcell .vl{font-variant-numeric:tabular-nums})', () => {
+    const WeekRows = loadWeekRows()
+    const { container } = render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    const values = Array.from(container.querySelectorAll('[data-week-value]'))
+    expect(values.length).toBeGreaterThan(0)
+    for (const v of values) expect(v.className).toContain('tabular-nums')
+  })
+})

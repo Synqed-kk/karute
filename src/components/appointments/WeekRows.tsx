@@ -1,8 +1,11 @@
 'use client'
 
-// The week page's seven-row component (spec §3, packet W4) — an app-local
-// replacement for @synqed-kk/ui's WeekDayCard. ISOLATED: nothing imports this
-// yet (the wiring PR swaps it in after PR #921 merges).
+// The week page's seven-row component (spec §3, packet W4 + PKT-1b-WIRE W-A)
+// — the app-local replacement for @synqed-kk/ui's WeekDayCard, ported rule
+// for rule from DATE-JUMP-PICKER-MOCK.html's `.wksum` / `.wkrow` / `.wkdate` /
+// `.wkgrid` / `.wkcell` / `.wkchev` block (mock lines 144-179).
+// The `data-week-*` markers exist so the port itself is testable: every one of
+// those CSS rules is pinned by a named test, not left to a screenshot.
 import { useTranslations } from 'next-intl'
 import { ChevronRight, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -79,23 +82,35 @@ function ValuePill({ pending }: { pending?: boolean }) {
   )
 }
 
+// mock `.wkcell{display:flex;align-items:baseline;gap:5px;min-width:0}` —
+// label LEFT of the value on a shared baseline, never stacked. The fixed
+// column widths on `.wkgrid` are what stop a long value (33時間27分) moving
+// its neighbour, so the cell itself needs no width of its own.
 function GridCell({ cell, pending }: { cell: Cell; pending?: boolean }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-[11px] font-bold leading-tight text-[var(--color-text-muted)]">
+    <div data-week-cell className="flex min-w-0 items-baseline gap-[5px]">
+      {/* mock `.wkcell .lb{flex:0 0 auto;font-size:11px;font-weight:700;
+       *  color:var(--mute);line-height:1.2}` */}
+      <span className="shrink-0 text-[11px] font-bold leading-[1.2] text-[var(--color-text-muted)]">
         {cell.label}
       </span>
       {pending ? (
         <ValuePill pending />
       ) : (
         <span
+          data-week-value
           className={cn(
-            'inline-flex items-center gap-[3px] whitespace-nowrap text-[14.5px] font-semibold leading-tight',
+            // mock `.wkcell .vl{font-size:14.5px;font-weight:600;
+            //  line-height:1.2;white-space:nowrap;tabular-nums}` +
+            // `.vl.nw{display:inline-flex;align-items:center;gap:3px}`
+            'inline-flex items-center gap-[3px] whitespace-nowrap text-[14.5px] font-semibold leading-[1.2] tabular-nums',
             VALUE_TONE_CLASS[cell.tone],
           )}
         >
+          {/* mock: `cellHTML(c.lb, c.spark ? SPARK + c.val : c.val)` — the
+           *  spark PRECEDES the value, and the SVG is 15×15. */}
+          {cell.tone === 'new' && <Sparkles aria-hidden className="size-[15px] shrink-0" />}
           {cell.value}
-          {cell.tone === 'new' && <Sparkles aria-hidden className="size-3 shrink-0" />}
         </span>
       )}
     </div>
@@ -168,9 +183,20 @@ export function WeekRows({
               onClick={() => onPickDay(row.dateIso)}
               aria-label={t('rowAria', { date: dateLabel, n: row.count })}
               className={cn(
-                'flex min-h-[76px] w-full items-center gap-2.5 border-b border-[var(--color-border)] px-3 text-left last:border-b-0',
-                'hover:bg-[var(--color-bg-card-hover)] transition-colors',
+                // mock `.wkrow{display:flex;align-items:center;gap:10px;
+                //  width:100%;text-align:left;min-height:76px;
+                //  padding:12px 10px 12px 12px;border-bottom:1px solid
+                //  var(--hair);transition:background-color .12s ease}`
+                'flex min-h-[76px] w-full items-center gap-2.5 border-b border-[var(--color-border)] py-3 pl-3 pr-2.5 text-left last:border-b-0',
+                'transition-[background-color] duration-[120ms] ease-[ease]',
+                // Desktop affordance the phone mock has no use for — the week
+                // page is a web door too, and a dead row there reads broken.
+                'hover:bg-[var(--color-bg-card-hover)]',
+                // mock `.wkrow.today{background:var(--wash)}` = rgba(37,99,235,.08)
                 isToday && 'bg-primary/8',
+                // mock `.wkrow.sel::after{border:1.5px solid var(--blue);
+                //  border-radius:10px}` — today and selected are exclusive
+                //  in the mock's own class builder.
                 isSelected && !isToday && 'rounded-[10px] ring-[1.5px] ring-inset ring-primary',
               )}
             >
@@ -206,17 +232,32 @@ export function WeekRows({
                 </span>
               </div>
 
-              {closed ? (
-                <div className="flex-1 text-[15px] text-[var(--color-text-muted)]">{t('closed')}</div>
-              ) : (
-                <div className="grid flex-1 grid-cols-[120px_100px] gap-x-2 gap-y-[7px]">
-                  {cells.map((cell) => (
-                    <GridCell key={cell.key} cell={cell} pending={pending} />
-                  ))}
-                </div>
-              )}
+              {/* mock `.wkgrid{flex:0 0 auto;display:grid;
+               *  grid-template-columns:120px 100px;row-gap:7px;column-gap:8px}`
+               *  — FIXED columns are the whole point (a long value can never
+               *  move its neighbour), so the block must not flex. */}
+              <div
+                data-week-grid
+                className="grid shrink-0 grid-cols-[120px_100px] gap-x-2 gap-y-[7px]"
+              >
+                {closed ? (
+                  // mock `.wkgrid .closedcell{grid-column:1/-1}` +
+                  // `.closedcell .vl{font-size:15px}` `.vl.mut`
+                  <div className="col-span-full">
+                    <span className={cn('text-[15px]', VALUE_TONE_CLASS.muted)}>{t('closed')}</span>
+                  </div>
+                ) : (
+                  cells.map((cell) => <GridCell key={cell.key} cell={cell} pending={pending} />)
+                )}
+              </div>
 
-              <ChevronRight aria-hidden className="size-3.5 shrink-0 text-[var(--color-text-muted)]" />
+              {/* mock `.wkchev{margin-left:auto;flex:0 0 12px;color:#c3c8cf}`
+               *  with a 14×14 glyph — the row, not the grid, pushes it right. */}
+              <ChevronRight
+                data-week-chevron
+                aria-hidden
+                className="ml-auto size-3.5 shrink-0 text-[var(--color-text-muted)]"
+              />
             </button>
           )
         })}
