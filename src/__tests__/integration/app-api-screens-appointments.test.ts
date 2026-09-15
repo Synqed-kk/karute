@@ -486,6 +486,77 @@ describe('GET /api/app/v1/screens/appointments', () => {
     ).toBe('Mika Tanaka')
   })
 
+  // ⚖ R1-4 — the two doors resolve the divisor's store the SAME way.
+  //
+  // Web's resolveStoreScope answers a viewAll (or floating) viewer
+  // `activeStore ?? getPrimaryStoreId()`; this door used to answer them the raw
+  // `store-id` header, which is null whenever a client omits it. The roster
+  // lens then had no store to ask, every day came back 'roster-unknown', and
+  // the same owner saw 稼働% on the computer and nothing on the phone.
+  describe('⚖ R1-4 — the divisor’s store, resolved like the web door', () => {
+    it('viewAll with NO store-id header lands on the PRIMARY store — roster AND spans', async () => {
+      mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+      const res = await GET(req(), route)
+      expect(res.status).toBe(200)
+      // MUTANT m4: drop the resolvePrimaryStoreId fallback and this reads null
+      // — the whole week withdraws to the count table.
+      expect(storeStaffIdSetForBusiness).toHaveBeenCalledWith(
+        expect.anything(),
+        'store-A',
+        'business-1',
+      )
+      // …and the rows are that same store's, so one store's roster can never
+      // divide every store's minutes.
+      const storeIds = (listAppointments.mock.calls as unknown as { store_id?: string }[][]).map(
+        (c) => c[0]?.store_id,
+      )
+      expect(storeIds.length).toBeGreaterThan(0)
+      expect(new Set(storeIds)).toEqual(new Set(['store-A']))
+    })
+
+    it('a store-id header still wins — the fallback is only for a viewer who named none', async () => {
+      mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+      const res = await GET(req({ 'store-id': 'store-B' }), route)
+      expect(res.status).toBe(200)
+      expect(storeStaffIdSetForBusiness).toHaveBeenCalledWith(
+        expect.anything(),
+        'store-B',
+        'business-1',
+      )
+      const storeIds = (listAppointments.mock.calls as unknown as { store_id?: string }[][]).map(
+        (c) => c[0]?.store_id,
+      )
+      expect(new Set(storeIds)).toEqual(new Set(['store-B']))
+    })
+
+    it('a CLAMPED caller with no store to name is never widened to the primary', async () => {
+      // The A-3 seam, extended to the divisor: `clamped ⇒ storeId non-null` is
+      // an invariant both resolvers hold, so this shape only exists when the
+      // clamp is corrupt — and the fallback must refuse it rather than hand a
+      // restricted viewer the primary store's roster and rows.
+      clampOverride.current = { storeId: null, allowedStoreIds: ['store-A'] }
+      const res = await GET(req(), route)
+      expect(res.status).toBe(200)
+      expect(storeStaffIdSetForBusiness).toHaveBeenCalledWith(
+        expect.anything(),
+        null,
+        'business-1',
+      )
+    })
+
+    it('a business with NO stores keeps the count table instead of 403-ing the screen', async () => {
+      mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+      fakeClient.stores.list.mockResolvedValueOnce({ stores: [] })
+      const res = await GET(req(), route)
+      expect(res.status).toBe(200)
+      expect(storeStaffIdSetForBusiness).toHaveBeenCalledWith(
+        expect.anything(),
+        null,
+        'business-1',
+      )
+    })
+  })
+
   // ⚖ Liam 2026-08-17, customer half of the picker isolation. Unlike the menu
   // union above (a business-wide cache clamped at the DTO) the customer list is
   // SERVER-filtered — the clamp IS the argument, which is what makes the

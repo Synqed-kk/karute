@@ -17,7 +17,7 @@
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { AppointmentsScreenDTO } from '@/lib/app-api/appointments-screen-dto'
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { resolvePrimaryStoreId, resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
@@ -83,7 +83,35 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     capabilities: ctx.identity.capabilities,
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
-  const storeId = clamp.storeId ?? undefined
+  // ⚖ R1-4 — the SPANS and the ROSTER resolve ONE store, the same way both
+  // doors do.
+  //
+  // Web answers a viewAll viewer (and a floating one) with `activeStore ??
+  // getPrimaryStoreId()`, so its divisor always has a store to divide by. This
+  // door answered those same two viewers with the raw header, which is null
+  // whenever a client omits it — a first-boot thin shell before seedStoreLens,
+  // say — and `storeStaffIdSetForBusiness(…, null, …)` then returns null, so
+  // every day came back 'roster-unknown'. The same owner read 稼働% on the
+  // computer and nothing on the phone. resolvePrimaryStoreId is this repo's own
+  // Bearer twin of web's fallback, already used by the export lens and the
+  // recording mint for exactly this reason.
+  //
+  // It answers ONE id for the window fetch AND the roster lens below, which is
+  // the property that keeps the pair honest: one store's roster must never
+  // divide every store's minutes. The fallback is reachable only for a caller
+  // with NO store restriction (`allowedStoreIds === null` — viewAll or
+  // floating); a clamped caller is answered a concrete `requested ??
+  // assigned[0]` and must never be widened to the primary store.
+  //
+  // A business with no stores at all (or a stores.list blip) keeps today's
+  // behaviour rather than 403-ing a read screen: that caller already sees every
+  // store, and the roster lens still returns null, so the days get no capacity
+  // — the count table, never an invented number.
+  const storeId =
+    clamp.storeId ??
+    (clamp.allowedStoreIds === null
+      ? await resolvePrimaryStoreId(synqed).catch(() => undefined)
+      : undefined)
   const customerLens = customerLensFor(clamp)
 
   try {
@@ -209,7 +237,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             to: span.toExclusiveYmd, // exclusive, per the SDK's own contract
           })
         : Promise.resolve({ closed_days: [] as { date: string }[] }),
-      storeStaffIdSetForBusiness(staffList, clamp.storeId, businessId),
+      storeStaffIdSetForBusiness(staffList, storeId ?? null, businessId),
       // The store's own row, for its vertical (S5). Degraded-allowed and
       // CAUGHT, unlike its neighbours in this wave: a store row we cannot read
       // says nothing about whether this shop runs classes, and the org-wide
