@@ -172,9 +172,16 @@ describe('未設定 — only when the sole failing conjunct is the hours one', (
     const r = row({ capacityDefensible: false, hoursSaved: true, closed: false })
     const cells = weekRowCells(r, { soloMode: true, typeSlot: 'off', t })
     expect(cells.map((c) => c.key)).not.toContain('unset')
-    // 稼働's slot falls back to 稼働時間 — which R1-1 then seats in the WIDE
-    // column (cell 3). This case is about the metric CHOSEN, not its seat.
-    expect(cells[2].key).toBe('bookedTime')
+    // R2-3 — pinned by KEY, and by the invariant that owns the seat, never by
+    // a bare index. This case is about the metric CHOSEN: 稼働's slot falls
+    // back to 稼働時間 (no 稼働% is on this line, so R2-1 does not skip it),
+    // and the placement seats a duration in a WIDE slot — cell 1 or cell 3.
+    // R1 moved this assertion once already (`cells[1]` → `cells[2]`) because
+    // it named a seat; naming the rule instead is what stops the next round
+    // moving it again.
+    expect(cells.map((c) => c.key)).toContain('bookedTime')
+    // indices 0 and 2 ARE the wide column (the grid fills row-major)
+    expect([0, 2]).toContain(cells.findIndex((c) => c.key === 'bookedTime'))
   })
 })
 
