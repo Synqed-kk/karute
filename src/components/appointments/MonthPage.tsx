@@ -268,7 +268,18 @@ export function MonthPage({
                   // mock `.cell{transition:background-color .12s ease}` — the
                   // page grid's cells carry NO press scale in the mock (only
                   // the rows and the door do), so neither do these.
-                  'transition-colors duration-[120ms] hover:bg-[var(--color-bg-card-hover)] active:bg-[var(--color-bg-card-hover)]',
+                  //
+                  // The curve is NAMED, and it is the mock's own plain `ease`
+                  // (DateJumpPanel's level crossfade ported the same one the
+                  // same way, R4). Unnamed, it would inherit Tailwind's default
+                  // `cubic-bezier(.4,0,.2,1)` — an ease-in-out, which is
+                  // exactly the defect R3-16 caught on the chip's chevron.
+                  // `transition-[background-color]`, not `transition-colors`:
+                  // the background is the only colour these states change, and
+                  // the shorthand would quietly carry the day number's colour
+                  // with it the day a state touches that too.
+                  'transition-[background-color] duration-[120ms] ease-[ease]',
+                  'hover:bg-[var(--color-bg-card-hover)] active:bg-[var(--color-bg-card-hover)]',
                   'motion-reduce:transition-none',
                   'outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50',
                   '[&:nth-child(7n)]:border-r-0',

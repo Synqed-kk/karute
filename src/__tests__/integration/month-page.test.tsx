@@ -230,6 +230,25 @@ describe('MonthPage — 休', () => {
   })
 })
 
+describe('MonthPage — the cell s one piece of motion', () => {
+  it('names its curve and its property, and stands down under reduced motion', () => {
+    // review-animations, standard 3: an unnamed curve inherits Tailwind's
+    // default cubic-bezier(.4,0,.2,1) — an ease-in-out, the exact defect R3-16
+    // caught on the chip's chevron. The mock's own `.cell` rule is plain
+    // `ease`, and it transitions background-color ONLY.
+    const { MonthPage } = loadMonthPage()
+    render(<MonthPage {...baseProps} cells={monthCells(2026, 9)} />)
+    const cls = screen.getAllByRole('button')[0].className
+    expect(cls).toContain('ease-[ease]')
+    expect(cls).toContain('transition-[background-color]')
+    expect(cls).toContain('duration-[120ms]')
+    expect(cls).toContain('motion-reduce:transition-none')
+    // No press scale on a page-grid cell — the mock gives that to the week
+    // rows and the door, never to these.
+    expect(cls).not.toMatch(/scale-\[/)
+  })
+})
+
 describe('MonthPage — the legend', () => {
   it('names the three bands and says what the number is, joined by the half-width 「·」', () => {
     const { MonthPage } = loadMonthPage()
