@@ -6,6 +6,7 @@
 // `.wkgrid` / `.wkcell` / `.wkchev` block (mock lines 144-179).
 // The `data-week-*` markers exist so the port itself is testable: every one of
 // those CSS rules is pinned by a named test, not left to a screenshot.
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslations } from 'next-intl'
 import { ChevronRight, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -28,6 +29,15 @@ interface WeekRowsProps {
   pending?: boolean
   failed?: boolean
   onPickDay: (dateIso: string) => void
+}
+
+// R3-15's press doors. `currentTarget` is the row the listener is on, so a
+// pointer that leaves mid-press clears that row and no other.
+function pressOn(e: ReactPointerEvent<HTMLButtonElement>) {
+  e.currentTarget.setAttribute('data-pressed', '')
+}
+function pressOff(e: ReactPointerEvent<HTMLButtonElement>) {
+  e.currentTarget.removeAttribute('data-pressed')
 }
 
 function weekdayIndex(dateIso: string): number {
@@ -281,6 +291,24 @@ export function WeekRows({
               type="button"
               data-week-row
               onClick={() => onPickDay(row.dateIso)}
+              // ⚖ R3-15 — the press starts on POINTERDOWN, as the mock does
+              // (its JS adds `.is-pressed` on pointerdown and clears it on
+              // pointerup/pointercancel). Chromium and WKWebView hold the CSS
+              // `:active` state back on touch while they decide whether the
+              // gesture is a scroll: measured under a synthetic touch stream,
+              // the row's scale stayed at rest until t=200 ms. `:active` is
+              // kept beside it for the keyboard and the mouse — both doors
+              // set the SAME 0.97, so they cannot fight.
+              //
+              // ponytail: the attribute is toggled on the node itself rather
+              // than through state. A setState here would put a React render
+              // between the finger and the frame the feedback has to land in,
+              // which is the whole point of the change; seven rows also means
+              // seven re-renders per press for a class flip that touches one.
+              onPointerDown={pressOn}
+              onPointerUp={pressOff}
+              onPointerCancel={pressOff}
+              onPointerLeave={pressOff}
               aria-label={t('rowAria', { date: dateLabel, cells: spoken })}
               className={cn(
                 // mock `.wkrow{display:flex;align-items:center;gap:10px;
@@ -296,15 +324,25 @@ export function WeekRows({
                 // `transition: transform .1s cubic-bezier(.23,1,.32,1)`, and
                 // its background does not transition at all. The press curve
                 // therefore wins here too; the background rides along on it so
-                // the desktop hover keeps a fade instead of snapping. That is
-                // this app's PRESS recipe verbatim (DateJumpPanel.tsx) — one
-                // press feel on this page, pinned equal by a test rather than
-                // shared through an import (that file is untouched by this PR).
-                'transition-[background-color,transform] duration-100 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]',
+                // the desktop hover keeps a fade instead of snapping.
+                //
+                // ⚖ R3-14 — the curve is spent on the property that MOVES.
+                // Tailwind v4 emits `scale-*` as the standalone `scale`
+                // property, not as `transform`, so the old
+                // `transition-[background-color,transform]` list covered the
+                // background and nothing else and the press SNAPPED: 52 frame
+                // samples on a real press held zero intermediate scale values
+                // (LENS-3 H-1). DateJumpPanel.tsx gets this right because
+                // `transition-transform` expands in v4 to
+                // `transform, translate, scale, rotate`; naming `scale`
+                // outright is the same fix with nothing dead in the list.
+                'transition-[background-color,scale] duration-100 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] data-pressed:scale-[0.97]',
                 // Reduced motion is a CSS variant, not a hook: seven plain DOM
                 // rows need no JS to stop moving, and a variant also holds
-                // through SSR's first paint.
-                'motion-reduce:transition-none motion-reduce:active:scale-100',
+                // through SSR's first paint. Both press doors are muted — the
+                // variant rules land after their unmuted twins in the sheet,
+                // at equal specificity, which is what makes them win.
+                'motion-reduce:transition-none motion-reduce:active:scale-100 motion-reduce:data-pressed:scale-100',
                 // Desktop affordance the phone mock has no use for — the week
                 // page is a web door too, and a dead row there reads broken.
                 'hover:bg-[var(--color-bg-card-hover)]',

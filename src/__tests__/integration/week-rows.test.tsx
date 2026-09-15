@@ -368,7 +368,7 @@ describe('WeekRows — the mock’s §v5/§v6 geometry, ported rule for rule', (
       'py-3', // .wkrow{padding:12px …}
       'pl-3', // … 12px left
       'pr-2.5', // … 10px right
-      'transition-[background-color,transform]', // .wkrow + [data-press] (see W-I)
+      'transition-[background-color,scale]', // .wkrow + [data-press] (see W-I, R3-14)
     ]) {
       expect(cls).toContain(rule)
     }
@@ -478,11 +478,52 @@ describe('WeekRows — the press is the app’s own recipe (W-I)', () => {
     expect(cls).toContain('duration-100')
     expect(cls).toContain('ease-[cubic-bezier(0.23,1,0.32,1)]')
     expect(cls).toContain('active:scale-[0.97]')
-    expect(cls).toContain('transform') // the transition names transform
+    // R3-14 — Tailwind v4 emits `scale-*` as the standalone `scale` property,
+    // so the transition list has to NAME scale. It named `transform`, which
+    // covers nothing here, and the press snapped with zero intermediate
+    // values in 52 frame samples.
+    expect(cls).toMatch(/transition-\[[^\]]*\bscale\b[^\]]*\]/)
     // Reduced motion is a CSS variant here, not a hook: seven plain rows need
     // no JS to stop moving, and a variant also holds during SSR's first paint.
     expect(cls).toContain('motion-reduce:transition-none')
     expect(cls).toContain('motion-reduce:active:scale-100')
+    expect(cls).toContain('motion-reduce:data-pressed:scale-100')
+  })
+
+  it('the press starts on pointerdown and clears on up / cancel / leave (R3-15)', () => {
+    const WeekRows = loadWeekRows()
+    render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    const button = screen.getAllByRole('button')[0]
+    expect(button.className).toContain('data-pressed:scale-[0.97]')
+
+    for (const clear of [fireEvent.pointerUp, fireEvent.pointerCancel, fireEvent.pointerLeave]) {
+      fireEvent.pointerDown(button)
+      expect(button.hasAttribute('data-pressed')).toBe(true)
+      clear(button)
+      expect(button.hasAttribute('data-pressed')).toBe(false)
+    }
+  })
+
+  it('a pointer press on one row never marks another (R3-15)', () => {
+    const WeekRows = loadWeekRows()
+    render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    const [first, second] = screen.getAllByRole('button')
+    fireEvent.pointerDown(second)
+    expect(second.hasAttribute('data-pressed')).toBe(true)
+    expect(first.hasAttribute('data-pressed')).toBe(false)
+    fireEvent.pointerUp(second)
+  })
+
+  it('a tap still navigates exactly once (R3-15)', () => {
+    const WeekRows = loadWeekRows()
+    const onPickDay = jest.fn()
+    render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={onPickDay} />)
+    const button = screen.getAllByRole('button')[2]
+    fireEvent.pointerDown(button)
+    fireEvent.pointerUp(button)
+    fireEvent.click(button)
+    expect(onPickDay).toHaveBeenCalledTimes(1)
+    expect(onPickDay).toHaveBeenCalledWith('2026-09-16')
   })
 
   it('the row takes the shared Button recipe’s focus-visible ring, verbatim (R3-8)', () => {
