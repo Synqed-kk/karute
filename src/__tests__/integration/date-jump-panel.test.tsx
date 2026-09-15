@@ -251,6 +251,11 @@ describe('walking the calendar', () => {
     expect(title()).toHaveTextContent('2026年9月')
     const chevron = title().querySelector('svg')!
     expect(chevron.style.transform).toBe('none')
+    // …on the mock's curve. Without the utility it inherits Tailwind's default
+    // ease-in-out, which has almost no motion in its first third — the chevron
+    // loiters before it turns (measured: 2.5 % of the rotation 7 ms into the
+    // 160 ms, where the mock's curve is at ~17 %).
+    expect(chevron.getAttribute('class')).toContain('ease-[cubic-bezier(0.23,1,0.32,1)]')
 
     fireEvent.click(title())
     // Level 2: the year, and twelve month chips.

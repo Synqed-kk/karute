@@ -724,7 +724,10 @@ export function DateJumpPanel({
               {atMonths ? formatYearTitleJst(jstMidnight(state.year, 1, 1), locale) : monthTitle}
             </span>
             <ChevronDown
-              className="size-3.5 shrink-0 text-muted-foreground transition-transform"
+              // The mock's own curve (MOCK 249, design §3). Without it the
+              // rotate inherits Tailwind's default ease-in-out and loiters
+              // before it turns.
+              className="size-3.5 shrink-0 text-muted-foreground transition-transform ease-[cubic-bezier(0.23,1,0.32,1)]"
               style={{
                 transform: atMonths ? 'rotate(180deg)' : 'none',
                 transitionDuration: reduced ? '0ms' : '160ms',
