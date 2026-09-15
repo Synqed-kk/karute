@@ -1655,10 +1655,11 @@ describe('the panel moves like the mock', () => {
  * R4-1 — the seam under the date bar, measured on the phone build: 40px where
  * the page's own contract says 24px. `space-y-4` compiles to a zero-specificity
  * `:where(.space-y-4 > :not(:last-child)) { margin-block-end: 1rem }`, and the
- * header's `mb-0` is what cancels it so the `pt-6` below owns the whole seam.
- * The date-jump anchor moved in between the two: IT is the direct child of
- * `.space-y-4` now, the header is a grandchild, and the 16px came back on top
- * of the 24px. The anchor has to carry the same contract.
+ * header's `mb-0` is what cancels it so the wrapper below owns the whole seam
+ * (24px then; the mock's 9px since R6-1). The date-jump anchor moved in between
+ * the two: IT is the direct child of `.space-y-4` now, the header is a
+ * grandchild, and the 16px came back on top. The anchor carries the same
+ * contract.
  */
 describe('the date-jump anchor keeps the header margin contract', () => {
   it('the anchor carries mb-0, so space-y-4 adds nothing above the 日/週/月 row', () => {
