@@ -28,7 +28,11 @@ import {
 } from '@/lib/appointments/first-visit'
 import { countedClientIds } from '@/lib/appointments/by-date'
 import { buildAppointmentsScreen } from '@/lib/appointments/screen'
-import { appointmentsToWeekData } from '@/lib/adapters/reservation'
+import {
+  appointmentsToMonthCells,
+  appointmentsToWeekData,
+  monthCellsToDTO,
+} from '@/lib/adapters/reservation'
 import { computeWeekRange } from '@/lib/date/calendar-range'
 import { ymdInJst } from '@/lib/date/jst'
 
@@ -738,5 +742,90 @@ describe('⚖ R1-2 — the number is WITHHELD, never maximal', () => {
     })
     expect(screen.newCountKnown).toBe(false)
     expect([...(screen.monthNewCounts?.values() ?? [])]).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ⚖ R1-3 — the month, on BOTH doors
+// ---------------------------------------------------------------------------
+
+describe('⚖ R1-3 — the web door and the facade ship the same month', () => {
+  const monthStart = new Date('2026-09-01T00:00:00+09:00')
+  const monthEnd = new Date('2026-09-30T23:59:59+09:00')
+  const inputsForWeek: NewCustomerInputs = {
+    customers: new Map(WEEK_CUSTOMERS.map((c) => [c.id, c])),
+    enrichment: WEEK_ENRICHMENT,
+    packUsage: WEEK_PACKS,
+  }
+
+  /** What `getMonthCells` now does: the window's rows through the SAME producer
+   *  and the SAME mapper the facade route uses. */
+  function webDoorMonth(known = true) {
+    return monthCellsToDTO(
+      appointmentsToMonthCells(WEEK_ROWS, monthStart, monthEnd, MON),
+      { newCounts: { byDay: known ? newCountByDay(WEEK_ROWS, inputsForWeek) : new Map(), known } },
+    )
+  }
+
+  /** What the facade route does: the screen's month map through that mapper. */
+  function facadeMonth() {
+    const screen = buildAppointmentsScreen({
+      locale: 'ja',
+      now: NOW,
+      selectedDate: MON,
+      staffFilter: 'all',
+      staffList: [{ id: 's1', full_name: '—' }] as never,
+      activeStaffId: null,
+      storeStaffIds: null,
+      orgSettings: null,
+      customers: WEEK_CUSTOMERS,
+      dayAppointments: [],
+      weekRange: null,
+      monthRange: { monthStart, monthEnd, rangeFrom: monthStart, rangeTo: monthEnd } as never,
+      weekRangeAppts: null,
+      monthRangeAppts: null,
+      monthWindow: { counted: WEEK_ROWS, cancelled: [], noShow: [], truncated: false },
+      enrichment: WEEK_ENRICHMENT,
+      packUsage: WEEK_PACKS,
+    })
+    return monthCellsToDTO(screen.monthData ?? [], {
+      newCounts: {
+        byDay: screen.monthNewCounts ?? new Map(),
+        known: screen.newCountKnown,
+      },
+      facts: screen.monthFacts,
+    })
+  }
+
+  it('cell for cell, the same 新規 — no door hardcodes a 0 any more', () => {
+    const web = webDoorMonth()
+    const facade = facadeMonth()
+    expect(web.map((c) => [c.id, c.newCount])).toEqual(facade.map((c) => [c.id, c.newCount]))
+    // …and it is the fixture's real week, not zeros agreeing with zeros.
+    const nonZero = web.filter((c) => c.newCount > 0).map((c) => `${c.id}:${c.newCount}`)
+    expect(nonZero).toEqual([`${D.mon}:1`, `${D.tue}:1`, `${D.thu}:1`])
+  })
+
+  it('the month cells equal that day’s week row — one number, three surfaces', () => {
+    const byId = new Map(facadeMonth().map((c) => [c.id, c.newCount]))
+    for (const day of [D.mon, D.tue, D.wed, D.thu] as const) {
+      const row = screenFor(day).weekData?.find((r) => r.dateIso === day)
+      expect({ day, n: byId.get(day) }).toEqual({ day, n: row?.newCustomerCount })
+    }
+  })
+
+  it('a padding cell is never anybody’s first visit', () => {
+    // 2026-09-01 is a Tuesday, so the grid pads back to Mon 8/31.
+    const padding = webDoorMonth().filter((c) => !c.inMonth)
+    expect(padding.length).toBeGreaterThan(0)
+    expect(padding.every((c) => c.newCount === 0)).toBe(true)
+  })
+
+  it('a door that read no history ships 0 WITH the flag down', () => {
+    const withheld = webDoorMonth(false)
+    expect(withheld.every((c) => c.newCount === 0 && c.newCountKnown === false)).toBe(true)
+    // …and the default (no `newCounts` at all) is the same withheld posture.
+    const bare = monthCellsToDTO(appointmentsToMonthCells(WEEK_ROWS, monthStart, monthEnd, MON))
+    expect(bare.every((c) => c.newCount === 0 && c.newCountKnown === false)).toBe(true)
   })
 })

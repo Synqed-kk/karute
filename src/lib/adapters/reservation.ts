@@ -4,6 +4,7 @@ import { partsInJst, ymdInJst } from '@/lib/date/jst'
 import { isCountedBooking } from '@/lib/appointments/by-date'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import type { DayHoursFact } from '@/lib/operating-hours'
+import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import {
   capacityForDay,
   type Band,
@@ -486,6 +487,43 @@ function densityFor(count: number): MonthDensityBucket {
   if (count <= 2) return 'light'
   if (count <= 5) return 'medium'
   return 'busy'
+}
+
+/** ⚖ R1-3 — ONE month-cell wire mapping, and both doors call it.
+ *
+ *  The facade GET and the web server action each built this object by hand,
+ *  and the web one hardcoded `newCount: 0` on the SAME wire type the phone was
+ *  filling honestly. Nothing renders the month's 新規 yet, so today that costs
+ *  nothing; the day it is rendered, one of the two doors prints a lie. A
+ *  divergence you can only fix by remembering both call sites is a divergence
+ *  waiting to come back, so there is one call site now.
+ *
+ *  `newCounts` absent = this door read no history at all, which is NOT the same
+ *  as "nobody was new" — the cells then carry 0 with `newCountKnown: false`. */
+export function monthCellsToDTO(
+  cells: readonly MonthGridCell[],
+  opts: {
+    newCounts?: { byDay: ReadonlyMap<string, number>; known: boolean }
+    facts?: ReadonlyMap<string, CapacityFact> | null
+  } = {},
+): MonthCellDTOType[] {
+  const known = opts.newCounts?.known ?? false
+  return cells.map((c) => ({
+    id: c.id,
+    dateIso: c.date.toISOString(),
+    inMonth: c.inMonth,
+    isToday: c.isToday,
+    count: c.count,
+    density: c.density,
+    // In-month cells only: a padding cell carries no day of its own to be
+    // anybody's first visit on.
+    newCount: (known && c.inMonth && opts.newCounts?.byDay.get(c.id)) || 0,
+    newCountKnown: known,
+    // The cell's own capacity fact, keyed by the same id the cell carries. A
+    // padding cell has none and takes the no-capacity defaults — it renders no
+    // numbers either way.
+    ...capacityRowFields(opts.facts?.get(c.id)),
+  }))
 }
 
 export function appointmentsToMonthCells(

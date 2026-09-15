@@ -57,7 +57,7 @@ import {
 } from '@/lib/operating-hours'
 import { ymdInJst } from '@/lib/date/jst'
 import { coreBusinessType } from '@/lib/welcome/business-types'
-import { capacityRowFields } from '@/lib/adapters/reservation'
+import { monthCellsToDTO } from '@/lib/adapters/reservation'
 
 export const runtime = 'nodejs'
 
@@ -360,25 +360,16 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         monthStartIso: screen.monthStartIso,
         truncated: screen.truncated,
         soloMode: screen.soloMode,
-        monthData:
-          screen.monthData?.map((c) => ({
-            id: c.id,
-            dateIso: c.date.toISOString(),
-            inMonth: c.inMonth,
-            isToday: c.isToday,
-            count: c.count,
-            density: c.density,
-            // In-month cells only: the padding cells carry no day of their own
-            // to be anybody's first visit on.
-            newCount: (c.inMonth && screen.monthNewCounts?.get(c.id)) || 0,
-            // ⚖ R1-2 — one flag for the month: the history read either
-            // happened for this screen or it did not.
-            newCountKnown: screen.newCountKnown,
-            // The cell's own capacity fact, keyed by the same id the cell
-            // carries. An out-of-month padding cell has none and takes the
-            // no-capacity defaults — it renders no numbers either way.
-            ...capacityRowFields(screen.monthFacts?.get(c.id)),
-          })) ?? null,
+        // ⚖ R1-3 — the shared mapper, the same one the web door's month calls.
+        monthData: screen.monthData
+          ? monthCellsToDTO(screen.monthData, {
+              newCounts: {
+                byDay: screen.monthNewCounts ?? new Map(),
+                known: screen.newCountKnown,
+              },
+              facts: screen.monthFacts,
+            })
+          : null,
       }),
     )
   } catch (err) {

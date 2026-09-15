@@ -43,8 +43,13 @@ jest.mock('@/lib/auth/require-permission', () => ({
 }))
 
 // The clamp under test is driven per-test through this spy.
+// ⚖ R1-3 — `customerLensFor` comes along because the month door now reads the
+// cached customer list for the 新規 rule's QR signals; it is the REAL
+// implementation (the scope-to-lens mapping is what the clamp means), driven
+// by the mocked scope above.
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(),
+  customerLensFor: jest.requireActual('@/lib/auth/store-scope').customerLensFor,
 }))
 
 jest.mock('@/actions/stores', () => ({
