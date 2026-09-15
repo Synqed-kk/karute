@@ -235,22 +235,12 @@ export function firstOpenSection(access: SettingsAccess): RailEntry | null {
 // guardrail, and the number it refuses to cross is stated in its own comment so
 // the screen can print the same sentence the code enforces.
 
-/** 再来促し. Under two weeks the nudge reaches customers who are simply not due
- *  yet; past a year it reaches people who have moved away. */
-export const WIN_BACK_MIN = 14
-export const WIN_BACK_MAX = 365
-export function clampWinBackDays(days: number): number {
-  return clampInt(days, WIN_BACK_MIN, WIN_BACK_MAX)
-}
-
-/** コーチングの保存期間, months. Under three months a trajectory has no baseline
- *  to be a trajectory against; past three years the record outlives the person
- *  it is about. */
-export const RETENTION_MIN_MONTHS = 3
-export const RETENTION_MAX_MONTHS = 36
-export function clampCoachingRetention(months: number): number {
-  return clampInt(months, RETENTION_MIN_MONTHS, RETENTION_MAX_MONTHS)
-}
+// ⚖ D-32 F3 (round 3, A2) — 再来促し (`contact.winback`) and コーチングの保存期間
+// (`coaching.retention`) used to clamp here (14…365 / 3…36) — the exact
+// hardcoded-cap-and-step shape ⚖ D-15 forbids for a duration, found by the
+// A2 sweep's own gap. Both are now free positive fields (`settings-props.ts`),
+// clamped by nothing but their own floor; the two clamps and their bounds are
+// deleted rather than left as dead code with no production reader.
 
 /** 判断に必要なセッション数. Room 8's own bar, carried by value with its cite:
  *  `coaching.ts FLOOR_MIN/FLOOR_MAX` on that branch. Below ten a coin flip
@@ -364,7 +354,14 @@ export type ControlKind =
   | { kind: 'switch'; onLabel: string; offLabel: string }
   | { kind: 'select'; options: ControlOption[] }
   | { kind: 'text'; placeholder?: string; maxLength?: number; required?: boolean }
-  | { kind: 'number'; min: number; max: number; step: number; unit: string }
+  // ⚖ D-15 (round 3, A2) — `max: null` = NO CEILING (a 「minutes before
+  // start」/「days ahead」/「hours before」 field has no honest bound from the
+  // store's own day). A number is a LENGTH's derived ceiling; never a constant.
+  // ⚖ D-31/D-32 F4 — `zeroLabel` is the short state a reader reads at 0
+  // (「制限なし」/「販売なし」/…), carried on the control so `labelOfValue` can
+  // answer every reader (a preview sentence, this field's own display) from
+  // ONE place rather than each one re-deciding what 0 means.
+  | { kind: 'number'; min: number; max: number | null; step: number; unit: string; zeroLabel?: string }
   | { kind: 'time' }
   /** ⚖ S17 · C2 — a calendar date, `YYYY-MM-DD`, which is the wire's own
    *  spelling for `StoreClosedDay.date`. The native control, so a phone gets its
@@ -410,6 +407,26 @@ export interface RowControl {
    *  permission the reader does not hold. The reason is VISIBLE, never a
    *  tooltip, and it is canon refusing rather than this room refusing. */
   locked?: string
+  /** ⚖ D-32 F1 — A LOCK THAT FOLLOWS A LIVE SIBLING, not one baked into this
+   *  render's payload. `locked` answers a question the SERVER already knows
+   *  (本部設定, a permission); some locks depend on another control THIS
+   *  READER can move in the same section (確保枠の自動解除's number field,
+   *  locked only while the mode select beside it is not 「分で指定」) — a
+   *  server-computed `locked` for that case never re-evaluates once the
+   *  reader moves the select, and the lock never lifts. `unless` is the one
+   *  value of `controlId` that unlocks; `reason` is keyed by `controlId`'s
+   *  CURRENT value, because two different sibling states can be two
+   *  different honest reasons (⚖ D-32 F2) rather than one sentence
+   *  stretched to cover both. Read together with `locked` by `effectiveLock`,
+   *  the ONE place a control's live lock is decided. */
+  lockedWhen?: { controlId: string; unless: string; reason: Record<string, string> }
+  /** ⚖ D-36 — A LENGTH's ceiling follows the WEEKLY HOURS the reader can move
+   *  on this very page, not a number baked in at render time. `days` names the
+   *  live sibling ids (a weekday's 営業する switch + its two `time` controls);
+   *  `effectiveCeiling` reads them against the CURRENT `values` the same way
+   *  `lockedWhen` reads a live sibling for a lock. Set only on the six LENGTH
+   *  rows whose honest bound is the store's own operating day. */
+  ceilingFrom?: { days: Array<{ on: string; open: string; close: string }> }
 }
 
 export interface Trio {
@@ -497,8 +514,14 @@ export interface SettingsBlock {
   /** THE DEAD-LEVER LAW, GENERALISED. `template` is resolved against the LIVE
    *  values, so a press really rewrites a sentence the reader is looking at —
    *  canon's own 「このページ内プレビュー」. `{control-id}` is substituted with
-   *  that control's current LABEL. */
-  preview: { template: string; attrs?: Record<string, string> } | null
+   *  that control's current LABEL.
+   *
+   *  ⚖ D-35 — `dropWhen` names ONE sentence that CONTRADICTS a zero state
+   *  (「売らない」 said, then a discount clause for the thing not sold in the
+   *  next breath): a sentence that contradicts a zero state is dropped, not
+   *  reworded — the aside already does the same at D-33 R2. See
+   *  `previewTemplate` below, the one place this is resolved. */
+  preview: { template: string; attrs?: Record<string, string>; dropWhen?: { controlId: string; is: string; sentence: string } } | null
   /** A block-level action button — canon's エクスポートする, 需要履歴をリセット,
    *  招待を送信する, 接続をリクエストする. Pressing it resolves `template` into
    *  the block's result line. `requires` names a chips control that must not be
@@ -668,10 +691,44 @@ export function labelOfValue(control: ControlKind, value: RowValue): string {
       return control.options.filter((o) => picked.includes(o.value)).map((o) => o.label).join('・')
     }
     case 'number':
-      return `${String(value)}${control.unit}`
+      // ⚖ D-31/D-32 F4 — 0 reads as the STATE it is (「制限なし」…), never as
+      // 「0分」 with the meaning quietly flipped underneath it.
+      // ⚖ D-34 item 8 — keyed on the COMMITTED zero (`'0'` as text), never
+      // `Number(value) === 0`: the field writes every keystroke into the
+      // live values map, and `Number('') === 0` would make a box the reader
+      // has just cleared read as the zero state before they retype anything.
+      return String(value) === '0' && control.zeroLabel ? control.zeroLabel : `${String(value)}${control.unit}`
     default:
       return String(value)
   }
+}
+
+/** ⚖ D-32 F1 — A CONTROL'S LIVE LOCK, decided in ONE place so the reason a
+ *  row PRINTS beside it (`Row`'s `st-why`) and the reason that actually
+ *  disables it (`Control`'s `inert`) can never disagree. `locked` wins when
+ *  the server already knows the answer; otherwise `lockedWhen` is read
+ *  against the CURRENT `values` — the live sibling, not the value this
+ *  control's own payload was built with. `undefined` = unlocked. */
+export function effectiveLock(c: RowControl, values: Record<string, RowValue>): string | undefined {
+  if (c.locked !== undefined) return c.locked
+  if (!c.lockedWhen) return undefined
+  const { controlId, unless, reason } = c.lockedWhen
+  const live = values[controlId]
+  if (live === unless) return undefined
+  return reason[String(live)]
+}
+
+/** ⚖ D-36 — A NUMBER CONTROL'S LIVE CEILING, decided in ONE place beside
+ *  `effectiveLock` so `NumberField`'s ceiling, its `max` attribute and its
+ *  clamp read the exact same answer. Not a `number` control → `null` (nothing
+ *  to cap). `ceilingFrom` set → the longest open day over the LIVE weekly
+ *  values, falling back to the control's own `max` only when no day counts
+ *  (every day off); no `ceilingFrom` → the control's own `max`, unchanged. */
+export function effectiveCeiling(c: RowControl, values: Record<string, RowValue>): number | null {
+  if (c.control.kind !== 'number') return null
+  if (!c.ceilingFrom) return c.control.max
+  const days = c.ceilingFrom.days.map((d) => ({ on: values[d.on], open: values[d.open], close: values[d.close] }))
+  return longestOpenDayMin(days) ?? c.control.max
 }
 
 /** `{control-id}` → that control's current label. An id the block does not hold
@@ -680,6 +737,19 @@ export function labelOfValue(control: ControlKind, value: RowValue): string {
  *  suite pins the untouched form. */
 export function fillTemplate(template: string, label: (id: string) => string | null): string {
   return template.replace(/\{([a-z0-9.-]+)\}/gi, (whole, id: string) => label(id) ?? whole)
+}
+
+/** ⚖ D-35 — a block's preview template, resolved for `dropWhen` BEFORE
+ *  `fillTemplate` runs: when the named control's live value equals `is`, the
+ *  one named `sentence` is removed (a plain, single replace of the exact
+ *  string); otherwise the template is returned unchanged. The template
+ *  still CONTAINS the sentence either way — dropping it is a fact about the
+ *  live values, never about the template's own text. */
+export function previewTemplate(preview: NonNullable<SettingsBlock['preview']>, values: Record<string, RowValue>): string {
+  if (preview.dropWhen && String(values[preview.dropWhen.controlId]) === preview.dropWhen.is) {
+    return preview.template.replace(preview.dropWhen.sentence, '')
+  }
+  return preview.template
 }
 
 /** ⚠ ARRAY VALUES COMPARE BY CONTENT, NOT BY REFERENCE. A chips control whose
@@ -969,6 +1039,13 @@ export function commitNumberField(raw: string, previous: number, min: number, ma
   }
   const value = clampInt(n, min, max)
   if (value === Math.round(n)) return { value, message: null }
+  // ⚖ D-15 (round 3, A2) — A FIELD WITH NO CEILING (`max === Infinity`, the
+  // caller's translation of `RowControl`'s `max: null`) can only ever be
+  // clamped UP to the floor — nothing exceeds Infinity — so the two-sided
+  // range sentence would print 「…からInfinity分のあいだで…」. The floor-only
+  // sentence says the true rule instead. FLAGGED for the blind native pass —
+  // modelled on the two-sided sentence just below (same page, same register).
+  if (max === Infinity) return { value, message: `${min}${unit}以上で設定できます。${value}${unit}にしました` }
   return { value, message: `${min}${unit}から${max}${unit}のあいだで設定できます。${value}${unit}にしました` }
 }
 
@@ -1045,14 +1122,11 @@ export function yen(amount: number): string {
   return `¥${amount.toLocaleString('ja-JP')}`
 }
 
-/** ⚠ THE SEGMENTED CONTROL'S OPTION LIST HAS TO CONTAIN THE STORE'S OWN VALUE.
- *  canon rules that silently rounding a stored value to the nearest preset makes
- *  「現在値をプリセット」 a lie (fable-settings-store-hours.html:4218-4231). So a
- *  value outside the preset list is ADDED to it, in order, and the reader sees
- *  the truth rather than a nearby number. */
-export function withCurrent(options: readonly number[], current: number): number[] {
-  return options.includes(current) ? [...options] : [...options, current].sort((a, b) => a - b)
-}
+// ⚖ D-32 F7 (round 3, A2) — `withCurrent` (the segmented-control preset
+// widener) lost its last production caller when A2 converted every fixed
+// option list it served into a free `num` field; its only readers at this
+// tip were its own two unit legs, so it is deleted with them rather than
+// kept as dead code nothing points at any more.
 
 /** A minutes-from-midnight number as canon prints a time field's value. The
  *  world's planes hold minutes; a `time` control needs `HH:MM`. */
@@ -1117,6 +1191,56 @@ export function weeklyHoursFrom(open: string, close: string, closedWeekday: numb
     out[key] = Number(num) === closedWeekday ? null : { open, close }
   }
   return out
+}
+
+/** The inverse of `hhmm` — `null` for anything that is not a valid `HH:MM`. */
+function hhmmMinutes(s: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s)
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null
+  return h * 60 + min
+}
+
+/** ⚖ D-36 — THE LIVE TWIN of a settings page's own day-length ceiling: the
+ *  longest `close − open` over the days whose 営業する switch is on, parsing
+ *  each pair as `HH:MM`. A day whose switch is off, whose time does not
+ *  parse, or whose length is not positive (⚖ D-38 — an inverted overnight
+ *  pair, or open == close) does not count. `null` when no day counts (every
+ *  day off, or every counted day inverted) — the caller falls back to the
+ *  control's own max. The `Math.max(1, …)` floor is kept as a defensive
+ *  bound only (every counted length is already ≥ 1), matching
+ *  `dayLengthMin`'s floor in `store-policy-seam.ts`. */
+export function longestOpenDayMin(
+  days: Array<{ on: RowValue; open: RowValue; close: RowValue }>,
+): number | null {
+  let max: number | null = null
+  for (const d of days) {
+    if (d.on !== true) continue
+    const open = hhmmMinutes(String(d.open))
+    const close = hhmmMinutes(String(d.close))
+    if (open === null || close === null) continue
+    const len = close - open
+    // ⚖ D-38 — an inverted or zero-length day does not count; an all-inverted
+    // week answers null → the control's own max; overnight hours are a
+    // queued model change, not a floor of 1.
+    if (len <= 0) continue
+    if (max === null || len > max) max = len
+  }
+  return max === null ? null : Math.max(1, max)
+}
+
+/** ⚖ D-36 — the seven weekday control ids `storeHours()` builds
+ *  (settings-props.ts), exported so a LENGTH row's live ceiling and the A1
+ *  field's live ceiling read the exact same ids rather than a second
+ *  spelling of them. */
+export const WEEK_CEILING: { days: Array<{ on: string; open: string; close: string }> } = {
+  days: Object.keys(WEEKDAY_OF).map((n) => ({
+    on: `store-hours.day-${n}`,
+    open: `store-hours.open-${n}`,
+    close: `store-hours.close-${n}`,
+  })),
 }
 
 /** WHAT THE RECONNECT PR WILL SEND, built from what the reader actually did.

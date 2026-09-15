@@ -52,7 +52,6 @@ import {
   packedPrice,
   priceButtonCaption,
   money,
-  SELL_SLOT_MIN,
 } from '@/business/lib/canon-logic/pricing'
 import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 // ⚖ Liam 8/23 — the guided tour is EVERY Business page's now, so the engine this
@@ -576,7 +575,7 @@ export interface TodayProps {
    *  `BoardBooking.price` the 予約時価格 fact line reads. */
   pricedIds: string[]
   /** The dials the 販売可能枠 derivation runs on — see the header. */
-  sell: { gridMin: number; nowMinute: number | null }
+  sell: { gridMin: number; sellSlotMin: number; nowMinute: number | null }
   /** スキマガード. `mode` is the STORE's protection policy (店舗設定); `config`
    *  is what the engine itself reads. The 表示設定 segment beside it is a
    *  personal display preference and cannot change either. */
@@ -2213,6 +2212,9 @@ export function TodayScreen(props: TodayProps) {
       const sellDrops: SellDrop[] = []
       const sell = sellLayerFor(committedLanes, hours, {
         gridMin: props.sell.gridMin,
+        // ⚖ D-42/B2 — the store's own number, connected in the same PR that moved
+        // every reader onto the cell's own `e`; never a literal.
+        sellSlotMin: props.sell.sellSlotMin,
         nowMinute: props.sell.nowMinute,
         locked,
         showPrice: showSlotPrice,
@@ -2311,9 +2313,22 @@ export function TodayScreen(props: TodayProps) {
       // `gapDrawn` unfloored, so the same 20-minute orphan the native layer
       // deletes was drawn when it came out of the fallback instead.
       minSellableMin: props.guard.minSellableMin,
-      dials: gapPackingDials(committedLanes, gapDials),
+      // ⚖ D-15/D-24 — the ONE source, `props.sell.sellSlotMin`, never a literal.
+      dials: { ...gapPackingDials(committedLanes, gapDials), sellSlotMin: props.sell.sellSlotMin },
     })
-  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, locked, props.guard.minSellableMin, gapDials])
+  }, [
+    heldCommitted,
+    committedLanes,
+    hours.close,
+    sellDrops,
+    sell,
+    gapClaims,
+    props.bedCleanupMinutes,
+    locked,
+    props.guard.minSellableMin,
+    gapDials,
+    props.sell.sellSlotMin,
+  ])
 
   /** WHAT THE BOARD DRAWS, and what the explanation layer reads as promised:
    *  the gap layer plus the fallback's additions. Gate off ⇒ the same objects,
@@ -2358,7 +2373,7 @@ export function TodayScreen(props: TodayProps) {
       const key = offerKey(laneKey, start)
       if (!asks.has(key)) asks.set(key, { key, laneKey, start, end, stores: storesOf.get(laneKey) ?? null })
     }
-    for (const c of sellDrawn.cells) ask(c.laneKey, c.h, c.h + SELL_SLOT_MIN)
+    for (const c of sellDrawn.cells) ask(c.laneKey, c.h, c.e)
     for (const c of gapDrawn.packed) ask(c.laneKey, c.s, c.e)
     for (const c of gapDrawn.scraps) ask(c.laneKey, c.s, c.e)
     return withheldOffers(
@@ -3936,7 +3951,7 @@ export function TodayScreen(props: TodayProps) {
         // draws grey.
         for (const c of sellPublished.cells) {
           if ((lane.group === 'staff' ? c.laneKey : c.resourceKey) !== lane.key) continue
-          const cell = place(c.h, c.h + 60, hours)
+          const cell = place(c.h, c.e, hours)
           spans.push({ id: `sell-${c.h}-${lane.key}`, x: cell.x, w: cell.w, title: '販売可能枠', derived: true, parked: false })
         }
       }
@@ -7692,20 +7707,20 @@ export function TodayScreen(props: TodayProps) {
               })}
           {!isLocked &&
             cells.map((c) => {
-              const span = place(c.h, c.h + 60, hours)
+              const span = place(c.h, c.e, hours)
               // ⚖ D-12 · ADDENDUM 2 item 1 — KEPT AND MUTED, NEVER VANISHED. The
               // box is the offer's own, greyed, with its kind and its price still
               // readable; the two lines say why it is not on sale. The WORDS ride
               // on the staff row only: a bed row carries no price text and no
               // name, so repeating the sentence there would make a screen reader
               // read it twice for one offer.
-              const wh = withheldMark(c.laneKey, c.h, c.h + SELL_SLOT_MIN)
+              const wh = withheldMark(c.laneKey, c.h, c.e)
               const whOwn = wh != null && c.group === 'staff'
               return (
                 <span
-                  // A plain 販売可能 wash advertises one standard hour, always
-                  // (canon :4867) — so it is the box a 60-minute card fits.
-                  className={`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`}
+                  // The box advertises the cell's own length; a card of that
+                  // length fits.
+                  className={`cell-price${fitsDrag(c.e - c.h, dragLen) ? ' fits' : ''}${wh ? ' cell-withheld' : ''}`}
                   key={`${lane.key}-${c.group}-${c.h}`}
                   // ⚖ ADDENDUM 2 item 1 — a `role="note"` with a label is not
                   // hidden, so the muted box drops `aria-hidden` and announces the
@@ -8999,7 +9014,7 @@ export function TodayScreen(props: TodayProps) {
                 sit against otherwise, and the layer wears no border at rest by
                 ⚖ flag 39. No new colour on either count. */}
             <div className="layer-legend">
-              <span className="lk lk-sell"><i /><b>販売可能枠</b><span>いま出ている価格で売り出している1時間</span></span>
+              <span className="lk lk-sell"><i /><b>販売可能枠</b><span>{`いま出ている価格で売り出している${props.sell.sellSlotMin}分`}</span></span>
               <span className="lk lk-packed"><i /><b>詰め込み</b><span>空きに収めた1回分（満額）</span></span>
               <span className="lk lk-scrap"><i /><b>スキマ枠</b><span>余った時間の割引枠</span></span>
             </div>

@@ -6,9 +6,8 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 
 No tab, button, chip, toggle, or segmented control is EVER deliberately black.
 The interactive accent is blue-600 `#2563eb` (dark mode `#60a5fa`), carried by
-`--primary` in `src/app/globals.css` plus the `--color-accent` karute-theme
-override there (the @synqed-kk/ui package ships a black accent — the override
-is the app-side fix until the package retints).
+`--primary` in `src/app/globals.css` and the matching `--color-accent` tokens
+shipped by the `@synqed-kk/ui` karute theme.
 
 - Selected/pressed state (tabs, filters, chips, options): `bg-primary/8
   text-primary` + `border-primary` where the control has a border. Never a

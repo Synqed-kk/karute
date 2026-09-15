@@ -22,6 +22,7 @@
 // ⚖ 8/9 forbids. Canon pins its own board the same way, at the same 13:24.
 
 import { STORE_A, STORE_B } from './fixtures'
+import { DEFAULT_SELL_SLOT_MIN } from './canon-logic/pricing'
 
 /** Store opening hours (ask T-18 — core has no per-store hours). Every booking
  *  in `./fixtures` sits inside this window, and the timeline is exactly it. */
@@ -392,6 +393,11 @@ export const opsConfig = {
   gapFillMinMin: 30,
   gapFillDiscountPct: 10,
   standardSessionMin: 60,
+  /** THE LENGTH OF ONE 販売可能枠 — read by 設定 (A2) and carried to the board's
+   *  props (`page.tsx` → `props.sell.sellSlotMin`), and every reader now
+   *  reads the cell's own `e` (B2). `DEFAULT_SELL_SLOT_MIN`
+   *  (`canon-logic/pricing.ts`) is this fixture's default. */
+  sellSlotMin: DEFAULT_SELL_SLOT_MIN,
   /** ⚖ Liam 2026-08-21 — 販売可能な最小の長さ. Under this the board advertises
    *  nothing: the leftover stays plain track. Fragments are a salvage market,
    *  and a 20-minute orphan is not stock — it is the phone call that costs the

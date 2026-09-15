@@ -104,7 +104,7 @@ interface World {
   bookings: BoardBooking[]
   lanes: BoardLane[]
   hours: Hours
-  opsConfig: { reserveStartGridMin: number }
+  opsConfig: { reserveStartGridMin: number; sellSlotMin: number }
   pricingRule: { hq_min: number; hq_max: number }
 }
 
@@ -346,6 +346,7 @@ function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number],
   // renders the page.
   const sellLayerOpts: Omit<Parameters<typeof sellLayerFor>[2], 'nowMinute'> = {
     gridMin: opsConfig.reserveStartGridMin,
+    sellSlotMin: opsConfig.sellSlotMin,
     locked: [],
     showPrice: true,
     hi: pricingRule.hq_max,

@@ -42,6 +42,8 @@ import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/
 import {
   accessFor,
   blockingError,
+  effectiveCeiling,
+  effectiveLock,
   fillTemplate,
   firstOpenSection,
   keepCardOffHeading,
@@ -53,6 +55,7 @@ import {
   sectionDirty,
   writePrefs,
   type ControlKind,
+  type RowControl,
   type RowValue,
   type SettingsSection,
 } from '@/business/lib/settings'
@@ -219,7 +222,11 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     // same KIND of sentence — 「why can I not change this」 — so it is the same
     // line, and the CLAIM this pin makes (that reason does not fold) is
     // unchanged. Both sources are read here so neither can quietly leave.
-    expect(SRC_CODE).toContain('...row.controls.map((c) => c.locked),')
+    // ⚖ D-32 F1 — the reason is `effectiveLock(c, values)` now (a LIVE lock,
+    // not the server-baked `c.locked`), so a lock that depends on a sibling
+    // control (確保枠の自動解除's number field) still prints its reason here
+    // rather than silently losing it the moment it stops being static.
+    expect(SRC_CODE).toContain('...row.controls.map((c) => effectiveLock(c, values)),')
     expect(SRC_CODE).toContain("...row.controls.map((c) => (c.control.kind === 'chips' ? c.control.keep?.reason : undefined)),")
     expect(SRC_CODE).toMatch(/\{lockReasons\.map\(\(r\) => \(\s*<p className="st-why" key=\{r\}>\{r\}<\/p>/)
     // …and it is rendered OUTSIDE the disclosure: the reason appears before the
@@ -254,6 +261,63 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     expect(SRC_CODE).toContain('raised: boolean,')
     expect(SRC_CODE).toContain('changed > 0,')
     expect(SRC_CODE).toMatch(/\(\) => false,\s*\n\s*false,/)
+  })
+
+  // ⚖ D-32 F1 — LENS-1's own words: "a props-only leg cannot prove this [the
+  // field unlocking], so it belongs with the screen-code pins." `effectiveLock`
+  // is the exact function `Control`/`Row` call on every render (pinned above
+  // and in `SettingsScreen.tsx`'s own `const lockedReason = effectiveLock(c,
+  // values)` line); driving it directly over a fabricated live-values map is
+  // this file's own house pattern for a pure interaction rule the territory
+  // fence will not let a suite mount React to prove instead.
+  it('⚖ D-32 F1 — a lock that follows a LIVE sibling really unlocks when the reader moves it', () => {
+    const lockedWhen = {
+      controlId: 'reserve.autorelease',
+      unless: 'minutes',
+      reason: { linked: 'E1 — linked', never: 'E2 — never' },
+    }
+    const numberField: RowControl = { id: 'reserve.autorelease-min', aria: '', control: { kind: 'number', min: 1, max: null, step: 1, unit: '分' }, value: '60', lockedWhen }
+    // 「分で指定」 (minutes) — the ONE value `unless` names — really unlocks it.
+    expect(effectiveLock(numberField, { 'reserve.autorelease': 'minutes' })).toBeUndefined()
+    // Any other live value stays locked, with THAT value's own reason.
+    expect(effectiveLock(numberField, { 'reserve.autorelease': 'linked' })).toBe('E1 — linked')
+    expect(effectiveLock(numberField, { 'reserve.autorelease': 'never' })).toBe('E2 — never')
+    // A server-baked `locked` still wins outright — `lockedWhen` only fires
+    // where there is no static answer already.
+    expect(effectiveLock({ ...numberField, locked: 'baked' }, { 'reserve.autorelease': 'minutes' })).toBe('baked')
+  })
+
+  // ⚖ D-36 (2) — the live TWIN of D-32 F1's lock: a LENGTH row's ceiling
+  // follows the weekly hours the reader can move on this very page, read
+  // against the CURRENT `values` the same house pattern as `effectiveLock`.
+  it('⚖ D-36 (2) — effectiveCeiling: a LENGTH row’s ceiling follows the LIVE weekly hours', () => {
+    const ceilingFrom = {
+      days: [
+        { on: 'store-hours.day-1', open: 'store-hours.open-1', close: 'store-hours.close-1' },
+        { on: 'store-hours.day-2', open: 'store-hours.open-2', close: 'store-hours.close-2' },
+      ],
+    }
+    const numberField: RowControl = {
+      id: 'reserve.grid', aria: '', control: { kind: 'number', min: 1, max: 540, step: 1, unit: '分' }, value: '60', ceilingFrom,
+    }
+    // 月曜 extended to 08:00–20:00 raises the ceiling, live.
+    expect(effectiveCeiling(numberField, {
+      'store-hours.day-1': true, 'store-hours.open-1': '08:00', 'store-hours.close-1': '20:00',
+      'store-hours.day-2': true, 'store-hours.open-2': '10:00', 'store-hours.close-2': '19:00',
+    })).toBe(720)
+    // Every named day off → falls back to the control's own `max`, never `null`.
+    expect(effectiveCeiling(numberField, {
+      'store-hours.day-1': false, 'store-hours.open-1': '10:00', 'store-hours.close-1': '19:00',
+      'store-hours.day-2': false, 'store-hours.open-2': '10:00', 'store-hours.close-2': '19:00',
+    })).toBe(540)
+    // No `ceilingFrom` at all → the control's own `max`, unchanged.
+    expect(effectiveCeiling({ ...numberField, ceilingFrom: undefined }, {})).toBe(540)
+    // A 「before start」 control (`max: null`, no `ceilingFrom`) stays uncapped.
+    const beforeStart: RowControl = { id: 'reserve.days', aria: '', control: { kind: 'number', min: 1, max: null, step: 1, unit: '日' }, value: '30' }
+    expect(effectiveCeiling(beforeStart, {})).toBeNull()
+    // A non-number control never has a ceiling to answer.
+    const sw: RowControl = { id: 'store-hours.day-1', aria: '', control: { kind: 'switch', onLabel: '', offLabel: '' }, value: true }
+    expect(effectiveCeiling(sw, {})).toBeNull()
   })
 
   it('⚖ prefers-reduced-motion reaches the SPRINGS, not only the stylesheet', () => {
@@ -933,7 +997,9 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
   it('the preview is FILLED from the live values, never printed raw', () => {
     // A template printed as it stands would show `{store-hours.booking-step}` to
     // a shop owner — the dead preview and the internal-code leak in one edit.
-    expect(SRC_CODE).toContain('{fillTemplate(block.preview.template, labelFor)}')
+    // ⚖ D-35 (2) — `previewTemplate` resolves `dropWhen` BEFORE the fill, at
+    // the same one call site.
+    expect(SRC_CODE).toContain('{fillTemplate(previewTemplate(block.preview, values), labelFor)}')
     expect(SRC_CODE).toContain('return labelOfValue(kind, values[id])')
   })
 

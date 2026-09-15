@@ -204,7 +204,8 @@ export interface StoreDials {
   /** コーチング — `org_settings.coaching_enabled`, per store. */
   coachingEnabled: boolean
   coachingSharing: CoachingSharingMode
-  /** GUARDRAIL: `clampCoachingRetention` holds it inside 3…36 months. */
+  /** ⚖ D-15/D-32 (round 3, A2) — no ceiling: any positive month count is
+   *  honoured (the settings row's own floor is 1, not a cap constant). */
   coachingRetentionMonths: number
   /** GUARDRAIL: `clampCoachingFloor` holds it inside 10…60. */
   coachingSampleFloor: number
@@ -265,7 +266,8 @@ export interface StoreDials {
    *  SHAPE from the phone's own constant — `REENGAGE_NUDGE_MIN_DAYS`
    *  (src/lib/karute/ai-reengagement.ts) — with a cite rather than an import,
    *  because Business territory may not import phone runtime.
-   *  GUARDRAIL: `clampWinBackDays` holds it inside 14…365.
+   *  ⚖ D-15/D-32 (round 3, A2) — no ceiling: any positive day count is
+   *  honoured (the settings row's own floor is 1, not a cap constant).
    *  業種: ruled type-dependent by Liam (a 整体 cycle is not a hair cycle). */
   winBackDays: number
   /** 契約・請求 — ⚖ S17 · C11 RETIRED FROM THE STORE. `Entitlement` is

@@ -57,41 +57,42 @@ import {
   clampCoachingFloor,
   controlIdsOfBlock,
   dayTitle,
-  clampCoachingRetention,
-  clampWinBackDays,
   COACHING_FLOOR_MAX,
   COACHING_FLOOR_MIN,
   commitNumberField,
   controlIdsOf,
+  effectiveLock,
   fillTemplate,
   firstOpenSection,
   gateOf,
   hhmm,
   labelOfValue,
+  longestOpenDayMin,
   PREFS_DEFAULT,
+  previewTemplate,
   RAIL,
   readPrefs,
-  RETENTION_MAX_MONTHS,
-  RETENTION_MIN_MONTHS,
   matchesQuery,
   sameValue,
   searchTextOf,
   sectionById,
   sectionDirty,
+  WEEK_CEILING,
   weekDaysOf,
+  weeklyHoursFrom,
   weeklyHoursPayload,
-  WIN_BACK_MAX,
-  WIN_BACK_MIN,
-  withCurrent,
   type RowControl,
   type RowValue,
+  type SettingsBlock,
   type SettingsProps,
   type SettingsSection,
 } from '@/business/lib/settings'
 import { settingsHref } from '@/business/lib/settings-link'
 import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
-// ⚡ R2 BRANCH C — the dial's own mapping pair + choice list (⚖ D-11, CONTRACTS-R2 §1).
-import { AUTO_RELEASE_CHOICES, autoReleaseFromWire, autoReleaseToWire, NEW_CLIENT_DEFAULT_MIN } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
+// ⚡ R2 BRANCH C / ⚖ D-15 (round 3, A2) — the dial's own mapping pair.
+// `AUTO_RELEASE_CHOICES` is gone with the fixed select it existed to widen
+// (A2 turned the row into a select of two STATES plus a free minute field).
+import { autoReleaseFromWire, autoReleaseToWire, autoReleaseWireFrom, NEW_CLIENT_DEFAULT_MIN } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
@@ -157,6 +158,14 @@ const rowsOf = (props: SettingsProps) => props.sections.flatMap((s) => s.blocks.
 const trioRows = (props: SettingsProps) => rowsOf(props).filter((r) => r.trio)
 const seedOf = (props: SettingsProps): Record<string, RowValue> =>
   Object.fromEntries(controlsOf(props).map((c) => [c.id, c.value]))
+
+/** ⚖ D-36 — the SAME weekly-rows derivation `settings-props.ts`'s module-level
+ *  `dayLen` and `effectiveCeiling`'s live answer both run, so a pin here can
+ *  never quietly diverge into a second, typed 540. */
+const weeklyDayLen = (): number | null => longestOpenDayMin(
+  Object.values(weeklyHoursFrom(hhmm(operatingHours.open), hhmm(operatingHours.close), closedWeekday))
+    .map((day) => ({ on: day !== null, open: day?.open ?? '', close: day?.close ?? '' })),
+)
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ ONE TRUTH — every value this room shows is READ from the room that ships it', () => {
@@ -1348,18 +1357,20 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(SCREEN_CODE).toContain('{detail.length > 0 && (')
   })
 
-  it('every clamp refuses the harmful end, both ways, and survives a non-number', () => {
-    expect(clampWinBackDays(1)).toBe(WIN_BACK_MIN)
-    expect(clampWinBackDays(9999)).toBe(WIN_BACK_MAX)
-    expect(clampWinBackDays(61)).toBe(61)
-    expect(clampCoachingRetention(0)).toBe(RETENTION_MIN_MONTHS)
-    expect(clampCoachingRetention(999)).toBe(RETENTION_MAX_MONTHS)
+  it('every REMAINING clamp refuses the harmful end, both ways, and survives a non-number', () => {
+    // ⚖ D-32 F3 (round 3, A2) — `clampWinBackDays`/`clampCoachingRetention`
+    // are GONE with the hardcoded caps ⚖ D-15 forbids for a duration
+    // (`contact.winback`/`coaching.retention` are free fields now). 判断に
+    // 必要なセッション数 is a session COUNT, not a duration, and keeps its clamp.
     expect(clampCoachingFloor(1)).toBe(COACHING_FLOOR_MIN)
     expect(clampCoachingFloor(500)).toBe(COACHING_FLOOR_MAX)
     // ⚠ NaN IS NOT ZERO. `Math.min(NaN, …)` is NaN and a NaN on screen prints as
     // 「NaN日」 — the clamp answers the SAFE end instead.
-    expect(clampWinBackDays(Number.NaN)).toBe(WIN_BACK_MIN)
     expect(clampCoachingFloor(Number.POSITIVE_INFINITY)).toBe(COACHING_FLOOR_MIN)
+    expect(LIB_CODE).not.toContain('clampWinBackDays')
+    expect(LIB_CODE).not.toContain('clampCoachingRetention')
+    expect(LIB_CODE).not.toContain('WIN_BACK_MIN')
+    expect(LIB_CODE).not.toContain('RETENTION_MIN_MONTHS')
   })
 
   it('a number field is corrected ON COMMIT, never while it is being typed — and an EMPTY box is not a number', () => {
@@ -1374,11 +1385,14 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     // Against ⚖ 8/21 mistake-proofing that is the dial harming the store
     // quietly. The clamp itself is unchanged — same floor, same ceiling, same
     // commit-time firing — and what is new is the fallback and the sentence.
-    const win = (raw: string, prev: number) => commitNumberField(raw, prev, WIN_BACK_MIN, WIN_BACK_MAX, '日')
+    // ⚖ D-32 F3 (round 3, A2) — `commitNumberField` is generic; 14/365 are
+    // arbitrary two-sided bounds exercising its own behaviour, no longer tied
+    // to the (now free) 再来促し row's own constants.
+    const win = (raw: string, prev: number) => commitNumberField(raw, prev, 14, 365, '日')
     // out of range still CLAMPS, and now says which range it was held to…
-    expect(win('4000', 30).value).toBe(WIN_BACK_MAX)
-    expect(win('4000', 30).message).toBe(`${WIN_BACK_MIN}日から${WIN_BACK_MAX}日のあいだで設定できます。${WIN_BACK_MAX}日にしました`)
-    expect(win('1', 30).value).toBe(WIN_BACK_MIN)
+    expect(win('4000', 30).value).toBe(365)
+    expect(win('4000', 30).message).toBe('14日から365日のあいだで設定できます。365日にしました')
+    expect(win('1', 30).value).toBe(14)
     // …a number inside the guardrail goes in as typed, and says NOTHING…
     expect(win('61', 30)).toEqual({ value: 61, message: null })
     // …and an empty or unreadable box is handed the PREVIOUS value back, out loud.
@@ -1387,19 +1401,74 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(win('abc', 45)).toEqual({ value: 45, message: '数字を入れてください。前の値の45日に戻しました' })
     // …the fallback is itself inside the guardrail, so a previous value that has
     // gone stale cannot smuggle a forbidden number back in.
-    expect(win('', 9999).value).toBe(WIN_BACK_MAX)
+    expect(win('', 9999).value).toBe(365)
     // THE FIELD REMEMBERS THE LAST ACCEPTED VALUE, not the last saved one: a
     // reader who moves 30 → 45 and then clears the box gets 45 back, because 45
-    // is what they last told this page.
-    expect(SCREEN_CODE).toContain('const lastGood = useRef<number>(clampInt(Number(text), k.min, k.max))')
-    expect(SCREEN_CODE).toContain('if (text.trim() !== \'\' && Number.isFinite(n) && n >= k.min && n <= k.max) lastGood.current = Math.round(n)')
-    expect(SCREEN_CODE).toContain('const commit = commitNumberField(e.target.value, lastGood.current, k.min, k.max, k.unit ?? \'\')')
+    // is what they last told this page — ⚖ D-27/D-30 (round 3, A2): that
+    // memory moves ONLY on a commit (this field's one commit moment is blur;
+    // it has no preset or nudge button), never on every keystroke — the
+    // per-keystroke effect this room's own StorePolicySection fields carried
+    // before those rulings is GONE from here too.
+    // ⚖ D-36 — THE CEILING IS LIVE: `effectiveCeiling(c, values)` replaces the
+    // server-baked `k.max` here, so a LENGTH row's ceiling follows the weekly
+    // hours the reader can move on this very page (RowControl.ceilingFrom).
+    expect(SCREEN_CODE).toContain('const ceilingLive = effectiveCeiling(c, values)')
+    expect(SCREEN_CODE).toContain('const ceiling = ceilingLive ?? Number.POSITIVE_INFINITY')
+    expect(SCREEN_CODE).not.toContain('const ceiling = k.max ?? Number.POSITIVE_INFINITY')
+    expect(SCREEN_CODE).toContain('const lastGood = useRef<number>(clampInt(Number(text), k.min, ceiling))')
+    expect(SCREEN_CODE).not.toContain('n >= k.min && n <= k.max) lastGood.current')
+    expect((SCREEN_CODE.match(/lastGood\.current = /g) ?? []).length).toBe(1) // ONE home: the onBlur commit
+    // ⚖ D-27/D-30 — AND A NON-INTEGER TEXT IS MEANINGLESS INPUT, never a
+    // number to round (「1.5」→2, 「1e2」→100). `isIntegerTextAtLeast` is the
+    // SAME predicate `commitMinutes` (StorePolicySection.tsx) uses — imported
+    // from there (the fence is already open: this screen already imports the
+    // section for its component) rather than re-spelled here.
+    expect(SCREEN_CODE).toContain('isIntegerTextAtLeast')
+    expect(SCREEN_SRC).toMatch(/import\s*\{[^}]*isIntegerTextAtLeast[^}]*\}\s*from\s*'\.\/StorePolicySection'/)
+    expect(SCREEN_CODE).toContain("const raw = isIntegerTextAtLeast(e.target.value, k.min) ? e.target.value.trim() : ''")
+    expect(SCREEN_CODE).toContain('const commit = commitNumberField(raw, lastGood.current, k.min, ceiling, k.unit ?? \'\')')
+    expect(SCREEN_CODE).toContain('lastGood.current = commit.value')
     expect(SCREEN_CODE).toContain('setMessage(commit.message)')
     expect(SCREEN_CODE).toContain('onChange(c.id, String(commit.value))')
+    // ⚖ D-15 (round 3, A2) — NO CEILING (`k.max === null`) omits the DOM
+    // `max` attribute rather than rendering `max={Infinity}` (not valid HTML).
+    // ⚖ D-36 — and the attribute now reads the LIVE ceiling too.
+    expect(SCREEN_CODE).toContain('max={ceilingLive ?? undefined}')
+    expect(SCREEN_CODE).not.toContain('max={k.max ?? undefined}')
     // …and the sentence has a home on the face, in a region that stays mounted
     // so a screen reader hears it CHANGE (⚖ F10's own lesson).
     expect(SCREEN_CODE).toContain('<span className="st-field-msg" role="status">{message ?? \'\'}</span>')
     expect(CSS_CODE).toContain('.biz .pg-settings .st-numline .st-field-msg:empty { display: none; }')
+  })
+
+  it('⚖ D-31/D-32 F4 — the zero state reads beside the unit, reusing `st-unit`\'s own style', () => {
+    // ⚖ D-33 R1 — keyed on the COMMITTED text `'0'`, not `Number(text) === 0`:
+    // `Number('') === 0` too, so that check also fired for a box the reader
+    // had just cleared mid-edit, before blur.
+    expect(SCREEN_CODE).toContain('{k.zeroLabel && text === \'0\' && <span className="st-unit">{k.zeroLabel}</span>}')
+    expect(SCREEN_CODE).not.toContain('Number(text) === 0')
+    // …and it is a SIBLING span, not a replacement — the field still says what
+    // it measures.
+    expect(SCREEN_CODE).toContain('{k.unit && <span className="st-unit">{k.unit}</span>}')
+  })
+
+  it('⚖ D-15 (round 3, A2) — a field with NO CEILING gets a floor-only message, never 「…Infinity…」', () => {
+    // A field whose `max` is Infinity can only ever be clamped UP to the
+    // floor (nothing exceeds Infinity), so the two-sided range sentence would
+    // print 「…からInfinity分のあいだで…」 — the floor-only sentence says the
+    // true rule instead.
+    expect(commitNumberField('abc', 5, 1, Infinity, '分')).toEqual({
+      value: 5,
+      message: '数字を入れてください。前の値の5分に戻しました',
+    })
+    const clampedUp = commitNumberField('0', 90, 1, Infinity, '分')
+    expect(clampedUp).toEqual({ value: 1, message: '1分以上で設定できます。1分にしました' })
+    expect(clampedUp.message).not.toContain('Infinity')
+    // …and the two-sided sentence is UNCHANGED for a field with a real ceiling.
+    expect(commitNumberField('700', 90, 1, 600, '分')).toEqual({
+      value: 600,
+      message: '1分から600分のあいだで設定できます。600分にしました',
+    })
   })
 
   it('a required field blocks the save and names itself', async () => {
@@ -1431,11 +1500,11 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(SCREEN_CODE).toContain("className={`st-readout${k.numeric ? '' : ' is-phrase'}`}")
   })
 
-  it('a stored value outside the presets is ADDED to them, never rounded away', () => {
-    // canon's own ruling (fable-settings-store-hours.html:4218-4231): silently
-    // showing the nearest preset makes 「現在値をプリセット」 a lie.
-    expect(withCurrent([15, 30, 60], 20)).toEqual([15, 20, 30, 60])
-    expect(withCurrent([15, 30, 60], 30)).toEqual([15, 30, 60])
+  it('⚖ D-32 F7 (round 3, A2) — `withCurrent` is gone with its last production caller', () => {
+    // Every fixed option list `withCurrent` used to widen (予約の刻み,
+    // 標準セッションの長さ, 予定ブロックの移動単位, …) is a free `num` field now
+    // (⚖ D-15) — there is no preset list left to add a stored value to.
+    expect(LIB_CODE).not.toContain('withCurrent')
   })
 
   it('an array value compares by CONTENT — a chip set is not permanently dirty', () => {
@@ -1472,31 +1541,70 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
     return (await mod.settingsProps({ locale: 'ja', store: input.store })).props
   }
 
-  it('leg 1 — the value is `autoReleaseToWire(opsConfig.autoReleaseBeforeMin)`, and the options are AUTO_RELEASE_CHOICES in order, plus the current value only when it is off-list', async () => {
+  /** ⚖ D-15 (round 3, A2) — THE ROW IS TWO CONTROLS NOW, not a widening
+   *  select. `'linked'`/`'never'` are states (a closed three-option select,
+   *  `'minutes'` the third); any positive minute count is the ONE number this
+   *  row can hold, so it lives on its own free field beside the select rather
+   *  than as a fourth/fifth select option — ⚖ D-26 F5's append-when-off-list
+   *  patch (and the widening it protected against) no longer applies: a
+   *  `num` control has no option list to fall off of. */
+  // ⚖ D-32 F1/F2 — THE LOCK REASON, byte-identical to JP-NATIVE-R3/A2-FIX-
+  // LINES.md §E, keyed by the mode it explains.
+  const AUTORELEASE_MIN_REASON = {
+    linked: '「直前の空きは売らないと同じ」を選んでいるため、上の行と同じ値です。「分で指定」を選ぶと変更できます',
+    never: '「解除しない」を選んでいるため、この数は使われません。「分で指定」を選ぶと変更できます',
+  }
+
+  it('leg 1 — the select is the MODE (linked / never / minutes), a closed three-option list', async () => {
     const props = await room({ store: STORE_A })
     const c = controlOf(props, 'reserve.autorelease')
-    const wire = autoReleaseToWire(opsConfig.autoReleaseBeforeMin)
-    expect(c.value).toBe(wire)
-    expect(c.value).toBe('linked') // the fixture's own default — on-list, so no append here
     expect(c.control.kind).toBe('select')
-    const expected = AUTO_RELEASE_CHOICES.includes(wire) ? [...AUTO_RELEASE_CHOICES] : [...AUTO_RELEASE_CHOICES, wire]
-    expect(c.control.kind === 'select' && c.control.options.map((o) => o.value)).toEqual(expected)
+    expect(c.value).toBe('linked') // the fixture's own default
+    const options = c.control.kind === 'select' ? c.control.options.map((o) => o.value) : []
+    expect(options).toEqual(['linked', 'never', 'minutes'])
+    // …and the number sibling shows leadTimeMin (the linked implied value)
+    // while the mode is not 'minutes', LOCKED rather than hidden — a reader
+    // may still see and ask about a control they cannot yet move (⚖ 8/21
+    // mistake-proofing). ⚖ D-32 F1 — the SERVER no longer bakes `locked`
+    // (that never re-evaluates once the reader moves the select); it
+    // declares `lockedWhen`, and `effectiveLock` reads it against the LIVE
+    // select value — proven here at the exact value this render seeds.
+    const n = controlOf(props, 'reserve.autorelease-min')
+    expect(n.control.kind).toBe('number')
+    expect(n.value).toBe(String(opsConfig.leadTimeMin))
+    expect(n.locked).toBeUndefined()
+    expect(n.lockedWhen).toEqual({ controlId: 'reserve.autorelease', unless: 'minutes', reason: AUTORELEASE_MIN_REASON })
+    expect(effectiveLock(n, { [c.id]: c.value })).toBe(AUTORELEASE_MIN_REASON.linked)
   })
 
-  /** ⚖ D-26 F5 — THE ROW REPORTS THE STORE'S REAL VALUE. Before this fix a
-   *  store on 45 (widened by ⚖ D-15, unreachable by the fixed four choices)
-   *  handed the select a value none of its options carried — the control
-   *  silently fell back to showing 「直前の空きは売らないと同じ」, a wrong
-   *  statement about the store's own setting. `AUTO_RELEASE_CHOICES` PLUS the
-   *  wire value when it is not among them, labelled by the F6 fallback. */
-  it('⚖ D-26 F5 — a store on an off-list value gets a row that reports it, not the linked default', async () => {
+  it('⚖ D-15 (round 3, A2) — a store on an explicit minute value selects "minutes" and the number field unlocks to it', async () => {
     const props = await roomWithOpsConfig({ autoReleaseBeforeMin: 45 }, { store: STORE_A })
-    const c = controlOf(props, 'reserve.autorelease')
-    expect(c.value).toBe('45')
-    expect(c.control.kind).toBe('select')
-    const options = c.control.kind === 'select' ? c.control.options : []
-    expect(options.map((o) => o.value)).toContain('45')
-    expect(options.find((o) => o.value === '45')?.label).toBe('45分前まで')
+    const sel = controlOf(props, 'reserve.autorelease')
+    expect(sel.value).toBe('minutes')
+    const n = controlOf(props, 'reserve.autorelease-min')
+    expect(n.control.kind).toBe('number')
+    expect(n.value).toBe('45')
+    expect(n.locked).toBeUndefined()
+    // ⚖ D-32 F1 — and the LIVE evaluation really unlocks it (this is the leg
+    // a props-only `locked` field could never prove: the field is locked at
+    // the tip this fix starts from, forever, because the server bakes the
+    // answer once and the screen never re-asks it).
+    expect(effectiveLock(n, { [sel.id]: sel.value })).toBeUndefined()
+  })
+
+  it('⚖ D-15 (round 3, A2) — "never" is the other closed state, and its number stays locked at leadTimeMin', async () => {
+    const props = await roomWithOpsConfig({ autoReleaseBeforeMin: null }, { store: STORE_A })
+    const sel = controlOf(props, 'reserve.autorelease')
+    expect(sel.value).toBe('never')
+    const n = controlOf(props, 'reserve.autorelease-min')
+    expect(n.value).toBe(String(opsConfig.leadTimeMin))
+    expect(n.locked).toBeUndefined()
+    expect(n.lockedWhen).toEqual({ controlId: 'reserve.autorelease', unless: 'minutes', reason: AUTORELEASE_MIN_REASON })
+    // ⚖ D-32 F2 — 「解除しない」 no longer stands beside a release time that does
+    // not exist: the reason SAYS the number is unused, rather than the old
+    // static `locked` sentence ("「分で指定」を選ぶと変更できます" alone) that
+    // let a reader believe leadTimeMin was a real release boundary here.
+    expect(effectiveLock(n, { [sel.id]: sel.value })).toBe(AUTORELEASE_MIN_REASON.never)
   })
 
   it('leg 3 — the row sits IMMEDIATELY after 直前の空きは売らない (reserve.row-lead)', async () => {
@@ -1509,21 +1617,37 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
 
   it('leg 4 — the linked label carries leadTimeMin, and a lead-time change moves it', async () => {
     const props = await room({ store: STORE_A })
-    expect(
-      (controlOf(props, 'reserve.autorelease').control as { options: Array<{ value: string; label: string }> }).options.find(
+    const linkedOptOf = (p: SettingsProps) =>
+      (controlOf(p, 'reserve.autorelease').control as { options: Array<{ value: string; label: string }> }).options.find(
         (o) => o.value === 'linked',
-      )?.label,
-    ).toContain(`${opsConfig.leadTimeMin}分前`)
+      )
+    expect(linkedOptOf(props)?.label).toContain(`${opsConfig.leadTimeMin}分前`)
+    // ⚖ D-34 item 9 — ONE spelling (`linkedLabel`), read at both the select's
+    // option and the row's own 初期値 line; byte-unchanged at the fixture (60).
+    expect(linkedOptOf(props)?.label).toBe(`直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`)
+    expect(rowsOf(props).find((r) => r.id === 'reserve.row-autorelease')!.trio!.base)
+      .toBe(`初期値: 直前の空きは売らないと同じ（${opsConfig.leadTimeMin}分前まで）`)
 
     // ⚠ mutant (n)'s settings half — a stored 60 would not follow a moved lead
     // time, so the label must be RE-READ, never typed.
     const props90 = await roomWithOpsConfig({ leadTimeMin: 90 }, { store: STORE_A })
-    const linked90 = (
-      controlOf(props90, 'reserve.autorelease').control as { options: Array<{ value: string; label: string }> }
-    ).options.find((o) => o.value === 'linked')
+    const linked90 = linkedOptOf(props90)
     expect(linked90?.label).toContain('（90分前まで）')
     // …and the STORED value (still the linked default) is untouched by the label move.
     expect(controlOf(props90, 'reserve.autorelease').value).toBe('linked')
+
+    // ⚖ D-34 item 9 — at leadTimeMin 0 the parenthesis is DROPPED: one zero,
+    // one spelling, matching the lead row's own 「制限なし」 rather than a
+    // second 「0分前まで」 beside it.
+    const props0 = await roomWithOpsConfig({ leadTimeMin: 0 }, { store: STORE_A })
+    const linked0 = linkedOptOf(props0)
+    expect(linked0?.label).toBe('直前の空きは売らないと同じ')
+    expect(linked0?.label).not.toContain('（')
+    expect(linked0?.label).not.toContain('0分')
+    const base0 = rowsOf(props0).find((r) => r.id === 'reserve.row-autorelease')!.trio!.base
+    expect(base0).toBe('初期値: 直前の空きは売らないと同じ')
+    expect(base0).not.toContain('（')
+    expect(base0).not.toContain('0分')
   })
 
   it('leg 5 — the guardrail fires ONLY for an explicit number SHORTER than leadTimeMin', async () => {
@@ -1566,14 +1690,18 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
   })
 
   it('leg 6 — round-trip: every wire value survives board and back, and undefined reads as linked', () => {
-    for (const w of AUTO_RELEASE_CHOICES) expect(autoReleaseToWire(autoReleaseFromWire(w))).toBe(w)
+    // ⚖ D-15 (round 3, A2) — the seam's own round-trip is a fact about
+    // `autoReleaseFromWire`/`autoReleaseToWire`, not about the row's (now
+    // closed) select list, so it is driven off a literal rather than the
+    // deleted `AUTO_RELEASE_CHOICES`.
+    for (const w of ['linked', 'never', '30', '120'] as const) expect(autoReleaseToWire(autoReleaseFromWire(w))).toBe(w)
     expect(autoReleaseFromWire(undefined)).toBe('linked')
   })
 
-  it('⚖ D-15 leg 7 — ANY positive minute round-trips, not only the two A2 still offers', () => {
-    // `AUTO_RELEASE_CHOICES` stays `['linked','never','30','120']` in A1 (A2
-    // owns the row); the WIRE TYPE is free now, and a value the row does not
-    // yet offer still round-trips honestly through the seam.
+  it('⚖ D-15 leg 7 — ANY positive minute round-trips, not only the ones any select ever offered', () => {
+    // The WIRE TYPE is free; a value no select has ever offered still
+    // round-trips honestly through the seam (the row now reads it off a free
+    // field, not off a list at all).
     expect(autoReleaseToWire(autoReleaseFromWire('45'))).toBe('45')
     expect(autoReleaseToWire(autoReleaseFromWire('1'))).toBe('1')
     expect(autoReleaseFromWire('45')).toBe(45)
@@ -1584,10 +1712,32 @@ describe('⚡ R2 — 確保枠の自動解除, the dial LINKED to 直前の空�
     expect(autoReleaseFromWire('abc' as never)).toBe('linked')
   })
 
-  it('⚖ D-25 F6 — a widened choice ships its own honest label, never a blank one', () => {
-    // The day A2 adds a fifth choice, the four-key lookup returns `undefined`
-    // — the cast tells tsc not to look — so the fallback is the behaviour fix.
-    expect(PROPS_CODE).toContain('?? `${choice}分前まで`')
+  it('⚖ D-32 N1 — `autoReleaseWireFrom` composes the row’s TWO controls into the ONE wire value', () => {
+    // ⚖ D-32 N1 — the reconnect's writer has one composition home now, and
+    // this is it: the row's mode select + minute field in, the wire value
+    // out, matching `autoReleaseFromWire`'s own read-side doctrine.
+    expect(autoReleaseWireFrom('minutes', 45)).toBe('45')
+    expect(autoReleaseWireFrom('linked', 45)).toBe('linked')
+    expect(autoReleaseWireFrom('never', 45)).toBe('never')
+    // An unreadable minutes value under 'minutes' falls to the product
+    // default ('linked'), never to a fabricated number.
+    expect(autoReleaseWireFrom('minutes', 'abc')).toBe('linked')
+  })
+
+  /** ⚖ D-15 (round 3, A2) — RETIRES ⚖ D-25 F6's pin. F6 protected the
+   *  four-key-lookup's fallback for a select widened by an off-list append
+   *  (⚖ D-26 F5); A2 deletes that append entirely — the select is now a
+   *  closed three-state list with no numeric option to fall off of, and the
+   *  actual minute value lives on `reserve.autorelease-min`, a free field
+   *  with no option list at all. The replacement pin: the closed set never
+   *  grows, for any stored value. */
+  it('⚖ D-15 (round 3, A2) — the select stays the same three options for ANY stored minute value', async () => {
+    const props = await roomWithOpsConfig({ autoReleaseBeforeMin: 999 }, { store: STORE_A })
+    const c = controlOf(props, 'reserve.autorelease')
+    const options = c.control.kind === 'select' ? c.control.options.map((o) => o.value) : []
+    expect(options).toEqual(['linked', 'never', 'minutes'])
+    expect(c.value).toBe('minutes')
+    expect(controlOf(props, 'reserve.autorelease-min').value).toBe('999')
   })
 })
 
@@ -1688,6 +1838,11 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     const key = path[path.length - 1] ?? ''
     if (MACHINE_KEYS.has(key)) return true
     if (path.includes('attrs')) return true
+    // ⚖ D-36 — `RowControl.ceilingFrom` names the LIVE SIBLING ids
+    // (`store-hours.day-N` / `open-N` / `close-N`) `effectiveCeiling` reads,
+    // exactly the shape `attrs`/`requires` already are: an id the SCREEN uses,
+    // never a string a reader meets.
+    if (path.includes('ceilingFrom')) return true
     if ((key === 'value' || key === 'hex') && path.includes('options')) return true
     if (key === 'value' && path[path.length - 2] === undefined) return false
     return key === 'value' && isKeyedControl(root)
@@ -1787,7 +1942,11 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     // A screen reader drops `title` once a description is present, so the reason
     // rides the accessible name — which means a code in the reason is a code
     // spoken aloud on every focus.
-    expect(SCREEN_CODE).toContain("'aria-label': `${c.aria} — ${c.locked}`")
+    // ⚖ D-32 F1 — the reason is now `effectiveLock(c, values)`'s result (a
+    // LIVE lock, not the server-baked `c.locked`), read once and reused for
+    // both `title` and `aria-label` — same claim, new variable.
+    expect(SCREEN_CODE).toContain("'aria-label': `${c.aria} — ${lockedReason}`")
+    expect(SCREEN_CODE).toContain('const lockedReason = effectiveLock(c, values)')
     expect(SCREEN_CODE).toContain("'aria-disabled': 'true' as const")
     // `aria-disabled`, never `disabled`, on a locked control: it has to stay
     // focusable for its reason to be reachable by keyboard. The two `disabled`
@@ -2254,6 +2413,37 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(Object.keys(allOff)).toHaveLength(7)
   })
 
+  it('⚖ D-36 (1) — longestOpenDayMin: the LONGEST open day, never the first or the shortest', () => {
+    const day = (on: boolean, open: string, close: string) => ({ on, open, close })
+    // …six ordinary 10:00–19:00 days plus one 定休日 → the fixture's own pair.
+    expect(longestOpenDayMin([
+      day(true, '10:00', '19:00'), day(true, '10:00', '19:00'), day(true, '10:00', '19:00'),
+      day(true, '10:00', '19:00'), day(true, '10:00', '19:00'), day(true, '10:00', '19:00'),
+      day(false, '10:00', '19:00'),
+    ])).toBe(540)
+    // …one day EXTENDED to 08:00–20:00 raises the ceiling for the WHOLE row.
+    expect(longestOpenDayMin([
+      day(true, '08:00', '20:00'), day(true, '10:00', '19:00'), day(false, '10:00', '19:00'),
+    ])).toBe(720)
+    // …one day SHORTENED to 10:00–14:00 while another stays 10:00–19:00 keeps
+    // the LONGEST day, not the one the reader just touched.
+    expect(longestOpenDayMin([day(true, '10:00', '14:00'), day(true, '10:00', '19:00')])).toBe(540)
+    // …every day off → no honest bound exists at all.
+    expect(longestOpenDayMin([day(false, '10:00', '19:00'), day(false, '08:00', '20:00')])).toBeNull()
+    // …a garbage time on one day is SKIPPED, not thrown, and does not poison
+    // the day that does parse.
+    expect(longestOpenDayMin([day(true, 'garbage', '19:00'), day(true, '10:00', '19:00')])).toBe(540)
+    // ⚖ D-38 — an inverted (overnight) day is a non-positive length, not a
+    // day counted at a floored 1 minute: the exact 「typed number rewritten
+    // into another number」 defect a stale floor would ship.
+    expect(longestOpenDayMin([day(true, '22:00', '02:00')])).toBeNull()
+    // …and beside a real day, the inverted one is simply skipped — the real
+    // day's own length still wins the ceiling.
+    expect(longestOpenDayMin([day(true, '22:00', '02:00'), day(true, '10:00', '19:00')])).toBe(540)
+    // …open === close is the same non-positive case (zero-length day).
+    expect(longestOpenDayMin([day(true, '10:00', '10:00')])).toBeNull()
+  })
+
   it('⚖ C2 — 臨時休業 adds, removes, and refuses a duplicate date in the wire’s own words', async () => {
     const props = await room({ store: STORE_A })
     const block = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.closures')!
@@ -2349,23 +2539,341 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(delBody).toContain('rows.filter((r) => r.id !== rowId)')
   })
 
-  it('⚖ C6 — the 直前締切 select stores MINUTES and only says hours', async () => {
+  it('⚖ C6 / ⚖ D-15 (round 3, A2) — 直前締切 is a free MINUTE field; the description says minutes now, not hours', async () => {
     const props = await room({ store: STORE_A })
     const cutoff = controlOf(props, 'reserve.cutoff')
-    const options = cutoff.control.kind === 'select' ? cutoff.control.options : []
-    // ⚠ THE VALUE IS `cutoff_minutes`. Holding hours here and multiplying at the
-    // seam is exactly where a factor of 60 goes missing between two rounds.
-    expect(options.map((o) => o.value)).toEqual(['60', '120', '180', '360'])
-    expect(options.map((o) => o.label)).toEqual(['1時間前', '2時間前', '3時間前', '6時間前'])
-    for (const o of options) expect(Number(o.value) % 60).toBe(0)
-    // …and the seeded value is a real minute count, not an hour that happens to
-    // be inside the list.
-    expect(Number(cutoff.value)).toBeGreaterThanOrEqual(60)
-    expect(options.some((o) => o.value === String(cutoff.value))).toBe(true)
-    // The other four of the five mirrored fields keep the wire's own units.
+    // ⚠ THE VALUE IS `cutoff_minutes`, unchanged by A2: holding hours in the
+    // control and multiplying at the seam was exactly where a factor of 60
+    // used to go missing between two rounds — freeing the field never
+    // reopens that, because there is no hour-shaped option list any more to
+    // read a minute value off of.
+    expect(cutoff.control.kind).toBe('number')
+    expect(cutoff.control.kind === 'number' && cutoff.control.unit).toBe('分')
+    expect(cutoff.value).toBe(String(storeDials[STORE_A].cutoffMinutes))
+    expect(storeDials[STORE_A].cutoffMinutes).toBe(120) // a real minute count, not an hour
+    const desc = rowsOf(props).find((r) => r.id === 'reserve.row-cutoff')!.description
+    expect(desc).toContain('何分前')
+    expect(desc).not.toContain('何時間前')
+    expect(rowsOf(props).find((r) => r.id === 'reserve.row-cutoff')!.source).toBe('コアは「分」で持ちます（2時間前 = 120分）')
+    // The other three of the five mirrored fields keep the wire's own units —
+    // ⚖ D-15 turned 直前締切 and 無料キャンセル期限 into free fields too, so the
+    // census now reads number/number/segment.
     expect(controlOf(props, 'reserve.days').control.kind).toBe('number')
-    expect(controlOf(props, 'reserve.free').control.kind).toBe('select')
+    expect(controlOf(props, 'reserve.free').control.kind).toBe('number')
     expect(controlOf(props, 'reserve.noshow').control.kind).toBe('segment')
+  })
+
+  /** ⚖ D-15 (round 3, A2) — EVERY LENGTH ROW RENDERS `kind:'number'`, WITH ITS
+   *  UNIT AND THE STORE'S OWN VALUE, never a fixed choice list. Not caught by
+   *  any pre-existing pin (the ONE TRUTH describe above checks `.value` only,
+   *  kind-agnostic) — a reversion to a segment/select here would pass every
+   *  other test in this file silently, which is exactly the mutant class this
+   *  pin exists to catch. */
+  it('⚖ D-15 (round 3, A2) — the five converted rows are free minute fields, unit 分, store value never snapped', async () => {
+    const props = await room({ store: STORE_A })
+    for (const id of ['reserve.grid', 'reserve.session', 'reserve.sellslot', 'reserve.gapfill', 'store-hours.block-step']) {
+      const c = controlOf(props, id)
+      expect({ id, kind: c.control.kind }).toEqual({ id, kind: 'number' })
+      expect(c.control.kind === 'number' && c.control.unit).toBe('分')
+    }
+    expect(controlOf(props, 'reserve.grid').value).toBe(String(opsConfig.reserveStartGridMin))
+    expect(controlOf(props, 'reserve.session').value).toBe(String(opsConfig.standardSessionMin))
+    expect(controlOf(props, 'reserve.sellslot').value).toBe(String(opsConfig.sellSlotMin))
+    expect(controlOf(props, 'reserve.sellslot').value).toBe('60') // the fixture's own default
+    expect(controlOf(props, 'reserve.gapfill').value).toBe(String(opsConfig.gapFillMinMin))
+    expect(controlOf(props, 'store-hours.block-step').value).toBe(String(opsConfig.blockStepMin))
+    // …and a store value OFF the old fixed lists renders AS-IS, never snapped
+    // to the nearest of the old choices. Same `isolateModulesAsync` + `doMock`
+    // idiom the other describes in this file use to move an `opsConfig`
+    // module constant for one render.
+    jest.doMock('@/business/lib/fixtures-today', () => {
+      const actual = jest.requireActual('@/business/lib/fixtures-today')
+      return { ...actual, opsConfig: { ...actual.opsConfig, standardSessionMin: 75 } }
+    })
+    let mod75!: typeof import('@/app/[locale]/(business)/business/settings/settings-props')
+    await jest.isolateModulesAsync(async () => {
+      mod75 = await import('@/app/[locale]/(business)/business/settings/settings-props')
+    })
+    jest.dontMock('@/business/lib/fixtures-today')
+    const props75 = (await mod75.settingsProps({ locale: 'ja', store: STORE_A })).props
+    expect(controlOf(props75, 'reserve.session').value).toBe('75')
+  })
+
+  it('⚖ D-15 (round 3, A2) — 販売する枠の長さ is a NEW row, right after 標準セッションの長さ', async () => {
+    const props = await room({ store: STORE_A })
+    const ids = rowsOf(props).map((r) => r.id)
+    const session = ids.indexOf('reserve.row-session')
+    expect(session).toBeGreaterThanOrEqual(0)
+    expect(ids[session + 1]).toBe('reserve.row-sellslot')
+    const row = rowsOf(props).find((r) => r.id === 'reserve.row-sellslot')!
+    expect(row.trio?.base).toBe('初期値: 60分')
+    expect(row.scopeLabel).toBe('事業全体')
+  })
+
+  it('⚖ D-15 (round 3, A2) — every LENGTH row’s ceiling is the store’s own operating day, never a constant', async () => {
+    // ⚠ `dayLen` is READ off the WEEKLY ROWS (⚖ D-36 — the exact derivation
+    // `effectiveCeiling` runs live, never a fixed number this room invented,
+    // and never `operatingHours.close − operatingHours.open` directly — that
+    // was the OLD server-only spelling D-36 found stale against a live page).
+    const props = await room({ store: STORE_A })
+    const dayLen = weeklyDayLen()
+    for (const id of ['reserve.grid', 'reserve.session', 'reserve.sellslot', 'reserve.gapfill', 'store-hours.block-step']) {
+      const c = controlOf(props, id)
+      expect(c.control.kind === 'number' && c.control.max).toBe(dayLen)
+      // ⚖ D-36 — AND THE CEILING FOLLOWS THE LIVE WEEKLY HOURS: every LENGTH
+      // row carries `ceilingFrom`, the one shared `WEEK_CEILING` ids, so a
+      // manager who extends a day on this very page raises this row's
+      // ceiling without a reload.
+      expect(c.ceilingFrom).toEqual(WEEK_CEILING)
+    }
+    // …and the four 「before start」/「days ahead」/「hours before」 fields have
+    // NO ceiling at all (⚖ D-15's own rule: no honest bound exists for them).
+    for (const id of ['reserve.days', 'reserve.cutoff', 'reserve.lead', 'reserve.free', 'reserve.autorelease-min']) {
+      const c = controlOf(props, id)
+      expect(c.control.kind === 'number' && c.control.max).toBeNull()
+    }
+    // ⚖ D-32 F6 — AND THE FLOOR, since a floor with no pin is a mutant
+    // (1 → 0, or 0 → -1) nothing in this battery would notice.
+    for (const id of ['reserve.days', 'reserve.grid', 'reserve.session', 'reserve.sellslot', 'store-hours.block-step', 'reserve.autorelease-min']) {
+      const c = controlOf(props, id)
+      expect({ id, min: c.control.kind === 'number' ? c.control.min : null }).toEqual({ id, min: 1 })
+    }
+    for (const id of ['reserve.cutoff', 'reserve.gapfill', 'reserve.lead', 'reserve.free']) {
+      const c = controlOf(props, id)
+      expect({ id, min: c.control.kind === 'number' ? c.control.min : null }).toEqual({ id, min: 0 })
+    }
+  })
+
+  it('⚖ D-32 F3 — the sweep’s gap: 清掃時間・再来促し・保存期間 are free duration fields too, their old caps gone', async () => {
+    const props = await room({ store: STORE_A })
+    const dayLen = weeklyDayLen()
+    for (const r of resources.filter((r) => r.store_id === STORE_A)) {
+      const c = controlOf(props, `people.cleanup-${r.id}`)
+      expect({
+        id: r.id,
+        kind: c.control.kind,
+        min: c.control.kind === 'number' ? c.control.min : null,
+        max: c.control.kind === 'number' ? c.control.max : null,
+        step: c.control.kind === 'number' ? c.control.step : null,
+        unit: c.control.kind === 'number' ? c.control.unit : null,
+      }).toEqual({ id: r.id, kind: 'number', min: 0, max: dayLen, step: 1, unit: '分' })
+      expect(c.value).toBe(String(r.cleanup_minutes))
+      // ⚖ D-36 — 清掃時間 is one of the six LENGTH rows: the same shared
+      // `WEEK_CEILING` ids, never a per-row spelling of them.
+      expect(c.ceilingFrom).toEqual(WEEK_CEILING)
+    }
+    const shapeOf = (id: string) => {
+      const c = controlOf(props, id).control
+      return c.kind === 'number' ? { min: c.min, max: c.max, step: c.step, unit: c.unit } : null
+    }
+    expect(shapeOf('contact.winback')).toEqual({ min: 1, max: null, step: 1, unit: '日' })
+    expect(controlOf(props, 'contact.winback').value).toBe(String(storeDials[STORE_A].winBackDays))
+    expect(shapeOf('coaching.retention')).toEqual({ min: 1, max: null, step: 1, unit: 'か月' })
+    expect(controlOf(props, 'coaching.retention').value).toBe(String(storeDials[STORE_A].coachingRetentionMonths))
+    // …and the old caps are gone from the payload and the room's own source —
+    // never left behind as dead code with no disclosure.
+    expect(PROPS_CODE).not.toContain('WIN_BACK_MIN')
+    expect(PROPS_CODE).not.toContain('RETENTION_MIN_MONTHS')
+  })
+
+  it('⚖ D-36 (5) — the A1 field’s dayLenMin and the LENGTH rows’ ceiling start from the SAME live derivation', async () => {
+    const props = await room({ store: STORE_A })
+    const policy = await policyOf({ store: STORE_A })
+    const expected = weeklyDayLen()
+    // …#812's own ceiling (`store-policy-props.ts`'s `dayLenMin`) and every
+    // LENGTH row's ceiling on THIS page are the same initial number, because
+    // both are `longestOpenDayMin` over the same weekly rows.
+    expect(policy.dayLenMin).toBe(expected)
+    expect(controlOf(props, 'reserve.grid').control).toMatchObject({ max: expected })
+    // …and the screen mounts #812's section with a LIVE override of that
+    // field, spelled through the one shared `WEEK_CEILING`, never a second
+    // ids list — the source line the D-36 fix actually added.
+    expect(SCREEN_CODE).toContain(
+      'dayLenMin={longestOpenDayMin(WEEK_CEILING.days.map((d) => ({ on: values[d.on], open: values[d.open], close: values[d.close] }))) ?? policy.dayLenMin}',
+    )
+  })
+
+  it('⚖ D-38 (NEW-2) — every WEEK_CEILING id is one storeHours() actually builds, and each carries its real kind', async () => {
+    const props = await settingsProps({ locale: 'ja', store: STORE_A })
+    // …every id `WEEK_CEILING` names is IN the payload — a rename here would
+    // make every day skip and fall back to the server-baked ceiling with the
+    // rest of the battery green, the D-36 bug back silently.
+    const byId = new Map(controlsOf(props.props).map((c) => [c.id, c]))
+    for (const d of WEEK_CEILING.days) {
+      expect(byId.has(d.on)).toBe(true)
+      expect(byId.has(d.open)).toBe(true)
+      expect(byId.has(d.close)).toBe(true)
+      expect(byId.get(d.on)!.control.kind).toBe('switch')
+      expect(byId.get(d.open)!.control.kind).toBe('time')
+      expect(byId.get(d.close)!.control.kind).toBe('time')
+    }
+  })
+
+  it('⚖ D-31/D-32 F4 §C — the four zero-capable rows carry their zeroLabel, byte-identical to the JP file', async () => {
+    const props = await room({ store: STORE_A })
+    const zeroLabelOf = (id: string) => {
+      const c = controlOf(props, id).control
+      return c.kind === 'number' ? c.zeroLabel : undefined
+    }
+    expect(zeroLabelOf('reserve.cutoff')).toBe('締め切らない')
+    expect(zeroLabelOf('reserve.lead')).toBe('制限なし')
+    // ⚖ D-35 (1) — 「販売しない」→「販売なし」 (JP-NATIVE-R3/A2-ZERO-PREVIEW.md §1).
+    expect(zeroLabelOf('reserve.gapfill')).toBe('販売なし')
+    expect(zeroLabelOf('reserve.free')).toBe('いつでも無料')
+    // …and `labelOfValue` answers the zeroLabel exactly at 0, the real number
+    // otherwise — the SAME function the preview sentence and this field's own
+    // display both read through.
+    const cutoffCtrl = controlOf(props, 'reserve.cutoff').control
+    expect(labelOfValue(cutoffCtrl, '120')).toBe('120分')
+    expect(labelOfValue(cutoffCtrl, '0')).toBe('締め切らない')
+  })
+
+  it('⚖ D-33 R2 — the aside\'s gap-fill line reads the zero state, one spelling with the row\'s own zeroLabel', async () => {
+    const props = await room({ store: STORE_A })
+    const asideLineOf = (p: SettingsProps, label: string) =>
+      sectionOf(p, 'reserve-acceptance').aside!.lines.find((l) => l.label === label)!.value
+    // (a) at the fixture (gapFillMinMin: 30) the line is byte-unchanged.
+    expect(asideLineOf(props, 'スキマ枠')).toBe('30分以上・10%引き')
+
+    // (b) under the suite's opsConfig override door with gapFillMinMin: 0 the
+    // aside reads the row's own zero label alone — no discount clause for a
+    // slot that is not sold.
+    jest.doMock('@/business/lib/fixtures-today', () => {
+      const actual = jest.requireActual('@/business/lib/fixtures-today')
+      return { ...actual, opsConfig: { ...actual.opsConfig, gapFillMinMin: 0 } }
+    })
+    let mod0!: typeof import('@/app/[locale]/(business)/business/settings/settings-props')
+    await jest.isolateModulesAsync(async () => {
+      mod0 = await import('@/app/[locale]/(business)/business/settings/settings-props')
+    })
+    jest.dontMock('@/business/lib/fixtures-today')
+    const props0 = (await mod0.settingsProps({ locale: 'ja', store: STORE_A })).props
+    const aside0 = asideLineOf(props0, 'スキマ枠')
+    // ⚖ D-35 (1) — 「販売しない」→「販売なし」 (JP-NATIVE-R3/A2-ZERO-PREVIEW.md §1).
+    expect(aside0).toBe('販売なし')
+    expect(aside0).not.toContain('0分')
+    expect(aside0).not.toContain('%引き')
+
+    // (c) the row's own zeroLabel and the aside's zero value are the SAME
+    // string, read through the two payload paths — not a typed literal twice.
+    const gapfillCtrl0 = controlOf(props0, 'reserve.gapfill').control
+    expect(gapfillCtrl0.kind === 'number' ? gapfillCtrl0.zeroLabel : undefined).toBe(aside0)
+  })
+
+  it('⚖ D-31/D-32 F4 §B — each zero-capable row’s description states what 0 means, verbatim', async () => {
+    const props = await room({ store: STORE_A })
+    const descOf = (id: string) => rowsOf(props).find((r) => r.id === id)!.description
+    expect(descOf('reserve.row-cutoff')).toBe('予約開始時刻の何分前に、オンラインの受付を締め切るかです。0にすると、締め切らずに直前まで受け付けます。')
+    expect(descOf('reserve.row-lead')).toBe('開始までこの時間を切った空きは、お客様に出しません。0にすると、直前の空きも制限なく出します。')
+    expect(descOf('reserve.row-gapfill')).toBe('予約と予約のあいだにできる空きのうち、開始時刻の刻みに乗らない端の部分だけを特価で売ります。0にすると、スキマ枠そのものを販売しません。')
+    expect(descOf('reserve.row-free')).toBe('この時刻より前のキャンセルは、キャンセル料がかかりません。0にすると、開始直前までキャンセル料がかかりません。')
+  })
+
+  it('⚖ D-31/D-32 F4 §D — RED-FIRST: the lead/gapfill guardrails no longer name a deleted option, verbatim', async () => {
+    const props = await room({ store: STORE_A })
+    const guardrailOf = (id: string) => rowsOf(props).find((r) => r.id === id)!.trio!.guardrail
+    expect(guardrailOf('reserve.row-lead')).toBe('0にすると、準備の時間がない予約が入ります。締め切った空きは店頭・電話でのみ扱えます。')
+    expect(guardrailOf('reserve.row-gapfill')).toBe('0にすると、スキマ枠の販売そのものをやめます。それ以外は、この長さに届かない端を掲載しません。刻みを細かくするほど端は小さくなり、この枠自体が縮みます。')
+    // RED-FIRST: the OLD sentences named a deleted option / read backwards at
+    // 0 — gone from the whole payload, not merely reworded in one spot.
+    const payload = JSON.stringify(props)
+    expect(payload).not.toContain('制限なしにすると')
+    expect(payload).not.toContain('この長さより短い端は掲載しません。刻みを細かくするほど端は小さくなり')
+  })
+
+  it('⚖ D-31 §A fix — the block preview reads a LABEL at both a real number and the zero state', async () => {
+    const props = await room({ store: STORE_A })
+    const seed = seedOf(props)
+    const kinds = Object.fromEntries(controlsOf(props).map((c) => [c.id, c.control]))
+    const label = (values: Record<string, RowValue>) => (id: string) => (kinds[id] ? labelOfValue(kinds[id], values[id]) : null)
+    const windowBlock = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!
+    expect(fillTemplate(previewTemplate(windowBlock.preview!, seed), label(seed))).toBe(
+      'お客様には30日先まで、60分きざみの開始時刻を出します。直前締切は120分、直前の空き制限は60分、スキマ枠の販売は30分です。対象のスキマ枠は10%引きで掲載します。',
+    )
+
+    // ⚖ D-31 — AND THE ZERO STATE READS AS THE STATE, not 「0分」 with the
+    // meaning reversed underneath it.
+    jest.doMock('@/business/lib/fixtures-today', () => {
+      const actual = jest.requireActual('@/business/lib/fixtures-today')
+      return { ...actual, opsConfig: { ...actual.opsConfig, leadTimeMin: 0, gapFillMinMin: 0 } }
+    })
+    let mod0!: typeof import('@/app/[locale]/(business)/business/settings/settings-props')
+    await jest.isolateModulesAsync(async () => {
+      mod0 = await import('@/app/[locale]/(business)/business/settings/settings-props')
+    })
+    jest.dontMock('@/business/lib/fixtures-today')
+    const props0 = (await mod0.settingsProps({ locale: 'ja', store: STORE_A })).props
+    const seed0 = seedOf(props0)
+    const kinds0 = Object.fromEntries(controlsOf(props0).map((c) => [c.id, c.control]))
+    const label0 = (values: Record<string, RowValue>) => (id: string) => (kinds0[id] ? labelOfValue(kinds0[id], values[id]) : null)
+    const windowBlock0 = sectionOf(props0, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!
+    // ⚖ D-35 (2) — the discount sentence contradicts a gap-fill of zero, so
+    // `previewTemplate` drops it before `fillTemplate` runs — the same order
+    // the screen's own call site now uses.
+    const rendered0 = fillTemplate(previewTemplate(windowBlock0.preview!, seed0), label0(seed0))
+    expect(rendered0).toContain('直前の空き制限は制限なし')
+    // ⚖ D-35 (1) — GAPFILL_ZERO_LABEL is 「販売なし」 now (was 「販売しない」, broken
+    // register — JP-NATIVE-R3/A2-ZERO-PREVIEW.md §1).
+    expect(rendered0).toContain('スキマ枠の販売は販売なし')
+    // …neither zero-capable clause prints a bare 「0分」 any more — each reads
+    // as the STATE it is instead (the 60分きざみ clause is unrelated to either
+    // zeroed field, so it is excluded rather than asserting no "0分" at all).
+    expect(rendered0).not.toContain('直前の空き制限は0分')
+    expect(rendered0).not.toContain('スキマ枠の販売は0分')
+    // ⚖ D-35 (2) pin (iii) — the all-zero case: the discount sentence is gone
+    // (no 「引き」 anywhere) and the rendered sentence ends on the dropped
+    // gap-fill clause.
+    expect(rendered0.endsWith('スキマ枠の販売は販売なしです。')).toBe(true)
+    expect(rendered0).not.toContain('引き')
+  })
+
+  it('⚖ D-34 item 8 — a box the reader has just CLEARED (mid-edit) never reads as the committed zero', async () => {
+    const props = await room({ store: STORE_A })
+    const seed = seedOf(props)
+    const kinds = Object.fromEntries(controlsOf(props).map((c) => [c.id, c.control]))
+    const label = (values: Record<string, RowValue>) => (id: string) => (kinds[id] ? labelOfValue(kinds[id], values[id]) : null)
+    const windowBlock = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!
+    // ⚠ RED under the D-34 item 8 revert (`Number(value) === 0`): `Number('')
+    // === 0` would make this cleared box read as the committed zero.
+    const clearedValues = { ...seed, 'reserve.cutoff': '' }
+    const rendered = fillTemplate(previewTemplate(windowBlock.preview!, clearedValues), label(clearedValues))
+    expect(rendered).not.toContain('締め切らない')
+    // …the pre-existing mid-edit shape (a bare unit with nothing in front of
+    // it) is what an empty string DOES render as — recorded, not this pin's
+    // job to fix.
+    expect(rendered).toContain('直前締切は分')
+  })
+
+  it('⚖ D-35 (2) pin (i) — previewTemplate driven directly: drops the sentence at "0", keeps it otherwise, no-op with no dropWhen', async () => {
+    const props = await room({ store: STORE_A })
+    const seed = seedOf(props)
+    const windowBlock = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!
+    const preview = windowBlock.preview!
+    const dropped = previewTemplate(preview, { ...seed, 'reserve.gapfill': '0' })
+    expect(dropped).not.toContain('引き')
+    // …exactly the named sentence is gone, nothing else about the template moved.
+    expect(dropped + preview.dropWhen!.sentence).toBe(preview.template)
+    const kept = previewTemplate(preview, { ...seed, 'reserve.gapfill': '30' })
+    expect(kept).toBe(preview.template)
+    const noDropWhen: SettingsBlock['preview'] = { template: preview.template }
+    expect(previewTemplate(noDropWhen!, seed)).toBe(preview.template)
+  })
+
+  it('⚖ D-35 (2) pin (ii) — a guard leg: the Reserve window template really contains the sentence it can drop', async () => {
+    const props = await room({ store: STORE_A })
+    const preview = sectionOf(props, 'reserve-acceptance').blocks.find((b) => b.id === 'reserve.window')!.preview!
+    expect(preview.dropWhen?.controlId).toBe('reserve.gapfill')
+    expect(preview.dropWhen?.is).toBe('0')
+    expect(preview.dropWhen!.sentence).toBe('対象のスキマ枠は{reserve.gapdisc}引きで掲載します。')
+    // …a silent no-op drop (a `sentence` the template never contained) is
+    // exactly the failure this leg catches.
+    expect(preview.template.includes(preview.dropWhen!.sentence)).toBe(true)
+  })
+
+  it('⚖ D-35 (2) pin (iv) — the screen resolves the block preview through previewTemplate before fillTemplate, at the one call site', () => {
+    expect(SCREEN_CODE).toContain('fillTemplate(previewTemplate(block.preview, values), labelFor)')
+    // …and the action-result template (a different feature, D-35 does not touch it).
+    expect(SCREEN_CODE).toContain("fillTemplate(action.template, labelFor)")
   })
 
   it('⚖ mock D4 — the lead that points at the live card is TRUE at both widths', async () => {
@@ -2534,8 +3042,18 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     // vocabulary with the fold (their ONE home is 予約と確保, where #812 renders
     // them as segments sized by its own sheet). The geometry law still holds for
     // every over-wide choice this room still states.
-    for (const id of ['pricing.framing', 'reserve.cutoff', 'reserve.gapfill', 'reserve.gapdisc', 'reserve.lead', 'reserve.autorelease', 'reserve.free']) {
+    // ⚖ D-15 (round 3, A2) — FOUR OF THE SEVEN BECAME FREE MINUTE FIELDS, no
+    // option list to be over-wide at all: `reserve.cutoff` / `reserve.gapfill`
+    // / `reserve.lead` / `reserve.free` are `num` now. `reserve.autorelease`
+    // stays a select — its number sibling (`reserve.autorelease-min`) is the
+    // one that carries the actual minute value. `pricing.framing` and
+    // `reserve.gapdisc` are untouched by D-15 (framing / a percentage, not a
+    // duration).
+    for (const id of ['pricing.framing', 'reserve.gapdisc', 'reserve.autorelease']) {
       expect({ id, shape: controlOf(props, id).control.kind }).toEqual({ id, shape: 'select' })
+    }
+    for (const id of ['reserve.cutoff', 'reserve.gapfill', 'reserve.lead', 'reserve.free']) {
+      expect({ id, shape: controlOf(props, id).control.kind }).toEqual({ id, shape: 'number' })
     }
     // …and the segments that REMAIN are the short ones: no single-choice segment
     // in the room carries more options than the four the floor was measured from.

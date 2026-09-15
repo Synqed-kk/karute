@@ -7,7 +7,7 @@
 // the page, Bearer fan-out in the facade route), so this can never re-fetch
 // or diverge between the two.
 
-import type { DayWeekMonthView, MonthGridCell, WeekDayCardData } from '@synqed-kk/ui'
+import type { DayWeekMonthView, MonthGridCell } from '@synqed-kk/ui'
 import type { Appointment } from '@synqed-kk/client'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { OrgSettings } from '@/actions/org-settings'
@@ -20,13 +20,17 @@ import { staffRoleLabel } from '@/lib/staff/role-label'
 import {
   appointmentsToWeekData,
   appointmentsToMonthCells,
+  type WeekDayRowData,
 } from '@/lib/adapters/reservation'
+import type { AppointmentWindow } from '@/lib/appointments/by-date'
+import type { DayHoursFact } from '@/lib/operating-hours'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
 import { isReturningCustomer } from '@/lib/customers/status-signals'
 import { firstVisitFromBooking } from '@/lib/customers/first-visit'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
-import { jstStartOfToday } from '@/lib/date/jst'
+import { jstStartOfToday, partsInJst } from '@/lib/date/jst'
+import { jstMidnight } from '@/lib/date/calendar-range'
 import type { computeWeekRange, computeMonthRange } from '@/lib/date/calendar-range'
 
 export function parseDateParam(value: string | undefined): Date {
@@ -82,6 +86,16 @@ export interface AppointmentsScreenInputs {
   monthRange: ReturnType<typeof computeMonthRange> | null
   weekRangeAppts: Appointment[] | null
   monthRangeAppts: Appointment[] | null
+  /** The partitioned windows (fetchAppointmentWindow). A window WINS over the
+   *  matching legacy array above; the arrays stay so every existing caller and
+   *  test keeps compiling. */
+  weekWindow?: AppointmentWindow | null
+  monthWindow?: AppointmentWindow | null
+  /** The selected day's own window — fetched only in day view; in week/month
+   *  view the selected day is already inside the bigger window. */
+  dayWindow?: AppointmentWindow | null
+  /** That day's resolved hours, keyed by JST YYYY-MM-DD (resolveWindowHours). */
+  hoursFacts?: ReadonlyMap<string, DayHoursFact>
   enrichment: Map<string, CustomerEnrichment>
   packUsage: ReadonlyMap<string, { remaining: number; size: number }>
 }
@@ -118,10 +132,49 @@ export interface AppointmentsScreen {
   visibleActiveStaffId: string | null
   reservationViews: ReservationView[]
   businessHours: { start: number; end: number }
-  weekData: WeekDayCardData[] | null
+  weekData: WeekDayRowData[] | null
   weekStartIso: string | null
   monthData: MonthGridCell[] | null
   monthStartIso: string | null
+  /** The SELECTED day's row, from the same adapter the week rows come from —
+   *  so the day line and the week row can never disagree. Null when no window
+   *  covers the selected day, or when the read was truncated. */
+  dayTotals: WeekDayRowData | null
+  /** Any window could not be read to exhaustion. Then weekData, monthData and
+   *  dayTotals are ALL null and the surface renders the failed-read state —
+   *  never a low number. */
+  truncated: boolean
+}
+
+/**
+ * Which CORE staff id should the window fetch filter on?
+ *
+ * `appointments.staff_id` is a CORE staff id; the app's roster, the ?staff=
+ * param and the viewer's own id are PROFILE (auth) ids. Sending a profile id as
+ * `staff_id` would filter to nothing and read as "an empty week".
+ *
+ *   'all'                        → no filter
+ *   'self' with a viewer id      → that viewer's core id
+ *   'self' with no viewer id     → no filter (exactly the day path's behaviour)
+ *   a profile id in the map      → its core id
+ *   an UNLINKED core id (a map VALUE, i.e. already core-side) → itself
+ *   anything else                → unknown: the caller ships an EMPTY window,
+ *                                  never an unfiltered one
+ */
+export function resolveFetchStaffId(
+  staffFilter: string,
+  activeStaffId: string | null,
+  coreStaffByProfileId: ReadonlyMap<string, string>,
+): { staffId: string | null; unknown: boolean } {
+  if (staffFilter === 'all') return { staffId: null, unknown: false }
+  const wanted = staffFilter === 'self' ? activeStaffId : staffFilter
+  if (!wanted) return { staffId: null, unknown: false }
+  const mapped = coreStaffByProfileId.get(wanted)
+  if (mapped) return { staffId: mapped, unknown: false }
+  for (const coreId of coreStaffByProfileId.values()) {
+    if (coreId === wanted) return { staffId: wanted, unknown: false }
+  }
+  return { staffId: null, unknown: true }
 }
 
 export function buildAppointmentsScreen(
@@ -142,6 +195,10 @@ export function buildAppointmentsScreen(
     monthRange,
     weekRangeAppts,
     monthRangeAppts,
+    weekWindow,
+    monthWindow,
+    dayWindow,
+    hoursFacts,
     enrichment,
     packUsage,
   } = input
@@ -289,46 +346,88 @@ export function buildAppointmentsScreen(
 
   // Project the caller's range fetches into the week/month data shapes the
   // AppointmentsView expects — synchronous transforms of already-read rows.
-  let weekData: WeekDayCardData[] | null = null
+  //
+  // A WINDOW wins over the legacy raw array: the array carries no terminal
+  // partitions and no truncation flag, so it is only the compatibility shape
+  // for callers that have not moved to fetchAppointmentWindow yet.
+  const asWindow = (rows: Appointment[] | null | undefined): AppointmentWindow | null =>
+    rows ? { counted: rows, cancelled: [], noShow: [], truncated: false } : null
+  const weekWin = weekWindow ?? asWindow(weekRangeAppts)
+  const monthWin = monthWindow ?? asWindow(monthRangeAppts)
+  const dayWin = dayWindow ?? null
+  const truncated = [weekWin, monthWin, dayWin].some((w) => w?.truncated === true)
+
+  // The week's average business-hours minutes — the fallback denominator for a
+  // day whose capacity is NOT defensible (the adapter's unchanged arithmetic).
+  // Without a week range the selected day's own org hours are that fallback, so
+  // the week rows and dayTotals always share one number.
+  const fallbackDayMinutes = weekRange
+    ? (() => {
+        let sum = 0
+        const cur = new Date(weekRange.weekStart)
+        for (let i = 0; i < 7; i++) {
+          const dh = getOperatingHoursForDate(orgSettings?.operating_hours, cur)
+          sum += Math.max(0, dh.closeMinute - dh.openMinute)
+          cur.setDate(cur.getDate() + 1)
+        }
+        return Math.round(sum / 7)
+      })()
+    : Math.max(0, dayOpHours.closeMinute - dayOpHours.openMinute)
+
+  const newCustomerIds = new Set(
+    customers.filter((c) => !c.isExistingCustomer).map((c) => c.id),
+  )
+  const soloMode = orgSettings?.solo_mode === true
+
+  const rowsFor = (win: AppointmentWindow, from: Date, to: Date): WeekDayRowData[] =>
+    appointmentsToWeekData(
+      win.counted,
+      from,
+      to,
+      fallbackDayMinutes,
+      now,
+      locale,
+      newCustomerIds,
+      { cancelled: win.cancelled, noShow: win.noShow },
+      hoursFacts,
+      soloMode,
+    )
+
+  let weekData: WeekDayRowData[] | null = null
   let monthData: MonthGridCell[] | null = null
   let weekStartIso: string | null = null
   let monthStartIso: string | null = null
 
-  if (weekRange && weekRangeAppts) {
-    // Average business-hours minutes across the week (a single number for the
-    // utilization chip — close enough for the overview view).
-    const totalMinutes = (() => {
-      let sum = 0
-      const cur = new Date(weekRange.weekStart)
-      for (let i = 0; i < 7; i++) {
-        const dh = getOperatingHoursForDate(orgSettings?.operating_hours, cur)
-        sum += Math.max(0, dh.closeMinute - dh.openMinute)
-        cur.setDate(cur.getDate() + 1)
-      }
-      return Math.round(sum / 7)
-    })()
-
-    const newCustomerIds = new Set(
-      customers.filter((c) => !c.isExistingCustomer).map((c) => c.id),
-    )
-    weekData = appointmentsToWeekData(
-      weekRangeAppts,
-      weekRange.weekStart,
-      weekRange.weekEnd,
-      totalMinutes,
-      now,
-      locale,
-      newCustomerIds,
-    )
+  if (weekRange && weekWin) {
+    if (!truncated) {
+      weekData = rowsFor(weekWin, weekRange.weekStart, weekRange.weekEnd)
+    }
     weekStartIso = weekRange.weekStart.toISOString()
-  } else if (monthRange && monthRangeAppts) {
-    monthData = appointmentsToMonthCells(
-      monthRangeAppts,
-      monthRange.monthStart,
-      monthRange.monthEnd,
-      now,
-    )
+  } else if (monthRange && monthWin) {
+    if (!truncated) {
+      monthData = appointmentsToMonthCells(
+        monthWin.counted,
+        monthRange.monthStart,
+        monthRange.monthEnd,
+        now,
+      )
+    }
     monthStartIso = monthRange.monthStart.toISOString()
+  }
+
+  // The selected day's row, from the SAME adapter — its own window when one was
+  // fetched, else the week/month window IF the selected day genuinely lies
+  // inside it (a day outside the fetched range would read 0件, which is a lie).
+  const covers = (r: { rangeFrom: Date; rangeTo: Date } | null): boolean =>
+    r != null && selectedDate >= r.rangeFrom && selectedDate <= r.rangeTo
+  const dayTotalsWindow =
+    dayWin ??
+    (weekWin && covers(weekRange) ? weekWin : monthWin && covers(monthRange) ? monthWin : null)
+  let dayTotals: WeekDayRowData | null = null
+  if (dayTotalsWindow && !truncated) {
+    const p = partsInJst(selectedDate)
+    const dayStart = jstMidnight(p.year, p.month, p.day)
+    dayTotals = rowsFor(dayTotalsWindow, dayStart, dayStart)[0] ?? null
   }
 
   return {
@@ -342,5 +441,7 @@ export function buildAppointmentsScreen(
     weekStartIso,
     monthData,
     monthStartIso,
+    dayTotals,
+    truncated,
   }
 }

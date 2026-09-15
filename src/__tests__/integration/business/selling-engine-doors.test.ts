@@ -78,7 +78,7 @@ import {
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { freePockets, type GapCell } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
-import { clampPriceInputs, SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
+import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
 import { STORE_A } from '@/business/lib/fixtures'
 import { cleanupBlocks, hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 import { createClient } from '@/lib/supabase/server'
@@ -604,6 +604,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]): Door {
   const drops: SellDrop[] = []
   const sell = sellLayerFor(w.lanes, w.hours, {
     gridMin: c.gridMin,
+    sellSlotMin: REAL.sell.sellSlotMin,
     nowMinute: w.now,
     locked: [],
     showPrice: true,
@@ -625,7 +626,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]): Door {
         // ⚖ Greptile #815 — the same `locked: []` this composer already hands
         // `gap`/`sell` above (this file's worlds model no locked lanes).
         locked: [],
-        dials: gapPackingDials(w.lanes, dialOpts),
+        dials: { ...gapPackingDials(w.lanes, dialOpts), sellSlotMin: REAL.sell.sellSlotMin },
       })
     : null
   const gapDrawn = fallback
@@ -1318,7 +1319,7 @@ describe('3 — the sales door with the mask live', () => {
 
     // (ii) SELL HOURS INSIDE A HELD WINDOW ARE TAGGED, and nothing else is.
     for (const s of on.sell.cells) {
-      const inside = (byLane.get(s.laneKey) ?? []).some((h) => meets(s.h, s.h + SELL_SLOT_MIN, h.start, h.end))
+      const inside = (byLane.get(s.laneKey) ?? []).some((h) => meets(s.h, s.e, h.start, h.end))
       if (inside !== isHeldBound(s)) {
         broken.push(`sell ${s.laneKey}@${hhmm(s.h)} tagged=${isHeldBound(s)} inside=${inside}`)
       }
@@ -1357,7 +1358,7 @@ describe('3 — the sales door with the mask live', () => {
         }
       }
       for (const s of on.sell.cells) {
-        if (s.group === 'staff' && s.laneKey === a.laneKey && meets(a.s, a.e, s.h, s.h + SELL_SLOT_MIN)) {
+        if (s.group === 'staff' && s.laneKey === a.laneKey && meets(a.s, a.e, s.h, s.e)) {
           broken.push(`${a.laneKey} promised ${span(a.s, a.e)} under its own sell hour ${hhmm(s.h)}`)
         }
       }
@@ -2058,7 +2059,7 @@ describe('5 — a held window explains itself, and is not explained away', () =>
     const held = maskOf(w, c)
     const seen: SellDrop[] = []
     const { price, depth } = priceOf()
-    const base = { gridMin: c.gridMin, nowMinute: w.now, locked: [], showPrice: true, hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth, held }
+    const base = { gridMin: c.gridMin, sellSlotMin: REAL.sell.sellSlotMin, nowMinute: w.now, locked: [], showPrice: true, hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth, held }
     const withDrops = sellLayerFor(w.lanes, w.hours, {
       ...base,
       reconcile: { claims: door(w, c, held).claims, cleanupMinutesByBed: w.cleanup, onDrop: (d) => seen.push(d) },
