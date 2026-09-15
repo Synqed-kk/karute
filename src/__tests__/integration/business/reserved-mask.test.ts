@@ -1096,18 +1096,26 @@ describe('⚖ ROUND 3 · C — a store with no rooms holds windows on staff time
         key: 'g-float', group: 'staff', label: 'テスト さぶろう', window: BOUNDS, stores: null,
         items: [item({ key: 'b3', kind: 'booking', caseId: 'b3', startMin: 660, endMin: 720 })],
       }),
-      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', window: null, stores: ['store-gym'] }),
+      lane({
+        key: 'bed-01', group: 'beds', label: 'ベッド1', window: null, stores: ['store-gym'],
+        items: [item({ key: 'r1', kind: 'booking', caseId: 'r1', startMin: 780, endMin: 870 })],
+      }),
     ]
     expect(sharesStore(null, ['store-gym'])).toBe(true)
     expect(storeHasBeds(lanes, null)).toBe(true)
     const book = bedTruthViews(lanes, { openMin: BOUNDS.from, closeMin: BOUNDS.until, nowMin: BOUNDS.from }, null).world
     const mask = reservedMaskFor({ lanes, closeMin: BOUNDS.until, nowMin: null, guard: GUARD, gapGuardMode: 'standard', book })
     const printed = mask.find((m) => m.laneKey === 'g-float')
-    console.log('7(c)', printed)
-    // The callback is installed (unlike the no-bed-lane case (a)): the walk asks
-    // the book, which is what makes a room genuinely double-booked with a
-    // standing booking on the same span refuse it — proven by feasibility
-    // returning a real (non-vacuous) answer either way, printed above.
-    expect(printed).toBeDefined()
+    const withCallback = startsFor(lanes[0], GUARD, 'standard', bedCtx(book, lanes[0]))
+    const noCallback = startsFor(lanes[0], GUARD, 'standard', {})
+    console.log('7(c)', { spans: printed!.spans.map((s) => s.windowStart), withCallback, noCallback })
+    // The callback is installed (unlike the no-bed-lane case (a)): `bed-01`'s
+    // own booking (r1, 13:00-14:30) removes a start the no-callback
+    // enumeration would still hold. The mask's spans equal the WITH-callback
+    // oracle (this file's own `startsFor`/`bedCtx`) and genuinely differ from
+    // the WITHOUT-callback one — proof the callback is installed AND that it
+    // changes the answer on this board, not just that something printed.
+    expect(printed!.spans.map((s) => s.windowStart)).toEqual(withCallback)
+    expect(printed!.spans.map((s) => s.windowStart)).not.toEqual(noCallback)
   })
 })
