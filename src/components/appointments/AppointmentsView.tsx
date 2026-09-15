@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
 import { useUnreadCount } from '@/lib/notifications/hooks'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
@@ -209,13 +209,21 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   // phone: the DTO lands), which is several hundred ms of a cell that does not
   // look tapped — and 「tap a day = stay」 lives or dies on that feeling.
   //
-  // The pair is SELF-CLEARING, with no effect and no state written during
-  // render: `from` is the page's own selection at the moment of the tap, so the
-  // held value survives exactly as long as the page still shows that older day.
-  // The instant the answer lands (selection = the tapped day) or an arrow
-  // overtakes it (selection = some third day), the real value takes over again.
-  const [tappedDay, setTappedDay] = useState<{ iso: string; from: string } | null>(null)
-  const shownDayIso = tappedDay && tappedDay.from === selectedIso ? tappedDay.iso : selectedIso
+  // R1-1 (LENS-1 #1) — the hold belongs to the MOVE that opened it, never to
+  // the day the page happens to be showing. The first shape held `{ iso, from }`
+  // and compared `from` against the current selection, so coming BACK to the day
+  // the tap was made from — 今日, the back gesture, the date-jump panel — re-armed
+  // a spent hold: the ring and the chip sat on a day the page had already left
+  // and the card stayed pending forever, with an invisible door into the wrong
+  // day. So the hold is discarded at BOTH ends of its own move: the effect below
+  // spends it when its answer lands, and `navigateTo` spends it when any other
+  // navigation starts (a 今日 press that re-selects the day already selected
+  // changes no prop at all, so the effect alone could not see it).
+  const [tappedDay, setTappedDay] = useState<string | null>(null)
+  const shownDayIso = tappedDay ?? selectedIso
+  useEffect(() => {
+    if (tappedDay === selectedIso) setTappedDay(null)
+  }, [tappedDay, selectedIso])
   // `today` is reserved for the Today button (jump-to-now) — the displayed
   // header always reflects whichever date is currently selected.
   // jstStartOfToday() returns the UTC instant of JST 00:00 today, so
@@ -239,6 +247,11 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   )
 
   function navigateTo(nextView: DayWeekMonthView, nextDate: Date) {
+    // R1-1 — any move spends the held tap. A month-cell tap re-arms it right
+    // after this call (both writes are urgent and batch into one commit, so the
+    // newest finger wins); every other door — the arrows, 今日, the date-jump
+    // panel, the view switch, the card's own door — leaves it spent.
+    setTappedDay(null)
     const search = new URLSearchParams()
     search.set('view', nextView)
     search.set('date', ymdInJst(nextDate))
@@ -295,8 +308,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       navigateTo('day', date)
       return
     }
-    setTappedDay({ iso, from: selectedIso })
     navigateTo('month', date)
+    setTappedDay(iso)
   }
   function handlePickMonth(year: number, month: number) {
     navigateTo(

@@ -408,17 +408,65 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     expect(monthPageProps!.selectedDateIso).toBe('2026-09-17')
   })
 
-  it('an ARROW after a tap wins: the held day never outlives the page it was tapped from', () => {
+  it('an ARROW after a tap wins: the held day never outlives the move it belongs to', () => {
     renderView(MONTH_VIEW)
     act(() => monthPageProps!.onPickDay('2026-09-17'))
     expect(monthPageProps!.selectedDateIso).toBe('2026-09-17')
-    // The page moves somewhere else entirely (a month arrow lands on the 1st).
+    // R1-1 — the page moves somewhere else entirely (a month arrow lands on the
+    // 1st). The tap's move is over, so its hold is spent AT THE ARROW: the ring
+    // goes back to the page's real selection rather than sitting on a day the
+    // staff member has already navigated past.
     act(() => header().onNext())
-    expect(monthPageProps!.selectedDateIso).toBe('2026-09-17')
-    // …and the moment the server's answer is a DIFFERENT day, the real
-    // selection takes over again rather than the stale tap.
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
+    // …and the arrow's own answer takes it from there.
     rerenderWith({ ...MONTH_VIEW, selectedDateIso: '2026-10-01T00:00:00+09:00' })
     expect(monthPageProps!.selectedDateIso).toBe('2026-10-01')
+  })
+
+  // R1-1 (LENS-1 #1, BLOCKER) — the reachable freeze: open 月 on today, tap any
+  // other day, let it land, press 今日. The old hold was keyed on the day it was
+  // tapped FROM, so arriving back at that day re-armed it: ring, chip and door
+  // stuck on the tapped day, card pending for good.
+  it('a landed tap is SPENT: 今日 after it puts ring, chip and card back on today', () => {
+    renderView(MONTH_VIEW)
+    act(() => monthPageProps!.onPickDay('2026-09-17'))
+    // The answer lands on the tapped day.
+    rerenderWith({ ...MONTH_VIEW, selectedDateIso: '2026-09-17T00:00:00+09:00' })
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-17')
+    expect(cardProps!.pending).toBe(false)
+    // 今日 — the common path back.
+    act(() => header().onToday())
+    rerenderWith({ ...MONTH_VIEW, selectedDateIso: '2026-09-15T00:00:00+09:00' })
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
+    expect(cardProps!.dateIso).toBe('2026-09-15')
+    expect(cardProps!.pending).toBe(false)
+    const chip = (uiProps.ReservationPageHeader as Record<string, unknown>)
+      .dateDisplayCompact as { props: { children: string } }
+    expect(chip.props.children).toContain('15')
+    expect(chip.props.children).not.toContain('17')
+  })
+
+  it('the date-jump panel picking the day the tap came FROM is spent too', () => {
+    renderView(MONTH_VIEW)
+    act(() => monthPageProps!.onPickDay('2026-09-17'))
+    rerenderWith({ ...MONTH_VIEW, selectedDateIso: '2026-09-17T00:00:00+09:00' })
+    act(() => (panelProps.onPickDay as (d: Date) => void)(new Date('2026-09-15T00:00:00+09:00')))
+    rerenderWith({ ...MONTH_VIEW, selectedDateIso: '2026-09-15T00:00:00+09:00' })
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
+    expect(cardProps!.pending).toBe(false)
+  })
+
+  // The same freeze from the other side: 今日 pressed while the tap is still in
+  // flight re-selects the day the page is ALREADY on, so no prop ever changes —
+  // nothing but the navigation itself can spend the hold.
+  it('今日 DURING a pending tap spends the hold even though no prop changes', () => {
+    renderView(MONTH_VIEW)
+    act(() => monthPageProps!.onPickDay('2026-09-17'))
+    expect(cardProps!.pending).toBe(true)
+    act(() => header().onToday())
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
+    expect(cardProps!.dateIso).toBe('2026-09-15')
+    expect(cardProps!.pending).toBe(false)
   })
 
   it('the CHIP follows the ring in 月 mode — one day named, not two (§v11b)', () => {
