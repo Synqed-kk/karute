@@ -21,7 +21,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { render } from '@testing-library/react'
-import type { WeekDayRowData } from '@/lib/adapters/reservation'
+import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 
 jest.mock('next-intl', () => ({
@@ -56,6 +56,9 @@ function totals(): WeekDayRowData {
     cancelledCount: 1,
     noShowDayCount: 0,
     returningCount: 0,
+    // The nine capacity-model fields for a day with no capacity — the same
+    // no-capacity defaults `capacityDefensible: false` above already means.
+    ...capacityRowFields(undefined),
   }
 }
 

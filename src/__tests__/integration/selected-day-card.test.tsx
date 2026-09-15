@@ -8,7 +8,7 @@
  * alike, and a closed day must not offer a door into nothing.
  */
 import { act, render, screen, fireEvent } from '@testing-library/react'
-import type { WeekDayRowData } from '@/lib/adapters/reservation'
+import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 import { formatCompactDateJst, jstWallTimeToDate } from '@/lib/date/jst'
 import ja from '../../../messages/ja.json'
@@ -59,6 +59,9 @@ function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
     cancelledCount: 0,
     noShowDayCount: 0,
     returningCount: 0,
+    // The nine capacity-model fields for a day with no capacity — the same
+    // no-capacity defaults `capacityDefensible: false` above already means.
+    ...capacityRowFields(undefined),
     ...over,
   }
 }
