@@ -24,6 +24,7 @@ jest.mock('@/actions/stores', () => ({
 
 import {
   filterStaffIdsToStore,
+  rosterForStore,
   type StaffStoreAssignment,
 } from '@/lib/auth/store-scope'
 
@@ -80,5 +81,78 @@ describe('filterStaffIdsToStore', () => {
       GINZA,
     )
     expect(kept).toEqual(new Set(['profile-mystery']))
+  })
+})
+
+/**
+ * ⚖ R1-5 — the DIVISOR's roster, which is NOT the picker's.
+ *
+ * The picker keeps an unlinkable member in every store's set, on purpose. The
+ * capacity divisor cannot: an unplaceable person counted as a full lane at
+ * every branch at once, and a two-store business whose 担当 rows were never
+ * written for the other branch divided 銀座's minutes by EIGHT lanes instead
+ * of four.
+ */
+describe('rosterForStore — the divisor fails CLOSED where the picker fails open', () => {
+  it('keeps assigned-here + both-stores + explicitly floating, exactly like the picker', () => {
+    const roster = [
+      { id: 'profile-ginza' },
+      { id: 'profile-dkny' },
+      { id: 'profile-both' },
+      { id: 'profile-float' },
+    ]
+    expect(rosterForStore(roster, assignments, GINZA)).toEqual(
+      new Set(['profile-ginza', 'profile-both', 'profile-float']),
+    )
+  })
+
+  it('MUTANT m5 — a member NO assignment row can place is never a lane', () => {
+    const mystery = [{ id: 'profile-mystery', email: 'mystery@x.jp' }]
+    // The picker keeps her (a list may be generous)…
+    expect(filterStaffIdsToStore(mystery, assignments, GINZA)).toEqual(
+      new Set(['profile-mystery']),
+    )
+    // …and she is in EVERY store's picker, which is the arm that inflated the
+    // divisor at every branch simultaneously.
+    expect(filterStaffIdsToStore(mystery, assignments, DAIKANYAMA)).toEqual(
+      new Set(['profile-mystery']),
+    )
+    // The divisor takes neither.
+    expect(rosterForStore(mystery, assignments, GINZA).size).toBe(0)
+    expect(rosterForStore(mystery, assignments, DAIKANYAMA).size).toBe(0)
+  })
+
+  it('銀座 is four lanes, never eight, when the other branch has no assignment rows', () => {
+    // Four people carry 銀座 rows; the other four were never written — core's
+    // staffStores rows missing for owner-created teammates, or a broken
+    // profile/email link.
+    const ginzaRows: StaffStoreAssignment[] = [1, 2, 3, 4].map((n) => ({
+      id: `sq-g${n}`,
+      user_id: `profile-g${n}`,
+      email: `g${n}@x.jp`,
+      store_ids: [GINZA],
+    }))
+    const roster = [
+      ...[1, 2, 3, 4].map((n) => ({ id: `profile-g${n}` })),
+      ...[1, 2, 3, 4].map((n) => ({ id: `profile-d${n}` })), // no rows at all
+    ]
+    expect(filterStaffIdsToStore(roster, ginzaRows, GINZA).size).toBe(8)
+    expect(rosterForStore(roster, ginzaRows, GINZA).size).toBe(4)
+  })
+
+  it('an EMPTY store_ids is a declaration, not an absence — floating staff still count', () => {
+    // The two cases the picker conflates: a row saying "every store" is the
+    // documented convention and IS a lane here; no row at all is not.
+    expect(
+      rosterForStore([{ id: 'profile-float' }], assignments, DAIKANYAMA),
+    ).toEqual(new Set(['profile-float']))
+  })
+
+  it('links the same three ways the picker does — synqed id, user_id, then email', () => {
+    expect(rosterForStore([{ id: 'sq-4' }], assignments, GINZA)).toEqual(new Set(['sq-4']))
+    expect(
+      rosterForStore([{ id: 'x', email: 'NoLink@X.jp' }], assignments, DAIKANYAMA),
+    ).toEqual(new Set(['x']))
+    expect(rosterForStore([{ id: 'x', email: 'NoLink@X.jp' }], assignments, GINZA).size).toBe(0)
   })
 })

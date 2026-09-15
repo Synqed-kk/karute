@@ -2,12 +2,14 @@
  * ⚖ STRESS-S F1 — capacity is NEVER derived from who got booked.
  *
  * 稼働% and 空き only mean anything when we can name the day's real capacity.
- * That takes five conjuncts at once: solo_mode on, at most one booked staffer,
- * no overlapping bookings, that day's hours actually saved, and the day open.
- * Miss any one and the day claims nothing — availableMinutes falls back to the
- * old week-average arithmetic and the cell shows 未設定 or the next metric.
+ * The five-conjunct block this file was written against is gone (PKT-1c-B):
+ * the rule now lives in src/lib/capacity, and the adapter feeds it the store's
+ * roster, its lane kind and the day's hours. The MATRIX survives, because the
+ * questions are the same ones — is the roster readable, does anyone overlap,
+ * were the hours saved, is the day open, does a booking sit outside them — and
+ * each still flips the answer alone.
  *
- * This is the matrix: each conjunct false ALONE flips it.
+ * Two answers deliberately MOVED with the model; both are marked ⚠ below.
  */
 process.env.TZ = 'UTC'
 
@@ -26,18 +28,27 @@ const SAVED_OPEN: DayHoursFact = {
   openMinute: 600,
   closeMinute: 1200,
   saved: true,
+  source: 'store',
   closed: false,
 }
 
 function appt(over: Partial<Appointment> = {}): Appointment {
+  const startsAt = over.starts_at ?? '2026-09-15T01:00:00Z' // 10:00 JST
+  const durationMinutes = over.duration_minutes ?? 60
   return {
     id: 'a1',
     kind: 'BOOKING',
     customer_id: 'c1',
     staff_id: 's1',
-    starts_at: '2026-09-15T01:00:00Z', // 10:00 JST
-    ends_at: '2026-09-15T02:00:00Z',
-    duration_minutes: 60,
+    starts_at: startsAt,
+    // Derived, not a fixed default. The capacity model reads the INTERVAL
+    // (ends_at, or occupied_until) and never duration_minutes — core stores
+    // that column independently and never validates it against the interval
+    // (E30) — so a fixture whose ends_at ignored its own duration would be
+    // describing a row core could never produce.
+    ends_at: new Date(Date.parse(startsAt) + durationMinutes * 60_000).toISOString(),
+    duration_minutes: durationMinutes,
+    occupied_until: null,
     title: null,
     notes: null,
     status: 'SCHEDULED',
@@ -50,7 +61,7 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 
 function row(
   rows: Appointment[],
-  opts: { fact?: DayHoursFact | null; solo?: boolean } = {},
+  opts: { fact?: DayHoursFact | null; roster?: number | null } = {},
 ) {
   const facts = new Map<string, DayHoursFact>()
   if (opts.fact !== null) facts.set(YMD, opts.fact ?? SAVED_OPEN)
@@ -64,7 +75,10 @@ function row(
     new Set(),
     undefined,
     facts,
-    opts.solo ?? true,
+    true,
+    // The store's booking roster. One lane = the solo store this file has
+    // always described; null = the lens failed, and the divisor fails CLOSED.
+    { rosterHeadcount: opts.roster === undefined ? 1 : opts.roster },
   )[0]
 }
 
@@ -81,16 +95,22 @@ describe('F1 — all five conjuncts true', () => {
 })
 
 describe('F1 — each conjunct false ALONE flips it', () => {
-  it('solo_mode off', () => {
-    const day = row(ONE_STAFFER, { solo: false })
+  it('the roster could not be read — the divisor fails CLOSED', () => {
+    const day = row(ONE_STAFFER, { roster: null })
     expect(day.capacityDefensible).toBe(false)
     expect(day.availableMinutes).toBe(FALLBACK * 1)
   })
 
-  it('two booked staffers', () => {
+  it('⚠ MOVED — a second staffer LIFTS the lane count instead of killing it', () => {
+    // Was: two booked staffers = no capacity (the old ≤1 conjunct). Now the
+    // roster is a FLOOR, never a ceiling (C3 rule c): the owner who cuts and
+    // the helper off the roster each add a lane, so the day is describable —
+    // 2 lanes × 600 saved minutes. This is the model change the packet ships,
+    // not a regression.
     const day = row([appt(), appt({ id: 'a2', staff_id: 's2' })])
-    expect(day.capacityDefensible).toBe(false)
-    expect(day.availableMinutes).toBe(FALLBACK * 2)
+    expect(day.capacityDefensible).toBe(true)
+    expect(day.lanes).toBe(2)
+    expect(day.availableMinutes).toBe(1200)
   })
 
   it('overlapping bookings — 10:00–11:00 and 10:30–11:30, one staffer (mutant m6)', () => {
@@ -133,6 +153,7 @@ describe('F1 — each conjunct false ALONE flips it', () => {
       undefined,
       facts,
       true,
+      { rosterHeadcount: 1 },
     )
     expect(days.map((d) => d.dateIso)).toEqual([YMD, '2026-09-16'])
     expect(days[0].capacityDefensible).toBe(false)
@@ -143,7 +164,12 @@ describe('F1 — each conjunct false ALONE flips it', () => {
     expect(days[1].count).toBe(1)
   })
 
-  it('a LONE booking across midnight leaves both days defensible', () => {
+  it('⚠ MOVED (T1) — a lone 23:30 booking withdraws its START day', () => {
+    // Was: both days defensible. A booking that starts at 23:30 against saved
+    // 10:00–20:00 hours is PROOF the hours do not describe that day, so the
+    // day claims nothing rather than a percentage of a window it broke. The
+    // next day, which the booking only runs INTO, is untouched by that rule —
+    // but its own 00:00 start is likewise outside its window here.
     const facts = new Map<string, DayHoursFact>([
       [YMD, SAVED_OPEN],
       ['2026-09-16', SAVED_OPEN],
@@ -159,14 +185,20 @@ describe('F1 — each conjunct false ALONE flips it', () => {
       undefined,
       facts,
       true,
+      { rosterHeadcount: 1 },
     )
-    expect(days[0].capacityDefensible).toBe(true)
+    expect(days[0].capacityDefensible).toBe(false)
+    expect(days[0].capacityReason).toBe('outside-hours')
+    // The day it only runs INTO keeps its capacity — one late booking blanks
+    // one day, not two (FIXLIST-1C-A R3).
     expect(days[1].capacityDefensible).toBe(true)
     expect(days[1].count).toBe(0)
   })
 
   it('the hours were never saved', () => {
-    const day = row(ONE_STAFFER, { fact: { ...SAVED_OPEN, saved: false } })
+    const day = row(ONE_STAFFER, {
+      fact: { ...SAVED_OPEN, saved: false, source: 'default' },
+    })
     expect(day.capacityDefensible).toBe(false)
     expect(day.hoursSaved).toBe(false)
     expect(day.availableMinutes).toBe(FALLBACK * 1)
@@ -174,7 +206,7 @@ describe('F1 — each conjunct false ALONE flips it', () => {
 
   it('the day is closed', () => {
     const day = row(ONE_STAFFER, {
-      fact: { minutes: 0, openMinute: 0, closeMinute: 0, saved: true, closed: true },
+      fact: { minutes: 0, openMinute: 0, closeMinute: 0, saved: true, source: 'store', closed: true },
     })
     expect(day.capacityDefensible).toBe(false)
     expect(day.closed).toBe(true)
@@ -262,6 +294,7 @@ describe('F1 — what does NOT affect it', () => {
       undefined,
       facts,
       true,
+      { rosterHeadcount: 1 },
     )[0]
     const without = appointmentsToWeekData(
       [appt({ customer_id: 'new-1' })],
@@ -273,7 +306,8 @@ describe('F1 — what does NOT affect it', () => {
       new Set(['new-1']),
       undefined,
       facts,
-      false,
+      true,
+      { rosterHeadcount: null },
     )[0]
     expect(withCapacity.capacityDefensible).toBe(true)
     expect(without.capacityDefensible).toBe(false)
@@ -283,5 +317,48 @@ describe('F1 — what does NOT affect it', () => {
 
   it('returningCount is 0 on the wire until PKT-2 ships its producer', () => {
     expect(row(ONE_STAFFER).returningCount).toBe(0)
+  })
+})
+
+// ── S7 — the window's extra day is for the SPANS, never for the counts ──────
+describe('⚖ S7 — a booking that ran in from last night', () => {
+  const PREV_NIGHT = appt({
+    id: 'run-in',
+    // 2026-09-14 23:00 JST → 2026-09-15 01:00 JST, i.e. two hours of the 15th
+    // that the 15th's own fetch window would never have returned.
+    starts_at: '2026-09-14T14:00:00Z',
+    duration_minutes: 120,
+  })
+
+  it('reaches day 1 through the spans index, and NO count on day 1', () => {
+    const day = row([PREV_NIGHT])
+    // 件 and 予約時間 stay bucketed by START day, so the 15th counts nothing…
+    expect(day.count).toBe(0)
+    expect(day.bookedMinutes).toBe(0)
+    // …but the model saw the row: its staffer worked, so the day has a lane,
+    // and the two hours land entirely before the 10:00 open, so they occupy
+    // none of the declared window.
+    expect(day.capacityDefensible).toBe(true)
+    expect(day.lanes).toBe(1)
+    expect(day.capacityMinutes).toBe(600)
+    expect(day.occupancyPct).toBe(0)
+  })
+
+  it('a run-in row that reaches INTO the open hours occupies them', () => {
+    // 2026-09-14 23:00 JST → 2026-09-15 11:00 JST: one hour inside a
+    // 10:00–20:00 window.
+    const day = row([appt({ id: 'long-run-in', starts_at: '2026-09-14T14:00:00Z', duration_minutes: 720 })])
+    expect(day.count).toBe(0)
+    expect(day.capacityMinutes).toBe(600)
+    expect(day.freeMinutes).toBe(540)
+    expect(day.occupancyPct).toBe(10)
+  })
+
+  it('a row that starts today and ends tomorrow still withdraws TODAY', () => {
+    // The mirror image: 19:00 → 03:00 starts inside the day and runs past the
+    // 20:00 close, which is the day whose hours the booking broke.
+    const day = row([appt({ id: 'overnight', starts_at: '2026-09-15T10:00:00Z', duration_minutes: 480 })])
+    expect(day.capacityDefensible).toBe(false)
+    expect(day.capacityReason).toBe('outside-hours')
   })
 })

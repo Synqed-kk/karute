@@ -3,9 +3,15 @@ import { renderStamp } from '@/lib/perf/render-stamp'
 import { startTiming } from '@/lib/perf/timing'
 import { createClient } from '@/lib/supabase/server'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
-import { customerLensFor, resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
+import {
+  customerLensFor,
+  resolveStoreScope,
+  storeDivisorRosterForBusiness,
+  storeStaffIdSet,
+} from '@/lib/auth/store-scope'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
+import { getMonthCells } from '@/actions/appointments'
 import { getCachedDayAgenda } from '@/lib/appointments/day-agenda-cached'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCachedMenuOptions, scopeMenuOptions } from '@/lib/menus/cached'
@@ -170,6 +176,16 @@ export default async function AppointmentsPage({
   const storeStaffIds = await t.phase('storeStaffIds', () =>
     storeStaffIdSet(staffList, storeScope.storeId),
   )
+  // ⚖ R1-5 — the CAPACITY divisor reads its own, stricter roster: assigned to
+  // this store or explicitly floating, never a member no assignment row could
+  // place. The picker lens above stays generous on purpose; a denominator may
+  // not be. No businessId → no roster → no capacity, which is the same
+  // fail-closed answer a failed assignment read gets.
+  const divisorStaffIds = await t.phase('divisorStaffIds', () =>
+    businessId
+      ? storeDivisorRosterForBusiness(staffList, storeScope.storeId, businessId)
+      : Promise.resolve(null),
+  )
 
   // ─────────────────────────────────────────────────────────────
   // STAGE 2 — only enrichCustomers, since it genuinely depends on
@@ -205,6 +221,11 @@ export default async function AppointmentsPage({
     staffList,
     activeStaffId,
     storeStaffIds,
+    divisorStaffIds,
+    // ⚖ R1-9 — from the window that was actually read: an unplaceable 担当
+    // filter ships an empty window, and an empty window is not a 0 % day.
+    staffFilterUnknown:
+      (weekWindow ?? monthWindow ?? dayWindow)?.staffFilterUnknown ?? false,
     orgSettings,
     customers,
     dayAppointments,
@@ -219,6 +240,9 @@ export default async function AppointmentsPage({
     hoursFacts: new Map(
       (weekWindow ?? monthWindow ?? dayWindow)?.hoursFacts ?? [],
     ),
+    // …and that same window carries the store's vertical, resolved next to the
+    // store's hours so the two can never describe different stores.
+    businessType: (weekWindow ?? monthWindow ?? dayWindow)?.businessType ?? null,
     enrichment,
     packUsage,
   })
@@ -251,12 +275,22 @@ export default async function AppointmentsPage({
         weekStartIso={screen.weekStartIso}
         monthData={screen.monthData}
         monthStartIso={screen.monthStartIso}
+        // The day line's numbers and the 未設定 discriminator — both resolved
+        // in buildAppointmentsScreen so the WEB door and the PHONE door hand
+        // the shared view identical props (PKT-1b-WIRE W-B/W-C).
+        dayTotals={screen.dayTotals}
+        soloMode={screen.soloMode}
         reservationViews={screen.reservationViews}
         reservationStaff={screen.reservationStaff}
         colorRosterIds={screen.colorRosterIds}
         businessHours={screen.businessHours}
         staffFilter={staffFilter}
         menus={menus}
+        // The date-jump panel's WEB month door. The facade GET the phone uses
+        // is Bearer-only (lib/app-api/identity.ts), so this cookie session
+        // reads months through the action instead — same range fetch, same
+        // density rule, same store clamp.
+        loadMonthCells={getMonthCells}
       />
     </>
   )

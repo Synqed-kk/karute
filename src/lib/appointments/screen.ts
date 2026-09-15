@@ -20,6 +20,7 @@ import { staffRoleLabel } from '@/lib/staff/role-label'
 import {
   appointmentsToWeekData,
   appointmentsToMonthCells,
+  appointmentsToMonthFacts,
   type WeekDayRowData,
 } from '@/lib/adapters/reservation'
 import type { AppointmentWindow } from '@/lib/appointments/by-date'
@@ -31,6 +32,8 @@ import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import { jstStartOfToday, partsInJst } from '@/lib/date/jst'
 import { jstMidnight } from '@/lib/date/calendar-range'
+import { isClassBoundBusinessType } from '@/lib/welcome/business-types'
+import type { CapacityFact, LaneKind } from '@/lib/capacity/capacity'
 import type { computeWeekRange, computeMonthRange } from '@/lib/date/calendar-range'
 
 export function parseDateParam(value: string | undefined): Date {
@@ -79,6 +82,18 @@ export interface AppointmentsScreenInputs {
   activeStaffId: string | null
   /** Active store's staff-id lens (null = no filtering / fail open). */
   storeStaffIds: Set<string> | null
+  /** ⚖ R1-5 — the store's booking roster for the CAPACITY DIVISOR, from
+   *  `rosterForStore`: assigned to this store or explicitly floating, and
+   *  NEVER a member no assignment row could place. Same roster as the lens
+   *  above, opposite posture, because they answer different questions: a
+   *  picker may be generous, a denominator may not. null = no store to ask or
+   *  the assignment read failed → no capacity at all. */
+  divisorStaffIds?: Set<string> | null
+  /** ⚖ R1-9 — the 担当 filter named somebody the roster could not place, so
+   *  the caller shipped an EMPTY window on purpose (resolveFetchStaffId's
+   *  `unknown`). Zero rows is honest about the bookings and a lie about the
+   *  store, so the day gets no capacity rather than one lane at 0 %. */
+  staffFilterUnknown?: boolean
   orgSettings: OrgSettings | null
   customers: CachedCustomerOption[]
   dayAppointments: AppointmentRow[]
@@ -96,6 +111,12 @@ export interface AppointmentsScreenInputs {
   dayWindow?: AppointmentWindow | null
   /** That day's resolved hours, keyed by JST YYYY-MM-DD (resolveWindowHours). */
   hoursFacts?: ReadonlyMap<string, DayHoursFact>
+  /** THIS STORE's vertical — the per-store column when core carries it, else
+   *  the business-wide setting; both doors resolve it that way. It decides one
+   *  thing only: whether the store is class-bound, where one booking row is
+   *  many people and no percentage is honest at any layer. Absent/null reads
+   *  as not class-bound. */
+  businessType?: string | null
   enrichment: Map<string, CustomerEnrichment>
   packUsage: ReadonlyMap<string, { remaining: number; size: number }>
 }
@@ -135,6 +156,13 @@ export interface AppointmentsScreen {
   weekData: WeekDayRowData[] | null
   weekStartIso: string | null
   monthData: MonthGridCell[] | null
+  /** The month's capacity facts, keyed by the cell's own id (JST YYYY-MM-DD),
+   *  beside the cells rather than inside them: MonthGridCell is the package's
+   *  type and cannot grow app fields. Built from the SAME rows and the same
+   *  counted-row predicate as the cells, so a cell's dot and its percentage
+   *  can never describe different days. In-month days only — the padding
+   *  cells render no numbers. */
+  monthFacts: ReadonlyMap<string, CapacityFact> | null
   monthStartIso: string | null
   /** The SELECTED day's row, from the same adapter the week rows come from —
    *  so the day line and the week row can never disagree. Null when no window
@@ -144,6 +172,11 @@ export interface AppointmentsScreen {
    *  dayTotals are ALL null and the surface renders the failed-read state —
    *  never a low number. */
   truncated: boolean
+  /** The salon's `solo_mode` capability, resolved HERE from org settings so
+   *  the view never reads settings itself (the thin door carries no
+   *  orgSettings at all — reading them in the view would hand the phone a
+   *  silent `false` and kill the 未設定 discriminator, spec §8). */
+  soloMode: boolean
 }
 
 /**
@@ -188,6 +221,8 @@ export function buildAppointmentsScreen(
     staffList,
     activeStaffId,
     storeStaffIds,
+    divisorStaffIds,
+    staffFilterUnknown,
     orgSettings,
     customers,
     dayAppointments,
@@ -199,6 +234,7 @@ export function buildAppointmentsScreen(
     monthWindow,
     dayWindow,
     hoursFacts,
+    businessType,
     enrichment,
     packUsage,
   } = input
@@ -379,6 +415,67 @@ export function buildAppointmentsScreen(
   )
   const soloMode = orgSettings?.solo_mode === true
 
+  // ── THE DIVISOR (S4) — the store's own booking roster, counted ──────────
+  //
+  // ⚖ R1-5: this is `divisorStaffIds`, NOT the picker lens beside it. Both
+  // doors build it from `rosterForStore(…)`, bounded by the clamp's store
+  // (web: page.tsx; facade: route.ts), and it only ever holds ids drawn from
+  // `staffList` — so it IS the store's roster ∩ the business roster. Deriving
+  // the headcount here rather than in each door is what makes the
+  // store-isolation invariant provable at ONE site for both: no other store's
+  // staff count can reach a divisor, because no other store's ids are in this
+  // set.
+  //
+  // The picker's set differs by one arm, and that arm is the whole reason
+  // there are two: `filterStaffIdsToStore` keeps a member it cannot LINK to an
+  // assignment row in EVERY store, which is a generous list and an inflated
+  // denominator — 銀座 divided by eight lanes when four people work there.
+  //
+  // The POSTURE flips too. A null lens means "no store to ask, or the
+  // assignment read failed"; the pickers read that as "show everyone" (fail
+  // open, which is right for a list), and a divisor must read it as "we do not
+  // know this store's roster" and hand out NO capacity — never the business
+  // roster (C1 §5 / C3 E28). Same value, opposite default, on purpose.
+  //
+  // Every StaffRole counts: OWNER, ADMIN, STYLIST and ASSISTANT all take
+  // bookings and the SDK has no non-booking role, so there is nothing to
+  // filter on. A receptionist is therefore counted — a recorded overcount,
+  // closed when a real `takesBookings` exists.
+  //
+  // ⚖ R1-6: an EMPTY roster is not an answer either. `getStaffList` is graceful
+  // by design — a failed profiles read resolves to [] — so a degraded web read
+  // produced `Set{}`, which is not null and slipped past the gate above. The
+  // module's lane FLOOR then set lanes to whoever happened to be booked, and
+  // the store showed a confident percentage on exactly the days somebody worked
+  // and nothing on the days nobody did: capacity derived from who got booked,
+  // the one derivation this packet exists to forbid. A store with literally
+  // zero staff has no capacity anyway, so nothing honest is lost by reading 0
+  // as unknown.
+  const rosterHeadcount = divisorStaffIds?.size ? divisorStaffIds.size : null
+  // 自分/担当 = ONE person's day, so ONE lane (the module's caller contract
+  // (a)), and the window was already filtered at the fetch. The exception is
+  // 'self' with no resolvable viewer id: that fetch is NOT filtered and the
+  // views below fall back to the whole salon, so the day keeps the store's
+  // roster rather than dividing a salon by one person.
+  const filteredToOnePerson =
+    staffFilter !== 'all' && !(staffFilter === 'self' && !activeStaffId)
+  // ⚖ R1-9 — except when the filter names somebody the roster cannot place.
+  // That fetch is replaced with an EMPTY window by construction, so "one lane,
+  // nothing booked" would print 稼働 0 % and 空き = the whole declared day for a
+  // person nobody can find. Honest about the rows, a lie about the store.
+  const capacityRoster = staffFilterUnknown
+    ? null
+    : filteredToOnePerson
+      ? 1
+      : rosterHeadcount
+  // ── THE LANE KIND (S5) ───────────────────────────────────────────────────
+  // A yoga class of twelve is ONE booking row, so minutes booked over minutes
+  // open is a percentage of nothing. Those stores always take the count table
+  // — at every layer, behind every switch, until core models class capacity
+  // (C1 §6 / C2). Read from the STORE's own vertical where core carries it,
+  // so a chain can run a studio next to a salon.
+  const laneKind: LaneKind = isClassBoundBusinessType(businessType) ? 'none' : 'staff'
+
   const rowsFor = (win: AppointmentWindow, from: Date, to: Date): WeekDayRowData[] =>
     appointmentsToWeekData(
       win.counted,
@@ -391,10 +488,12 @@ export function buildAppointmentsScreen(
       { cancelled: win.cancelled, noShow: win.noShow },
       hoursFacts,
       soloMode,
+      { rosterHeadcount: capacityRoster, laneKind },
     )
 
   let weekData: WeekDayRowData[] | null = null
   let monthData: MonthGridCell[] | null = null
+  let monthFacts: ReadonlyMap<string, CapacityFact> | null = null
   let weekStartIso: string | null = null
   let monthStartIso: string | null = null
 
@@ -410,6 +509,14 @@ export function buildAppointmentsScreen(
         monthRange.monthStart,
         monthRange.monthEnd,
         now,
+      )
+      // The same rows, the same month, one call beside the other — the cells
+      // and their facts cannot come from different reads.
+      monthFacts = appointmentsToMonthFacts(
+        monthWin.counted,
+        monthRange.monthStart,
+        monthRange.monthEnd,
+        { hoursFacts, soloMode, rosterHeadcount: capacityRoster, laneKind },
       )
     }
     monthStartIso = monthRange.monthStart.toISOString()
@@ -440,8 +547,10 @@ export function buildAppointmentsScreen(
     weekData,
     weekStartIso,
     monthData,
+    monthFacts,
     monthStartIso,
     dayTotals,
     truncated,
+    soloMode,
   }
 }

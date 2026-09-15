@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { verifySupabaseJwt, LocalJwtError } from '@/lib/auth/local-jwt'
 import { AppApiError } from '@/lib/app-api/errors'
+import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 
 export interface StaffMember {
   id: string
@@ -160,7 +161,10 @@ async function synqedStaffWithoutProfile(
     // never reaches the enrichment path (e.g. when synqed env is unset).
     const { SynqedClient } = await import('@synqed-kk/client')
     const client = new SynqedClient({ baseUrl, apiKey, businessId })
-    const { staff } = await client.staff.list({ page_size: 200 })
+    // ⚖ R1-7 (E33, the 201st): paged to exhaustion. One page of 200 silently
+    // truncated the roster — tolerable while it only fed a list, not once its
+    // SIZE became a capacity divisor.
+    const staff = await listAllCoreStaff(client.staff)
     return staff
       .filter((s) => s.is_active)
       .filter((s) => {
