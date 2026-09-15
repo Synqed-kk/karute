@@ -438,11 +438,18 @@ export function buildAppointmentsScreen(
     // clause and 「予約 N件」 are derived from the SAME rows; the other side is
     // the caller's extra read. Either read truncated → null, never a low
     // number (month-compare.ts).
-    monthCompareDelta = monthCompareDeltaFrom(
-      monthCompareWindow(monthRange.monthStart, now),
-      monthWin,
-      prevMonthWindow,
-    )
+    //
+    // No previous read at all — the switch off, a future month, a failed
+    // optional read — means no clause, and the window arithmetic is skipped
+    // with it: it builds a dozen JST date parts for an answer that would be
+    // thrown away on the next line.
+    if (prevMonthWindow) {
+      monthCompareDelta = monthCompareDeltaFrom(
+        monthCompareWindow(monthRange.monthStart, now),
+        monthWin,
+        prevMonthWindow,
+      )
+    }
   }
 
   // The selected day's row, from the SAME adapter — its own window when one was
