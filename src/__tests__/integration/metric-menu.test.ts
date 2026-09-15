@@ -145,10 +145,15 @@ describe('dayLineCells — day-line order (spec §8/§2)', () => {
   })
 })
 
-describe('未設定 — only when the sole failing conjunct is the hours one', () => {
-  it('solo ∧ !hoursSaved ∧ !closed → unset', () => {
+describe('未設定 — only when the hours are the ONLY thing missing (S3b)', () => {
+  it("the day fell to the 10:00–24:00 default → unset, whatever the store's size", () => {
     const { weekRowCells } = loadMetricMenu()
-    const r = row({ capacityDefensible: false, hoursSaved: false, closed: false })
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: false,
+      closed: false,
+      capacityReason: 'hours-not-saved',
+    })
     expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t })[1]).toMatchObject({
       key: 'unset',
       value: '未設定',
@@ -156,23 +161,88 @@ describe('未設定 — only when the sole failing conjunct is the hours one', (
     })
   })
 
-  it('not solo → no unset even with hours unsaved', () => {
+  it('⚠ MOVED — a MULTI-staff store with unsaved hours now sees 未設定 too', () => {
+    // It used to be withheld from every non-solo store, which was backwards:
+    // saving this store's hours is exactly what makes a number appear, so the
+    // cell that says so belongs here. soloMode no longer decides anything.
     const { weekRowCells } = loadMetricMenu()
-    const r = row({ capacityDefensible: false, hoursSaved: false, closed: false })
-    expect(weekRowCells(r, { soloMode: false, typeSlot: 'off', t })[1].key).not.toBe('unset')
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: false,
+      closed: false,
+      capacityReason: 'hours-not-saved',
+    })
+    expect(weekRowCells(r, { soloMode: false, typeSlot: 'off', t })[1].key).toBe('unset')
   })
 
-  it('closed day → no unset even solo with hours unsaved', () => {
+  it('no hours reached this day at all → unset as well', () => {
     const { weekRowCells } = loadMetricMenu()
-    const r = row({ capacityDefensible: false, hoursSaved: false, closed: true })
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: false,
+      closed: false,
+      capacityReason: 'hours-unresolved',
+    })
+    expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t })[1].key).toBe('unset')
+  })
+
+  it('MUTANT m7 — a store whose ROSTER could not be read never sees 未設定', () => {
+    // Saving hours would change nothing for this day, so promising it would be
+    // a lie. This is the line the old soloMode gate could not draw.
+    const { weekRowCells } = loadMetricMenu()
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: false,
+      closed: false,
+      capacityReason: 'roster-unknown',
+    })
+    expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t }).map((c) => c.key)).not.toContain(
+      'unset',
+    )
+  })
+
+  it('a CLASS-BOUND store never sees 未設定 — no hours will ever give it a percentage', () => {
+    const { weekRowCells } = loadMetricMenu()
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: false,
+      closed: false,
+      capacityReason: 'kind-none',
+    })
+    expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t }).map((c) => c.key)).not.toContain(
+      'unset',
+    )
+  })
+
+  it('an older server sending no reason falls through, never inventing 未設定', () => {
+    const { weekRowCells } = loadMetricMenu()
+    const r = row({ capacityDefensible: false, hoursSaved: false, closed: false })
+    expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t }).map((c) => c.key)).not.toContain(
+      'unset',
+    )
+  })
+
+  it('closed day → no unset: 休 is a fact, not a missing setting', () => {
+    const { weekRowCells } = loadMetricMenu()
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: true,
+      closed: true,
+      capacityReason: 'closed',
+    })
     expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t })[1].key).not.toBe('unset')
   })
 
-  it('solo store, two overlapping bookings (hours WERE saved) → next metric, not unset', () => {
+  it('two overlapping bookings (hours WERE saved) → next metric, not unset', () => {
     const { weekRowCells } = loadMetricMenu()
-    // capacityDefensible is false because of the overlap conjunct, not the
-    // hours conjunct — hoursSaved stays true, so 未設定 must NOT fire.
-    const r = row({ capacityDefensible: false, hoursSaved: true, closed: false })
+    // The lane count is what is wrong on this day, not the hours — so saving
+    // hours would fix nothing and 未設定 must not fire.
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: true,
+      closed: false,
+      capacityReason: 'over-concurrency',
+    })
     const cells = weekRowCells(r, { soloMode: true, typeSlot: 'off', t })
     expect(cells.map((c) => c.key)).not.toContain('unset')
     // R2-3 — pinned by KEY, and by the invariant that owns the seat, never by
@@ -338,7 +408,12 @@ describe('R2-1 — 稼働% and 予約時間 are ONE measure in two units, never 
 
   it('未設定 is not 稼働% — it prints no number, so the duration still follows it', () => {
     const { weekRowCells, dayLineCells } = loadMetricMenu({ freeTimeCell: true })
-    const r = row({ capacityDefensible: false, hoursSaved: false, closed: false })
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: false,
+      closed: false,
+      capacityReason: 'hours-not-saved',
+    })
     const ctx = { soloMode: true, typeSlot: 'off' as const, t }
     expect(weekRowCells(r, ctx).map((c) => c.key)).toEqual(['count', 'unset', 'bookedTime', 'cancelled'])
     expect(dayLineCells(r, ctx).map((c) => c.key)).toEqual(['count', 'unset', 'bookedTime', 'cancelled'])

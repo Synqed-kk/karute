@@ -164,14 +164,34 @@ function capacityShown(row: WeekDayRowData): boolean {
   )
 }
 
-/** 稼働: the defensible percentage → 未設定 (only failing conjunct is hours)
+/** ⚖ S3b (PKT-1c-B) — 未設定 reads the FACT, not a guess about the store.
+ *
+ *  未設定 says exactly one thing: 「this day's hours are not set — set them and
+ *  a number appears here」. That promise is only honest when hours are the ONLY
+ *  thing missing, which used to be approximated by `soloMode && !hoursSaved`:
+ *  it read 未設定 to a solo store whose roster was unreadable (where saving
+ *  hours changes nothing), and withheld it from a multi-staff store whose only
+ *  gap was its hours (where saving them is the whole fix).
+ *
+ *  The capacity module answers it directly. It checks lane kind → roster →
+ *  hours IN THAT ORDER, so an hours reason PROVES the store is not class-bound
+ *  and its roster was known. 'hours-not-saved' = the day fell to the
+ *  10:00–24:00 default; 'hours-unresolved' = no hours reached this day at all.
+ *  A closed day carries its own reason and is never 未設定 (⚖ 休 is a fact,
+ *  not a missing setting), and a null reason — an older server across a bundle
+ *  skew — falls through to the next metric rather than inventing one. */
+function unsetShown(row: WeekDayRowData): boolean {
+  return row.capacityReason === 'hours-not-saved' || row.capacityReason === 'hours-unresolved'
+}
+
+/** 稼働: the defensible percentage → 未設定 (hours are the only thing missing)
  *  → next unused metric. */
 function utilizationSlot(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set<CellKey>): Cell {
   if (capacityShown(row)) {
     const pct = Math.round((row.bookedMinutes / row.availableMinutes) * 100)
     return { key: 'utilization', label: ctx.t('utilization'), value: `${pct}%`, tone: bandTone(pct) }
   }
-  if (ctx.soloMode && !row.hoursSaved && !row.closed) return unsetCell(ctx)
+  if (unsetShown(row)) return unsetCell(ctx)
   return pickNext(row, ctx, used)
 }
 
