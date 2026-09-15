@@ -503,6 +503,15 @@ describe('WeekRows — the mock’s three greys, not one (R3-17)', () => {
     // mock --sub (#6b7280): the weekday letter is a word, not a label
     const weekday = container.querySelector('[data-week-row] span span')!
     expect(weekday.className).toMatch(/text-zinc-500|text-primary|text-red-600/)
+    // R3c-3 — on the today wash zinc-500 drops to 4.34:1, under the 4.5:1
+    // word floor (R3b-1's own footnote); the today row's weekday letter steps
+    // up to zinc-600 (6.94:1 on the wash). Dark stays zinc-400 (6.00:1 on the
+    // dark wash clears 4.5:1). Row 1 = 9/15 = todayIso (baseProps).
+    const todayRow = screen.getAllByRole('button')[1]
+    const todayWeekday = todayRow.querySelector('span span')!
+    expect(todayWeekday.className).toContain('text-zinc-600')
+    expect(todayWeekday.className).toContain('dark:text-zinc-400')
+    expect(todayWeekday.className).not.toContain('text-zinc-500')
     // mock #c3c8cf: the lightest thing in the row
     expect(container.querySelector('[data-week-chevron]')!.getAttribute('class')).toContain(
       'text-zinc-300',
