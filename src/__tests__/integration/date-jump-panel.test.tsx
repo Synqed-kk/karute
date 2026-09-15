@@ -1154,6 +1154,44 @@ describe('the panel moves like the mock', () => {
     await frames(2000)
     expect(title()).toHaveTextContent('2026年11月')
   })
+
+  /**
+   * R1 — the tap the landed month used to swallow. The slide spring rests on
+   * 0.4 px, so it keeps creeping for ~350 ms after the track has visually
+   * stopped, and `onRest` is what commits the month. Measured on the
+   * production build: the track is 98.7 % of the way there at 301 ms
+   * (−354.3 px of −359) with the new month filling the screen, and the commit
+   * does not land until ~611 ms. Whoever taps a day in that third of a second
+   * is tapping a month that looks finished — and the pane was `inert`.
+   */
+  it('t6 — a day in the landed month takes the tap while the spring is still creeping', async () => {
+    renderView()
+    const dialog = openNow()
+    await frames(1000)
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    await frames(300)
+    // The month has NOT committed — this is the window, not the aftermath.
+    expect(title()).toHaveTextContent('2026年9月')
+
+    const panes = within(dialog).getAllByTestId('month-grid')
+    // The pane the armed shift is travelling toward is live…
+    expect(panes[2].closest('[inert]')).toBeNull()
+    // …and the month leaving the screen, plus the far one, are not.
+    expect(panes[1].closest('[inert]')).not.toBeNull()
+    expect(panes[0].closest('[inert]')).not.toBeNull()
+
+    const cell = within(panes[2]).getAllByRole('button')[0]
+    expect(cell).toHaveAttribute('data-day', '2026-10-01')
+    fireEvent.click(cell)
+
+    // THAT day, on the tap itself — `onPickDay` carries the cell's own Date,
+    // so an early tap can never land on the same square of another month.
+    expect(push).toHaveBeenCalled()
+    expect(push.mock.calls[0][0]).toContain('date=2026-10-01')
+    await frames(1000)
+    expect(panel()).toBeNull()
+  })
 })
 
 describe('the hidden native date input is gone', () => {

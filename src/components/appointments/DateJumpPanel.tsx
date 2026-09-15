@@ -393,6 +393,16 @@ export function DateJumpPanel({
   // velocity of a flick.
   /** The shift this travel commits when the spring comes to rest. */
   const pendingRef = useRef(0)
+  /** The same number as RENDER state, because the JSX needs it too (which pane
+   *  may take a tap). The ref is what the spring's own callbacks read
+   *  synchronously mid-frame; a ref alone cannot re-render the panes when a
+   *  flick arms a shift at pointerup. Both are written through `setPending`
+   *  and never apart. */
+  const [liveDir, setLiveDir] = useState(0)
+  const setPending = useCallback((k: number) => {
+    pendingRef.current = k
+    setLiveDir(k)
+  }, [])
   const hFromRef = useRef<number | null>(null)
   const hToRef = useRef<number | null>(null)
   /** Bumped by every new slide request so the layout effect below starts the
@@ -440,11 +450,11 @@ export function DateJumpPanel({
   const commitPending = useCallback(() => {
     const k = pendingRef.current
     if (!k) return
-    pendingRef.current = 0
+    setPending(0)
     hFromRef.current = null
     hToRef.current = null
     dispatch({ type: 'shiftMonth', delta: k })
-  }, [])
+  }, [setPending])
   const commitPendingRef = useRef(commitPending)
   commitPendingRef.current = commitPending
 
@@ -494,28 +504,34 @@ export function DateJumpPanel({
   /** MOCK 1134-1141. A second tap mid-slide LANDS the first instantly and then
    *  slides the next: the taps cannot race each other, because each one closes
    *  the travel before it opens its own. No queue, no commit timer. */
-  const goMonth = useCallback((delta: number) => {
-    commitPendingRef.current()
-    pendingRef.current = delta
-    setTravel((n) => n + 1)
-  }, [])
+  const goMonth = useCallback(
+    (delta: number) => {
+      commitPendingRef.current()
+      setPending(delta)
+      setTravel((n) => n + 1)
+    },
+    [setPending],
+  )
 
   /** MOCK 1143-1149. */
-  const jumpToMonth = useCallback((key: MonthKey) => {
-    pendingRef.current = 0
-    setTravel((n) => n + 1)
-    dispatch({ type: 'setMonth', month: key })
-    dispatch({ type: 'setLevel', level: 'grid' })
-  }, [])
+  const jumpToMonth = useCallback(
+    (key: MonthKey) => {
+      setPending(0)
+      setTravel((n) => n + 1)
+      dispatch({ type: 'setMonth', month: key })
+      dispatch({ type: 'setLevel', level: 'grid' })
+    },
+    [setPending],
+  )
 
   // Opening or closing starts the slide over: land nothing, arm nothing. A
   // travel left in flight across a close walked the panel off the month it had
   // just reopened on.
   useLayoutEffect(() => {
-    pendingRef.current = 0
+    setPending(0)
     slideSpring.jump(0)
     armHeights(0)
-  }, [open, slideSpring, armHeights])
+  }, [open, slideSpring, armHeights, setPending])
 
   // ── gestures: horizontal = month, upward = close ─────────────────────────
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -594,7 +610,7 @@ export function DateJumpPanel({
           ? -1
           : 0
     slideSpring.nudge(g.velocity)
-    pendingRef.current = k
+    setPending(k)
     armHeights(k)
     slideSpring.set(k ? -k * width : 0)
   }
@@ -612,18 +628,29 @@ export function DateJumpPanel({
   const atMonths = state.level === 'months'
   const [visibleYear, visibleMonthNumber] = splitMonthKey(state.visibleMonth)
 
-  // `offscreen` panes stay MOUNTED (the slide needs them drawn) but are inert:
+  // Off-screen panes stay MOUNTED (the slide needs them drawn) but are inert:
   // ~40 day buttons per pane in a month clipped out of view were in the tab
   // order, and the previous month's pane sits FIRST in DOM order, so tabbing
   // off the header walked into a month nobody could see — and Enter there
   // navigated to a date nobody chose.
+  //
+  // LIVE is `liveDir`: the month the panel is on, or — while a shift is armed
+  // — the month that shift is travelling TOWARD. The slide spring rests on
+  // 0.4 px, so it keeps creeping for ~350 ms after the track has visually
+  // stopped, and the commit only happens at rest: measured on the production
+  // build, the track is 98.7 % of the way across at 301 ms with the new month
+  // filling the screen, and `state.visibleMonth` does not change until ~611 ms.
+  // Leaving the incoming pane inert through that window is a landed month that
+  // swallows taps — the exact miss this panel exists to remove. `onPickDay`
+  // carries the cell's own Date, so an early tap goes to the day that was
+  // tapped, never to the same square of another month.
   const pane = (
     key: MonthKey,
     ref: RefObject<HTMLDivElement | null>,
+    paneDir: -1 | 0 | 1,
     className?: string,
-    offscreen = false,
   ) => (
-    <div ref={ref} className={cn('w-full', className)} inert={offscreen || undefined}>
+    <div ref={ref} className={cn('w-full', className)} inert={paneDir !== liveDir || undefined}>
       <MonthGrid
         cells={cellsFor(key)}
         copy={{ weekdayLabels }}
@@ -745,9 +772,9 @@ export function DateJumpPanel({
               onPointerCancel={onPointerEnd}
             >
               <div ref={trackRef} className="relative w-full">
-                {pane(prevKey, paneRefs.prev, 'absolute -left-full top-0', true)}
-                {pane(state.visibleMonth, paneRefs.current)}
-                {pane(nextKey, paneRefs.next, 'absolute left-full top-0', true)}
+                {pane(prevKey, paneRefs.prev, -1, 'absolute -left-full top-0')}
+                {pane(state.visibleMonth, paneRefs.current, 0)}
+                {pane(nextKey, paneRefs.next, 1, 'absolute left-full top-0')}
               </div>
             </div>
 
