@@ -1431,19 +1431,62 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // is 2,291 B and all of it is this round's own. Report-only per ⚖ 8/25.
 // Ceiling = the measured tip + 1,000 B: 2,089,916 + 1,000 = 2,090,916.
 // ── THE LIVE ENTRY ────────────────────────────────────────────────────────
-// THE ALL-IN LOOK TIP (look/28-all-in-20260916) — every chain above merged
-// INTO one look branch off feat/booking-month-new-slot 7f372b812: the month
-// card fold, 先月同期間比 after its R1, the closed-day booking door and the
-// store-hours door. Both (all) chains above are kept in full and are NOT
-// comparable to each other — each was measured on its own branch, and a
-// branch figure only means something against the entry it names.
+// RE-MEASURED 2026-09-16 on THE ALL-IN LOOK TIP (look/28-all-in-20260916) —
+// every chain above merged INTO feat/booking-month-new-slot 7f372b812, in this
+// order: the month card's test-only fold (c63fe33f6), 先月同期間比 after its R1
+// (10f8c3685), the closed-day booking door after its R1 (c63f72ead) and the
+// store-hours door after its R1 (48f5e732f). This is the tree that goes on
+// Liam's phone as the all-in look. Every chain's own entries are kept above
+// and are NOT comparable to each other — each was measured on its own branch,
+// and a branch figure only means something against the entry it names.
 //
-// PLACEHOLDER while the merges land: the ceiling below is the HIGHEST of the
-// branch ceilings above, so no intermediate tree is ever left with a ceiling
-// below its own size. The REAL measurement of this merged tree replaces this
-// block in its own commit, LAST, from a clean two-lap build of the merged
-// tree — never by picking a side.
-const BUDGET_BYTES = 2_116_661
+// Same CI recipe as every entry above: the six VITE_* values read
+// PROGRAMMATICALLY out of .github/workflows/ci.yml (5 / 24 / 40 / 208 / 8 / 2
+// chars — the 208-char anon-key placeholder included, a shorter one inflates
+// index and reads as a false mismatch), thin/dist emptied before each of two
+// laps, byte-identical both times — same content hashes and md5s (en-Nh1SeSPa
+// 49a897d4…, index-CTovboRU, vendor-BD5eMVWe; node v24.16.0, @synqed-kk/ui
+// 0.3.2 installed == lock):
+//   en 136,085 · index 1,055,512 · vendor 937,791 = 2,129,388 B.
+// Ceiling = 2,129,388 + 1,000 = 2,130,388.
+//
+// EVERY SIDE IS IN THE BUNDLE — accounted, not assumed. The base tip's own
+// figure is directly comparable here for once: this worktree's node_modules is
+// a clonefile copy of ~/karute-monthnew's and `npm install` reported it already
+// up to date, which `vendor` confirms to the byte (937,791 on both).
+//
+//   tree                                    en       index     vendor      total
+//   base 7f372b812 (its own entry)     134,361  1,043,509    937,791  2,115,661
+//   ALL-IN (this tip, measured here)   136,085  1,055,512    937,791  2,129,388
+//                                      +1,724    +12,003          0    +13,727
+//
+// What the +13,727 B is made of, from each branch's own recorded cost:
+//   month card fold      0 B — test-only, one incoming assertion block.
+//   4c R1              +180 B — the month line's two sr-only separators (4c
+//     itself, dc05d00a8, was already in the base).
+//   closed-day door  +1,377 B — +1,229 for the door (the rule, the one-date
+//     policy read, the message pick, the three JA/EN strings) and +148 for its
+//     R1 (the thin port's refusal passthrough, the dialog's key picker, the
+//     rewritten JA pointer lines).
+//   store-hours door +11,982 B — +8,691 for the door (StoreHoursBlock, the
+//     port proxy, 17 catalog keys ×2 locales) and +3,291 for its R1 (the
+//     reset button and its confirm, the 24:00-clamp note, the per-day aria
+//     names and the alertdialog focus handling, 8 more keys ×2).
+//   ────────────────────────────────────────────────────────────────────────
+//   sum             +13,539 B, measured +13,727 — a +188 B CROSS-TERM, and it
+//     is a cross-term rather than a discrepancy: the two doors' branch figures
+//     were measured off two DIFFERENT bases (d1fe35d95 and origin/main
+//     0aeb1633b) in worktrees whose own vendor chunks differ by 9 B, and the
+//     merged tree carries the usual minifier drift at a megabyte. The
+//     direction is the point — a side that had been dropped shows up here as a
+//     large NEGATIVE, never as +188 B. Every marker was grepped on the built
+//     chunks separately, which is the check that actually catches a loss:
+//     先月同期間比 ×4 · capacityReason ×2 · newCountKnown ×7 · 予約時間 ×1 ·
+//     monthCompareDelta ×6 · closedDayStore ×2 (+1 in en) · 臨時休業 ×2 ·
+//     全店共通の初期値 ×8 · the folded TYPE_SLOT reading `to="new"` and passed
+//     as `typeSlot:to` at 4 call sites, with ZERO `typeSlot:"off"` literals
+//     left (the 2b round wired the month line and the selected-day card).
+const BUDGET_BYTES = 2_130_388
 let dir
 try {
   dir = readdirSync(DIST)
