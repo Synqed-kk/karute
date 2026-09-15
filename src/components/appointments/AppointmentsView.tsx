@@ -20,6 +20,8 @@ import {
   jstWallTimeToDate,
   ymdInJst,
 } from '@/lib/date/jst'
+import { jstMidnight } from '@/lib/date/calendar-range'
+import { monthKeyInJst, monthKeyOf } from '@/lib/appointments/date-jump'
 import { ReservationGrid } from '@/components/reservation/ReservationGrid'
 import { ReservationMobileAgenda } from '@/components/karute/spike-lifted/reservation/ReservationMobileAgenda'
 import {
@@ -384,6 +386,24 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         // a day grid over a day grid (the two calendars looked identical, which
         // is what started this whole round). 日/週 are unchanged.
         defaultLevel={view === 'month' ? 2 : 1}
+        // ⚖ §v11 point 1 / spec §1 — in 月 mode the chip's twelve month chips
+        // are the whole point of opening at level 2: picking one LANDS that
+        // month on the page (the mock's mGrid handler, MOCK 1263-1272), it
+        // does not drop into a day grid the staff member did not ask for.
+        // Selection = the 1st, or TODAY when the pick is the current month, so
+        // 「今月」 through the chip and 今日 agree. 日/週 pass nothing and keep
+        // the panel's own level-2 → level-1 behaviour.
+        onPickMonth={
+          view === 'month'
+            ? (year, month) =>
+                navigateTo(
+                  'month',
+                  monthKeyOf(year, month) === monthKeyInJst(today)
+                    ? today
+                    : jstMidnight(year, month, 1),
+                )
+            : undefined
+        }
       />
       </div>
 

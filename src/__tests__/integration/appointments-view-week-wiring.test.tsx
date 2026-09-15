@@ -61,7 +61,13 @@ jest.mock('@/components/karute/spike-lifted/reservation/ReservationStaffFilter',
   ReservationStaffFilter: ({ prependSlot }: { prependSlot?: React.ReactNode }) => prependSlot ?? null,
 }))
 jest.mock('@/components/reservation/ReservationTotals', () => ({ ReservationTotals: () => null }))
-jest.mock('@/components/appointments/DateJumpPanel', () => ({ DateJumpPanel: () => null }))
+const panelProps: Record<string, unknown> = {}
+jest.mock('@/components/appointments/DateJumpPanel', () => ({
+  DateJumpPanel: (props: Record<string, unknown>) => {
+    Object.assign(panelProps, props)
+    return null
+  },
+}))
 jest.mock('@/components/appointments/NewBookingDialog', () => ({ NewBookingDialog: () => null }))
 jest.mock('@/components/appointments/BookingActionSheetWrapper', () => ({
   BookingActionSheetWrapper: () => null,
@@ -201,6 +207,7 @@ beforeEach(() => {
   monthPageProps = null
   pushed.length = 0
   for (const k of Object.keys(uiProps)) delete uiProps[k]
+  for (const k of Object.keys(panelProps)) delete panelProps[k]
 })
 
 /** The header's ‹ / › / 今日 handlers, as the package receives them. */
@@ -329,6 +336,47 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
   it('the month line s pending state is the router transition, like the week s', () => {
     renderView(MONTH_VIEW)
     expect(typeof monthPageProps!.pending).toBe('boolean')
+  })
+})
+
+/**
+ * R1-1 (D-2) — the month CHIP's landing, the half of §v11 point 1 that 4a left
+ * out. The decision lives here, not in the panel: the panel says "a month was
+ * picked", the view decides which DAY of it the page lands on.
+ */
+describe('a month pick LANDS that month on the 月 page (R1-1)', () => {
+  const pickMonth = () => panelProps.onPickMonth as ((y: number, m: number) => void) | undefined
+  const todayIso = () => monthPageProps!.todayIso!
+
+  it('an ordinary month lands on its 1st, in 月 view', () => {
+    renderView(MONTH_VIEW)
+    // A year behind today's, so it can never BE the current month whatever day
+    // this suite runs on.
+    const [y, m] = todayIso().split('-')
+    pickMonth()!(Number(y) - 1, Number(m))
+    expect(pushed).toHaveLength(1)
+    expect(pushed[0]).toContain('view=month')
+    expect(pushed[0]).toContain(`date=${Number(y) - 1}-${m}-01`)
+  })
+
+  it('the CURRENT month lands on TODAY — 「今月」 through the chip and 今日 agree', () => {
+    renderView(MONTH_VIEW)
+    const [y, m] = todayIso().split('-')
+    pickMonth()!(Number(y), Number(m))
+    expect(pushed[0]).toContain(`date=${todayIso()}`)
+  })
+
+  it('it carries the 担当 scope, like every other move (spec §1/§6)', () => {
+    renderView({ ...MONTH_VIEW, staffFilter: 'staff-3' })
+    const [y, m] = todayIso().split('-')
+    pickMonth()!(Number(y) - 1, Number(m))
+    expect(pushed[0]).toContain('staff=staff-3')
+  })
+
+  it('日/週 pass NO callback — there the chip is not a month lander', () => {
+    renderView()
+    expect(pickMonth()).toBeUndefined()
+    expect(panelProps.defaultLevel).toBe(1)
   })
 })
 

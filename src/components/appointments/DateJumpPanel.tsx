@@ -190,6 +190,7 @@ export interface DateJumpPanelProps {
   weekdayLabels: [string, string, string, string, string, string, string]
   /** 2 = open on the month chips (月 mode, §v11b) instead of the day grid. */
   defaultLevel?: 1 | 2
+  onPickMonth?: (year: number, month: number) => void // §v11 point 1 — at level 2 a month chip LANDS that month
 }
 
 export function DateJumpPanel({
@@ -202,6 +203,7 @@ export function DateJumpPanel({
   onPickDay,
   weekdayLabels,
   defaultLevel = 1,
+  onPickMonth,
 }: DateJumpPanelProps) {
   const locale = useLocale()
   const t = useTranslations('reservation')
@@ -595,12 +597,16 @@ export function DateJumpPanel({
   /** MOCK 1143-1149. */
   const jumpToMonth = useCallback(
     (key: MonthKey) => {
+      if (onPickMonth && defaultLevel === 2) {
+        onPickMonth(...splitMonthKey(key))
+        return onClose()
+      }
       setPending(0)
       setTravel((n) => n + 1)
       dispatch({ type: 'setMonth', month: key })
       dispatch({ type: 'setLevel', level: 'grid' })
     },
-    [setPending],
+    [setPending, onPickMonth, defaultLevel, onClose],
   )
 
   // Opening or closing starts the slide over: land nothing, arm nothing. A
