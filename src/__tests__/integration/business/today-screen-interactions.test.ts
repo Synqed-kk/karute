@@ -2336,6 +2336,10 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "reservedSentence,",
       "sameStore,",
       "sharesStore,",
+      // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: the no-bed
+      // predicate arrives here beside `sharesStore` (the list is not
+      // alphabetical here; the pin quotes the tip's order).
+      "storeHasBeds,",
       "sellDrawnFor,",
       "sellLayerFor,",
       // ⚖ ROUND 2 (2026-09-13) — SPEC-R2 §3.1. `sellDrawnFor` one law along: the
@@ -3929,13 +3933,18 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     // is unchanged and sharper: a drop on a BED row is still the operator's
     // explicit room choice, and a staff-row drop still proves a room.
     expect(body).toContain("const staff = dropped?.group === 'beds' ? boardLanes.find((l) => l.key === chip.home.laneKey) : dropped")
-    expect(body).toContain("dropped?.group === 'beds'\n        ? dropped")
+    // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: the `bed`
+    // ternary folded onto one line when the no-room arm (`solvedChip!.laneKey
+    // == null ? null : …`) was added beside it; same clause, no line break.
+    expect(body).toContain("dropped?.group === 'beds' ? dropped")
     // RENEGOTIATED (Greptile #725 P1-A): `solveBed` leads with the STAFF lane it
     // is allocating for, so the allocator can refuse another store's rooms.
     // RENEGOTIATED (batch-9, ⚖ 50(d)): the solve carries whether this landing was
     // placed THROUGH a 置けない — an override has to reach the room too, or the
     // escalation is refused a second time behind a decision already made.
-    expect(body).toContain('const solvedChip = solveBed(solveLanes(chip.id), staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)')
+    // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: the solve now
+    // short-circuits to null on the bed-row drop arm, same as item 1's line.
+    expect(body).toContain("const solvedChip = dropped?.group === 'beds' ? null : solveBed(solveLanes(chip.id), staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)")
     expect(body).toContain('laneKey: bed.key')
     // The × and the hold bar's 元に戻す both take the placed row back off.
     expect(SRC).toContain('setAdded((was) => was.filter((a) => a.item.caseId !== id))')
@@ -5835,7 +5844,15 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     }
     // The composed refusals go through the same door — the allocator's 満室
     // sentence and the chip landing's missing-person one.
-    expect(SRC).toContain('if (solved.refusal || solved.laneKey == null) {\n      if (solved.refusal) refuse(solved.refusal)')
+    // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: `solveBed` no
+    // longer collapses a null `laneKey` into a refusal (a no-room store is not
+    // a refusal). The ⚖ 47 intent is unchanged: a refusal is SPOKEN through
+    // `refuse(...)` and changes nothing — so this pin keeps the whole
+    // four-line shape on purpose. G10 (i) (this file's own 「the drop path
+    // refuses only on a refusal」 describe) isolates `solveBed`'s body and pins
+    // the collapsed check's ABSENCE; the two overlap on the `if` line by
+    // design, each for its own reason.
+    expect(SRC).toContain('if (solved.refusal) {\n      refuse(solved.refusal)\n      return null\n    }')
     expect(SRC).toContain('refuse(`${chip.item.title}様の担当がこのボードにいません')
   })
 
@@ -5983,10 +6000,13 @@ describe('BATCH-7 — FLAGS 25c backlog: the three unregistered surfaces join th
     // without it, so an operator who had only read the tour would meet the
     // feature for the first time when it happened to them. Every existing
     // sentence is byte-identical.
+    // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: the bed-swap
+    // sentence is now gated on `hasBeds` (a no-room store has no beds to
+    // swap); the surrounding fragments are byte-identical.
     expect(SRC).toContain(
       'data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、'
-      + '警告のカードに変わります。ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります。'
-      + '入れ替えたお客様はここに表示されます。'
+      + '警告のカードに変わります。'
+      + "${hasBeds ? 'ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります。入れ替えたお客様はここに表示されます。' : ''}"
       + "ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}",
     )
     // …and the strip through a conditional spread, because it renders per lane
@@ -12279,10 +12299,20 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // predicate (the one its `ticketCore:` line mints the ¥ face with, ⚖ R6
     // D2), the chip's carried stamp, and the create dialog's コース.
     for (const line of [
-      '{ ...board, laneKey: lane.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-staff`, tag: `【${partner.label}】` } },',
-      '{ ...board, laneKey: partner.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } },',
-      '{ ...board, laneKey: staff.key, fromChip: chip, priced: chip.priced, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },',
-      '{ ...board, laneKey: bed.key, priced: chip.priced, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },',
+      // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: the 次回予約
+      // staff row's tag is empty on a no-room store (nothing is undecided,
+      // there is simply no room); `priced: lane.listPrice > 0` is unchanged.
+      '{ ...board, laneKey: lane.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-staff`, tag: partner ? `【${partner.label}】` : \'\' } },',
+      // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: a store with
+      // no rooms mints no bed-side card at all.
+      '...(partner ? [{ ...board, laneKey: partner.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } }] : []),',
+      // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: the shelf
+      // chip's staff row's tag is empty on a no-room store, same rule as
+      // item 7's staff row.
+      '{ ...board, laneKey: staff.key, fromChip: chip, priced: chip.priced, item: { ...landed, key: `${chip.id}-staff`, tag: bed ? `【${bed.label}】` : \'\' } },',
+      // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: a store with
+      // no rooms mints no bed-side card, same rule as the 次回予約 bed row.
+      '...(bed ? [{ ...board, laneKey: bed.key, priced: chip.priced, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } }] : []),',
       'setAdded((was) => [...was, { ...board, laneKey, item, priced }])',
       "tab === 'book' && menu?.price != null,",
     ]) {
@@ -12636,11 +12666,11 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
       reseats: [],
     })
     expect(INT).not.toContain('個室のみの指定を外すか')
-    // …and an untagged booking on a store with no bed AT ALL answers the SAME
-    // question in the same shape (⚖ FIX ROUND 2, delta lens 3 N8): both arms are
-    // 「does a usable room exist here?」, and a window on the answer sent the
-    // operator hunting the clock for a room that exists at no hour.
-    expect(solve([staffLane()], false).refusal).toBe('この店舗には使えるベッドがありません')
+    // …and an untagged booking on a store with no bed AT ALL no longer reaches
+    // this refusal at all (⚖ ROUND 3 · C, ⚖ D-52 (a)): `storeHasBeds` returns
+    // early before the search, so the landing stands with no room rather than
+    // being told to hunt a clock for a room that exists at no hour.
+    expect(solve([staffLane()], false)).toEqual({ laneKey: null, refusal: null, blockers: [], reseats: [] })
   })
 
   // I4 — THE CLASS IS AN ORDER, NEVER A FILTER, AND THE ORDER IS LAW. No dial,
@@ -15008,5 +15038,91 @@ describe('⚖ STUDIO 2026-09-12 — 月カレンダー enters AND leaves on the 
     expect(card).toContain('{monthShown.days.map((d) => {')
     expect(card).not.toContain('monthCells')
     expect(CODE).toContain('const { y, m } = calendarMonthAt(monthShown.y, monthShown.m, delta)')
+  })
+})
+
+// ⚖ ROUND 3 · C — G10 (⚖ D-52 (b)) — THE DROP PATH, SOURCE HALF.
+//
+// `solveBed`'s own doc-law used to say "null back means 満室"; after ⚖ D-52 (a)
+// a `laneKey` of `null` with no refusal is a store with no rooms, so the
+// collapsed `solved.refusal || solved.laneKey == null` check would have
+// silently bounced a gym landing that just previewed as placeable. This block
+// pins the source shape the fix requires — never re-derived, so a later edit
+// that restores the collapsed check turns this red rather than surviving.
+describe('⚖ ROUND 3 · C — G10 (⚖ D-52 (b)) — the drop path refuses only on a refusal', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const solveBedBody = SRC.slice(SRC.indexOf('function solveBed('), SRC.indexOf('function solveLanes('))
+
+  it('solveBed refuses only on solved.refusal — the collapsed null-check is gone', () => {
+    expect(solveBedBody).toContain('if (solved.refusal) {')
+    expect(solveBedBody).not.toContain('solved.laneKey == null')
+  })
+
+  it('次回予約 mints the staff tag conditionally and only mints a bed-side card when there is a partner', () => {
+    const placeNextVisit = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('function placeFromShelf('))
+    expect(placeNextVisit).toContain('tag: partner ?')
+    // The bed-side row is under `partner` — a spread guarded on it, not an
+    // unconditional second element.
+    expect(placeNextVisit).toContain('...(partner ? [{')
+  })
+
+  it('the shelf chip mints the staff tag conditionally, and `solvedChip` is read outside the IIFE', () => {
+    const placeFromShelf = SRC.slice(SRC.indexOf('function placeFromShelf('), SRC.indexOf('\n  // The month grid'))
+    expect(placeFromShelf).toContain('tag: bed ?')
+    // `solvedChip` is a plain const built from a ternary, not an IIFE's return
+    // value — the OLD shape was `const bed = … : (() => { … solveBed(…) … })()`.
+    expect(placeFromShelf).toContain('const solvedChip = dropped?.group === ')
+    expect(placeFromShelf).not.toContain('(() => {')
+  })
+})
+
+// ⚖ ROUND 3 · C F4 — G13 (⚖ D-52 (g)) — THE MIXED BOARD'S NETTING, SOURCE HALF.
+//
+// The behaviour half is pinned in honest-held.test.ts (item 8), bed-aware-sales.test.ts
+// (item 9) and today-no-bed-store.test.ts (G11/G12); this leg proves the SCREEN
+// itself wires the predicate at every site (m9/m13's own catch: the screen
+// could drop the argument while the layers still pass their own unit legs).
+describe('⚖ ROUND 3 · C F4 — G13 (⚖ D-52 (g)) — the mixed-board predicate is wired at every site', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const bedDoorBody = SRC.slice(SRC.indexOf('export function bedDoor('), SRC.indexOf('\n/** ⚖ LIVE-WHILE-DRAGGING §5b'))
+
+  it("bedDoor's roomless short-circuit fires exactly twice, and the D-52 (g) comment lives beside it", () => {
+    const hits = [...bedDoorBody.matchAll(/if \(roomless\.has\(lane\.key\)\) return true/g)]
+    console.log('G13 bedDoor hits', hits.length)
+    expect(hits.length).toBe(2)
+    expect((bedDoorBody.match(/⚖ D-52 \(g\)/g) ?? []).length).toBe(1)
+  })
+
+  // ⚖ D-52 (i) — MINOR 3: THREE whole-call pins, one per site, quoting the
+  // tip's exact text from the argument before the comment line through the
+  // closing paren. The loose bare-predicate `toContain` they replace would
+  // survive m13 (dropping the predicate at the `honest` site) because
+  // `withheld` carries the same bare string; the occurrence count they also
+  // replace did catch m13 (2→1, F4 report) but pinned nothing about WHERE a
+  // predicate sits — a whole call per site does. The
+  // `heldBoardHonest`/`boardLanes` site is already pinned whole in
+  // selling-engine-doors.test.ts; not duplicated here.
+  it("the three netting call sites carry the mixed-board predicate — the tip's exact whole call", () => {
+    expect(SRC).toContain(
+      `          bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+          true,
+          // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+          (l) => storeHasBeds(committedLanes, l.stores),
+        )`,
+    )
+    expect(SRC).toContain(
+      `      bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+      BED_AWARE_SALES,
+      // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+      (l) => storeHasBeds(committedLanes, l.stores),
+    )`,
+    )
+    expect(SRC).toContain(
+      `      bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+      true,
+      // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+      (l) => storeHasBeds(originLanes, l.stores),
+    )`,
+    )
   })
 })

@@ -18,6 +18,7 @@ import {
   HONEST_SEARCH_BUDGET,
   type HonestHeld,
 } from '@/app/[locale]/(business)/business/today/honest-held'
+import { storeHasBeds } from '@/app/[locale]/(business)/business/today/today-interactions'
 import type { BedTruth } from '@/app/[locale]/(business)/business/today/capacity-ledger'
 import type { ReservedLaneMask, ReservedSpan } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import type { BoardLane } from '@/business/lib/today-board'
@@ -481,5 +482,93 @@ describe('heldMaskOf', () => {
     const p05 = h.byLane.find((l) => l.laneKey === 'p-05')!
     expect(heldMaskOf(p06)).toEqual({ laneKey: 'p-06', spans: [], protectedCount: 0 })
     expect(heldMaskOf(p05)).toEqual({ laneKey: 'p-05', spans: p05.held, protectedCount: 1 })
+  })
+})
+
+// ⚖ ROUND 3 · C F4 (⚖ D-52 (g)) — a row whose store owns no room is held by construction
+describe('honest-held — ⚖ ROUND 3 · C F4 (⚖ D-52 (g)) — a row whose store owns no room is held by construction', () => {
+  // store-a: the fixture's own p-05/p-06 collision (14:30-16:00 / 15:05-16:35,
+  // both wanting bed-02 — the same demo-style collision the fixture describes
+  // above), rebound to store-a with two real bed lanes so `storeHasBeds` can
+  // tell store-a and store-z apart. store-z: one staff row bound to a store
+  // with NO bed lane at all.
+  const bedLane = (key: string, stores: string[] | null) => ({ key, label: key, group: 'beds', stores } as unknown as BoardLane)
+  const storeALanes = (): BoardLane[] => [
+    lane('p-05', ['store-a']),
+    lane('p-06', ['store-a']),
+    bedLane('bed-01', ['store-a']),
+    bedLane('bed-02', ['store-a']),
+  ]
+  const mixedLanes = (): BoardLane[] => [...storeALanes(), lane('p-z', ['store-z'])]
+  const collisionCandidates = () => [
+    maskOf('p-05', [span(14 * 60 + 30, 90)]),
+    maskOf('p-06', [span(15 * 60 + 5, 90)]),
+  ]
+  // 10:00 is not a FIXTURE start, so `fixtureBook()` answers `[]` for it — the
+  // honest answer for a store with no rooms, coincidentally reproduced by the
+  // stub's own "no match" fallback rather than asserted by hand.
+  const storeZCandidates = () => [maskOf('p-z', [span(10 * 60, 90)])]
+  const mixedCandidates = () => [...collisionCandidates(), ...storeZCandidates()]
+  const needsRoom = (lanes: readonly BoardLane[]) => (l: BoardLane) => storeHasBeds(lanes, l.stores)
+
+  it('(a) MIXED board: store-z is held by construction; store-a is byte-identical to the board without it', () => {
+    const lanesAll = mixedLanes()
+    const withZ = honestHeld(mixedCandidates(), lanesAll, fixtureBook(), true, needsRoom(lanesAll))
+    const lanesA = storeALanes()
+    const withoutZ = honestHeld(collisionCandidates(), lanesA, fixtureBook(), true, needsRoom(lanesA))
+    const z = withZ.byLane.find((l) => l.laneKey === 'p-z')!
+    const aOnly = withZ.byLane.filter((l) => l.laneKey !== 'p-z')
+    const rowShape = (l: HonestHeld['byLane'][number]) => ({ laneKey: l.laneKey, held: l.held, heldRooms: l.heldRooms, heldRoom: l.heldRoom, shared: l.shared })
+    console.log('R3-C F4 item8(a)', {
+      z: { held: z.held.length, heldRooms: z.heldRooms, heldRoom: z.heldRoom, shared: z.shared },
+      aTotal: aOnly.reduce((n, l) => n + l.held.length, 0),
+      withZTotal: withZ.total,
+      withoutZTotal: withoutZ.total,
+      withZExact: withZ.exact,
+      withoutZExact: withoutZ.exact,
+    })
+    expect(z.held.length).toBe(1)
+    expect(z.heldRooms).toEqual([[]])
+    expect(z.heldRoom).toEqual([''])
+    expect(z.shared).toEqual([])
+    expect(aOnly.map(rowShape)).toEqual(withoutZ.byLane.map(rowShape))
+    expect(withZ.total).toBe(withoutZ.total + 1)
+    expect(withZ.exact).toBe(withoutZ.exact)
+  })
+
+  it("(b) the DEFAULT: needsRoom absent, store-z nets like every other room-seeking row — today's answer, unchanged", () => {
+    const lanesAll = mixedLanes()
+    const h = honestHeld(mixedCandidates(), lanesAll, fixtureBook(), true)
+    const z = h.byLane.find((l) => l.laneKey === 'p-z')!
+    console.log('R3-C F4 item8(b)', { held: z.held, shared: z.shared })
+    expect(z.held).toEqual([])
+    expect(z.shared.length).toBe(1)
+    expect(z.shared[0].sharedRoom).toBe('')
+  })
+
+  it('(c) on=false with the predicate: identity, unchanged', () => {
+    const lanesAll = mixedLanes()
+    const h = honestHeld(mixedCandidates(), lanesAll, fixtureBook(), false, needsRoom(lanesAll))
+    expect(h.total).toBe(3)
+    expect(h.byLane.every((l) => l.shared.length === 0)).toBe(true)
+  })
+
+  it('(d) the one-call shape: needsRoom is asked once per candidate row, never per span', () => {
+    const lanesAll = mixedLanes()
+    const mask = mixedCandidates()
+    // ⚖ D-52 (i) — the predicate is a per-row question asked once; the
+    // rebuild reads the recorded answer (L1 F4 MINOR 2). Mutant m14 (a
+    // second call in the rebuild) doubles the count.
+    const calls: string[] = []
+    const needsRoomCounting = (l: BoardLane) => {
+      calls.push(l.key)
+      return storeHasBeds(lanesAll, l.stores)
+    }
+    const withCounting = honestHeld(mask, lanesAll, fixtureBook(), true, needsRoomCounting)
+    console.log('R3-C F5 item8(d)', { calls, candidateRows: mask.length })
+    expect(calls.length).toBe(mask.length)
+    expect(new Set(calls).size).toBe(calls.length)
+    const withZ = honestHeld(mask, lanesAll, fixtureBook(), true, needsRoom(lanesAll))
+    expect(withCounting).toEqual(withZ)
   })
 })

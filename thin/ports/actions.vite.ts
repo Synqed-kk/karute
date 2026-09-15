@@ -1148,6 +1148,9 @@ export const saveKaruteRecordInline = facadeSaveKaruteInline
 // getSynqedClient, which the boundary would need to unwind for a type-only
 // need (same "redeclare the shape" convention this file already uses for
 // MarkNoShowResult / UpsertOrgSettingsResult above).
+type WeeklyHours = Partial<
+  Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', { open: string; close: string } | null>
+>
 type StoreRow = {
   id: string
   name: string
@@ -1158,6 +1161,7 @@ type StoreRow = {
   staffCount: number
   customerCount: number
   businessType: string | null
+  weeklyHours?: WeeklyHours | null
 }
 type StoreInput = {
   name: string
@@ -1172,8 +1176,10 @@ type StoreInput = {
 // which never wraps this call in its own try/catch — sees the reject and
 // leaves last-good state untouched, same as web. A blanket []-on-any-failure
 // here would instead silently blank out a paying tenant's real store list.
-async function facadeListStores(): Promise<StoreRow[]> {
-  const res = await getDataPort().apiFetch('/api/app/v1/stores')
+async function facadeListStores(withHours: boolean): Promise<StoreRow[]> {
+  const res = await getDataPort().apiFetch(
+    withHours ? '/api/app/v1/stores?withHours=1' : '/api/app/v1/stores',
+  )
   if (res.status === 401) return []
   if (!res.ok) throw new Error(`store list failed (${res.status})`)
   const body = (await res.json()) as { stores?: StoreRow[] }
@@ -1199,6 +1205,29 @@ async function facadeCreateStore(
   } catch (err) {
     // try/catch: handleFormSave awaits without one — a transport reject would
     // strand the dialog's `saved` state (see statusCall's identical rationale).
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+// 営業時間 (1c-D). The whole week or nothing — the seven-keys invariant is
+// the SERVER's (setStoreHoursCore), so nothing is pre-validated here; a
+// refusal rides back as a 2xx { error } string the editor renders.
+async function facadeSetStoreHours(
+  storeId: string,
+  weeklyHours: unknown,
+): Promise<{ ok: true } | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/stores/${enc(storeId)}/hours`,
+      jsonInit('PATCH', { weekly_hours: weeklyHours }),
+    )
+    const body = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.ok) return { ok: true }
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Save failed (${res.status})` }
+  } catch (err) {
     return { error: err instanceof Error ? err.message : 'Network error' }
   }
 }
@@ -1323,9 +1352,16 @@ export const setActiveStore = async (
   window.location.reload()
   return { ok: true }
 }
-export const listStores = facadeListStores
+// NO hours — the boot-time store switcher's read (the app-shell layout),
+// which never renders 営業時間. Hours are opt-in (R2-2): a policy-read
+// outage must never take the switcher down with it.
+export const listStores = () => facadeListStores(false)
+// WITH hours — the 設定 screen's 店舗 tab, whose 営業時間 editor seeds off
+// them (one storePolicies.list() for the whole business, never per store).
+export const listStoresWithHours = () => facadeListStores(true)
 export const createStore = facadeCreateStore
 export const updateStore = facadeUpdateStore
+export const setStoreHours = facadeSetStoreHours
 // Local read, no network — the same store-pref module setActiveStore writes
 // to, keyed per signed-in user (see thin/chrome/store-pref.ts's own header).
 export const getActiveStoreId = async (): Promise<string | null> => {

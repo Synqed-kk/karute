@@ -27,11 +27,18 @@ import { jstSlot, jstSlotEnd } from './clock'
 
 export const STORE_A = 'store-test-ginza'
 export const STORE_B = 'store-test-daikanyama'
+/** ⚖ ROUND 3 · C — the store with NO rooms: zero `resources` rows in
+ *  fixtures-today.ts, zero bookings, zero menus of its own; its roster is the
+ *  floating card c-03 (テスト さぶろう, works in every store, shift 11:00–19:00,
+ *  break 15:00–16:00 — fixtures-today.ts:50). A gym-shaped board: staff time
+ *  is the only capacity. */
+export const STORE_C = 'store-test-shibuya'
 
 export interface FixtureStore { id: string; name: string }
 export const stores: FixtureStore[] = [
   { id: STORE_A, name: 'テスト東京店' },
   { id: STORE_B, name: 'テスト横浜店' },
+  { id: STORE_C, name: 'テスト渋谷店' },
 ]
 
 /** The business the shell names. One tenant, two stores. */
