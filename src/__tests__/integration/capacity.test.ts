@@ -122,7 +122,10 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.bookedMinutes).toBe(60) // 23:00–24:00 is inside; the 2h past midnight are not
   })
 
-  it('E4: the Sunday it runs into is outside too while Sunday opens at 10:00', () => {
+  it('E4/R3: the Sunday it runs into no longer withdraws — one booking blanks one day, not two', () => {
+    // Supersedes the 12:5x D-1 amendment's second sentence (R3, lead re-ruling):
+    // this row does not START Sunday, so it can no longer withdraw Sunday —
+    // only the Saturday it actually starts on (see the sibling E4 case above).
     const fact = capacityForDay(
       input({
         hours: { openMs: sun(10), closeMs: sun(20), source: 'store', closed: false },
@@ -132,9 +135,12 @@ describe('capacityForDay — the council edges', () => {
       }),
     )
 
-    expect(fact.reason).toBe('outside-hours')
-    // R2: bookedMinutes is the day-clipped minutes (Sun 00:00–02:00), not 0.
-    expect(fact.bookedMinutes).toBe(120)
+    expect(fact.reason).toBeNull()
+    expect(fact.capacityMinutes).toBe(600) // 1 lane × 10h; the row adds no lane (0 inside minutes)
+    expect(fact.bookedMinutes).toBe(120) // day-clipped: Sun 00:00–02:00 (R2)
+    expect(fact.occupancyPct).toBe(0) // none of it lands inside Sunday's 10:00–20:00
+    expect(fact.band).toBe('light')
+    expect(fact.availableMinutes).toBe(600)
   })
 
   it('E4: a Sunday that opens at 00:00 sees the 120 minutes it actually loses', () => {
@@ -395,6 +401,21 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.band).toBeNull()
     expect(fact.availableMinutes).toBeNull()
     expect(fact.hoursSource).toBe('store')
+  })
+
+  it('R3: a run-in row that ends before open no longer withdraws today', () => {
+    // 22:00 the previous night → 08:00 today, open 10:00: the row never
+    // starts today, so rule 4 does not look at it at all (R3 deletes the
+    // branch that used to withdraw a day over a row it doesn't start).
+    const fact = capacityForDay(
+      input({ rosterLanes: 1, spans: [span(DAY_START - 2 * 3_600_000, at(8), 's1')] }),
+    )
+
+    expect(fact.reason).toBeNull() // capacity present
+    expect(fact.capacityMinutes).toBe(600)
+    expect(fact.bookedMinutes).toBe(480) // day-clipped: 00:00–08:00 today (R2)
+    expect(fact.occupancyPct).toBe(0) // windowMinutes 0 — none of it lands inside 10:00–20:00
+    expect(fact.availableMinutes).toBe(600)
   })
 
   it('R2: a class outside the store hours still reports its day minutes on a kind-none store', () => {

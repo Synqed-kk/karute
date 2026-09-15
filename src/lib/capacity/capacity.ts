@@ -224,7 +224,6 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
     endMs: number
     staffId: string | null
     insideMinutes: number
-    outsideMinutes: number
   }[] = []
   for (const span of input.spans) {
     if (!isValidSpan(span)) continue
@@ -244,7 +243,6 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
       clipEndMs: span.endMs < windowCloseMs ? span.endMs : windowCloseMs,
       staffId: span.staffId,
       insideMinutes,
-      outsideMinutes,
     })
   }
 
@@ -279,16 +277,14 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   // dividing by it is the NaN E10 forbids.
   if (!hoursRunForward(hours.openMs, hours.closeMs)) return withoutCapacity('hours-unresolved')
 
-  // 4. A booking that STARTS today must fit inside today's declared hours; one
-  //    that ran in from last night is outside only if none of it lands inside
-  //    them (C3 rule b + the window-edge leak the one-day-early fetch closes).
+  // 4. A booking that STARTS today must fit inside today's declared hours. A
+  //    row that ran in from last night NEVER withdraws today (R3 — the lead
+  //    re-rules over the 12:5x D-1 amendment's second sentence: one late-night
+  //    booking blanks one day, not two; it already withdraws the day it
+  //    starts on, and the door fix prevents the app creating the class).
   for (const s of counted) {
     const startsToday = s.startMs >= input.dayStartMs && s.startMs < input.dayEndMs
-    if (startsToday) {
-      if (s.startMs < windowOpenMs || s.endMs > windowCloseMs) {
-        return withoutCapacity('outside-hours')
-      }
-    } else if (s.insideMinutes === 0 && s.outsideMinutes > 0) {
+    if (startsToday && (s.startMs < windowOpenMs || s.endMs > windowCloseMs)) {
       return withoutCapacity('outside-hours')
     }
   }
