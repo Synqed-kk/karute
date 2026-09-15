@@ -11,8 +11,9 @@ set -uo pipefail
 
 METRIC_MENU=src/lib/appointments/metric-menu.ts
 WEEK_ROWS=src/components/appointments/WeekRows.tsx
+VIEW=src/components/appointments/AppointmentsView.tsx
 
-if [[ -n "$(git status --porcelain -- "$METRIC_MENU" "$WEEK_ROWS")" ]]; then
+if [[ -n "$(git status --porcelain -- "$METRIC_MENU" "$WEEK_ROWS" "$VIEW")" ]]; then
   echo "refusing to run: the source files under mutation are dirty" >&2
   exit 1
 fi
@@ -51,5 +52,35 @@ run n5 $METRIC_MENU src/__tests__/integration/metric-menu.test.ts 'exact boundar
 perl -0pi -e 's/const newSum = openRows\.reduce/const newSum = rows.reduce/' $WEEK_ROWS
 run n6 $WEEK_ROWS src/__tests__/integration/week-rows.test.tsx 'excludes a closed row'
 
+# R1 --------------------------------------------------------------------------
+
+# n7 (R1-1) — the grid placement is a no-op, so a duration goes back into the
+# narrow 100 px column.
+perl -0pi -e 's/function placeForGrid\(cells: Cell\[\]\): Cell\[\] \{/function placeForGrid(cells: Cell[]): Cell[] {\n  return cells/' $METRIC_MENU
+run n7 $METRIC_MENU src/__tests__/integration/metric-menu.test.ts 'holds across typeSlot'
+
+# n8 (R1-1) — the placement stops honouring the wide slot it would displace, so
+# it swaps two durations and moves nothing.
+perl -0pi -e 's/if \(isDuration\(cells\[2\]\)\) return cells/if (false) return cells/' $METRIC_MENU
+run n8 $METRIC_MENU src/__tests__/integration/metric-menu.test.ts 'holds across typeSlot'
+
+# n9 (R1-1) — the DAY LINE gets re-placed too (it has no columns to place for).
+perl -0pi -e 's/  return \[count, utilization, freeOrBooked, fourth\]\n\}/  return placeForGrid([count, utilization, freeOrBooked, fourth])\n}/' $METRIC_MENU
+run n9 $METRIC_MENU src/__tests__/integration/metric-menu.test.ts 'the DAY LINE keeps the fill order'
+
+# n10 (R1-2) — `truncated` is ignored, so a cut-off week reads as an empty one.
+perl -0pi -e 's/props\.truncated === true \|\| \(props\.weekData === null && !isPending\)/props.weekData === null \&\& !isPending/' $VIEW
+run n10 $VIEW src/__tests__/integration/appointments-view-week-wiring.test.tsx 'truncated with rows still on the wire'
+
+# n11 (R1-2) — only `truncated` is honoured, so a week the server never
+# answered at all falls back to the calm 「データがありません」 page.
+perl -0pi -e 's/props\.truncated === true \|\| \(props\.weekData === null && !isPending\)/props.truncated === true/' $VIEW
+run n11 $VIEW src/__tests__/integration/appointments-view-week-wiring.test.tsx 'a null week with no truncation flag'
+
+# NOT a mutant: `props.weekData === null` → `!props.weekData` is EQUIVALENT —
+# the prop is `WeekDayRowData[] | null` (the DTO's key is required and only
+# nullable), and `![]` is false, so the two spellings cannot disagree on any
+# reachable value. The 'an EMPTY week' test pins the INTENT of the spelling.
+
 echo "done — tree restored:"
-git status --porcelain -- "$METRIC_MENU" "$WEEK_ROWS" || true
+git status --porcelain -- "$METRIC_MENU" "$WEEK_ROWS" "$VIEW" || true

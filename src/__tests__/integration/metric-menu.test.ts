@@ -203,6 +203,7 @@ describe('placeForGrid — a DURATION never sits in the 100 px column (R1-1, D10
               })
               const ctx = { soloMode, typeSlot, t }
               const keys = weekRowCells(r, ctx).map((c) => c.key)
+              const day = dayLineCells(r, ctx).map((c) => c.key)
 
               // 予約 keeps cell 1.
               expect(`${where}:${keys[0]}`).toBe(`${where}:count`)
@@ -212,10 +213,21 @@ describe('placeForGrid — a DURATION never sits in the 100 px column (R1-1, D10
               // deliberately NOT re-placed, so it is an independent oracle.
               expect({ where, set: [...keys].sort() }).toEqual({
                 where,
-                set: dayLineCells(r, ctx)
-                  .map((c) => c.key)
-                  .sort(),
+                set: [...day].sort(),
               })
+
+              // …and the week row's order BEFORE placement, reconstructed from
+              // that same oracle: identical for 'off'/'returning', and for
+              // 'new' the day line only moves 新規 to the front.
+              const before =
+                typeSlot === 'new' ? [day[0], day[2], day[3], day[1]] : day
+
+              // Nothing moves unless it must: when the wide slot (cell 3)
+              // already holds a duration, the placement leaves the row alone
+              // — it never trades one duration for another.
+              if (DURATION.has(before[2])) {
+                expect({ where, keys }).toEqual({ where, keys: before })
+              }
 
               // Cells 2 and 4 are the 100 px column. Only ONE wide slot can
               // move (cell 1 is 予約), so a row that holds BOTH durations must
