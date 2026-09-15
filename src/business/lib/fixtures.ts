@@ -34,11 +34,14 @@ export const STORE_B = 'store-test-daikanyama'
  *  is the only capacity. */
 export const STORE_C = 'store-test-shibuya'
 
-export interface FixtureStore { id: string; name: string }
+/** `business_type` — ⚖ D-53 (c) R3 — the play-phase value of core's
+ *  `stores.business_type`; a key of the mirror `businessProfiles`; never a
+ *  fallback to the org-level profile (C4). */
+export interface FixtureStore { id: string; name: string; business_type: string }
 export const stores: FixtureStore[] = [
-  { id: STORE_A, name: 'テスト東京店' },
-  { id: STORE_B, name: 'テスト横浜店' },
-  { id: STORE_C, name: 'テスト渋谷店' },
+  { id: STORE_A, name: 'テスト東京店', business_type: 'chiropractic' },
+  { id: STORE_B, name: 'テスト横浜店', business_type: 'massage' },
+  { id: STORE_C, name: 'テスト渋谷店', business_type: 'personal_gym' },
 ]
 
 /** The business the shell names. One tenant, two stores. */
