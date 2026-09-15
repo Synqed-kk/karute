@@ -105,7 +105,9 @@ describe('capacityForDay — the council edges', () => {
 
     expect(fact.reason).toBe('outside-hours')
     expect(fact.capacityMinutes).toBeNull()
-    expect(fact.bookedMinutes).toBe(0) // nothing of it falls inside 10:00–20:00
+    // R2: bookedMinutes is the day-clipped minutes (23:00–24:00 on Saturday),
+    // not the 0 that fell inside 10:00–20:00.
+    expect(fact.bookedMinutes).toBe(60)
   })
 
   it('E4: the same row is still outside a Saturday that closes at 24:00 — it runs past the close', () => {
@@ -131,7 +133,8 @@ describe('capacityForDay — the council edges', () => {
     )
 
     expect(fact.reason).toBe('outside-hours')
-    expect(fact.bookedMinutes).toBe(0)
+    // R2: bookedMinutes is the day-clipped minutes (Sun 00:00–02:00), not 0.
+    expect(fact.bookedMinutes).toBe(120)
   })
 
   it('E4: a Sunday that opens at 00:00 sees the 120 minutes it actually loses', () => {
@@ -152,12 +155,15 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.availableMinutes).toBe(1080)
   })
 
-  it('E5: a 300-minute row from 18:00 against a 20:00 close → outside-hours, 120 minutes booked', () => {
+  it('E5: a 300-minute row from 18:00 against a 20:00 close → outside-hours, the DAY reports 300 booked (R2)', () => {
     const fact = capacityForDay(input({ spans: [span(at(18), at(23))] }))
 
     expect(fact.reason).toBe('outside-hours')
     expect(fact.capacityMinutes).toBeNull()
-    expect(fact.bookedMinutes).toBe(120) // 18:00–20:00 only
+    // R2: bookedMinutes is the day-clipped minutes (予約時間) — the whole
+    // 18:00–23:00 row falls inside the JST day, not just its 18:00–20:00
+    // slice against the store's hours.
+    expect(fact.bookedMinutes).toBe(300)
   })
 
   it("E6: a saved '24:00' close is 840 lane-minutes and keeps source 'store'", () => {
@@ -391,6 +397,16 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.hoursSource).toBe('store')
   })
 
+  it('R2: a class outside the store hours still reports its day minutes on a kind-none store', () => {
+    const fact = capacityForDay(
+      input({ laneKind: 'none', rosterLanes: 3, spans: [span(at(21), at(22))] }),
+    )
+
+    expect(fact.reason).toBe('kind-none')
+    expect(fact.capacityMinutes).toBeNull()
+    expect(fact.bookedMinutes).toBe(60) // was 0 — 21:00–22:00 falls outside 10:00–20:00
+  })
+
   it('CLOSED: 定休日 with bookings on it reports the minutes and no capacity', () => {
     const fact = capacityForDay(
       input({
@@ -421,7 +437,9 @@ describe('capacityForDay — the council edges', () => {
     )
 
     expect(fact.reason).toBeNull() // no 'outside-hours' — it is last night's booking
-    expect(fact.bookedMinutes).toBe(60) // 10:00–11:00
+    // R2: bookedMinutes is the day-clipped minutes (00:00–11:00 today, 660),
+    // not just the 10:00–11:00 hour that lands inside the store's window.
+    expect(fact.bookedMinutes).toBe(660)
     expect(fact.lanes).toBe(1)
     expect(fact.capacityMinutes).toBe(600)
     expect(fact.occupancyPct).toBe(10)

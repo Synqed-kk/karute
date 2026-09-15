@@ -85,7 +85,11 @@ export interface CapacityFact {
   lanes: number
   laneKind: LaneKind
   hoursSource: HoursSource | null
-  /** Σ inside-minutes, clipped to the day's window (C3 rule b). */
+  /** Σ the span's minutes clipped to the JST DAY [dayStartMs, dayEndMs) — the
+   *  number 予約時間 prints (R2), NOT the inside-hours-window minutes used
+   *  below for occupancy/full/available (those stay clipped to [open, close)
+   *  per C3 rule b). A withdrawn day (e.g. 'outside-hours') still reports its
+   *  real day minutes here. */
   bookedMinutes: number
   /** booked ÷ capacity × 100, UNCLAMPED — ≥100 renders 満 (E23/E24). Null
    *  whenever capacity is null. No rounding here; the renderer rounds. */
@@ -207,7 +211,12 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   const windowOpenMs = usableHours ? hours.openMs : input.dayStartMs
   const windowCloseMs = usableHours ? hours.closeMs : input.dayEndMs
 
-  let bookedMinutes = 0
+  // R2: windowMinutes (clipped to [open, close)) drives occupancy/full/free;
+  // dayMinutes (clipped to [dayStart, dayEnd)) is what 予約時間 prints on the
+  // wire as `bookedMinutes` — a withdrawn day still owes the caller its real
+  // minutes, not the hours-window slice of them.
+  let windowMinutes = 0
+  let dayMinutes = 0
   const counted: {
     startMs: number
     clipStartMs: number
@@ -226,7 +235,8 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
       input.dayStartMs,
       input.dayEndMs,
     )
-    bookedMinutes += insideMinutes
+    windowMinutes += insideMinutes
+    dayMinutes += insideMinutes + outsideMinutes
     counted.push({
       startMs: span.startMs,
       endMs: span.endMs,
@@ -244,7 +254,7 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
     lanes,
     laneKind: input.laneKind,
     hoursSource,
-    bookedMinutes,
+    bookedMinutes: dayMinutes,
     occupancyPct: null,
     full: false,
     band: null,
@@ -305,16 +315,16 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   //    the fact stays a number and `full` says 満.
   const laneMinutes = (hours.closeMs - hours.openMs) / MS_PER_MINUTE
   const capacityMinutes = lanes * laneMinutes
-  const occupancyPct = (bookedMinutes / capacityMinutes) * 100
-  const free = capacityMinutes - bookedMinutes
+  const occupancyPct = (windowMinutes / capacityMinutes) * 100
+  const free = capacityMinutes - windowMinutes
   return {
     capacityMinutes,
     lanes,
     laneKind: input.laneKind,
     hoursSource,
-    bookedMinutes,
+    bookedMinutes: dayMinutes,
     occupancyPct,
-    full: bookedMinutes >= capacityMinutes,
+    full: windowMinutes >= capacityMinutes,
     band: bandFor(occupancyPct),
     availableMinutes: hours.source === 'store' ? (free > 0 ? free : 0) : null,
     reason: null,
