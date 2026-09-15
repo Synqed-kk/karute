@@ -427,7 +427,7 @@ describe('G9 — no 「ベッド」 reachable', () => {
     expect(sentences.some((s) => s.includes('ベッド'))).toBe(false)
   })
 
-  it('SOURCE-TEXT CENSUS — every 「ベッド」 line in TodayScreen.tsx and today-interactions.ts outside a comment is on the allowlist', () => {
+  it('SOURCE-TEXT CENSUS — every 「ベッド」 line in TodayScreen.tsx and today-interactions.ts is on the allowlist', () => {
     const files = [
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx',
       'src/app/[locale]/(business)/business/today/today-interactions.ts',
