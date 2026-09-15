@@ -116,6 +116,8 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 
 import { createAppointment, updateAppointment } from '@/actions/appointments'
+import { createAppointmentCore } from '@/lib/appointments/mutations'
+import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { validateAppointmentTime, type BookingDayHours } from '@/lib/appointments'
 import { auditLines } from './helpers/audit-lines'
 import ja from '../../../messages/ja.json'
@@ -295,6 +297,9 @@ describe('the web door — createAppointment', () => {
     })
     expect(apptCreate).not.toHaveBeenCalled()
     expect(lines).toHaveLength(0)
+    // The refusal stops AT THE DOOR — it never reaches the resolver, which can
+    // CREATE a staff record on miss, nor the core behind it.
+    expect(resolveSynqedStaffId).not.toHaveBeenCalled()
   })
 
   it('refuses a 臨時休業 date the same way', async () => {
@@ -360,6 +365,27 @@ describe('the web door — createAppointment', () => {
     expect(result).toEqual({ id: 'appt-new' })
     expect(errSpy).toHaveBeenCalled()
     errSpy.mockRestore()
+  })
+})
+
+// The core is the LAST wall, not the only one: even called directly — as the
+// facade and the web action both do — it refuses before `appointments.create`.
+describe('the core — createAppointmentCore', () => {
+  it('refuses a closed day itself, so no caller can be the way in', async () => {
+    const result = await createAppointmentCore(
+      fakeClient as never,
+      bookingInput(MON_1300_JST),
+      {
+        synqedStaffId: 'staff-core-1',
+        preferredStoreId: 'store-ginza',
+        operatingHours: ORG_HOURS,
+        dayHours: dayHours({ weeklyHours: CLOSED_ON_MONDAY as never }),
+        actor: { actorId: 'auth-user-1', businessId: 'business-1', source: 'web' },
+      },
+    )
+
+    expect(result).toMatchObject({ code: 'closed_day' })
+    expect(apptCreate).not.toHaveBeenCalled()
   })
 })
 
