@@ -59,14 +59,16 @@ export function DayNumbersLine({ row, soloMode, typeSlot, pending }: DayNumbersL
     // margin 0 0 8px · line-height 1.25 · 14px (13.5px ≤400px) · nowrap.
     // No separators, no pills, no dots (§v9d), everything left-aligned.
     //
-    // R3-18 — `min-h-[1.25em]` is the LINE's own content height expressed in
-    // the font size it is currently at (16.875 px at 393's 13.5 px, 17.5 px at
-    // 14 px), so the 12 px shims below cannot shrink the block and the list
-    // card beneath keeps its 8 px seam instead of jumping. It changes nothing
-    // in the loaded state, where the text already fills exactly that height.
+    // R3-18 — the floor is the LINE's own loaded block height: 1.25em of
+    // content (16.875 px at 393's 13.5 px, 17.5 px at 430's 14 px) PLUS the
+    // 0.25rem the py-0.5 adds, because `min-height` is border-box here. So the
+    // 12 px shims cannot shrink the block and the list card beneath keeps its
+    // 8 px seam instead of jumping. It changes nothing in the loaded state,
+    // where the text already fills exactly that height — measured 20.88 px
+    // both ways at 393.
     <div
       data-day-line
-      className="mb-2 flex min-h-[1.25em] items-center gap-[14px] whitespace-nowrap py-0.5 text-[14px] leading-[1.25] max-[400px]:text-[13.5px]"
+      className="mb-2 flex min-h-[calc(1.25em+0.25rem)] items-center gap-[14px] whitespace-nowrap py-0.5 text-[14px] leading-[1.25] max-[400px]:text-[13.5px]"
     >
       {pending || !row ? (
         // mock line 790: `numsHTML(d, pend)` returns TWO shims. The port

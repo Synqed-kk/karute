@@ -204,9 +204,10 @@ describe('DayNumbersLine — the pending state is two shims, not nothing (R3-18)
 
   it('keeps the loaded line’s block height, so the list card below does not jump', () => {
     // jsdom cannot measure, so the rule is pinned rather than the pixels: the
-    // line's own min-height is 1.25em — its content height at whichever font
-    // size the breakpoint gives it (16.875 px at 393, 17.5 px at 430), which
-    // is exactly what the loaded text fills. The pixel proof is Playwright's.
+    // line's min-height is its own loaded block height — 1.25em of content at
+    // whichever font size the breakpoint gives it (16.875 px at 393, 17.5 px
+    // at 430) plus the 0.25rem of py-0.5, because min-height is border-box.
+    // Measured 20.88 px loaded AND pending at 393; the proof is Playwright's.
     const DayNumbersLine = loadDayNumbersLine()
     const loaded = render(<DayNumbersLine row={row()} soloMode={false} typeSlot="off" locale="ja" />)
     const busy = render(
@@ -214,7 +215,7 @@ describe('DayNumbersLine — the pending state is two shims, not nothing (R3-18)
     )
     const cls = (r: { container: HTMLElement }) =>
       r.container.querySelector('[data-day-line]')!.className
-    expect(cls(loaded)).toContain('min-h-[1.25em]')
+    expect(cls(loaded)).toContain('min-h-[calc(1.25em+0.25rem)]')
     expect(cls(busy)).toBe(cls(loaded))
   })
 
