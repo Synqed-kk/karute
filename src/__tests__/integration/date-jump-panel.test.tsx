@@ -949,6 +949,165 @@ describe('a slide in flight cannot move the panel behind your back', () => {
   })
 })
 
+/**
+ * #921 — the motion itself, on the mechanism that replaced the CSS transitions.
+ *
+ * Liam on the Vercel preview: "looks nothing like the mock… no animation." The
+ * panel OPEN snapped in the PRODUCTION build only: it mounted closed and
+ * flipped open one rAF later, and a single rAF promises "before the next
+ * paint", not "after one". Production's faster JS collapsed both commits into
+ * one frame, the browser never painted the closed state, and the transition had
+ * no delta to run on. The spring writes every frame itself, and the closed
+ * style is written synchronously in the mounting commit — which is what t1
+ * pins, on the exact frame the browser would otherwise have missed.
+ *
+ * Frames are jest's: fake timers drive jsdom's rAF (verified), and the spring
+ * resolves requestAnimationFrame per call so it is the FAKED one it schedules
+ * on.
+ */
+describe('the panel moves like the mock', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  const frames = async (ms: number) => {
+    await act(async () => {
+      jest.advanceTimersByTime(ms)
+    })
+  }
+  const openNow = () => {
+    fireEvent.click(chip())
+    return screen.getByRole('dialog')
+  }
+
+  it('t1 — opening writes the CLOSED style before a single frame runs', () => {
+    renderView()
+    const dialog = openNow()
+    // Not one rAF has been allowed to fire, and the panel is already in the
+    // DOM carrying the closed state. This is the frame production was missing.
+    expect(dialog.style.opacity).toBe('0')
+    expect(dialog.style.transform).toContain('scaleY(0.96')
+    expect(dialog.style.transform).toContain('translateY(-4')
+  })
+
+  it('t1b — and then rises to rest over frames, not in one', async () => {
+    renderView()
+    const dialog = openNow()
+    const samples: number[] = []
+    for (let i = 0; i < 12; i += 1) {
+      await frames(16)
+      samples.push(Number(dialog.style.opacity))
+    }
+    // A real curve: several intermediate values, never overshooting.
+    const between = samples.filter((v) => v > 0 && v < 1)
+    expect(between.length).toBeGreaterThanOrEqual(6)
+    expect(Math.max(...samples)).toBeLessThanOrEqual(1)
+    for (let i = 1; i < samples.length; i += 1) {
+      expect(samples[i]).toBeGreaterThanOrEqual(samples[i - 1])
+    }
+    await frames(1000)
+    expect(dialog.style.opacity).toBe('1')
+    expect(dialog.style.transform).toBe('scaleY(1.0000) translateY(0.00px)')
+  })
+
+  it('t2 — closing unmounts the panel only once the fade has reached rest', async () => {
+    renderView()
+    openNow()
+    await frames(1000)
+
+    fireEvent.click(chip()) // close
+    // Still mounted: a panel that vanished on the click would have no close to
+    // animate, which is the CLOSE_MS timer this replaced.
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.style.opacity).toBe('1')
+    await frames(80)
+    const mid = Number(dialog.style.opacity)
+    expect(mid).toBeGreaterThan(0)
+    expect(mid).toBeLessThan(1)
+    expect(panel()).not.toBeNull()
+
+    await frames(1000)
+    expect(panel()).toBeNull()
+  })
+
+  it('t3 — reopening mid-close reverses from where it is, it does not restart', async () => {
+    renderView()
+    openNow()
+    await frames(1000)
+
+    fireEvent.click(chip()) // close
+    await frames(80)
+    const dialog = screen.getByRole('dialog')
+    const mid = Number(dialog.style.opacity)
+    expect(mid).toBeGreaterThan(0)
+    expect(mid).toBeLessThan(1)
+
+    fireEvent.click(chip()) // reopen, mid-fade
+    // The same element, at the same value: no jump back to 0, no second mount.
+    expect(screen.getByRole('dialog')).toBe(dialog)
+    expect(Number(dialog.style.opacity)).toBeCloseTo(mid, 5)
+
+    await frames(1000)
+    expect(dialog.style.opacity).toBe('1')
+    expect(panel()).not.toBeNull()
+  })
+
+  it('t4 — a flick too short to pass the distance threshold still commits on speed', async () => {
+    renderView()
+    const dialog = openNow()
+    await frames(1000)
+    expect(title()).toHaveTextContent('2026年9月')
+
+    const grid = dialog.querySelector<HTMLElement>('.touch-none')!
+    // 10 px of travel — nowhere near a quarter of the pane — but fast.
+    pointer('pointerdown', grid, { pointerId: 7, clientX: 200, clientY: 100 })
+    pointer('pointermove', grid, { pointerId: 7, clientX: 190, clientY: 101 })
+    pointer('pointerup', grid, { pointerId: 7, clientX: 190, clientY: 101 })
+
+    await frames(2000)
+    // The velocity carried it: without the flick path this stays on 9月.
+    expect(title()).toHaveTextContent('2026年10月')
+  })
+
+  it('t4b — a slow drag of the same distance goes back to where it was', async () => {
+    renderView()
+    const dialog = openNow()
+    await frames(1000)
+
+    const grid = dialog.querySelector<HTMLElement>('.touch-none')!
+    pointer('pointerdown', grid, { pointerId: 8, clientX: 200, clientY: 100 })
+    pointer('pointermove', grid, { pointerId: 8, clientX: 190, clientY: 101 })
+    // A pause on the glass: the last sample's speed is what the release reads,
+    // and a finger that stopped is not a flick.
+    await frames(200)
+    pointer('pointermove', grid, { pointerId: 8, clientX: 190, clientY: 101 })
+    pointer('pointerup', grid, { pointerId: 8, clientX: 190, clientY: 101 })
+
+    await frames(2000)
+    expect(title()).toHaveTextContent('2026年9月')
+  })
+
+  it('t5 — a second › mid-slide lands the first month at once, then slides the next', async () => {
+    renderView()
+    const dialog = openNow()
+    await frames(1000)
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    await frames(100) // in flight, nowhere near rest
+    expect(title()).toHaveTextContent('2026年9月')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    // Instantly, on the tap itself: the month that was moving has LANDED.
+    expect(title()).toHaveTextContent('2026年10月')
+
+    await frames(2000)
+    expect(title()).toHaveTextContent('2026年11月')
+  })
+})
+
 describe('the hidden native date input is gone', () => {
   it('AppointmentsView no longer renders one — the chip is the only door to a date', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
