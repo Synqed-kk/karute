@@ -180,7 +180,7 @@ export function SelectedDayCard({
             type="button"
             onClick={() => onOpenDay(dateIso)}
             className={cn(
-              'm-2.5 flex h-11 w-[calc(100%-20px)] items-center justify-center gap-[5px] rounded-xl',
+              'm-2.5 flex h-11 w-[calc(100%-20px)] items-center justify-center gap-[5px] rounded-[12px]',
               'bg-primary/8 text-[14px] font-bold text-primary',
               'transition-[scale] duration-100 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]',
               'motion-reduce:transition-none motion-reduce:active:scale-100',

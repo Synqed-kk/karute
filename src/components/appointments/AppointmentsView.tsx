@@ -655,7 +655,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
            *  raw Date — the runtime's local day, which on the UTC server is
            *  yesterday's. The pop-down keeps rendering through it (approved,
            *  byte-frozen); the page does not. */
-          <>
+          /* ONE child of the page's space-y-6 rhythm, not two: the grid and
+           *  its card are one block, and the 8 px between them is the mock's
+           *  own seam (`.dayline{margin:0 0 8px}`'s rhythm), not the page's
+           *  24 px section gap. Measured 24 before this wrapper existed — an
+           *  `mt-2` on a space-y SIBLING collapses against the 24 px the rule
+           *  puts on its neighbour and loses. */
+          <div>
           <MonthPage
             cells={props.monthData ?? []}
             // B3 — the OPTIMISTIC day, so the ring lands under the finger; it
@@ -715,7 +721,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
               onOpenDay={(iso) => navigateTo('day', jstWallTimeToDate(iso, '00:00'))}
             />
           )}
-          </>
+          </div>
         ) : (
           /* 「データがありません」 — reached only while a router transition is
            *  still in flight and that view's first data has not arrived yet.

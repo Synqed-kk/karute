@@ -166,7 +166,9 @@ describe('the loaded day', () => {
     expect(door.className).toContain('bg-primary/8')
     expect(door.className).toContain('text-primary')
     expect(door.className).toContain('h-11')
-    expect(door.className).toContain('rounded-xl')
+    // The mock's control radius is 12 (`--r-ctl`), and the app's own
+    // `rounded-xl` measures 14 in this theme — so the door names 12 outright.
+    expect(door.className).toContain('rounded-[12px]')
     expect(door.className).not.toContain('bg-foreground')
   })
 })
