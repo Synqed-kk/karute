@@ -17,6 +17,7 @@
 // rather than rebuilt — this page must not invent a third row style.
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
+import { formatCompactDateJst, jstWallTimeToDate } from '@/lib/date/jst'
 import type { WeekDayRowData } from '@/lib/adapters/reservation'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 import { isClosedRow } from '@/lib/appointments/metric-menu'
@@ -96,8 +97,23 @@ export function SelectedDayCard({
     // designs.
     <div
       data-selected-day-card
+      // R1-4 (LENS-1 #4) — the card has NO date header by design (§v11b: the
+      // chip names the day), and since 4b a month-cell tap no longer changes
+      // route, so nothing announces the region the tap was FOR. A screen reader
+      // heard 「17日 選択済み」 on the cell and then silence, and reached
+      // 「この日を開く →」 with no *this* anywhere in the region. The region is
+      // named with the same compact JST date the chip prints — one formatter,
+      // so the name and the chip can never drift.
+      role="region"
+      aria-label={formatCompactDateJst(jstWallTimeToDate(dateIso, '00:00'), locale)}
       className={cn(
         'overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-card)] shadow-[0_1px_2px_rgba(0,0,0,0.04)]',
+        // R1-5 (LENS-1 #6) — the CARD owns its top breathing room, not the line
+        // inside it. `DayNumbersLine` renders nothing at all when it has no row
+        // and is not pending (a baked bundle older than the dayTotals DTO
+        // field, which is the case its own prop comment names), and the card's
+        // first booking row then sat 8 px from the card edge instead of 12.
+        'pt-3',
         className,
       )}
     >
@@ -126,10 +142,10 @@ export function SelectedDayCard({
         )}
       >
         {/* mock `.listcard .statline{padding:12px 14px 2px}` — §v11b: the
-         *  numbers line is the card's first element and carries the top
-         *  breathing room the removed date header used to give. The 14 px
-         *  becomes the row's own 16 px so the line, the rows and 他N件 share
-         *  one left edge.
+         *  numbers line is the card's first element, under the 12 px the CARD
+         *  now owns (R1-5), so the breathing room the removed date header used
+         *  to give survives a line that renders nothing. The 14 px becomes the
+         *  row's own 16 px so the line, the rows and 他N件 share one left edge.
          *
          *  Its OWN pending branch is the mock's two shims, and its min-height
          *  is fixed — so a move never changes this line's height and the card
@@ -143,7 +159,7 @@ export function SelectedDayCard({
           // is the QR import flag and must not print (spec §8).
           typeSlot="off"
           locale={locale}
-          className="px-4 pb-0.5 pt-3"
+          className="px-4 pb-0.5 pt-0"
         />
 
         {/* R1-2 (LENS-1 #2/#5, LENS-3 #2) — while the answer is in flight the

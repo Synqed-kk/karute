@@ -10,6 +10,7 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import type { WeekDayRowData } from '@/lib/adapters/reservation'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
+import { formatCompactDateJst, jstWallTimeToDate } from '@/lib/date/jst'
 import ja from '../../../messages/ja.json'
 
 // The three NEW strings are read out of the shipped dictionary, not retyped —
@@ -198,6 +199,41 @@ describe('the loaded day', () => {
     const { container } = renderCard({ rows: [booking(1)] })
     expect(container.textContent).not.toContain('9/16')
     expect(container.textContent).not.toContain('2026')
+  })
+
+  // R1-4 (LENS-1 #4) — no date header means nothing on screen names the region
+  // a tap several hundred pixels above just swapped, and 「この日を開く →」 has
+  // no antecedent. The NAME carries the date instead, from the chip's formatter.
+  it('is a NAMED region — the compact JST date, the same formatter the chip uses', () => {
+    const { container } = renderCard({ rows: [booking(1)] })
+    const card = container.querySelector('[data-selected-day-card]')!
+    expect(card.getAttribute('role')).toBe('region')
+    const name = card.getAttribute('aria-label')!
+    expect(name).toBe(formatCompactDateJst(jstWallTimeToDate('2026-09-16', '00:00'), 'ja'))
+    // …and it really is the day, not a formatter that quietly returns nothing.
+    expect(name).toContain('16')
+    // The name is spoken, never printed — §v11b holds.
+    expect(card.textContent).not.toContain(name)
+  })
+
+  it('the name follows the day the card describes', () => {
+    const { container } = renderCard({ dateIso: '2026-08-20', rows: [booking(1)] })
+    expect(container.querySelector('[data-selected-day-card]')!.getAttribute('aria-label')).toBe(
+      formatCompactDateJst(jstWallTimeToDate('2026-08-20', '00:00'), 'ja'),
+    )
+  })
+
+  // R1-5 (LENS-1 #6) — DayNumbersLine renders NOTHING when it has no row and is
+  // not pending (a phone on a bundle older than the dayTotals DTO field — the
+  // case its own prop comment names). The top breathing room belongs to the
+  // card, so it survives that.
+  it('keeps its top padding when the day line renders nothing at all', () => {
+    const { container } = renderCard({ rows: [booking(1)], dayTotals: null })
+    const card = container.querySelector('[data-selected-day-card]')!
+    expect(container.querySelector('[data-day-line]')).toBeNull()
+    expect(card.className).toContain('pt-3')
+    // the line no longer carries it — one owner, not two
+    expect(rowsOf(container)).toHaveLength(1)
   })
 
   it('the door opens THIS day', () => {
