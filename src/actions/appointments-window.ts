@@ -22,6 +22,7 @@ import { getOrgSettings } from '@/actions/org-settings'
 import {
   emptyAppointmentWindow,
   fetchAppointmentWindow,
+  fetchCoreStaffByProfileId,
   type AppointmentWindow,
 } from '@/lib/appointments/by-date'
 import { resolveFetchStaffId } from '@/lib/appointments/screen'
@@ -66,13 +67,10 @@ export async function getAppointmentWindow(
 
   // ONE roster read, and only when a filter is actually on: appointments.staff_id
   // is a CORE staff id while the URL/viewer carry PROFILE ids.
-  const coreStaffByProfileId = new Map<string, string>()
-  if (staffFilter !== 'all') {
-    const { staff } = await synqed.staff.list({ page_size: 200 })
-    for (const s of staff) {
-      if (s.user_id) coreStaffByProfileId.set(s.user_id, s.id)
-    }
-  }
+  const coreStaffByProfileId =
+    staffFilter === 'all'
+      ? new Map<string, string>()
+      : await fetchCoreStaffByProfileId(synqed)
   const { staffId, unknown } = resolveFetchStaffId(
     staffFilter,
     activeStaffId,
