@@ -839,6 +839,66 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     behind it until this round ran `npm install`. The lockfile is untouched.
 //   en      133,757 → 133,757 — unchanged to the byte. No new Japanese string
 //     anywhere in the round.
+//
+// ── Both branch lines below start from the same round-4 figure (2,095,631).
+// The #921 date-jump line comes first, then the week-face line; the merge of
+// the two is re-measured in the final entry, which is the live one.
+//
+// RE-MEASURED 2026-09-15 for fix round 5 on that repair (#921 R5-1/R5-3/R5-6):
+// 2,095,631 → 2,095,689. Same CI recipe, emptied thin/dist, byte-identical
+// across two clean builds on the final code tip, same content hashes both
+// times (a third build with .env.local moved out of the way produced the same
+// three sizes, so nothing here reads a local env file):
+// en 133,776 · index 1,023,113 · vendor 937,800 = 2,094,689 B. Ceiling =
+// 2,094,689 + 1,000.
+//
+// +58 B, and every one of them is the SAME SENTENCE in two locales — the round
+// changed no component source at all (`git diff` on the two tips touches only
+// messages/*.json and one test file). The panel's failed line gained the app's
+// retry tail:
+//   index  1,023,074 → 1,023,113 (+39 B) — ja.json is inlined here by
+//     thin/main.tsx's static import. 「。もう一度お試しください。」 is 13
+//     characters at 3 UTF-8 bytes each. Exactly 39.
+//   en      133,757 → 133,776 (+19 B) — en.json is its own lazy chunk.
+//     ". Please try again." is 19 ASCII characters. Exactly 19.
+//   vendor   937,800 → 937,800 — untouched, as it must be: no dependency
+//     moved and the lockfile was restored after `npm install`.
+//
+// WHY THE ROUND-4 ENTRY ABOVE AND ITS DELTA-VERIFY DISAGREED BY 18 B, measured
+// rather than assumed: that review reported index 1,023,092 against the
+// 1,023,074 written above, with en and vendor matching exactly. Only the index
+// chunk carries the inlined VITE_* placeholders, and shortening
+// VITE_SUPABASE_ANON_KEY by 18 characters on this rig moves the index chunk by
+// exactly 18 B and nothing else — so the review built with a placeholder short
+// of CI's 208, not with a different tree. This step's own comment already
+// documents that failure mode at 255 B (bake 21); the lengths above are the
+// workflow's, verified 24 / 40 / 208 / 8 / 2 before each build. Run the recipe
+// exactly and 1,023,074 reproduces here to the byte.
+//
+// RE-MEASURED 2026-09-15 for fix round 6 on that repair (#921 R6-1/R6-2/R6-3):
+// 2,095,689 → 2,096,112. Same CI recipe as every entry above (release-length
+// placeholder env, emptied thin/dist), byte-identical across two clean builds
+// on the final code tip, same content hashes both times (en-BO9I1Y-_,
+// index-BY3xTWjB, vendor-DYJ_XPt6):
+// en 133,776 · index 1,023,536 · vendor 937,800 = 2,095,112 B. Ceiling =
+// 2,095,112 + 1,000.
+//
+// +423 B, all in the index chunk, split at the source by building the seam
+// alone (this round's panel reverted to the round-5 tip, same recipe) rather
+// than guessing:
+//   index  1,023,113 → 1,023,127 (+14 B) — R6-1, the 予約 seam. The wrapper's
+//     class string went from "pt-6" to "pt-[9px] mb-[11px]": 18 characters
+//     against 4. Exactly 14.
+//   index  1,023,127 → 1,023,536 (+409 B) — R6-2/R6-3, the deferred draw: the
+//     set of months allowed to be drawn, the callback that adds to it, the
+//     one-month-per-frame effect, and the conditional inside the pane. Comments
+//     are stripped by the bundler and cost nothing here.
+//   en      133,776 → 133,776 — unchanged to the byte. No new string anywhere
+//     in the round, in either locale.
+//   vendor   937,800 → 937,800 — untouched: no dependency moved, and
+//     `npm install` at STEP 0 found @synqed-kk/ui already at the lock's 0.3.2,
+//     so the lockfile was restored unchanged.
+//
 // RE-MEASURED 2026-09-15 for PKT-1b-WIRE (the week page + the day line go
 // live): 2,095,631 → 2,104,241. Same CI recipe, emptied thin/dist,
 // byte-identical across two clean builds on the final tip, same content hashes

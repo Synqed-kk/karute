@@ -107,7 +107,7 @@ describe('create-CTA unification (案A 8/6 + responsive 8/7)', () => {
     expect(en.reservation.new).toBe('+ New booking')
   })
 
-  it('header structure contract: one shared top offset, natural-height centered rows, no wrap, 16px rhythm, 24px 予約 seam', () => {
+  it('header structure contract: one shared top offset, natural-height centered rows, no wrap, 16px rhythm, the mock’s 予約 seam', () => {
     // The (app) layout's py-4/md:py-6 is the shared top offset all
     // three list pages sit under — pinned as the single source.
     const layout = read('src/app/[locale]/(app)/layout.tsx')
@@ -127,11 +127,15 @@ describe('create-CTA unification (案A 8/6 + responsive 8/7)', () => {
     const headerTag = yoyaku.match(/<ReservationPageHeader[\s\S]*?className="([^"]*)"/)?.[1] ?? ''
     expect(headerTag).toContain('mb-0')
     expect(yoyaku).toMatch(/relative space-y-4/)
-    // 24px seam, anchored to the element it protects: mb-0 zeroes
-    // space-y-4's margin on the header (same property, higher
-    // specificity), so the pt-6 wrapper directly around the staff
-    // filter owns the seam (decoy-proofed — verify-round exploit 8/7).
-    expect(yoyaku).toMatch(/<div className="pt-6">\s*<ReservationStaffFilter\b/)
+    // THE 予約 SEAM — 9px above the 日/週/月 row, 11px below it: the approved
+    // calendar mock's own two numbers, measured at 393 on the production build
+    // (Liam 9/15, fix round 6). SUPERSEDES the 8/7 24px (pt-6), which predates
+    // that mock. Anchored to the element it protects exactly as before: mb-0
+    // zeroes space-y-4's margin on the header (same property, higher
+    // specificity), so the wrapper directly around the staff filter owns the
+    // seam above, and its own mb-[11px] outranks space-y-4's :where() rule
+    // below (decoy-proofed — verify-round exploit 8/7).
+    expect(yoyaku).toMatch(/<div className="pt-\[9px\] mb-\[11px\]">\s*<ReservationStaffFilter\b/)
     const filter = read('src/components/karute/spike-lifted/reservation/ReservationStaffFilter.tsx')
     expect(filter).toContain('gap-x-2 gap-y-3')
   })
