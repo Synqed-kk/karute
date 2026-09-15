@@ -1118,7 +1118,47 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // day line's mock breakpoint variant, `max-[400px]:text-[13.5px]`, dropped
 // outright — its own `text-[14px]`→`text-[13px]` swap is length-neutral).
 // en/vendor unchanged: no JA/EN string and no dependency moved.
-const BUDGET_BYTES = 2_106_476
+//
+// RE-MEASURED 2026-09-16 on THE MERGE TIP of the two chains above —
+// feat/booking-week-face (e88fbba71: the week page + #921 R6 + the
+// type-system fix) merged INTO feat/booking-new-count (9a3ced971: capacity
+// R1 + PKT-2 R1/R2). This is the tree that goes on Liam's phone as LOOK 28.
+// Same CI recipe as every entry above (the workflow's six release-length
+// placeholder VITE_* values, thin/dist emptied before each lap),
+// byte-identical across two clean laps on the merge tip, same content hashes
+// both times (en-Dv4fKQp9, index-Ckxy87bi, vendor-BD5eMVWe; node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,223 · index 1,033,605 · vendor 937,791 = 2,105,619 B.
+// Ceiling = 2,105,619 + 1,000.
+//
+// THE MERGE IS ADDITIVE TO THE BYTE — and that is measured here, not quoted
+// from the two chains above. All four trees were built in THIS worktree, with
+// this exact env, within the same hour, so the figures are comparable in a way
+// two branches' own historic entries are not:
+//
+//   tree                             en        index      vendor      total
+//   base      25c209377        134,204  1,033,009     937,791  2,105,004
+//   ours      9a3ced971        134,204  1,033,159     937,791  2,105,154   (+150)
+//   theirs    e88fbba71        134,223  1,033,455     937,791  2,105,469   (+465)
+//   MERGE     (this tip)       134,223  1,033,605     937,791  2,105,619   (+615)
+//
+//   index:  1,033,009 + 150 + 446 = 1,033,605  ✔ exact
+//   en:       134,204 +   0 +  19 =   134,223  ✔ exact
+//   vendor:   937,791, unchanged in all four   ✔ no dependency moved
+//
+// Not one byte is unaccounted for: the merge is the sum of the two branches'
+// own deltas off their shared base, with no cross-term. That arithmetic is the
+// proof the auto-merge kept both sides — the 新規 side's +150 B (the
+// newCountKnown wire field and its gate, TYPE_SLOT at both call sites) and the
+// type/R6 side's +446 B (the deferred month draw, the pt-[9px] mb-[11px] seam,
+// the JA/EN retry tail, the weight/size class swaps) are both still in the
+// bundle, at full size.
+//
+// (theirs measures 1,033,455 here against the 1,033,462 its own branch entry
+// records — a 7 B difference between two worktrees' node_modules, not a code
+// difference. Which is exactly why all four figures above were re-measured in
+// one place instead of being subtracted across reports.)
+const BUDGET_BYTES = 2_106_619
 
 let dir
 try {
