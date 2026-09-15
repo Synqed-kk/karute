@@ -195,9 +195,12 @@ export interface SellLayer {
   staffBands: SellBand[]
   min: number
   max: number
-  /** canon `density-degraded` (:5369): more visible staff bands than the fixed
-   *  ceiling means the day is fragmented, and tint mode degrades to drag-only.
-   *  Fixed rule, deliberately NOT a store setting. */
+  /** canon `density-degraded` (:5369) — more visible bands on ONE staff lane
+   *  than the fixed ceiling means that strip is fragmented, and tint mode
+   *  degrades to drag-only. Per lane, never the sum (⚖ D-47): the sum
+   *  punished a store for having many staff and turned a short-slot store's
+   *  display off on a quiet day. Fixed rule, deliberately NOT a store
+   *  setting. */
   degraded: boolean
   /** canon (:5394–5397). 窓, and a spaced 「 · 」 — canon's own punctuation. */
   chipLabel: string
@@ -214,13 +217,18 @@ export function buildSellLayer(cells: SellCell[], showPrice: boolean): SellLayer
   const bands = mergeBands(tiered)
   const staffBands = bands.filter((b) => b.group === 'staff')
   const withPrice = showPrice && staffBands.length > 0
+  // ⚖ D-47 — the density verdict counts bands PER LANE, never the flattened
+  // sum: the sum punished a store for having many staff.
+  const perLane = new Map<string, number>()
+  for (const b of staffBands) perLane.set(b.laneKey, (perLane.get(b.laneKey) ?? 0) + 1)
+  const maxPerLane = perLane.size ? Math.max(...perLane.values()) : 0
   return {
     cells: tiered,
     bands,
     staffBands,
     min,
     max,
-    degraded: staffBands.length > DENSITY_CEILING,
+    degraded: maxPerLane > DENSITY_CEILING,
     chipLabel: `オンライン販売中 ${staffBands.length}窓${withPrice ? ` · ${priceLabel(min, max)}` : ''}`,
   }
 }

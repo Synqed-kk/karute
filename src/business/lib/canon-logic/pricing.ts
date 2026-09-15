@@ -29,8 +29,10 @@ export const SELL_CURVE: Record<number, number> = {
 export const CURVE_MAX_DIP = 1 - Math.min(...Object.values(SELL_CURVE))
 
 /** canon `DENSITY_CEILING` (:4845). A fixed rule, deliberately not a setting:
- *  more visible sell bands than this means the day is fragmented, and the tint
- *  mode degrades to drag-only rather than turning the board into confetti. */
+ *  more visible sell bands than this on ONE staff lane means that strip is
+ *  fragmented, and the tint mode degrades to drag-only rather than turning
+ *  the board into confetti (⚖ D-47: per lane, never the store's flattened
+ *  sum). */
 export const DENSITY_CEILING = 12
 
 /** canon `SELL_SLOT_MIN` (:4867). THE DEFAULT for a store that never wrote
