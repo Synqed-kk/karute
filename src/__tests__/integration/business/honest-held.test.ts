@@ -552,4 +552,23 @@ describe('honest-held — ⚖ ROUND 3 · C F4 (⚖ D-52 (g)) — a row whose sto
     expect(h.total).toBe(3)
     expect(h.byLane.every((l) => l.shared.length === 0)).toBe(true)
   })
+
+  it('(d) the one-call shape: needsRoom is asked once per candidate row, never per span', () => {
+    const lanesAll = mixedLanes()
+    const mask = mixedCandidates()
+    // ⚖ D-52 (i) — the predicate is a per-row question asked once; the
+    // rebuild reads the recorded answer (L1 F4 MINOR 2). Mutant m14 (a
+    // second call in the rebuild) doubles the count.
+    const calls: string[] = []
+    const needsRoomCounting = (l: BoardLane) => {
+      calls.push(l.key)
+      return storeHasBeds(lanesAll, l.stores)
+    }
+    const withCounting = honestHeld(mask, lanesAll, fixtureBook(), true, needsRoomCounting)
+    console.log('R3-C F5 item8(d)', { calls, candidateRows: mask.length })
+    expect(calls.length).toBe(mask.length)
+    expect(new Set(calls).size).toBe(calls.length)
+    const withZ = honestHeld(mask, lanesAll, fixtureBook(), true, needsRoom(lanesAll))
+    expect(withCounting).toEqual(withZ)
+  })
 })
