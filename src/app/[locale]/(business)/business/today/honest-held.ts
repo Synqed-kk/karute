@@ -129,6 +129,11 @@ function identity(candidates: readonly ReservedLaneMask[]): HonestHeld {
   return Object.freeze({ byLane: Object.freeze(byLane), total, exact: true })
 }
 
+// ⚖ D-52 (g) — ONE frozen `[]`, reused for every room-less span (the identity
+// path's own spelling, `Object.freeze([] as string[])`, shared rather than
+// re-minted since it is never written to).
+const EMPTY_ROOMS: readonly string[] = Object.freeze([])
+
 /** THE NETTING.
  *
  *  @param candidates the per-lane masks for the lanes the count is ABOUT —
@@ -147,11 +152,6 @@ function identity(candidates: readonly ReservedLaneMask[]): HonestHeld {
  *    alone: HELD by construction, no room, never shared. Absent = every row
  *    needs a room = the answer this function gave before F4.
  */
-// ⚖ D-52 (g) — ONE frozen `[]`, reused for every room-less span (the identity
-// path's own spelling, `Object.freeze([] as string[])`, shared rather than
-// re-minted since it is never written to).
-const EMPTY_ROOMS: readonly string[] = Object.freeze([])
-
 export function honestHeld(
   candidates: readonly ReservedLaneMask[],
   lanes: readonly BoardLane[],
@@ -163,12 +163,17 @@ export function honestHeld(
 
   const laneOf = new Map(lanes.map((l) => [l.key, l]))
   const flat: Candidate[] = []
+  const roomless = new Set<string>()
   let unit: number | null = null
   for (const m of candidates) {
     const lane = laneOf.get(m.laneKey)
-    // ⚖ D-52 (g) — computed once per row, not per span: a room-less row's 枠
-    // never enters the assignment search at all.
+    // ⚖ D-52 (g) — asked ONCE per row, never per span, and RECORDED: the
+    // rebuild below reads `roomless`, so the two decisions are one answer by
+    // construction (a predicate that changed its mind between the two loops
+    // could otherwise drop a span from `flat` and still miss the
+    // held-by-construction branch — the m3 lie again).
     const roomed = lane ? needsRoom(lane) : true
+    if (!roomed) roomless.add(m.laneKey)
     for (const span of m.spans) {
       // ⚖ THE EQUAL-LENGTH INVARIANT, LOUD RATHER THAN A LIE. `reserved-mask.ts`
       // ends every span at `windowStart + protectedDuration` today, and the room
@@ -205,18 +210,16 @@ export function honestHeld(
   const at = new Map(flat.map((c, i) => [`${c.laneKey}|${c.span.windowStart}`, i]))
   let total = 0
   const byLane = candidates.map((m) => {
-    const lane = laneOf.get(m.laneKey)
     const held: ReservedSpan[] = []
     const heldRooms: (readonly string[])[] = []
     const heldRoom: string[] = []
     const shared: SharedSpan[] = []
     for (const span of m.spans) {
-      // ⚖ D-52 (g) — HELD BY CONSTRUCTION: a row whose store owns no bed lane
-      // never entered `flat` above, so it can never be found in `at`/`room`
-      // either way — decided here, before that lookup, rather than read off an
-      // absence it would share with a row the world simply does not carry
-      // (`at.get` misses both the same way).
-      if (lane && !needsRoom(lane)) {
+      // ⚖ D-52 (g) — HELD BY CONSTRUCTION: this row was recorded room-less
+      // above, so none of its spans entered `flat` and none can be found in
+      // `at`/`room` — decided here, before that lookup, from the SAME answer
+      // the flat loop recorded (never a second call).
+      if (roomless.has(m.laneKey)) {
         held.push(span)
         heldRooms.push(EMPTY_ROOMS)
         heldRoom.push('')
