@@ -425,7 +425,7 @@ export default async function TodayPage({
     // `needsUnit`): a booking with no staff answers via the whole board, which
     // is honest wherever any unit exists.
     const staffLane = b.staffId ? lanes.find((l) => l.group === 'staff' && l.key === b.staffId) : null
-    const hasUnits = staffLane ? storeHasBeds(lanes, staffLane.stores) : resources.length > 0
+    const hasUnits = storeHasBeds(lanes, staffLane?.stores ?? null)
     cases[b.id] = bookingCase(
       b,
       `予約 ${i + 1} / ${bookings.length}`,
