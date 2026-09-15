@@ -977,7 +977,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     moreRows, openDay, noBookings. The thin bundle ships EN only (boot-
 //     frozen locale), so the three Japanese strings cost this bundle nothing.
 //   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-15 on 4b's FINAL tip, after the two proof fixes the
 // production build caught (the card's 8 px seam to the grid card; the header
 // chip following the ring in 月 mode so the selected day is named the whole
@@ -993,7 +992,22 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // the existing jstWallTimeToDate. The seam fix is a wrapper <div> with no
 // class at all, so it costs nothing measurable. en and vendor unchanged to
 // the byte.
-const BUDGET_BYTES = 2_114_485
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-16 on the 4b FIX-ROUND R1 tip (R1-1 … R1-6 + the 23:4x
+// type ruling). The entry above is 4b's own final measurement, which is the
+// figure this one is read against.
+//
+// Same CI recipe, thin/dist emptied before each of two laps, byte-identical
+// both times (matching content hashes, node v24.16.0):
+//   en 134,294 · index 1,042,174 · vendor 937,791 = 2,114,259 B  (+774 B).
+// Ceiling = 2,114,259 + 1,000.
+//
+// +774 B, all in index; en and vendor unchanged to the byte. The card's fade
+// window (a second piece of state, the painted snapshot and its effect), the
+// pending branch, the counted-rows filter, the region name, the month branch's
+// own wrapper, and the type-scale class swaps. Real behaviour, not weight: the
+// round REMOVED a dead `gap-[5px]` and the `from` half of the held-tap pair.
+const BUDGET_BYTES = 2_115_259
 
 let dir
 try {
