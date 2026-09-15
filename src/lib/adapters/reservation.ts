@@ -213,6 +213,12 @@ export function appointmentsToWeekData(
       // minutes when the conjunction holds, else today's exact arithmetic so
       // the npm WeekDayCard renders byte-identically. capacityDefensible +
       // hoursSaved carry the truth (spec §9).
+      // ⚠ The FORMULA below is unchanged byte for byte; its INPUT SET is not.
+      // `dayAppts` is now the COUNTED rows, so a staffer who only holds a BLOCK
+      // (「オーナー業務」) or a cancelled row that day no longer counts as
+      // working and the denominator can come out LOWER than it did on main
+      // (one booking + one other staffer's BLOCK: 1200 → 600). Declared, and
+      // the truer number — a bed hold is not a second chair (L4-2).
       availableMinutes: capacityDefensible
         ? fact.minutes
         : businessHoursMinutes * Math.max(1, staffOnDay),
