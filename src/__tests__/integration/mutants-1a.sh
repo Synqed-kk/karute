@@ -69,6 +69,16 @@ run m7 $HOURS src/__tests__/integration/resolve-day-hours.test.ts 'an ABSENT wee
 perl -0pi -e 's/return \{ staffId: null, unknown: true \}/return { staffId: null, unknown: false }/' $SCREEN
 run m8 $SCREEN src/__tests__/integration/resolve-fetch-staff-id.test.ts 'cannot place'
 
+# m9 — the WEB action's unplaceable filter falls back to a FETCH: one stylist's
+# 自分 week becomes the whole salon's, under her name.
+perl -0pi -e 's/^    unknown\n      \? Promise\.resolve/    !unknown\n      ? Promise.resolve/m' $ACTION
+run m9 $ACTION src/__tests__/integration/appointments-window-action.test.ts 'an unplaceable'
+
+# m10 — the WEB action drops the store clamp on the window fetch: the
+# Apple-review bug (a 銀座-only frontdesk reading the 代官山 week).
+perl -0pi -e 's/fetchAppointmentWindow\(synqed, fromIso, toIso, \{ storeId, staffId \}\)/fetchAppointmentWindow(synqed, fromIso, toIso, { storeId: undefined, staffId })/' $ACTION
+run m10 $ACTION src/__tests__/integration/appointments-window-action.test.ts 'forwards the RESOLVED store id'
+
 # m11 — 稼働 is allowed past 100% again: the day claims a capacity its own
 # bookings already overran.
 perl -0pi -e 's/bookedMinutes <= fact\.minutes/true/' $ADAPTER
@@ -86,16 +96,6 @@ run m12 $ADAPTER src/__tests__/integration/capacity-conjunction.test.ts 'OVERLAP
 # every reachable input — a vacuous mutant of exactly the kind m7 used to be.
 perl -0pi -e 's/selectedDate <= r\.rangeTo/selectedDate <= new Date(r.rangeTo.getTime() - 86_400_000)/' $SCREEN
 run m13 $SCREEN src/__tests__/integration/screen-truncated.test.ts 'LAST day'
-
-# m9 — the WEB action's unplaceable filter falls back to a FETCH: one stylist's
-# 自分 week becomes the whole salon's, under her name.
-perl -0pi -e 's/^    unknown\n      \? Promise\.resolve/    !unknown\n      ? Promise.resolve/m' $ACTION
-run m9 $ACTION src/__tests__/integration/appointments-window-action.test.ts 'an unplaceable'
-
-# m10 — the WEB action drops the store clamp on the window fetch: the
-# Apple-review bug (a 銀座-only frontdesk reading the 代官山 week).
-perl -0pi -e 's/fetchAppointmentWindow\(synqed, fromIso, toIso, \{ storeId, staffId \}\)/fetchAppointmentWindow(synqed, fromIso, toIso, { storeId: undefined, staffId })/' $ACTION
-run m10 $ACTION src/__tests__/integration/appointments-window-action.test.ts 'forwards the RESOLVED store id'
 
 echo "done — tree restored:"
 git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN" "$ACTION" || true
