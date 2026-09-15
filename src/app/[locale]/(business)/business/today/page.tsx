@@ -63,7 +63,7 @@ import {
   type BoardBooking,
   type BuildInput,
 } from '@/business/lib/today-board'
-import { canReleaseHeld, clampCalendarTight, overrideLevelFor, type CalendarWindowDay } from './today-interactions'
+import { canReleaseHeld, clampCalendarTight, overrideLevelFor, storeHasBeds, type CalendarWindowDay } from './today-interactions'
 import { TodayScreen, type DecisionCard, type InspectorCase, type TodayProps } from './TodayScreen'
 import './today.css'
 
@@ -93,11 +93,17 @@ const PRICE_HOLD_PROOF = '予約時価格を保持'
  *  only in the sentence about the bed.
  *
  *  `resourceProof` is the bed's own line, or `null` when the booking has no
- *  resource yet; `priced` is whether the SERVER recorded a price for it. */
-export function bookingProofs(resourceProof: string | null, priced: boolean): string[] {
+ *  resource yet; `priced` is whether the SERVER recorded a price for it.
+ *
+ *  ⚖ D-53 (c) R2 — `hasUnits` is the booking's OWN store's axis (per
+ *  `storeHasBeds`, D-52's rule): a store with no unit has nothing undecided,
+ *  so on `hasUnits === false` the resource line is OMITTED entirely — never
+ *  「設備の割当てが未確定」, never 「設備なし」, silence. Default `true` keeps
+ *  today's answer for a caller that hands in no store axis. */
+export function bookingProofs(resourceProof: string | null, priced: boolean, hasUnits: boolean = true): string[] {
   return [
     '担当の勤務時間内',
-    ...(resourceProof == null ? ['設備の割当てが未確定'] : ['休憩と重ならない', resourceProof]),
+    ...(hasUnits ? (resourceProof == null ? ['設備の割当てが未確定'] : ['休憩と重ならない', resourceProof]) : []),
     ...(priced ? [PRICE_HOLD_PROOF] : []),
   ]
 }
@@ -414,6 +420,12 @@ export default async function TodayPage({
 
   const cases: Record<string, InspectorCase> = {}
   bookings.forEach((b, i) => {
+    // ⚖ D-53 (c) R2 — the booking's store, through its STAFF lane (the N0
+    // predicate's own shape, `today-interactions.ts` `sellLayerFor`'s
+    // `needsUnit`): a booking with no staff answers via the whole board, which
+    // is honest wherever any unit exists.
+    const staffLane = b.staffId ? lanes.find((l) => l.group === 'staff' && l.key === b.staffId) : null
+    const hasUnits = staffLane ? storeHasBeds(lanes, staffLane.stores) : resources.length > 0
     cases[b.id] = bookingCase(
       b,
       `予約 ${i + 1} / ${bookings.length}`,
@@ -425,7 +437,7 @@ export default async function TodayPage({
       // about it. ⚖ FIX ROUND 3 (BREAKER-828 F2) — and the condition is written
       // ONCE, in `bookingProofs`, because a rule spelled once per arm is a rule
       // the fixture can only walk half of.
-      bookingProofs(b.resourceId ? bedSecuredProof(resources, b.resourceId) : null, b.price != null),
+      bookingProofs(b.resourceId ? bedSecuredProof(resources, b.resourceId) : null, b.price != null, hasUnits),
     )
   })
   planes.decisions.forEach((d, i) => {
