@@ -232,7 +232,23 @@ export function WeekRows({
                 //  padding:12px 10px 12px 12px;border-bottom:1px solid
                 //  var(--hair);transition:background-color .12s ease}`
                 'flex min-h-[76px] w-full items-center gap-2.5 border-b border-[var(--color-border)] py-3 pl-3 pr-2.5 text-left last:border-b-0',
-                'transition-[background-color] duration-[120ms] ease-[ease]',
+                // MOTION (W-I), read off the mock's own cascade: `.wkrow`
+                // (line 144) sets `transition:background-color .12s ease`, but
+                // `[data-press]` (line 282) re-declares the same SHORTHAND at
+                // equal specificity later in the sheet — so what a week row
+                // actually computes in the mock is
+                // `transition: transform .1s cubic-bezier(.23,1,.32,1)`, and
+                // its background does not transition at all. The press curve
+                // therefore wins here too; the background rides along on it so
+                // the desktop hover keeps a fade instead of snapping. That is
+                // this app's PRESS recipe verbatim (DateJumpPanel.tsx) — one
+                // press feel on this page, pinned equal by a test rather than
+                // shared through an import (that file is untouched by this PR).
+                'transition-[background-color,transform] duration-100 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]',
+                // Reduced motion is a CSS variant, not a hook: seven plain DOM
+                // rows need no JS to stop moving, and a variant also holds
+                // through SSR's first paint.
+                'motion-reduce:transition-none motion-reduce:active:scale-100',
                 // Desktop affordance the phone mock has no use for — the week
                 // page is a web door too, and a dead row there reads broken.
                 'hover:bg-[var(--color-bg-card-hover)]',

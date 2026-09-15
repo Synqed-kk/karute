@@ -237,7 +237,7 @@ describe('WeekRows — the mock’s §v5/§v6 geometry, ported rule for rule', (
       'py-3', // .wkrow{padding:12px …}
       'pl-3', // … 12px left
       'pr-2.5', // … 10px right
-      'transition-[background-color', // .wkrow{transition:background-color …}
+      'transition-[background-color,transform]', // .wkrow + [data-press] (see W-I)
     ]) {
       expect(cls).toContain(rule)
     }
@@ -307,5 +307,39 @@ describe('WeekRows — the summary line is the mock’s .wksum (W-F)', () => {
     expect(summary.querySelectorAll('b')).toHaveLength(0)
     // mock .wksum .shim{width:38px;height:11px}
     expect(summary.querySelector('.w-\\[38px\\]')).not.toBeNull()
+  })
+})
+
+describe('WeekRows — the press is the app’s own recipe (W-I)', () => {
+  it('a row presses with the mock’s [data-press] transform, and stops moving under reduced motion', () => {
+    const WeekRows = loadWeekRows()
+    render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    const cls = screen.getAllByRole('button')[0].className
+    // mock `[data-press]{transition:transform .1s cubic-bezier(.23,1,.32,1)}`
+    // + `[data-press].is-pressed{transform:scale(.97)}`
+    expect(cls).toContain('duration-100')
+    expect(cls).toContain('ease-[cubic-bezier(0.23,1,0.32,1)]')
+    expect(cls).toContain('active:scale-[0.97]')
+    expect(cls).toContain('transform') // the transition names transform
+    // Reduced motion is a CSS variant here, not a hook: seven plain rows need
+    // no JS to stop moving, and a variant also holds during SSR's first paint.
+    expect(cls).toContain('motion-reduce:transition-none')
+    expect(cls).toContain('motion-reduce:active:scale-100')
+  })
+
+  it('that recipe is byte-identical to DateJumpPanel’s PRESS — one press feel on this page', () => {
+    // DateJumpPanel.tsx is on this PR's untouched list, so its PRESS constant
+    // cannot be exported and shared. Pin the two spellings equal instead: if
+    // #921's press is ever retuned, this goes red and the week rows follow.
+    const panel = readFileSync(
+      join(__dirname, '../../components/appointments/DateJumpPanel.tsx'),
+      'utf8',
+    )
+    const press = /const PRESS =\s*\n?\s*'([^']+)'/.exec(panel)![1]
+    const rows = readFileSync(join(__dirname, '../../components/appointments/WeekRows.tsx'), 'utf8')
+    for (const token of press.split(' ')) {
+      if (token === 'transition-transform') continue // the row also transitions its background
+      expect(rows).toContain(token)
+    }
   })
 })
