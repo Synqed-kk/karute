@@ -858,7 +858,10 @@ describe('1 — the round gate', () => {
       // SAME leg's second (live/per-frame) gate memo, gated the same way as
       // item 2's settled memo — the two netting gates share the D-52 predicate.
       '() => (HONEST_HELD && heldBoard && !staffCardInHand && hasBeds',
-      '? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true).byLane.map(heldMaskOf)',
+      // ⚖ ROUND 3 · C F4 (⚖ D-52 (g)) — DISCLOSED PIN MOVE: the call now carries
+      // the mixed-board predicate as a fifth argument; re-pinned with the new
+      // exact text (PKT-FIX-R3-C-F4.md item 11).
+      '? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true, (l) => storeHasBeds(boardLanes, l.stores)).byLane.map(heldMaskOf)',
       '[heldBoard, locked, boardLanes, ledger, staffCardInHand, hasBeds],',
     ]) {
       expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })

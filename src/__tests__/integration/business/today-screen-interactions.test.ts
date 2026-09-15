@@ -15075,3 +15075,33 @@ describe('⚖ ROUND 3 · C — G10 (⚖ D-52 (b)) — the drop path refuses only
     expect(placeFromShelf).not.toContain('(() => {')
   })
 })
+
+// ⚖ ROUND 3 · C F4 — G13 (⚖ D-52 (g)) — THE MIXED BOARD'S NETTING, SOURCE HALF.
+//
+// The behaviour half is pinned in honest-held.test.ts (item 8), bed-aware-sales.test.ts
+// (item 9) and today-no-bed-store.test.ts (G11/G12); this leg proves the SCREEN
+// itself wires the predicate at every site (m9/m13's own catch: the screen
+// could drop the argument while the layers still pass their own unit legs).
+describe('⚖ ROUND 3 · C F4 — G13 (⚖ D-52 (g)) — the mixed-board predicate is wired at every site', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const bedDoorBody = SRC.slice(SRC.indexOf('export function bedDoor('), SRC.indexOf('\n/** ⚖ LIVE-WHILE-DRAGGING §5b'))
+
+  it("bedDoor's roomless short-circuit fires exactly twice, and the D-52 (g) comment lives beside it", () => {
+    const hits = [...bedDoorBody.matchAll(/if \(roomless\.has\(lane\.key\)\) return true/g)]
+    console.log('G13 bedDoor hits', hits.length)
+    expect(hits.length).toBe(2)
+    expect((bedDoorBody.match(/⚖ D-52 \(g\)/g) ?? []).length).toBe(1)
+  })
+
+  it("the four netting call sites carry the mixed-board predicate — the tip's exact text", () => {
+    for (const fragment of [
+      '(l) => storeHasBeds(committedLanes, l.stores)',
+      '(l) => storeHasBeds(boardLanes, l.stores)',
+      '(l) => storeHasBeds(originLanes, l.stores)',
+    ]) {
+      expect(SRC).toContain(fragment)
+    }
+    // committedLanes' predicate is wired TWICE — at `honest` and at `withheld`.
+    expect([...SRC.matchAll(/\(l\) => storeHasBeds\(committedLanes, l\.stores\)/g)].length).toBe(2)
+  })
+})

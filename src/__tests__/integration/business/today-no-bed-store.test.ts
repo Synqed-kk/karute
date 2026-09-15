@@ -31,6 +31,7 @@ import {
   hhmm,
   place,
   minuteOf,
+  type BoardItem,
   type BoardLane,
   type Hours,
 } from '@/business/lib/today-board'
@@ -52,8 +53,9 @@ import { reservedOffersFor, type BedTruth } from '@/app/[locale]/(business)/busi
 import { fallbackCellsFor, type FallbackResult } from '@/app/[locale]/(business)/business/today/fallback-cells'
 import { withheldOffers, type OfferAsk } from '@/app/[locale]/(business)/business/today/bed-aware-sales'
 import { reservedMaskFor, type ReservedLaneMask } from '@/app/[locale]/(business)/business/today/reserved-mask'
-import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
+import { heldMaskOf, honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
 import { bedDoor, bedViewsFor, TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { HONEST_HELD } from '@/app/[locale]/(business)/business/today/selling-engine-gate'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
 import type { GapCell } from '@/business/lib/canon-logic/availability'
@@ -599,5 +601,111 @@ describe('THE MATRIX — the rows this file can print (PLAN §4)', () => {
     const cGate = storeHasBeds(GYM.lanes) ? honestHeld(mask, GYM.lanes, book, true) : undefined
     console.log('MATRIX HONEST_HELD-off≡gym-C', { onTotal: on.total, cGateIsUndefined: cGate === undefined })
     expect(cGate).toBeUndefined()
+  })
+})
+
+// ⚖ ROUND 3 · C F4 — G11/G12 (⚖ D-52 (g)) — THE MIXED BOARD, THROUGH THE SCREEN'S OWN COMPOSITION.
+const D52G_HOURS: Hours = { open: 600, close: 1200 }
+const d52gLane = (over: Partial<BoardLane> & Pick<BoardLane, 'key' | 'group'>): BoardLane =>
+  ({
+    label: over.key, sub: '', absentNote: null, mine: false, items: [],
+    window: over.group === 'staff' ? { from: D52G_HOURS.open, until: D52G_HOURS.close } : null,
+    untilLabel: over.group === 'staff' ? hhmm(D52G_HOURS.close) : null,
+    listPrice: over.group === 'staff' ? 7000 : 0,
+    stores: ['store-a'],
+    roomClass: over.group === 'staff' ? null : 'standard',
+    ...over,
+  }) as BoardLane
+const d52gItem = (over: Partial<BoardItem> & Pick<BoardItem, 'key' | 'caseId'>, start: number, end: number): BoardItem =>
+  ({
+    kind: 'booking', state: 'confirmed', category: 'repeat', ...place(start, end, D52G_HOURS),
+    title: '見本 はなこ', tag: '', time: '', ticketCat: '単発', ticketCore: null, held: false, micro: false,
+    label: '', requiresPrivateRoom: false, ...over,
+  }) as BoardItem
+const d52gSpan = (start: number, end: number) => ({ start, end, windowStart: start })
+
+describe("G11 — the mixed board through the screen's own composition (⚖ ROUND 3 · C F4, D-52 (g))", () => {
+  it('honest nets over all three rows; store-z is held by construction; the online rows include it', () => {
+    const lanes: BoardLane[] = [
+      d52gLane({ key: 'ga', group: 'staff', label: '見本 ごろう', stores: ['store-a'] }),
+      d52gLane({ key: 'az', group: 'staff', label: '見本 あずさ', stores: ['store-a'] }),
+      d52gLane({ key: 'bed-a1', group: 'beds', label: 'ベッド1', stores: ['store-a'] }),
+      d52gLane({ key: 'bed-a2', group: 'beds', label: 'ベッド2', stores: ['store-a'] }),
+      d52gLane({ key: 'p-z', group: 'staff', label: '見本 mock', stores: ['store-z'] }),
+    ]
+    const mask: ReservedLaneMask[] = [
+      { laneKey: 'ga', spans: [d52gSpan(870, 960)], protectedCount: 1 },
+      { laneKey: 'az', spans: [d52gSpan(905, 995)], protectedCount: 1 },
+      { laneKey: 'p-z', spans: [d52gSpan(870, 960)], protectedCount: 1 },
+    ]
+    const book: BedTruth = {
+      frame: { openMin: D52G_HOURS.open, closeMin: D52G_HOURS.close, nowMin: D52G_HOURS.open },
+      stats: { allocateBedCalls: 0, storeBindings: 0 },
+      freeBedKeys: (start: number) => (start === 870 ? ['bed-a1'] : start === 905 ? ['bed-a2'] : []),
+      bedFor: (() => { throw new Error('G11 asked bedFor, which it may not') }) as unknown as BedTruth['bedFor'],
+      freeBedCount: (() => { throw new Error('G11 asked freeBedCount, which it may not') }) as unknown as BedTruth['freeBedCount'],
+      fullRuns: (() => { throw new Error('G11 asked fullRuns, which it may not') }) as unknown as BedTruth['fullRuns'],
+      newClientMask: (() => { throw new Error('G11 asked newClientMask, which it may not') }) as unknown as BedTruth['newClientMask'],
+    }
+    // ⚖ D-52 (g) — the screen's own `honest` line, re-spelled as a pure expression.
+    const honest = HONEST_HELD && mask && storeHasBeds(lanes)
+      ? honestHeld(mask, lanes, book, true, (l) => storeHasBeds(lanes, l.stores))
+      : undefined
+    expect(honest).toBeDefined()
+    const total = windowsOf(honest!, lanes).total
+    const maskSum = mask.reduce((n, m) => n + m.protectedCount, 0)
+    console.log('G11', { total, maskSum })
+    expect(total).toBe(maskSum)
+    const online = reservedOffersFor(honest!.byLane.map(heldMaskOf))
+    console.log('G11 online', online)
+    expect(online.some((r) => r.laneKey === 'p-z')).toBe(true)
+    const z = honest!.byLane.find((l) => l.laneKey === 'p-z')!
+    expect(z.shared).toEqual([])
+  })
+})
+
+describe('G12 — Greptile P1-1, pinned as NOT a defect (⚖ D-52 (g))', () => {
+  it("the door's true and the clamped board's undefined are the same answer to the guard — the refusal lives in the allocator on both", () => {
+    const lanes: BoardLane[] = [
+      d52gLane({ key: 'ga', group: 'staff', label: '見本 ごろう', stores: ['store-a'] }),
+      d52gLane({ key: 'bed-a1', group: 'beds', label: 'ベッド1', stores: ['store-a'] }),
+      d52gLane({
+        // the "booking in hand" lives on its OWN window, away from the probe
+        // below (780-840), so the check strip sees no clash from it.
+        key: 'p-z', group: 'staff', label: '見本 mock', stores: ['store-z'],
+        items: [d52gItem({ key: 'z-ask-1', caseId: 'z-ask-1', requiresPrivateRoom: true }, 400, 460)],
+      }),
+    ]
+    const frame = { openMin: D52G_HOURS.open, closeMin: D52G_HOURS.close, nowMin: D52G_HOURS.open }
+    const views = bedViewsFor(lanes, frame, null)
+    const storeZLane = lanes.find((l) => l.key === 'p-z')!
+    const door = bedDoor(views, lanes, 'z-ask-1')
+    const q: LandingQuestion = {
+      staffLane: 'p-z', bedLane: null, solveRoom: true, id: null, requiresPrivate: true,
+      start: 780, end: 840, span: place(780, 840, D52G_HOURS), foreignRefusal: null, hasPrice: true,
+      locked: [], minutesOf: (x: number) => minuteOf(x, D52G_HOURS),
+    }
+    const verdict = landingVerdict(lanes, q, null)
+    console.log('G12 mixed', { door: door?.(storeZLane, 780, 60), verdict: { kind: verdict.kind, floor: verdict.floor, reason: verdict.reason } })
+    expect(door?.(storeZLane, 780, 60)).toBe(true)
+    expect(verdict.kind).toBe('blocked')
+    expect(verdict.floor).toBe('hard-room')
+    expect(verdict.reason).toBe('この店舗には個室がありません。個室のある店舗へ移してください')
+
+    // the SAME two reads on the CLAMPED gym board (STORE_C alone)
+    const c03 = GYM.lanes.find((l) => l.key === 'c-03' && l.group === 'staff')!
+    const gymViews = bedViewsFor(GYM.lanes, frameOf(), null)
+    const gymDoorFn = bedDoor(gymViews, GYM.lanes, 'gym-ask-1')
+    const gymQ: LandingQuestion = {
+      staffLane: c03.key, bedLane: null, solveRoom: true, id: null, requiresPrivate: true,
+      start: 780, end: 840, span: place(780, 840, GYM.hours), foreignRefusal: null, hasPrice: true,
+      locked: [], minutesOf: (x: number) => minuteOf(x, GYM.hours),
+    }
+    const gymVerdict = landingVerdict(GYM.lanes, gymQ, null)
+    console.log('G12 clamped', { door: gymDoorFn, verdict: { kind: gymVerdict.kind, floor: gymVerdict.floor, reason: gymVerdict.reason } })
+    expect(gymDoorFn).toBeUndefined()
+    expect(gymVerdict.kind).toBe('blocked')
+    expect(gymVerdict.floor).toBe('hard-room')
+    expect(gymVerdict.reason).toBe('この店舗には個室がありません。個室のある店舗へ移してください')
   })
 })

@@ -19,6 +19,7 @@ import {
 } from '@/app/[locale]/(business)/business/today/bed-aware-sales'
 import type { BedTruth } from '@/app/[locale]/(business)/business/today/capacity-ledger'
 import { heldMaskOf, honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
+import { storeHasBeds } from '@/app/[locale]/(business)/business/today/today-interactions'
 import type { ReservedLaneMask, ReservedSpan } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import type { BoardLane } from '@/business/lib/today-board'
 
@@ -1491,5 +1492,120 @@ describe('bed-aware-sales — ⚖ D-50 (a) / D2: the certifier', () => {
     // offer stays unresolved, exactly as C3 does when the premise is broken.
     expect({ withheld: w.keys.has(offer.key), unresolved: w.unresolved.has(offer.key) }).toEqual({ withheld: true, unresolved: true })
     expect(w.blockedBy.has(offer.key)).toBe(false)
+  })
+})
+
+// ⚖ ROUND 3 · C F4 (⚖ D-52 (g)) — a room-less row's 枠 never withholds a bed store's offer
+describe("bed-aware-sales — ⚖ D-52 (g) — a room-less row's 枠 never withholds a bed store's offer", () => {
+  // store-a — three disjoint-in-time scenes sharing the board's two rooms, one
+  // per named exit (witness / pigeonhole / the full re-net); store-z — one
+  // staff row bound to a store with NO bed lane at all, held over three spans
+  // that overlap all three of store-a's offers IN TIME, so an unfiltered
+  // `heldSpans` (mutant m11) or an unfiltered re-net (mutant m10) would show.
+  const D52G_KEPT: Array<[string, number, number, string[]]> = [
+    ['wa', 600, 690, ['bed-01']],
+    ['pa', 1000, 1090, ['bed-01']],
+    ['pb', 1005, 1095, ['bed-02']],
+    ['sp05', 3870, 3960, ['bed-02']],
+    ['sp06', 3905, 3995, ['bed-02']],
+    ['sp04', 3945, 4035, ['bed-01']],
+    ['sc03', 4050, 4140, ['bed-01', 'bed-03']],
+  ]
+  const D52G_OFFER_ROWS: Array<[string, number, number, string[]]> = [
+    ['wa-off', 630, 700, ['bed-01', 'bed-02']],
+    ['po', 1010, 1050, ['bed-01', 'bed-02']],
+    ['sc03-off', 3870, 3900, ['bed-02']],
+  ]
+  const D52G_OFFERS: OfferAsk[] = [
+    { key: offerKey('wa-off', 630), laneKey: 'wa-off', start: 630, end: 700, stores: ['store-a'] },
+    { key: offerKey('po', 1010), laneKey: 'po', start: 1010, end: 1050, stores: ['store-a'] },
+    { key: offerKey('sc03-off', 3870), laneKey: 'sc03-off', start: 3870, end: 3900, stores: ['store-a'] },
+    // an offer literally on store-z's own row — the OFFER's own layer already
+    // has no room (rooms.length === 0 → continue), unrelated to this fix.
+    { key: offerKey('p-z', 200), laneKey: 'p-z', start: 200, end: 290, stores: ['store-z'] },
+  ]
+  const storeALanes = (): BoardLane[] => [
+    ...D52G_KEPT.map(([k]) => lane(k, ['store-a'])),
+    lane('bed-01', ['store-a'], 'beds'),
+    lane('bed-02', ['store-a'], 'beds'),
+  ]
+  const mixedLanes = (): BoardLane[] => [...storeALanes(), lane('p-z', ['store-z'])]
+  const needsRoom = (lanes: readonly BoardLane[]) => (l: BoardLane) => storeHasBeds(lanes, l.stores)
+  const keptCandidates = () => D52G_KEPT.map(([k, s, e]) => maskOf(k, [span(s, e)]))
+  // store-z's own held row — room-less, so never queried under the fix — three
+  // spans, each overlapping one of store-a's three offers above in time.
+  const storeZCandidate = () => maskOf('p-z', [span(590, 680), span(990, 1080), span(3855, 3945)])
+  const mixedCandidates = () => [...keptCandidates(), storeZCandidate()]
+
+  it('the mixed board withholds exactly what the board without store-z withholds', () => {
+    const { book } = tableBook([...D52G_KEPT, ...D52G_OFFER_ROWS])
+    const lanesZ = mixedLanes()
+    const candidatesZ = mixedCandidates()
+    const honestZ = honestHeld(candidatesZ, lanesZ, book, true, needsRoom(lanesZ))
+    const withZ = withheldOffers(D52G_OFFERS, honestZ, candidatesZ, lanesZ, book, true, needsRoom(lanesZ))
+
+    const lanesA = storeALanes()
+    const candidatesA = keptCandidates()
+    const honestA = honestHeld(candidatesA, lanesA, book, true, needsRoom(lanesA))
+    const withoutZ = withheldOffers(D52G_OFFERS, honestA, candidatesA, lanesA, book, true, needsRoom(lanesA))
+
+    const shape = (w: { keys: ReadonlySet<string>; blockedBy: ReadonlyMap<string, string>; unresolved: ReadonlySet<string> }) =>
+      ({ keys: setOf(w), blockedBy: [...w.blockedBy].sort(), unresolved: [...w.unresolved].sort() })
+    console.log('D-52(g) item9 withZ =', shape(withZ), 'withoutZ =', shape(withoutZ))
+    expect(shape(withZ)).toEqual(shape(withoutZ))
+
+    // the three named exits
+    expect(withZ.keys.has(offerKey('wa-off', 630))).toBe(false) // witness — on sale
+    expect(withZ.keys.has(offerKey('po', 1010))).toBe(true) // pigeonhole — withheld
+    expect(withZ.blockedBy.has(offerKey('po', 1010))).toBe(false) // pigeonhole never names
+    expect(withZ.keys.has(offerKey('sc03-off', 3870))).toBe(true) // full re-net — withheld
+    expect(withZ.blockedBy.get(offerKey('sc03-off', 3870))).toBe('sp05')
+    // an offer on store-z's own row — never ours, the offer's own layer already
+    // lost the room
+    expect(withZ.keys.has(offerKey('p-z', 200))).toBe(false)
+  })
+
+  it('WITNESS — on sale with zero nettings (pins the exit; a fallthrough here is mutant m11)', () => {
+    const { book, asks } = tableBook([...D52G_KEPT, ...D52G_OFFER_ROWS])
+    const lanesZ = mixedLanes()
+    const candidatesZ = mixedCandidates()
+    const honestZ = honestHeld(candidatesZ, lanesZ, book, true, needsRoom(lanesZ))
+    const before = asks.length
+    const w = withheldOffers([D52G_OFFERS[0]], honestZ, candidatesZ, lanesZ, book, true, needsRoom(lanesZ))
+    const nettings = asks.length - before - 1
+    console.log('D-52(g) witness: nettings =', nettings, 'onSale =', !w.keys.has(D52G_OFFERS[0].key))
+    expect(nettings).toBe(0)
+    expect(w.keys.has(D52G_OFFERS[0].key)).toBe(false)
+  })
+
+  it('PIGEONHOLE — withheld with zero nettings, no name (pins the exit; a fallthrough here is mutant m11)', () => {
+    const { book, asks } = tableBook([...D52G_KEPT, ...D52G_OFFER_ROWS])
+    const lanesZ = mixedLanes()
+    const candidatesZ = mixedCandidates()
+    const honestZ = honestHeld(candidatesZ, lanesZ, book, true, needsRoom(lanesZ))
+    const before = asks.length
+    const w = withheldOffers([D52G_OFFERS[1]], honestZ, candidatesZ, lanesZ, book, true, needsRoom(lanesZ))
+    const nettings = asks.length - before - 1
+    console.log('D-52(g) pigeonhole: nettings =', nettings, 'withheld =', w.keys.has(D52G_OFFERS[1].key))
+    expect(nettings).toBe(0)
+    expect(w.keys.has(D52G_OFFERS[1].key)).toBe(true)
+    expect(w.blockedBy.has(D52G_OFFERS[1].key)).toBe(false)
+  })
+
+  it('FULL RE-NET — withheld and named (pins the exit and the netting count; catches mutant m10)', () => {
+    const { book, asks } = tableBook([...D52G_KEPT, ...D52G_OFFER_ROWS])
+    const lanesZ = mixedLanes()
+    const candidatesZ = mixedCandidates()
+    const honestZ = honestHeld(candidatesZ, lanesZ, book, true, needsRoom(lanesZ))
+    const before = asks.length
+    const w = withheldOffers([D52G_OFFERS[2]], honestZ, candidatesZ, lanesZ, book, true, needsRoom(lanesZ))
+    // one netting × the six book-asking held rows (wa, pa, pb, sp05, sp04, sc03
+    // — p-z is excluded, held by construction, and never asks the book, in
+    // EITHER the outer netting or this re-net's own inner one).
+    const nettings = asks.length - before - 1
+    console.log('D-52(g) full re-net: nettings =', nettings, 'withheld =', w.keys.has(D52G_OFFERS[2].key), 'blockedBy =', w.blockedBy.get(D52G_OFFERS[2].key))
+    expect(nettings).toBe(6)
+    expect(w.keys.has(D52G_OFFERS[2].key)).toBe(true)
+    expect(w.blockedBy.get(D52G_OFFERS[2].key)).toBe('sp05')
   })
 })
