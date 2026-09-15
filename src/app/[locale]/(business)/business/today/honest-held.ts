@@ -33,6 +33,8 @@
 // NO CYCLE, BY CONSTRUCTION: every import below is a TYPE. This file names
 // nothing from `today-interactions` and nothing from the screen, so it can be
 // applied at the screen without an edge back into the layer files.
+//
+// ⚖ D-52 (g): the no-room rule arrives as a PARAMETER for the same reason.
 
 import type { BoardLane } from '@/business/lib/today-board'
 import type { BedTruth } from './capacity-ledger'
@@ -138,12 +140,24 @@ function identity(candidates: readonly ReservedLaneMask[]): HonestHeld {
  *    binding of each candidate's own row is read out of it.
  *  @param book the capacity book for that world.
  *  @param on the round gate's value, passed in. False = the identity answer.
+ *  @param needsRoom ⚖ ROUND 3 · C F4 (⚖ D-52 (g)) — WHICH ROWS NEED A ROOM AT
+ *    ALL, handed in by the caller (the screen passes `storeHasBeds(lanes,
+ *    lane.stores)`; this file names nothing from today-interactions by its own
+ *    law above). A row whose store owns no bed lane holds its 枠 on staff time
+ *    alone: HELD by construction, no room, never shared. Absent = every row
+ *    needs a room = the answer this function gave before F4.
  */
+// ⚖ D-52 (g) — ONE frozen `[]`, reused for every room-less span (the identity
+// path's own spelling, `Object.freeze([] as string[])`, shared rather than
+// re-minted since it is never written to).
+const EMPTY_ROOMS: readonly string[] = Object.freeze([])
+
 export function honestHeld(
   candidates: readonly ReservedLaneMask[],
   lanes: readonly BoardLane[],
   book: BedTruth,
   on: boolean,
+  needsRoom: (lane: BoardLane) => boolean = () => true,
 ): HonestHeld {
   if (!on) return identity(candidates)
 
@@ -152,6 +166,9 @@ export function honestHeld(
   let unit: number | null = null
   for (const m of candidates) {
     const lane = laneOf.get(m.laneKey)
+    // ⚖ D-52 (g) — computed once per row, not per span: a room-less row's 枠
+    // never enters the assignment search at all.
+    const roomed = lane ? needsRoom(lane) : true
     for (const span of m.spans) {
       // ⚖ THE EQUAL-LENGTH INVARIANT, LOUD RATHER THAN A LIE. `reserved-mask.ts`
       // ends every span at `windowStart + protectedDuration` today, and the room
@@ -166,11 +183,13 @@ export function honestHeld(
           `honest-held: every 確保 枠 must be the store's own protected duration — got ${len} on ${m.laneKey} after ${unit}`,
         )
       }
-      flat.push({
-        laneKey: m.laneKey,
-        span,
-        rooms: lane ? [...book.freeBedKeys(span.start, span.end, { stores: lane.stores })].sort() : [],
-      })
+      if (roomed) {
+        flat.push({
+          laneKey: m.laneKey,
+          span,
+          rooms: lane ? [...book.freeBedKeys(span.start, span.end, { stores: lane.stores })].sort() : [],
+        })
+      }
     }
   }
 
@@ -186,11 +205,23 @@ export function honestHeld(
   const at = new Map(flat.map((c, i) => [`${c.laneKey}|${c.span.windowStart}`, i]))
   let total = 0
   const byLane = candidates.map((m) => {
+    const lane = laneOf.get(m.laneKey)
     const held: ReservedSpan[] = []
     const heldRooms: (readonly string[])[] = []
     const heldRoom: string[] = []
     const shared: SharedSpan[] = []
     for (const span of m.spans) {
+      // ⚖ D-52 (g) — HELD BY CONSTRUCTION: a row whose store owns no bed lane
+      // never entered `flat` above, so it can never be found in `at`/`room`
+      // either way — decided here, before that lookup, rather than read off an
+      // absence it would share with a row the world simply does not carry
+      // (`at.get` misses both the same way).
+      if (lane && !needsRoom(lane)) {
+        held.push(span)
+        heldRooms.push(EMPTY_ROOMS)
+        heldRoom.push('')
+        continue
+      }
       const i = at.get(`${m.laneKey}|${span.windowStart}`)
       const c = i === undefined ? undefined : flat[i]
       const taken = i === undefined ? null : room[i]
