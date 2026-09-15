@@ -161,7 +161,7 @@
       "legendBusy": "混雑"
     },
     "dateJump": {
-      "loading": "予約状況を読み込み中",
+      "loading": "予約状況を読み込み中…",
       "failed": "予約状況を取得できませんでした",
       "legendCount": "数字＝その日の予約件数"
     },
@@ -194,8 +194,8 @@
       "countLine": "{n}件",
       "hours": "{h}時間",
       "minutes": "{m}分",
-      "loading": "予約状況を読み込み中",
-      "failed": "予約状況を取得できませんでした。もう一度お試しください",
+      "loading": "予約状況を読み込み中…",
+      "failed": "予約状況を取得できませんでした。もう一度お試しください。",
       "rowAria": "{date} {cells}",
       "ariaSep": "、",
       "ariaLoading": "読み込み中"

@@ -28,8 +28,8 @@ const MESSAGES: Record<string, string> = {
   countLine: '{n}件',
   hours: '{h}時間',
   minutes: '{m}分',
-  loading: '予約状況を読み込み中',
-  failed: '予約状況を取得できませんでした。もう一度お試しください',
+  loading: '予約状況を読み込み中…',
+  failed: '予約状況を取得できませんでした。もう一度お試しください。',
   rowAria: '{date} {cells}',
   ariaSep: '、',
   ariaLoading: '読み込み中',
@@ -280,7 +280,7 @@ describe('WeekRows — pending / failed', () => {
   it('pending renders the loading line, the summary\'s shape, and shimmer pills — never a stale number', () => {
     const WeekRows = loadWeekRows()
     const { container } = render(<WeekRows {...baseProps} rows={sevenDays()} pending onPickDay={jest.fn()} />)
-    expect(screen.getByText('予約状況を読み込み中')).toBeInTheDocument()
+    expect(screen.getByText('予約状況を読み込み中…')).toBeInTheDocument()
     // W-F's split keys gave the line a per-number seam, so it does what the
     // mock's own weekSumHTML(mon, pend) does: range + words stay, the numbers
     // shimmer. No <b> is rendered, so no stale sum can survive a refetch.
@@ -300,7 +300,7 @@ describe('WeekRows — pending / failed', () => {
   it('failed renders only the failure line, no rows', () => {
     const WeekRows = loadWeekRows()
     render(<WeekRows {...baseProps} rows={sevenDays()} failed onPickDay={jest.fn()} />)
-    expect(screen.getByText('予約状況を取得できませんでした。もう一度お試しください')).toBeInTheDocument()
+    expect(screen.getByText('予約状況を取得できませんでした。もう一度お試しください。')).toBeInTheDocument()
     expect(screen.queryAllByRole('button')).toHaveLength(0)
   })
 })

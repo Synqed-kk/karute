@@ -195,7 +195,7 @@
       "hours": "{h}h",
       "minutes": "{m}m",
       "loading": "Loading bookings…",
-      "failed": "Couldn't load bookings. Please try again",
+      "failed": "Couldn't load bookings. Please try again.",
       "rowAria": "{date} — {cells}",
       "ariaSep": ", ",
       "ariaLoading": "Loading"
