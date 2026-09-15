@@ -149,6 +149,23 @@ describe('what the staffer reads when the door closes', () => {
     expect(toastError).not.toHaveBeenCalledWith(expect.stringContaining('operating hours'))
   })
 
+  // ⚖ R1-7 — the dialog stays open and modal; sonner's toast renders in a
+  // portal outside it, so the refusal also has to reach the dialog's own live
+  // region or a screen-reader user hears nothing at all.
+  it('announces the refusal inside the dialog, not only in the toast', async () => {
+    createAppointment.mockResolvedValue({
+      error: 'This day is closed — pick another day.',
+      code: 'closed_day',
+      level: 'store',
+      kind: 'weekday',
+    })
+
+    await save()
+
+    const live = document.querySelector('[aria-live="polite"]')
+    expect(live?.textContent).toBe(LINES.closedDayStore)
+  })
+
   it('speaks Japanese for an unparseable start time too', async () => {
     createAppointment.mockResolvedValue({
       error: 'Invalid appointment start time.',

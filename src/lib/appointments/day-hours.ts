@@ -76,11 +76,16 @@ export async function fetchBookingDayHours(
   const ymd = ymdInJst(date)
   const nextDay = new Date(date.getTime() + 86_400_000)
 
+  // The async wrappers are not decoration: they turn a SYNCHRONOUS throw (a
+  // client whose storePolicies namespace is missing) into a rejection, so it
+  // degrades like every other failed read instead of escaping as an error the
+  // staffer reads as "booking failed".
   const [policy, closed] = await Promise.allSettled([
-    synqed.storePolicies.get(storeId),
+    (async () => synqed.storePolicies.get(storeId))(),
     // `to` is EXCLUSIVE (the SDK's own contract, dist/store-policies.d.ts), so
     // one day is [ymd, ymd+1). JST has no DST — one day is exactly 86,400,000 ms.
-    synqed.storePolicies.listClosedDays(storeId, { from: ymd, to: ymdInJst(nextDay) }),
+    (async () =>
+      synqed.storePolicies.listClosedDays(storeId, { from: ymd, to: ymdInJst(nextDay) }))(),
   ])
 
   if (policy.status === 'rejected') logDegraded('weekly hours', storeId, ymd, policy.reason)

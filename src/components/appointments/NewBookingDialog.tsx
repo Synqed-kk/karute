@@ -294,6 +294,11 @@ export function NewBookingDialog({
       const key = refusalKey(result)
       const message = key ? t(key, result.params) : result.error
       toast.error(message)
+      // ⚖ R1-7 — the dialog stays open and modal while sonner renders its
+      // toast in a portal outside it, so a screen-reader user inside the modal
+      // may never hear why 保存 did nothing. The same text also goes to the
+      // dialog's own live region (the one the menu-duration nudge uses).
+      announce(message)
       return
     }
     toast.success(t('toasts.bookingCreated'))

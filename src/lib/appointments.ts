@@ -5,7 +5,6 @@ import {
   utcToLocalDayAndMinute,
   type DayHoursInput,
 } from '@/lib/operating-hours'
-import { ymdInJst } from '@/lib/date/jst'
 
 export interface AppointmentInput {
   staffProfileId: string
@@ -122,7 +121,10 @@ export async function validateAppointmentTime(
       error: 'This day is closed — pick another day.',
       code: 'closed_day',
       level: fact.source === 'org' ? 'org' : 'store',
-      kind: dayHours.closedDates.has(ymdInJst(startDate)) ? 'closed_date' : 'weekday',
+      // ⚖ R1-7 — read off the resolver's own answer, never re-derived. The
+      // UI and the door read what the resolver resolved; asking the same
+      // question twice is one precedence change away from two answers.
+      kind: fact.kind ?? 'weekday',
     }
   }
 
