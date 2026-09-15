@@ -89,11 +89,19 @@ export interface SellInput {
   now: number | null
   /** Hour → price, already carrying the store's lever and depth. */
   priceFor: (lane: SellStaffLane, hour: number) => number
+  /** ⚖ D-53 (c) R1 — WHICH STAFF NEED A UNIT AT ALL, handed in by the caller
+   *  (the seam passes `storeHasBeds(lanes, s.stores)`). This file imports
+   *  nothing but `./pricing` by its own law. A staff whose store owns no unit
+   *  sells on staff time alone: one cell per free staff per slot, no unit,
+   *  never counted against the unit cap. Absent = every staff needs a unit =
+   *  the answer this function gave before N0. */
+  needsUnit?: (staff: SellStaffLane) => boolean
 }
 
 /** canon `deriveSellableCells` (:4868). */
 export function deriveSellableCells(input: SellInput): SellCell[] {
   const { staffLanes, resourceLanes, open, close, gridMin, sellSlotMin } = input
+  const needsUnit = input.needsUnit ?? (() => true)
   const cells: SellCell[] = []
   /** canon (:4878–4882): 「過ぎた時間は売れない」— and "now" is rounded UP to the
    *  grid, so 13:24 on a 60-minute grid first sells 14:00. */
@@ -108,20 +116,35 @@ export function deriveSellableCells(input: SellInput): SellCell[] {
      *  the slot instead silenced the whole 販売可能 layer — tint, chip, price
      *  boxes and shelf count — for every bed-less store (ENGINE-DIFF A-1). The
      *  bed PAIRING rule below is unchanged and still load-bearing wherever beds
-     *  exist: it is a cap on advertised windows, not a precondition for selling. */
+     *  exist: it is a cap on advertised windows, not a precondition for selling.
+     *  ⚖ D-53 (c) R1 — a staff whose store owns no unit sells on staff time
+     *  alone, decided by the caller's `needsUnit`; the `[null]` sentinel below
+     *  remains the answer for a caller that hands in no predicate. */
     const freeBeds: Array<SellResourceLane | null> = bedsExist
       ? resourceLanes.filter((r) => trackFree(r.occupied, sm, end))
       : [null]
     const freeStaff = staffLanes.filter(
       (s) => !s.locked && sm >= s.from && end <= s.until && trackFree(s.occupied, sm, end),
     )
-    if (freeBeds.length === 0 || freeStaff.length === 0) continue
+    // ⚖ D-53 (c) R1 — split BEFORE the bed question is even asked. A staff who
+    // does not need a unit sells on staff time alone: one cell, no bed, never
+    // counted against the unit cap below. Order within a slot is unitless
+    // first (in `freeStaff` order), then paired.
+    const unitless = freeStaff.filter((s) => !needsUnit(s))
+    const needing = freeStaff.filter((s) => needsUnit(s))
+    for (const s of unitless) {
+      cells.push({
+        laneKey: s.key, resourceKey: '', group: 'staff', h: sm, e: end,
+        staff: s.name, bed: '', price: input.priceFor(s, hourOfSlot), tier: 1,
+      })
+    }
+    if (freeBeds.length === 0 || needing.length === 0) continue
     // canon pairs index-wise and stops at the shorter list (:4907–4914) so the
     // board can never advertise more windows than there are beds. Same rule
     // here, with one addition canon's single-store world never needed: a bed is
     // only claimable by someone who works in its store.
     const claimed = new Set<string>()
-    for (const s of freeStaff) {
+    for (const s of needing) {
       // canon's `if (i >= freeBeds.length) return` — the cap holds in the
       // bed-less case too, where the single `[null]` entry buys exactly one
       // staff cell for the slot and no bed row.
