@@ -736,7 +736,30 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Ceiling is set from the LARGER of the two tip measurements (the CI recipe)
 // plus 1,000 B, same convention as every prior raise:
 // 2,077,233 + 1,000 = 2,078,233.
-const BUDGET_BYTES = 2_078_233
+// 1c-D (2026-09-16): the per-store 営業時間 door — StoreHoursBlock (the
+// disclosure + the seven free `<input type="time">` rows + the 休業
+// confirmation + the save), the `setStoreHours` proxy in
+// thin/ports/actions.vite.ts, and 17 new catalog keys ×2 locales
+// (settings.stores.hours.*) plus the two reworded 組織 hours strings. The
+// server half — setStoreHoursCore, the facade route, parseStoreWeeklyHours —
+// costs the phone nothing: it is port-substituted at the src/actions boundary.
+// Measured with the emptied-thin/dist method and the CI recipe (the six
+// VITE_* exports from .github/workflows/ci.yml), byte-identical across two
+// clean builds on BOTH sides, node v24.16.0, in this worktree:
+//   base origin/main 0aeb1633b — en 133,643 · index 1,006,491 · vendor
+//     937,800 = 2,077,934 B
+//   tip  feat/store-hours-door — en 134,495 · index 1,014,330 · vendor
+//     937,800 = 2,086,625 B
+// feature cost +8,691 B (en +852 B = the English catalog block; index
+// +7,839 B = the component and the ja block, which rides the main chunk;
+// vendor unchanged — no new dependency). The prior 2,078,233 ceiling had only
+// 299 B left at that base, so the overage is 8,392 B and essentially all of
+// it is this branch's own. Report-only per ⚖ 8/25: a ceiling a real feature
+// has outgrown gets raised and reported, never held for an approval round;
+// the SCRIPT still gates in CI against whatever ceiling stands below.
+// Ceiling = the measured tip + 1,000 B, same convention as every prior raise:
+// 2,086,625 + 1,000 = 2,087,625.
+const BUDGET_BYTES = 2_087_625
 
 let dir
 try {
