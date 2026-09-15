@@ -113,6 +113,22 @@ export const VALUE_TONE_CLASS: Record<Cell['tone'], string> = {
   muted: 'text-[var(--color-text-muted)]',
 }
 
+// mock `.dayline .shim{width:52px;height:12px;border-radius:999px;
+// margin-right:12px}` — the day line's AND the month line's pending pill,
+// through ONE door so the two surfaces cannot drift (R2-7). `mr-3` (12px) on
+// top of the line's own `gap-[14px]` is the mock's 26px edge-to-edge gap
+// between the two shims — margin and gap stack, they don't replace one
+// another. The trailing margin on the second pill is harmless (nothing sits
+// after it).
+export function LinePill() {
+  return (
+    <span
+      aria-hidden
+      className="reservation-shim mr-3 inline-block h-[12px] w-[52px] rounded-full"
+    />
+  )
+}
+
 // mock `.wkcell .shim{width:62px;height:11px;transform:translateY(1px)}` —
 // R3-18 swaps the fill+animation for the mock's own 1.1s sweep
 // (`.reservation-shim`, globals.css); the geometry is unchanged.

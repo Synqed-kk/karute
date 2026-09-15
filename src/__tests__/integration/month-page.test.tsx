@@ -422,7 +422,13 @@ describe('MonthPage — the month line', () => {
     const { container } = render(<MonthPage {...baseProps} cells={cells} pending />)
     const line = container.querySelector('[data-month-line]')!
     expect(line.textContent).toBe('')
-    expect(line.querySelectorAll('.reservation-shim')).toHaveLength(2)
+    const shims = line.querySelectorAll('.reservation-shim')
+    expect(shims).toHaveLength(2)
+    // R2-7 (LENS-3 #4) — `mr-3` (12px) on top of the line's own `gap-[14px]`
+    // is the mock's 26px edge-to-edge gap between the two pending pills.
+    for (const shim of Array.from(shims)) {
+      expect(shim.className).toContain('mr-3')
+    }
   })
 
   it('with the monthLine switch OFF the line is gone and the grid still stands', () => {

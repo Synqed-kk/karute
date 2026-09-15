@@ -7,7 +7,7 @@ import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import type { WeekDayRowData } from '@/lib/adapters/reservation'
 import { dayLineCells, isClosedRow, type Cell, type TypeSlot } from '@/lib/appointments/metric-menu'
-import { VALUE_TONE_CLASS } from './WeekRows'
+import { LinePill, VALUE_TONE_CLASS } from './WeekRows'
 import { NewSpark } from './NewSpark'
 
 interface DayNumbersLineProps {
@@ -75,9 +75,11 @@ export function DayNumbersLine({ row, soloMode, typeSlot, pending }: DayNumbersL
         // returned null, so the line vanished mid-fetch and the list jumped up
         // by its own block height — and before that it showed the previous
         // day's numbers as if they were this day's.
+        // R2-7 — the same shared pill the month line uses (WeekRows.tsx), so
+        // the two shim gaps cannot drift.
         <>
-          <span aria-hidden className="reservation-shim inline-block h-[12px] w-[52px] rounded-full" />
-          <span aria-hidden className="reservation-shim inline-block h-[12px] w-[52px] rounded-full" />
+          <LinePill />
+          <LinePill />
         </>
       ) : closed ? (
         // mock: `<span class="it"><b>0件</b></span><span class="it"><b>休</b>

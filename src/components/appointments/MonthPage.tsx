@@ -22,7 +22,7 @@ import { formatCompactDateJst, jstWallTimeToDate, partsInJst } from '@/lib/date/
 import type { MonthCell } from '@/lib/adapters/reservation'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import { isClosedRow, type TypeSlot } from '@/lib/appointments/metric-menu'
-import { DENSITY_DOT_CLASS, VALUE_TONE_CLASS } from './WeekRows'
+import { DENSITY_DOT_CLASS, LinePill, VALUE_TONE_CLASS } from './WeekRows'
 import { NewSpark } from './NewSpark'
 
 interface MonthPageProps {
@@ -118,12 +118,6 @@ function LineItem({
         <b className="font-bold tabular-nums">{value}</b>
       </span>
     </span>
-  )
-}
-
-function LinePill() {
-  return (
-    <span aria-hidden className="reservation-shim inline-block h-[12px] w-[52px] rounded-full" />
   )
 }
 

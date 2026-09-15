@@ -197,6 +197,10 @@ describe('DayNumbersLine — the pending state is two shims, not nothing (R3-18)
     for (const shim of Array.from(shims)) {
       expect(shim.className).toContain('w-[52px]')
       expect(shim.className).toContain('h-[12px]')
+      // R2-7 (LENS-3 #4) — `mr-3` (12px) on top of the line's own
+      // `gap-[14px]` is the mock's 26px edge-to-edge gap between the pills,
+      // the SAME shared pill the month line uses.
+      expect(shim.className).toContain('mr-3')
     }
     // no stale number survives the move
     expect(container.querySelector('[data-day-line]')!.textContent).toBe('')
