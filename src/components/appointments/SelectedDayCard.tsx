@@ -252,7 +252,7 @@ export function SelectedDayCard({
              *  with nothing on it SAYS so, and still offers its door: an empty
              *  day is where a booking gets made. */}
             {!closed && top.length === 0 && (
-              <p className="m-0 px-4 pb-0.5 pt-2.5 text-[13.5px] text-zinc-500 dark:text-zinc-400">
+              <p className="m-0 px-4 pb-0.5 pt-2.5 text-[13px] font-medium text-zinc-500 dark:text-zinc-400">
                 {t('noBookings')}
               </p>
             )}
@@ -262,7 +262,7 @@ export function SelectedDayCard({
              *  pattern (native pass 2 row D-3); the mock's 「+N 他」 is dead
              *  wording. */}
             {extra > 0 && (
-              <div className="px-4 pt-2 text-[12.5px] font-semibold text-zinc-500 dark:text-zinc-400">
+              <div className="px-4 pt-2 text-[12px] font-medium text-zinc-500 dark:text-zinc-400">
                 {t('moreRows', { n: extra })}
               </div>
             )}
@@ -287,7 +287,7 @@ export function SelectedDayCard({
                   // the string (「この日を開く →」), so the flex container has a
                   // single text child and the mock's own gap never applied.
                   'm-2.5 flex h-11 w-[calc(100%-20px)] items-center justify-center rounded-[12px]',
-                  'bg-primary/8 text-[14px] font-bold text-primary',
+                  'bg-primary/8 text-[14px] font-semibold text-primary',
                   'transition-[scale] duration-100 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]',
                   'motion-reduce:transition-none motion-reduce:active:scale-100',
                   'outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50',

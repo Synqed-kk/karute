@@ -29,9 +29,13 @@ interface DayNumbersLineProps {
   className?: string
 }
 
-// mock `.dayline .it b` — 700, ink, tabular. The tone map (shared with the
-// week rows) supplies the colour; 700 + tabular are the line's own.
-const VALUE = 'font-bold tabular-nums'
+// mock `.dayline .it b` — the tone map (shared with the week rows) supplies
+// the colour; the weight and tabular figures are the line's own.
+// ⚖ TYPE (Liam 2026-09-15 23:4x): the APP's type scale rules every new surface,
+// never the mock's — no 700 on a value at 11 px or more. 600 is the app's own
+// number weight (the agenda's row values are 13/600) and it reads as the value
+// against the 500 words beside it without shouting.
+const VALUE = 'font-semibold tabular-nums'
 
 // 予約 (count) carries its own unit in the value ("11件") and shows no word;
 // every other cell is value-then-word ("5新規", "41%稼働", "4時間30分予約時間").
