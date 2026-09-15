@@ -110,6 +110,61 @@ describe('F1 — each conjunct false ALONE flips it', () => {
     expect(day.capacityDefensible).toBe(true)
   })
 
+  it('bookings that OVERLAP ACROSS JST MIDNIGHT (mutant m12)', () => {
+    // 23:30–00:30 on the 15th and 00:00–01:00 on the 16th, same staffer. They
+    // genuinely collide, but they bucket to different days by START, so the
+    // old per-bucket check never compared them and both days read defensible.
+    const rows = [
+      appt({ id: 'late', starts_at: '2026-09-15T14:30:00Z', duration_minutes: 60 }),
+      appt({ id: 'early', starts_at: '2026-09-15T15:00:00Z', duration_minutes: 60 }),
+    ]
+    const facts = new Map<string, DayHoursFact>([
+      [YMD, SAVED_OPEN],
+      ['2026-09-16', SAVED_OPEN],
+    ])
+    const days = appointmentsToWeekData(
+      rows,
+      DAY,
+      new Date('2026-09-16T00:00:00+09:00'),
+      FALLBACK,
+      TODAY,
+      'ja',
+      new Set(),
+      undefined,
+      facts,
+      true,
+    )
+    expect(days.map((d) => d.dateIso)).toEqual([YMD, '2026-09-16'])
+    expect(days[0].capacityDefensible).toBe(false)
+    expect(days[1].capacityDefensible).toBe(false)
+    // Counting stays START-day bucketed on both days — only the overlap
+    // candidate set widened.
+    expect(days[0].count).toBe(1)
+    expect(days[1].count).toBe(1)
+  })
+
+  it('a LONE booking across midnight leaves both days defensible', () => {
+    const facts = new Map<string, DayHoursFact>([
+      [YMD, SAVED_OPEN],
+      ['2026-09-16', SAVED_OPEN],
+    ])
+    const days = appointmentsToWeekData(
+      [appt({ id: 'late', starts_at: '2026-09-15T14:30:00Z', duration_minutes: 60 })],
+      DAY,
+      new Date('2026-09-16T00:00:00+09:00'),
+      FALLBACK,
+      TODAY,
+      'ja',
+      new Set(),
+      undefined,
+      facts,
+      true,
+    )
+    expect(days[0].capacityDefensible).toBe(true)
+    expect(days[1].capacityDefensible).toBe(true)
+    expect(days[1].count).toBe(0)
+  })
+
   it('the hours were never saved', () => {
     const day = row(ONE_STAFFER, { fact: { ...SAVED_OPEN, saved: false } })
     expect(day.capacityDefensible).toBe(false)
@@ -124,6 +179,43 @@ describe('F1 — each conjunct false ALONE flips it', () => {
     expect(day.capacityDefensible).toBe(false)
     expect(day.closed).toBe(true)
     expect(day.availableMinutes).toBe(FALLBACK * 1)
+  })
+
+  it('booked PAST the saved window — 稼働 would read 117% (mutant m11)', () => {
+    // One staffer, 08:00–19:40 JST against a saved 10:00–20:00 (600 min) day.
+    // Nothing else fails: solo, one staffer, no overlap, hours saved, open.
+    const day = row([
+      appt({ starts_at: '2026-09-14T23:00:00Z', duration_minutes: 700 }),
+    ])
+    expect(day.bookedMinutes).toBe(700)
+    expect(day.capacityDefensible).toBe(false)
+    expect(day.availableMinutes).toBe(FALLBACK * 1)
+  })
+
+  it('STAFFLESS rows push the day past 100% — 稼働 would read 110%', () => {
+    // The ≤1-staffer conjunct only looks at non-null staff ids, so three
+    // unassigned bookings sail past it while their minutes still count.
+    // 480 + 3×60 = 660 against a 600-minute day.
+    const day = row([
+      appt({ starts_at: '2026-09-15T01:00:00Z', duration_minutes: 480 }),
+      appt({ id: 'u1', staff_id: null, starts_at: '2026-09-15T10:00:00Z' }),
+      appt({ id: 'u2', staff_id: null, starts_at: '2026-09-15T11:00:00Z' }),
+      appt({ id: 'u3', staff_id: null, starts_at: '2026-09-15T12:00:00Z' }),
+    ])
+    expect(day.bookedMinutes).toBe(660)
+    expect(day.capacityDefensible).toBe(false)
+    // The fallback counts DISTINCT staff_id values on the day, null included —
+    // pre-existing arithmetic, unchanged here.
+    expect(day.availableMinutes).toBe(FALLBACK * 2)
+  })
+
+  it('a day booked to exactly its saved minutes is still defensible', () => {
+    const day = row([
+      appt({ starts_at: '2026-09-15T01:00:00Z', duration_minutes: 600 }),
+    ])
+    expect(day.bookedMinutes).toBe(600)
+    expect(day.capacityDefensible).toBe(true)
+    expect(day.availableMinutes).toBe(600)
   })
 
   it('no hours fact at all (the window carried none)', () => {

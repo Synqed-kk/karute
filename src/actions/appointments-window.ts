@@ -17,10 +17,12 @@
 
 import { getSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
   emptyAppointmentWindow,
   fetchAppointmentWindow,
+  fetchCoreStaffByProfileId,
   type AppointmentWindow,
 } from '@/lib/appointments/by-date'
 import { resolveFetchStaffId } from '@/lib/appointments/screen'
@@ -31,10 +33,13 @@ import {
   type WeekdayKey,
 } from '@/lib/operating-hours'
 
-/** Serializable twin of the maps the builder wants (a server action's return
- *  value crosses a serialization boundary, so Maps travel as entry arrays). */
+/** Serializable twin of the map the caller wants (a server action's return
+ *  value crosses a serialization boundary, so Maps travel as entry arrays).
+ *
+ *  The profile→core roster map stays INSIDE: nobody consumed it, and under the
+ *  store-isolation law a branch's staff must not receive other stores' ids at
+ *  all (the same rule screen.ts:124-131 states for colorRosterIds). */
 export type AppointmentWindowPayload = AppointmentWindow & {
-  coreStaffByProfileId: [string, string][]
   hoursFacts: [string, DayHoursFact][]
 }
 
@@ -42,27 +47,30 @@ export async function getAppointmentWindow(
   fromIso: string,
   toIso: string,
   staffFilter: string,
-  activeStaffId: string | null,
 ): Promise<AppointmentWindowPayload> {
-  const [synqed, scope, orgSettings] = await Promise.all([
+  const [synqed, scope, orgSettings, activeStaffId] = await Promise.all([
     getSynqedClient(),
     // Same clamp the day agenda and the old range action use: the RBAC-resolved
     // store, never the raw cookie, so a store-restricted staff's week/month
     // numbers can never include another branch.
     resolveStoreScope(),
     getOrgSettings(),
+    // 'use server' means this function IS a POST endpoint, so every argument is
+    // caller-controlled. The VIEWER's own id is never an argument: the house
+    // rule at src/lib/staff.ts:255-257 says read it here, never from client
+    // input. React-cache'd, and resolveStoreScope above already resolved it in
+    // this request, so it costs nothing. (staffFilter stays an argument — it is
+    // the 担当 chip, and it can only narrow rows this caller may already read.)
+    getCurrentUserStaffId(),
   ])
   const storeId = scope.storeId ?? undefined
 
   // ONE roster read, and only when a filter is actually on: appointments.staff_id
   // is a CORE staff id while the URL/viewer carry PROFILE ids.
-  const coreStaffByProfileId = new Map<string, string>()
-  if (staffFilter !== 'all') {
-    const { staff } = await synqed.staff.list({ page_size: 200 })
-    for (const s of staff) {
-      if (s.user_id) coreStaffByProfileId.set(s.user_id, s.id)
-    }
-  }
+  const coreStaffByProfileId =
+    staffFilter === 'all'
+      ? new Map<string, string>()
+      : await fetchCoreStaffByProfileId(synqed)
   const { staffId, unknown } = resolveFetchStaffId(
     staffFilter,
     activeStaffId,
@@ -100,7 +108,6 @@ export async function getAppointmentWindow(
 
   return {
     ...window,
-    coreStaffByProfileId: [...coreStaffByProfileId],
     hoursFacts: [...hoursFacts],
   }
 }

@@ -6,7 +6,6 @@ import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { customerLensFor, resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
-import { getAppointmentsInRange } from '@/actions/appointments'
 import { getCachedDayAgenda } from '@/lib/appointments/day-agenda-cached'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCachedMenuOptions, scopeMenuOptions } from '@/lib/menus/cached'
@@ -81,16 +80,13 @@ export default async function AppointmentsPage({
   // a WRITE-offer posture, not the read plane's. `null` = clamped with no store
   // to name: an EMPTY combobox, never the business-wide one (customerLensFor).
   const customerLens = customerLensFor(storeScope)
-  // Hoisted out of the wave: the window reads below need the viewer's id to turn
-  // ?staff=self into a CORE staff id. resolveStoreScope above already resolved
-  // it (store-scope.ts:68) and it is React-cache'd, so this costs nothing.
-  const activeStaffId = await t.phase('activeStaffId', () => getCurrentUserStaffId())
 
   const [
     {
       data: { user },
     },
     staffList,
+    activeStaffId,
     orgSettings,
     customers,
     dayAppointments,
@@ -102,6 +98,7 @@ export default async function AppointmentsPage({
   ] = await Promise.all([
     t.phase('auth.getUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
+    t.phase('activeStaffId', () => getCurrentUserStaffId()),
     t.phase('orgSettings', () => getOrgSettings()),
     t.phase('customerList', async () =>
       customerLens === null ? [] : getCachedCustomerList(customerLens),
@@ -123,7 +120,6 @@ export default async function AppointmentsPage({
             weekRange.rangeFrom.toISOString(),
             weekRange.rangeTo.toISOString(),
             staffFilter,
-            activeStaffId,
           )
         : Promise.resolve(null),
     ),
@@ -133,7 +129,6 @@ export default async function AppointmentsPage({
             monthRange.rangeFrom.toISOString(),
             monthRange.rangeTo.toISOString(),
             staffFilter,
-            activeStaffId,
           )
         : Promise.resolve(null),
     ),
@@ -145,7 +140,6 @@ export default async function AppointmentsPage({
             selectedDate.toISOString(),
             jstEndOfDay(selectedDate).toISOString(),
             staffFilter,
-            activeStaffId,
           )
         : Promise.resolve(null),
     ),
@@ -228,6 +222,14 @@ export default async function AppointmentsPage({
     enrichment,
     packUsage,
   })
+
+  // A truncated window must never render as a calm, empty week/month — that is
+  // indistinguishable from an honest zero. The route-group boundary
+  // (error.tsx) shows the retry screen, exactly as a failed window read
+  // already does above (getAppointmentWindow throws).
+  if (screen.truncated) {
+    throw new Error('appointments: window truncated — read incomplete')
+  }
 
   return (
     <>

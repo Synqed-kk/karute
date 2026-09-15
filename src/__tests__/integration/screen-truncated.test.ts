@@ -125,6 +125,33 @@ describe('buildAppointmentsScreen — dayTotals sourcing', () => {
     expect(screen.dayTotals).toBeNull()
   })
 
+  it("the window's LAST day still reads out of it (mutant m13)", () => {
+    // The rolling week starts on the selected day, so its last day is +6. An
+    // off-by-one at that edge reads as 「この日の予約はまだありません」 on a day
+    // the window genuinely covers.
+    const weekRange = computeWeekRange(SELECTED)
+    const lastDay = new Date('2026-09-21T00:00:00+09:00')
+    const screen = build({
+      ...base,
+      selectedDate: lastDay,
+      weekRange,
+      weekWindow: WHOLE,
+    })
+    expect(screen.dayTotals).not.toBeNull()
+    expect(screen.dayTotals!.dateIso).toBe('2026-09-21')
+    expect(screen.dayTotals!.count).toBe(0)
+  })
+
+  it('the day AFTER the window is null, not a zero', () => {
+    const screen = build({
+      ...base,
+      selectedDate: new Date('2026-09-22T00:00:00+09:00'),
+      weekRange: computeWeekRange(SELECTED),
+      weekWindow: WHOLE,
+    })
+    expect(screen.dayTotals).toBeNull()
+  })
+
   it('the legacy raw-array inputs still build a week (compatibility path)', () => {
     const screen = build({
       ...base,

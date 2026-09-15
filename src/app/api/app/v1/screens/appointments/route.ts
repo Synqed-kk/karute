@@ -30,6 +30,7 @@ import { customerLensFor, storeStaffIdSetForBusiness } from '@/lib/auth/store-sc
 import {
   emptyAppointmentWindow,
   fetchAppointmentWindow,
+  fetchCoreStaffByProfileId,
   getAppointmentsByDateWithClient,
 } from '@/lib/appointments/by-date'
 import {
@@ -120,13 +121,10 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     // ONE extra roster read, and only when a filter is actually on:
     // appointments.staff_id is a CORE staff id while the roster and the URL
     // carry PROFILE ids, so an unmapped id would filter the week to nothing.
-    const coreStaffByProfileId = new Map<string, string>()
-    if (staffFilter !== 'all') {
-      const { staff } = await synqed.staff.list({ page_size: 200 })
-      for (const member of staff) {
-        if (member.user_id) coreStaffByProfileId.set(member.user_id, member.id)
-      }
-    }
+    const coreStaffByProfileId =
+      staffFilter === 'all'
+        ? new Map<string, string>()
+        : await fetchCoreStaffByProfileId(synqed)
     const { staffId, unknown } = resolveFetchStaffId(
       staffFilter,
       selfRow?.id ?? null,

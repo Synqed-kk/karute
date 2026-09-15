@@ -9,6 +9,7 @@
 import type { Appointment } from '@synqed-kk/client'
 import {
   fetchAppointmentWindow,
+  fetchCoreStaffByProfileId,
   MAX_RANGE_PAGES,
 } from '@/lib/appointments/by-date'
 
@@ -80,6 +81,24 @@ describe('fetchAppointmentWindow — paging', () => {
     expect(win.truncated).toBe(false)
   })
 
+  it('EXACTLY the cap — 3000 rows in 6 pages is whole, not truncated', async () => {
+    // The boundary the cap is defined at: 6 × 500. One row either side of it
+    // decides between a full month and a failed read, so both sides are pinned.
+    const { client, list } = fakeClient(3000)
+    const win = await fetchAppointmentWindow(client, FROM, TO)
+    expect(list).toHaveBeenCalledTimes(MAX_RANGE_PAGES)
+    expect(win.truncated).toBe(false)
+    expect(win.counted).toHaveLength(3000)
+  })
+
+  it('one row past the cap — 3001 truncates', async () => {
+    const { client, list } = fakeClient(3001)
+    const win = await fetchAppointmentWindow(client, FROM, TO)
+    expect(list).toHaveBeenCalledTimes(MAX_RANGE_PAGES)
+    expect(win.truncated).toBe(true)
+    expect(win.counted).toEqual([])
+  })
+
   it('the cap: 4000 rows stop at MAX pages, truncated, with EVERY array empty (mutant m4)', async () => {
     const { client, list } = fakeClient(4000)
     const win = await fetchAppointmentWindow(client, FROM, TO)
@@ -143,5 +162,53 @@ describe('fetchAppointmentWindow — partitions', () => {
     expect(win.counted.map((a) => a.id)).toEqual(['a1'])
     expect(win.cancelled.map((a) => a.id)).toEqual(['a2'])
     expect(win.noShow.map((a) => a.id)).toEqual(['a3'])
+  })
+})
+
+describe('fetchCoreStaffByProfileId — the roster pages to exhaustion', () => {
+  /** A stand-in serving `total` staff cards in pages of `page_size`. */
+  function rosterClient(total: number) {
+    const list = jest.fn(async (opts: { page?: number; page_size?: number }) => {
+      const size = opts.page_size ?? 200
+      const page = opts.page ?? 1
+      const start = (page - 1) * size
+      const count = Math.max(0, Math.min(size, total - start))
+      return {
+        staff: Array.from({ length: count }, (_, i) => ({
+          id: `core-${start + i}`,
+          user_id: `profile-${start + i}`,
+        })),
+        total,
+      }
+    })
+    return { client: { staff: { list } } as never, list }
+  }
+
+  it('a roster past one page is read whole — the 201st teammate is placeable', async () => {
+    // One page of 200 was the old shape: teammate 201 fell out of the map, read
+    // as "unplaceable", and her 自分 week rendered as an honest-looking zero.
+    const { client, list } = rosterClient(250)
+    const map = await fetchCoreStaffByProfileId(client)
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(map.size).toBe(250)
+    expect(map.get('profile-249')).toBe('core-249')
+  })
+
+  it('a small roster is still exactly one call', async () => {
+    const { client, list } = rosterClient(3)
+    expect((await fetchCoreStaffByProfileId(client)).size).toBe(3)
+    expect(list).toHaveBeenCalledTimes(1)
+  })
+
+  it('cards with no linked profile are simply not in the map', async () => {
+    const list = jest.fn(async () => ({
+      staff: [
+        { id: 'core-1', user_id: 'profile-1' },
+        { id: 'core-2', user_id: null },
+      ],
+      total: 2,
+    }))
+    const map = await fetchCoreStaffByProfileId({ staff: { list } } as never)
+    expect([...map]).toEqual([['profile-1', 'core-1']])
   })
 })

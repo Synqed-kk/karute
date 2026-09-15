@@ -74,6 +74,35 @@ describe("resolveDayHours — the store's own weekly_hours", () => {
     expect(fact.saved).toBe(true)
   })
 
+  it('an EMPTY weekly_hours object is NOT configured — it falls to the blob', () => {
+    // ⚖ LEAD RULING: `{}` is the "never configured" null, not seven 定休日.
+    // A store that cleared its hours must not go dark for a whole week, and it
+    // must certainly not claim a human saved that.
+    const fact = resolveDayHours({
+      date: TUE,
+      weeklyHours: {},
+      closedDates: NO_CLOSURES,
+      orgHours: ORG_HOURS,
+      orgSaved: new Set(['tue'] as const),
+    })
+    expect(fact.closed).toBe(false)
+    expect(fact.minutes).toBe(480) // the blob's 09:00–17:00
+    expect(fact.saved).toBe(true)
+  })
+
+  it('ONE key is enough — the rest of the week is then 定休日', () => {
+    // The contrast to the case above: once the store has said something about
+    // its week, an absent day means closed, exactly as the SDK documents.
+    const fact = resolveDayHours({
+      date: WED,
+      weeklyHours: STORE_OPEN_TUE,
+      closedDates: NO_CLOSURES,
+      orgHours: ORG_HOURS,
+      orgSaved: new Set(['wed'] as const),
+    })
+    expect(fact.closed).toBe(true)
+  })
+
   it('an EXPLICIT null weekday is 定休日 too', () => {
     const fact = resolveDayHours({
       date: WED,

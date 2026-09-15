@@ -16,6 +16,12 @@ type ByDateClient = Pick<SynqedClient, 'appointments' | 'karuteRecords' | 'staff
  * client. `nameById` is the caller's customer-name source (web: the cached list;
  * facade: listAllCustomers). Terminal (CANCELLED/NO_SHOW) rows are dropped unless
  * `includeCancelled` — the recording-target picker must never auto-select one.
+ *
+ * BLOCK rows never come back: a capacity hold is not a visit (isCountedBooking's
+ * first clause, one rule). A booking with NO staff_id still does not come back
+ * either — this list draws lanes, and a lane needs a staffer. That is the one
+ * place the day list and the 件 count deliberately differ, and it is pinned in
+ * booking-count-parity.test.ts.
  */
 export async function getAppointmentsByDateWithClient(
   synqed: ByDateClient,
@@ -62,6 +68,13 @@ export async function getAppointmentsByDateWithClient(
 
   return list.appointments
     .filter((a): a is typeof a & { staff_id: string; customer_id: string } =>
+      // `kind` is the guard every day surface was missing. AppointmentRow has
+      // no kind field, so a BLOCK hold (「オーナー業務」) that happens to carry a
+      // customer rendered as an ordinary visit here — on the agenda, in the
+      // recorder's booking picker and on the phone — and pushed
+      // 「本日の予約 N件」 one above the week row's 件 for the same day (L4-3).
+      // One guard in the function every day caller routes through.
+      (a.kind ?? 'BOOKING') === 'BOOKING' &&
       a.staff_id != null && a.customer_id != null &&
       (includeCancelled ? true : !isTerminalStatus(a.status)))
     .map((a) => {
@@ -89,6 +102,49 @@ export async function getAppointmentsByDateWithClient(
           (a as typeof a & { status_set_at?: string | null }).status_set_at ?? null,
       }
     })
+}
+
+/** The roster read's page cap, mirroring src/lib/synqed/staff-map.ts (core
+ *  400s a page_size above 200 on this family — it does not clamp). 25 pages =
+ *  5,000 cards, current AND historical, far past any real roster. */
+const STAFF_PAGE_SIZE = 200
+const STAFF_MAX_PAGES = 25
+
+/**
+ * profile id → CORE staff id for the whole roster, on the caller's own client.
+ *
+ * `appointments.staff_id` is a core staff id; the ?staff= param, the roster and
+ * the viewer's own id are PROFILE (auth) ids, so the 担当/自分 filter cannot
+ * reach the fetch without this translation. Both window callers had their own
+ * copy of it, each reading ONE page of 200 — a 201st teammate read as
+ * "unplaceable" and her week rendered as an honest-looking zero.
+ *
+ * WHY NOT src/lib/synqed/staff-map.ts, which owns this link. Its translator
+ * builds its OWN SynqedClient from env vars rather than using the caller's
+ * authenticated one; its bulk read (synqedStaffCardsForBusiness) SWALLOWS a
+ * failed roster fetch into [], which here would turn a core outage into an
+ * empty week — the one lie this whole window read exists to stop; and its
+ * email fallback is a per-id lookup that costs a profiles read plus a core
+ * WRITE (the user_id self-heal), which a read-only numbers screen must not do.
+ * So: same link field, same page cap, paged to exhaustion, and it THROWS.
+ */
+export async function fetchCoreStaffByProfileId(
+  synqed: Pick<SynqedClient, 'staff'>,
+): Promise<Map<string, string>> {
+  const byProfileId = new Map<string, string>()
+  let seen = 0
+  for (let page = 1; page <= STAFF_MAX_PAGES; page++) {
+    const res = await synqed.staff.list({ page, page_size: STAFF_PAGE_SIZE })
+    seen += res.staff.length
+    for (const member of res.staff) {
+      const profileId = (member as { user_id?: string | null }).user_id
+      if (profileId) byProfileId.set(profileId, member.id)
+    }
+    // `?? 0` mirrors staff-map.ts: a fixture with no `total` terminates after
+    // one call, so single-page test doubles keep their exactly-one-call shape.
+    if (res.staff.length === 0 || seen >= (res.total ?? 0)) break
+  }
+  return byProfileId
 }
 
 /** How many pages the week/month window will read before it gives up. 6 × 500

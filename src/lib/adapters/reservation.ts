@@ -62,18 +62,26 @@ export type WeekDayRowData = WeekDayCardData & {
   returningCount: number
 }
 
+/** A counted booking as the two numbers the overlap check needs. */
+type BookingSpan = { start: number; end: number }
+
+function spanOf(a: Appointment): BookingSpan {
+  const start = new Date(a.starts_at).getTime()
+  return { start, end: start + durationMinutes(a) * 60_000 }
+}
+
 /** Do any two of the day's counted bookings overlap? A single staffer whose
  *  bookings overlap is two chairs wearing one name, so the day's capacity is
  *  not one person's opening hours. */
-function hasOverlap(rows: Appointment[]): boolean {
-  // ponytail: O(n²) over ONE day's bookings (tens at most) — a sweep line here
-  // would be cleverness nobody can check at 3am.
-  for (let i = 0; i < rows.length; i++) {
-    const aStart = new Date(rows[i].starts_at).getTime()
-    const aEnd = aStart + durationMinutes(rows[i]) * 60_000
-    for (let j = i + 1; j < rows.length; j++) {
-      const bStart = new Date(rows[j].starts_at).getTime()
-      const bEnd = bStart + durationMinutes(rows[j]) * 60_000
+function hasOverlap(spans: readonly BookingSpan[]): boolean {
+  // ponytail: O(n²) over ONE day's candidates (tens at most) — a sweep line
+  // here would be cleverness nobody can check at 3am.
+  for (let i = 0; i < spans.length; i++) {
+    const aStart = spans[i].start
+    const aEnd = spans[i].end
+    for (let j = i + 1; j < spans.length; j++) {
+      const bStart = spans[j].start
+      const bEnd = spans[j].end
       if (aStart < bEnd && bStart < aEnd) return true
     }
   }
@@ -127,6 +135,15 @@ export function appointmentsToWeekData(
   const cancelledByDay = countByDay(terminal?.cancelled)
   const noShowByDay = countByDay(terminal?.noShow)
 
+  // ⚖ Overlap is not a day-bucket question. A 23:30–00:30 booking and a
+  // 00:00–01:00 booking under the same staffer genuinely collide, but they
+  // bucket to different JST days by START, so the old per-bucket check never
+  // compared them and BOTH days claimed a defensible single-staffer capacity.
+  // The candidate set for day D is therefore every counted row of the WHOLE
+  // window that actually runs inside D. Counting and bookedMinutes stay
+  // start-day bucketed — that is the app's rule on every other surface.
+  const spans = appointments.filter(isCountedBooking).map(spanOf)
+
   const days: WeekDayRowData[] = []
   const cursor = new Date(weekStart)
   while (cursor <= weekEnd) {
@@ -159,13 +176,30 @@ export function appointmentsToWeekData(
     const bookedStaff = new Set(
       dayAppts.map((a) => a.staff_id).filter((id): id is string => id != null),
     )
+    // ponytail: one linear scan per day over the window's counted rows (a month
+    // grid is ~45 days × a few hundred rows). Same answer as an interval tree,
+    // readable at 3am.
+    const dayStartMs = new Date(`${key}T00:00:00+09:00`).getTime()
+    const dayEndMs = dayStartMs + 86_400_000
+    // The end bound is INCLUSIVE on purpose. A row starting the instant the day
+    // ends occupies none of it, so it can only ever register as an overlap
+    // together with a row that runs past midnight — a genuine collision. Two
+    // merely touching bookings never overlap (the check is strict on both
+    // sides), so the closed bound cannot invent one.
+    const overlapSpans = spans.filter((s) => s.start <= dayEndMs && dayStartMs < s.end)
     const capacityDefensible =
       soloMode === true &&
       bookedStaff.size <= 1 &&
-      !hasOverlap(dayAppts) &&
+      !hasOverlap(overlapSpans) &&
       fact != null &&
       fact.saved &&
-      !fact.closed
+      !fact.closed &&
+      // A day booked past its own saved window is proof the denominator is
+      // wrong, not proof the salon ran at 117%: unassigned rows and bookings
+      // outside opening hours both land here. The day claims nothing and falls
+      // back to the old arithmetic — 稼働 never renders above 100% (spec §8,
+      // STRESS-S F1).
+      bookedMinutes <= fact.minutes
 
     const cp = partsInJst(cursor)
     days.push({
@@ -179,6 +213,12 @@ export function appointmentsToWeekData(
       // minutes when the conjunction holds, else today's exact arithmetic so
       // the npm WeekDayCard renders byte-identically. capacityDefensible +
       // hoursSaved carry the truth (spec §9).
+      // ⚠ The FORMULA below is unchanged byte for byte; its INPUT SET is not.
+      // `dayAppts` is now the COUNTED rows, so a staffer who only holds a BLOCK
+      // (「オーナー業務」) or a cancelled row that day no longer counts as
+      // working and the denominator can come out LOWER than it did on main
+      // (one booking + one other staffer's BLOCK: 1200 → 600). Declared, and
+      // the truer number — a bed hold is not a second chair (L4-2).
       availableMinutes: capacityDefensible
         ? fact.minutes
         : businessHoursMinutes * Math.max(1, staffOnDay),

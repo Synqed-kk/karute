@@ -12,8 +12,10 @@ BY_DATE=src/lib/appointments/by-date.ts
 HOURS=src/lib/operating-hours.ts
 ADAPTER=src/lib/adapters/reservation.ts
 SCREEN=src/lib/appointments/screen.ts
+ACTION=src/actions/appointments-window.ts
+PAGE="src/app/[locale]/(app)/appointments/page.tsx"
 
-if [[ -n "$(git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN")" ]]; then
+if [[ -n "$(git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN" "$ACTION" "$PAGE")" ]]; then
   echo "refusing to run: the source files under mutation are dirty" >&2
   exit 1
 fi
@@ -57,13 +59,50 @@ run m5 $HOURS src/__tests__/integration/operating-hours-jst.test.ts 'already Tue
 perl -0pi -e 's/if \(aStart < bEnd && bStart < aEnd\) return true/if (aStart >= bEnd \&\& bStart >= aEnd) return true/' $ADAPTER
 run m6 $ADAPTER src/__tests__/integration/capacity-conjunction.test.ts 'overlapping bookings'
 
-# m7 — an absent weekday in weekly_hours reads as open instead of 定休日.
-perl -0pi -e 's/if \(day == null\) return \{ \.\.\.CLOSED_FACT \}/if (day === undefined) { \/* fall through *\/ } else if (day === null) return { ...CLOSED_FACT }/' $HOURS
+# m7 — an absent weekday in weekly_hours reads as OPEN instead of 定休日.
+# Spelled as a wrong VALUE, never a crash: the first spelling let `day` stay
+# undefined and the resolver threw on day.open before the test's own
+# assertions ran, so the kill proved nothing about them (L3 HIGH).
+perl -0pi -e "s/  const day = weekly\[key\]\n/  const day = weekly[key] ?? { open: '10:00', close: '24:00' }\n/" $HOURS
 run m7 $HOURS src/__tests__/integration/resolve-day-hours.test.ts 'an ABSENT weekday'
 
 # m8 — an unplaceable staff filter falls back to UNFILTERED.
 perl -0pi -e 's/return \{ staffId: null, unknown: true \}/return { staffId: null, unknown: false }/' $SCREEN
 run m8 $SCREEN src/__tests__/integration/resolve-fetch-staff-id.test.ts 'cannot place'
 
+# m9 — the WEB action's unplaceable filter falls back to a FETCH: one stylist's
+# 自分 week becomes the whole salon's, under her name.
+perl -0pi -e 's/^    unknown\n      \? Promise\.resolve/    !unknown\n      ? Promise.resolve/m' $ACTION
+run m9 $ACTION src/__tests__/integration/appointments-window-action.test.ts 'an unplaceable'
+
+# m10 — the WEB action drops the store clamp on the window fetch: the
+# Apple-review bug (a 銀座-only frontdesk reading the 代官山 week).
+perl -0pi -e 's/fetchAppointmentWindow\(synqed, fromIso, toIso, \{ storeId, staffId \}\)/fetchAppointmentWindow(synqed, fromIso, toIso, { storeId: undefined, staffId })/' $ACTION
+run m10 $ACTION src/__tests__/integration/appointments-window-action.test.ts 'forwards the RESOLVED store id'
+
+# m11 — 稼働 is allowed past 100% again: the day claims a capacity its own
+# bookings already overran.
+perl -0pi -e 's/bookedMinutes <= fact\.minutes/true/' $ADAPTER
+run m11 $ADAPTER src/__tests__/integration/capacity-conjunction.test.ts 'booked PAST the saved window'
+
+# m12 — overlap goes back to START-day bucketing: two bookings that collide
+# across JST midnight are never compared.
+perl -0pi -e 's/s\.start <= dayEndMs && dayStartMs < s\.end/s.start >= dayStartMs \&\& s.start < dayEndMs/' $ADAPTER
+run m12 $ADAPTER src/__tests__/integration/capacity-conjunction.test.ts 'OVERLAP ACROSS JST MIDNIGHT'
+
+# m13 — the dayTotals window loses its LAST day: the selected day falls outside
+# a window that genuinely covers it and the day line reads "no bookings yet".
+# NOTE the spelling: `<=` → `<` cannot be the mutant here. selectedDate is a JST
+# MIDNIGHT and rangeTo is that day's 23:59:59.999, so the two operators agree on
+# every reachable input — a vacuous mutant of exactly the kind m7 used to be.
+perl -0pi -e 's/selectedDate <= r\.rangeTo/selectedDate <= new Date(r.rangeTo.getTime() - 86_400_000)/' $SCREEN
+run m13 $SCREEN src/__tests__/integration/screen-truncated.test.ts 'LAST day'
+
+# m14 (Greptile round 2, G1) — the page's truncation guard is dropped: a
+# truncated window renders AppointmentsView with null data instead of
+# throwing to the route-group error boundary.
+perl -0pi -e 's/if \(screen\.truncated\) \{\n    throw new Error\(.appointments: window truncated — read incomplete.\)\n  \}\n\n  //' "$PAGE"
+run m14 "$PAGE" src/__tests__/integration/appointments-page-truncated-reject.test.ts 'render REJECT'
+
 echo "done — tree restored:"
-git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN" || true
+git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN" "$ACTION" "$PAGE" || true
