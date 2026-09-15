@@ -365,7 +365,10 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
   // The jump panel reads COUNTS only — no hours, no roster, no store type are
   // fetched here, so these months honestly carry no capacity (no `facts`)
   // rather than a percentage computed from inputs this door never read. The
-  // dots stay the count buckets, which is what the panel renders today.
+  // dots stay the count buckets, which is what the panel renders today. It
+  // reads no store hours either (the pop-down renders through the package grid
+  // and has no 休 cell), so the adapter's own `closed: false` default rides
+  // through rather than a second, hours-less answer.
   return monthCellsToDTO(cells, {
     newCounts: {
       byDay: known

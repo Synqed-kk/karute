@@ -188,6 +188,9 @@ export interface DateJumpPanelProps {
   /** Mon-first localized weekday headers, the same array the 月 view feeds
    *  MonthGrid. */
   weekdayLabels: [string, string, string, string, string, string, string]
+  /** 2 = open on the month chips (月 mode, §v11b) instead of the day grid. */
+  defaultLevel?: 1 | 2
+  onPickMonth?: (year: number, month: number) => void // §v11 point 1 — at level 2 a month chip LANDS that month
 }
 
 export function DateJumpPanel({
@@ -199,6 +202,8 @@ export function DateJumpPanel({
   loadMonthCells,
   onPickDay,
   weekdayLabels,
+  defaultLevel = 1,
+  onPickMonth,
 }: DateJumpPanelProps) {
   const locale = useLocale()
   const t = useTranslations('reservation')
@@ -356,6 +361,8 @@ export function DateJumpPanel({
       dispatch({ type: 'open', month: openMonth, seed: seedCells })
       // Every open pays for ONE month, not three (see `drawn`).
       setDrawn(new Set([openMonth]))
+      // §v11b — the 月 door opens straight on the month chips.
+      if (defaultLevel === 2) dispatch({ type: 'setLevel', level: 'months' })
     }
   }
 
@@ -657,12 +664,16 @@ export function DateJumpPanel({
   /** MOCK 1143-1149. */
   const jumpToMonth = useCallback(
     (key: MonthKey) => {
+      if (onPickMonth && defaultLevel === 2) {
+        onPickMonth(...splitMonthKey(key))
+        return onClose()
+      }
       setPending(0)
       setTravel((n) => n + 1)
       dispatch({ type: 'setMonth', month: key })
       dispatch({ type: 'setLevel', level: 'grid' })
     },
-    [setPending],
+    [setPending, onPickMonth, defaultLevel, onClose],
   )
 
   // Opening or closing starts the slide over: land nothing, arm nothing. A

@@ -116,6 +116,18 @@ export type WeekDayRowData = WeekDayCardData &
     newCountKnown?: boolean
   }
 
+/** One month cell: the package's MonthGridCell plus the one fact the 月 page's
+ *  own grid needs and the package has no slot for. Structurally assignable to
+ *  MonthGridCell[], so the pop-down panel keeps seeding itself from the page's
+ *  cells unchanged (it renders through the package grid, which ignores the
+ *  extra key). */
+export type MonthCell = MonthGridCell & {
+  /** 定休日 or 臨時休業 — the SAME fact the week row carries, read from the
+   *  SAME hoursFacts map, so a day cannot be 休 on one surface and open on
+   *  the other. */
+  closed: boolean
+}
+
 /** Everything the capacity model needs that is not in the booking rows: the
  *  store's lane kind, its booking roster, the day's resolved hours. The CALLER
  *  resolves all of it — the module itself knows nothing of stores, business
@@ -501,7 +513,7 @@ function densityFor(count: number): MonthDensityBucket {
  *  `newCounts` absent = this door read no history at all, which is NOT the same
  *  as "nobody was new" — the cells then carry 0 with `newCountKnown: false`. */
 export function monthCellsToDTO(
-  cells: readonly MonthGridCell[],
+  cells: readonly MonthCell[],
   opts: {
     newCounts?: { byDay: ReadonlyMap<string, number>; known: boolean }
     facts?: ReadonlyMap<string, CapacityFact> | null
@@ -515,6 +527,11 @@ export function monthCellsToDTO(
     isToday: c.isToday,
     count: c.count,
     density: c.density,
+    // 定休日/臨時休業, straight off the cell. The adapter decides it (from the
+    // caller's hoursFacts, false for a padding cell and for a door that read no
+    // hours); this mapping never re-answers it, so a 休 day is 休 on the wire
+    // exactly where it is 休 on the page.
+    closed: c.closed,
     // In-month cells only: a padding cell carries no day of its own to be
     // anybody's first visit on.
     newCount: (known && c.inMonth && opts.newCounts?.byDay.get(c.id)) || 0,
@@ -531,7 +548,11 @@ export function appointmentsToMonthCells(
   monthStart: Date,
   monthEnd: Date,
   today: Date,
-): MonthGridCell[] {
+  /** That day's resolved hours, keyed by JST YYYY-MM-DD — the same map the
+   *  week adapter above reads its own `closed` from (resolveWindowHours).
+   *  Absent = no cell is closed, today's behaviour. */
+  hoursFacts?: ReadonlyMap<string, DayHoursFact>,
+): MonthCell[] {
   const buckets = new Map<string, number>()
   // Same guard as the week adapter above: ONE 件 definition, so a month cell
   // and its week row can never disagree about the same day.
@@ -556,7 +577,7 @@ export function appointmentsToMonthCells(
   const gridEnd = new Date(monthEnd)
   gridEnd.setDate(gridEnd.getDate() + trailing)
 
-  const cells: MonthGridCell[] = []
+  const cells: MonthCell[] = []
   const cursor = new Date(gridStart)
   while (cursor <= gridEnd) {
     const key = isoDay(cursor)
@@ -571,6 +592,13 @@ export function appointmentsToMonthCells(
       isToday: sameYMD(cursor, today),
       count: inMonth ? count : 0,
       density: inMonth ? densityFor(count) : 'empty',
+      // R2-5 (LENS-1 #5) — out-of-month cells ARE tappable (onPickOtherMonthDay
+      // → navigateTo('month', …) moves the page to their real month), so
+      // "inert" is stale. The reason `closed` is forced false here still
+      // holds: this window's `hoursFacts` was never fetched for a day outside
+      // the month it read, so that day's closed state is not a fact this
+      // read can answer — never claim it either way.
+      closed: inMonth ? (hoursFacts?.get(key)?.closed ?? false) : false,
     })
     cursor.setDate(cursor.getDate() + 1)
   }

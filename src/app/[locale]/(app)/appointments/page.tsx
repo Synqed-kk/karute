@@ -17,6 +17,8 @@ import { countedClientIds } from '@/lib/appointments/by-date'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCachedMenuOptions, scopeMenuOptions } from '@/lib/menus/cached'
 import { getAppointmentWindow } from '@/actions/appointments-window'
+import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
+import { monthCompareWindow } from '@/lib/appointments/month-compare'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
 import { listAllPackUsage } from '@/lib/packs/store'
 import { getBusinessId } from '@/lib/staff'
@@ -72,8 +74,19 @@ export default async function AppointmentsPage({
   // (measured 1.0–1.8s per press from the browser, 2026-07-30) was never split
   // into its parts. One [perf] line per request in the Vercel logs.
   const t = startTiming(`appointments view=${view}`)
+  // ONE clock for this render: the compare window below and the screen build
+  // further down both read it, and two `new Date()` calls either side of a
+  // midnight would compare one month against a different elapsed window.
+  const now = new Date()
   const weekRange = view === 'week' ? computeWeekRange(selectedDate) : null
   const monthRange = view === 'month' ? computeMonthRange(selectedDate) : null
+  // 先月同期間比's extra read (spec §8). Null = no clause, hence no read: a
+  // future month has nothing elapsed to compare, and while the switch is off
+  // nothing renders it either — so neither case pays for a fetch.
+  const compareWindow =
+    monthRange && BOOKING_SWITCHES.monthCompare
+      ? monthCompareWindow(monthRange.monthStart, now)
+      : null
 
   // Resolved BEFORE the wave because the customer read is now an ARGUMENT of
   // it (⚖ Liam 2026-08-17: a clamped actor's booking picker must not offer
@@ -101,6 +114,7 @@ export default async function AppointmentsPage({
     weekWindow,
     monthWindow,
     dayWindow,
+    prevMonthWindow,
     menuOptions,
   ] = await Promise.all([
     t.phase('auth.getUser', () => supabase.auth.getUser()),
@@ -148,6 +162,15 @@ export default async function AppointmentsPage({
             jstEndOfDay(selectedDate).toISOString(),
             staffFilter,
           )
+        : Promise.resolve(null),
+    ),
+    // The previous month's compared span — the same action, the same store
+    // clamp and the same 担当 filter as the month read above, so the two sides
+    // of the comparison can never be scoped differently. In this wave, so it
+    // costs no waterfall.
+    t.phase('range.prevMonth', () =>
+      compareWindow
+        ? getAppointmentWindow(compareWindow.fromIso, compareWindow.toIso, staffFilter)
         : Promise.resolve(null),
     ),
     // 60s cached active-menu union for the booking picker. Degraded the same
@@ -227,7 +250,7 @@ export default async function AppointmentsPage({
 
   const screen = buildAppointmentsScreen({
     locale,
-    now: new Date(),
+    now,
     selectedDate,
     staffFilter,
     staffList,
@@ -248,6 +271,7 @@ export default async function AppointmentsPage({
     weekWindow,
     monthWindow,
     dayWindow,
+    prevMonthWindow,
     // Exactly one window is read per view, and it carries that window's days.
     hoursFacts: new Map(
       (weekWindow ?? monthWindow ?? dayWindow)?.hoursFacts ?? [],
@@ -287,6 +311,7 @@ export default async function AppointmentsPage({
         weekStartIso={screen.weekStartIso}
         monthData={screen.monthData}
         monthStartIso={screen.monthStartIso}
+        monthCompareDelta={screen.monthCompareDelta}
         // The day line's numbers and the 未設定 discriminator — both resolved
         // in buildAppointmentsScreen so the WEB door and the PHONE door hand
         // the shared view identical props (PKT-1b-WIRE W-B/W-C).

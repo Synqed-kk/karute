@@ -188,6 +188,7 @@
       "returning": "Returning",
       "cancelled": "Cancelled",
       "noShow": "No-show",
+      "lastMonthSamePeriod": "vs same period last month",
       "unset": "Not set",
       "closed": "Closed",
       "countValue": "{n}",
@@ -198,7 +199,10 @@
       "failed": "Couldn't load bookings. Please try again.",
       "rowAria": "{date} — {cells}",
       "ariaSep": ", ",
-      "ariaLoading": "Loading"
+      "ariaLoading": "Loading",
+      "moreRows": "{n} more",
+      "openDay": "Open this day →",
+      "noBookings": "No bookings yet for this day"
     },
     "status": {
       "booked": "Booked",

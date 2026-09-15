@@ -21,6 +21,12 @@ interface DayNumbersLineProps {
   /** The router transition. R3-18: while it runs the numbers on screen still
    *  describe the OLD day, so the line shows the mock's two shims instead. */
   pending?: boolean
+  /** Padding/margin overrides for a host that owns the line's seams — the 月
+   *  page's selected-day card, where the mock puts this same line INSIDE the
+   *  card (`.listcard .statline{padding:12px 14px 2px}`) instead of above it.
+   *  Every other rule below stays exactly as it is on the 日 page: one line,
+   *  one set of numbers, one set of type sizes. */
+  className?: string
 }
 
 // mock `.dayline .it b` — ink, tabular. The tone map (shared with the week
@@ -57,7 +63,7 @@ function LineItem({ cell }: { cell: Cell }) {
   )
 }
 
-export function DayNumbersLine({ row, soloMode, typeSlot, pending }: DayNumbersLineProps) {
+export function DayNumbersLine({ row, soloMode, typeSlot, pending, className }: DayNumbersLineProps) {
   const t = useTranslations('reservation.weekRows')
   if (!pending && !row) return null
 
@@ -81,7 +87,10 @@ export function DayNumbersLine({ row, soloMode, typeSlot, pending }: DayNumbersL
     // of jumping.
     <div
       data-day-line
-      className="mb-2 flex min-h-[calc(1.25em+0.25rem)] items-center gap-[14px] whitespace-nowrap py-0.5 text-[13px] leading-[1.25]"
+      className={cn(
+        'mb-2 flex min-h-[calc(1.25em+0.25rem)] items-center gap-[14px] whitespace-nowrap py-0.5 text-[13px] leading-[1.25]',
+        className,
+      )}
     >
       {pending || !row ? (
         // mock line 790: `numsHTML(d, pend)` returns TWO shims. The port

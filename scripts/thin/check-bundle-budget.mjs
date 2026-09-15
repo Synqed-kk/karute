@@ -973,20 +973,42 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en       134,148 → 134,204 (+56 B) — the three new EN keys plus the
 //     trailing period on `failed`.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
-// RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R3b (R3b-1 — the cell label's
-// tone raised to meet the contrast floor): 2,105,946 → 2,105,964. Same CI
-// recipe, thin/dist emptied each lap, byte-identical across two clean builds
-// on the final code tip, same content hashes both times (node v24.16.0,
-// @synqed-kk/ui 0.3.2, installed == lock):
-//   en 134,204 · index 1,032,969 · vendor 937,791 = 2,104,964 B.
-// Ceiling = 2,104,964 + 1,000. The previous ceiling still passed (982 B of
-// headroom left); re-measured anyway so the ceiling keeps tracking the build.
+// RE-MEASURED 2026-09-15 for FIXLIST-1b-MONTH-4a-R2 (the eight-fix round:
+// R2-1 the month arrows step by MONTH KEY not `setMonth`, R2-2 aria-current
+// moved to TODAY with aria-pressed added for the selection, R2-3 the
+// out-of-month day number's contrast (zinc-500 / dark zinc-400), R2-4
+// onPickMonth as a plain named function instead of an inline JSX arrow,
+// R2-5 the adapter's stale "inert" comment, R2-6 the shared border-zinc-200/70
+// hair token on both calendars, R2-7 the pending pill's margin — now ONE
+// exported LinePill (WeekRows.tsx) instead of a local copy in MonthPage.tsx
+// plus two duplicated literal spans in DayNumbersLine.tsx). Two now-dead
+// entries (4a D-13) sat above this one: the standalone 4a measurement and the
+// standalone R3c measurement, each already folded into R1's merged figure —
+// pruned here rather than carried forward a second round; this file's
+// convention is ONE live entry.
 //
-// Where the +18 B went, measured per chunk:
-//   index  1,032,951 → 1,032,969 (+18 B) — ours, all of it: the label
-//     span's class grew from `text-zinc-400` to `text-zinc-500
-//     dark:text-zinc-400`.
-//   en       134,204 → 134,204 — unchanged to the byte.
+// Same CI recipe — the workflow's own six VITE_* values, copied verbatim
+// from the checked-in step. thin/dist emptied before each lap, two clean
+// laps, byte-identical with matching content hashes both times (node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,038,436 · vendor 937,791 = 2,110,431 B.
+// Ceiling = 2,110,431 + 1,000. The previous (R1) ceiling was 2,111,495 — this
+// tip measures SMALLER, not larger.
+//
+// Where the bytes went, measured per chunk against R1's own figure:
+//   index  1,038,500 → 1,038,436 (−64 B) — net of a few small moves, not one
+//     line: the shared LinePill collapses four call sites (two in
+//     MonthPage.tsx, two duplicated literal spans in DayNumbersLine.tsx) onto
+//     one exported component, which is a net REMOVAL of duplicated class
+//     string bytes larger than what R2 added (the new `mr-3` class, the new
+//     `aria-pressed` attribute and its string, and `border-zinc-200/70`
+//     replacing `border-zinc-100` at three call sites, +3 B each). The
+//     zinc-300→zinc-500 / zinc-600→zinc-400 contrast swap is byte-neutral
+//     (same string lengths). Every other R2 change is a comment or a
+//     function-declaration-shape change — comments do not ship; production
+//     minification strips them.
+//   en       134,204 → 134,204 — unchanged to the byte: R2 added no string,
+//     JA or EN.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
 // RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R3c (R3c-1 — rowAria's
 // date→cells join, R3c-3 — the today row's weekday letter tone) and a
@@ -1158,7 +1180,101 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // records — a 7 B difference between two worktrees' node_modules, not a code
 // difference. Which is exactly why all four figures above were re-measured in
 // one place instead of being subtracted across reports.)
-const BUDGET_BYTES = 2_106_619
+//
+// ── THE TWO LINES DIVERGE AGAIN HERE AND ARE MERGED BELOW (2026-09-16) ────
+// Both chains below the shared week entry start from the same 2,105,004 B
+// figure recorded above. The 新規/capacity + week/#921-R6/type chain comes
+// first (it is the one directly above); the MONTH chain
+// (feat/booking-month-compare: the grid, the selected-day card and
+// 先月同期間比) follows. Neither is deleted — every number either line
+// measured stays readable, which is what makes this merge tip's own
+// per-chunk arithmetic checkable. The two chains are NOT comparable to each
+// other: the month chain's index figures carry the month grid, which the
+// 新規 chain never built. ONE live constant follows both chains, carrying
+// the HIGHER of the two branch ceilings as a placeholder so this tree is
+// never left with a ceiling under its own size; it is re-measured on the
+// merge tip in its own commit, last.
+//
+// RE-MEASURED 2026-09-15 for PKT-1b-MONTH PIECE 4b (tap a day = stay: the
+// selected-day card under the 月 grid, the card's 120 ms fade, and the
+// optimistic ring). The R2 entry above is kept as the immediately preceding
+// tip's figure — the one comparison this number is read against; everything
+// older stays pruned, per this file's ONE-live-entry convention.
+//
+// Same CI recipe — the workflow's own six VITE_* values, copied verbatim from
+// the checked-in step. thin/dist emptied before each lap, two clean laps,
+// byte-identical with matching content hashes both times (node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,294 · index 1,041,374 · vendor 937,791 = 2,113,459 B.
+// Ceiling = 2,113,459 + 1,000. The previous (R2) ceiling was 2,111,431, and
+// this tip genuinely passes it: the card is new code.
+//
+// Where the bytes went, measured per chunk against R2's own figure:
+//   index  1,038,436 → 1,041,374 (+2,938 B) — ours, all of it: the new
+//     SelectedDayCard.tsx (its four states, the row loop, the door and every
+//     class string on them), the compact row lifted out of
+//     ReservationMobileAgenda as the exported CompactRowContent +
+//     COMPACT_ROW / COMPACT_ROW_TAG (a small net ADD here — the extraction
+//     removes one inline copy but adds a component, its props and two
+//     exported constants), the view's held-tap pair and its month-cell tap
+//     handler, and DayNumbersLine's className passthrough.
+//   en       134,204 → 134,294 (+90 B) — the three NEW English strings:
+//     moreRows, openDay, noBookings. The thin bundle ships EN only (boot-
+//     frozen locale), so the three Japanese strings cost this bundle nothing.
+//   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
+// RE-MEASURED 2026-09-15 on 4b's FINAL tip, after the two proof fixes the
+// production build caught (the card's 8 px seam to the grid card; the header
+// chip following the ring in 月 mode so the selected day is named the whole
+// time). The entry above is 4b's first measurement, kept as the figure this
+// one is read against.
+//
+// Same CI recipe, thin/dist emptied before each of two laps, byte-identical
+// with matching content hashes both times:
+//   en 134,294 · index 1,041,400 · vendor 937,791 = 2,113,485 B  (+26 B).
+// Ceiling = 2,113,485 + 1,000.
+//
+// +26 B, all in index: the chip's month-mode ternary and its one call into
+// the existing jstWallTimeToDate. The seam fix is a wrapper <div> with no
+// class at all, so it costs nothing measurable. en and vendor unchanged to
+// the byte.
+// RE-MEASURED 2026-09-16 on the 4b FIX-ROUND R1 tip (R1-1 … R1-6 + the 23:4x
+// type ruling). The entry above is 4b's own final measurement, which is the
+// figure this one is read against.
+//
+// Same CI recipe, thin/dist emptied before each of two laps, byte-identical
+// both times (matching content hashes, node v24.16.0):
+//   en 134,294 · index 1,042,174 · vendor 937,791 = 2,114,259 B  (+774 B).
+// Ceiling = 2,114,259 + 1,000.
+//
+// +774 B, all in index; en and vendor unchanged to the byte. The card's fade
+// window (a second piece of state, the painted snapshot and its effect), the
+// pending branch, the counted-rows filter, the region name, the month branch's
+// own wrapper, and the type-scale class swaps. Real behaviour, not weight: the
+// round REMOVED a dead `gap-[5px]` and the `from` half of the held-tap pair.
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-16 on PIECE 4c's tip (先月同期間比: the number on both
+// doors, the clause on the month line, the switch ON). The entry above is 4b's
+// R1 measurement, which is the figure this one is read against.
+//
+// Same CI recipe — CI's own six VITE_* values, the 208-char anon-key
+// placeholder included (a shorter one inflates index and reads as a false
+// mismatch), thin/dist emptied before each of two laps, byte-identical both
+// times (matching content hashes and md5s, node v24.16.0, @synqed-kk/ui 0.3.2
+// installed == lock):
+//   en 134,342 · index 1,042,546 · vendor 937,791 = 2,114,679 B  (+420 B).
+// Ceiling = 2,114,679 + 1,000.
+//
+// Where the 420 B went:
+//   index  1,042,174 → 1,042,546 (+372 B) — the clause itself: the sign
+//     helper, the switch-gated LineItem with its tone choice and its
+//     `countValue` call, the new prop on MonthPage and on AppointmentsView,
+//     and the thin screen's own pass-through. month-compare.ts is SERVER-side
+//     and never enters this bundle; the DTO key is one line of schema.
+//   en       134,294 → 134,342 (+48 B) — one new English string,
+//     `lastMonthSamePeriod`. The thin bundle ships EN only (boot-frozen
+//     locale), so the Japanese term costs this bundle nothing.
+//   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
+const BUDGET_BYTES = 2_115_679
 
 let dir
 try {

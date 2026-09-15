@@ -25,7 +25,7 @@
 // this UI pass.
 
 import { useTranslations } from 'next-intl'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Radio } from 'lucide-react'
 import { PackPill } from '@/components/reservation/AppointmentCard'
 import { isRepeatNoShow } from '@/components/customers/redesign/types'
@@ -96,6 +96,75 @@ const STATUS_VISUALS: Record<DisplayStatus, StatusVisuals> = {
     text: BADGE_COLORS.blue.text,
     border: BADGE_COLORS.blue.border,
   },
+}
+
+/** The day list's COMPACT row — ONE line: status stripe · time · avatar ·
+ *  name 様 · a right-hand tag. The collapsed 完了 row below has always been
+ *  this shape; it is EXPORTED because the 月 page's selected-day card renders
+ *  the same row (PKT-1b-month B2 — 「never a third row style」), and a copy
+ *  would have drifted the first time either surface was touched.
+ *
+ *  Presentational only: the wrapper (button vs. div), the press behaviour and
+ *  which tag to show all stay with the caller, because those are exactly the
+ *  things the two surfaces legitimately differ on. */
+export const COMPACT_ROW = 'relative flex w-full items-center gap-2.5 px-4 py-2 text-left'
+
+/** The right-hand pill's own geometry — the badge look every row here uses;
+ *  the colour triple comes from BADGE_COLORS at the call site. */
+export const COMPACT_ROW_TAG =
+  'ml-auto inline-flex h-5 shrink-0 items-center rounded-full border px-2 text-[10px] font-medium'
+
+export function CompactRowContent({
+  reservation: r,
+  tag,
+}: {
+  reservation: ReservationView
+  /** Exceptions only (Liam): 予約済/完了 are the default states and the stripe
+   *  already says them quietly. */
+  tag?: ReactNode
+}) {
+  const t = useTranslations('reservation.card')
+  const honorific = t('customerSuffix')
+  const staff = getStaffColorByKey(r.staffColorKey)
+  const struck = r.isCancelled || r.isNoShow
+  return (
+    <>
+      <span
+        aria-hidden
+        className={`absolute bottom-1.5 left-0 top-1.5 w-[3px] rounded-r-full ${
+          struck ? 'hidden' : STATUS_VISUALS[r.displayStatus].stripe
+        }`}
+      />
+      <span
+        className={cn(
+          'w-12 shrink-0 text-[13px] font-semibold tabular-nums text-foreground',
+          struck && 'line-through text-muted-foreground',
+        )}
+      >
+        {r.startTimeHm}
+      </span>
+      <span
+        className={cn(
+          'flex size-4 shrink-0 items-center justify-center rounded-full text-[8px] font-semibold ring-1 ring-black/5',
+          staff.bg,
+          staff.text,
+        )}
+        aria-hidden
+      >
+        {r.customerInitials}
+      </span>
+      <span
+        className={cn(
+          'min-w-0 truncate text-[13px] text-foreground',
+          struck && 'line-through text-muted-foreground',
+        )}
+      >
+        {r.customerName}
+        {honorific && <span className="ml-1 text-[11px] text-muted-foreground">{honorific}</span>}
+      </span>
+      {tag}
+    </>
+  )
 }
 
 export function ReservationMobileAgenda({
@@ -306,42 +375,18 @@ function AgendaRow({
       <button
         type="button"
         onClick={() => setExpanded(true)}
-        className="relative flex w-full items-center gap-2.5 px-4 py-2 text-left opacity-60 transition-colors active:bg-black/[0.02]"
+        className={cn(COMPACT_ROW, 'opacity-60 transition-colors active:bg-black/[0.02]')}
       >
-        <span
-          aria-hidden
-          className={`absolute bottom-1.5 left-0 top-1.5 w-[3px] rounded-r-full ${visuals.stripe}`}
+        <CompactRowContent
+          reservation={r}
+          tag={
+            showUnrecorded ? (
+              <span className={cn(COMPACT_ROW_TAG, BADGE_COLORS.amber.bg, BADGE_COLORS.amber.text, BADGE_COLORS.amber.border)}>
+                {t('unrecorded')}
+              </span>
+            ) : null
+          }
         />
-        <span
-          className={`w-12 shrink-0 text-[13px] font-semibold tabular-nums text-foreground ${
-            r.isCancelled ? 'line-through' : ''
-          }`}
-        >
-          {r.startTimeHm}
-        </span>
-        <span
-          className={cn(
-            'flex size-4 shrink-0 items-center justify-center rounded-full text-[8px] font-semibold ring-1 ring-black/5',
-            staff.bg,
-            staff.text,
-          )}
-          aria-hidden
-        >
-          {r.customerInitials}
-        </span>
-        <span className="min-w-0 truncate text-[13px] text-foreground">
-          {r.customerName}
-          {honorific && (
-            <span className="ml-1 text-[11px] text-muted-foreground">{honorific}</span>
-          )}
-        </span>
-        {showUnrecorded && (
-          <span
-            className={`ml-auto inline-flex h-5 shrink-0 items-center rounded-full border px-2 text-[10px] font-medium ${BADGE_COLORS.amber.bg} ${BADGE_COLORS.amber.text} ${BADGE_COLORS.amber.border}`}
-          >
-            {t('unrecorded')}
-          </span>
-        )}
       </button>
     )
   }
