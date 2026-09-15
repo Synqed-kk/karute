@@ -427,7 +427,10 @@ describe('WeekRows — the summary line is the mock’s .wksum (W-F)', () => {
     // grey 12.5/600 on the line (mock .wksum), ink 700 tabular on each <b>.
     expect(summary.className).toContain('text-[12.5px]')
     expect(summary.className).toContain('font-semibold')
-    expect(summary.className).toContain('text-[var(--color-text-muted)]')
+    // R3-17 — the mock's MIDDLE grey (--sub), with the dark pair the 4.5:1
+    // word floor needs on the dark card.
+    expect(summary.className).toContain('text-zinc-500')
+    expect(summary.className).toContain('dark:text-zinc-400')
     const bolds = Array.from(summary.querySelectorAll('b'))
     expect(bolds).toHaveLength(2) // typeSlot 'new' → 予約 + 新規
     for (const b of bolds) {
@@ -465,6 +468,35 @@ describe('WeekRows — the summary line is the mock’s .wksum (W-F)', () => {
     expect(summary.querySelectorAll('b')).toHaveLength(0)
     // mock .wksum .shim{width:38px;height:11px}
     expect(summary.querySelector('.w-\\[38px\\]')).not.toBeNull()
+  })
+})
+
+describe('WeekRows — the mock’s three greys, not one (R3-17)', () => {
+  it('label, word and chevron each take their own step, and the card clips its corner', () => {
+    const WeekRows = loadWeekRows()
+    const { container } = render(
+      <WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />,
+    )
+    // mock --mute (#9ca3af): the label recedes so the number carries the row
+    const label = container.querySelector('[data-week-cell]')!.firstElementChild!
+    expect(label.className).toContain('text-zinc-400')
+    expect(label.className).not.toContain('--color-text-muted')
+    // mock --sub (#6b7280): the weekday letter is a word, not a label
+    const weekday = container.querySelector('[data-week-row] span span')!
+    expect(weekday.className).toMatch(/text-zinc-500|text-primary|text-red-600/)
+    // mock #c3c8cf: the lightest thing in the row
+    expect(container.querySelector('[data-week-chevron]')!.getAttribute('class')).toContain(
+      'text-zinc-300',
+    )
+    // mock --hair (#eef0f2) vs the card's own --line (#e6e8eb)
+    const row0 = screen.getAllByRole('button')[0]
+    expect(row0.className).toContain('border-zinc-100')
+    expect(row0.className).not.toContain('border-[var(--color-border)]')
+    // mock .listcard{overflow:hidden} — the today wash must not square off the
+    // card's 16 px corner
+    const card = row0.parentElement!
+    expect(card.className).toContain('overflow-hidden')
+    expect(card.className).toContain('border-[var(--color-border)]')
   })
 })
 

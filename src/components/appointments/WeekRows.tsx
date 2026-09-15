@@ -137,8 +137,17 @@ function GridCell({ cell, pending }: { cell: Cell; pending?: boolean }) {
   return (
     <div data-week-cell className="flex min-w-0 items-baseline gap-[5px]">
       {/* mock `.wkcell .lb{flex:0 0 auto;font-size:11px;font-weight:700;
-       *  color:var(--mute);line-height:1.2}` */}
-      <span className="shrink-0 text-[11px] font-bold leading-[1.2] text-[var(--color-text-muted)]">
+       *  color:var(--mute);line-height:1.2}`
+       *
+       *  ⚖ R3-17 — the mock has THREE greys and the port had one. `--mute`
+       *  (#9ca3af) is the lightest: the label is supposed to recede so the
+       *  number is the only thing in the row with weight. At
+       *  `--color-text-muted` (#71717a) it read almost as strongly as its own
+       *  value. The app's own zinc scale supplies the hierarchy — hue family
+       *  is the app's, hierarchy is the mock's — and zinc-400 (#9f9fa9) is
+       *  the step that sits on #9ca3af. It measures 6.75:1 on the dark card,
+       *  so the dark pair needs no override. */}
+      <span className="shrink-0 text-[11px] font-bold leading-[1.2] text-zinc-400">
         {cell.label}
       </span>
       {pending ? (
@@ -222,7 +231,11 @@ export function WeekRows({
         // end of anonymous flex items, where they are stripped.
         <div
           data-testid="week-summary"
-          className="flex flex-wrap items-center gap-1.5 px-1 pb-[9px] text-[12.5px] font-semibold text-[var(--color-text-muted)]"
+          // R3-17 — mock `--sub` (#6b7280), the MIDDLE grey: words, not
+          // labels. zinc-500 measures 4.83:1 on white; on the dark card it
+          // drops to 3.67:1, under the 4.5:1 floor for words, so the dark pair
+          // steps up to zinc-400 (6.75:1).
+          className="flex flex-wrap items-center gap-1.5 px-1 pb-[9px] text-[12.5px] font-semibold text-zinc-500 dark:text-zinc-400"
         >
           <span>
             {t('summaryRange', {
@@ -256,7 +269,12 @@ export function WeekRows({
           )}
         </div>
       )}
-      <div className="flex flex-col rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-card)] shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      {/* R3-17 — mock `.listcard{… overflow:hidden}`. Without it the today
+       *  row's wash paints square into the card's 16 px corner (the first row
+       *  IS today whenever the selected day is today, and the last row when it
+       *  is selected). The card's OWN edge keeps `--color-border`; only the
+       *  hairlines INSIDE it go lighter. */}
+      <div className="flex flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-card)] shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
         {rows.map((row) => {
           const closed = isClosedRow(row)
           const isToday = todayIso ? row.dateIso === todayIso : row.isToday === true
@@ -315,7 +333,15 @@ export function WeekRows({
                 //  width:100%;text-align:left;min-height:76px;
                 //  padding:12px 10px 12px 12px;border-bottom:1px solid
                 //  var(--hair);transition:background-color .12s ease}`
-                'flex min-h-[76px] w-full items-center gap-2.5 border-b border-[var(--color-border)] py-3 pl-3 pr-2.5 text-left last:border-b-0',
+                // R3-17 — mock `--hair` (#eef0f2) for the row rule against
+                // `--line` (#e6e8eb) for the card edge: two deliberately
+                // different greys, so the block reads as a card with hairlines
+                // inside it rather than a ruled table. Both pointed at
+                // `--color-border`. zinc-100 is the lighter step; on dark the
+                // zinc scale has nothing between the card's own background
+                // (#18181b) and its edge (#27272a), so the dark pair keeps
+                // today's relationship.
+                'flex min-h-[76px] w-full items-center gap-2.5 border-b border-zinc-100 py-3 pl-3 pr-2.5 text-left last:border-b-0 dark:border-zinc-800',
                 // MOTION (W-I), read off the mock's own cascade: `.wkrow`
                 // (line 144) sets `transition:background-color .12s ease`, but
                 // `[data-press]` (line 282) re-declares the same SHORTHAND at
@@ -378,12 +404,14 @@ export function WeekRows({
                 <span className="flex items-center gap-1">
                   <span
                     className={cn(
+                      // R3-17 — mock `.wkdate i{color:var(--sub)}`, the middle
+                      // grey; same dark pair as the summary line.
                       'text-[11px] font-bold leading-none',
                       isSat
                         ? 'text-primary'
                         : isSun
                           ? 'text-red-600 dark:text-red-400'
-                          : 'text-[var(--color-text-muted)]',
+                          : 'text-zinc-500 dark:text-zinc-400',
                     )}
                   >
                     {row.weekdayLabel}
@@ -434,11 +462,19 @@ export function WeekRows({
               </div>
 
               {/* mock `.wkchev{margin-left:auto;flex:0 0 12px;color:#c3c8cf}`
-               *  with a 14×14 glyph — the row, not the grid, pushes it right. */}
+               *  with a 14×14 glyph — the row, not the grid, pushes it right.
+               *
+               *  R3-17 — the THIRD grey, lighter than the label: at
+               *  `--color-text-muted` seven chevrons pulled the eye to the
+               *  right edge of the card. zinc-300 (#d4d4d8) sits on #c3c8cf;
+               *  it is decoration (aria-hidden), so its 1.48:1 is a shape
+               *  contrast, not a text one, and the dark pair mirrors that
+               *  faintness (zinc-700, 1.70:1 on the dark card) instead of
+               *  inverting into the brightest thing in the row. */}
               <ChevronRight
                 data-week-chevron
                 aria-hidden
-                className="ml-auto size-3.5 shrink-0 text-[var(--color-text-muted)]"
+                className="ml-auto size-3.5 shrink-0 text-zinc-300 dark:text-zinc-700"
               />
             </button>
           )

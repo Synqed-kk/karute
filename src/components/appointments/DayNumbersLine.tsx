@@ -30,7 +30,9 @@ const VALUE = 'font-bold tabular-nums'
 // color:var(--sub);font-weight:600}` — the wrapper is the WORD's styling.
 function LineItem({ cell }: { cell: Cell }) {
   return (
-    <span className="inline-flex items-baseline gap-1 font-semibold text-[var(--color-text-muted)]">
+    // R3-17 — mock `.dayline .it{color:var(--sub)}`, the same middle grey the
+    // week summary uses, with the same dark pair.
+    <span className="inline-flex items-baseline gap-1 font-semibold text-zinc-500 dark:text-zinc-400">
       {/* mock: the spark precedes the value (`SPARK + '<b>' + val`), and
        *  `.dayline .it.nw svg{align-self:center}` re-centres it against the
        *  baseline-aligned row. */}
