@@ -228,7 +228,7 @@ const TODAY_DIR = join(process.cwd(), 'src/app/[locale]/(business)/business/toda
 const TARGET_WORDS = ['ベッド', '個室', '満室', '清掃']
 
 describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
-  it('counts resource-word occurrences in today/ string, template and JSX text, excluding comments', () => {
+  it('counts ベッド・個室・満室・清掃 in today/ source text outside comments (string, template and JSX text included), per file', () => {
     const byFile: Record<string, number> = {}
     let offenders = 0
     for (const file of listSourceFiles(TODAY_DIR)) {
@@ -241,6 +241,7 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
     // ⚖ D-53 (c) R4/R8 — N1 pins the existing count without changing a
     // rendered word; N2 drives the migrated route's count to 0; comments
     // alone are exempt.
+    expect(byFile).toEqual({ 'TodayScreen.tsx': 28, 'page.tsx': 2, 'today-interactions.ts': 19 })
     expect(offenders).toBe(49)
   })
 
