@@ -644,13 +644,19 @@ export function DateJumpPanel({
   // swallows taps — the exact miss this panel exists to remove. `onPickDay`
   // carries the cell's own Date, so an early tap goes to the day that was
   // tapped, never to the same square of another month.
+  //
+  // `key` is the month: a landed month MOUNTS, it does not inherit the cell
+  // nodes of the month before it. MonthGrid's cell carries `transition-colors`,
+  // so reusing them ran a 150 ms background fade on 21 cells 46 ms after the
+  // month had already arrived — the month developing after it landed. The mock
+  // replaces the pane's markup and has nothing left to fade.
   const pane = (
     key: MonthKey,
     ref: RefObject<HTMLDivElement | null>,
     paneDir: -1 | 0 | 1,
     className?: string,
   ) => (
-    <div ref={ref} className={cn('w-full', className)} inert={paneDir !== liveDir || undefined}>
+    <div key={key} ref={ref} className={cn('w-full', className)} inert={paneDir !== liveDir || undefined}>
       <MonthGrid
         cells={cellsFor(key)}
         copy={{ weekdayLabels }}

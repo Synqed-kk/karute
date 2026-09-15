@@ -1197,6 +1197,27 @@ describe('the panel moves like the mock', () => {
     await frames(1000)
     expect(panel()).toBeNull()
   })
+
+  /**
+   * R3 — React reuses the 21+ cell nodes across a month commit, and MonthGrid's
+   * cell carries `transition-colors`: measured on the production build, 21
+   * cells ran a 150 ms background fade starting 46 ms AFTER the month had
+   * landed, so the new month "developed" once it arrived. The mock replaces its
+   * pane's markup wholesale and has nothing to fade. Keying the wrapper on the
+   * month is the same thing in React: the landed month mounts fresh.
+   */
+  it('t7 — a landed month mounts fresh instead of re-colouring the one before it', async () => {
+    renderView()
+    const dialog = openNow()
+    await frames(1000)
+    const wrapper = () => within(dialog).getAllByTestId('month-grid')[1].parentElement
+    const before = wrapper()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    await frames(1000)
+    expect(title()).toHaveTextContent('2026年10月')
+    expect(wrapper()).not.toBe(before)
+  })
 })
 
 describe('the hidden native date input is gone', () => {
