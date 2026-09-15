@@ -117,7 +117,8 @@ describe('resource-words — ⚖ D-53 (c) R4, the words home', () => {
 
 const REGEX_PRECEDING_CHARS = new Set(['(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '%', '<', '>', '~', '^'])
 // the grammar's expression-opening keywords, complete — a parser package cannot be imported here (business-isolation.test.ts allowlist), so the list is spelled and pinned
-const REGEX_PRECEDING_WORDS = new Set(['return', 'typeof', 'case', 'in', 'of', 'void', 'delete', 'throw', 'yield', 'await', 'new', 'instanceof', 'do', 'else'])
+// ⚖ the grammar list, third pass (Greptile #936 ×2): return typeof case in of void delete throw yield await new instanceof do else default extends — a keyword after which an ExpressionStatement / AssignmentExpression may begin
+const REGEX_PRECEDING_WORDS = new Set(['return', 'typeof', 'case', 'in', 'of', 'void', 'delete', 'throw', 'yield', 'await', 'new', 'instanceof', 'do', 'else', 'default', 'extends'])
 
 /** True when a `/` at this point opens a regex literal rather than a
  *  division: the previous non-whitespace character in `out` is an
@@ -318,13 +319,15 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
   it('the scanner opens a regex after every expression-opening keyword (Greptile #936)', () => {
     // hardcoded independently of REGEX_PRECEDING_WORDS — the grammar's own
     // list, so a keyword dropped from the implementation's set fails HERE.
-    const EXPRESSION_OPENING_KEYWORDS = ['return', 'typeof', 'case', 'in', 'of', 'void', 'delete', 'throw', 'yield', 'await', 'new', 'instanceof', 'do', 'else']
+    const EXPRESSION_OPENING_KEYWORDS = ['return', 'typeof', 'case', 'in', 'of', 'void', 'delete', 'throw', 'yield', 'await', 'new', 'instanceof', 'do', 'else', 'default', 'extends']
     const countIn = (src: string) => TARGET_WORDS.reduce((sum, w) => sum + countOccurrences(stripComments(src), w), 0)
     const results = EXPRESSION_OPENING_KEYWORDS.map((kw) => countIn(`${kw} /https?:\\/\\//; 'ベッド'`))
     console.log('keyword-regex-open:', JSON.stringify({ keywords: EXPRESSION_OPENING_KEYWORDS, results }))
     expect(results).toEqual(EXPRESSION_OPENING_KEYWORDS.map(() => 1))
     expect(countIn("x.void / 2; 'ベッド'")).toBe(1)
     expect(countIn("await(x) / 2; '個室'")).toBe(1)
+    expect(countIn("export default /https?:\\/\\//; 'ベッド'")).toBe(1)
+    expect(countIn("class C extends /https?:\\/\\// {} 'ベッド'")).toBe(1)
   })
 
   it('the scanner leaves JSX tag slashes alone (F1 delta-verify NOTE-A)', () => {
