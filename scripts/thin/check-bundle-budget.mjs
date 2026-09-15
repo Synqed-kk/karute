@@ -772,7 +772,26 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //
 // Ceiling = the tip measurement + 1,000 B, same convention as every prior
 // raise: 2,092,051 + 1,000 = 2,093,051.
-const BUDGET_BYTES = 2_093_051
+//
+// RE-MEASURED 2026-09-15 for the panel's motion repair (#921): 2,093,051 →
+// 2,094,602. Same CI recipe as above (release-length placeholder env, emptied
+// thin/dist), byte-identical across two clean builds on the final tip:
+// en 133,757 · index 1,022,102 · vendor 937,743 = 2,093,602 B. Ceiling =
+// 2,093,602 + 1,000.
+//
+// +1,551 B, all of it in the index chunk (en and vendor are unchanged to the
+// byte — no new dependency; the spring is ~160 lines of the app's own code).
+// HONEST CAVEAT ON WHAT THOSE BYTES ARE: this tip also merged origin/main
+// (40fa7c4bff94b473b4ddba4629e9cc3cccf9fc95) on top of the tree the previous
+// entry was measured at, so the +1,551 B covers the motion repair AND whatever
+// main added to the phone's graph in between. The two were not measured apart
+// — the gate is a tripwire for accidental bloat, and nothing here is one.
+//
+// What is in the phone for the bytes this time: the panel's open, close and
+// month slide now run on src/lib/motion/spring.ts (the approved mock's own
+// integrator) instead of CSS transitions plus a commit timer, which is what
+// stopped the production build from animating the panel open at all.
+const BUDGET_BYTES = 2_094_602
 
 let dir
 try {
