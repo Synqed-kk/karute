@@ -127,25 +127,44 @@ function pickNext(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set<CellKey>): 
   throw new Error('metric menu ran dry — should be unreachable with 8 metrics')
 }
 
-/** 稼働: defensible number (never >100 — over-100 is treated as NOT
- *  defensible, spec §8) → 未設定 (only failing conjunct is hours) → next
- *  unused metric. */
+/** ⚖ R3-1 (lead, 2026-09-15) — ONE predicate, read by BOTH capacity slots.
+ *  稼働% and 空き are the same saved capacity wearing two dresses: either the
+ *  day's capacity is worth showing or it is not, and that has to be decided
+ *  ONCE. It was decided twice, and the two answers disagreed the moment a day
+ *  ran over its capacity: 稼働 saw pct > 100, called the day indefensible and
+ *  fell through to 予約時間, while 空き still read `capacityDefensible` alone
+ *  and printed 空き 0分 — two durations on one line, one of them stranded in
+ *  the 100 px column (the repo's own 700/480 fixture; the R2-1 "at most one
+ *  duration" comment below was false for exactly that branch).
+ *
+ *  Spec §14: over capacity is NOT defensible, so the overrun belongs in the
+ *  predicate, not in a percentage guard downstream of it. `availableMinutes >
+ *  0` stays a conjunct — it is what makes the percentage divisible at all,
+ *  and a 0-capacity day has no 空き to report either. */
+function capacityShown(row: WeekDayRowData): boolean {
+  return (
+    row.capacityDefensible &&
+    row.availableMinutes > 0 &&
+    row.bookedMinutes <= row.availableMinutes
+  )
+}
+
+/** 稼働: the defensible percentage → 未設定 (only failing conjunct is hours)
+ *  → next unused metric. */
 function utilizationSlot(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set<CellKey>): Cell {
-  if (row.capacityDefensible && row.availableMinutes > 0) {
+  if (capacityShown(row)) {
     const pct = Math.round((row.bookedMinutes / row.availableMinutes) * 100)
-    if (pct <= 100) {
-      return { key: 'utilization', label: ctx.t('utilization'), value: `${pct}%`, tone: bandTone(pct) }
-    }
+    return { key: 'utilization', label: ctx.t('utilization'), value: `${pct}%`, tone: bandTone(pct) }
   }
   if (ctx.soloMode && !row.hoursSaved && !row.closed) return unsetCell(ctx)
   return pickNext(row, ctx, used)
 }
 
-/** 空き when the switch is ON and defensible, else its own designated
- *  fallback 予約時間 — which itself routes through the shared fill order if
- *  予約時間 is already taken (never a repeat). */
+/** 空き when the switch is ON and the SAME predicate 稼働 used says yes, else
+ *  its own designated fallback 予約時間 — which itself routes through the
+ *  shared fill order if 予約時間 is already taken (never a repeat). */
 function freeOrBookedTimeSlot(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set<CellKey>): Cell {
-  if (BOOKING_SWITCHES.freeTimeCell && row.capacityDefensible && row.availableMinutes > 0) {
+  if (BOOKING_SWITCHES.freeTimeCell && capacityShown(row)) {
     return freeCell(row, ctx)
   }
   return pickNext(row, ctx, used)

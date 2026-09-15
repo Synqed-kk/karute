@@ -194,18 +194,23 @@ describe('placeForGrid — a DURATION never sits in the 100 px column (R1-1, D10
   // DAY LINE (one flowing line) is never re-placed.
   const DURATION: ReadonlySet<string> = new Set(['bookedTime', 'free'])
 
-  it('holds across typeSlot × defensible × freeTimeCell × solo × hoursSaved', () => {
+  it('holds across typeSlot × defensible × freeTimeCell × solo × hoursSaved × over-capacity', () => {
     for (const freeTimeCell of [true, false]) {
       const { weekRowCells, dayLineCells } = loadMetricMenu({ freeTimeCell })
       for (const typeSlot of ['new', 'returning', 'off'] as const) {
         for (const capacityDefensible of [true, false]) {
           for (const soloMode of [true, false]) {
             for (const hoursSaved of [true, false]) {
-              const where = `${typeSlot}/def=${capacityDefensible}/free=${freeTimeCell}/solo=${soloMode}/hours=${hoursSaved}`
+              // R3-1 — 390 is 81% of the saved capacity, 700 is 146% of it.
+              // The over-capacity row is the one that used to put a duration
+              // in the narrow column; it belongs in the matrix, not only in
+              // its own test.
+              for (const bookedMinutes of [390, 700]) {
+              const where = `${typeSlot}/def=${capacityDefensible}/free=${freeTimeCell}/solo=${soloMode}/hours=${hoursSaved}/booked=${bookedMinutes}`
               const r = row({
                 capacityDefensible,
                 hoursSaved,
-                bookedMinutes: 390,
+                bookedMinutes,
                 availableMinutes: 480,
               })
               const ctx = { soloMode, typeSlot, t }
@@ -246,6 +251,7 @@ describe('placeForGrid — a DURATION never sits in the 100 px column (R1-1, D10
               // weaker pin is deleted rather than carried.
               const narrow = [1, 3].filter((i) => DURATION.has(keys[i])).length
               expect(`${where}:${narrow}`).toBe(`${where}:0`)
+              }
             }
           }
         }
@@ -382,19 +388,56 @@ describe('band thresholds (spec §2/§3: <35 low · 35–65 mid · >65 high)', (
   })
 })
 
-describe('>100% utilization is never defensible', () => {
+describe('>100% utilization is never defensible (R3-1 — ONE predicate for 稼働 AND 空き)', () => {
+  // The day that over-ran its saved capacity: 700 booked minutes against 480
+  // available, capacity otherwise defensible. Before R3-1 稼働 called that
+  // indefensible (pct > 100) and fell through to 稼働時間, while 空き still
+  // read `capacityDefensible` on its own and printed 空き 0分 — TWO durations
+  // on one line, and the placement could only move one of them out of the
+  // 100 px column. One predicate, read by both slots, is what removes the
+  // disagreement at the source.
+  const OVER = {
+    capacityDefensible: true,
+    hoursSaved: true,
+    bookedMinutes: 700,
+    availableMinutes: 480,
+    closed: false,
+  }
+  const read = (cells: { label: string; value: string }[]) =>
+    cells.map((c) => `${c.label} ${c.value}`)
+
   it('a pct over 100 falls through instead of rendering a percent', () => {
     const { weekRowCells } = loadMetricMenu()
-    const r = row({
-      capacityDefensible: true,
-      hoursSaved: true,
-      bookedMinutes: 700,
-      availableMinutes: 480,
-      closed: false,
-    })
-    const cells = weekRowCells(r, { soloMode: false, typeSlot: 'off', t })
+    const cells = weekRowCells(row(OVER), { soloMode: false, typeSlot: 'off', t })
     expect(cells[1].key).not.toBe('utilization')
     expect(cells[1].value).not.toMatch(/%/)
+  })
+
+  it('the WEEK row reads the full line: no 空き, one duration, in the wide cell', () => {
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
+    const cells = weekRowCells(row(OVER), { soloMode: false, typeSlot: 'off', t })
+    expect(read(cells)).toEqual(['予約 3件', 'キャンセル 0', '稼働時間 11時間40分', '無断 0'])
+    // indices 1 and 3 ARE the narrow column (the grid fills row-major)
+    expect(cells.filter((c) => c.key === 'free')).toHaveLength(0)
+    expect(cells.filter((c) => c.key === 'bookedTime' || c.key === 'free')).toHaveLength(1)
+    expect([1, 3].filter((i) => cells[i].key === 'bookedTime' || cells[i].key === 'free')).toEqual([])
+  })
+
+  it('the DAY LINE reads the same set — one duration, no 空き', () => {
+    const { dayLineCells } = loadMetricMenu({ freeTimeCell: true })
+    const cells = dayLineCells(row(OVER), { soloMode: false, typeSlot: 'off', t })
+    expect(read(cells)).toEqual(['予約 3件', '稼働時間 11時間40分', 'キャンセル 0', '無断 0'])
+    expect(cells.filter((c) => c.key === 'bookedTime' || c.key === 'free')).toHaveLength(1)
+  })
+
+  it('a 100.4% day rounds to 100 but is still over — the predicate reads the minutes, not the rounding', () => {
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
+    const cells = weekRowCells(
+      row({ ...OVER, bookedMinutes: 482, availableMinutes: 480 }),
+      { soloMode: false, typeSlot: 'off', t },
+    )
+    expect(cells.map((c) => c.key)).not.toContain('utilization')
+    expect(cells.map((c) => c.key)).not.toContain('free')
   })
 })
 
@@ -503,6 +546,75 @@ describe("typeSlot 'off' — the QR flag never prints (W-D, spec §8)", () => {
               expect(cells.map((c) => c.value).join('|')).not.toContain(String(POISON))
               expect(cells.some((c) => c.tone === 'new')).toBe(false)
             }
+          }
+        }
+      }
+    }
+  })
+})
+
+describe('property — 1000 seeded rows × 3 typeSlots × 2 soloModes (LENS-2, mulberry32 seed 42)', () => {
+  // The blind round's own generator, kept as the structural guard rather than
+  // as a one-off finding. It is what found R3-1: the random rows included
+  // `capacityDefensible: true` days whose bookings ran past the saved
+  // capacity, and the week grid then left a duration in the narrow column.
+  // Deterministic by seed, so a failure is always reproducible.
+  function mulberry32(seed: number): () => number {
+    let a = seed
+    return () => {
+      a = (a + 0x6d2b79f5) | 0
+      let t = Math.imul(a ^ (a >>> 15), 1 | a)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+  }
+
+  const DURATION: ReadonlySet<string> = new Set(['bookedTime', 'free'])
+
+  it('every combination yields four distinct, non-empty cells with no duration in the narrow column', () => {
+    const rnd = mulberry32(42)
+    const int = (max: number) => Math.floor(rnd() * (max + 1))
+    const bool = () => rnd() < 0.5
+    const { weekRowCells, dayLineCells } = loadMetricMenu()
+
+    for (let i = 0; i < 1000; i++) {
+      const r = row({
+        count: int(60),
+        bookedMinutes: int(900),
+        availableMinutes: int(960),
+        newCustomerCount: int(30),
+        returningCount: int(30),
+        cancelledCount: int(20),
+        noShowDayCount: int(20),
+        capacityDefensible: bool(),
+        hoursSaved: bool(),
+        closed: bool(),
+      })
+      for (const typeSlot of ['new', 'returning', 'off'] as const) {
+        for (const soloMode of [true, false]) {
+          const where = `#${i}/${typeSlot}/solo=${soloMode}/booked=${r.bookedMinutes}/avail=${r.availableMinutes}/def=${r.capacityDefensible}`
+          const ctx = { soloMode, typeSlot, t }
+          for (const [surface, cells] of [
+            ['week', weekRowCells(r, ctx)],
+            ['day', dayLineCells(r, ctx)],
+          ] as const) {
+            const at = `${surface}/${where}`
+            expect(`${at}:${cells.length}`).toBe(`${at}:4`)
+            expect(`${at}:${new Set(cells.map((c) => c.key)).size}`).toBe(`${at}:4`)
+            for (const c of cells) {
+              expect(`${at}:${c.key}:${c.value === '' || c.value === '-' || c.value === '—'}`).toBe(
+                `${at}:${c.key}:false`,
+              )
+            }
+            if (surface === 'week') {
+              // cells 2 and 4 are the 100 px column — never a duration there
+              const narrow = [1, 3].filter((n) => DURATION.has(cells[n].key))
+              expect(`${at}:${narrow.join(',')}`).toBe(`${at}:`)
+            }
+            // R2-1's consequence, re-checked on random input: one measure per
+            // line means at most one duration on it.
+            const durations = cells.filter((c) => DURATION.has(c.key)).length
+            expect(`${at}:${durations <= 1}`).toBe(`${at}:true`)
           }
         }
       }
