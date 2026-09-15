@@ -7,6 +7,13 @@
 // that same fetch shape (src/actions/appointments-window.ts:109-146) narrowed to
 // a single date — never a window, never a second resolver.
 //
+// ⚖ R1-10 — and the fact this door refuses on IS shown: BOOKING_SWITCHES
+// .closedDays goes ON with this branch, so the week row and the day numbers
+// line paint 休 from the same resolver answer. (Do not read that as "a closed
+// day always renders 休 somewhere": isClosedRow gates on closed AND zero
+// bookings, by the lead's ruling, and the month grid has no 休 cell on this
+// tip at all.) Refusing on a fact no screen shows would be the worse gap.
+//
 // DEGRADED-ALLOWED, on purpose: a store-policy read we could not make says
 // NOTHING about whether the day is closed, and REFUSING a booking over a read
 // we could not make would be an outage the app invented on the write path —

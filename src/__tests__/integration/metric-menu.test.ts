@@ -667,9 +667,28 @@ describe('isClosedRow', () => {
     expect(isClosedRow(row({ closed: true, count: 0 }))).toBe(true)
   })
 
-  it('false while the switch stays OFF (today), even closed with zero bookings', () => {
-    const { isClosedRow } = loadMetricMenu()
+  it('false when the switch is OFF, even closed with zero bookings', () => {
+    const { isClosedRow } = loadMetricMenu({ closedDays: false })
     expect(isClosedRow(row({ closed: true, count: 0 }))).toBe(false)
+  })
+
+  // ⚖ R1-10 — the value the app actually ships with, off the real module (no
+  // doMock), so flipping the constant back to false goes red HERE. The switch
+  // was parked OFF only because nothing refused a booking on a closed day;
+  // this branch is that refusal, on both doors.
+  it('the SHIPPED registry has closedDays ON, and a closed empty day renders 休', () => {
+    const { BOOKING_SWITCHES } = jest.requireActual<
+      typeof import('@/lib/appointments/booking-switches')
+    >('@/lib/appointments/booking-switches')
+    expect(BOOKING_SWITCHES.closedDays).toBe(true)
+
+    const { isClosedRow } = jest.requireActual<typeof MetricMenu>(
+      '@/lib/appointments/metric-menu',
+    )
+    expect(isClosedRow(row({ closed: true, count: 0 }))).toBe(true)
+    // The lead's ruling holds on the shipped value too: a closed day WITH
+    // bookings still shows its numbers, because the bookings are real.
+    expect(isClosedRow(row({ closed: true, count: 5 }))).toBe(false)
   })
 })
 
