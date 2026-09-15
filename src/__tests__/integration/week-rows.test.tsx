@@ -539,6 +539,27 @@ describe('WeekRows — the press is the app’s own recipe (W-I)', () => {
     expect(cls).toContain('outline-none')
   })
 
+  it('the header chip’s chevron turns on the same curve as the panel’s (R3-16)', () => {
+    // Both are string constants, so this is a source pin: the chip lives
+    // inside @synqed-kk/ui (no ref, no class hook) and the panel's chevron is
+    // in a file this PR does not touch, so neither can be rendered here
+    // together. What the round fixes is the authored recipe itself.
+    const view = readFileSync(
+      join(__dirname, '../../components/appointments/AppointmentsView.tsx'),
+      'utf8',
+    )
+    const panel = readFileSync(
+      join(__dirname, '../../components/appointments/DateJumpPanel.tsx'),
+      'utf8',
+    )
+    const chipChevron = /const CHIP_CHEVRON =\s*\n?\s*'([^']+)'/.exec(view)![1]
+    expect(chipChevron).toContain('ease-[cubic-bezier(0.23,1,0.32,1)]')
+    expect(chipChevron).toContain('duration-[160ms]')
+    // the panel's own chevron names the same curve and the same 160 ms
+    expect(panel).toContain('ease-[cubic-bezier(0.23,1,0.32,1)]')
+    expect(panel).toContain("'160ms'")
+  })
+
   it('that recipe is byte-identical to DateJumpPanel’s PRESS — one press feel on this page', () => {
     // DateJumpPanel.tsx is on this PR's untouched list, so its PRESS constant
     // cannot be exported and shared. Pin the two spellings equal instead: if

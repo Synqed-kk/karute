@@ -115,8 +115,12 @@ interface AppointmentsViewProps {
 // Tailwind extracts class candidates from source TEXT, so an interpolated
 // class name generates no CSS at all and the pressed state dies silently
 // (verified against the built stylesheet, which is the only honest check).
+// ⚖ R3-16 — the ease was missing, so the rotation inherited Tailwind's
+// default `cubic-bezier(.4, 0, .2, 1)` (an ease-in-out) and loitered before it
+// turned, while DateJumpPanel's own chevron left immediately on the mock's
+// curve. 160 ms was already right; the two chevrons now agree on both numbers.
 const CHIP_CHEVRON =
-  '[&_button:has([data-date-jump-chip])>svg]:transition-transform [&_button:has([data-date-jump-chip])>svg]:duration-[160ms] [&_button:has([data-date-jump-chip])>svg]:motion-reduce:transition-none'
+  '[&_button:has([data-date-jump-chip])>svg]:transition-transform [&_button:has([data-date-jump-chip])>svg]:duration-[160ms] [&_button:has([data-date-jump-chip])>svg]:ease-[cubic-bezier(0.23,1,0.32,1)] [&_button:has([data-date-jump-chip])>svg]:motion-reduce:transition-none'
 // R13 selected recipe (CLAUDE.md) — never a solid fill.
 const CHIP_OPEN =
   '[&_button:has([data-date-jump-chip])]:border-primary [&_button:has([data-date-jump-chip])]:bg-primary/8 [&_button:has([data-date-jump-chip])]:text-primary [&_button:has([data-date-jump-chip])>svg]:rotate-180'
