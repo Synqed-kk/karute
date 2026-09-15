@@ -234,4 +234,25 @@ describe('MOTION (B3) — the mock s .selfade, one property, reduced motion inst
     expect(door.className).toContain('motion-reduce:transition-none')
     expect(door.className).toContain('motion-reduce:active:scale-100')
   })
+
+  it('reduced motion never BLANKS the card — the mock never touches its opacity there', () => {
+    // The mock's REDUCE branch swaps the content and leaves the card lit.
+    // Dropping the transition alone would still take it to opacity 0, which is
+    // a panel blinking out — exactly what the setting exists to prevent.
+    const { container } = renderCard({ rows: [booking(1)], pending: true })
+    const fade = container.querySelector('[data-sel-fade]')!
+    expect(fade.className).toContain('opacity-0')
+    expect(fade.className).toContain('motion-reduce:opacity-100')
+    // …and what they see under it is the pending state, not the day's numbers.
+    expect(container.querySelector('[data-day-line]')!.querySelectorAll('.reservation-shim')).toHaveLength(2)
+  })
+
+  it('the door press is the app s own press — one property, the app s curve', () => {
+    renderCard({ rows: [booking(1)] })
+    const door = screen.getByText(WEEK_ROWS.openDay)
+    expect(door.className).toContain('transition-[scale]')
+    expect(door.className).toContain('duration-100')
+    expect(door.className).toContain('ease-[cubic-bezier(0.23,1,0.32,1)]')
+    expect(door.className).toContain('active:scale-[0.97]')
+  })
 })

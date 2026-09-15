@@ -97,12 +97,20 @@ export function SelectedDayCard({
        *  two contents at once, and opacity is the only property that moves, so
        *  the whole thing stays on the compositor.
        *
-       *  `motion-reduce:transition-none` = the mock's REDUCE branch, which
-       *  swaps with no fade at all. */}
+       *  REDUCED MOTION is the mock's own REDUCE branch — `fade.innerHTML =
+       *  seldayHTML(d)` with the opacity never touched at all. So it is not
+       *  enough to drop the transition: the card must not go dark either, or a
+       *  reduced-motion user gets the one thing the setting exists to prevent,
+       *  a panel blinking out and back. `motion-reduce:opacity-100` keeps it
+       *  lit and lets the content swap under them — the day line's own two
+       *  shims, then the day. (The variant wins at equal specificity by
+       *  landing after `opacity-0` in the sheet, the same mechanism WeekRows'
+       *  muted press relies on; read back from the BUILT stylesheet.) */}
       <div
         data-sel-fade
         className={cn(
-          'transition-opacity duration-[120ms] ease-[ease] motion-reduce:transition-none',
+          'transition-opacity duration-[120ms] ease-[ease]',
+          'motion-reduce:transition-none motion-reduce:opacity-100',
           pending ? 'opacity-0' : 'opacity-100',
         )}
       >
