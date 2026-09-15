@@ -958,8 +958,18 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Byte-identical (content hashes match) across two clean builds on the final
 // code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
 //   en 134,204 · index 1,033,009 · vendor 937,791 = 2,105,004 B.
-// Ceiling = 2,105,004 + 1,000.
-const BUDGET_BYTES = 2_106_004
+// RE-MEASURED 2026-09-15 for PKT-1c-B (the capacity adapter): the 予約 rows
+// and month cells now carry the capacity fact on the wire, and the thin
+// bundle re-parses that same DTO schema client-side — nine keys per row plus
+// the eight-value reason enum. index 1,033,009 → 1,033,603 (+594 B);
+// en and vendor unchanged to the byte. Measured the workflow's own way (the
+// same six env vars listed above, same two commands, thin/dist emptied before
+// each lap) and byte-identical with matching content hashes across two clean
+// laps on the final code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed
+// == lock):
+//   en 134,204 · index 1,033,603 · vendor 937,791 = 2,105,598 B.
+// Ceiling = 2,105,598 + 1,000.
+const BUDGET_BYTES = 2_106_598
 
 let dir
 try {
