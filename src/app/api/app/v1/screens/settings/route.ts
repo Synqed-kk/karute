@@ -22,7 +22,7 @@
 // placeholder for one refresh round-trip (StoresSection.tsx:28) — its mount
 // effect's own refresh() calls the (ensurePrimary: true) stores GET route,
 // which provisions and replaces the placeholder with the real row. Read
-// failures mirror web's OWN tolerance for these two (page.tsx:38,43 —
+// failures mirror web's OWN tolerance for these two (page.tsx:46,47 —
 // `.catch(() => [])` / `.catch(() => null)`): a stores/entitlement hiccup
 // must not 502 the whole settings screen. initialActiveStoreId is still real
 // — it falls out of the store clamp this route runs regardless, at no extra
@@ -144,7 +144,7 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     // this section never then hits `forbidden` opening it.
     const canViewAudit = canReadAuditLog(ctx.identity.capabilities)
     const canViewSync = isOwner || ctx.identity.capabilities.has('sync.view')
-    // Bare capability, no owner fallback — web parity (settings/page.tsx:76).
+    // Bare capability, no owner fallback — web parity (settings/page.tsx:61-63).
     const canManageMenus = ctx.identity.capabilities.has('menus.manage')
 
     // 予約同期 status card (packet 31) — SOFT-FAIL: a throw or missing config
