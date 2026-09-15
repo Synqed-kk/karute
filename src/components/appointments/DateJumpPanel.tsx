@@ -682,16 +682,11 @@ export function DateJumpPanel({
     // Only the pointer that owns the gesture may end it (see onPointerDown).
     if (!g || g.id !== e.pointerId) return
     gesture.current = null
-    if (g.axis !== 'x') {
-      // A gesture that never claimed the x axis — a tap, a vertical swipe, or
-      // one the browser took away — must still leave the track where it
-      // belongs: on the shift already travelling, or back at centre. Never
-      // parked between two months with nothing left to move it.
-      const armed = pendingRef.current
-      if (armed) slideSpring.set(-armed * paneW())
-      else if (slideSpring.value() !== 0) slideSpring.set(0)
-      return
-    }
+    // A gesture that never claimed the x axis never wrote the track: only an
+    // x-owner does, and onPointerDown will not hand the slot to a second
+    // pointer while one owns x — so the x-owner's own up/cancel, below, is the
+    // only settle there has ever been anything to settle.
+    if (g.axis !== 'x') return
     if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId)
     }
