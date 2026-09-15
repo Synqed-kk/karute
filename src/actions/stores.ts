@@ -515,9 +515,12 @@ export async function updateStore(
  *  carries the canonical translation plus the record of this exact bug having
  *  shipped once (`:477-479`).
  *
- *  BOTH doors resolve it BEFORE calling the core — web through
- *  `resolveSynqedStaffId`, the facade through the Bearer-safe
- *  `lookupSynqedStaffIdForBusiness` — and hand the answer in here.
+ *  BOTH doors resolve it BEFORE calling the core, through the SAME
+ *  non-creating lookup — the Bearer-safe `lookupSynqedStaffIdForBusiness` —
+ *  and hand the answer in here. A settings save must never mint a core staff
+ *  record on a miss (R3-1): the web door used to call the creating
+ *  `resolveSynqedStaffId`; a caller with no core staff row is now refused
+ *  instead, same as the facade always was.
  *  `null` = it would not resolve: unlike the appointments stamp (optional,
  *  best-effort, omitted on failure) this field is REQUIRED by the SDK and core
  *  gates on nothing, so the save is REFUSED. Never a profile id, never a null
@@ -650,17 +653,19 @@ export async function setStoreHours(
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
-  // The canonical profile-id → CORE staff-id translation, exactly the one
-  // resolveActingStaffId uses for the appointments columns — but NOT
-  // best-effort: `null` refuses the save inside the core rather than stamping
-  // core's `updated_by` with a profile id (see StoreHoursWriteDeps).
+  // The canonical profile-id → CORE staff-id translation — the SAME
+  // non-creating lookup the facade uses (R3-1: a settings save must never
+  // mint a core staff record on a miss; only the booking flow's
+  // resolveSynqedStaffId is allowed to create). `null` refuses the save
+  // inside the core rather than stamping core's `updated_by` with a profile
+  // id (see StoreHoursWriteDeps).
   // Deferred (the house idiom in this dir): staff-map pulls the SDK, and
   // listStores() — the app-shell layout's per-render read — has no business
   // dragging that in for a write path only this action reaches.
   let actingStaffId: string | null = null
   if (selfUserId) {
-    const { resolveSynqedStaffId } = await import('@/lib/synqed/staff-map')
-    actingStaffId = await resolveSynqedStaffId(selfUserId).catch(() => null)
+    const { lookupSynqedStaffIdForBusiness } = await import('@/lib/synqed/staff-map')
+    actingStaffId = await lookupSynqedStaffIdForBusiness(selfUserId, businessId).catch(() => null)
   }
   const result = await setStoreHoursCore(
     synqed,

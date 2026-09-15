@@ -505,7 +505,10 @@ describe('the exact SDK payload', () => {
 describe('the acting id core is stamped with (CORE staff-id space, both doors)', () => {
   it('the web door sends the RESOLVED core staff id, never the profile id it checked the roster with', async () => {
     expect(await setStoreHours('store-7', FULL_WEEK)).toEqual({ ok: true })
-    expect(resolveSynqedStaffId).toHaveBeenCalledWith(PROFILE_ID)
+    // R3-1: the web door resolves through the SAME non-creating lookup the
+    // facade uses — never the creating resolveSynqedStaffId.
+    expect(lookupSynqedStaffIdForBusiness).toHaveBeenCalledWith(PROFILE_ID, 'business-1')
+    expect(resolveSynqedStaffId).not.toHaveBeenCalled()
     expect(storePoliciesSet.mock.calls[0][1].acting_staff_id).toBe(CORE_STAFF_ID)
   })
 
@@ -517,13 +520,16 @@ describe('the acting id core is stamped with (CORE staff-id space, both doors)',
   })
 
   it('UNRESOLVABLE on web → the save is REFUSED: nothing reaches core, no audit row', async () => {
-    resolveSynqedStaffId.mockRejectedValue(new Error('no synqed staff record'))
+    // R3-1: a profile with no core staff row is refused, never minted one —
+    // the creating resolver must never even be reached from this door.
+    lookupSynqedStaffIdForBusiness.mockResolvedValue(null)
     const lines = await auditLines(async () => {
       expect(await setStoreHours('store-7', FULL_WEEK)).toEqual({
         error: STORE_HOURS_ACTOR_UNRESOLVED,
       })
     })
     expect(storePoliciesSet).not.toHaveBeenCalled()
+    expect(resolveSynqedStaffId).not.toHaveBeenCalled()
     expect(lines).toHaveLength(0)
   })
 
