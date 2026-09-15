@@ -913,22 +913,35 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en       134,148 → 134,204 (+56 B) — the three new EN keys plus the
 //     trailing period on `failed`.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
-// RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R3b (R3b-1 — the cell label's
-// tone raised to meet the contrast floor): 2,105,946 → 2,105,964. Same CI
-// recipe, thin/dist emptied each lap, byte-identical across two clean builds
-// on the final code tip, same content hashes both times (node v24.16.0,
-// @synqed-kk/ui 0.3.2, installed == lock):
-//   en 134,204 · index 1,032,969 · vendor 937,791 = 2,104,964 B.
-// Ceiling = 2,104,964 + 1,000. The previous ceiling still passed (982 B of
-// headroom left); re-measured anyway so the ceiling keeps tracking the build.
+// RE-MEASURED 2026-09-15 for PKT-1b-MONTH PIECE 4a (the app-local 月 grid +
+// month line replace @synqed-kk/ui's MonthGrid on the page): 2,105,964 →
+// 2,110,901.
 //
-// Where the +18 B went, measured per chunk:
-//   index  1,032,951 → 1,032,969 (+18 B) — ours, all of it: the label
-//     span's class grew from `text-zinc-400` to `text-zinc-500
-//     dark:text-zinc-400`.
-//   en       134,204 → 134,204 — unchanged to the byte.
+// Measured the CI way — the workflow's own six VITE_* vars (.github/workflows/
+// ci.yml's "thin bundle budget" step, values copied verbatim from the
+// checked-in step; nothing there is or resembles a credential, only the
+// LENGTHS are release-shaped). That matters: the same tip measures 414 B
+// SMALLER with those vars unset, because Vite inlines shorter literals in
+// place of the release-length fakes. Both figures below were taken that way,
+// by this session, so they are like for like:
+//   BASE 4da7628bb : en 134,204 · index 1,032,970 · vendor 937,791 = 2,104,965
+//   THIS TIP       : en 134,204 · index 1,037,906 · vendor 937,791 = 2,109,901
+// Ceiling = 2,109,901 + 1,000. The previous ceiling FAILED — this is a real,
+// declared +4,936 B, not headroom drift.
+//
+// Where the +4,936 B went, measured per chunk:
+//   index  1,032,970 → 1,037,906 (+4,936 B) — ours, all of it: MonthPage.tsx
+//     (the grid, the month line, the legend and their class strings) plus the
+//     view's month branch and the panel's one new prop. The package MonthGrid
+//     stays in the bundle — the pop-down still renders through it — so the 月
+//     page's own grid is an addition, not a swap.
+//   en       134,204 → 134,204 — unchanged to the byte (no new JA string).
 //   vendor   937,791 → 937,791 — unchanged to the byte.
-const BUDGET_BYTES = 2_105_964
+//
+// Two clean laps per tip (thin/dist emptied before each), byte-identical and
+// same content hashes both times: node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock.
+const BUDGET_BYTES = 2_110_901
 
 let dir
 try {
