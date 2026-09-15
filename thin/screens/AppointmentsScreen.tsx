@@ -134,6 +134,11 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       // predates them degrades to null / false rather than undefined.
       dayTotals={dto.dayTotals}
       soloMode={dto.soloMode}
+      // R1-2 (D5): a window the server could not read to exhaustion. THIS door
+      // is the only one that can carry it — the web page throws before it
+      // renders — and until now a truncated 週 reached the phone as a calm,
+      // empty 「データがありません」 page instead of the failed line.
+      truncated={dto.truncated}
       // Server-derived, DTO-validated color keys; the view's strict union is
       // a superset of the string the schema accepts (record-screen precedent).
       reservationViews={dto.reservationViews as ReservationView[]}

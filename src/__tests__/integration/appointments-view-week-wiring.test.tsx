@@ -75,6 +75,7 @@ type WeekRowsProps = {
   typeSlot: string
   locale: string
   pending?: boolean
+  failed?: boolean
   onPickDay: (iso: string) => void
 }
 let weekRowsProps: WeekRowsProps | null = null
@@ -247,13 +248,54 @@ describe('every move keeps the 担当 filter (W-E, spec §1/§6)', () => {
 })
 
 describe('the week’s pending state is the router transition (W-A)', () => {
-  it('WeekRows receives a pending flag, and no failed flag (the route boundary owns failure)', () => {
+  it('WeekRows receives a pending flag', () => {
     renderView()
     // useTransition's isPending is false at rest — what matters is that the
-    // prop is WIRED (a boolean), not left undefined, and that `failed` is
-    // deliberately absent: a failed window read throws in page.tsx and
-    // ScreenBoundary owns it on the phone, so the view has no honest signal.
+    // prop is WIRED (a boolean), not left undefined.
     expect(typeof weekRowsProps!.pending).toBe('boolean')
-    expect((weekRowsProps as unknown as { failed?: boolean }).failed).toBeUndefined()
+  })
+})
+
+describe('a cut-off read SAYS so, never 「データがありません」 (R1-2, D5)', () => {
+  // `truncated` means the window could not be read to exhaustion, so screen.ts
+  // nulls weekData. That used to land on the view's 「データがありません」 else —
+  // a calm, empty week that reads as "no bookings this week" when the truth is
+  // "we could not finish reading". The WEB page never reaches here (it throws
+  // to the route error boundary); the THIN screen passes dto.truncated, and on
+  // that door this was the live state.
+  //
+  // WeekRows' own failed rendering — the 取得できませんでした line, no rows — is
+  // pinned in week-rows.test.tsx ('failed renders only the failure line, no
+  // rows'). This file owns the seam: what the VIEW decides and hands over.
+  const noDataText = 'empty.noData' // next-intl is stubbed key→key here
+
+  it('truncated → WeekRows in its failed state, and no 「データがありません」', () => {
+    const { queryByText, getByTestId } = renderView({ truncated: true, weekData: null })
+    getByTestId('week-rows')
+    expect(weekRowsProps!.failed).toBe(true)
+    expect(queryByText(noDataText)).toBeNull()
+  })
+
+  it('truncated with rows still on the wire is STILL failed — the read is incomplete', () => {
+    renderView({ truncated: true })
+    expect(weekRowsProps!.failed).toBe(true)
+  })
+
+  it('a week that answered renders its rows, never the failed line', () => {
+    renderView()
+    expect(weekRowsProps!.failed).toBe(false)
+    expect(weekRowsProps!.rows).toHaveLength(7)
+  })
+
+  it('an EMPTY week ([] — the read answered, nothing booked) is not a failure', () => {
+    const { queryByText } = renderView({ weekData: [] })
+    expect(weekRowsProps!.failed).toBe(false)
+    expect(weekRowsProps!.rows).toEqual([])
+    expect(queryByText(noDataText)).toBeNull()
+  })
+
+  it('a null week with no truncation flag also says so, rather than showing a calm empty page', () => {
+    renderView({ weekData: null })
+    expect(weekRowsProps!.failed).toBe(true)
   })
 })

@@ -73,6 +73,12 @@ interface AppointmentsViewProps {
    *  Null = a server or a baked bundle that predates the field; the old
    *  ReservationTotals stays as the honest fallback for exactly that case. */
   dayTotals: WeekDayRowData | null
+  /** The window could not be read to exhaustion, so screen.ts nulled weekData,
+   *  monthData and dayTotals. The WEB page never hands this over — it throws
+   *  before it renders and the route error boundary shows the retry screen;
+   *  the THIN screen passes `dto.truncated`, and on that door an incomplete
+   *  read used to reach the 「データがありません」 branch below (R1-2, D5). */
+  truncated?: boolean
   /** The salon's `solo_mode` capability, resolved SERVER-side (screen.ts).
    *  Never read org settings in here: the thin door carries none, so a view-
    *  side read would hand the phone a silent `false`. */
@@ -156,6 +162,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const dateJumpAnchorRef = useRef<HTMLDivElement>(null)
 
   const view = props.initialView
+  // R1-2 (D5): a cut-off read must SAY so. `truncated` nulls weekData
+  // server-side, and a null week that is not still arriving means the read did
+  // not answer the question — both used to land on 「データがありません」 below,
+  // a calm empty week that reads as "nothing booked". `!isPending` is what
+  // keeps a fresh mount mid-transition out of it.
+  const weekFailed =
+    view === 'week' && (props.truncated === true || (props.weekData === null && !isPending))
   const selectedDate = new Date(props.selectedDateIso)
   // `today` is reserved for the Today button (jump-to-now) — the displayed
   // header always reflects whichever date is currently selected.
@@ -504,15 +517,15 @@ export function AppointmentsView(props: AppointmentsViewProps) {
               />
             )}
           </>
-        ) : view === 'week' && props.weekData && props.weekStartIso ? (
+        ) : view === 'week' && (weekFailed || (props.weekData && props.weekStartIso)) ? (
           /* The app-local seven-row week (spec §3 / mock §v5-§v6), replacing
            *  @synqed-kk/ui's WeekDayCard grid: the package card cannot show a
            *  single number 1a put on the wire. The rolling 7 days from the
            *  selected day are KEPT (spec F6) — `computeWeekRange` still owns
            *  the range; never the mock's Monday snap. */
           <WeekRows
-            rows={props.weekData}
-            weekStartIso={props.weekStartIso}
+            rows={props.weekData ?? []}
+            weekStartIso={props.weekStartIso ?? ''}
             selectedDateIso={ymdInJst(selectedDate)}
             todayIso={ymdInJst(today)}
             soloMode={props.soloMode}
@@ -526,11 +539,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             // the OLD week. The wrapper's 50% dim says "busy"; the shimmer
             // pills say WHICH numbers are not to be read yet (mock
             // weekSumHTML/weekGridHTML's `pend` branch).
-            // `failed` is deliberately NOT passed: this view has no honest
-            // failure signal for 週 — a failed window read THROWS in page.tsx
-            // (route error boundary) and ScreenBoundary owns it on the phone.
-            // The prop stays for 1b-month, which reads through the throwing
-            // action itself.
+            // R1-2 (D5): the failed line, with its retry tail, instead of the
+            // 「データがありません」 branch. WeekRows renders it alone — no rows,
+            // no summary — so `rows` above is only the not-failed path's data.
+            failed={weekFailed}
             pending={isPending}
             // jstWallTimeToDate, not `new Date(iso)`: a bare parse of
             // "2026-09-17" is UTC midnight, which is the 16th in JST — the
@@ -552,6 +564,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             />
           </div>
         ) : (
+          /* 「データがありません」 — reached only when the read ANSWERED and
+           *  there is nothing to show: a 月 with no monthData (that door's own
+           *  failed line is #921's next round, D11), or a 週 whose first data
+           *  has not arrived yet while the router transition is still pending.
+           *  A cut-off 週 no longer lands here — it renders WeekRows' failed
+           *  line above (R1-2). */
           <div className="rounded-[var(--radius-md)] bg-[var(--color-bg-card)] p-8 text-center text-sm text-[var(--color-text-muted)] ring-1 ring-black/5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
             {tReservation('empty.noData')}
           </div>

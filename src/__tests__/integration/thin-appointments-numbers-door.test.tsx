@@ -17,6 +17,7 @@ jest.mock('next-intl', () => ({
 type ViewProps = {
   soloMode: boolean
   dayTotals: { dateIso: string; count: number } | null
+  truncated?: boolean
 }
 let capturedProps: ViewProps | null = null
 jest.mock('@/components/appointments/AppointmentsView', () => ({
@@ -114,5 +115,15 @@ describe('the thin 予約 door — the numbers reach the shared view', () => {
     await mountScreen(legacy)
     expect(capturedProps!.soloMode).toBe(false)
     expect(capturedProps!.dayTotals).toBeNull()
+  })
+
+  it("hands the DTO's truncated through (R1-2) — this door is the only one that can (page.tsx throws)", async () => {
+    await mountScreen({ ...DTO, view: 'week', weekData: null, truncated: true })
+    expect(capturedProps!.truncated).toBe(true)
+  })
+
+  it('a complete read hands truncated FALSE, never undefined', async () => {
+    await mountScreen()
+    expect(capturedProps!.truncated).toBe(false)
   })
 })
