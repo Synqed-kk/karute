@@ -18,6 +18,8 @@ type ViewProps = {
   soloMode: boolean
   dayTotals: { dateIso: string; count: number } | null
   truncated?: boolean
+  monthStartIso: string | null
+  monthData: { id: string; closed: boolean }[] | null
 }
 let capturedProps: ViewProps | null = null
 jest.mock('@/components/appointments/AppointmentsView', () => ({
@@ -115,6 +117,38 @@ describe('the thin 予約 door — the numbers reach the shared view', () => {
     await mountScreen(legacy)
     expect(capturedProps!.soloMode).toBe(false)
     expect(capturedProps!.dayTotals).toBeNull()
+  })
+
+  it("hands the DTO's monthStartIso through (A5) — it was hardcoded null here", async () => {
+    await mountScreen({
+      ...DTO,
+      view: 'month',
+      dayTotals: null,
+      monthStartIso: '2026-08-31T15:00:00.000Z',
+      monthData: [],
+    })
+    expect(capturedProps!.monthStartIso).toBe('2026-08-31T15:00:00.000Z')
+  })
+
+  it('revives the 月 cells WITH their closed fact (A2)', async () => {
+    await mountScreen({
+      ...DTO,
+      view: 'month',
+      dayTotals: null,
+      monthStartIso: '2026-08-31T15:00:00.000Z',
+      monthData: [
+        {
+          id: '2026-09-16',
+          dateIso: '2026-09-15T15:00:00.000Z',
+          inMonth: true,
+          isToday: false,
+          count: 0,
+          density: 'empty',
+          closed: true,
+        },
+      ],
+    })
+    expect(capturedProps!.monthData![0].closed).toBe(true)
   })
 
   it("hands the DTO's truncated through (R1-2) — this door is the only one that can (page.tsx throws)", async () => {

@@ -128,7 +128,10 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       weekData={dto.weekData}
       weekStartIso={dto.weekStartIso}
       monthData={monthData}
-      monthStartIso={null}
+      // Straight off the wire, like every other field on this door. It was
+      // hardcoded null here while screen.ts set it and the route serialised it
+      // — the phone was the one door that threw the answer away.
+      monthStartIso={dto.monthStartIso}
       // The day line's numbers and the 未設定 discriminator, straight off the
       // wire — the same two props the web page hands this same view
       // (PKT-1b-WIRE W-B/W-C). Both carry a schema default, so a server that
