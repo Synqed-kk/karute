@@ -716,8 +716,16 @@ describe('GET /api/app/v1/screens/appointments', () => {
     )
     // Both spans really were read: the month's own padded window and the
     // previous one, which starts seven days before the 1st.
-    expect(froms).toContain(new Date('2026-08-25T00:00:00+09:00').toISOString())
-    expect(froms).toContain(new Date('2026-07-25T00:00:00+09:00').toISOString())
+    //
+    // Each `from` also carries the route's ONE-DAY LEAD-IN: since the capacity
+    // side landed, `windowFor` asks core for 86,400,000 ms before every window
+    // it reads, so a booking that starts before day 1's midnight and runs into
+    // it is in the rows the intersection index needs. It moves no count — the
+    // compare re-applies its own YMD spans — which is why 先月同期間比 is still
+    // +3 above. These are the boundaries the merged route actually asks for.
+    const leadIn = (iso: string) => new Date(Date.parse(iso) - 86_400_000).toISOString()
+    expect(froms).toContain(leadIn(new Date('2026-08-25T00:00:00+09:00').toISOString()))
+    expect(froms).toContain(leadIn(new Date('2026-07-25T00:00:00+09:00').toISOString()))
   })
 
   it('?view=month carries monthStartIso on the wire', async () => {

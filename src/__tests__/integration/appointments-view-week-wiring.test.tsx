@@ -73,7 +73,14 @@ jest.mock('@/components/appointments/DateJumpPanel', () => ({
 // React instance is a worse test than no test.
 // Lazy on purpose: jest hoists every `jest.mock` above the imports, so the
 // copy is taken the first time a component actually reads a switch.
-let mockSwitchState: Record<string, boolean> | null = null
+//
+// `var`, not `let`: since the 新規 side landed, metric-menu.ts reads the
+// registry at MODULE scope (`TYPE_SLOT`), so the getter below fires while
+// AppointmentsView's own import chain is still being required — before a
+// `let` in this file has left its temporal dead zone. `var` hoists as
+// `undefined`, which is exactly the state this lazy initialiser tests for.
+// eslint-disable-next-line no-var
+var mockSwitchState: Record<string, boolean> | null = null
 function mockSwitches(): Record<string, boolean> {
   if (!mockSwitchState) {
     mockSwitchState = {
