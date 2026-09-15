@@ -247,10 +247,11 @@ describe('bed-aware-sales — the doors', () => {
 
   // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 2 — THE MEMO.
   it('a lattice of offers whose held 枠 have SINGLETON eligible lists is decided by exit (e) at zero cost', () => {
-    // THREE bed rows, so the pigeonhole cannot fire: two held 枠 never fill three
-    // rooms. x owns bed-01 and y bed-02 across the whole stretch, and the offers
-    // may only ever use those two, so there is no witness either and EVERY offer
-    // reaches the search. Three staff rows draw the same two spans.
+    // Three bed rows, so (d) is silent (two held 枠 never fill three rooms). x
+    // owns bed-01, y bed-02 — both SINGLETON eligible lists — and the offers
+    // use only those two, so there's no witness either. Exit (e) proves every
+    // offer withheld by counting, at zero cost (⚖ ROUND 3 · D); this leg pins
+    // the SET, and the memo's own promise lives in the next leg.
     const OFFER_SPANS: Array<[number, number]> = [[610, 640], [650, 680]]
     const OFFER_ROOMS = ['bed-01', 'bed-02']
     const OFFER_LANES = ['s1', 's2', 's3']
@@ -279,12 +280,13 @@ describe('bed-aware-sales — the doors', () => {
   })
 
   // ⚖ D-49 (c) R1 — THE MEMO, on a board the eligibility exit cannot decide.
-  // The `:271` lattice leg is now decided by exit (e) at zero cost (its held 枠
-  // have SINGLETON eligible lists), so the memo's own promise — one netting per
-  // (room, span) however many rows draw the box — needs a board that still
-  // REACHES the per-room walk. This is also the honest example that (e) is a
-  // sufficient exit and not a complete one: the 枠 that is really lost (z2)
-  // starts AT the offer's end, so no instant inside the span ever sees it.
+  // The 「SINGLETON-lists lattice leg above」 is now decided by exit (e) at
+  // zero cost (its held 枠 have SINGLETON eligible lists), so the memo's own
+  // promise — one netting per (room, span) however many rows draw the box —
+  // needs a board that still REACHES the per-room walk. This is also the
+  // honest example that (e) is a sufficient exit and not a complete one: the
+  // 枠 that is really lost (z2) starts AT the offer's end, so no instant
+  // inside the span ever sees it.
   it('a lattice of offers that REACHES the walk still pays ONE netting per (room, span)', () => {
     const OFFER_ROOMS = ['bed-01', 'bed-02']
     const OFFER_LANES = ['s1', 's2', 's3']
