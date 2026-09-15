@@ -638,15 +638,15 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     }
   })
 
-  // ⚖ D-40 — below the start grid (45 < gridMin 60) consecutive 枠 stop
-  // touching, so every 枠 becomes its own band; two free lanes at 45 push the
-  // band count past DENSITY_CEILING and the density verdict flips the sell
-  // tint off. The bands are HONEST — one spanning the gap between 枠 would
-  // paint unsellable time, the ⚖ 8/9 defect class — so the split is correct;
-  // the open question is whether a hardcoded band count is the right density
-  // test at a slot shorter than the grid. B2's matrix single at 45 answers
-  // that, and when it changes the verdict this leg MOVES visibly.
-  it('⚖ D-40 — below the start grid, every 枠 is its own band and the density verdict can flip', () => {
+  // ⚖ D-40 recorded the flip; D-47 removed it — below the start grid (45 <
+  // gridMin 60) consecutive 枠 stop touching, so every 枠 becomes its own
+  // band; two free lanes at 45 push the band SUM past DENSITY_CEILING, but
+  // the ceiling counts PER LANE (⚖ D-47) and neither lane's own 9 bands
+  // crosses 12, so the verdict stays honest and the sell tint stays on. The
+  // bands themselves are still HONEST — one spanning the gap between 枠 would
+  // paint unsellable time, the ⚖ 8/9 defect class — the split is correct;
+  // only the density verdict's counting unit changed.
+  it('⚖ D-40/D-47 — below the start grid, every 枠 is its own band, and the per-lane density verdict stays honest', () => {
     // Two free lanes, one bed EACH — not the `[null]` fallback used elsewhere
     // in this file for a bed-less store, which caps the sale to ONE lane per
     // hour (`deriveSellableCells`' `claimed.size >= freeBeds.length` break)
@@ -663,13 +663,49 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     for (let sm = flat.open; sm + 45 <= flat.close; sm += flat.gridMin) perLaneCount += 1
     expect(staffCells45).toHaveLength(perLaneCount * staffLanes.length)
     expect(layer45.staffBands).toHaveLength(staffCells45.length)
-    expect(layer45.degraded).toBe(layer45.staffBands.length > DENSITY_CEILING)
-    expect(layer45.degraded).toBe(true)
+    expect(layer45.staffBands).toHaveLength(18)
+    // The per-lane fact: group the leg's own staffBands by laneKey — the max
+    // on any one lane is 9, not the flattened 18.
+    const perLane45 = new Map<string, number>()
+    for (const b of layer45.staffBands) perLane45.set(b.laneKey, (perLane45.get(b.laneKey) ?? 0) + 1)
+    expect(Math.max(...perLane45.values())).toBe(9)
+    expect(layer45.degraded).toBe(false)
 
     const cells60 = deriveSellableCells({ ...flat, sellSlotMin: 60, staffLanes, resourceLanes, now: null })
     const layer60 = buildSellLayer(cells60, true)
     expect(layer60.staffBands).toHaveLength(2)
     expect(layer60.degraded).toBe(false)
+  })
+
+  it('⚖ D-47 — the ceiling is per lane', () => {
+    // (a) ONE lane, 13 non-touching bands — over the ceiling.
+    const cellsA = Array.from({ length: 13 }, (_, i) => ({
+      laneKey: 'sA', resourceKey: '', group: 'staff' as const,
+      h: 600 + 30 * i, e: 600 + 30 * i + 15,
+      staff: '見本 いちろう', bed: '', price: 7000, tier: 1 as const,
+    }))
+    expect(mergeBands(cellsA).filter((b) => b.group === 'staff')).toHaveLength(13)
+    expect(buildSellLayer(cellsA, true).degraded).toBe(true)
+
+    // (b) the SAME 13 cells spread over two lanes (7 + 6), sharing ONE
+    // resourceKey — catches a grouping mistake that sums by resourceKey
+    // instead of laneKey (the two lanes would wrongly combine into one
+    // bucket of 13 and read degraded).
+    const cellsB = cellsA.map((c, i) => ({ ...c, laneKey: i < 7 ? 'sB1' : 'sB2', resourceKey: 'shared' }))
+    const layerB = buildSellLayer(cellsB, true)
+    expect(layerB.staffBands.filter((b) => b.laneKey === 'sB1')).toHaveLength(7)
+    expect(layerB.staffBands.filter((b) => b.laneKey === 'sB2')).toHaveLength(6)
+    expect(layerB.degraded).toBe(false)
+
+    // (c) 12 on one lane sits exactly at the ceiling, not over it.
+    const cellsC = cellsA.slice(0, DENSITY_CEILING)
+    expect(mergeBands(cellsC).filter((b) => b.group === 'staff')).toHaveLength(DENSITY_CEILING)
+    expect(buildSellLayer(cellsC, true).degraded).toBe(false)
+
+    // (d) an empty layer is never degraded.
+    const layerD = buildSellLayer([], true)
+    expect(layerD.staffBands).toHaveLength(0)
+    expect(layerD.degraded).toBe(false)
   })
 
   it('⚖ D-15/D-24 — the identity leg: at the shipped default (60), every cell and band is byte-identical to the OLD `h + 60` formula', () => {
@@ -801,11 +837,15 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
   })
 
   it('E9c: past the density ceiling, tint degrades to drag-only', () => {
-    // 13 lanes each holding one lonely hour = 13 bands, one over the ceiling.
+    // ⚖ D-47 — moved to ONE lane: this leg used to spread its 13 hours over
+    // 13 separate lanes, which no longer degrades under the per-lane ceiling
+    // (max per lane would be 1). 13 non-touching hours on a SINGLE lane still
+    // crosses it.
     const many = Array.from({ length: 13 }, (_, i) => ({
-      laneKey: `s${i}`, resourceKey: 'b1', group: 'staff' as const, h: 600 + i * 60, e: 600 + i * 60 + 60,
+      laneKey: 's0', resourceKey: 'b1', group: 'staff' as const, h: 600 + i * 90, e: 600 + i * 90 + 60,
       staff: `A${i}`, bed: 'B', price: 7000 + i * 100, tier: 1 as const,
     }))
+    expect(mergeBands(many).filter((b) => b.group === 'staff')).toHaveLength(13)
     expect(buildSellLayer(many, true).degraded).toBe(true)
     expect(buildSellLayer(many.slice(0, 12), true).degraded).toBe(false)
   })
