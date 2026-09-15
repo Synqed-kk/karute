@@ -45,6 +45,11 @@ interface MonthPageProps {
    *  the same place. */
   typeCount?: number | null
   locale: string
+  /** 先月同期間比 in 件: this month so far minus the same elapsed span of the
+   *  month before. Null = no honest number (a future month, a truncated read,
+   *  no base to compare with) and the clause is ABSENT — never a 0, never a
+   *  dash. screen.ts owns the arithmetic (month-compare.ts). */
+  monthCompareDelta?: number | null
   /** The router transition. The numbers on screen still describe the month
    *  being navigated AWAY from, so the line shows the mock's two shims
    *  (mock `monthLineInner`'s own pending branch) rather than a stale total. */
@@ -92,6 +97,14 @@ function dayNumber(dateIso: string): number {
   return Number(dateIso.slice(8, 10))
 }
 
+/** The comparison's sign, as the mock spells it: a plus, a typographic MINUS
+ *  (U+2212, never a hyphen — a hyphen is not read aloud and would make ahead
+ *  and behind announce identically) and 「±0」 for level, the same glyph the
+ *  今月消化 delta already uses for level. */
+function deltaSign(delta: number): string {
+  return delta > 0 ? '+' : delta < 0 ? '−' : '±'
+}
+
 // mock `.dayline .it{display:inline-flex;align-items:baseline;gap:4px;
 // color:var(--sub);font-weight:600}` with its `<b>` ink and tabular.
 //
@@ -129,6 +142,7 @@ export function MonthPage({
   weekdayLabels,
   typeSlot,
   typeCount = null,
+  monthCompareDelta = null,
   locale,
   pending,
   failed,
@@ -178,6 +192,29 @@ export function MonthPage({
                   value={String(typeCount)}
                   tone={typeSlot === 'new' ? 'new' : 'ink'}
                   spark={typeSlot === 'new'}
+                />
+              )}
+              {/* 先月同期間比 — the mock's own last item on this line, with the
+               *  app's established term for the concept (the 今月消化 strip's
+               *  `burnDeltaAria*` already says 先月同期間比; the mock's 前月同期
+               *  would have been a second word for one thing).
+               *
+               *  It is an ANNOTATION, not an alarm (spec §v10): ahead takes the
+               *  少なめ green, behind and level take the mute grey, and NOTHING
+               *  here is ever red — red means 無断/warnings in this product, and
+               *  a quiet month is not a fault. Same colour rule the 今月消化
+               *  delta follows, one product, one convention.
+               *
+               *  The sign is part of the number, not a decoration: + / − / ± read
+               *  aloud, which is why this clause needs no hidden twin the way
+               *  the strip's ▲▼ glyphs do. */}
+              {BOOKING_SWITCHES.monthCompare && monthCompareDelta !== null && (
+                <LineItem
+                  label={t('lastMonthSamePeriod')}
+                  value={`${deltaSign(monthCompareDelta)}${t('countValue', {
+                    n: Math.abs(monthCompareDelta),
+                  })}`}
+                  tone={monthCompareDelta > 0 ? 'band-low' : 'muted'}
                 />
               )}
             </>

@@ -276,6 +276,7 @@ export default async function AppointmentsPage({
         weekStartIso={screen.weekStartIso}
         monthData={screen.monthData}
         monthStartIso={screen.monthStartIso}
+        monthCompareDelta={screen.monthCompareDelta}
         // The day line's numbers and the 未設定 discriminator — both resolved
         // in buildAppointmentsScreen so the WEB door and the PHONE door hand
         // the shared view identical props (PKT-1b-WIRE W-B/W-C).

@@ -76,6 +76,10 @@ interface AppointmentsViewProps {
   weekStartIso: string | null
   monthData: MonthCell[] | null
   monthStartIso: string | null
+  /** 先月同期間比 in 件 — this month so far minus the same elapsed span of the
+   *  month before, resolved SERVER-side (screen.ts / month-compare.ts). Null =
+   *  no honest number, so the month line's clause is absent. */
+  monthCompareDelta?: number | null
   /** The SELECTED day's row — the day line's four numbers, from the same
    *  adapter the week rows come from, so the two surfaces cannot disagree.
    *  Null = a server or a baked bundle that predates the field; the old
@@ -608,6 +612,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             // (spec §8). 'off' = the month line is 予約 alone, never a
             // substitute metric in that slot.
             typeSlot="off"
+            // 先月同期間比 — one number, computed on the server from the same
+            // window the grid is drawn from, so the clause and the month's own
+            // total can never describe different rows.
+            monthCompareDelta={props.monthCompareDelta ?? null}
             locale={props.locale}
             // The router transition IS the month line's pending state, exactly
             // as it is the week's: mid-move the total on screen is the month
