@@ -81,7 +81,7 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.lanes).toBe(4) // max(roster 3, worked 4) — a FLOOR, never a ceiling
     expect(fact.capacityMinutes).toBe(2400)
     expect(fact.bookedMinutes).toBe(1740) // 1500 + 240
-    expect(fact.occupancyPct).toBe(72.5)
+    expect(fact.occupancyPct).toBe(73) // R4: Math.round(72.5) — the renderer and the band read this same integer
     expect(fact.band).toBe('busy')
     expect(fact.availableMinutes).toBe(660)
   })
@@ -380,7 +380,7 @@ describe('capacityForDay — the council edges', () => {
     expect(withCleanup.bookedMinutes).toBe(75)
     expect(withCleanup.bookedMinutes - withoutCleanup.bookedMinutes).toBe(15)
     expect(withCleanup.capacityMinutes).toBe(600)
-    expect(withCleanup.occupancyPct).toBe(12.5)
+    expect(withCleanup.occupancyPct).toBe(13) // R4: Math.round(12.5)
   })
 
   it('KIND-NONE: a count-table day still reports its 予約時間', () => {
@@ -401,6 +401,45 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.band).toBeNull()
     expect(fact.availableMinutes).toBeNull()
     expect(fact.hoursSource).toBe('store')
+  })
+
+  it('R4: 13-way tiling drift (IEEE float, not an unfilled window) still reads 満 at pct 100', () => {
+    // L1's tiling defect: dividing the window into 13 equal-length spans and
+    // summing each one's own (endMs-startMs)/60000 back up does not land on
+    // exactly 600 in floating point (599.9999999999999) — the exact-equality
+    // `full` check used to miss a window that was, in fact, completely filled.
+    const sliceMs = (STORE_HOURS.closeMs - STORE_HOURS.openMs) / 13
+    const spans = Array.from({ length: 13 }, (_, i) =>
+      span(STORE_HOURS.openMs + i * sliceMs, STORE_HOURS.openMs + (i + 1) * sliceMs, 's1'),
+    )
+    const fact = capacityForDay(input({ rosterLanes: 1, spans }))
+
+    expect(fact.reason).toBeNull()
+    expect(fact.capacityMinutes).toBe(600)
+    expect(fact.bookedMinutes).toBeCloseTo(600, 9) // sums to ~599.9999999999999, not exactly 600
+    expect(fact.occupancyPct).toBe(100) // Math.round of the ~99.9999999999999 raw value
+    expect(fact.full).toBe(true) // R4: capacity − window < 0.5, not an exact >= check
+    expect(fact.band).toBe('busy')
+  })
+
+  it('R4: rounding decides the band at the 35/65 boundaries — 34.6→35 medium, 65.4→65 medium, 65.5→66 busy', () => {
+    const pct346 = capacityForDay(
+      input({ rosterLanes: 1, spans: [span(at(10), at(10) + 207.6 * 60_000, 's1')] }),
+    )
+    expect(pct346.occupancyPct).toBe(35)
+    expect(pct346.band).toBe('medium')
+
+    const pct654 = capacityForDay(
+      input({ rosterLanes: 1, spans: [span(at(10), at(10) + 392.4 * 60_000, 's1')] }),
+    )
+    expect(pct654.occupancyPct).toBe(65)
+    expect(pct654.band).toBe('medium')
+
+    const pct655 = capacityForDay(
+      input({ rosterLanes: 1, spans: [span(at(10), at(10) + 393 * 60_000, 's1')] }),
+    )
+    expect(pct655.occupancyPct).toBe(66)
+    expect(pct655.band).toBe('busy')
   })
 
   it('R3: a run-in row that ends before open no longer withdraws today', () => {

@@ -91,18 +91,23 @@ export interface CapacityFact {
    *  per C3 rule b). A withdrawn day (e.g. 'outside-hours') still reports its
    *  real day minutes here. */
   bookedMinutes: number
-  /** booked ÷ capacity × 100, UNCLAMPED — ≥100 renders 満 (E23/E24). Null
-   *  whenever capacity is null. No rounding here; the renderer rounds. */
+  /** Math.round(window ÷ capacity × 100), UNCLAMPED — ≥100 renders 満
+   *  (E23/E24). Null whenever capacity is null. Rounded HERE (R4) — the
+   *  renderer prints this integer as-is, and `band` reads the SAME integer,
+   *  so a percentage can never sit beside a mismatched band label. */
   occupancyPct: number | null
-  /** bookedMinutes >= capacityMinutes. False when there is no capacity. */
+  /** capacityMinutes − windowMinutes < 0.5 (R4: a tolerance, not an exact
+   *  `>=` — IEEE drift from summing many spans' minutes can land a fully
+   *  tiled window a fraction of a minute under capacity and still means
+   *  満). False when there is no capacity. */
   full: boolean
   /** ONE table for every business: <35 light · 35–65 medium · >65 busy (C2 Q2 —
    *  every miscolour in the council's set was an input error, never a
    *  threshold error). Null whenever capacity is null. */
   band: Band | null
-  /** max(0, capacity − booked) ONLY when hoursSource === 'store' (E21: an
-   *  org-blob day is a business default, never this store's declaration —
-   *  稼働 and the band may ride it, 空き may not). Else null. */
+  /** Math.round(max(0, capacity − window)) ONLY when hoursSource === 'store'
+   *  (E21: an org-blob day is a business default, never this store's
+   *  declaration — 稼働 and the band may ride it, 空き may not). Else null. */
   availableMinutes: number | null
   /** Why capacity is null; null when capacity is a number. */
   reason: NoCapacityReason | null
@@ -308,11 +313,13 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   if (peakConcurrency(insideSpans) > lanes) return withoutCapacity('over-concurrency', lanes)
 
   // 7. The numbers. Never clamped, never withdrawn above 100% (C3 §3.4 / E24):
-  //    the fact stays a number and `full` says 満.
+  //    the fact stays a number and `full` says 満. Rounded ONCE, here (R4):
+  //    the renderer prints occupancyPct as-is and the band reads the SAME
+  //    integer, so a percentage can never sit beside a mismatched band.
   const laneMinutes = (hours.closeMs - hours.openMs) / MS_PER_MINUTE
   const capacityMinutes = lanes * laneMinutes
-  const occupancyPct = (windowMinutes / capacityMinutes) * 100
-  const free = capacityMinutes - windowMinutes
+  const occupancyPct = Math.round((windowMinutes / capacityMinutes) * 100)
+  const free = Math.round(Math.max(0, capacityMinutes - windowMinutes))
   return {
     capacityMinutes,
     lanes,
@@ -320,9 +327,12 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
     hoursSource,
     bookedMinutes: dayMinutes,
     occupancyPct,
-    full: windowMinutes >= capacityMinutes,
+    // A tolerance, not an exact >= (R4): summing many spans' minutes can
+    // drift a fully tiled window a fraction of a minute under capacity in
+    // floating point, and that is still 満.
+    full: capacityMinutes - windowMinutes < 0.5,
     band: bandFor(occupancyPct),
-    availableMinutes: hours.source === 'store' ? (free > 0 ? free : 0) : null,
+    availableMinutes: hours.source === 'store' ? free : null,
     reason: null,
   }
 }
