@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils'
 import { formatCompactDateJst, jstWallTimeToDate } from '@/lib/date/jst'
 import type { WeekDayRowData } from '@/lib/adapters/reservation'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
-import { isClosedRow } from '@/lib/appointments/metric-menu'
+import { isClosedRow, TYPE_SLOT } from '@/lib/appointments/metric-menu'
 import { BADGE_COLORS } from '@/lib/badge-styles'
 import {
   COMPACT_ROW,
@@ -217,9 +217,10 @@ export function SelectedDayCard({
           row={shownTotals}
           pending={shownPending}
           soloMode={soloMode}
-          // PKT-2 owns the strict 新規/再来 producer; today's newCustomerCount
-          // is the QR import flag and must not print (spec §8).
-          typeSlot="off"
+          // ⚖ PKT-2b — 新規, for every business type (Liam 2026-09-15 20:2x).
+          // One home: the slot is read off the switch registry, never
+          // spelled per call site — the same import AppointmentsView uses.
+          typeSlot={TYPE_SLOT}
           locale={locale}
           className="px-4 pb-0.5 pt-0"
         />

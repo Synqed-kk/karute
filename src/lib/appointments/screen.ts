@@ -582,6 +582,16 @@ export function buildAppointmentsScreen(
       // Same window, same memo as the week rows would take — a month cell's
       // 新規 and the week row's 新規 for one day are one number.
       monthNewCounts = newCountsFor(monthWin)
+      // ⚖ PKT-2b — this door's own cells, merged with the SAME map/flag
+      // monthCellsToDTO (route.ts) already merges onto the wire for the
+      // phone: one producer, two doors, so a month's 新規 total cannot mean
+      // two different things depending which door drew it. Out-of-month
+      // padding cells stay 0 either way (they render nothing).
+      monthData = monthData.map((c) => ({
+        ...c,
+        newCount: (newCountKnown && c.inMonth && monthNewCounts?.get(c.id)) || 0,
+        newCountKnown,
+      }))
     }
     monthStartIso = monthRange.monthStart.toISOString()
     // 先月同期間比. The displayed month's own window is one side of it, so the
