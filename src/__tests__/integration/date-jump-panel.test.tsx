@@ -1512,8 +1512,13 @@ describe('the panel moves like the mock', () => {
     await frames(2000)
     expect(title()).toHaveTextContent('2026年10月')
 
-    // The far month that came into being is the only grid that drew: the two
-    // months already on screen kept their nodes AND their render.
+    // R6-3 — THE LANDING FRAME DRAWS NOTHING. The month that arrives behind the
+    // commit (the new far month) used to be created in this very frame: 35-44 ms
+    // measured on the production build under a 4x CPU throttle, the one frame of
+    // a shift that misses 60 fps. It is now one animation frame later, where
+    // nothing is moving. The two months already on screen keep their nodes AND
+    // their render in both frames.
+    expect(mockGridRenders).toHaveLength(0)
     await frames(50)
     expect(mockGridRenders).toHaveLength(1)
     expect(alreadyDrawn.has(mockGridRenders[0])).toBe(false)
@@ -1588,6 +1593,41 @@ describe('the panel moves like the mock', () => {
 
     await frames(2000)
     expect(title()).toHaveTextContent('2026年10月')
+  })
+
+  /**
+   * R6-3 — and what the LANDING frame is allowed to do. The heights the slide
+   * interpolates between are read when the shift is ARMED (the › tap, or the
+   * finger's release), never when it lands: the frame that commits a month
+   * re-keys three panes and must not also force a layout.
+   */
+  it('t18 — the commit frame measures no pane: the heights were read at arm time', async () => {
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')!
+    let reads = 0
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+      configurable: true,
+      get() {
+        reads += 1
+        return original.get ? original.get.call(this) : 0
+      },
+    })
+    try {
+      renderView({ loadMonthCells: neverAnswers })
+      const dialog = await openSettled()
+      reads = 0
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+      // Arming measures: the pane in flow, and the pane being travelled toward.
+      expect(reads).toBeGreaterThanOrEqual(1)
+      const atArm = reads
+
+      await frames(2000)
+      expect(title()).toHaveTextContent('2026年10月')
+      // Nothing between the arm and the end of the commit read a height.
+      expect(reads).toBe(atArm)
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original)
+    }
   })
 
   /**
