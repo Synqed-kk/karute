@@ -359,6 +359,76 @@ export function filterStaffIdsToStore(
 }
 
 /**
+ * ⚖ R1-5 — THE DIVISOR'S roster, and it fails CLOSED where the picker above
+ * fails open.
+ *
+ * `filterStaffIdsToStore` keeps a member it cannot LINK to any assignment row
+ * (`!a`) in every store's set. That is the right posture for a picker — its
+ * own docblock says so, and the read-side clamps stay authoritative there —
+ * but this same set became a capacity divisor, and an unlinkable member then
+ * counted as a full lane at every branch simultaneously. A two-store business
+ * whose 担当 rows were never written for the other branch divided 銀座's booked
+ * minutes by EIGHT lanes instead of four: half the real occupancy, roughly
+ * double the 空き.
+ *
+ * So the divisor takes the strict subset:
+ *   - assigned to this store (an assignment row naming it), or
+ *   - explicitly floating (a row with an EMPTY store_ids — the documented
+ *     works-in-every-store convention, a DECLARATION, not an absence).
+ * A member with no assignment row at all is "we could not place this person",
+ * which is never a lane in anyone's denominator.
+ *
+ * The picker keeps its own set, unchanged. Same roster, two questions, and
+ * only one of them is allowed to guess.
+ */
+export function rosterForStore(
+  staff: ReadonlyArray<{ id: string; email?: string | null }>,
+  assignments: StaffStoreAssignment[],
+  storeId: string,
+): Set<string> {
+  const bySynqedId = new Map(assignments.map((a) => [a.id, a]))
+  const byUserId = new Map(
+    assignments.filter((a) => a.user_id).map((a) => [a.user_id as string, a]),
+  )
+  const byEmail = new Map(
+    assignments.filter((a) => a.email).map((a) => [a.email as string, a]),
+  )
+  const kept = new Set<string>()
+  for (const m of staff) {
+    const a =
+      bySynqedId.get(m.id) ??
+      byUserId.get(m.id) ??
+      (m.email ? byEmail.get(m.email.toLowerCase()) : undefined)
+    if (!a) continue
+    if (a.store_ids.length === 0 || a.store_ids.includes(storeId)) kept.add(m.id)
+  }
+  return kept
+}
+
+/**
+ * The store's booking roster for the CAPACITY divisor — the async twin of
+ * `rosterForStore`, shaped like `storeStaffIdSetForBusiness` so both doors can
+ * call it with the businessId they already hold.
+ *
+ * null = no store to ask, or the assignment read failed. The divisor reads that
+ * as "we do not know this store's roster" and hands out NO capacity (C1 §5 /
+ * C3 E28) — never the business roster.
+ */
+export async function storeDivisorRosterForBusiness(
+  staff: ReadonlyArray<{ id: string; email?: string | null }>,
+  storeId: string | null,
+  businessId: string,
+): Promise<Set<string> | null> {
+  if (!storeId) return null
+  try {
+    const assignments = await staffStoreAssignmentsByBusiness(businessId)
+    return rosterForStore(staff, assignments, storeId)
+  } catch {
+    return null
+  }
+}
+
+/**
  * The ids from `staff` that may appear in the active store's 担当 pickers, or
  * null when no filtering applies (no store lens, or the assignment fetch is
  * unavailable) — callers treat null as "show the full list" (fail open, see

@@ -26,7 +26,11 @@ import { getCachedMenuOptionsFor, scopeMenuOptions } from '@/lib/menus/cached'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import { enrichCustomers, type CustomerEnrichment } from '@/lib/customers/list-enrich'
 import { listAllPackUsageWithClient, type CustomerPackUsage } from '@/lib/packs/store'
-import { customerLensFor, storeStaffIdSetForBusiness } from '@/lib/auth/store-scope'
+import {
+  customerLensFor,
+  storeDivisorRosterForBusiness,
+  storeStaffIdSetForBusiness,
+} from '@/lib/auth/store-scope'
 import {
   emptyAppointmentWindow,
   fetchAppointmentWindow,
@@ -198,6 +202,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       policy,
       closedDays,
       storeStaffIds,
+      divisorStaffIds,
       store,
     ] = await Promise.all([
       // includeCancelled: the agenda is the ONE consumer that renders
@@ -238,6 +243,9 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
           })
         : Promise.resolve({ closed_days: [] as { date: string }[] }),
       storeStaffIdSetForBusiness(staffList, storeId ?? null, businessId),
+      // ⚖ R1-5 — the DIVISOR's roster is the strict one: a member no assignment
+      // row could place is not a lane at this store (nor at any other).
+      storeDivisorRosterForBusiness(staffList, storeId ?? null, businessId),
       // The store's own row, for its vertical (S5). Degraded-allowed and
       // CAUGHT, unlike its neighbours in this wave: a store row we cannot read
       // says nothing about whether this shop runs classes, and the org-wide
@@ -283,6 +291,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       staffList,
       activeStaffId: selfRow?.id ?? null,
       storeStaffIds,
+      divisorStaffIds,
       orgSettings,
       customers,
       dayAppointments,

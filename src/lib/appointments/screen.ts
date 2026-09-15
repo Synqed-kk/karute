@@ -82,6 +82,13 @@ export interface AppointmentsScreenInputs {
   activeStaffId: string | null
   /** Active store's staff-id lens (null = no filtering / fail open). */
   storeStaffIds: Set<string> | null
+  /** ⚖ R1-5 — the store's booking roster for the CAPACITY DIVISOR, from
+   *  `rosterForStore`: assigned to this store or explicitly floating, and
+   *  NEVER a member no assignment row could place. Same roster as the lens
+   *  above, opposite posture, because they answer different questions: a
+   *  picker may be generous, a denominator may not. null = no store to ask or
+   *  the assignment read failed → no capacity at all. */
+  divisorStaffIds?: Set<string> | null
   orgSettings: OrgSettings | null
   customers: CachedCustomerOption[]
   dayAppointments: AppointmentRow[]
@@ -209,6 +216,7 @@ export function buildAppointmentsScreen(
     staffList,
     activeStaffId,
     storeStaffIds,
+    divisorStaffIds,
     orgSettings,
     customers,
     dayAppointments,
@@ -401,18 +409,23 @@ export function buildAppointmentsScreen(
   )
   const soloMode = orgSettings?.solo_mode === true
 
-  // ── THE DIVISOR (S4) — the same store lens the pickers use, counted ───────
+  // ── THE DIVISOR (S4) — the store's own booking roster, counted ──────────
   //
-  // `storeStaffIds` is already bounded by the clamp's store on BOTH doors (web:
-  // storeStaffIdSet(staffList, scope.storeId); facade:
-  // storeStaffIdSetForBusiness(staffList, clamp.storeId, businessId)), and
-  // filterStaffIdsToStore only ever keeps ids drawn from `staffList`, so the
-  // lens IS the store's roster ∩ the business roster. Deriving the headcount
-  // here rather than in each door is what makes the store-isolation invariant
-  // provable at ONE site for both — no other store's staff count can reach a
-  // divisor, because no other store's ids are in this set.
+  // ⚖ R1-5: this is `divisorStaffIds`, NOT the picker lens beside it. Both
+  // doors build it from `rosterForStore(…)`, bounded by the clamp's store
+  // (web: page.tsx; facade: route.ts), and it only ever holds ids drawn from
+  // `staffList` — so it IS the store's roster ∩ the business roster. Deriving
+  // the headcount here rather than in each door is what makes the
+  // store-isolation invariant provable at ONE site for both: no other store's
+  // staff count can reach a divisor, because no other store's ids are in this
+  // set.
   //
-  // But the POSTURE flips. A null lens means "no store to ask, or the
+  // The picker's set differs by one arm, and that arm is the whole reason
+  // there are two: `filterStaffIdsToStore` keeps a member it cannot LINK to an
+  // assignment row in EVERY store, which is a generous list and an inflated
+  // denominator — 銀座 divided by eight lanes when four people work there.
+  //
+  // The POSTURE flips too. A null lens means "no store to ask, or the
   // assignment read failed"; the pickers read that as "show everyone" (fail
   // open, which is right for a list), and a divisor must read it as "we do not
   // know this store's roster" and hand out NO capacity — never the business
@@ -422,7 +435,7 @@ export function buildAppointmentsScreen(
   // bookings and the SDK has no non-booking role, so there is nothing to
   // filter on. A receptionist is therefore counted — a recorded overcount,
   // closed when a real `takesBookings` exists.
-  const rosterHeadcount = storeStaffIds ? storeStaffIds.size : null
+  const rosterHeadcount = divisorStaffIds ? divisorStaffIds.size : null
   // 自分/担当 = ONE person's day, so ONE lane (the module's caller contract
   // (a)), and the window was already filtered at the fetch. The exception is
   // 'self' with no resolvable viewer id: that fetch is NOT filtered and the

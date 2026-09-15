@@ -182,11 +182,19 @@ jest.mock('@/lib/packs/store', () => ({
 const storeStaffIdSetForBusiness = jest.fn(
   async (..._a: unknown[]): Promise<Set<string> | null> => null,
 )
+// ⚖ R1-5 — the divisor's roster. Same fail-closed default (null = no capacity).
+const storeDivisorRosterForBusiness = jest.fn(
+  async (..._a: unknown[]): Promise<Set<string> | null> => null,
+)
 // customerLensFor is a pure derivation of the clamp — the REAL one, since it
 // is the thing the fail-closed test below exercises.
 jest.mock('@/lib/auth/store-scope', () => ({
   customerLensFor: jest.requireActual('@/lib/auth/store-scope').customerLensFor,
   storeStaffIdSetForBusiness: (...a: unknown[]) => storeStaffIdSetForBusiness(...a),
+  // ⚖ R1-5 — the DIVISOR's own roster, the strict twin of the picker lens
+  // above. Spied separately so a test can prove the route asks the right
+  // helper for the right store.
+  storeDivisorRosterForBusiness: (...a: unknown[]) => storeDivisorRosterForBusiness(...a),
 }))
 
 // A-3 seam: "clamped ⇒ storeId non-null" is an invariant BOTH resolvers hold by
@@ -319,6 +327,7 @@ beforeEach(() => {
   listAppointments.mockReset()
   listAppointments.mockResolvedValue({ appointments: dayRows, total: dayRows.length })
   storeStaffIdSetForBusiness.mockResolvedValue(null)
+  storeDivisorRosterForBusiness.mockResolvedValue(null)
   getCachedMenuOptionsFor.mockResolvedValue(MENU_ROWS)
   clampOverride.current = null
   // Re-seed every beforeEach: jest.clearAllMocks() clears call records but NOT
@@ -500,7 +509,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
       expect(res.status).toBe(200)
       // MUTANT m4: drop the resolvePrimaryStoreId fallback and this reads null
       // — the whole week withdraws to the count table.
-      expect(storeStaffIdSetForBusiness).toHaveBeenCalledWith(
+      expect(storeDivisorRosterForBusiness).toHaveBeenCalledWith(
         expect.anything(),
         'store-A',
         'business-1',
@@ -518,7 +527,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
       mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
       const res = await GET(req({ 'store-id': 'store-B' }), route)
       expect(res.status).toBe(200)
-      expect(storeStaffIdSetForBusiness).toHaveBeenCalledWith(
+      expect(storeDivisorRosterForBusiness).toHaveBeenCalledWith(
         expect.anything(),
         'store-B',
         'business-1',
@@ -537,7 +546,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
       clampOverride.current = { storeId: null, allowedStoreIds: ['store-A'] }
       const res = await GET(req(), route)
       expect(res.status).toBe(200)
-      expect(storeStaffIdSetForBusiness).toHaveBeenCalledWith(
+      expect(storeDivisorRosterForBusiness).toHaveBeenCalledWith(
         expect.anything(),
         null,
         'business-1',
@@ -549,7 +558,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
       fakeClient.stores.list.mockResolvedValueOnce({ stores: [] })
       const res = await GET(req(), route)
       expect(res.status).toBe(200)
-      expect(storeStaffIdSetForBusiness).toHaveBeenCalledWith(
+      expect(storeDivisorRosterForBusiness).toHaveBeenCalledWith(
         expect.anything(),
         null,
         'business-1',

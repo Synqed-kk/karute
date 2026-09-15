@@ -6,10 +6,12 @@
  * what that builder does with it, which is the only place either door can get
  * it wrong:
  *
- *   - the divisor is the LENS, counted — never the business roster;
- *   - a null lens is "we do not know this store's roster", so the day gets no
- *     capacity at all (the pickers read the same null as "show everyone" —
- *     opposite default, same value, on purpose);
+ *   - the divisor is the store's own booking ROSTER, counted — never the
+ *     business roster, and never the picker's more generous lens (⚖ R1-5: the
+ *     picker keeps a member no assignment row can place, in every store);
+ *   - a null roster is "we do not know this store's", so the day gets no
+ *     capacity at all (the pickers read their own null as "show everyone" —
+ *     opposite default, same shape, on purpose);
  *   - under 自分/担当 the day is one person's, so one lane.
  *
  * A day's capacity is the number staff will read a percentage off. Feeding it
@@ -75,6 +77,10 @@ const BUSINESS_ROSTER = Array.from({ length: 40 }, (_, i) => ({
   full_name: `staff ${i + 1}`,
 }))
 const HER_STORE = new Set(['s1', 's2'])
+/** ⚖ R1-5 — the picker's lens is wider than the divisor's roster whenever the
+ *  business has members no assignment row can place. Here s3 is one of them:
+ *  she appears in every store's picker and in nobody's denominator. */
+const HER_PICKER = new Set(['s1', 's2', 's3'])
 
 function build(over: Record<string, unknown> = {}) {
   return buildAppointmentsScreen({
@@ -85,6 +91,7 @@ function build(over: Record<string, unknown> = {}) {
     staffList: BUSINESS_ROSTER,
     activeStaffId: null,
     storeStaffIds: HER_STORE,
+    divisorStaffIds: HER_STORE,
     orgSettings: null,
     customers: [],
     dayAppointments: [],
@@ -113,16 +120,16 @@ describe('the divisor is the store lens, never the business roster', () => {
     expect(row.capacityMinutes).not.toBe(24_000)
   })
 
-  it('MUTANT m1 — a null lens gives NO capacity, never the business roster', () => {
-    const row = selectedRow(build({ storeStaffIds: null }))
+  it('MUTANT m1 — a null roster gives NO capacity, never the business roster', () => {
+    const row = selectedRow(build({ storeStaffIds: null, divisorStaffIds: null }))
     expect(row.capacityMinutes).toBeNull()
     expect(row.capacityReason).toBe('roster-unknown')
     expect(row.occupancyPct).toBeNull()
     expect(row.freeMinutes).toBeNull()
   })
 
-  it('the pickers still fail OPEN on that same null — opposite default, one value', () => {
-    const screen = build({ storeStaffIds: null })
+  it('the pickers still fail OPEN on that same null — opposite default, one shape', () => {
+    const screen = build({ storeStaffIds: null, divisorStaffIds: null })
     // The list shows everyone (a list may be generous)…
     expect(screen.staff).toHaveLength(40)
     // …while the divisor above refused to name a number. Both read the same
@@ -130,10 +137,32 @@ describe('the divisor is the store lens, never the business roster', () => {
     expect(selectedRow(screen).capacityMinutes).toBeNull()
   })
 
-  it('a bigger store is a bigger denominator — the lens is what moves it', () => {
-    const wider = selectedRow(build({ storeStaffIds: new Set(['s1', 's2', 's3', 's4']) }))
+  it('a bigger store is a bigger denominator — the roster is what moves it', () => {
+    const wider = selectedRow(
+      build({ divisorStaffIds: new Set(['s1', 's2', 's3', 's4']) }),
+    )
     expect(wider.lanes).toBe(4)
     expect(wider.capacityMinutes).toBe(2400)
+  })
+
+  it('⚖ R1-5 MUTANT m5 — the PICKER lens would divide by a person it only guessed at', () => {
+    // s3 has no assignment row anywhere, so the picker keeps her at every
+    // branch. Reusing that set as the divisor makes this two-person store a
+    // three-lane day: two thirds of the real occupancy, half again the 空き,
+    // and the same phantom person inflating every OTHER store at the same
+    // minute.
+    const row = selectedRow(build({ storeStaffIds: HER_PICKER, divisorStaffIds: HER_STORE }))
+    expect(row.lanes).toBe(2)
+    expect(row.capacityMinutes).toBe(1200) // 1800 if the picker's arm were reused
+    // The picker itself is untouched — she is still in the list.
+    expect(build({ storeStaffIds: HER_PICKER, divisorStaffIds: HER_STORE }).staff).toHaveLength(3)
+  })
+
+  it('⚖ R1-5 — a store whose roster is unknown gets no capacity even while its picker works', () => {
+    const screen = build({ storeStaffIds: HER_PICKER, divisorStaffIds: null })
+    expect(screen.staff).toHaveLength(3)
+    expect(selectedRow(screen).capacityMinutes).toBeNull()
+    expect(selectedRow(screen).capacityReason).toBe('roster-unknown')
   })
 })
 
