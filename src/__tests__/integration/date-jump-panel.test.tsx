@@ -41,6 +41,13 @@ jest.mock('@/components/appointments/BookingActionSheetWrapper', () => ({
 }))
 jest.mock('@/components/appointments/CancelBookingSheet', () => ({ CancelBookingSheet: () => null }))
 
+/** t13/t14's render seam: one entry per MonthGrid render, identified by the
+ *  `cells` array it was handed. A month's cells are identity-stable by design
+ *  (the cache's own array, or the skeleton built once per month), so the array
+ *  IS the month — which lets a test say "one new grid, and neither of the two
+ *  already on screen drew again" without a counter inside the component. */
+const mockGridRenders: unknown[] = []
+
 jest.mock('@synqed-kk/ui', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { createElement: h } = require('react') as typeof import('react')
@@ -62,8 +69,9 @@ jest.mock('@synqed-kk/ui', () => {
         ),
         h('button', { type: 'button', 'data-testid': 'bar-today', onClick: props.onToday }, 'bar'),
       ),
-    MonthGrid: (props: { cells: Cell[]; onPickDay?: (d: Date) => void }) =>
-      h(
+    MonthGrid: (props: { cells: Cell[]; onPickDay?: (d: Date) => void }) => {
+      mockGridRenders.push(props.cells)
+      return h(
         'div',
         { 'data-testid': 'month-grid' },
         props.cells.map((c) =>
@@ -78,7 +86,8 @@ jest.mock('@synqed-kk/ui', () => {
             String(c.count),
           ),
         ),
-      ),
+      )
+    },
     DayWeekMonthToggle: () => null,
     WeekDayCard: () => null,
   }
@@ -169,6 +178,7 @@ const title = () => within(screen.getByRole('dialog')).getByRole('button', { exp
 
 beforeEach(() => {
   push.mockClear()
+  mockGridRenders.length = 0
 })
 
 describe('opening and closing', () => {
@@ -1382,6 +1392,56 @@ describe('the panel moves like the mock', () => {
     expect((reopened.previousElementSibling as HTMLElement).className).not.toContain(
       'pointer-events-none',
     )
+  })
+
+  /**
+   * R4-3 — the cost of a shift. `setPending`, the `liveDir` flip and every
+   * cache write re-render the panel, MonthGrid is a plain `forwardRef` in the
+   * package (nothing memoizes it there), and all three panes were redrawing
+   * ~40 day buttons every time: four long tasks of ~90-100 ms on ONE month
+   * change, measured on the production build under a 4× CPU throttle. Browsing
+   * months is the gesture staff make most, so that is the lag.
+   *
+   * The seam is the package mock, not the component: a render counter living
+   * inside the panel would prove the counter, not the panel.
+   */
+  const neverAnswers = () => new Promise<MonthCellDTOType[]>(() => {})
+
+  it('t13 — a month shift draws ONE new grid and redraws neither month on screen', async () => {
+    renderView({ loadMonthCells: neverAnswers })
+    const dialog = openNow()
+    await frames(1000)
+    // Three months drawn, three distinct cells arrays: prev, current, next.
+    const alreadyDrawn = new Set(mockGridRenders)
+    expect(alreadyDrawn.size).toBe(3)
+    mockGridRenders.length = 0
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    await frames(2000)
+    expect(title()).toHaveTextContent('2026年10月')
+
+    // The far month that came into being is the only grid that drew: the two
+    // months already on screen kept their nodes AND their render.
+    expect(mockGridRenders).toHaveLength(1)
+    expect(alreadyDrawn.has(mockGridRenders[0])).toBe(false)
+  })
+
+  it('t14 — arming a shift with a flick redraws nothing at all', async () => {
+    renderView({ loadMonthCells: neverAnswers })
+    const dialog = openNow()
+    await frames(1000)
+
+    const grid = dialog.querySelector<HTMLElement>('.touch-none')!
+    mockGridRenders.length = 0
+    pointer('pointerdown', grid, { pointerId: 31, clientX: 200, clientY: 100 })
+    pointer('pointermove', grid, { pointerId: 31, clientX: 190, clientY: 101 })
+    pointer('pointerup', grid, { pointerId: 31, clientX: 190, clientY: 101 })
+    // The release IS a React render (liveDir arms the shift), and it costs one
+    // `inert` attribute on a wrapper — no month is drawn again.
+    expect(mockGridRenders).toHaveLength(0)
+
+    await frames(2000)
+    expect(title()).toHaveTextContent('2026年10月')
   })
 
   /**

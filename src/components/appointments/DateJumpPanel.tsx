@@ -39,6 +39,7 @@
 // transform, and the slide spring lands every `set` instantly.
 
 import {
+  memo,
   useCallback,
   useEffect,
   useId,
@@ -129,6 +130,42 @@ function usePrefersReducedMotion(): boolean {
   }, [])
   return reduced
 }
+
+interface PaneProps {
+  cells: MonthGridCell[]
+  copy: { weekdayLabels: DateJumpPanelProps['weekdayLabels'] }
+  onPickDay: (date: Date) => void
+}
+
+/**
+ * One month's grid, and the only part of a pane that is expensive to draw.
+ *
+ * MonthGrid is a plain `forwardRef` in the package — nothing memoizes it there
+ * — while the panel re-renders on every `setPending`, every `liveDir` flip and
+ * every cache write. All three panes were therefore redrawing ~40 day buttons
+ * each time: measured on the production build under a 4× CPU throttle, ONE
+ * month change cost four long tasks of ~90-100 ms, and browsing months is the
+ * gesture staff make most.
+ *
+ * `memo`'s shallow compare is what stops that, so all three props are
+ * identity-stable across a shift: `cells` is the cache's own array (or the
+ * skeleton built once per month), `copy` and `onPickDay` are memoized in the
+ * panel. Everything that DOES change on a shift — `inert`, the className and
+ * the pane ref — stays on the wrapper div OUTSIDE this boundary, so arming a
+ * shift redraws no grid at all and a commit draws only the month arriving for
+ * the first time.
+ */
+const Pane = memo(function Pane({ cells, copy, onPickDay }: PaneProps) {
+  return (
+    <MonthGrid
+      cells={cells}
+      copy={copy}
+      hideLegend
+      onPickDay={onPickDay}
+      className="rounded-none border-0 bg-transparent shadow-none"
+    />
+  )
+})
 
 export interface DateJumpPanelProps {
   open: boolean
@@ -370,6 +407,11 @@ export function DateJumpPanel({
 
   // ── cells ────────────────────────────────────────────────────────────────
   const today = useMemo(() => jstStartOfToday(), [])
+  /** The skeleton cells of a month that has never answered, built ONCE per
+   *  month. They depend on nothing but the month and `today`, so a fresh array
+   *  on every call was pure waste — and, since `memo` compares props by
+   *  identity, it redrew every pending pane on every render of the panel. */
+  const skeletonCells = useRef<Map<MonthKey, MonthGridCell[]>>(new Map())
   const cellsFor = useCallback(
     (key: MonthKey): MonthGridCell[] => {
       // Whatever this month last answered with, even while it is being
@@ -378,10 +420,26 @@ export function DateJumpPanel({
       if (entry?.cells) return entry.cells
       // PENDING ≠ EMPTY: the day numbers (and today's circle) with no counts —
       // built by the SAME builder, from no appointments.
+      const built = skeletonCells.current.get(key)
+      if (built) return built
       const { monthStart, monthEnd } = computeMonthRange(firstDayOfMonthKey(key))
-      return appointmentsToMonthCells([], monthStart, monthEnd, today)
+      const cells = appointmentsToMonthCells([], monthStart, monthEnd, today)
+      skeletonCells.current.set(key, cells)
+      return cells
     },
     [state.cache, today],
+  )
+
+  /** The two props every pane hands MonthGrid that are not its cells. Memoized
+   *  for the panes' `memo`: a fresh object or closure per render compares
+   *  unequal and redraws all three months (see `Pane`). */
+  const gridCopy = useMemo(() => ({ weekdayLabels }), [weekdayLabels])
+  const pickDay = useCallback(
+    (date: Date) => {
+      onPickDay(date)
+      onClose()
+    },
+    [onPickDay, onClose],
   )
 
   // ── month slide + swipe: the mock's slideSpring (MOCK 1069-1093, 1134-1149,
@@ -705,16 +763,7 @@ export function DateJumpPanel({
       className={cn('w-full', className)}
       inert={(paneDir !== 0 && paneDir !== liveDir) || undefined}
     >
-      <MonthGrid
-        cells={cellsFor(key)}
-        copy={{ weekdayLabels }}
-        hideLegend
-        onPickDay={(date) => {
-          onPickDay(date)
-          onClose()
-        }}
-        className="rounded-none border-0 bg-transparent shadow-none"
-      />
+      <Pane cells={cellsFor(key)} copy={gridCopy} onPickDay={pickDay} />
     </div>
   )
 
