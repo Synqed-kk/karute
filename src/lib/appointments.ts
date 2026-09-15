@@ -35,7 +35,7 @@ export type BookingDayHours = Pick<DayHoursInput, 'weeklyHours' | 'closedDates' 
  */
 export type BookingTimeRefusal = {
   error: string
-  code?: 'closed_day'
+  code?: 'closed_day' | 'invalid_start'
   /** 'store' = this store's own setting closed the day · 'org' = the
    *  business-wide default did. Read straight off the resolver's `source`, so
    *  the two can never drift.
@@ -69,7 +69,12 @@ export function validateAppointmentInput(input: AppointmentInput): BookingTimeRe
   }
 
   if (Number.isNaN(new Date(input.startTime).getTime())) {
-    return { error: 'Invalid appointment start time.' }
+    // ⚖ R1-3 — coded, so the dialog can speak Japanese for it. The facade
+    // schema takes any non-empty string, so this is the only thing standing
+    // between `startTime: "tomorrow"` and an Invalid Date reaching the day
+    // resolution (Intl.DateTimeFormat.formatToParts throws RangeError on one).
+    // A 500 on the booking write path is not a refusal.
+    return { error: 'Invalid appointment start time.', code: 'invalid_start' }
   }
 
   return null

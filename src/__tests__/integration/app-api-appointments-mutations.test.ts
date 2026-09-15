@@ -296,7 +296,10 @@ describe('POST /api/app/v1/appointments (create)', () => {
       noParams,
     )
     expect(res.status).toBe(200)
-    expect((await res.json()).error).toBe('Invalid appointment start time.')
+    expect(await res.json()).toEqual({
+      error: 'Invalid appointment start time.',
+      code: 'invalid_start',
+    })
     expect(resolveSynqedStaffIdForBusiness).not.toHaveBeenCalled()
     expect(apptCreate).not.toHaveBeenCalled()
   })

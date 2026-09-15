@@ -52,7 +52,13 @@ export async function fetchBookingDayHours(
   date: Date,
   orgSaved: readonly WeekdayKey[] | undefined,
 ): Promise<BookingDayHours> {
-  if (!storeId) return orgOnlyDayHours(orgSaved)
+  // ⚖ R1-3 — an Invalid Date never reaches ymdInJst: partsInJst →
+  // Intl.DateTimeFormat.formatToParts throws RangeError on one, and a throw on
+  // the booking write path is a 500 where the contract says a plain refusal.
+  // Both doors refuse an unparseable start before they ever get here
+  // (validateAppointmentInput); this is the belt for a future third caller,
+  // and it also keeps a junk range off the wire.
+  if (!storeId || Number.isNaN(date.getTime())) return orgOnlyDayHours(orgSaved)
 
   const ymd = ymdInJst(date)
   const nextDay = new Date(date.getTime() + 86_400_000)

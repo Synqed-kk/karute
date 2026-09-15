@@ -124,6 +124,7 @@ import { createAppointment, updateAppointment } from '@/actions/appointments'
 import { createAppointmentCore } from '@/lib/appointments/mutations'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { validateAppointmentTime, type BookingDayHours } from '@/lib/appointments'
+import { fetchBookingDayHours } from '@/lib/appointments/day-hours'
 import { auditLines } from './helpers/audit-lines'
 import ja from '../../../messages/ja.json'
 import en from '../../../messages/en.json'
@@ -274,6 +275,31 @@ describe('the rule — validateAppointmentTime, the ONE home', () => {
     })
   })
 
+  // ⚖ R1-3 — the refusal that a throw had made unreachable. Before, the day
+  // was resolved (Intl → RangeError) before this line was ever reached, so an
+  // unparseable start time was a 500 on the booking write path.
+  it('refuses an unparseable start time, with a store in hand, instead of throwing', async () => {
+    const result = await validateAppointmentTime(
+      bookingInput('tomorrow'),
+      ORG_HOURS,
+      dayHours({ weeklyHours: OPEN_WEEK as never }),
+    )
+
+    expect(result).toEqual({ error: 'Invalid appointment start time.', code: 'invalid_start' })
+  })
+
+  it('never resolves a day from an Invalid Date, even called directly', async () => {
+    await expect(
+      fetchBookingDayHours(fakeClient as never, 'store-ginza', new Date('tomorrow'), ALL_WEEKDAYS as never),
+    ).resolves.toEqual({
+      weeklyHours: null,
+      closedDates: new Set(),
+      orgSaved: new Set(ALL_WEEKDAYS),
+    })
+    expect(policyGet).not.toHaveBeenCalled()
+    expect(listClosedDays).not.toHaveBeenCalled()
+  })
+
   it('a store week that says NOTHING at all falls through — an empty save must not black out a week', async () => {
     const result = await validateAppointmentTime(
       bookingInput(MON_1300_JST),
@@ -315,7 +341,7 @@ describe('the web door — createAppointment', () => {
       staffProfileId: 'staff-unknown',
     })
 
-    expect(result).toMatchObject({ error: 'Invalid appointment start time.' })
+    expect(result).toEqual({ error: 'Invalid appointment start time.', code: 'invalid_start' })
     expect(resolveSynqedStaffId).not.toHaveBeenCalled()
     expect(policyGet).not.toHaveBeenCalled()
     expect(apptCreate).not.toHaveBeenCalled()
