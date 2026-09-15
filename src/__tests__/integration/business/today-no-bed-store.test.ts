@@ -543,6 +543,39 @@ describe('G9 — no 「ベッド」 reachable', () => {
     expect(src).toContain('HONEST_HELD && heldCommitted && storeHasBeds(committedLanes)')
     expect(src).toContain('HONEST_HELD && heldBoard && !staffCardInHand && hasBeds')
   })
+
+  // ⚖ m5's own catch — item 12's five tour/legend sites, pinned by their
+  // GATING SYNTAX rather than by the Japanese text alone: the G9(ii) census
+  // above allows the underlying sentences unconditionally (they are legitimate
+  // e0132e47b lines), so removing one `hasBeds ?`/`hasBeds &&` wrapper leaves
+  // the text intact and the census blind to it. The occurrence COUNT is the
+  // simple half (any dropped gate lowers it); the five exact fragments are the
+  // named half, for a readable failure.
+  it('the five tour/legend hasBeds gates are all present (item 12, catches m5)', () => {
+    const fs = require('node:fs') as typeof import('node:fs')
+    const path = require('node:path') as typeof import('node:path')
+    const src = fs.readFileSync(
+      path.join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
+      'utf8',
+    )
+    const hasBedsCount = (src.match(/hasBeds/g) ?? []).length
+    // eslint-disable-next-line no-console
+    console.log('m5-catch', { hasBedsCount })
+    // 1 definition + 2 honest-gate reads + 6 tour-site reads (the rail tour's
+    // two sentences, the ⇄ legend key, the ⇄ guard-tour clause, the ⇄ key span,
+    // the 仮押さえ tour's two sentences counted as one guard) = 9.
+    expect(hasBedsCount).toBe(9)
+    for (const fragment of [
+      '${hasBeds ? `「満室」はその30分にベッドの空きがないという意味で',
+      "${hasBeds ? 'ベッドを別のスタッフの枠が使っていて",
+      '{hasBeds && <b>⇄ ベッドを入れ替えて置ける</b>}',
+      "${hasBeds ? 'ボードのカードをドラッグしている間は、ベッドを入れ替えれば置ける開始に",
+      '{hasBeds && <span className="guard-key reseat-key">⇄ = ベッドを入れ替えて置ける</span>}',
+      "${hasBeds ? 'ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります",
+    ]) {
+      expect(src).toContain(fragment)
+    }
+  })
 })
 
 describe('THE MATRIX — the rows this file can print (PLAN §4)', () => {
