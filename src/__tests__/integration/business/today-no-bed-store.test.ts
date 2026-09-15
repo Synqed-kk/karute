@@ -528,6 +528,21 @@ describe('G9 — no 「ベッド」 reachable', () => {
     console.log('G9-CENSUS', { offenderCount: offenders.length, offenders })
     expect(offenders).toEqual([])
   })
+
+  // ⚖ m3's own catch — a SOURCE-TEXT pin on the two ⚖ D-52 (a) gates (item
+  // 10/11), since the underlying `honestHeld`/`withheldOffers` calls in G5/G8
+  // above cannot observe whether the SCREEN actually gates them: only the
+  // source can prove `honest` and `heldBoardHonest` sit behind `storeHasBeds`.
+  it('the honest-netting gates are source-present (item 10/11, catches m3)', () => {
+    const fs = require('node:fs') as typeof import('node:fs')
+    const path = require('node:path') as typeof import('node:path')
+    const src = fs.readFileSync(
+      path.join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
+      'utf8',
+    )
+    expect(src).toContain('HONEST_HELD && heldCommitted && storeHasBeds(committedLanes)')
+    expect(src).toContain('HONEST_HELD && heldBoard && !staffCardInHand && hasBeds')
+  })
 })
 
 describe('THE MATRIX — the rows this file can print (PLAN §4)', () => {
