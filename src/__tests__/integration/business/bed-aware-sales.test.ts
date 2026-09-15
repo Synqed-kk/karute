@@ -18,7 +18,7 @@ import {
   type OfferAsk,
 } from '@/app/[locale]/(business)/business/today/bed-aware-sales'
 import type { BedTruth } from '@/app/[locale]/(business)/business/today/capacity-ledger'
-import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
+import { heldMaskOf, honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
 import type { ReservedLaneMask, ReservedSpan } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import type { BoardLane } from '@/business/lib/today-board'
 
@@ -363,8 +363,8 @@ describe('bed-aware-sales — the doors', () => {
 // (`heldRooms`, plural) instead of counting bed rows on the whole board, so it
 // closes exactly the ceiling (d) cannot: a store whose eligible rooms are a
 // strict subset of the board's (the M4 shape).
-describe('bed-aware-sales — ⚖ D-19 (3) / round 3 D: the eligibility pigeonhole', () => {
-  it('P1 — it fires where the count exit cannot (the M4 shape in miniature)', () => {
+describe('bed-aware-sales — ⚖ D-19 (3) · D-50 (a): the boards that used to reach exit (e) — now the walk runs, names return', () => {
+  it('P1 — the M4 shape in miniature: (d) is silent, the walk runs both rooms, no name (two different 枠 lost)', () => {
     // The saturated rows from "the doors" (x → bed-01 only, y → bed-02 only,
     // offer z wants either), now with a THIRD, foreign bed row that is never in
     // the book's answer — the M4 board's own shape, in miniature.
@@ -402,7 +402,7 @@ describe('bed-aware-sales — ⚖ D-19 (3) / round 3 D: the eligibility pigeonho
     expect(w.blockedBy.has(offer.key)).toBe(false)
   })
 
-  it('P2 — it falls through unchanged where Hall\'s condition holds', () => {
+  it('P2 — Hall\'s condition holds: on sale through the walk, as before', () => {
     const rows: Array<[string, number, number, string[]]> = [
       ['x', 600, 690, ['bed-01', 'bed-03']],
       ['y', 605, 695, ['bed-02']],
@@ -426,7 +426,7 @@ describe('bed-aware-sales — ⚖ D-19 (3) / round 3 D: the eligibility pigeonho
     expect(nettings).toBeGreaterThanOrEqual(1)
   })
 
-  it('P3 — the refuting instant is a LATER 枠\'s start, not the offer\'s', () => {
+  it('P3 — a LATER 枠\'s start inside the span: the walk runs, no name', () => {
     const rows: Array<[string, number, number, string[]]> = [
       ['x', 600, 690, ['bed-01']],
       ['y', 640, 730, ['bed-02']],
@@ -472,7 +472,7 @@ describe('bed-aware-sales — ⚖ D-19 (3) / round 3 D: the eligibility pigeonho
   // identity-path premise (`hit.every(h => h.rooms.length > 0)`). There is no
   // longer a "guard on its own" to pin.
 
-  it('P8 — the refuting instant is an earlier 枠\'s END inside the span (cold-read fold 3)', () => {
+  it('P8 — an earlier 枠\'s END inside the span: the walk runs and names C (the certifier\'s instant set keeps ends for the short-walk case — pinned by the trip family\'s property, item D)', () => {
     // Every 枠 is 90 minutes (the equal-length invariant). A and C share the same
     // span and the same two eligible rooms, so the netting must split them across
     // p and q; B ENDS at 610 — strictly inside the offer's span, and not the
@@ -838,6 +838,24 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
     return boardBusyAt(seed, R, STAFF, DUR)
   }
 
+  /** D (D-51 (c) fix — mutant m5 · L2's `rooms.some` survivor). L1's own rig
+   *  shape (LENS-1-delta-D2.md §3): R ∈ {3,5,8,10} × S ∈ {8,14,20} × 枠 ∈
+   *  {60,90,120,240}, half strict-subset book (`boardBusyAt` unchanged) and half
+   *  the foreign-bed flavour (one extra bed row the book never answers — the M4
+   *  shape). Neither builder nor Fable's own far-clique construction could hand-
+   *  build a deterministic END-hinged short-walk board, so this is the property
+   *  that stands in for one, and — unlike `boardBusy` above — it is run WITHOUT
+   *  the exact-outer skip: a budget-tripping board is exactly the case D exists
+   *  for, so it stays IN the sample here rather than being excused from it.
+   */
+  const boardTrip = (seed: number): ReturnType<typeof board> => {
+    const R = [3, 5, 8, 10][mix(seed, 201) % 4]
+    const STAFF = [8, 14, 20][mix(seed, 202) % 3]
+    const DUR = [60, 90, 120, 240][mix(seed, 203) % 4]
+    const b = boardBusyAt(seed, R, STAFF, DUR)
+    return mix(seed, 204) % 2 === 0 ? b : { ...b, lanes: [...b.lanes, ...bedRows(`bed-foreign-trip-${seed}`)] }
+  }
+
   it('≡ an exit-less reference on random boards — the SET always, the NAME wherever (d) did not decide', () => {
     // ⚖ D-50 (a) / D2 — the property body, run once per board FAMILY: the
     // original `board(seed)`, `boardWithForeignBed(seed)` (the M4 defeat of
@@ -863,6 +881,11 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
         // `boardBusy` (staff up to 20, rooms down to 3) sometimes does — a SKIP,
         // never a set disagreement, tracked separately so a board this property
         // cannot fairly judge is not counted as a failure.
+        // ⚖ R3 D2 fix B (L1 F2) — this SKIP used to be a hard `setFails.push`
+        // failure on main; relaxed because `boardBusy` really does trip the
+        // search budget (63/300 on the tip) and only that family may skip at all
+        // — bounded below: `main`/`foreign` assert `skipped === 0`, `busy`
+        // asserts `skipped < 150`.
         if (!honest.exact) { skipped += 1; continue }
         const w = withheldOffers(b.offers, honest, b.candidates, b.lanes, b.book, true)
         const want = reference(b.offers, honest, b.candidates, b.lanes, b.book)
@@ -913,6 +936,8 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
     expect(main.multiLossBoards).toBeGreaterThan(0)
     expect(main.fewerStaffThanRooms).toBeGreaterThan(0)
     expect(main.countDecidedOffers).toBeGreaterThan(0)
+    console.log('main.skipped =', main.skipped)
+    expect(main.skipped).toBe(0)
 
     // ⚖ D-51 fold 1 — a store whose eligible rooms are a strict subset of the
     // board's (the M4 shape). (d) is provably silent on this family (a foreign
@@ -930,6 +955,8 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
     expect(foreign.withheldBoards).toBeGreaterThan(0)
     expect(foreign.countDecidedOffers).toBe(0)
     expect(foreign.namedBoards).toBeGreaterThan(0)
+    console.log('foreign.skipped =', foreign.skipped)
+    expect(foreign.skipped).toBe(0)
 
     // ⚖ D-51 fold 2 — S1's own sweep shape (rooms 3–10, staff 8–20, a kept 枠 on
     // most rows): the family the first two are too small to produce, and the
@@ -939,6 +966,8 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
     expect(busy.nameFails).toEqual([])
     expect(busy.exitNamed).toEqual([])
     expect(busy.namedBoards).toBeGreaterThan(0)
+    console.log('busy.skipped =', busy.skipped)
+    expect(busy.skipped).toBeLessThan(150)
   })
 
   // ⚖ D-50 (a) / D2 item 7 — THE NAME-PRESERVATION PIN, EXPLICIT. S1's worst
@@ -976,13 +1005,13 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
   // overlap with no store filter, so a held 枠 of a DIFFERENT store can sit in
   // `hit` for an offer that can never take its rooms — free work lost for (d)
   // and, when the walk goes short, the certifier too — but never a wrong
-  // verdict, because the per-room walk (and the certifier's own Hall check)
-  // both read the OFFER's own candidate rooms, which `book.freeBedKeys` already
+  // verdict, because the witness, the walk and the certifier all read the
+  // OFFER's own store-aware candidate rooms, which `book.freeBedKeys` already
   // answers store-aware. x (store A) holds its only room a1; y (store B) holds
   // its only room b1 and overlaps x in TIME only; the offer (store A) wants
   // {a1, a2} — a2 is free (nobody's tie-break needs it) so the witness alone
   // proves it ON SALE, store-correctly, with y sitting uselessly in `hit`.
-  it('S2 LEG 7 — a multi-store board: a held 枠 of the OTHER store sits in `hit` (no store filter) but the walk still answers store-correctly', () => {
+  it('S2 LEG 7 — a multi-store board: a held 枠 of the OTHER store sits in `hit` (no store filter) but the answer is still store-correct — the witness sells it', () => {
     const rows: Array<[string, number, number, string[]]> = [
       ['x', 600, 690, ['a1']],
       ['y', 605, 695, ['b1']],
@@ -1074,6 +1103,105 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
     expect(w.unresolved.has(offer.key)).toBe(false)
     expect(w.keys.has(offer.key)).toBe(true)
     expect(w.blockedBy.has(offer.key)).toBe(false)
+  })
+
+  // D (D-51 (c) fix; mutant m5 · L2's `rooms.some` survivor). 200 `boardTrip`
+  // seeds, kept whole (no exact-outer skip). For every board: the module's
+  // withheld SET must equal the exit-less `reference`'s. For every offer the
+  // module withholds: a FROM-SCRATCH `shortRef` (its own per-room blocked
+  // re-net, never the module's `short`) and `hallRef` (Hall's one-instant
+  // condition over the offer's start plus every overlapping held 枠's start AND
+  // end, read off `honest.byLane[].heldRooms` directly, never the module's
+  // `proved`) must together predict `w.unresolved.has(o.key)` exactly. Among the
+  // offers the reference itself certifies (`shortRef && hallRef`), `endsNeeded`
+  // counts the ones whose Hall proof needs an END instant and fails on starts
+  // alone — the independent pin for mutant m5, asserted only if the run
+  // actually finds one (never typed in advance).
+  it('D — the certifier ≡ a from-scratch reference on budget-tripping boards (D-51 (c); mutant m5 · L2\'s `rooms.some` survivor)', () => {
+    const SEEDS = 200
+    let inexactBoards = 0
+    let withheldOffersChecked = 0
+    let certifiedOffers = 0
+    let endsNeeded = 0
+    for (let seed = 0; seed < SEEDS; seed += 1) {
+      const b = boardTrip(seed)
+      const honest = honestHeld(b.candidates, b.lanes, b.book, true)
+      if (!honest.exact) inexactBoards += 1
+      const w = withheldOffers(b.offers, honest, b.candidates, b.lanes, b.book, true)
+      const want = reference(b.offers, honest, b.candidates, b.lanes, b.book)
+
+      // Budget for D (packet): a SET disagreement is a finding for Fable, never
+      // a thing to "fix" in the module — print the board and stop asserting
+      // further on it if this ever fires.
+      if (JSON.stringify(setOf(w)) !== JSON.stringify(want.keys)) {
+        const dump = honest.byLane.flatMap((l) => l.held.map((s, i) => ({ start: s.start, end: s.end, rooms: l.heldRooms[i] })))
+        const events = [...new Set(dump.flatMap((s) => [s.start, s.end]))].sort((x, y) => x - y)
+        console.log('D DISAGREEMENT — seed', seed, 'module', setOf(w), 'reference', want.keys)
+        console.log('  U(t)/n(t) per instant:', events.map((t) => {
+          const cover = dump.filter((s) => s.start <= t && t < s.end)
+          return [t, [...new Set(cover.flatMap((s) => s.rooms))].sort(), cover.length]
+        }))
+      }
+      expect(setOf(w)).toEqual(want.keys)
+
+      const heldOnly = honest.byLane.filter((l) => l.held.length > 0).map(heldMaskOf)
+      const wantIds = new Set(honest.byLane.flatMap((l) => l.held.map((s) => offerKey(l.laneKey, s.windowStart))))
+      const heldSpansRef = honest.byLane.flatMap((l) => l.held.map((s, i) => ({ start: s.start, end: s.end, rooms: l.heldRooms[i] ?? [] })))
+
+      for (const o of b.offers) {
+        const rooms = b.book.freeBedKeys(o.start, o.end, { stores: o.stores })
+        if (rooms.length === 0 || !w.keys.has(o.key)) continue
+        withheldOffersChecked += 1
+
+        // shortRef — re-net `heldOnly` with a blocked book spelled from scratch
+        // per candidate room (the module's own three-line `blocked`, re-spelled
+        // — not imported, not `blockedFor`).
+        const blockedBook = (r: string): BedTruth =>
+          Object.create(b.book, {
+            freeBedKeys: {
+              value: (s: number, e: number, asker: never) =>
+                (s < o.end && o.start < e ? b.book.freeBedKeys(s, e, asker).filter((k) => k !== r) : b.book.freeBedKeys(s, e, asker)),
+            },
+          }) as BedTruth
+        let anyInexact = false
+        let anySeatsAll = false
+        for (const r of rooms) {
+          const walk = honestHeld(heldOnly, b.lanes, blockedBook(r), true)
+          if (!walk.exact) anyInexact = true
+          const heldWalkIds = new Set(walk.byLane.flatMap((l) => l.held.map((s) => offerKey(l.laneKey, s.windowStart))))
+          if ([...wantIds].every((id) => heldWalkIds.has(id))) anySeatsAll = true
+        }
+        const shortRef = anyInexact && !anySeatsAll
+
+        // hallRef — Hall's one-instant condition, read off `heldRooms` directly.
+        const hit = heldSpansRef.filter((s) => o.start < s.end && s.start < o.end)
+        const premise = hit.every((s) => s.rooms.length > 0)
+        const withEnds = [o.start, ...hit.flatMap((s) => [s.start, s.end]).filter((t) => t > o.start && t < o.end)]
+        const startsOnly = [o.start, ...hit.flatMap((s) => [s.start]).filter((t) => t > o.start && t < o.end)]
+        const hallAt = (instants: number[]) => premise && rooms.every((r) =>
+          instants.some((t) => {
+            const cover = hit.filter((s) => s.start <= t && t < s.end)
+            const u = new Set(cover.flatMap((s) => s.rooms))
+            return u.size - (u.has(r) ? 1 : 0) < cover.length
+          }))
+        const hallRef = hallAt(withEnds)
+
+        expect(w.unresolved.has(o.key)).toBe(shortRef && !hallRef)
+
+        if (shortRef && hallRef) {
+          certifiedOffers += 1
+          if (!hallAt(startsOnly)) endsNeeded += 1
+        }
+      }
+    }
+    console.log(`D: ${SEEDS} boards (${inexactBoards} inexact-outer) · ${withheldOffersChecked} withheld offers checked · ${certifiedOffers} certified · endsNeeded = ${endsNeeded}`)
+    expect(inexactBoards).toBeGreaterThan(0)
+    // endsNeeded printed 0 on this run (200 seeds, 4 certified offers, none of
+    // them needing an END instant to prove) — per the packet, no assertion is
+    // typed here. Mutant m5 (`steps` starts-only) stays a DISCLOSED survivor:
+    // sound (the safe direction — extra instants can only let the certifier
+    // prove MORE true losses, never a false one) but unpinned by this property,
+    // exactly as the whole-battery run already found it (⚖ D-51 (c)).
   })
 })
 
@@ -1254,6 +1382,23 @@ describe('bed-aware-sales — ⚖ D-50 (a) / D2: the certifier', () => {
     const unionAt = (t: number) => new Set(hit.filter((s) => s.start <= t && t < s.end).flatMap((s) => s.rooms))
     console.log('C2 offerRooms =', offerRooms, 'hit.length =', hit.length)
     console.log('C2 U(t)/n(t) at every hit boundary:', [...new Set(hit.flatMap((s) => [s.start, s.end]))].sort((a, b) => a - b).map((t) => [t, unionAt(t).size, covering(t)]))
+    // A (L1 F1) — the certifier's own precondition: block EVERY candidate room in
+    // turn and confirm the restricted walk is really SHORT there, not merely that
+    // the OUTER netting went inexact (blocking a room SHRINKS the search, so one
+    // does not imply the other) — today only mutant m3 observes this. The
+    // module's own three-line `blocked`, re-spelled here so this precondition
+    // does not depend on the shared `blockedFor` test helper either.
+    const heldOnly = honest.byLane.filter((l) => l.held.length > 0).map(heldMaskOf)
+    const blockedBook = (r: string): BedTruth =>
+      Object.create(book, {
+        freeBedKeys: {
+          value: (s: number, e: number, asker: never) =>
+            (s < offer.end && offer.start < e ? book.freeBedKeys(s, e, asker).filter((k) => k !== r) : book.freeBedKeys(s, e, asker)),
+        },
+      }) as BedTruth
+    const shortPerRoom = offerRooms.map((r) => honestHeld(heldOnly, lanes, blockedBook(r), true).exact === false)
+    console.log('C2 per-room blocked walk exact===false (short):', shortPerRoom)
+    expect(shortPerRoom.every(Boolean)).toBe(true)
     const before = asks.length
     const w = withheldOffers([offer], honest, candidates, lanes, book, true)
     const nettings = (asks.length - before - 1) / honest.total // one honestHeld call per candidate room, each asking heldOnly.length (= honest.total) times
