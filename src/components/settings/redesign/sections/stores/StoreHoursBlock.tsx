@@ -174,6 +174,8 @@ function StoreHoursEditor({
   const [saving, setSaving] = useState(false)
   /** The weekday whose 休業 flip is awaiting confirmation. */
   const [confirmDay, setConfirmDay] = useState<WeekdayKey | null>(null)
+  /** The 初期値に戻す press awaiting confirmation. */
+  const [confirmReset, setConfirmReset] = useState(false)
 
   const parsed = parseStoreWeeklyHours(draftToWeeklyHours(draft))
   const invalid = 'error' in parsed
@@ -199,6 +201,24 @@ function StoreHoursEditor({
     setUnsaved(false)
     toast.success(t('saved'))
   }, [draft, storeId, t])
+
+  /** ⚖ reversible-by-default — the way back. An explicit `null` week through
+   *  the SAME core the save uses ("clear back to unconfigured", the SDK's own
+   *  words), so the store returns to 全店共通の初期値 and the editor goes back
+   *  to showing that default as a starting point, not as this store's truth. */
+  const resetToDefault = useCallback(async () => {
+    setSaving(true)
+    const result = await setStoreHours(storeId, null)
+    setSaving(false)
+    if ('error' in result) {
+      toast.error(knownError(result.error) ? t(errorKey(result.error)) : result.error)
+      return
+    }
+    setConfirmReset(false)
+    setDraft(seedDraft(null, normalizedOrg))
+    setUnsaved(true)
+    toast.success(t('resetDone'))
+  }, [normalizedOrg, storeId, t])
 
   return (
     <div className="mt-3">
@@ -306,7 +326,41 @@ function StoreHoursEditor({
         {invalid && (
           <span className="text-[12px] text-muted-foreground">{t('fixBeforeSaving')}</span>
         )}
+        {/* The way back, offered ONLY once this store has a week of its own —
+         *  there is nothing to undo while it is still on the default. */}
+        {!unsaved && (
+          <button
+            type="button"
+            onClick={() => setConfirmReset(true)}
+            disabled={saving}
+            className="inline-flex h-9 items-center rounded-lg border border-border px-3 text-[13px] font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
+          >
+            {t('resetToDefault')}
+          </button>
+        )}
       </div>
+      {confirmReset && (
+        <div className="mt-2 rounded-lg bg-muted px-3 py-2">
+          <p className="text-[12px] leading-relaxed text-foreground">{t('resetConfirm')}</p>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={resetToDefault}
+              disabled={saving}
+              className="inline-flex h-8 items-center rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 text-[12px] font-medium text-amber-700 disabled:opacity-50 dark:text-amber-400"
+            >
+              {t('resetConfirmYes')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmReset(false)}
+              className="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-[12px] font-medium text-muted-foreground hover:bg-muted"
+            >
+              {t('closedConfirmNo')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

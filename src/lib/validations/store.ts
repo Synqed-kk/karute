@@ -67,11 +67,18 @@ const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
 /** THE one validator for a store-hours save — server truth, and the editor's
  *  own "can I save yet" predicate, so the two can never disagree. Returns a
  *  freshly BUILT seven-key object: nothing the caller sent beyond the seven
- *  weekdays can reach core. */
+ *  weekdays can reach core.
+ *
+ *  Accepts exactly two shapes and nothing else: an explicit `null` — the way
+ *  back to 全店共通の初期値, which the SDK defines as "clear back to
+ *  unconfigured" — or all seven weekdays. `{}` is NOT a reset: the resolver
+ *  reads an empty object as "not configured" and so would never notice, but
+ *  the shape is still a short week and is refused as one. */
 export function parseStoreWeeklyHours(
   value: unknown,
-): { hours: StoreWeeklyHours } | { error: string } {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+): { hours: StoreWeeklyHours | null } | { error: string } {
+  if (value === null) return { hours: null }
+  if (typeof value !== 'object' || Array.isArray(value)) {
     return { error: STORE_HOURS_WEEK_INCOMPLETE }
   }
   const source = value as Record<string, unknown>

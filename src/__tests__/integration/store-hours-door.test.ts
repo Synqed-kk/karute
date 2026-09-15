@@ -126,6 +126,11 @@ jest.mock('@/lib/synqed/staff-map', () => ({
 
 import { PATCH as hoursPATCH } from '@/app/api/app/v1/stores/[id]/hours/route'
 import { setStoreHours, listStoresWithClient } from '@/actions/stores'
+import {
+  normalizeOperatingHours,
+  resolveDayHours,
+  type WeekdayKey,
+} from '@/lib/operating-hours'
 import { upsertOrgSettings } from '@/actions/org-settings'
 import { StoreRowSchema } from '@/lib/app-api/settings-screen-dto'
 import {
@@ -231,12 +236,76 @@ describe('the seven-weekday invariant', () => {
   })
 
   it('a body that is not an object at all is refused, not coerced', async () => {
-    for (const bad of [null, 'mon', 42, [], undefined]) {
+    // `null` is NOT in this list: it is the reset (see the way-back describe).
+    for (const bad of ['mon', 42, [], undefined]) {
       expect(await setStoreHours('store-7', bad)).toEqual({
         error: STORE_HOURS_WEEK_INCOMPLETE,
       })
     }
     expect(storePoliciesSet).not.toHaveBeenCalled()
+  })
+
+  it('an EMPTY object is refused for its SHAPE — it is a short week, never a reset', async () => {
+    // The resolver reads {} as "not configured" and so would never notice the
+    // difference; the validator still refuses it, because the only two shapes
+    // this door accepts are null and all seven weekdays.
+    expect(await setStoreHours('store-7', {})).toEqual({
+      error: STORE_HOURS_WEEK_INCOMPLETE,
+    })
+    expect(storePoliciesSet).not.toHaveBeenCalled()
+  })
+})
+
+describe('the way back — 全店共通の初期値に戻す (⚖ reversible by default)', () => {
+  it('an explicit null clears the week through the SAME core, and nothing else', async () => {
+    expect(await setStoreHours('store-7', null)).toEqual({ ok: true })
+    const [storeId, body] = storePoliciesSet.mock.calls[0]
+    expect(storeId).toBe('store-7')
+    expect(body).toEqual({ weekly_hours: null, acting_staff_id: CORE_STAFF_ID })
+  })
+
+  it('the phone door resets identically', async () => {
+    const res = await hoursPATCH(patchReq(null), params('store-7'))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(storePoliciesSet.mock.calls[0][1]).toEqual({
+      weekly_hours: null,
+      acting_staff_id: CORE_STAFF_ID,
+    })
+  })
+
+  it('it logs as its own act, not as an edit', async () => {
+    storePoliciesGet.mockResolvedValue({ weekly_hours: FULL_WEEK })
+    const lines = await auditLines(async () => {
+      expect(await setStoreHours('store-7', null)).toEqual({ ok: true })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ action: 'settings.store_hours_reset' })
+    const detail = (lines[0] as { detail: { before: string; after: string } }).detail
+    expect(detail.before).toContain('mon=10:00-19:30')
+    expect(detail.after).toBe('default')
+  })
+
+  it('a reset is owner-gated exactly like a save', async () => {
+    roster.mockResolvedValue(MANAGER)
+    mockCapabilities.mockResolvedValue(new Set(['stores.viewAll', 'settings.manage']))
+    expect(await setStoreHours('store-7', null)).toEqual({ error: STORE_OWNER_DENIAL })
+    expect(storePoliciesSet).not.toHaveBeenCalled()
+  })
+
+  it('after the reset the resolver is back on the business-wide blob, not on a blacked-out week', () => {
+    const orgHours = normalizeOperatingHours(null)
+    const monday = new Date('2026-09-14T03:00:00.000Z') // JST Mon
+    const fact = resolveDayHours({
+      date: monday,
+      weeklyHours: null,
+      closedDates: new Set<string>(),
+      orgHours,
+      orgSaved: new Set<WeekdayKey>(['mon']),
+    })
+    expect(fact.closed).toBe(false)
+    expect(fact.openMinute).toBe(orgHours.mon.openMinute)
+    expect(fact.closeMinute).toBe(orgHours.mon.closeMinute)
   })
 })
 

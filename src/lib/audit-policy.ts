@@ -96,6 +96,7 @@ export const AUDIT_ACTIONS = [
   'settings.recording_autostart_toggle',
   'settings.staff_stores_change',
   'settings.store_create',
+  'settings.store_hours_reset',
   'settings.store_hours_update',
   'settings.store_update',
   'settings.sync_config_update',

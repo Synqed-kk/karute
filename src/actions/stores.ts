@@ -548,6 +548,11 @@ function weekForAudit(hours: WeeklyHours | null): string {
  *  store's hours is the RBAC capability upgrade, a separate lane; it is
  *  recorded, not built here.
  *
+ *  THE WAY BACK (⚖ reversible-by-default): an explicit `null` week is the
+ *  reset — the SDK's own "clear back to unconfigured" — and rides this same
+ *  core, both doors, so the easy direction can never be the destructive one.
+ *  It logs as settings.store_hours_reset.
+ *
  *  `weekly_hours` is the ONLY policy field sent. Core honours partial update
  *  ("undefined = keep", dist/types.d.ts:1075 — proven against the practice
  *  business 2026-09-16), so re-sending cutoff/cancellation/gap-guard fields
@@ -598,18 +603,27 @@ export async function setStoreHoursCore(
     // one, in the app's log that salon staff read. Keeping ours is the
     // ruling; carrying the same change in `detail` is what stops it being
     // the poorer twin.
-    audit({
+    const row = {
       category: 'settings',
-      action: 'settings.store_hours_update',
       actorId: deps.selfUserId,
       actorType: 'staff',
       businessId,
       targetType: 'store',
       targetId: storeId,
-      requestId: deps.requestId,
       source: deps.source,
       detail: { before, after: weekForAudit(parsed.hours) },
-    })
+    } as const
+    // The way back is its own act in the log — 「この店舗の時間を消して全店共通
+    // に戻した」 is not the same fact as 「時間を変えた」, and a reader scanning
+    // actions should not have to open the diff to tell them apart. Two literal
+    // emits over one shared row: CP4 bans a computed `action` argument and CP5
+    // wants `requestId` visible at each call site.
+    const requestId = deps.requestId
+    if (parsed.hours === null) {
+      audit({ ...row, action: 'settings.store_hours_reset', requestId })
+      return { ok: true }
+    }
+    audit({ ...row, action: 'settings.store_hours_update', requestId })
     return { ok: true }
   } catch (e) {
     return {

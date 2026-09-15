@@ -227,6 +227,59 @@ describe('saving', () => {
   })
 })
 
+// R1-4 — ⚖ reversible by default: the easy direction must never be the
+// destructive one. Before this, an owner who opened the block, glanced at the
+// pre-filled week and pressed 保存 had pinned the store to those hours with no
+// way back through the product.
+describe('the way back to the company-wide default', () => {
+  it('is not offered while the store is still ON the default — there is nothing to undo', () => {
+    open()
+    expect(screen.queryByText('resetToDefault')).not.toBeInTheDocument()
+  })
+
+  it('appears once the store has a week of its own, and asks before it clears anything', () => {
+    open({ weeklyHours: OWN_WEEK })
+    fireEvent.click(screen.getByText('resetToDefault'))
+    expect(screen.getByText('resetConfirm')).toBeInTheDocument()
+    expect(setStoreHours).not.toHaveBeenCalled()
+  })
+
+  it('confirming sends an explicit null — the reset, not a seven-day 定休日', async () => {
+    open({ weeklyHours: OWN_WEEK })
+    fireEvent.click(screen.getByText('resetToDefault'))
+    fireEvent.click(screen.getByText('resetConfirmYes'))
+    await waitFor(() => expect(setStoreHours).toHaveBeenCalledTimes(1))
+    expect(setStoreHours.mock.calls[0]).toEqual(['store-7', null])
+  })
+
+  it('after the reset the editor is honest again: the default, marked not yet saved', async () => {
+    const { container } = open({ weeklyHours: OWN_WEEK })
+    fireEvent.click(screen.getByText('resetToDefault'))
+    fireEvent.click(screen.getByText('resetConfirmYes'))
+    await waitFor(() => expect(screen.getByText('usingDefault')).toBeInTheDocument())
+    expect(timeInputs(container)[0].value).toBe('10:00') // back to the org week
+    expect(screen.queryByText('resetToDefault')).not.toBeInTheDocument()
+  })
+
+  it('declining changes nothing', () => {
+    open({ weeklyHours: OWN_WEEK })
+    fireEvent.click(screen.getByText('resetToDefault'))
+    fireEvent.click(screen.getByText('closedConfirmNo'))
+    expect(screen.queryByText('resetConfirm')).not.toBeInTheDocument()
+    expect(setStoreHours).not.toHaveBeenCalled()
+  })
+
+  it('a refused reset keeps the store on its own week', async () => {
+    setStoreHours.mockResolvedValue({ error: 'nope' })
+    const { container } = open({ weeklyHours: OWN_WEEK })
+    fireEvent.click(screen.getByText('resetToDefault'))
+    fireEvent.click(screen.getByText('resetConfirmYes'))
+    await waitFor(() => expect(setStoreHours).toHaveBeenCalled())
+    expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
+    expect(timeInputs(container)[0].value).toBe('11:00')
+  })
+})
+
 // R1-2 — the section's own re-list. Before the fold, refresh() re-listed
 // WITHOUT hours, so after any store rename the editor re-offered the
 // business-wide default as 「まだ保存されていません」 and one 保存 wrote it
