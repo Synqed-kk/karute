@@ -160,6 +160,11 @@
       "legendMedium": "Medium",
       "legendBusy": "Busy"
     },
+    "dateJump": {
+      "loading": "Loading bookings…",
+      "failed": "Couldn't load bookings",
+      "legendCount": "Number = bookings that day"
+    },
     "weekCard": {
       "today": "Today",
       "bookings": " bookings",
