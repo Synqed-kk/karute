@@ -7,6 +7,7 @@
 // The `data-week-*` markers exist so the port itself is testable: every one of
 // those CSS rules is pinned by a named test, not left to a screenshot.
 import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { MonthDensityBucket } from '@synqed-kk/ui'
 import { useTranslations } from 'next-intl'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -50,14 +51,24 @@ function shortMonthDay(dateIso: string): string {
   return `${p.month}/${p.day}`
 }
 
+/** ONE band→colour map for every 予約 surface that draws a density dot: the
+ *  week row's own dot and the 月 grid's (MonthPage's `bandTone`). A second map
+ *  is how the same day ends up green here and blue there. */
+export const DENSITY_DOT_CLASS: Record<MonthDensityBucket, string | null> = {
+  empty: null,
+  light: 'bg-[var(--color-success)]',
+  medium: 'bg-[var(--color-accent)]',
+  busy: 'bg-[var(--color-warning)]',
+}
+
 /** The app's ONE fixed density table (mirrors reservation.ts's private
  *  densityFor / @synqed-kk/ui's MonthDensityBucket thresholds — not
  *  exported, so reproduced here; pinned equal by a test). null = no dot. */
 export function densityDotClass(count: number): string | null {
-  if (count === 0) return null
-  if (count <= 2) return 'bg-[var(--color-success)]'
-  if (count <= 5) return 'bg-[var(--color-accent)]'
-  return 'bg-[var(--color-warning)]'
+  if (count === 0) return DENSITY_DOT_CLASS.empty
+  if (count <= 2) return DENSITY_DOT_CLASS.light
+  if (count <= 5) return DENSITY_DOT_CLASS.medium
+  return DENSITY_DOT_CLASS.busy
 }
 
 // Shared with DayNumbersLine.tsx (W5) — one tone→class map for both cell

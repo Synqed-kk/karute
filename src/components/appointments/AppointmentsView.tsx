@@ -6,10 +6,8 @@ import { useUnreadCount } from '@/lib/notifications/hooks'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import {
   DayWeekMonthToggle,
-  MonthGrid,
   ReservationPageHeader,
   type DayWeekMonthView,
-  type MonthGridCell,
 } from '@synqed-kk/ui'
 import { useTranslations, useLocale } from 'next-intl'
 import { Bell, CalendarPlus } from 'lucide-react'
@@ -31,6 +29,7 @@ import {
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
 import { DayNumbersLine } from '@/components/appointments/DayNumbersLine'
 import { WeekRows } from '@/components/appointments/WeekRows'
+import { MonthPage } from '@/components/appointments/MonthPage'
 import { DateJumpPanel } from '@/components/appointments/DateJumpPanel'
 import { NewBookingDialog } from '@/components/appointments/NewBookingDialog'
 import { BookingActionSheetWrapper } from '@/components/appointments/BookingActionSheetWrapper'
@@ -42,7 +41,7 @@ import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import type { CachedMenuOption } from '@/lib/menus/cached'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
-import type { WeekDayRowData } from '@/lib/adapters/reservation'
+import type { MonthCell, WeekDayRowData } from '@/lib/adapters/reservation'
 import type { ReservationStaff } from '@/components/reservation/StaffRow'
 import type { BusinessHours } from '@/components/reservation/TimeAxis'
 
@@ -66,7 +65,7 @@ interface AppointmentsViewProps {
   selectedDateIso: string
   weekData: WeekDayRowData[] | null
   weekStartIso: string | null
-  monthData: MonthGridCell[] | null
+  monthData: MonthCell[] | null
   monthStartIso: string | null
   /** The SELECTED day's row — the day line's four numbers, from the same
    *  adapter the week rows come from, so the two surfaces cannot disagree.
@@ -560,19 +559,29 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             onPickDay={(iso) => navigateTo('day', jstWallTimeToDate(iso, '00:00'))}
           />
         ) : view === 'month' && props.monthData ? (
-          <div className="md:h-[calc(100vh-260px)]">
-            <MonthGrid
-              cells={props.monthData}
-              copy={{
-                weekdayLabels: monthWeekdayLabels,
-                legendLight: tReservation('month.legendLight'),
-                legendMedium: tReservation('month.legendMedium'),
-                legendBusy: tReservation('month.legendBusy'),
-              }}
-              onPickDay={(date) => navigateTo('day', date)}
-              className="h-full"
-            />
-          </div>
+          /* The app-local month grid + month line (spec §4 / mock §v10-§v11c),
+           *  replacing @synqed-kk/ui's MonthGrid ON THE PAGE. The package grid
+           *  has no selected day, no 休 cell, and prints its day numbers from a
+           *  raw Date — the runtime's local day, which on the UTC server is
+           *  yesterday's. The pop-down keeps rendering through it (approved,
+           *  byte-frozen); the page does not. */
+          <MonthPage
+            cells={props.monthData}
+            selectedDateIso={ymdInJst(selectedDate)}
+            todayIso={ymdInJst(today)}
+            weekdayLabels={monthWeekdayLabels}
+            // PKT-2 owns the strict 新規/再来 producer; today's
+            // newCustomerCount is the QR import flag and must not print
+            // (spec §8). 'off' = the month line is 予約 alone, never a
+            // substitute metric in that slot.
+            typeSlot="off"
+            locale={props.locale}
+            // The router transition IS the month line's pending state, exactly
+            // as it is the week's: mid-move the total on screen is the month
+            // being left.
+            pending={isPending}
+            onPickDay={(iso) => navigateTo('day', jstWallTimeToDate(iso, '00:00'))}
+          />
         ) : (
           /* 「データがありません」 — reached only when the read ANSWERED and
            *  there is nothing to show: a 月 with no monthData (that door's own
