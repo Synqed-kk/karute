@@ -11,6 +11,7 @@
  *     pending chip.
  */
 import { appointmentsToWeekData } from '@/lib/adapters/reservation'
+import { ymdInJst } from '@/lib/date/jst'
 import type { Appointment } from '@synqed-kk/client'
 
 function appt(over: Partial<Appointment> = {}): Appointment {
@@ -104,8 +105,8 @@ describe('appointmentsToWeekData — unconfirmed is never the cancelled count', 
   })
 })
 
-describe('appointmentsToWeekData — new-customer count (was hardcoded 0)', () => {
-  it('counts bookings whose customer is in the new-customer set', () => {
+describe('appointmentsToWeekData — new-customer count (⚖ PKT-2: the day map)', () => {
+  it('reads the day it is given out of the window map, never a customer set', () => {
     const days = appointmentsToWeekData(
       [appt({ customer_id: 'new1' }), appt({ id: 'a2', customer_id: 'reg1' })],
       WEEK_START,
@@ -113,12 +114,12 @@ describe('appointmentsToWeekData — new-customer count (was hardcoded 0)', () =
       480,
       TODAY,
       'ja',
-      new Set(['new1']),
+      new Map([[ymdInJst(WEEK_START), 1]]),
     )
     expect(days[0].newCustomerCount).toBe(1)
   })
 
-  it('defaults to 0 when no new-customer set is passed', () => {
+  it('defaults to 0 when no new-count map is passed', () => {
     const days = appointmentsToWeekData([appt()], WEEK_START, WEEK_END, 480, TODAY, 'ja')
     expect(days[0].newCustomerCount).toBe(0)
   })

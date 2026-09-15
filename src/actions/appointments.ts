@@ -325,6 +325,9 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
       isToday: c.isToday,
       count: c.count,
       density: c.density,
+      // The jump panel prints no 新規 and this door reads no enrichment, so it
+      // carries none rather than a number computed from inputs it never read.
+      newCount: 0,
       // The jump panel reads COUNTS only — no hours, no roster, no store type
       // are fetched here, so these months honestly carry no capacity rather
       // than a percentage computed from inputs this door never read. The dots

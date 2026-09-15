@@ -28,6 +28,7 @@ import type { DayHoursFact } from '@/lib/operating-hours'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
 import { isReturningCustomer } from '@/lib/customers/status-signals'
 import { firstVisitFromBooking } from '@/lib/customers/first-visit'
+import { newCountByDay, type FirstVisitInputs } from '@/lib/appointments/first-visit'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import { jstStartOfToday, partsInJst } from '@/lib/date/jst'
@@ -151,6 +152,11 @@ export interface AppointmentsScreen {
    *  can never describe different days. In-month days only — the padding
    *  cells render no numbers. */
   monthFacts: ReadonlyMap<string, CapacityFact> | null
+  /** ⚖ PKT-2 — the month's 新規 count per JST day, keyed by the cell's own id,
+   *  beside the cells for the same reason monthFacts is. From the SAME window
+   *  memo the week rows and the day totals read, so one day cannot come out
+   *  two ways on one screen. Null when the month was not read. */
+  monthNewCounts: ReadonlyMap<string, number> | null
   monthStartIso: string | null
   /** The SELECTED day's row, from the same adapter the week rows come from —
    *  so the day line and the week row can never disagree. Null when no window
@@ -396,9 +402,23 @@ export function buildAppointmentsScreen(
       })()
     : Math.max(0, dayOpHours.closeMinute - dayOpHours.openMinute)
 
-  const newCustomerIds = new Set(
-    customers.filter((c) => !c.isExistingCustomer).map((c) => c.id),
-  )
+  // ⚖ PKT-2 — the 新規 producer. What stood here was a set of customers
+  // carrying the QuickReserve `is_existing_customer === false` import flag: a
+  // different source answering a different question, and the number it fed
+  // never printed. It is deleted rather than kept beside the new rule — two
+  // formulas for one number is how a screen starts contradicting its own list.
+  //
+  // Per WINDOW, never per day: rule (3) needs the whole window to find a
+  // customer's earliest booking. Memoized by window object, so the week rows
+  // and the selected day's totals read the SAME map — the same day cannot come
+  // out two ways on one screen.
+  const firstVisitInputs: FirstVisitInputs = { enrichment, packUsage }
+  const newCountCache = new Map<AppointmentWindow, ReadonlyMap<string, number>>()
+  const newCountsFor = (win: AppointmentWindow): ReadonlyMap<string, number> => {
+    let m = newCountCache.get(win)
+    if (!m) newCountCache.set(win, (m = newCountByDay(win.counted, firstVisitInputs)))
+    return m
+  }
   const soloMode = orgSettings?.solo_mode === true
 
   // ── THE DIVISOR (S4) — the same store lens the pickers use, counted ───────
@@ -447,7 +467,7 @@ export function buildAppointmentsScreen(
       fallbackDayMinutes,
       now,
       locale,
-      newCustomerIds,
+      newCountsFor(win),
       { cancelled: win.cancelled, noShow: win.noShow },
       hoursFacts,
       soloMode,
@@ -457,6 +477,7 @@ export function buildAppointmentsScreen(
   let weekData: WeekDayRowData[] | null = null
   let monthData: MonthGridCell[] | null = null
   let monthFacts: ReadonlyMap<string, CapacityFact> | null = null
+  let monthNewCounts: ReadonlyMap<string, number> | null = null
   let weekStartIso: string | null = null
   let monthStartIso: string | null = null
 
@@ -481,6 +502,9 @@ export function buildAppointmentsScreen(
         monthRange.monthEnd,
         { hoursFacts, soloMode, rosterHeadcount: capacityRoster, laneKind },
       )
+      // Same window, same memo as the week rows would take — a month cell's
+      // 新規 and the week row's 新規 for one day are one number.
+      monthNewCounts = newCountsFor(monthWin)
     }
     monthStartIso = monthRange.monthStart.toISOString()
   }
@@ -511,6 +535,7 @@ export function buildAppointmentsScreen(
     weekStartIso,
     monthData,
     monthFacts,
+    monthNewCounts,
     monthStartIso,
     dayTotals,
     truncated,

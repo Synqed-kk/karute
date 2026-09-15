@@ -8,6 +8,7 @@ import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getMonthCells } from '@/actions/appointments'
 import { getCachedDayAgenda } from '@/lib/appointments/day-agenda-cached'
+import { countedClientIds } from '@/lib/appointments/by-date'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCachedMenuOptions, scopeMenuOptions } from '@/lib/menus/cached'
 import { getAppointmentWindow } from '@/actions/appointments-window'
@@ -177,8 +178,19 @@ export default async function AppointmentsPage({
   // dayAppointments (it needs the client_ids of today's bookings)
   // AND businessId. Both came back in Stage 1.
   // ─────────────────────────────────────────────────────────────
+  // ⚖ PKT-2 — the enrichment set is the WINDOW's clients, not just the
+  // selected day's. The 新規 rule asks "is this person's first visit this
+  // day?" for every day on screen, so seeding it from one day would leave the
+  // other six with no reconciled history to read and drop them all onto the
+  // window-earliest fallback. Cost is nil: enrichCustomers reads ONE cached
+  // business-wide aggregate and maps the ids it is handed — no per-id fetch,
+  // no pager. Store isolation is unchanged: every id here comes out of a
+  // window that was fetched under the RBAC-resolved store.
   const clientIdsForDay = Array.from(
-    new Set(dayAppointments.map((a) => a.client_id)),
+    new Set([
+      ...dayAppointments.map((a) => a.client_id),
+      ...countedClientIds(weekWindow, monthWindow, dayWindow),
+    ]),
   )
   // Pack usage loads in parallel — the 残3/10 pill on each agenda row. Empty
   // map until the ticket_packs migration applies (graceful). 回数券 off (org

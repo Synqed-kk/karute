@@ -66,7 +66,7 @@ const noShow = ROWS.filter((a) => a.status === 'NO_SHOW' && a.customer_id != nul
 
 describe('件 parity — month cell, week row and day total are ONE number', () => {
   it('counts 3: tombstones, the BLOCK hold and nothing else are excluded', () => {
-    const week = appointmentsToWeekData(counted, DAY, DAY, 480, TODAY, 'ja', new Set(), {
+    const week = appointmentsToWeekData(counted, DAY, DAY, 480, TODAY, 'ja', new Map(), {
       cancelled,
       noShow,
     })

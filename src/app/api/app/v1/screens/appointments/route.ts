@@ -28,6 +28,7 @@ import { enrichCustomers, type CustomerEnrichment } from '@/lib/customers/list-e
 import { listAllPackUsageWithClient, type CustomerPackUsage } from '@/lib/packs/store'
 import { customerLensFor, storeStaffIdSetForBusiness } from '@/lib/auth/store-scope'
 import {
+  countedClientIds,
   emptyAppointmentWindow,
   fetchAppointmentWindow,
   fetchCoreStaffByProfileId,
@@ -232,8 +233,19 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
 
     // Stage 2 — enrichment for today's clients + the pack pills (page parity:
     // pack read is graceful, 回数券 off skips it entirely).
+    // ⚖ PKT-2 — the enrichment set is the WINDOW's clients, not just the
+    // selected day's. The 新規 rule asks "is this person's first visit this
+    // day?" for every day on screen, so seeding it from one day would leave the
+    // other six with no reconciled history to read and drop them all onto the
+    // window-earliest fallback. Cost is nil: enrichCustomers reads ONE cached
+    // business-wide aggregate and maps the ids it is handed — no per-id fetch,
+    // no pager. Store isolation is unchanged: every id here comes out of a
+    // window that was fetched under the RBAC-resolved store.
     const clientIdsForDay = Array.from(
-      new Set(dayAppointments.map((a) => a.client_id)),
+      new Set([
+        ...dayAppointments.map((a) => a.client_id),
+        ...countedClientIds(weekWindow, monthWindow, dayWindow),
+      ]),
     )
     const ticketsEnabled = orgSettings?.ticket_packs_enabled ?? true
     const [enrichment, packUsage] = await Promise.all([
@@ -316,6 +328,9 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             isToday: c.isToday,
             count: c.count,
             density: c.density,
+            // In-month cells only: the padding cells carry no day of their own
+            // to be anybody's first visit on.
+            newCount: (c.inMonth && screen.monthNewCounts?.get(c.id)) || 0,
             // The cell's own capacity fact, keyed by the same id the cell
             // carries. An out-of-month padding cell has none and takes the
             // no-capacity defaults — it renders no numbers either way.

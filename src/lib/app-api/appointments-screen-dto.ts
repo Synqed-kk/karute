@@ -134,6 +134,12 @@ export const MonthCellDTO = z.object({
    *  when a day has no capacity, so the percentage bands ride beside it rather
    *  than replacing it. */
   density: z.enum(['empty', 'light', 'medium', 'busy']),
+  /** ⚖ PKT-2 — the people whose first visit falls on this day, from the same
+   *  window map the week rows and the day totals read. Additive and defaulted,
+   *  so an older server or an older baked bundle reads 0 rather than failing
+   *  the parse. Out-of-month padding cells are always 0 — they render no
+   *  numbers. A truncated window sends no month at all. */
+  newCount: z.number().default(0),
 })
 /** JSON shape of one 月 grid cell — the wire type the date-jump panel's
  *  month loader returns on BOTH doors (facade GET on the phone, server action

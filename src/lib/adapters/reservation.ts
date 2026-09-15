@@ -281,9 +281,12 @@ export function appointmentsToWeekData(
   businessHoursMinutes: number,
   today: Date,
   locale: string,
-  // Client ids flagged new (QR `is_existing_customer === false`) — drives the
-  // per-day "new customer" chip. Empty set = no new-customer highlighting.
-  newCustomerIds: Set<string> = new Set(),
+  /** ⚖ PKT-2 — the 新規 number per JST day, from `newCountByDay` over the
+   *  WHOLE window (src/lib/appointments/first-visit.ts). A day absent from the
+   *  map has no 新規. Empty map = no 新規 anywhere, which is also the truncated
+   *  window's answer. Never re-derived here: the week row, the month cell and
+   *  the selected day's totals all read the one map their window produced. */
+  newCountsByDay: ReadonlyMap<string, number> = new Map(),
   /** The window's CANCELLED / NO_SHOW bookings (fetchAppointmentWindow's own
    *  partitions). Absent = the counts render 0, today's behaviour. */
   terminal?: { cancelled: Appointment[]; noShow: Appointment[] },
@@ -406,8 +409,7 @@ export function appointmentsToWeekData(
       cancelledCount: cancelledByDay.get(key) ?? 0,
       noShowDayCount: noShowByDay.get(key) ?? 0,
       returningCount: 0,
-      newCustomerCount: dayAppts.filter((a) => a.customer_id && newCustomerIds.has(a.customer_id))
-        .length,
+      newCustomerCount: newCountsByDay.get(key) ?? 0,
       remindersPending: 0,
       consentPending: 0,
       // synqed appointments have no "unconfirmed/pending" status
