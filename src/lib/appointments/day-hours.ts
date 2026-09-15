@@ -8,14 +8,27 @@
 // a single date — never a window, never a second resolver.
 //
 // DEGRADED-ALLOWED, on purpose: a store-policy read we could not make says
-// NOTHING about whether the day is closed, and refusing every booking because a
-// policy read hiccuped would be a new outage the app invented — the front desk
-// could not take a booking that core itself would happily accept. So a failed
-// read logs and falls through to the business-wide blob, which is exactly the
-// behaviour of this tip today (nothing refuses a closed day at all). Same call
-// as appointments-window.ts's `stores.get` sibling: "failing the whole thing
-// over it would be the louder lie." The closed day still renders 休 on the
-// screens; only the refusal steps aside.
+// NOTHING about whether the day is closed, and REFUSING a booking over a read
+// we could not make would be an outage the app invented on the write path —
+// the front desk could not take a booking that core itself would happily
+// accept.
+//
+// ⚖ R1-6, the honest trade, stated because it is NOT what the neighbour does:
+// the 予約 SCREEN's own storePolicies read (appointments-window.ts:115-120)
+// deliberately does not catch — "Anything that does throw here is a real
+// outage and must reach the page." (Its `stores.get` sibling, the
+// business-type read, is the one that catches, and that is a different
+// question.) So under a storePolicies outage the two layers make OPPOSITE
+// calls on purpose: the screen fails LOUD, because a page of wrong numbers is
+// a lie; this door fails OPEN, because a refusal is an action taken against
+// the staffer on evidence we do not have. What that costs is real and is
+// accepted: during such an outage the screen is erroring, so the staffer is
+// not being shown 休 either — nothing here is silently contradicting a screen.
+//
+// ⚖ R1-6 — the two reads settle INDEPENDENTLY. They answer different
+// questions (the weekly 定休日 and the ad-hoc 臨時休業 dates), so one failing
+// must not throw away the other's good answer: a blipped closed-dates read
+// used to reopen a store's whole weekly 定休日 with it.
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { ymdInJst } from '@/lib/date/jst'
@@ -63,20 +76,32 @@ export async function fetchBookingDayHours(
   const ymd = ymdInJst(date)
   const nextDay = new Date(date.getTime() + 86_400_000)
 
-  try {
-    const [policy, closed] = await Promise.all([
-      synqed.storePolicies.get(storeId),
-      // `to` is EXCLUSIVE (the SDK's own contract, dist/store-policies.d.ts), so
-      // one day is [ymd, ymd+1). JST has no DST — one day is exactly 86,400,000 ms.
-      synqed.storePolicies.listClosedDays(storeId, { from: ymd, to: ymdInJst(nextDay) }),
-    ])
-    return {
-      weeklyHours: policy?.weekly_hours ?? null,
-      closedDates: new Set(closed.closed_days.map((d) => d.date)),
-      orgSaved: new Set<WeekdayKey>(orgSaved ?? []),
-    }
-  } catch (err) {
-    console.error('[booking-day-hours] store hours read degraded:', err)
-    return orgOnlyDayHours(orgSaved)
+  const [policy, closed] = await Promise.allSettled([
+    synqed.storePolicies.get(storeId),
+    // `to` is EXCLUSIVE (the SDK's own contract, dist/store-policies.d.ts), so
+    // one day is [ymd, ymd+1). JST has no DST — one day is exactly 86,400,000 ms.
+    synqed.storePolicies.listClosedDays(storeId, { from: ymd, to: ymdInJst(nextDay) }),
+  ])
+
+  if (policy.status === 'rejected') logDegraded('weekly hours', storeId, ymd, policy.reason)
+  if (closed.status === 'rejected') logDegraded('closed dates', storeId, ymd, closed.reason)
+
+  return {
+    weeklyHours: policy.status === 'fulfilled' ? (policy.value?.weekly_hours ?? null) : null,
+    closedDates: new Set(
+      closed.status === 'fulfilled' ? closed.value.closed_days.map((d) => d.date) : [],
+    ),
+    orgSaved: new Set<WeekdayKey>(orgSaved ?? []),
   }
+}
+
+/** ⚖ R1-6 — a booking was accepted on a day the app could not check, so the
+ *  line has to say WHICH store and WHICH day or the accepted booking can never
+ *  be found afterwards. Ids and the error's class only — never a name, never
+ *  the policy body. */
+function logDegraded(what: string, storeId: string, ymd: string, err: unknown): void {
+  console.error(
+    `[booking-day-hours] ${what} read degraded — store ${storeId}, ${ymd} JST:`,
+    err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+  )
 }

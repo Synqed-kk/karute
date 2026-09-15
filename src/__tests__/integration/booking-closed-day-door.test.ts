@@ -523,6 +523,36 @@ describe('the web door — createAppointment', () => {
     expect(errSpy).toHaveBeenCalled()
     errSpy.mockRestore()
   })
+
+  // ⚖ R1-6 — the two reads answer different questions, so one blipping must
+  // not throw away the other's good answer. A hiccuped 臨時休業 read used to
+  // reopen the store's whole weekly 定休日 with it.
+  it('keeps a good weekly-hours answer when only the closed-dates read fails', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    policyGet.mockResolvedValue({ weekly_hours: CLOSED_ON_MONDAY })
+    listClosedDays.mockRejectedValue(new Error('core down'))
+
+    const result = await createAppointment(bookingInput(MON_1300_JST))
+
+    expect(result).toMatchObject({ code: 'closed_day', level: 'store', kind: 'weekday' })
+    expect(apptCreate).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
+  // Ids and the error class only — the one thing an operator needs to find the
+  // booking that was accepted on a day nobody could check.
+  it('names the store and the JST day in the degrade log, and no more', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    policyGet.mockRejectedValue(new Error('core down'))
+
+    await createAppointment(bookingInput(MON_1300_JST))
+
+    expect(errSpy).toHaveBeenCalledWith(
+      '[booking-day-hours] weekly hours read degraded — store store-ginza, 2026-05-11 JST:',
+      'Error: core down',
+    )
+    errSpy.mockRestore()
+  })
 })
 
 // The core is the LAST wall, not the only one: even called directly — as the
