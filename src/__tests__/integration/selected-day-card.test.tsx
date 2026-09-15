@@ -285,6 +285,18 @@ describe('the loaded day', () => {
   })
 })
 
+describe('the day line’s 新規 (S2, ⚖ PKT-2b — the slot is read off the switch registry, same as the day/week pages)', () => {
+  it('shows 新規 when the day’s history read is known', () => {
+    renderCard({ dayTotals: row({ newCustomerCount: 5, newCountKnown: true }) })
+    expect(screen.getByText(WEEK_ROWS.new)).toBeTruthy()
+  })
+
+  it('withholds 新規 when the day’s history read did not happen — never a printed 0', () => {
+    renderCard({ dayTotals: row({ newCustomerCount: 999, newCountKnown: false }) })
+    expect(screen.queryByText(WEEK_ROWS.new)).toBeNull()
+  })
+})
+
 describe('the empty day', () => {
   it('SAYS it is empty and still offers its door — an empty day is where a booking gets made', () => {
     const { container } = renderCard({ rows: [], dayTotals: row({ count: 0 }) })
