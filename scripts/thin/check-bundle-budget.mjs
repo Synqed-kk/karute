@@ -1275,7 +1275,7 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     locale), so the Japanese term costs this bundle nothing.
 //   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
 //
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// ── the month LOOK merge tip's own entry (superseded below) ───────────────
 // RE-MEASURED 2026-09-16 on THE MERGE TIP of the two chains above — the whole
 // month line (feat/booking-month-compare dc05d00a8: the grid, the selected-day
 // card and 先月同期間比) merged INTO the 新規/capacity tip (feat/booking-new-count
@@ -1316,7 +1316,32 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     grepped separately (capacityReason ×2 · newCountKnown ×4 · 予約時間 ×1 ·
 //     先月同期間比 ×4 · monthCompareDelta ×6 · data-pressed ×4 · the R6 seam ×1
 //     with both CSS rules · the folded TYPE_SLOT reading "new").
-const BUDGET_BYTES = 2_116_437
+//
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-16 on PKT-2b's tip (feat/booking-month-new-slot S1+S2+S3,
+// on top of the merge tip above) — the WIRING round: the month line's own
+// 新規 slot (`monthNewCount`, metric-menu.ts — Σ `newCount` over `inMonth`
+// cells, null on any unknown/off/empty) replaces the month branch's hardcoded
+// typeSlot="off", and the selected-day card's DayNumbersLine now reads
+// TYPE_SLOT too, same as the day/week lines. No new UI, no new English string
+// — the two surfaces already rendered this slot; this round only feeds them
+// the real number. Same CI recipe as every entry above, thin/dist emptied
+// before each of two laps, byte-identical both times (matching content hashes
+// and md5s: en-Q5zJiUAT, index-BvAKhldp, vendor-BD5eMVWe; node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,361 · index 1,043,509 · vendor 937,791 = 2,115,661 B  (+224 B).
+// Ceiling = 2,115,661 + 1,000.
+//
+// +224 B, all in index; en and vendor unchanged to the byte (no new English
+// string, no dependency moved) — the weight is the wiring: monthNewCount
+// itself, its call site + the typeCount prop in AppointmentsView's month
+// branch, the TYPE_SLOT import replacing the "off" literal at both changed
+// call sites, and the thin screen's two extra field copies off the DTO
+// (newCount/newCountKnown, previously dropped there). `newCountKnown` — a
+// property-access string that survives minification — appears 7× in this
+// build's index chunk versus 4× on the merge-tip build two entries up, which
+// is consistent with the extra read site this round adds.
+const BUDGET_BYTES = 2_116_661
 
 let dir
 try {
