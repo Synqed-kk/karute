@@ -170,8 +170,6 @@ export function WeekRows({
   const showSummary = rows.length > 0
   const openRows = rows.filter((r) => !isClosedRow(r))
   const bookedSum = openRows.reduce((sum, r) => sum + r.count, 0)
-  const newSum = openRows.reduce((sum, r) => sum + r.newCustomerCount, 0)
-  const returningSum = openRows.reduce((sum, r) => sum + r.returningCount, 0)
 
   return (
     <div>
@@ -202,7 +200,17 @@ export function WeekRows({
               <Separator t={t} />
               <span>{t(typeSlot === 'new' ? 'new' : 'returning')}</span>
               {pending ? <SummaryPill /> : (
-                <b className={SUMMARY_NUMBER}>{typeSlot === 'new' ? newSum : returningSum}</b>
+                // R3-4 — the sum is computed INSIDE the gate that prints it.
+                // Hoisted above, `newCustomerCount` was read on every render
+                // whatever the typeSlot, and today that field is the QR import
+                // flag, not the 新規 count PKT-2 will produce (spec §8). Dead
+                // compute one careless edit away from printing a wrong number.
+                <b className={SUMMARY_NUMBER}>
+                  {openRows.reduce(
+                    (sum, r) => sum + (typeSlot === 'new' ? r.newCustomerCount : r.returningCount),
+                    0,
+                  )}
+                </b>
               )}
             </>
           )}

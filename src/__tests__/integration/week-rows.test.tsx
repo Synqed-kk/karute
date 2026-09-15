@@ -153,6 +153,46 @@ describe('WeekRows — summary line', () => {
   })
 })
 
+describe("WeekRows — typeSlot 'off' never touches newCustomerCount (R3-4)", () => {
+  it('a throwing getter on the field is never called', () => {
+    const WeekRows = loadWeekRows()
+    // `newCustomerCount` today is the QR import flag, not the 新規 count
+    // PKT-2 will produce (spec §8). A getter that throws is the only honest
+    // proof that the field is not read: a spy returning 0 would pass even if
+    // every render still touched it.
+    const rows = sevenDays().map((r) => {
+      const guarded = { ...r }
+      Object.defineProperty(guarded, 'newCustomerCount', {
+        get() {
+          throw new Error('newCustomerCount read under typeSlot off')
+        },
+        enumerable: true,
+      })
+      return guarded
+    })
+    expect(() =>
+      render(<WeekRows {...baseProps} typeSlot="off" rows={rows} onPickDay={jest.fn()} />),
+    ).not.toThrow()
+  })
+
+  it("typeSlot 'new' DOES read it — the guard above is not passing by accident", () => {
+    const WeekRows = loadWeekRows()
+    const rows = sevenDays().map((r) => {
+      const guarded = { ...r }
+      Object.defineProperty(guarded, 'newCustomerCount', {
+        get() {
+          throw new Error('newCustomerCount read under typeSlot new')
+        },
+        enumerable: true,
+      })
+      return guarded
+    })
+    expect(() =>
+      render(<WeekRows {...baseProps} typeSlot="new" rows={rows} onPickDay={jest.fn()} />),
+    ).toThrow(/newCustomerCount/)
+  })
+})
+
 describe('WeekRows — closed row', () => {
   it('renders 休 spanning the row when the switch is ON', () => {
     const WeekRows = loadWeekRows({ closedDays: true })
