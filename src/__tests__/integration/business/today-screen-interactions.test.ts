@@ -15095,12 +15095,13 @@ describe('⚖ ROUND 3 · C F4 — G13 (⚖ D-52 (g)) — the mixed-board predica
 
   // ⚖ D-52 (i) — MINOR 3: THREE whole-call pins, one per site, quoting the
   // tip's exact text from the argument before the comment line through the
-  // closing paren — the loose bare-predicate `toContain` and the occurrence
-  // count it replaces could both survive m13 (dropping the predicate at the
-  // `honest` site) because `withheld` and `honestOrigin` still carry their
-  // own copies of the same bare string. The `heldBoardHonest`/`boardLanes`
-  // site is already pinned whole in selling-engine-doors.test.ts; not
-  // duplicated here.
+  // closing paren. The loose bare-predicate `toContain` they replace would
+  // survive m13 (dropping the predicate at the `honest` site) because
+  // `withheld` carries the same bare string; the occurrence count they also
+  // replace did catch m13 (2→1, F4 report) but pinned nothing about WHERE a
+  // predicate sits — a whole call per site does. The
+  // `heldBoardHonest`/`boardLanes` site is already pinned whole in
+  // selling-engine-doors.test.ts; not duplicated here.
   it("the three netting call sites carry the mixed-board predicate — the tip's exact whole call", () => {
     expect(SRC).toContain(
       `          bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
