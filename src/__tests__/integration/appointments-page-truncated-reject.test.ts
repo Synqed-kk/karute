@@ -141,6 +141,48 @@ describe('予約 page — 先月同期間比 (4c) reads the previous span and re
     expect(viewPropsOf(tree).monthCompareDelta).toBe(3)
   })
 
+  it('reads the previous span WITHOUT the hours it would throw away', async () => {
+    getAppointmentWindow.mockResolvedValue(WHOLE)
+    await AppointmentsPage({
+      params: Promise.resolve({ locale: 'ja' }),
+      searchParams: Promise.resolve({ view: 'month', date: '2026-09-15' }),
+    })
+    const prevCall = getAppointmentWindow.mock.calls.find(
+      (c) => (c[0] as string) < new Date('2026-08-01T00:00:00+09:00').toISOString(),
+    )!
+    const monthCall = getAppointmentWindow.mock.calls.find((c) => c !== prevCall)!
+    // The compare wants a COUNT; the page's hours facts come from the
+    // displayed window, so the store's hours + 臨時休業 reads over the
+    // previous month were two core calls thrown away on every 月 page view.
+    expect(prevCall[3]).toBe(false)
+    expect(monthCall[3]).toBeUndefined()
+  })
+
+  it('a FAILED previous read costs the CLAUSE, never the screen', async () => {
+    // Only the optional annotation's read is down; the month's own read is
+    // whole. An annotation may go missing — the 予約 screen may not.
+    getAppointmentWindow.mockImplementation(async (fromIso: string) => {
+      if (fromIso < new Date('2026-08-01T00:00:00+09:00').toISOString()) {
+        throw new Error('core: previous span unavailable')
+      }
+      return { ...WHOLE, counted: [appt('a', '2026-09-02')] }
+    })
+    const tree = await AppointmentsPage({
+      params: Promise.resolve({ locale: 'ja' }),
+      searchParams: Promise.resolve({ view: 'month', date: '2026-09-15' }),
+    })
+    const props = viewPropsOf(tree)
+    expect(props.monthCompareDelta).toBeNull()
+    // …and the grid the page exists for is still there, with its real count.
+    expect(props.monthData).not.toBeNull()
+    expect(
+      (props.monthData as { inMonth: boolean; count: number }[]).reduce(
+        (n, c) => (c.inMonth ? n + c.count : n),
+        0,
+      ),
+    ).toBe(1)
+  })
+
   it('a FUTURE month costs no extra read and gets no clause', async () => {
     getAppointmentWindow.mockResolvedValue(WHOLE)
     const nextYear = `${new Date().getFullYear() + 1}-05-15`

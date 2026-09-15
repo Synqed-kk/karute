@@ -635,6 +635,27 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(froms).toContain(new Date('2026-07-25T00:00:00+09:00').toISOString())
   })
 
+  it('a FAILED previous read costs the CLAUSE, never the 予約 screen', async () => {
+    // Every other read in this wave belongs in the 502 — a calm empty month is
+    // the lie this screen may not tell. The compare is the exception: its
+    // absent state IS null, so a half-down core costs the phone one clause.
+    listAppointments.mockImplementation(async (...opts: unknown[]) => {
+      const from = (opts[0] as { from?: string } | undefined)?.from ?? ''
+      if (from < new Date('2026-08-01T00:00:00+09:00').toISOString()) {
+        throw new Error('core: previous span unavailable')
+      }
+      return { appointments: [], total: 0 }
+    })
+    const res = await GET(
+      req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-15'),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.monthCompareDelta).toBeNull()
+    expect(dto.monthData).not.toBeNull()
+  })
+
   it('?view=month carries monthStartIso on the wire', async () => {
     const res = await GET(
       req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-15'),
