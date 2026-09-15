@@ -913,95 +913,45 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en       134,148 → 134,204 (+56 B) — the three new EN keys plus the
 //     trailing period on `failed`.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
-// RE-MEASURED 2026-09-15 for PKT-1b-MONTH PIECE 4a (the app-local 月 grid +
-// month line replace @synqed-kk/ui's MonthGrid on the page): 2,105,964 →
-// 2,110,901.
-//
-// Measured the CI way — the workflow's own six VITE_* vars (.github/workflows/
-// ci.yml's "thin bundle budget" step, values copied verbatim from the
-// checked-in step; nothing there is or resembles a credential, only the
-// LENGTHS are release-shaped). That matters: the same tip measures 414 B
-// SMALLER with those vars unset, because Vite inlines shorter literals in
-// place of the release-length fakes. Both figures below were taken that way,
-// by this session, so they are like for like:
-//   BASE 4da7628bb : en 134,204 · index 1,032,970 · vendor 937,791 = 2,104,965
-//   THIS TIP       : en 134,204 · index 1,037,906 · vendor 937,791 = 2,109,901
-// Ceiling = 2,109,901 + 1,000. The previous ceiling FAILED — this is a real,
-// declared +4,936 B, not headroom drift.
-//
-// Where the +4,936 B went, measured per chunk:
-//   index  1,032,970 → 1,037,906 (+4,936 B) — ours, all of it: MonthPage.tsx
-//     (the grid, the month line, the legend and their class strings) plus the
-//     view's month branch and the panel's one new prop. The package MonthGrid
-//     stays in the bundle — the pop-down still renders through it — so the 月
-//     page's own grid is an addition, not a swap.
-//   en       134,204 → 134,204 — unchanged to the byte (no new JA string).
-//   vendor   937,791 → 937,791 — unchanged to the byte.
-// RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R3c (R3c-1 — rowAria's
-// date→cells join, R3c-3 — the today row's weekday letter tone) and a
-// MEASUREMENT-METHOD correction: DELTA-VERIFY-1B-WIRE-R3-2026-09-15.md §6
-// flagged the R3b comment above (1,032,969 B) as 389 B higher than its own
-// independent re-measurement (1,032,580 B) of the SAME tip. Reproduced here:
-// building with only `VITE_SHELL_MODE=local` set (no VITE_FACADE_URL /
-// VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY / VITE_BUILD_COMMIT /
-// VITE_BUILD_NUMBER — matching DELTA-VERIFY's own battery line, which names
-// only VITE_SHELL_MODE) measures index = 1,032,619 B on this round's tip —
-// 390 B smaller than the full-env figure below, the same gap DELTA-VERIFY
-// found. The workflow's thin bundle gate step (.github/workflows/ci.yml) sets
-// all six vars every run; the earlier local figure(s) were measured with five
-// of them unset, so Vite inlined shorter (`undefined`/absent) literals in
-// place of the CI recipe's release-length fakes. This entry is measured with
-// the workflow's own exact env, values copied from the checked-in step
-// (nothing here is or resembles a credential — the same public, obviously-
-// fake values CI itself uses):
-//   VITE_SHELL_MODE=local
-//   VITE_FACADE_URL=https://ci-dummy.invalid
-//   VITE_SUPABASE_URL=https://ci-dummy-xxxxxxxxxxx.supabase.co
-//   VITE_SUPABASE_ANON_KEY=<208-char 'not-a-key-xxx…' placeholder, verbatim
-//     from the workflow file>
-//   VITE_BUILD_COMMIT=cidummyx
-//   VITE_BUILD_NUMBER=00
-// Commands, in order (thin/dist emptied before each lap):
-//   npx --no -- vite build --config thin/vite.config.ts
-//   node scripts/thin/check-bundle-budget.mjs
-// Byte-identical (content hashes match) across two clean builds on the final
-// code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
-//   en 134,204 · index 1,033,009 · vendor 937,791 = 2,105,004 B.
-// Ceiling = 2,105,004 + 1,000.
-//
 // ── THE LIVE ENTRY ────────────────────────────────────────────────────────
-// RE-MEASURED 2026-09-15 for FIXLIST-1b-MONTH-4a-R1 on the MERGED tip. The
-// two entries above describe the two parents separately and are now history:
-// this branch merged `feat/booking-week-face` (25c209377) IN, so one tip now
-// carries both the 月 page (4a) and the week face's R3c round, plus R1's own
-// three code fixes (R1-1 the month chip's landing, R1-2 the tappable
-// out-of-month cells, R1-3 the 休 switch).
+// RE-MEASURED 2026-09-15 for FIXLIST-1b-MONTH-4a-R2 (the eight-fix round:
+// R2-1 the month arrows step by MONTH KEY not `setMonth`, R2-2 aria-current
+// moved to TODAY with aria-pressed added for the selection, R2-3 the
+// out-of-month day number's contrast (zinc-500 / dark zinc-400), R2-4
+// onPickMonth as a plain named function instead of an inline JSX arrow,
+// R2-5 the adapter's stale "inert" comment, R2-6 the shared border-zinc-200/70
+// hair token on both calendars, R2-7 the pending pill's margin — now ONE
+// exported LinePill (WeekRows.tsx) instead of a local copy in MonthPage.tsx
+// plus two duplicated literal spans in DayNumbersLine.tsx). Two now-dead
+// entries (4a D-13) sat above this one: the standalone 4a measurement and the
+// standalone R3c measurement, each already folded into R1's merged figure —
+// pruned here rather than carried forward a second round; this file's
+// convention is ONE live entry.
 //
-// Same CI recipe as the entry above — the workflow's own six VITE_* values,
-// copied verbatim from the checked-in step; measured with five of them unset
-// the same tip reads ~390-410 B smaller, which is the trap that correction
-// was written for. thin/dist emptied before each lap, two clean laps,
-// byte-identical with matching content hashes both times (node v24.16.0,
-// @synqed-kk/ui 0.3.2, installed == lock):
-//   en 134,204 · index 1,038,500 · vendor 937,791 = 2,110,495 B.
-// Ceiling = 2,110,495 + 1,000. The previous ceiling FAILED — the merge alone
-// puts this tip past it — so this is a real, declared figure, not drift.
+// Same CI recipe — the workflow's own six VITE_* values, copied verbatim
+// from the checked-in step. thin/dist emptied before each lap, two clean
+// laps, byte-identical with matching content hashes both times (node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,038,436 · vendor 937,791 = 2,110,431 B.
+// Ceiling = 2,110,431 + 1,000. The previous (R1) ceiling was 2,111,495 — this
+// tip measures SMALLER, not larger.
 //
-// Where the bytes are, each side measured on its own tip, not apportioned:
-//   4a tip     4882da19e : index 1,037,906
-//   merge-only d68a230ad : index 1,037,945 (+39 B — the week branch's R3c-1
-//     and R3c-3, already declared in the entry above)
-//   this tip             : index 1,038,500 (+555 B) — R1's own, all of it:
-//     the panel's one optional `onPickMonth` callback and its guard, the
-//     view's landing decision (1st vs today) with its two date-helper
-//     imports, MonthPage's out-of-month cells becoming buttons with their own
-//     handler, aria-label and transition/hover/focus class strings, and the
-//     cellTone rename.
-//   en       134,204 → 134,204 — unchanged to the byte: R1 added NO string,
-//     JA or EN. The out-of-month cell's name reuses the date formatter the
-//     in-month cells already call.
+// Where the bytes went, measured per chunk against R1's own figure:
+//   index  1,038,500 → 1,038,436 (−64 B) — net of a few small moves, not one
+//     line: the shared LinePill collapses four call sites (two in
+//     MonthPage.tsx, two duplicated literal spans in DayNumbersLine.tsx) onto
+//     one exported component, which is a net REMOVAL of duplicated class
+//     string bytes larger than what R2 added (the new `mr-3` class, the new
+//     `aria-pressed` attribute and its string, and `border-zinc-200/70`
+//     replacing `border-zinc-100` at three call sites, +3 B each). The
+//     zinc-300→zinc-500 / zinc-600→zinc-400 contrast swap is byte-neutral
+//     (same string lengths). Every other R2 change is a comment or a
+//     function-declaration-shape change — comments do not ship; production
+//     minification strips them.
+//   en       134,204 → 134,204 — unchanged to the byte: R2 added no string,
+//     JA or EN.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
-const BUDGET_BYTES = 2_111_495
+const BUDGET_BYTES = 2_111_431
 
 let dir
 try {
