@@ -889,7 +889,31 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     new string, no new component.
 //   en       134,148 → 134,148 — unchanged to the byte.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
-const BUDGET_BYTES = 2_104_588
+// RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R3 (the four-lens fix round:
+// one capacity predicate, the 予約時間 label, the row's full accessible name,
+// the press curve + pointerdown, the mock's greys, the shimmer sweep, the day
+// line's pending state and the shared 新規 spark): 2,104,588 → 2,105,946.
+// Same CI recipe, thin/dist emptied each lap, byte-identical across two clean
+// builds on the final code tip, same content hashes both times (node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,032,951 · vendor 937,791 = 2,104,946 B.
+// Ceiling = 2,104,946 + 1,000. The previous ceiling did NOT pass this time
+// (2,104,946 > 2,104,588 by 358 B), so this entry is the round's re-measure,
+// not a formality.
+//
+// Where the +1,358 B went, measured per chunk:
+//   index  1,031,649 → 1,032,951 (+1,302 B) — ours, all of it: NewSpark.tsx
+//     (the mock's two-star glyph, which also DROPPED lucide's Sparkles from
+//     this chunk), the row's accessible-name builder, the two pointer press
+//     handlers and their four JSX props, the countLine/countValue split, the
+//     day line's pending branch, and the JA/EN key additions (countLine,
+//     ariaSep, ariaLoading) — JA rides in this chunk. Class strings account
+//     for the rest: the focus-visible ring, the minmax track, the three zinc
+//     greys, the shimmer class and the chevron ease.
+//   en       134,148 → 134,204 (+56 B) — the three new EN keys plus the
+//     trailing period on `failed`.
+//   vendor   937,791 → 937,791 — unchanged to the byte.
+const BUDGET_BYTES = 2_105_946
 
 let dir
 try {
