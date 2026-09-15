@@ -803,7 +803,20 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // pending shift is travelling toward rather than to a fixed flag, the wrapper
 // takes the month as its key, and three easing utilities and two comments were
 // added. The tip is otherwise the same tree the entry above measured.
-const BUDGET_BYTES = 2_094_758
+//
+// RE-MEASURED 2026-09-15 for fix round 3 on that repair (#921 R1-R5):
+// 2,094,758 → 2,095,289. Same CI recipe, emptied thin/dist, byte-identical
+// across two clean builds on the final tip, same content hashes both times:
+// en 133,757 · index 1,022,789 · vendor 937,743 = 2,094,289 B. Ceiling =
+// 2,094,289 + 1,000.
+//
+// +531 B, all in the index chunk (en and vendor unchanged to the byte). No new
+// dependency and no new code path: the closing dialog takes an `inert`
+// attribute and the scrim a conditional class, the pointer handlers gained an
+// ownership guard and a settle, a commit that re-keys the panes puts keyboard
+// focus back on the panel, and the spring's frame loop checks reduced motion.
+// Comments are most of it. The tip is otherwise the same tree as above.
+const BUDGET_BYTES = 2_095_289
 
 let dir
 try {
