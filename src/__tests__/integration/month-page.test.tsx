@@ -16,6 +16,7 @@ const WEEK_ROWS: Record<string, string> = {
   new: '新規',
   returning: '再来',
   closed: '休',
+  ariaSep: '、',
   lastMonthSamePeriod: '先月同期間比',
   countValue: '{n}件',
   failed: '予約状況を取得できませんでした。もう一度お試しください。',
@@ -71,6 +72,16 @@ function cell(id: string, over: Partial<MonthCell> = {}): MonthCell {
     closed: false,
     ...over,
   }
+}
+
+/** The line as a SIGHTED reader sees it. `sr-only` nodes exist for assistive
+ *  tech and are out of flow, so they must never move a pixel: every visible
+ *  assertion below reads through this, and the separators they add are
+ *  asserted separately on the raw `textContent`. */
+function visibleText(el: Element): string {
+  const clone = el.cloneNode(true) as HTMLElement
+  for (const node of Array.from(clone.querySelectorAll('.sr-only'))) node.remove()
+  return clone.textContent ?? ''
 }
 
 /** A real grid: leading/trailing out-of-month fillers + every day of `month`. */
@@ -405,7 +416,7 @@ describe('MonthPage — the month line', () => {
       <MonthPage {...baseProps} cells={monthCells(2026, 9)} typeSlot="new" typeCount={80} />,
     )
     const line = container.querySelector('[data-month-line]')!
-    expect(line.textContent).toBe('予約0件新規80')
+    expect(visibleText(line)).toBe('予約0件新規80')
     expect(line.querySelector('[data-new-spark]')).not.toBeNull()
   })
 
@@ -444,9 +455,11 @@ describe('MonthPage — the month line', () => {
       const { container } = render(
         <MonthPage {...baseProps} cells={cells} monthCompareDelta={12} />,
       )
-      expect(container.querySelector('[data-month-line]')!.textContent).toBe(
-        '予約234件先月同期間比+12件',
-      )
+      const line = container.querySelector('[data-month-line]')!
+      expect(visibleText(line)).toBe('予約234件先月同期間比+12件')
+      // …and SPOKEN as two facts, not one run-on string. The 14px gap is CSS;
+      // a screen reader reads the app's own 「、」 (the week rows' ariaSep).
+      expect(line.textContent).toBe('予約234件、先月同期間比+12件')
     })
 
     it('ahead takes the 少なめ green — the week rows own token, not a second one', () => {

@@ -187,12 +187,23 @@ export function MonthPage({
                 tone="ink"
               />
               {typeSlot !== 'off' && typeCount !== null && (
-                <LineItem
-                  label={t(typeSlot === 'new' ? 'new' : 'returning')}
-                  value={String(typeCount)}
-                  tone={typeSlot === 'new' ? 'new' : 'ink'}
-                  spark={typeSlot === 'new'}
-                />
+                <>
+                  {/* The 14 px gap is the only thing separating these items,
+                   *  and a screen reader does not read CSS gaps: the line came
+                   *  out as one run-on string, 「予約6件新規80」. The app's own
+                   *  idiom for speaking a row of these cells is 「、」 — the
+                   *  week rows join theirs with `ariaSep`, and `rowAria` puts
+                   *  the same mark after the date. `sr-only` is out of flow,
+                   *  so it takes no slot in the flex row and the visible line
+                   *  stays byte-identical. */}
+                  <span className="sr-only">{t('ariaSep')}</span>
+                  <LineItem
+                    label={t(typeSlot === 'new' ? 'new' : 'returning')}
+                    value={String(typeCount)}
+                    tone={typeSlot === 'new' ? 'new' : 'ink'}
+                    spark={typeSlot === 'new'}
+                  />
+                </>
               )}
               {/* 先月同期間比 — the mock's own last item on this line, with the
                *  app's established term for the concept (the 今月消化 strip's
@@ -209,13 +220,18 @@ export function MonthPage({
                *  aloud, which is why this clause needs no hidden twin the way
                *  the strip's ▲▼ glyphs do. */}
               {BOOKING_SWITCHES.monthCompare && monthCompareDelta !== null && (
-                <LineItem
-                  label={t('lastMonthSamePeriod')}
-                  value={`${deltaSign(monthCompareDelta)}${t('countValue', {
-                    n: Math.abs(monthCompareDelta),
-                  })}`}
-                  tone={monthCompareDelta > 0 ? 'band-low' : 'muted'}
-                />
+                <>
+                  {/* Spoken as 「予約6件、先月同期間比+12件」 — two facts, the
+                   *  app's own 「、」, no pixel moved. See the note above. */}
+                  <span className="sr-only">{t('ariaSep')}</span>
+                  <LineItem
+                    label={t('lastMonthSamePeriod')}
+                    value={`${deltaSign(monthCompareDelta)}${t('countValue', {
+                      n: Math.abs(monthCompareDelta),
+                    })}`}
+                    tone={monthCompareDelta > 0 ? 'band-low' : 'muted'}
+                  />
+                </>
               )}
             </>
           )}
