@@ -80,6 +80,24 @@ describe('fetchAppointmentWindow — paging', () => {
     expect(win.truncated).toBe(false)
   })
 
+  it('EXACTLY the cap — 3000 rows in 6 pages is whole, not truncated', async () => {
+    // The boundary the cap is defined at: 6 × 500. One row either side of it
+    // decides between a full month and a failed read, so both sides are pinned.
+    const { client, list } = fakeClient(3000)
+    const win = await fetchAppointmentWindow(client, FROM, TO)
+    expect(list).toHaveBeenCalledTimes(MAX_RANGE_PAGES)
+    expect(win.truncated).toBe(false)
+    expect(win.counted).toHaveLength(3000)
+  })
+
+  it('one row past the cap — 3001 truncates', async () => {
+    const { client, list } = fakeClient(3001)
+    const win = await fetchAppointmentWindow(client, FROM, TO)
+    expect(list).toHaveBeenCalledTimes(MAX_RANGE_PAGES)
+    expect(win.truncated).toBe(true)
+    expect(win.counted).toEqual([])
+  })
+
   it('the cap: 4000 rows stop at MAX pages, truncated, with EVERY array empty (mutant m4)', async () => {
     const { client, list } = fakeClient(4000)
     const win = await fetchAppointmentWindow(client, FROM, TO)
