@@ -15010,3 +15010,38 @@ describe('⚖ STUDIO 2026-09-12 — 月カレンダー enters AND leaves on the 
     expect(CODE).toContain('const { y, m } = calendarMonthAt(monthShown.y, monthShown.m, delta)')
   })
 })
+
+// ⚖ ROUND 3 · C — G10 (⚖ D-52 (b)) — THE DROP PATH, SOURCE HALF.
+//
+// `solveBed`'s own doc-law used to say "null back means 満室"; after ⚖ D-52 (a)
+// a `laneKey` of `null` with no refusal is a store with no rooms, so the
+// collapsed `solved.refusal || solved.laneKey == null` check would have
+// silently bounced a gym landing that just previewed as placeable. This block
+// pins the source shape the fix requires — never re-derived, so a later edit
+// that restores the collapsed check turns this red rather than surviving.
+describe('⚖ ROUND 3 · C — G10 (⚖ D-52 (b)) — the drop path refuses only on a refusal', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const solveBedBody = SRC.slice(SRC.indexOf('function solveBed('), SRC.indexOf('function solveLanes('))
+
+  it('solveBed refuses only on solved.refusal — the collapsed null-check is gone', () => {
+    expect(solveBedBody).toContain('if (solved.refusal) {')
+    expect(solveBedBody).not.toContain('solved.laneKey == null')
+  })
+
+  it('次回予約 mints the staff tag conditionally and only mints a bed-side card when there is a partner', () => {
+    const placeNextVisit = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('function placeFromShelf('))
+    expect(placeNextVisit).toContain('tag: partner ?')
+    // The bed-side row is under `partner` — a spread guarded on it, not an
+    // unconditional second element.
+    expect(placeNextVisit).toContain('...(partner ? [{')
+  })
+
+  it('the shelf chip mints the staff tag conditionally, and `solvedChip` is read outside the IIFE', () => {
+    const placeFromShelf = SRC.slice(SRC.indexOf('function placeFromShelf('), SRC.indexOf('\n  // The month grid'))
+    expect(placeFromShelf).toContain('tag: bed ?')
+    // `solvedChip` is a plain const built from a ternary, not an IIFE's return
+    // value — the OLD shape was `const bed = … : (() => { … solveBed(…) … })()`.
+    expect(placeFromShelf).toContain('const solvedChip = dropped?.group === ')
+    expect(placeFromShelf).not.toContain('(() => {')
+  })
+})
