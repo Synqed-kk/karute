@@ -119,10 +119,16 @@ export async function createAppointment(input: AppointmentInput) {
     let cookieStore: string | null = null
     if (activeStore) {
       const scope = await resolveStoreScope()
+      // ⚖ R1-8 — a DEGRADED assignment lookup fails CLOSED on the cookie. A
+      // failed lookup reports allowedStoreIds: null, the same shape as a
+      // genuinely unrestricted viewer, so the raw cookie used to pass straight
+      // through: a Ginza-only staffer whose lookup blipped could be judged —
+      // and refused — by another store's calendar. viewerScopeForActs is the
+      // house answer (`degraded ? [] : allowedStoreIds`), and the menus
+      // write-clamp already fails closed for the same reason.
+      const allowedStoreIds = scope.degraded ? [] : scope.allowedStoreIds
       cookieStore =
-        !scope.allowedStoreIds || scope.allowedStoreIds.includes(activeStore)
-          ? activeStore
-          : null
+        !allowedStoreIds || allowedStoreIds.includes(activeStore) ? activeStore : null
     }
     const [synqedStaffId, auditActor] = await Promise.all([
       resolveSynqedStaffId(input.staffProfileId),

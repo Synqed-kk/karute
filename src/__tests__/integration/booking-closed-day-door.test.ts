@@ -524,6 +524,29 @@ describe('the web door — createAppointment', () => {
     errSpy.mockRestore()
   })
 
+  // ⚖ R1-8 — a failed assignment lookup reports allowedStoreIds: null, the
+  // same shape as a genuinely unrestricted viewer. The raw cookie used to pass
+  // straight through it, so a blipped lookup let another store's calendar
+  // judge — and refuse — this staffer's booking.
+  it('treats the cookie as unset when the assignment lookup is degraded', async () => {
+    getActiveStoreId.mockResolvedValue('store-daikanyama')
+    resolveStoreScope.mockResolvedValue({
+      storeId: 'store-daikanyama',
+      viewAll: false,
+      allowedStoreIds: null,
+      degraded: true,
+    } as never)
+    policyGet.mockResolvedValue({ weekly_hours: CLOSED_ON_MONDAY })
+
+    const result = await createAppointment(bookingInput(MON_1300_JST))
+
+    // No read of the foreign store at all — the landing store came from
+    // defaultBookingStore, and the refusal (if any) is that store's own word.
+    expect(policyGet).not.toHaveBeenCalledWith('store-daikanyama')
+    expect(policyGet).toHaveBeenCalledWith('store-ginza')
+    expect(result).toMatchObject({ code: 'closed_day' })
+  })
+
   // ⚖ R1-6 — the two reads answer different questions, so one blipping must
   // not throw away the other's good answer. A hiccuped 臨時休業 read used to
   // reopen the store's whole weekly 定休日 with it.
