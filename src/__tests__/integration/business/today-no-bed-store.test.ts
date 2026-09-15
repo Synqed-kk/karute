@@ -350,6 +350,27 @@ describe('G4 — the sell layer: staff cells only', () => {
   })
 })
 
+describe('⚖ D-53 (c) R2 — the inspector heading states the staff fact on a no-unit store (F2 item 5, L1 MAJOR 1)', () => {
+  // STORE_C carries no fixture appointment or decision row (`appointments()`
+  // and `decisions` in fixtures.ts/fixtures-today.ts never assign STORE_C, by
+  // the file's own "no-bed store" design) — so GYM.cases has NO booking case
+  // at all to drive `bookingProofs`'s heading through the page. Per the
+  // packet's own disclosed fallback: pin it at the SOURCE instead.
+  it('GYM has no booking case to render (confirms the page-level door does not exist for this fixture)', () => {
+    expect(Object.keys(GYM.cases).length).toBe(0)
+  })
+
+  it('SOURCE PIN — the exact ternary text: a no-unit-store booking heading states the staff fact, never 設備は未確定', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'),
+      'utf8',
+    )
+    expect(src).toContain(
+      "b.resourceId ? `${b.staffName} + ${b.resourceName}が成立` : hasUnits ? '設備は未確定' : `${b.staffName}が担当`,",
+    )
+  })
+})
+
 describe('G5 — the withheld layer', () => {
   it('withheldOffers is NOTHING with honest undefined; honestHeld(on) is the shared/total-0 record', () => {
     const book = bookOf()
@@ -898,6 +919,11 @@ describe('⚖ D-53 (c) R1 — N0 seeded family: a store-bound no-unit roster bes
       if (b.floatingLane) {
         floatingSeeds += 1
         const floatCells = mixed.cells.filter((c) => c.laneKey === b.floatingKey)
+        // `every` on an empty array is vacuously true — the floating staff has
+        // a full-day window and at most 6 store-a bookings against at most 4
+        // beds, so it must sell somewhere; prove the array is non-empty before
+        // trusting the `every` below (⚖ L1 NOTE (d)).
+        expect(floatCells.length).toBeGreaterThan(0)
         expect(floatCells.every((c) => c.resourceKey !== '')).toBe(true)
       }
 

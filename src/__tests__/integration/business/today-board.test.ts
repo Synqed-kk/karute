@@ -1353,8 +1353,8 @@ describe('⚖ R8 T1 — the 価格保持 根拠 follows the booking’s own pric
    *  nothing undecided, so its resource line is SILENCE — never 未確定, never a
    *  「設備なし」 sentence — regardless of whether a resource proof happens to
    *  be non-null. The default (no third argument) keeps today's answer. */
-  it('bookingProofs(…, hasUnits: false) omits the resource line entirely (G3)', () => {
-    expect(bookingProofs('ベッド1を確保', true, false)).toEqual(['担当の勤務時間内', PROOF])
+  it('bookingProofs(…, hasUnits: false) omits the 未確定 line, never a real proof (G3)', () => {
+    expect(bookingProofs('ベッド1を確保', true, false)).toEqual(['担当の勤務時間内', '休憩と重ならない', 'ベッド1を確保', PROOF])
     expect(bookingProofs(null, false, false)).toEqual(['担当の勤務時間内'])
     expect(bookingProofs(null, true, false)).toEqual(['担当の勤務時間内', PROOF])
     // …and the default (today's answer) is unmoved.
