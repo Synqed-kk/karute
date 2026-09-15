@@ -189,9 +189,15 @@ describe('MonthPage — the grid', () => {
     const filler = container.querySelector('[data-month-cell][data-out]')!
     // 「8/31(月)」 — a date from another month must never read as this month's.
     expect(filler.getAttribute('aria-label')).toBe('8/31(月)')
-    // Muted: the filler's own wash and the pale number, unchanged by R1-2.
+    // Muted: the filler's own wash, unchanged by R1-2. The number itself
+    // stepped up a notch at R2-3 (LENS-1 #3 / LENS-3 #1): now that the cell
+    // is a tappable control its label has to clear 4.5:1 on the muted wash —
+    // light zinc-500 (4.66:1), dark zinc-400 (6.91:1; dark zinc-500 alone is
+    // still under 4.5:1 on the darker wash).
     expect(filler.getAttribute('class')).toContain('bg-[var(--color-bg-muted)]/40')
-    expect(filler.querySelector('span')!.getAttribute('class')).toContain('text-zinc-300')
+    const numberClass = filler.querySelector('span')!.getAttribute('class')!
+    expect(numberClass).toContain('text-zinc-500')
+    expect(numberClass).toContain('dark:text-zinc-400')
     // And no count, ever — the adapter zeroes an out-of-month cell.
     expect(filler.textContent).toBe('31')
   })

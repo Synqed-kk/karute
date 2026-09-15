@@ -256,8 +256,15 @@ export function MonthPage({
                     '[&:nth-child(7n)]:border-r-0',
                   )}
                 >
+                  {/* R2-3 (LENS-1 #3 · LENS-3 #1) — this number is a control's
+                   *  label now (R1-2 made these cells tappable), so it has to
+                   *  clear 4.5:1 on the muted wash (~#fbfbfb light, #18181b
+                   *  dark) it sits on. Measured: light zinc-300 1.42:1 → fail;
+                   *  zinc-500 4.66:1 → pass. Dark zinc-600 2.29:1 → fail;
+                   *  zinc-500 3.67:1 → STILL fails 4.5:1, so dark steps up one
+                   *  further than light, to zinc-400 6.91:1 → pass. */}
                   <span
-                    className={cn(DAY_NUMBER, 'font-medium text-zinc-300 dark:text-zinc-600')}
+                    className={cn(DAY_NUMBER, 'font-medium text-zinc-500 dark:text-zinc-400')}
                   >
                     {number}
                   </span>
