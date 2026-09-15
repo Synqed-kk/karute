@@ -111,6 +111,15 @@ function overlapMinutes(startMs: number, endMs: number, fromMs: number, toMs: nu
   return to > from ? (to - from) / MS_PER_MINUTE : 0
 }
 
+/** Finite AND forward-running (R1): `closeMs > openMs` alone is false under
+ *  NaN just like `closeMs <= openMs` is — both sides of the old either/or
+ *  guard missed it, so malformed hours passed through and `laneMinutes`
+ *  divided by NaN (「NaN% 稼働」). ONE predicate for both the usability check
+ *  and the rule-3 guard. */
+function hoursRunForward(openMs: number, closeMs: number): boolean {
+  return Number.isFinite(openMs) && Number.isFinite(closeMs) && closeMs > openMs
+}
+
 /** Finite and forward-running (R9): a NaN/±Infinity instant fails every
  *  `endMs <= startMs` check (NaN and Infinity comparisons are never true),
  *  so it used to pass straight through — hanging `peakConcurrency`'s sweep
@@ -191,7 +200,10 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   // minutes we still report are clipped to the JST day itself rather than to a
   // window nobody meant.
   const usableHours =
-    hours != null && !hours.closed && hours.source !== 'default' && hours.closeMs > hours.openMs
+    hours != null &&
+    !hours.closed &&
+    hours.source !== 'default' &&
+    hoursRunForward(hours.openMs, hours.closeMs)
   const windowOpenMs = usableHours ? hours.openMs : input.dayStartMs
   const windowCloseMs = usableHours ? hours.closeMs : input.dayEndMs
 
@@ -252,9 +264,10 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   if (hours == null) return withoutCapacity('hours-unresolved')
   if (hours.closed) return withoutCapacity('closed')
   if (hours.source === 'default') return withoutCapacity('hours-not-saved')
-  // A window that does not run forwards is not hours; dividing by it is the
-  // NaN E10 forbids.
-  if (hours.closeMs <= hours.openMs) return withoutCapacity('hours-unresolved')
+  // A window that does not run forwards — including NaN/Infinity, which the
+  // old `closeMs <= openMs` phrasing let through (R1) — is not hours;
+  // dividing by it is the NaN E10 forbids.
+  if (!hoursRunForward(hours.openMs, hours.closeMs)) return withoutCapacity('hours-unresolved')
 
   // 4. A booking that STARTS today must fit inside today's declared hours; one
   //    that ran in from last night is outside only if none of it lands inside

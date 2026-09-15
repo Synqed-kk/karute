@@ -175,6 +175,29 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.availableMinutes).toBe(840)
   })
 
+  it('R1: NaN/Infinity/non-forward hours never reach the divisor — hours-unresolved, every field finite or null', () => {
+    const cases: DayHours[] = [
+      { openMs: NaN, closeMs: at(20), source: 'store', closed: false },
+      { openMs: at(10), closeMs: Infinity, source: 'store', closed: false },
+      { openMs: at(10), closeMs: at(10), source: 'store', closed: false }, // closeMs === openMs
+    ]
+    for (const hours of cases) {
+      const fact = capacityForDay(input({ rosterLanes: 2, hours, spans: [span(at(9), at(10))] }))
+
+      expect(fact.reason).toBe('hours-unresolved')
+      expect(fact.capacityMinutes).toBeNull()
+      for (const value of [
+        fact.capacityMinutes,
+        fact.lanes,
+        fact.bookedMinutes,
+        fact.occupancyPct,
+        fact.availableMinutes,
+      ]) {
+        expect(value === null || Number.isFinite(value)).toBe(true)
+      }
+    }
+  })
+
   it('E10: a brand-new store (roster 0, no rows) prints no-lanes and never a NaN', () => {
     const fact = capacityForDay(input({ rosterLanes: 0 }))
 
