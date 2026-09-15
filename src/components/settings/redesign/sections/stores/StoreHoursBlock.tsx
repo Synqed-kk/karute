@@ -299,7 +299,7 @@ function StoreHoursEditor({
           type="button"
           onClick={save}
           disabled={invalid || saving}
-          className="inline-flex h-9 items-center rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground disabled:opacity-50"
+          className="inline-flex h-9 items-center rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
         >
           {saving ? t('saving') : t('save')}
         </button>

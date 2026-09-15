@@ -37,6 +37,9 @@ jest.mock('@/actions/stores', () => ({
   getPrimaryStoreId: jest.fn(),
   getStaffStoresStrict: jest.fn(),
   listStores: jest.fn(async () => []),
+  // The 設定 page reads stores WITH their own 営業時間 (1c-D S1); the app-shell
+  // layout keeps the hours-free read.
+  listStoresWithHours: jest.fn(async () => []),
 }))
 
 // ── The two SEAMS under test (the roster the server hands the client). Every
