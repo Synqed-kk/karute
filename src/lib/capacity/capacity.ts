@@ -49,6 +49,19 @@ export interface DayHours {
   closed: boolean
 }
 
+/**
+ * R7 — the caller's contract, written where the caller reads it (the module
+ * itself knows nothing of screens, filters, or "today"):
+ * (a) 自分/担当 view = `rosterLanes: 1` + only that person's spans; the 空き
+ *     a caller renders under a person filter must be labelled as that
+ *     person's, not the store's (E17).
+ * (b) `reason === 'closed' && bookedMinutes > 0` ⇒ the caller never renders
+ *     休 (E22 — the bookings are real; a 定休日 someone still booked into is
+ *     not an empty day).
+ * (c) 空き on a PAST day is a report, not a promise — the caller suppresses
+ *     it for days before today (E16); the module is time-blind by design and
+ *     has no notion of "now".
+ */
 export interface CapacityInput {
   laneKind: LaneKind
   /** The store's booking roster headcount for the day, or null when the roster
