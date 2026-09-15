@@ -839,7 +839,28 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     behind it until this round ran `npm install`. The lockfile is untouched.
 //   en      133,757 → 133,757 — unchanged to the byte. No new Japanese string
 //     anywhere in the round.
-const BUDGET_BYTES = 2_095_631
+// RE-MEASURED 2026-09-15 for PKT-1b-WIRE (the week page + the day line go
+// live): 2,095,631 → 2,104,241. Same CI recipe, emptied thin/dist,
+// byte-identical across two clean builds on the final tip, same content hashes
+// both times (node v24.16.0, @synqed-kk/ui 0.3.2 — installed == lock, checked
+// after this branch merged main in):
+//   en 134,148 · index 1,031,302 · vendor 937,791 = 2,103,241 B.
+// Ceiling = 2,103,241 + 1,000.
+//
+// Where the +8,610 B went, measured per chunk rather than assumed:
+//   index  1,023,074 → 1,031,302 (+8,228 B) — ours, and the bulk of it is the
+//     WeekRows/DayNumbersLine pair entering the bundle for the first time:
+//     until this PR nothing imported either file, so the thin shell shipped
+//     neither. Against that, @synqed-kk/ui's WeekDayCard import, the
+//     WeekGridSection wrapper and its hand-rolled formatOpenDuration all
+//     leave. The JA message block rides in this chunk too (the summary keys
+//     split, 稼働時間, the longer failed line).
+//   en       133,757 → 134,148 (+391 B) — the EN half of the same message
+//     changes: summaryRange + sep replacing summary/summaryNew/
+//     summaryReturning, and "Please try again" on the failed line.
+//   vendor   937,800 → 937,791 (−9 B) — NOT ours: same package version, one
+//     import fewer reaching it now that WeekDayCard is gone.
+const BUDGET_BYTES = 2_104_241
 
 let dir
 try {
