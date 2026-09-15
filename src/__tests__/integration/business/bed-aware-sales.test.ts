@@ -246,7 +246,7 @@ describe('bed-aware-sales — the doors', () => {
   })
 
   // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 2 — THE MEMO.
-  it('a lattice of offers over the same spans pays ONE netting per (room, span)', () => {
+  it('a lattice of offers whose held 枠 have SINGLETON eligible lists is decided by exit (e) at zero cost', () => {
     // THREE bed rows, so the pigeonhole cannot fire: two held 枠 never fill three
     // rooms. x owns bed-01 and y bed-02 across the whole stretch, and the offers
     // may only ever use those two, so there is no witness either and EVERY offer
@@ -274,17 +274,53 @@ describe('bed-aware-sales — the doors', () => {
     const distinct = new Set(offers.flatMap((o) => OFFER_ROOMS.map((r) => `${r}|${o.start}|${o.end}`))).size
     const unmemoised = offers.length * OFFER_ROOMS.length
     console.log('memo:', offers.length, 'offers ·', distinct, 'distinct room×span · nettings =', nettings, '(un-memoised:', unmemoised, ')')
-    // ⚖ ROUND 3 · D — PIN MIGRATED (disclosed as a deviation in the build report,
-    // not named in the packet's P6 list): every held 枠 on this board (x → only
-    // bed-01, y → only bed-02) has a SINGLETON eligible-room list, so the new
-    // eligibility exit (e) now proves every one of these six offers withheld by
-    // counting alone — the SET is unchanged (still all six offers), but the
-    // netting loop this leg was built to exercise is never reached. The memo's
-    // own per-(room,span) caching is no longer independently exercised by this
-    // board shape; queued as a follow-up (a board where two-or-more-room held 枠
-    // still reach the search), not built here.
+    // ⚖ ROUND 3 · D — RECORD: exit (e) closes this board by counting.
     expect({ nettings, withheld: setOf(w).length }).toEqual({ nettings: 0, withheld: offers.length })
+  })
+
+  // ⚖ D-49 (c) R1 — THE MEMO, on a board the eligibility exit cannot decide.
+  // The `:271` lattice leg is now decided by exit (e) at zero cost (its held 枠
+  // have SINGLETON eligible lists), so the memo's own promise — one netting per
+  // (room, span) however many rows draw the box — needs a board that still
+  // REACHES the per-room walk. This is also the honest example that (e) is a
+  // sufficient exit and not a complete one: the 枠 that is really lost (z2)
+  // starts AT the offer's end, so no instant inside the span ever sees it.
+  it('a lattice of offers that REACHES the walk still pays ONE netting per (room, span)', () => {
+    const OFFER_ROOMS = ['bed-01', 'bed-02']
+    const OFFER_LANES = ['s1', 's2', 's3']
+    const rows: Array<[string, number, number, string[]]> = [
+      ['x', 600, 690, ['bed-01', 'bed-03']],
+      ['y', 605, 695, ['bed-02', 'bed-03']],
+      ['z2', 650, 740, ['bed-03']],
+      ['offers', 610, 650, OFFER_ROOMS],
+    ]
+    const { book, asks } = tableBook(rows)
+    const candidates = rows.slice(0, 3).map(([k, s, e]) => maskOf(k, [span(s, e)]))
+    const lanes = [...['x', 'y', 'z2', ...OFFER_LANES].map((k) => lane(k)), ...bedRows('bed-01', 'bed-02', 'bed-03')]
+    const roomUniverse = lanes.filter((l) => l.group === 'beds').length
+    const honest = honestHeld(candidates, lanes, book, true)
+    // Preconditions, DERIVED from the objects — the three silences this board rests on.
+    expect({ total: honest.total, exact: honest.exact, roomUniverse }).toEqual({ total: 3, exact: true, roomUniverse: 3 })
+    const heldRoom = Object.fromEntries(honest.byLane.map((l) => [l.laneKey, l.heldRoom[0]]))
+    console.log('R1 heldRoom =', heldRoom, '· heldRooms =', honest.byLane.map((l) => l.heldRooms))
+    // The assignment is FORCED (z2 can only take bed-03), so this is a fact, not a hope:
+    // both of the offer's rooms are in use ⇒ the witness is silent; covering(610) = 2 < 3
+    // ⇒ (d) is silent; U(610) = all three beds ⇒ |U \ {r}| = 2 is NOT < 2 ⇒ (e) is silent.
+    expect(heldRoom).toEqual({ x: 'bed-01', y: 'bed-02', z2: 'bed-03' })
+    const offers: OfferAsk[] = OFFER_LANES.map((k) => ({ key: offerKey(k, 610), laneKey: k, start: 610, end: 650, stores: null }))
+    const before = asks.length
+    const w = withheldOffers(offers, honest, candidates, lanes, book, true)
+    const nettings = (asks.length - before - offers.length) / candidates.length
+    const distinct = new Set(offers.flatMap((o) => OFFER_ROOMS.map((r) => `${r}|${o.start}|${o.end}`))).size
+    const unmemoised = offers.length * OFFER_ROOMS.length
+    console.log('R1 memo:', offers.length, 'offers ·', distinct, 'distinct room×span · nettings =', nettings, '(un-memoised:', unmemoised, ')')
+    // nettings > 0 is what makes this leg the memo's pin: the walk really ran.
+    expect({ nettings, withheld: setOf(w).length, unresolved: [...w.unresolved] })
+      .toEqual({ nettings: distinct, withheld: offers.length, unresolved: [] })
     expect(nettings).toBeLessThan(unmemoised)
+    // …and NO name: the 枠 every room costs (z2) starts at the offer's end, so it is
+    // not in `hit` and `blockerOf` refuses to name it — the shared box's own rule.
+    for (const o of offers) expect(w.blockedBy.has(o.key)).toBe(false)
   })
 
   // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 2 — AND THE MEMO KEY CARRIES THE END.
@@ -346,6 +382,8 @@ describe('bed-aware-sales — ⚖ D-19 (3) / round 3 D: the eligibility pigeonho
     expect(honest.total).toBe(2)
     expect(roomUniverse).toBe(3) // so (d) is silent: covering(t) = 2 < 3
     console.log('P1 heldRooms per 枠:', honest.byLane.map((l) => ({ laneKey: l.laneKey, heldRooms: l.heldRooms })))
+    // Both held 枠 overlap the offer here, so this equals the module's own
+    // `usedRooms`, which is built from `hit` only.
     const usedRooms = new Set(honest.byLane.flatMap((l) => l.heldRoom))
     expect([...usedRooms].sort()).toEqual(['bed-01', 'bed-02']) // the witness is silent too
     const offer = askOf(rows[2])
@@ -655,9 +693,9 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
     honest: ReturnType<typeof honestHeld>,
     lanes: BoardLane[],
     book: BedTruth,
-  ): Set<string> => {
+  ): Map<string, 'count' | 'eligibility'> => {
     const universe = lanes.filter((l) => l.group === 'beds').length
-    const out = new Set<string>()
+    const out = new Map<string, 'count' | 'eligibility'>()
     // ⚖ step 1d (D-14 (d)) / D-49 (a): both exits' own guard is `roomUniverse >=
     // 2`, not `> 0` — mirrored here so this reference names exactly the offers
     // the real exits decide.
@@ -667,7 +705,10 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
       const hit = spans.filter((s) => o.start < s.end && s.start < o.end)
       const covering = (t: number) => hit.filter((s) => s.start <= t && t < s.end).length
       const steps = [o.start, ...hit.flatMap((s) => [s.start, s.end]).filter((t) => t > o.start && t < o.end)]
-      if (steps.some((t) => covering(t) >= universe)) { out.add(o.key); continue }
+      if (steps.some((t) => covering(t) >= universe)) { out.set(o.key, 'count'); continue }
+      // The reference omits the module's `!usedRooms.has('')` guard: this property
+      // always nets with the gate ON, so no held 枠 ever reports '', and exitNamed
+      // / nameFails would catch a mis-scoped '' two-sidedly regardless.
       // ⚖ ROUND 3 · D (D-19 (3) / D-49 (a)) — the eligibility pigeonhole, spelled
       // from scratch: the offer's own candidate rooms, gated `rooms.length >= 2`,
       // each refuted at some instant by the union of the covering 枠's own
@@ -678,7 +719,7 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
         const cover = hit.filter((s) => s.start <= t && t < s.end)
         return { n: cover.length, u: new Set(cover.flatMap((s) => s.rooms)) }
       })
-      if (rooms.every((r) => at.some(({ n, u }) => u.size - (u.has(r) ? 1 : 0) < n))) out.add(o.key)
+      if (rooms.every((r) => at.some(({ n, u }) => u.size - (u.has(r) ? 1 : 0) < n))) out.set(o.key, 'eligibility')
     }
     return out
   }
@@ -737,6 +778,8 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
       let multiLossBoards = 0
       let fewerStaffThanRooms = 0
       let exitDecidedOffers = 0
+      let countDecidedOffers = 0
+      let eligibilityDecidedOffers = 0
       let namesTheExitGivesUp = 0
       for (let seed = 0; seed < 500; seed += 1) {
         const b = mkBoard(seed)
@@ -753,7 +796,12 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
         if (want.named.size) namedBoards += 1
         if (want.multiLoss) multiLossBoards += 1
         if (b.kept.length < b.rooms.length) fewerStaffThanRooms += 1
-        exitDecidedOffers += [...byExit].filter((k) => w.keys.has(k)).length
+        for (const [key, exit] of byExit) {
+          if (!w.keys.has(key)) continue
+          exitDecidedOffers += 1
+          if (exit === 'count') countDecidedOffers += 1
+          else eligibilityDecidedOffers += 1
+        }
         // (1) THE SET — every board, every offer.
         if (JSON.stringify(setOf(w)) !== JSON.stringify(want.keys)) {
           setFails.push(`${where} — module ${JSON.stringify(setOf(w))} · reference ${JSON.stringify(want.keys)}`)
@@ -773,7 +821,8 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
       console.log(`exit equivalence (${familyName}): 500 boards · ${withheldBoards} withheld something · ${namedBoards} named a 枠 · ${multiLossBoards} had a room losing two 枠 · ${fewerStaffThanRooms} had fewer staff rows than bed rows`)
       console.log(`  set disagreements = ${setFails.length} · name disagreements off an exit = ${nameFails.length} · names given out of an exit = ${exitNamed.length}`)
       console.log(`  ⚠ THE OPEN QUESTION: ${exitDecidedOffers} withheld offers were decided by an exit, and ${namesTheExitGivesUp} of them carry a rule-4 name an exit gives up (the generic line instead).`)
-      return { setFails, nameFails, exitNamed, withheldBoards, namedBoards, multiLossBoards, fewerStaffThanRooms, exitDecidedOffers }
+      console.log(`  decided by (d) = ${countDecidedOffers} · decided by (e) = ${eligibilityDecidedOffers}`)
+      return { setFails, nameFails, exitNamed, withheldBoards, namedBoards, multiLossBoards, fewerStaffThanRooms, exitDecidedOffers, countDecidedOffers, eligibilityDecidedOffers }
     }
 
     const main = runFamily(board, 'board')
@@ -798,6 +847,10 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
     expect(foreign.nameFails).toEqual([])
     expect(foreign.exitNamed).toEqual([])
     expect(foreign.exitDecidedOffers).toBeGreaterThan(0)
+    // ⚖ ROUND 3 · D fix (L1 F2) — the union assertion above is sound only because
+    // (d) is provably silent on this family, an argument that lives nowhere in
+    // the test; assert exit (e) ISOLATED so a regression there cannot hide behind it.
+    expect(foreign.eligibilityDecidedOffers).toBeGreaterThan(0)
   })
 
   // ⚖ D-17 / SPEC-R2 v7 — UNRESOLVED IS THE EXCEPTION, NOT THE ROAD. A restricted
