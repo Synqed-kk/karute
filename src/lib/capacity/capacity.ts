@@ -81,7 +81,10 @@ export interface CapacityFact {
   /** lanes × laneMinutes, or null. NEVER 0-as-unknown, NEVER NaN (E10: a brand
    *  new store printed 「NaN% 稼働」 under the design's un-guarded formula). */
   capacityMinutes: number | null
-  /** The floor-applied lane count actually used (0 when none). */
+  /** The floor-applied lane count actually used (0 when none, and on
+   *  'kind-none'/'roster-unknown'/an hours-rule withdrawal, where it isn't
+   *  known yet). Real — not defaulted to 0 — from 'outside-hours' onward
+   *  (R5: 'over-concurrency' already carried it; 'no-lanes' is 0 either way). */
   lanes: number
   laneKind: LaneKind
   hoursSource: HoursSource | null
@@ -282,6 +285,17 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   // dividing by it is the NaN E10 forbids.
   if (!hoursRunForward(hours.openMs, hours.closeMs)) return withoutCapacity('hours-unresolved')
 
+  // 4-pre. A FLOOR, never a ceiling (C3 rule c): the owner who cuts (E11) and
+  //        the helper off the roster (E2) each add a lane, and a day nobody
+  //        booked keeps its full capacity. Computed here (R5, moved up from
+  //        rule 5 below) so its value is known to every withdrawal from here
+  //        on — a withdrawn day should say its real lane count, not 0.
+  const worked = new Set<string>()
+  for (const s of counted) {
+    if (s.insideMinutes > 0 && s.staffId != null) worked.add(s.staffId)
+  }
+  const lanes = input.rosterLanes > worked.size ? input.rosterLanes : worked.size
+
   // 4. A booking that STARTS today must fit inside today's declared hours. A
   //    row that ran in from last night NEVER withdraws today (R3 — the lead
   //    re-rules over the 12:5x D-1 amendment's second sentence: one late-night
@@ -290,18 +304,11 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   for (const s of counted) {
     const startsToday = s.startMs >= input.dayStartMs && s.startMs < input.dayEndMs
     if (startsToday && (s.startMs < windowOpenMs || s.endMs > windowCloseMs)) {
-      return withoutCapacity('outside-hours')
+      return withoutCapacity('outside-hours', lanes)
     }
   }
 
-  // 5. A FLOOR, never a ceiling (C3 rule c): the owner who cuts (E11) and the
-  //    helper off the roster (E2) each add a lane, and a day nobody booked
-  //    keeps its full capacity.
-  const worked = new Set<string>()
-  for (const s of counted) {
-    if (s.insideMinutes > 0 && s.staffId != null) worked.add(s.staffId)
-  }
-  const lanes = input.rosterLanes > worked.size ? input.rosterLanes : worked.size
+  // 5. lanes <= 0 → no-lanes (real either way; the floor above already used it).
   if (lanes <= 0) return withoutCapacity('no-lanes')
 
   // 6. Overlap means the LANE COUNT is wrong for that day, at 1 lane or at 6

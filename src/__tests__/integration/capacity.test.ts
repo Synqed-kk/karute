@@ -170,6 +170,7 @@ describe('capacityForDay — the council edges', () => {
     // 18:00–23:00 row falls inside the JST day, not just its 18:00–20:00
     // slice against the store's hours.
     expect(fact.bookedMinutes).toBe(300)
+    expect(fact.lanes).toBe(1) // R5: the roster, not the 0 default — real even on withdrawal
   })
 
   it("E6: a saved '24:00' close is 840 lane-minutes and keeps source 'store'", () => {
