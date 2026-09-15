@@ -124,7 +124,10 @@ export function WeekRows({
     <div>
       {pending && <p className="mb-2 text-xs text-[var(--color-text-muted)]">{t('loading')}</p>}
       {showSummary && rows.length > 0 && (
-        <div className="flex items-center gap-1.5 px-1 pb-[9px] text-[12.5px] font-semibold text-[var(--color-text-muted)]">
+        <div
+          data-testid="week-summary"
+          className="flex items-center gap-1.5 px-1 pb-[9px] text-[12.5px] font-semibold text-[var(--color-text-muted)]"
+        >
           <span>
             {t('summary', {
               from: shortMonthDay(rows[0].dateIso),
