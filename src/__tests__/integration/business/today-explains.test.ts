@@ -446,10 +446,11 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     expect(railExplain(cell, 60, { room: lifted }).word).toBeNull()
   })
 
-  it('a refusal that names NOBODY wears no word — この店舗には使えるベッドがありません is not a full house', () => {
-    // ⚖ 46 store isolation: this staff member's store has no rooms in it at all,
-    // so the allocator's candidate list is empty. It refuses — truthfully — and
-    // there is no occupant anywhere in the answer.
+  it('a store with no rooms refuses nobody — the chip is bare and the sentence is the base sentence (⚖ D-52 (a))', () => {
+    // ⚖ 46 store isolation: this staff member's store has no rooms in it at all
+    // (⚖ ROUND 3 · C, ⚖ D-52 (a)): `storeHasBeds(lanes, ['store-b'])` is false,
+    // so the untagged landing returns before the search — no refusal, no
+    // occupant anywhere in the answer, the landing stands with no room.
     const split = [
       lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-b'] }),
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', stores: ['store-a'] }),
@@ -457,15 +458,17 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     const empty = allocateBed(split, {
       id: null, currentBed: null, stores: ['store-b'], requiresPrivate: false, start: 780, end: 840,
     })
-    expect(empty.refusal).toBe('この店舗には使えるベッドがありません')
-    expect(empty.blockers).toEqual([])
+    expect(empty).toEqual({ laneKey: null, refusal: null, blockers: [], reseats: [] })
     const bedCell: RailCell = { ...at(railOn(sceneWith([])), 780), state: 'blocked', reason: 'bed' }
     const said = railExplain(bedCell, 60, { room: empty })
     // 「満室」 beside 「この店舗には使えるベッドがありません」 said two different things about
     // one board — and 清掃 was the LITERAL old answer here, because `every` on an
-    // empty list is true. Neither now: the sentence still refuses, the chip is bare.
+    // empty list is true. Neither now: with no refusal to quote, `railExplain`'s
+    // `base` falls through to the engine's own bare sentence for this cell
+    // (`${cell.sentence}${judged}`) — the chip is bare and the sentence never
+    // mentions a bed at all.
     expect(said.word).toBeNull()
-    expect(said.sentence).toBe('この店舗には使えるベッドがありません')
+    expect(said.sentence).toBe(`${bedCell.sentence}（13:00〜14:00）`)
   })
 })
 

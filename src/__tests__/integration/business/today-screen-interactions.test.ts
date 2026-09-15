@@ -12636,11 +12636,11 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
       reseats: [],
     })
     expect(INT).not.toContain('個室のみの指定を外すか')
-    // …and an untagged booking on a store with no bed AT ALL answers the SAME
-    // question in the same shape (⚖ FIX ROUND 2, delta lens 3 N8): both arms are
-    // 「does a usable room exist here?」, and a window on the answer sent the
-    // operator hunting the clock for a room that exists at no hour.
-    expect(solve([staffLane()], false).refusal).toBe('この店舗には使えるベッドがありません')
+    // …and an untagged booking on a store with no bed AT ALL no longer reaches
+    // this refusal at all (⚖ ROUND 3 · C, ⚖ D-52 (a)): `storeHasBeds` returns
+    // early before the search, so the landing stands with no room rather than
+    // being told to hunt a clock for a room that exists at no hour.
+    expect(solve([staffLane()], false)).toEqual({ laneKey: null, refusal: null, blockers: [], reseats: [] })
   })
 
   // I4 — THE CLASS IS AN ORDER, NEVER A FILTER, AND THE ORDER IS LAW. No dial,
