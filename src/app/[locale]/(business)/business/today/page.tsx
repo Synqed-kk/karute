@@ -419,15 +419,19 @@ export default async function TodayPage({
     }
   }
 
+  // ⚖ D-53 (g) — the booking's OWN store is the unit axis (Greptile #933
+  // P1-2): `BoardBooking` carries no store (frozen `today-board.ts` drops
+  // `store_id`), so it is re-joined here by id from the raw rows; a staff
+  // member's store LIST was a proxy that answers wrong for a person who
+  // works in two stores.
+  const storeOfBooking = new Map(appointments.map((a) => [a.id, a.store_id]))
   const cases: Record<string, InspectorCase> = {}
   bookings.forEach((b, i) => {
-    // ⚖ D-53 (c) R2 — the booking's store, through its STAFF lane (the N0
-    // predicate's own shape, `today-interactions.ts` `sellLayerFor`'s
-    // `needsUnit`): a booking with no staff, or whose staff lane is not on
-    // this board, answers via the whole board, which is honest wherever any
-    // unit exists.
-    const staffLane = b.staffId ? lanes.find((l) => l.group === 'staff' && l.key === b.staffId) : null
-    const hasUnits = storeHasBeds(lanes, staffLane?.stores ?? null)
+    // ⚖ D-53 (c) R2 + (g) — the booking's own store's axis (`storeHasBeds`'s
+    // store-binding form, D-52 (a)); a booking with no store answers via the
+    // whole board, which is honest wherever any unit exists.
+    const storeId = storeOfBooking.get(b.id) ?? null
+    const hasUnits = storeHasBeds(lanes, storeId == null ? null : [storeId])
     cases[b.id] = bookingCase(
       b,
       `予約 ${i + 1} / ${bookings.length}`,
