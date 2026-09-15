@@ -27,7 +27,7 @@
 // MOTION: none. The disclosure is a plain conditional render and the rows
 // carry no transition, so Reduce Motion has nothing to honour or to lie about.
 
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import type { WeeklyHours } from '@synqed-kk/client'
@@ -180,6 +180,19 @@ function StoreHoursEditor({
   const parsed = parseStoreWeeklyHours(draftToWeeklyHours(draft))
   const invalid = 'error' in parsed
 
+  /** The weekdays whose PRE-FILLED close came from a 24:00 business-wide
+   *  default. `<input type="time">` tops out at 23:59, so the field shows a
+   *  number the banner above it does not name — and 保存 would write that
+   *  number as this store's declared truth. The row says so instead. Only
+   *  ever the pre-fill: a saved week is never clamped. */
+  const clampedFromMidnight = useMemo(() => {
+    const seededFromOrg = !weeklyHours || Object.keys(weeklyHours).length === 0
+    if (!seededFromOrg) return new Set<WeekdayKey>()
+    return new Set(
+      WEEKDAY_KEYS.filter((key) => normalizedOrg[key].closeMinute > 23 * 60 + 59),
+    )
+  }, [weeklyHours, normalizedOrg])
+
   const setDay = useCallback((key: WeekdayKey, next: Partial<DayDraft>) => {
     setDraft((prev) => ({ ...prev, [key]: { ...prev[key], ...next } }))
   }, [])
@@ -283,6 +296,9 @@ function StoreHoursEditor({
               </div>
               {dayInvalid && (
                 <p className="mt-1 text-xs text-destructive">{t('invalidWindow')}</p>
+              )}
+              {clampedFromMidnight.has(key) && !day.closed && day.close === '23:59' && (
+                <p className="mt-1 text-xs text-muted-foreground">{t('clampedMidnight')}</p>
               )}
               {confirmDay === key && (
                 <div className="mt-1.5 rounded-lg bg-muted px-3 py-2">

@@ -118,6 +118,25 @@ describe('a store that has never set its own hours', () => {
     expect(timeInputs(container)[13].value).toBe('23:59') // sun close
   })
 
+  // R1-5: the banner says these times ARE the company-wide default; on a
+  // clamped row they are one minute short of it, and 保存 writes the short
+  // one. The row has to say so.
+  it('a clamped row says so — and only that row', () => {
+    open() // ORG_HOURS closes 24:00 on sun alone
+    expect(screen.getAllByText('clampedMidnight')).toHaveLength(1)
+  })
+
+  it('23:59 typed by hand on an unclamped row carries no note', () => {
+    const { container } = open()
+    fireEvent.change(timeInputs(container)[1], { target: { value: '23:59' } }) // mon close
+    expect(screen.getAllByText('clampedMidnight')).toHaveLength(1)
+  })
+
+  it('a store with its OWN saved week is never clamped, so it never carries the note', () => {
+    open({ weeklyHours: OWN_WEEK })
+    expect(screen.queryByText('clampedMidnight')).not.toBeInTheDocument()
+  })
+
   it('renders the editor only when the disclosure is opened', () => {
     render(
       <StoreHoursBlock
