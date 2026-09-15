@@ -1845,9 +1845,11 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     // `null, null` — which is what this test is actually about.
     for (const line of [
       'const solvedPartner = solveBed(solveLanes(null), lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))',
-      // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: a no-bed store's
-      // shelf chip must not enter solveBed's room solve, so it now short-circuits
-      // to null on the bed-row drop arm.
+      // ⚖ ROUND 3 · C (⚖ D-52 (b)) — pin moved with the line: `solvedChip` is
+      // now lifted out of the IIFE and short-circuits to null only on the
+      // OPERATOR'S OWN bed-row drop (the room chosen out loud); a no-room
+      // store's chip still enters `solveBed` and gets `laneKey: null` with no
+      // refusal.
       'const solvedChip = dropped?.group === \'beds\' ? null : solveBed(solveLanes(chip.id), staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })

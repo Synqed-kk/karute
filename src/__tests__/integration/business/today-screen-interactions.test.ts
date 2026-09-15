@@ -2337,7 +2337,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "sameStore,",
       "sharesStore,",
       // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: the no-bed
-      // predicate arrives here in its alphabetical place beside `sharesStore`.
+      // predicate arrives here beside `sharesStore` (the list is not
+      // alphabetical here; the pin quotes the tip's order).
       "storeHasBeds,",
       "sellDrawnFor,",
       "sellLayerFor,",
@@ -5845,10 +5846,12 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     // sentence and the chip landing's missing-person one.
     // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: `solveBed` no
     // longer collapses a null `laneKey` into a refusal (a no-room store is not
-    // a refusal); the ⚖ 47 intent (a refusal speaks and changes nothing) is
-    // unchanged — `solveBed`'s body itself stays isolated at G10 (i), this same
-    // file's own 「the drop path refuses only on a refusal」 describe, not
-    // duplicated here.
+    // a refusal). The ⚖ 47 intent is unchanged: a refusal is SPOKEN through
+    // `refuse(...)` and changes nothing — so this pin keeps the whole
+    // four-line shape on purpose. G10 (i) (this file's own 「the drop path
+    // refuses only on a refusal」 describe) isolates `solveBed`'s body and pins
+    // the collapsed check's ABSENCE; the two overlap on the `if` line by
+    // design, each for its own reason.
     expect(SRC).toContain('if (solved.refusal) {\n      refuse(solved.refusal)\n      return null\n    }')
     expect(SRC).toContain('refuse(`${chip.item.title}様の担当がこのボードにいません')
   })
