@@ -1,6 +1,10 @@
 import type { WeeklyHours } from '@synqed-kk/client'
 import { partsInJst, ymdInJst } from '@/lib/date/jst'
 import { jstMidnight } from '@/lib/date/calendar-range'
+// Type-only, so nothing of the capacity module enters this graph at runtime.
+// One spelling of provenance for the whole app: the resolver below produces it
+// and the capacity module consumes it, so the two can never drift.
+import type { HoursSource } from '@/lib/capacity/capacity'
 
 export type WeekdayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
 
@@ -164,21 +168,45 @@ export function utcToLocalDayAndMinute(date: Date, tzOffsetMinutes: number): {
 /** What one JST day's hours actually are, and how much we may claim about them.
  *  `saved` = a human really set this day (a store weekly_hours entry, a closed
  *  date, or a saved org blob day) — the 稼働/空き conjunct. `closed` = 定休日 or
- *  臨時休業. `minutes` is 0 when closed. */
+ *  臨時休業. `minutes` is 0 when closed.
+ *
+ *  `source` is the same fact with its PROVENANCE kept (C3 E6/E21): an org-blob
+ *  day is a business-wide DEFAULT rather than a declaration about this store,
+ *  and the 10:00–24:00 fallback is not a statement about the day at all. The
+ *  two fields are one truth in two shapes — `saved === (source !== 'default')`
+ *  always, asserted in operating-hours.test.ts so they can never drift. */
 export type DayHoursFact = {
   minutes: number
   openMinute: number
   closeMinute: number
   saved: boolean
+  /** 'store' = this store's own weekly_hours day or one of its closed dates ·
+   *  'org' = a weekday the business saved in the org blob · 'default' = the
+   *  10:00–24:00 fallback nobody set. */
+  source: HoursSource
   closed: boolean
+  /** ⚖ R1-7 — WHICH closed, decided HERE and nowhere else: 'closed_date' = an
+   *  ad-hoc 臨時休業 date · 'weekday' = the weekly hours. The booking door
+   *  used to re-ask `closedDates.has(ymd)` itself to name the refusal; the two
+   *  agreed, but a precedence change inside this function would have desynced
+   *  them silently. Absent on an open day, which has no such answer. */
+  kind?: 'weekday' | 'closed_date'
 }
 
-const CLOSED_FACT: DayHoursFact = {
-  minutes: 0,
-  openMinute: 0,
-  closeMinute: 0,
-  saved: true,
-  closed: true,
+/** Both closed paths are the STORE speaking: an ad-hoc 臨時休業 date and a
+ *  weekly_hours day the store left out (its 定休日) are equally that store's
+ *  own declaration — they differ only in `kind`, which is why the two callers
+ *  below name it rather than re-deriving it. */
+function closedFact(kind: 'weekday' | 'closed_date'): DayHoursFact {
+  return {
+    minutes: 0,
+    openMinute: 0,
+    closeMinute: 0,
+    saved: true,
+    source: 'store',
+    closed: true,
+    kind,
+  }
 }
 
 /** 'HH:MM' → minutes from midnight, or null when the wire value is malformed. */
@@ -210,7 +238,7 @@ export interface DayHoursInput {
 export function resolveDayHours(input: DayHoursInput): DayHoursFact {
   const key = getWeekdayKey(input.date)
 
-  if (input.closedDates.has(ymdInJst(input.date))) return { ...CLOSED_FACT }
+  if (input.closedDates.has(ymdInJst(input.date))) return closedFact('closed_date')
 
   const weekly = input.weeklyHours
   // An object with NO keys at all is not "closed every day" — it is a store
@@ -221,7 +249,7 @@ export function resolveDayHours(input: DayHoursInput): DayHoursFact {
   if (weekly != null && Object.keys(weekly).length > 0) {
     const day = weekly[key]
     // null OR absent = 定休日. This is the first of the two nulls above.
-    if (day == null) return { ...CLOSED_FACT }
+    if (day == null) return closedFact('weekday')
     const open = minuteOfHhmm(day.open)
     const close = minuteOfHhmm(day.close)
     if (open != null && close != null && open < close) {
@@ -230,6 +258,7 @@ export function resolveDayHours(input: DayHoursInput): DayHoursFact {
         openMinute: open,
         closeMinute: close,
         saved: true,
+        source: 'store',
         closed: false,
       }
     }
@@ -238,11 +267,15 @@ export function resolveDayHours(input: DayHoursInput): DayHoursFact {
   }
 
   const day = getOperatingHoursForDate(input.orgHours, input.date)
+  const orgSaved = input.orgSaved.has(key)
   return {
     minutes: Math.max(0, day.closeMinute - day.openMinute),
     openMinute: day.openMinute,
     closeMinute: day.closeMinute,
-    saved: input.orgSaved.has(key),
+    saved: orgSaved,
+    // The business-wide blob when a human saved that weekday, otherwise the
+    // 10:00–24:00 fallback — which describes no day and may never divide one.
+    source: orgSaved ? 'org' : 'default',
     closed: false,
   }
 }

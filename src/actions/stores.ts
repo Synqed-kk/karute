@@ -12,6 +12,10 @@ import { storeSchema, type StoreInput, STORE_OWNER_DENIAL } from '@/lib/validati
 import { loadEntitlementWithClient } from '@/lib/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { audit } from '@/lib/audit'
+// The tolerant business_type reader lives beside the registry: this is a
+// 'use server' module, where every export is a callable endpoint, so it cannot
+// be declared here — and the 予約 capacity path needs the same one answer.
+import { coreBusinessType } from '@/lib/welcome/business-types'
 
 // Explicit-client seam (design-parity packet 12 §B-3 S2 — the P-B pattern):
 // every twin below takes this instead of resolving getSynqedClient() from the
@@ -77,13 +81,6 @@ export interface StoreRow {
   /** This location's vertical (BUSINESS_TYPES value). Null until core's
    *  stores.business_type column exists / backfills (brief 2026-07-08). */
   businessType: string | null
-}
-
-/** Read business_type off a core store row tolerantly — the SDK types gain the
- *  field with Anthony's core change; until then it's simply absent. */
-function coreBusinessType(row: unknown): string | null {
-  const v = (row as { business_type?: unknown }).business_type
-  return typeof v === 'string' && v.length > 0 ? v : null
 }
 
 // Primary-store name = the shared truth chain (business-name.ts). This write

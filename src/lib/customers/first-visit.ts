@@ -18,3 +18,12 @@ export function firstVisitFromBooking(
   if (!t) return null
   return t.includes('新規')
 }
+
+/** Does the booking's own course title say the customer holds a 回数券?
+ *  The ledger (listAllPackUsage) is the real signal; this regex is the
+ *  fallback for customers with no ledger entry yet (pre-migration /
+ *  pre-import). Lifted out of the reservation-view adapter in PKT-2 so the
+ *  day list's 新規 tag and the 新規 COUNT read one regex, never two. */
+export function holdsPackFromTitle(courseTitle: string | null | undefined): boolean {
+  return /回数?券/.test(courseTitle ?? '')
+}

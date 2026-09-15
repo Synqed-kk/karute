@@ -736,7 +736,455 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Ceiling is set from the LARGER of the two tip measurements (the CI recipe)
 // plus 1,000 B, same convention as every prior raise:
 // 2,077,233 + 1,000 = 2,078,233.
-const BUDGET_BYTES = 2_078_233
+//
+// RAISED 2026-09-14 for the 予約 date-jump panel, ⚖ 8/25: 2,078,233 →
+// 2,093,051. A FEATURE raise, not a method correction — the method is
+// unchanged from the 2026-09-02 entry above (release-length placeholder env,
+// emptied thin/dist).
+//
+// What is in the phone for the bytes: the date chip 「9/14(月) ▾」 now opens
+// the app's own calendar instead of calling showPicker() on a hidden native
+// date input, which on a phone read to staff as "nothing there". The panel
+// carries the 月 view's own cells (density dot + count) for ANY month, so
+// 「来月どんな感じ？」 is answered without leaving the day; the month title
+// opens the year's twelve chips for a far jump; a month that has not loaded
+// shows its day numbers with a status line rather than a grid of zero counts.
+// The month reads go through the screen GET this screen already calls
+// (view=month + the day wanted) — no new endpoint and no new audit action.
+//
+// Measured at the FIX-ROUND-2 tip with the CI recipe, byte-identical across
+// two clean builds from an emptied thin/dist (node v24.16.0, vite 6.4.3):
+// en 133,757 · index 1,020,551 · vendor 937,743 = 2,092,051 B — 13,818 B over
+// the ceiling above, which is the breach this raise answers. The base it sits
+// on (origin/main c712c4d56c022c9fc5493b3cbca6dd99eae5e56d, measured the same
+// way from a `git archive` of that tree in a scratch dir, also byte-identical
+// across two clean builds) is en 133,643 · index 1,006,122 · vendor 937,743 =
+// 2,077,508 B, so the panel costs the phone +14,543 B: +14,429 B of index
+// (the panel, its pure state layer and the ja copy) and +114 B of the en
+// chunk (that locale's three new lines). Vendor is untouched — no new
+// dependency; the calendar is the MonthGrid the 月 view already ships.
+//
+// One honest caveat on precision: a blind review of the pre-fix tip measured
+// its index chunk ONE byte larger than this recipe does here (2,091,351 vs
+// 2,091,350) on another machine. The 1,000 B margin below swallows that
+// comfortably; it is recorded so a future reader does not read these figures
+// as exact to the byte across environments.
+//
+// Ceiling = the tip measurement + 1,000 B, same convention as every prior
+// raise: 2,092,051 + 1,000 = 2,093,051.
+//
+// RE-MEASURED 2026-09-15 for the panel's motion repair (#921): 2,093,051 →
+// 2,094,602. Same CI recipe as above (release-length placeholder env, emptied
+// thin/dist), byte-identical across two clean builds on the final tip:
+// en 133,757 · index 1,022,102 · vendor 937,743 = 2,093,602 B. Ceiling =
+// 2,093,602 + 1,000.
+//
+// +1,551 B, all of it in the index chunk (en and vendor are unchanged to the
+// byte — no new dependency; the spring is ~160 lines of the app's own code).
+// HONEST CAVEAT ON WHAT THOSE BYTES ARE: this tip also merged origin/main
+// (40fa7c4bff94b473b4ddba4629e9cc3cccf9fc95) on top of the tree the previous
+// entry was measured at, so the +1,551 B covers the motion repair AND whatever
+// main added to the phone's graph in between. The two were not measured apart
+// — the gate is a tripwire for accidental bloat, and nothing here is one.
+//
+// What is in the phone for the bytes this time: the panel's open, close and
+// month slide now run on src/lib/motion/spring.ts (the approved mock's own
+// integrator) instead of CSS transitions plus a commit timer, which is what
+// stopped the production build from animating the panel open at all.
+//
+// RE-MEASURED 2026-09-15 for fix round 1 on that repair (#921 R1-R4):
+// 2,094,602 → 2,094,758. Same CI recipe, emptied thin/dist, byte-identical
+// across two clean builds on the final tip, same content hashes both times:
+// en 133,757 · index 1,022,258 · vendor 937,743 = 2,093,758 B. Ceiling =
+// 2,093,758 + 1,000.
+//
+// +156 B, all in the index chunk (en and vendor unchanged to the byte). No new
+// code path and no dependency: a pane's `inert` now answers to which month a
+// pending shift is travelling toward rather than to a fixed flag, the wrapper
+// takes the month as its key, and three easing utilities and two comments were
+// added. The tip is otherwise the same tree the entry above measured.
+//
+// RE-MEASURED 2026-09-15 for fix round 3 on that repair (#921 R1-R5):
+// 2,094,758 → 2,095,289. Same CI recipe, emptied thin/dist, byte-identical
+// across two clean builds on the final tip, same content hashes both times:
+// en 133,757 · index 1,022,789 · vendor 937,743 = 2,094,289 B. Ceiling =
+// 2,094,289 + 1,000.
+//
+// +531 B, all in the index chunk (en and vendor unchanged to the byte). No new
+// dependency and no new code path: the closing dialog takes an `inert`
+// attribute and the scrim a conditional class, the pointer handlers gained an
+// ownership guard and a settle, a commit that re-keys the panes puts keyboard
+// focus back on the panel, and the spring's frame loop checks reduced motion.
+// Comments are most of it. The tip is otherwise the same tree as above.
+//
+// RE-MEASURED 2026-09-15 for fix round 4 on that repair (#921 R4-1…R4-4):
+// 2,095,289 → 2,095,631. Same CI recipe, emptied thin/dist, byte-identical
+// across two clean builds on the final tip, same content hashes both times:
+// en 133,757 · index 1,023,074 · vendor 937,800 = 2,094,631 B. Ceiling =
+// 2,094,631 + 1,000.
+//
+// CORRECTION TO THE ENTRY ABOVE, so this delta is honest: the fix-round-3 tip
+// actually produced index 1,022,790 / total 2,094,290 — the figures written
+// there were one byte short (caught by that round's delta-verify, re-measured
+// twice). The real change here is therefore +341 B, not +342.
+//
+// Where those bytes went, measured per chunk rather than assumed:
+//   index  1,022,790 → 1,023,074 (+284 B) — ours. The month grid became a
+//     memoized `Pane` with its two stable props, a month's skeleton cells are
+//     cached per month, the anchor gained `mb-0` and the dialog/scrim their
+//     `will-change` classes; against that, the unreachable non-x settle branch
+//     was deleted. Comments are stripped by the bundler and cost nothing here.
+//   vendor   937,743 → 937,800 (+57 B) — NOT ours: @synqed-kk/ui 0.3.1 → 0.3.2.
+//     The lock already pinned 0.3.2; this worktree's node_modules was a patch
+//     behind it until this round ran `npm install`. The lockfile is untouched.
+//   en      133,757 → 133,757 — unchanged to the byte. No new Japanese string
+//     anywhere in the round.
+//
+// ── Both branch lines below start from the same round-4 figure (2,095,631).
+// The #921 date-jump line comes first, then the week-face line; the merge of
+// the two is re-measured in the final entry, which is the live one.
+//
+// RE-MEASURED 2026-09-15 for fix round 5 on that repair (#921 R5-1/R5-3/R5-6):
+// 2,095,631 → 2,095,689. Same CI recipe, emptied thin/dist, byte-identical
+// across two clean builds on the final code tip, same content hashes both
+// times (a third build with .env.local moved out of the way produced the same
+// three sizes, so nothing here reads a local env file):
+// en 133,776 · index 1,023,113 · vendor 937,800 = 2,094,689 B. Ceiling =
+// 2,094,689 + 1,000.
+//
+// +58 B, and every one of them is the SAME SENTENCE in two locales — the round
+// changed no component source at all (`git diff` on the two tips touches only
+// messages/*.json and one test file). The panel's failed line gained the app's
+// retry tail:
+//   index  1,023,074 → 1,023,113 (+39 B) — ja.json is inlined here by
+//     thin/main.tsx's static import. 「。もう一度お試しください。」 is 13
+//     characters at 3 UTF-8 bytes each. Exactly 39.
+//   en      133,757 → 133,776 (+19 B) — en.json is its own lazy chunk.
+//     ". Please try again." is 19 ASCII characters. Exactly 19.
+//   vendor   937,800 → 937,800 — untouched, as it must be: no dependency
+//     moved and the lockfile was restored after `npm install`.
+//
+// WHY THE ROUND-4 ENTRY ABOVE AND ITS DELTA-VERIFY DISAGREED BY 18 B, measured
+// rather than assumed: that review reported index 1,023,092 against the
+// 1,023,074 written above, with en and vendor matching exactly. Only the index
+// chunk carries the inlined VITE_* placeholders, and shortening
+// VITE_SUPABASE_ANON_KEY by 18 characters on this rig moves the index chunk by
+// exactly 18 B and nothing else — so the review built with a placeholder short
+// of CI's 208, not with a different tree. This step's own comment already
+// documents that failure mode at 255 B (bake 21); the lengths above are the
+// workflow's, verified 24 / 40 / 208 / 8 / 2 before each build. Run the recipe
+// exactly and 1,023,074 reproduces here to the byte.
+//
+// RE-MEASURED 2026-09-15 for fix round 6 on that repair (#921 R6-1/R6-2/R6-3):
+// 2,095,689 → 2,096,112. Same CI recipe as every entry above (release-length
+// placeholder env, emptied thin/dist), byte-identical across two clean builds
+// on the final code tip, same content hashes both times (en-BO9I1Y-_,
+// index-BY3xTWjB, vendor-DYJ_XPt6):
+// en 133,776 · index 1,023,536 · vendor 937,800 = 2,095,112 B. Ceiling =
+// 2,095,112 + 1,000.
+//
+// +423 B, all in the index chunk, split at the source by building the seam
+// alone (this round's panel reverted to the round-5 tip, same recipe) rather
+// than guessing:
+//   index  1,023,113 → 1,023,127 (+14 B) — R6-1, the 予約 seam. The wrapper's
+//     class string went from "pt-6" to "pt-[9px] mb-[11px]": 18 characters
+//     against 4. Exactly 14.
+//   index  1,023,127 → 1,023,536 (+409 B) — R6-2/R6-3, the deferred draw: the
+//     set of months allowed to be drawn, the callback that adds to it, the
+//     one-month-per-frame effect, and the conditional inside the pane. Comments
+//     are stripped by the bundler and cost nothing here.
+//   en      133,776 → 133,776 — unchanged to the byte. No new string anywhere
+//     in the round, in either locale.
+//   vendor   937,800 → 937,800 — untouched: no dependency moved, and
+//     `npm install` at STEP 0 found @synqed-kk/ui already at the lock's 0.3.2,
+//     so the lockfile was restored unchanged.
+//
+// RE-MEASURED 2026-09-15 for PKT-1b-WIRE (the week page + the day line go
+// live): 2,095,631 → 2,104,241. Same CI recipe, emptied thin/dist,
+// byte-identical across two clean builds on the final tip, same content hashes
+// both times (node v24.16.0, @synqed-kk/ui 0.3.2 — installed == lock, checked
+// after this branch merged main in):
+//   en 134,148 · index 1,031,302 · vendor 937,791 = 2,103,241 B.
+// Ceiling = 2,103,241 + 1,000.
+//
+// Where the +8,610 B went, measured per chunk rather than assumed:
+//   index  1,023,074 → 1,031,302 (+8,228 B) — ours, and the bulk of it is the
+//     WeekRows/DayNumbersLine pair entering the bundle for the first time:
+//     until this PR nothing imported either file, so the thin shell shipped
+//     neither. Against that, @synqed-kk/ui's WeekDayCard import, the
+//     WeekGridSection wrapper and its hand-rolled formatOpenDuration all
+//     leave. The JA message block rides in this chunk too (the summary keys
+//     split, 稼働時間, the longer failed line).
+//   en       133,757 → 134,148 (+391 B) — the EN half of the same message
+//     changes: summaryRange + sep replacing summary/summaryNew/
+//     summaryReturning, and "Please try again" on the failed line.
+//   vendor   937,800 → 937,791 (−9 B) — NOT ours: same package version, one
+//     import fewer reaching it now that WeekDayCard is gone.
+// RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R1 (the grid placement + the
+// truncated week signal): 2,104,241 → 2,104,545. Same CI recipe, emptied
+// thin/dist, byte-identical across two clean builds on the final code tip,
+// same content hashes both times (node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock):
+//   en 134,148 · index 1,031,606 · vendor 937,791 = 2,103,545 B.
+// Ceiling = 2,103,545 + 1,000. The previous ceiling still passed (696 B of
+// headroom left); re-measured anyway so the ceiling keeps tracking the build.
+//
+// Where the +304 B went, measured per chunk:
+//   index  1,031,302 → 1,031,606 (+304 B) — ours, all of it: `placeForGrid`
+//     and its isDuration helper in metric-menu.ts, and the view's `truncated`
+//     prop + the `weekFailed` expression it feeds. No new string.
+//   en       134,148 → 134,148 — unchanged to the byte.
+//   vendor   937,791 → 937,791 — unchanged to the byte.
+// RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R2 (one measure per row + the
+// 130 px column): 2,104,545 → 2,104,588. Same CI recipe, emptied thin/dist,
+// byte-identical across two clean builds on the final code tip, same content
+// hashes both times (node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,148 · index 1,031,649 · vendor 937,791 = 2,103,588 B.
+// Ceiling = 2,103,588 + 1,000. The previous ceiling still passed (957 B of
+// headroom left); re-measured anyway so the ceiling keeps tracking the build.
+//
+// Where the +43 B went, measured per chunk:
+//   index  1,031,606 → 1,031,649 (+43 B) — ours, all of it: the one-line
+//     R2-1 guard in pickNext, and 130px_100px in place of 120px_100px. No
+//     new string, no new component.
+//   en       134,148 → 134,148 — unchanged to the byte.
+//   vendor   937,791 → 937,791 — unchanged to the byte.
+// RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R3 (the four-lens fix round:
+// one capacity predicate, the 予約時間 label, the row's full accessible name,
+// the press curve + pointerdown, the mock's greys, the shimmer sweep, the day
+// line's pending state and the shared 新規 spark): 2,104,588 → 2,105,946.
+// Same CI recipe, thin/dist emptied each lap, byte-identical across two clean
+// builds on the final code tip, same content hashes both times (node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,032,951 · vendor 937,791 = 2,104,946 B.
+// Ceiling = 2,104,946 + 1,000. The previous ceiling did NOT pass this time
+// (2,104,946 > 2,104,588 by 358 B), so this entry is the round's re-measure,
+// not a formality.
+//
+// Where the +1,358 B went, measured per chunk:
+//   index  1,031,649 → 1,032,951 (+1,302 B) — ours, all of it: NewSpark.tsx
+//     (the mock's two-star glyph, which also DROPPED lucide's Sparkles from
+//     this chunk), the row's accessible-name builder, the two pointer press
+//     handlers and their four JSX props, the countLine/countValue split, the
+//     day line's pending branch, and the JA/EN key additions (countLine,
+//     ariaSep, ariaLoading) — JA rides in this chunk. Class strings account
+//     for the rest: the focus-visible ring, the minmax track, the three zinc
+//     greys, the shimmer class and the chevron ease.
+//   en       134,148 → 134,204 (+56 B) — the three new EN keys plus the
+//     trailing period on `failed`.
+//   vendor   937,791 → 937,791 — unchanged to the byte.
+// RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R3b (R3b-1 — the cell label's
+// tone raised to meet the contrast floor): 2,105,946 → 2,105,964. Same CI
+// recipe, thin/dist emptied each lap, byte-identical across two clean builds
+// on the final code tip, same content hashes both times (node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,032,969 · vendor 937,791 = 2,104,964 B.
+// Ceiling = 2,104,964 + 1,000. The previous ceiling still passed (982 B of
+// headroom left); re-measured anyway so the ceiling keeps tracking the build.
+//
+// Where the +18 B went, measured per chunk:
+//   index  1,032,951 → 1,032,969 (+18 B) — ours, all of it: the label
+//     span's class grew from `text-zinc-400` to `text-zinc-500
+//     dark:text-zinc-400`.
+//   en       134,204 → 134,204 — unchanged to the byte.
+//   vendor   937,791 → 937,791 — unchanged to the byte.
+// RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R3c (R3c-1 — rowAria's
+// date→cells join, R3c-3 — the today row's weekday letter tone) and a
+// MEASUREMENT-METHOD correction: DELTA-VERIFY-1B-WIRE-R3-2026-09-15.md §6
+// flagged the R3b comment above (1,032,969 B) as 389 B higher than its own
+// independent re-measurement (1,032,580 B) of the SAME tip. Reproduced here:
+// building with only `VITE_SHELL_MODE=local` set (no VITE_FACADE_URL /
+// VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY / VITE_BUILD_COMMIT /
+// VITE_BUILD_NUMBER — matching DELTA-VERIFY's own battery line, which names
+// only VITE_SHELL_MODE) measures index = 1,032,619 B on this round's tip —
+// 390 B smaller than the full-env figure below, the same gap DELTA-VERIFY
+// found. The workflow's thin bundle gate step (.github/workflows/ci.yml) sets
+// all six vars every run; the earlier local figure(s) were measured with five
+// of them unset, so Vite inlined shorter (`undefined`/absent) literals in
+// place of the CI recipe's release-length fakes. This entry is measured with
+// the workflow's own exact env, values copied from the checked-in step
+// (nothing here is or resembles a credential — the same public, obviously-
+// fake values CI itself uses):
+//   VITE_SHELL_MODE=local
+//   VITE_FACADE_URL=https://ci-dummy.invalid
+//   VITE_SUPABASE_URL=https://ci-dummy-xxxxxxxxxxx.supabase.co
+//   VITE_SUPABASE_ANON_KEY=<208-char 'not-a-key-xxx…' placeholder, verbatim
+//     from the workflow file>
+//   VITE_BUILD_COMMIT=cidummyx
+//   VITE_BUILD_NUMBER=00
+// Commands, in order (thin/dist emptied before each lap):
+//   npx --no -- vite build --config thin/vite.config.ts
+//   node scripts/thin/check-bundle-budget.mjs
+// Byte-identical (content hashes match) across two clean builds on the final
+// code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,033,009 · vendor 937,791 = 2,105,004 B.
+// Ceiling = 2,105,004 + 1,000.
+//
+// ── THE TWO LINES DIVERGE HERE AND ARE MERGED BELOW (2026-09-16) ──────────
+// Both chains start from the same 2,105,004 B figure recorded just above.
+// The 新規/capacity chain (feat/booking-new-count) comes first, then the
+// week + #921 R6 + type-system chain (feat/booking-week-face). Neither is
+// deleted: every number either line measured is still readable here, which
+// is what makes the merge tip's own per-chunk arithmetic checkable. ONE live
+// constant follows both chains, re-measured on the merge tip in its own
+// commit, last.
+//
+// RE-MEASURED 2026-09-15 for PKT-2 (the honest 新規 count) — the bundle got
+// SMALLER. The type slot lost its 'returning' member and metric-menu lost the
+// cell builder and the two branches behind it; the 新規 producer itself is
+// server-side and never enters this graph. index 1,033,603 → 1,033,180
+// (−423 B); en and vendor unchanged to the byte. Measured the workflow's own
+// way (the same six env vars listed above, same two commands, thin/dist
+// emptied before each lap) and byte-identical with matching content hashes
+// across two clean laps on the final code tip (node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,033,180 · vendor 937,791 = 2,105,175 B.
+// Ceiling = 2,105,175 + 1,000. It is a bloat tripwire, not the gate — the
+// purchase-exclusion scan (0/13) is.
+// RE-MEASURED 2026-09-15 on the MERGED tip — feat/capacity-adapter
+// (a906f5fc0) merged into feat/booking-new-count (commit 9667c076e). Both
+// feature sets are now in the graph together (capacity's DTO fields +
+// PKT-2's smaller 新規 type slot); index 1,033,180 → 1,033,053 (−127 B); en
+// and vendor unchanged to the byte. Measured the workflow's own way (the
+// same six env vars listed above, same two commands, thin/dist emptied
+// before each lap) and byte-identical with matching content hashes (SHA-256)
+// across two clean laps on the merged tip (node v24.16.0, @synqed-kk/ui
+// 0.3.2, installed == lock):
+//   en 134,204 · index 1,033,053 · vendor 937,791 = 2,105,048 B.
+// Ceiling = 2,105,048 + 1,000.
+// RE-MEASURED 2026-09-15 for the PKT-2 fix round (R1 — the honest 新規 count
+// reads the day list's own rule, and withholds the number when the history
+// read did not happen). index 1,033,053 → 1,033,159 (+106 B); en and vendor
+// unchanged to the byte. Measured the workflow's own way (the same six env
+// vars listed above, same two commands, thin/dist emptied before each lap) and
+// byte-identical with matching content hashes (SHA-256) across two clean laps
+// on the final code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed ==
+// lock):
+//   en 134,204 · index 1,033,159 · vendor 937,791 = 2,105,154 B.
+// What is in the phone for the 106 bytes: the week row and the month cell each
+// carry `newCountKnown` on the wire — the thin bundle re-parses that same DTO
+// schema client-side — and the metric menu learned to read it, so a 予約 screen
+// whose history read failed shows the next metric instead of printing 新規 0
+// beside a list with no 新規 chip on it. The 新規 rule itself is server-side and
+// never enters this graph; metric-menu also SHED its unreachable `new` fallback
+// builder here, which is why a new wire field and a new gate cost a hundred
+// bytes rather than several hundred.
+// Ceiling = 2,105,154 + 1,000.
+//
+// RE-MEASURED 2026-09-15 for the MERGE of the two lines above — #921 R6
+// (78c1ddc95) merged INTO feat/booking-week-face (25c209377) so the phone
+// build carries the week page and the R6 calendar together:
+// 2,105,004 (week line) → 2,105,485. Same CI recipe as every entry above
+// (the workflow's six release-length placeholder VITE_* values, thin/dist
+// emptied before each lap), byte-identical across two clean builds on the
+// merge tip, same content hashes both times (en-Dv4fKQp9, index-D6-eQrWP,
+// vendor-BD5eMVWe; node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+// en 134,223 · index 1,033,471 · vendor 937,791 = 2,105,485 B.
+// Ceiling = 2,105,485 + 1,000. The week line's previous ceiling still passed
+// (519 B of headroom left); re-measured anyway so the ceiling tracks the tree
+// that is actually built.
+//
+// Where the +481 B went, measured per chunk and fully accounted — every byte
+// is a figure one of the two chains above already measured on its own line:
+//   index  1,033,009 → 1,033,471 (+462 B) = R6's +423 (the 予約 seam's
+//     "pt-6" → "pt-[9px] mb-[11px]" at +14, and the deferred draw at +409)
+//     PLUS +39 for the JA retry tail arriving on reservation.dateJump.failed
+//     through the ja.json conflict resolution — 「。もう一度お試しください。」
+//     is 13 characters at 3 UTF-8 bytes each, the same 39 B the #921 R5 entry
+//     above measured. ja.json is inlined into this chunk.
+//   en      134,204 → 134,223 (+19 B) — the EN half of that same string,
+//     ". Please try again." — 19 ASCII characters, exactly the 19 B the R5
+//     entry measured. en.json is its own lazy chunk.
+//   vendor   937,791 → 937,791 — unchanged to the byte. No dependency moved
+//     and the lockfile was not touched by the merge. (The #921 line's 937,800
+//     is that branch's own figure; the week line dropped 9 B when WeekDayCard
+//     stopped importing, as its PKT-1b-WIRE entry records.)
+//
+// RE-MEASURED 2026-09-15/16 for the TYPE-SYSTEM FIX (FIXLIST-TYPE-SYSTEM-
+// 2026-09-15.md T-1/T-2 — class-only changes, no layout numbers touched) on
+// tip 191436827: 2,105,485 → 2,105,476. Same CI recipe (the workflow's six
+// release-length placeholder VITE_* values, thin/dist emptied before each
+// lap), byte-identical across two clean builds on this tip, same content
+// hashes both times (en-Dv4fKQp9, index-DkP2gPYd, vendor-BD5eMVWe; node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+// en 134,223 · index 1,033,462 · vendor 937,791 = 2,105,476 B.
+// Ceiling = 2,105,476 + 1,000. The prior ceiling still passed (1,009 B of
+// headroom left); re-measured anyway so the ceiling tracks the tree that is
+// actually built.
+//
+// -9 B, all in index — every changed class is a string literal in the
+// component source, and the diff is mostly font-WEIGHT words swapping length
+// (font-bold 9 ↔ font-semibold 13 ↔ font-medium 11) plus one deletion (the
+// day line's mock breakpoint variant, `max-[400px]:text-[13.5px]`, dropped
+// outright — its own `text-[14px]`→`text-[13px]` swap is length-neutral).
+// en/vendor unchanged: no JA/EN string and no dependency moved.
+//
+// RE-MEASURED 2026-09-16 on THE MERGE TIP of the two chains above —
+// feat/booking-week-face (e88fbba71: the week page + #921 R6 + the
+// type-system fix) merged INTO feat/booking-new-count (9a3ced971: capacity
+// R1 + PKT-2 R1/R2). This is the tree that goes on Liam's phone as LOOK 28.
+// Same CI recipe as every entry above (the workflow's six release-length
+// placeholder VITE_* values, thin/dist emptied before each lap),
+// byte-identical across two clean laps on the merge tip, same content hashes
+// both times (en-Dv4fKQp9, index-Ckxy87bi, vendor-BD5eMVWe; node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,223 · index 1,033,605 · vendor 937,791 = 2,105,619 B.
+// Ceiling = 2,105,619 + 1,000.
+//
+// THE MERGE IS ADDITIVE TO THE BYTE — and that is measured here, not quoted
+// from the two chains above. All four trees were built in THIS worktree, with
+// this exact env, within the same hour, so the figures are comparable in a way
+// two branches' own historic entries are not:
+//
+//   tree                             en        index      vendor      total
+//   base      25c209377        134,204  1,033,009     937,791  2,105,004
+//   ours      9a3ced971        134,204  1,033,159     937,791  2,105,154   (+150)
+//   theirs    e88fbba71        134,223  1,033,455     937,791  2,105,469   (+465)
+//   MERGE     (this tip)       134,223  1,033,605     937,791  2,105,619   (+615)
+//
+//   index:  1,033,009 + 150 + 446 = 1,033,605  ✔ exact
+//   en:       134,204 +   0 +  19 =   134,223  ✔ exact
+//   vendor:   937,791, unchanged in all four   ✔ no dependency moved
+//
+// Not one byte is unaccounted for: the merge is the sum of the two branches'
+// own deltas off their shared base, with no cross-term. That arithmetic is the
+// proof the auto-merge kept both sides — the 新規 side's +150 B (the
+// newCountKnown wire field and its gate, TYPE_SLOT at both call sites) and the
+// type/R6 side's +446 B (the deferred month draw, the pt-[9px] mb-[11px] seam,
+// the JA/EN retry tail, the weight/size class swaps) are both still in the
+// bundle, at full size.
+//
+// (theirs measures 1,033,455 here against the 1,033,462 its own branch entry
+// records — a 7 B difference between two worktrees' node_modules, not a code
+// difference. Which is exactly why all four figures above were re-measured in
+// one place instead of being subtracted across reports.)
+// Raised 2026-09-16 at ⚖ PKT-1c-C — the closed-day booking door: the app now
+// REFUSES a booking whose start day is a store's 定休日 or 臨時休業 date, on both
+// doors, through the ONE time validator, and the refusal names which setting
+// closed the day (three lines in ja + en). Ground truth from an EMPTIED
+// thin/dist, deterministic across two clean builds on each side, both measured
+// in this one place: base d1fe35d95 = 2,105,619 B, tip = 2,106,848 B — this
+// door's own cost is +1,229 B (the rule, the one-date policy read, the message
+// pick, and the three JA/EN strings that ship in the locale chunk). The prior
+// ceiling had only 1,000 B of headroom left at that base, so the overage is
+// 229 B, not a regression from nothing.
+//
+// Re-measured 2026-09-16 after the five-lens FIX ROUND (R1-1…R1-10), and
+// NORMALISED back to the lane's +1,000 convention — the 4,096 above was a
+// one-off to absorb the base's own overage, and carrying it forward would be
+// 3 KB of silent headroom nobody asked for. Ground truth again from an
+// EMPTIED thin/dist, two clean builds with CI's six VITE_* values, both
+// 2,106,996 B byte-for-byte. The round's own cost is +148 B over the
+// pre-round tip: the thin port's refusal passthrough (R1-1), the dialog's
+// key picker for the coded refusals (R1-5), and the rewritten JA pointer
+// lines in the locale chunk. Ceiling = 2,106,996 + 1,000.
+//
+// NOTE for whoever merges feat/store-hours-door after this branch: THIS
+// CONSTANT is the one merge conflict between the two (git merge-tree, clean
+// everywhere else). Do not resolve it by picking a side — that branch's
+// ceiling predates several byte costs already on main. Re-measure from a
+// clean build of the merged tree and set measured + 1,000.
+const BUDGET_BYTES = 2_107_996
 
 let dir
 try {

@@ -28,6 +28,10 @@ import type { Capability, PermissionRole } from '@/lib/auth/permissions'
 // drift from it. Erased at compile, so the 'use server' module never enters
 // this bundle's graph (thin/chrome/Chrome.tsx does the same with StoreRow).
 import type { VoiceRefusal } from '@/actions/voice'
+// Same type-only idiom for the booking refusal — the create port must answer
+// the EXACT union the ONE booking dialog branches on (code/level/kind/params),
+// not a re-typed `{ error }` that silently drops the phone's Japanese line.
+import type { BookingTimeRefusal } from '@/lib/appointments'
 // Same type-only idiom for the 録音履歴 row shape (Build F1) — lib/recordings/
 // inbox.ts is pure, so nothing of it enters this bundle's import graph.
 import type { InboxServerSession } from '@/lib/recordings/inbox'
@@ -2069,7 +2073,7 @@ export const createAppointment = async (input: {
   title?: string
   notes?: string
   menuId?: string
-}): Promise<{ id: string } | { error: string }> => {
+}): Promise<{ id: string } | BookingTimeRefusal> => {
   // try/catch: the dialog's handleSave awaits without one — a transport
   // reject would strand `saving` true and dead the save button (see
   // statusCall's identical rationale).
@@ -2079,8 +2083,16 @@ export const createAppointment = async (input: {
       | { id?: string; error?: string | { message?: string } }
       | null
     if (res.ok && body?.id) return { id: body.id }
-    // Business failure rides a 2xx { error: string }; transport/auth failures
-    // carry the facade's { error: { message } } envelope.
+    // ⚖ R1-1 — a business refusal rides a 2xx `{ error: string }` body that
+    // ALSO carries the validator's own provenance (code/level/kind/params).
+    // The phone renders the SAME dialog as the computer, and that dialog picks
+    // its Japanese line off those fields — so the body goes through whole. A
+    // re-typed `{ error }` here is exactly how the phone ended up toasting the
+    // developer-facing English string while the computer spoke Japanese.
+    if (res.ok && typeof body?.error === 'string') {
+      return body as unknown as BookingTimeRefusal
+    }
+    // Transport/auth failures carry the facade's { error: { message } } envelope.
     const message =
       typeof body?.error === 'string' ? body.error : body?.error?.message
     return { error: message ?? `Create failed (${res.status})` }

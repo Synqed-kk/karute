@@ -89,10 +89,30 @@ const apptGet = jest.fn(async () => ({
 }))
 const apptUpdate = jest.fn(async () => ({ customer_id: 'cust-1', store_id: 'store-1' }))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
+// ⚖ PKT-1c-C — the closed-day door's two reads, on the phone path too.
+// Same zero-net-new-lint discipline as this file's other arg-taking stubs: the
+// signatures have to accept what the wrapper forwards, and the DEFAULT bodies
+// ignore it (every test drives them through mockResolvedValue).
+/* eslint-disable @typescript-eslint/no-unused-vars */
+const policyGet = jest.fn(async (_storeId: string): Promise<{ weekly_hours: unknown }> => ({
+  weekly_hours: null,
+}))
+const listClosedDays = jest.fn(
+  async (
+    _storeId: string,
+    _range?: { from?: string; to?: string },
+  ): Promise<{ closed_days: { date: string }[] }> => ({ closed_days: [] }),
+)
+/* eslint-enable @typescript-eslint/no-unused-vars */
 const fakeClient = {
   appointments: { create: apptCreate, get: apptGet, update: apptUpdate },
   packs: { listRecentRedemptions: jest.fn(async () => [] as { appointment_id: string }[]) },
   staffStores: { get: staffStoresGet },
+  storePolicies: {
+    get: (storeId: string) => policyGet(storeId),
+    listClosedDays: (storeId: string, range?: { from?: string; to?: string }) =>
+      listClosedDays(storeId, range),
+  },
   stores: {
     list: jest.fn(async () => ({
       stores: [
@@ -164,6 +184,12 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockCapabilities.mockResolvedValue(new Set(['bookings.manage']))
   staffStoresGet.mockResolvedValue({ store_ids: [] })
+  // ⚖ R1-2 — the core now resolves the LANDING store itself, so every create
+  // reaches a real store's policy (never the old "no clamp → no read" path).
+  // These two therefore have to be re-seeded per test, or one case's closed
+  // week leaks into the next one's happy path.
+  policyGet.mockResolvedValue({ weekly_hours: null })
+  listClosedDays.mockResolvedValue({ closed_days: [] })
   listPacks.mockResolvedValue([])
   apptGet.mockResolvedValue({
     id: 'appt-1',
@@ -249,8 +275,7 @@ describe('POST /api/app/v1/appointments (create)', () => {
     expect(apptCreate).not.toHaveBeenCalled()
   })
 
-  it('out-of-hours booking → { error } BEFORE the resolver runs (no staff-mint side effect)', async () => {
-    const { resolveSynqedStaffIdForBusiness } = jest.requireMock('@/lib/synqed/staff-map')
+  it('out-of-hours booking → { error }, no write', async () => {
     // 03:00 JST — outside the default operating hours.
     const res = await createPOST(
       post(CREATE_URL, { ...CREATE_BODY, startTime: '2026-07-20T18:00:00.000Z' }),
@@ -258,7 +283,99 @@ describe('POST /api/app/v1/appointments (create)', () => {
     )
     expect(res.status).toBe(200)
     expect((await res.json()).error).toMatch(/operating hours/)
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  // ⚖ R1-2 — the PURE half still runs ahead of the create-on-miss resolver;
+  // only the store-dependent half moved behind it.
+  it('an unparseable startTime → { error } BEFORE the resolver runs (no staff-mint side effect)', async () => {
+    const { resolveSynqedStaffIdForBusiness } = jest.requireMock('@/lib/synqed/staff-map')
+    const res = await createPOST(
+      post(CREATE_URL, { ...CREATE_BODY, startTime: 'tomorrow' }),
+      noParams,
+    )
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      error: 'Invalid appointment start time.',
+      code: 'invalid_start',
+    })
     expect(resolveSynqedStaffIdForBusiness).not.toHaveBeenCalled()
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  // ⚖ PKT-1c-C — the phone answers with the IDENTICAL body the web action
+  // returns, so the ONE dialog both doors render picks the same line. 2026-07-21
+  // is a Tuesday in JST; this store saved its week with Tuesday left out.
+  it('a closed weekday → the same { error } + provenance the web action returns', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-B'] })
+    policyGet.mockResolvedValue({
+      weekly_hours: {
+        mon: { open: '10:00', close: '19:00' },
+        wed: { open: '10:00', close: '19:00' },
+        thu: { open: '10:00', close: '19:00' },
+        fri: { open: '10:00', close: '19:00' },
+        sat: { open: '10:00', close: '19:00' },
+        sun: { open: '10:00', close: '19:00' },
+      },
+    })
+
+    // No store-id header: the clamp resolves the caller's single assignment,
+    // which IS the booking's store.
+    const res = await createPOST(post(CREATE_URL, CREATE_BODY), noParams)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      error: 'This day is closed — pick another day.',
+      code: 'closed_day',
+      level: 'store',
+      kind: 'weekday',
+    })
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  // ⚖ R1-2 / LENS-4 HIGH-2 — a viewAll phone identity sends no store-id
+  // header, so the clamp resolves nothing. The row still lands in the booked
+  // staff's own store, and that store's 定休日 is what decides.
+  it('refuses on the LANDING store when the caller sends no store-id header', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['bookings.manage', 'stores.viewAll']))
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    policyGet.mockResolvedValue({
+      weekly_hours: {
+        mon: { open: '10:00', close: '19:00' },
+        wed: { open: '10:00', close: '19:00' },
+        thu: { open: '10:00', close: '19:00' },
+        fri: { open: '10:00', close: '19:00' },
+        sat: { open: '10:00', close: '19:00' },
+        sun: { open: '10:00', close: '19:00' },
+      },
+    })
+
+    const res = await createPOST(post(CREATE_URL, CREATE_BODY), noParams)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ code: 'closed_day', level: 'store' })
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  it('reads the closed-day policy for the CLAMPED store, for the one date', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-B'] })
+
+    await createPOST(post(CREATE_URL, CREATE_BODY), noParams)
+
+    expect(policyGet).toHaveBeenCalledWith('store-B')
+    expect(listClosedDays).toHaveBeenCalledWith('store-B', {
+      from: '2026-07-21',
+      to: '2026-07-22',
+    })
+  })
+
+  it('a 臨時休業 date is refused with its own kind', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-B'] })
+    listClosedDays.mockResolvedValue({ closed_days: [{ date: '2026-07-21' }] })
+
+    const res = await createPOST(post(CREATE_URL, CREATE_BODY), noParams)
+
+    expect(await res.json()).toMatchObject({ code: 'closed_day', kind: 'closed_date' })
     expect(apptCreate).not.toHaveBeenCalled()
   })
 

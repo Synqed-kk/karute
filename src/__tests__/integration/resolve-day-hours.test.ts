@@ -57,6 +57,7 @@ describe("resolveDayHours — the store's own weekly_hours", () => {
       openMinute: 600,
       closeMinute: 1200,
       saved: true,
+      source: 'store',
       closed: false,
     })
   })
@@ -167,6 +168,7 @@ describe('resolveDayHours — weekly_hours: null means NEVER CONFIGURED', () => 
       openMinute: 540,
       closeMinute: 1020,
       saved: true,
+      source: 'org',
       closed: false,
     })
   })
@@ -199,6 +201,28 @@ describe('resolveDayHours — weekly_hours: null means NEVER CONFIGURED', () => 
 })
 
 describe('resolveDayHours — 臨時休業 outranks everything', () => {
+  // ⚖ R1-7 — WHICH closed is the resolver's own answer, so the booking door
+  // never has to ask the same question a second time.
+  it('names WHICH closed: an ad-hoc date is closed_date, a missing weekday is weekday', () => {
+    const byDate = resolveDayHours({
+      date: TUE,
+      weeklyHours: STORE_OPEN_TUE,
+      closedDates: new Set(['2026-09-15']),
+      orgHours: ORG_HOURS,
+      orgSaved: NOTHING_SAVED,
+    })
+    expect(byDate).toMatchObject({ closed: true, kind: 'closed_date' })
+
+    const byWeekday = resolveDayHours({
+      date: WED,
+      weeklyHours: STORE_OPEN_TUE,
+      closedDates: NO_CLOSURES,
+      orgHours: ORG_HOURS,
+      orgSaved: NOTHING_SAVED,
+    })
+    expect(byWeekday).toMatchObject({ closed: true, kind: 'weekday' })
+  })
+
   it('an ad-hoc closed date closes the day even where the policy says open', () => {
     const fact = resolveDayHours({
       date: TUE,
@@ -244,5 +268,110 @@ describe('jstWindowDays / resolveWindowHours', () => {
     expect([...facts.keys()]).toEqual(['2026-09-15', '2026-09-16'])
     expect(facts.get('2026-09-15')!.minutes).toBe(600)
     expect(facts.get('2026-09-16')!.closed).toBe(true)
+  })
+})
+
+// ── S1 — PROVENANCE (PKT-1c-B) ──────────────────────────────────────────────
+// `saved` was always a boolean squeeze of three different answers. The capacity
+// module needs the third one apart: 空き may ride only a day the STORE itself
+// declared (E21), while 稼働 and the colour band may ride a business-wide org
+// weekday. So the resolver now carries where the hours came from — and the old
+// boolean stays exactly the same fact, which is what the last test pins.
+describe('resolveDayHours — hours provenance (S1)', () => {
+  it("a store's own weekly_hours day is 'store'", () => {
+    const fact = resolveDayHours({
+      date: TUE,
+      weeklyHours: STORE_OPEN_TUE,
+      closedDates: NO_CLOSURES,
+      orgHours: ORG_HOURS,
+      orgSaved: new Set(['tue'] as const),
+    })
+    expect(fact.source).toBe('store')
+  })
+
+  it("a 臨時休業 date is 'store' — an ad-hoc closure is the store speaking", () => {
+    const fact = resolveDayHours({
+      date: TUE,
+      weeklyHours: null,
+      closedDates: new Set(['2026-09-15']),
+      orgHours: ORG_HOURS,
+      orgSaved: new Set(['tue'] as const),
+    })
+    expect(fact.closed).toBe(true)
+    expect(fact.source).toBe('store')
+  })
+
+  it("a 定休日 from an ABSENT weekly_hours day is 'store' too", () => {
+    const fact = resolveDayHours({
+      date: WED,
+      weeklyHours: STORE_OPEN_TUE,
+      closedDates: NO_CLOSURES,
+      orgHours: ORG_HOURS,
+      orgSaved: new Set(['wed'] as const),
+    })
+    expect(fact.closed).toBe(true)
+    expect(fact.source).toBe('store')
+  })
+
+  it("a saved org-blob weekday is 'org', never 'store'", () => {
+    const fact = resolveDayHours({
+      date: TUE,
+      weeklyHours: null,
+      closedDates: NO_CLOSURES,
+      orgHours: ORG_HOURS,
+      orgSaved: new Set(['tue'] as const),
+    })
+    expect(fact.source).toBe('org')
+  })
+
+  it("an unsaved weekday is 'default' — the 10:00–24:00 fallback describes no day", () => {
+    const fact = resolveDayHours({
+      date: WED,
+      weeklyHours: null,
+      closedDates: NO_CLOSURES,
+      orgHours: ORG_HOURS,
+      orgSaved: new Set(['tue'] as const),
+    })
+    expect(fact.source).toBe('default')
+  })
+
+  it("a malformed store window lands on the blob's provenance, not 'store'", () => {
+    const fact = resolveDayHours({
+      date: TUE,
+      weeklyHours: { tue: { open: 'ten', close: '20:00' } },
+      closedDates: NO_CLOSURES,
+      orgHours: ORG_HOURS,
+      orgSaved: NOTHING_SAVED,
+    })
+    expect(fact.source).toBe('default')
+  })
+
+  it('saved and source are ONE fact: saved === (source !== "default"), every path', () => {
+    // Mutant m6 (S1's assert): break the pairing in either direction and this
+    // fails. Every branch the resolver has is walked here — closed date, store
+    // day, 定休日, malformed store day, saved org day, unsaved org day.
+    const cases = [
+      { date: TUE, weeklyHours: null, closedDates: new Set(['2026-09-15']), orgSaved: NOTHING_SAVED },
+      { date: TUE, weeklyHours: STORE_OPEN_TUE, closedDates: NO_CLOSURES, orgSaved: NOTHING_SAVED },
+      { date: WED, weeklyHours: STORE_OPEN_TUE, closedDates: NO_CLOSURES, orgSaved: NOTHING_SAVED },
+      {
+        date: TUE,
+        weeklyHours: { tue: { open: 'ten', close: '20:00' } } as WeeklyHours,
+        closedDates: NO_CLOSURES,
+        orgSaved: NOTHING_SAVED,
+      },
+      { date: TUE, weeklyHours: null, closedDates: NO_CLOSURES, orgSaved: new Set(['tue'] as const) },
+      { date: WED, weeklyHours: null, closedDates: NO_CLOSURES, orgSaved: new Set(['tue'] as const) },
+    ]
+    for (const c of cases) {
+      const fact = resolveDayHours({
+        date: c.date,
+        weeklyHours: c.weeklyHours,
+        closedDates: c.closedDates,
+        orgHours: ORG_HOURS,
+        orgSaved: c.orgSaved,
+      })
+      expect(fact.saved).toBe(fact.source !== 'default')
+    }
   })
 })

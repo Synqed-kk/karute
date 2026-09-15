@@ -7,7 +7,7 @@
 // Booking mutations (create / cancel / no-show / restore) route through the
 // actions port; they are wired to facade endpoints in the P-B mutations PR.
 
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import type { MonthGridCell } from '@synqed-kk/ui'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
@@ -16,6 +16,7 @@ import {
   type AppointmentsScreenDTOType,
 } from '@/lib/app-api/appointments-screen-dto'
 import { ymdInJst } from '@/lib/date/jst'
+import { getDataPort } from '@/lib/ports/data-port'
 import { warmBriefsForToday } from '../data/brief-warm'
 import { warmRecordForBookings } from '../data/screen-prefetch'
 import { getThinLocale } from '../locale'
@@ -81,6 +82,36 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       })) ?? null,
     [dto.monthData],
   )
+  // The date-jump panel's PHONE month door. The shell has no server actions,
+  // so months come from the screen GET with view=month and any day of the
+  // month wanted — the same route this screen already reads, so no new
+  // endpoint and no new audit action. NO staff param: the 月 counts are
+  // store-wide (the filter touches reservationViews only, see
+  // lib/appointments/screen.ts), and sending one would quietly shrink them.
+  // getDataPort(), not the context accessor: this is the same singleton
+  // ScreenBoundary's own DTO fetch reads (ScreenBoundary.tsx:216), so the
+  // month door and the screen it belongs to can never resolve to two
+  // different ports.
+  const loadMonthCells = useCallback(
+    async (monthKey: string) => {
+      const qs = new URLSearchParams({
+        view: 'month',
+        date: `${monthKey}-01`,
+        locale: getThinLocale(),
+      })
+      const res = await getDataPort().apiFetch(
+        `/api/app/v1/screens/appointments?${qs.toString()}`,
+      )
+      if (!res.ok) throw new Error(`date-jump month read failed: ${res.status}`)
+      const monthDto = AppointmentsScreenDTO.parse(await res.json())
+      // Never silently empty: no monthData means the read did not answer the
+      // question, which the panel must show as failed, not as a free month.
+      if (!monthDto.monthData) throw new Error('date-jump month read returned no monthData')
+      return monthDto.monthData
+    },
+    [],
+  )
+
   return (
     <AppointmentsView
       staff={dto.staff}
@@ -97,6 +128,17 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       weekStartIso={dto.weekStartIso}
       monthData={monthData}
       monthStartIso={null}
+      // The day line's numbers and the 未設定 discriminator, straight off the
+      // wire — the same two props the web page hands this same view
+      // (PKT-1b-WIRE W-B/W-C). Both carry a schema default, so a server that
+      // predates them degrades to null / false rather than undefined.
+      dayTotals={dto.dayTotals}
+      soloMode={dto.soloMode}
+      // R1-2 (D5): a window the server could not read to exhaustion. THIS door
+      // is the only one that can carry it — the web page throws before it
+      // renders — and until now a truncated 週 reached the phone as a calm,
+      // empty 「データがありません」 page instead of the failed line.
+      truncated={dto.truncated}
       // Server-derived, DTO-validated color keys; the view's strict union is
       // a superset of the string the schema accepts (record-screen precedent).
       reservationViews={dto.reservationViews as ReservationView[]}
@@ -105,6 +147,7 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       businessHours={dto.businessHours}
       staffFilter={dto.staffFilter}
       menus={dto.menus}
+      loadMonthCells={loadMonthCells}
     />
   )
 }

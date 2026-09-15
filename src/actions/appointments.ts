@@ -15,9 +15,19 @@ import { isTerminalStatus, type AppStatus } from '@/lib/appointments/status'
 import { listCustomerPacks } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import {
+  validateAppointmentInput,
   validateAppointmentTime,
   type AppointmentInput,
 } from '@/lib/appointments'
+import { appointmentsToMonthCells, monthCellsToDTO } from '@/lib/adapters/reservation'
+import { newCountByDay } from '@/lib/appointments/first-visit'
+import { enrichCustomers } from '@/lib/customers/list-enrich'
+import { getBusinessId } from '@/lib/staff'
+import { listAllPackUsage } from '@/lib/packs/store'
+import { customerLensFor } from '@/lib/auth/store-scope'
+import { computeMonthRange } from '@/lib/date/calendar-range'
+import { jstStartOfToday } from '@/lib/date/jst'
+import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import {
   cancelAppointmentCore,
   createAppointmentCore,
@@ -76,23 +86,27 @@ export async function createAppointment(input: AppointmentInput) {
 
   // Validate BEFORE any resolution: resolveSynqedStaffId can CREATE a staff
   // record on miss — invalid input must not leave that side effect behind.
-  // (The core re-validates for the facade path; the check is pure.)
-  const orgSettings = await getOrgSettings()
-  const hoursError = await validateAppointmentTime(input, orgSettings?.operating_hours)
-  if (hoursError) return { error: hoursError }
+  // This is the PURE half (duration, start time); it needs no store, touches
+  // nothing and cannot throw.
+  //
+  // ⚖ R1-2 — the closed-day half moved INSIDE createAppointmentCore, because
+  // the store it must judge is the store the row LANDS in, and that is only
+  // known once the booked staff's core id is resolved. So the honest ordering
+  // is: pure checks → resolver → landing store → that store's hours. The
+  // side effect the old ordering protected against was junk input minting a
+  // staff record; a closed-day refusal is a roster staffer on a real day, and
+  // the resolver is idempotent for one.
+  const inputError = validateAppointmentInput(input)
+  if (inputError) return inputError
 
   try {
-    // All four are independent → resolve in parallel (resolveSynqedStaffId may
-    // hit the DB; getActiveStoreId is a cookie read). The active-store cookie is
-    // an ISOLATION input, not just a view label: it is clamped below against
-    // the viewer's RBAC scope so a stale / out-of-scope cookie can't stamp a
-    // booking into another branch. Business scope (x-business-id) is still applied
-    // by core regardless; this clamp is additive.
-    const [synqed, synqedStaffId, activeStore, auditActor] = await Promise.all([
+    // ⚖ R1-3 / LENS-4 LOW-7 — inside the try: getSynqedClient() → getBusinessId()
+    // throws when there is no membership, and this action's callers await it
+    // WITHOUT a try/catch (the same reason the gate above uses can()).
+    const [synqed, orgSettings, activeStore] = await Promise.all([
       getSynqedClient(),
-      resolveSynqedStaffId(input.staffProfileId),
+      getOrgSettings(),
       getActiveStoreId(),
-      resolveWebAuditContext(),
     ])
     // Clamp the cookie. Honor it ONLY when the viewer may act in that store
     // (viewAll → allowedStoreIds null, or it's one of their assigned stores —
@@ -105,15 +119,30 @@ export async function createAppointment(input: AppointmentInput) {
     let cookieStore: string | null = null
     if (activeStore) {
       const scope = await resolveStoreScope()
+      // ⚖ R1-8 — a DEGRADED assignment lookup fails CLOSED on the cookie. A
+      // failed lookup reports allowedStoreIds: null, the same shape as a
+      // genuinely unrestricted viewer, so the raw cookie used to pass straight
+      // through: a Ginza-only staffer whose lookup blipped could be judged —
+      // and refused — by another store's calendar. viewerScopeForActs is the
+      // house answer (`degraded ? [] : allowedStoreIds`), and the menus
+      // write-clamp already fails closed for the same reason.
+      const allowedStoreIds = scope.degraded ? [] : scope.allowedStoreIds
       cookieStore =
-        !scope.allowedStoreIds || scope.allowedStoreIds.includes(activeStore)
-          ? activeStore
-          : null
+        !allowedStoreIds || allowedStoreIds.includes(activeStore) ? activeStore : null
     }
+    const [synqedStaffId, auditActor] = await Promise.all([
+      resolveSynqedStaffId(input.staffProfileId),
+      resolveWebAuditContext(),
+    ])
+    // Store isolation: the core keys its weekly-hours / closed-days read to
+    // `preferredStoreId ?? defaultBookingStore` — the clamped cookie, or an id
+    // derived server-side from the booked staff. Never the raw cookie, never a
+    // guess, never another store.
     const result = await createAppointmentCore(synqed, input, {
       synqedStaffId,
       preferredStoreId: cookieStore,
       operatingHours: orgSettings?.operating_hours,
+      orgSaved: orgSettings?.operating_hours_saved,
       actor: { ...auditActor, source: 'web', requestId: crypto.randomUUID() },
     })
     if ('id' in result) {
@@ -274,6 +303,103 @@ export async function getAppointmentsInRange(
   }
 }
 
+/**
+ * 月 grid cells for ANY month — the WEB data door of the 予約 date-jump panel.
+ *
+ * The phone reads months through the facade GET (`/api/app/v1/screens/
+ * appointments?view=month&date=…`), which is BEARER-ONLY by construction
+ * (lib/app-api/identity.ts: "a cookie present on a facade request is IGNORED,
+ * never used as identity"), so the cookie-session page cannot share that door
+ * and gets this action instead. Both doors end at the SAME two functions —
+ * getAppointmentsInRangeWithClient for the window, appointmentsToMonthCells
+ * for the density rule — so a cell can never mean two different things.
+ *
+ * Deliberately NOT built on getAppointmentsInRange above: that wrapper's
+ * catch→[] contract would turn a failed read into a month of zero-count cells,
+ * i.e. "next month is completely free" — the exact lie the panel's
+ * pending/failed states exist to prevent. A throw here reaches the panel as
+ * its 予約状況を取得できませんでした line, and the month is retried on the
+ * next visit.
+ *
+ * Counts are store-wide, exactly as the 月 view renders them today: the page's
+ * staff filter touches reservationViews only (lib/appointments/screen.ts), so
+ * no staff scope is applied or accepted here.
+ *
+ * ⚖ R1-3 — and the month's 新規 is computed HERE, through the same producer the
+ * facade's month goes through (`newCountByDay`), mapped by the same
+ * `monthCellsToDTO`. This door used to hardcode `newCount: 0` on the identical
+ * wire type the phone filled honestly — harmless only while nothing renders it.
+ * It fails closed with everything else: no business id, no history read, or a
+ * window we could not read to exhaustion, and the cells carry 0 with
+ * `newCountKnown: false` rather than a number nobody may print.
+ *
+ * @param monthKey 'YYYY-MM' in the JST calendar.
+ */
+export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[]> {
+  if (!/^\d{4}-(?:0[1-9]|1[0-2])$/.test(monthKey)) {
+    throw new Error('getMonthCells: monthKey must be YYYY-MM')
+  }
+  const { monthStart, monthEnd, rangeFrom, rangeTo } = computeMonthRange(
+    new Date(`${monthKey}-01T00:00:00+09:00`),
+  )
+  const [synqed, scope] = await Promise.all([getSynqedClient(), resolveStoreScope()])
+  const { fetchAppointmentWindow, countedClientIds } = await import('@/lib/appointments/by-date')
+  // The WINDOW, not the counted-rows wrapper: `truncated` is a fact this door
+  // has to carry into the 新規 flag — a month read that stopped short would
+  // otherwise report a confident 新規 0 for every day in it.
+  const window = await fetchAppointmentWindow(
+    synqed,
+    rangeFrom.toISOString(),
+    rangeTo.toISOString(),
+    { storeId: scope.storeId ?? undefined },
+  )
+
+  // The 新規 rule's inputs, resolved exactly as the page and the facade resolve
+  // them: the store-clamped cached customer list, the history aggregate for
+  // the ids this window already returned (so the clamp bounds it — no id can
+  // enter from the business-wide roster), and the 回数券 ledger unless the org
+  // has 回数券 off, in which case both other doors skip that read too.
+  const clientIds = countedClientIds(window)
+  const [businessId, orgSettings] = await Promise.all([
+    getBusinessId().catch(() => null),
+    getOrgSettings(),
+  ])
+  const customerLens = customerLensFor(scope)
+  const [enrichment, packUsage, customers] = await Promise.all([
+    businessId && clientIds.length
+      ? enrichCustomers(businessId, clientIds)
+      : Promise.resolve(new Map()),
+    (orgSettings?.ticket_packs_enabled ?? true)
+      ? listAllPackUsage()
+      : Promise.resolve(new Map() as Awaited<ReturnType<typeof listAllPackUsage>>),
+    customerLens === null ? [] : getCachedCustomerList(customerLens),
+  ])
+
+  const known = !window.truncated && (enrichment.size > 0 || clientIds.length === 0)
+  const cells = appointmentsToMonthCells(
+    window.counted,
+    monthStart,
+    monthEnd,
+    jstStartOfToday(),
+  )
+  // The jump panel reads COUNTS only — no hours, no roster, no store type are
+  // fetched here, so these months honestly carry no capacity (no `facts`)
+  // rather than a percentage computed from inputs this door never read. The
+  // dots stay the count buckets, which is what the panel renders today.
+  return monthCellsToDTO(cells, {
+    newCounts: {
+      byDay: known
+        ? newCountByDay(window.counted, {
+            customers: new Map(customers.map((c) => [c.id, c])),
+            enrichment,
+            packUsage,
+          })
+        : new Map(),
+      known,
+    },
+  })
+}
+
 // NOTE (2026-07-27): no caller anywhere yet (no UI, no facade twin, no
 // dynamic import — verified by exhaustive grep). Armed deliberately (Liam
 // ruling 2026-07-26: everything gets logged) so a future booking-edit
@@ -339,11 +465,19 @@ export async function updateAppointment(
       patch.endsAt = new Date(start.getTime() + updates.durationMinutes * 60000).toISOString()
     }
 
-    const result = await updateAppointmentCore(synqed, appointmentId, patch, {
-      ...auditActor,
-      source: 'web',
-      requestId: crypto.randomUUID(),
-    })
+    // ⚖ PKT-1c-C S3 — the org half of the hours question. The STORE half is
+    // read inside the core, off the booking's own store_id.
+    const orgSettings = await getOrgSettings()
+    const result = await updateAppointmentCore(
+      synqed,
+      appointmentId,
+      patch,
+      { ...auditActor, source: 'web', requestId: crypto.randomUUID() },
+      {
+        operatingHours: orgSettings?.operating_hours,
+        orgSaved: orgSettings?.operating_hours_saved,
+      },
+    )
     if ('success' in result) {
       revalidatePath('/appointments')
       updateTag('dashboard')

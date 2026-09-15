@@ -2,6 +2,7 @@ import type { AppointmentRow } from '@/actions/appointments'
 import type { StaffMember } from '@/lib/staff'
 import { assignStaffColors, type StaffColorKey } from '@/lib/staff-colors'
 import { isTerminalStatus } from '@/lib/appointments/status'
+import { holdsPackFromTitle } from '@/lib/customers/first-visit'
 
 // ---------------------------------------------------------------------------
 // Adapter: AppointmentRow -> ReservationView for the reservation UI.
@@ -165,8 +166,10 @@ export function appointmentsToReservationViews(
     // A 回数券 (multi-session ticket) holder is an established returning
     // customer — never 新規 — even when the QuickReserve existing-customer flag
     // or karute history hasn't synced. Ledger entry decides; title regex
-    // ("10回券", "6回券終了") only covers un-imported customers.
-    const holdsTicketPack = packUsage !== null || /回数?券/.test(r.title ?? '')
+    // ("10回券", "6回券終了") only covers un-imported customers. The regex moved
+    // to lib/customers/first-visit in PKT-2 — the 新規 COUNT applies the same
+    // exclusion, and two copies of it are two rules waiting to disagree.
+    const holdsTicketPack = packUsage !== null || holdsPackFromTitle(r.title)
     const isFirstTimeCustomer =
       (isFirstTimeByClient.get(r.client_id) ?? false) && !holdsTicketPack
     return {
