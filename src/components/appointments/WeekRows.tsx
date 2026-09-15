@@ -101,12 +101,15 @@ export const VALUE_TONE_CLASS: Record<Cell['tone'], string> = {
   muted: 'text-[var(--color-text-muted)]',
 }
 
+// mock `.wkcell .shim{width:62px;height:11px;transform:translateY(1px)}` —
+// R3-18 swaps the fill+animation for the mock's own 1.1s sweep
+// (`.reservation-shim`, globals.css); the geometry is unchanged.
 function ValuePill({ pending }: { pending?: boolean }) {
   if (!pending) return null
   return (
     <span
       aria-hidden
-      className="inline-block h-[11px] w-[62px] translate-y-px animate-pulse rounded-full bg-muted"
+      className="reservation-shim inline-block h-[11px] w-[62px] translate-y-px rounded-full"
     />
   )
 }
@@ -124,7 +127,7 @@ function SummaryPill() {
   return (
     <span
       aria-hidden
-      className="inline-block h-[11px] w-[38px] translate-y-px animate-pulse rounded-full bg-muted"
+      className="reservation-shim inline-block h-[11px] w-[38px] translate-y-px rounded-full"
     />
   )
 }

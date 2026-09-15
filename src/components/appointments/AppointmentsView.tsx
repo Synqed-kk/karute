@@ -478,6 +478,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             {props.dayTotals ? (
               <DayNumbersLine
                 row={props.dayTotals}
+                // R3-18 — the router transition IS this line's pending state,
+                // exactly as it is the week's: during a ‹ / › / 今日 / calendar
+                // move the numbers still on screen describe the OLD day. The
+                // line shows the mock's two shims instead of reading as this
+                // day's totals.
+                pending={isPending}
                 soloMode={props.soloMode}
                 // PKT-2 owns the strict 新規/再来 producer; today's
                 // newCustomerCount is the QR import flag and must not print

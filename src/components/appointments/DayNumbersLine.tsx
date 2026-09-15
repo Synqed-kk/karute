@@ -18,6 +18,9 @@ interface DayNumbersLineProps {
    *  on this line already arrives pre-localized through `t` /
    *  `formatHoursMinutes`; the line itself formats no dates. */
   locale: string
+  /** The router transition. R3-18: while it runs the numbers on screen still
+   *  describe the OLD day, so the line shows the mock's two shims instead. */
+  pending?: boolean
 }
 
 // mock `.dayline .it b` — 700, ink, tabular. The tone map (shared with the
@@ -48,21 +51,36 @@ function LineItem({ cell }: { cell: Cell }) {
   )
 }
 
-export function DayNumbersLine({ row, soloMode, typeSlot }: DayNumbersLineProps) {
+export function DayNumbersLine({ row, soloMode, typeSlot, pending }: DayNumbersLineProps) {
   const t = useTranslations('reservation.weekRows')
-  if (!row) return null
+  if (!pending && !row) return null
 
-  const closed = isClosedRow(row)
+  const closed = row !== null && isClosedRow(row)
 
   return (
     // mock `.dayline`: flex · align-items:center · gap 14 · padding 2px 0 ·
     // margin 0 0 8px · line-height 1.25 · 14px (13.5px ≤400px) · nowrap.
     // No separators, no pills, no dots (§v9d), everything left-aligned.
+    //
+    // R3-18 — `min-h-[1.25em]` is the LINE's own content height expressed in
+    // the font size it is currently at (16.875 px at 393's 13.5 px, 17.5 px at
+    // 14 px), so the 12 px shims below cannot shrink the block and the list
+    // card beneath keeps its 8 px seam instead of jumping. It changes nothing
+    // in the loaded state, where the text already fills exactly that height.
     <div
       data-day-line
-      className="mb-2 flex items-center gap-[14px] whitespace-nowrap py-0.5 text-[14px] leading-[1.25] max-[400px]:text-[13.5px]"
+      className="mb-2 flex min-h-[1.25em] items-center gap-[14px] whitespace-nowrap py-0.5 text-[14px] leading-[1.25] max-[400px]:text-[13.5px]"
     >
-      {closed ? (
+      {pending || !row ? (
+        // mock line 790: `numsHTML(d, pend)` returns TWO shims. The port
+        // returned null, so the line vanished mid-fetch and the list jumped up
+        // by its own block height — and before that it showed the previous
+        // day's numbers as if they were this day's.
+        <>
+          <span aria-hidden className="reservation-shim inline-block h-[12px] w-[52px] rounded-full" />
+          <span aria-hidden className="reservation-shim inline-block h-[12px] w-[52px] rounded-full" />
+        </>
+      ) : closed ? (
         // mock: `<span class="it"><b>0件</b></span><span class="it"><b>休</b>
         // </span>` — 休 is a VALUE (ink, 700), not a grey word.
         <>

@@ -185,3 +185,52 @@ describe('DayNumbersLine — the mock’s §v9d geometry and grammar', () => {
     expect(itemTexts(container)).toEqual(['0件', '休'])
   })
 })
+
+describe('DayNumbersLine — the pending state is two shims, not nothing (R3-18)', () => {
+  it('renders the mock’s two 52×12 shims while the router transition runs', () => {
+    const DayNumbersLine = loadDayNumbersLine()
+    const { container } = render(
+      <DayNumbersLine row={row()} soloMode={false} typeSlot="off" locale="ja" pending />,
+    )
+    const shims = container.querySelectorAll('.reservation-shim')
+    expect(shims).toHaveLength(2)
+    for (const shim of Array.from(shims)) {
+      expect(shim.className).toContain('w-[52px]')
+      expect(shim.className).toContain('h-[12px]')
+    }
+    // no stale number survives the move
+    expect(container.querySelector('[data-day-line]')!.textContent).toBe('')
+  })
+
+  it('keeps the loaded line’s block height, so the list card below does not jump', () => {
+    // jsdom cannot measure, so the rule is pinned rather than the pixels: the
+    // line's own min-height is 1.25em — its content height at whichever font
+    // size the breakpoint gives it (16.875 px at 393, 17.5 px at 430), which
+    // is exactly what the loaded text fills. The pixel proof is Playwright's.
+    const DayNumbersLine = loadDayNumbersLine()
+    const loaded = render(<DayNumbersLine row={row()} soloMode={false} typeSlot="off" locale="ja" />)
+    const busy = render(
+      <DayNumbersLine row={row()} soloMode={false} typeSlot="off" locale="ja" pending />,
+    )
+    const cls = (r: { container: HTMLElement }) =>
+      r.container.querySelector('[data-day-line]')!.className
+    expect(cls(loaded)).toContain('min-h-[1.25em]')
+    expect(cls(busy)).toBe(cls(loaded))
+  })
+
+  it('a pending line with no row yet still holds the space', () => {
+    const DayNumbersLine = loadDayNumbersLine()
+    const { container } = render(
+      <DayNumbersLine row={null} soloMode={false} typeSlot="off" locale="ja" pending />,
+    )
+    expect(container.querySelectorAll('.reservation-shim')).toHaveLength(2)
+  })
+
+  it('no row and NOT pending stays absent (the skew fallback owns that case)', () => {
+    const DayNumbersLine = loadDayNumbersLine()
+    const { container } = render(
+      <DayNumbersLine row={null} soloMode={false} typeSlot="off" locale="ja" />,
+    )
+    expect(container.querySelector('[data-day-line]')).toBeNull()
+  })
+})

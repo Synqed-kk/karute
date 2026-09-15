@@ -456,3 +456,36 @@
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.55; transform: scale(0.94); }
 }
+
+/* R3-18 — the pending shimmer for the week rows, the week summary and the day
+ * numbers line. The mock's `.shim` is a 1.1s gradient SWEEP
+ * (DATE-JUMP-PICKER-MOCK.html lines 201-203), not the opacity pulse the port
+ * shipped: `animate-pulse` runs a 2s cubic-bezier fade on a flat fill, which
+ * reads as breathing rather than loading. One class, three call sites — the
+ * pill's size and radius stay with each call site, because those differ
+ * (62×11 in the grid, 38×11 in the summary, 52×12 on the day line).
+ *
+ * Standalone keyframe, so the tier-3 policy above spares it under reduced
+ * motion — which for a SWEEP is the wrong answer, and the reduced-motion
+ * treatment is therefore spelled out here: the sweep stops and the pill rests
+ * on the gradient's own mid tone, still visibly a placeholder. */
+@keyframes reservation-shim {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
+}
+.reservation-shim {
+  background-image: linear-gradient(90deg, #eceef1 25%, #f6f7f9 50%, #eceef1 75%);
+  background-size: 240% 100%;
+  animation: reservation-shim 1.1s linear infinite;
+}
+.dark .reservation-shim,
+:root[data-theme="obsidian"] .reservation-shim,
+:root[data-theme="karute"].dark .reservation-shim {
+  background-image: linear-gradient(90deg, #27272a 25%, #3f3f46 50%, #27272a 75%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .reservation-shim {
+    animation: none;
+    background-position: 50% 0;
+  }
+}

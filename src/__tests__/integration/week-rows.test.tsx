@@ -285,7 +285,9 @@ describe('WeekRows — pending / failed', () => {
     // mock's own weekSumHTML(mon, pend) does: range + words stay, the numbers
     // shimmer. No <b> is rendered, so no stale sum can survive a refetch.
     expect(screen.getByTestId('week-summary').querySelectorAll('b')).toHaveLength(0)
-    expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0)
+    // R3-18 — the mock's 1.1s gradient sweep, not an opacity pulse
+    expect(container.querySelectorAll('.reservation-shim').length).toBeGreaterThan(0)
+    expect(container.querySelectorAll('.animate-pulse')).toHaveLength(0)
   })
 
   it('the pending line is a polite live region and the failed line interrupts (R3-7)', () => {
