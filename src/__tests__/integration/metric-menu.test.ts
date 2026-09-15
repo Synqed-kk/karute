@@ -171,8 +171,85 @@ describe('未設定 — only when the sole failing conjunct is the hours one', (
     // hours conjunct — hoursSaved stays true, so 未設定 must NOT fire.
     const r = row({ capacityDefensible: false, hoursSaved: true, closed: false })
     const cells = weekRowCells(r, { soloMode: true, typeSlot: 'off', t })
-    expect(cells[1].key).not.toBe('unset')
-    expect(cells[1].key).toBe('bookedTime')
+    expect(cells.map((c) => c.key)).not.toContain('unset')
+    // 稼働's slot falls back to 稼働時間 — which R1-1 then seats in the WIDE
+    // column (cell 3). This case is about the metric CHOSEN, not its seat.
+    expect(cells[2].key).toBe('bookedTime')
+  })
+})
+
+describe('placeForGrid — a DURATION never sits in the 100 px column (R1-1, D10)', () => {
+  // The week grid is `120px 100px` (WeekRows.tsx `.wkgrid`) and fills
+  // row-major, so cells 1+3 land in the WIDE column and cells 2+4 in the
+  // narrow one. 「稼働時間 6時間30分」 does not fit 100 px — on the live Dev
+  // Salon week it overflowed its box (D10). The last step of weekRowCells
+  // seats a duration in the one movable wide slot; 予約 keeps cell 1, and the
+  // DAY LINE (one flowing line) is never re-placed.
+  const DURATION: ReadonlySet<string> = new Set(['bookedTime', 'free'])
+
+  it('holds across typeSlot × defensible × freeTimeCell × solo × hoursSaved', () => {
+    for (const freeTimeCell of [true, false]) {
+      const { weekRowCells, dayLineCells } = loadMetricMenu({ freeTimeCell })
+      for (const typeSlot of ['new', 'returning', 'off'] as const) {
+        for (const capacityDefensible of [true, false]) {
+          for (const soloMode of [true, false]) {
+            for (const hoursSaved of [true, false]) {
+              const where = `${typeSlot}/def=${capacityDefensible}/free=${freeTimeCell}/solo=${soloMode}/hours=${hoursSaved}`
+              const r = row({
+                capacityDefensible,
+                hoursSaved,
+                bookedMinutes: 390,
+                availableMinutes: 480,
+              })
+              const ctx = { soloMode, typeSlot, t }
+              const keys = weekRowCells(r, ctx).map((c) => c.key)
+
+              // 予約 keeps cell 1.
+              expect(`${where}:${keys[0]}`).toBe(`${where}:count`)
+
+              // Only POSITIONS move: the four cells stay the set the fill
+              // order chose. dayLineCells runs that same fill order and is
+              // deliberately NOT re-placed, so it is an independent oracle.
+              expect({ where, set: [...keys].sort() }).toEqual({
+                where,
+                set: dayLineCells(r, ctx)
+                  .map((c) => c.key)
+                  .sort(),
+              })
+
+              // Cells 2 and 4 are the 100 px column. Only ONE wide slot can
+              // move (cell 1 is 予約), so a row that holds BOTH durations must
+              // keep exactly one of them narrow — and never more than that.
+              const durations = keys.filter((k) => DURATION.has(k)).length
+              const narrow = [1, 3].filter((i) => DURATION.has(keys[i])).length
+              expect(`${where}:${narrow}`).toBe(`${where}:${Math.max(0, durations - 1)}`)
+            }
+          }
+        }
+      }
+    }
+  })
+
+  it("today's non-defensible store reads 予約 · キャンセル / 稼働時間 · 無断", () => {
+    // Every store with no solo_mode + saved hours — Dev Salon included. Before
+    // R1-1 this row read 予約 · 稼働時間 / キャンセル · 無断, with the duration
+    // overflowing the narrow cell.
+    const { weekRowCells } = loadMetricMenu()
+    const r = row({ capacityDefensible: false, hoursSaved: false, bookedMinutes: 390 })
+    expect(
+      weekRowCells(r, { soloMode: false, typeSlot: 'off', t }).map((c) => `${c.label} ${c.value}`),
+    ).toEqual(['予約 3件', 'キャンセル 0', '稼働時間 6時間30分', '無断 0'])
+  })
+
+  it('the DAY LINE keeps the fill order — one flowing line, never re-placed', () => {
+    const { dayLineCells } = loadMetricMenu()
+    const r = row({ capacityDefensible: false, hoursSaved: false, bookedMinutes: 390 })
+    expect(dayLineCells(r, { soloMode: false, typeSlot: 'off', t }).map((c) => c.key)).toEqual([
+      'count',
+      'bookedTime',
+      'cancelled',
+      'noShow',
+    ])
   })
 })
 

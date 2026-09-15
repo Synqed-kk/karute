@@ -149,7 +149,36 @@ export function isClosedRow(row: WeekDayRowData): boolean {
   return row.closed && row.count === 0 && BOOKING_SWITCHES.closedDays
 }
 
-/** Exactly 4 cells, week-row grid order:
+/** A duration value — 稼働時間 / 空き, both `H時間M分`. The only cells whose
+ *  value is long enough to matter to the grid below. */
+function isDuration(cell: Cell): boolean {
+  return cell.key === 'bookedTime' || cell.key === 'free'
+}
+
+/** The week grid is `120px 100px` (WeekRows.tsx `.wkgrid`) and fills
+ *  row-major, so cells 1+3 sit in the WIDE column and cells 2+4 in the narrow
+ *  one. A duration does not fit 100 px: on a store whose capacity is not
+ *  defensible — every store today, Dev Salon included — the fill order put
+ *  「稼働時間 6時間30分」 in cell 2 and its text overflowed its box (D10).
+ *
+ *  So, as the LAST step of the week row only: 予約 keeps cell 1, and a
+ *  duration takes the one movable wide slot (cell 3) from a non-duration. The
+ *  SET is untouched — only positions move. A row carrying BOTH durations has
+ *  one wide slot for two, so the second stays narrow; 空き is the shorter
+ *  value and is the one the fill order already seats wide there.
+ *
+ *  The DAY LINE is NOT re-placed: it is one flowing line with no columns. */
+function placeForGrid(cells: Cell[]): Cell[] {
+  if (isDuration(cells[2])) return cells
+  const narrow = [1, 3].find((i) => isDuration(cells[i]))
+  if (narrow === undefined) return cells
+  const out = [...cells]
+  out[2] = cells[narrow]
+  out[narrow] = cells[2]
+  return out
+}
+
+/** Exactly 4 cells, week-row grid order, after `placeForGrid`:
  *  'new' → [予約, 稼働, 空き|予約時間, 新規] · 'returning' → [予約, 再来,
  *  予約時間, キャンセル] · 'off' → [予約, 稼働, 空き|予約時間, next]. */
 export function weekRowCells(row: WeekDayRowData, ctx: MetricMenuCtx): Cell[] {
@@ -160,19 +189,19 @@ export function weekRowCells(row: WeekDayRowData, ctx: MetricMenuCtx): Cell[] {
   }
 
   if (ctx.typeSlot === 'returning') {
-    return [
+    return placeForGrid([
       take(countCell(row, ctx)),
       take(returningCell(row, ctx)),
       take(bookedTimeCell(row, ctx)),
       take(cancelledCell(row, ctx)),
-    ]
+    ])
   }
 
   const count = take(countCell(row, ctx))
   const utilization = take(utilizationSlot(row, ctx, used))
   const freeOrBooked = take(freeOrBookedTimeSlot(row, ctx, used))
   const fourth = ctx.typeSlot === 'new' ? take(newCell(row, ctx)) : take(pickNext(row, ctx, used))
-  return [count, utilization, freeOrBooked, fourth]
+  return placeForGrid([count, utilization, freeOrBooked, fourth])
 }
 
 /** Exactly 4 cells, day-line order:
