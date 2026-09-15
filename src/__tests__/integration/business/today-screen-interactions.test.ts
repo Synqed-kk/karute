@@ -15093,15 +15093,35 @@ describe('⚖ ROUND 3 · C F4 — G13 (⚖ D-52 (g)) — the mixed-board predica
     expect((bedDoorBody.match(/⚖ D-52 \(g\)/g) ?? []).length).toBe(1)
   })
 
-  it("the four netting call sites carry the mixed-board predicate — the tip's exact text", () => {
-    for (const fragment of [
-      '(l) => storeHasBeds(committedLanes, l.stores)',
-      '(l) => storeHasBeds(boardLanes, l.stores)',
-      '(l) => storeHasBeds(originLanes, l.stores)',
-    ]) {
-      expect(SRC).toContain(fragment)
-    }
-    // committedLanes' predicate is wired TWICE — at `honest` and at `withheld`.
-    expect([...SRC.matchAll(/\(l\) => storeHasBeds\(committedLanes, l\.stores\)/g)].length).toBe(2)
+  // ⚖ D-52 (i) — MINOR 3: THREE whole-call pins, one per site, quoting the
+  // tip's exact text from the argument before the comment line through the
+  // closing paren — the loose bare-predicate `toContain` and the occurrence
+  // count it replaces could both survive m13 (dropping the predicate at the
+  // `honest` site) because `withheld` and `honestOrigin` still carry their
+  // own copies of the same bare string. The `heldBoardHonest`/`boardLanes`
+  // site is already pinned whole in selling-engine-doors.test.ts; not
+  // duplicated here.
+  it("the three netting call sites carry the mixed-board predicate — the tip's exact whole call", () => {
+    expect(SRC).toContain(
+      `          bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+          true,
+          // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+          (l) => storeHasBeds(committedLanes, l.stores),
+        )`,
+    )
+    expect(SRC).toContain(
+      `      bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+      BED_AWARE_SALES,
+      // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+      (l) => storeHasBeds(committedLanes, l.stores),
+    )`,
+    )
+    expect(SRC).toContain(
+      `      bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+      true,
+      // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+      (l) => storeHasBeds(originLanes, l.stores),
+    )`,
+    )
   })
 })
