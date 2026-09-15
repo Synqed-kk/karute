@@ -358,11 +358,12 @@ describe('bed-aware-sales — the doors', () => {
   })
 })
 
-// ⚖ D-19 (3) / ROUND 3 · D — THE ELIGIBILITY PIGEONHOLE, exit (e). Dual to (d)
-// (the count pigeonhole) but reading each held 枠's own eligible-room list
-// (`heldRooms`, plural) instead of counting bed rows on the whole board, so it
-// closes exactly the ceiling (d) cannot: a store whose eligible rooms are a
-// strict subset of the board's (the M4 shape).
+// ⚖ D-19 (3) / ROUND 3 · D — these boards were built for the pre-walk
+// eligibility exit of slice D; ⚖ D-50 (a) turned that exit into the
+// certifier that runs only after a short walk, so on every board here the
+// walk runs first and the legs pin the walk's own answer (nettings = the
+// candidate rooms, names where the walk is exact); the certifier's own legs
+// are C1–C4 below.
 describe('bed-aware-sales — ⚖ D-19 (3) · D-50 (a): the boards that used to reach exit (e) — now the walk runs, names return', () => {
   it('P1 — the M4 shape in miniature: (d) is silent, the walk runs both rooms, no name (two different 枠 lost)', () => {
     // The saturated rows from "the doors" (x → bed-01 only, y → bed-02 only,
@@ -472,7 +473,7 @@ describe('bed-aware-sales — ⚖ D-19 (3) · D-50 (a): the boards that used to 
   // identity-path premise (`hit.every(h => h.rooms.length > 0)`). There is no
   // longer a "guard on its own" to pin.
 
-  it('P8 — an earlier 枠\'s END inside the span: the walk runs and names C (the certifier\'s instant set keeps ends for the short-walk case — pinned by the trip family\'s property, item D)', () => {
+  it('P8 — an earlier 枠\'s END inside the span: the walk runs and names C (the certifier keeps ends for the short-walk case — sound, and a DISCLOSED unpinned survivor, ⚖ D-51 (c))', () => {
     // Every 枠 is 90 minutes (the equal-length invariant). A and C share the same
     // span and the same two eligible rooms, so the netting must split them across
     // p and q; B ENDS at 610 — strictly inside the offer's span, and not the
@@ -843,10 +844,13 @@ describe('bed-aware-sales — the exits change the cost, never the answer', () =
    *  {60,90,120,240}, half strict-subset book (`boardBusyAt` unchanged) and half
    *  the foreign-bed flavour (one extra bed row the book never answers — the M4
    *  shape). Neither builder nor Fable's own far-clique construction could hand-
-   *  build a deterministic END-hinged short-walk board, so this is the property
-   *  that stands in for one, and — unlike `boardBusy` above — it is run WITHOUT
-   *  the exact-outer skip: a budget-tripping board is exactly the case D exists
-   *  for, so it stays IN the sample here rather than being excused from it.
+   *  build a deterministic END-hinged short-walk board; instead this property
+   *  pins the certifier ≡ a from-scratch reference on every withheld offer of a
+   *  budget-tripping family, and pins the ends only on a run where
+   *  `endsNeeded > 0` (this run: 0 — the leg's closing comment says so). Unlike
+   *  `boardBusy` above, it is run WITHOUT the exact-outer skip: a budget-
+   *  tripping board is exactly the case D exists for, so it stays IN the sample
+   *  here rather than being excused from it.
    */
   const boardTrip = (seed: number): ReturnType<typeof board> => {
     const R = [3, 5, 8, 10][mix(seed, 201) % 4]
