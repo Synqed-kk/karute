@@ -84,13 +84,30 @@ export async function getAppointmentWindow(
   )
 
   const span = jstWindowDays(fromIso, toIso)
+  // ⚖ S7 — the FETCH starts one JST day EARLY (C1's window-edge leak).
+  //
+  // A booking that began at 23:00 the night before the range still occupies
+  // minutes of day 1, and the capacity model has to see it or day 1 reads as
+  // emptier than it is. Core filters by the row's own instant, so a window
+  // that begins at day 1's midnight simply never returns it.
+  //
+  // Nothing else moves: 件, 予約時間 and the visible chips stay bucketed by
+  // START day, so the extra day's rows land in a bucket outside the range and
+  // are never read there — only the capacity model's intersection index looks
+  // at them. `span` above is deliberately the VISIBLE range: the hours facts
+  // and the 臨時休業 read still describe exactly the days on screen.
+  //
+  // JST has no DST, so one day is exactly 86,400,000 ms and this lands on the
+  // previous JST midnight for any JST-midnight start — which is what every
+  // caller passes (computeWeekRange / computeMonthRange / parseDateParam).
+  const fetchFromIso = new Date(Date.parse(fromIso) - 86_400_000).toISOString()
 
   const [window, policy, closed, store] = await Promise.all([
     // A filter naming somebody the roster cannot place gets ZERO rows, not the
     // whole salon's week.
     unknown
       ? Promise.resolve(emptyAppointmentWindow())
-      : fetchAppointmentWindow(synqed, fromIso, toIso, { storeId, staffId }),
+      : fetchAppointmentWindow(synqed, fetchFromIso, toIso, { storeId, staffId }),
     // No catch on purpose. `storePolicies.get` answers the PLATFORM DEFAULTS for
     // a store with no row of its own (`source: 'default'` —
     // @synqed-kk/client dist/store-policies.d.ts), so "no policy row" is a

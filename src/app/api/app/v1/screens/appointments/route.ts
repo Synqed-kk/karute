@@ -134,10 +134,24 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     )
     // A filter naming somebody the roster cannot place gets ZERO rows, never
     // the whole salon's week.
+    //
+    // ⚖ S7 — the FETCH starts one JST day EARLY (C1's window-edge leak). A
+    // booking that began at 23:00 the night before the range still occupies
+    // minutes of day 1, and core filters by the row's own instant, so a window
+    // beginning at day 1's midnight never returns it. Nothing else moves: 件,
+    // 予約時間 and the chips stay bucketed by START day, so the extra day's
+    // rows land in a bucket outside the range and are read only by the
+    // capacity model's intersection index. JST has no DST, so one day is
+    // exactly 86,400,000 ms off the JST-midnight start every caller passes.
     const windowFor = (fromIso: string, toIso: string) =>
       unknown
         ? Promise.resolve(emptyAppointmentWindow())
-        : fetchAppointmentWindow(synqed, fromIso, toIso, { storeId, staffId })
+        : fetchAppointmentWindow(
+            synqed,
+            new Date(Date.parse(fromIso) - 86_400_000).toISOString(),
+            toIso,
+            { storeId, staffId },
+          )
 
     // The one window this view actually reads — its days drive the hours facts
     // and the 臨時休業 range below.

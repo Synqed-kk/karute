@@ -224,3 +224,36 @@ describe('getAppointmentWindow — a failed read is an ERROR, never a calm empty
     await expect(getAppointmentWindow(FROM, TO, 'all')).rejects.toThrow('core 503')
   })
 })
+
+describe('⚖ S7 — the fetch starts one JST day EARLY (the window-edge leak)', () => {
+  it('asks core from the PREVIOUS JST midnight, while the hours still cover the visible days', async () => {
+    await getAppointmentWindow(FROM, TO, 'all')
+    const s = await spies()
+    // FROM is 2026-09-15 00:00 JST; the read begins at the 14th's midnight so
+    // a booking that started at 23:00 the night before is even returned.
+    expect(s.list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: new Date('2026-09-14T00:00:00+09:00').toISOString(),
+        to: TO,
+      }),
+    )
+    // The extra day is for the SPANS only: the hours facts and the 臨時休業
+    // read still describe exactly the days on screen.
+    expect(s.closedDays).toHaveBeenCalledWith(
+      GINZA,
+      expect.objectContaining({ from: '2026-09-15', to: '2026-09-16' }),
+    )
+  })
+
+  it('carries exactly one extra day, never a wider guess', async () => {
+    await getAppointmentWindow(FROM, TO, 'all')
+    const s = await spies()
+    const call = s.list.mock.calls[0][0] as { from: string; to: string }
+    expect(Date.parse(FROM) - Date.parse(call.from)).toBe(86_400_000)
+  })
+
+  it('the hours facts still key only the VISIBLE days', async () => {
+    const win = await getAppointmentWindow(FROM, TO, 'all')
+    expect(win.hoursFacts.map(([ymd]) => ymd)).toEqual(['2026-09-15'])
+  })
+})

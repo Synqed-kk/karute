@@ -319,3 +319,46 @@ describe('F1 — what does NOT affect it', () => {
     expect(row(ONE_STAFFER).returningCount).toBe(0)
   })
 })
+
+// ── S7 — the window's extra day is for the SPANS, never for the counts ──────
+describe('⚖ S7 — a booking that ran in from last night', () => {
+  const PREV_NIGHT = appt({
+    id: 'run-in',
+    // 2026-09-14 23:00 JST → 2026-09-15 01:00 JST, i.e. two hours of the 15th
+    // that the 15th's own fetch window would never have returned.
+    starts_at: '2026-09-14T14:00:00Z',
+    duration_minutes: 120,
+  })
+
+  it('reaches day 1 through the spans index, and NO count on day 1', () => {
+    const day = row([PREV_NIGHT])
+    // 件 and 予約時間 stay bucketed by START day, so the 15th counts nothing…
+    expect(day.count).toBe(0)
+    expect(day.bookedMinutes).toBe(0)
+    // …but the model saw the row: its staffer worked, so the day has a lane,
+    // and the two hours land entirely before the 10:00 open, so they occupy
+    // none of the declared window.
+    expect(day.capacityDefensible).toBe(true)
+    expect(day.lanes).toBe(1)
+    expect(day.capacityMinutes).toBe(600)
+    expect(day.occupancyPct).toBe(0)
+  })
+
+  it('a run-in row that reaches INTO the open hours occupies them', () => {
+    // 2026-09-14 23:00 JST → 2026-09-15 11:00 JST: one hour inside a
+    // 10:00–20:00 window.
+    const day = row([appt({ id: 'long-run-in', starts_at: '2026-09-14T14:00:00Z', duration_minutes: 720 })])
+    expect(day.count).toBe(0)
+    expect(day.capacityMinutes).toBe(600)
+    expect(day.freeMinutes).toBe(540)
+    expect(day.occupancyPct).toBe(10)
+  })
+
+  it('a row that starts today and ends tomorrow still withdraws TODAY', () => {
+    // The mirror image: 19:00 → 03:00 starts inside the day and runs past the
+    // 20:00 close, which is the day whose hours the booking broke.
+    const day = row([appt({ id: 'overnight', starts_at: '2026-09-15T10:00:00Z', duration_minutes: 480 })])
+    expect(day.capacityDefensible).toBe(false)
+    expect(day.capacityReason).toBe('outside-hours')
+  })
+})

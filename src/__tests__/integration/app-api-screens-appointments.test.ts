@@ -454,11 +454,16 @@ describe('GET /api/app/v1/screens/appointments', () => {
     // Not today's month, so nothing in it is today — and no cell lies about it.
     expect(dto.monthData!.some((c) => c.isToday)).toBe(false)
     // The range read asked core for that month's window, padded for the grid's
-    // outside-month cells (computeMonthRange: ±7 days).
+    // outside-month cells (computeMonthRange: ±7 days) and then ONE JST DAY
+    // EARLIER (S7): a booking that began at 23:00 the night before the grid
+    // still occupies minutes of its first day, and core would never return it
+    // from a window starting at that day's midnight. The extra day reaches the
+    // capacity spans only — 件 stays bucketed by START day, so it lands in a
+    // bucket no cell reads.
     const rangeStarts = (listAppointments.mock.calls as unknown as { from?: string }[][]).map(
       (c) => c[0]?.from,
     )
-    expect(rangeStarts).toContain(new Date('2027-02-22T00:00:00+09:00').toISOString())
+    expect(rangeStarts).toContain(new Date('2027-02-21T00:00:00+09:00').toISOString())
   })
 
   it('store staff lens: pickers clamp to the store, row names keep the full roster, cross-store viewer default clears', async () => {
