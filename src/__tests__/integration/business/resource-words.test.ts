@@ -115,6 +115,46 @@ describe('resource-words — ⚖ D-53 (c) R4, the words home', () => {
 //    literal, template chunk, JSX attribute string and JSX text byte-for-byte
 //    intact, then counts the four target words in what remains. ──
 
+const REGEX_PRECEDING_CHARS = new Set(['(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '%', '<', '>', '~', '^'])
+const REGEX_PRECEDING_WORDS = new Set(['return', 'typeof', 'case', 'in', 'of'])
+
+/** True when a `/` at this point opens a regex literal rather than a
+ *  division: the previous non-whitespace character in `out` is an
+ *  operator/punctuator that cannot end an expression, `out` is empty (start
+ *  of text), or the previous token is a keyword that expects an expression
+ *  next. A `/` after an identifier/number/`)`/`]` is division, and is left
+ *  for the default branch to copy as-is. */
+function regexMayOpenHere(out: string): boolean {
+  const trimmed = out.replace(/\s+$/, '')
+  if (trimmed.length === 0) return true
+  const last = trimmed[trimmed.length - 1]
+  if (REGEX_PRECEDING_CHARS.has(last)) return true
+  const word = trimmed.match(/[A-Za-z_$][A-Za-z0-9_$]*$/)
+  return word !== null && REGEX_PRECEDING_WORDS.has(word[0])
+}
+
+/** Consumes a regex literal starting at `src[start] === '/'`, honouring `\`
+ *  escapes and `[...]` classes (where `/` does not close the literal), plus
+ *  trailing flag letters. Returns the index just past the flags and the
+ *  literal's own text verbatim — it is source text, not a comment, so its
+ *  contents are copied through unexamined for the word count that follows. */
+function consumeRegex(src: string, start: number): [number, string] {
+  let i = start + 1
+  const n = src.length
+  let inClass = false
+  while (i < n) {
+    const c = src[i]
+    if (c === '\\') { i += 2; continue }
+    if (c === '[') { inClass = true; i++; continue }
+    if (c === ']') { inClass = false; i++; continue }
+    if (c === '/' && !inClass) { i++; break }
+    if (c === '\n') break
+    i++
+  }
+  while (i < n && /[a-z]/i.test(src[i])) i++
+  return [i, src.slice(start, i)]
+}
+
 /** Consumes a template literal starting at `src[start] === '`'`, recursing
  *  into every `${…}` (which may itself hold strings, comments or nested
  *  templates) so a comment inside an interpolation is stripped and a target
@@ -136,6 +176,12 @@ function consumeTemplate(src: string, start: number): [number, string] {
         const cj = src[j]
         if (cj === '{') { depth++; expr += cj; j++; continue }
         if (cj === '}') { depth--; expr += cj; j++; continue }
+        if (cj === '/' && src[j + 1] !== '/' && src[j + 1] !== '*' && regexMayOpenHere(expr)) {
+          const [consumed, text] = consumeRegex(src, j)
+          expr += text
+          j = consumed
+          continue
+        }
         if (cj === '/' && src[j + 1] === '/') { while (j < n && src[j] !== '\n') j++; continue }
         if (cj === '/' && src[j + 1] === '*') { j += 2; while (j < n && !(src[j] === '*' && src[j + 1] === '/')) j++; j += 2; continue }
         if (cj === "'" || cj === '"') {
@@ -176,6 +222,12 @@ function stripComments(src: string): string {
   const n = src.length
   while (i < n) {
     const c = src[i]
+    if (c === '/' && src[i + 1] !== '/' && src[i + 1] !== '*' && regexMayOpenHere(out)) {
+      const [consumed, text] = consumeRegex(src, i)
+      out += text
+      i = consumed
+      continue
+    }
     if (c === '/' && src[i + 1] === '/') { while (i < n && src[i] !== '\n') i++; continue }
     if (c === '/' && src[i + 1] === '*') { i += 2; while (i < n && !(src[i] === '*' && src[i + 1] === '/')) i++; i += 2; continue }
     if (c === "'" || c === '"') {
@@ -243,6 +295,16 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
     // alone are exempt.
     expect(byFile).toEqual({ 'TodayScreen.tsx': 28, 'page.tsx': 2, 'today-interactions.ts': 19 })
     expect(offenders).toBe(49)
+  })
+
+  it('the scanner keeps regex literals and comment markers inside them out of the comment stripper (L1 MINOR-2)', () => {
+    const countIn = (src: string) => TARGET_WORDS.reduce((sum, w) => sum + countOccurrences(stripComments(src), w), 0)
+    expect(countIn("const r = /a\\/*b/; 'ベッド'")).toBe(1)
+    expect(countIn("const r = /[']/; // ベッド\n'個室'")).toBe(1)
+    expect(countIn("const u = /https?:\\/\\//; '満室'")).toBe(1)
+    expect(countIn("/* ' */ '清掃'")).toBe(1)
+    expect(countIn("`${x ? 'ベッド' : \"個室\"} 満室`")).toBe(3)
+    expect(countIn("const d = a / b; 'ベッド' // 個室")).toBe(1)
   })
 
   it('⚖ C5 — no reader of business_type or resourceWordsFor exists under today/ yet', () => {
