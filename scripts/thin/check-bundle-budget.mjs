@@ -759,7 +759,21 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // the SCRIPT still gates in CI against whatever ceiling stands below.
 // Ceiling = the measured tip + 1,000 B, same convention as every prior raise:
 // 2,086,625 + 1,000 = 2,087,625.
-const BUDGET_BYTES = 2_087_625
+// 1c-D R1 (2026-09-16): the five-lens round's folds on the same door — the
+// 「全店共通の初期値に戻す」 button and its confirmation (R1-4), the 24:00-clamp
+// note on the clamped row (R1-5), the per-day aria names + alertdialog focus
+// handling (R1-6), and 8 new catalog keys ×2 locales minus the two the aria
+// rework retired. Measured with the CI recipe (the six VITE_* values read
+// PROGRAMMATICALLY out of .github/workflows/ci.yml — 5/24/40/208/8/2 chars —
+// never retyped), byte-identical across two clean builds, node v24.16.0:
+//   en 134,939 · index 1,017,177 · vendor 937,800 = 2,089,916 B
+// +3,291 B over the 2,086,625 B tip this round started from (en +444 B = the
+// English catalog delta; index +2,847 B = the two new controls, the note and
+// the focus machinery, plus the ja block; vendor unchanged — no new
+// dependency). The 2,087,625 ceiling had 1,000 B of headroom, so the overage
+// is 2,291 B and all of it is this round's own. Report-only per ⚖ 8/25.
+// Ceiling = the measured tip + 1,000 B: 2,089,916 + 1,000 = 2,090,916.
+const BUDGET_BYTES = 2_090_916
 
 let dir
 try {
