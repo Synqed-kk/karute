@@ -7,7 +7,7 @@
 // the page, Bearer fan-out in the facade route), so this can never re-fetch
 // or diverge between the two.
 
-import type { DayWeekMonthView, MonthGridCell } from '@synqed-kk/ui'
+import type { DayWeekMonthView } from '@synqed-kk/ui'
 import type { Appointment } from '@synqed-kk/client'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { OrgSettings } from '@/actions/org-settings'
@@ -20,6 +20,7 @@ import { staffRoleLabel } from '@/lib/staff/role-label'
 import {
   appointmentsToWeekData,
   appointmentsToMonthCells,
+  type MonthCell,
   type WeekDayRowData,
 } from '@/lib/adapters/reservation'
 import type { AppointmentWindow } from '@/lib/appointments/by-date'
@@ -134,7 +135,7 @@ export interface AppointmentsScreen {
   businessHours: { start: number; end: number }
   weekData: WeekDayRowData[] | null
   weekStartIso: string | null
-  monthData: MonthGridCell[] | null
+  monthData: MonthCell[] | null
   monthStartIso: string | null
   /** The SELECTED day's row, from the same adapter the week rows come from —
    *  so the day line and the week row can never disagree. Null when no window
@@ -144,6 +145,11 @@ export interface AppointmentsScreen {
    *  dayTotals are ALL null and the surface renders the failed-read state —
    *  never a low number. */
   truncated: boolean
+  /** The salon's `solo_mode` capability, resolved HERE from org settings so
+   *  the view never reads settings itself (the thin door carries no
+   *  orgSettings at all — reading them in the view would hand the phone a
+   *  silent `false` and kill the 未設定 discriminator, spec §8). */
+  soloMode: boolean
 }
 
 /**
@@ -394,7 +400,7 @@ export function buildAppointmentsScreen(
     )
 
   let weekData: WeekDayRowData[] | null = null
-  let monthData: MonthGridCell[] | null = null
+  let monthData: MonthCell[] | null = null
   let weekStartIso: string | null = null
   let monthStartIso: string | null = null
 
@@ -410,6 +416,9 @@ export function buildAppointmentsScreen(
         monthRange.monthStart,
         monthRange.monthEnd,
         now,
+        // ONE source for 休: the same map the week rows read their own `closed`
+        // from, so the month cell and the week row cannot disagree about a day.
+        hoursFacts,
       )
     }
     monthStartIso = monthRange.monthStart.toISOString()
@@ -443,5 +452,6 @@ export function buildAppointmentsScreen(
     monthStartIso,
     dayTotals,
     truncated,
+    soloMode,
   }
 }
