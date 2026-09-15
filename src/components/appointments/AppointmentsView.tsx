@@ -6,12 +6,8 @@ import { useUnreadCount } from '@/lib/notifications/hooks'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import {
   DayWeekMonthToggle,
-  MonthGrid,
   ReservationPageHeader,
-  WeekDayCard,
   type DayWeekMonthView,
-  type MonthGridCell,
-  type WeekDayCardData,
 } from '@synqed-kk/ui'
 import { useTranslations, useLocale } from 'next-intl'
 import { Bell, CalendarPlus } from 'lucide-react'
@@ -21,8 +17,16 @@ import {
   formatCompactDateJst,
   formatLongDateJst,
   jstStartOfToday,
+  jstWallTimeToDate,
   ymdInJst,
 } from '@/lib/date/jst'
+import { jstMidnight } from '@/lib/date/calendar-range'
+import {
+  firstDayOfMonthKey,
+  monthKeyInJst,
+  monthKeyOf,
+  shiftMonthKey,
+} from '@/lib/appointments/date-jump'
 import { ReservationGrid } from '@/components/reservation/ReservationGrid'
 import { ReservationMobileAgenda } from '@/components/karute/spike-lifted/reservation/ReservationMobileAgenda'
 import {
@@ -30,14 +34,21 @@ import {
   type ReservationStaffEntry,
 } from '@/components/karute/spike-lifted/reservation/ReservationStaffFilter'
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
+import { DayNumbersLine } from '@/components/appointments/DayNumbersLine'
+import { WeekRows } from '@/components/appointments/WeekRows'
+import { MonthPage } from '@/components/appointments/MonthPage'
+import { DateJumpPanel } from '@/components/appointments/DateJumpPanel'
 import { NewBookingDialog } from '@/components/appointments/NewBookingDialog'
 import { BookingActionSheetWrapper } from '@/components/appointments/BookingActionSheetWrapper'
 import { CancelBookingSheet } from '@/components/appointments/CancelBookingSheet'
+import { cn } from '@/lib/utils'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { AppointmentRow } from '@/actions/appointments'
+import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import type { CachedMenuOption } from '@/lib/menus/cached'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
+import type { MonthCell, WeekDayRowData } from '@/lib/adapters/reservation'
 import type { ReservationStaff } from '@/components/reservation/StaffRow'
 import type { BusinessHours } from '@/components/reservation/TimeAxis'
 
@@ -59,10 +70,25 @@ interface AppointmentsViewProps {
   initialAppointments?: AppointmentRow[]
   initialView: DayWeekMonthView
   selectedDateIso: string
-  weekData: WeekDayCardData[] | null
+  weekData: WeekDayRowData[] | null
   weekStartIso: string | null
-  monthData: MonthGridCell[] | null
+  monthData: MonthCell[] | null
   monthStartIso: string | null
+  /** The SELECTED day's row — the day line's four numbers, from the same
+   *  adapter the week rows come from, so the two surfaces cannot disagree.
+   *  Null = a server or a baked bundle that predates the field; the old
+   *  ReservationTotals stays as the honest fallback for exactly that case. */
+  dayTotals: WeekDayRowData | null
+  /** The window could not be read to exhaustion, so screen.ts nulled weekData,
+   *  monthData and dayTotals. The WEB page never hands this over — it throws
+   *  before it renders and the route error boundary shows the retry screen;
+   *  the THIN screen passes `dto.truncated`, and on that door an incomplete
+   *  read used to reach the 「データがありません」 branch below (R1-2, D5). */
+  truncated?: boolean
+  /** The salon's `solo_mode` capability, resolved SERVER-side (screen.ts).
+   *  Never read org settings in here: the thin door carries none, so a view-
+   *  side read would hand the phone a silent `false`. */
+  soloMode: boolean
   reservationViews: ReservationView[]
   reservationStaff: ReservationStaff[]
   /** The ACTIVE STORE's staff ids — the grid's color palette source (a
@@ -76,7 +102,34 @@ interface AppointmentsViewProps {
   /** Active menu catalog for the booking dialog's picker. Degraded-allowed:
    *  absent/[] just means the dialog keeps its free-text service field. */
   menus?: CachedMenuOption[]
+  /** The date-jump panel's month reader, injected by the host: the web page
+   *  passes the getMonthCells server action, the thin screen passes a facade
+   *  GET (that route is Bearer-only, so the two cannot share one door — see
+   *  getMonthCells' comment). A rejection is honest: that month shows its
+   *  「取得できませんでした」 line and retries on the next visit. */
+  loadMonthCells: (monthKey: string) => Promise<MonthCellDTOType[]>
 }
+
+// The header's date chip is rendered by @synqed-kk/ui, which exposes no class
+// hook, ref or open-state prop for it — but `dateDisplay` IS a ReactNode, so
+// the chip's own copy carries the marker these rules select on. Scoped to the
+// wrapper below; no package change, and no marker just means no pressed state.
+// The chip's own colors are plain single-class utilities, so :has() outranks
+// them on specificity and the order these land in the sheet doesn't matter.
+//
+// Spelled out in FULL, never composed from a shared `button:has(…)` constant:
+// Tailwind extracts class candidates from source TEXT, so an interpolated
+// class name generates no CSS at all and the pressed state dies silently
+// (verified against the built stylesheet, which is the only honest check).
+// ⚖ R3-16 — the ease was missing, so the rotation inherited Tailwind's
+// default `cubic-bezier(.4, 0, .2, 1)` (an ease-in-out) and loitered before it
+// turned, while DateJumpPanel's own chevron left immediately on the mock's
+// curve. 160 ms was already right; the two chevrons now agree on both numbers.
+const CHIP_CHEVRON =
+  '[&_button:has([data-date-jump-chip])>svg]:transition-transform [&_button:has([data-date-jump-chip])>svg]:duration-[160ms] [&_button:has([data-date-jump-chip])>svg]:ease-[cubic-bezier(0.23,1,0.32,1)] [&_button:has([data-date-jump-chip])>svg]:motion-reduce:transition-none'
+// R13 selected recipe (CLAUDE.md) — never a solid fill.
+const CHIP_OPEN =
+  '[&_button:has([data-date-jump-chip])]:border-primary [&_button:has([data-date-jump-chip])]:bg-primary/8 [&_button:has([data-date-jump-chip])]:text-primary [&_button:has([data-date-jump-chip])>svg]:rotate-180'
 
 // formatLongDate / formatCompactDate / formatYmd all delegate to the JST
 // helpers — karute is Japan-targeted, so display always reflects Tokyo
@@ -85,12 +138,26 @@ interface AppointmentsViewProps {
 
 // Cursor delta for prev/next, tuned to the visible chrome. The week/month
 // views advance the full unit; the day view advances one day.
-function shiftDate(date: Date, view: DayWeekMonthView, dir: 1 | -1): Date {
-  const next = new Date(date)
-  if (view === 'day') next.setDate(next.getDate() + dir)
-  else if (view === 'week') next.setDate(next.getDate() + dir * 7)
-  else next.setMonth(next.getMonth() + dir)
-  return next
+//
+// R2-1 (LENS-1 #1, HIGH) — 月 no longer advances via `next.setMonth()`: raw
+// Date month arithmetic overflows from a 31st (8/31 › used to land on 10/1,
+// skipping September whole; 3/31 ‹ didn't move at all). The month step goes
+// through the SAME helpers `onPickMonth` below already uses — one home, no
+// new date math — landing on the target month's 1st, or on `today` when the
+// target IS the current month.
+function shiftDate(date: Date, view: DayWeekMonthView, dir: 1 | -1, today: Date): Date {
+  if (view === 'day') {
+    const next = new Date(date)
+    next.setDate(next.getDate() + dir)
+    return next
+  }
+  if (view === 'week') {
+    const next = new Date(date)
+    next.setDate(next.getDate() + dir * 7)
+    return next
+  }
+  const targetKey = shiftMonthKey(monthKeyInJst(date), dir)
+  return targetKey === monthKeyInJst(today) ? today : firstDayOfMonthKey(targetKey)
 }
 
 export function AppointmentsView(props: AppointmentsViewProps) {
@@ -112,9 +179,27 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   // it on scroll. Bell returns when recording stops.
   const { state: recState } = useGlobalRecorder()
   const isRecording = recState === 'recording' || recState === 'paused'
-  const datePickerRef = useRef<HTMLInputElement>(null)
+  // 日付ジャンプ (2026-09-14): the chip opens the app's own calendar panel.
+  // The hidden native date input it used to call showPicker() on is GONE —
+  // one door to a date, and the OS wheel was never the one staff wanted.
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const dateJumpAnchorRef = useRef<HTMLDivElement>(null)
 
   const view = props.initialView
+  // R1-2 (D5): a cut-off read must SAY so. `truncated` nulls weekData
+  // server-side, and a null week that is not still arriving means the read did
+  // not answer the question — both used to land on 「データがありません」 below,
+  // a calm empty week that reads as "nothing booked". `!isPending` is what
+  // keeps a fresh mount mid-transition out of it.
+  const weekFailed =
+    view === 'week' && (props.truncated === true || (props.weekData === null && !isPending))
+  // LENS-1 1B-WIRE L1-5 — the same rule, the same reason, on the 月 page. A
+  // month the server could not read to exhaustion arrived here as a calm
+  // 「データがありません」 card: a phone staring at an EMPTY month when the truth
+  // is "we could not read it" is the one lie a booking screen must not tell,
+  // and it is worse on a month than on a week (thirty days of nothing).
+  const monthFailed =
+    view === 'month' && (props.truncated === true || (props.monthData === null && !isPending))
   const selectedDate = new Date(props.selectedDateIso)
   // `today` is reserved for the Today button (jump-to-now) — the displayed
   // header always reflects whichever date is currently selected.
@@ -142,6 +227,16 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     const search = new URLSearchParams()
     search.set('view', nextView)
     search.set('date', ymdInJst(nextDate))
+    // ⚖ spec §1/§6: 自分 / 全スタッフ / 担当 feeds EVERY number on every
+    // surface — it is applied at the FETCH (`staff_id` on appointments.list),
+    // not at render. A move that dropped it would not look broken: the page
+    // would simply show the whole salon's numbers under a 担当 pill that still
+    // reads as selected, with nothing on screen saying the scope changed.
+    // 'all' is left out on purpose — `parseStaffParam(undefined)` already
+    // resolves to it, so spelling it would only add noise to the URL.
+    if (props.staffFilter && props.staffFilter !== 'all') {
+      search.set('staff', props.staffFilter)
+    }
     startTransition(() => {
       router.push(
         `${pathname}?${search.toString()}` as Parameters<typeof router.push>[0],
@@ -150,32 +245,30 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   }
 
   function handlePrev() {
-    navigateTo(view, shiftDate(selectedDate, view, -1))
+    navigateTo(view, shiftDate(selectedDate, view, -1, today))
   }
   function handleNext() {
-    navigateTo(view, shiftDate(selectedDate, view, 1))
+    navigateTo(view, shiftDate(selectedDate, view, 1, today))
   }
   function handleToday() {
     navigateTo(view, today)
   }
   function handlePickDate() {
-    const input = datePickerRef.current
-    if (!input) return
-    if (typeof input.showPicker === 'function') {
-      input.showPicker()
-    } else {
-      input.focus()
-      input.click()
-    }
+    setPickerOpen((o) => !o)
   }
-  function handlePickerChange(value: string) {
-    if (!value) return
-    const [y, m, d] = value.split('-').map(Number)
-    if (!y || !m || !d) return
-    // Interpret the picker's YYYY-MM-DD as JST midnight, so the cursor
-    // lands on the same calendar day in Tokyo regardless of runtime tz.
-    const ymd = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-    navigateTo(view, new Date(`${ymd}T00:00:00+09:00`))
+  // R2-4 (LENS-1 #4 rider) — this used to be a brand-new inline arrow built
+  // INSIDE the JSX ternary on every render (`(year, month) => navigateTo(...)`
+  // as an onPickMonth prop expression). A plain named function, like
+  // handlePrev/handleNext/handleToday above, is this component's own idiom
+  // for that — this repo's React Compiler auto-memoizes plain functions in a
+  // render body on its own (its `react-hooks/preserve-manual-memoization`
+  // lint refuses a manual `useCallback` wrapper here: `today`, a plain
+  // mutable Date, is not a dependency it can prove is safe to key on).
+  function handlePickMonth(year: number, month: number) {
+    navigateTo(
+      'month',
+      monthKeyOf(year, month) === monthKeyInJst(today) ? today : jstMidnight(year, month, 1),
+    )
   }
 
   const headerDate = selectedDate
@@ -190,17 +283,6 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     // both carry borders — 12px read as touching; 16px matches the
     // 顧客/カルテ header rhythm.
     <div className="relative space-y-4 px-4 md:px-6">
-      {/* Hidden native date picker; opened by the header's date button. */}
-      <input
-        ref={datePickerRef}
-        type="date"
-        defaultValue={ymdInJst(selectedDate)}
-        onChange={(e) => handlePickerChange(e.target.value)}
-        className="sr-only"
-        aria-hidden="true"
-        tabIndex={-1}
-      />
-
       {/* ─────────────────────────────────────────────────────────────
        *  Sticky title bar — 予約 + bell. Pattern matches the existing
        *  CustomersListHeader / KaruteRecordListView sticky bars so the
@@ -263,15 +345,31 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  (the "intentional black button" — carve-out killed by Liam 8/6)
        *  are gone; the package defaults now render Today + new-booking in
        *  the accent. */}
+      {/* The anchor for the date-jump panel: the chip and the panel live in
+       *  ONE box, so a pointerdown on the chip is never "outside" the panel
+       *  (which would close it just as the chip's own click reopens it). */}
+      <div
+        ref={dateJumpAnchorRef}
+        className={cn('relative mb-0', CHIP_CHEVRON, pickerOpen && CHIP_OPEN)}
+      >
       <ReservationPageHeader
         // Header structure contract (Liam 8/7): mb-0 kills the package's
         // baked mb-4 — and, same property, the page's space-y-4 margin
         // (v4 space-y is a zero-specificity :where() rule) — so the pt-6
         // wrapper below owns the whole 24px seam. Same natural-height
         // row as 顧客/カルテ (32px controls set the height).
+        // The anchor wrapper above carries mb-0 too, and for the second
+        // half of that reason: since the date-jump panel moved the anchor
+        // in between, IT is the direct child space-y-4 measures — this
+        // header is a grandchild, so its own mb-0 no longer meets the
+        // :where() rule it used to cancel (measured: 40px seam, not 24).
         className="mb-0"
-        dateDisplay={formatLongDateJst(headerDate, locale)}
-        dateDisplayCompact={formatCompactDateJst(headerDate, locale)}
+        dateDisplay={
+          <span data-date-jump-chip>{formatLongDateJst(headerDate, locale)}</span>
+        }
+        dateDisplayCompact={
+          <span data-date-jump-chip>{formatCompactDateJst(headerDate, locale)}</span>
+        }
         onPrev={handlePrev}
         onNext={handleNext}
         onToday={handleToday}
@@ -303,6 +401,34 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           nextLabel: tReservation('next'),
         }}
       />
+
+      <DateJumpPanel
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        anchorRef={dateJumpAnchorRef}
+        selectedDate={selectedDate}
+        // In 月 mode the page already holds this month's cells — no fetch.
+        seedCells={view === 'month' ? props.monthData : null}
+        loadMonthCells={props.loadMonthCells}
+        // MODE PRESERVED: picking a day never switches 日/週/月 — so in 月
+        // mode this IS navigateTo('month', date): the page stays on the month
+        // page and the tapped day becomes its selection.
+        onPickDay={(date) => navigateTo(view, date)}
+        weekdayLabels={monthWeekdayLabels}
+        // ⚖ §v11b — in 月 mode the chip opens on the twelve month chips, never
+        // a day grid over a day grid (the two calendars looked identical, which
+        // is what started this whole round). 日/週 are unchanged.
+        defaultLevel={view === 'month' ? 2 : 1}
+        // ⚖ §v11 point 1 / spec §1 — in 月 mode the chip's twelve month chips
+        // are the whole point of opening at level 2: picking one LANDS that
+        // month on the page (the mock's mGrid handler, MOCK 1263-1272), it
+        // does not drop into a day grid the staff member did not ask for.
+        // Selection = the 1st, or TODAY when the pick is the current month, so
+        // 「今月」 through the chip and 今日 agree. 日/週 pass nothing and keep
+        // the panel's own level-2 → level-1 behaviour.
+        onPickMonth={view === 'month' ? handlePickMonth : undefined}
+      />
+      </div>
 
       {/* Chrome: Day/Week/Month toggle + Self/All segmented + per-staff pills
        *  Row 1: DWM toggle (localized via copy prop — defaults to English
@@ -396,6 +522,31 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       >
         {view === 'day' ? (
           <>
+            {/* The day's numbers (spec §2 / mock §v9d): one flowing line of
+             *  四 values, above the list, from the SAME adapter row the week
+             *  page renders — the two surfaces cannot disagree. Its own
+             *  `mb-2` is the whole seam to the list card, so it sits OUTSIDE
+             *  the space-y-6 wrapper's rhythm by design (§v9c: "no extra
+             *  margin beyond the page's normal 8px").
+             *  ReservationTotals stays ONLY while `dayTotals` is null — a
+             *  stale phone bundle or a server that predates the field. */}
+            {props.dayTotals ? (
+              <DayNumbersLine
+                row={props.dayTotals}
+                // R3-18 — the router transition IS this line's pending state,
+                // exactly as it is the week's: during a ‹ / › / 今日 / calendar
+                // move the numbers still on screen describe the OLD day. The
+                // line shows the mock's two shims instead of reading as this
+                // day's totals.
+                pending={isPending}
+                soloMode={props.soloMode}
+                // PKT-2 owns the strict 新規/再来 producer; today's
+                // newCustomerCount is the QR import flag and must not print
+                // (spec §8). 'off' = the fill order supplies the fourth cell.
+                typeSlot="off"
+                locale={props.locale}
+              />
+            ) : null}
             <div className="hidden md:block">
               {/* Desktop grid keeps terminal (cancelled/no-show) rows hidden
                *  for now — a greyed grid-block treatment is a follow-up;
@@ -419,32 +570,89 @@ export function AppointmentsView(props: AppointmentsViewProps) {
               />
             </div>
             {/* Totals must not count terminal rows — a no-show is not a
-             *  visit, and a burned ticket is accounted in packs, not here. */}
-            <ReservationTotals
-              reservations={props.reservationViews.filter((r) => !r.isCancelled && !r.isNoShow)}
-            />
+             *  visit, and a burned ticket is accounted in packs, not here.
+             *  FALLBACK ONLY (PKT-1b-WIRE W-B): once `dayTotals` arrives, the
+             *  numbers line above says the same thing better and this block
+             *  goes away. Kept for the skew window where an old server or an
+             *  old baked bundle sends no row — blanking the day's totals
+             *  there would be a silent regression. */}
+            {props.dayTotals ? null : (
+              <ReservationTotals
+                reservations={props.reservationViews.filter((r) => !r.isCancelled && !r.isNoShow)}
+              />
+            )}
           </>
-        ) : view === 'week' && props.weekData && props.weekStartIso ? (
-          <WeekGridSection
-            data={props.weekData}
-            weekStartIso={props.weekStartIso}
-            onPickDay={(date) => navigateTo('day', date)}
+        ) : view === 'week' && (weekFailed || (props.weekData && props.weekStartIso)) ? (
+          /* The app-local seven-row week (spec §3 / mock §v5-§v6), replacing
+           *  @synqed-kk/ui's WeekDayCard grid: the package card cannot show a
+           *  single number 1a put on the wire. The rolling 7 days from the
+           *  selected day are KEPT (spec F6) — `computeWeekRange` still owns
+           *  the range; never the mock's Monday snap. */
+          <WeekRows
+            rows={props.weekData ?? []}
+            weekStartIso={props.weekStartIso ?? ''}
+            selectedDateIso={ymdInJst(selectedDate)}
+            todayIso={ymdInJst(today)}
+            soloMode={props.soloMode}
+            // PKT-2 owns the strict 新規/再来 producer; today's
+            // newCustomerCount is the QR import flag and must not print
+            // (spec §8). 'off' = the fill order supplies the fourth cell.
+            typeSlot="off"
+            locale={props.locale}
+            // The router transition IS the week's pending state: during a
+            // ‹ / › / 今日 / calendar move the rows on screen still describe
+            // the OLD week. The wrapper's 50% dim says "busy"; the shimmer
+            // pills say WHICH numbers are not to be read yet (mock
+            // weekSumHTML/weekGridHTML's `pend` branch).
+            // R1-2 (D5): the failed line, with its retry tail, instead of the
+            // 「データがありません」 branch. WeekRows renders it alone — no rows,
+            // no summary — so `rows` above is only the not-failed path's data.
+            failed={weekFailed}
+            pending={isPending}
+            // jstWallTimeToDate, not `new Date(iso)`: a bare parse of
+            // "2026-09-17" is UTC midnight, which is the 16th in JST — the
+            // tap would open the wrong day for the whole JST morning.
+            onPickDay={(iso) => navigateTo('day', jstWallTimeToDate(iso, '00:00'))}
           />
-        ) : view === 'month' && props.monthData ? (
-          <div className="md:h-[calc(100vh-260px)]">
-            <MonthGrid
-              cells={props.monthData}
-              copy={{
-                weekdayLabels: monthWeekdayLabels,
-                legendLight: tReservation('month.legendLight'),
-                legendMedium: tReservation('month.legendMedium'),
-                legendBusy: tReservation('month.legendBusy'),
-              }}
-              onPickDay={(date) => navigateTo('day', date)}
-              className="h-full"
-            />
-          </div>
+        ) : view === 'month' && (monthFailed || props.monthData) ? (
+          /* The app-local month grid + month line (spec §4 / mock §v10-§v11c),
+           *  replacing @synqed-kk/ui's MonthGrid ON THE PAGE. The package grid
+           *  has no selected day, no 休 cell, and prints its day numbers from a
+           *  raw Date — the runtime's local day, which on the UTC server is
+           *  yesterday's. The pop-down keeps rendering through it (approved,
+           *  byte-frozen); the page does not. */
+          <MonthPage
+            cells={props.monthData ?? []}
+            selectedDateIso={ymdInJst(selectedDate)}
+            todayIso={ymdInJst(today)}
+            weekdayLabels={monthWeekdayLabels}
+            // PKT-2 owns the strict 新規/再来 producer; today's
+            // newCustomerCount is the QR import flag and must not print
+            // (spec §8). 'off' = the month line is 予約 alone, never a
+            // substitute metric in that slot.
+            typeSlot="off"
+            locale={props.locale}
+            // The router transition IS the month line's pending state, exactly
+            // as it is the week's: mid-move the total on screen is the month
+            // being left.
+            pending={isPending}
+            // A cut-off read renders the failed line ALONE — no grid numbers,
+            // no month line — exactly as WeekRows does with `failed`.
+            failed={monthFailed}
+            onPickDay={(iso) => navigateTo('day', jstWallTimeToDate(iso, '00:00'))}
+            // R1-2 (D-1) — a leading/trailing cell belongs to the month either
+            // side, so tapping it MOVES THE PAGE to that month with that day
+            // selected, exactly as the mock's grid handler does. It never opens
+            // a day page: the staff member tapped a date in a month they are
+            // not looking at, and the answer to that is to show them the month.
+            onPickOtherMonthDay={(iso) => navigateTo('month', jstWallTimeToDate(iso, '00:00'))}
+          />
         ) : (
+          /* 「データがありません」 — reached only while a router transition is
+           *  still in flight and that view's first data has not arrived yet.
+           *  Neither a cut-off 週 (R1-2) nor a cut-off 月 (A5b) lands here any
+           *  more: both render their own failed line above, which SAYS the read
+           *  failed instead of painting an empty calendar. */
           <div className="rounded-[var(--radius-md)] bg-[var(--color-bg-card)] p-8 text-center text-sm text-[var(--color-text-muted)] ring-1 ring-black/5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
             {tReservation('empty.noData')}
           </div>
@@ -482,57 +690,6 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         open={notificationsOpen}
         onClose={() => setNotificationsOpen(false)}
       />
-    </div>
-  )
-}
-
-function WeekGridSection({
-  data,
-  weekStartIso,
-  onPickDay,
-}: {
-  data: WeekDayCardData[]
-  weekStartIso: string
-  onPickDay: (date: Date) => void
-}) {
-  const locale = useLocale()
-  const t = useTranslations('reservation.weekCard')
-  const weekStart = new Date(weekStartIso)
-  const copy = {
-    todayBadge: t('today'),
-    bookingsCountSuffix: t('bookings'),
-    utilizedLabel: t('utilized'),
-    openLabel: t('open'),
-    newLabel: t('new'),
-    reminderLabel: t('reminder'),
-    consentLabel: t('consent'),
-    pendingLabel: t('pending'),
-    emptyLabel: t('empty'),
-    moreLabel: t('more'),
-  }
-  const formatOpenDuration = (minutes: number) => {
-    const h = Math.floor(minutes / 60)
-    const m = minutes % 60
-    if (locale.startsWith('ja')) {
-      return h > 0 ? (m > 0 ? `${h}時間${m}分` : `${h}時間`) : `${m}分`
-    }
-    return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`
-  }
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
-      {data.map((day, i) => {
-        const date = new Date(weekStart)
-        date.setDate(date.getDate() + i)
-        return (
-          <WeekDayCard
-            key={i}
-            data={day}
-            copy={copy}
-            formatOpenDuration={formatOpenDuration}
-            onPick={() => onPickDay(date)}
-          />
-        )
-      })}
     </div>
   )
 }
