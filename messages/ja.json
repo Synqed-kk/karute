@@ -2294,7 +2294,7 @@
         "closedToggle": "休業",
         "closedConfirm": "{day}曜日を休業にすると、この曜日の予約受付が止まります。",
         "closedConfirmYes": "休業にする",
-        "closedConfirmNo": "やめる",
+        "closedConfirmNo": "キャンセル",
         "save": "保存",
         "saving": "保存中",
         "saved": "営業時間を保存しました",
