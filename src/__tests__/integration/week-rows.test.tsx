@@ -16,7 +16,7 @@ const MESSAGES: Record<string, string> = {
   count: '予約',
   utilization: '稼働',
   free: '空き',
-  bookedTime: '稼働時間',
+  bookedTime: '予約時間',
   new: '新規',
   returning: '再来',
   cancelled: 'キャンセル',
@@ -215,7 +215,7 @@ describe('WeekRows — the mock’s §v5/§v6 geometry, ported rule for rule', (
     // ⚖ R2-2 (lead, 2026-09-15) — the ONE recorded deviation from the mock's
     // geometry: column 1 is 130 px, not the mock's 120. The mock's fixtures
     // were whole hours (「12時間」); a real day carries minutes, and
-    // 「稼働時間 12時間30分」 measures 130.03 px (label 44 + gap 5 + value 81),
+    // 「予約時間 12時間30分」 measures 130.03 px (label 44 + gap 5 + value 81),
     // which at 120 px ran 2 px INTO its neighbour's box (D-2 of
     // FIX-REPORT-1B-WIRE-R1). Everything else in the row geometry is the
     // mock's, unchanged. jsdom cannot measure text, so this pins the class

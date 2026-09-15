@@ -301,7 +301,7 @@ export function WeekRows({
                *  ⚖ R2-2 — the wide column is 130 px here, the ONE recorded
                *  deviation from that rule. The mock's fixtures were whole
                *  hours (「12時間」); a real day carries minutes, and
-               *  「稼働時間 12時間30分」 measures 130.03 px (label 44 + gap 5 +
+               *  「予約時間 12時間30分」 measures 130.03 px (label 44 + gap 5 +
                *  value 81), so at 120 px it ran 2 px into 無断's box (D-2 of
                *  FIX-REPORT-1B-WIRE-R1). +10 px is invisible to the eye and
                *  keeps the collision impossible; every other number in this
