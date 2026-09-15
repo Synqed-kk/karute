@@ -8,11 +8,12 @@
 // those CSS rules is pinned by a named test, not left to a screenshot.
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslations } from 'next-intl'
-import { ChevronRight, Sparkles } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatCompactDateJst, jstWallTimeToDate, partsInJst } from '@/lib/date/jst'
 import type { WeekDayRowData } from '@/lib/adapters/reservation'
 import { isClosedRow, weekRowCells, type Cell, type TypeSlot } from '@/lib/appointments/metric-menu'
+import { NewSpark } from './NewSpark'
 
 interface WeekRowsProps {
   rows: WeekDayRowData[]
@@ -168,7 +169,7 @@ function GridCell({ cell, pending }: { cell: Cell; pending?: boolean }) {
         >
           {/* mock: `cellHTML(c.lb, c.spark ? SPARK + c.val : c.val)` — the
            *  spark PRECEDES the value, and the SVG is 15×15. */}
-          {cell.tone === 'new' && <Sparkles aria-hidden className="size-[15px] shrink-0" />}
+          {cell.tone === 'new' && <NewSpark className="shrink-0" />}
           {cell.value}
         </span>
       )}

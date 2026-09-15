@@ -448,7 +448,7 @@ describe('week rows + day numbers line — the adjudicated accent sites (R3-10)'
   }
 
   function newValue(root: HTMLElement): HTMLElement {
-    const svg = root.querySelector('svg.lucide-sparkles')!
+    const svg = root.querySelector('[data-new-spark]')!
     return (svg.closest('[data-week-value]') ?? svg.parentElement) as HTMLElement
   }
 
@@ -465,7 +465,7 @@ describe('week rows + day numbers line — the adjudicated accent sites (R3-10)'
     const { container } = render(
       <DayNumbersLine row={row} soloMode={false} typeSlot="new" locale="ja" />,
     )
-    const svg = container.querySelector('svg.lucide-sparkles')!
+    const svg = container.querySelector('[data-new-spark]')!
     expect(svg.getAttribute('class')).toContain('text-[var(--reservation-new-chip-bg)]')
     const value = svg.parentElement!.querySelector('b')!
     expect(value.className).toContain('text-[var(--reservation-new-chip-bg)]')

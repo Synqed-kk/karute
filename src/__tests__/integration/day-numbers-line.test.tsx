@@ -234,3 +234,19 @@ describe('DayNumbersLine — the pending state is two shims, not nothing (R3-18)
     expect(container.querySelector('[data-day-line]')).toBeNull()
   })
 })
+
+describe('DayNumbersLine — the spark is the shared component (R3-19)', () => {
+  it('renders the same two-star glyph the week cell does, on the 新規 tone', () => {
+    const DayNumbersLine = loadDayNumbersLine()
+    const { container } = render(
+      <DayNumbersLine row={row()} soloMode={false} typeSlot="new" locale="ja" />,
+    )
+    const spark = container.querySelector('[data-new-spark]')!
+    expect(spark.querySelectorAll('path')).toHaveLength(2)
+    expect(spark.getAttribute('stroke-width')).toBe('1.8')
+    // mock `.dayline .it.nw svg{align-self:center}` — re-centred against the
+    // baseline-aligned row
+    expect(spark.getAttribute('class')).toContain('self-center')
+    expect(spark.getAttribute('class')).toContain('text-[var(--reservation-new-chip-bg)]')
+  })
+})

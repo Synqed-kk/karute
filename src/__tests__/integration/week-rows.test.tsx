@@ -376,11 +376,25 @@ describe('WeekRows — the mock’s §v5/§v6 geometry, ported rule for rule', (
     }
   })
 
+  it('the spark is the mock’s own two-star glyph at stroke 1.8 (R3-19)', () => {
+    const WeekRows = loadWeekRows()
+    const { container } = render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    const spark = container.querySelector('[data-new-spark]')!
+    // mock line 780: two <path>s, stroke-width 1.8, 15×15 on a 24 viewBox.
+    // lucide's Sparkles draws THREE stars at stroke 2.
+    expect(spark.querySelectorAll('path')).toHaveLength(2)
+    expect(spark.getAttribute('stroke-width')).toBe('1.8')
+    expect(spark.getAttribute('width')).toBe('15')
+    expect(spark.getAttribute('height')).toBe('15')
+    expect(spark.getAttribute('viewBox')).toBe('0 0 24 24')
+    expect(spark.getAttribute('class') ?? '').not.toContain('lucide')
+  })
+
   it('the 新規 spark PRECEDES its value in the cell (mock: cellHTML(lb, SPARK + val))', () => {
     const WeekRows = loadWeekRows()
     const { container } = render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
     // typeSlot 'new' → the fourth cell is 新規, the only sparked one.
-    const sparked = container.querySelector('svg.lucide-sparkles')!.closest('[data-week-value]')!
+    const sparked = container.querySelector('[data-new-spark]')!.closest('[data-week-value]')!
     expect(sparked.firstElementChild!.tagName.toLowerCase()).toBe('svg')
     expect(sparked.textContent).toBe('1')
   })

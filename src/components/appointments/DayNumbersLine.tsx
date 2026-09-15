@@ -3,12 +3,12 @@
 // The day page's numbers line (spec §2 / mock §v9d, packet W5 + PKT-1b-WIRE
 // W-B) — one flowing "value then word" line, ported rule-for-rule from
 // DATE-JUMP-PICKER-MOCK.html's `.dayline` block (mock lines 134-142).
-import { Sparkles } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import type { WeekDayRowData } from '@/lib/adapters/reservation'
 import { dayLineCells, isClosedRow, type Cell, type TypeSlot } from '@/lib/appointments/metric-menu'
 import { VALUE_TONE_CLASS } from './WeekRows'
+import { NewSpark } from './NewSpark'
 
 interface DayNumbersLineProps {
   row: WeekDayRowData | null
@@ -40,10 +40,7 @@ function LineItem({ cell }: { cell: Cell }) {
        *  `.dayline .it.nw svg{align-self:center}` re-centres it against the
        *  baseline-aligned row. */}
       {cell.tone === 'new' && (
-        <Sparkles
-          aria-hidden
-          className="size-[15px] shrink-0 self-center text-[var(--reservation-new-chip-bg)]"
-        />
+        <NewSpark className="shrink-0 self-center text-[var(--reservation-new-chip-bg)]" />
       )}
       <b className={cn(VALUE, VALUE_TONE_CLASS[cell.tone])}>{cell.value}</b>
       {cell.key !== 'count' && cell.label}
