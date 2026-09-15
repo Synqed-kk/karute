@@ -1114,7 +1114,7 @@ export function TodayScreen(props: TodayProps) {
    *  ask, otherwise its staff lane — each looked up in its own GROUP, since
    *  lane keys are unique only within a group. Chrome when no such lane is
    *  on the board (never the off-lane caller's home `laneKey`). */
-  function wordsForAsk(ask: { solveRoom: boolean; bedLane: string | null; staffLane: string | null }): ResourceWords {
+  function wordsForAsk(ask: Pick<LandingAsk, 'solveRoom' | 'bedLane' | 'staffLane'>): ResourceWords {
     const bedSide = !ask.solveRoom && ask.bedLane != null
     const key = bedSide ? ask.bedLane : ask.staffLane
     const lane = key == null ? undefined : boardLanes.find((l) => l.group === (bedSide ? 'beds' : 'staff') && l.key === key)
