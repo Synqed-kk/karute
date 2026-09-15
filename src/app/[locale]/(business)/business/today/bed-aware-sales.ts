@@ -118,6 +118,10 @@ const blocked = (book: BedTruth, room: string, start: number, end: number): BedT
  *  @param lanes the world they were cut from.
  *  @param book the capacity book for that world.
  *  @param on the round gate's value, passed in. False = nothing withheld.
+ *  @param needsRoom ⚖ D-52 (g) — the same predicate `honestHeld` takes. A
+ *    room-less row's kept 枠 can take no room from any offer, so it is never a
+ *    `hit`, and the re-net below is handed the same predicate so it agrees.
+ *    Absent = every row needs a room, today's reading.
  *
  *  ponytail: THREE EXACT EXITS, ONE MEMO, AND ONE CERTIFIER, in this order — (a) an
  *  offer over no kept 枠 is free; (c) the WITNESS proves 「on sale」 out of the netting's
@@ -145,25 +149,34 @@ export function withheldOffers(
   lanes: readonly BoardLane[],
   book: BedTruth,
   on: boolean,
+  needsRoom: (lane: BoardLane) => boolean = () => true,
 ): WithheldOffers {
   if (!on || !honest) return NOTHING
 
   const want = heldIds(honest)
-  const heldSpans = honest.byLane.flatMap((l) =>
-    l.held.map((s, i) => ({
-      id: offerKey(l.laneKey, s.windowStart),
-      laneKey: l.laneKey,
-      start: s.start,
-      end: s.end,
-      // ⚖ ROUND 2 · SPEC-R2 v4 amendment item 1 — the room the netting GAVE this
-      // 枠. Carried for the witness exit below and read nowhere else.
-      room: l.heldRoom[i] ?? '',
-      // ⚖ ROUND 3 · D — the netting's own ELIGIBLE list for this 枠 over its whole
-      // span (honest-held.ts:190-199), read by the eligibility pigeonhole below and
-      // nowhere else; `[]` on the identity path.
-      rooms: l.heldRooms[i] ?? [],
-    })),
-  )
+  // ⚖ D-52 (g) — a lane not found in `lanes` needs a room, today's reading
+  // (the same fallback `honestHeld` takes for the lane it cannot find).
+  const laneOf = new Map(lanes.map((l) => [l.key, l]))
+  const heldSpans = honest.byLane
+    .filter((l) => {
+      const lane = laneOf.get(l.laneKey)
+      return !lane || needsRoom(lane)
+    })
+    .flatMap((l) =>
+      l.held.map((s, i) => ({
+        id: offerKey(l.laneKey, s.windowStart),
+        laneKey: l.laneKey,
+        start: s.start,
+        end: s.end,
+        // ⚖ ROUND 2 · SPEC-R2 v4 amendment item 1 — the room the netting GAVE this
+        // 枠. Carried for the witness exit below and read nowhere else.
+        room: l.heldRoom[i] ?? '',
+        // ⚖ ROUND 3 · D — the netting's own ELIGIBLE list for this 枠 over its whole
+        // span (honest-held.ts:190-199), read by the eligibility pigeonhole below and
+        // nowhere else; `[]` on the identity path.
+        rooms: l.heldRooms[i] ?? [],
+      })),
+    )
   // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 3 — THE ONE ROOM UNIVERSE the pigeonhole
   // counts against: the board's own bed rows. A board drawn without them (a unit
   // suite whose book is a stub) has none and the exit never fires.
@@ -196,7 +209,7 @@ export function withheldOffers(
     const memoKey = `${room}|${start}|${end}`
     const seen = netted.get(memoKey)
     if (seen) return seen
-    const walk = honestHeld(heldOnly, lanes, blocked(book, room, start, end), true)
+    const walk = honestHeld(heldOnly, lanes, blocked(book, room, start, end), true, needsRoom)
     const after = { ids: new Set(heldIds(walk)) as ReadonlySet<string>, exact: walk.exact }
     netted.set(memoKey, after)
     return after

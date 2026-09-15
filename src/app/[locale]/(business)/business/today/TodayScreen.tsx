@@ -160,6 +160,7 @@ import {
   reservedSentence,
   sameStore,
   sharesStore,
+  storeHasBeds,
   sellDrawnFor,
   sellLayerFor,
   sellPublishedFor,
@@ -293,10 +294,28 @@ export function bedDoor(
   lanes: BoardLane[],
   askerId: string | null,
 ): ((lane: BoardLane, start: number, dur: number) => boolean) | undefined {
-  if (!lanes.some((l) => l.group === 'beds')) return undefined
+  if (!storeHasBeds(lanes)) return undefined
+  // ⚖ ROUND 3 · C (⚖ D-52 (a)) — THE MASK'S FORM, SPELLED ONCE. A mixed board
+  // (viewAll: some stores have rooms, some do not) still needs to agree with
+  // itself lane by lane — a staff lane whose OWN store owns no bed lane needs
+  // no room test either, so both callbacks below answer `true` for it before
+  // ever asking the book. Built once at door time; on a clamped board this set
+  // is empty (every staff lane shares its store with its own beds, and a
+  // floating lane pairs with any), so the cost is one `Set` per door build.
+  const roomless = new Set(
+    lanes.filter((l) => l.group === 'staff' && !storeHasBeds(lanes, l.stores)).map((l) => l.key),
+  )
+  // ⚖ D-52 (g) — WHY `true` BEFORE `requiresPrivate`: this callback answers the
+  // guard's question (feasible for a room-holding subject), never the
+  // allocator's. A 個室のみ booking on a room-less row is refused by
+  // `landingVerdict` → `allocateBed` (the 個室 sentence, `hard-room`), which
+  // never reads this door; on a clamped gym board this door is `undefined` —
+  // no room test at all — and the per-lane `true` is the same answer for the
+  // same row. Pinned: today-no-bed-store.test.ts G12.
   if (!askerId) {
     const masks = new Map<string, (startMin: number) => boolean>()
     return (lane, start, dur) => {
+      if (roomless.has(lane.key)) return true
       const key = `${lane.key}|${dur}`
       let mask = masks.get(key)
       if (!mask) {
@@ -317,6 +336,7 @@ export function bedDoor(
   const truth = askerId === views.handId && views.worldMinusHand ? views.worldMinusHand : views.world
   const seen = new Map<string, boolean>()
   return (lane, start, dur) => {
+    if (roomless.has(lane.key)) return true
     const key = `${lane.key}|${start}|${dur}`
     const hit = seen.get(key)
     if (hit !== undefined) return hit
@@ -2105,13 +2125,17 @@ export function TodayScreen(props: TodayProps) {
    *  `FOREIGN_BOOKS`, a module-level cache, so this closure holds three scalars
    *  and not a per-frame identity. `null` for the lift: this is the SETTLED
    *  board and a protected window's subject is a NEW client. */
+  // ⚖ D-52 (a) — no rooms, nothing to net: `undefined` is the law-off shape
+  // every consumer below already reads.
   const honest = useMemo(
-    () => (HONEST_HELD && heldCommitted
+    () => (HONEST_HELD && heldCommitted && storeHasBeds(committedLanes)
       ? honestHeld(
           heldCommitted.filter((m) => !locked.includes(m.laneKey)),
           committedLanes,
           bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
           true,
+          // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+          (l) => storeHasBeds(committedLanes, l.stores),
         )
       : undefined),
     [heldCommitted, locked, committedLanes, ledgerFrame],
@@ -2383,6 +2407,8 @@ export function TodayScreen(props: TodayProps) {
       committedLanes,
       bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
       BED_AWARE_SALES,
+      // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+      (l) => storeHasBeds(committedLanes, l.stores),
     )
   }, [sellDrawn, gapDrawn, honest, heldCommitted, locked, committedLanes, ledgerFrame])
 
@@ -2451,6 +2477,10 @@ export function TodayScreen(props: TodayProps) {
    *  a personal display preference that can hide the painted rail and can never
    *  weaken the rule — canon states that separation in as many words. */
   const guardOn = props.guard.mode !== 'off'
+  // ⚖ ROUND 3 · C (⚖ D-52 (a)) — DOES THIS BOARD OWN A ROOM AT ALL. A plain
+  // const, no memo: one `some` per render, read by the honest-netting gate and
+  // the tour/legend sites below.
+  const hasBeds = storeHasBeds(boardLanes)
   /** ⚖ Liam flag 50 (2026-08-22) — THE STRIP ANSWERS FOR THE CARD IN HAND.
    *
    *  At rest the 60分配置 strip asks canon's own question: could a standard
@@ -2636,11 +2666,14 @@ export function TodayScreen(props: TodayProps) {
   /** ⚖ HONEST-COUNT ROUND 1 · fix 7 (2026-09-13, lens 1f MINOR 1) — the reader
    *  discards `inHand != null`, so skip the netting exactly then. */
   const staffCardInHand = live != null && live.group !== 'beds' && !live.overShelf && live.mode === 'move'
+  // ⚖ D-52 (a) — no rooms, nothing to net; falls back to `heldBoard` like the
+  // other law-off arm.
   const heldBoardHonest = useMemo(
-    () => (HONEST_HELD && heldBoard && !staffCardInHand
-      ? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true).byLane.map(heldMaskOf)
+    () => (HONEST_HELD && heldBoard && !staffCardInHand && hasBeds
+      // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+      ? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true, (l) => storeHasBeds(boardLanes, l.stores)).byLane.map(heldMaskOf)
       : heldBoard),
-    [heldBoard, locked, boardLanes, ledger, staffCardInHand],
+    [heldBoard, locked, boardLanes, ledger, staffCardInHand, hasBeds],
   )
 
   /** ⚖ NEW-WINDOW — THE DAY QUESTION'S OWN DOOR, and it is the SETTLED board's.
@@ -2814,6 +2847,8 @@ export function TodayScreen(props: TodayProps) {
       originLanes,
       bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
       true,
+      // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+      (l) => storeHasBeds(originLanes, l.stores),
     )
   }, [honest, dayStaged, originReleased, originLanes, ledgerFrame, locked])
   /** ⚖ D-20 (1) — the middle arm mirrors `dayCommitted`'s own: with the netting
@@ -4593,6 +4628,10 @@ export function TodayScreen(props: TodayProps) {
    *  board is 満室 for this booking — the refusal has already been SAID, naming
    *  the blocking room, and the caller must change nothing (⚖ 47).
    *
+   *  ⚖ D-52 (b) — a `laneKey` of `null` with NO refusal is a store with no
+   *  rooms: the landing stands on staff time alone and the caller stages it
+   *  with `bedLane: null`, which `stage` (:4705) already accepts.
+   *
    *  A BED-ROW drag never calls this: that gesture is the operator choosing the
    *  room out loud, and batch-6's stage-with-確定-disabled behaviour is the
    *  deliberate-choice path, untouched.
@@ -4619,7 +4658,7 @@ export function TodayScreen(props: TodayProps) {
   //  gesture are sitting in their new rooms, so a re-solve would shuffle them
   //  again from a seat this very change gave them. `solveLanes` is the one place
   //  that answers 「which board does this landing solve against?」.
-  function solveBed(board: BoardLane[], staffLaneKey: string | null, id: string | null, currentBed: string | null, requiresPrivate: boolean, span: { x: number; w: number }): { laneKey: string; companions: BedCompanion[] } | null {
+  function solveBed(board: BoardLane[], staffLaneKey: string | null, id: string | null, currentBed: string | null, requiresPrivate: boolean, span: { x: number; w: number }): { laneKey: string | null; companions: BedCompanion[] } | null {
     const start = minuteOf(span.x, hours)
     // ⚖ LIVE-WHILE-DRAGGING §6 — THROUGH THE GESTURE'S OWN MEMO, so the room
     // this stages is the very entry the cursor's word and the chip's mark were
@@ -4664,8 +4703,8 @@ export function TodayScreen(props: TodayProps) {
       now: props.sell.nowMinute,
       cleanupMinutesByBed: props.bedCleanupMinutes,
     })
-    if (solved.refusal || solved.laneKey == null) {
-      if (solved.refusal) refuse(solved.refusal)
+    if (solved.refusal) {
+      refuse(solved.refusal)
       return null
     }
     return { laneKey: solved.laneKey, companions: companionsFor(board, solved.reseats) }
@@ -6982,8 +7021,11 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ 51 — AND THE SOLVE ASKS THE SAME QUESTION THE VERDICT DID: both legs read
     // `NEXT_VISIT_REQUIRES_PRIVATE`, so they cannot disagree by construction.
     const solvedPartner = solveBed(solveLanes(null), lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))
-    const partner = solvedPartner == null ? null : boardLanes.find((l) => l.key === solvedPartner.laneKey)
-    if (!partner || !solvedPartner) return
+    if (!solvedPartner) return
+    // ⚖ D-52 (b) — a `laneKey` of `null` here is a store with no rooms, not a
+    // refusal: the landing stands on staff time alone and mints no bed-side card.
+    const partner = solvedPartner.laneKey == null ? null : boardLanes.find((l) => l.key === solvedPartner.laneKey)
+    if (solvedPartner.laneKey != null && !partner) return
     setPlacing(null)
     // canon's `cellCreateSeq` (:6029): a counter, not a clock. Two placements in
     // the same millisecond would collide on a timestamp, and the id is a React
@@ -7056,8 +7098,10 @@ export function TodayScreen(props: TodayProps) {
     // reads and the fact the 保持 row is judged on cannot come apart.
     setAdded((was) => [
       ...was,
-      { ...board, laneKey: lane.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-staff`, tag: `【${partner.label}】` } },
-      { ...board, laneKey: partner.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } },
+      { ...board, laneKey: lane.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-staff`, tag: partner ? `【${partner.label}】` : '' } },
+      // ⚖ D-52 (b) — a store with no rooms mints no bed-side card: `partner` is
+      // null and there is nothing to name.
+      ...(partner ? [{ ...board, laneKey: partner.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } }] : []),
     ])
     setMoves((was) => ({ ...was, [id]: { laneKey: lane.key, ...span } }))
     // '' is `revertPending`'s "there is no earlier span" sentinel: 元に戻す on a
@@ -7126,22 +7170,18 @@ export function TodayScreen(props: TodayProps) {
     // this now asks the one allocator instead of keeping its own copy of it: the
     // chip's own room first, then any free compatible one, then 満室 with the
     // busy rooms named. A drop ON a bed row stays the operator's explicit choice.
-    let chipCompanions: readonly BedCompanion[] = []
-    const bed =
-      dropped?.group === 'beds'
-        ? dropped
-        : (() => {
-            const home = boardLanes.find((l) => l.group === 'beds' && l.label === chip.item.tag.replace(/[【】]/g, ''))
-            const solvedChip = solveBed(solveLanes(chip.id), staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)
-            if (solvedChip == null) return null
-            chipCompanions = solvedChip.companions
-            return boardLanes.find((l) => l.key === solvedChip.laneKey)
-          })()
-    // `bed` null means `solveBed` has already said 満室 (⚖ 47: the refusal speaks
-    // and changes nothing). `staff` null is the other half — a room drop whose
-    // person is not on this board — and it gets its own sentence rather than the
-    // bare return that used to make a live board look dead.
-    if (!bed) return
+    const home = boardLanes.find((l) => l.group === 'beds' && l.label === chip.item.tag.replace(/[【】]/g, ''))
+    const solvedChip = dropped?.group === 'beds' ? null : solveBed(solveLanes(chip.id), staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)
+    // `solvedChip` null on the non-bed-row arm means `solveBed` has already said
+    // 満室 (⚖ 47: the refusal speaks and changes nothing). ⚖ D-52 (b) — a
+    // `laneKey` of `null` with NO refusal is a store with no rooms: the landing
+    // stands on staff time alone.
+    if (dropped?.group !== 'beds' && solvedChip == null) return
+    const chipCompanions: readonly BedCompanion[] = dropped?.group === 'beds' ? [] : (solvedChip?.companions ?? [])
+    const bed = dropped?.group === 'beds' ? dropped : solvedChip!.laneKey == null ? null : (boardLanes.find((l) => l.key === solvedChip!.laneKey) ?? null)
+    // `staff` null is the other half — a room drop whose person is not on this
+    // board — and it gets its own sentence rather than the bare return that used
+    // to make a live board look dead.
     if (!staff) {
       refuse(`${chip.item.title}様の担当がこのボードにいません。担当スタッフの行に置いてください`)
       return
@@ -7156,8 +7196,9 @@ export function TodayScreen(props: TodayProps) {
       // not patched: the landing can change the time, the staff member AND the
       // bed at once, and a name that carries any of the three from where the
       // card used to be tells a screen reader the one thing on this board that
-      // is not true.
-      label: `${hhmm(start)}–${hhmm(end)} ${chip.item.title}様 / ${[chip.item.ticketCat, chip.item.ticketCore].filter(Boolean).join(' ')} / ${staffLabel} / ${bed.label} / 仮押さえ`,
+      // is not true. ⚖ D-52 (b) — a store with no rooms mints an EMPTY room
+      // segment, not 未定: nothing is undecided, there is simply no room.
+      label: `${hhmm(start)}–${hhmm(end)} ${chip.item.title}様 / ${[chip.item.ticketCat, chip.item.ticketCore].filter(Boolean).join(' ')} / ${staffLabel} / ${bed?.label ?? ''} / 仮押さえ`,
     }
     setParkChips((was) => was.filter((c) => c.id !== chip.id))
     // ⚖ R8 FIX ROUND 2 (Greptile on #828) — THE CHIP'S STAMP TRAVELS WITH IT.
@@ -7167,8 +7208,9 @@ export function TodayScreen(props: TodayProps) {
     // row back on a price-less booking (「価格未記録」 is a non-null line).
     setAdded((was) => [
       ...was.filter((a) => a.item.caseId !== chip.id),
-      { ...board, laneKey: staff.key, fromChip: chip, priced: chip.priced, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },
-      { ...board, laneKey: bed.key, priced: chip.priced, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },
+      { ...board, laneKey: staff.key, fromChip: chip, priced: chip.priced, item: { ...landed, key: `${chip.id}-staff`, tag: bed ? `【${bed.label}】` : '' } },
+      // ⚖ D-52 (b) — a store with no rooms mints no bed-side card.
+      ...(bed ? [{ ...board, laneKey: bed.key, priced: chip.priced, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } }] : []),
     ])
     setMoves((was) => ({ ...was, [chip.id]: { laneKey: staff.key, ...span } }))
     // ⚖ AMENDMENT 1, lens-3 F1 — AND THE ROOM SIDE TOO. This wrote only `moves`,
@@ -7183,6 +7225,14 @@ export function TodayScreen(props: TodayProps) {
     // here is the room this placement actually landed in — the operator's own
     // choice on a bed-row drop, the allocator's answer otherwise.
     setBedMoves((was) => {
+      // ⚖ D-52 (b) — a room-less landing DELETES any stale entry (the AMENDMENT-1
+      // stale-entry law, now for a store with no rooms too), rather than writing
+      // one that names a room that does not exist.
+      if (!bed) {
+        const next = { ...was }
+        delete next[chip.id]
+        return next
+      }
       const next = { ...was, [chip.id]: { laneKey: bed.key, ...span } }
       // ⚖ 9/8 PACKING — the same two writes `stage` makes, for the same reason.
       for (const c of vacateBeforeOccupy(chipCompanions)) next[c.id] = { laneKey: c.bedTo, x: c.bedOrigin.x, w: c.bedOrigin.w }
@@ -8009,7 +8059,7 @@ export function TodayScreen(props: TodayProps) {
                 // plain untruth about it. 置けない is true of all three, and the
                 // hatch is now its own sentence: it APPEARS, it is not a
                 // standing mark the operator should hunt for.
-                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「満室」「清掃」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。「満室」はその30分にベッドの空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます。「満室」「清掃」のコマでは、すぐ上の行に薄い斜線が出て、その30分と理由を短い言葉で示します。ベッドを別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます。`,
+                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「満室」「清掃」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。${hasBeds ? `「満室」はその30分にベッドの空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます。` : ''}「満室」「清掃」のコマでは、すぐ上の行に薄い斜線が出て、その30分と理由を短い言葉で示します。${hasBeds ? 'ベッドを別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます。' : ''}`,
             }
           : {})}
       >
@@ -8850,7 +8900,7 @@ export function TodayScreen(props: TodayProps) {
                           : '細い配置ガイドを隠します。表示だけの個人設定で、保護ルールは停止しません。'}
                     </span>
                     <div className="guard-guide-key" aria-label="配置ガイドの記号の意味">
-                      <b>紫 ✓ 空きを減らさない</b><b>橙 △ 空きが減るが置ける</b><b>灰 — 置けない</b><b>⇄ ベッドを入れ替えて置ける</b>
+                      <b>紫 ✓ 空きを減らさない</b><b>橙 △ 空きが減るが置ける</b><b>灰 — 置けない</b>{hasBeds && <b>⇄ ベッドを入れ替えて置ける</b>}
                     </div>
                     <span className="guard-guide-copy">非表示にしても、店舗のスキマガード保護ルールは変わりません。</span>
                     <div className="guard-guide-policy">
@@ -8976,7 +9026,7 @@ export function TodayScreen(props: TodayProps) {
             // ⇄ key below it does, and it is true at every width a card can take.
             data-guide={
               guardOn
-                ? `新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。ボードのカードをドラッグしている間は、ベッドを入れ替えれば置ける開始に ⇄ が付き、いま持っているカードにも ⇄ の印が付きます（入れ替えたお客様は、仮押さえの確認に表示されます）。各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。${LAYER_LEGEND_GUIDE}`
+                ? `新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。${hasBeds ? 'ボードのカードをドラッグしている間は、ベッドを入れ替えれば置ける開始に ⇄ が付き、いま持っているカードにも ⇄ の印が付きます（入れ替えたお客様は、仮押さえの確認に表示されます）。' : ''}各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。${LAYER_LEGEND_GUIDE}`
                 : LAYER_LEGEND_GUIDE
             }
           >
@@ -8993,7 +9043,7 @@ export function TodayScreen(props: TodayProps) {
                     word: the mark borrows the ✓ or the △ palette by what the
                     drop would say, and those two keys beside it already carry
                     the colour vocabulary. */}
-                <span className="guard-key reseat-key">⇄ = ベッドを入れ替えて置ける</span>
+                {hasBeds && <span className="guard-key reseat-key">⇄ = ベッドを入れ替えて置ける</span>}
                 <span className="guard-band-note">
                   {guideMode === 'selected'
                     ? `下の「${railDur}分配置」で、ドラッグ前に全開始を確認できます。`
@@ -9800,7 +9850,7 @@ export function TodayScreen(props: TodayProps) {
           // byte-identical; this is one more, in the same plain voice, sitting
           // with the other 「what can happen here」 clause and before the 「what you
           // do here」 one. ⚠ PLACEHOLDER JAPANESE, awaiting the native pass.
-          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります。入れ替えたお客様はここに表示されます。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
+          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。${hasBeds ? 'ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります。入れ替えたお客様はここに表示されます。' : ''}ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
         >
           <div className="hp-head">
             <span className={`status ${holdPop.tone}`}>{holdPop.status}</span>

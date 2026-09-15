@@ -4602,6 +4602,18 @@ export function blockNode(board: Element | null, key: string): HTMLElement | nul
  *  TEST when the operator chose the room themselves on a bed row — that gesture
  *  never reaches the allocator, which is how a staff/room pair in two different
  *  stores could be committed under the all-stores lens (Greptile #725). */
+/** ⚖ ROUND 3 · C (⚖ D-52 (a)) — DOES THIS STORE OWN A ROOM AT ALL, spelled ONCE.
+ *  The one home for the no-bed door: every bed sentence and every bed door on
+ *  this board is gated here or sits inside a bed-lane context by construction
+ *  (PKT-BUILD-R3-C §Census). `stores` narrows the question to one store binding
+ *  — the allocator's and the mask's form, `sharesStore`'s own two-sided rule —
+ *  and `null` asks the whole board, the doors' form. A store with no rooms has
+ *  no room constraint: a landing there needs no room, a protected window there
+ *  needs staff time alone, and the honest 確保 netting has nothing to net. */
+export function storeHasBeds(lanes: readonly BoardLane[], stores: string[] | null = null): boolean {
+  return lanes.some((l) => l.group === 'beds' && (stores === null || sharesStore(stores, l.stores)))
+}
+
 export function sharesStore(a: string[] | null, b: string[] | null): boolean {
   return a === null || b === null || a.some((s) => b.includes(s))
 }
@@ -5110,6 +5122,16 @@ export function allocateBed(
         i.endMin > start &&
         i.startMin < end,
     )
+  // ⚖ ROUND 3 · C (⚖ D-52 (a)) — A STORE WITH NO ROOMS NEEDS NO ROOM. The
+  // untagged booking on a staff lane whose store owns no bed lane used to fall
+  // through an empty candidate list into the now-retired 「ベッドがありません」
+  // refusal (FIX ROUND 1 F15 / FIX ROUND 2 N8 below) — a refusal that stopped
+  // every landing on a gym. The landing stands with no room; a 個室のみ booking
+  // still needs the private room it asks for, so it keeps the search and its
+  // sentence.
+  if (!opts.requiresPrivate && !storeHasBeds(lanes, opts.stores)) {
+    return { laneKey: null, refusal: null, blockers: [], reseats: [] }
+  }
   // ⚖ STORE ISOLATION where the allocator CHOOSES a room. The explicit bed-side
   // gesture never reaches here — the operator picked the room out loud — so the
   // same predicate is applied to that landing as a confirm-blocking check row;
@@ -5370,7 +5392,9 @@ export function bedFeasibility(
   lanes: BoardLane[],
   excludeId: string | null,
 ): ((lane: BoardLane, start: number, dur: number) => boolean) | undefined {
-  if (!lanes.some((l) => l.group === 'beds')) return undefined
+  // ⚖ ROUND 3 · C (⚖ D-52 (a)) — the spelling moves to the one home; the answer
+  // is identical on every board.
+  if (!storeHasBeds(lanes)) return undefined
   const held = excludeId ? lanes.flatMap((l) => l.items).find((i) => i.caseId === excludeId) : undefined
   const currentBed = excludeId
     ? (lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === excludeId))?.key ?? null)
@@ -5712,12 +5736,12 @@ function fullRoomsRefusal(
   // told the operator a true thing they could do nothing with, so the move they
   // can actually make is named instead.
   //
-  // ⚖ FIX ROUND 1 (blind lens 3 F15) — WHICH BRANCH REACHES WHICH SENTENCE. This
-  // comment used to claim `rows.length === 0` "can now only mean a TAGGED
-  // booking at a store with no private room". It cannot: an UNTAGGED booking on
-  // a staff lane whose store owns no bed lane at all reaches it too (`beds` is
-  // empty, so `candidates` is empty), which is exactly why the `else` arm below
-  // is still live and correct code rather than a leftover.
+  // ⚖ FIX ROUND 1 (blind lens 3 F15) — WHICH BRANCH REACHES WHICH SENTENCE.
+  // ⚖ ROUND 3 · C (⚖ D-52 (a)) SUPERSEDES THIS: an UNTAGGED booking on a staff
+  // lane whose store owns no bed lane at all now returns before the search
+  // (`allocateBed`'s own early return, above `beds`), so it can never reach
+  // here. `rows.length === 0` now means only a TAGGED booking at a store whose
+  // beds are all standard — no private room to offer it.
   //
   // ⚖ FIX ROUND 1 (blind lens 3 F6) — AND THE WAY OUT IS ONE THE OPERATOR CAN
   // ACTUALLY TAKE. The first clause used to offer 「個室のみの指定を外す」, a
@@ -5727,15 +5751,14 @@ function fullRoomsRefusal(
   // verb was wrong: the booking already EXISTS and just got refused, so the
   // operator is 移す-ing it, never 予約する-ing it.
   //
-  // ⚖ FIX ROUND 2 (delta lens 3 N8) — AND THE SECOND ARM ANSWERS THE SAME
-  // QUESTION AS THE FIRST. Both arms are 「does a usable room exist HERE?」, and
-  // only one of them said so: 「14:05〜15:05に使えるベッドがありません」 named a
-  // window at a store that owns no bed lane at all, sending the operator hunting
-  // the clock for a room that does not exist at any hour.
+  // ⚖ FIX ROUND 2 (delta lens 3 N8) — AND THE SECOND ARM IS RETIRED. It used to
+  // answer the same 「does a usable room exist HERE?」 question for the
+  // UNTAGGED case too (「14:05〜15:05に使えるベッドがありません」 named at a
+  // store with no bed lane at all, sending the operator hunting the clock for a
+  // room that does not exist at any hour); ⚖ D-52 (a) closes that case before
+  // this function is ever called, so only the 個室 sentence remains.
   if (rows.length === 0) {
-    return requiresPrivate
-      ? 'この店舗には個室がありません。個室のある店舗へ移してください'
-      : 'この店舗には使えるベッドがありません'
+    return 'この店舗には個室がありません。個室のある店舗へ移してください'
   }
   // ⚖ ROOM RULE clause 5 — AND UNTIL WHEN. The name alone left the operator to
   // go hunting the card for the one fact that lets them rearrange by hand, and
