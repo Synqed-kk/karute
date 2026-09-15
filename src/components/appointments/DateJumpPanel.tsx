@@ -226,6 +226,52 @@ export function DateJumpPanel({
   const stateRef = useRef(state)
   stateRef.current = state
 
+  /** The two months either side of the one on screen. Up here because the
+   *  deferred-draw set below needs them; the JSX reads the same two consts. */
+  const prevKey = shiftMonthKey(state.visibleMonth, -1)
+  const nextKey = shiftMonthKey(state.visibleMonth, 1)
+
+  /**
+   * THE MONTHS WHOSE GRID IS ALLOWED TO BE DRAWN — the panel's whole cost.
+   *
+   * MonthGrid is ~40 day buttons, and three months are on screen. Drawing all
+   * three in the commit that OPENS the panel cost one 133-184 ms task on the
+   * production build under a 4x CPU throttle: the open animation's first frames
+   * paying for two months nobody can see yet. Drawing the month that arrives
+   * BEHIND a commit (the new far month) put the same kind of work into the one
+   * frame where a slide lands — the single frame of a shift over 32 ms.
+   *
+   * So a FAR month is drawn one animation frame AFTER the commit that put it
+   * there, and the set only grows while the panel is open — which is what keeps
+   * the month a commit hands over from `next` to `current` from blinking out
+   * and back: it was already drawn. Nothing about the springs, the curves, the
+   * `inert` rule or the reduced-motion branch changes; only WHEN a month's day
+   * buttons are created.
+   *
+   * ONE MONTH PER FRAME, and never two in the same one. Both in a single frame
+   * after the first paint just moved the task into the middle of the fade (the
+   * longest gap between two frames of an open went 38.8-51.3 ms → 77.3-83.6 ms),
+   * and waiting for the open spring to arrive left an early › tap paying for
+   * both months itself (a 78 ms task, 81.7 ms gap, on a gesture that cost
+   * nothing before). Split across two frames, each month is a third of that and
+   * both are on screen ~32 ms after the panel is, long before a finger arrives.
+   *
+   * A gesture that needs a far pane before those frames arrive draws it
+   * synchronously — `ensureDrawn` runs inside the ‹ / › handler and inside
+   * pointerdown, in the same React batch as the state that starts the travel,
+   * so the pane is in the DOM before the layout effect measures its height.
+   */
+  const [drawn, setDrawn] = useState<ReadonlySet<MonthKey>>(() => new Set([openMonth]))
+  /** Draw these months now — the neighbours by default, or just the one a
+   *  gesture is about to travel toward. */
+  const ensureDrawn = useCallback(
+    (...keys: MonthKey[]) => {
+      const want = keys.length ? keys : [prevKey, nextKey]
+      setDrawn((s) => (want.every((k) => s.has(k)) ? s : new Set([...s, ...want])))
+    },
+    [prevKey, nextKey],
+  )
+
   // ── the panel's own spring: open and close (MOCK 1061-1067, 1095-1113) ────
   // `reduced` is read through a ref rather than closed over: the springs are
   // built once, and the media query can answer after they exist.
@@ -306,8 +352,24 @@ export function DateJumpPanel({
   const [wasOpen, setWasOpen] = useState(open)
   if (open !== wasOpen) {
     setWasOpen(open)
-    if (open) dispatch({ type: 'open', month: openMonth, seed: seedCells })
+    if (open) {
+      dispatch({ type: 'open', month: openMonth, seed: seedCells })
+      // Every open pays for ONE month, not three (see `drawn`).
+      setDrawn(new Set([openMonth]))
+    }
   }
+
+  // One missing month per animation frame — the frames after the panel's first
+  // paint, and the frame after every commit. Declared here because it reads
+  // `rendered`, which is the mount the first paint belongs to. The month being
+  // travelled toward goes first: it is the one a gesture can want.
+  useEffect(() => {
+    if (!open || !rendered) return
+    const missing = [nextKey, prevKey].find((key) => !drawn.has(key))
+    if (!missing) return
+    const id = requestAnimationFrame(() => ensureDrawn(missing))
+    return () => cancelAnimationFrame(id)
+  }, [open, rendered, drawn, prevKey, nextKey, ensureDrawn])
 
   // The chip is the trigger: it must say so, and it must look pressed. Both
   // are set on the package's own button (see DATE_JUMP_CHIP_MARKER).
@@ -581,11 +643,15 @@ export function DateJumpPanel({
    *  the travel before it opens its own. No queue, no commit timer. */
   const goMonth = useCallback(
     (delta: number) => {
+      // The pane this travel moves toward has to EXIST before the layout
+      // effect measures it — same batch, same commit, so it does. ONLY that
+      // one: the month behind can wait for its own frame.
+      ensureDrawn(delta > 0 ? nextKey : prevKey)
       commitPendingRef.current()
       setPending(delta)
       setTravel((n) => n + 1)
     },
-    [setPending],
+    [ensureDrawn, nextKey, prevKey, setPending],
   )
 
   /** MOCK 1143-1149. */
@@ -620,6 +686,9 @@ export function DateJumpPanel({
     // ignored (wrong id) and the second's release had no x-axis to settle, so
     // the grid sat showing two half-months until the next arrow tap.
     if (gesture.current?.axis === 'x') return
+    // A finger can drag either way, so both neighbours have to be drawn before
+    // the first move — the same batch, one frame ahead of any measurement.
+    ensureDrawn()
     // Deliberately does NOT touch the slide — the mock's pointerdown commits,
     // and this app's does not (R10): committing here changed the month under
     // the finger between pointerdown and click, and she tapped 9/1 and landed
@@ -709,8 +778,6 @@ export function DateJumpPanel({
 
   if (!rendered) return null
 
-  const prevKey = shiftMonthKey(state.visibleMonth, -1)
-  const nextKey = shiftMonthKey(state.visibleMonth, 1)
   const monthTitle = formatMonthTitleJst(firstDayOfMonthKey(state.visibleMonth), locale)
   // A month with cells on screen says nothing: a background refresh is not
   // news, and a failed refresh still leaves real (if older) counts to read.
@@ -758,7 +825,9 @@ export function DateJumpPanel({
       className={cn('w-full', className)}
       inert={(paneDir !== 0 && paneDir !== liveDir) || undefined}
     >
-      <Pane cells={cellsFor(key)} copy={gridCopy} onPickDay={pickDay} />
+      {drawn.has(key) ? (
+        <Pane cells={cellsFor(key)} copy={gridCopy} onPickDay={pickDay} />
+      ) : null}
     </div>
   )
 

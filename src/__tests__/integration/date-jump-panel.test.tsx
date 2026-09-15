@@ -192,6 +192,23 @@ const openPanel = async () => {
 }
 /** The month the panel is showing = the pane the loader was last asked for. */
 const title = () => within(screen.getByRole('dialog')).getByRole('button', { expanded: false })
+/** R6-2 — the two FAR months are drawn one animation frame after the commit
+ *  that put them on screen (the open no longer pays for three grids in the
+ *  frame it animates in). A test that reaches for the CENTRE pane by index has
+ *  to let that frame land first, or index 1 is the next month — or nothing. */
+/** The month the panel is ON, whatever else is drawn: the far panes are the
+ *  absolutely-positioned ones, the pane in flow is the centre. Index 1 only
+ *  means "centre" while all three are on the page. */
+const centreGrid = (root: HTMLElement) =>
+  within(root)
+    .getAllByTestId('month-grid')
+    .find((grid) => !grid.parentElement!.className.includes('absolute'))!
+const allPanes = async (root: HTMLElement) => {
+  await waitFor(() => expect(within(root).getAllByTestId('month-grid')).toHaveLength(3), {
+    timeout: 3000,
+  })
+  return within(root).getAllByTestId('month-grid')
+}
 
 beforeEach(() => {
   push.mockClear()
@@ -357,8 +374,7 @@ describe('pending is not empty, and a failure says so', () => {
     // The day numbers are already there — a pending month is never blank, and
     // it is never a grid of zero-count cells either: the status line above is
     // what separates "not loaded yet" from "nothing booked".
-    const panes = within(dialog).getAllByTestId('month-grid')
-    expect(panes).toHaveLength(3)
+    const panes = await allPanes(dialog)
     expect(within(panes[1]).getAllByRole('button').length).toBeGreaterThan(0)
 
     await act(async () => {
@@ -397,7 +413,7 @@ describe('pending is not empty, and a failure says so', () => {
     )
     expect(en.reservation.dateJump.failed).toBe("Couldn't load bookings. Please try again.")
     // Navigation needs no counts.
-    const cells = within(dialog).getAllByTestId('month-grid')
+    const cells = await allPanes(dialog)
     fireEvent.click(within(cells[1]).getAllByRole('button')[0])
     await waitFor(() => expect(push).toHaveBeenCalled())
   })
@@ -562,7 +578,7 @@ describe('reopening re-reads the months, showing the old counts meanwhile', () =
       expect(loadMonthCells.mock.calls.filter((c) => c[0] === '2026-09')).toHaveLength(2),
     )
     expect(within(dialog).getByRole('status')).toHaveTextContent('')
-    const centre = within(dialog).getAllByTestId('month-grid')[1]
+    const centre = (await allPanes(dialog))[1]
     expect(within(centre).getAllByRole('button')[0]).toHaveTextContent('4')
 
     // …and the fresh answer replaces them.
@@ -610,6 +626,7 @@ describe('only what is on screen is reachable by keyboard', () => {
     renderView()
     await openPanel()
     const dialog = screen.getByRole('dialog')
+    await allPanes(dialog)
     const grid = () => within(dialog).getAllByTestId('month-grid')[1]
     const chips = () => within(dialog).queryAllByRole('button', { pressed: false })
 
@@ -807,7 +824,7 @@ describe('under StrictMode (what next dev and vite dev actually run)', () => {
 
     const dialog = screen.getByRole('dialog')
     await waitFor(() => expect(within(dialog).getByRole('status')).toHaveTextContent(''))
-    const centre = within(dialog).getAllByTestId('month-grid')[1]
+    const centre = (await allPanes(dialog))[1]
     expect(within(centre).getAllByRole('button')[0]).toHaveTextContent('7')
     // And the neighbours were prefetched, which only happens once the visible
     // month's read has actually been applied.
@@ -838,7 +855,7 @@ describe('under StrictMode (what next dev and vite dev actually run)', () => {
  * all). A tap is not a drag — only a gesture that claims the x-axis commits.
  */
 describe('a day tap during a month slide goes to the day that was tapped', () => {
-  const centrePane = () => within(screen.getByRole('dialog')).getAllByTestId('month-grid')[1]
+  const centrePane = () => centreGrid(screen.getByRole('dialog'))
 
   beforeEach(() => {
     jest.useFakeTimers()
@@ -1029,6 +1046,16 @@ describe('the panel moves like the mock', () => {
   const openNow = () => {
     fireEvent.click(chip())
     return screen.getByRole('dialog')
+  }
+  /** Open, let the open spring ARRIVE, and let the frame after it draw the two
+   *  far months (R6-2). Two advances, not one: each commit the spring causes is
+   *  flushed at the end of its own act(), so the effect that schedules the
+   *  drawing frame is only registered once the first advance has returned. */
+  const openSettled = async () => {
+    const dialog = openNow()
+    await frames(1000)
+    await frames(50)
+    return dialog
   }
 
   it('t1 — opening writes the CLOSED style before a single frame runs', async () => {
@@ -1307,8 +1334,7 @@ describe('the panel moves like the mock', () => {
    */
   it('t12 — a month commit does not throw the keyboard out of the panel', async () => {
     renderView()
-    const dialog = openNow()
-    await frames(1000)
+    const dialog = await openSettled()
 
     const day = within(within(dialog).getAllByTestId('month-grid')[1]).getAllByRole('button')[0]
     day.focus()
@@ -1476,8 +1502,7 @@ describe('the panel moves like the mock', () => {
 
   it('t13 — a month shift draws ONE new grid and redraws neither month on screen', async () => {
     renderView({ loadMonthCells: neverAnswers })
-    const dialog = openNow()
-    await frames(1000)
+    const dialog = await openSettled()
     // Three months drawn, three distinct cells arrays: prev, current, next.
     const alreadyDrawn = new Set(mockGridRenders)
     expect(alreadyDrawn.size).toBe(3)
@@ -1489,14 +1514,14 @@ describe('the panel moves like the mock', () => {
 
     // The far month that came into being is the only grid that drew: the two
     // months already on screen kept their nodes AND their render.
+    await frames(50)
     expect(mockGridRenders).toHaveLength(1)
     expect(alreadyDrawn.has(mockGridRenders[0])).toBe(false)
   })
 
   it('t14 — arming a shift with a flick redraws nothing at all', async () => {
     renderView({ loadMonthCells: neverAnswers })
-    const dialog = openNow()
-    await frames(1000)
+    const dialog = await openSettled()
 
     const grid = dialog.querySelector<HTMLElement>('.touch-none')!
     mockGridRenders.length = 0
@@ -1512,6 +1537,60 @@ describe('the panel moves like the mock', () => {
   })
 
   /**
+   * R6-2 — WHAT AN OPEN COSTS. The panel's price is MonthGrid: ~40 day buttons
+   * a month, three months on screen. All three used to be created in the commit
+   * the open spring then animates out of — one 133-184 ms task on the production
+   * build under a 4x CPU throttle, spent drawing two months nobody can see yet,
+   * while the panel is supposed to be fading in. The far two are now drawn on
+   * the first frame with nothing moving on it — for an open, the frame after
+   * the open spring arrives. (Drawing them on the frame after the FIRST paint
+   * was measurably worse: the work just moved into the middle of the fade, and
+   * the longest gap between frames of an open went 38.8-51.3 ms → 77.3-83.6.)
+   *
+   * t17 is the invariant that makes it safe: the ‹ / › handler and pointerdown
+   * draw the neighbours THEMSELVES, in the same React batch as the state that
+   * starts the travel — so a tap that beats the frame still slides to a real
+   * pane with a real height, never to an empty box.
+   */
+  it('t15 — opening the panel draws ONE month, not three', async () => {
+    renderView({ loadMonthCells: neverAnswers })
+    mockGridRenders.length = 0
+    const dialog = openNow()
+    // Not one frame has run. This is the commit the open spring animates out
+    // of, and it carries one month's day buttons.
+    expect(mockGridRenders).toHaveLength(1)
+    expect(within(dialog).getAllByTestId('month-grid')).toHaveLength(1)
+    await act(async () => {})
+  })
+
+  it('t16 — and the far months arrive one per frame, never two in one', async () => {
+    renderView({ loadMonthCells: neverAnswers })
+    const dialog = openNow()
+    expect(within(dialog).getAllByTestId('month-grid')).toHaveLength(1)
+    // The month a › would travel toward comes first — it is the one a finger
+    // can want — and it comes ALONE.
+    await frames(20)
+    expect(within(dialog).getAllByTestId('month-grid')).toHaveLength(2)
+    await frames(20)
+    expect(within(dialog).getAllByTestId('month-grid')).toHaveLength(3)
+  })
+
+  it('t17 — a › tap that beats that frame still lands on the right month', async () => {
+    renderView({ loadMonthCells: neverAnswers })
+    const dialog = openNow()
+    expect(within(dialog).getAllByTestId('month-grid')).toHaveLength(1)
+
+    // The tap draws the month it is about to travel toward — in its own commit,
+    // before the layout effect measures it — so the travel has somewhere real
+    // to go. Just that one: the month behind can wait for its own frame.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    expect(within(dialog).getAllByTestId('month-grid')).toHaveLength(2)
+
+    await frames(2000)
+    expect(title()).toHaveTextContent('2026年10月')
+  })
+
+  /**
    * R3 — React reuses the 21+ cell nodes across a month commit, and MonthGrid's
    * cell carries `transition-colors`: measured on the production build, 21
    * cells ran a 150 ms background fade starting 46 ms AFTER the month had
@@ -1521,8 +1600,7 @@ describe('the panel moves like the mock', () => {
    */
   it('t7 — a landed month mounts fresh instead of re-colouring the one before it', async () => {
     renderView()
-    const dialog = openNow()
-    await frames(1000)
+    const dialog = await openSettled()
     const wrapper = () => within(dialog).getAllByTestId('month-grid')[1].parentElement
     const before = wrapper()
 
