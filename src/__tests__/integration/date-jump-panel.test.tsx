@@ -1549,6 +1549,25 @@ describe('the date-jump anchor keeps the header margin contract', () => {
     expect(anchor).not.toBeNull()
     expect(anchor!.classList.contains('mb-0')).toBe(true)
   })
+
+  /**
+   * R6-1 — the seam is the MOCK's, measured at 393 on the production build:
+   * 9px from the date-bar control to the 日/週/月 control, 11px from there to
+   * the page's next block. Both live on the wrapper that holds the filter
+   * row: the padding above it, and a margin that outranks space-y-4's
+   * zero-specificity :where() 16px below it. A tailwind-merge collision or a
+   * hand-edit back to pt-6 would silently put the gap back, so the assertion
+   * is on the RENDERED class list, not on the source string.
+   */
+  it('the filter wrapper carries the mock’s two seam numbers', () => {
+    renderView()
+    const anchor = chip().closest<HTMLElement>('[class*="data-date-jump-chip"]')!
+    const filterWrapper = anchor.nextElementSibling as HTMLElement
+    expect(filterWrapper.classList.contains('pt-[9px]')).toBe(true)
+    expect(filterWrapper.classList.contains('mb-[11px]')).toBe(true)
+    // …and the seam is not silently doubled by an older one left behind.
+    expect(filterWrapper.classList.contains('pt-6')).toBe(false)
+  })
 })
 
 describe('the hidden native date input is gone', () => {
