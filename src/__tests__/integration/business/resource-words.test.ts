@@ -116,7 +116,8 @@ describe('resource-words — ⚖ D-53 (c) R4, the words home', () => {
 //    intact, then counts the four target words in what remains. ──
 
 const REGEX_PRECEDING_CHARS = new Set(['(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '%', '<', '>', '~', '^'])
-const REGEX_PRECEDING_WORDS = new Set(['return', 'typeof', 'case', 'in', 'of'])
+// the grammar's expression-opening keywords, complete — a parser package cannot be imported here (business-isolation.test.ts allowlist), so the list is spelled and pinned
+const REGEX_PRECEDING_WORDS = new Set(['return', 'typeof', 'case', 'in', 'of', 'void', 'delete', 'throw', 'yield', 'await', 'new', 'instanceof', 'do', 'else'])
 
 /** True when a `/` at this point opens a regex literal rather than a
  *  division: the previous non-whitespace character in `out` is an
@@ -133,7 +134,11 @@ function regexMayOpenHere(out: string): boolean {
   if (last === '<') return false
   if (REGEX_PRECEDING_CHARS.has(last)) return true
   const word = trimmed.match(/[A-Za-z_$][A-Za-z0-9_$]*$/)
-  return word !== null && REGEX_PRECEDING_WORDS.has(word[0])
+  if (word === null || !REGEX_PRECEDING_WORDS.has(word[0])) return false
+  // a keyword-shaped property name after `.` (`x.void`) is an identifier,
+  // not the keyword — only a bare keyword opens a regex.
+  const before = trimmed.length - word[0].length - 1
+  return before < 0 || trimmed[before] !== '.'
 }
 
 /** Consumes a regex literal starting at `src[start] === '/'`, honouring `\`
@@ -308,6 +313,18 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
     expect(countIn("/* ' */ '清掃'")).toBe(1)
     expect(countIn("`${x ? 'ベッド' : \"個室\"} 満室`")).toBe(3)
     expect(countIn("const d = a / b; 'ベッド' // 個室")).toBe(1)
+  })
+
+  it('the scanner opens a regex after every expression-opening keyword (Greptile #936)', () => {
+    // hardcoded independently of REGEX_PRECEDING_WORDS — the grammar's own
+    // list, so a keyword dropped from the implementation's set fails HERE.
+    const EXPRESSION_OPENING_KEYWORDS = ['return', 'typeof', 'case', 'in', 'of', 'void', 'delete', 'throw', 'yield', 'await', 'new', 'instanceof', 'do', 'else']
+    const countIn = (src: string) => TARGET_WORDS.reduce((sum, w) => sum + countOccurrences(stripComments(src), w), 0)
+    const results = EXPRESSION_OPENING_KEYWORDS.map((kw) => countIn(`${kw} /https?:\\/\\//; 'ベッド'`))
+    console.log('keyword-regex-open:', JSON.stringify({ keywords: EXPRESSION_OPENING_KEYWORDS, results }))
+    expect(results).toEqual(EXPRESSION_OPENING_KEYWORDS.map(() => 1))
+    expect(countIn("x.void / 2; 'ベッド'")).toBe(1)
+    expect(countIn("await(x) / 2; '個室'")).toBe(1)
   })
 
   it('the scanner leaves JSX tag slashes alone (F1 delta-verify NOTE-A)', () => {
