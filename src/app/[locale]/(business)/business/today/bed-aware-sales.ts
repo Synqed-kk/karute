@@ -342,8 +342,10 @@ export function withheldOffers(
     // the restricted walk for `r` would return a loss (or, out of budget, an
     // inexact loss). If EVERY candidate room `r` of the offer is refuted at SOME
     // instant, no room works ⇒ WITHHELD, exactly what the loop below would
-    // conclude, with zero nettings. Assignment-INDEPENDENT: it reads the
-    // eligibility lists, never the tie-break `heldRoom`. Valid where the netting
+    // conclude, with zero nettings. Assignment-INDEPENDENT: the DECISION reads
+    // the eligibility lists and never the tie-break `heldRoom`; the guard reads
+    // `usedRooms` only to detect the identity path (no assignment exists to
+    // argue from), exactly as (d) does. Valid where the netting
     // is inexact: a truncated answer is still a legal assignment of the published
     // set and `heldRooms` is the book's own answer, not the search's. The count
     // pigeonhole (d) is the special case `U(t)` = every bed row on the board, so
