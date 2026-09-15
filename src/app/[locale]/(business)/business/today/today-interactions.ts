@@ -1555,6 +1555,10 @@ export function sellLayerFor(
     sellSlotMin: opts.sellSlotMin,
     now: opts.nowMinute,
     priceFor: (lane, hour) => priceAt(lane.listPrice, hour, opts.hi, opts.hqMin, opts.depth),
+    // ⚖ D-53 (c) R1 — the same rule handed DOWN a third time (the mask C, the
+    // netting F4, the sell layer N0): a staff whose store owns no unit sells on
+    // staff time alone.
+    needsUnit: (s) => storeHasBeds(lanes, s.stores),
   })
   // ⚖ R4 — BEFORE `buildSellLayer`, never after and never in the renderer: the
   // bands, the density verdict and 「販売可能枠 N窓」 are all computed from these
