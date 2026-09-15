@@ -534,6 +534,9 @@ export function DateJumpPanel({
   }, [open, slideSpring, armHeights, setPending])
 
   // ── gestures: horizontal = month, upward = close ─────────────────────────
+  // No rubber-band: the mock damps the drag (`dx *= 0.35`, MOCK 1355) against
+  // its own 2025–2027 wall, and this calendar has no month bound anywhere in
+  // the reducer for a band to push back from.
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     // Deliberately does NOT touch the slide — the mock's pointerdown commits,
     // and this app's does not (R10): committing here changed the month under
