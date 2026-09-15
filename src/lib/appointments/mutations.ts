@@ -33,6 +33,8 @@ import {
   listCustomerPacksWithClient,
 } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
+import { fetchBookingDayHours } from '@/lib/appointments/day-hours'
+import type { WeekdayKey } from '@/lib/operating-hours'
 import { ymdInJst } from '@/lib/date/jst'
 import { audit, type AuditSeverity } from '@/lib/audit'
 
@@ -74,7 +76,7 @@ function bookingAuditSeverity(kind: 'no_show' | 'cancel', reason?: string): Audi
 
 type MutationClient = Pick<
   SynqedClient,
-  'appointments' | 'packs' | 'staffStores' | 'stores'
+  'appointments' | 'packs' | 'staffStores' | 'stores' | 'storePolicies'
 >
 
 export type MarkNoShowError = { error: string; code?: 'no_burnable_pack' | 'already_terminal' }
@@ -546,13 +548,34 @@ export async function markNoShowAppointmentCore(
  * appointments.ts) have no caller anywhere yet — armed deliberately (Liam
  * ruling 2026-07-26: everything gets logged) so a future booking-edit
  * feature that picks them up is audited by default from day one.
+ *
+ * D-NOTE (⚖ PKT-1c-C S3, 2026-09-16): this core had NO time validation of any
+ * kind — a reschedule could land a booking on a closed day, or outside opening
+ * hours, on a path create has always refused. It now runs the SAME
+ * `validateAppointmentTime` create runs, so the rule has exactly one home and a
+ * reschedule can never be the way around it. Two consequences worth naming:
+ *   • the hours WINDOW check is new here too (not just the closed day) — that
+ *     is the point of one home, and the path has no caller to regress;
+ *   • the day is resolved against the BOOKING'S OWN store (`appt.store_id`,
+ *     already read for the terminal guard), which is stricter and more correct
+ *     than create's clamp: a reschedule cannot be judged by whichever store the
+ *     staffer happens to be looking at.
+ * Whatever the patch leaves out falls back to the booking's stored value, so a
+ * duration-only edit is still judged against the real start.
  */
 export async function updateAppointmentCore(
   synqed: MutationClient,
   appointmentId: string,
   patch: { staffId?: string; startsAt?: string; endsAt?: string; durationMinutes?: number },
   actor: BookingActor,
-): Promise<{ success: true } | { error: string }> {
+  hours: {
+    operatingHours: unknown
+    /** The org blob weekdays a human actually saved (org settings'
+     *  `operating_hours_saved`). Required, like create's `dayHours`: an
+     *  optional one would be a door left open by omission. */
+    orgSaved: readonly WeekdayKey[] | undefined
+  },
+): Promise<{ success: true } | BookingTimeRefusal> {
   try {
     // Terminal guard (Fable fix-round finding, 2026-07-27 — this core had NO
     // read-check while every sibling core does): mirrors
@@ -562,6 +585,46 @@ export async function updateAppointmentCore(
     if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     if (isTerminalStatus(appt.status)) {
       return { error: 'A cancelled or no-show booking cannot be edited.' }
+    }
+
+    // ⚖ PKT-1c-C S3 — a reschedule goes through the same door. Only a patch
+    // that MOVES the booking in time is judged; a staff-only reassign leaves the
+    // time untouched and has no hours question to answer.
+    if (patch.startsAt !== undefined || patch.durationMinutes !== undefined) {
+      const startTime = patch.startsAt ?? appt.starts_at
+      // `duration_minutes` is nullable on core's row (BLOCK rows and some
+      // imports carry none), while starts_at/ends_at never are — so the span is
+      // the honest fallback, not a made-up default that would refuse the edit
+      // with the wrong reason.
+      const durationMinutes =
+        patch.durationMinutes ??
+        appt.duration_minutes ??
+        Math.round(
+          (new Date(appt.ends_at).getTime() - new Date(appt.starts_at).getTime()) / 60_000,
+        )
+      const dayHours = await fetchBookingDayHours(
+        synqed,
+        appt.store_id,
+        new Date(startTime),
+        hours.orgSaved,
+      )
+      const timeError = await validateAppointmentTime(
+        {
+          staffProfileId: patch.staffId ?? '',
+          clientId: appt.customer_id,
+          startTime,
+          durationMinutes,
+          // karute is JST-only (the same rule getAppointmentsByDate states at
+          // src/actions/appointments.ts) and the dialog already hard-codes it:
+          // JST is UTC+9 with no DST, so getTimezoneOffset semantics = -540.
+          tzOffsetMinutes: -540,
+        },
+        hours.operatingHours,
+        dayHours,
+      )
+      // Refused before `appointments.update` — the existing row is not touched
+      // and no audit row claims it was.
+      if (timeError) return timeError
     }
 
     const sdkPatch: {

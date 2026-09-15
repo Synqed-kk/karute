@@ -462,11 +462,19 @@ export async function updateAppointment(
       patch.endsAt = new Date(start.getTime() + updates.durationMinutes * 60000).toISOString()
     }
 
-    const result = await updateAppointmentCore(synqed, appointmentId, patch, {
-      ...auditActor,
-      source: 'web',
-      requestId: crypto.randomUUID(),
-    })
+    // ⚖ PKT-1c-C S3 — the org half of the hours question. The STORE half is
+    // read inside the core, off the booking's own store_id.
+    const orgSettings = await getOrgSettings()
+    const result = await updateAppointmentCore(
+      synqed,
+      appointmentId,
+      patch,
+      { ...auditActor, source: 'web', requestId: crypto.randomUUID() },
+      {
+        operatingHours: orgSettings?.operating_hours,
+        orgSaved: orgSettings?.operating_hours_saved,
+      },
+    )
     if ('success' in result) {
       revalidatePath('/appointments')
       updateTag('dashboard')
