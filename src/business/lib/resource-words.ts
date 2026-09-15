@@ -65,3 +65,23 @@ export function resourceWordsFor(type: string | null | undefined): ResourceWords
     ? RESOURCE_WORDS[type as BusinessProfileKey]
     : RESOURCE_WORDS.other
 }
+
+/** ⚖ D-53 (n) C7 — the board's CHROME words under a mixed board: every row
+ *  the caller hands in (already resolved via `resourceWordsFor`) agrees on
+ *  all seven fields → that row; disagreement, or nothing to agree on at all
+ *  (`[]`), → `other`'s generic row. Pure — reads no store, calls nothing. */
+export function chromeWords(rows: readonly ResourceWords[]): ResourceWords {
+  if (rows.length === 0) return RESOURCE_WORDS.other
+  const [first, ...rest] = rows
+  const agree = rest.every(
+    (row) =>
+      row.resourceNoun === first.resourceNoun &&
+      row.counter === first.counter &&
+      row.groupLabel === first.groupLabel &&
+      row.tabWord === first.tabWord &&
+      row.privateWord === first.privateWord &&
+      row.fullWord === first.fullWord &&
+      row.turnoverWord === first.turnoverWord,
+  )
+  return agree ? first : RESOURCE_WORDS.other
+}
