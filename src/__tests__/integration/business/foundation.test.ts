@@ -784,6 +784,9 @@ describe('the fixture data door', () => {
       // owns a value for — its own inventory is `./fixtures` and nothing else,
       // because a plane that imported a derivation could restate a fact.
       'src/business/lib/fixtures-settings.ts': ['./fixtures'],
+      // ⚖ D-53 (c) R4, P15 — the words home, beside the mirror. Its whole
+      // import inventory is the mirror it reads types and values from.
+      'src/business/lib/resource-words.ts': ['./fixtures-settings'],
       // The rules are PURE, and the empty inventory is the pin on that: the gate,
       // the clamps and the refusal table decide things about values they are
       // handed, never values they fetch.
@@ -998,6 +1001,10 @@ describe('the fixture data door', () => {
       ],
       'src/app/[locale]/(business)/business/recording/loading.tsx': ['@/business/i18n'],
     }
+    // P15 — a presence assertion, not just a value pin: without it, deleting
+    // the entry above would leave that file invisible to this test rather
+    // than red (m5).
+    expect(Object.keys(INVENTORY)).toContain('src/business/lib/resource-words.ts')
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')
         .split('\n')
