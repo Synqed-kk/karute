@@ -16,7 +16,11 @@
 //   • 無断 (no-show) reason is the ONE fixed code, never a staff choice.
 
 import { SynqedError, type SynqedClient } from '@synqed-kk/client'
-import type { AppointmentInput } from '@/lib/appointments'
+import type {
+  AppointmentInput,
+  BookingDayHours,
+  BookingTimeRefusal,
+} from '@/lib/appointments'
 import { validateAppointmentTime } from '@/lib/appointments'
 import {
   CANCEL_REASON_SAME_DAY_CONTACT,
@@ -115,11 +119,19 @@ export async function createAppointmentCore(
     synqedStaffId: string
     preferredStoreId: string | null
     operatingHours: unknown
+    /** ⚖ PKT-1c-C — the booking store's own hours facts for the booking's day,
+     *  fetched by the door (fetchBookingDayHours) against the SAME store id it
+     *  clamped into preferredStoreId. Required, not optional: a door that
+     *  forgot it would silently reopen the closed day for its whole path. */
+    dayHours: BookingDayHours
     actor: BookingActor
   },
-): Promise<{ id: string } | { error: string }> {
-  const hoursError = await validateAppointmentTime(input, deps.operatingHours)
-  if (hoursError) return { error: hoursError }
+): Promise<{ id: string } | BookingTimeRefusal> {
+  const hoursError = await validateAppointmentTime(input, deps.operatingHours, deps.dayHours)
+  // Refused BEFORE anything reaches core: no appointment row, and no audit row
+  // claiming one (⚖ PKT-1c-C S4 — the audit() call below is the only writer in
+  // this core and it sits past this return).
+  if (hoursError) return hoursError
 
   const startTime = new Date(input.startTime)
   const endTime = new Date(startTime.getTime() + input.durationMinutes * 60000)

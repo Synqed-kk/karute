@@ -23,6 +23,7 @@ import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import { validateAppointmentTime } from '@/lib/appointments'
+import { fetchBookingDayHours } from '@/lib/appointments/day-hours'
 import { createAppointmentCore } from '@/lib/appointments/mutations'
 
 export const runtime = 'nodejs'
@@ -83,11 +84,23 @@ export const POST = facadeHandler('appointment.create', async (ctx) => {
   // resolveSynqedStaffId can CREATE a staff record on miss, and invalid input
   // must not leave that side effect behind. (The core re-validates; pure.)
   const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
+  // ⚖ PKT-1c-C — the closed-day rule, off the SAME store the header clamp
+  // above already resolved for this write (never a guess, never another
+  // store's policy), through the SAME validator the web action calls.
+  const dayHours = await fetchBookingDayHours(
+    synqed,
+    clamp.storeId,
+    new Date(parsed.data.startTime),
+    orgSettings?.operating_hours_saved,
+  )
   const hoursError = await validateAppointmentTime(
     parsed.data,
     orgSettings?.operating_hours,
+    dayHours,
   )
-  if (hoursError) return ok(ctx, { error: hoursError })
+  // Same body the web action returns — { error } plus the closed-day
+  // provenance, so the ONE dialog both doors render picks the identical line.
+  if (hoursError) return ok(ctx, hoursError)
 
   // Profile → core staff id (create-on-miss, appointments FK to staff.id).
   // An unresolvable id returns the web action's own { error } string — the
@@ -106,6 +119,7 @@ export const POST = facadeHandler('appointment.create', async (ctx) => {
     synqedStaffId,
     preferredStoreId: clamp.storeId,
     operatingHours: orgSettings?.operating_hours,
+    dayHours,
     actor: { actorId: ctx.identity.authUserId, businessId, source: 'facade', requestId: ctx.meta.requestId },
   })
   return ok(ctx, result, 'id' in result ? 201 : 200)
