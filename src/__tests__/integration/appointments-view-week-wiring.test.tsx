@@ -35,12 +35,21 @@ jest.mock('@/components/notifications/NotificationsPanel', () => ({ Notification
 // stub every record-* test in this repo uses). A passthrough div means a
 // WeekDayCard regression would still RENDER — which is why the assertions
 // below pin WeekRows' own props rather than counting DOM nodes.
+const uiProps: Record<string, Record<string, unknown>> = {}
 jest.mock('@synqed-kk/ui', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { createElement } = require('react') as typeof import('react')
-  const passthrough = ({ children, ...rest }: Record<string, unknown> = {}) =>
-    createElement('div', rest, children as React.ReactNode)
-  return new Proxy({}, { get: () => passthrough })
+  return new Proxy(
+    {},
+    {
+      get:
+        (_target, name: string) =>
+        ({ children, ...rest }: Record<string, unknown> = {}) => {
+          uiProps[name] = rest
+          return createElement('div', { 'data-ui': name }, children as React.ReactNode)
+        },
+    },
+  )
 })
 jest.mock('@/components/reservation/ReservationGrid', () => ({ ReservationGrid: () => null }))
 jest.mock('@/components/karute/spike-lifted/reservation/ReservationMobileAgenda', () => ({
@@ -144,7 +153,16 @@ function renderView(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   weekRowsProps = null
   pushed.length = 0
+  for (const k of Object.keys(uiProps)) delete uiProps[k]
 })
+
+/** The header's ‹ / › / 今日 handlers, as the package receives them. */
+const header = () =>
+  uiProps.ReservationPageHeader as unknown as {
+    onPrev: () => void
+    onNext: () => void
+    onToday: () => void
+  }
 
 describe('the WEEK branch renders WeekRows (W-A)', () => {
   it('hands it the seven adapter rows, the week start and the selected day', () => {
@@ -180,5 +198,49 @@ describe('the WEEK branch renders WeekRows (W-A)', () => {
   it('todayIso is a JST calendar day, never a raw ISO instant', () => {
     renderView()
     expect(weekRowsProps!.todayIso).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+})
+
+describe('every move keeps the 担当 filter (W-E, spec §1/§6)', () => {
+  // The 自分 / 全スタッフ / 担当 filter feeds every number on every surface —
+  // it is applied AT THE FETCH (staff_id on appointments.list). Dropping it on
+  // a ‹ press does not look broken: the week simply shows the whole salon's
+  // numbers under a 担当 pill that still reads as selected. Nothing on screen
+  // says the scope changed.
+  const STAFF = 'staff-profile-7'
+
+  it('‹ / › / 今日 all carry it', () => {
+    renderView({ staffFilter: STAFF })
+    header().onPrev()
+    header().onNext()
+    header().onToday()
+    expect(pushed).toHaveLength(3)
+    for (const href of pushed) expect(href).toContain(`staff=${STAFF}`)
+  })
+
+  it('the 日/週/月 switch carries it', () => {
+    renderView({ staffFilter: STAFF })
+    ;(uiProps.DayWeekMonthToggle.onChange as (v: string) => void)('month')
+    expect(pushed[0]).toContain(`staff=${STAFF}`)
+    expect(pushed[0]).toContain('view=month')
+  })
+
+  it('a week-row tap carries it', () => {
+    renderView({ staffFilter: STAFF })
+    weekRowsProps!.onPickDay('2026-09-17')
+    expect(pushed[0]).toContain(`staff=${STAFF}`)
+    expect(pushed[0]).toContain('date=2026-09-17')
+  })
+
+  it("'self' is a real scope and survives too", () => {
+    renderView({ staffFilter: 'self' })
+    header().onPrev()
+    expect(pushed[0]).toContain('staff=self')
+  })
+
+  it("the default 'all' is NOT spelled into the URL — parseStaffParam already defaults to it", () => {
+    renderView({ staffFilter: 'all' })
+    header().onPrev()
+    expect(pushed[0]).not.toContain('staff=')
   })
 })

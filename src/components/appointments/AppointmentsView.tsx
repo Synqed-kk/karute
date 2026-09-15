@@ -183,6 +183,16 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     const search = new URLSearchParams()
     search.set('view', nextView)
     search.set('date', ymdInJst(nextDate))
+    // ⚖ spec §1/§6: 自分 / 全スタッフ / 担当 feeds EVERY number on every
+    // surface — it is applied at the FETCH (`staff_id` on appointments.list),
+    // not at render. A move that dropped it would not look broken: the page
+    // would simply show the whole salon's numbers under a 担当 pill that still
+    // reads as selected, with nothing on screen saying the scope changed.
+    // 'all' is left out on purpose — `parseStaffParam(undefined)` already
+    // resolves to it, so spelling it would only add noise to the URL.
+    if (props.staffFilter && props.staffFilter !== 'all') {
+      search.set('staff', props.staffFilter)
+    }
     startTransition(() => {
       router.push(
         `${pathname}?${search.toString()}` as Parameters<typeof router.push>[0],
