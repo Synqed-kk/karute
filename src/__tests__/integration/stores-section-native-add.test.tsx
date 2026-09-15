@@ -13,7 +13,7 @@ jest.mock('next-intl', () => ({
 }))
 jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn() } }))
 jest.mock('@/actions/stores', () => ({
-  listStores: jest.fn(async () => []),
+  listStoresWithHours: jest.fn(async () => []),
   createStore: jest.fn(async () => ({ id: 'store-new' })),
   updateStore: jest.fn(async () => ({ ok: true })),
   setActiveStore: jest.fn(async () => ({ ok: true })),

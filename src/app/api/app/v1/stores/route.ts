@@ -57,7 +57,15 @@ export const GET = facadeHandler('stores.list', async (ctx) => {
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
   try {
-    const stores = await listStoresWithClient(synqed, businessId, { ensurePrimary: true })
+    // WITH hours: this GET is the phone's twin of the web listStoresWithHours()
+    // read, and its only consumer is the viewAll-gated 店舗 tab, whose 営業時間
+    // editor seeds off them. A re-list without hours re-offered the
+    // business-wide default as "not saved yet" (LENS-1 HIGH-2) — one
+    // storePolicies.list() for the whole business, never one get() per store.
+    const stores = await listStoresWithClient(synqed, businessId, {
+      ensurePrimary: true,
+      withHours: true,
+    })
     return ok(ctx, { stores })
   } catch (err) {
     if (err instanceof AppApiError) throw err

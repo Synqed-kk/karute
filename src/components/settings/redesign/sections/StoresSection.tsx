@@ -40,7 +40,7 @@ import { businessTypeLabel } from '@/lib/welcome/business-types'
 
 import { Button } from '@/components/ui/button'
 import type { OrgSettings } from '@/actions/org-settings'
-import { listStores, createStore, updateStore, setActiveStore, getActiveStoreId, type StoreRow } from '@/actions/stores'
+import { listStoresWithHours, createStore, updateStore, setActiveStore, getActiveStoreId, type StoreRow } from '@/actions/stores'
 import { getEntitlement } from '@/actions/entitlements'
 import type { Entitlement } from '@/lib/entitlements'
 import { WebOnly } from '@/components/shell/WebOnly'
@@ -82,10 +82,24 @@ function mapStoreRows(rows: StoreRow[]): Store[] {
     active: r.active,
     isPrimary: r.isPrimary,
     businessType: r.businessType,
-    // Threads through as-is, undefined included: refresh() re-lists WITHOUT
-    // hours (listStores), and undefined must not read as "never configured".
+    // Threads through as-is, undefined included: `undefined` means "this read
+    // never asked", which must never read as "never configured". refresh()
+    // now asks (listStoresWithHours), so nothing inside this section produces
+    // that state any more — mergeKnownHours below is the belt to its braces.
     weeklyHours: r.weeklyHours,
   }))
+}
+
+/** A row that arrives WITHOUT hours (`undefined` = not fetched) must never
+ *  overwrite hours this section already knows — the editor reads `undefined`
+ *  as 全店共通の初期値を使用中 and one 保存 in that state would write the
+ *  business-wide week over the store's own saved one. */
+function mergeKnownHours(prev: Store[], incoming: Store[]): Store[] {
+  return incoming.map((s) => {
+    if (s.weeklyHours !== undefined) return s
+    const known = prev.find((p) => p.id === s.id)?.weeklyHours
+    return known === undefined ? s : { ...s, weeklyHours: known }
+  })
 }
 
 export function StoresSection({
@@ -154,14 +168,17 @@ export function StoresSection({
 
   const refresh = useCallback(async () => {
     const [rows, persisted, ent] = await Promise.all([
-      listStores(),
+      // WITH hours: this section renders the 営業時間 editor, and a re-list
+      // that dropped them made the editor re-offer the business-wide default
+      // as "not saved yet" after every store rename (LENS-1 HIGH-2).
+      listStoresWithHours(),
       getActiveStoreId(),
       getEntitlement(),
     ])
     setEntitlement(ent)
     if (rows.length === 0) return
     const mapped = mapStoreRows(rows)
-    setStores(mapped)
+    setStores((prev) => mergeKnownHours(prev, mapped))
     setActiveStoreId((cur) => {
       if (persisted && mapped.some((s) => s.id === persisted)) return persisted
       return mapped.some((s) => s.id === cur) ? cur : mapped[0].id

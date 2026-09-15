@@ -1347,6 +1347,10 @@ export const setActiveStore = async (
   return { ok: true }
 }
 export const listStores = facadeListStores
+// The phone has ONE stores GET and it now carries each store's 営業時間, so
+// web's two readers collapse to one call here. Exported under both names so
+// the shared settings tree can ask for hours without a thin-only branch.
+export const listStoresWithHours = facadeListStores
 export const createStore = facadeCreateStore
 export const updateStore = facadeUpdateStore
 export const setStoreHours = facadeSetStoreHours

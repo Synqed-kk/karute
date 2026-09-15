@@ -75,6 +75,12 @@ const storesCreate = jest.fn(async (input: Record<string, unknown>) => ({
 const storesUpdate = jest.fn(async () => ({}))
 const staffStoresCounts = jest.fn(async () => ({ counts: {} as Record<string, number> }))
 const customersCountsByStore = jest.fn(async () => ({ counts: {} as Record<string, number> }))
+// The GET now lists WITH each store's 営業時間 (R1-2) — one storePolicies.list()
+// for the business. Deliberately NOT caught inside the twin, so this seam has
+// to answer or the whole list fails rather than reading as "hours never set".
+const storePoliciesList = jest.fn(async () => ({
+  policies: [] as { store_id: string; weekly_hours: unknown }[],
+}))
 const entitlementsGet = jest.fn(async () => ({ tier: 'professional', is_unlimited: false }))
 // Raw core orgSettings payload — orgSettingsWithClient normalizes it; the
 // top-level `name` column is the 事業所名 primaryStoreName provisions with.
@@ -89,6 +95,7 @@ const fakeClient = {
   stores: { list: storesList, create: storesCreate, update: storesUpdate },
   staffStores: { counts: staffStoresCounts },
   customers: { countsByStore: customersCountsByStore },
+  storePolicies: { list: storePoliciesList },
   entitlements: { get: entitlementsGet },
   orgSettings: { get: orgSettingsGet },
 }
@@ -143,6 +150,7 @@ beforeEach(() => {
   storesCreate.mockResolvedValue({ id: 'store-new' })
   storesUpdate.mockResolvedValue({})
   staffStoresCounts.mockResolvedValue({ counts: {} })
+  storePoliciesList.mockResolvedValue({ policies: [] })
   customersCountsByStore.mockResolvedValue({ counts: {} })
   entitlementsGet.mockResolvedValue({ tier: 'professional', is_unlimited: false })
   orgSettingsGet.mockResolvedValue({ business_id: 'business-1', name: 'テストサロン', settings: {} })
@@ -186,6 +194,8 @@ describe('GET /api/app/v1/stores', () => {
         staffCount: 3,
         customerCount: 12,
         businessType: null,
+        // R1-2: the GET lists WITH hours now; no policy row = never configured.
+        weeklyHours: null,
       },
     ])
   })
@@ -213,6 +223,7 @@ describe('GET /api/app/v1/stores', () => {
         staffCount: 0,
         customerCount: 0,
         businessType: null,
+        weeklyHours: null,
       },
     ])
   })

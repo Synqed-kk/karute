@@ -17,11 +17,42 @@ jest.mock('next-intl', () => ({
 }))
 jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn() } }))
 const setStoreHours = jest.fn(async () => ({ ok: true }) as { ok: true } | { error: string })
+const listStoresWithHours = jest.fn(async () => [] as unknown[])
+const updateStore = jest.fn(async () => ({ ok: true }))
 jest.mock('@/actions/stores', () => ({
   setStoreHours: (...a: unknown[]) => setStoreHours(...(a as [])),
+  listStoresWithHours: () => listStoresWithHours(),
+  updateStore: (...a: unknown[]) => updateStore(...(a as [])),
+  createStore: jest.fn(async () => ({ id: 'store-new' })),
+  setActiveStore: jest.fn(async () => ({ ok: true })),
+  getActiveStoreId: jest.fn(async () => null),
+}))
+jest.mock('@/actions/entitlements', () => ({ getEntitlement: jest.fn(async () => null) }))
+jest.mock('@/components/settings/redesign/sections/stores/AddStoreSubscriptionDialog', () => ({
+  AddStoreSubscriptionDialog: () => null,
+}))
+jest.mock('@/components/settings/redesign/sections/stores/PlanComparisonDialog', () => ({
+  PlanComparisonDialog: () => null,
+}))
+// Stands in for the rename dialog: one button that fires the same onSave the
+// real form fires, which is what makes StoresSection.refresh() run.
+jest.mock('@/components/settings/redesign/sections/stores/StoreFormDialog', () => ({
+  StoreFormDialog: ({
+    mode,
+    onSave,
+  }: {
+    mode: unknown
+    onSave: (v: Record<string, string>) => void
+  }) =>
+    mode ? (
+      <button onClick={() => onSave({ name: '別名', address: '', phone: '', businessType: '' })}>
+        submit-rename
+      </button>
+    ) : null,
 }))
 
 import { StoreHoursBlock } from '@/components/settings/redesign/sections/stores/StoreHoursBlock'
+import { StoresSection } from '@/components/settings/redesign/sections/StoresSection'
 import type { OperatingHours } from '@/lib/operating-hours'
 
 const ORG_HOURS: OperatingHours = {
@@ -65,6 +96,8 @@ function timeInputs(container: HTMLElement) {
 beforeEach(() => {
   jest.clearAllMocks()
   setStoreHours.mockResolvedValue({ ok: true })
+  updateStore.mockResolvedValue({ ok: true })
+  listStoresWithHours.mockResolvedValue([])
 })
 
 describe('a store that has never set its own hours', () => {
@@ -191,5 +224,79 @@ describe('saving', () => {
     fireEvent.click(screen.getByText('save'))
     await waitFor(() => expect(setStoreHours).toHaveBeenCalled())
     expect(screen.getByText('usingDefault')).toBeInTheDocument()
+  })
+})
+
+// R1-2 — the section's own re-list. Before the fold, refresh() re-listed
+// WITHOUT hours, so after any store rename the editor re-offered the
+// business-wide default as 「まだ保存されていません」 and one 保存 wrote it
+// over the week the owner had just saved.
+describe('the section: a refresh never forgets a saved week', () => {
+  const row = (id: string, name: string, weeklyHours: unknown) => ({
+    id,
+    name,
+    address: null,
+    phone: null,
+    isPrimary: id === 'store-7',
+    active: true,
+    staffCount: 0,
+    customerCount: 0,
+    businessType: null,
+    weeklyHours,
+  })
+
+  const renderSection = (initialHours: unknown) =>
+    render(
+      <StoresSection
+        orgSettings={{ operating_hours: ORG_HOURS } as never}
+        isOwner
+        initialStores={[row('store-7', '代官山', initialHours), row('store-8', '銀座', null)] as never}
+        initialActiveStoreId="store-7"
+        initialEntitlement={null}
+      />,
+    )
+
+  /** The 営業時間 disclosure of the Nth store row (index 0 is the section's
+   *  own 店舗 heading, which shares the mocked key-as-text). */
+  const hoursDisclosure = (n: number) => screen.getAllByText('title')[n + 1]
+
+  it('renames another store, reopens: the SAVED week, no unsaved banner, and 保存 sends it back', async () => {
+    listStoresWithHours.mockResolvedValue([
+      row('store-7', '代官山', OWN_WEEK),
+      row('store-8', '別名', null),
+    ])
+    const { container } = renderSection(OWN_WEEK)
+
+    // Rename the OTHER store — the path that calls refresh().
+    fireEvent.click(screen.getAllByLabelText('edit')[1])
+    fireEvent.click(screen.getByText('submit-rename'))
+    await waitFor(() => expect(listStoresWithHours).toHaveBeenCalled())
+
+    fireEvent.click(hoursDisclosure(0))
+    expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
+    expect(timeInputs(container)[0].value).toBe('11:00')
+
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(setStoreHours).toHaveBeenCalledTimes(1))
+    const [, week] = setStoreHours.mock.calls[0] as unknown as [string, Record<string, unknown>]
+    expect(week.mon).toEqual({ open: '11:00', close: '20:00' })
+  })
+
+  it('a re-list that carries NO hours leaves the known week alone (belt to the braces)', async () => {
+    // `undefined` = this read never asked. It must not overwrite what the
+    // section already knows — the editor would read it as 未設定.
+    listStoresWithHours.mockResolvedValue([
+      row('store-7', '代官山', undefined),
+      row('store-8', '別名', undefined),
+    ])
+    const { container } = renderSection(OWN_WEEK)
+
+    fireEvent.click(screen.getAllByLabelText('edit')[1])
+    fireEvent.click(screen.getByText('submit-rename'))
+    await waitFor(() => expect(listStoresWithHours).toHaveBeenCalled())
+
+    fireEvent.click(hoursDisclosure(0))
+    expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
+    expect(timeInputs(container)[0].value).toBe('11:00')
   })
 })
