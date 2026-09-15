@@ -112,12 +112,19 @@ interface StoreHoursBlockProps {
   weeklyHours: WeeklyHours | null | undefined
   /** The business-wide 営業時間 — the labelled default, and the pre-fill. */
   orgHours: OperatingHours | null | undefined
+  /** Reports a successful save/reset up to the section that owns `stores`
+   *  state — the SAME row `refresh()` fills. Without this, collapsing (which
+   *  unmounts the editor and its local `unsaved` flag) and reopening re-seeds
+   *  from the section's now-STALE prop, showing 未保存 again even though core
+   *  holds the just-saved week (R2-1). */
+  onSaved?: (storeId: string, weeklyHours: WeeklyHours | null) => void
 }
 
 export function StoreHoursBlock({
   storeId,
   weeklyHours,
   orgHours,
+  onSaved,
 }: StoreHoursBlockProps) {
   const t = useTranslations('settings.stores.hours')
   const locale = useLocale()
@@ -142,6 +149,7 @@ export function StoreHoursBlock({
           storeId={storeId}
           weeklyHours={weeklyHours}
           orgHours={orgHours}
+          onSaved={onSaved}
           locale={locale}
           t={t}
         />
@@ -154,6 +162,7 @@ function StoreHoursEditor({
   storeId,
   weeklyHours,
   orgHours,
+  onSaved,
   locale,
   t,
 }: StoreHoursBlockProps & {
@@ -229,8 +238,9 @@ function StoreHoursEditor({
       return
     }
     setUnsaved(false)
+    onSaved?.(storeId, week)
     toast.success(t('saved'))
-  }, [draft, storeId, t])
+  }, [draft, storeId, t, onSaved])
 
   /** ⚖ reversible-by-default — the way back. An explicit `null` week through
    *  the SAME core the save uses ("clear back to unconfigured", the SDK's own
@@ -247,8 +257,9 @@ function StoreHoursEditor({
     setConfirmReset(false)
     setDraft(seedDraft(null, normalizedOrg))
     setUnsaved(true)
+    onSaved?.(storeId, null)
     toast.success(t('resetDone'))
-  }, [normalizedOrg, storeId, t])
+  }, [normalizedOrg, storeId, t, onSaved])
 
   return (
     <div className="mt-3">

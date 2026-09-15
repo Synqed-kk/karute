@@ -436,3 +436,72 @@ describe('the section: a refresh never forgets a saved week', () => {
     expect(timeInputs(container)[0].value).toBe('11:00')
   })
 })
+
+// R2-1 — save/reset → collapse the block (unmounts the editor + its local
+// `unsaved` flag) → reopen, with NO refresh() in between. Before the fold the
+// section's `stores` state never learned of the just-written week, so the
+// remounted editor re-seeded from the same STALE prop it started with.
+describe('save/reset → collapse → reopen keeps the saved week (no refresh)', () => {
+  const row = (id: string, name: string, weeklyHours: unknown) => ({
+    id,
+    name,
+    address: null,
+    phone: null,
+    isPrimary: false,
+    active: true,
+    staffCount: 0,
+    customerCount: 0,
+    businessType: null,
+    weeklyHours,
+  })
+
+  const renderSection = (initialHours: unknown) =>
+    render(
+      <StoresSection
+        orgSettings={{ operating_hours: ORG_HOURS } as never}
+        isOwner
+        initialStores={[row('store-7', '代官山', initialHours)] as never}
+        initialActiveStoreId="store-7"
+        initialEntitlement={null}
+      />,
+    )
+
+  it('save → collapse → reopen: the saved week, no unsaved banner, and 保存 sends it back', async () => {
+    const { container } = renderSection(null)
+    const toggle = screen.getByRole('button', { name: 'title' })
+
+    fireEvent.click(toggle) // open
+    expect(screen.getByText('usingDefault')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(setStoreHours).toHaveBeenCalledTimes(1))
+    const [, savedWeek] = setStoreHours.mock.calls[0] as unknown as [string, Record<string, unknown>]
+
+    fireEvent.click(toggle) // collapse — unmounts the editor
+    fireEvent.click(toggle) // reopen — no refresh() ran in between
+
+    expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
+    expect(timeInputs(container)[0].value).toBe('10:00') // mon open, from the saved week
+
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(setStoreHours).toHaveBeenCalledTimes(2))
+    const [, resent] = setStoreHours.mock.calls[1] as unknown as [string, Record<string, unknown>]
+    expect(resent).toEqual(savedWeek)
+  })
+
+  it('reset → collapse → reopen: back on the company-wide default, marked unsaved', async () => {
+    const { container } = renderSection(OWN_WEEK)
+    const toggle = screen.getByRole('button', { name: 'title' })
+
+    fireEvent.click(toggle) // open
+    fireEvent.click(screen.getByText('resetToDefault'))
+    fireEvent.click(screen.getByText('resetConfirmYes'))
+    await waitFor(() => expect(setStoreHours).toHaveBeenCalledTimes(1))
+    expect(setStoreHours.mock.calls[0]).toEqual(['store-7', null])
+
+    fireEvent.click(toggle) // collapse
+    fireEvent.click(toggle) // reopen — no refresh() ran in between
+
+    expect(screen.getByText('usingDefault')).toBeInTheDocument()
+    expect(timeInputs(container)[0].value).toBe('10:00') // org default pre-fill
+  })
+})

@@ -203,6 +203,14 @@ export function StoresSection({
     }
   }, [refresh, initialStores, initialEntitlement])
 
+  // R2-1: bubbled up from the block's own save/reset. Keeps this section's
+  // `stores` state — the SAME state a mounted editor seeds from — holding the
+  // just-written week, so collapsing (unmount) and reopening the block shows
+  // it immediately, with no refresh() round-trip in between.
+  const handleHoursSaved = useCallback((storeId: string, weeklyHours: Store['weeklyHours']) => {
+    setStores((prev) => prev.map((s) => (s.id === storeId ? { ...s, weeklyHours } : s)))
+  }, [])
+
   // Persist the switch (cookie via setActiveStore). Optimistic, reverts on error.
   const handleSwitch = async (storeId: string) => {
     setActiveStoreId(storeId)
@@ -471,6 +479,7 @@ export function StoresSection({
                       storeId={store.id}
                       weeklyHours={store.weeklyHours}
                       orgHours={orgSettings?.operating_hours}
+                      onSaved={handleHoursSaved}
                     />
                   )}
                 </div>
