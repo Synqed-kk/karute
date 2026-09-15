@@ -1240,6 +1240,36 @@ describe('the panel moves like the mock', () => {
   })
 
   /**
+   * R3 (fix round 3 — LENS-1 MEDIUM 2). `key` on the pane wrapper is right for
+   * the transition-colors problem, but at commit all three keys change at
+   * once: the pane that falls off the end unmounts, and the pane the focused
+   * day button now belongs to goes `inert`. Either way the browser blurs to
+   * <body> — the keyboard user is thrown out of the dialog entirely and the
+   * next Tab restarts at the top of the page. Focus goes back to the PANEL:
+   * never to the chip (that is Escape's answer) and never to a day cell
+   * nobody chose.
+   */
+  it('t12 — a month commit does not throw the keyboard out of the panel', async () => {
+    renderView()
+    const dialog = openNow()
+    await frames(1000)
+
+    const day = within(within(dialog).getAllByTestId('month-grid')[1]).getAllByRole('button')[0]
+    day.focus()
+    expect(document.activeElement).toBe(day)
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    await frames(2000)
+    expect(title()).toHaveTextContent('2026年10月')
+
+    // Still in the dialog, and not stranded inside a subtree a browser has
+    // just taken out of the tab order (jsdom enforces neither inert nor the
+    // blur-on-unmount, so the assertion has to name both).
+    expect(dialog.contains(document.activeElement)).toBe(true)
+    expect((document.activeElement as HTMLElement).closest('[inert]')).toBeNull()
+  })
+
+  /**
    * R2 (fix round 3 — LENS-1 MEDIUM 1). Pointer capture is per-pointer-id, so
    * a second finger landing on the grid mid-drag (a palm, a second thumb)
    * still reached `onPointerDown` and OVERWROTE the single gesture slot. The

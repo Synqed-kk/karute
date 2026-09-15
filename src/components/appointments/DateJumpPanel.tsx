@@ -403,6 +403,9 @@ export function DateJumpPanel({
     pendingRef.current = k
     setLiveDir(k)
   }, [])
+  /** Set by a commit that happened while the keyboard was inside the panel;
+   *  read (and cleared) by the layout effect that runs on the re-keyed panes. */
+  const refocusRef = useRef(false)
   const hFromRef = useRef<number | null>(null)
   const hToRef = useRef<number | null>(null)
   /** Bumped by every new slide request so the layout effect below starts the
@@ -450,6 +453,11 @@ export function DateJumpPanel({
   const commitPending = useCallback(() => {
     const k = pendingRef.current
     if (!k) return
+    // The commit re-keys all three panes, so a focused day button is either
+    // unmounted or left inside a pane that has just gone inert — both blur to
+    // <body>, and the keyboard user is then outside the dialog with the next
+    // Tab starting at the top of the page. Remember the keyboard was in here.
+    refocusRef.current = !!panelRef.current?.contains(document.activeElement)
     setPending(0)
     hFromRef.current = null
     hToRef.current = null
@@ -488,6 +496,15 @@ export function DateJumpPanel({
   // re-seat the track, arm the heights of the months now on screen, and start
   // the travel that is waiting.
   useLayoutEffect(() => {
+    if (refocusRef.current) {
+      refocusRef.current = false
+      const active = document.activeElement as HTMLElement | null
+      // A browser blurs to <body> when the node holding focus is unmounted or
+      // its pane goes inert; jsdom enforces neither, so both are checked.
+      if (!active || active === document.body || active.closest?.('[inert]')) {
+        panelRef.current?.focus()
+      }
+    }
     const g = gesture.current
     if (g && g.axis === 'x') {
       // A finger owns the track — re-seat under it, not at 0.
