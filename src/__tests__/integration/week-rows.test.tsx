@@ -451,13 +451,14 @@ describe('WeekRows — the 少なめ band reads at AA (R3-9)', () => {
 })
 
 describe('WeekRows — the summary line is the mock’s .wksum (W-F)', () => {
-  it('the NUMBERS are ink 700 tabular and the words stay grey', () => {
+  it('the NUMBERS are ink 600 tabular and the words stay grey', () => {
     const WeekRows = loadWeekRows()
     render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
     const summary = screen.getByTestId('week-summary')
-    // grey 12.5/600 on the line (mock .wksum), ink 700 tabular on each <b>.
-    expect(summary.className).toContain('text-[12.5px]')
-    expect(summary.className).toContain('font-semibold')
+    // grey 12/500 on the line (2026-09-15 type-system fix; app's own scale,
+    // not the mock's 12.5/600), ink 600 tabular on each <b>.
+    expect(summary.className).toContain('text-[12px]')
+    expect(summary.className).toContain('font-medium')
     // R3-17 — the mock's MIDDLE grey (--sub), with the dark pair the 4.5:1
     // word floor needs on the dark card.
     expect(summary.className).toContain('text-zinc-500')
@@ -465,7 +466,7 @@ describe('WeekRows — the summary line is the mock’s .wksum (W-F)', () => {
     const bolds = Array.from(summary.querySelectorAll('b'))
     expect(bolds).toHaveLength(2) // typeSlot 'new' → 予約 + 新規
     for (const b of bolds) {
-      expect(b.className).toContain('font-bold')
+      expect(b.className).toContain('font-semibold')
       expect(b.className).toContain('tabular-nums')
       expect(b.className).toContain('text-[var(--color-text)]')
     }

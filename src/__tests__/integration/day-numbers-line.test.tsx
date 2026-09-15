@@ -141,7 +141,7 @@ describe('DayNumbersLine — no separators', () => {
 })
 
 describe('DayNumbersLine — the mock’s §v9d geometry and grammar', () => {
-  it('the block carries the mock line-for-line: gap 14, padding 2px 0, margin-bottom 8, 14px / 13.5px ≤400px, nowrap', () => {
+  it('the block carries the mock line-for-line: gap 14, padding 2px 0, margin-bottom 8, nowrap — font size is the app’s own 13px (2026-09-15 type-system fix), no breakpoint step', () => {
     const DayNumbersLine = loadDayNumbersLine()
     const { container } = render(
       <DayNumbersLine row={row()} soloMode={false} typeSlot="new" locale="ja" />,
@@ -151,14 +151,14 @@ describe('DayNumbersLine — the mock’s §v9d geometry and grammar', () => {
       'gap-[14px]', // .dayline{gap:14px}
       'py-0.5', // .dayline{padding:2px 0}
       'mb-2', // .dayline{margin:0 0 8px}
-      'text-[14px]', // .dayline{font-size:14px}
-      'max-[400px]:text-[13.5px]', // @media (max-width:400px)
+      'text-[13px]', // app's value size (ReservationMobileAgenda.tsx :316)
       'leading-[1.25]', // .dayline{line-height:1.25}
       'whitespace-nowrap', // .dayline{white-space:nowrap}
       'items-center', // .dayline{align-items:center}
     ]) {
       expect(cls).toContain(rule)
     }
+    expect(cls).not.toContain('max-[400px]:text-[13.5px]')
   })
 
   it('the 新規 spark PRECEDES its value (mock: SPARK + <b>val</b>), never follows it', () => {
@@ -172,7 +172,7 @@ describe('DayNumbersLine — the mock’s §v9d geometry and grammar', () => {
     expect(item.children[1].tagName.toLowerCase()).toBe('b')
   })
 
-  it('a closed day’s 休 is a VALUE (ink, bold), not a grey word (mock: <b>休</b>)', () => {
+  it('a closed day’s 休 is a VALUE (ink, 600), not a grey word (mock: <b>休</b>)', () => {
     const DayNumbersLine = loadDayNumbersLine({ closedDays: true })
     const { container } = render(
       <DayNumbersLine row={row({ closed: true, count: 0 })} soloMode={false} typeSlot="new" locale="ja" />,
@@ -184,7 +184,7 @@ describe('DayNumbersLine — the mock’s §v9d geometry and grammar', () => {
 })
 
 describe('DayNumbersLine — the pending state is two shims, not nothing (R3-18)', () => {
-  it('renders the mock’s two 52×12 shims while the router transition runs', () => {
+  it('renders the mock’s two 52-wide shims while the router transition runs (height 11px, 2026-09-15: matches WeekRows’ pill for the same 13px value)', () => {
     const DayNumbersLine = loadDayNumbersLine()
     const { container } = render(
       <DayNumbersLine row={row()} soloMode={false} typeSlot="off" locale="ja" pending />,
@@ -193,7 +193,7 @@ describe('DayNumbersLine — the pending state is two shims, not nothing (R3-18)
     expect(shims).toHaveLength(2)
     for (const shim of Array.from(shims)) {
       expect(shim.className).toContain('w-[52px]')
-      expect(shim.className).toContain('h-[12px]')
+      expect(shim.className).toContain('h-[11px]')
     }
     // no stale number survives the move
     expect(container.querySelector('[data-day-line]')!.textContent).toBe('')
@@ -202,9 +202,10 @@ describe('DayNumbersLine — the pending state is two shims, not nothing (R3-18)
   it('keeps the loaded line’s block height, so the list card below does not jump', () => {
     // jsdom cannot measure, so the rule is pinned rather than the pixels: the
     // line's min-height is its own loaded block height — 1.25em of content at
-    // whichever font size the breakpoint gives it (16.875 px at 393, 17.5 px
-    // at 430) plus the 0.25rem of py-0.5, because min-height is border-box.
-    // Measured 20.88 px loaded AND pending at 393; the proof is Playwright's.
+    // the line's own 13px (16.25 px, 2026-09-15 type-system fix — one flat
+    // size, no breakpoint) plus the 0.25rem of py-0.5, because min-height is
+    // border-box. Measured 20.25 px loaded AND pending at 393; the proof is
+    // the T-5 production-build screenshot.
     const DayNumbersLine = loadDayNumbersLine()
     const loaded = render(<DayNumbersLine row={row()} soloMode={false} typeSlot="off" locale="ja" />)
     const busy = render(
