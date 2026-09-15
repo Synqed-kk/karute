@@ -1048,7 +1048,26 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     and the lockfile was not touched by the merge. (The #921 line's 937,800
 //     is that branch's own figure; the week line dropped 9 B when WeekDayCard
 //     stopped importing, as its PKT-1b-WIRE entry records.)
-const BUDGET_BYTES = 2_106_485
+//
+// RE-MEASURED 2026-09-15/16 for the TYPE-SYSTEM FIX (FIXLIST-TYPE-SYSTEM-
+// 2026-09-15.md T-1/T-2 — class-only changes, no layout numbers touched) on
+// tip 191436827: 2,105,485 → 2,105,476. Same CI recipe (the workflow's six
+// release-length placeholder VITE_* values, thin/dist emptied before each
+// lap), byte-identical across two clean builds on this tip, same content
+// hashes both times (en-Dv4fKQp9, index-DkP2gPYd, vendor-BD5eMVWe; node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+// en 134,223 · index 1,033,462 · vendor 937,791 = 2,105,476 B.
+// Ceiling = 2,105,476 + 1,000. The prior ceiling still passed (1,009 B of
+// headroom left); re-measured anyway so the ceiling tracks the tree that is
+// actually built.
+//
+// -9 B, all in index — every changed class is a string literal in the
+// component source, and the diff is mostly font-WEIGHT words swapping length
+// (font-bold 9 ↔ font-semibold 13 ↔ font-medium 11) plus one deletion (the
+// day line's mock breakpoint variant, `max-[400px]:text-[13.5px]`, dropped
+// outright — its own `text-[14px]`→`text-[13px]` swap is length-neutral).
+// en/vendor unchanged: no JA/EN string and no dependency moved.
+const BUDGET_BYTES = 2_106_476
 
 let dir
 try {
