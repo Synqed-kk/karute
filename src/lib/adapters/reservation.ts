@@ -62,18 +62,26 @@ export type WeekDayRowData = WeekDayCardData & {
   returningCount: number
 }
 
+/** A counted booking as the two numbers the overlap check needs. */
+type BookingSpan = { start: number; end: number }
+
+function spanOf(a: Appointment): BookingSpan {
+  const start = new Date(a.starts_at).getTime()
+  return { start, end: start + durationMinutes(a) * 60_000 }
+}
+
 /** Do any two of the day's counted bookings overlap? A single staffer whose
  *  bookings overlap is two chairs wearing one name, so the day's capacity is
  *  not one person's opening hours. */
-function hasOverlap(rows: Appointment[]): boolean {
-  // ponytail: O(n²) over ONE day's bookings (tens at most) — a sweep line here
-  // would be cleverness nobody can check at 3am.
-  for (let i = 0; i < rows.length; i++) {
-    const aStart = new Date(rows[i].starts_at).getTime()
-    const aEnd = aStart + durationMinutes(rows[i]) * 60_000
-    for (let j = i + 1; j < rows.length; j++) {
-      const bStart = new Date(rows[j].starts_at).getTime()
-      const bEnd = bStart + durationMinutes(rows[j]) * 60_000
+function hasOverlap(spans: readonly BookingSpan[]): boolean {
+  // ponytail: O(n²) over ONE day's candidates (tens at most) — a sweep line
+  // here would be cleverness nobody can check at 3am.
+  for (let i = 0; i < spans.length; i++) {
+    const aStart = spans[i].start
+    const aEnd = spans[i].end
+    for (let j = i + 1; j < spans.length; j++) {
+      const bStart = spans[j].start
+      const bEnd = spans[j].end
       if (aStart < bEnd && bStart < aEnd) return true
     }
   }
@@ -127,6 +135,15 @@ export function appointmentsToWeekData(
   const cancelledByDay = countByDay(terminal?.cancelled)
   const noShowByDay = countByDay(terminal?.noShow)
 
+  // ⚖ Overlap is not a day-bucket question. A 23:30–00:30 booking and a
+  // 00:00–01:00 booking under the same staffer genuinely collide, but they
+  // bucket to different JST days by START, so the old per-bucket check never
+  // compared them and BOTH days claimed a defensible single-staffer capacity.
+  // The candidate set for day D is therefore every counted row of the WHOLE
+  // window that actually runs inside D. Counting and bookedMinutes stay
+  // start-day bucketed — that is the app's rule on every other surface.
+  const spans = appointments.filter(isCountedBooking).map(spanOf)
+
   const days: WeekDayRowData[] = []
   const cursor = new Date(weekStart)
   while (cursor <= weekEnd) {
@@ -159,10 +176,21 @@ export function appointmentsToWeekData(
     const bookedStaff = new Set(
       dayAppts.map((a) => a.staff_id).filter((id): id is string => id != null),
     )
+    // ponytail: one linear scan per day over the window's counted rows (a month
+    // grid is ~45 days × a few hundred rows). Same answer as an interval tree,
+    // readable at 3am.
+    const dayStartMs = new Date(`${key}T00:00:00+09:00`).getTime()
+    const dayEndMs = dayStartMs + 86_400_000
+    // The end bound is INCLUSIVE on purpose. A row starting the instant the day
+    // ends occupies none of it, so it can only ever register as an overlap
+    // together with a row that runs past midnight — a genuine collision. Two
+    // merely touching bookings never overlap (the check is strict on both
+    // sides), so the closed bound cannot invent one.
+    const overlapSpans = spans.filter((s) => s.start <= dayEndMs && dayStartMs < s.end)
     const capacityDefensible =
       soloMode === true &&
       bookedStaff.size <= 1 &&
-      !hasOverlap(dayAppts) &&
+      !hasOverlap(overlapSpans) &&
       fact != null &&
       fact.saved &&
       !fact.closed &&

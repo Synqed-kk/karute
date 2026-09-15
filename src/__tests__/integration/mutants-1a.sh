@@ -71,6 +71,11 @@ run m8 $SCREEN src/__tests__/integration/resolve-fetch-staff-id.test.ts 'cannot 
 perl -0pi -e 's/bookedMinutes <= fact\.minutes/true/' $ADAPTER
 run m11 $ADAPTER src/__tests__/integration/capacity-conjunction.test.ts 'booked PAST the saved window'
 
+# m12 — overlap goes back to START-day bucketing: two bookings that collide
+# across JST midnight are never compared.
+perl -0pi -e 's/s\.start <= dayEndMs && dayStartMs < s\.end/s.start >= dayStartMs \&\& s.start < dayEndMs/' $ADAPTER
+run m12 $ADAPTER src/__tests__/integration/capacity-conjunction.test.ts 'OVERLAP ACROSS JST MIDNIGHT'
+
 # m9 — the WEB action's unplaceable filter falls back to a FETCH: one stylist's
 # 自分 week becomes the whole salon's, under her name.
 perl -0pi -e 's/^    unknown\n      \? Promise\.resolve/    !unknown\n      ? Promise.resolve/m' $ACTION

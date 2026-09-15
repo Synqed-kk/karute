@@ -110,6 +110,61 @@ describe('F1 — each conjunct false ALONE flips it', () => {
     expect(day.capacityDefensible).toBe(true)
   })
 
+  it('bookings that OVERLAP ACROSS JST MIDNIGHT (mutant m12)', () => {
+    // 23:30–00:30 on the 15th and 00:00–01:00 on the 16th, same staffer. They
+    // genuinely collide, but they bucket to different days by START, so the
+    // old per-bucket check never compared them and both days read defensible.
+    const rows = [
+      appt({ id: 'late', starts_at: '2026-09-15T14:30:00Z', duration_minutes: 60 }),
+      appt({ id: 'early', starts_at: '2026-09-15T15:00:00Z', duration_minutes: 60 }),
+    ]
+    const facts = new Map<string, DayHoursFact>([
+      [YMD, SAVED_OPEN],
+      ['2026-09-16', SAVED_OPEN],
+    ])
+    const days = appointmentsToWeekData(
+      rows,
+      DAY,
+      new Date('2026-09-16T00:00:00+09:00'),
+      FALLBACK,
+      TODAY,
+      'ja',
+      new Set(),
+      undefined,
+      facts,
+      true,
+    )
+    expect(days.map((d) => d.dateIso)).toEqual([YMD, '2026-09-16'])
+    expect(days[0].capacityDefensible).toBe(false)
+    expect(days[1].capacityDefensible).toBe(false)
+    // Counting stays START-day bucketed on both days — only the overlap
+    // candidate set widened.
+    expect(days[0].count).toBe(1)
+    expect(days[1].count).toBe(1)
+  })
+
+  it('a LONE booking across midnight leaves both days defensible', () => {
+    const facts = new Map<string, DayHoursFact>([
+      [YMD, SAVED_OPEN],
+      ['2026-09-16', SAVED_OPEN],
+    ])
+    const days = appointmentsToWeekData(
+      [appt({ id: 'late', starts_at: '2026-09-15T14:30:00Z', duration_minutes: 60 })],
+      DAY,
+      new Date('2026-09-16T00:00:00+09:00'),
+      FALLBACK,
+      TODAY,
+      'ja',
+      new Set(),
+      undefined,
+      facts,
+      true,
+    )
+    expect(days[0].capacityDefensible).toBe(true)
+    expect(days[1].capacityDefensible).toBe(true)
+    expect(days[1].count).toBe(0)
+  })
+
   it('the hours were never saved', () => {
     const day = row(ONE_STAFFER, { fact: { ...SAVED_OPEN, saved: false } })
     expect(day.capacityDefensible).toBe(false)
