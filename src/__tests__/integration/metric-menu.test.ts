@@ -282,3 +282,36 @@ describe('the SHIPPED switch registry (⚖ Liam 9/15 11:1x — 空き ON, everyw
     expect(weekRowCells(r, ctx)[2].value).toBe('4時間')
   })
 })
+
+describe("typeSlot 'off' — the QR flag never prints (W-D, spec §8)", () => {
+  // `newCustomerCount` today is the QR import flag (is_existing_customer ===
+  // false), NOT the strict 「初回来店がこの日」 count PKT-2 will produce. Both
+  // surfaces therefore ship with typeSlot 'off' until that producer lands, and
+  // the fill order supplies the fourth cell instead. A cell that leaked the
+  // flag would read as a real 新規 number and no one could tell.
+  it('no cell carries the flag, on either surface, across the whole switch/conjunct matrix', () => {
+    const POISON = 4242
+    for (const freeTimeCell of [true, false]) {
+      const { weekRowCells, dayLineCells } = loadMetricMenu({ freeTimeCell })
+      for (const soloMode of [true, false]) {
+        for (const capacityDefensible of [true, false]) {
+          for (const hoursSaved of [true, false]) {
+            const r = row({
+              capacityDefensible,
+              hoursSaved,
+              newCustomerCount: POISON,
+              bookedMinutes: 200,
+              availableMinutes: 480,
+            })
+            const ctx = { soloMode, typeSlot: 'off' as const, t }
+            for (const cells of [weekRowCells(r, ctx), dayLineCells(r, ctx)]) {
+              expect(cells.map((c) => c.key)).not.toContain('new')
+              expect(cells.map((c) => c.value).join('|')).not.toContain(String(POISON))
+              expect(cells.some((c) => c.tone === 'new')).toBe(false)
+            }
+          }
+        }
+      }
+    }
+  })
+})
