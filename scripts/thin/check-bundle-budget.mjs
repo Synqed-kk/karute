@@ -1006,7 +1006,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // pending branch, the counted-rows filter, the region name, the month branch's
 // own wrapper, and the type-scale class swaps. Real behaviour, not weight: the
 // round REMOVED a dead `gap-[5px]` and the `from` half of the held-tap pair.
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-16 on PIECE 4c's tip (先月同期間比: the number on both
 // doors, the clause on the month line, the switch ON). The entry above is 4b's
 // R1 measurement, which is the figure this one is read against.
@@ -1029,7 +1028,29 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     `lastMonthSamePeriod`. The thin bundle ships EN only (boot-frozen
 //     locale), so the Japanese term costs this bundle nothing.
 //   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
-const BUDGET_BYTES = 2_115_679
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-16 on PIECE 4c's FIX-ROUND R1 tip (R1-1 … R1-7). The
+// entry above is 4c's own final measurement, which is the figure this one is
+// read against.
+//
+// Same CI recipe — CI's own six VITE_* values, the 208-char anon-key
+// placeholder included (a shorter one inflates index and reads as a false
+// mismatch), thin/dist emptied before each of two laps, byte-identical both
+// times (matching content hashes and md5s, node v24.16.0, @synqed-kk/ui 0.3.2
+// installed == lock):
+//   en 134,342 · index 1,042,726 · vendor 937,791 = 2,114,859 B  (+180 B).
+// Ceiling = 2,114,859 + 1,000.
+//
+// Where the 180 B went:
+//   index  1,042,546 → 1,042,726 (+180 B) — the month line's two `sr-only`
+//     separators and their `ariaSep` lookups, so a screen reader hears two
+//     facts instead of one run-on string. Everything else this round is
+//     SERVER-side (the whole-vs-whole arithmetic, both doors' catch, the
+//     clamp) or test-only, and none of it reaches this bundle.
+//   en       134,342 → 134,342 — unchanged: the separator reuses a key the
+//     bundle already shipped, so the round adds NO new string.
+//   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
+const BUDGET_BYTES = 2_115_859
 
 let dir
 try {
