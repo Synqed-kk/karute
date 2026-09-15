@@ -913,7 +913,22 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en       134,148 → 134,204 (+56 B) — the three new EN keys plus the
 //     trailing period on `failed`.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
-const BUDGET_BYTES = 2_105_946
+// RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R3b (R3b-1 — the cell label's
+// tone raised to meet the contrast floor): 2,105,946 → 2,105,964. Same CI
+// recipe, thin/dist emptied each lap, byte-identical across two clean builds
+// on the final code tip, same content hashes both times (node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,032,969 · vendor 937,791 = 2,104,964 B.
+// Ceiling = 2,104,964 + 1,000. The previous ceiling still passed (982 B of
+// headroom left); re-measured anyway so the ceiling keeps tracking the build.
+//
+// Where the +18 B went, measured per chunk:
+//   index  1,032,951 → 1,032,969 (+18 B) — ours, all of it: the label
+//     span's class grew from `text-zinc-400` to `text-zinc-500
+//     dark:text-zinc-400`.
+//   en       134,204 → 134,204 — unchanged to the byte.
+//   vendor   937,791 → 937,791 — unchanged to the byte.
+const BUDGET_BYTES = 2_105_964
 
 let dir
 try {
