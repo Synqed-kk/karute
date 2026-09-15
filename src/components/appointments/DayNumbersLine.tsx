@@ -56,7 +56,10 @@ export function DayNumbersLine({ row, soloMode, typeSlot }: DayNumbersLineProps)
     // mock `.dayline`: flex · align-items:center · gap 14 · padding 2px 0 ·
     // margin 0 0 8px · line-height 1.25 · 14px (13.5px ≤400px) · nowrap.
     // No separators, no pills, no dots (§v9d), everything left-aligned.
-    <div className="mb-2 flex items-center gap-[14px] whitespace-nowrap py-0.5 text-[14px] leading-[1.25] max-[400px]:text-[13.5px]">
+    <div
+      data-day-line
+      className="mb-2 flex items-center gap-[14px] whitespace-nowrap py-0.5 text-[14px] leading-[1.25] max-[400px]:text-[13.5px]"
+    >
       {closed ? (
         // mock: `<span class="it"><b>0件</b></span><span class="it"><b>休</b>
         // </span>` — 休 is a VALUE (ink, 700), not a grey word.

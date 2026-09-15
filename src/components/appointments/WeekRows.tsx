@@ -224,6 +224,7 @@ export function WeekRows({
             <button
               key={row.dateIso}
               type="button"
+              data-week-row
               onClick={() => onPickDay(row.dateIso)}
               aria-label={t('rowAria', { date: dateLabel, n: row.count })}
               className={cn(
