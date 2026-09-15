@@ -13,8 +13,9 @@ HOURS=src/lib/operating-hours.ts
 ADAPTER=src/lib/adapters/reservation.ts
 SCREEN=src/lib/appointments/screen.ts
 ACTION=src/actions/appointments-window.ts
+PAGE="src/app/[locale]/(app)/appointments/page.tsx"
 
-if [[ -n "$(git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN" "$ACTION")" ]]; then
+if [[ -n "$(git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN" "$ACTION" "$PAGE")" ]]; then
   echo "refusing to run: the source files under mutation are dirty" >&2
   exit 1
 fi
@@ -97,5 +98,11 @@ run m12 $ADAPTER src/__tests__/integration/capacity-conjunction.test.ts 'OVERLAP
 perl -0pi -e 's/selectedDate <= r\.rangeTo/selectedDate <= new Date(r.rangeTo.getTime() - 86_400_000)/' $SCREEN
 run m13 $SCREEN src/__tests__/integration/screen-truncated.test.ts 'LAST day'
 
+# m14 (Greptile round 2, G1) — the page's truncation guard is dropped: a
+# truncated window renders AppointmentsView with null data instead of
+# throwing to the route-group error boundary.
+perl -0pi -e 's/if \(screen\.truncated\) \{\n    throw new Error\(.appointments: window truncated — read incomplete.\)\n  \}\n\n  //' "$PAGE"
+run m14 "$PAGE" src/__tests__/integration/appointments-page-truncated-reject.test.ts 'render REJECT'
+
 echo "done — tree restored:"
-git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN" "$ACTION" || true
+git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN" "$ACTION" "$PAGE" || true

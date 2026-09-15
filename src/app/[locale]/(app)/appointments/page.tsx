@@ -224,6 +224,14 @@ export default async function AppointmentsPage({
     packUsage,
   })
 
+  // A truncated window must never render as a calm, empty week/month — that is
+  // indistinguishable from an honest zero. The route-group boundary
+  // (error.tsx) shows the retry screen, exactly as a failed window read
+  // already does above (getAppointmentWindow throws).
+  if (screen.truncated) {
+    throw new Error('appointments: window truncated — read incomplete')
+  }
+
   return (
     <>
       {/* SWR delivery: this screen may have been served from the
