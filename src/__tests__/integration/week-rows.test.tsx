@@ -288,6 +288,15 @@ describe('WeekRows — pending / failed', () => {
     expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0)
   })
 
+  it('the pending line is a polite live region and the failed line interrupts (R3-7)', () => {
+    const WeekRows = loadWeekRows()
+    const busy = render(<WeekRows {...baseProps} rows={sevenDays()} pending onPickDay={jest.fn()} />)
+    expect(busy.getByRole('status').textContent).toBe(MESSAGES.loading)
+    busy.unmount()
+    const dead = render(<WeekRows {...baseProps} rows={sevenDays()} failed onPickDay={jest.fn()} />)
+    expect(dead.getByRole('alert').textContent).toBe(MESSAGES.failed)
+  })
+
   it('failed renders only the failure line, no rows', () => {
     const WeekRows = loadWeekRows()
     render(<WeekRows {...baseProps} rows={sevenDays()} failed onPickDay={jest.fn()} />)
@@ -440,6 +449,19 @@ describe('WeekRows — the press is the app’s own recipe (W-I)', () => {
     // no JS to stop moving, and a variant also holds during SSR's first paint.
     expect(cls).toContain('motion-reduce:transition-none')
     expect(cls).toContain('motion-reduce:active:scale-100')
+  })
+
+  it('the row takes the shared Button recipe’s focus-visible ring, verbatim (R3-8)', () => {
+    const WeekRows = loadWeekRows()
+    render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    const cls = screen.getAllByRole('button')[0].className
+    const button = readFileSync(join(__dirname, '../../components/ui/button.tsx'), 'utf8')
+    for (const token of ['focus-visible:border-ring', 'focus-visible:ring-3', 'focus-visible:ring-ring/50']) {
+      expect(cls).toContain(token)
+      // …and it really is the shared recipe's spelling, not a lookalike
+      expect(button).toContain(token)
+    }
+    expect(cls).toContain('outline-none')
   })
 
   it('that recipe is byte-identical to DateJumpPanel’s PRESS — one press feel on this page', () => {

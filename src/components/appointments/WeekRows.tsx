@@ -160,7 +160,14 @@ export function WeekRows({
   const t = useTranslations('reservation.weekRows')
 
   if (failed) {
-    return <p className="text-xs text-[var(--color-text-muted)]">{t('failed')}</p>
+    // R3-7 — a read that failed is news, and it arrives with no control to
+    // press (this line renders alone, no rows). `alert` interrupts; `status`
+    // below is polite, because a load that is merely in flight is not.
+    return (
+      <p role="alert" className="text-xs text-[var(--color-text-muted)]">
+        {t('failed')}
+      </p>
+    )
   }
 
   // The split keys (W-F) gave the line a per-number seam, so pending now does
@@ -173,7 +180,11 @@ export function WeekRows({
 
   return (
     <div>
-      {pending && <p className="mb-2 text-xs text-[var(--color-text-muted)]">{t('loading')}</p>}
+      {pending && (
+        <p role="status" className="mb-2 text-xs text-[var(--color-text-muted)]">
+          {t('loading')}
+        </p>
+      )}
       {showSummary && (
         // mock `.wksum{display:flex;align-items:center;gap:6px;
         //  padding:0 4px 9px;font-size:12.5px;font-weight:600;
@@ -278,6 +289,12 @@ export function WeekRows({
                 // Desktop affordance the phone mock has no use for — the week
                 // page is a web door too, and a dead row there reads broken.
                 'hover:bg-[var(--color-bg-card-hover)]',
+                // R3-8 — these rows are hand-rolled buttons, so they never
+                // picked up the shared recipe's focus ring and fell back to the
+                // UA outline while every other pressable on the page showed the
+                // app's. The four tokens below are @/components/ui/button's own
+                // focus-visible spelling, verbatim — not a new style.
+                'outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50',
                 // mock `.wkrow.today{background:var(--wash)}` = rgba(37,99,235,.08)
                 isToday && 'bg-primary/8',
                 // mock `.wkrow.sel::after{border:1.5px solid var(--blue);
