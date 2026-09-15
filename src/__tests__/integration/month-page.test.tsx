@@ -16,6 +16,7 @@ const WEEK_ROWS: Record<string, string> = {
   new: '新規',
   returning: '再来',
   closed: '休',
+  lastMonthSamePeriod: '先月同期間比',
   countValue: '{n}件',
   failed: '予約状況を取得できませんでした。もう一度お試しください。',
   rowAria: '{date} {cells}',
@@ -429,6 +430,82 @@ describe('MonthPage — the month line', () => {
     for (const shim of Array.from(shims)) {
       expect(shim.className).toContain('mr-3')
     }
+  })
+
+  describe('先月同期間比 — an annotation, never an alarm', () => {
+    /** The clause's own value element, whatever tone it carries. */
+    const clause = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll('[data-month-line] span'))
+        .find((el) => el.textContent?.startsWith('先月同期間比')) ?? null
+
+    it('prints label-first, last on the line, with the app s own term', () => {
+      const { MonthPage } = loadMonthPage({ monthCompare: true })
+      const cells = monthCells(2026, 9, { '2026-09-15': { count: 234 } })
+      const { container } = render(
+        <MonthPage {...baseProps} cells={cells} monthCompareDelta={12} />,
+      )
+      expect(container.querySelector('[data-month-line]')!.textContent).toBe(
+        '予約234件先月同期間比+12件',
+      )
+    })
+
+    it('ahead takes the 少なめ green — the week rows own token, not a second one', () => {
+      const { MonthPage } = loadMonthPage({ monthCompare: true })
+      const { container } = render(
+        <MonthPage {...baseProps} cells={monthCells(2026, 9)} monthCompareDelta={12} />,
+      )
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { VALUE_TONE_CLASS } = require('@/components/appointments/WeekRows') as typeof import('@/components/appointments/WeekRows')
+      expect(clause(container)!.querySelector('span')!.className).toContain(
+        VALUE_TONE_CLASS['band-low'],
+      )
+    })
+
+    it('behind is the MUTE GREY and never red — a quiet month is not a fault', () => {
+      const { MonthPage } = loadMonthPage({ monthCompare: true })
+      const { container } = render(
+        <MonthPage {...baseProps} cells={monthCells(2026, 9)} monthCompareDelta={-12} />,
+      )
+      const value = clause(container)!.querySelector('span')!
+      // U+2212, the typographic minus the mock itself spells — not a hyphen.
+      expect(value.textContent).toBe('\u221212件')
+      expect(value.className).toContain('text-[var(--color-text-muted)]')
+      expect(clause(container)!.outerHTML).not.toMatch(/red|destructive/)
+    })
+
+    it('level prints ±0件 in the same grey, never a blank', () => {
+      const { MonthPage } = loadMonthPage({ monthCompare: true })
+      const { container } = render(
+        <MonthPage {...baseProps} cells={monthCells(2026, 9)} monthCompareDelta={0} />,
+      )
+      const value = clause(container)!.querySelector('span')!
+      expect(value.textContent).toBe('\u00b10件')
+      expect(value.className).toContain('text-[var(--color-text-muted)]')
+    })
+
+    it('no honest number = ABSENT: no 0, no dash, no label', () => {
+      const { MonthPage } = loadMonthPage({ monthCompare: true })
+      const { container } = render(
+        <MonthPage {...baseProps} cells={monthCells(2026, 9)} monthCompareDelta={null} />,
+      )
+      expect(container.querySelector('[data-month-line]')!.textContent).toBe('予約0件')
+    })
+
+    it('mid-transition it is the two shims, never a clause about the month being left', () => {
+      const { MonthPage } = loadMonthPage({ monthCompare: true })
+      const { container } = render(
+        <MonthPage {...baseProps} cells={monthCells(2026, 9)} monthCompareDelta={12} pending />,
+      )
+      expect(container.querySelector('[data-month-line]')!.textContent).toBe('')
+    })
+
+    it('with the monthCompare switch OFF the clause is gone and the line still stands', () => {
+      const { MonthPage } = loadMonthPage({ monthCompare: false })
+      const { container } = render(
+        <MonthPage {...baseProps} cells={monthCells(2026, 9)} monthCompareDelta={12} />,
+      )
+      expect(container.querySelector('[data-month-line]')!.textContent).toBe('予約0件')
+    })
   })
 
   it('with the monthLine switch OFF the line is gone and the grid still stands', () => {

@@ -92,6 +92,7 @@ describe('AppointmentsScreenDTO — the new screen keys are defaulted', () => {
     const dto = AppointmentsScreenDTO.parse(OLD_PAYLOAD)
     expect(dto.dayTotals).toBeNull()
     expect(dto.monthStartIso).toBeNull()
+    expect(dto.monthCompareDelta).toBeNull()
     expect(dto.truncated).toBe(false)
     // …and nothing that already worked changed meaning.
     expect(dto.weekData).toHaveLength(1)
@@ -110,6 +111,9 @@ describe('AppointmentsScreenDTO — the new screen keys are defaulted', () => {
       dayTotals: { ...OLD_WEEK_ROW, dateIso: '2026-09-15', cancelledCount: 1 },
     })
     expect(dto.monthStartIso).toBe('2026-09-01T00:00:00.000Z')
+    expect(
+      AppointmentsScreenDTO.parse({ ...OLD_PAYLOAD, monthCompareDelta: -3 }).monthCompareDelta,
+    ).toBe(-3)
     expect(dto.dayTotals?.dateIso).toBe('2026-09-15')
     expect(dto.dayTotals?.cancelledCount).toBe(1)
   })
