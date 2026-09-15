@@ -101,8 +101,9 @@ describe('the day line never prints a naked count (R3-5)', () => {
     const { container } = render(
       <DayNumbersLine row={row({ closed: true, count: 0 })} soloMode={false} typeSlot="off" locale="en" />,
     )
-    // closedDays ships OFF, so this renders numbers — the assertion that
-    // matters is only that whatever the count cell prints carries its word.
+    // Since R1-3 closedDays ships ON, so this takes the closed branch — which
+    // still prints the count beside 休. The assertion that matters is only
+    // that whatever the count cell prints carries its word, either way.
     expect(container.querySelector('[data-day-line]')!.textContent).toContain('bookings')
   })
 })

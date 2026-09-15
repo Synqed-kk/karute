@@ -74,10 +74,10 @@ function sevenDays(overrides: Array<Partial<WeekDayRowData>> = []): WeekDayRowDa
   return isoDays.map((dateIso, i) => row({ dateIso, dateNumber: 14 + i, ...overrides[i] }))
 }
 
-// BOOKING_SWITCHES is a plain module constant — closedDays defaults OFF
-// (spec §10), so a "closed row" scenario needs a per-file module mock, then
-// a fresh require of WeekRows.tsx (which imports metric-menu.ts, which
-// captures BOOKING_SWITCHES at import time).
+// BOOKING_SWITCHES is a plain module constant captured at import time, so
+// pinning a scenario per switch VALUE (closedDays either way — it ships ON
+// since R1-3) needs a per-file module mock, then a fresh require of
+// WeekRows.tsx (which imports metric-menu.ts, which reads the registry).
 function loadWeekRows(switchOverrides: Partial<Record<string, boolean>> = {}) {
   jest.resetModules()
   jest.doMock('@/lib/appointments/booking-switches', () => {
