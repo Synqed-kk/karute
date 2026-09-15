@@ -58,8 +58,11 @@ run m5 $HOURS src/__tests__/integration/operating-hours-jst.test.ts 'already Tue
 perl -0pi -e 's/if \(aStart < bEnd && bStart < aEnd\) return true/if (aStart >= bEnd \&\& bStart >= aEnd) return true/' $ADAPTER
 run m6 $ADAPTER src/__tests__/integration/capacity-conjunction.test.ts 'overlapping bookings'
 
-# m7 — an absent weekday in weekly_hours reads as open instead of 定休日.
-perl -0pi -e 's/if \(day == null\) return \{ \.\.\.CLOSED_FACT \}/if (day === undefined) { \/* fall through *\/ } else if (day === null) return { ...CLOSED_FACT }/' $HOURS
+# m7 — an absent weekday in weekly_hours reads as OPEN instead of 定休日.
+# Spelled as a wrong VALUE, never a crash: the first spelling let `day` stay
+# undefined and the resolver threw on day.open before the test's own
+# assertions ran, so the kill proved nothing about them (L3 HIGH).
+perl -0pi -e "s/  const day = weekly\[key\]\n/  const day = weekly[key] ?? { open: '10:00', close: '24:00' }\n/" $HOURS
 run m7 $HOURS src/__tests__/integration/resolve-day-hours.test.ts 'an ABSENT weekday'
 
 # m8 — an unplaceable staff filter falls back to UNFILTERED.
