@@ -1395,6 +1395,33 @@ describe('the panel moves like the mock', () => {
   })
 
   /**
+   * R5-1 — the compositor promotion, and its release. `will-change` is what
+   * makes the open spring's per-frame writes cheap on the phone: without a
+   * standing layer every frame repaints the card — border, shadow and ~40 day
+   * buttons — and an OPEN measured 51 real Paint records on the production
+   * build under a 4x CPU throttle. Half of this test is the UNMOUNT: a
+   * promoted element that outlives its animation is a layer the compositor
+   * keeps paying for on every unrelated scroll afterwards, so the classes are
+   * only safe because both elements are mounted exclusively while `rendered`.
+   * Nothing else here can prove that — the classes are unconditional.
+   */
+  it('t9b — both moving elements carry their layer hint, and both leave the DOM at rest', async () => {
+    renderView()
+    const dialog = openNow()
+    await frames(1000)
+    const scrim = dialog.previousElementSibling as HTMLElement
+
+    expect(dialog.className).toContain('will-change-[transform,opacity]')
+    expect(scrim.className).toContain('will-change-[opacity]')
+
+    fireEvent.click(chip()) // close
+    await frames(1000) // past the open spring's rest (~483 ms)
+    expect(panel()).toBeNull()
+    expect(dialog.isConnected).toBe(false)
+    expect(scrim.isConnected).toBe(false)
+  })
+
+  /**
    * R4-3 — the cost of a shift. `setPending`, the `liveDir` flip and every
    * cache write re-render the panel, MonthGrid is a plain `forwardRef` in the
    * package (nothing memoizes it there), and all three panes were redrawing
