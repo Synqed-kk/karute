@@ -33,6 +33,8 @@ import {
   fetchCoreStaffByProfileId,
   getAppointmentsByDateWithClient,
 } from '@/lib/appointments/by-date'
+import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
+import { monthCompareWindow } from '@/lib/appointments/month-compare'
 import {
   buildAppointmentsScreen,
   parseDateParam,
@@ -85,8 +87,19 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
   const customerLens = customerLensFor(clamp)
 
   try {
+    // ONE clock for this response: the compare window below and the screen
+    // build further down both read it, and two `new Date()` calls either side
+    // of a midnight would compare one month against a different elapsed span.
+    const now = new Date()
     const weekRange = view === 'week' ? computeWeekRange(selectedDate) : null
     const monthRange = view === 'month' ? computeMonthRange(selectedDate) : null
+    // 先月同期間比's extra read (spec §8). Null = no clause, hence no read: a
+    // future month has nothing elapsed to compare, and while the switch is off
+    // nothing renders it either — so neither case pays for a fetch.
+    const compareWindow =
+      monthRange && BOOKING_SWITCHES.monthCompare
+        ? monthCompareWindow(monthRange.monthStart, now)
+        : null
 
     // Wave 1 — roster, cached customer list, org settings, menu union.
     const [staffList, customers, orgSettings, menus] = await Promise.all([
@@ -151,6 +164,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       weekWindow,
       monthWindow,
       dayWindow,
+      prevMonthWindow,
       policy,
       closedDays,
       storeStaffIds,
@@ -180,6 +194,21 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             selectedDate.toISOString(),
             jstEndOfDay(selectedDate).toISOString(),
           )
+        : Promise.resolve(null),
+      // The previous month's compared span — through the SAME windowFor as the
+      // month read above, so the two sides of the comparison carry one store
+      // clamp and one 担当 filter. In this wave, so it costs no waterfall.
+      //
+      // The ONE read in this wave that does not reach the 502. Every other one
+      // must, because a calm empty week is the lie this screen may never tell
+      // — but the clause is an optional annotation whose absent state is
+      // exactly `null`, so a half-down core costs the phone one clause instead
+      // of the whole 予約 screen.
+      compareWindow
+        ? windowFor(compareWindow.fromIso, compareWindow.toIso).catch((err) => {
+            console.error('[appointments] 先月同期間比 read degraded:', err)
+            return null
+          })
         : Promise.resolve(null),
       // No catch: storePolicies.get answers the PLATFORM DEFAULTS for a store
       // with no row of its own (`source: 'default'`, the SDK's own contract in
@@ -221,7 +250,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
 
     const screen = buildAppointmentsScreen({
       locale,
-      now: new Date(),
+      now,
       selectedDate,
       staffFilter,
       staffList,
@@ -237,6 +266,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       weekWindow,
       monthWindow,
       dayWindow,
+      prevMonthWindow,
       hoursFacts,
       enrichment,
       packUsage,
@@ -274,7 +304,9 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         weekStartIso: screen.weekStartIso,
         dayTotals: screen.dayTotals,
         monthStartIso: screen.monthStartIso,
+        monthCompareDelta: screen.monthCompareDelta,
         truncated: screen.truncated,
+        soloMode: screen.soloMode,
         monthData:
           screen.monthData?.map((c) => ({
             id: c.id,
@@ -283,6 +315,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             isToday: c.isToday,
             count: c.count,
             density: c.density,
+            closed: c.closed,
           })) ?? null,
       }),
     )

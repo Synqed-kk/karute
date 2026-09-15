@@ -18,6 +18,10 @@ import {
   validateAppointmentTime,
   type AppointmentInput,
 } from '@/lib/appointments'
+import { appointmentsToMonthCells } from '@/lib/adapters/reservation'
+import { computeMonthRange } from '@/lib/date/calendar-range'
+import { jstStartOfToday } from '@/lib/date/jst'
+import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import {
   cancelAppointmentCore,
   createAppointmentCore,
@@ -272,6 +276,61 @@ export async function getAppointmentsInRange(
   } catch {
     return []
   }
+}
+
+/**
+ * 月 grid cells for ANY month — the WEB data door of the 予約 date-jump panel.
+ *
+ * The phone reads months through the facade GET (`/api/app/v1/screens/
+ * appointments?view=month&date=…`), which is BEARER-ONLY by construction
+ * (lib/app-api/identity.ts: "a cookie present on a facade request is IGNORED,
+ * never used as identity"), so the cookie-session page cannot share that door
+ * and gets this action instead. Both doors end at the SAME two functions —
+ * getAppointmentsInRangeWithClient for the window, appointmentsToMonthCells
+ * for the density rule — so a cell can never mean two different things.
+ *
+ * Deliberately NOT built on getAppointmentsInRange above: that wrapper's
+ * catch→[] contract would turn a failed read into a month of zero-count cells,
+ * i.e. "next month is completely free" — the exact lie the panel's
+ * pending/failed states exist to prevent. A throw here reaches the panel as
+ * its 予約状況を取得できませんでした line, and the month is retried on the
+ * next visit.
+ *
+ * Counts are store-wide, exactly as the 月 view renders them today: the page's
+ * staff filter touches reservationViews only (lib/appointments/screen.ts), so
+ * no staff scope is applied or accepted here.
+ *
+ * @param monthKey 'YYYY-MM' in the JST calendar.
+ */
+export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[]> {
+  if (!/^\d{4}-(?:0[1-9]|1[0-2])$/.test(monthKey)) {
+    throw new Error('getMonthCells: monthKey must be YYYY-MM')
+  }
+  const { monthStart, monthEnd, rangeFrom, rangeTo } = computeMonthRange(
+    new Date(`${monthKey}-01T00:00:00+09:00`),
+  )
+  const [synqed, scope] = await Promise.all([getSynqedClient(), resolveStoreScope()])
+  const { getAppointmentsInRangeWithClient } = await import('@/lib/appointments/by-date')
+  const appointments = await getAppointmentsInRangeWithClient(
+    synqed,
+    rangeFrom.toISOString(),
+    rangeTo.toISOString(),
+    { storeId: scope.storeId ?? undefined },
+  )
+  return appointmentsToMonthCells(appointments, monthStart, monthEnd, jstStartOfToday()).map(
+    (c) => ({
+      id: c.id,
+      dateIso: c.date.toISOString(),
+      inMonth: c.inMonth,
+      isToday: c.isToday,
+      count: c.count,
+      density: c.density,
+      // This door reads no store hours (it answers the pop-down, which renders
+      // through the package grid and has no 休 cell), so the adapter's own
+      // default rides through rather than a second, hours-less answer.
+      closed: c.closed,
+    }),
+  )
 }
 
 // NOTE (2026-07-27): no caller anywhere yet (no UI, no facade twin, no

@@ -83,6 +83,7 @@ import {
   getAppointmentsInRange,
   getAppointmentById,
   createAppointment,
+  getMonthCells,
 } from '@/actions/appointments'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getActiveStoreId } from '@/actions/stores'
@@ -154,6 +155,66 @@ describe('getAppointmentsInRange — store scope', () => {
     await getAppointmentsInRange('2026-07-01T00:00:00.000Z', '2026-07-08T00:00:00.000Z')
     const { list } = await appointmentsMock()
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
+  })
+})
+
+// The 予約 date-jump panel's WEB month door. Same clamp as every read above —
+// the panel can reach ANY month, so a missed clamp here would leak another
+// branch's booking VOLUME (not names, but a competitor-grade signal) on every
+// month a restricted staff member swipes to.
+describe('getMonthCells — store scope + the failure contract', () => {
+  it('clamped staff: the month read carries their store filter', async () => {
+    clampedToGinza()
+    await getMonthCells('2026-07')
+    const { list } = await appointmentsMock()
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
+  })
+
+  it('cross-store viewer with no pinned store: no store filter (same as the siblings)', async () => {
+    crossStore(null)
+    await getMonthCells('2026-07')
+    const { list } = await appointmentsMock()
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+  })
+
+  it('asks for the month window the key names, leading and trailing days included', async () => {
+    crossStore(null)
+    await getMonthCells('2026-07')
+    const { list } = await appointmentsMock()
+    const { from, to } = list.mock.calls[0][0] as { from: string; to: string }
+    // computeMonthRange pads a week either side so the grid's outside-month
+    // cells are covered: 2026-07-01 JST minus 7 days … 2026-07-31 plus 7.
+    expect(from).toBe(new Date('2026-06-24T00:00:00+09:00').toISOString())
+    expect(to).toBe(new Date('2026-08-07T23:59:59.999+09:00').toISOString())
+  })
+
+  it('returns the month grid as wire cells, the month itself flagged inMonth', async () => {
+    crossStore(null)
+    const cells = await getMonthCells('2026-07')
+    // 2026-07-01 is a Wednesday → 2 leading days; 31 days; 5 rows of 7.
+    expect(cells).toHaveLength(35)
+    expect(cells.filter((c) => c.inMonth)).toHaveLength(31)
+    expect(cells[0].id).toBe('2026-06-29')
+    expect(cells[0].inMonth).toBe(false)
+    expect(typeof cells[0].dateIso).toBe('string')
+  })
+
+  it('a failed read THROWS — it must never come back as a month of empty days', async () => {
+    // The lie this prevents: getAppointmentsInRange's catch→[] would render
+    // "next month is completely free" for an outage. The panel needs the
+    // rejection to show its 取得できませんでした line.
+    crossStore(null)
+    const { list } = await appointmentsMock()
+    list.mockRejectedValueOnce(new Error('core down'))
+    await expect(getMonthCells('2026-07')).rejects.toThrow('core down')
+  })
+
+  it('rejects a key that is not a real YYYY-MM before reading anything', async () => {
+    crossStore(null)
+    await expect(getMonthCells('2026-13')).rejects.toThrow('YYYY-MM')
+    await expect(getMonthCells('2026-07-01')).rejects.toThrow('YYYY-MM')
+    const { list } = await appointmentsMock()
+    expect(list).not.toHaveBeenCalled()
   })
 })
 

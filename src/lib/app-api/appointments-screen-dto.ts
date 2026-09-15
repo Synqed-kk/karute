@@ -82,7 +82,16 @@ export const MonthCellDTO = z.object({
   isToday: z.boolean(),
   count: z.number(),
   density: z.enum(['empty', 'light', 'medium', 'busy']),
+  /** 定休日 or 臨時休業 — the 月 page's 休 cell. Additive with the same
+   *  bundle-skew default every other new key carries: false is today's
+   *  behaviour (no cell is closed), so an older server never blanks the
+   *  screen over a key it does not send. */
+  closed: z.boolean().default(false),
 })
+/** JSON shape of one 月 grid cell — the wire type the date-jump panel's
+ *  month loader returns on BOTH doors (facade GET on the phone, server action
+ *  on web), so neither host hand-rolls its own. */
+export type MonthCellDTOType = z.infer<typeof MonthCellDTO>
 
 export const AppointmentsScreenDTO = z.object({
   /** Echo of the resolved query params — the view treats them as canon. */
@@ -175,10 +184,19 @@ export const AppointmentsScreenDTO = z.object({
   dayTotals: WeekDayCardDataDTO.nullable().default(null),
   /** JST-midnight ISO of the rendered month's 1st. Same bundle-skew default. */
   monthStartIso: z.string().nullable().default(null),
+  /** 先月同期間比 — this month so far MINUS the same elapsed span of the month
+   *  before, in 件. Null = no honest number, so the clause is absent (a future
+   *  month, a truncated read, no base to compare with). Same bundle-skew
+   *  default as every key above: null is today's behaviour (no clause). */
+  monthCompareDelta: z.number().nullable().default(null),
   /** The window could not be read to exhaustion — the surface says the read
    *  failed rather than showing a low number. Same bundle-skew default; false
    *  is today's (silently-truncating) behaviour. */
   truncated: z.boolean().default(false),
+  /** The salon's `solo_mode` capability, resolved server-side (screen.ts) so
+   *  the view never reads org settings — the thin door carries none. Same
+   *  bundle-skew default; false is today's behaviour. */
+  soloMode: z.boolean().default(false),
 })
 
 export type AppointmentsScreenDTOType = z.infer<typeof AppointmentsScreenDTO>

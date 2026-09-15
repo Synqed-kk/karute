@@ -181,8 +181,11 @@ describe("getAppointmentWindow — 'self' is the SERVER's answer, never the call
   })
 
   it('takes no viewer-id argument at all, and ignores one if a caller POSTs it', async () => {
-    // 'use server' makes this an endpoint: a 4th argument is exactly what an
-    // attacker would send to read a colleague's 自分 week.
+    // 'use server' makes this an endpoint: an extra argument is exactly what
+    // an attacker would send to read a colleague's 自分 week. The action's
+    // only optional argument is `withHours`, a boolean that decides whether to
+    // ask about opening hours — it can never name an identity, and the three
+    // REQUIRED arguments are still the three that were always there.
     expect(getAppointmentWindow).toHaveLength(3)
     await (getAppointmentWindow as unknown as (...a: unknown[]) => Promise<unknown>)(
       FROM,

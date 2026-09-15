@@ -92,6 +92,7 @@ describe('AppointmentsScreenDTO — the new screen keys are defaulted', () => {
     const dto = AppointmentsScreenDTO.parse(OLD_PAYLOAD)
     expect(dto.dayTotals).toBeNull()
     expect(dto.monthStartIso).toBeNull()
+    expect(dto.monthCompareDelta).toBeNull()
     expect(dto.truncated).toBe(false)
     // …and nothing that already worked changed meaning.
     expect(dto.weekData).toHaveLength(1)
@@ -110,8 +111,34 @@ describe('AppointmentsScreenDTO — the new screen keys are defaulted', () => {
       dayTotals: { ...OLD_WEEK_ROW, dateIso: '2026-09-15', cancelledCount: 1 },
     })
     expect(dto.monthStartIso).toBe('2026-09-01T00:00:00.000Z')
+    expect(
+      AppointmentsScreenDTO.parse({ ...OLD_PAYLOAD, monthCompareDelta: -3 }).monthCompareDelta,
+    ).toBe(-3)
     expect(dto.dayTotals?.dateIso).toBe('2026-09-15')
     expect(dto.dayTotals?.cancelledCount).toBe(1)
+  })
+
+  it('a month cell from a server that predates `closed` parses as open', () => {
+    // A2's new key. Without the default a phone bundle baked with it would
+    // blank the whole 予約 screen the moment it met an older server, which is
+    // the one failure this file exists to stop.
+    const dto = AppointmentsScreenDTO.parse({
+      ...OLD_PAYLOAD,
+      view: 'month',
+      weekData: null,
+      weekStartIso: null,
+      monthData: [
+        {
+          id: '2026-09-01',
+          dateIso: '2026-08-31T15:00:00.000Z',
+          inMonth: true,
+          isToday: false,
+          count: 2,
+          density: 'light',
+        },
+      ],
+    })
+    expect(dto.monthData![0].closed).toBe(false)
   })
 
   it('a truncated payload carries the flag with null data', () => {
