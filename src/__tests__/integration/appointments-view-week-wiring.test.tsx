@@ -565,6 +565,22 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     expect(container.querySelector('[data-pending-dim]')).toBeNull()
     expect(getByTestId('month-page').closest('[data-pending-dim]')).toBeNull()
     expect(getByTestId('selected-day-card').closest('[data-pending-dim]')).toBeNull()
+    // DV-4B finding 1 — the marker's absence above is a proxy: a wrapper
+    // could carry the literal dangerous classes without the marker and this
+    // suite would still be green. Pin the classes themselves on the month
+    // branch's own `aria-busy` wrapper, and on every ancestor between the
+    // page root and month-page / selected-day-card.
+    const monthWrapper = getByTestId('month-page').closest('[aria-busy]')!
+    expect(monthWrapper.className).not.toContain('pointer-events-none')
+    expect(monthWrapper.className).not.toContain('opacity-50')
+    for (const testId of ['month-page', 'selected-day-card']) {
+      let node: HTMLElement | null = getByTestId(testId).parentElement
+      while (node) {
+        expect(node.className).not.toContain('pointer-events-none')
+        expect(node.className).not.toContain('opacity-50')
+        node = node.parentElement
+      }
+    }
   })
 
   it('…and the 日/週 treatment is untouched — those views still dim and block', () => {
