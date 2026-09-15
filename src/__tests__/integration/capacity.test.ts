@@ -413,6 +413,21 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.reason).toBeNull()
     expect(fact.bookedMinutes).toBe(60)
   })
+
+  it(
+    'R9: a NaN startMs never launders into booked minutes or a lane, and never hangs',
+    () => {
+      const fact = capacityForDay(
+        input({ rosterLanes: 1, spans: [{ startMs: NaN, endMs: at(11), staffId: 's1' }] }),
+      )
+
+      expect(fact.reason).toBeNull()
+      expect(fact.bookedMinutes).toBe(0)
+      expect(fact.lanes).toBe(1) // roster floor only — the NaN span adds no worked staffer
+      expect(fact.capacityMinutes).toBe(600)
+    },
+    2000,
+  )
 })
 
 describe('bandFor — the one 35/65 table', () => {
@@ -448,6 +463,45 @@ describe('peakConcurrency — the sweep', () => {
   it('CONCURRENCY: an empty day peaks at 0', () => {
     expect(peakConcurrency([])).toBe(0)
   })
+
+  it(
+    'CONCURRENCY: a NaN startMs is dropped, not counted, not a hang',
+    () => {
+      expect(
+        peakConcurrency([
+          { startMs: NaN, endMs: at(11) },
+          { startMs: at(10), endMs: at(11) },
+        ]),
+      ).toBe(1)
+    },
+    2000,
+  )
+
+  it(
+    'CONCURRENCY: an Infinity endMs is dropped, not counted',
+    () => {
+      expect(
+        peakConcurrency([
+          { startMs: at(10), endMs: Infinity },
+          { startMs: at(10), endMs: at(11) },
+        ]),
+      ).toBe(1)
+    },
+    2000,
+  )
+
+  it(
+    'CONCURRENCY: a -Infinity startMs is dropped, not counted',
+    () => {
+      expect(
+        peakConcurrency([
+          { startMs: -Infinity, endMs: at(11) },
+          { startMs: at(10), endMs: at(11) },
+        ]),
+      ).toBe(1)
+    },
+    2000,
+  )
 
   it('CONCURRENCY: 200 spans sweep in well under 50 ms', () => {
     const many = Array.from({ length: 200 }, (_, i) => ({

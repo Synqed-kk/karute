@@ -111,6 +111,15 @@ function overlapMinutes(startMs: number, endMs: number, fromMs: number, toMs: nu
   return to > from ? (to - from) / MS_PER_MINUTE : 0
 }
 
+/** Finite and forward-running (R9): a NaN/±Infinity instant fails every
+ *  `endMs <= startMs` check (NaN and Infinity comparisons are never true),
+ *  so it used to pass straight through — hanging `peakConcurrency`'s sweep
+ *  (an unbounded pointer chasing an `undefined` array slot) and laundering
+ *  into a phantom booking in `capacityForDay`. ONE predicate, used by both. */
+function isValidSpan(s: { startMs: number; endMs: number }): boolean {
+  return Number.isFinite(s.startMs) && Number.isFinite(s.endMs) && s.endMs > s.startMs
+}
+
 /** inside = the span ∩ [open, close); outside = (the span ∩ [dayStart, dayEnd))
  *  minus inside — the day's own minutes the declared hours do not cover. A span
  *  that does not touch the day yields 0 and 0, so it is never "outside". */
@@ -137,9 +146,10 @@ export function peakConcurrency(spans: readonly { startMs: number; endMs: number
   const starts: number[] = []
   const ends: number[] = []
   for (const s of spans) {
-    // A zero- or negative-length row occupies no instant, so it can neither
-    // raise the peak nor deadlock the sweep.
-    if (s.endMs <= s.startMs) continue
+    // A zero- or negative-length row occupies no instant, and a NaN/±Infinity
+    // instant is not a real one (R9) — neither can raise the peak, and
+    // letting either through used to deadlock the sweep below.
+    if (!isValidSpan(s)) continue
     starts.push(s.startMs)
     ends.push(s.endMs)
   }
@@ -150,7 +160,10 @@ export function peakConcurrency(spans: readonly { startMs: number; endMs: number
   let current = 0
   let i = 0
   let j = 0
-  while (i < starts.length) {
+  // Bounded on BOTH pointers (R9): with only finite, forward-running spans
+  // admitted above the classic invariant (j <= i) holds and this never
+  // matters — but a future caller of the internals can no longer spin it.
+  while (i < starts.length && j < ends.length) {
     if (starts[i] < ends[j]) {
       current++
       if (current > peak) peak = current
@@ -193,7 +206,7 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
     outsideMinutes: number
   }[] = []
   for (const span of input.spans) {
-    if (span.endMs <= span.startMs) continue
+    if (!isValidSpan(span)) continue
     const { insideMinutes, outsideMinutes } = clipToWindow(
       span,
       windowOpenMs,
