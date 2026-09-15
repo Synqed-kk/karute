@@ -128,6 +128,9 @@ function regexMayOpenHere(out: string): boolean {
   const trimmed = out.replace(/\s+$/, '')
   if (trimmed.length === 0) return true
   const last = trimmed[trimmed.length - 1]
+  // `</` is a JSX closing tag's slash, never a regex open; `x < /re/` is not
+  // a shape this corpus writes.
+  if (last === '<') return false
   if (REGEX_PRECEDING_CHARS.has(last)) return true
   const word = trimmed.match(/[A-Za-z_$][A-Za-z0-9_$]*$/)
   return word !== null && REGEX_PRECEDING_WORDS.has(word[0])
@@ -176,7 +179,7 @@ function consumeTemplate(src: string, start: number): [number, string] {
         const cj = src[j]
         if (cj === '{') { depth++; expr += cj; j++; continue }
         if (cj === '}') { depth--; expr += cj; j++; continue }
-        if (cj === '/' && src[j + 1] !== '/' && src[j + 1] !== '*' && regexMayOpenHere(expr)) {
+        if (cj === '/' && src[j + 1] !== '/' && src[j + 1] !== '*' && src[j + 1] !== '>' && regexMayOpenHere(expr)) {
           const [consumed, text] = consumeRegex(src, j)
           expr += text
           j = consumed
@@ -222,7 +225,7 @@ function stripComments(src: string): string {
   const n = src.length
   while (i < n) {
     const c = src[i]
-    if (c === '/' && src[i + 1] !== '/' && src[i + 1] !== '*' && regexMayOpenHere(out)) {
+    if (c === '/' && src[i + 1] !== '/' && src[i + 1] !== '*' && src[i + 1] !== '>' && regexMayOpenHere(out)) {
       const [consumed, text] = consumeRegex(src, i)
       out += text
       i = consumed
@@ -305,6 +308,20 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
     expect(countIn("/* ' */ '清掃'")).toBe(1)
     expect(countIn("`${x ? 'ベッド' : \"個室\"} 満室`")).toBe(3)
     expect(countIn("const d = a / b; 'ベッド' // 個室")).toBe(1)
+  })
+
+  it('the scanner leaves JSX tag slashes alone (F1 delta-verify NOTE-A)', () => {
+    const countIn = (src: string) => TARGET_WORDS.reduce((sum, w) => sum + countOccurrences(stripComments(src), w), 0)
+    const results = [
+      countIn('</div> {/* ベッド */}'),
+      countIn('<Foo bar={x} /> {/* 個室 */}'),
+      countIn('</div>\n{/* 満室\n */}'),
+      countIn('</div> // 清掃'),
+      countIn("const r = /[<>]/; 'ベッド'"),
+      countIn("if (a < b) { 'ベッド' }"),
+    ]
+    console.log('jsx-tag-slashes:', JSON.stringify(results))
+    expect(results).toEqual([0, 0, 0, 0, 1, 1])
   })
 
   it('⚖ C5 — no reader of business_type or resourceWordsFor exists under today/ yet', () => {
