@@ -305,26 +305,45 @@ describe('Migrated appointment actions', () => {
     it('computes ends_at when both startTime and durationMinutes change', async () => {
       // updateAppointmentCore now reads the booking first (Fable fix-round
       // FIX 2 terminal guard) — give it a live row so the update is reached.
-      appointments.get.mockResolvedValue({ status: 'SCHEDULED', customer_id: 'cust-1' })
+      // ⚖ PKT-1c-C: a real core row, with the time fields the reschedule path
+      // reads to run the ONE time validator.
+      appointments.get.mockResolvedValue({
+        status: 'SCHEDULED',
+        customer_id: 'cust-1',
+        store_id: null,
+        starts_at: '2026-05-10T01:00:00.000Z',
+        ends_at: '2026-05-10T02:00:00.000Z',
+        duration_minutes: 60,
+      })
       // update()'s return rides the full Appointment row (verified fact: core
       // always returns customer_id/store_id) — updateAppointmentCore reads
       // the audit target off it directly.
       appointments.update.mockResolvedValue({ customer_id: 'cust-1', store_id: 'store-1' })
 
+      // 13:00 JST + 90 min. The old fixture asked for 23:00 JST + 90, which
+      // runs past midnight — the create door has always refused that, and
+      // since ⚖ PKT-1c-C the reschedule door runs the identical validator.
       await updateAppointment('appt-1', {
-        startTime: '2026-05-10T14:00:00.000Z',
+        startTime: '2026-05-10T04:00:00.000Z',
         durationMinutes: 90,
       })
 
       expect(appointments.update).toHaveBeenCalledWith('appt-1', {
-        starts_at: '2026-05-10T14:00:00.000Z',
+        starts_at: '2026-05-10T04:00:00.000Z',
         duration_minutes: 90,
-        ends_at: '2026-05-10T15:30:00.000Z',
+        ends_at: '2026-05-10T05:30:00.000Z',
       })
     })
 
     it('partial update omits ends_at if only duration changes', async () => {
-      appointments.get.mockResolvedValue({ status: 'SCHEDULED', customer_id: 'cust-1' })
+      appointments.get.mockResolvedValue({
+        status: 'SCHEDULED',
+        customer_id: 'cust-1',
+        store_id: null,
+        starts_at: '2026-05-10T01:00:00.000Z',
+        ends_at: '2026-05-10T02:00:00.000Z',
+        duration_minutes: 60,
+      })
       appointments.update.mockResolvedValue({ customer_id: 'cust-1', store_id: 'store-1' })
 
       await updateAppointment('appt-1', { durationMinutes: 45 })

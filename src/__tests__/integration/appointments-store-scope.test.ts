@@ -79,7 +79,14 @@ jest.mock('@/lib/synqed/client', () => {
   // resolves the booked staff's single assigned store — store-ginza here.
   const staffStores = { get: jest.fn(async () => ({ store_ids: ['store-ginza'] })) }
   const stores = { list: jest.fn(async () => ({ stores: [{ id: 'store-ginza', is_primary: true }] })) }
-  const client = { appointments, karuteRecords, staff, staffStores, stores }
+  // ⚖ R1-2 — the booking core reads the LANDING store's own hours before it
+  // writes, so a client stub needs the two read verbs. Open every day, no
+  // 臨時休業: this file is about the store CLAMP, not about closed days.
+  const storePolicies = {
+    get: jest.fn(async () => ({ weekly_hours: null })),
+    listClosedDays: jest.fn(async () => ({ closed_days: [] })),
+  }
+  const client = { appointments, karuteRecords, staff, staffStores, stores, storePolicies }
   return { getSynqedClient: jest.fn(async () => client) }
 })
 

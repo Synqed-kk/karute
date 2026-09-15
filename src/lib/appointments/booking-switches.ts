@@ -16,7 +16,18 @@ export const BOOKING_SWITCHES = {
    *  is better off than one who cannot. The remaining gap is the WRITE side —
    *  the app will still accept a booking into a 休 day — and that door is
    *  closed on the app side by PKT-1c-C, this same release; core's own
-   *  write-path refusal stays the ask (core ticket 1). */
+   *  write-path refusal stays the ask (core ticket 1).
+   *
+   *  ⚖ R1-10. It was parked OFF for one reason, written into this comment: a
+   *  staff member could still book INTO a 休 day, so showing 休 would have
+   *  been a label the app did not honour. THIS BRANCH is the refusal (app-side,
+   *  both doors, before anything reaches core), which answers the flip
+   *  condition. Leaving it off with the door closed would be the worse of the
+   *  two gaps: the staffer picks a day that looks completely normal — the 稼働
+   *  chip merely vanishes, which is indistinguishable from "no data yet" —
+   *  fills the whole form, and only 保存 tells them the day is closed. Core's
+   *  own write-path refusal is still Anthony's ticket; this switch is about
+   *  what the screens SHOW. */
   closedDays: true,
   /** The month page's selected-day list-card below the grid. ON — spec §S1,
    *  this round's build. Flip: never expected; a floor once 1b-month lands. */

@@ -344,7 +344,10 @@
       "overlap": "This time slot overlaps with an existing booking.",
       "durationPositive": "Duration must be a positive number of minutes.",
       "invalidStart": "Invalid appointment start time.",
-      "outsideHours": "Appointment must be within operating hours ({open}–{close})."
+      "outsideHours": "Appointment must be within operating hours ({open}–{close}).",
+      "closedDayStore": "This store is closed on this weekday. Pick another day, or change the opening hours under Settings → Stores.",
+      "closedDayDate": "This date is set as a temporary closure. Pick another day, or change it under Settings → Stores.",
+      "closedDayOrg": "The company-wide default has this weekday closed. Pick another day, or set this store's own opening hours under Settings → Stores — the default lives under Settings → Organization."
     },
     "empty": {
       "noData": "No data."

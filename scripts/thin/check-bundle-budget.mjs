@@ -1363,6 +1363,34 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en       134,342 → 134,342 — unchanged: the separator reuses a key the
 //     bundle already shipped, so the round adds NO new string.
 //   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
+//
+// ── the closed-day door chain's own last entry (superseded below) ────────
+// Raised 2026-09-16 at ⚖ PKT-1c-C — the closed-day booking door: the app now
+// REFUSES a booking whose start day is a store's 定休日 or 臨時休業 date, on both
+// doors, through the ONE time validator, and the refusal names which setting
+// closed the day (three lines in ja + en). Ground truth from an EMPTIED
+// thin/dist, deterministic across two clean builds on each side, both measured
+// in this one place: base d1fe35d95 = 2,105,619 B, tip = 2,106,848 B — this
+// door's own cost is +1,229 B (the rule, the one-date policy read, the message
+// pick, and the three JA/EN strings that ship in the locale chunk). The prior
+// ceiling had only 1,000 B of headroom left at that base, so the overage is
+// 229 B, not a regression from nothing.
+//
+// Re-measured 2026-09-16 after the five-lens FIX ROUND (R1-1…R1-10), and
+// NORMALISED back to the lane's +1,000 convention — the 4,096 above was a
+// one-off to absorb the base's own overage, and carrying it forward would be
+// 3 KB of silent headroom nobody asked for. Ground truth again from an
+// EMPTIED thin/dist, two clean builds with CI's six VITE_* values, both
+// 2,106,996 B byte-for-byte. The round's own cost is +148 B over the
+// pre-round tip: the thin port's refusal passthrough (R1-1), the dialog's
+// key picker for the coded refusals (R1-5), and the rewritten JA pointer
+// lines in the locale chunk. Ceiling = 2,106,996 + 1,000.
+//
+// NOTE for whoever merges feat/store-hours-door after this branch: THIS
+// CONSTANT is the one merge conflict between the two (git merge-tree, clean
+// everywhere else). Do not resolve it by picking a side — that branch's
+// ceiling predates several byte costs already on main. Re-measure from a
+// clean build of the merged tree and set measured + 1,000.
 // ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // THE ALL-IN LOOK TIP (look/28-all-in-20260916) — every chain above merged
 // INTO one look branch off feat/booking-month-new-slot 7f372b812: the month

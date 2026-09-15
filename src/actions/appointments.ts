@@ -15,6 +15,7 @@ import { isTerminalStatus, type AppStatus } from '@/lib/appointments/status'
 import { listCustomerPacks } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import {
+  validateAppointmentInput,
   validateAppointmentTime,
   type AppointmentInput,
 } from '@/lib/appointments'
@@ -85,23 +86,27 @@ export async function createAppointment(input: AppointmentInput) {
 
   // Validate BEFORE any resolution: resolveSynqedStaffId can CREATE a staff
   // record on miss — invalid input must not leave that side effect behind.
-  // (The core re-validates for the facade path; the check is pure.)
-  const orgSettings = await getOrgSettings()
-  const hoursError = await validateAppointmentTime(input, orgSettings?.operating_hours)
-  if (hoursError) return { error: hoursError }
+  // This is the PURE half (duration, start time); it needs no store, touches
+  // nothing and cannot throw.
+  //
+  // ⚖ R1-2 — the closed-day half moved INSIDE createAppointmentCore, because
+  // the store it must judge is the store the row LANDS in, and that is only
+  // known once the booked staff's core id is resolved. So the honest ordering
+  // is: pure checks → resolver → landing store → that store's hours. The
+  // side effect the old ordering protected against was junk input minting a
+  // staff record; a closed-day refusal is a roster staffer on a real day, and
+  // the resolver is idempotent for one.
+  const inputError = validateAppointmentInput(input)
+  if (inputError) return inputError
 
   try {
-    // All four are independent → resolve in parallel (resolveSynqedStaffId may
-    // hit the DB; getActiveStoreId is a cookie read). The active-store cookie is
-    // an ISOLATION input, not just a view label: it is clamped below against
-    // the viewer's RBAC scope so a stale / out-of-scope cookie can't stamp a
-    // booking into another branch. Business scope (x-business-id) is still applied
-    // by core regardless; this clamp is additive.
-    const [synqed, synqedStaffId, activeStore, auditActor] = await Promise.all([
+    // ⚖ R1-3 / LENS-4 LOW-7 — inside the try: getSynqedClient() → getBusinessId()
+    // throws when there is no membership, and this action's callers await it
+    // WITHOUT a try/catch (the same reason the gate above uses can()).
+    const [synqed, orgSettings, activeStore] = await Promise.all([
       getSynqedClient(),
-      resolveSynqedStaffId(input.staffProfileId),
+      getOrgSettings(),
       getActiveStoreId(),
-      resolveWebAuditContext(),
     ])
     // Clamp the cookie. Honor it ONLY when the viewer may act in that store
     // (viewAll → allowedStoreIds null, or it's one of their assigned stores —
@@ -114,15 +119,30 @@ export async function createAppointment(input: AppointmentInput) {
     let cookieStore: string | null = null
     if (activeStore) {
       const scope = await resolveStoreScope()
+      // ⚖ R1-8 — a DEGRADED assignment lookup fails CLOSED on the cookie. A
+      // failed lookup reports allowedStoreIds: null, the same shape as a
+      // genuinely unrestricted viewer, so the raw cookie used to pass straight
+      // through: a Ginza-only staffer whose lookup blipped could be judged —
+      // and refused — by another store's calendar. viewerScopeForActs is the
+      // house answer (`degraded ? [] : allowedStoreIds`), and the menus
+      // write-clamp already fails closed for the same reason.
+      const allowedStoreIds = scope.degraded ? [] : scope.allowedStoreIds
       cookieStore =
-        !scope.allowedStoreIds || scope.allowedStoreIds.includes(activeStore)
-          ? activeStore
-          : null
+        !allowedStoreIds || allowedStoreIds.includes(activeStore) ? activeStore : null
     }
+    const [synqedStaffId, auditActor] = await Promise.all([
+      resolveSynqedStaffId(input.staffProfileId),
+      resolveWebAuditContext(),
+    ])
+    // Store isolation: the core keys its weekly-hours / closed-days read to
+    // `preferredStoreId ?? defaultBookingStore` — the clamped cookie, or an id
+    // derived server-side from the booked staff. Never the raw cookie, never a
+    // guess, never another store.
     const result = await createAppointmentCore(synqed, input, {
       synqedStaffId,
       preferredStoreId: cookieStore,
       operatingHours: orgSettings?.operating_hours,
+      orgSaved: orgSettings?.operating_hours_saved,
       actor: { ...auditActor, source: 'web', requestId: crypto.randomUUID() },
     })
     if ('id' in result) {
@@ -448,11 +468,19 @@ export async function updateAppointment(
       patch.endsAt = new Date(start.getTime() + updates.durationMinutes * 60000).toISOString()
     }
 
-    const result = await updateAppointmentCore(synqed, appointmentId, patch, {
-      ...auditActor,
-      source: 'web',
-      requestId: crypto.randomUUID(),
-    })
+    // ⚖ PKT-1c-C S3 — the org half of the hours question. The STORE half is
+    // read inside the core, off the booking's own store_id.
+    const orgSettings = await getOrgSettings()
+    const result = await updateAppointmentCore(
+      synqed,
+      appointmentId,
+      patch,
+      { ...auditActor, source: 'web', requestId: crypto.randomUUID() },
+      {
+        operatingHours: orgSettings?.operating_hours,
+        orgSaved: orgSettings?.operating_hours_saved,
+      },
+    )
     if ('success' in result) {
       revalidatePath('/appointments')
       updateTag('dashboard')
