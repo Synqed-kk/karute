@@ -23,6 +23,8 @@
 // Schema sketch matches the StoresSection.tsx TODO this lift
 // replaces.
 
+import type { WeeklyHours } from '@synqed-kk/client'
+
 export interface Store {
   id: string
   name: string
@@ -40,6 +42,10 @@ export interface Store {
   /** This location's vertical (BUSINESS_TYPES value) — drives the per-store AI
    *  persona. Null until core's stores.business_type column backfills it. */
   businessType: string | null
+  /** The store's own weekly hours (core storePolicies.weekly_hours). Same three
+   *  states as StoreRow's field: undefined = this read never asked, null = never
+   *  configured (the business-wide 営業時間 answers), object = the store's week. */
+  weeklyHours?: WeeklyHours | null
 }
 
 export interface StoreFormValues {

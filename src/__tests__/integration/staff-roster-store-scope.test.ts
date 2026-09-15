@@ -37,6 +37,9 @@ jest.mock('@/actions/stores', () => ({
   getPrimaryStoreId: jest.fn(),
   getStaffStoresStrict: jest.fn(),
   listStores: jest.fn(async () => []),
+  // The 設定 page reads stores WITH their own 営業時間 (1c-D S1); the app-shell
+  // layout keeps the hours-free read.
+  listStoresWithHours: jest.fn(async () => []),
 }))
 
 // ── The two SEAMS under test (the roster the server hands the client). Every
@@ -109,7 +112,7 @@ import {
 } from '@/lib/auth/store-scope'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getBusinessId, getCurrentUserStaffId, getStaffList } from '@/lib/staff'
-import { getActiveStoreId, getStaffStoresStrict } from '@/actions/stores'
+import { getActiveStoreId, getStaffStoresStrict, listStoresWithHours } from '@/actions/stores'
 import DashboardLayout from '@/app/[locale]/(app)/layout'
 import SettingsPage from '@/app/[locale]/(app)/settings/page'
 
@@ -332,6 +335,61 @@ describe('roster seams (server → client)', () => {
     degradedActor()
     ;(getMyCapabilities as jest.Mock).mockResolvedValue(caps('stores.viewAll'))
     expect(ids(await settingsRoster())).toEqual(ids(roster))
+  })
+
+  // R1-9 — the web store clamp at settings/page.tsx (`initialStores={
+  // canViewAllStores ? stores : []}`). Its facade twin was pinned; this one
+  // never was, and this branch is what made it carry more: the rows it holds
+  // back now include every store's own 営業時間.
+  describe('設定 initialStores: the web store clamp', () => {
+    const STORE_ROWS = [
+      {
+        id: GINZA,
+        name: '銀座',
+        address: null,
+        phone: null,
+        isPrimary: true,
+        active: true,
+        staffCount: 0,
+        customerCount: 0,
+        businessType: null,
+        weeklyHours: { mon: { open: '08:00', close: '20:00' } },
+      },
+      {
+        id: DAIKANYAMA,
+        name: '代官山',
+        address: null,
+        phone: null,
+        isPrimary: false,
+        active: true,
+        staffCount: 0,
+        customerCount: 0,
+        businessType: null,
+        weeklyHours: { mon: { open: '11:00', close: '21:00' } },
+      },
+    ]
+    const shippedStores = async () => {
+      const el = await SettingsPage({
+        params: Promise.resolve({ locale: 'ja' }),
+        searchParams: Promise.resolve({}),
+      })
+      return propsWith(el, 'initialStores')?.initialStores as unknown[]
+    }
+
+    beforeEach(() => {
+      ;(listStoresWithHours as jest.Mock).mockResolvedValue(STORE_ROWS)
+    })
+
+    it('a viewer without stores.viewAll receives NO store rows — so no other store’s hours', async () => {
+      clamped() // staff.manage only
+      expect(await shippedStores()).toEqual([])
+    })
+
+    it('a stores.viewAll viewer receives the rows, hours included', async () => {
+      clamped()
+      ;(getMyCapabilities as jest.Mock).mockResolvedValue(caps('stores.viewAll'))
+      expect(await shippedStores()).toEqual(STORE_ROWS)
+    })
   })
 
   it('staff-switch drawer is UNAFFECTED when resolveStoreScope THREW (keeps the fallback)', async () => {

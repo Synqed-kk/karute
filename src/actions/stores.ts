@@ -3,12 +3,19 @@
 import { cache } from 'react'
 import { revalidatePath, updateTag } from 'next/cache'
 import { cookies } from 'next/headers'
-import type { SynqedClient } from '@synqed-kk/client'
+import type { SynqedClient, WeeklyHours } from '@synqed-kk/client'
 
 import { getSynqedClient } from '@/lib/synqed/client'
 import { businessDisplayName } from '@/lib/business-name'
+import { WEEKDAY_KEYS } from '@/lib/operating-hours'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
-import { storeSchema, type StoreInput, STORE_OWNER_DENIAL } from '@/lib/validations/store'
+import {
+  storeSchema,
+  type StoreInput,
+  STORE_OWNER_DENIAL,
+  STORE_HOURS_ACTOR_UNRESOLVED,
+  parseStoreWeeklyHours,
+} from '@/lib/validations/store'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { audit } from '@/lib/audit'
@@ -17,7 +24,10 @@ import { audit } from '@/lib/audit'
 // every twin below takes this instead of resolving getSynqedClient() from the
 // cookie session, so the facade (Bearer path, business resolved from the
 // verified token) and the web actions run the IDENTICAL write/read logic.
-type StoresClient = Pick<SynqedClient, 'stores' | 'staffStores' | 'customers' | 'entitlements' | 'orgSettings'>
+type StoresClient = Pick<
+  SynqedClient,
+  'stores' | 'staffStores' | 'customers' | 'entitlements' | 'orgSettings' | 'storePolicies'
+>
 
 /** Roster row shape the owner gate needs — a subset of StaffMember so the
  *  twin doesn't import the whole staff module's type surface. */
@@ -77,6 +87,13 @@ export interface StoreRow {
   /** This location's vertical (BUSINESS_TYPES value). Null until core's
    *  stores.business_type column exists / backfills (brief 2026-07-08). */
   businessType: string | null
+  /** This store's own weekly opening hours (core `storePolicies.weekly_hours`).
+   *  THREE states, deliberately: `undefined` = this read never asked for hours
+   *  (`opts.withHours` false — the app-shell layout's read); `null` = asked, and
+   *  the store has never configured any, so the business-wide 営業時間 answers
+   *  for it (resolveDayHours, src/lib/operating-hours.ts); an object = the
+   *  store's own week. A consumer must not read `undefined` as "none". */
+  weeklyHours?: WeeklyHours | null
 }
 
 /** Read business_type off a core store row tolerantly — the SDK types gain the
@@ -112,7 +129,7 @@ function coreBusinessType(row: unknown): string | null {
 export async function listStoresWithClient(
   synqed: StoresClient,
   businessId: string,
-  opts: { ensurePrimary: boolean },
+  opts: { ensurePrimary: boolean; withHours?: boolean },
 ): Promise<StoreRow[]> {
   // Fetch the store list AND both per-store count maps in one parallel batch —
   // they're independent reads, so there's no reason to await them in series
@@ -123,7 +140,17 @@ export async function listStoresWithClient(
   //   - staff counts: core's staff_stores link table.
   //   - customer counts: distinct customers with >=1 event at the store, derived
   //     server-side (customers stay business-wide). The heaviest of the three.
-  const [storesRes, staffByStore, customersByStore] = await Promise.all([
+  //   - weekly hours: OPT-IN (`opts.withHours`) — one storePolicies.list() for
+  //     the whole business, never one get() per store. Off by default because
+  //     the app-shell layout re-lists stores on every render and has no use for
+  //     hours; only the 設定 doors (web page + screens/settings facade), whose
+  //     店舗 tab renders the editor, ask for them. Deliberately NOT caught: a
+  //     policy read that fails must not be reported as "no hours configured" —
+  //     that reads as 全店共通の初期値 in the editor and the next save would
+  //     overwrite hours the store really has. It rides the same failure
+  //     contract as stores.list() itself (both settings doors already
+  //     `.catch(() => [])` this whole twin).
+  const [storesRes, staffByStore, customersByStore, hoursByStore] = await Promise.all([
     synqed.stores.list(),
     synqed.staffStores
       .counts()
@@ -133,6 +160,16 @@ export async function listStoresWithClient(
       .countsByStore()
       .then((r) => new Map<string, number>(Object.entries(r.counts)))
       .catch(() => new Map<string, number>()),
+    opts.withHours
+      ? synqed.storePolicies
+          .list()
+          .then(
+            (r) =>
+              new Map<string, WeeklyHours | null>(
+                r.policies.map((p) => [p.store_id, p.weekly_hours]),
+              ),
+          )
+      : Promise.resolve(new Map<string, WeeklyHours | null>()),
   ])
 
   // Lazily create the 本店 primary store so every business ends up with one —
@@ -174,13 +211,18 @@ export async function listStoresWithClient(
     staffCount: staffByStore.get(s.id) ?? 0,
     customerCount: customersByStore.get(s.id) ?? 0,
     businessType: coreBusinessType(s),
+    // Only when the caller ASKED. Absent policy row on a withHours read =
+    // never configured = null, the same thing the SDK returns as
+    // `weekly_hours` on a 'default'-source policy; `undefined` otherwise, so
+    // no consumer can mistake "not fetched" for "none configured".
+    weeklyHours: opts.withHours ? (hoursByStore.get(s.id) ?? null) : undefined,
   }))
 }
 
-/** All stores for the caller's business (anyone in the business can read).
- *  Thin wrapper — the lazy 本店-create prelude lives in the twin now (shared
- *  with the facade paths), so this just resolves cookie-session context. */
-export async function listStores(): Promise<StoreRow[]> {
+/** Cookie-session context resolution shared by the two web readers below —
+ *  the lazy 本店-create prelude itself lives in the twin (shared with the
+ *  facade paths). */
+async function listStoresForWeb(withHours: boolean): Promise<StoreRow[]> {
   let businessId: string
   try {
     businessId = await getBusinessId()
@@ -188,7 +230,20 @@ export async function listStores(): Promise<StoreRow[]> {
     return []
   }
   const synqed = await getSynqedClient()
-  return listStoresWithClient(synqed, businessId, { ensurePrimary: true })
+  return listStoresWithClient(synqed, businessId, { ensurePrimary: true, withHours })
+}
+
+/** All stores for the caller's business (anyone in the business can read).
+ *  NO hours — this is the app-shell layout's per-render read and StoresSection's
+ *  own refresh(); neither renders 営業時間. */
+export async function listStores(): Promise<StoreRow[]> {
+  return listStoresForWeb(false)
+}
+
+/** listStores + each store's own weekly hours (ONE storePolicies.list()). The
+ *  設定 page's read: its 店舗 tab is the only web surface that edits them. */
+export async function listStoresWithHours(): Promise<StoreRow[]> {
+  return listStoresForWeb(true)
 }
 
 /** The viewer's active store (a cookie). Null when unset → "all / primary". */
@@ -447,6 +502,180 @@ export async function updateStore(
     id,
     input,
   )
+  if ('ok' in result) revalidatePath('/settings')
+  return result
+}
+
+/** setStoreHoursCore's identity bundle. The extra field is the whole point:
+ *  core's `acting_staff_id` lives in CORE's STAFF-id space, while
+ *  `selfUserId` is the app's PROFILE id (getCurrentUserStaffId / the Bearer
+ *  token's auth user). They are different ids for the same human — every
+ *  signed-up member of a real roster has `staff.user_id = <profile id>` and a
+ *  different `staff.id` — and src/actions/appointments.ts:378-382 already
+ *  carries the canonical translation plus the record of this exact bug having
+ *  shipped once (`:477-479`).
+ *
+ *  BOTH doors resolve it BEFORE calling the core, through the SAME
+ *  non-creating lookup — the Bearer-safe `lookupSynqedStaffIdForBusiness` —
+ *  and hand the answer in here. A settings save must never mint a core staff
+ *  record on a miss (R3-1): the web door used to call the creating
+ *  `resolveSynqedStaffId`; a caller with no core staff row is now refused
+ *  instead, same as the facade always was.
+ *  `null` = it would not resolve: unlike the appointments stamp (optional,
+ *  best-effort, omitted on failure) this field is REQUIRED by the SDK and core
+ *  gates on nothing, so the save is REFUSED. Never a profile id, never a null
+ *  fallback. */
+type StoreHoursWriteDeps = StoreWriteDeps & { actingStaffId: string | null }
+
+/** One store's week as a single audit line — weekday keys and HH:MM only,
+ *  never a name. `default` = no week of its own, i.e. the company-wide hours
+ *  apply. Core writes its OWN store_policy.edit row with a full before/after
+ *  diff; this is what makes the app's row — the one salon staff actually read
+ *  in 監査ログ — carry the same change instead of naming the store and
+ *  nothing else. */
+function weekForAudit(hours: WeeklyHours | null): string {
+  if (hours === null) return 'default'
+  return WEEKDAY_KEYS.map((key) => {
+    const day = hours[key]
+    return `${key}=${day ? `${day.open}-${day.close}` : 'closed'}`
+  }).join(' ')
+}
+
+/** Client-threaded core of the 営業時間 save — the ONE place a store's own
+ *  weekly hours are written, shared by the web `setStoreHours` action and the
+ *  facade PATCH /stores/[id]/hours route (same owner-gate + audit-source
+ *  contract as createStoreCore/updateStoreCore above).
+ *
+ *  OWNER-ONLY for release 28, on the SAME hardcoded `isRosterOwner` gate every
+ *  other store write uses — no new capability. A manager setting their own
+ *  store's hours is the RBAC capability upgrade, a separate lane; it is
+ *  recorded, not built here.
+ *
+ *  THE WAY BACK (⚖ reversible-by-default): an explicit `null` week is the
+ *  reset — the SDK's own "clear back to unconfigured" — and rides this same
+ *  core, both doors, so the easy direction can never be the destructive one.
+ *  It logs as settings.store_hours_reset.
+ *
+ *  `weekly_hours` is the ONLY policy field sent. Core honours partial update
+ *  ("undefined = keep", dist/types.d.ts:1075 — proven against the practice
+ *  business 2026-09-16), so re-sending cutoff/cancellation/gap-guard fields
+ *  would only risk clobbering settings this editor does not own.
+ *
+ *  KNOWN LIMITATION, queued: a window that closes AFTER midnight cannot be
+ *  expressed (resolveDayHours has no close < open form), so it is refused
+ *  with STORE_HOURS_INVALID_WINDOW rather than silently mis-resolved. */
+export async function setStoreHoursCore(
+  synqed: StoresClient,
+  businessId: string,
+  deps: StoreHoursWriteDeps,
+  storeId: string,
+  weeklyHours: unknown,
+): Promise<{ ok: true } | { error: string }> {
+  // Validation BEFORE the owner check — web parity with createStore/
+  // updateStore (#578 audit finding): a non-owner submitting an invalid body
+  // sees the validation message the action always returned.
+  const parsed = parseStoreWeeklyHours(weeklyHours)
+  if ('error' in parsed) return { error: parsed.error }
+  if (!isRosterOwner(deps.staffList, deps.selfUserId)) {
+    return { error: STORE_OWNER_DENIAL }
+  }
+  // CORE's staff-id space, resolved by the door (see StoreHoursWriteDeps).
+  // Unresolvable = REFUSE — never deps.selfUserId, which is a profile id.
+  const actingStaffId = deps.actingStaffId
+  if (!actingStaffId) return { error: STORE_HOURS_ACTOR_UNRESOLVED }
+  try {
+    // The week this store had before the save, for the app audit row's own
+    // diff. Never blocks the save: an unreadable policy row costs the BEFORE
+    // half of one log line, nothing else.
+    const before = await synqed.storePolicies
+      .get(storeId)
+      .then((policy) => weekForAudit(policy.weekly_hours ?? null))
+      .catch(() => 'unavailable')
+    await synqed.storePolicies.set(storeId, {
+      weekly_hours: parsed.hours,
+      acting_staff_id: actingStaffId,
+    })
+    // ONE row from the app's own emitter, exactly how settings.store_update is
+    // emitted by updateStoreCore — and the SDK's optional `audit` input stays
+    // unused, because passing it would add a THIRD row.
+    //
+    // MEASURED 2026-09-16, not assumed: core audits storePolicies.set BY
+    // ITSELF, unconditionally — a store_policy.edit row with its own
+    // before/after diff, written whether or not the SDK `audit` input is
+    // passed. So every save leaves two rows: core's, in core's log, and this
+    // one, in the app's log that salon staff read. Keeping ours is the
+    // ruling; carrying the same change in `detail` is what stops it being
+    // the poorer twin.
+    const row = {
+      category: 'settings',
+      actorId: deps.selfUserId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'store',
+      targetId: storeId,
+      source: deps.source,
+      detail: { before, after: weekForAudit(parsed.hours) },
+    } as const
+    // The way back is its own act in the log — 「この店舗の時間を消して全店共通
+    // に戻した」 is not the same fact as 「時間を変えた」, and a reader scanning
+    // actions should not have to open the diff to tell them apart. Two literal
+    // emits over one shared row: CP4 bans a computed `action` argument and CP5
+    // wants `requestId` visible at each call site.
+    const requestId = deps.requestId
+    if (parsed.hours === null) {
+      audit({ ...row, action: 'settings.store_hours_reset', requestId })
+      return { ok: true }
+    }
+    audit({ ...row, action: 'settings.store_hours_update', requestId })
+    return { ok: true }
+  } catch (e) {
+    return {
+      error: `Could not update store hours: ${e instanceof Error ? e.message : 'unknown'}`,
+    }
+  }
+}
+
+/** Save one store's weekly 営業時間 (web door). Owner-only, seven weekdays
+ *  always — see setStoreHoursCore. */
+export async function setStoreHours(
+  storeId: string,
+  weeklyHours: unknown,
+): Promise<{ ok: true } | { error: string }> {
+  // No pre-gate — same reasoning as createStore/updateStore above.
+  let businessId: string
+  let staffList: RosterRow[]
+  let selfUserId: string | null
+  let synqed: StoresClient
+  try {
+    businessId = await getBusinessId()
+    ;[staffList, selfUserId] = await Promise.all([getStaffList(), getCurrentUserStaffId()])
+    synqed = await getSynqedClient()
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Not allowed' }
+  }
+  // The canonical profile-id → CORE staff-id translation — the SAME
+  // non-creating lookup the facade uses (R3-1: a settings save must never
+  // mint a core staff record on a miss; only the booking flow's
+  // resolveSynqedStaffId is allowed to create). `null` refuses the save
+  // inside the core rather than stamping core's `updated_by` with a profile
+  // id (see StoreHoursWriteDeps).
+  // Deferred (the house idiom in this dir): staff-map pulls the SDK, and
+  // listStores() — the app-shell layout's per-render read — has no business
+  // dragging that in for a write path only this action reaches.
+  let actingStaffId: string | null = null
+  if (selfUserId) {
+    const { lookupSynqedStaffIdForBusiness } = await import('@/lib/synqed/staff-map')
+    actingStaffId = await lookupSynqedStaffIdForBusiness(selfUserId, businessId).catch(() => null)
+  }
+  const result = await setStoreHoursCore(
+    synqed,
+    businessId,
+    { staffList, selfUserId, actingStaffId, source: 'web', requestId: crypto.randomUUID() },
+    storeId,
+    weeklyHours,
+  )
+  // Same revalidation updateStore does — and the same NOTHING else: no cache
+  // tag exists for these numbers (both readers call storePolicies.get uncached).
   if ('ok' in result) revalidatePath('/settings')
   return result
 }

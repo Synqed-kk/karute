@@ -437,6 +437,14 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // would double-log every facade create/update; list reads stay unmapped
   // (list-render-is-not-a-view, same ruling as customers.list).
   'stores.create': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/actions/stores.ts#createStoreCore' },
+  // TWO cores now share this key, and both emit their own row:
+  //   · src/actions/stores.ts#updateStoreCore  → settings.store_update
+  //   · src/actions/stores.ts#setStoreHoursCore → settings.store_hours_update
+  //     / settings.store_hours_reset (PATCH /stores/[id]/hours, 1c-D)
+  // The `coveredBy` FIELD holds one citation — CP2 parses it as a single
+  // file#symbol and the weakening ledger treats any edit to it as a truth
+  // change needing a ruled entry — so the second writer is named here. Both
+  // are proven by CP7 (AUDITED_CORES lists setStoreHoursCore).
   'stores.update': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/actions/stores.ts#updateStoreCore' },
   // staff CRUD + avatar + permissions + staff-stores (design-parity packet
   // 12 §S4a): createStaffCore/updateStaffCore/deleteStaffCore/
