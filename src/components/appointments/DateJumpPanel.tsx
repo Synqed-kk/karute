@@ -757,7 +757,12 @@ export function DateJumpPanel({
         <div className="relative">
           {/* level 1 — the month grid */}
           <div
-            className={cn('transition-[opacity,filter]', atMonths && 'pointer-events-none absolute inset-x-0 top-0')}
+            className={cn(
+              // `ease` is the mock's own curve for this crossfade (MOCK 250);
+              // without the utility it is Tailwind's default.
+              'transition-[opacity,filter] ease-[ease]',
+              atMonths && 'pointer-events-none absolute inset-x-0 top-0',
+            )}
             style={{
               opacity: atMonths ? 0 : 1,
               filter: atMonths && !reduced ? 'blur(2px)' : 'none',
@@ -848,7 +853,7 @@ export function DateJumpPanel({
           {/* level 2 — the year's twelve months */}
           <div
             className={cn(
-              'p-3 transition-[opacity,filter]',
+              'p-3 transition-[opacity,filter] ease-[ease]',
               !atMonths && 'pointer-events-none absolute inset-x-0 top-0',
             )}
             style={{

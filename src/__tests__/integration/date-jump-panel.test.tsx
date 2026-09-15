@@ -256,6 +256,11 @@ describe('walking the calendar', () => {
     // loiters before it turns (measured: 2.5 % of the rotation 7 ms into the
     // 160 ms, where the mock's curve is at ~17 %).
     expect(chevron.getAttribute('class')).toContain('ease-[cubic-bezier(0.23,1,0.32,1)]')
+    // Same reason one level down: the 1⇄2 crossfade is the mock's plain `ease`
+    // (R4). Cosmetic, and exactly the kind of class that disappears unnoticed.
+    const levels = dialog.querySelectorAll('[class*="transition-[opacity,filter]"]')
+    expect(levels).toHaveLength(2)
+    levels.forEach((el) => expect(el.getAttribute('class')).toContain('ease-[ease]'))
 
     fireEvent.click(title())
     // Level 2: the year, and twelve month chips.
