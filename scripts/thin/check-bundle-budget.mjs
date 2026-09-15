@@ -1269,6 +1269,21 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // entry above is 4c's own final measurement, which is the figure this one is
 // read against.
 //
+// ── the month LOOK merge tip's own entry (superseded below) ───────────────
+// RE-MEASURED 2026-09-16 on THE MERGE TIP of the two chains above — the whole
+// month line (feat/booking-month-compare dc05d00a8: the grid, the selected-day
+// card and 先月同期間比) merged INTO the 新規/capacity tip (feat/booking-new-count
+// d1fe35d95: the capacity wire, the honest 新規 count, the week face, #921 R6
+// and the type-system fix). This is the tree that goes on Liam's phone as the
+// month LOOK. Same CI recipe as every entry above — the workflow's own six
+// release-length placeholder VITE_* values, the 208-char anon key included (a
+// shorter one inflates index and reads as a false mismatch), thin/dist emptied
+// before each lap — byte-identical across THREE clean laps on this tip, same
+// content hashes and md5s every time (en-Q5zJiUAT, index-u2XwQc6V,
+// vendor-BD5eMVWe; node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,361 · index 1,043,285 · vendor 937,791 = 2,115,437 B.
+// Ceiling = 2,115,437 + 1,000.
+//
 // Same CI recipe — CI's own six VITE_* values, the 208-char anon-key
 // placeholder included (a shorter one inflates index and reads as a false
 // mismatch), thin/dist emptied before each of two laps, byte-identical both
@@ -1492,6 +1507,45 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // (matching content hashes, node v24.16.0, @synqed-kk/ui 0.3.2, installed
 // == lock): en 134,814 · index 1,048,257 · vendor 937,791 = 2,120,862 B.
 // Ceiling = 2,120,862 + 1,000.
+//   en:       134,204 +  19 +   138 =   134,361  ✔ exact
+//   vendor:   937,791, unchanged in all four     ✔ no dependency moved
+//   index:  1,033,009 + 596 + 9,537 = 1,043,142, measured 1,043,285 — a
+//     +143 B CROSS-TERM, and it is a cross-term rather than a discrepancy:
+//     unlike the last merge (two sides that edited disjoint lines), these two
+//     both rewrote the SAME month-cell wire and the same mapper, so the merged
+//     tree carries a line neither parent has — monthCellsToDTO passing the 休
+//     fact through the ONE shared mapper, on a cell that also carries the nine
+//     capacity fields and 新規 — plus the usual minifier drift at a megabyte.
+//     The direction is the point: a side that had been dropped shows up as a
+//     large NEGATIVE here, never as +143 B. Every marker on the built chunk was
+//     grepped separately (capacityReason ×2 · newCountKnown ×4 · 予約時間 ×1 ·
+//     先月同期間比 ×4 · monthCompareDelta ×6 · data-pressed ×4 · the R6 seam ×1
+//     with both CSS rules · the folded TYPE_SLOT reading "new").
+//
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-16 on PKT-2b's tip (feat/booking-month-new-slot S1+S2+S3,
+// on top of the merge tip above) — the WIRING round: the month line's own
+// 新規 slot (`monthNewCount`, metric-menu.ts — Σ `newCount` over `inMonth`
+// cells, null on any unknown/off/empty) replaces the month branch's hardcoded
+// typeSlot="off", and the selected-day card's DayNumbersLine now reads
+// TYPE_SLOT too, same as the day/week lines. No new UI, no new English string
+// — the two surfaces already rendered this slot; this round only feeds them
+// the real number. Same CI recipe as every entry above, thin/dist emptied
+// before each of two laps, byte-identical both times (matching content hashes
+// and md5s: en-Q5zJiUAT, index-BvAKhldp, vendor-BD5eMVWe; node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,361 · index 1,043,509 · vendor 937,791 = 2,115,661 B  (+224 B).
+// Ceiling = 2,115,661 + 1,000.
+//
+// +224 B, all in index; en and vendor unchanged to the byte (no new English
+// string, no dependency moved) — the weight is the wiring: monthNewCount
+// itself, its call site + the typeCount prop in AppointmentsView's month
+// branch, the TYPE_SLOT import replacing the "off" literal at both changed
+// call sites, and the thin screen's two extra field copies off the DTO
+// (newCount/newCountKnown, previously dropped there). `newCountKnown` — a
+// property-access string that survives minification — appears 7× in this
+// build's index chunk versus 4× on the merge-tip build two entries up, which
+// is consistent with the extra read site this round adds.
 const BUDGET_BYTES = 2_121_862
 
 let dir
