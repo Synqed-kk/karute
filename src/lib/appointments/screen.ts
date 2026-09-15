@@ -26,9 +26,12 @@ import {
 import type { AppointmentWindow } from '@/lib/appointments/by-date'
 import type { DayHoursFact } from '@/lib/operating-hours'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
-import { isReturningCustomer } from '@/lib/customers/status-signals'
-import { firstVisitFromBooking } from '@/lib/customers/first-visit'
-import { newCountByDay, type FirstVisitInputs } from '@/lib/appointments/first-visit'
+import {
+  isNewCustomerForDay,
+  newCountByDay,
+  titleVerdictByClient,
+  type NewCustomerInputs,
+} from '@/lib/appointments/first-visit'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import { jstStartOfToday, partsInJst } from '@/lib/date/jst'
@@ -306,39 +309,33 @@ export function buildAppointmentsScreen(
       initials: (s.full_name ?? '?').trim().slice(0, 1) || '?',
     }))
 
-  // QR "returning customer" flag per client (cached customer list). A known
-  // existing customer is NEVER 新規 — even with no karute/past appointment yet
-  // (QR-migrated regulars who hold 回数券). Without this they all showed 新規.
-  // Cached customer by id — carries the QR returning-signals (visit_count, 回数券).
+  // Cached customer by id — carries the QR returning-signals (the
+  // existing-customer import flag, visit_count, 回数券).
   const cachedById = new Map(customers.map((c) => [c.id, c] as const))
-  // "First-time customer" = NOT returning, via the SAME resolver signal the 顧客
-  // list + profile use (isReturningCustomer). One source of truth → a 回数券 or
-  // visit_count regular is never shown 新規 here while reading 継続中 elsewhere.
-  const isFirstTimeByClient = new Map<string, boolean>()
-  for (const [id, e] of enrichment.entries()) {
-    const cc = cachedById.get(id)
-    isFirstTimeByClient.set(
-      id,
-      !isReturningCustomer({
-        joinDateIso: null,
-        lastVisitIso: null,
-        isExistingCustomer: cc?.isExistingCustomer,
-        visitCount: cc?.visitCount,
-        // QR flag OR a real ticket_packs ledger entry — a manually-registered
-        // pack holder is returning even before QR knows about them.
-        hasTicketPack: (cc?.hasTicketPack ?? false) || packUsage.has(id),
-        karuteCount: e.totalKarute,
-        pastAppointmentCount: e.pastAppointmentCount,
-      }),
-    )
+  // ⚖ R1-1 — the day list's 新規 tag, from THE shared predicate.
+  //
+  // The rule itself has not changed a conjunct: a known existing customer is
+  // never 新規 even with no karute/past appointment yet (QR-migrated regulars —
+  // without that guard they all showed 新規), a 回数券 holder is never 新規, and
+  // the day's course names outrank our inference either way. It MOVED, into
+  // `lib/appointments/first-visit.ts`, because the 新規 NUMBER beside this list
+  // now counts exactly what this map tags. Two functions for one question is
+  // how a screen starts contradicting its own list — which is what the number's
+  // own rule was doing on four measured inputs before R1.
+  const firstVisitInputs: NewCustomerInputs = {
+    customers: cachedById,
+    enrichment,
+    packUsage,
   }
-  // The reservation system outranks inference (Liam's rule): a booking on a
-  // 新規 course IS a first visit; a booking on any other named course means
-  // returning — our own missing history proves nothing. Titleless bookings
-  // keep the inferred value set above.
+  const dayTitleVerdict = titleVerdictByClient(
+    dayAppointments.map((a) => ({ clientId: a.client_id, title: a.title })),
+  )
+  const isFirstTimeByClient = new Map<string, boolean>()
   for (const a of dayAppointments) {
-    const fromBooking = firstVisitFromBooking(a.title)
-    if (fromBooking !== null) isFirstTimeByClient.set(a.client_id, fromBooking)
+    isFirstTimeByClient.set(
+      a.client_id,
+      isNewCustomerForDay(a.client_id, dayTitleVerdict, firstVisitInputs),
+    )
   }
 
   // Sequential salon karute number per customer — same helper + same cached
@@ -416,17 +413,13 @@ export function buildAppointmentsScreen(
       })()
     : Math.max(0, dayOpHours.closeMinute - dayOpHours.openMinute)
 
-  // ⚖ PKT-2 — the 新規 producer. What stood here was a set of customers
-  // carrying the QuickReserve `is_existing_customer === false` import flag: a
-  // different source answering a different question, and the number it fed
-  // never printed. It is deleted rather than kept beside the new rule — two
-  // formulas for one number is how a screen starts contradicting its own list.
-  //
-  // Per WINDOW, never per day: rule (3) needs the whole window to find a
-  // customer's earliest booking. Memoized by window object, so the week rows
-  // and the selected day's totals read the SAME map — the same day cannot come
-  // out two ways on one screen.
-  const firstVisitInputs: FirstVisitInputs = { enrichment, packUsage }
+  // ⚖ PKT-2 / R1-1 — the 新規 producer, reading the SAME predicate the tag
+  // above reads. It counts, per JST day, the people whose row on that day
+  // carries the tag; nothing about a day's answer depends on which window the
+  // day was read in, so the memo below is a cost saver and no longer a
+  // correctness mechanism — the week row, the selected day's totals and the
+  // month cell agree because the rule is the same, not because they share a
+  // map.
   const newCountCache = new Map<AppointmentWindow, ReadonlyMap<string, number>>()
   const newCountsFor = (win: AppointmentWindow): ReadonlyMap<string, number> => {
     let m = newCountCache.get(win)
