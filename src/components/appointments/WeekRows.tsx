@@ -52,7 +52,7 @@ function shortMonthDay(dateIso: string): string {
 }
 
 /** ONE band→colour map for every 予約 surface that draws a density dot: the
- *  week row's own dot and the 月 grid's (MonthPage's `bandTone`). A second map
+ *  week row's own dot and the 月 grid's (MonthPage's `cellTone`). A second map
  *  is how the same day ends up green here and blue there. */
 export const DENSITY_DOT_CLASS: Record<MonthDensityBucket, string | null> = {
   empty: null,

@@ -59,12 +59,15 @@ interface MonthPageProps {
   onPickOtherMonthDay: (dateIso: string) => void
 }
 
-/** The dot's band, through ONE door.
+/** The dot's band, through ONE door. Named for the CELL it colours, not for
+ *  the band: `metric-menu` has a module-private `bandTone(pct)` that answers a
+ *  different question (a 稼働 percentage), and one word for two questions is a
+ *  grep that lies (D-7).
  *
  *  `band` is the per-store 「混雑」 threshold (⚖ Liam 9/15 11:1x) and is NOT on
  *  the wire yet — 1c-B adds it, and this `??` is the whole seam it needs. The
  *  colours come from the week rows' map, never a second one. */
-export function bandTone(cell: {
+export function cellTone(cell: {
   density: MonthDensityBucket
   band?: MonthDensityBucket
 }): string | null {
@@ -270,7 +273,7 @@ export function MonthPage({
             // day with nothing booked. A closed day that HAS bookings shows
             // them — a 休 mark over real bookings is the worst cell on the page.
             const closed = isClosedRow(cell)
-            const dot = closed ? null : bandTone(cell)
+            const dot = closed ? null : cellTone(cell)
             const dateLabel = formatCompactDateJst(jstWallTimeToDate(cell.id, '00:00'), locale)
 
             return (

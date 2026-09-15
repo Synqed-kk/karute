@@ -366,26 +366,26 @@ describe('MonthPage — the month line', () => {
   })
 })
 
-describe('MonthPage — bandTone', () => {
+describe('MonthPage — cellTone', () => {
   it('reads the wire density today and a per-store band the day it lands', () => {
-    const { bandTone } = loadMonthPage()
-    expect(bandTone({ density: 'light' })).toBe('bg-[var(--color-success)]')
-    expect(bandTone({ density: 'medium' })).toBe('bg-[var(--color-accent)]')
-    expect(bandTone({ density: 'busy' })).toBe('bg-[var(--color-warning)]')
-    expect(bandTone({ density: 'empty' })).toBeNull()
+    const { cellTone } = loadMonthPage()
+    expect(cellTone({ density: 'light' })).toBe('bg-[var(--color-success)]')
+    expect(cellTone({ density: 'medium' })).toBe('bg-[var(--color-accent)]')
+    expect(cellTone({ density: 'busy' })).toBe('bg-[var(--color-warning)]')
+    expect(cellTone({ density: 'empty' })).toBeNull()
     // 1c-B's seam: a per-store band overrides the fixed table, and until it is
     // on the wire `density` is the whole answer.
-    expect(bandTone({ density: 'busy', band: 'light' })).toBe('bg-[var(--color-success)]')
+    expect(cellTone({ density: 'busy', band: 'light' })).toBe('bg-[var(--color-success)]')
   })
 
   it('is the SAME map the week rows draw their dot from', () => {
-    const { bandTone } = loadMonthPage()
+    const { cellTone } = loadMonthPage()
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { densityDotClass } = require('@/components/appointments/WeekRows') as typeof import('@/components/appointments/WeekRows')
-    expect(bandTone({ density: 'light' })).toBe(densityDotClass(1))
-    expect(bandTone({ density: 'medium' })).toBe(densityDotClass(4))
-    expect(bandTone({ density: 'busy' })).toBe(densityDotClass(9))
-    expect(bandTone({ density: 'empty' })).toBe(densityDotClass(0))
+    expect(cellTone({ density: 'light' })).toBe(densityDotClass(1))
+    expect(cellTone({ density: 'medium' })).toBe(densityDotClass(4))
+    expect(cellTone({ density: 'busy' })).toBe(densityDotClass(9))
+    expect(cellTone({ density: 'empty' })).toBe(densityDotClass(0))
   })
 })
 
