@@ -31,7 +31,6 @@ import {
   hhmm,
   place,
   minuteOf,
-  type BoardItem,
   type BoardLane,
   type Hours,
 } from '@/business/lib/today-board'
@@ -46,7 +45,6 @@ import {
   sellLayerFor,
   storeHasBeds,
   windowsOf,
-  type GuardRail,
   type LandingQuestion,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
@@ -58,9 +56,11 @@ import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held
 import { bedDoor, bedViewsFor, TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
-import type { GapCell, SellCell } from '@/business/lib/canon-logic/availability'
+import type { GapCell } from '@/business/lib/canon-logic/availability'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
@@ -247,7 +247,6 @@ describe('G1 — the board itself owns no room', () => {
     const staffKeys = GYM.lanes.filter((l) => l.group === 'staff').map((l) => l.key)
     const bedLanes = GYM.lanes.filter((l) => l.group === 'beds')
     const resources = await data.listResources(STORE_C)
-    // eslint-disable-next-line no-console
     console.log('G1', {
       staffKeys,
       bedLaneCount: bedLanes.length,
@@ -268,7 +267,6 @@ describe('G1 — the board itself owns no room', () => {
 describe('G2 — the mask holds windows on staff time alone', () => {
   it('prints protectedCount per lane — non-zero on c-03 (⚖ pre-fix this printed 0, see mutant m2)', () => {
     const mask = maskOf()
-    // eslint-disable-next-line no-console
     console.log('G2', mask.map((m) => ({ laneKey: m.laneKey, protectedCount: m.protectedCount, spans: m.spans })))
     const c03 = mask.find((m) => m.laneKey === 'c-03')
     expect(c03).toBeDefined()
@@ -296,7 +294,6 @@ describe('G3 — the allocator and the landing verdict', () => {
       minutesOf: (x: number) => minuteOf(x, GYM.hours),
     }
     const verdict = landingVerdict(GYM.lanes, q, null)
-    // eslint-disable-next-line no-console
     console.log('G3', { untagged, tagged, verdict: { kind: verdict.kind, floor: verdict.floor, reason: verdict.reason } })
     expect(untagged).toEqual({ laneKey: null, refusal: null, blockers: [], reseats: [] })
     expect(tagged.refusal).toBe('この店舗には個室がありません。個室のある店舗へ移してください')
@@ -319,7 +316,6 @@ describe('G4 — the sell layer: staff cells only', () => {
       depth,
     })
     const bedCells = sell.cells.filter((c) => c.group === 'beds')
-    // eslint-disable-next-line no-console
     console.log('G4', { cellCount: sell.cells.length, bedCellCount: bedCells.length, resourceKeys: [...new Set(sell.cells.map((c) => c.resourceKey))] })
     expect(bedCells).toEqual([])
     expect(sell.cells.every((c) => c.resourceKey === '')).toBe(true)
@@ -346,7 +342,6 @@ describe('G4 — the sell layer: staff cells only', () => {
     const perHour = new Map<number, number>()
     for (const c of sell.cells) perHour.set(c.h, (perHour.get(c.h) ?? 0) + 1)
     const counts = [...new Set(perHour.values())]
-    // eslint-disable-next-line no-console
     console.log('G4-DISCLOSURE', { perHour: Object.fromEntries(perHour), counts })
     expect(counts).toEqual([1])
   })
@@ -358,7 +353,6 @@ describe('G5 — the withheld layer', () => {
     const mask = maskOf(book)
     const nothing = withheldOffers([], undefined, mask, GYM.lanes, book, true)
     const netted = honestHeld(mask, GYM.lanes, book, true)
-    // eslint-disable-next-line no-console
     console.log('G5', {
       keysSize: nothing.keys.size,
       total: netted.total,
@@ -381,7 +375,6 @@ describe('G6 — the rail: no ベッド, no 満室/清掃, no compatible rooms',
     }
     const c03 = GYM.lanes.find((l) => l.key === 'c-03' && l.group === 'staff')!
     const answer = views.world.bedFor(780, 840, { stores: c03.stores, requiresPrivate: false })
-    // eslint-disable-next-line no-console
     console.log('G6', { chipCount: chips.length, sample: chips.slice(0, 3), compatibleRoomsExist: answer.compatibleRoomsExist })
     expect(chips.length).toBeGreaterThan(0)
     for (const c of chips) {
@@ -400,7 +393,6 @@ describe('G7 — the chip number equals the mask sum', () => {
     const identity = honestHeld(mask, GYM.lanes, book, false)
     const chipTotal = windowsOf(identity, GYM.lanes).total
     const maskSum = mask.reduce((n, m) => n + m.protectedCount, 0)
-    // eslint-disable-next-line no-console
     console.log('G7', { chipTotal, maskSum })
     expect(chipTotal).toBe(maskSum)
   })
@@ -415,7 +407,6 @@ describe('G8 — nothing throws; the online reserved rows exist', () => {
       door = gymDoor(mask)
     }).not.toThrow()
     const byKind = Object.fromEntries(door.online.groups.map((g) => [g.kind, g.rows.length]))
-    // eslint-disable-next-line no-console
     console.log('G8', { byKind, dropCount: door.drops.length, fallbackPacked: door.fallback.packed.length })
     expect(byKind.reserved).toBeGreaterThan(0)
   })
@@ -430,16 +421,13 @@ describe('G9 — no 「ベッド」 reachable', () => {
     const untagged = allocateBed(GYM.lanes, { id: null, currentBed: null, stores: [STORE_C], requiresPrivate: false, start: 780, end: 840 })
     const sentences: string[] = []
     for (const per of explained.values()) for (const said of per.values()) sentences.push(said.sentence)
-    for (const g of door.online.groups) for (const r of g.rows) sentences.push(g.label)
+    for (const g of door.online.groups) for (let i = 0; i < g.rows.length; i += 1) sentences.push(g.label)
     if (untagged.refusal) sentences.push(untagged.refusal)
-    // eslint-disable-next-line no-console
     console.log('G9', { sentenceCount: sentences.length, anyBed: sentences.some((s) => s.includes('ベッド')) })
     expect(sentences.some((s) => s.includes('ベッド'))).toBe(false)
   })
 
   it('SOURCE-TEXT CENSUS — every 「ベッド」 line in TodayScreen.tsx and today-interactions.ts outside a comment is on the allowlist', () => {
-    const fs = require('node:fs') as typeof import('node:fs')
-    const path = require('node:path') as typeof import('node:path')
     const files = [
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx',
       'src/app/[locale]/(business)/business/today/today-interactions.ts',
@@ -513,7 +501,7 @@ describe('G9 — no 「ベッド」 reachable', () => {
     ]
     const offenders: string[] = []
     for (const rel of files) {
-      const text = fs.readFileSync(path.join(process.cwd(), rel), 'utf8')
+      const text = readFileSync(join(process.cwd(), rel), 'utf8')
       const lines = text.split('\n')
       for (const line of lines) {
         if (!line.includes('ベッド')) continue
@@ -524,7 +512,6 @@ describe('G9 — no 「ベッド」 reachable', () => {
         offenders.push(`${rel}: ${line.trim()}`)
       }
     }
-    // eslint-disable-next-line no-console
     console.log('G9-CENSUS', { offenderCount: offenders.length, offenders })
     expect(offenders).toEqual([])
   })
@@ -534,10 +521,8 @@ describe('G9 — no 「ベッド」 reachable', () => {
   // above cannot observe whether the SCREEN actually gates them: only the
   // source can prove `honest` and `heldBoardHonest` sit behind `storeHasBeds`.
   it('the honest-netting gates are source-present (item 10/11, catches m3)', () => {
-    const fs = require('node:fs') as typeof import('node:fs')
-    const path = require('node:path') as typeof import('node:path')
-    const src = fs.readFileSync(
-      path.join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
       'utf8',
     )
     expect(src).toContain('HONEST_HELD && heldCommitted && storeHasBeds(committedLanes)')
@@ -552,14 +537,11 @@ describe('G9 — no 「ベッド」 reachable', () => {
   // simple half (any dropped gate lowers it); the five exact fragments are the
   // named half, for a readable failure.
   it('the five tour/legend hasBeds gates are all present (item 12, catches m5)', () => {
-    const fs = require('node:fs') as typeof import('node:fs')
-    const path = require('node:path') as typeof import('node:path')
-    const src = fs.readFileSync(
-      path.join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
       'utf8',
     )
     const hasBedsCount = (src.match(/hasBeds/g) ?? []).length
-    // eslint-disable-next-line no-console
     console.log('m5-catch', { hasBedsCount })
     // 1 definition + 2 honest-gate reads + 6 tour-site reads (the rail tour's
     // two sentences, the ⇄ legend key, the ⇄ guard-tour clause, the ⇄ key span,
@@ -585,7 +567,6 @@ describe('THE MATRIX — the rows this file can print (PLAN §4)', () => {
       gridMin: GYM.sell.gridMin, sellSlotMin: 45, nowMinute: GYM.sell.nowMinute,
       locked: [], showPrice: true, hi: price.hi, hqMin: GYM.dialogs.pricing.hqMin, depth,
     })
-    // eslint-disable-next-line no-console
     console.log('MATRIX B×C', { cellCount: sell.cells.length, bedCells: sell.cells.filter((c) => c.group === 'beds').length })
     expect(sell.cells.filter((c) => c.group === 'beds')).toEqual([])
   })
@@ -596,7 +577,6 @@ describe('THE MATRIX — the rows this file can print (PLAN §4)', () => {
     const honest = honestHeld(mask, GYM.lanes, book, true)
     const withReal = withheldOffers([], honest, mask, GYM.lanes, book, true)
     const withUndefined = withheldOffers([], undefined, mask, GYM.lanes, book, true)
-    // eslint-disable-next-line no-console
     console.log('MATRIX C×D', { withRealKeys: withReal.keys.size, withUndefinedKeys: withUndefined.keys.size })
     expect(withReal.keys.size).toBe(0)
     expect(withUndefined.keys.size).toBe(0)
@@ -608,7 +588,6 @@ describe('THE MATRIX — the rows this file can print (PLAN §4)', () => {
       lanes: GYM.lanes, closeMin: GYM.hours.close, nowMin: GYM.sell.nowMinute,
       guard: GYM.guard.config, gapGuardMode: 'off', book,
     })
-    // eslint-disable-next-line no-console
     console.log('MATRIX guard-off', { rows: off.length })
     expect(off).toEqual([])
   })
@@ -618,7 +597,6 @@ describe('THE MATRIX — the rows this file can print (PLAN §4)', () => {
     const mask = maskOf(book)
     const on = honestHeld(mask, GYM.lanes, book, false)
     const cGate = storeHasBeds(GYM.lanes) ? honestHeld(mask, GYM.lanes, book, true) : undefined
-    // eslint-disable-next-line no-console
     console.log('MATRIX HONEST_HELD-off≡gym-C', { onTotal: on.total, cGateIsUndefined: cGate === undefined })
     expect(cGate).toBeUndefined()
   })

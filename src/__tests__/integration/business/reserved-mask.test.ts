@@ -1061,7 +1061,6 @@ describe('⚖ ROUND 3 · C — a store with no rooms holds windows on staff time
       const hasRoomyPocket = pockets.some((p) => p.e - p.s >= protectedMin)
       return { laneKey: l.key, protectedCount: m.protectedCount, spans: m.spans.map((s) => s.windowStart), canon, hasRoomyPocket }
     })
-    // eslint-disable-next-line no-console
     console.log('7(a)', printed)
     for (const p of printed) {
       if (p.hasRoomyPocket) expect(p.protectedCount).toBeGreaterThan(0)
@@ -1087,7 +1086,6 @@ describe('⚖ ROUND 3 · C — a store with no rooms holds windows on staff time
     const g01 = lanes[0]
     const oracle = startsFor(g01, GUARD, 'standard', bedCtx(book, g01))
     const tip = mask.find((m) => m.laneKey === 'g-01')!.spans.map((s) => s.windowStart)
-    // eslint-disable-next-line no-console
     console.log('7(b)', { tip, oracle })
     expect(tip).toEqual(oracle)
   })
@@ -1105,7 +1103,6 @@ describe('⚖ ROUND 3 · C — a store with no rooms holds windows on staff time
     const book = bedTruthViews(lanes, { openMin: BOUNDS.from, closeMin: BOUNDS.until, nowMin: BOUNDS.from }, null).world
     const mask = reservedMaskFor({ lanes, closeMin: BOUNDS.until, nowMin: null, guard: GUARD, gapGuardMode: 'standard', book })
     const printed = mask.find((m) => m.laneKey === 'g-float')
-    // eslint-disable-next-line no-console
     console.log('7(c)', printed)
     // The callback is installed (unlike the no-bed-lane case (a)): the walk asks
     // the book, which is what makes a room genuinely double-booked with a
