@@ -11,13 +11,12 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import type { WeekDayRowData } from '@/lib/adapters/reservation'
 
 const MESSAGES: Record<string, string> = {
-  summary: '{from}〜{to} · 予約 {count}件',
-  summaryNew: ' · 新規 {n}',
-  summaryReturning: ' · 再来 {n}',
+  summaryRange: '{from}〜{to}',
+  sep: '·',
   count: '予約',
   utilization: '稼働',
   free: '空き',
-  bookedTime: '予約時間',
+  bookedTime: '稼働時間',
   new: '新規',
   returning: '再来',
   cancelled: 'キャンセル',
@@ -28,7 +27,7 @@ const MESSAGES: Record<string, string> = {
   hours: '{h}時間',
   minutes: '{m}分',
   loading: '予約状況を読み込み中',
-  failed: '予約状況を取得できませんでした',
+  failed: '予約状況を取得できませんでした。もう一度お試しください',
   rowAria: '{date} 予約{n}件',
 }
 
@@ -147,7 +146,9 @@ describe('WeekRows — summary line', () => {
     rows[0] = row({ dateIso: rows[0].dateIso, dateNumber: rows[0].dateNumber, closed: true, count: 0, newCustomerCount: 999 })
     render(<WeekRows {...baseProps} rows={rows} onPickDay={jest.fn()} />)
     const summary = screen.getByTestId('week-summary')
-    expect(summary.textContent).toContain('新規 0')
+    // The two bold numbers are 予約 and 新規, in that order (mock .wksum b).
+    const numbers = Array.from(summary.querySelectorAll('b')).map((b) => b.textContent)
+    expect(numbers[1]).toBe('0')
     expect(summary.textContent).not.toMatch(/999/)
   })
 })
@@ -171,18 +172,21 @@ describe('WeekRows — closed row', () => {
 })
 
 describe('WeekRows — pending / failed', () => {
-  it('pending renders the loading line and shimmer pills, no summary', () => {
+  it('pending renders the loading line, the summary\'s shape, and shimmer pills — never a stale number', () => {
     const WeekRows = loadWeekRows()
     const { container } = render(<WeekRows {...baseProps} rows={sevenDays()} pending onPickDay={jest.fn()} />)
     expect(screen.getByText('予約状況を読み込み中')).toBeInTheDocument()
-    expect(screen.queryByTestId('week-summary')).not.toBeInTheDocument()
+    // W-F's split keys gave the line a per-number seam, so it does what the
+    // mock's own weekSumHTML(mon, pend) does: range + words stay, the numbers
+    // shimmer. No <b> is rendered, so no stale sum can survive a refetch.
+    expect(screen.getByTestId('week-summary').querySelectorAll('b')).toHaveLength(0)
     expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0)
   })
 
   it('failed renders only the failure line, no rows', () => {
     const WeekRows = loadWeekRows()
     render(<WeekRows {...baseProps} rows={sevenDays()} failed onPickDay={jest.fn()} />)
-    expect(screen.getByText('予約状況を取得できませんでした')).toBeInTheDocument()
+    expect(screen.getByText('予約状況を取得できませんでした。もう一度お試しください')).toBeInTheDocument()
     expect(screen.queryAllByRole('button')).toHaveLength(0)
   })
 })
@@ -254,5 +258,54 @@ describe('WeekRows — the mock’s §v5/§v6 geometry, ported rule for rule', (
     const values = Array.from(container.querySelectorAll('[data-week-value]'))
     expect(values.length).toBeGreaterThan(0)
     for (const v of values) expect(v.className).toContain('tabular-nums')
+  })
+})
+
+describe('WeekRows — the summary line is the mock’s .wksum (W-F)', () => {
+  it('the NUMBERS are ink 700 tabular and the words stay grey', () => {
+    const WeekRows = loadWeekRows()
+    render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    const summary = screen.getByTestId('week-summary')
+    // grey 12.5/600 on the line (mock .wksum), ink 700 tabular on each <b>.
+    expect(summary.className).toContain('text-[12.5px]')
+    expect(summary.className).toContain('font-semibold')
+    expect(summary.className).toContain('text-[var(--color-text-muted)]')
+    const bolds = Array.from(summary.querySelectorAll('b'))
+    expect(bolds).toHaveLength(2) // typeSlot 'new' → 予約 + 新規
+    for (const b of bolds) {
+      expect(b.className).toContain('font-bold')
+      expect(b.className).toContain('tabular-nums')
+      expect(b.className).toContain('text-[var(--color-text)]')
+    }
+  })
+
+  it("the 新規 number is INK here, not the 新規 blue (spec §3: §v11c touched four surfaces, NOT the summary)", () => {
+    const WeekRows = loadWeekRows()
+    render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    expect(screen.getByTestId('week-summary').innerHTML).not.toMatch(/reservation-new-chip-bg/)
+  })
+
+  it("typeSlot 'off' shows the range and 予約 only — no PKT-2 slot", () => {
+    const WeekRows = loadWeekRows()
+    render(<WeekRows {...baseProps} typeSlot="off" rows={sevenDays()} onPickDay={jest.fn()} />)
+    const summary = screen.getByTestId('week-summary')
+    expect(summary.querySelectorAll('b')).toHaveLength(1)
+    expect(summary.textContent).not.toMatch(/新規|再来/)
+  })
+
+  it('the range comes from the FIRST and LAST row’s own dateIso, never week-start arithmetic', () => {
+    const WeekRows = loadWeekRows()
+    render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
+    expect(screen.getByTestId('week-summary').textContent).toContain('9/14〜9/20')
+  })
+
+  it('pending keeps the range and the word, and shimmers the number (mock weekSumHTML’s pend branch)', () => {
+    const WeekRows = loadWeekRows()
+    render(<WeekRows {...baseProps} rows={sevenDays()} pending onPickDay={jest.fn()} />)
+    const summary = screen.getByTestId('week-summary')
+    expect(summary.textContent).toContain('9/14〜9/20')
+    expect(summary.querySelectorAll('b')).toHaveLength(0)
+    // mock .wksum .shim{width:38px;height:11px}
+    expect(summary.querySelector('.w-\\[38px\\]')).not.toBeNull()
   })
 })

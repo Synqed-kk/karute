@@ -12,7 +12,7 @@ const MESSAGES: Record<string, string> = {
   count: '予約',
   utilization: '稼働',
   free: '空き',
-  bookedTime: '予約時間',
+  bookedTime: '稼働時間',
   new: '新規',
   returning: '再来',
   cancelled: 'キャンセル',
@@ -109,7 +109,7 @@ describe('DayNumbersLine — order per typeSlot', () => {
     const { container } = render(
       <DayNumbersLine row={row()} soloMode={false} typeSlot="returning" locale="ja" />,
     )
-    expect(itemTexts(container)).toEqual(['11件', '2再来', '4時間30分予約時間', '0キャンセル'])
+    expect(itemTexts(container)).toEqual(['11件', '2再来', '4時間30分稼働時間', '0キャンセル'])
   })
 
   it("'off' → 予約, 稼働, 予約時間 (free OFF), next unused metric", () => {
@@ -117,7 +117,7 @@ describe('DayNumbersLine — order per typeSlot', () => {
     const { container } = render(
       <DayNumbersLine row={row({ bookedMinutes: 100 })} soloMode={false} typeSlot="off" locale="ja" />,
     )
-    expect(itemTexts(container)).toEqual(['11件', '21%稼働', '1時間40分予約時間', '0キャンセル'])
+    expect(itemTexts(container)).toEqual(['11件', '21%稼働', '1時間40分稼働時間', '0キャンセル'])
   })
 })
 

@@ -82,6 +82,24 @@ function ValuePill({ pending }: { pending?: boolean }) {
   )
 }
 
+// mock `.wksum b{color:var(--ink);font-weight:700;font-variant-numeric:
+// tabular-nums}` — the LINE is grey 12.5/600, only the numbers are ink. The
+// 新規 number is ink here on purpose: §v11c turned 新規 blue on four surfaces
+// (day line · week rows · month line · selected-day card) and deliberately
+// not on this one (spec §3).
+const SUMMARY_NUMBER = 'font-bold tabular-nums text-[var(--color-text)]'
+
+// mock `.wksum .shim{width:38px;height:11px;transform:translateY(1px)}` —
+// narrower than the grid cells' 62px pill.
+function SummaryPill() {
+  return (
+    <span
+      aria-hidden
+      className="inline-block h-[11px] w-[38px] translate-y-px animate-pulse rounded-full bg-muted"
+    />
+  )
+}
+
 // mock `.wkcell{display:flex;align-items:baseline;gap:5px;min-width:0}` —
 // label LEFT of the value on a shared baseline, never stacked. The fixed
 // column widths on `.wkgrid` are what stop a long value (33時間27分) moving
@@ -117,6 +135,17 @@ function GridCell({ cell, pending }: { cell: Cell; pending?: boolean }) {
   )
 }
 
+// mock `.wksum .sep{color:#cfd4da}` — a half-width 「·」 with the flex gap
+// either side (spec §3: the app's stat-line convention, never the mock's
+// full-width 「・」). aria-hidden: it is punctuation, not a word.
+function Separator({ t }: { t: (key: string) => string }) {
+  return (
+    <span aria-hidden className="text-[var(--color-border-strong)]">
+      {t('sep')}
+    </span>
+  )
+}
+
 export function WeekRows({
   rows,
   selectedDateIso,
@@ -134,12 +163,11 @@ export function WeekRows({
     return <p className="text-xs text-[var(--color-text-muted)]">{t('failed')}</p>
   }
 
-  // Pending: real staff read these numbers every day — a stale sum during a
-  // refetch is a worse mistake than a blank one, so the summary line (which
-  // has no per-number seam to shimmer without splitting the native-passed
-  // final sentence) is skipped entirely while pending; the loading line
-  // above the card says why. See BUILD-REPORT deviations.
-  const showSummary = !pending && rows.length > 0
+  // The split keys (W-F) gave the line a per-number seam, so pending now does
+  // what the mock's own `weekSumHTML(mon, pend)` does: the range and the words
+  // stay, only the NUMBERS become shimmer pills. A stale sum during a refetch
+  // would still be the worse mistake — no number is shown, just its shape.
+  const showSummary = rows.length > 0
   const openRows = rows.filter((r) => !isClosedRow(r))
   const bookedSum = openRows.reduce((sum, r) => sum + r.count, 0)
   const newSum = openRows.reduce((sum, r) => sum + r.newCustomerCount, 0)
@@ -148,20 +176,36 @@ export function WeekRows({
   return (
     <div>
       {pending && <p className="mb-2 text-xs text-[var(--color-text-muted)]">{t('loading')}</p>}
-      {showSummary && rows.length > 0 && (
+      {showSummary && (
+        // mock `.wksum{display:flex;align-items:center;gap:6px;
+        //  padding:0 4px 9px;font-size:12.5px;font-weight:600;
+        //  color:var(--sub);flex-wrap:wrap}`. The 6px gaps ARE the spaces
+        // around the separators — the mock's own literal spaces sit at the
+        // end of anonymous flex items, where they are stripped.
         <div
           data-testid="week-summary"
-          className="flex items-center gap-1.5 px-1 pb-[9px] text-[12.5px] font-semibold text-[var(--color-text-muted)]"
+          className="flex flex-wrap items-center gap-1.5 px-1 pb-[9px] text-[12.5px] font-semibold text-[var(--color-text-muted)]"
         >
           <span>
-            {t('summary', {
+            {t('summaryRange', {
               from: shortMonthDay(rows[0].dateIso),
               to: shortMonthDay(rows[rows.length - 1].dateIso),
-              count: bookedSum,
             })}
-            {typeSlot === 'new' && t('summaryNew', { n: newSum })}
-            {typeSlot === 'returning' && t('summaryReturning', { n: returningSum })}
           </span>
+          <Separator t={t} />
+          <span>{t('count')}</span>
+          {pending ? <SummaryPill /> : (
+            <b className={SUMMARY_NUMBER}>{t('countValue', { n: bookedSum })}</b>
+          )}
+          {typeSlot !== 'off' && (
+            <>
+              <Separator t={t} />
+              <span>{t(typeSlot === 'new' ? 'new' : 'returning')}</span>
+              {pending ? <SummaryPill /> : (
+                <b className={SUMMARY_NUMBER}>{typeSlot === 'new' ? newSum : returningSum}</b>
+              )}
+            </>
+          )}
         </div>
       )}
       <div className="flex flex-col rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg-card)] shadow-[0_1px_2px_rgba(0,0,0,0.04)]">

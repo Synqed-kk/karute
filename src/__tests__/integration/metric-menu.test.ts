@@ -12,7 +12,7 @@ const MESSAGES: Record<string, string> = {
   count: '予約',
   utilization: '稼働',
   free: '空き',
-  bookedTime: '予約時間',
+  bookedTime: '稼働時間',
   new: '新規',
   returning: '再来',
   cancelled: 'キャンセル',

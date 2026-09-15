@@ -178,9 +178,8 @@
       "more": "more"
     },
     "weekRows": {
-      "summary": "{from}–{to} · {count} bookings",
-      "summaryNew": " · New {n}",
-      "summaryReturning": " · Returning {n}",
+      "summaryRange": "{from}–{to}",
+      "sep": "·",
       "count": "Bookings",
       "utilization": "Utilization",
       "free": "Free",
@@ -195,7 +194,7 @@
       "hours": "{h}h",
       "minutes": "{m}m",
       "loading": "Loading bookings…",
-      "failed": "Couldn't load bookings",
+      "failed": "Couldn't load bookings. Please try again",
       "rowAria": "{date} — {n} bookings"
     },
     "status": {
