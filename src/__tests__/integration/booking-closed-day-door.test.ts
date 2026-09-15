@@ -702,7 +702,11 @@ describe('the invariants with no guard until now', () => {
   it('fetches the closed-days range for the JST day, not the UTC day', async () => {
     policyGet.mockResolvedValue({ weekly_hours: OPEN_WEEK })
 
-    await createAppointment(bookingInput(WED_0500_JST))
+    // 00:30 JST — the far edge of the seam, and the ONE start time at which a
+    // short day-step is visible: +23h from here still lands on the SAME JST
+    // day, so the range would collapse to a single point and every 臨時休業
+    // date would stop matching.
+    await createAppointment(bookingInput('2026-05-12T15:30:00.000Z'))
 
     // Exactly [JST day, next JST day) — a UTC-day read would say 2026-05-12,
     // and a 23-hour step would say to: '2026-05-13'.
@@ -710,6 +714,16 @@ describe('the invariants with no guard until now', () => {
       from: '2026-05-13',
       to: '2026-05-14',
     })
+  })
+
+  it('still matches a 臨時休業 date for a booking at 00:30 JST', async () => {
+    policyGet.mockResolvedValue({ weekly_hours: OPEN_WEEK })
+    listClosedDays.mockResolvedValue({ closed_days: [{ date: '2026-05-13' }] })
+
+    const result = await createAppointment(bookingInput('2026-05-12T15:30:00.000Z'))
+
+    expect(result).toMatchObject({ code: 'closed_day', kind: 'closed_date' })
+    expect(apptCreate).not.toHaveBeenCalled()
   })
 
   it('judges the WEEKDAY in JST too, inside the seam', async () => {
