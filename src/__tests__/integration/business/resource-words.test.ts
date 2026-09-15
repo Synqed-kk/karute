@@ -98,6 +98,16 @@ describe('resource-words — ⚖ D-53 (c) R4, the words home', () => {
       expect(businessProfiles.some((p) => p.value === s.business_type)).toBe(true)
     }
   })
+
+  it('⚖ D-53 (c) R4 — the table and every row are frozen at runtime; a write attempt throws and leaves `other` unchanged', () => {
+    expect(Object.isFrozen(RESOURCE_WORDS)).toBe(true)
+    expect(Object.isFrozen(resourceWordsFor('no-such'))).toBe(true)
+    expect(Object.isFrozen(RESOURCE_WORDS.personal_gym)).toBe(true)
+    expect(() => {
+      (RESOURCE_WORDS.other as { counter: string }).counter = '名'
+    }).toThrow()
+    expect(RESOURCE_WORDS.other).toEqual(EXPECTED.other)
+  })
 })
 
 // ── the census scanner (hand-rolled: no parser package on the isolation

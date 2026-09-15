@@ -15,13 +15,13 @@
 import { businessProfiles, type BusinessProfileKey } from './fixtures-settings'
 
 export interface ResourceWords {
-  resourceNoun: string
-  counter: string
-  groupLabel: string
-  tabWord: string
-  privateWord: string | null
-  fullWord: string
-  turnoverWord: string | null
+  readonly resourceNoun: string
+  readonly counter: string
+  readonly groupLabel: string
+  readonly tabWord: string
+  readonly privateWord: string | null
+  readonly fullWord: string
+  readonly turnoverWord: string | null
 }
 
 export const RESOURCE_WORDS: Record<BusinessProfileKey, ResourceWords> = {
@@ -52,6 +52,10 @@ export const RESOURCE_WORDS: Record<BusinessProfileKey, ResourceWords> = {
   training_school: { resourceNoun: '教室', counter: '室', groupLabel: '教室・設備', tabWord: '設備', privateWord: null, fullWord: '満席', turnoverWord: null },
   other: { resourceNoun: 'ベッド', counter: '台', groupLabel: 'ベッド・設備', tabWord: '設備', privateWord: '個室', fullWord: '満室', turnoverWord: '清掃' },
 }
+
+// ⚖ D-53 (c) R4 — one truth, immutable: a caller can never poison `other`'s row for the next lookup
+for (const row of Object.values(RESOURCE_WORDS)) Object.freeze(row)
+Object.freeze(RESOURCE_WORDS)
 
 /** The words for a store's type, or `other`'s row for anything that is not a
  *  member of the mirror (never a bare index — `'constructor'`/`'toString'`/
