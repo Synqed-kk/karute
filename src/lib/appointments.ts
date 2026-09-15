@@ -35,7 +35,7 @@ export type BookingDayHours = Pick<DayHoursInput, 'weeklyHours' | 'closedDates' 
  */
 export type BookingTimeRefusal = {
   error: string
-  code?: 'closed_day' | 'invalid_start'
+  code?: 'closed_day' | 'invalid_start' | 'outside_hours'
   /** 'store' = this store's own setting closed the day · 'org' = the
    *  business-wide default did. Read straight off the resolver's `source`, so
    *  the two can never drift.
@@ -50,6 +50,10 @@ export type BookingTimeRefusal = {
   level?: 'store' | 'org'
   /** 'closed_date' = an ad-hoc 臨時休業 date · 'weekday' = the weekly hours. */
   kind?: 'weekday' | 'closed_date'
+  /** Values the localised line needs. `outside_hours` names the window it
+   *  judged against — the same HH:MM pair the English fallback carries, so the
+   *  two can never say different times. */
+  params?: { open: string; close: string }
 }
 
 /**
@@ -140,8 +144,14 @@ export async function validateAppointmentTime(
   if (minuteOfDay < hours.openMinute || endMinute > hours.closeMinute) {
     const open = formatMinuteOfDay(hours.openMinute)
     const close = formatMinuteOfDay(hours.closeMinute)
+    // ⚖ R1-5 — coded, so the dialog renders 「予約は営業時間内(…)に設定して
+    // ください。」 instead of this developer-facing English. The JA line and
+    // its {open}/{close} placeholders have sat unused in messages/ja.json
+    // since they were written; nothing ever passed them a code.
     return {
       error: `Appointment must be within operating hours (${open}-${close}).`,
+      code: 'outside_hours',
+      params: { open, close },
     }
   }
 

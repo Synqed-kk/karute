@@ -86,6 +86,8 @@ describe('appointment operating hours validation', () => {
 
     expect(result).toEqual({
       error: 'Appointment must be within operating hours (10:00-18:00).',
+      code: 'outside_hours',
+      params: { open: '10:00', close: '18:00' },
     })
   })
 
@@ -103,6 +105,8 @@ describe('appointment operating hours validation', () => {
 
     expect(result).toEqual({
       error: 'Appointment must be within operating hours (08:00-09:00).',
+      code: 'outside_hours',
+      params: { open: '08:00', close: '09:00' },
     })
   })
 })

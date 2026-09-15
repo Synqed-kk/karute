@@ -133,7 +133,34 @@ describe('what the staffer reads when the door closes', () => {
     expect(toastError).toHaveBeenCalledWith(LINES.closedDayOrg)
   })
 
-  it('leaves every other error exactly as it was — the server string, verbatim', async () => {
+  // ⚖ R1-5 — the hours-window line. Its Japanese and its {open}/{close}
+  // placeholders have sat in messages/ja.json unused since they were written;
+  // the refusal now carries the code and the params that reach them.
+  it('names the window in Japanese when the booking is outside opening hours', async () => {
+    createAppointment.mockResolvedValue({
+      error: 'Appointment must be within operating hours (09:00-22:00).',
+      code: 'outside_hours',
+      params: { open: '09:00', close: '22:00' },
+    })
+
+    await save()
+
+    expect(toastError).toHaveBeenCalledWith('予約は営業時間内(09:00〜22:00)に設定してください。')
+    expect(toastError).not.toHaveBeenCalledWith(expect.stringContaining('operating hours'))
+  })
+
+  it('speaks Japanese for an unparseable start time too', async () => {
+    createAppointment.mockResolvedValue({
+      error: 'Invalid appointment start time.',
+      code: 'invalid_start',
+    })
+
+    await save()
+
+    expect(toastError).toHaveBeenCalledWith(LINES.invalidStart)
+  })
+
+  it('leaves every UNCODED error exactly as it was — the server string, verbatim', async () => {
     createAppointment.mockResolvedValue({
       error: 'This time slot overlaps with an existing booking.',
     })
@@ -173,5 +200,19 @@ describe('the phone door — the same dialog, through the thin port', () => {
     await save()
 
     expect(toastError).toHaveBeenCalledWith(LINES.closedDayDate)
+  })
+
+  // ⚖ R1-5 — the params have to survive the port too, or the phone renders
+  // 「営業時間内({open}〜{close})」 with the placeholders showing.
+  it('names the window in Japanese for an hours refusal', async () => {
+    throughThePhonePort({
+      error: 'Appointment must be within operating hours (09:00-22:00).',
+      code: 'outside_hours',
+      params: { open: '09:00', close: '22:00' },
+    })
+
+    await save()
+
+    expect(toastError).toHaveBeenCalledWith('予約は営業時間内(09:00〜22:00)に設定してください。')
   })
 })

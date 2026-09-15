@@ -274,6 +274,8 @@ describe('the rule — validateAppointmentTime, the ONE home', () => {
     )
     expect(tooEarly).toEqual({
       error: 'Appointment must be within operating hours (10:00-19:00).',
+      code: 'outside_hours',
+      params: { open: '10:00', close: '19:00' },
     })
   })
 
@@ -305,6 +307,8 @@ describe('the rule — validateAppointmentTime, the ONE home', () => {
 
       expect(result).toEqual({
         error: 'Appointment must be within operating hours (09:00-22:00).',
+        code: 'outside_hours',
+        params: { open: '09:00', close: '22:00' },
       })
     })
 
@@ -317,6 +321,8 @@ describe('the rule — validateAppointmentTime, the ONE home', () => {
 
       expect(result).toEqual({
         error: 'Appointment must be within operating hours (10:00-24:00).',
+        code: 'outside_hours',
+        params: { open: '10:00', close: '24:00' },
       })
     })
 
@@ -339,6 +345,8 @@ describe('the rule — validateAppointmentTime, the ONE home', () => {
 
       expect(result).toEqual({
         error: 'Appointment must be within operating hours (09:00-12:00).',
+        code: 'outside_hours',
+        params: { open: '09:00', close: '12:00' },
       })
     })
   })
