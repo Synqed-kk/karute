@@ -369,6 +369,15 @@ describe('⚖ D-53 (c) R2 — the inspector heading states the staff fact on a n
       "b.resourceId ? `${b.staffName} + ${b.resourceName}が成立` : hasUnits ? '設備は未確定' : `${b.staffName}が担当`,",
     )
   })
+
+  it("⚖ D-53 (g) — the card's unit axis is the booking's own store, re-joined by id (Greptile #933 P1-2)", () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'),
+      'utf8',
+    )
+    expect(src).toContain('const hasUnits = storeHasBeds(lanes, storeId == null ? null : [storeId])')
+    expect(src).not.toContain('staffLane?.stores')
+  })
 })
 
 describe('G5 — the withheld layer', () => {
@@ -967,5 +976,53 @@ describe('⚖ D-53 (c) R1 — N0 seeded family: a store-bound no-unit roster bes
       seeds: SEEDS, floatingSeeds, totalNoUnitCells, totalUnitCells, totalBands, failures: 0,
     })
     expect(SEEDS).toBeGreaterThanOrEqual(200)
+  })
+
+  // ⚖ D-53 (g) — a `SellCell` carries no store: an unpaired offer for a
+  // two-store staff could be booked at the unit store with every unit busy
+  // (the ⚖ 8/9 class: advertising what cannot be honoured). So a staff who
+  // can use a unit anywhere needs one — capacity at the no-unit store is
+  // HIDDEN for that person at slots where the unit store is full; disclosed,
+  // queued: a per-slot store on the sell cell is its own design (DESIGN §9
+  // R6 / PLAN §9), never a silent widening here.
+  describe('⚖ D-53 (g) — a staff member who works in a unit store AND a no-unit store needs a unit (the conservative rule; Greptile #933 P1-1, pinned + disclosed)', () => {
+    // Reuses this file's own `n0StaffLane`/`n0BedLane`/`n0Item` helpers
+    // (declared above, in this same describe's closure) rather than a new
+    // builder — one unit store (1 bed + 1 store-a staff), one no-unit store
+    // (1 store-z staff), and ONE two-store staff, grid 60 / slot 60.
+    it('the two-store staff is never unpaired; a busy bed hides them while the store-z-only staff still sells', () => {
+      const hours: Hours = { open: N0_OPEN, close: N0_CLOSE }
+      const { price, depth } = priceOf()
+      const opts = {
+        gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [],
+        showPrice: true, hi: price.hi, hqMin: GYM.dialogs.pricing.hqMin, depth,
+      }
+      const aStaff = n0StaffLane('p1-a-staff', ['store-a'])
+      const zStaff = n0StaffLane('p1-z-staff', ['store-z'])
+      const twoStore = n0StaffLane('p1-two-store', ['store-a', 'store-z'])
+
+      // variant 1 — all free all day: the two-store staff is either paired
+      // (won the bed) or absent for the slot (the cap gave the bed to
+      // someone else) — never an unpaired `resourceKey ''` cell.
+      const freeBed = n0BedLane('p1-a-bed', 'store-a')
+      const free = sellLayerFor([aStaff, freeBed, zStaff, twoStore], hours, opts)
+      const twoStoreFreeCells = free.cells.filter((c) => c.laneKey === 'p1-two-store')
+      console.log('P1-1 free board', {
+        count: twoStoreFreeCells.length,
+        resourceKeys: [...new Set(twoStoreFreeCells.map((c) => c.resourceKey))],
+      })
+      expect(twoStoreFreeCells.every((c) => c.resourceKey !== '')).toBe(true)
+
+      // variant 2 — the one bed BUSY over the first slot: the two-store
+      // staff sells nothing there (they still need a unit and none is
+      // free), while the store-z-only staff still sells their staff-time
+      // cell.
+      const busyBed = n0BedLane('p1-a-bed', 'store-a', [n0Item('p1-busy', N0_OPEN, N0_OPEN + 60)])
+      const busy = sellLayerFor([aStaff, busyBed, zStaff, twoStore], hours, opts)
+      const twoStoreCellsAtBusySlot = busy.cells.filter((c) => c.laneKey === 'p1-two-store' && c.h === N0_OPEN).length
+      const zOnlyCellsAtBusySlot = busy.cells.filter((c) => c.laneKey === 'p1-z-staff' && c.h === N0_OPEN).length
+      console.log('P1-1 busy-bed slot', { twoStoreCellsAtBusySlot, zOnlyCellsAtBusySlot })
+      expect({ twoStoreCellsAtBusySlot, zOnlyCellsAtBusySlot }).toEqual({ twoStoreCellsAtBusySlot: 0, zOnlyCellsAtBusySlot: 1 })
+    })
   })
 })
