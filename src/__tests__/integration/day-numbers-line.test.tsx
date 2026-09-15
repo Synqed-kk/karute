@@ -112,12 +112,13 @@ describe('DayNumbersLine — order per typeSlot', () => {
     expect(itemTexts(container)).toEqual(['11件', '2再来', '4時間30分稼働時間', '0キャンセル'])
   })
 
-  it("'off' → 予約, 稼働, 予約時間 (free OFF), next unused metric", () => {
+  it("'off' → 予約, 稼働, キャンセル (free OFF), next unused metric — never 稼働時間 beside 稼働%", () => {
     const DayNumbersLine = loadDayNumbersLine({ freeTimeCell: false })
     const { container } = render(
       <DayNumbersLine row={row({ bookedMinutes: 100 })} soloMode={false} typeSlot="off" locale="ja" />,
     )
-    expect(itemTexts(container)).toEqual(['11件', '21%稼働', '1時間40分稼働時間', '0キャンセル'])
+    // R2-1: 稼働 21% and 稼働時間 1時間40分 are the same minutes in two units.
+    expect(itemTexts(container)).toEqual(['11件', '21%稼働', '0キャンセル', '0無断'])
   })
 })
 

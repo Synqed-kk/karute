@@ -77,11 +77,11 @@ afterEach(() => {
 })
 
 describe('weekRowCells — grid order (spec §8/§3)', () => {
-  it("'new' → count, utilization, bookedTime (free OFF), new", () => {
+  it("'new' → count, utilization, cancelled (free OFF — never 稼働時間 beside 稼働%), new", () => {
     const { weekRowCells } = loadMetricMenu({ freeTimeCell: false })
     const r = row({ capacityDefensible: true, hoursSaved: true, bookedMinutes: 240, availableMinutes: 480 })
     expect(weekRowCells(r, { soloMode: false, typeSlot: 'new', t }).map((c) => c.key)).toEqual([
-      'count', 'utilization', 'bookedTime', 'new',
+      'count', 'utilization', 'cancelled', 'new',
     ])
   })
 
@@ -100,21 +100,21 @@ describe('weekRowCells — grid order (spec §8/§3)', () => {
     ])
   })
 
-  it("'off' → count, utilization, bookedTime (free OFF), next unused metric", () => {
+  it("'off' → count, utilization, cancelled (free OFF), next unused metric", () => {
     const { weekRowCells } = loadMetricMenu({ freeTimeCell: false })
     const r = row({ capacityDefensible: true, hoursSaved: true, bookedMinutes: 100, availableMinutes: 480 })
     expect(weekRowCells(r, { soloMode: false, typeSlot: 'off', t }).map((c) => c.key)).toEqual([
-      'count', 'utilization', 'bookedTime', 'cancelled',
+      'count', 'utilization', 'cancelled', 'noShow',
     ])
   })
 })
 
 describe('dayLineCells — day-line order (spec §8/§2)', () => {
-  it("'new' → count, new, utilization, bookedTime (free OFF)", () => {
+  it("'new' → count, new, utilization, cancelled (free OFF — the day line follows R2-1 too)", () => {
     const { dayLineCells } = loadMetricMenu({ freeTimeCell: false })
     const r = row({ capacityDefensible: true, hoursSaved: true, bookedMinutes: 240, availableMinutes: 480 })
     expect(dayLineCells(r, { soloMode: false, typeSlot: 'new', t }).map((c) => c.key)).toEqual([
-      'count', 'new', 'utilization', 'bookedTime',
+      'count', 'new', 'utilization', 'cancelled',
     ])
   })
 
@@ -133,11 +133,11 @@ describe('dayLineCells — day-line order (spec §8/§2)', () => {
     ])
   })
 
-  it("'off' → count, utilization, bookedTime (free OFF), next unused metric", () => {
+  it("'off' → count, utilization, cancelled (free OFF), next unused metric", () => {
     const { dayLineCells } = loadMetricMenu({ freeTimeCell: false })
     const r = row({ capacityDefensible: true, hoursSaved: true, bookedMinutes: 100, availableMinutes: 480 })
     expect(dayLineCells(r, { soloMode: false, typeSlot: 'off', t }).map((c) => c.key)).toEqual([
-      'count', 'utilization', 'bookedTime', 'cancelled',
+      'count', 'utilization', 'cancelled', 'noShow',
     ])
   })
 })
@@ -229,12 +229,16 @@ describe('placeForGrid — a DURATION never sits in the 100 px column (R1-1, D10
                 expect({ where, keys }).toEqual({ where, keys: before })
               }
 
-              // Cells 2 and 4 are the 100 px column. Only ONE wide slot can
-              // move (cell 1 is 予約), so a row that holds BOTH durations must
-              // keep exactly one of them narrow — and never more than that.
-              const durations = keys.filter((k) => DURATION.has(k)).length
+              // Cells 2 and 4 are the narrow column: NO duration sits there.
+              // R1 had to pin `max(0, durations − 1)` instead, because the
+              // defensible row then carried TWO durations (空き AND 稼働時間)
+              // and only one wide slot can move — D-1 of FIX-REPORT-1B-WIRE-R1.
+              // R2-1 removed that row shape at the source (稼働% and 稼働時間
+              // are one measure, so at most one duration is ever on a line), so
+              // the packet's literal wording is satisfiable again and the
+              // weaker pin is deleted rather than carried.
               const narrow = [1, 3].filter((i) => DURATION.has(keys[i])).length
-              expect(`${where}:${narrow}`).toBe(`${where}:${Math.max(0, durations - 1)}`)
+              expect(`${where}:${narrow}`).toBe(`${where}:0`)
             }
           }
         }
@@ -262,6 +266,98 @@ describe('placeForGrid — a DURATION never sits in the 100 px column (R1-1, D10
       'cancelled',
       'noShow',
     ])
+  })
+})
+
+describe('R2-1 — 稼働% and 稼働時間 are ONE measure in two units, never both on a line', () => {
+  // ⚖ LEAD 2026-09-15 17:3x. 稼働 N% and 稼働時間 H時間M分 are the same booked
+  // minutes told twice — a row printing both spent a cell saying nothing new.
+  // So when 稼働% is on the line the fill order SKIPS 稼働時間 and takes
+  // キャンセル → 無断 → (the type's other people-count, after PKT-2). Both
+  // surfaces: weekRowCells AND dayLineCells route through the same pickNext.
+  //
+  // 未設定 is NOT 稼働%: it prints no number at all, so the duration still
+  // follows it — pinned below.
+  const DEFENSIBLE = {
+    capacityDefensible: true,
+    hoursSaved: true,
+    bookedMinutes: 390, // 6h30 of 8h → 81%
+    availableMinutes: 480,
+  }
+  const read = (cells: { label: string; value: string }[]) =>
+    cells.map((c) => `${c.label} ${c.value}`)
+
+  it('capacity defensible + 空き ON → 予約 · 稼働% / 空き · キャンセル', () => {
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
+    expect(read(weekRowCells(row(DEFENSIBLE), { soloMode: false, typeSlot: 'off', t }))).toEqual([
+      '予約 3件', '稼働 81%', '空き 1時間30分', 'キャンセル 0',
+    ])
+  })
+
+  it('capacity defensible + 空き OFF → 予約 · 稼働% / キャンセル · 無断, never 稼働時間', () => {
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: false })
+    expect(read(weekRowCells(row(DEFENSIBLE), { soloMode: false, typeSlot: 'off', t }))).toEqual([
+      '予約 3件', '稼働 81%', 'キャンセル 0', '無断 0',
+    ])
+  })
+
+  it('not defensible → 予約 · キャンセル / 稼働時間 · 無断 (R1 shape, unchanged)', () => {
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
+    const r = row({ capacityDefensible: false, hoursSaved: false, bookedMinutes: 390 })
+    expect(read(weekRowCells(r, { soloMode: false, typeSlot: 'off', t }))).toEqual([
+      '予約 3件', 'キャンセル 0', '稼働時間 6時間30分', '無断 0',
+    ])
+  })
+
+  it('the DAY LINE follows the same rule, in both switch states', () => {
+    const on = loadMetricMenu({ freeTimeCell: true })
+    expect(read(on.dayLineCells(row(DEFENSIBLE), { soloMode: false, typeSlot: 'off', t }))).toEqual([
+      '予約 3件', '稼働 81%', '空き 1時間30分', 'キャンセル 0',
+    ])
+    const off = loadMetricMenu({ freeTimeCell: false })
+    expect(read(off.dayLineCells(row(DEFENSIBLE), { soloMode: false, typeSlot: 'off', t }))).toEqual([
+      '予約 3件', '稼働 81%', 'キャンセル 0', '無断 0',
+    ])
+  })
+
+  it('未設定 is not 稼働% — it prints no number, so the duration still follows it', () => {
+    const { weekRowCells, dayLineCells } = loadMetricMenu({ freeTimeCell: true })
+    const r = row({ capacityDefensible: false, hoursSaved: false, closed: false })
+    const ctx = { soloMode: true, typeSlot: 'off' as const, t }
+    expect(weekRowCells(r, ctx).map((c) => c.key)).toEqual(['count', 'unset', 'bookedTime', 'cancelled'])
+    expect(dayLineCells(r, ctx).map((c) => c.key)).toEqual(['count', 'unset', 'bookedTime', 'cancelled'])
+  })
+
+  it('holds across typeSlot × defensible × freeTimeCell × solo × hoursSaved, on BOTH surfaces', () => {
+    for (const freeTimeCell of [true, false]) {
+      const { weekRowCells, dayLineCells } = loadMetricMenu({ freeTimeCell })
+      for (const typeSlot of ['new', 'returning', 'off'] as const) {
+        for (const capacityDefensible of [true, false]) {
+          for (const soloMode of [true, false]) {
+            for (const hoursSaved of [true, false]) {
+              const where = `${typeSlot}/def=${capacityDefensible}/free=${freeTimeCell}/solo=${soloMode}/hours=${hoursSaved}`
+              const r = row({ capacityDefensible, hoursSaved, bookedMinutes: 390, availableMinutes: 480 })
+              const ctx = { soloMode, typeSlot, t }
+              for (const [surface, cells] of [
+                ['week', weekRowCells(r, ctx)],
+                ['day', dayLineCells(r, ctx)],
+              ] as const) {
+                const keys = cells.map((c) => c.key)
+                const both = keys.includes('utilization') && keys.includes('bookedTime')
+                expect(`${surface}/${where}:${both}`).toBe(`${surface}/${where}:false`)
+                // The consequence the lead named: one measure per row means a
+                // row can carry AT MOST ONE duration (空き or 稼働時間) — which
+                // is what lets the placement test below pin narrow === 0.
+                const durations = keys.filter((k) => k === 'free' || k === 'bookedTime')
+                expect(`${surface}/${where}:${durations.join('+') || 'none'}`).toMatch(
+                  /:(none|free|bookedTime)$/,
+                )
+              }
+            }
+          }
+        }
+      }
+    }
   })
 })
 
@@ -362,11 +458,13 @@ describe('the SHIPPED switch registry (⚖ Liam 9/15 11:1x — 空き ON, everyw
       availableMinutes: 480,
     })
     const ctx = { soloMode: true, typeSlot: 'off' as const, t }
+    // The fourth cell is キャンセル, not 稼働時間: 稼働% is already on the line
+    // (R2-1). 空き stays — it is a different measure, not the same one twice.
     expect(weekRowCells(r, ctx).map((c) => c.key)).toEqual([
-      'count', 'utilization', 'free', 'bookedTime',
+      'count', 'utilization', 'free', 'cancelled',
     ])
     expect(dayLineCells(r, ctx).map((c) => c.key)).toEqual([
-      'count', 'utilization', 'free', 'bookedTime',
+      'count', 'utilization', 'free', 'cancelled',
     ])
     expect(weekRowCells(r, ctx)[2].value).toBe('4時間')
   })

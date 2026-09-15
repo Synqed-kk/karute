@@ -112,6 +112,14 @@ function nextMetricChain(typeSlot: TypeSlot): CellKey[] {
 function pickNext(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set<CellKey>): Cell {
   for (const key of nextMetricChain(ctx.typeSlot)) {
     if (used.has(key)) continue
+    // ⚖ R2-1 (lead, 2026-09-15) — 稼働 N% and 稼働時間 H時間M分 are ONE measure
+    // in two units: the same booked minutes, told twice. A line carrying both
+    // spent a cell saying nothing new, so when 稼働% is on it the fill order
+    // skips 稼働時間 and takes キャンセル → 無断 → the type's other
+    // people-count (PKT-2). 未設定 is NOT 稼働%: it prints no number, so its
+    // key is 'unset' and the duration still follows it. Both surfaces route
+    // through here, which is why this is the only guard.
+    if (key === 'bookedTime' && used.has('utilization')) continue
     return NEXT_BUILDERS[key](row, ctx)
   }
   // Cannot happen with 8 metrics on a 4-cell line — pinned by a test, not
@@ -163,9 +171,9 @@ function isDuration(cell: Cell): boolean {
  *
  *  So, as the LAST step of the week row only: 予約 keeps cell 1, and a
  *  duration takes the one movable wide slot (cell 3) from a non-duration. The
- *  SET is untouched — only positions move. A row carrying BOTH durations has
- *  one wide slot for two, so the second stays narrow; 空き is the shorter
- *  value and is the one the fill order already seats wide there.
+ *  SET is untouched — only positions move. Since R2-1 a line carries AT MOST
+ *  ONE duration (稼働% and 稼働時間 are one measure), so the one movable wide
+ *  slot is always enough and no duration is ever left narrow.
  *
  *  The DAY LINE is NOT re-placed: it is one flowing line with no columns. */
 function placeForGrid(cells: Cell[]): Cell[] {
