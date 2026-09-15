@@ -63,7 +63,7 @@ import {
   type BoardBooking,
   type BuildInput,
 } from '@/business/lib/today-board'
-import { canReleaseHeld, clampCalendarTight, overrideLevelFor, type CalendarWindowDay } from './today-interactions'
+import { canReleaseHeld, clampCalendarTight, overrideLevelFor, storeHasBeds, type CalendarWindowDay } from './today-interactions'
 import { TodayScreen, type DecisionCard, type InspectorCase, type TodayProps } from './TodayScreen'
 import './today.css'
 
@@ -93,11 +93,18 @@ const PRICE_HOLD_PROOF = '予約時価格を保持'
  *  only in the sentence about the bed.
  *
  *  `resourceProof` is the bed's own line, or `null` when the booking has no
- *  resource yet; `priced` is whether the SERVER recorded a price for it. */
-export function bookingProofs(resourceProof: string | null, priced: boolean): string[] {
+ *  resource yet; `priced` is whether the SERVER recorded a price for it.
+ *
+ *  ⚖ D-53 (c) R2 — `hasUnits` is the booking's OWN store's axis (per
+ *  `storeHasBeds`, D-52's rule): a store with no unit has nothing undecided,
+ *  so on `hasUnits === false` and no proof, the resource line is OMITTED
+ *  entirely (a proof that exists is a fact and stays) — never
+ *  「設備の割当てが未確定」, never 「設備なし」, silence. Default `true` keeps
+ *  today's answer for a caller that hands in no store axis. */
+export function bookingProofs(resourceProof: string | null, priced: boolean, hasUnits: boolean = true): string[] {
   return [
     '担当の勤務時間内',
-    ...(resourceProof == null ? ['設備の割当てが未確定'] : ['休憩と重ならない', resourceProof]),
+    ...(resourceProof != null ? ['休憩と重ならない', resourceProof] : hasUnits ? ['設備の割当てが未確定'] : []),
     ...(priced ? [PRICE_HOLD_PROOF] : []),
   ]
 }
@@ -412,20 +419,33 @@ export default async function TodayPage({
     }
   }
 
+  // ⚖ D-53 (g) — the booking's OWN store is the unit axis (Greptile #933
+  // P1-2): `BoardBooking` carries no store (frozen `today-board.ts` drops
+  // `store_id`), so it is re-joined here by id from the raw rows; a staff
+  // member's store LIST was a proxy that answers wrong for a person who
+  // works in two stores.
+  const storeOfBooking = new Map(appointments.map((a) => [a.id, a.store_id]))
   const cases: Record<string, InspectorCase> = {}
   bookings.forEach((b, i) => {
+    // ⚖ D-53 (c) R2 + (g) — the booking's own store's axis (`storeHasBeds`'s
+    // store-binding form, D-52 (a)); a booking with no store answers via the
+    // whole board, which is honest wherever any unit exists.
+    const storeId = storeOfBooking.get(b.id) ?? null
+    const hasUnits = storeHasBeds(lanes, storeId == null ? null : [storeId])
     cases[b.id] = bookingCase(
       b,
       `予約 ${i + 1} / ${bookings.length}`,
       b.state === 'hold' ? '仮押さえ' : b.state === 'attention' ? '要対応' : b.state === 'noshow' ? '来店なし' : b.settlement === 'awaiting' ? '精算待ち' : '確定',
       b.state === 'hold' ? 'waiting' : b.state === 'attention' || b.settlement === 'awaiting' ? 'checkout' : 'done',
-      b.resourceId ? `${b.staffName} + ${b.resourceName}が成立` : '設備は未確定',
+      // ⚖ D-53 (c) R2 — on a no-unit store nothing is undecided: the heading
+      // states the staff fact.
+      b.resourceId ? `${b.staffName} + ${b.resourceName}が成立` : hasUnits ? '設備は未確定' : `${b.staffName}が担当`,
       // ⚖ R8 T1 — the 価格保持 根拠 is CONDITIONAL: a booking with no recorded
       // price has nothing to hold, and the facts above already say 記録なし
       // about it. ⚖ FIX ROUND 3 (BREAKER-828 F2) — and the condition is written
       // ONCE, in `bookingProofs`, because a rule spelled once per arm is a rule
       // the fixture can only walk half of.
-      bookingProofs(b.resourceId ? bedSecuredProof(resources, b.resourceId) : null, b.price != null),
+      bookingProofs(b.resourceId ? bedSecuredProof(resources, b.resourceId) : null, b.price != null, hasUnits),
     )
   })
   planes.decisions.forEach((d, i) => {

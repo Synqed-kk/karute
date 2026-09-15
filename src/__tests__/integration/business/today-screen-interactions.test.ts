@@ -15126,3 +15126,41 @@ describe('⚖ ROUND 3 · C F4 — G13 (⚖ D-52 (g)) — the mixed-board predica
     )
   })
 })
+
+// ⚖ D-53 (c) R1 — N0's SOURCE-TEXT PIN: the sell layer's no-unit form, pinned
+// at the text level so a future edit cannot silently drop the predicate, its
+// default, or the ordering the three decision points depend on. The BEHAVIOUR
+// half is pinned in canon-logic.test.ts (item 6), today-board.test.ts (G3) and
+// today-no-bed-store.test.ts (the seeded family + G4); this leg proves the
+// SOURCE says what it says.
+describe('⚖ D-53 (c) R1 — N0 source-text pin: needsUnit, the seam, the ordering', () => {
+  const AVAIL = readFileSync(join(process.cwd(), 'src/business/lib/canon-logic/availability.ts'), 'utf8')
+  const INT = readFileSync(
+    join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'),
+    'utf8',
+  )
+
+  it('SellInput carries needsUnit, and the engine defaults it to always-true', () => {
+    expect(AVAIL).toContain('needsUnit?: (staff: SellStaffLane) => boolean')
+    expect(AVAIL).toContain('const needsUnit = input.needsUnit ?? (() => true)')
+  })
+
+  it("the seam hands canon the store's own predicate, the exact text", () => {
+    expect(INT).toContain('needsUnit: (s) => storeHasBeds(lanes, s.stores),')
+  })
+
+  it('the unitless emission sits BEFORE the early-continue and BEFORE the unit cap (decision points ii/iii)', () => {
+    // Anchored on the EMISSION loop itself (`for (const s of unitless)`), not
+    // the `const unitless = …` declaration above it — the declaration's
+    // position does not move if only the loop and the continue are swapped,
+    // which is exactly the shape mutant n2 tries.
+    const emissionAt = AVAIL.indexOf('for (const s of unitless) {')
+    const continueAt = AVAIL.indexOf('if (freeBeds.length === 0 || needing.length === 0) continue')
+    const capAt = AVAIL.indexOf('if (claimed.size >= freeBeds.length) break')
+    expect(emissionAt).toBeGreaterThan(-1)
+    expect(continueAt).toBeGreaterThan(-1)
+    expect(capAt).toBeGreaterThan(-1)
+    expect(emissionAt).toBeLessThan(continueAt)
+    expect(continueAt).toBeLessThan(capAt)
+  })
+})
