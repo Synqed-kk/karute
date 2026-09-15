@@ -118,16 +118,18 @@ const blocked = (book: BedTruth, room: string, start: number, end: number): BedT
  *  @param book the capacity book for that world.
  *  @param on the round gate's value, passed in. False = nothing withheld.
  *
- *  ponytail: THREE EXACT EXITS AND ONE MEMO, in this order — (a) an offer over no
+ *  ponytail: FOUR EXACT EXITS AND ONE MEMO, in this order — (a) an offer over no
  *  kept 枠 is free; (c) the WITNESS proves 「on sale」 out of the netting's own legal
  *  assignment; (d) the PIGEONHOLE proves 「withheld」 by counting, when every room on
- *  the board is already taken at one instant inside the offer's span. What survives
- *  all three pays at most ONE netting per (room, span) — memoised for the call,
- *  because the netting depends on nothing else about the offer. CEILING, STATED: a
- *  saturated board the pigeonhole cannot close (a store whose eligible rooms are a
- *  strict subset of the board's) still pays |distinct room×span| nettings. Upgrade:
- *  one joint allocation of kept 枠 and offers, the day the slot-vs-offer ruling
- *  lands (⚖ D-05 · D-14).
+ *  the board is already taken at one instant inside the offer's span; (e) the
+ *  ELIGIBILITY PIGEONHOLE proves 「withheld」 by counting each candidate room's own
+ *  eligible-room union against the held 枠 covering it (⚖ D-19 (3) · ROUND 3 · D).
+ *  What survives all four pays at most ONE netting per (room, span) — memoised for
+ *  the call, because the netting depends on nothing else about the offer. CEILING,
+ *  STATED: the strict-subset store is now closed by (e); what still pays nettings is
+ *  a saturated offer that neither counting exit can refute (no instant where the
+ *  covering 枠 exhaust their eligible rooms). Upgrade: one joint allocation of kept
+ *  枠 and offers, the day the slot-vs-offer ruling lands (⚖ D-05 · D-14).
  *
  *  ⚠ CEILING, STATED: offers are tested INDEPENDENTLY, so two surviving offers
  *  can both be counting on the same spare room. Offer-vs-offer is R4's job
@@ -153,6 +155,10 @@ export function withheldOffers(
       // ⚖ ROUND 2 · SPEC-R2 v4 amendment item 1 — the room the netting GAVE this
       // 枠. Carried for the witness exit below and read nowhere else.
       room: l.heldRoom[i] ?? '',
+      // ⚖ ROUND 3 · D — the netting's own ELIGIBLE list for this 枠 over its whole
+      // span (honest-held.ts:190-199), read by the eligibility pigeonhole below and
+      // nowhere else; `[]` on the identity path.
+      rooms: l.heldRooms[i] ?? [],
     })),
   )
   // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 3 — THE ONE ROOM UNIVERSE the pigeonhole
@@ -295,10 +301,63 @@ export function withheldOffers(
     // off) reports `''` for every held 枠's room, with no legality guarantee, so
     // counting rooms against it would count against nothing — `usedRooms.has('')`
     // must fall the pigeonhole through to the search below, same as the witness.
+    // ⚖ ROUND 3 · D — `steps` WIDENS beyond (d)'s original starts-only form
+    // (cold-read fold 3, ruled by Fable): the offer's start plus every overlapping
+    // 枠's start AND END strictly inside the span. Why: `n(t)` (below, `covering`)
+    // only steps up at starts, so (d) alone was complete checking starts only; but
+    // (e)'s quantity `|U(t) \ {r}| − n(t)` can DROP at an END — a 枠 that began
+    // before the offer and ends inside it takes its own spare rooms away with it
+    // (A=[600,690)→{p,q} · B=[520,610)→{m,j} · C=[600,690)→{p,q}; offer [600,700)
+    // rooms {p,q}: at 600 the margin is 1, at 610 — B's end — both rooms are
+    // refuted; a starts-only check misses this and falls through to the walk).
+    // Both quantities are piecewise constant between event instants, so the
+    // offer's start plus every event instant strictly inside the span is COMPLETE
+    // for the one-instant form. (d) at the extra instants is still sound (any
+    // instant works for it) and cannot fire where it did not before (its `n(t)` is
+    // maximal at a start), so (d)'s answer stays byte-identical to main. Shared by
+    // (d) and (e) below — one computation, not two.
+    const covering = (t: number) => hit.reduce((n, h) => (h.start <= t && t < h.end ? n + 1 : n), 0)
+    const steps = [o.start, ...hit.flatMap((h) => [h.start, h.end]).filter((t) => t > o.start && t < o.end)]
+
     if (roomUniverse >= 2 && !usedRooms.has('')) {
-      const covering = (t: number) => hit.reduce((n, h) => (h.start <= t && t < h.end ? n + 1 : n), 0)
-      const steps = [o.start, ...hit.map((h) => h.start).filter((t) => t > o.start && t < o.end)]
       if (steps.some((t) => covering(t) >= roomUniverse)) {
+        keys.add(o.key)
+        continue
+      }
+    }
+
+    // LAZY EXIT (e) — THE ELIGIBILITY PIGEONHOLE (⚖ D-19 (3) · ROUND 3 slice D ·
+    // D-49 (a)).
+    //
+    // At an instant `t` inside the offer's span let `S(t)` be the held 枠 covering
+    // `t` (`n = |S(t)|`) and `U(t)` the union of their `heldRooms` lists. Every 枠
+    // in `S(t)` contains `t`, so they pairwise overlap and need `n` DISTINCT
+    // rooms. With candidate room `r` blocked over the offer's span (`blocked()`
+    // removes `r` from every ask that overlaps the offer's span, and each 枠 in
+    // `S(t)` overlaps it because it contains `t`), each of those 枠's blocked
+    // eligible list is a SUBSET of `heldRooms[i] \ {r}` (the blocked book answers
+    // a subset of the unblocked answer), so all `n` must be seated inside
+    // `U(t) \ {r}`. If `|U(t) \ {r}| < n` no legal seating of the published set
+    // exists with `r` blocked — Hall's condition on the one subset `S(t)` — and
+    // the restricted walk for `r` would return a loss (or, out of budget, an
+    // inexact loss). If EVERY candidate room `r` of the offer is refuted at SOME
+    // instant, no room works ⇒ WITHHELD, exactly what the loop below would
+    // conclude, with zero nettings. Assignment-INDEPENDENT: it reads the
+    // eligibility lists, never the tie-break `heldRoom`. Valid where the netting
+    // is inexact: a truncated answer is still a legal assignment of the published
+    // set and `heldRooms` is the book's own answer, not the search's. The count
+    // pigeonhole (d) is the special case `U(t)` = every bed row on the board, so
+    // (e) subsumes it — (d) stays, first, because it needs no sets. `n ≤ |U(t)|`
+    // always holds under a legal assignment, so `<` (strict) is the only fence —
+    // `<=` would withhold a sellable offer. Like (d) it NEVER NAMES (⚖ D-14 (d)
+    // (2): the loss lists are what a name is made of and this exit does not
+    // compute them; `blockedBy` stays absent for it).
+    if (roomUniverse >= 2 && rooms.length >= 2 && !usedRooms.has('')) {
+      const at = steps.map((t) => {
+        const cover = hit.filter((h) => h.start <= t && t < h.end)
+        return { n: cover.length, u: new Set(cover.flatMap((h) => h.rooms)) }
+      })
+      if (rooms.every((r) => at.some(({ n, u }) => u.size - (u.has(r) ? 1 : 0) < n))) {
         keys.add(o.key)
         continue
       }
