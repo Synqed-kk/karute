@@ -469,23 +469,43 @@
  * motion — which for a SWEEP is the wrong answer, and the reduced-motion
  * treatment is therefore spelled out here: the sweep stops and the pill rests
  * on the gradient's own mid tone, still visibly a placeholder. */
+/* The sweep is a TRANSFORM, not the mock's `background-position`. The mock's
+ * own keyframe animates background-position, which no browser composites — it
+ * repaints the pill every frame, and there can be 30 pills on a pending week.
+ * Same 240%-wide gradient travelling the same 3.36× its own box in the same
+ * 1.1s, moved by translateX on an ::after instead, so the whole thing runs on
+ * the compositor. (Own review-animations pass, standard 7.) */
 @keyframes reservation-shim {
-  0% { background-position: 120% 0; }
-  100% { background-position: -120% 0; }
+  0% { transform: translateX(-70%); }
+  100% { transform: translateX(70%); }
 }
 .reservation-shim {
+  position: relative;
+  overflow: hidden;
+  background-color: #eceef1;
+}
+.reservation-shim::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 240%;
   background-image: linear-gradient(90deg, #eceef1 25%, #f6f7f9 50%, #eceef1 75%);
-  background-size: 240% 100%;
   animation: reservation-shim 1.1s linear infinite;
 }
 .dark .reservation-shim,
 :root[data-theme="obsidian"] .reservation-shim,
 :root[data-theme="karute"].dark .reservation-shim {
+  background-color: #27272a;
+}
+.dark .reservation-shim::after,
+:root[data-theme="obsidian"] .reservation-shim::after,
+:root[data-theme="karute"].dark .reservation-shim::after {
   background-image: linear-gradient(90deg, #27272a 25%, #3f3f46 50%, #27272a 75%);
 }
 @media (prefers-reduced-motion: reduce) {
-  .reservation-shim {
+  .reservation-shim::after {
     animation: none;
-    background-position: 50% 0;
   }
 }
