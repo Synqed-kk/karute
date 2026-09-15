@@ -196,7 +196,7 @@
       "minutes": "{m}分",
       "loading": "予約状況を読み込み中…",
       "failed": "予約状況を取得できませんでした。もう一度お試しください。",
-      "rowAria": "{date} {cells}",
+      "rowAria": "{date}、{cells}",
       "ariaSep": "、",
       "ariaLoading": "読み込み中"
     },

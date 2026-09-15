@@ -30,7 +30,7 @@ const MESSAGES: Record<string, string> = {
   minutes: '{m}分',
   loading: '予約状況を読み込み中…',
   failed: '予約状況を取得できませんでした。もう一度お試しください。',
-  rowAria: '{date} {cells}',
+  rowAria: '{date}、{cells}',
   ariaSep: '、',
   ariaLoading: '読み込み中',
 }
@@ -155,7 +155,7 @@ describe('WeekRows — the accessible name says every number (R3-6)', () => {
     expect(joined).toContain('、')
     expect(joined.split('、')).toHaveLength(4)
     expect(nameOf(button)).toBe(
-      `${formatCompactDateJst(jstWallTimeToDate('2026-09-15', '00:00'), 'ja')} ${joined}`,
+      `${formatCompactDateJst(jstWallTimeToDate('2026-09-15', '00:00'), 'ja')}、${joined}`,
     )
     // the old name carried the count alone — the three numbers it dropped
     for (const piece of joined.split('、').slice(1)) {
