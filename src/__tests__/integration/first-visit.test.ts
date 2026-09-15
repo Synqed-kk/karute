@@ -74,8 +74,10 @@ function appt(over: Partial<Appointment> = {}): Appointment {
   } as unknown as Appointment
 }
 
-/** The day list's own row shape. */
-function listRow(a: Appointment): AppointmentRow {
+/** The day list's own row shape. `over` lets a test carry a terminal status
+ *  (the agenda's includeCancelled tombstones) without touching every other
+ *  caller, which all want the SCHEDULED default. */
+function listRow(a: Appointment, over: Partial<AppointmentRow> = {}): AppointmentRow {
   return {
     id: a.id,
     staff_profile_id: a.staff_id ?? 's1',
@@ -92,6 +94,7 @@ function listRow(a: Appointment): AppointmentRow {
     status_reason: null,
     status_set_by_name: null,
     status_set_at: null,
+    ...over,
   } as unknown as AppointmentRow
 }
 
@@ -365,7 +368,9 @@ function screenFor(day: string, now: Date = NOW) {
     storeStaffIds: null,
     orgSettings: null,
     customers: WEEK_CUSTOMERS,
-    dayAppointments: WEEK_ROWS.filter((a) => ymdInJst(new Date(a.starts_at)) === day).map(listRow),
+    dayAppointments: WEEK_ROWS.filter((a) => ymdInJst(new Date(a.starts_at)) === day).map((a) =>
+      listRow(a),
+    ),
     weekRange: computeWeekRange(new Date(`${day}T00:00:00+09:00`)),
     monthRange: null,
     weekRangeAppts: null,
@@ -534,6 +539,70 @@ describe('⚖ LENS-1’s four cases', () => {
 })
 
 // ---------------------------------------------------------------------------
+// ⚖ R2-1 — DELTA-VERIFY-PKT-2-R1 finding 1: the tag and the number must read
+// titleVerdictByClient off the SAME row-set for one day, not just the same
+// function. dayAppointments carries terminal (CANCELLED/NO_SHOW) tombstones
+// the number's counted window never sees.
+// ---------------------------------------------------------------------------
+
+describe('⚖ R2-1 — a same-day terminal row’s title never bleeds into a counted row’s verdict', () => {
+  function screenWith(rows: { cancelled: Appointment; counted: Appointment }, clientId: string) {
+    return buildAppointmentsScreen({
+      locale: 'ja',
+      now: NOW,
+      selectedDate: new Date(`${D.tue}T00:00:00+09:00`),
+      staffFilter: 'all',
+      staffList: [{ id: 's1', full_name: '—' }] as never,
+      activeStaffId: null,
+      storeStaffIds: null,
+      orgSettings: null,
+      customers: [cust({ id: clientId, isExistingCustomer: true, visitCount: 5 })],
+      dayAppointments: [
+        listRow(rows.cancelled, { synqed_status: 'CANCELLED' }),
+        listRow(rows.counted),
+      ],
+      weekRange: null,
+      weekWindow: null,
+      monthRange: null,
+      weekRangeAppts: null,
+      monthRangeAppts: null,
+      dayWindow: {
+        counted: [rows.counted],
+        cancelled: [rows.cancelled],
+        noShow: [],
+        truncated: false,
+      },
+      enrichment: new Map([[clientId, enr({ visits: 0 })]]),
+      packUsage: new Map(),
+    })
+  }
+
+  it('a CANCELLED row titled 「新規カット」 does not force 新規 on the same client’s counted, titleless row', () => {
+    const screen = screenWith(
+      {
+        cancelled: appt({ id: 'r2-1a-c', customer_id: 'c5', title: '新規カット', starts_at: at(D.tue, 10) }),
+        counted: appt({ id: 'r2-1a-n', customer_id: 'c5', title: null, starts_at: at(D.tue, 14) }),
+      },
+      'c5',
+    )
+    expect(screen.dayTotals?.newCustomerCount).toBe(0)
+    expect(screen.reservationViews.find((v) => v.id === 'r2-1a-n')?.isFirstTimeVisit).toBe(false)
+  })
+
+  it('the inverse: a titleless CANCELLED row never masks a genuine 新規 on the counted row', () => {
+    const screen = screenWith(
+      {
+        cancelled: appt({ id: 'r2-1b-c', customer_id: 'c6', title: null, starts_at: at(D.tue, 10) }),
+        counted: appt({ id: 'r2-1b-n', customer_id: 'c6', title: '新規カット', starts_at: at(D.tue, 14) }),
+      },
+      'c6',
+    )
+    expect(screen.dayTotals?.newCustomerCount).toBe(1)
+    expect(screen.reservationViews.find((v) => v.id === 'r2-1b-n')?.isFirstTimeVisit).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // ONE TRUTH — week row, day total, month cell
 // ---------------------------------------------------------------------------
 
@@ -671,7 +740,7 @@ describe('⚖ R1-2 — the number is WITHHELD, never maximal', () => {
       storeStaffIds: null,
       orgSettings: null,
       customers: [cust({ id: 'c1' })],
-      dayAppointments: rows.filter((a) => a.customer_id).map(listRow),
+      dayAppointments: rows.filter((a) => a.customer_id).map((a) => listRow(a)),
       weekRange: computeWeekRange(MON),
       monthRange: null,
       weekRangeAppts: null,

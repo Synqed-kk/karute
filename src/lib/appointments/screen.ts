@@ -24,6 +24,7 @@ import {
   type WeekDayRowData,
 } from '@/lib/adapters/reservation'
 import { countedClientIds, type AppointmentWindow } from '@/lib/appointments/by-date'
+import { isTerminalStatus } from '@/lib/appointments/status'
 import type { DayHoursFact } from '@/lib/operating-hours'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
 import {
@@ -337,8 +338,16 @@ export function buildAppointmentsScreen(
     enrichment,
     packUsage,
   }
+  // ⚖ R2-1 — same row-set as newCountByDay's own verdict: a CANCELLED/NO_SHOW
+  // row's title must not force a verdict for a client's other, counted row.
+  // dayAppointments carries terminal rows too (the agenda's includeCancelled
+  // tombstones), which newCountByDay's window never sees — filter here so the
+  // tag and the number build titleVerdictByClient from the same rows, not
+  // just the same function.
   const dayTitleVerdict = titleVerdictByClient(
-    dayAppointments.map((a) => ({ clientId: a.client_id, title: a.title })),
+    dayAppointments
+      .filter((a) => !isTerminalStatus(a.synqed_status))
+      .map((a) => ({ clientId: a.client_id, title: a.title })),
   )
   const isFirstTimeByClient = new Map<string, boolean>()
   for (const a of dayAppointments) {
