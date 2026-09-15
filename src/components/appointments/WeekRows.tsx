@@ -150,8 +150,14 @@ function GridCell({ cell, pending }: { cell: Cell; pending?: boolean }) {
        *  value. The app's own zinc scale supplies the hierarchy — hue family
        *  is the app's, hierarchy is the mock's — and zinc-400 (#9f9fa9) is
        *  the step that sits on #9ca3af. It measures 6.75:1 on the dark card,
-       *  so the dark pair needs no override. */}
-      <span className="shrink-0 text-[11px] font-bold leading-[1.2] text-zinc-400">
+       *  so the dark pair needs no override.
+       *
+       *  R3b-1 (D-4) — zinc-400 alone read 2.62:1 on white, under the 3:1
+       *  non-text-critical floor; the mock's own --mute step (2.54:1) was
+       *  raised to the floor by taking the WORD tone instead (zinc-500
+       *  dark:zinc-400 — DayNumbersLine's pair): 4.83:1 on white, 4.34:1 on
+       *  the today wash, 6.75:1 on the dark card. */}
+      <span className="shrink-0 text-[11px] font-bold leading-[1.2] text-zinc-500 dark:text-zinc-400">
         {cell.label}
       </span>
       {pending ? (

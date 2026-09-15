@@ -493,9 +493,12 @@ describe('WeekRows — the mock’s three greys, not one (R3-17)', () => {
     const { container } = render(
       <WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />,
     )
-    // mock --mute (#9ca3af): the label recedes so the number carries the row
+    // R3b-1 (D-4) — the mock's --mute step read 2.62:1, under the 3:1
+    // non-text-critical floor; raised to the WORD tone (zinc-500
+    // dark:zinc-400), the same pair the weekday letter and the day line use.
     const label = container.querySelector('[data-week-cell]')!.firstElementChild!
-    expect(label.className).toContain('text-zinc-400')
+    expect(label.className).toContain('text-zinc-500')
+    expect(label.className).toContain('dark:text-zinc-400')
     expect(label.className).not.toContain('--color-text-muted')
     // mock --sub (#6b7280): the weekday letter is a word, not a label
     const weekday = container.querySelector('[data-week-row] span span')!
