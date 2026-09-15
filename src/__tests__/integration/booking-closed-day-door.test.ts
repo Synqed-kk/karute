@@ -91,6 +91,10 @@ const apptGet = jest.fn(async () => ({
   created_at: '2026-05-01T00:00:00.000Z',
 }))
 const apptUpdate = jest.fn(async () => ({ customer_id: 'cust-1', store_id: 'store-ginza' }))
+// Same zero-net-new-lint discipline as this file's other arg-taking stubs: the
+// signatures have to accept what the wrapper forwards, and the DEFAULT bodies
+// ignore it (every test drives them through mockResolvedValue).
+/* eslint-disable @typescript-eslint/no-unused-vars */
 const policyGet = jest.fn(async (_storeId: string): Promise<{ weekly_hours: unknown }> => ({
   weekly_hours: null,
 }))
@@ -100,6 +104,7 @@ const listClosedDays = jest.fn(
     _range?: { from?: string; to?: string },
   ): Promise<{ closed_days: { date: string }[] }> => ({ closed_days: [] }),
 )
+/* eslint-enable @typescript-eslint/no-unused-vars */
 const fakeClient = {
   appointments: { create: apptCreate, get: apptGet, update: apptUpdate, delete: jest.fn() },
   packs: { listRecentRedemptions: jest.fn(async () => []) },

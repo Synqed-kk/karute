@@ -90,6 +90,10 @@ const apptGet = jest.fn(async () => ({
 const apptUpdate = jest.fn(async () => ({ customer_id: 'cust-1', store_id: 'store-1' }))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 // ⚖ PKT-1c-C — the closed-day door's two reads, on the phone path too.
+// Same zero-net-new-lint discipline as this file's other arg-taking stubs: the
+// signatures have to accept what the wrapper forwards, and the DEFAULT bodies
+// ignore it (every test drives them through mockResolvedValue).
+/* eslint-disable @typescript-eslint/no-unused-vars */
 const policyGet = jest.fn(async (_storeId: string): Promise<{ weekly_hours: unknown }> => ({
   weekly_hours: null,
 }))
@@ -99,6 +103,7 @@ const listClosedDays = jest.fn(
     _range?: { from?: string; to?: string },
   ): Promise<{ closed_days: { date: string }[] }> => ({ closed_days: [] }),
 )
+/* eslint-enable @typescript-eslint/no-unused-vars */
 const fakeClient = {
   appointments: { create: apptCreate, get: apptGet, update: apptUpdate },
   packs: { listRecentRedemptions: jest.fn(async () => [] as { appointment_id: string }[]) },
