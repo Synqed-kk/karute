@@ -3,9 +3,12 @@
 // flip these) is a later slice. Every switch is honest when OFF: nothing it
 // gates ever half-renders.
 export const BOOKING_SWITCHES = {
-  /** The 空き (free-time) cell. OFF today — Liam's open question (a): drop
-   *  everywhere, or flip ON for solo stores only. Flip: his word, spec §13(a). */
-  freeTimeCell: false,
+  /** The 空き (free-time) cell. ⚖ Liam 9/15 11:1x answered question (a) —
+   *  「show those 3 hours free even if it's spread out into 30-minute gaps…
+   *  that's the whole point of the 隙間ガード」: ON, everywhere, not solo-only.
+   *  The honesty gate is unchanged — the cell still renders only where
+   *  `capacityDefensible` holds (spec §14); elsewhere the slot takes 予約時間. */
+  freeTimeCell: true,
   /** The 休 (closed-day) cell replacing a zero-booking day's numbers. OFF — a
    *  discovered surface; core's write-path refusal is still the ask (core
    *  ticket 1) so a staff member could still book INTO a 休 day today. The

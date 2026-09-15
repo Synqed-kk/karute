@@ -78,7 +78,7 @@ afterEach(() => {
 
 describe('weekRowCells — grid order (spec §8/§3)', () => {
   it("'new' → count, utilization, bookedTime (free OFF), new", () => {
-    const { weekRowCells } = loadMetricMenu()
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: false })
     const r = row({ capacityDefensible: true, hoursSaved: true, bookedMinutes: 240, availableMinutes: 480 })
     expect(weekRowCells(r, { soloMode: false, typeSlot: 'new', t }).map((c) => c.key)).toEqual([
       'count', 'utilization', 'bookedTime', 'new',
@@ -101,7 +101,7 @@ describe('weekRowCells — grid order (spec §8/§3)', () => {
   })
 
   it("'off' → count, utilization, bookedTime (free OFF), next unused metric", () => {
-    const { weekRowCells } = loadMetricMenu()
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: false })
     const r = row({ capacityDefensible: true, hoursSaved: true, bookedMinutes: 100, availableMinutes: 480 })
     expect(weekRowCells(r, { soloMode: false, typeSlot: 'off', t }).map((c) => c.key)).toEqual([
       'count', 'utilization', 'bookedTime', 'cancelled',
@@ -111,7 +111,7 @@ describe('weekRowCells — grid order (spec §8/§3)', () => {
 
 describe('dayLineCells — day-line order (spec §8/§2)', () => {
   it("'new' → count, new, utilization, bookedTime (free OFF)", () => {
-    const { dayLineCells } = loadMetricMenu()
+    const { dayLineCells } = loadMetricMenu({ freeTimeCell: false })
     const r = row({ capacityDefensible: true, hoursSaved: true, bookedMinutes: 240, availableMinutes: 480 })
     expect(dayLineCells(r, { soloMode: false, typeSlot: 'new', t }).map((c) => c.key)).toEqual([
       'count', 'new', 'utilization', 'bookedTime',
@@ -134,7 +134,7 @@ describe('dayLineCells — day-line order (spec §8/§2)', () => {
   })
 
   it("'off' → count, utilization, bookedTime (free OFF), next unused metric", () => {
-    const { dayLineCells } = loadMetricMenu()
+    const { dayLineCells } = loadMetricMenu({ freeTimeCell: false })
     const r = row({ capacityDefensible: true, hoursSaved: true, bookedMinutes: 100, availableMinutes: 480 })
     expect(dayLineCells(r, { soloMode: false, typeSlot: 'off', t }).map((c) => c.key)).toEqual([
       'count', 'utilization', 'bookedTime', 'cancelled',
@@ -250,5 +250,35 @@ describe('isClosedRow', () => {
   it('false while the switch stays OFF (today), even closed with zero bookings', () => {
     const { isClosedRow } = loadMetricMenu()
     expect(isClosedRow(row({ closed: true, count: 0 }))).toBe(false)
+  })
+})
+
+describe('the SHIPPED switch registry (⚖ Liam 9/15 11:1x — 空き ON, everywhere)', () => {
+  // The tests above mock the registry to pin behaviour per switch VALUE. This
+  // one pins the value the app actually ships with: no doMock, the real
+  // module, so flipping the constant back to false goes red here.
+  it('freeTimeCell is ON, and a defensible day really renders 空き', () => {
+    const { BOOKING_SWITCHES } = jest.requireActual<
+      typeof import('@/lib/appointments/booking-switches')
+    >('@/lib/appointments/booking-switches')
+    expect(BOOKING_SWITCHES.freeTimeCell).toBe(true)
+
+    const { weekRowCells, dayLineCells } = jest.requireActual<typeof MetricMenu>(
+      '@/lib/appointments/metric-menu',
+    )
+    const r = row({
+      capacityDefensible: true,
+      hoursSaved: true,
+      bookedMinutes: 240,
+      availableMinutes: 480,
+    })
+    const ctx = { soloMode: true, typeSlot: 'off' as const, t }
+    expect(weekRowCells(r, ctx).map((c) => c.key)).toEqual([
+      'count', 'utilization', 'free', 'bookedTime',
+    ])
+    expect(dayLineCells(r, ctx).map((c) => c.key)).toEqual([
+      'count', 'utilization', 'free', 'bookedTime',
+    ])
+    expect(weekRowCells(r, ctx)[2].value).toBe('4時間')
   })
 })

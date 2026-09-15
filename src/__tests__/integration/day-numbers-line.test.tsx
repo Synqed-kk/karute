@@ -87,13 +87,13 @@ describe('DayNumbersLine — null row', () => {
 })
 
 describe('DayNumbersLine — order per typeSlot', () => {
-  it("'new' → 予約, 新規, 稼働, 予約時間 (free OFF) in that DOM order", () => {
+  it("'new' → 予約, 新規, 稼働, 空き in that DOM order (the SHIPPED registry, 空き ON)", () => {
     const DayNumbersLine = loadDayNumbersLine()
     render(<DayNumbersLine row={row()} soloMode={false} typeSlot="new" locale="ja" />)
     // 11件 has no separate word; the rest are value-then-word.
     expect(screen.getByText('11件')).toBeInTheDocument()
-    const labels = screen.getAllByText(/^(新規|稼働|予約時間)$/).map((el) => el.textContent)
-    expect(labels).toEqual(['新規', '稼働', '予約時間'])
+    const labels = screen.getAllByText(/^(新規|稼働|空き)$/).map((el) => el.textContent)
+    expect(labels).toEqual(['新規', '稼働', '空き'])
   })
 
   it("'returning' → 予約, 再来, 予約時間, キャンセル", () => {
@@ -104,7 +104,7 @@ describe('DayNumbersLine — order per typeSlot', () => {
   })
 
   it("'off' → 予約, 稼働, 予約時間 (free OFF), next unused metric", () => {
-    const DayNumbersLine = loadDayNumbersLine()
+    const DayNumbersLine = loadDayNumbersLine({ freeTimeCell: false })
     render(<DayNumbersLine row={row({ bookedMinutes: 100 })} soloMode={false} typeSlot="off" locale="ja" />)
     const labels = screen.getAllByText(/^(稼働|予約時間|キャンセル)$/).map((el) => el.textContent)
     expect(labels).toEqual(['稼働', '予約時間', 'キャンセル'])
