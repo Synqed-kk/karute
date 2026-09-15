@@ -691,7 +691,14 @@ export function DateJumpPanel({
         ref={scrimRef}
         aria-hidden
         onPointerDown={onClose}
-        className="absolute -left-4 -right-4 top-full z-30 h-screen bg-foreground/20 md:-left-6 md:-right-6"
+        className={cn(
+          'absolute -left-4 -right-4 top-full z-30 h-screen bg-foreground/20 md:-left-6 md:-right-6',
+          // The scrim outlives its own fade for the same ~480 ms as the dialog
+          // (see the `inert` note below) and an element at opacity 0.004 is
+          // still fully hit-testable — it would swallow the first tap the
+          // staff member makes on the page behind it.
+          !open && 'pointer-events-none',
+        )}
       />
 
       <div
@@ -703,6 +710,16 @@ export function DateJumpPanel({
         // The shell's tab-swipe must not change the screen under an open
         // overlay (thin/gestures.ts walks for this tag).
         data-gesture-inert=""
+        // CLOSING IS INSTANTLY UNTOUCHABLE. Unmount waits for the open
+        // spring's REST (≈483 ms) while the fade is visually over by ≈367 ms,
+        // and an element at opacity 0.004 still takes every tap: the
+        // invisible calendar sat over the top of the 予約 list and a day
+        // cell's handler NAVIGATES — the same wrong-date miss this panel
+        // exists to remove. `inert` is the 8/25 deferred-unmount pattern the
+        // recording dialogs already ship: one attribute takes the subtree out
+        // of hit-testing, out of the tab order (~110 controls, while the chip
+        // already says aria-expanded="false") and out of the a11y tree.
+        inert={!open || undefined}
         // The opacity and transform are the open spring's, written every
         // frame through panelRef — React must not set them here.
         className="absolute inset-x-0 top-full z-40 mt-2 origin-top overflow-hidden rounded-xl border border-border bg-card shadow-lg outline-none"

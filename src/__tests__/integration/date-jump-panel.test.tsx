@@ -1240,6 +1240,49 @@ describe('the panel moves like the mock', () => {
   })
 
   /**
+   * R1 (fix round 3) — the panel must be untouchable the moment `open` goes
+   * false. Unmount waits for the open spring's REST (≈483 ms), but the fade is
+   * visually over by ≈367 ms: for a third of a second an invisible calendar
+   * sat over the top of the 予約 list still catching taps, and a day cell's
+   * handler navigates. `inert` takes the subtree out of hit-testing, out of
+   * the tab order and out of the a11y tree in one attribute (~110 controls);
+   * the scrim is outside the dialog, so it needs its own pointer-events-none.
+   */
+  it('t9 — a closing panel stops taking taps and leaves the tab order at once', async () => {
+    renderView()
+    const dialog = openNow()
+    await frames(1000)
+    expect(dialog.hasAttribute('inert')).toBe(false)
+
+    fireEvent.click(chip()) // close
+    await frames(80)
+    // Still mounted, still fading — this is the window, not the aftermath.
+    expect(panel()).not.toBeNull()
+    expect(Number(dialog.style.opacity)).toBeLessThan(1)
+
+    expect(dialog.hasAttribute('inert')).toBe(true)
+    // jsdom does not enforce inert, so count the way a browser would: every
+    // day button now has an inert ancestor, so none of them is focusable and
+    // none of them can be clicked.
+    const days = Array.from(dialog.querySelectorAll<HTMLElement>('[data-day]'))
+    expect(days.length).toBeGreaterThan(0)
+    expect(days.every((el) => el.closest('[inert]') !== null)).toBe(true)
+
+    const scrim = dialog.previousElementSibling as HTMLElement
+    expect(scrim.className).toContain('bg-foreground/20')
+    expect(scrim.className).toContain('pointer-events-none')
+
+    // …and reopening hands both of them back.
+    fireEvent.click(chip())
+    await frames(1000)
+    const reopened = screen.getByRole('dialog')
+    expect(reopened.hasAttribute('inert')).toBe(false)
+    expect((reopened.previousElementSibling as HTMLElement).className).not.toContain(
+      'pointer-events-none',
+    )
+  })
+
+  /**
    * R3 — React reuses the 21+ cell nodes across a month commit, and MonthGrid's
    * cell carries `transition-colors`: measured on the production build, 21
    * cells ran a 150 ms background fade starting 46 ms AFTER the month had
