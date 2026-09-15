@@ -384,6 +384,37 @@ export function buildAppointmentsScreen(
   )
   const soloMode = orgSettings?.solo_mode === true
 
+  // ── THE DIVISOR (S4) — the same store lens the pickers use, counted ───────
+  //
+  // `storeStaffIds` is already bounded by the clamp's store on BOTH doors (web:
+  // storeStaffIdSet(staffList, scope.storeId); facade:
+  // storeStaffIdSetForBusiness(staffList, clamp.storeId, businessId)), and
+  // filterStaffIdsToStore only ever keeps ids drawn from `staffList`, so the
+  // lens IS the store's roster ∩ the business roster. Deriving the headcount
+  // here rather than in each door is what makes the store-isolation invariant
+  // provable at ONE site for both — no other store's staff count can reach a
+  // divisor, because no other store's ids are in this set.
+  //
+  // But the POSTURE flips. A null lens means "no store to ask, or the
+  // assignment read failed"; the pickers read that as "show everyone" (fail
+  // open, which is right for a list), and a divisor must read it as "we do not
+  // know this store's roster" and hand out NO capacity — never the business
+  // roster (C1 §5 / C3 E28). Same value, opposite default, on purpose.
+  //
+  // Every StaffRole counts: OWNER, ADMIN, STYLIST and ASSISTANT all take
+  // bookings and the SDK has no non-booking role, so there is nothing to
+  // filter on. A receptionist is therefore counted — a recorded overcount,
+  // closed when a real `takesBookings` exists.
+  const rosterHeadcount = storeStaffIds ? storeStaffIds.size : null
+  // 自分/担当 = ONE person's day, so ONE lane (the module's caller contract
+  // (a)), and the window was already filtered at the fetch. The exception is
+  // 'self' with no resolvable viewer id: that fetch is NOT filtered and the
+  // views below fall back to the whole salon, so the day keeps the store's
+  // roster rather than dividing a salon by one person.
+  const filteredToOnePerson =
+    staffFilter !== 'all' && !(staffFilter === 'self' && !activeStaffId)
+  const capacityRoster = filteredToOnePerson ? 1 : rosterHeadcount
+
   const rowsFor = (win: AppointmentWindow, from: Date, to: Date): WeekDayRowData[] =>
     appointmentsToWeekData(
       win.counted,
@@ -396,6 +427,7 @@ export function buildAppointmentsScreen(
       { cancelled: win.cancelled, noShow: win.noShow },
       hoursFacts,
       soloMode,
+      { rosterHeadcount: capacityRoster },
     )
 
   let weekData: WeekDayRowData[] | null = null
