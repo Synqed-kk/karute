@@ -158,14 +158,29 @@ function renderView({
 
 /** jsdom ships no PointerEvent, so fireEvent.pointerDown/Move arrive with
  *  pointerId and clientX/Y undefined — which silently sends the panel's axis
- *  lock down the wrong branch. Build the event and hang the properties on it. */
+ *  lock down the wrong branch. Build the event and hang the properties on it.
+ *
+ *  `timeStamp` is the one property that cannot ride in on Object.assign: it is
+ *  a readonly accessor on Event.prototype, so the assignment is silently
+ *  dropped, and jsdom seeds it from the REAL clock — which jest's fake timers
+ *  do NOT fake. The panel derives a flick's px/s by dividing travel by the gap
+ *  between two stamps (`onPointerMove`), so any test that asserts on velocity
+ *  is otherwise measuring how busy the machine was between two synchronous
+ *  fireEvent calls. Pass a stamp and the flick has a stated speed.
+ *
+ *  ⚠ NEVER STAMP 0. React's SyntheticEvent reads the native stamp as
+ *  `event.timeStamp || Date.now()`, so a zero silently becomes the wall clock
+ *  — the very thing the stamp is here to remove, and it fails open (the gap
+ *  goes hugely negative and the panel's `Math.max(1, …)` floor hides it). */
 function pointer(
   type: 'pointerdown' | 'pointermove' | 'pointerup' | 'pointercancel',
   el: Element,
-  init: { pointerId: number; clientX: number; clientY: number },
+  init: { pointerId: number; clientX: number; clientY: number; timeStamp?: number },
 ) {
+  const { timeStamp, ...props } = init
   const event = new Event(type, { bubbles: true, cancelable: true })
-  Object.assign(event, init)
+  Object.assign(event, props)
+  if (timeStamp !== undefined) Object.defineProperty(event, 'timeStamp', { value: timeStamp })
   fireEvent(el, event)
 }
 
@@ -1101,10 +1116,14 @@ describe('the panel moves like the mock', () => {
     expect(title()).toHaveTextContent('2026年9月')
 
     const grid = dialog.querySelector<HTMLElement>('.touch-none')!
-    // 10 px of travel — nowhere near a quarter of the pane — but fast.
-    pointer('pointerdown', grid, { pointerId: 7, clientX: 200, clientY: 100 })
-    pointer('pointermove', grid, { pointerId: 7, clientX: 190, clientY: 101 })
-    pointer('pointerup', grid, { pointerId: 7, clientX: 190, clientY: 101 })
+    // 10 px of travel — nowhere near a quarter of the pane — but fast: 10 px
+    // in 1 ms is 10,000 px/s, far past COMMIT_VELOCITY's 550. Stamped, because
+    // an unstamped pair divides that 10 px by however long the machine took
+    // between these two lines, and a loaded run that spends 18 ms there hands
+    // the panel a speed too slow to commit.
+    pointer('pointerdown', grid, { pointerId: 7, clientX: 200, clientY: 100, timeStamp: 1000 })
+    pointer('pointermove', grid, { pointerId: 7, clientX: 190, clientY: 101, timeStamp: 1001 })
+    pointer('pointerup', grid, { pointerId: 7, clientX: 190, clientY: 101, timeStamp: 1001 })
 
     await frames(2000)
     // The velocity carried it: without the flick path this stays on 9月.
@@ -1138,10 +1157,13 @@ describe('the panel moves like the mock', () => {
     const track = grid.firstElementChild as HTMLElement
     const x = () => Number(/translate3d\(([-\d.]+)px/.exec(track.style.transform)?.[1] ?? NaN)
 
-    pointer('pointerdown', grid, { pointerId: 9, clientX: 200, clientY: 100 })
-    pointer('pointermove', grid, { pointerId: 9, clientX: 190, clientY: 101 })
+    // Stamped: this test is ABOUT the speed, so the speed is stated rather
+    // than left to the gap between two synchronous lines — 10 px in 1 ms,
+    // 10,000 px/s (see `pointer`).
+    pointer('pointerdown', grid, { pointerId: 9, clientX: 200, clientY: 100, timeStamp: 1000 })
+    pointer('pointermove', grid, { pointerId: 9, clientX: 190, clientY: 101, timeStamp: 1001 })
     expect(x()).toBe(-10) // the finger owns the track, 1:1
-    pointer('pointerup', grid, { pointerId: 9, clientX: 190, clientY: 101 })
+    pointer('pointerup', grid, { pointerId: 9, clientX: 190, clientY: 101, timeStamp: 1001 })
 
     // What the SAME release would cover with no velocity handed over: the same
     // integrator, the same options, the same two frames, started from rest.
@@ -1169,8 +1191,14 @@ describe('the panel moves like the mock', () => {
     }
 
     await frames(32)
-    // The flicked track is measurably further along than a dead-stop release.
-    expect(x()).toBeLessThan(control - 10)
+    // The flicked track is further along than a dead-stop release — strictly,
+    // with no margin to tune. Both sides are now deterministic (the stamped
+    // flick above, the same two hand-driven frames here), and the integrator
+    // makes the inequality exact: one step of it is monotone in the velocity
+    // it starts from. Measured, the gap is ~52.8 px — the old fixed -10 was
+    // padding for a speed that moved with the machine's load, and a loaded
+    // full-suite run ate it.
+    expect(x()).toBeLessThan(control)
 
     await frames(2000)
     expect(title()).toHaveTextContent('2026年10月')
