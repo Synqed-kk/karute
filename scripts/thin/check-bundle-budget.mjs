@@ -981,7 +981,25 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // 0.3.2, installed == lock):
 //   en 134,204 · index 1,033,053 · vendor 937,791 = 2,105,048 B.
 // Ceiling = 2,105,048 + 1,000.
-const BUDGET_BYTES = 2_106_048
+// RE-MEASURED 2026-09-15 for the PKT-2 fix round (R1 — the honest 新規 count
+// reads the day list's own rule, and withholds the number when the history
+// read did not happen). index 1,033,053 → 1,033,159 (+106 B); en and vendor
+// unchanged to the byte. Measured the workflow's own way (the same six env
+// vars listed above, same two commands, thin/dist emptied before each lap) and
+// byte-identical with matching content hashes (SHA-256) across two clean laps
+// on the final code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed ==
+// lock):
+//   en 134,204 · index 1,033,159 · vendor 937,791 = 2,105,154 B.
+// What is in the phone for the 106 bytes: the week row and the month cell each
+// carry `newCountKnown` on the wire — the thin bundle re-parses that same DTO
+// schema client-side — and the metric menu learned to read it, so a 予約 screen
+// whose history read failed shows the next metric instead of printing 新規 0
+// beside a list with no 新規 chip on it. The 新規 rule itself is server-side and
+// never enters this graph; metric-menu also SHED its unreachable `new` fallback
+// builder here, which is why a new wire field and a new gate cost a hundred
+// bytes rather than several hundred.
+// Ceiling = 2,105,154 + 1,000.
+const BUDGET_BYTES = 2_106_154
 
 let dir
 try {
