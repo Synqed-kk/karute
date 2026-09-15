@@ -736,7 +736,165 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Ceiling is set from the LARGER of the two tip measurements (the CI recipe)
 // plus 1,000 B, same convention as every prior raise:
 // 2,077,233 + 1,000 = 2,078,233.
-const BUDGET_BYTES = 2_078_233
+//
+// RAISED 2026-09-14 for the 予約 date-jump panel, ⚖ 8/25: 2,078,233 →
+// 2,093,051. A FEATURE raise, not a method correction — the method is
+// unchanged from the 2026-09-02 entry above (release-length placeholder env,
+// emptied thin/dist).
+//
+// What is in the phone for the bytes: the date chip 「9/14(月) ▾」 now opens
+// the app's own calendar instead of calling showPicker() on a hidden native
+// date input, which on a phone read to staff as "nothing there". The panel
+// carries the 月 view's own cells (density dot + count) for ANY month, so
+// 「来月どんな感じ？」 is answered without leaving the day; the month title
+// opens the year's twelve chips for a far jump; a month that has not loaded
+// shows its day numbers with a status line rather than a grid of zero counts.
+// The month reads go through the screen GET this screen already calls
+// (view=month + the day wanted) — no new endpoint and no new audit action.
+//
+// Measured at the FIX-ROUND-2 tip with the CI recipe, byte-identical across
+// two clean builds from an emptied thin/dist (node v24.16.0, vite 6.4.3):
+// en 133,757 · index 1,020,551 · vendor 937,743 = 2,092,051 B — 13,818 B over
+// the ceiling above, which is the breach this raise answers. The base it sits
+// on (origin/main c712c4d56c022c9fc5493b3cbca6dd99eae5e56d, measured the same
+// way from a `git archive` of that tree in a scratch dir, also byte-identical
+// across two clean builds) is en 133,643 · index 1,006,122 · vendor 937,743 =
+// 2,077,508 B, so the panel costs the phone +14,543 B: +14,429 B of index
+// (the panel, its pure state layer and the ja copy) and +114 B of the en
+// chunk (that locale's three new lines). Vendor is untouched — no new
+// dependency; the calendar is the MonthGrid the 月 view already ships.
+//
+// One honest caveat on precision: a blind review of the pre-fix tip measured
+// its index chunk ONE byte larger than this recipe does here (2,091,351 vs
+// 2,091,350) on another machine. The 1,000 B margin below swallows that
+// comfortably; it is recorded so a future reader does not read these figures
+// as exact to the byte across environments.
+//
+// Ceiling = the tip measurement + 1,000 B, same convention as every prior
+// raise: 2,092,051 + 1,000 = 2,093,051.
+//
+// RE-MEASURED 2026-09-15 for the panel's motion repair (#921): 2,093,051 →
+// 2,094,602. Same CI recipe as above (release-length placeholder env, emptied
+// thin/dist), byte-identical across two clean builds on the final tip:
+// en 133,757 · index 1,022,102 · vendor 937,743 = 2,093,602 B. Ceiling =
+// 2,093,602 + 1,000.
+//
+// +1,551 B, all of it in the index chunk (en and vendor are unchanged to the
+// byte — no new dependency; the spring is ~160 lines of the app's own code).
+// HONEST CAVEAT ON WHAT THOSE BYTES ARE: this tip also merged origin/main
+// (40fa7c4bff94b473b4ddba4629e9cc3cccf9fc95) on top of the tree the previous
+// entry was measured at, so the +1,551 B covers the motion repair AND whatever
+// main added to the phone's graph in between. The two were not measured apart
+// — the gate is a tripwire for accidental bloat, and nothing here is one.
+//
+// What is in the phone for the bytes this time: the panel's open, close and
+// month slide now run on src/lib/motion/spring.ts (the approved mock's own
+// integrator) instead of CSS transitions plus a commit timer, which is what
+// stopped the production build from animating the panel open at all.
+//
+// RE-MEASURED 2026-09-15 for fix round 1 on that repair (#921 R1-R4):
+// 2,094,602 → 2,094,758. Same CI recipe, emptied thin/dist, byte-identical
+// across two clean builds on the final tip, same content hashes both times:
+// en 133,757 · index 1,022,258 · vendor 937,743 = 2,093,758 B. Ceiling =
+// 2,093,758 + 1,000.
+//
+// +156 B, all in the index chunk (en and vendor unchanged to the byte). No new
+// code path and no dependency: a pane's `inert` now answers to which month a
+// pending shift is travelling toward rather than to a fixed flag, the wrapper
+// takes the month as its key, and three easing utilities and two comments were
+// added. The tip is otherwise the same tree the entry above measured.
+//
+// RE-MEASURED 2026-09-15 for fix round 3 on that repair (#921 R1-R5):
+// 2,094,758 → 2,095,289. Same CI recipe, emptied thin/dist, byte-identical
+// across two clean builds on the final tip, same content hashes both times:
+// en 133,757 · index 1,022,789 · vendor 937,743 = 2,094,289 B. Ceiling =
+// 2,094,289 + 1,000.
+//
+// +531 B, all in the index chunk (en and vendor unchanged to the byte). No new
+// dependency and no new code path: the closing dialog takes an `inert`
+// attribute and the scrim a conditional class, the pointer handlers gained an
+// ownership guard and a settle, a commit that re-keys the panes puts keyboard
+// focus back on the panel, and the spring's frame loop checks reduced motion.
+// Comments are most of it. The tip is otherwise the same tree as above.
+//
+// RE-MEASURED 2026-09-15 for fix round 4 on that repair (#921 R4-1…R4-4):
+// 2,095,289 → 2,095,631. Same CI recipe, emptied thin/dist, byte-identical
+// across two clean builds on the final tip, same content hashes both times:
+// en 133,757 · index 1,023,074 · vendor 937,800 = 2,094,631 B. Ceiling =
+// 2,094,631 + 1,000.
+//
+// CORRECTION TO THE ENTRY ABOVE, so this delta is honest: the fix-round-3 tip
+// actually produced index 1,022,790 / total 2,094,290 — the figures written
+// there were one byte short (caught by that round's delta-verify, re-measured
+// twice). The real change here is therefore +341 B, not +342.
+//
+// Where those bytes went, measured per chunk rather than assumed:
+//   index  1,022,790 → 1,023,074 (+284 B) — ours. The month grid became a
+//     memoized `Pane` with its two stable props, a month's skeleton cells are
+//     cached per month, the anchor gained `mb-0` and the dialog/scrim their
+//     `will-change` classes; against that, the unreachable non-x settle branch
+//     was deleted. Comments are stripped by the bundler and cost nothing here.
+//   vendor   937,743 → 937,800 (+57 B) — NOT ours: @synqed-kk/ui 0.3.1 → 0.3.2.
+//     The lock already pinned 0.3.2; this worktree's node_modules was a patch
+//     behind it until this round ran `npm install`. The lockfile is untouched.
+//   en      133,757 → 133,757 — unchanged to the byte. No new Japanese string
+//     anywhere in the round.
+//
+// RE-MEASURED 2026-09-15 for fix round 5 on that repair (#921 R5-1/R5-3/R5-6):
+// 2,095,631 → 2,095,689. Same CI recipe, emptied thin/dist, byte-identical
+// across two clean builds on the final code tip, same content hashes both
+// times (a third build with .env.local moved out of the way produced the same
+// three sizes, so nothing here reads a local env file):
+// en 133,776 · index 1,023,113 · vendor 937,800 = 2,094,689 B. Ceiling =
+// 2,094,689 + 1,000.
+//
+// +58 B, and every one of them is the SAME SENTENCE in two locales — the round
+// changed no component source at all (`git diff` on the two tips touches only
+// messages/*.json and one test file). The panel's failed line gained the app's
+// retry tail:
+//   index  1,023,074 → 1,023,113 (+39 B) — ja.json is inlined here by
+//     thin/main.tsx's static import. 「。もう一度お試しください。」 is 13
+//     characters at 3 UTF-8 bytes each. Exactly 39.
+//   en      133,757 → 133,776 (+19 B) — en.json is its own lazy chunk.
+//     ". Please try again." is 19 ASCII characters. Exactly 19.
+//   vendor   937,800 → 937,800 — untouched, as it must be: no dependency
+//     moved and the lockfile was restored after `npm install`.
+//
+// WHY THE ROUND-4 ENTRY ABOVE AND ITS DELTA-VERIFY DISAGREED BY 18 B, measured
+// rather than assumed: that review reported index 1,023,092 against the
+// 1,023,074 written above, with en and vendor matching exactly. Only the index
+// chunk carries the inlined VITE_* placeholders, and shortening
+// VITE_SUPABASE_ANON_KEY by 18 characters on this rig moves the index chunk by
+// exactly 18 B and nothing else — so the review built with a placeholder short
+// of CI's 208, not with a different tree. This step's own comment already
+// documents that failure mode at 255 B (bake 21); the lengths above are the
+// workflow's, verified 24 / 40 / 208 / 8 / 2 before each build. Run the recipe
+// exactly and 1,023,074 reproduces here to the byte.
+//
+// RE-MEASURED 2026-09-15 for fix round 6 on that repair (#921 R6-1/R6-2/R6-3):
+// 2,095,689 → 2,096,112. Same CI recipe as every entry above (release-length
+// placeholder env, emptied thin/dist), byte-identical across two clean builds
+// on the final code tip, same content hashes both times (en-BO9I1Y-_,
+// index-BY3xTWjB, vendor-DYJ_XPt6):
+// en 133,776 · index 1,023,536 · vendor 937,800 = 2,095,112 B. Ceiling =
+// 2,095,112 + 1,000.
+//
+// +423 B, all in the index chunk, split at the source by building the seam
+// alone (this round's panel reverted to the round-5 tip, same recipe) rather
+// than guessing:
+//   index  1,023,113 → 1,023,127 (+14 B) — R6-1, the 予約 seam. The wrapper's
+//     class string went from "pt-6" to "pt-[9px] mb-[11px]": 18 characters
+//     against 4. Exactly 14.
+//   index  1,023,127 → 1,023,536 (+409 B) — R6-2/R6-3, the deferred draw: the
+//     set of months allowed to be drawn, the callback that adds to it, the
+//     one-month-per-frame effect, and the conditional inside the pane. Comments
+//     are stripped by the bundler and cost nothing here.
+//   en      133,776 → 133,776 — unchanged to the byte. No new string anywhere
+//     in the round, in either locale.
+//   vendor   937,800 → 937,800 — untouched: no dependency moved, and
+//     `npm install` at STEP 0 found @synqed-kk/ui already at the lock's 0.3.2,
+//     so the lockfile was restored unchanged.
+const BUDGET_BYTES = 2_096_112
 
 let dir
 try {
