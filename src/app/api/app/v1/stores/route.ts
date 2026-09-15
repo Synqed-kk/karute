@@ -56,15 +56,20 @@ export const GET = facadeHandler('stores.list', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'stores.viewAll')
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
+  // Hours are OPT-IN (?withHours=1), the same split as web's listStores() /
+  // listStoresWithHours() twin (src/actions/stores.ts): the phone has ONE
+  // stores GET, shared by the boot-time store switcher (no use for hours) and
+  // the viewAll-gated 店舗 tab's 営業時間 editor (which seeds off them and
+  // asks with the flag). A re-list without hours re-offered the business-wide
+  // default as "not saved yet" (LENS-1 HIGH-2) — but always fetching them
+  // means a policy-read outage now fails the boot-time switcher too, and that
+  // read is deliberately uncaught (see listStoresWithClient) so it must stay
+  // scoped to the caller that actually asked (R2-2).
+  const withHours = new URL(ctx.req.url).searchParams.get('withHours') === '1'
   try {
-    // WITH hours: this GET is the phone's twin of the web listStoresWithHours()
-    // read, and its only consumer is the viewAll-gated 店舗 tab, whose 営業時間
-    // editor seeds off them. A re-list without hours re-offered the
-    // business-wide default as "not saved yet" (LENS-1 HIGH-2) — one
-    // storePolicies.list() for the whole business, never one get() per store.
     const stores = await listStoresWithClient(synqed, businessId, {
       ensurePrimary: true,
-      withHours: true,
+      withHours,
     })
     return ok(ctx, { stores })
   } catch (err) {

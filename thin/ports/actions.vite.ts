@@ -1172,8 +1172,10 @@ type StoreInput = {
 // which never wraps this call in its own try/catch — sees the reject and
 // leaves last-good state untouched, same as web. A blanket []-on-any-failure
 // here would instead silently blank out a paying tenant's real store list.
-async function facadeListStores(): Promise<StoreRow[]> {
-  const res = await getDataPort().apiFetch('/api/app/v1/stores')
+async function facadeListStores(withHours: boolean): Promise<StoreRow[]> {
+  const res = await getDataPort().apiFetch(
+    withHours ? '/api/app/v1/stores?withHours=1' : '/api/app/v1/stores',
+  )
   if (res.status === 401) return []
   if (!res.ok) throw new Error(`store list failed (${res.status})`)
   const body = (await res.json()) as { stores?: StoreRow[] }
@@ -1346,11 +1348,13 @@ export const setActiveStore = async (
   window.location.reload()
   return { ok: true }
 }
-export const listStores = facadeListStores
-// The phone has ONE stores GET and it now carries each store's 営業時間, so
-// web's two readers collapse to one call here. Exported under both names so
-// the shared settings tree can ask for hours without a thin-only branch.
-export const listStoresWithHours = facadeListStores
+// NO hours — the boot-time store switcher's read (the app-shell layout),
+// which never renders 営業時間. Hours are opt-in (R2-2): a policy-read
+// outage must never take the switcher down with it.
+export const listStores = () => facadeListStores(false)
+// WITH hours — the 設定 screen's 店舗 tab, whose 営業時間 editor seeds off
+// them (one storePolicies.list() for the whole business, never per store).
+export const listStoresWithHours = () => facadeListStores(true)
 export const createStore = facadeCreateStore
 export const updateStore = facadeUpdateStore
 export const setStoreHours = facadeSetStoreHours

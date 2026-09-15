@@ -124,8 +124,10 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) })
 
 const VALID_INPUT = { name: '渋谷店', address: '', phone: '', business_type: 'esthetic_salon' }
 
-const getReq = (headers: Record<string, string> = {}) =>
-  new Request('https://s/api/app/v1/stores', { headers: { ...auth, ...headers } })
+const getReq = (headers: Record<string, string> = {}, withHours = false) =>
+  new Request(`https://s/api/app/v1/stores${withHours ? '?withHours=1' : ''}`, {
+    headers: { ...auth, ...headers },
+  })
 const postReq = (body: unknown, headers: Record<string, string> = {}) =>
   new Request('https://s/api/app/v1/stores', {
     method: 'POST',
@@ -194,10 +196,12 @@ describe('GET /api/app/v1/stores', () => {
         staffCount: 3,
         customerCount: 12,
         businessType: null,
-        // R1-2: the GET lists WITH hours now; no policy row = never configured.
-        weeklyHours: null,
+        // R2-2: hours are opt-in (?withHours=1) — no flag here, so the field
+        // never appears at all (JSON drops the `undefined` key), same as the
+        // boot-time store switcher's read.
       },
     ])
+    expect(storePoliciesList).not.toHaveBeenCalled()
   })
 
   it('an empty list creates the 本店 primary exactly once, name resolved from org settings (never the owner profile), then returns the re-listed rows', async () => {
@@ -223,7 +227,6 @@ describe('GET /api/app/v1/stores', () => {
         staffCount: 0,
         customerCount: 0,
         businessType: null,
-        weeklyHours: null,
       },
     ])
   })
@@ -297,6 +300,33 @@ describe('GET /api/app/v1/stores', () => {
     const res = await listGET(getReq(), noParams)
     expect(res.status).toBe(200)
     expect(storesCreate).not.toHaveBeenCalled()
+  })
+})
+
+// R2-2 — hours are opt-in: the boot-time store switcher has no use for them,
+// and storePolicies.list() is deliberately uncaught inside the twin, so a
+// policy-read outage must never take the switcher's list down with it — that
+// posture belongs to the caller who actually asked (?withHours=1).
+describe('GET /api/app/v1/stores — the withHours flag (R2-2)', () => {
+  it('without the flag, never calls storePolicies.list()', async () => {
+    storesList.mockResolvedValue({
+      stores: [{ id: 'store-A', name: '代官山', address: null, phone: null, is_primary: true, active: true }],
+    })
+    const res = await listGET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(storePoliciesList).not.toHaveBeenCalled()
+    expect('weeklyHours' in (await res.json()).stores[0]).toBe(false)
+  })
+
+  it('?withHours=1 calls storePolicies.list() exactly once and threads the week', async () => {
+    storesList.mockResolvedValue({
+      stores: [{ id: 'store-A', name: '代官山', address: null, phone: null, is_primary: true, active: true }],
+    })
+    storePoliciesList.mockResolvedValue({ policies: [{ store_id: 'store-A', weekly_hours: null }] })
+    const res = await listGET(getReq({}, true), noParams)
+    expect(res.status).toBe(200)
+    expect(storePoliciesList).toHaveBeenCalledTimes(1)
+    expect((await res.json()).stores[0].weeklyHours).toBeNull()
   })
 })
 
