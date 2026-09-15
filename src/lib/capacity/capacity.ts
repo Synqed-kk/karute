@@ -254,6 +254,7 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
     endMs: number
     staffId: string | null
     insideMinutes: number
+    dayMinutes: number
   }[] = []
   for (const span of input.spans) {
     if (!isValidSpan(span)) continue
@@ -273,6 +274,7 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
       clipEndMs: span.endMs < windowCloseMs ? span.endMs : windowCloseMs,
       staffId: span.staffId,
       insideMinutes,
+      dayMinutes: insideMinutes + outsideMinutes,
     })
   }
 
@@ -315,9 +317,13 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   //        booked keeps its full capacity. Computed here (R5, moved up from
   //        rule 5 below) so its value is known to every withdrawal from here
   //        on — a withdrawn day should say its real lane count, not 0.
+  // R3-F1: the floor is "distinct staff who had a counted booking that day",
+  // not "…inside hours" — dayMinutes (inside + outside) is what decides who
+  // worked; on the capacity-present path every span is in-hours, so
+  // dayMinutes === insideMinutes there and nothing changes (E2/E11).
   const worked = new Set<string>()
   for (const s of counted) {
-    if (s.insideMinutes > 0 && s.staffId != null) worked.add(s.staffId)
+    if (s.dayMinutes > 0 && s.staffId != null) worked.add(s.staffId)
   }
   const lanes = input.rosterLanes > worked.size ? input.rosterLanes : worked.size
 

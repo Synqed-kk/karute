@@ -618,6 +618,26 @@ describe('capacityForDay — the council edges', () => {
     },
     2000,
   )
+
+  it('R3-F1: two staff booked entirely after close both count toward the outside-hours lane floor', () => {
+    // Both rows sit wholly after the 20:00 close — the old `insideMinutes > 0`
+    // floor saw neither of them, so roster 1 reported lanes 1 for a day two
+    // people actually worked. The floor is "distinct staff who had a counted
+    // booking that day", not "distinct staff who had one inside hours".
+    const spans = ['s1', 's2'].map((staff) => span(at(20, 30), at(21, 30), staff))
+    const fact = capacityForDay(input({ rosterLanes: 1, spans }))
+
+    expect(fact.reason).toBe('outside-hours')
+    expect(fact.lanes).toBe(2)
+  })
+
+  it('R3-F1: the roster floor is not exceeded when only one of two staff is outside hours', () => {
+    const spans = [span(at(20, 30), at(21, 30), 's1'), span(at(10), at(11), 's2')]
+    const fact = capacityForDay(input({ rosterLanes: 3, spans }))
+
+    expect(fact.reason).toBe('outside-hours')
+    expect(fact.lanes).toBe(3) // roster(3) already exceeds worked(2) — the floor, not a ceiling
+  })
 })
 
 describe('bandFor — the one 35/65 table', () => {
