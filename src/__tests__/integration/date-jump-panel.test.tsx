@@ -87,6 +87,7 @@ jest.mock('@synqed-kk/ui', () => {
 import { StrictMode } from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
+import { makeSpring } from '@/lib/motion/spring'
 import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
 
@@ -1088,6 +1089,53 @@ describe('the panel moves like the mock', () => {
 
     await frames(2000)
     expect(title()).toHaveTextContent('2026年9月')
+  })
+
+  it('t4c — the flick’s SPEED is handed into the spring, not thrown away', async () => {
+    renderView()
+    const dialog = openNow()
+    await frames(1000)
+
+    const grid = dialog.querySelector<HTMLElement>('.touch-none')!
+    const track = grid.firstElementChild as HTMLElement
+    const x = () => Number(/translate3d\(([-\d.]+)px/.exec(track.style.transform)?.[1] ?? NaN)
+
+    pointer('pointerdown', grid, { pointerId: 9, clientX: 200, clientY: 100 })
+    pointer('pointermove', grid, { pointerId: 9, clientX: 190, clientY: 101 })
+    expect(x()).toBe(-10) // the finger owns the track, 1:1
+    pointer('pointerup', grid, { pointerId: 9, clientX: 190, clientY: 101 })
+
+    // What the SAME release would cover with no velocity handed over: the same
+    // integrator, the same options, the same two frames, started from rest.
+    // No magic number — the bound computes itself.
+    let control = 0
+    let queued: ((t: number) => void) | null = null
+    const ref = makeSpring((v) => (control = v), {
+      response: 0.3,
+      damping: 1,
+      eps: 0.4,
+      raf: (cb) => {
+        queued = cb
+        return 1
+      },
+      cancel: () => {
+        queued = null
+      },
+    })
+    ref.jump(-10)
+    ref.set(-377) // 377 = the pane-width fallback a laid-out-less jsdom uses
+    for (let t = 16; t <= 32; t += 16) {
+      const cb = queued as ((time: number) => void) | null
+      queued = null
+      cb?.(t)
+    }
+
+    await frames(32)
+    // The flicked track is measurably further along than a dead-stop release.
+    expect(x()).toBeLessThan(control - 10)
+
+    await frames(2000)
+    expect(title()).toHaveTextContent('2026年10月')
   })
 
   it('t5 — a second › mid-slide lands the first month at once, then slides the next', async () => {
