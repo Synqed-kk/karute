@@ -8,7 +8,7 @@
 // actions port; they are wired to facade endpoints in the P-B mutations PR.
 
 import { useCallback, useEffect, useMemo } from 'react'
-import type { MonthGridCell } from '@synqed-kk/ui'
+import type { MonthCell } from '@/lib/adapters/reservation'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 import {
@@ -69,8 +69,8 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
     warmRecordForBookings(upcoming)
   }, [dto])
 
-  // MonthGridCell wants a real Date; the DTO ships dateIso (JSON-safe).
-  const monthData = useMemo<MonthGridCell[] | null>(
+  // MonthCell wants a real Date; the DTO ships dateIso (JSON-safe).
+  const monthData = useMemo<MonthCell[] | null>(
     () =>
       dto.monthData?.map((c) => ({
         id: c.id,
@@ -79,6 +79,7 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
         isToday: c.isToday,
         count: c.count,
         density: c.density,
+        closed: c.closed,
       })) ?? null,
     [dto.monthData],
   )

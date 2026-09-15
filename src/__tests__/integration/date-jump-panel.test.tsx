@@ -112,6 +112,7 @@ function monthCells(monthKey: string, count = 4): MonthCellDTOType[] {
       isToday: false,
       count,
       density: 'medium',
+      closed: false,
     },
   ]
 }

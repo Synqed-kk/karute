@@ -82,6 +82,11 @@ export const MonthCellDTO = z.object({
   isToday: z.boolean(),
   count: z.number(),
   density: z.enum(['empty', 'light', 'medium', 'busy']),
+  /** 定休日 or 臨時休業 — the 月 page's 休 cell. Additive with the same
+   *  bundle-skew default every other new key carries: false is today's
+   *  behaviour (no cell is closed), so an older server never blanks the
+   *  screen over a key it does not send. */
+  closed: z.boolean().default(false),
 })
 /** JSON shape of one 月 grid cell — the wire type the date-jump panel's
  *  month loader returns on BOTH doors (facade GET on the phone, server action

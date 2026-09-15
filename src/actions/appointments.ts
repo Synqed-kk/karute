@@ -325,6 +325,10 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
       isToday: c.isToday,
       count: c.count,
       density: c.density,
+      // This door reads no store hours (it answers the pop-down, which renders
+      // through the package grid and has no 休 cell), so the adapter's own
+      // default rides through rather than a second, hours-less answer.
+      closed: c.closed,
     }),
   )
 }
