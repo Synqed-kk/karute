@@ -62,7 +62,7 @@ export const STORE_HOURS_ACTOR_UNRESOLVED = 'STORE_HOURS_ACTOR_UNRESOLVED'
  *  cannot hold it either, so the editor and this parser refuse the same set.
  *  (The read side, minuteOfHhmm, still accepts a 24:00 written by core or the
  *  business-wide blob — this is a WRITE bound only.) */
-const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
+export const STORE_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
 
 /** THE one validator for a store-hours save — server truth, and the editor's
  *  own "can I save yet" predicate, so the two can never disagree. Returns a
@@ -98,7 +98,7 @@ export function parseStoreWeeklyHours(
     if (typeof open !== 'string' || typeof close !== 'string') {
       return { error: STORE_HOURS_INVALID_WINDOW }
     }
-    if (!HHMM.test(open) || !HHMM.test(close)) {
+    if (!STORE_HHMM.test(open) || !STORE_HHMM.test(close)) {
       return { error: STORE_HOURS_INVALID_WINDOW }
     }
     // Zero-padded HH:MM compares lexicographically exactly as it does

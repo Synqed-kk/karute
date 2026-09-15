@@ -15,9 +15,23 @@
 
 import { z } from 'zod'
 
+import { STORE_HHMM } from '@/lib/validations/store'
+
 /** Mirrors the SDK's WeeklyHours (@synqed-kk/client, dist/types.d.ts:1045-1049):
- *  one open/close window per weekday, `null`/absent weekday = 定休日. */
-const DayWindowSchema = z.object({ open: z.string(), close: z.string() })
+ *  one open/close window per weekday, `null`/absent weekday = 定休日. The
+ *  window is HH:MM, the SAME bound the write path enforces
+ *  (parseStoreWeeklyHours) — one regex, so the read contract and the write
+ *  contract for a field cannot drift apart. */
+const DayWindowSchema = z.object({
+  open: z.string().regex(STORE_HHMM),
+  close: z.string().regex(STORE_HHMM),
+})
+/** READ SHAPE ONLY — never a write validator. Every weekday is optional here
+ *  because an older server's row may not carry all seven, which is fine for a
+ *  reader; a WRITE with fewer than seven closes the store on the missing days,
+ *  and `parseStoreWeeklyHours` (src/lib/validations/store.ts) is the gate that
+ *  refuses it. Wiring this schema in as a write guard would silently accept a
+ *  six-day payload. */
 export const WeeklyHoursSchema = z.object({
   mon: DayWindowSchema.nullable().optional(),
   tue: DayWindowSchema.nullable().optional(),
@@ -42,7 +56,18 @@ export const StoreRowSchema = z.object({
   // ADDITIVE (1c-D): an older client's DTO carries no hours key at all, so the
   // default keeps the row parsing — `null` is exactly what "this store never
   // configured hours" already means everywhere else.
-  weeklyHours: WeeklyHoursSchema.nullable().default(null),
+  //
+  // A MALFORMED window degrades this ONE field to null with a warning rather
+  // than failing the row (and with it the whole settings screen). Reading as
+  // "no hours of its own" is the same thing the resolver already does with an
+  // unparseable window, and it is the honest answer: we could not read this
+  // store's week.
+  weeklyHours: WeeklyHoursSchema.nullable()
+    .default(null)
+    .catch(() => {
+      console.warn('[settings-dto] unreadable weekly_hours on a store row — reading as null')
+      return null
+    }),
 })
 
 /** Mirrors TierFeatures (src/lib/subscription/types.ts). */

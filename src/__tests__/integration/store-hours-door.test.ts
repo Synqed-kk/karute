@@ -648,6 +648,34 @@ describe('the DTO key is additive', () => {
     expect(StoreRowSchema.parse({ ...BASE, weeklyHours: null }).weeklyHours).toBeNull()
   })
 
+  // R1-10 — the read shape validates HH:MM the way the write path does, and a
+  // value that fails it degrades THIS FIELD to null rather than failing the
+  // row (and with it the whole settings screen).
+  it('a malformed window reads as null, with a warning, never a crash', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const row = StoreRowSchema.parse({
+        ...BASE,
+        weeklyHours: { ...FULL_WEEK, mon: { open: '9:00', close: '19:30' } },
+      })
+      expect(row.weeklyHours).toBeNull()
+      expect(row.name).toBe('A') // the rest of the row survived
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('a value that is not a week at all degrades the same way', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(StoreRowSchema.parse({ ...BASE, weeklyHours: 42 }).weeklyHours).toBeNull()
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('NEW SERVER → OLD CLIENT: the key is ignorable — no other field changed shape', () => {
     const rest: Record<string, unknown> = {
       ...StoreRowSchema.parse({ ...BASE, weeklyHours: FULL_WEEK }),
