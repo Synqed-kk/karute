@@ -26,6 +26,7 @@ const SAVED_OPEN: DayHoursFact = {
   openMinute: 600,
   closeMinute: 1200,
   saved: true,
+  source: 'store',
   closed: false,
 }
 
@@ -174,7 +175,7 @@ describe('F1 — each conjunct false ALONE flips it', () => {
 
   it('the day is closed', () => {
     const day = row(ONE_STAFFER, {
-      fact: { minutes: 0, openMinute: 0, closeMinute: 0, saved: true, closed: true },
+      fact: { minutes: 0, openMinute: 0, closeMinute: 0, saved: true, source: 'store', closed: true },
     })
     expect(day.capacityDefensible).toBe(false)
     expect(day.closed).toBe(true)
