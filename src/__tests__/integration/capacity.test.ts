@@ -15,6 +15,7 @@ import {
   clipToWindow,
   bandFor,
   type BookedSpan,
+  type CapacityFact,
   type CapacityInput,
   type DayHours,
 } from '@/lib/capacity/capacity'
@@ -155,7 +156,10 @@ describe('capacityForDay — the council edges', () => {
 
     expect(fact.reason).toBeNull()
     expect(fact.capacityMinutes).toBe(600) // 1 lane × 10h; the row adds no lane (0 inside minutes)
-    expect(fact.bookedMinutes).toBe(120) // day-clipped: Sun 00:00–02:00 (R2)
+    // R2 round 2 (HIGH-1): capacity is present, so bookedMinutes IS
+    // windowMinutes (0 — none of the row lands inside Sunday's 10:00–20:00),
+    // not the day-clipped 120 round 1 reported.
+    expect(fact.bookedMinutes).toBe(0)
     expect(fact.occupancyPct).toBe(0) // none of it lands inside Sunday's 10:00–20:00
     expect(fact.band).toBe('light')
     expect(fact.availableMinutes).toBe(600)
@@ -482,7 +486,10 @@ describe('capacityForDay — the council edges', () => {
 
     expect(fact.reason).toBeNull() // capacity present
     expect(fact.capacityMinutes).toBe(600)
-    expect(fact.bookedMinutes).toBe(480) // day-clipped: 00:00–08:00 today (R2)
+    // R2 round 2 (HIGH-1): capacity is present, so bookedMinutes IS
+    // windowMinutes (0 — none of it lands inside 10:00–20:00), not the
+    // day-clipped 480 round 1 reported.
+    expect(fact.bookedMinutes).toBe(0)
     expect(fact.occupancyPct).toBe(0) // windowMinutes 0 — none of it lands inside 10:00–20:00
     expect(fact.availableMinutes).toBe(600)
   })
@@ -540,9 +547,10 @@ describe('capacityForDay — the council edges', () => {
     )
 
     expect(fact.reason).toBeNull() // no 'outside-hours' — it is last night's booking
-    // R2: bookedMinutes is the day-clipped minutes (00:00–11:00 today, 660),
-    // not just the 10:00–11:00 hour that lands inside the store's window.
-    expect(fact.bookedMinutes).toBe(660)
+    // R2 round 2 (HIGH-1): capacity is present, so bookedMinutes IS
+    // windowMinutes — the 10:00–11:00 hour inside the store's window (60),
+    // not the day-clipped 660 round 1 reported.
+    expect(fact.bookedMinutes).toBe(60)
     expect(fact.lanes).toBe(1)
     expect(fact.capacityMinutes).toBe(600)
     expect(fact.occupancyPct).toBe(10)
@@ -686,5 +694,66 @@ describe('clipToWindow — inside and outside', () => {
         DAY_END,
       ),
     ).toEqual({ insideMinutes: 60, outsideMinutes: 600 })
+  })
+})
+
+describe('PROPERTY — round 2 HIGH-1/HIGH-2: capacity-present coherence (seeded, 300 trials)', () => {
+  // ponytail: mulberry32 — the smallest deterministic PRNG, no dependency
+  // needed for a seeded test loop.
+  function mulberry32(seed: number): () => number {
+    let a = seed
+    return () => {
+      a |= 0
+      a = (a + 0x6d2b79f5) | 0
+      let t = Math.imul(a ^ (a >>> 15), 1 | a)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+  }
+
+  /** Every capacity-present, store-sourced fact from 300 seeded trials (0-3
+   *  spans each, ~50% run-in / ~50% same-day, roster 1..5). HIGH-1 and HIGH-2
+   *  below both read this SAME seeded loop (round 2's instruction), just
+   *  asserting different invariants over its output. */
+  function capacityPresentStoreFacts(): CapacityFact[] {
+    const rand = mulberry32(20260915)
+    const facts: CapacityFact[] = []
+
+    for (let trial = 0; trial < 300; trial++) {
+      const rosterLanes = 1 + Math.floor(rand() * 5) // 1..5
+      const spanCount = Math.floor(rand() * 4) // 0..3
+      const spans: BookedSpan[] = []
+      for (let s = 0; s < spanCount; s++) {
+        const staffId = `s${1 + Math.floor(rand() * rosterLanes)}`
+        if (rand() < 0.5) {
+          // run-in: starts before today, ends somewhere in or after today —
+          // the shape that makes bookedMinutes and windowMinutes diverge.
+          const startMs = DAY_START - Math.floor(rand() * 6 * 3_600_000)
+          const endMs = DAY_START + Math.floor(rand() * 26 * 3_600_000)
+          if (endMs > startMs) spans.push(span(startMs, endMs, staffId))
+        } else {
+          // same-day
+          const startMs = DAY_START + Math.floor(rand() * 24 * 3_600_000)
+          const endMs = startMs + 1 + Math.floor(rand() * 4 * 3_600_000)
+          spans.push(span(startMs, endMs, staffId))
+        }
+      }
+
+      const fact = capacityForDay(input({ rosterLanes, spans }))
+      if (fact.reason === null && fact.hoursSource === 'store') facts.push(fact)
+    }
+    return facts
+  }
+
+  it("HIGH-1: bookedMinutes + availableMinutes === capacityMinutes (±1) — whenever source is 'store'", () => {
+    const facts = capacityPresentStoreFacts()
+    // The property is meaningless if the generator never produced a
+    // capacity-present, store-sourced trial to check it on.
+    expect(facts.length).toBeGreaterThan(50)
+    for (const fact of facts) {
+      expect(
+        Math.abs(fact.bookedMinutes + (fact.availableMinutes ?? 0) - (fact.capacityMinutes ?? 0)),
+      ).toBeLessThanOrEqual(1)
+    }
   })
 })

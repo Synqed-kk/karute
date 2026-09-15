@@ -101,11 +101,13 @@ export interface CapacityFact {
   lanes: number
   laneKind: LaneKind
   hoursSource: HoursSource | null
-  /** Σ the span's minutes clipped to the JST DAY [dayStartMs, dayEndMs) — the
-   *  number 予約時間 prints (R2), NOT the inside-hours-window minutes used
-   *  below for occupancy/full/available (those stay clipped to [open, close)
-   *  per C3 rule b). A withdrawn day (e.g. 'outside-hours') still reports its
-   *  real day minutes here. */
+  /** When capacity is a number: windowMinutes, clipped to [open, close) — the
+   *  SAME minutes occupancy/full/available read (R1 fix round 2: every figure
+   *  on a capacity-present cell describes the day's declared hours, so 予約時間
+   *  can never outrun 空き). When capacity is null (any reason): Σ the span's
+   *  minutes clipped to the JST DAY [dayStartMs, dayEndMs) instead — a
+   *  withdrawn day (e.g. 'outside-hours') still owes 予約時間 for hours the
+   *  declared window doesn't describe (R2 round 1's purpose). */
   bookedMinutes: number
   /** Math.round(window ÷ capacity × 100), UNCLAMPED — ≥100 renders 満
    *  (E23/E24). Null whenever capacity is null. Rounded HERE (R4) — the
@@ -232,10 +234,12 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   const windowOpenMs = usableHours ? hours.openMs : input.dayStartMs
   const windowCloseMs = usableHours ? hours.closeMs : input.dayEndMs
 
-  // R2: windowMinutes (clipped to [open, close)) drives occupancy/full/free;
-  // dayMinutes (clipped to [dayStart, dayEnd)) is what 予約時間 prints on the
-  // wire as `bookedMinutes` — a withdrawn day still owes the caller its real
-  // minutes, not the hours-window slice of them.
+  // R2 (round 1) / R1 (round 2): windowMinutes (clipped to [open, close))
+  // drives occupancy/full/free AND, once capacity is present, IS the wire
+  // `bookedMinutes` (round 2 HIGH-1 — every figure on a capacity cell
+  // describes the same hours). dayMinutes (clipped to [dayStart, dayEnd)) is
+  // what 予約時間 prints instead when capacity is null — a withdrawn day
+  // still owes the caller its real minutes, not the hours-window slice.
   let windowMinutes = 0
   let dayMinutes = 0
   const counted: {
@@ -348,7 +352,9 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
     lanes,
     laneKind: input.laneKind,
     hoursSource,
-    bookedMinutes: dayMinutes,
+    // R1 (fix round 2, HIGH-1): capacity is present, so bookedMinutes IS
+    // windowMinutes — not the wider dayMinutes withdrawn days use.
+    bookedMinutes: windowMinutes,
     occupancyPct,
     // A tolerance, not an exact >= (R4): summing many spans' minutes can
     // drift a fully tiled window a fraction of a minute under capacity in
