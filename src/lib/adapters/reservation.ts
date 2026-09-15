@@ -74,8 +74,16 @@ export type CapacityRowFields = {
   /** 空き in minutes — only on a day the STORE itself declared (E21), so an
    *  org-blob day carries the band and 稼働 but promises no minutes. */
   freeMinutes: number | null
-  /** Why there is no capacity; null when there is one. */
-  capacityReason: NoCapacityReason | null
+  /** Why there is no capacity; null when there is one.
+   *
+   *  ⚖ R1-8 — 'unknown' is the ADAPTER's own ninth value, never the module's:
+   *  it means "this door never resolved a store, so nothing was computed".
+   *  The module stamps a real reason on every withdrawal, so the pairing
+   *  `capacityMinutes == null ⇔ capacityReason != null` now holds on EVERY
+   *  path, including the date-jump door's capacity-less months and a bundle
+   *  skew. A cell that reads the reason can therefore trust it: a null reason
+   *  means a real capacity, never "nobody looked". */
+  capacityReason: NoCapacityReason | 'unknown' | null
 }
 
 export type WeekDayRowData = WeekDayCardData &
@@ -261,16 +269,40 @@ export function appointmentsToMonthFacts(
  *  month cell and the date-jump panel's capacity-less months all say the same
  *  thing in the same words. */
 export function capacityRowFields(fact: CapacityFact | undefined): CapacityRowFields {
+  if (!fact) {
+    // ⚖ R1-8 — the "this door never looked" row, and it says so.
+    //
+    // It used to return `capacityReason: null` beside `capacityMinutes: null`,
+    // which everywhere else in the model means "there IS a capacity" — so a
+    // day from the date-jump door read as "no capacity, no reason", and the
+    // 未設定 cell that reads the reason had nothing to tell it apart from a
+    // real one. And `laneKind: 'none'` was a positive claim: it reads as "this
+    // store runs classes, no percentage is honest here", when the truth is
+    // that this door never resolved a store at all. 'staff' is the adapter's
+    // own neutral default (`inputs.laneKind ?? 'staff'`) and nothing acts on
+    // it while capacityMinutes is null.
+    return {
+      capacityMinutes: null,
+      lanes: 0,
+      laneKind: 'staff',
+      hoursSource: null,
+      occupancyPct: null,
+      full: false,
+      band: null,
+      freeMinutes: null,
+      capacityReason: 'unknown',
+    }
+  }
   return {
-    capacityMinutes: fact?.capacityMinutes ?? null,
-    lanes: fact?.lanes ?? 0,
-    laneKind: fact?.laneKind ?? 'none',
-    hoursSource: fact?.hoursSource ?? null,
-    occupancyPct: fact?.occupancyPct ?? null,
-    full: fact?.full ?? false,
-    band: fact?.band ?? null,
-    freeMinutes: fact?.availableMinutes ?? null,
-    capacityReason: fact?.reason ?? null,
+    capacityMinutes: fact.capacityMinutes,
+    lanes: fact.lanes,
+    laneKind: fact.laneKind,
+    hoursSource: fact.hoursSource,
+    occupancyPct: fact.occupancyPct,
+    full: fact.full,
+    band: fact.band,
+    freeMinutes: fact.availableMinutes,
+    capacityReason: fact.reason,
   }
 }
 

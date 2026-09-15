@@ -42,6 +42,10 @@ import {
  *  all (the same rule screen.ts:124-131 states for colorRosterIds). */
 export type AppointmentWindowPayload = AppointmentWindow & {
   hoursFacts: [string, DayHoursFact][]
+  /** ⚖ R1-9 — the 担当 filter named somebody the roster could not place, so
+   *  the window below is empty BY CONSTRUCTION. The screen needs to know, or
+   *  it reads those zero rows as a real day and divides them by one lane. */
+  staffFilterUnknown: boolean
   /** THIS STORE's vertical — the per-store column when core carries it, else
    *  the business-wide setting. It decides only one thing: whether a day is
    *  class-bound, in which case one booking row is many people and no
@@ -143,6 +147,7 @@ export async function getAppointmentWindow(
 
   return {
     ...window,
+    staffFilterUnknown: unknown,
     hoursFacts: [...hoursFacts],
     // Per-store first (a chain can run a yoga studio next to a hair salon),
     // the business-wide setting second. Empty string is the org default and

@@ -222,6 +222,38 @@ describe('自分 / 担当 — one person, one lane', () => {
   })
 })
 
+describe('⚖ R1-9 — a 担当 the roster cannot place gets NO capacity', () => {
+  it('MUTANT m8 — an unplaceable filter is not one idle lane at 0 %', () => {
+    // The fetch for such a filter is replaced with an EMPTY window on purpose,
+    // so "one lane, nothing booked" would print 稼働 0 % and 空き = the whole
+    // declared day — for a person nobody can find. Honest about the rows, a
+    // lie about the store.
+    const row = selectedRow(
+      build({
+        staffFilter: 'somebody-who-left',
+        staffFilterUnknown: true,
+        weekWindow: { counted: [], cancelled: [], noShow: [], truncated: false },
+      }),
+    )
+    expect(row.capacityMinutes).toBeNull() // would be 600, at 0 %
+    expect(row.capacityReason).toBe('roster-unknown')
+    expect(row.occupancyPct).toBeNull()
+    expect(row.freeMinutes).toBeNull()
+  })
+
+  it('a 担当 the roster CAN place still gets that person’s single lane', () => {
+    const row = selectedRow(build({ staffFilter: 's2', staffFilterUnknown: false }))
+    expect(row.lanes).toBe(1)
+    expect(row.capacityMinutes).toBe(600)
+  })
+
+  it('and すべて (all) is untouched by the flag', () => {
+    const row = selectedRow(build({ staffFilter: 'all', staffFilterUnknown: false }))
+    expect(row.lanes).toBe(2)
+    expect(row.capacityMinutes).toBe(1200)
+  })
+})
+
 describe('the class-bound store, through the builder', () => {
   it('a pilates studio gets no percentage, whatever its roster', () => {
     const row = selectedRow(build({ businessType: 'pilates_studio' }))

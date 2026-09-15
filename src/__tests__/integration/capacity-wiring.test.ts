@@ -512,6 +512,38 @@ describe('mutant pins', () => {
 })
 
 // ───────────────────────────────────────────────────────────────────────────
+// ⚖ R1-8 — THE NO-CAPACITY DEFAULT PAIRS ITS FIELDS
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('capacityRowFields(undefined) — the door that never looked says so', () => {
+  it('pairs capacityMinutes null with a REASON, like every module withdrawal', () => {
+    const { capacityRowFields } = loadAdapter()
+    const row = capacityRowFields(undefined)
+    expect(row.capacityMinutes).toBeNull()
+    // Everywhere else in the model a null reason means "there IS a capacity",
+    // so "no capacity, no reason" was a shape the 未設定 cell could not read.
+    expect(row.capacityReason).toBe('unknown')
+  })
+
+  it('does not CLAIM the store runs classes', () => {
+    const { capacityRowFields } = loadAdapter()
+    // 'none' is a positive statement — one row is many people, no percentage is
+    // honest here — and this door has not looked at the store at all.
+    expect(capacityRowFields(undefined).laneKind).not.toBe('none')
+    expect(capacityRowFields(undefined).laneKind).toBe('staff')
+  })
+
+  it('the module’s own facts are passed through unchanged, reason and all', () => {
+    const rows = byDay(weekRows({ switches: ALL_ON, rosterHeadcount: 2 }))
+    // A day WITH a capacity still carries a null reason — which is what makes
+    // the pairing readable in the first place.
+    expect(rows.get(YMD.mon)!.capacityReason).toBeNull()
+    expect(rows.get(YMD.sat)!.capacityReason).toBe('closed')
+    expect(rows.get(YMD.sun)!.capacityReason).toBe('hours-not-saved')
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
 // THE MONTH READS THE SAME FACTS
 // ───────────────────────────────────────────────────────────────────────────
 

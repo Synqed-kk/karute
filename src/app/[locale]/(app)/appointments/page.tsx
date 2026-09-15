@@ -222,6 +222,10 @@ export default async function AppointmentsPage({
     activeStaffId,
     storeStaffIds,
     divisorStaffIds,
+    // ⚖ R1-9 — from the window that was actually read: an unplaceable 担当
+    // filter ships an empty window, and an empty window is not a 0 % day.
+    staffFilterUnknown:
+      (weekWindow ?? monthWindow ?? dayWindow)?.staffFilterUnknown ?? false,
     orgSettings,
     customers,
     dayAppointments,

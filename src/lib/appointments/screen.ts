@@ -89,6 +89,11 @@ export interface AppointmentsScreenInputs {
    *  picker may be generous, a denominator may not. null = no store to ask or
    *  the assignment read failed → no capacity at all. */
   divisorStaffIds?: Set<string> | null
+  /** ⚖ R1-9 — the 担当 filter named somebody the roster could not place, so
+   *  the caller shipped an EMPTY window on purpose (resolveFetchStaffId's
+   *  `unknown`). Zero rows is honest about the bookings and a lie about the
+   *  store, so the day gets no capacity rather than one lane at 0 %. */
+  staffFilterUnknown?: boolean
   orgSettings: OrgSettings | null
   customers: CachedCustomerOption[]
   dayAppointments: AppointmentRow[]
@@ -217,6 +222,7 @@ export function buildAppointmentsScreen(
     activeStaffId,
     storeStaffIds,
     divisorStaffIds,
+    staffFilterUnknown,
     orgSettings,
     customers,
     dayAppointments,
@@ -453,7 +459,15 @@ export function buildAppointmentsScreen(
   // roster rather than dividing a salon by one person.
   const filteredToOnePerson =
     staffFilter !== 'all' && !(staffFilter === 'self' && !activeStaffId)
-  const capacityRoster = filteredToOnePerson ? 1 : rosterHeadcount
+  // ⚖ R1-9 — except when the filter names somebody the roster cannot place.
+  // That fetch is replaced with an EMPTY window by construction, so "one lane,
+  // nothing booked" would print 稼働 0 % and 空き = the whole declared day for a
+  // person nobody can find. Honest about the rows, a lie about the store.
+  const capacityRoster = staffFilterUnknown
+    ? null
+    : filteredToOnePerson
+      ? 1
+      : rosterHeadcount
   // ── THE LANE KIND (S5) ───────────────────────────────────────────────────
   // A yoga class of twelve is ONE booking row, so minutes booked over minutes
   // open is a percentage of nothing. Those stores always take the count table

@@ -59,8 +59,9 @@ const capacityFields = {
   /** The lane count used — the store's roster, floored by whoever worked. */
   lanes: z.number().default(0),
   /** 'none' = class-bound (one row is many people): the count table, never a
-   *  percentage. */
-  laneKind: z.enum(['staff', 'none']).default('none'),
+   *  percentage — a positive CLAIM, which is why the default is not it (R1-8):
+   *  a payload that carries no capacity keys never looked at the store. */
+  laneKind: z.enum(['staff', 'none']).default('staff'),
   /** Where the day's hours came from — 空き may ride only 'store' (E21). */
   hoursSource: z.enum(['store', 'org', 'default']).nullable().default(null),
   /** Integer 0–100; 100 prints only alongside `full` (E23). */
@@ -85,9 +86,15 @@ const capacityFields = {
       'hours-not-saved',
       'outside-hours',
       'over-concurrency',
+      // ⚖ R1-8 — the adapter's own value: nobody resolved a store for this
+      // row. The DEFAULT, because a payload with no capacity keys at all is
+      // exactly that: a server that never looked. An explicit null still
+      // parses as null (zod defaults fire on `undefined` only), so a real
+      // capacity keeps saying so.
+      'unknown',
     ])
     .nullable()
-    .default(null),
+    .default('unknown'),
 }
 
 export const WeekDayCardDataDTO = z.object({

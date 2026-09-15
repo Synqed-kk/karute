@@ -292,6 +292,9 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       activeStaffId: selfRow?.id ?? null,
       storeStaffIds,
       divisorStaffIds,
+      // ⚖ R1-9 — the same empty window the web door reports: a filter naming
+      // somebody the roster cannot place gets no capacity, not one idle lane.
+      staffFilterUnknown: unknown,
       orgSettings,
       customers,
       dayAppointments,

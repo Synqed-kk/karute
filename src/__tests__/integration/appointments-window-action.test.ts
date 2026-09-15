@@ -163,6 +163,14 @@ describe('getAppointmentWindow — a filter it cannot place reads ZERO, never ev
     expect(win.noShow).toEqual([])
     expect(win.truncated).toBe(false)
     expect(s.list).not.toHaveBeenCalled()
+    // ⚖ R1-9: and it SAYS the window is empty by construction, so the screen
+    // does not read those zero rows as a real day and divide them by one lane.
+    expect(win.staffFilterUnknown).toBe(true)
+  })
+
+  it('a window it CAN place is not flagged — the flag is about the filter, not the emptiness', async () => {
+    const win = await getAppointmentWindow(FROM, TO, COLLEAGUE_PROFILE)
+    expect(win.staffFilterUnknown).toBe(false)
   })
 
   it('a placeable colleague id still filters at the fetch', async () => {
