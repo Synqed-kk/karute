@@ -15,6 +15,7 @@ import { unstable_cache } from 'next/cache'
 import { getMyCapabilities } from './require-permission'
 import { staffStoresOverlap } from './permissions'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
 
 export interface StoreScope {
@@ -295,7 +296,7 @@ export interface StaffStoreAssignment {
 
 // One cached fetch per business: the full staff→stores assignment map.
 // staffStores has no bulk read, so this fans out one get() per staff — bounded
-// by the roster (≤200) and amortized by the day-long cache. Every staff or
+// by the roster and amortized by the day-long cache. Every staff or
 // assignment mutation (src/actions/staff.ts, setStaffStores) already bumps the
 // 'staff-list' tag, invalidating this alongside the roster caches.
 const staffStoreAssignmentsByBusiness = unstable_cache(
@@ -307,7 +308,11 @@ const staffStoreAssignmentsByBusiness = unstable_cache(
     // client out of graphs (and tests) that never reach this path.
     const { SynqedClient } = await import('@synqed-kk/client')
     const client = new SynqedClient({ baseUrl, apiKey, businessId })
-    const { staff } = await client.staff.list({ page_size: 200 })
+    // ⚖ R1-7 (E33, the 201st): paged to exhaustion. One page of 200 left staff
+    // 201+ with no assignment row at all, and the picker's `!a` arm then kept
+    // every one of them in EVERY store — the same fail-open R1-5 closes for the
+    // divisor, arriving by a second route.
+    const staff = await listAllCoreStaff(client.staff)
     return Promise.all(
       staff.map(async (s) => ({
         id: s.id,

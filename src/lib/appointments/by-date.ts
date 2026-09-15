@@ -6,6 +6,7 @@
 // store-scope + cached-name resolution and passes them in.
 
 import { isTerminalStatus } from '@/lib/appointments/status'
+import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import type { Appointment, SynqedClient } from '@synqed-kk/client'
 import type { AppointmentRow } from '@/actions/appointments'
 
@@ -104,12 +105,6 @@ export async function getAppointmentsByDateWithClient(
     })
 }
 
-/** The roster read's page cap, mirroring src/lib/synqed/staff-map.ts (core
- *  400s a page_size above 200 on this family — it does not clamp). 25 pages =
- *  5,000 cards, current AND historical, far past any real roster. */
-const STAFF_PAGE_SIZE = 200
-const STAFF_MAX_PAGES = 25
-
 /**
  * profile id → CORE staff id for the whole roster, on the caller's own client.
  *
@@ -127,22 +122,18 @@ const STAFF_MAX_PAGES = 25
  * email fallback is a per-id lookup that costs a profiles read plus a core
  * WRITE (the user_id self-heal), which a read-only numbers screen must not do.
  * So: same link field, same page cap, paged to exhaustion, and it THROWS.
+ *
+ * ⚖ R1-7: the pager itself moved to src/lib/synqed/staff-pager.ts, because
+ * the two ROSTER reads (lib/staff.ts, auth/store-scope.ts) each needed the same
+ * exhaustion and neither had it. Same cap, same page size, same termination.
  */
 export async function fetchCoreStaffByProfileId(
   synqed: Pick<SynqedClient, 'staff'>,
 ): Promise<Map<string, string>> {
   const byProfileId = new Map<string, string>()
-  let seen = 0
-  for (let page = 1; page <= STAFF_MAX_PAGES; page++) {
-    const res = await synqed.staff.list({ page, page_size: STAFF_PAGE_SIZE })
-    seen += res.staff.length
-    for (const member of res.staff) {
-      const profileId = (member as { user_id?: string | null }).user_id
-      if (profileId) byProfileId.set(profileId, member.id)
-    }
-    // `?? 0` mirrors staff-map.ts: a fixture with no `total` terminates after
-    // one call, so single-page test doubles keep their exactly-one-call shape.
-    if (res.staff.length === 0 || seen >= (res.total ?? 0)) break
+  for (const member of await listAllCoreStaff(synqed.staff)) {
+    const profileId = (member as { user_id?: string | null }).user_id
+    if (profileId) byProfileId.set(profileId, member.id)
   }
   return byProfileId
 }
