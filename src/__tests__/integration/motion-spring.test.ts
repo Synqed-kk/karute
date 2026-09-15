@@ -161,6 +161,37 @@ describe('reduced motion', () => {
   })
 })
 
+describe('a flip to reduce mid-flight', () => {
+  it('lands the spring at once instead of finishing on physics', () => {
+    const d = driver()
+    const seen: number[] = []
+    const onRest = jest.fn()
+    // The caller owns the flag and flips it on the options object it handed
+    // over (the panel does exactly that: `slideOpts.reduced = reduced` during
+    // render). `set` honours it on entry — but a travel already in the air
+    // kept running the full ~300 ms on motion the user had just switched off.
+    const opts = { eps: 0.4, onRest, raf: d.raf, cancel: d.cancel, reduced: false }
+    const spring = makeSpring((v) => seen.push(v), opts)
+
+    spring.set(-377)
+    d.step()
+    d.step()
+    const mid = spring.value()
+    expect(mid).toBeLessThan(0)
+    expect(mid).toBeGreaterThan(-377)
+    expect(onRest).not.toHaveBeenCalled()
+
+    opts.reduced = true
+    d.step()
+    expect(spring.value()).toBe(-377)
+    expect(seen[seen.length - 1]).toBe(-377)
+    expect(onRest).toHaveBeenCalledTimes(1)
+    expect(onRest).toHaveBeenCalledWith(-377)
+    // …and the loop is over — nothing is left scheduled.
+    expect(d.pending).toBe(false)
+  })
+})
+
 describe('nudge hands a flick into the spring', () => {
   it('changes the next frame’s step', () => {
     const plain = driver()

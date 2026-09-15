@@ -111,6 +111,19 @@ export function makeSpring(apply: SpringApply, opts: SpringOptions = {}): Spring
   let last = 0
 
   function frame(t: number) {
+    // The caller can flip `reduced` on the options object it handed over while
+    // a travel is in the air. `set` honours it on entry; without this check a
+    // spring already moving finished its full ~300 ms on motion the user had
+    // just switched off, and only the NEXT set landed instantly.
+    if (opts.reduced) {
+      x = target
+      v = 0
+      handle = null
+      last = 0
+      apply(x)
+      opts.onRest?.(x)
+      return
+    }
     if (!last) last = t
     const dt = Math.min((t - last) / 1000, 1 / 30)
     last = t
