@@ -21,7 +21,12 @@ import {
   ymdInJst,
 } from '@/lib/date/jst'
 import { jstMidnight } from '@/lib/date/calendar-range'
-import { monthKeyInJst, monthKeyOf } from '@/lib/appointments/date-jump'
+import {
+  firstDayOfMonthKey,
+  monthKeyInJst,
+  monthKeyOf,
+  shiftMonthKey,
+} from '@/lib/appointments/date-jump'
 import { ReservationGrid } from '@/components/reservation/ReservationGrid'
 import { ReservationMobileAgenda } from '@/components/karute/spike-lifted/reservation/ReservationMobileAgenda'
 import {
@@ -133,12 +138,26 @@ const CHIP_OPEN =
 
 // Cursor delta for prev/next, tuned to the visible chrome. The week/month
 // views advance the full unit; the day view advances one day.
-function shiftDate(date: Date, view: DayWeekMonthView, dir: 1 | -1): Date {
-  const next = new Date(date)
-  if (view === 'day') next.setDate(next.getDate() + dir)
-  else if (view === 'week') next.setDate(next.getDate() + dir * 7)
-  else next.setMonth(next.getMonth() + dir)
-  return next
+//
+// R2-1 (LENS-1 #1, HIGH) — 月 no longer advances via `next.setMonth()`: raw
+// Date month arithmetic overflows from a 31st (8/31 › used to land on 10/1,
+// skipping September whole; 3/31 ‹ didn't move at all). The month step goes
+// through the SAME helpers `onPickMonth` below already uses — one home, no
+// new date math — landing on the target month's 1st, or on `today` when the
+// target IS the current month.
+function shiftDate(date: Date, view: DayWeekMonthView, dir: 1 | -1, today: Date): Date {
+  if (view === 'day') {
+    const next = new Date(date)
+    next.setDate(next.getDate() + dir)
+    return next
+  }
+  if (view === 'week') {
+    const next = new Date(date)
+    next.setDate(next.getDate() + dir * 7)
+    return next
+  }
+  const targetKey = shiftMonthKey(monthKeyInJst(date), dir)
+  return targetKey === monthKeyInJst(today) ? today : firstDayOfMonthKey(targetKey)
 }
 
 export function AppointmentsView(props: AppointmentsViewProps) {
@@ -226,10 +245,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   }
 
   function handlePrev() {
-    navigateTo(view, shiftDate(selectedDate, view, -1))
+    navigateTo(view, shiftDate(selectedDate, view, -1, today))
   }
   function handleNext() {
-    navigateTo(view, shiftDate(selectedDate, view, 1))
+    navigateTo(view, shiftDate(selectedDate, view, 1, today))
   }
   function handleToday() {
     navigateTo(view, today)
@@ -237,7 +256,6 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   function handlePickDate() {
     setPickerOpen((o) => !o)
   }
-
   const headerDate = selectedDate
 
   return (

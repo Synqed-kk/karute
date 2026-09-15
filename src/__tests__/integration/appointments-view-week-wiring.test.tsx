@@ -118,6 +118,7 @@ jest.mock('@/components/appointments/MonthPage', () => ({
 
 import { render } from '@testing-library/react'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
+import { firstDayOfMonthKey, shiftMonthKey } from '@/lib/appointments/date-jump'
 import type { MonthCell, WeekDayRowData } from '@/lib/adapters/reservation'
 
 const WEEK_START = new Date('2026-09-15T00:00:00+09:00')
@@ -345,6 +346,53 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
   it('the month line s pending state is the router transition, like the week s', () => {
     renderView(MONTH_VIEW)
     expect(typeof monthPageProps!.pending).toBe('boolean')
+  })
+})
+
+/**
+ * R2-1 (LENS-1 #1, HIGH) — ‹ / › used to step 月 mode via raw `setMonth`,
+ * which overflows from a 31st: 8/31 › landed on 10/1 (September skipped
+ * whole), 3/31 ‹ didn't move at all. The fix steps by MONTH KEY through the
+ * same date-jump helpers `onPickMonth` already uses (see R1-1 below) and
+ * lands on the 1st — or on TODAY when the target IS the current month.
+ *
+ * The six fixed cases below run a year behind whatever year this suite
+ * happens to run on, so none of them can ever collide with the real current
+ * month (same trick R1-1 uses below via `todayIso()`). The "current month"
+ * case gets its own test, built FROM the real today.
+ */
+describe('the month arrows step by MONTH KEY, never a raw Date (R2-1)', () => {
+  let Y: string
+
+  beforeAll(() => {
+    const probe = renderView(MONTH_VIEW)
+    Y = String(Number(monthPageProps!.todayIso!.slice(0, 4)) - 1)
+    probe.unmount()
+  })
+
+  it.each([
+    ['01-31', 'next', '02-01'],
+    ['03-31', 'prev', '02-01'],
+    ['08-31', 'next', '09-01'],
+    ['10-31', 'next', '11-01'],
+    ['09-15', 'next', '10-01'],
+    ['09-15', 'prev', '08-01'],
+  ])('%s %s lands on %s in TZ=Asia/Tokyo — the 1st, never a skipped/short month', (md, dir, expectedMd) => {
+    renderView({ ...MONTH_VIEW, selectedDateIso: `${Y}-${md}` })
+    if (dir === 'next') header().onNext()
+    else header().onPrev()
+    expect(pushed[0]).toContain('view=month')
+    expect(pushed[0]).toContain(`date=${Y}-${expectedMd}`)
+  })
+
+  it('lands on TODAY, not the 1st, when the target month IS the current one — same rule the chip uses', () => {
+    const probe = renderView(MONTH_VIEW)
+    const todayIso = monthPageProps!.todayIso!
+    probe.unmount()
+    const prevMonthFirst = firstDayOfMonthKey(shiftMonthKey(todayIso.slice(0, 7), -1))
+    renderView({ ...MONTH_VIEW, selectedDateIso: prevMonthFirst.toISOString() })
+    header().onNext()
+    expect(pushed[0]).toContain(`date=${todayIso}`)
   })
 })
 
