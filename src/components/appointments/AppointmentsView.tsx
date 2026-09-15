@@ -172,6 +172,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   // keeps a fresh mount mid-transition out of it.
   const weekFailed =
     view === 'week' && (props.truncated === true || (props.weekData === null && !isPending))
+  // LENS-1 1B-WIRE L1-5 — the same rule, the same reason, on the 月 page. A
+  // month the server could not read to exhaustion arrived here as a calm
+  // 「データがありません」 card: a phone staring at an EMPTY month when the truth
+  // is "we could not read it" is the one lie a booking screen must not tell,
+  // and it is worse on a month than on a week (thirty days of nothing).
+  const monthFailed =
+    view === 'month' && (props.truncated === true || (props.monthData === null && !isPending))
   const selectedDate = new Date(props.selectedDateIso)
   // `today` is reserved for the Today button (jump-to-now) — the displayed
   // header always reflects whichever date is currently selected.
@@ -564,7 +571,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             // tap would open the wrong day for the whole JST morning.
             onPickDay={(iso) => navigateTo('day', jstWallTimeToDate(iso, '00:00'))}
           />
-        ) : view === 'month' && props.monthData ? (
+        ) : view === 'month' && (monthFailed || props.monthData) ? (
           /* The app-local month grid + month line (spec §4 / mock §v10-§v11c),
            *  replacing @synqed-kk/ui's MonthGrid ON THE PAGE. The package grid
            *  has no selected day, no 休 cell, and prints its day numbers from a
@@ -572,7 +579,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
            *  yesterday's. The pop-down keeps rendering through it (approved,
            *  byte-frozen); the page does not. */
           <MonthPage
-            cells={props.monthData}
+            cells={props.monthData ?? []}
             selectedDateIso={ymdInJst(selectedDate)}
             todayIso={ymdInJst(today)}
             weekdayLabels={monthWeekdayLabels}
@@ -586,15 +593,17 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             // as it is the week's: mid-move the total on screen is the month
             // being left.
             pending={isPending}
+            // A cut-off read renders the failed line ALONE — no grid numbers,
+            // no month line — exactly as WeekRows does with `failed`.
+            failed={monthFailed}
             onPickDay={(iso) => navigateTo('day', jstWallTimeToDate(iso, '00:00'))}
           />
         ) : (
-          /* 「データがありません」 — reached only when the read ANSWERED and
-           *  there is nothing to show: a 月 with no monthData (that door's own
-           *  failed line is #921's next round, D11), or a 週 whose first data
-           *  has not arrived yet while the router transition is still pending.
-           *  A cut-off 週 no longer lands here — it renders WeekRows' failed
-           *  line above (R1-2). */
+          /* 「データがありません」 — reached only while a router transition is
+           *  still in flight and that view's first data has not arrived yet.
+           *  Neither a cut-off 週 (R1-2) nor a cut-off 月 (A5b) lands here any
+           *  more: both render their own failed line above, which SAYS the read
+           *  failed instead of painting an empty calendar. */
           <div className="rounded-[var(--radius-md)] bg-[var(--color-bg-card)] p-8 text-center text-sm text-[var(--color-text-muted)] ring-1 ring-black/5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
             {tReservation('empty.noData')}
           </div>
