@@ -3,8 +3,11 @@
 // rows' 予約時間/空き cells and the day line.
 
 /** next-intl's useTranslations() return shape, narrowed to what this module
- *  needs (key + optional interpolation values -> string). */
-export type Translate = (key: string, values?: Record<string, unknown>) => string
+ *  needs (key + optional interpolation values -> string). Values match
+ *  use-intl's own TranslationValues (string | number | Date) — `unknown`
+ *  here would make every real translator (whose values param is narrower)
+ *  unassignable to this type. */
+export type Translate = (key: string, values?: Record<string, string | number | Date>) => string
 
 /** 「4時間30分」(both nonzero) / 「4時間」(M=0 omits 分) / 「45分」(H=0) /
  *  「0分」(negative or NaN — never negative time, never a dash). */
