@@ -690,6 +690,88 @@ describe('the reschedule door — updateAppointment', () => {
   })
 })
 
+// ⚖ R1-9 — the four invariants the packet names by name and the 12,4xx-test
+// suite had no guard for. Each of these killed a mutant that had survived the
+// whole suite unchanged.
+describe('the invariants with no guard until now', () => {
+  /** 2026-05-13T00:00Z is still 2026-05-12 in UTC terms for anything before
+   *  15:00Z; 20:00Z on the 12th is 05:00 JST on the 13th — inside the JST/UTC
+   *  seam (JST 00:00–08:59), where the UTC day and the JST day differ. */
+  const WED_0500_JST = '2026-05-12T20:00:00.000Z'
+
+  it('fetches the closed-days range for the JST day, not the UTC day', async () => {
+    policyGet.mockResolvedValue({ weekly_hours: OPEN_WEEK })
+
+    await createAppointment(bookingInput(WED_0500_JST))
+
+    // Exactly [JST day, next JST day) — a UTC-day read would say 2026-05-12,
+    // and a 23-hour step would say to: '2026-05-13'.
+    expect(listClosedDays).toHaveBeenCalledWith('store-ginza', {
+      from: '2026-05-13',
+      to: '2026-05-14',
+    })
+  })
+
+  it('judges the WEEKDAY in JST too, inside the seam', async () => {
+    // Open every day except WEDNESDAY. 05:00 JST Wed is 20:00 UTC Tue — a
+    // UTC-day weekday read would ask about Tuesday and let it through.
+    policyGet.mockResolvedValue({ weekly_hours: { ...OPEN_WEEK, wed: null } })
+
+    const result = await createAppointment(bookingInput(WED_0500_JST))
+
+    expect(result).toMatchObject({ code: 'closed_day', level: 'store', kind: 'weekday' })
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  it('judges a booking that crosses midnight on its START day', async () => {
+    // Mon 23:30 JST, 60 min → ends 00:30 Tue. TUESDAY is the closed day, and
+    // the booking must NOT be refused for it: the rule is the START day.
+    policyGet.mockResolvedValue({ weekly_hours: { ...OPEN_WEEK, tue: null } })
+
+    const result = await createAppointment(bookingInput('2026-05-11T14:30:00.000Z'))
+
+    // Refused, but by the pre-existing hours WINDOW (a booking cannot run past
+    // the store's closing time — there is no day-wrap), never as a closed day.
+    // Judging off the END time would have produced code: 'closed_day'.
+    expect(result).toMatchObject({ code: 'outside_hours' })
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  it('refuses the START day when THAT is the closed one, mid-crossing', async () => {
+    policyGet.mockResolvedValue({ weekly_hours: CLOSED_ON_MONDAY })
+
+    const result = await createAppointment(bookingInput('2026-05-11T14:30:00.000Z'))
+
+    expect(result).toMatchObject({ code: 'closed_day', kind: 'weekday' })
+  })
+
+  // A staff reassign or a memo edit on a booking that already sits on a day a
+  // manager has since marked 定休日 must still go through. A regression here
+  // locks staff out of real bookings they can see on the calendar.
+  it('never refuses a NON-TIME patch on a booking sitting on a now-closed day', async () => {
+    apptGet.mockResolvedValue({
+      id: 'appt-1',
+      status: 'SCHEDULED',
+      customer_id: 'cust-1',
+      staff_id: 'staff-core-1',
+      store_id: 'store-ginza',
+      // A MONDAY, and the store now closes on Mondays.
+      starts_at: MON_1300_JST,
+      ends_at: '2026-05-11T05:00:00.000Z',
+      duration_minutes: 60,
+      created_at: '2026-05-01T00:00:00.000Z',
+    } as never)
+    policyGet.mockResolvedValue({ weekly_hours: CLOSED_ON_MONDAY })
+
+    const result = await updateAppointment('appt-1', { staffProfileId: 'staff-2' })
+
+    expect(result).toEqual({ success: true })
+    expect(apptUpdate).toHaveBeenCalledWith('appt-1', { staff_id: 'staff-2' })
+    // The hours question is never even asked — the booking did not move.
+    expect(policyGet).not.toHaveBeenCalled()
+  })
+})
+
 describe('the lines the staffer reads', () => {
   it('has one line per level in both locales, in the reservation.errors register', () => {
     for (const messages of [ja, en]) {
