@@ -826,7 +826,9 @@ describe('1 — the round gate', () => {
     expect([...codeOnly(screen).matchAll(/HONEST_HELD/g)].length).toBe(3)
     for (const line of [
       "import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'",
-      '() => (HONEST_HELD && heldCommitted',
+      // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: the honest gate
+      // is now also gated on the store owning a bed at all.
+      '() => (HONEST_HELD && heldCommitted && storeHasBeds(committedLanes)',
       // ⚖ AND THE MEMO IS A SETTLED-BOARD MEMO. Every name in its dependency
       // list is a settled value; not one of them is `boardLanes`, `ledger` or
       // `handId`, the three that get a fresh identity on every pointer frame
@@ -852,9 +854,12 @@ describe('1 — the round gate', () => {
       // SKIPPED while a staff card is in hand: the reader (`inHand != null`)
       // discards the map for that gesture, so the netting never runs for it.
       "const staffCardInHand = live != null && live.group !== 'beds' && !live.overShelf && live.mode === 'move'",
-      '() => (HONEST_HELD && heldBoard && !staffCardInHand',
+      // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: this is the
+      // SAME leg's second (live/per-frame) gate memo, gated the same way as
+      // item 2's settled memo — the two netting gates share the D-52 predicate.
+      '() => (HONEST_HELD && heldBoard && !staffCardInHand && hasBeds',
       '? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true).byLane.map(heldMaskOf)',
-      '[heldBoard, locked, boardLanes, ledger, staffCardInHand],',
+      '[heldBoard, locked, boardLanes, ledger, staffCardInHand, hasBeds],',
     ]) {
       expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
     }
