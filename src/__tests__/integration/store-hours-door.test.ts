@@ -110,6 +110,8 @@ import {
   STORE_OWNER_DENIAL,
 } from '@/lib/validations/store'
 import { auditLines } from './helpers/audit-lines'
+import ja from '../../../messages/ja.json'
+import en from '../../../messages/en.json'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -412,6 +414,29 @@ describe('the settings read', () => {
     expect(storePoliciesList).not.toHaveBeenCalled()
     expect(rows[0].weeklyHours).toBeUndefined()
   })
+})
+
+describe('the 組織 label names the company-wide default', () => {
+  // S4. Pinned as a CONTRACT, not as bytes: the exact wording is still going
+  // through the native pass, but the 組織 tab's hours block must never go back
+  // to the bare 「営業時間」 it carried before per-store hours existed — that
+  // label claimed the whole business's hours were THE hours, and the 店舗 tab
+  // can now disagree with it per store.
+  const BARE_TITLE_BEFORE_1C_D = { ja: '営業時間', en: 'Hours of operation' }
+
+  const CATALOGUE = { ja, en }
+
+  it.each(['ja', 'en'] as const)(
+    '%s: the 組織 title is qualified, and is not the per-store one',
+    (locale) => {
+      const settings = CATALOGUE[locale].settings
+      expect(settings.hoursOfOperation).not.toBe(BARE_TITLE_BEFORE_1C_D[locale])
+      expect(settings.hoursOfOperation).not.toBe(settings.stores.hours.title)
+      expect(settings.hoursOfOperation.length).toBeGreaterThan(
+        BARE_TITLE_BEFORE_1C_D[locale].length,
+      )
+    },
+  )
 })
 
 describe('the DTO key is additive', () => {
