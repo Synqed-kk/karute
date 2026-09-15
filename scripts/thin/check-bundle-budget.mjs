@@ -992,7 +992,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // the existing jstWallTimeToDate. The seam fix is a wrapper <div> with no
 // class at all, so it costs nothing measurable. en and vendor unchanged to
 // the byte.
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-16 on the 4b FIX-ROUND R1 tip (R1-1 … R1-6 + the 23:4x
 // type ruling). The entry above is 4b's own final measurement, which is the
 // figure this one is read against.
@@ -1007,7 +1006,30 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // pending branch, the counted-rows filter, the region name, the month branch's
 // own wrapper, and the type-scale class swaps. Real behaviour, not weight: the
 // round REMOVED a dead `gap-[5px]` and the `from` half of the held-tap pair.
-const BUDGET_BYTES = 2_115_259
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-16 on PIECE 4c's tip (先月同期間比: the number on both
+// doors, the clause on the month line, the switch ON). The entry above is 4b's
+// R1 measurement, which is the figure this one is read against.
+//
+// Same CI recipe — CI's own six VITE_* values, the 208-char anon-key
+// placeholder included (a shorter one inflates index and reads as a false
+// mismatch), thin/dist emptied before each of two laps, byte-identical both
+// times (matching content hashes and md5s, node v24.16.0, @synqed-kk/ui 0.3.2
+// installed == lock):
+//   en 134,342 · index 1,042,546 · vendor 937,791 = 2,114,679 B  (+420 B).
+// Ceiling = 2,114,679 + 1,000.
+//
+// Where the 420 B went:
+//   index  1,042,174 → 1,042,546 (+372 B) — the clause itself: the sign
+//     helper, the switch-gated LineItem with its tone choice and its
+//     `countValue` call, the new prop on MonthPage and on AppointmentsView,
+//     and the thin screen's own pass-through. month-compare.ts is SERVER-side
+//     and never enters this bundle; the DTO key is one line of schema.
+//   en       134,294 → 134,342 (+48 B) — one new English string,
+//     `lastMonthSamePeriod`. The thin bundle ships EN only (boot-frozen
+//     locale), so the Japanese term costs this bundle nothing.
+//   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
+const BUDGET_BYTES = 2_115_679
 
 let dir
 try {
