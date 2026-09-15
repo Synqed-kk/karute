@@ -12,7 +12,12 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 jest.mock('next-intl', () => ({
-  useTranslations: () => (k: string) => k,
+  // Keys as text, with any interpolated values appended — the per-day aria
+  // names are only distinguishable if the {day} actually reaches the string.
+  useTranslations:
+    () =>
+    (k: string, v?: Record<string, string>) =>
+      v ? `${k}(${Object.values(v).join(',')})` : k,
   useLocale: () => 'ja',
 }))
 jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn() } }))
@@ -79,7 +84,6 @@ function open(props: Partial<React.ComponentProps<typeof StoreHoursBlock>> = {})
   const utils = render(
     <StoreHoursBlock
       storeId="store-7"
-      storeName="テスト店"
       weeklyHours={null}
       orgHours={ORG_HOURS}
       {...props}
@@ -141,7 +145,6 @@ describe('a store that has never set its own hours', () => {
     render(
       <StoreHoursBlock
         storeId="store-7"
-        storeName="テスト店"
         weeklyHours={null}
         orgHours={ORG_HOURS}
       />,
@@ -173,7 +176,7 @@ describe('the 休業 confirmation', () => {
   it('a 休業 tap asks first and names what stops — the day is not closed yet', () => {
     const { container } = open()
     fireEvent.click(screen.getAllByText('closedToggle')[0])
-    expect(screen.getByText('closedConfirm')).toBeInTheDocument()
+    expect(screen.getByText('closedConfirm(月)')).toBeInTheDocument()
     expect(timeInputs(container)[0].disabled).toBe(false)
   })
 
@@ -181,7 +184,7 @@ describe('the 休業 confirmation', () => {
     const { container } = open()
     fireEvent.click(screen.getAllByText('closedToggle')[0])
     fireEvent.click(screen.getByText('closedConfirmYes'))
-    expect(screen.queryByText('closedConfirm')).not.toBeInTheDocument()
+    expect(screen.queryByText('closedConfirm(月)')).not.toBeInTheDocument()
     expect(timeInputs(container)[0].disabled).toBe(true)
   })
 
@@ -196,7 +199,7 @@ describe('the 休業 confirmation', () => {
     const { container } = open({ weeklyHours: OWN_WEEK })
     // tue is already 定休日 — turning it back ON is the safe direction.
     fireEvent.click(screen.getAllByText('closedToggle')[1])
-    expect(screen.queryByText('closedConfirm')).not.toBeInTheDocument()
+    expect(screen.queryByText('closedConfirm(月)')).not.toBeInTheDocument()
     expect(timeInputs(container)[2].disabled).toBe(false)
   })
 })
@@ -243,6 +246,67 @@ describe('saving', () => {
     fireEvent.click(screen.getByText('save'))
     await waitFor(() => expect(setStoreHours).toHaveBeenCalled())
     expect(screen.getByText('usingDefault')).toBeInTheDocument()
+  })
+})
+
+// R1-6 — the editor as a screen reader meets it. Seven 休業 toggles per store
+// all answered to 「休業」, the time fields composed a run-on with a bare 月
+// (month or Monday), the confirmation appeared with no role and no focus, and
+// an invalid row said so only in a border colour.
+describe('a11y of the editor', () => {
+  it('the seven 休業 toggles have seven distinct names', () => {
+    open()
+    const names = screen
+      .getAllByRole('button', { name: /^closedToggleLabel/ })
+      .map((b) => b.getAttribute('aria-label'))
+    expect(names).toHaveLength(7)
+    expect(new Set(names).size).toBe(7)
+    expect(names[0]).toBe('closedToggleLabel(月)')
+  })
+
+  it('each time field names its day and which end of the window it is', () => {
+    const { container } = open()
+    const inputs = timeInputs(container)
+    expect(inputs[0].getAttribute('aria-label')).toBe('openAria(月)')
+    expect(inputs[1].getAttribute('aria-label')).toBe('closeAria(月)')
+    expect(inputs[12].getAttribute('aria-label')).toBe('openAria(日)')
+    // No store name, and never a bare 月 on its own.
+    expect(inputs[0].getAttribute('aria-label')).not.toContain('テスト店')
+  })
+
+  it('an invalid row is invalid programmatically, and points at the reason', () => {
+    const { container } = open()
+    const [monOpen, monClose] = timeInputs(container)
+    expect(monOpen.getAttribute('aria-invalid')).toBe('false')
+    fireEvent.change(monClose, { target: { value: '09:00' } })
+    expect(monOpen.getAttribute('aria-invalid')).toBe('true')
+    const describedBy = monOpen.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    expect(container.querySelector(`#${describedBy}`)?.textContent).toBe('invalidWindow')
+    fireEvent.change(monClose, { target: { value: '19:30' } })
+    expect(monOpen.getAttribute('aria-invalid')).toBe('false')
+    expect(monOpen.getAttribute('aria-describedby')).toBeNull()
+  })
+
+  it('the 休業 confirmation announces itself and takes focus, and hands it back', () => {
+    open()
+    const toggle = screen.getAllByRole('button', { name: /^closedToggleLabel/ })[0]
+    fireEvent.click(toggle)
+    const dialog = screen.getByRole('alertdialog')
+    expect(dialog).toBeInTheDocument()
+    expect(document.activeElement?.textContent).toBe('closedConfirmYes')
+    fireEvent.click(screen.getByText('closedConfirmNo'))
+    expect(document.activeElement).toBe(toggle)
+  })
+
+  it('the reset confirmation does the same', () => {
+    open({ weeklyHours: OWN_WEEK })
+    const trigger = screen.getByText('resetToDefault')
+    fireEvent.click(trigger)
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    expect(document.activeElement?.textContent).toBe('resetConfirmYes')
+    fireEvent.click(screen.getByText('closedConfirmNo'))
+    expect(document.activeElement).toBe(trigger)
   })
 })
 

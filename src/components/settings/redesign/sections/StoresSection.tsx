@@ -469,7 +469,6 @@ export function StoresSection({
                   {isOwner && store.id !== 'primary' && (
                     <StoreHoursBlock
                       storeId={store.id}
-                      storeName={store.name}
                       weeklyHours={store.weeklyHours}
                       orgHours={orgSettings?.operating_hours}
                     />

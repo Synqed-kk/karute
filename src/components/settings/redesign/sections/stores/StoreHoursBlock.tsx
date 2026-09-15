@@ -27,7 +27,7 @@
 // MOTION: none. The disclosure is a plain conditional render and the rows
 // carry no transition, so Reduce Motion has nothing to honour or to lie about.
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import type { WeeklyHours } from '@synqed-kk/client'
@@ -107,7 +107,6 @@ function draftToWeeklyHours(draft: WeekDraft): WeeklyHours {
 
 interface StoreHoursBlockProps {
   storeId: string
-  storeName: string
   /** The store's own hours. `undefined` = this read never asked (the block is
    *  only rendered on a read that did); `null` = never configured. */
   weeklyHours: WeeklyHours | null | undefined
@@ -117,7 +116,6 @@ interface StoreHoursBlockProps {
 
 export function StoreHoursBlock({
   storeId,
-  storeName,
   weeklyHours,
   orgHours,
 }: StoreHoursBlockProps) {
@@ -142,7 +140,6 @@ export function StoreHoursBlock({
           // from that would wipe what this editor just saved.
           key={storeId}
           storeId={storeId}
-          storeName={storeName}
           weeklyHours={weeklyHours}
           orgHours={orgHours}
           locale={locale}
@@ -155,7 +152,6 @@ export function StoreHoursBlock({
 
 function StoreHoursEditor({
   storeId,
-  storeName,
   weeklyHours,
   orgHours,
   locale,
@@ -192,6 +188,27 @@ function StoreHoursEditor({
       WEEKDAY_KEYS.filter((key) => normalizedOrg[key].closeMinute > 23 * 60 + 59),
     )
   }, [weeklyHours, normalizedOrg])
+
+  /** Confirmation focus. A confirm that appears without taking focus is one a
+   *  screen-reader user never hears; the trigger gets it back on close, so
+   *  they are not dropped at the top of the block. */
+  const firstConfirmButton = useRef<HTMLButtonElement | null>(null)
+  const returnFocusTo = useRef<HTMLElement | null>(null)
+  const confirmOpen = confirmDay !== null || confirmReset
+  useEffect(() => {
+    if (confirmOpen) firstConfirmButton.current?.focus()
+  }, [confirmOpen])
+  const openConfirm = useCallback((trigger: HTMLElement, show: () => void) => {
+    returnFocusTo.current = trigger
+    show()
+  }, [])
+  const closeConfirm = useCallback((hide: () => void) => {
+    hide()
+    returnFocusTo.current?.focus()
+  }, [])
+
+  /** The error line each row's inputs point at while they are invalid. */
+  const errorId = (key: WeekdayKey) => `store-hours-${storeId}-${key}-error`
 
   const setDay = useCallback((key: WeekdayKey, next: Partial<DayDraft>) => {
     setDraft((prev) => ({ ...prev, [key]: { ...prev[key], ...next } }))
@@ -259,7 +276,11 @@ function StoreHoursEditor({
                   type="time"
                   value={day.open}
                   disabled={day.closed}
-                  aria-label={`${storeName} ${dayLabel} ${t('openLabel')}`}
+                  // The day, not a bare 月 (month or Monday) and not the store
+                  // name — this block already sits inside that store's row.
+                  aria-label={t('openAria', { day: dayLabel })}
+                  aria-invalid={dayInvalid}
+                  aria-describedby={dayInvalid ? errorId(key) : undefined}
                   onChange={(e) => setDay(key, { open: e.target.value })}
                   className={`w-full rounded-lg border bg-background px-2 py-2 text-[13px] tabular-nums focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 ${
                     dayInvalid ? 'border-destructive/60' : 'border-border'
@@ -270,7 +291,9 @@ function StoreHoursEditor({
                   type="time"
                   value={day.close}
                   disabled={day.closed}
-                  aria-label={`${storeName} ${dayLabel} ${t('closeLabel')}`}
+                  aria-label={t('closeAria', { day: dayLabel })}
+                  aria-invalid={dayInvalid}
+                  aria-describedby={dayInvalid ? errorId(key) : undefined}
                   onChange={(e) => setDay(key, { close: e.target.value })}
                   className={`w-full rounded-lg border bg-background px-2 py-2 text-[13px] tabular-nums focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 ${
                     dayInvalid ? 'border-destructive/60' : 'border-border'
@@ -279,11 +302,14 @@ function StoreHoursEditor({
                 <button
                   type="button"
                   aria-pressed={day.closed}
-                  onClick={() => {
+                  // Seven of these per store — 「休業」 alone named them all
+                  // the same thing.
+                  aria-label={t('closedToggleLabel', { day: dayLabel })}
+                  onClick={(e) => {
                     // Turning a day OFF is the consequential direction — it is
                     // the one that stops 予約 — so only that way asks.
                     if (day.closed) setDay(key, { closed: false })
-                    else setConfirmDay(key)
+                    else openConfirm(e.currentTarget, () => setConfirmDay(key))
                   }}
                   className={`rounded-md border px-2 py-1.5 text-xs font-medium ${
                     day.closed
@@ -295,22 +321,29 @@ function StoreHoursEditor({
                 </button>
               </div>
               {dayInvalid && (
-                <p className="mt-1 text-xs text-destructive">{t('invalidWindow')}</p>
+                <p id={errorId(key)} className="mt-1 text-xs text-destructive">
+                  {t('invalidWindow')}
+                </p>
               )}
               {clampedFromMidnight.has(key) && !day.closed && day.close === '23:59' && (
                 <p className="mt-1 text-xs text-muted-foreground">{t('clampedMidnight')}</p>
               )}
               {confirmDay === key && (
-                <div className="mt-1.5 rounded-lg bg-muted px-3 py-2">
+                <div
+                  role="alertdialog"
+                  aria-label={t('closedConfirm', { day: dayLabel })}
+                  className="mt-1.5 rounded-lg bg-muted px-3 py-2"
+                >
                   <p className="text-[12px] leading-relaxed text-foreground">
                     {t('closedConfirm', { day: dayLabel })}
                   </p>
                   <div className="mt-2 flex items-center gap-2">
                     <button
                       type="button"
+                      ref={firstConfirmButton}
                       onClick={() => {
                         setDay(key, { closed: true })
-                        setConfirmDay(null)
+                        closeConfirm(() => setConfirmDay(null))
                       }}
                       className="inline-flex h-8 items-center rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 text-[12px] font-medium text-amber-700 dark:text-amber-400"
                     >
@@ -318,7 +351,7 @@ function StoreHoursEditor({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setConfirmDay(null)}
+                      onClick={() => closeConfirm(() => setConfirmDay(null))}
                       className="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-[12px] font-medium text-muted-foreground hover:bg-muted"
                     >
                       {t('closedConfirmNo')}
@@ -347,7 +380,7 @@ function StoreHoursEditor({
         {!unsaved && (
           <button
             type="button"
-            onClick={() => setConfirmReset(true)}
+            onClick={(e) => openConfirm(e.currentTarget, () => setConfirmReset(true))}
             disabled={saving}
             className="inline-flex h-9 items-center rounded-lg border border-border px-3 text-[13px] font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
           >
@@ -356,11 +389,16 @@ function StoreHoursEditor({
         )}
       </div>
       {confirmReset && (
-        <div className="mt-2 rounded-lg bg-muted px-3 py-2">
+        <div
+          role="alertdialog"
+          aria-label={t('resetConfirm')}
+          className="mt-2 rounded-lg bg-muted px-3 py-2"
+        >
           <p className="text-[12px] leading-relaxed text-foreground">{t('resetConfirm')}</p>
           <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
+              ref={firstConfirmButton}
               onClick={resetToDefault}
               disabled={saving}
               className="inline-flex h-8 items-center rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 text-[12px] font-medium text-amber-700 disabled:opacity-50 dark:text-amber-400"
@@ -369,7 +407,7 @@ function StoreHoursEditor({
             </button>
             <button
               type="button"
-              onClick={() => setConfirmReset(false)}
+              onClick={() => closeConfirm(() => setConfirmReset(false))}
               className="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-[12px] font-medium text-muted-foreground hover:bg-muted"
             >
               {t('closedConfirmNo')}
