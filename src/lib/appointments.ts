@@ -124,12 +124,24 @@ export async function validateAppointmentTime(
 
   const tzOffsetMinutes = Number.isFinite(input.tzOffsetMinutes) ? (input.tzOffsetMinutes as number) : 0
   const { dayKey, minuteOfDay } = utcToLocalDayAndMinute(startDate, tzOffsetMinutes)
-  const hours = normalizeOperatingHours(operatingHours)[dayKey]
+  // ⚖ R1-4 — the window is the STORE's when the store has one. The resolver
+  // above already computed it; re-asking the business-wide blob here is what
+  // made the door and the week grid disagree about the same day — a store open
+  // 09:00–22:00 was refused at 09:30 against a 10:00–24:00 window that belongs
+  // to nobody, and accepted at 23:00, an hour after it shut. `source` is the
+  // one truth: 'default' means nobody saved this day anywhere, and only then
+  // does the 10:00–24:00 fallback speak. It also settles the day: a store
+  // window is resolved on the booking's JST day, the same day the closed check
+  // judged.
+  const hours =
+    fact.source === 'default' ? normalizeOperatingHours(operatingHours)[dayKey] : fact
   const endMinute = minuteOfDay + input.durationMinutes
 
   if (minuteOfDay < hours.openMinute || endMinute > hours.closeMinute) {
+    const open = formatMinuteOfDay(hours.openMinute)
+    const close = formatMinuteOfDay(hours.closeMinute)
     return {
-      error: `Appointment must be within operating hours (${formatMinuteOfDay(hours.openMinute)}-${formatMinuteOfDay(hours.closeMinute)}).`,
+      error: `Appointment must be within operating hours (${open}-${close}).`,
     }
   }
 

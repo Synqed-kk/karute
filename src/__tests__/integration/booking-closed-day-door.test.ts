@@ -264,14 +264,82 @@ describe('the rule — validateAppointmentTime, the ONE home', () => {
     )
     expect(open).toBeNull()
 
-    // 01:00Z = 10:00 JST... minus one minute: before open, the pre-existing rule.
+    // 00:30Z = 09:30 JST — before this store opens, the pre-existing rule.
+    // ⚖ R1-4: the window it names is now the STORE's own (10:00–19:00), not
+    // the business-wide blob's 10:00–24:00, which describes a different shop.
     const tooEarly = await validateAppointmentTime(
       bookingInput('2026-05-12T00:30:00.000Z'),
       ORG_HOURS,
       dayHours({ weeklyHours: OPEN_WEEK as never }),
     )
     expect(tooEarly).toEqual({
-      error: 'Appointment must be within operating hours (10:00-24:00).',
+      error: 'Appointment must be within operating hours (10:00-19:00).',
+    })
+  })
+
+  // ⚖ R1-4 — the door and the week grid must answer the same day's hours from
+  // the same place. The store's own window rules whenever the store has one.
+  describe('the window belongs to the store that has one', () => {
+    /** Open 09:00–22:00 every day — narrower at the top than the org default
+     *  (10:00–24:00) and wider at the bottom, so both edges are provable. */
+    const STORE_0900_2200 = Object.fromEntries(
+      ALL_WEEKDAYS.map((d) => [d, { open: '09:00', close: '22:00' }]),
+    )
+
+    it('allows 09:30 — inside the store’s window, outside the org blob’s', async () => {
+      const result = await validateAppointmentTime(
+        { ...bookingInput('2026-05-12T00:30:00.000Z'), durationMinutes: 30 },
+        ORG_HOURS,
+        dayHours({ weeklyHours: STORE_0900_2200 as never }),
+      )
+
+      expect(result).toBeNull()
+    })
+
+    it('refuses 23:00 — after the store shut, and REPORTS the store’s window', async () => {
+      const result = await validateAppointmentTime(
+        { ...bookingInput('2026-05-12T14:00:00.000Z'), durationMinutes: 30 },
+        ORG_HOURS,
+        dayHours({ weeklyHours: STORE_0900_2200 as never }),
+      )
+
+      expect(result).toEqual({
+        error: 'Appointment must be within operating hours (09:00-22:00).',
+      })
+    })
+
+    it('leaves an org-only store on the org blob’s window, unchanged', async () => {
+      const result = await validateAppointmentTime(
+        { ...bookingInput('2026-05-12T00:30:00.000Z'), durationMinutes: 30 },
+        ORG_HOURS,
+        dayHours({ weeklyHours: null }),
+      )
+
+      expect(result).toEqual({
+        error: 'Appointment must be within operating hours (10:00-24:00).',
+      })
+    })
+
+    // NOTE-10 falls with this: the closed check resolves the day in JST and the
+    // window now comes off that same JST-resolved fact, so a caller-supplied
+    // tzOffsetMinutes can no longer make the two judge different days. 13:00
+    // JST on a Tuesday, declared as offset 0, still reads TUESDAY's window —
+    // and the store closed that one day at 12:00.
+    it('judges the window on the SAME day the closed check judged', async () => {
+      const mondayOpenTuesdayShort = {
+        ...STORE_0900_2200,
+        tue: { open: '09:00', close: '12:00' },
+      }
+
+      const result = await validateAppointmentTime(
+        { ...bookingInput(TUE_1300_JST), durationMinutes: 30, tzOffsetMinutes: 0 },
+        ORG_HOURS,
+        dayHours({ weeklyHours: mondayOpenTuesdayShort as never }),
+      )
+
+      expect(result).toEqual({
+        error: 'Appointment must be within operating hours (09:00-12:00).',
+      })
     })
   })
 
