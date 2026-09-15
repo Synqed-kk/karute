@@ -791,7 +791,19 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // month slide now run on src/lib/motion/spring.ts (the approved mock's own
 // integrator) instead of CSS transitions plus a commit timer, which is what
 // stopped the production build from animating the panel open at all.
-const BUDGET_BYTES = 2_094_602
+//
+// RE-MEASURED 2026-09-15 for fix round 1 on that repair (#921 R1-R4):
+// 2,094,602 → 2,094,758. Same CI recipe, emptied thin/dist, byte-identical
+// across two clean builds on the final tip, same content hashes both times:
+// en 133,757 · index 1,022,258 · vendor 937,743 = 2,093,758 B. Ceiling =
+// 2,093,758 + 1,000.
+//
+// +156 B, all in the index chunk (en and vendor unchanged to the byte). No new
+// code path and no dependency: a pane's `inert` now answers to which month a
+// pending shift is travelling toward rather than to a fixed flag, the wrapper
+// takes the month as its key, and three easing utilities and two comments were
+// added. The tip is otherwise the same tree the entry above measured.
+const BUDGET_BYTES = 2_094_758
 
 let dir
 try {
