@@ -46,6 +46,22 @@ function days(month: string, fromDay: number, n: number, tag = 'a'): Appointment
   )
 }
 
+/** A perfectly FLAT shop: `perDay` counted bookings on every single day of the
+ *  JST month `ym` (YYYY-MM). It is the one input a span mismatch cannot hide
+ *  in — two flat months can only differ by how many days each side was given,
+ *  so the delta reads out the arithmetic directly. */
+function flatMonth(ym: string, perDay = 10): Appointment[] {
+  const [year, month] = ym.split('-').map(Number)
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const rows: Appointment[] = []
+  for (let d = 1; d <= lastDay; d++) {
+    for (let k = 0; k < perDay; k++) {
+      rows.push(appt(`${ym}-${String(d).padStart(2, '0')}`, `${ym}-${d}-${k}`))
+    }
+  }
+  return rows
+}
+
 const win = (counted: Appointment[], truncated = false) => ({
   counted,
   cancelled: [],
@@ -102,6 +118,78 @@ describe('monthCompareWindow — the compared spans', () => {
   it('a FUTURE month has no elapsed window — null, so neither door fetches', () => {
     expect(monthCompareWindow(new Date('2026-10-01T00:00:00+09:00'), NOW)).toBeNull()
     expect(monthCompareWindow(new Date('2027-01-01T00:00:00+09:00'), NOW)).toBeNull()
+  })
+})
+
+// ⚖ spec C1, restated after the blind round: a month still running is compared
+// over the SAME ELAPSED DAYS, a month already over is compared WHOLE against
+// WHOLE. The direction below — a finished month whose predecessor was LONGER —
+// had no test at all, and the code clipped the base to the displayed month's
+// own length there, which quietly deleted a real trading day from the base and
+// flattered every such page.
+describe('a month already over is WHOLE against WHOLE, on BOTH sides', () => {
+  /** What a perfectly flat shop reads on `ym`'s page, seen from `seenAt`. */
+  const flat = (ym: string, prevYm: string, seenAt: Date, perDay = 10) => {
+    const w = monthCompareWindow(new Date(`${ym}-01T00:00:00+09:00`), seenAt)!
+    return {
+      w,
+      delta: monthCompareDeltaFrom(
+        w,
+        win(flatMonth(ym, perDay)),
+        win(flatMonth(prevYm, perDay)),
+      ),
+    }
+  }
+
+  it('a SHORTER month keeps its base whole — June against the WHOLE of May, the 31st included', () => {
+    const { w, delta } = flat('2026-06', '2026-05', NOW)
+    expect([w.currentFromYmd, w.currentToYmd]).toEqual(['2026-06-01', '2026-06-30'])
+    expect([w.previousFromYmd, w.previousToYmd]).toEqual(['2026-05-01', '2026-05-31'])
+    // 300 against 310. May 31st is a day this shop really traded: dropping it
+    // from the base printed ±0 at a shop that took ten fewer bookings, and the
+    // same day went missing on the February, April, September and November
+    // pages of every year.
+    expect(delta).toBe(-10)
+  })
+
+  it('a LONGER month keeps its base whole too — March against the WHOLE of February', () => {
+    const { w, delta } = flat('2026-03', '2026-02', NOW)
+    expect([w.currentFromYmd, w.currentToYmd]).toEqual(['2026-03-01', '2026-03-31'])
+    expect([w.previousFromYmd, w.previousToYmd]).toEqual(['2026-02-01', '2026-02-28'])
+    // 310 against 280. February really was three days shorter, and a finished
+    // March page answers "how did March go", never "how did its first 28 days
+    // go" — the honest +30, not a clipped ±0.
+    expect(delta).toBe(30)
+  })
+
+  it('a LEAP February is 29 days long and the base says so', () => {
+    const { w, delta } = flat('2028-03', '2028-02', new Date('2028-09-15T12:00:00+09:00'))
+    expect([w.previousFromYmd, w.previousToYmd]).toEqual(['2028-02-01', '2028-02-29'])
+    expect(delta).toBe(20) // 310 against 290, one day more than a common year
+  })
+
+  it('a finished JANUARY reaches back into the whole of the previous DECEMBER', () => {
+    const { w, delta } = flat('2026-01', '2025-12', NOW)
+    expect([w.previousFromYmd, w.previousToYmd]).toEqual(['2025-12-01', '2025-12-31'])
+    expect(delta).toBe(0) // two 31-day months, a flat shop: ±0, as it should be
+  })
+
+  it('on the 31st the current month is already whole, and the base is last month whole', () => {
+    // A 31st has no twin in a 30-day month, so the current side carries one
+    // day the base cannot have. That is not a new answer: May IS finished on
+    // its 31st, so this is the whole-vs-whole number arriving a few hours
+    // before the finished-month rule prints exactly the same +10 on June 1st.
+    const { w, delta } = flat('2026-05', '2026-04', new Date('2026-05-31T12:00:00+09:00'))
+    expect([w.currentFromYmd, w.currentToYmd]).toEqual(['2026-05-01', '2026-05-31'])
+    expect([w.previousFromYmd, w.previousToYmd]).toEqual(['2026-04-01', '2026-04-30'])
+    expect(delta).toBe(10) // 310 against 300 — by design, named, not a bug
+  })
+
+  it('on the 1st the current month is one day against one day, not a whole month', () => {
+    const { w, delta } = flat('2026-09', '2026-08', new Date('2026-09-01T09:00:00+09:00'))
+    expect([w.currentFromYmd, w.currentToYmd]).toEqual(['2026-09-01', '2026-09-01'])
+    expect([w.previousFromYmd, w.previousToYmd]).toEqual(['2026-08-01', '2026-08-01'])
+    expect(delta).toBe(0) // ten against ten — never 10 against a whole August
   })
 })
 
@@ -237,6 +325,23 @@ describe('buildAppointmentsScreen — monthCompareDelta reaches both doors', () 
         monthWindow,
       }).monthCompareDelta,
     ).toBeNull()
+  })
+
+  it('is null when a SIBLING read is truncated too — the grid and the clause are one branch', () => {
+    // Month view reads no day window today, so `truncated` and the month
+    // read's own flag happen to be the same thing. The selected-day card
+    // sitting under the grid is the obvious future day-window caller, and the
+    // clause must not survive a failed read that nulls the grid beside it.
+    const screen = buildAppointmentsScreen({
+      ...base,
+      monthRange: computeMonthRange(base.selectedDate),
+      monthWindow,
+      dayWindow: win([], true),
+      prevMonthWindow,
+    })
+    expect(screen.truncated).toBe(true)
+    expect(screen.monthData).toBeNull()
+    expect(screen.monthCompareDelta).toBeNull()
   })
 
   it('is null on a truncated month read, alongside the nulled grid', () => {

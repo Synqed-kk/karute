@@ -249,8 +249,17 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       // The previous month's compared span — through the SAME windowFor as the
       // month read above, so the two sides of the comparison carry one store
       // clamp and one 担当 filter. In this wave, so it costs no waterfall.
+      //
+      // The ONE read in this wave that does not reach the 502. Every other one
+      // must, because a calm empty week is the lie this screen may never tell
+      // — but the clause is an optional annotation whose absent state is
+      // exactly `null`, so a half-down core costs the phone one clause instead
+      // of the whole 予約 screen.
       compareWindow
-        ? windowFor(compareWindow.fromIso, compareWindow.toIso)
+        ? windowFor(compareWindow.fromIso, compareWindow.toIso).catch((err) => {
+            console.error('[appointments] 先月同期間比 read degraded:', err)
+            return null
+          })
         : Promise.resolve(null),
       // No catch: storePolicies.get answers the PLATFORM DEFAULTS for a store
       // with no row of its own (`source: 'default'`, the SDK's own contract in

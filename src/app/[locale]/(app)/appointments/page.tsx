@@ -167,10 +167,25 @@ export default async function AppointmentsPage({
     // The previous month's compared span — the same action, the same store
     // clamp and the same 担当 filter as the month read above, so the two sides
     // of the comparison can never be scoped differently. In this wave, so it
-    // costs no waterfall.
+    // costs no waterfall, and WITHOUT the hours read: this span is a count,
+    // and the page's hours facts come from the displayed window below.
+    //
+    // The ONLY read on this page that is allowed to fail quietly. Every other
+    // one throws, because an empty week must never be indistinguishable from
+    // an unread one — but this is an optional annotation whose absent state is
+    // exactly `null`, so a half-down core costs the reader one clause instead
+    // of the whole 予約 screen.
     t.phase('range.prevMonth', () =>
       compareWindow
-        ? getAppointmentWindow(compareWindow.fromIso, compareWindow.toIso, staffFilter)
+        ? getAppointmentWindow(
+            compareWindow.fromIso,
+            compareWindow.toIso,
+            staffFilter,
+            false,
+          ).catch((err) => {
+            console.error('[appointments] 先月同期間比 read degraded:', err)
+            return null
+          })
         : Promise.resolve(null),
     ),
     // 60s cached active-menu union for the booking picker. Degraded the same

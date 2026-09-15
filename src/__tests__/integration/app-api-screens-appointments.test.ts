@@ -323,6 +323,17 @@ function bearer() {
 }
 const auth = { authorization: `Bearer ${bearer()}` }
 const route = { params: Promise.resolve({}) }
+
+// The `from` the merged route actually asks core for, for a JST day.
+//
+// Since the capacity side landed, `windowFor` asks for 86,400,000 ms BEFORE
+// every window it reads, so a booking that starts before day 1's midnight and
+// runs into it is in the rows the intersection index needs. The lead-in moves
+// no count — every consumer re-applies its own YMD spans — so the numbers these
+// tests pin are unchanged; only the boundary the route asks for moved. ONE
+// helper so the month read and the compare read can never drift apart here.
+const askedFrom = (ymd: string) =>
+  new Date(Date.parse(new Date(`${ymd}T00:00:00+09:00`).toISOString()) - 86_400_000).toISOString()
 const req = (
   headers: Record<string, string> = {},
   url = 'https://s/api/app/v1/screens/appointments',
@@ -723,9 +734,96 @@ describe('GET /api/app/v1/screens/appointments', () => {
     // it is in the rows the intersection index needs. It moves no count — the
     // compare re-applies its own YMD spans — which is why 先月同期間比 is still
     // +3 above. These are the boundaries the merged route actually asks for.
-    const leadIn = (iso: string) => new Date(Date.parse(iso) - 86_400_000).toISOString()
-    expect(froms).toContain(leadIn(new Date('2026-08-25T00:00:00+09:00').toISOString()))
-    expect(froms).toContain(leadIn(new Date('2026-07-25T00:00:00+09:00').toISOString()))
+    expect(froms).toContain(askedFrom('2026-08-25'))
+    expect(froms).toContain(askedFrom('2026-07-25'))
+  })
+
+  it('the previous span is clamped EXACTLY like the month read — same store, same 担当', async () => {
+    // ⚖ store isolation: a store-restricted staffer's comparison must never
+    // widen to the business. The code went through the same `windowFor`
+    // closure already — but nothing pinned it, so a previous-span read with an
+    // empty clamp survived the entire suite.
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-A'] })
+    const res = await GET(
+      req(
+        { 'store-id': 'store-A' },
+        'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-15&staff=self',
+      ),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const calls = (
+      listAppointments.mock.calls as unknown as {
+        from?: string
+        store_id?: string
+        staff_id?: string
+      }[][]
+    ).map((c) => c[0])
+    const at = (ymd: string) => calls.find((c) => c?.from === askedFrom(ymd))
+    const month = at('2026-08-25') // the month's own padded window
+    const prev = at('2026-07-25') // the compare's, seven days ahead of the 1st
+    expect(month).toBeDefined()
+    expect(prev).toBeDefined()
+    expect(prev!.store_id).toBe(month!.store_id)
+    expect(prev!.staff_id).toBe(month!.staff_id)
+    // …and not vacuously equal: the clamp and the 担当 filter really were on.
+    expect(month!.store_id).toBe('store-A')
+    expect(month!.staff_id).toBe('staff-core-1')
+  })
+
+  it('with the 先月同期間比 switch OFF the route reads NOTHING extra', async () => {
+    // The switch gates the FETCH, not only the render, and that contract lives
+    // at the door — so the registry is mocked off and the route re-required,
+    // rather than proving it on a pure function handed a null.
+    jest.resetModules()
+    jest.doMock('@/lib/appointments/booking-switches', () => {
+      const actual = jest.requireActual('@/lib/appointments/booking-switches') as {
+        BOOKING_SWITCHES: Record<string, boolean>
+      }
+      return { BOOKING_SWITCHES: { ...actual.BOOKING_SWITCHES, monthCompare: false } }
+    })
+    try {
+      const { GET: getWithSwitchOff } =
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require('@/app/api/app/v1/screens/appointments/route') as typeof import('@/app/api/app/v1/screens/appointments/route')
+      const res = await getWithSwitchOff(
+        req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-15'),
+        route,
+      )
+      expect(res.status).toBe(200)
+      const dto = await dtoOf(res)
+      expect(dto.monthCompareDelta).toBeNull()
+      const froms = (listAppointments.mock.calls as unknown as { from?: string }[][]).map(
+        (c) => c[0]?.from,
+      )
+      // The month's own window is still read; the previous one never is.
+      expect(froms).toContain(askedFrom('2026-08-25'))
+      expect(froms).not.toContain(askedFrom('2026-07-25'))
+    } finally {
+      jest.dontMock('@/lib/appointments/booking-switches')
+      jest.resetModules()
+    }
+  })
+
+  it('a FAILED previous read costs the CLAUSE, never the 予約 screen', async () => {
+    // Every other read in this wave belongs in the 502 — a calm empty month is
+    // the lie this screen may not tell. The compare is the exception: its
+    // absent state IS null, so a half-down core costs the phone one clause.
+    listAppointments.mockImplementation(async (...opts: unknown[]) => {
+      const from = (opts[0] as { from?: string } | undefined)?.from ?? ''
+      if (from < new Date('2026-08-01T00:00:00+09:00').toISOString()) {
+        throw new Error('core: previous span unavailable')
+      }
+      return { appointments: [], total: 0 }
+    })
+    const res = await GET(
+      req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-15'),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.monthCompareDelta).toBeNull()
+    expect(dto.monthData).not.toBeNull()
   })
 
   it('?view=month carries monthStartIso on the wire', async () => {

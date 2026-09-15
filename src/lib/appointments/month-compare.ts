@@ -1,12 +1,17 @@
 // 先月同期間比 — the month line's comparison clause (spec §8, packet PKT-1b-month
 // PIECE 4c C1).
 //
-// The rule is SAME ELAPSED WINDOW, both months, and nothing else: on the 15th
-// of a month you are comparing the 1st–15th against last month's 1st–15th, so
-// the number answers "are we ahead of last month" instead of "is this month
-// finished yet". A whole month against a part month was the one arithmetic the
-// stress round killed outright (STRESS-D2 C1) — a 20th-of-the-month reader
-// would have seen −40% every single month.
+// The rule is SAME ELAPSED WINDOW while a month is still running: on the 15th
+// you are comparing the 1st–15th against last month's 1st–15th, so the number
+// answers "are we ahead of last month" instead of "is this month finished
+// yet". A whole month against a part month was the one arithmetic the stress
+// round killed outright (STRESS-D2 C1) — a 20th-of-the-month reader would have
+// seen −40% every single month.
+//
+// A month ALREADY OVER has no elapsed window left to take: it is compared
+// WHOLE against WHOLE (⚖ spec C1). February really did trade fewer days than
+// January, and a February page that hid that by clipping January to 28 days
+// would be answering a question nobody asked.
 //
 // The clause is an ANNOTATION, not an alarm (spec §v10): when the number cannot
 // be honest it is ABSENT. Three ways that happens, all of them null here:
@@ -33,7 +38,8 @@ export interface MonthCompareWindow {
   /** The displayed month's compared span, JST YYYY-MM-DD, both ends inclusive. */
   currentFromYmd: string
   currentToYmd: string
-  /** The previous month's compared span — the SAME number of elapsed days. */
+  /** The previous month's compared span: the same number of elapsed days while
+   *  the displayed month is still running, the WHOLE month once it is over. */
   previousFromYmd: string
   previousToYmd: string
 }
@@ -72,9 +78,22 @@ export function monthCompareWindow(
 
   const prevYear = m.month === 1 ? m.year - 1 : m.year
   const prevMonth = m.month === 1 ? 12 : m.month - 1
-  // A 31st has no twin in a 30-day month: the previous window ends on that
-  // month's own last day, never on a date it does not have.
-  const prevCutDay = Math.min(cutDay, daysInMonth(prevYear, prevMonth))
+  // A FINISHED month is compared whole against whole, so the base is the whole
+  // previous month — never that month clipped to the displayed month's own
+  // length. Clipping it was the bias this round killed: a June page (30 days)
+  // cut May to the 30th and dropped May 31st, so a shop doing exactly the same
+  // trade every day read ±0 when the honest answer was −10. Five months of
+  // every year end one day short of their predecessor, and the error always
+  // ran in the flattering direction.
+  //
+  // The CURRENT month clamps to today, and to the previous month's own last
+  // day when today has no twin in it. On a 31st that leaves the current side
+  // one day longer than the base — but a month IS finished on its 31st, so
+  // that is whole-vs-whole arriving a few hours early: the same number the
+  // finished-month rule prints for it the next morning, not a new answer.
+  const prevCutDay = isCurrentMonth
+    ? Math.min(n.day, daysInMonth(prevYear, prevMonth))
+    : daysInMonth(prevYear, prevMonth)
 
   const readFrom = jstMidnight(prevYear, prevMonth, 1)
   readFrom.setDate(readFrom.getDate() - 7)

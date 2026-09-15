@@ -1317,7 +1317,7 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     先月同期間比 ×4 · monthCompareDelta ×6 · data-pressed ×4 · the R6 seam ×1
 //     with both CSS rules · the folded TYPE_SLOT reading "new").
 //
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// ── the 新規-slot chain's own last entry (superseded below) ────────────────
 // RE-MEASURED 2026-09-16 on PKT-2b's tip (feat/booking-month-new-slot S1+S2+S3,
 // on top of the merge tip above) — the WIRING round: the month line's own
 // 新規 slot (`monthNewCount`, metric-menu.ts — Σ `newCount` over `inMonth`
@@ -1341,8 +1341,42 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // property-access string that survives minification — appears 7× in this
 // build's index chunk versus 4× on the merge-tip build two entries up, which
 // is consistent with the extra read site this round adds.
+// ── the 4c compare chain's own last entry (superseded below) ─────────────
+// RE-MEASURED 2026-09-16 on PIECE 4c's FIX-ROUND R1 tip (R1-1 … R1-7). The
+// entry above is 4c's own final measurement, which is the figure this one is
+// read against.
+//
+// Same CI recipe — CI's own six VITE_* values, the 208-char anon-key
+// placeholder included (a shorter one inflates index and reads as a false
+// mismatch), thin/dist emptied before each of two laps, byte-identical both
+// times (matching content hashes and md5s, node v24.16.0, @synqed-kk/ui 0.3.2
+// installed == lock):
+//   en 134,342 · index 1,042,726 · vendor 937,791 = 2,114,859 B  (+180 B).
+// Ceiling = 2,114,859 + 1,000.
+//
+// Where the 180 B went:
+//   index  1,042,546 → 1,042,726 (+180 B) — the month line's two `sr-only`
+//     separators and their `ariaSep` lookups, so a screen reader hears two
+//     facts instead of one run-on string. Everything else this round is
+//     SERVER-side (the whole-vs-whole arithmetic, both doors' catch, the
+//     clamp) or test-only, and none of it reaches this bundle.
+//   en       134,342 → 134,342 — unchanged: the separator reuses a key the
+//     bundle already shipped, so the round adds NO new string.
+//   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// THE ALL-IN LOOK TIP (look/28-all-in-20260916) — every chain above merged
+// INTO one look branch off feat/booking-month-new-slot 7f372b812: the month
+// card fold, 先月同期間比 after its R1, the closed-day booking door and the
+// store-hours door. Both (all) chains above are kept in full and are NOT
+// comparable to each other — each was measured on its own branch, and a
+// branch figure only means something against the entry it names.
+//
+// PLACEHOLDER while the merges land: the ceiling below is the HIGHEST of the
+// branch ceilings above, so no intermediate tree is ever left with a ceiling
+// below its own size. The REAL measurement of this merged tree replaces this
+// block in its own commit, LAST, from a clean two-lap build of the merged
+// tree — never by picking a side.
 const BUDGET_BYTES = 2_116_661
-
 let dir
 try {
   dir = readdirSync(DIST)

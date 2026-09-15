@@ -10,14 +10,24 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import type { MonthCell } from '@/lib/adapters/reservation'
 
+// The two strings the 先月同期間比 clause is MADE of come from the REAL message
+// file, never a hand copy: a hand copy cannot notice the day the app's own
+// wording moves, and the production render path is the only place the width
+// was ever measured.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const JA_WEEK_ROWS = (require('../../../messages/ja.json') as {
+  reservation: { weekRows: Record<string, string> }
+}).reservation.weekRows
+
 const WEEK_ROWS: Record<string, string> = {
   sep: '·',
   count: '予約',
   new: '新規',
   returning: '再来',
   closed: '休',
-  lastMonthSamePeriod: '先月同期間比',
-  countValue: '{n}件',
+  ariaSep: '、',
+  lastMonthSamePeriod: JA_WEEK_ROWS.lastMonthSamePeriod,
+  countValue: JA_WEEK_ROWS.countValue,
   failed: '予約状況を取得できませんでした。もう一度お試しください。',
   rowAria: '{date} {cells}',
 }
@@ -38,6 +48,10 @@ jest.mock('next-intl', () => ({
   useTranslations: (ns: string) =>
     (key: string, values?: Record<string, string | number>) => {
       let s = DICTS[ns]?.[key] ?? key
+      // A splice is the RIGHT stub here, proven rather than assumed: ICU prints
+      // a BARE `{n}` with String(value) and groups only a typed `{n, number}`
+      // — checked against intl-messageformat itself and against the production
+      // build, which renders 「+1234件」 (see the four-digit case below).
       if (values) for (const [k, v] of Object.entries(values)) s = s.split(`{${k}}`).join(String(v))
       return s
     },
@@ -71,6 +85,16 @@ function cell(id: string, over: Partial<MonthCell> = {}): MonthCell {
     closed: false,
     ...over,
   }
+}
+
+/** The line as a SIGHTED reader sees it. `sr-only` nodes exist for assistive
+ *  tech and are out of flow, so they must never move a pixel: every visible
+ *  assertion below reads through this, and the separators they add are
+ *  asserted separately on the raw `textContent`. */
+function visibleText(el: Element): string {
+  const clone = el.cloneNode(true) as HTMLElement
+  for (const node of Array.from(clone.querySelectorAll('.sr-only'))) node.remove()
+  return clone.textContent ?? ''
 }
 
 /** A real grid: leading/trailing out-of-month fillers + every day of `month`. */
@@ -405,7 +429,7 @@ describe('MonthPage — the month line', () => {
       <MonthPage {...baseProps} cells={monthCells(2026, 9)} typeSlot="new" typeCount={80} />,
     )
     const line = container.querySelector('[data-month-line]')!
-    expect(line.textContent).toBe('予約0件新規80')
+    expect(visibleText(line)).toBe('予約0件新規80')
     expect(line.querySelector('[data-new-spark]')).not.toBeNull()
   })
 
@@ -444,9 +468,11 @@ describe('MonthPage — the month line', () => {
       const { container } = render(
         <MonthPage {...baseProps} cells={cells} monthCompareDelta={12} />,
       )
-      expect(container.querySelector('[data-month-line]')!.textContent).toBe(
-        '予約234件先月同期間比+12件',
-      )
+      const line = container.querySelector('[data-month-line]')!
+      expect(visibleText(line)).toBe('予約234件先月同期間比+12件')
+      // …and SPOKEN as two facts, not one run-on string. The 14px gap is CSS;
+      // a screen reader reads the app's own 「、」 (the week rows' ariaSep).
+      expect(line.textContent).toBe('予約234件、先月同期間比+12件')
     })
 
     it('ahead takes the 少なめ green — the week rows own token, not a second one', () => {
@@ -489,6 +515,30 @@ describe('MonthPage — the month line', () => {
         <MonthPage {...baseProps} cells={monthCells(2026, 9)} monthCompareDelta={null} />,
       )
       expect(container.querySelector('[data-month-line]')!.textContent).toBe('予約0件')
+    })
+
+    it('a FOUR-DIGIT delta stays ONE clause — ungrouped, as the real template prints it', () => {
+      // A busy multi-store salon can plausibly cross into four digits, and no
+      // fixture covered that range. The app's own string is a BARE 「{n}件」,
+      // and ICU prints a bare argument with String(value) — grouping would
+      // need a typed 「{n, number}」. Measured on the production build at 393
+      // with this exact value: the line ends at 209.44px inside a 361px
+      // track, one line, no overflow.
+      const { MonthPage } = loadMonthPage({ monthCompare: true })
+      const { container } = render(
+        <MonthPage {...baseProps} cells={monthCells(2026, 9)} monthCompareDelta={1234} />,
+      )
+      expect(clause(container)!.querySelector('span')!.textContent).toBe('+1234\u4ef6')
+    })
+
+    it('\u2026and the same on the way down, behind the typographic minus', () => {
+      const { MonthPage } = loadMonthPage({ monthCompare: true })
+      const { container } = render(
+        <MonthPage {...baseProps} cells={monthCells(2026, 9)} monthCompareDelta={-1234} />,
+      )
+      const value = clause(container)!.querySelector('span')!
+      expect(value.textContent).toBe('\u22121234\u4ef6')
+      expect(value.className).toContain('text-[var(--color-text-muted)]')
     })
 
     it('mid-transition it is the two shims, never a clause about the month being left', () => {
