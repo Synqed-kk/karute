@@ -968,7 +968,40 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
 //   en 134,204 · index 1,033,009 · vendor 937,791 = 2,105,004 B.
 // Ceiling = 2,105,004 + 1,000.
-const BUDGET_BYTES = 2_106_004
+//
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-15 for FIXLIST-1b-MONTH-4a-R1 on the MERGED tip. The
+// two entries above describe the two parents separately and are now history:
+// this branch merged `feat/booking-week-face` (25c209377) IN, so one tip now
+// carries both the 月 page (4a) and the week face's R3c round, plus R1's own
+// three code fixes (R1-1 the month chip's landing, R1-2 the tappable
+// out-of-month cells, R1-3 the 休 switch).
+//
+// Same CI recipe as the entry above — the workflow's own six VITE_* values,
+// copied verbatim from the checked-in step; measured with five of them unset
+// the same tip reads ~390-410 B smaller, which is the trap that correction
+// was written for. thin/dist emptied before each lap, two clean laps,
+// byte-identical with matching content hashes both times (node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,038,500 · vendor 937,791 = 2,110,495 B.
+// Ceiling = 2,110,495 + 1,000. The previous ceiling FAILED — the merge alone
+// puts this tip past it — so this is a real, declared figure, not drift.
+//
+// Where the bytes are, each side measured on its own tip, not apportioned:
+//   4a tip     4882da19e : index 1,037,906
+//   merge-only d68a230ad : index 1,037,945 (+39 B — the week branch's R3c-1
+//     and R3c-3, already declared in the entry above)
+//   this tip             : index 1,038,500 (+555 B) — R1's own, all of it:
+//     the panel's one optional `onPickMonth` callback and its guard, the
+//     view's landing decision (1st vs today) with its two date-helper
+//     imports, MonthPage's out-of-month cells becoming buttons with their own
+//     handler, aria-label and transition/hover/focus class strings, and the
+//     cellTone rename.
+//   en       134,204 → 134,204 — unchanged to the byte: R1 added NO string,
+//     JA or EN. The out-of-month cell's name reuses the date formatter the
+//     in-month cells already call.
+//   vendor   937,791 → 937,791 — unchanged to the byte.
+const BUDGET_BYTES = 2_111_495
 
 let dir
 try {
