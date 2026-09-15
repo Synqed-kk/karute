@@ -364,13 +364,25 @@ export function WeekRows({
                *  hours (「12時間」); a real day carries minutes, and
                *  「予約時間 12時間30分」 measures 130.03 px (label 44 + gap 5 +
                *  value 81), so at 120 px it ran 2 px into 無断's box (D-2 of
-               *  FIX-REPORT-1B-WIRE-R1). +10 px is invisible to the eye and
-               *  keeps the collision impossible; every other number in this
-               *  row — gap 8, row-gap 7, the padding, the 52 px date column,
-               *  the `ml-auto` chevron — is the mock's, untouched. */}
+               *  FIX-REPORT-1B-WIRE-R1).
+               *
+               *  ⚖ R3-12 — and +10 px was still a hand-tuned number, not a
+               *  guard: the value is `whitespace-nowrap` inside a min-w-0 cell
+               *  in a FIXED track, so it overflows rather than truncating, and
+               *  「予約時間 12時間30分」 measures 130.03 px — 0.03 px over its
+               *  own new column. `bookedMinutes` is the whole store's day
+               *  (10 staff × 10 h = 100 h is reachable), and
+               *  「予約時間 100時間30分」 measures 139.42 px. `minmax(130px,
+               *  max-content)` makes the floor structural: the track can never
+               *  be narrower than 130, and a longer string widens the track
+               *  instead of walking into 無断's box. The narrow column stays a
+               *  fixed 100 px, so a duration still must not sit there — that
+               *  is placeForGrid's job, not this track's. Every other number
+               *  in this row — gap 8, row-gap 7, the padding, the 52 px date
+               *  column, the `ml-auto` chevron — is the mock's, untouched. */}
               <div
                 data-week-grid
-                className="grid shrink-0 grid-cols-[130px_100px] gap-x-2 gap-y-[7px]"
+                className="grid shrink-0 grid-cols-[minmax(130px,max-content)_100px] gap-x-2 gap-y-[7px]"
               >
                 {closed ? (
                   // mock `.wkgrid .closedcell{grid-column:1/-1}` +
