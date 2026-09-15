@@ -1158,7 +1158,18 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // records — a 7 B difference between two worktrees' node_modules, not a code
 // difference. Which is exactly why all four figures above were re-measured in
 // one place instead of being subtracted across reports.)
-const BUDGET_BYTES = 2_106_619
+// Raised 2026-09-16 at ⚖ PKT-1c-C — the closed-day booking door: the app now
+// REFUSES a booking whose start day is a store's 定休日 or 臨時休業 date, on both
+// doors, through the ONE time validator, and the refusal names which setting
+// closed the day (three lines in ja + en). Ground truth from an EMPTIED
+// thin/dist, deterministic across two clean builds on each side, both measured
+// in this one place: base d1fe35d95 = 2,105,619 B, tip = 2,106,848 B — this
+// door's own cost is +1,229 B (the rule, the one-date policy read, the message
+// pick, and the three JA/EN strings that ship in the locale chunk). The prior
+// ceiling had only 1,000 B of headroom left at that base, so the overage is
+// 229 B, not a regression from nothing. Ceiling set 4,096 B above the
+// measurement, the same low-headroom convention as the raises above.
+const BUDGET_BYTES = 2_110_944
 
 let dir
 try {
