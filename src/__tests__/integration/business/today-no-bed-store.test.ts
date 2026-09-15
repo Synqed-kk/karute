@@ -830,6 +830,30 @@ describe('⚖ D-53 (c) R1 — N0 seeded family: a store-bound no-unit roster bes
     // THE FORCED LOCKDOWN: every store-a bed busy for the whole first slot.
     for (const bedKey of bedKeys) bedOccupied.get(bedKey)!.push({ start: N0_OPEN, end: N0_OPEN + sellSlotMin })
 
+    // ⚖ SELF-CORRECTION (F2 NOTE (d), disclosed) — THE FORCED FLOATING WINDOW.
+    // The pairing loop below is byte-identical, unchanged canon: it iterates
+    // `needing` in ARRAY order and stops as soon as `claimed.size` reaches
+    // `freeBeds.length` — and the floating lane is always LAST in that order
+    // (it is appended after every other staff group when the board's lanes
+    // are built above). So whenever enough store-a staff are simultaneously
+    // free to fill every store-a bed on their own (real on seeds with few or
+    // no store-a bookings — e.g. numStaffA >= numBeds), floating never gets a
+    // turn ALL DAY and `floatCells` is empty — not a regression, a pre-existing
+    // property of the frozen pairing order the family's own claim ("non-empty
+    // on every seed today") did not hold on real seeds (seed 2 failed it: 3
+    // staff, 3 beds, 0 conflicts). Forced, not sampled, exactly like the
+    // lockdown above: one late slot where every store-a staff is occupied and
+    // one bed is guaranteed clear, so floating is the ONLY member of `needing`
+    // there and provably pairs.
+    if (floatingKey) {
+      const steps = Math.floor((N0_CLOSE - sellSlotMin - N0_OPEN) / gridMin)
+      const floatSm = N0_OPEN + steps * gridMin
+      const floatEnd = floatSm + sellSlotMin
+      for (const k of aStaffKeys) aStaffOccupied.get(k)!.push({ start: floatSm, end: floatEnd })
+      const clearBed = bedKeys[0]
+      bedOccupied.set(clearBed, bedOccupied.get(clearBed)!.filter((o) => !overlaps(o, floatSm, floatEnd)))
+    }
+
     // store-z bookings: staff only (no beds exist on this store to pair with),
     // and never inside the lockdown slot — so (e) always has a free z-staff.
     for (let i = 0; i < numBookingsZ; i += 1) {
