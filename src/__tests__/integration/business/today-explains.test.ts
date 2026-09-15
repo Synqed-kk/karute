@@ -461,9 +461,9 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     expect(empty).toEqual({ laneKey: null, refusal: null, blockers: [], reseats: [] })
     const bedCell: RailCell = { ...at(railOn(sceneWith([])), 780), state: 'blocked', reason: 'bed' }
     const said = railExplain(bedCell, 60, { room: empty })
-    // 「満室」 beside 「この店舗には使えるベッドがありません」 said two different things about
-    // one board — and 清掃 was the LITERAL old answer here, because `every` on an
-    // empty list is true. Neither now: with no refusal to quote, `railExplain`'s
+    // 満室 beside the now-retired no-rooms refusal used to say two different
+    // things about one board — and 清掃 was the LITERAL old answer here, because
+    // `every` on an empty list is true. Neither now: with no refusal to quote, `railExplain`'s
     // `base` falls through to the engine's own bare sentence for this cell
     // (`${cell.sentence}${judged}`) — the chip is bare and the sentence never
     // mentions a bed at all.
