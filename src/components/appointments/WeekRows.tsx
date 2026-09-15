@@ -225,8 +225,25 @@ export function WeekRows({
           const isSat = wd === 6
           const isSun = wd === 0
           const cells = closed ? [] : weekRowCells(row, { soloMode, typeSlot, t })
-          const dot = closed ? null : densityDotClass(row.count)
+          const dot = closed || pending ? null : densityDotClass(row.count)
           const dateLabel = formatCompactDateJst(jstWallTimeToDate(row.dateIso, '00:00'), locale)
+          // R3-6 — `aria-label` on a <button> IS the accessible name and
+          // REPLACES everything inside it, so the old date+count name deleted
+          // 稼働 / 空き / キャンセル from the only reading a screen-reader user
+          // gets — three of the four numbers this page exists to ship, and on a
+          // 休 row it also broke WCAG 2.5.3 (「休」 was the only thing on screen
+          // and was not in the name). The name is now built from the SAME cells
+          // the row renders, so the two cannot drift.
+          //
+          // While pending the row is honest instead of stale: the values are
+          // shimmer pills, so the name says 読み込み中 and the density dot goes
+          // away (the mock's own dotFor(d, pend) returns '' there) rather than
+          // painting last week's band over this week's shimmer.
+          const spoken = closed
+            ? t('closed')
+            : pending
+              ? t('ariaLoading')
+              : cells.map((cell) => `${cell.label} ${cell.value}`).join(t('ariaSep'))
 
           return (
             <button
@@ -234,7 +251,7 @@ export function WeekRows({
               type="button"
               data-week-row
               onClick={() => onPickDay(row.dateIso)}
-              aria-label={t('rowAria', { date: dateLabel, n: row.count })}
+              aria-label={t('rowAria', { date: dateLabel, cells: spoken })}
               className={cn(
                 // mock `.wkrow{display:flex;align-items:center;gap:10px;
                 //  width:100%;text-align:left;min-height:76px;

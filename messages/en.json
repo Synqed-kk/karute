@@ -196,7 +196,9 @@
       "minutes": "{m}m",
       "loading": "Loading bookings…",
       "failed": "Couldn't load bookings. Please try again",
-      "rowAria": "{date} — {n} bookings"
+      "rowAria": "{date} — {cells}",
+      "ariaSep": ", ",
+      "ariaLoading": "Loading"
     },
     "status": {
       "booked": "Booked",

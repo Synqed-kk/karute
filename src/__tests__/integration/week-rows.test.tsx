@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { render, screen, fireEvent } from '@testing-library/react'
+import { formatCompactDateJst, jstWallTimeToDate } from '@/lib/date/jst'
 import type { WeekDayRowData } from '@/lib/adapters/reservation'
 
 const MESSAGES: Record<string, string> = {
@@ -29,7 +30,9 @@ const MESSAGES: Record<string, string> = {
   minutes: '{m}分',
   loading: '予約状況を読み込み中',
   failed: '予約状況を取得できませんでした。もう一度お試しください',
-  rowAria: '{date} 予約{n}件',
+  rowAria: '{date} {cells}',
+  ariaSep: '、',
+  ariaLoading: '読み込み中',
 }
 
 function t(key: string, values?: Record<string, string | number | Date>): string {
@@ -125,6 +128,67 @@ describe('WeekRows — seven rows', () => {
     expect(buttons[1].className).toMatch(/bg-primary\/8/) // 9/15 = today
     expect(buttons[3].className).toMatch(/ring-primary/) // 9/17 = selected, not today
     expect(buttons[3].className).not.toMatch(/bg-primary\/8/)
+  })
+})
+
+describe('WeekRows — the accessible name says every number (R3-6)', () => {
+  // aria-label on a <button> REPLACES its contents for assistive tech, so the
+  // name has to carry what the row shows — not a summary of it.
+  function nameOf(button: HTMLElement): string {
+    return button.getAttribute('aria-label')!
+  }
+  function cellsOf(button: HTMLElement): string {
+    return Array.from(button.querySelectorAll('[data-week-cell]'))
+      .map((cell) => {
+        const label = cell.firstElementChild!.textContent
+        const value = cell.querySelector('[data-week-value]')!.textContent
+        return `${label} ${value}`
+      })
+      .join('、')
+  }
+
+  it('equals the date plus the row’s OWN cells, label and value, 、-joined', () => {
+    const WeekRows = loadWeekRows()
+    render(<WeekRows {...baseProps} typeSlot="off" rows={sevenDays()} onPickDay={jest.fn()} />)
+    const button = screen.getAllByRole('button')[1] // 9/15
+    const joined = cellsOf(button)
+    expect(joined).toContain('、')
+    expect(joined.split('、')).toHaveLength(4)
+    expect(nameOf(button)).toBe(
+      `${formatCompactDateJst(jstWallTimeToDate('2026-09-15', '00:00'), 'ja')} ${joined}`,
+    )
+    // the old name carried the count alone — the three numbers it dropped
+    for (const piece of joined.split('、').slice(1)) {
+      expect(nameOf(button)).toContain(piece)
+    }
+  })
+
+  it('a closed row is named 休, the only thing it shows (WCAG 2.5.3)', () => {
+    const WeekRows = loadWeekRows({ closedDays: true })
+    const rows = sevenDays()
+    rows[0] = row({ dateIso: rows[0].dateIso, dateNumber: rows[0].dateNumber, closed: true, count: 0 })
+    render(<WeekRows {...baseProps} typeSlot="off" rows={rows} onPickDay={jest.fn()} />)
+    const name = nameOf(screen.getAllByRole('button')[0])
+    expect(name).toContain('休')
+    expect(name).not.toMatch(/予約|稼働|キャンセル/)
+  })
+
+  it('a pending row says 読み込み中 instead of last week’s numbers', () => {
+    const WeekRows = loadWeekRows()
+    render(<WeekRows {...baseProps} typeSlot="off" rows={sevenDays()} pending onPickDay={jest.fn()} />)
+    const name = nameOf(screen.getAllByRole('button')[0])
+    expect(name).toContain('読み込み中')
+    expect(name).not.toMatch(/件/)
+  })
+
+  it('the density dot is gone while pending (mock dotFor(d, pend) === "")', () => {
+    const WeekRows = loadWeekRows()
+    const rows = sevenDays(new Array(7).fill({ count: 4 }))
+    const loaded = render(<WeekRows {...baseProps} rows={rows} onPickDay={jest.fn()} />)
+    expect(loaded.container.querySelectorAll('.size-1\\.5').length).toBe(7)
+    loaded.unmount()
+    const busy = render(<WeekRows {...baseProps} rows={rows} pending onPickDay={jest.fn()} />)
+    expect(busy.container.querySelectorAll('.size-1\\.5').length).toBe(0)
   })
 })
 
