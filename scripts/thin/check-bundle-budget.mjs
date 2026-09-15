@@ -950,7 +950,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en       134,204 → 134,204 — unchanged to the byte: R2 added no string,
 //     JA or EN.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-15 for PKT-1b-MONTH PIECE 4b (tap a day = stay: the
 // selected-day card under the 月 grid, the card's 120 ms fade, and the
 // optimistic ring). The R2 entry above is kept as the immediately preceding
@@ -978,7 +977,23 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     moreRows, openDay, noBookings. The thin bundle ships EN only (boot-
 //     frozen locale), so the three Japanese strings cost this bundle nothing.
 //   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
-const BUDGET_BYTES = 2_114_459
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-15 on 4b's FINAL tip, after the two proof fixes the
+// production build caught (the card's 8 px seam to the grid card; the header
+// chip following the ring in 月 mode so the selected day is named the whole
+// time). The entry above is 4b's first measurement, kept as the figure this
+// one is read against.
+//
+// Same CI recipe, thin/dist emptied before each of two laps, byte-identical
+// with matching content hashes both times:
+//   en 134,294 · index 1,041,400 · vendor 937,791 = 2,113,485 B  (+26 B).
+// Ceiling = 2,113,485 + 1,000.
+//
+// +26 B, all in index: the chip's month-mode ternary and its one call into
+// the existing jstWallTimeToDate. The seam fix is a wrapper <div> with no
+// class at all, so it costs nothing measurable. en and vendor unchanged to
+// the byte.
+const BUDGET_BYTES = 2_114_485
 
 let dir
 try {
