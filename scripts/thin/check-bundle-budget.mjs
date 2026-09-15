@@ -1251,7 +1251,7 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // pending branch, the counted-rows filter, the region name, the month branch's
 // own wrapper, and the type-scale class swaps. Real behaviour, not weight: the
 // round REMOVED a dead `gap-[5px]` and the `from` half of the held-tap pair.
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// ── the month chain's own last entry (live on that branch, not here) ──────
 // RE-MEASURED 2026-09-16 on PIECE 4c's tip (先月同期間比: the number on both
 // doors, the clause on the month line, the switch ON). The entry above is 4b's
 // R1 measurement, which is the figure this one is read against.
@@ -1274,7 +1274,49 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     `lastMonthSamePeriod`. The thin bundle ships EN only (boot-frozen
 //     locale), so the Japanese term costs this bundle nothing.
 //   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
-const BUDGET_BYTES = 2_115_679
+//
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-16 on THE MERGE TIP of the two chains above — the whole
+// month line (feat/booking-month-compare dc05d00a8: the grid, the selected-day
+// card and 先月同期間比) merged INTO the 新規/capacity tip (feat/booking-new-count
+// d1fe35d95: the capacity wire, the honest 新規 count, the week face, #921 R6
+// and the type-system fix). This is the tree that goes on Liam's phone as the
+// month LOOK. Same CI recipe as every entry above — the workflow's own six
+// release-length placeholder VITE_* values, the 208-char anon key included (a
+// shorter one inflates index and reads as a false mismatch), thin/dist emptied
+// before each lap — byte-identical across THREE clean laps on this tip, same
+// content hashes and md5s every time (en-Q5zJiUAT, index-u2XwQc6V,
+// vendor-BD5eMVWe; node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,361 · index 1,043,285 · vendor 937,791 = 2,115,437 B.
+// Ceiling = 2,115,437 + 1,000.
+//
+// BOTH SIDES ARE IN THE BUNDLE, AT FULL SIZE — measured here, not quoted from
+// the two chains above. All four trees were built in THIS worktree, with this
+// exact env, inside the same hour, which is the only way two branches' figures
+// are comparable (the last merge in this family found a 7 B gap between two
+// worktrees' node_modules and recorded why that matters):
+//
+//   tree                             en        index      vendor      total
+//   base    25c209377         134,204  1,033,009     937,791  2,105,004
+//   ours    d1fe35d95         134,223  1,033,605     937,791  2,105,619   (+615)
+//   theirs  dc05d00a8         134,342  1,042,546     937,791  2,114,679 (+9,675)
+//   MERGE   (this tip)        134,361  1,043,285     937,791  2,115,437 (+10,433)
+//
+//   en:       134,204 +  19 +   138 =   134,361  ✔ exact
+//   vendor:   937,791, unchanged in all four     ✔ no dependency moved
+//   index:  1,033,009 + 596 + 9,537 = 1,043,142, measured 1,043,285 — a
+//     +143 B CROSS-TERM, and it is a cross-term rather than a discrepancy:
+//     unlike the last merge (two sides that edited disjoint lines), these two
+//     both rewrote the SAME month-cell wire and the same mapper, so the merged
+//     tree carries a line neither parent has — monthCellsToDTO passing the 休
+//     fact through the ONE shared mapper, on a cell that also carries the nine
+//     capacity fields and 新規 — plus the usual minifier drift at a megabyte.
+//     The direction is the point: a side that had been dropped shows up as a
+//     large NEGATIVE here, never as +143 B. Every marker on the built chunk was
+//     grepped separately (capacityReason ×2 · newCountKnown ×4 · 予約時間 ×1 ·
+//     先月同期間比 ×4 · monthCompareDelta ×6 · data-pressed ×4 · the R6 seam ×1
+//     with both CSS rules · the folded TYPE_SLOT reading "new").
+const BUDGET_BYTES = 2_116_437
 
 let dir
 try {
