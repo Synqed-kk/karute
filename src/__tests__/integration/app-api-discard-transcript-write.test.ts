@@ -22,7 +22,10 @@
 //   · both relay shapes run the SAME shared bodies the web actions run, and the
 //     answer comes back verbatim so the phone and the web page read one
 //     contract;
-//   · no audit row from either shape (the FACADE_AUDIT_MAP 'skip').
+//   · no audit row from either shape (the FACADE_AUDIT_MAP 'skip') — the
+//     ROUTE's own row, which is what that skip is about. The transcription
+//     RECEIPT the spend wall files (2026-09-08) comes from the meter one level
+//     down, which is stubbed here and pinned in transcription-spend-wall.
 import { createHmac } from 'node:crypto'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
@@ -67,13 +70,21 @@ jest.mock('@/lib/synqed/staff-map', () => ({
 /** THE spend counter, same idiom as the web suite: a gate that transcribed
  *  first and refused afterwards would pass a return-value-only test while
  *  burning the money the ⚖ consent/floor gates exist to protect. */
-const mockRunTranscription = jest.fn(async () => ({ transcript: '本日はありがとうございます' }))
+const mockRunTranscription = jest.fn(async () => ({
+  result: { transcript: '本日はありがとうございます' },
+  receipt: { duration_seconds: 62, cost_cents: 1, debit_recorded: true },
+}))
 const mockLoadReference = jest.fn(async (): Promise<unknown> => null)
 /** Steerable, because 'off' short-circuits the voice reference to null and a
  *  suite pinned only at 'off' can never see the reference leg at all. */
 let speakerMode = 'off'
+/** The door's provider call goes through the METER since the spend wall
+ *  (2026-09-08); this stand-in counts exactly what runTranscription used to.
+ *  The wall's own behaviour — the ceiling asked before the provider, the debit,
+ *  and the recording.transcribe RECEIPT it files for this door — is proven
+ *  against the real wrapper in transcription-spend-wall.test.ts. */
 jest.mock('@/lib/ai/transcribe', () => ({
-  runTranscription: (...a: unknown[]) => mockRunTranscription(...(a as [])),
+  runMeteredTranscription: (...a: unknown[]) => mockRunTranscription(...(a as [])),
   speakerIdMode: () => speakerMode,
   loadStaffReferenceForStaff: (...a: unknown[]) => mockLoadReference(...(a as [])),
 }))
@@ -153,7 +164,9 @@ let discardRows: { recording_session_id: string; reason: string }[] = []
  *  only against the empty-settings defaults. */
 let orgSettings: { settings: Record<string, unknown> } = { settings: {} }
 let consentByCustomer: Record<string, { policy_version: string } | null> = {}
-let recordingRow: { customer_id: string | null } | null = { customer_id: 'cust-1' }
+let recordingRow: { customer_id: string | null; audio_storage_path?: string | null } | null = {
+  customer_id: 'cust-1',
+}
 type SegmentRow = { segment_index: number; text: string; start_time: number; end_time: number }
 const upsertSegments = jest.fn(async (id: string, rows: SegmentRow[], opts: { replace: boolean }) => {
   void id
@@ -247,10 +260,17 @@ beforeEach(() => {
   roster = [{ id: 'auth-user-1' }]
   orgSettings = { settings: {} }
   mockLoadReference.mockResolvedValue(null)
-  mockRunTranscription.mockResolvedValue({ transcript: '本日はありがとうございます' })
+  mockRunTranscription.mockResolvedValue({
+    result: { transcript: '本日はありがとうございます' },
+    receipt: { duration_seconds: 62, cost_cents: 1, debit_recorded: true },
+  })
   discardRows = [{ recording_session_id: 'rs-1', reason: 'テスト' }]
   consentByCustomer = { 'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION } }
-  recordingRow = { customer_id: 'cust-1' }
+  // BORN RESERVED (session-mint.ts) — and since PR4 fix round 7 the ordinary
+  // discard is a take-shaped path only when it is the ROW's own key: any other
+  // same-tenant key is a claim, and a claim is honoured only from this
+  // session's own staged copy (stg/<biz>_<session>_<uuid>).
+  recordingRow = { customer_id: 'cust-1', audio_storage_path: OWN_PATH }
   mockCapabilities.mockResolvedValue(new Set(['records.write']))
 })
 
@@ -350,7 +370,37 @@ describe('POST … — the ROSTER gate (#566 parity)', () => {
         code: 'upstream_unavailable',
         status: 502,
         reason: 'not_on_roster',
+        // ⚖ UPDATE 25 GROUP B, d1 (L1 SHOULD 7): identity resolves before the
+        // roster check throws, so the line now also names the tenant.
+        businessId: 'business-1',
       })
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  // ⚖ UPDATE 25 GROUP B, d1: the twin of the test above — a failure BEFORE
+  // identity resolves (a missing Bearer) has no tenant to name, and the line
+  // must say so by OMISSION, not by a null/empty placeholder — same promise
+  // the `reason` field already keeps for an untagged error, below.
+  it('a Bearer failure (before identity resolves) logs NO businessId at all', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const res = await POST(
+        new Request('https://s/api/app/v1/recordings/discards/transcript', {
+          method: 'POST',
+          body: JSON.stringify(REVIEW_BODY),
+        }),
+        noParams,
+      )
+      expect(res.status).toBe(401)
+      const lines = warn.mock.calls
+        .map(([first]) => (typeof first === 'string' ? first : ''))
+        .filter((l) => l.includes('"evt":"facade_error"'))
+        .map((l) => JSON.parse(l) as Record<string, unknown>)
+      expect(lines).toHaveLength(1)
+      expect(lines[0].code).toBe('unauthenticated')
+      expect('businessId' in lines[0]).toBe(false)
     } finally {
       warn.mockRestore()
     }
@@ -400,47 +450,40 @@ describe('POST … — the ROSTER gate (#566 parity)', () => {
   })
 })
 
-describe('POST … — a refusal never strands the staged object (Greptile #813)', () => {
-  // CODE TRUTH this rests on: the phone stages BEFORE it posts, and every retry
-  // stages a FRESH object — runDiscardTranscript calls stageForJob on each run
-  // (lib/recording/discard-transcript.ts:112) and DiscardPending carries no path
-  // to reuse (take-store.ts:96-101). So a repeating route-level refusal would
-  // strand one more object per record-page mount for the take-store's 7 days.
-  it('schema refusal (400) sweeps the staged object it was handed', async () => {
+describe('⚖ POST … — NO exit deletes recording audio (capture pipeline PR4)', () => {
+  // WHAT CHANGED, and why the whole section flipped: the phone used to stage a
+  // throwaway copy before every post, so this handler wrapped itself in a
+  // catch whose only job was sweeping that copy on every refusal (Greptile
+  // #813). `audioPath` is the take's own FINALIZED object now — the discarded
+  // recording itself — so a refusal that removed it would destroy the very
+  // thing the words are being collected about.
+  it('schema refusal (400) deletes nothing', async () => {
     const res = await post({ ...STAGED_BODY, businessId: 'business-2' })
     expect(res.status).toBe(400)
-    // Judged off the RAW body — there is no parsed one on this path, which is
-    // exactly why the janitor's fence takes an `unknown`.
-    expect(removeObject).toHaveBeenCalledWith([OWN_PATH])
+    expect(removeObject).not.toHaveBeenCalled()
   })
 
-  it('roster refusal (502) sweeps it too — the repeating case', async () => {
+  it('roster refusal (502) deletes nothing — the repeating case', async () => {
     roster = []
     expect((await post(STAGED_BODY)).status).toBe(502)
-    expect(removeObject).toHaveBeenCalledWith([OWN_PATH])
+    expect(removeObject).not.toHaveBeenCalled()
   })
 
-  it('⛔ a FOREIGN staged key is refused and NOT deleted — it is not ours', async () => {
-    // The fence inside the janitor is what makes a blanket failure handler safe:
-    // reaching into the bucket for the object we just refused would be the same
-    // cross-tenant reach the 403 exists to prevent.
+  it('⛔ a FOREIGN key is refused and NOT touched — it is not ours', async () => {
     const res = await post({ ...STAGED_BODY, audioPath: FOREIGN_PATH })
     expect(res.status).toBe(403)
     expect(removeObject).not.toHaveBeenCalled()
   })
 
-  it('the review shape has nothing staged, so nothing is swept', async () => {
+  it('the review shape names no object at all', async () => {
     roster = []
     expect((await post(REVIEW_BODY)).status).toBe(502)
     expect(removeObject).not.toHaveBeenCalled()
   })
 
-  it('the success path sweeps EXACTLY once — no double delete', async () => {
-    // The shared body's own janitor already ran; the route's fires only on a
-    // throw, so a successful staged discard must not delete twice.
+  it('and the SUCCESS path deletes nothing either', async () => {
     expect((await post(STAGED_BODY)).status).toBe(200)
-    expect(removeObject).toHaveBeenCalledTimes(1)
-    expect(removeObject).toHaveBeenCalledWith([OWN_PATH])
+    expect(removeObject).not.toHaveBeenCalled()
   })
 })
 
@@ -510,7 +553,7 @@ describe('POST … — the review shape (words already in hand)', () => {
   })
 
   it('a walk-in take (no customer on the session row) → skipped, fail closed', async () => {
-    recordingRow = { customer_id: null }
+    recordingRow = { customer_id: null, audio_storage_path: OWN_PATH }
     expect(await (await post(REVIEW_BODY)).json()).toEqual({ skipped: 'consent' })
     expect(upsertSegments).not.toHaveBeenCalled()
   })
@@ -524,21 +567,37 @@ describe('POST … — the staged shape (nothing transcribed yet)', () => {
     // The FULL argument object, never objectContaining: this call is the whole
     // reason the staged door costs money, and objectContaining cannot see a
     // LEG THAT VANISHED. Every field is a decision the worker also makes.
-    expect(mockRunTranscription).toHaveBeenCalledWith({
-      audio: { url: 'https://storage/signed' },
-      locale: 'ja',
-      diarize: true,
-      reference: null,
-      mode: 'off',
-      businessType: null,
-    })
+    // The meter's half is asserted the same way, minus the client itself —
+    // that one is an identity check below, because the fake is an access-trap
+    // proxy and a deep compare would probe it.
+    expect(mockRunTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: 'business-1',
+        door: 'discard',
+        recordingSessionId: 'rs-1',
+        customerId: 'cust-1',
+        staffId: 'card-auth-user-1',
+        takeId: '11111111-2222-3333-4444-555555555555',
+      }),
+      {
+        audio: { url: 'https://storage/signed' },
+        locale: 'ja',
+        diarize: true,
+        reference: null,
+        mode: 'off',
+        businessType: null,
+      },
+    )
+    expect(
+      (mockRunTranscription.mock.calls[0] as unknown as [{ synqed: unknown }])[0].synqed,
+    ).toBe(fakeClient)
     expect(upsertSegments).toHaveBeenCalledWith(
       'rs-1',
       [{ segment_index: 0, text: '本日はありがとうございます', start_time: 0, end_time: 62 }],
       { replace: true },
     )
-    // Read-then-delete, the worker's posture.
-    expect(removeObject).toHaveBeenCalledWith([OWN_PATH])
+    // ⚖ read-only now (PR4): the object it transcribed is still there.
+    expect(removeObject).not.toHaveBeenCalled()
     expect(forbiddenNamespaces()).toEqual([])
   })
 
@@ -560,27 +619,43 @@ describe('POST … — the staged shape (nothing transcribed yet)', () => {
       { speaker_diarization: false, business_type: 'salon' },
       'card-auth-user-1',
     )
-    expect(mockRunTranscription).toHaveBeenCalledWith({
-      audio: { url: 'https://storage/signed' },
-      locale: 'ja',
-      // org said false, so this is a real value carried through — not a default
-      // that would look identical if the leg were dropped.
-      diarize: false,
-      reference,
-      mode: 'enforce',
-      businessType: 'salon',
-    })
+    expect(mockRunTranscription).toHaveBeenCalledWith(
+      // THE METER'S OWN half: which door is spending, whose money, and against
+      // which session — the fields the receipt and the refusal row are built
+      // out of.
+      expect.objectContaining({
+        businessId: 'business-1',
+        door: 'discard',
+        recordingSessionId: 'rs-1',
+        customerId: 'cust-1',
+        staffId: 'card-auth-user-1',
+        takeId: '11111111-2222-3333-4444-555555555555',
+      }),
+      {
+        audio: { url: 'https://storage/signed' },
+        locale: 'ja',
+        // org said false, so this is a real value carried through — not a default
+        // that would look identical if the leg were dropped.
+        diarize: false,
+        reference,
+        mode: 'enforce',
+        businessType: 'salon',
+      },
+    )
   })
 
-  it('a refusal past the tenant fence still drops the staged object', async () => {
+  it('a refusal past the tenant fence keeps the audio', async () => {
     consentByCustomer = {}
     expect(await (await post(STAGED_BODY)).json()).toEqual({ skipped: 'consent' })
     expect(mockRunTranscription).not.toHaveBeenCalled()
-    expect(removeObject).toHaveBeenCalledWith([OWN_PATH])
+    expect(removeObject).not.toHaveBeenCalled()
   })
 
   it('silence is answered honestly — nothing written for an empty transcript', async () => {
-    mockRunTranscription.mockResolvedValueOnce({ transcript: '   ' })
+    mockRunTranscription.mockResolvedValueOnce({
+      result: { transcript: '   ' },
+      receipt: { duration_seconds: 62, cost_cents: 1, debit_recorded: true },
+    })
     expect(await (await post(STAGED_BODY)).json()).toEqual({ skipped: 'empty' })
     expect(upsertSegments).not.toHaveBeenCalled()
   })
@@ -598,9 +673,8 @@ describe('POST … — write-once, and the ⛔ doctrine line', () => {
     expect(await (await post(STAGED_BODY)).json()).toEqual({ ok: true })
     expect(upsertSegments).not.toHaveBeenCalled()
     expect(mockRunTranscription).not.toHaveBeenCalled()
-    // …and the staged object still goes: the janitor runs on every exit past
-    // the fence, or the next sweep would orphan another copy.
-    expect(removeObject).toHaveBeenCalledWith([OWN_PATH])
+    // …and the audio is still there, exactly as the first call left it.
+    expect(removeObject).not.toHaveBeenCalled()
   })
 
   it('⛔ NEITHER shape reaches ANY namespace outside the mechanism', async () => {
@@ -626,7 +700,7 @@ describe('POST … — write-once, and the ⛔ doctrine line', () => {
     )
   })
 
-  it('neither shape writes an audit row (the FACADE_AUDIT_MAP skip)', async () => {
+  it('neither shape writes an audit row OF ITS OWN (the FACADE_AUDIT_MAP skip)', async () => {
     const lines = await auditLines(async () => {
       await post(REVIEW_BODY)
       segments = []

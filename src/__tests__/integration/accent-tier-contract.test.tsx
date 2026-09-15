@@ -314,9 +314,10 @@ describe('録音履歴 inbox rows (Build F1)', () => {
     startedAt: Date.parse('2026-08-25T01:00:00.000Z'),
     durationSeconds: 540,
     canRetry: false,
+    sameDay: false,
   }
 
-  function renderRows(rows: Row[]) {
+  function renderRows(rows: Row[], onHandwrite?: (row: Row) => void) {
     return render(
       <RecordingsInboxCard
         rows={rows}
@@ -327,6 +328,7 @@ describe('録音履歴 inbox rows (Build F1)', () => {
         customerNameById={new Map()}
         onOpenRecord={() => {}}
         onSaveTake={() => {}}
+        onHandwrite={onHandwrite}
       />,
     )
   }
@@ -376,5 +378,21 @@ describe('録音履歴 inbox rows (Build F1)', () => {
       expect(chip.className).not.toMatch(cls('bg-primary'))
       expect(chip.className).toMatch(/bg-(green|amber|blue|red)-50/)
     }
+  })
+
+  // FIX ROUND, missing render proof (b) — UPDATE 25 GROUP A, piece c: the
+  // wash button (手書き作成) must actually be exercised under the accent law.
+  // The suite's fixture never passed onHandwrite before this round, so the
+  // door never rendered here and the contract never really covered it.
+  it('手書き作成 uses the R13 wash recipe, never a solid or black fill', () => {
+    renderRows(
+      [{ ...baseRow, state: 'failed', reason: 'emptyTranscript', sameDay: true, canRetry: true }],
+      () => {},
+    )
+    const handwrite = screen.getByText('action.handwrite').closest('button')!
+    expect(handwrite.className).toMatch(cls('bg-primary/8'))
+    expect(handwrite.className).toMatch(cls('text-primary'))
+    expect(handwrite.className).toMatch(cls('border-primary'))
+    expect(handwrite.className).not.toMatch(cls('bg-primary'))
   })
 })

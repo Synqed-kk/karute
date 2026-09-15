@@ -57,8 +57,8 @@ export interface FixtureMonthlySales {
   new_ltv: number
 }
 
-/** The trailing 12 months, newest first per store. テスト銀座店 is the busy
- *  store (three treatment beds, five practitioners); テスト代官山店 runs at
+/** The trailing 12 months, newest first per store. テスト東京店 is the busy
+ *  store (three treatment beds, five practitioners); テスト横浜店 runs at
  *  roughly 40% of it on one bed and three practitioners — the same shape at a
  *  smaller scale, so switching the store lens changes every number on the page
  *  rather than repainting one store's figures under another store's name. */

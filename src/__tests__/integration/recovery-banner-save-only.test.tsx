@@ -13,18 +13,41 @@
  *   · a take whose 結果 survived the crash saves with that outcome — which is
  *     what puts it in the existing autosave cohort instead of a review detour.
  */
+// p5 (B1 + N4) — two keys are special-cased to embed their vars so the burn
+// toast's 残{from}→残{to} and the repoint picker's pack pill can be pinned;
+// every other key keeps the bare-key behaviour every existing assertion in
+// this file relies on.
 jest.mock('next-intl', () => ({
-  useTranslations: () => (key: string) => key,
+  useTranslations: () => (key: string, vars?: Record<string, unknown>) =>
+    vars && (key === 'autoRedeemed' || key === 'card.packLeft')
+      ? `${key}:${JSON.stringify(vars)}`
+      : key,
 }))
 jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ replace: jest.fn(), push: jest.fn(), back: jest.fn() }),
   usePathname: () => '/sessions',
   Link: ({ children }: { children: unknown }) => children,
 }))
-jest.mock('@/actions/recordings', () => ({ startRecordingSession: jest.fn() }))
+// Driveable since fix round 20 (AL1): the recovery save's own mint is issued
+// HERE, and how long it is given is the thing that item changes.
+const mockStartRecordingSession = jest.fn(
+  async (_input?: unknown): Promise<{ id: string } | null> => null,
+)
+jest.mock('@/actions/recordings', () => ({
+  startRecordingSession: (i: unknown) => mockStartRecordingSession(i as never),
+}))
 // P5-A: RecordPageView imports the written-reason discard action; unmocked it
-// pulls the ESM SDK into this suite. Not exercised here.
-jest.mock('@/actions/recording-discard', () => ({ discardRecordingWithReason: jest.fn() }))
+// pulls the ESM SDK into this suite. ⚖ 9/12: a below-floor banner offer is now
+// a ONE-TAP discard, so a tap on the exit DOES reach this — resolved 'ok' by
+// default so the one test below that exercises it isn't left awaiting undefined.
+const mockDiscardWithReason = jest.fn(async (_input: unknown) => ({
+  ok: true,
+  receiptId: 'row-1',
+  duplicate: false,
+}))
+jest.mock('@/actions/recording-discard', () => ({
+  discardRecordingWithReason: (input: unknown) => mockDiscardWithReason(input),
+}))
 
 const mockSaveInline = jest.fn(async (_i: unknown) => ({ id: 'karute-1' }) as
   | { id: string }
@@ -41,7 +64,20 @@ jest.mock('@/actions/recording-discards', () => ({
 const DAY_FACTS = {
   date: '2026-08-18',
   bookings: [],
-  packs: [] as { customerId: string; packId: string | null; remaining: number; size: number }[],
+  packs: [] as {
+    customerId: string
+    packId: string | null
+    remaining: number
+    size: number
+    // 回数券 update 25, p2b — REQUIRED, matching the real server row: the
+    // server always sends `target` (the FIFO pack's own remaining/size +
+    // otherRemaining). Every single-pack fixture below sets it to the SAME
+    // numbers the row already carries (otherRemaining: 0) — a lone pack's
+    // aggregate IS its own remaining/size, so this is not a behavior change,
+    // just the honest shape. Only the two-pack test sets a genuinely
+    // different target.
+    target: { remaining: number; size: number; otherRemaining: number } | null
+  }[],
   redeemed: { appointmentIds: [] as string[], customerIds: [] as string[] },
 }
 const mockDayFacts = jest.fn(async (_i: unknown) => DAY_FACTS)
@@ -108,13 +144,33 @@ const TAKE = {
   outcomeSkipped: undefined as boolean | undefined,
 }
 let offerTake = true
+/** What the store's drain read answers — the takes whose audio the server does
+ *  NOT have. Independent of `offerTake`: the recovery offer and the drain ask
+ *  different questions. */
+let unsecuredTakeIds: string[] = ['take-1']
 /** Per-test override of the offered take (e.g. an unbound walk-in one). Reset
  *  in afterEach — a mockResolvedValue would leak into every later test, since
  *  clearAllMocks clears CALLS, not implementations. */
 let takeOverride: Record<string, unknown> | null = null
 /** What take-store would hand back after a reload (F-2's durable draft seam). */
 let stampedAnswer: Record<string, unknown> | null = null
+/** What the take ROW carries now — which is not always what the offer carries
+ *  (fix round 17, AF1): the mount drain's session-first leg mints and stamps a
+ *  row for the very takes this banner is made of, and it can do so after the
+ *  offer was read. null = the drain has not been there. */
+let stampedSessionId: string | null = null
 const mockStampTakeOutcome = jest.fn(async () => {})
+/** Takes the SERVER NEVER RECEIVED — the cohort deleteTake refuses to destroy
+ *  automatically (capture pipeline PR4), and the whole subject of fix round 2's
+ *  D1: the stranded 復元可能 row a staffer saves must actually settle. */
+const mockStrandedTakeIds = new Set<string>()
+/** …and the subset the server can NEVER receive (a lost tail, a dead stop leg,
+ *  a terminal refusal). Fix round 4: only these may be settled by a save — a
+ *  take whose secure merely failed retryably is still owed its own finalized
+ *  key, and the drain is coming for it. */
+const mockUnsecurableTakeIds = new Set<string>()
+/** …and what the store would have left behind afterwards. */
+const mockDeletedTakeIds = new Set<string>()
 jest.mock('@/lib/karute/take-store', () => ({
   // A2-2: the discard-transcript register. Default false/[] = nothing is
   // held back, so every case below behaves exactly as it did pre-A2-2.
@@ -122,14 +178,42 @@ jest.mock('@/lib/karute/take-store', () => ({
   listPendingDiscardTakes: jest.fn(async () => []),
   appendTakeSegment: jest.fn(),
   createTake: jest.fn(),
-  deleteTake: jest.fn(),
+  // ⚖ IT CARRIES THE REAL GUARD (capture pipeline PR4). A take the server never
+  // received is removed only when a HUMAN resolved the row; a fake that removed
+  // unconditionally would go green on a call site that had lost the flag, which
+  // is exactly the bug fix round 2 closes for the SAVE path.
+  deleteTake: jest.fn(async (takeId: string, opts?: { humanResolved?: boolean }) => {
+    if (mockStrandedTakeIds.has(takeId) && !opts?.humanResolved) return
+    mockDeletedTakeIds.add(takeId)
+  }),
+  // ⚖ THE DECISION ABOVE THE GUARD (fix round 4). The save no longer asserts
+  // the flag; it asks the store, and this stands in for that answer. The rule
+  // itself is pinned against the real store in take-durability.
+  settleTakeAfterSave: jest.fn(async (takeId: string) => {
+    if (mockStrandedTakeIds.has(takeId) && !mockUnsecurableTakeIds.has(takeId)) return
+    mockDeletedTakeIds.add(takeId)
+  }),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: (...a: unknown[]) => mockStampTakeOutcome(...(a as [])),
   // F-2: a draft's answer now survives a reload through the take id it already
   // carries. `stampedAnswer` is what a REMOUNT would read back.
   readTakeOutcome: jest.fn(async () => stampedAnswer),
+  // AF1: the read the save path uses to catch up with that stamp.
+  readTakeSecureMeta: jest.fn(async () => ({ recordingSessionId: stampedSessionId })),
+  // Capture pipeline PR3 fix round 3 — the mount DRAIN's own read. Separate
+  // from the offer below on purpose: the offer hides a take flushed inside the
+  // 20 s grace, and audio the server lacks must not be hidden by that.
+  listOwnStoppedUnsecuredTakeIds: jest.fn(async () => unsecuredTakeIds),
   getRecoverableTake: jest.fn(async () => (offerTake ? (takeOverride ?? TAKE) : null)),
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
+}))
+
+// Capture pipeline PR3 — the mount retry. Mocked (not exercised for real) for
+// the same reason take-store is: this suite's store is a fake, and what the
+// page owes is one call, on the right takes only.
+const mockSecureTake = jest.fn(async () => {})
+jest.mock('@/lib/recording/secure-take', () => ({
+  secureTake: (...a: unknown[]) => mockSecureTake(...(a as [])),
 }))
 
 let offerDraft: Record<string, unknown> | null = null
@@ -183,6 +267,10 @@ jest.mock('@/lib/global-pipeline', () => ({
 }))
 
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+// The REAL singleton — the page reads it directly for the recovery exclude list
+// and (PR3 fix round 2) for its own stopped take's retry. The hook above is what
+// the render tree consumes; this is the module the effect reaches for.
+import { globalRecorder } from '@/lib/global-recorder'
 import {
   RecordPageView,
   resolveRecoveryTicketState,
@@ -204,8 +292,13 @@ afterEach(() => {
   mockSaveInline.mockResolvedValue({ id: 'karute-1' })
   mockDayFacts.mockReset()
   mockDayFacts.mockImplementation(async () => DAY_FACTS)
+  mockStrandedTakeIds.clear()
+  mockUnsecurableTakeIds.clear()
+  mockDeletedTakeIds.clear()
   offerTake = true
+  unsecuredTakeIds = ['take-1']
   takeOverride = null
+  stampedSessionId = null
   stampedAnswer = null
   mockPipelineContext = null
   offerDraft = null
@@ -375,14 +468,22 @@ describe('the banner offers ONE action and no way to destroy the recording', () 
     expect(screen.queryByText('discardTakeAction')).toBeNull()
   })
 
-  it('the below-floor discard exit opens the written-reason gate', async () => {
+  // ⚖ 9/12: a below-floor take is now a ONE-TAP discard — the tap IS the
+  // attempt, filed straight through the same discardRecordingWithReason call
+  // the dialog used to file after a written reason. No dialog renders for
+  // this (the full wiring, including the app-written reason text, the
+  // mutants, and the failure fallback that STILL opens this exact dialog, are
+  // pinned in recording-discard-reason-wiring.test.tsx); this suite only
+  // pins that the banner's exit reaches the discard action at all.
+  it('the below-floor discard exit is a one-tap discard — no dialog, one call', async () => {
     takeOverride = { ...TAKE, updatedAt: TAKE.startedAt + 5_000 }
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('discardTakeAction'))
       await Promise.resolve()
     })
-    expect(screen.getByText('discardReason.title')).toBeTruthy()
+    expect(screen.queryByText('discardReason.title')).toBeNull()
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
   })
 
   // SHOULD-FIX-6 — the boundary itself: BELOW_FLOOR_SEC=10, gate is `<`, not
@@ -515,6 +616,99 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
     expect(ctx.appointmentCustomerId).toBe('cust-1')
     expect(ctx.outcome).toEqual({ status: 'success' })
     expect(ctx.appointmentId).toBe('appt-1')
+    // The fixture carries no stop stamp, so the length is still the flush
+    // window: 05:22 → 05:45, 23 minutes. The case below is the stamped one.
+    expect(ctx.duration).toBe(1380)
+  })
+
+  // ⚖ …AND A STAMPED TAKE SAVES ITS MEASURED LENGTH (slice five, D12; §17
+  // carry-forward 1). `updatedAt - startedAt` is the FLUSH window — short by
+  // however long the tail flush took, long by every pause — and it was the only
+  // length this save could see, because listOwnTakes dropped `durationMs` on
+  // the floor. The number goes onto the karute, so the estimate was the record.
+  it('…and a take carrying its STOP STAMP saves the measured length, not the flush window', async () => {
+    grantConsent()
+    // A 23-minute window around a 25-minute recording.
+    takeOverride = { ...TAKE, durationMs: 1_500_000, outcome: { status: 'success' } }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+    const ctx = mockPipelineStart.mock.calls[0][1] as Record<string, unknown>
+    expect(ctx.duration).toBe(1500)
+  })
+
+  // ⚖ THE STAMP CAN BE NEWER THAN THIS OFFER (fix round 17, AF1). The offer
+  // carries the session id the take had when the banner (or the inbox fold)
+  // read it — and the mount drain's session-first leg mints and stamps a row
+  // for exactly these takes, un-awaited, while the banner sits there. Saving
+  // the snapshot then wrote a karute pointing at nothing while the audio was
+  // already on a real row: the two never met again.
+  it('a take the drain stamped AFTER the offer saves against the stamped row', async () => {
+    grantConsent()
+    // Born unbound (a walk-in whose start-mint failed), then given a row by the
+    // drain a moment after this offer was read.
+    takeOverride = { ...TAKE, recordingSessionId: null, outcome: { status: 'success' } }
+    stampedSessionId = 'sess-drained'
+
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+    const ctx = mockPipelineStart.mock.calls[0][1] as Record<string, unknown>
+    // Pass the offer's own snapshot here instead and this is null — the karute
+    // saves unlinked, and nothing later can pair it with the audio.
+    expect(ctx.recordingSessionId).toBe('sess-drained')
+    expect(ctx.takeId).toBe('take-1')
+  })
+
+  // ⚖ AND IT IS GIVEN THE STOP LEG'S TEN SECONDS (fix round 20, AL1). The
+  // mint above is ISSUED by this tap and nobody waits for it afterwards, so the
+  // 1.5 s default — the bound for a mint the RECORDER already has in flight,
+  // where giving up costs nothing because the field holds the answer a moment
+  // later — meant a slow phone network saved the karute unlinked. Exactly the
+  // outcome AF1 exists to prevent, arrived at the slow way.
+  it('a slow mint is still waited for: three seconds is inside the bound', async () => {
+    grantConsent()
+    takeOverride = { ...TAKE, recordingSessionId: null, outcome: { status: 'success' } }
+    let answer: (v: { id: string }) => void = () => {}
+    mockStartRecordingSession.mockImplementationOnce(
+      () => new Promise<{ id: string }>((res) => (answer = res)),
+    )
+
+    await renderPage()
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] })
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByText('recoverSaveAction'))
+        for (let i = 0; i < 12; i++) await Promise.resolve()
+      })
+      // Three seconds on a bad connection: past the 1.5 s default, well inside
+      // the 10 s the stop leg gives the same mint.
+      await act(async () => {
+        jest.advanceTimersByTime(3_000)
+        for (let i = 0; i < 12; i++) await Promise.resolve()
+      })
+      // Drop the option and the race is already over by now, answering null.
+      expect(mockPipelineStart).not.toHaveBeenCalled()
+
+      await act(async () => {
+        answer({ id: 'sess-slow' })
+        for (let i = 0; i < 20; i++) await Promise.resolve()
+      })
+      expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+      const ctx = mockPipelineStart.mock.calls[0][1] as Record<string, unknown>
+      expect(ctx.recordingSessionId).toBe('sess-slow')
+      expect(ctx.takeId).toBe('take-1')
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('a persisted SKIP also qualifies, and still asks nothing', async () => {
@@ -548,7 +742,15 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
     // remaining 2 = 'repurchase' (REPURCHASE_PROMPT_REMAINING) — the mode that
     // still ASKS. remaining 4 would be 'auto', which A-6 now answers with the
     // silent burn leg and no dialog at all.
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
@@ -604,7 +806,15 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
   // reads as already-resolved and never re-asks, over money that never moved.
   it('A-3: nothing is stamped while the burn is still in flight', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     const packs = jest.requireMock('@/actions/packs') as { redeemSessionAction: jest.Mock }
     let settleBurn: (v: { ok: boolean }) => void = () => {}
     packs.redeemSessionAction.mockReturnValueOnce(
@@ -634,7 +844,15 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
     // remaining 2 = 'repurchase' (REPURCHASE_PROMPT_REMAINING) — the mode that
     // still ASKS. remaining 4 would be 'auto', which A-6 now answers with the
     // silent burn leg and no dialog at all.
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
@@ -843,6 +1061,31 @@ describe('RecordCustomerPickerDialog — repoint variant', () => {
     expect(screen.queryByText('target.repointPinnedNoBooking')).toBeNull()
   })
 
+  // N4 — the repoint picker pill (RecordPageView:3793–3795) keeps the
+  // AGGREGATE, never the FIFO `target` — parity with the live picker's own
+  // aggregate at record-screen.ts. A customer holding an old 残5 + a new
+  // 残10 pack must still show 残15/16 in the picker, never the FIFO pack's
+  // own 5/6.
+  it('the PAGE wires the repoint pill to the AGGREGATE, never the FIFO target (N4)', async () => {
+    DAY_FACTS.bookings = [dayBooking] as never
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-2',
+        packId: 'pack-old',
+        remaining: 15,
+        size: 16,
+        target: { remaining: 5, size: 6, otherRemaining: 10 },
+      },
+    ]
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverRepoint'))
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+    expect(screen.getByText('card.packLeft:{"remaining":15,"size":16}')).toBeTruthy()
+    expect(screen.queryByText('card.packLeft:{"remaining":5,"size":6}')).toBeNull()
+  })
+
   it('a WALK-IN pinned take (no flag, not in the day list) still reads 当日の予約なし', () => {
     renderRepoint()
     expect(screen.getByText('target.repointPinnedNoBooking')).toBeTruthy()
@@ -882,7 +1125,15 @@ describe('resolveRecoveryTicketState', () => {
     ({
       date: '2026-08-18',
       bookings: [],
-      packs: [{ customerId: 'c1', packId: 'p1', remaining: 4, size: 6 }],
+      packs: [
+        {
+          customerId: 'c1',
+          packId: 'p1',
+          remaining: 4,
+          size: 6,
+          target: { remaining: 4, size: 6, otherRemaining: 0 },
+        },
+      ],
       redeemed: { appointmentIds: [], customerIds: [] },
       ...over,
     }) as NonNullable<Parameters<typeof resolveRecoveryTicketState>[0]['facts']>
@@ -974,6 +1225,22 @@ describe('resolveRecoveryTicketState', () => {
     })
     expect(r.state).toBe('redeemed')
   })
+
+  // p2b (Fable line-read, 20:3x) — the server ALWAYS sends `target`; a row
+  // with none offers no burn at all, full stop. Even with a real packId on
+  // the row (an old cached fixture shape), target is NEVER rebuilt from the
+  // aggregate (`remaining`/`size`) — that is the exact lie p2 exists to
+  // remove (an aggregate presented as one pack's own numbers).
+  it('a row with target null and no packId offers no burn: target stays null (never rebuilt from the aggregate)', () => {
+    const r = resolveRecoveryTicketState({
+      facts: facts({
+        packs: [{ customerId: 'c1', packId: 'p1', remaining: 4, size: 6, target: null }],
+      }),
+      customerId: 'c1',
+      appointmentId: 'a1',
+    })
+    expect(r.target).toBeNull()
+  })
 })
 
 // ── A-6: mid-pack customers never see the conversion question ──────────────
@@ -983,7 +1250,15 @@ describe('auto mode parity (A-6)', () => {
     // >2 sessions left = resolveOutcomeMode 'auto': no conversion conversation
     // happened, so asking would pollute the coaching labels the live stop flow
     // protects by burning silently.
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 4,
+        size: 6,
+        target: { remaining: 4, size: 6, otherRemaining: 0 },
+      },
+    ]
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
@@ -1014,7 +1289,15 @@ describe('auto mode parity (A-6)', () => {
 
   it('an ALREADY-burned auto customer does not burn again', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 4,
+        size: 6,
+        target: { remaining: 4, size: 6, otherRemaining: 0 },
+      },
+    ]
     DAY_FACTS.redeemed = { appointmentIds: ['appt-1'], customerIds: [] }
     await renderPage()
     await act(async () => {
@@ -1027,6 +1310,43 @@ describe('auto mode parity (A-6)', () => {
     expect(redeemSessionAction).not.toHaveBeenCalled()
     expect(mockPipelineStart).toHaveBeenCalledTimes(1)
   })
+
+  // 回数券 update 25, Layer 1, p2 — the recovery flow reads the SAME
+  // total-balance shape the live path does: an old 残1 pack + a new 残10 pack
+  // reads 'auto' (never 'repurchase'), and the burn still targets the OLD
+  // (FIFO) pack — never the aggregate (11) presented as one pack's count.
+  it('two-pack customer (old 残1 + new otherRemaining 10) → mode auto, burns the FIFO (old) pack', async () => {
+    grantConsent()
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-old',
+        remaining: 11, // aggregate — unchanged meaning, unread by the money path
+        size: 16,
+        target: { remaining: 1, size: 6, otherRemaining: 10 },
+      },
+    ]
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    // No dialog — total (1+10) is comfortably 'auto', never 'repurchase'.
+    expect(screen.queryByText('disclaimer')).toBeNull()
+    const { redeemSessionAction } = jest.requireMock('@/actions/packs') as {
+      redeemSessionAction: jest.Mock
+    }
+    expect(redeemSessionAction).toHaveBeenCalledTimes(1)
+    expect(redeemSessionAction.mock.calls[0][0]).toMatchObject({
+      packId: 'pack-old',
+      redeemedOn: '2026-08-18',
+      recovery: true,
+    })
+    // p5 (B1) — the toast is the FIFO pack's OWN 残1 → 残0, never the
+    // aggregate 残11 → 残10 (LENS-L1 B1: unpinned before this).
+    const { toast } = jest.requireMock('sonner') as { toast: { success: jest.Mock } }
+    expect(toast.success.mock.calls[0][0]).toBe('autoRedeemed:{"from":1,"to":0}')
+  })
 })
 
 // ── T-1: alreadyRedeemed, wired end to end through the page ────────────────
@@ -1034,7 +1354,15 @@ describe('alreadyRedeemed wiring (T-1)', () => {
   it('a burned booking reaches the popup as a static row and burns nothing', async () => {
     grantConsent()
     // remaining 2 → repurchase, so the dialog still opens (auto would not).
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     DAY_FACTS.redeemed = { appointmentIds: ['appt-1'], customerIds: [] }
     await renderPage()
     // The banner states it too.
@@ -1173,7 +1501,15 @@ describe('bound re-point (T-2)', () => {
 describe('latch release (T-3)', () => {
   it('cancelling the outcome popup re-enables 保存する', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
@@ -1251,18 +1587,94 @@ describe('draft save (T-5) and the per-offer answer latch (A-4)', () => {
       ],
     })
     const { clearDraft } = jest.requireMock('@/lib/karute/draft') as { clearDraft: jest.Mock }
-    const { deleteTake } = jest.requireMock('@/lib/karute/take-store') as {
-      deleteTake: jest.Mock
+    const { settleTakeAfterSave } = jest.requireMock('@/lib/karute/take-store') as {
+      settleTakeAfterSave: jest.Mock
     }
     expect(clearDraft).toHaveBeenCalled()
-    expect(deleteTake).toHaveBeenCalledWith('take-1')
+    // ⚖ THE SECOND SETTLED EXIT (PR4 fix round 2, routed through the ONE rule
+    // since round 4). The record is on the server with this take's words; the
+    // staffer who owns the row asked for it — and what that may take of the
+    // AUDIO is the store's answer, not this call site's assertion.
+    expect(settleTakeAfterSave).toHaveBeenCalledWith('take-1')
+  })
+
+  // ⚖ …AND THAT FLAG IS WHAT MAKES THE ROW GO AWAY (PR4 fix round 2). The
+  // stranded cohort is BY DEFINITION audio the server never received under its
+  // finalized key, so the never-delete guard refuses it — and without the flag
+  // the save wrote the karute, the take survived, and the same 復元可能 row came
+  // back on the very next fold, for ever.
+  it('⚖ a STRANDED take — one the server can never receive — is settled by the save', async () => {
+    mockStrandedTakeIds.add('take-1')
+    mockUnsecurableTakeIds.add('take-1')
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('pending.title'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('save'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    expect(mockSaveInline).toHaveBeenCalledTimes(1)
+    // The row is gone from the device — the guard let this one through because
+    // a human settled a take nothing can ever seal, and nothing on the SERVER
+    // was touched either way.
+    expect(mockDeletedTakeIds.has('take-1')).toBe(true)
+  })
+
+  // ⚖ …AND A TAKE THE DRAIN CAN STILL SEAL IS NOT THAT (fix round 4, F1). Its
+  // stop-time secure failed RETRYABLY, so the pipeline transcribed a row-less
+  // staged copy and this save wrote the karute from it — but the recording is
+  // still owed its OWN finalized key, and the only audio that can get there is
+  // the device copy. Round 3's constant deleted it.
+  it('⚖ …but a take whose secure merely failed RETRYABLY keeps its audio', async () => {
+    mockStrandedTakeIds.add('take-1')
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('pending.title'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('save'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    const { settleTakeAfterSave } = jest.requireMock('@/lib/karute/take-store') as {
+      settleTakeAfterSave: jest.Mock
+    }
+    // The karute is written and the settle DID run — it simply did not take the
+    // audio, which is the drain's to finish.
+    expect(mockSaveInline).toHaveBeenCalledTimes(1)
+    expect(settleTakeAfterSave).toHaveBeenCalledWith('take-1')
+    expect(mockDeletedTakeIds.has('take-1')).toBe(false)
   })
 
   it('A-4: a retry after a FAILED save never mints a second pack sale', async () => {
     grantConsent()
     offerTake = false
     offerDraft = { ...DRAFT }
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     mockSaveInline.mockResolvedValueOnce({ error: 'boom' })
     // A preset prefills the 新しい回数券 panel, so 成約 can actually submit —
     // that combination (a burn AND a pack sale) is the one A-4 protects.
@@ -1415,7 +1827,15 @@ describe('the flow freezes its offer (A-1) and the abort really aborts', () => {
   // from under the live flow, which is the real production sequence.
   it('F-4: an offer claimed mid-flow closes the dialogs and frees the latch, MOUNTED', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     const { rerenderSame } = await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
@@ -1455,7 +1875,15 @@ describe('the flow freezes its offer (A-1) and the abort really aborts', () => {
           releaseConsent = r as (v: { consent: null }) => void
         }) as never,
       )
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 4,
+        size: 6,
+        target: { remaining: 4, size: 6, otherRemaining: 0 },
+      },
+    ]
     const { rerenderSame } = await renderPage()
     // The auto arm is done and stood down; the banner is the live surface.
     expect(mockGetCustomerConsent).toHaveBeenCalledTimes(1)
@@ -1556,7 +1984,15 @@ describe('a search-re-pointed customer keeps their pack (F-1)', () => {
     }))
     mockDayFacts.mockImplementationOnce(async () => ({
       ...DAY_FACTS,
-      packs: [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }],
+      packs: [
+        {
+          customerId: 'cust-1',
+          packId: 'pack-1',
+          remaining: 4,
+          size: 6,
+          target: { remaining: 4, size: 6, otherRemaining: 0 },
+        },
+      ],
     }))
     await renderPage()
     await act(async () => {
@@ -1609,7 +2045,15 @@ describe('draft answers are durable (F-2)', () => {
     grantConsent()
     offerTake = false
     offerDraft = { ...DRAFT2 }
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
@@ -1629,7 +2073,15 @@ describe('draft answers are durable (F-2)', () => {
     grantConsent()
     offerTake = false
     offerDraft = { ...DRAFT2 }
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     mockSaveInline.mockResolvedValueOnce({ error: 'boom' })
     await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
     await act(async () => {
@@ -1678,7 +2130,15 @@ describe('per-leg certification (F-3)', () => {
 
   it('a TRANSIENT burn failure certifies nothing, keeps the banner, and retries only that leg', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     const packs = packsMock()
     packs.redeemSessionAction.mockRejectedValueOnce(new Error('network'))
     await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
@@ -1717,7 +2177,15 @@ describe('per-leg certification (F-3)', () => {
   it('guard_unavailable says so honestly and certifies nothing', async () => {
     grantConsent()
     // remaining 4 → the auto leg, where the misleading 消化済み was worst.
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 4,
+        size: 6,
+        target: { remaining: 4, size: 6, otherRemaining: 0 },
+      },
+    ]
     const packs = packsMock()
     packs.redeemSessionAction.mockResolvedValueOnce({ ok: false, error: 'guard_unavailable' })
     const { toast } = jest.requireMock('sonner') as {
@@ -1745,7 +2213,15 @@ describe('per-leg certification (F-3)', () => {
 
   it('a PROVABLE already_redeemed certifies the leg and saves', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 4,
+        size: 6,
+        target: { remaining: 4, size: 6, otherRemaining: 0 },
+      },
+    ]
     packsMock().redeemSessionAction.mockResolvedValueOnce({
       ok: false,
       error: 'already_redeemed',
@@ -1869,7 +2345,15 @@ describe('deferred start + abort, at the edges', () => {
   // a live recording.
   it('an offer claimed during the money legs certifies them but saves nothing', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     const packs = jest.requireMock('@/actions/packs') as { redeemSessionAction: jest.Mock }
     let settleBurn: (v: { ok: boolean }) => void = () => {}
     packs.redeemSessionAction.mockReturnValueOnce(
@@ -1996,7 +2480,15 @@ describe('the new-pack payload is durable (Greptile #728)', () => {
     grantConsent()
     offerTake = false
     offerDraft = { ...DRAFT3 }
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     mockSaveInline.mockResolvedValueOnce({ error: 'boom' })
     await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
     await act(async () => {
@@ -2020,7 +2512,15 @@ describe('the new-pack payload is durable (Greptile #728)', () => {
     grantConsent()
     offerTake = false
     offerDraft = { ...DRAFT3 }
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.packs = [
+      {
+        customerId: 'cust-1',
+        packId: 'pack-1',
+        remaining: 2,
+        size: 6,
+        target: { remaining: 2, size: 6, otherRemaining: 0 },
+      },
+    ]
     packs().createPackAction.mockResolvedValueOnce({ ok: false, error: 'boom' })
     await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
     await act(async () => {
@@ -2041,3 +2541,184 @@ describe('the new-pack payload is durable (Greptile #728)', () => {
 })
 
 export {}
+
+// ── Capture pipeline PR3 — the record page's secure retry ──────────────────
+// A stop that happened offline (or whose finalize died) leaves a take with
+// audio and no finalizedAt. Nothing else in the app would ever try again, so
+// this mount is it — and it must be silent: no UI, no toast, and no dependence
+// on whether the banner ends up showing the take.
+describe('the mount retry secures a take the stop could not', () => {
+  it('every take the server lacks is secured once, through the arm\'s own port', async () => {
+    await renderPage()
+    expect(mockSecureTake).toHaveBeenCalledTimes(1)
+    // No recorder duration on this leg, and the singleton's own live-take probe
+    // (fix round 5 — ⚖ never finalize a take that is still recording).
+    expect(mockSecureTake).toHaveBeenCalledWith(
+      expect.anything(),
+      'take-1',
+      undefined,
+      expect.any(Function),
+    )
+    // And it IS the recorder's answer, not a stand-in that always says no.
+    const isActive = (mockSecureTake.mock.calls[0] as unknown[])[3] as (
+      id: string,
+    ) => boolean
+    globalRecorder.state = 'recording'
+    globalRecorder.takeId = 'take-1'
+    try {
+      expect(isActive('take-1')).toBe(true)
+      expect(isActive('take-2')).toBe(false)
+    } finally {
+      globalRecorder.state = 'idle'
+      globalRecorder.takeId = null
+    }
+  })
+
+  // Fix round 3 — THE reason the drain has its own store read. The recovery
+  // offer hides a take flushed inside the 20 s grace (it could be live in
+  // another tab), so a stop whose upload failed, plus a reload seconds later,
+  // used to leave the audio device-only for the whole page lifetime: the fresh
+  // recorder has no take and the offer said nothing. Ask the drain instead and
+  // the take is still named.
+  it('a take the recovery offer HIDES is secured all the same', async () => {
+    offerTake = false
+    unsecuredTakeIds = ['take-hidden-by-the-grace']
+    await renderPage()
+    expect(mockSecureTake).toHaveBeenCalledTimes(1)
+    expect(mockSecureTake).toHaveBeenCalledWith(
+      expect.anything(),
+      'take-hidden-by-the-grace',
+      undefined,
+      expect.any(Function),
+    )
+  })
+
+  it('more than one owed take is drained — each secured once', async () => {
+    unsecuredTakeIds = ['take-1', 'take-2']
+    await renderPage()
+    expect(mockSecureTake).toHaveBeenCalledTimes(2)
+    expect(mockSecureTake).toHaveBeenCalledWith(
+      expect.anything(),
+      'take-2',
+      undefined,
+      expect.any(Function),
+    )
+  })
+
+  // ONE AT A TIME. A take is a whole recording — tens of megabytes — so three
+  // owed takes fired at once on salon wifi means three PUTs starving each other
+  // (and the app's own calls) until they all time out. Fanning out was the old
+  // shape; sequential turns that into three uploads that finish.
+  it('owed takes are drained ONE AT A TIME, never fanned out at once', async () => {
+    unsecuredTakeIds = ['take-1', 'take-2', 'take-3']
+    let releaseFirst!: () => void
+    const firstDone = new Promise<void>((r) => (releaseFirst = r))
+    mockSecureTake.mockImplementationOnce(async () => {
+      await firstDone
+    })
+
+    await renderPage()
+    // The first upload is still in flight, so nothing else has started.
+    expect(mockSecureTake).toHaveBeenCalledTimes(1)
+    expect(mockSecureTake).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      'take-1',
+      undefined,
+      expect.any(Function),
+    )
+
+    await act(async () => {
+      releaseFirst()
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+    expect(mockSecureTake).toHaveBeenCalledTimes(3)
+    expect(mockSecureTake).toHaveBeenNthCalledWith(
+      3,
+      expect.anything(),
+      'take-3',
+      undefined,
+      expect.any(Function),
+    )
+  })
+
+  // The finalized/terminal exclusions now live in the store read (one home for
+  // the rule); from the page's side "nothing owed" is simply an empty list.
+  it('nothing owed, nothing secured', async () => {
+    offerTake = false
+    unsecuredTakeIds = []
+    await renderPage()
+    expect(mockSecureTake).not.toHaveBeenCalled()
+  })
+
+  // THE case the recoverable-take read can never reach: the recorder's OWN
+  // take, which is deliberately excluded from that read (an in-progress session
+  // must not be offered as its own recovery). Stop → phone locked → the PUT
+  // dies: onstop has already run and will not run again, so its audio must
+  // still be retried here.
+  //
+  // It rides the WORKLIST, and only the worklist (fix round 7). onstop stamps
+  // the duration the store's read requires before it ever uploads, so the take
+  // this page is holding is simply one of the ids the drain gets. The second,
+  // un-awaited call it used to get of its own bought nothing — an unstamped
+  // take is one secureTake returns from untouched — and it put two whole takes
+  // on the wire at once, which is exactly what the sequential loop above
+  // exists to prevent.
+  it("the recorder's own stopped take is retried too — on the worklist, once", async () => {
+    offerTake = false // nothing recoverable — this take IS the live one
+    unsecuredTakeIds = ['take-live-1', 'take-older']
+    globalRecorder.state = 'recorded'
+    globalRecorder.takeId = 'take-live-1'
+    try {
+      await renderPage()
+      expect(mockSecureTake).toHaveBeenCalledTimes(2)
+      expect(mockSecureTake).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        'take-live-1',
+        undefined,
+        expect.any(Function),
+      )
+    } finally {
+      globalRecorder.state = 'idle'
+      globalRecorder.takeId = null
+    }
+  })
+
+  it('a recorder that never stopped is left alone — nothing to secure mid-recording', async () => {
+    offerTake = false
+    unsecuredTakeIds = []
+    globalRecorder.state = 'recording'
+    globalRecorder.takeId = 'take-live-1'
+    try {
+      await renderPage()
+      expect(mockSecureTake).not.toHaveBeenCalled()
+    } finally {
+      globalRecorder.state = 'idle'
+      globalRecorder.takeId = null
+    }
+  })
+
+  it('a DRAFT outranking the take for the banner does not stop the audio being secured', async () => {
+    offerDraft = {
+      transcript: 't',
+      summary: 's',
+      entries: [],
+      duration: 1380,
+      appointmentId: 'appt-1',
+      appointmentCustomerId: 'cust-1',
+      recordingSessionId: 'sess-1',
+      takeId: 'take-1',
+      savedAt: Date.parse('2026-08-18T05:45:00Z'),
+    }
+    await renderPage()
+    // The banner shows the draft (recoveredTake is nulled) — the audio is
+    // secured all the same.
+    expect(mockSecureTake).toHaveBeenCalledWith(
+      expect.anything(),
+      'take-1',
+      undefined,
+      expect.any(Function),
+    )
+  })
+})

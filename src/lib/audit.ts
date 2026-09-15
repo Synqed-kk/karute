@@ -55,8 +55,13 @@ export interface AuditEvent {
   /** Privileged cross-access (dev tools, owner opening another staff's data).
    *  Always logged; gets its own filter chip in the viewer. */
   breakGlass?: boolean
-  /** SMALL — ids/flags/counts only, never record content. */
-  detail?: Record<string, string | number | boolean | null>
+  /** SMALL — ids/flags/counts only, never record content. The `string[]`
+   *  member (⚖ UPDATE 25 GROUP B, d5) is additive: an array of ids ONLY
+   *  (recording.no_sessions_today's `staff_ids`) — core's own `detail?:
+   *  unknown` (types.d.ts) already accepted this, and the 監査ログ page's
+   *  render branch (AuditLogSection.tsx) already reads `detail.staff_ids`
+   *  with `Array.isArray` — this just lets the emitter TYPE what it sends. */
+  detail?: Record<string, string | number | boolean | null | string[]>
   requestId?: string
   source: 'facade' | 'web' | 'system'
 }
@@ -146,19 +151,6 @@ const CORE_SEVERITY: Record<AuditSeverity, 'info' | 'warn' | 'critical'> = {
   warning: 'critical',
 }
 
-// Contract §7 / PR-M5 piece ①: core's AuditEventInput has no request_id
-// column yet (ask A4, sent/undelivered) — until it lands, a short id rides in
-// `detail.request_id` (detail is capped ~2KB server-side, so this always
-// fits). Never overwrite a caller-supplied detail.request_id.
-function detailWithRequestId(
-  detail: AuditEvent['detail'],
-  requestId: string | undefined,
-): AuditEvent['detail'] | undefined {
-  if (!requestId) return detail ?? undefined
-  if (detail && Object.prototype.hasOwnProperty.call(detail, 'request_id')) return detail
-  return { ...(detail ?? {}), request_id: requestId }
-}
-
 // Drop counter — every swallowed forwardToCore failure increments this (PR-M5
 // piece ⑤ / contract §5's "failure is never silent"). The console line above
 // (audit_sink_error) is the primary alert net; this is a cheap in-process
@@ -194,7 +186,8 @@ async function forwardToCore(e: AuditEvent, businessId: string): Promise<{ ok: b
       action: e.action,
       target_type: e.targetType ?? null,
       target_id: e.targetId ?? null,
-      detail: detailWithRequestId(e.detail, e.requestId),
+      detail: e.detail ?? undefined,
+      request_id: e.requestId ?? null,
       store_id: e.storeId ?? null,
       break_glass: e.breakGlass ?? false,
       severity: CORE_SEVERITY[e.severity ?? 'info'],
@@ -294,9 +287,12 @@ export type FacadeEndpointKey =
   | 'recordings.finalize'
   | 'recordings.inbox'
   | 'recordings.job.enqueue'
+  | 'recordings.job.enqueueFromSession'
   | 'recordings.job.status'
+  | 'recordings.playbackUrl'
   | 'recordings.session.delete'
   | 'recordings.session.mint'
+  | 'recordings.share'
   | 'recordings.uploadUrl'
   | 'recovery.day_facts'
   | 'screens.appointments'
@@ -371,11 +367,12 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // ＋新規カルテ manual create (PHONEWIRE-2A). A LIVE row, and deliberately
   // unlike 'karute.save' directly below: manual create does NOT pass through
   // the createOrUpdateKaruteRecord choke point — it calls karuteRecords.create
-  // directly — so there is no other writer and no double-log risk. This is the
-  // ONE emit for the action, and it CLOSES a real gap: the web action emits
-  // nothing at all (SDK_WRITE_ALLOWLIST has recorded createManualKaruteRecord
-  // as "genuinely untracked" since 2026-07-27). The route has no path param,
-  // so the target id comes from ctx.auditTargetId.
+  // directly — so this facade row and the web wrapper's own emit
+  // (createManualKaruteRecord, PR B2 §2, 2026-09-11) are two INDEPENDENT
+  // writers on two independent doors, not a double-log risk (the web action
+  // used to emit nothing at all here — SDK_WRITE_ALLOWLIST recorded it as
+  // "genuinely untracked" from 2026-07-27 until PR B2 closed it). The route
+  // has no path param, so the target id comes from ctx.auditTargetId.
   'karute.manualCreate': { kind: 'mutation', category: 'karute', action: 'karute.manual_create', targetType: 'karute' },
   // karute.save is NOT a row here (deliberately, packet 30 §3): it logs at
   // the shared choke point createOrUpdateKaruteRecord (src/actions/karute.ts)
@@ -767,10 +764,23 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // idempotent no-op this route deliberately returns in a 2xx body.
   'recordings.finalize': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/finalize-take.ts#finalizeTakeWithClient' },
   'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
+  // The SAME job, entered from the 録音履歴 row instead of from a device that
+  // just uploaded (build 23 slice ③) — so the same skip, for the same reason:
+  // this route routes exclusively into processJob, which is where the act
+  // becomes auditable. The enqueue step itself stages no outcome, and a live
+  // row here would double-log every save that goes through the worker.
+  'recordings.job.enqueueFromSession': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
+  // The play button's mint (build 23 slice ①). Same doctrine as finalize above:
+  // the ONE emit lives at the shared choke point, which alone knows whether a
+  // url was actually minted — the generic hook would emit on every 2xx, and a
+  // refusal here leaves as an error status, so a live row would over-count
+  // listens by exactly the refusals.
+  'recordings.playbackUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/playback-url.ts#mintPlaybackUrlWithClient' },
   // recordings.session.mint / recordings.uploadUrl: BOTH stage audio/ids for
   // EITHER downstream pipeline (verified at source: thin's
-  // viteRecordingPort.prepareTranscription AND .stageForJob both call the
-  // SAME upload-url facade endpoint before diverging — one leg reaches
+  // viteRecordingPort.mintTakeUrl and prepareTranscription's un-finalized
+  // fallback both call the SAME upload-url facade endpoint before diverging —
+  // .stageForJob, the third caller, was deleted in PR4 — one leg reaches
   // createOrUpdateKaruteRecord via the interactive transcribe→save flow, the
   // other reaches processJob via enqueueJob). coveredBy keeps citing the
   // interactive choke point (the default/primary flow when no job is
@@ -783,6 +793,28 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // 'mutation' row here would double-log every facade discard.
   'recordings.session.delete': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient' },
   'recordings.session.mint': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
+  // The recorder's own share toggle (⚖ Liam 2026-09-13 sharing law; 2026-09-14
+  // design D6). Same doctrine as the writers above: the shared body
+  // (setRecordingSharedWithClient, src/lib/recording/share.ts) alone knows
+  // whether a toggle actually WROTE anything — the idempotent no-op (already
+  // in the requested state) writes and audits nothing, and the generic hook
+  // would emit on every 2xx including that no-op. FIX ROUND 1 (Fable
+  // line-audit, 2026-09-14): the citation names the HELPER, not the body —
+  // src/lib/recording/share.ts#emitShareAudit, the private, unconditional
+  // emit primitive setRecordingSharedWithClient's one writing branch calls —
+  // because the BODY's own idempotent no-op return is an honest
+  // non-audited success path (D6 step 5) CP2's coveredBy walker
+  // (audit-coveredby.test.ts) has no `unproven` allowance for; citing the
+  // body would fail that gate over a return the design deliberately leaves
+  // silent. Same shape as the uploadUrl/auditTakeNamed row below: a skip row
+  // citing a PRIVATE helper that emits unconditionally on its one path, so
+  // the citation proves.
+  'recordings.share': {
+    kind: 'skip',
+    category: 'recording',
+    action: '',
+    coveredBy: 'src/lib/recording/share.ts#emitShareAudit',
+  },
   // The mint's OWN row (capture pipeline PR2 fix round 2) is
   // recording.take_named, emitted at the shared core for a CLIENT-NAMED take
   // only — the case where the caller names a take it may not own (storage
@@ -794,6 +826,13 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // which is a different act entirely and could be true of any recording
   // route. This endpoint's own write is the RESERVATION, and the emit that
   // dominates it is auditTakeNamed — cite the writer, not the destination.
+  //
+  // UPDATE 25 GROUP B, d4: this endpoint's SAME choke point (commitReservation)
+  // conditionally emits a second action, recording.take_refused_has_record,
+  // when its karute-exists probe refuses to bind a take onto a session that
+  // already has a saved karute — auditTakeRefusedHasRecord, beside
+  // auditTakeNamed in the same file, same actor idiom. Not a second coveredBy
+  // row: both emits live at this one endpoint's one choke point.
   'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/mint-take-url.ts#auditTakeNamed' },
 
   // karute.save / karute.entry.update (§3.1 last row: "deliberate skip, now
@@ -964,5 +1003,44 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       "coveredBy burnOneAutoRedemption's customer.pack_redeem emit, one row per ticket actually burned (verified at source). The batch driver autoBurnForBusiness is deliberately NOT the citation — it returns without emitting whenever there is nothing to burn, which is a correct outcome, not an unaudited write.",
     dated: '2026-08-08',
     coveredBy: 'src/lib/packs/auto-burn.ts#burnOneAutoRedemption',
+  },
+  // The nightly assembler (build 23 slice ③). CRON_SECRET-gated like its
+  // siblings, and NOT a skip: it is the first job in the app that WRITES an
+  // object into the recordings bucket — a take rebuilt from the segments a
+  // dead device left behind — with no staff in the loop. Every sealed take
+  // therefore files its own recording.capture_resumed row (actorType 'system',
+  // severity 'notice', detail carrying the segment counts, the first gap and
+  // the fact that the duration is an ESTIMATE), because otherwise the only
+  // audio this product ever created without a person present would have no
+  // trail at all. Structured `action` is deliberately omitted, exactly as the
+  // auto-burn row above omits it: the emit site's own literal is CP4's source.
+  assemble: {
+    kind: 'mutation',
+    justification:
+      "coveredBy assembleStrandedTake's recording.capture_resumed emit, ONE row per take actually sealed (verified at source). The walk driver runAssembler is deliberately NOT the citation — it returns a summary whenever there is nothing old enough to rescue, which is a correct outcome, not an unaudited write. Every path that writes nothing (a concurrent run already wrote the rescue; a leaf would not come down) returns before the emit and files nothing, by design — no device ever writes the `rsc/` key this job uploads to (⚖ Liam 2026-09-06 \"b\"), so the walk, not this symbol, is where a returning phone is skipped. It writes no core row at all — the client it is handed is narrowed to `list`.",
+    dated: '2026-09-06',
+    coveredBy: 'src/lib/recording/assembler.ts#assembleStrandedTake',
+  },
+  // The audit-watch cron (監査ログ round 2 PR C) — CRON_SECRET-gated like its
+  // siblings, and NOT a skip: it writes recording.karute_missing,
+  // recording.transcribe_storm and (update 25 Group B, d5)
+  // recording.no_sessions_today rows, one per NEW candidate the run actually
+  // finds, with no staff in the loop.
+  'audit-watch': {
+    kind: 'mutation',
+    // No structured `coveredBy` (deliberately, like AUDITED_CORES's
+    // `unproven` marker elsewhere in this file): watchOneBusiness's THREE
+    // audit() emits (recording.karute_missing, recording.transcribe_storm,
+    // recording.no_sessions_today) are each conditional on a NEW candidate
+    // existing — the common run finds zero (or every candidate already has a
+    // row) and returns unemitted, which is correct, not an unaudited write,
+    // but it is not a symbol CP2's walker can prove dominates every return —
+    // same mechanical-proof ceiling as src/lib/audit-policy.ts's
+    // AUDITED_CORES entry for this same file/symbol (see its own `unproven`
+    // note). Verified at source; CP4's literal scan already proves all three
+    // action strings are correctly registered independent of this row.
+    justification:
+      "watchOneBusiness (src/lib/audit-watch/run.ts) emits recording.karute_missing, recording.transcribe_storm and recording.no_sessions_today — one row per NEW candidate actually written. Conditional by design, same shape as the auto-burn/assemble rows above (return unemitted when there is nothing to do), except the emit sits inline in the driver rather than a downstream helper, so it cannot be handed a dominated coveredBy citation the way those two are.",
+    dated: '2026-09-12',
   },
 }

@@ -107,4 +107,136 @@ describe('thin actions port — audit-log transport contract', () => {
 
     await expect(listAuditLog({})).resolves.toEqual({ ok: false, error: 'failed' })
   })
+
+  // G2 (round-4 line-audit): the 警告/重大 tiles' server filters need the
+  // phone transport to actually forward the real severity value, or the
+  // facade's parseFilters support (route.ts) never gets exercised from the
+  // phone — the "same reader path" both tiles rely on.
+  //
+  // R3 (round-2 line-audit, still the shape here): the assertion MUST live
+  // outside the mock callback — facadeListAuditLog wraps the apiFetch call
+  // in its own try/catch, which swallows a throw from inside the mock and
+  // leaves the test's only real check (`toHaveBeenCalledTimes`) passing
+  // regardless of what path was actually requested. Recording the path into
+  // a variable and asserting on it after the `await` closes that hole.
+  it('severity:"warn" is serialized as severity=warn, exactly once, under no other key', async () => {
+    let capturedPath: string | undefined
+    const apiFetch = jest.fn(async (path: string) => {
+      capturedPath = path
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          events: [],
+          total: 0,
+          page: 1,
+          hasMore: false,
+          breakGlassTotal: null,
+          targetLabels: {},
+        }),
+        { status: 200 },
+      )
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await listAuditLog({ severity: 'warn' })
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(capturedPath).toBe('/api/app/v1/audit-log?severity=warn&page=1')
+  })
+
+  it('severity:"critical" is serialized as severity=critical, exactly once, under no other key', async () => {
+    let capturedPath: string | undefined
+    const apiFetch = jest.fn(async (path: string) => {
+      capturedPath = path
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          events: [],
+          total: 0,
+          page: 1,
+          hasMore: false,
+          breakGlassTotal: null,
+          targetLabels: {},
+        }),
+        { status: 200 },
+      )
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await listAuditLog({ severity: 'critical' })
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(capturedPath).toBe('/api/app/v1/audit-log?severity=critical&page=1')
+  })
+
+  it('no severity in filters → no severity param', async () => {
+    let capturedPath: string | undefined
+    const apiFetch = jest.fn(async (path: string) => {
+      capturedPath = path
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          events: [],
+          total: 0,
+          page: 1,
+          hasMore: false,
+          breakGlassTotal: null,
+          targetLabels: {},
+        }),
+        { status: 200 },
+      )
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await listAuditLog({})
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(capturedPath).toBe('/api/app/v1/audit-log?page=1')
+  })
+
+  // PR D1 (amendment 4 F5): the thread deep-link's own filter — mirrors the
+  // severity tests above (R3, round-2 line-audit: assert outside the mock
+  // callback, a throw from inside it would be swallowed by facadeListAuditLog's
+  // own try/catch).
+  it("targetType:'recording' is serialized as targetType=recording, exactly once", async () => {
+    let capturedPath: string | undefined
+    const apiFetch = jest.fn(async (path: string) => {
+      capturedPath = path
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          events: [],
+          total: 0,
+          page: 1,
+          hasMore: false,
+          breakGlassTotal: null,
+          targetLabels: {},
+          folded: 0,
+        }),
+        { status: 200 },
+      )
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await listAuditLog({ targetId: 'sess-1', targetType: 'recording' })
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(capturedPath).toBe('/api/app/v1/audit-log?targetId=sess-1&targetType=recording&page=1')
+  })
+
+  // PR D1 §2/§4: folded/threadPartial ride the 2xx body VERBATIM, same
+  // forwarding contract as every other field on this union.
+  it('2xx body carrying folded/threadPartial is forwarded VERBATIM', async () => {
+    const body = {
+      ok: true,
+      events: [],
+      total: 0,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: null,
+      targetLabels: {},
+      folded: 2,
+      threadPartial: true,
+    }
+    const apiFetch = jest.fn(async () => new Response(JSON.stringify(body), { status: 200 }))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(listAuditLog({})).resolves.toEqual(body)
+  })
 })

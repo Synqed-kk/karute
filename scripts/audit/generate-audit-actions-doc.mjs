@@ -26,12 +26,39 @@ const LITERAL_ONLY_CATEGORY = {
   'booking.restore': 'booking',
   'booking.update': 'booking',
   'karute.save': 'karute',
+  // Choke emit: src/actions/karute.ts#deleteKaruteRecord (PR B2 §1) — no
+  // facade route covers karute deletion, so this is a web-only, literal-only
+  // door, same doctrine as karute.save above.
+  'karute.delete': 'karute',
   'karute.entry_edit': 'karute',
   // Choke emit: src/actions/karute.ts#updateKaruteDetailSummaryWithClient
   // (facade key karute.summary.update is a skip row — same doctrine as
   // karute.entry_edit above).
   'karute.summary_edit': 'karute',
   'customer.create': 'customer',
+  // Choke emit: src/lib/recording/playback-url.ts#mintPlaybackUrlWithClient
+  // (facade key recordings.playbackUrl is a skip row — same doctrine as
+  // karute.entry_edit above).
+  'recording.play': 'recording',
+  // Choke emit: src/lib/ai/transcribe.ts#auditTranscriptionRefused (the
+  // transcription spend wall, 2026-09-08) — the refusal has no route of its
+  // own: every door reaches it through the one metered wrapper.
+  'recording.transcribe_refused': 'recording',
+  // Choke emit: src/lib/audit-watch/run.ts#watchOneBusiness (the audit-watch
+  // cron, 監査ログ round 2 PR C) — literal-only by construction: only the
+  // hourly cron writes these, no endpoint.
+  'recording.karute_missing': 'recording',
+  'recording.transcribe_storm': 'recording',
+  // Choke emit: src/lib/audit-watch/run.ts#watchOneBusiness (update 25 Group
+  // B, d5) — the ≥21:00 JST per-staffer "usually records, today nothing"
+  // check. Same doctrine as the two siblings above: literal-only, only the
+  // hourly cron writes it, no endpoint.
+  'recording.no_sessions_today': 'recording',
+  // Choke emit: src/lib/jobs/process-recording.ts#emitTranscribeFailedIfExhausted
+  // (the worker, 監査ログ round 2 PR C subject 6) — literal-only by
+  // construction: only the job worker's exhausted-round catch writes this,
+  // no endpoint.
+  'recording.transcribe_failed': 'recording',
   'privacy.customer_delete_canceled': 'privacy',
   'privacy.customer_delete_scheduled': 'privacy',
   'settings.permissions_change': 'settings',
@@ -67,16 +94,39 @@ const LITERAL_ONLY_CATEGORY = {
   // superseded branch's own action (fix round 6, I2) — a row that moved on to
   // other audio before this take's finalize landed. capture_finalized above
   // stays reserved for a call that actually wrote a pointer or a duration.
+  // Choke emit: src/lib/recording/assembler.ts#assembleStrandedTake — the
+  // nightly rescue of a take whose device never came back (build 23 slice ③).
+  // Literal-only by construction: no endpoint reaches it, only the cron.
+  'recording.capture_resumed': 'recording',
   'recording.capture_unlinked': 'recording',
   'recording.discard': 'recording',
   // Choke emit: src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient
   // (facade key recordings.session.delete is a skip row — same doctrine).
   // INTERIM: goes away with P5's kept-discard build, and this line with it.
   'recording.session_cleanup': 'recording',
+  // Choke emit: src/lib/recording/share.ts#setRecordingSharedWithClient (via
+  // its own emitShareAudit helper) — the recorder's own share toggle (⚖ Liam
+  // 2026-09-13 sharing law; 2026-09-14 design D6). FIX ROUND 1: facade key
+  // recordings.share is a skip row citing emitShareAudit (audit.ts) — the
+  // HELPER, not the body, because the body's idempotent no-op return is a
+  // genuine non-audited success path CP2's walker cannot exempt, while the
+  // helper emits unconditionally on its one path (the uploadUrl/
+  // auditTakeNamed shape) — same doctrine as recording.play above otherwise:
+  // no endpoint fires it alone, only this one choke point.
+  'recording.share': 'recording',
+  // Choke emit: src/lib/recording/share.ts#setRecordingSharedWithClient (via
+  // emitShareAudit) — the unshare twin of recording.share directly above.
+  'recording.unshare': 'recording',
   // Choke emit: src/lib/recording/mint-take-url.ts#auditTakeNamed (the private
   // helper mintTakeUploadUrl calls only for a CLIENT-NAMED take; facade key
   // recordings.uploadUrl stays a skip row citing it).
   'recording.take_named': 'recording',
+  // Choke emit: src/lib/recording/mint-take-url.ts#commitReservation (update
+  // 25 Group B, d4) — the karute-exists probe's refusal, literal-only by
+  // construction: only that conditional branch writes this, no endpoint of
+  // its own (recordings.uploadUrl stays the skip row above, citing
+  // auditTakeNamed as its dominant emit).
+  'recording.take_refused_has_record': 'recording',
   // Choke emit: src/lib/settings/recording-autostart.ts#setRecordingAutostartWithClient
   // (facade key orgSettings.recordingAutostart is a skip row — same doctrine).
   // The ONE audited settings-blob key, spec §8.1 fix C1. Recording-integrity PR A4.

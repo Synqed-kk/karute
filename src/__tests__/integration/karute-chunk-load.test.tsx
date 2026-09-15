@@ -861,6 +861,148 @@ describe('pill counts', () => {
     expect(showingCount()).toBe(1)
   })
 
+  it('破棄済み counts the LOADED discarded rows, never the store-wide total (R2 repair, 2026-09-13, F2)', () => {
+    const active = item('active', jstYmd(0), '有効 花子')
+    const discarded = {
+      ...item('discarded', jstYmd(1), '破棄 太郎'),
+      isDiscarded: true,
+    }
+    renderList({
+      items: [active, discarded],
+      total: 1,
+      // 5, not 1: the store holds 5 discarded records total, but only ONE is
+      // loaded on screen. Before the fix the pill read `storeDiscardedCount`
+      // (5) while its own tap reveals 1 row — exactly the ⚖ 8/25 pill rule
+      // violation F2 names. This one-line fixture change is the mutant proof:
+      // on the unfixed `discarded: storeDiscardedCount` line this assertion
+      // goes RED (pillCount('discarded') reads 5); see
+      // BUILD-REPORT-ANTHONY-REPAIRS-2026-09-13.md for the pasted red run.
+      discardedCount: 5,
+    })
+
+    expect(pillCount('discarded')).toBe(1)
+    expect(screen.getByText('有効 花子')).toBeInTheDocument()
+    // The ordinary ledger is mixed: retained discarded rows remain visible,
+    // and すべて now names the STORE UNIVERSE (fix round 1, 2026-09-13, Y1) —
+    // active total (1) + store-wide discarded (5) = 6, the same number the
+    // header's 全件 renders, never the active-only total alone.
+    expect(screen.getByText('破棄 太郎')).toBeInTheDocument()
+    expect(pillCount('all')).toBe(6)
+
+    fireEvent.click(pill('discarded'))
+    expect(showingCount()).toBe(pillCount('discarded'))
+    expect(screen.queryByText('有効 花子')).not.toBeInTheDocument()
+    expect(screen.getByText('破棄 太郎')).toBeInTheDocument()
+    // R6 repair (2026-09-13, F6): a non-interactive div takes no
+    // aria-disabled — the gray `.opacity-70` styling (rowClassName's
+    // `active ? '...' : 'opacity-70'` branch) is the row's real inert
+    // marker now; see karute-discarded-row.test.tsx for the direct
+    // "no aria-disabled attribute anywhere" pin.
+    expect(screen.getByText('破棄 太郎').closest('.opacity-70')).toBeTruthy()
+  })
+
+  it('a discarded row\'s withheld summary is not a search oracle (R3 repair, 2026-09-13, F3b)', () => {
+    // screen-rows.ts now blanks a DISCARDED row's summary before it ever
+    // reaches this view (see screen-rows-discarded-summary.test.ts for that
+    // builder-level pin). This test is the CONSUMER half: even though this
+    // row's summary field is '' exactly as the fixed builder produces, prove
+    // the search box can't turn up the row via whatever its ORIGINAL raw
+    // summary would have said — searching for that word must find nothing,
+    // never a row that "matched" for no visible reason (the F3b(c) second-
+    // order bug: a presence/absence oracle over withheld content).
+    const active = item('active', jstYmd(0), '有効 花子')
+    const discarded = {
+      ...item('discarded', jstYmd(1), '破棄 次郎'),
+      summary: '', // withheld — the builder's fixed output, never the raw text
+      isDiscarded: true,
+    }
+    renderList({ items: [active, discarded], total: 1, discardedCount: 1 })
+
+    fireEvent.change(screen.getByPlaceholderText('searchPlaceholder'), {
+      // The word this discarded record's raw (pre-blank) summary carried —
+      // never shipped to this view at all post-fix.
+      target: { value: 'ヒミツの内容タグ' },
+    })
+    expect(screen.queryByText('破棄 次郎')).not.toBeInTheDocument()
+    expect(screen.queryByText('有効 花子')).not.toBeInTheDocument()
+  })
+
+  // Fix round 2 (2026-09-13, F1/F3): the pills above were counting from
+  // `allItems` UNSCOPED while the tap's own `filtered` applied staff scope
+  // + search FIRST — so 自分 (or a search word) narrowing to fewer rows than
+  // the pill promised. applyScope is now the one function both memos call;
+  // these pin the count/tap identity under staff scope and under search, for
+  // BOTH 破棄済み and 今週 — the rule is one home, not a 破棄済み special case.
+  describe('pills count AFTER staff scope and search — not the unscoped store (fix round 2, F1/F3)', () => {
+    const staffList = [
+      { id: 'staff-1', name: '田中 太郎', initials: '田中' },
+      { id: 'staff-2', name: '鈴木 花子', initials: '鈴木' },
+    ]
+    const selfToggle = () => screen.getByRole('button', { name: 'self' })
+
+    it('破棄済み: 自分 excludes another staff\'s loaded discarded row', () => {
+      const mine = { ...item('d-mine', jstYmd(0), '自分 一郎'), staffId: 'staff-1', isDiscarded: true }
+      const theirs = { ...item('d-theirs', jstYmd(1), '他人 二郎'), staffId: 'staff-2', isDiscarded: true }
+      renderList({
+        items: [mine, theirs],
+        total: 0,
+        discardedCount: 2,
+        staffList,
+        currentStaffId: 'staff-1',
+      })
+
+      fireEvent.click(selfToggle())
+      expect(pillCount('discarded')).toBe(1)
+      fireEvent.click(pill('discarded'))
+      expect(showingCount()).toBe(pillCount('discarded'))
+      expect(showingCount()).toBe(1)
+      expect(screen.getByText('自分 一郎')).toBeInTheDocument()
+      expect(screen.queryByText('他人 二郎')).not.toBeInTheDocument()
+    })
+
+    it('破棄済み: a search word narrows which loaded discarded rows count', () => {
+      const match = { ...item('d-match', jstYmd(0), '桜井 一郎'), isDiscarded: true }
+      const other = { ...item('d-other', jstYmd(1), '高橋 二郎'), isDiscarded: true }
+      renderList({ items: [match, other], total: 0, discardedCount: 2 })
+
+      fireEvent.change(screen.getByPlaceholderText('searchPlaceholder'), {
+        target: { value: '桜井' },
+      })
+      expect(pillCount('discarded')).toBe(1)
+      fireEvent.click(pill('discarded'))
+      expect(showingCount()).toBe(pillCount('discarded'))
+      expect(showingCount()).toBe(1)
+    })
+
+    it('今週: 自分 excludes another staff\'s loaded row — same rule, not a 破棄済み special case', () => {
+      const mine = { ...item('w-mine', jstYmd(0), '自分 花子'), staffId: 'staff-1' }
+      const theirs = { ...item('w-theirs', jstYmd(1), '他人 太郎'), staffId: 'staff-2' }
+      renderList({ items: [mine, theirs], total: 2, staffList, currentStaffId: 'staff-1' })
+
+      fireEvent.click(selfToggle())
+      expect(pillCount('thisWeek')).toBe(1)
+      fireEvent.click(pill('thisWeek'))
+      expect(showingCount()).toBe(pillCount('thisWeek'))
+      expect(showingCount()).toBe(1)
+      expect(screen.getByText('自分 花子')).toBeInTheDocument()
+      expect(screen.queryByText('他人 太郎')).not.toBeInTheDocument()
+    })
+
+    it('今週: a search word narrows which loaded rows count', () => {
+      const match = item('w-match', jstYmd(0), '桜井 花子')
+      const other = item('w-other', jstYmd(1), '高橋 太郎')
+      renderList({ items: [match, other], total: 2 })
+
+      fireEvent.change(screen.getByPlaceholderText('searchPlaceholder'), {
+        target: { value: '桜井' },
+      })
+      expect(pillCount('thisWeek')).toBe(1)
+      fireEvent.click(pill('thisWeek'))
+      expect(showingCount()).toBe(pillCount('thisWeek'))
+      expect(showingCount()).toBe(1)
+    })
+  })
+
   it('今週 does NOT climb when さらに表示 appends OLDER rows', async () => {
     loadKaruteWindow.mockResolvedValue({
       // A walk backward can only ever return rows older than the boundary, so
@@ -920,5 +1062,343 @@ describe('pill counts', () => {
     fireEvent.click(pill('thisWeek'))
     expect(screen.getByText('七日前 次郎')).toBeInTheDocument()
     expect(screen.queryByText('九日前 一郎')).not.toBeInTheDocument()
+  })
+
+  it('すべて names the STORE UNIVERSE (active+discarded) — matches the header 全件 (fix round 1, 2026-09-13, Y1)', () => {
+    // Lens probe case: storeTotal 2, storeDiscardedCount 3, 5 rows loaded (2
+    // active + 3 discarded) — before this fix すべて read storeTotal alone
+    // (2) while the header's 全件 already read 5, an inch apart on the same
+    // screen. On the unfixed `all: storeTotal` line this assertion goes RED
+    // (pillCount('all') reads 2); see BUILD-REPORT-ANTHONY-REPAIRS-2026-09-13.md
+    // for the pasted red run.
+    const active = [item('a1', jstYmd(0), '有効 一郎'), item('a2', jstYmd(1), '有効 二郎')]
+    const discardedRows = [
+      { ...item('d1', jstYmd(0), '破棄 一郎'), isDiscarded: true },
+      { ...item('d2', jstYmd(1), '破棄 二郎'), isDiscarded: true },
+      { ...item('d3', jstYmd(2), '破棄 三郎'), isDiscarded: true },
+    ]
+    renderList({
+      items: [...active, ...discardedRows],
+      total: 2,
+      discardedCount: 3,
+      monthCount: 4,
+    })
+
+    expect(pillCount('all')).toBe(5)
+    expect(
+      screen.getByText(
+        'statusLineDiscarded:{"total":5,"discarded":3,"monthCount":4,"showingCount":5}',
+      ),
+    ).toBeInTheDocument()
+
+    fireEvent.click(pill('all'))
+    expect(showingCount()).toBe(pillCount('all'))
+    expect(showingCount()).toBe(5)
+  })
+})
+
+// D10 (PR-C, self-lighting): the 共有 pill + shared mode — a second list mode
+// shaped like 月ジャンプ, but reusing the DEFAULT backward walk with
+// sharedOnly threaded through (see karute-window.test.ts for that plumbing;
+// this file proves the VIEW's own wiring: pill existence, its count, the tap,
+// leaving the mode, and さらに表示 inside it).
+describe('共有 pill + shared mode (D10, PR-C)', () => {
+  const sharedPillQuery = () => screen.queryByRole('button', { name: /^filters\.shared/ })
+  const sharedPill = () => screen.getByRole('button', { name: /^filters\.shared/ })
+  const allPill = () => screen.getByRole('button', { name: /^filters\.all/ })
+
+  it('共有 pill hidden without sharedCount, even for a viewShared holder', () => {
+    renderList({ viewerHoldsViewShared: true })
+    expect(sharedPillQuery()).not.toBeInTheDocument()
+  })
+
+  it('hidden for a viewer without viewShared even WITH a count', () => {
+    renderList({ sharedCount: 3 })
+    expect(sharedPillQuery()).not.toBeInTheDocument()
+  })
+
+  it('共有 names the STORE-WIDE count, never a loaded tally — none of the loaded rows are shared, yet the pill shows the server count', () => {
+    renderList({ sharedCount: 5, viewerHoldsViewShared: true })
+    expect(sharedPill().textContent).toBe('filters.shared5')
+  })
+
+  it('a real sharedCount of 0 still shows the pill (0 !== undefined — the feature-detection law)', () => {
+    renderList({ sharedCount: 0, viewerHoldsViewShared: true })
+    expect(sharedPill().textContent).toBe('filters.shared0')
+  })
+
+  // F3 fix (PR-C fix round 1): the state's own doc comment claimed the
+  // DEFAULT walk's さらに表示 (fetchOlder) refreshes storeSharedCount — the
+  // code never did until this fix. Not the shared-mode fetch: the ordinary
+  // load-more button, outside shared mode entirely.
+  it('F3: a fetchOlder response carrying freshSharedCount updates the 共有 pill\'s count', async () => {
+    loadKaruteWindow.mockResolvedValue({
+      items: [],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 9,
+      freshDiscardedCount: 0,
+      freshSharedCount: 5,
+      hasMore: false,
+    })
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+    expect(sharedPill().textContent).toBe('filters.shared1')
+
+    await act(async () => {
+      fireEvent.click(loadMoreButton())
+    })
+
+    expect(sharedPill().textContent).toBe('filters.shared5')
+  })
+
+  it('F3: a fetchOlder response WITHOUT freshSharedCount leaves the pill\'s count untouched (F1(b): a non-holder\'s response never carries it)', async () => {
+    loadKaruteWindow.mockResolvedValue({
+      items: [],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 9,
+      freshDiscardedCount: 0,
+      hasMore: false,
+    })
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+    expect(sharedPill().textContent).toBe('filters.shared1')
+
+    await act(async () => {
+      fireEvent.click(loadMoreButton())
+    })
+
+    expect(sharedPill().textContent).toBe('filters.shared1')
+  })
+
+  it('tap enters shared mode: ONE loadKaruteWindow({sharedOnly:true}) call, the list SWAPS, and any OTHER pill leaves the mode', async () => {
+    loadKaruteWindow.mockResolvedValue({
+      items: [item('shared-1', '2026-01-05', '共有 花子')],
+      windowStart: '2026-01-05',
+      freshStoreTotal: 1,
+      freshDiscardedCount: 0,
+      freshSharedCount: 1,
+      hasMore: false,
+    })
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+
+    await act(async () => {
+      fireEvent.click(sharedPill())
+    })
+
+    expect(loadKaruteWindow).toHaveBeenCalledTimes(1)
+    expect(loadKaruteWindow).toHaveBeenCalledWith({ sharedOnly: true })
+    await waitFor(() => expect(screen.getByText('共有 花子')).toBeInTheDocument())
+    // The default window's own rows are swapped OUT, not merged in.
+    expect(screen.queryByText('山田 花子')).not.toBeInTheDocument()
+    expect(sharedPill()).toHaveAttribute('aria-pressed', 'true')
+
+    // ANY other pill tap leaves shared mode — the default window is restored
+    // from state, no refetch (mirrors the month-mode "leaving" rule exactly).
+    fireEvent.click(allPill())
+    expect(loadKaruteWindow).toHaveBeenCalledTimes(1)
+    expect(screen.getAllByText('山田 花子')).toHaveLength(2)
+    expect(screen.queryByText('共有 花子')).not.toBeInTheDocument()
+  })
+
+  it('さらに表示 inside shared mode continues with olderThan + sharedOnly — the mode\'s OWN boundary/loadedCount, never the default walk\'s', async () => {
+    loadKaruteWindow.mockImplementation(
+      async (input: { sharedOnly?: boolean; olderThan?: string }) => {
+        if (input.sharedOnly && !input.olderThan) {
+          return {
+            items: [item('shared-1', '2026-01-05', '共有 一号')],
+            windowStart: '2026-01-05',
+            freshStoreTotal: 2,
+            freshDiscardedCount: 0,
+            freshSharedCount: 2,
+            hasMore: true,
+          }
+        }
+        return {
+          items: [item('shared-2', '2025-12-20', '共有 二号')],
+          windowStart: '2025-12-20',
+          freshStoreTotal: 2,
+          freshDiscardedCount: 0,
+          freshSharedCount: 2,
+          hasMore: false,
+        }
+      },
+    )
+    renderList({ sharedCount: 2, viewerHoldsViewShared: true })
+
+    await act(async () => {
+      fireEvent.click(sharedPill())
+    })
+    await waitFor(() => expect(screen.getByText('共有 一号')).toBeInTheDocument())
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /loadMore/ }))
+    })
+    await waitFor(() => expect(screen.getByText('共有 二号')).toBeInTheDocument())
+    // Both rows now on screen — an append inside the mode, not a swap.
+    expect(screen.getByText('共有 一号')).toBeInTheDocument()
+
+    expect(loadKaruteWindow).toHaveBeenLastCalledWith({
+      sharedOnly: true,
+      olderThan: '2026-01-05',
+      loadedCount: 1,
+    })
+  })
+
+  it('a store switch (storeId prop change) exits shared mode', () => {
+    loadKaruteWindow.mockResolvedValue({
+      items: [item('shared-1', '2026-01-05', '共有 花子')],
+      windowStart: '2026-01-05',
+      freshStoreTotal: 1,
+      freshDiscardedCount: 0,
+      freshSharedCount: 1,
+      hasMore: false,
+    })
+    const { rerender } = renderList({
+      sharedCount: 1,
+      viewerHoldsViewShared: true,
+      storeId: 'store-A',
+    })
+    fireEvent.click(sharedPill())
+    rerender(listEl({ sharedCount: 1, viewerHoldsViewShared: true, storeId: 'store-B' }))
+    // Back to the default view — the pill is no longer pressed.
+    expect(sharedPill()).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  // T2 (fix round 2, L2 MED-2): mode exclusivity between shared mode and
+  // 月ジャンプ was untested in EITHER direction — mirrors the store-switch
+  // test above, which already proves a THIRD kind of exit from shared mode.
+  const monthChip = () => screen.getByRole('button', { name: /^\d{4}年\d{1,2}月$/ })
+
+  it('T2(a): entering shared mode then picking a month EXITS shared mode', async () => {
+    loadKaruteWindow.mockImplementation(
+      async (input: { sharedOnly?: boolean; month?: string }) => {
+        if (input.sharedOnly) {
+          return {
+            items: [item('shared-1', '2026-01-05', '共有 花子')],
+            windowStart: '2026-01-05',
+            freshStoreTotal: 1,
+            freshDiscardedCount: 0,
+            freshSharedCount: 1,
+            hasMore: false,
+          }
+        }
+        // Month path (PR-2b ±1 widening): only the picked month itself
+        // carries the fixture row; the two neighbour-window calls are empty.
+        return {
+          items: input.month === '2026-07' ? [item('july-1', '2026-07-10', '七月 太郎')] : [],
+          windowStart: `${input.month}-01`,
+          freshStoreTotal: 9,
+          hasMore: false,
+        }
+      },
+    )
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+
+    await act(async () => {
+      fireEvent.click(sharedPill())
+    })
+    await waitFor(() => expect(screen.getByText('共有 花子')).toBeInTheDocument())
+    expect(sharedPill()).toHaveAttribute('aria-pressed', 'true')
+
+    // 2026年7月 is the session-date epoch floor — always offered, whatever
+    // rows happen to be loaded (karute-month-jump.test.tsx's own pin).
+    fireEvent.click(monthChip())
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: '2026年7月' }))
+    })
+
+    await waitFor(() => expect(screen.getByText('七月 太郎')).toBeInTheDocument())
+    expect(screen.queryByText('共有 花子')).not.toBeInTheDocument()
+    expect(sharedPill()).toHaveAttribute('aria-pressed', 'false')
+    const monthCalls = loadKaruteWindow.mock.calls.filter(
+      ([a]: [{ month?: string }]) => a.month,
+    )
+    expect(monthCalls.length).toBeGreaterThan(0)
+    expect(monthCalls.every(([a]: [{ sharedOnly?: boolean }]) => !a.sharedOnly)).toBe(true)
+  })
+
+  it('T2(b): entering month mode then tapping 共有 EXITS month mode (the reverse direction)', async () => {
+    loadKaruteWindow.mockImplementation(
+      async (input: { sharedOnly?: boolean; month?: string }) => {
+        if (input.sharedOnly) {
+          return {
+            items: [item('shared-1', '2026-01-05', '共有 花子')],
+            windowStart: '2026-01-05',
+            freshStoreTotal: 1,
+            freshDiscardedCount: 0,
+            freshSharedCount: 1,
+            hasMore: false,
+          }
+        }
+        return { items: [], windowStart: `${input.month}-01`, freshStoreTotal: 9, hasMore: false }
+      },
+    )
+    renderList({ sharedCount: 1, viewerHoldsViewShared: true })
+
+    fireEvent.click(monthChip())
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: '2026年7月' }))
+    })
+    expect(monthChip().textContent).toBe('2026年7月')
+
+    await act(async () => {
+      fireEvent.click(sharedPill())
+    })
+
+    expect(monthChip().textContent).not.toBe('2026年7月')
+    await waitFor(() => expect(screen.getByText('共有 花子')).toBeInTheDocument())
+    expect(sharedPill()).toHaveAttribute('aria-pressed', 'true')
+    const sharedCalls = loadKaruteWindow.mock.calls.filter(
+      ([a]: [{ sharedOnly?: boolean }]) => a.sharedOnly,
+    )
+    expect(sharedCalls).toHaveLength(1)
+    expect(sharedCalls[0][0]).toEqual({ sharedOnly: true })
+  })
+})
+
+// R8 discarded-record door (⚖ Liam 2026-09-13, A8) — the list row's Link vs
+// inert-div threading. viewerCanOpenDiscarded (records.discardView) OR an
+// own-staff row makes a discarded row openable; the row's grey/「破棄済み」
+// look is unaffected either way (proven by karute-discarded-row.test.tsx at
+// the component level — this proves the VIEW computes the flag correctly
+// per row).
+describe('discarded row Link threading (viewerCanOpenDiscarded, A8)', () => {
+  const discardedRow = (id: string, staffId: string) => ({
+    ...item(id, '2026-08-20'),
+    staffId,
+    isDiscarded: true,
+  })
+
+  it('viewerCanOpenDiscarded=true makes EVERY discarded row a Link, regardless of staff', () => {
+    const { container } = renderList({
+      items: [discardedRow('d1', 'other-staff'), discardedRow('d2', 'other-staff')],
+      currentStaffId: 'me',
+      viewerCanOpenDiscarded: true,
+    })
+    expect(container.querySelectorAll('a[href="/karute/d1"]')).toHaveLength(1)
+    expect(container.querySelectorAll('a[href="/karute/d2"]')).toHaveLength(1)
+  })
+
+  it('viewerCanOpenDiscarded=false (default): only the OWN-staff discarded row is a Link, the other stays inert', () => {
+    const { container } = renderList({
+      items: [discardedRow('d1', 'me'), discardedRow('d2', 'other-staff')],
+      currentStaffId: 'me',
+    })
+    expect(container.querySelectorAll('a[href="/karute/d1"]')).toHaveLength(1)
+    expect(container.querySelectorAll('a[href="/karute/d2"]')).toHaveLength(0)
+  })
+
+  it('neither viewerCanOpenDiscarded nor own-staff: the row stays inert (today’s byte-identical behavior)', () => {
+    const { container } = renderList({
+      items: [discardedRow('d1', 'other-staff')],
+      currentStaffId: 'me',
+    })
+    expect(container.querySelectorAll('a[href="/karute/d1"]')).toHaveLength(0)
+  })
+
+  it('a live row is always a Link, regardless of viewerCanOpenDiscarded', () => {
+    const { container } = renderList({
+      items: [item('k1', '2026-08-20')],
+      viewerCanOpenDiscarded: false,
+    })
+    expect(container.querySelectorAll('a[href="/karute/k1"]')).toHaveLength(1)
   })
 })

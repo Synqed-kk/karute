@@ -23,7 +23,9 @@ jest.mock('@/lib/ai-pipeline', () => ({
   // error-code mapping below is an instanceof check against it.
   ...jest.requireActual('@/lib/ai-pipeline'),
   runAIPipeline: jest.fn(
-    (_blob: Blob, _locale: string, onProgress: (s: string) => void) =>
+    // capture pipeline PR4 inserted `takeId` (the take whose FINALIZED object
+    // the transcribe leg reads) as the second argument.
+    (_blob: Blob, _takeId: string | null, _locale: string, onProgress: (s: string) => void) =>
       new Promise<PipelineResult>((resolve, reject) => {
         mockDeferreds.push({ resolve, reject, onProgress })
       }),

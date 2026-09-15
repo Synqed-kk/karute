@@ -101,7 +101,12 @@ export function KaruteDetailScreen({ id }: { id: string }) {
             consentOnFile={dto.consentOnFile}
             transcriptDurationLabel={dto.transcriptDurationLabel}
             transcriptRestricted={dto.transcriptRestricted}
+            recording={dto.recording ?? null}
             staffCanReassignRecords={dto.staffCanReassignRecords ?? false}
+            staffCanRegenerate={dto.staffCanRegenerate ?? false}
+            discarded={dto.discarded ?? null}
+            contentWithheld={dto.contentWithheld ?? false}
+            share={dto.share ?? null}
             memory={null}
             photosSlot={<PhotoRecordsCard photos={dto.photos} />}
             bodyPredictionSlot={<BodyPredictionSlot customerId={dto.customerId} locale={locale} />}

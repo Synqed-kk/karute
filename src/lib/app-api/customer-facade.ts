@@ -54,6 +54,35 @@ export async function provePackForCustomer(
   }
 }
 
+/** Prove an appointment belongs to this customer (whose tenancy is proven
+ *  separately) → a clean 404 on a foreign appointmentId BEFORE any burn.
+ *  Audit round 2, PR D1 fix round 2, G5 (Greptile P1, ACCEPTED): the phone
+ *  redeem route used to record a client-supplied appointmentId unverified —
+ *  a caller could burn against another customer's appointment, after which
+ *  the audit reader's joinRecordingThread would join that redemption into
+ *  the WRONG recording's thread. Unlike provePackForCustomer above, no
+ *  customer-scoped list endpoint exists for appointments, so this reads the
+ *  single appointment directly (SDK: synqed.appointments.get, VERIFIED
+ *  against node_modules/@synqed-kk/client/dist/appointments.d.ts) and
+ *  compares its own customer_id — a mismatch, or ANY failure to resolve the
+ *  appointment at all (cross-tenant, deleted, malformed id), is refused,
+ *  never silently accepted. Same error class as provePackForCustomer. */
+export async function proveAppointmentForCustomer(
+  synqed: Pick<Awaited<ReturnType<typeof newSynqedClient>>, 'appointments'>,
+  customerId: string,
+  appointmentId: string,
+): Promise<void> {
+  let appointment: { customer_id: string | null }
+  try {
+    appointment = await synqed.appointments.get(appointmentId)
+  } catch {
+    throw new AppApiError('not_found', 'appointment not found for this customer')
+  }
+  if (appointment.customer_id !== customerId) {
+    throw new AppApiError('not_found', 'appointment not found for this customer')
+  }
+}
+
 /** Prove a photo belongs to this customer (whose tenancy is proven separately) →
  *  a clean 404 on a cross-tenant or wrong-customer photoId BEFORE any delete.
  *  Same shape as provePackForCustomer above: listPhotos IS the ownership

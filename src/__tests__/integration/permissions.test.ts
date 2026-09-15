@@ -41,7 +41,7 @@ describe('RBAC permission model', () => {
     expect(effectiveCapabilities('owner', null).has('audit.view')).toBe(true)
   })
 
-  it('raw recordings are recorder-private: only the owner keeps recordings.viewAll (Liam 7/16)', () => {
+  it('raw recordings are recorder-private: recordings.viewAll ships in NO non-owner preset (Liam 7/16) — a named override is the only other way in', () => {
     expect(new Set(ROLE_PRESETS.owner).has('recordings.viewAll')).toBe(true)
     for (const role of ['manager', 'senior', 'practitioner', 'frontdesk', 'custom'] as const) {
       expect(new Set(ROLE_PRESETS[role]).has('recordings.viewAll')).toBe(false)
@@ -98,6 +98,25 @@ describe('RBAC permission model', () => {
     expect(effectiveCapabilities('senior', ['records.write']).has('menus.manage')).toBe(false)
   })
 
+  it('records.discardView: owner + manager by preset, senior/practitioner/frontdesk not — a stored override predating it does not inherit it (R8 A9, ⚖ 2026-09-13)', () => {
+    expect(new Set(ROLE_PRESETS.owner).has('records.discardView')).toBe(true)
+    expect(new Set(ROLE_PRESETS.manager).has('records.discardView')).toBe(true)
+    for (const role of ['senior', 'practitioner', 'frontdesk', 'custom'] as const) {
+      expect(new Set(ROLE_PRESETS[role]).has('records.discardView')).toBe(false)
+    }
+    // override ?? preset: a manager customized before this capability existed
+    // does NOT inherit it — their stored list is the whole truth (same
+    // precedent as menus.manage above, PR-1a §5).
+    expect(effectiveCapabilities('manager', ['records.write']).has('records.discardView')).toBe(false)
+    // A named grant on any non-owner role resolves as-is (audit.view /
+    // recordings.viewAll precedent).
+    expect(
+      effectiveCapabilities('practitioner', ['records.write', 'records.discardView']).has(
+        'records.discardView',
+      ),
+    ).toBe(true)
+  })
+
   it('an explicit override replaces the preset (the toggle mechanism)', () => {
     const caps = effectiveCapabilities('frontdesk', ['billing.manage'])
     expect(can(caps, 'billing.manage')).toBe(true) // granted explicitly
@@ -110,22 +129,52 @@ describe('RBAC permission model', () => {
     expect(caps.size).toBe(1)
   })
 
-  it('recordings.viewAll strips from every non-owner at resolve time — stale overrides included', () => {
-    // A manager customized BEFORE the recorder-private ruling: their stored
-    // override still carries recordings.viewAll. The preset change alone
-    // can't fix that row — the resolve-time strip must.
-    const stale = [...presetCapabilities('manager'), 'recordings.viewAll']
-    const caps = effectiveCapabilities('manager', stale)
-    expect(caps.has('recordings.viewAll')).toBe(false)
-    // The rest of the override survives untouched.
-    expect(caps.has('staff.manage')).toBe(true)
-    // Owner keeps it (the dev/support key) — preset or explicit override.
+  it("recordings.viewAll: never by preset, YES by an explicit override for every non-owner role, owner always (\u2696 9/3 council; strip removed 9/6)", () => {
+    // THE LAW. The owner ticking 全スタッフの録音 in StaffForm stores an override
+    // carrying recordings.viewAll; that deliberate grant now resolves as-is,
+    // exactly like audit.view. The resolve-time strip that used to sit in
+    // effectiveCapabilities() is GONE — it made the owner's own tick a
+    // checkbox that never stuck.
+    //
+    // Stale pre-7/16 rows: the population was COUNTED at 0 on 2026-09-06
+    // (evidence/grant-20260906/q2-stale-count.json) and the OLD write path
+    // stripped every non-owner request until this code deployed, so the set
+    // was frozen at zero — nothing to heal, no migration.
+    for (const role of ['manager', 'senior', 'practitioner', 'frontdesk', 'custom'] as const) {
+      // Named grant → held.
+      const granted = effectiveCapabilities(role, [...presetCapabilities(role), 'recordings.viewAll'])
+      expect(granted.has('recordings.viewAll')).toBe(true)
+      // No override → the preset → never held.
+      expect(effectiveCapabilities(role, null).has('recordings.viewAll')).toBe(false)
+    }
+    // The rest of the override survives untouched alongside the grant.
+    const manager = effectiveCapabilities('manager', [...presetCapabilities('manager'), 'recordings.viewAll'])
+    expect(manager.has('staff.manage')).toBe(true)
+    // Owner always — preset or explicit override.
     expect(effectiveCapabilities('owner', null).has('recordings.viewAll')).toBe(true)
     expect(effectiveCapabilities('owner', ['recordings.viewAll']).has('recordings.viewAll')).toBe(true)
-    // No other role can hold it, even via an explicit grant.
+  })
+
+  it('recordings.viewShared: owner + manager by preset, senior/practitioner/frontdesk/custom not; never implies recordings.viewAll', () => {
+    expect(new Set(ROLE_PRESETS.owner).has('recordings.viewShared')).toBe(true)
+    expect(new Set(ROLE_PRESETS.manager).has('recordings.viewShared')).toBe(true)
     for (const role of ['senior', 'practitioner', 'frontdesk', 'custom'] as const) {
-      expect(effectiveCapabilities(role, ['recordings.viewAll']).has('recordings.viewAll')).toBe(false)
+      expect(new Set(ROLE_PRESETS[role]).has('recordings.viewShared')).toBe(false)
     }
+    // A named grant on any non-owner role resolves as-is, and carries
+    // NOTHING beyond itself — ticking viewShared never smuggles in viewAll
+    // (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design D3/D12).
+    const granted = effectiveCapabilities('practitioner', [
+      ...presetCapabilities('practitioner'),
+      'recordings.viewShared',
+    ])
+    expect(granted.has('recordings.viewShared')).toBe(true)
+    expect(granted.has('recordings.viewAll')).toBe(false)
+    // No override → the preset. Owner and manager hold it (preset); the other
+    // roles' explicit allowlists never do.
+    expect(effectiveCapabilities('practitioner', null).has('recordings.viewShared')).toBe(false)
+    expect(effectiveCapabilities('manager', null).has('recordings.viewShared')).toBe(true)
+    expect(effectiveCapabilities('owner', null).has('recordings.viewShared')).toBe(true)
   })
 
   it('a null override falls back to the role preset', () => {

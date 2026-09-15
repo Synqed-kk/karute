@@ -49,6 +49,13 @@ const KaruteListItemDTO = z.object({
   conversionStatus: z.enum(['active', 'provisional']).catch('provisional'),
   href: z.string(),
   isPlaceholder: z.boolean().optional(),
+  /** Present only on release-18 mixed ledger rows. Omitted on legacy active
+   *  rows, preserving the bare-call payload. */
+  isDiscarded: z.boolean().optional(),
+  /** D10 (PR-C, self-lighting): true when the row's recording session is
+   *  shared. `.optional()`, never `.default()` — see isShared's doc on
+   *  KaruteListItem. */
+  isShared: z.boolean().optional(),
 })
 
 export const SessionsScreenDTO = z.object({
@@ -111,14 +118,33 @@ export type SessionsScreenDTOType = z.infer<typeof SessionsScreenDTO>
  * call. At that point this schema absorbs the base one and the split goes away.
  */
 export const SessionsScreenWindowedDTO = SessionsScreenDTO.extend({
+  /** Separate from total: discarded rows never inflate active-record pills. */
+  discardedCount: z.number().default(0),
   /** Is there store history older than `windowStart` still unloaded?
    *  Server-computed via the ONE formula (karuteHasMore: loadedCount <
-   *  freshStoreTotal) — the phone renders this field, the web view derives the
+   *  freshStoreTotal + discardedCount) — the phone renders this field, the web view derives the
    *  identical formula client-side. */
   hasMore: z.boolean().default(false),
   /** YYYY-MM-DD (JST) — the oldest day the initial window reached. Feeds the
    *  さらに表示 label and the next chunk's `olderThan`. */
   windowStart: z.string().nullable().default(null),
+  /** R8 discarded-record door (⚖ Liam 2026-09-13, A8): does this viewer hold
+   *  records.discardView? Windowed-only, like discardedCount/hasMore/
+   *  windowStart above — a release-17 bundle never sees this key (the bare
+   *  legacy body stays byte-identical). `.optional()`, not `.default()`: a
+   *  release-18 phone that predates this field must not silently claim the
+   *  grant it never asked about — see the windowed body's own twin
+   *  assertion in sessions-screen-dto-window.test.ts. */
+  viewerCanOpenDiscarded: z.boolean().optional(),
+  /** D10 (PR-C, self-lighting): store-wide count of shared karute —
+   *  `.optional()`, NEVER `.default()`. The viewerCanOpenDiscarded precedent
+   *  above, one line down: an old cached payload that predates this field
+   *  must not silently claim a count of 0 (the feature-detection law — a real
+   *  0 IS a shown value, `undefined` is the only "hidden" one). */
+  sharedCount: z.number().optional(),
+  /** D10 (PR-C): does this viewer hold recordings.viewShared (management)?
+   *  Same `.optional()` reasoning as viewerCanOpenDiscarded. */
+  viewerHoldsViewShared: z.boolean().optional(),
 })
 
 export type SessionsScreenWindowedDTOType = z.infer<typeof SessionsScreenWindowedDTO>

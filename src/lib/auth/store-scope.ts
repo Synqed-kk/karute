@@ -107,6 +107,28 @@ export const resolveStoreScope = cache(async (): Promise<StoreScope> => {
 })
 
 /**
+ * THE WEB ACT DOORS' STORE SCOPE — one spelling for every act that keys on the
+ * owner's two keys (regenerate · 再学習 · the dev tools). Mirrors the READ
+ * doors' rule exactly (karute/[id]/page.tsx · actions/recording-playback.ts):
+ * null = unrestricted (`stores.viewAll` or floating staff), and a degraded or
+ * THROWN lookup arrives as `[]`, which fails the reach closed — never widened
+ * into "every store" (⚖ 8/17 store isolation).
+ *
+ * ⚠ Callers reach it by DYNAMIC import (see actions/dev-tools.ts): a top-level
+ * import of this module drags the ESM-only SDK into every jest graph that
+ * touches theirs.
+ */
+export async function viewerScopeForActs(): Promise<readonly string[] | null> {
+  try {
+    const scope = await resolveStoreScope()
+    return scope.degraded ? [] : scope.allowedStoreIds
+  } catch (err) {
+    console.warn('[store-scope] act scope read failed — failing closed:', err)
+    return []
+  }
+}
+
+/**
  * The customer-list STORE LENS for a resolved scope — one home for the rule the
  * three cached-list call sites (予約 page, 録音 page, screens/appointments route)
  * each spelled inline as `clamped ? storeId : undefined`:

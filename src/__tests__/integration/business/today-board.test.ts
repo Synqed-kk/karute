@@ -36,7 +36,7 @@ import { join } from 'node:path'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { jstDayKey, jstMinuteOfDay } from '@/business/lib/clock'
-import { appointments, operator, reserveSync, STORE_A, STORE_B } from '@/business/lib/fixtures'
+import { appointments, operator, reserveSync, STORE_A, STORE_B, type FixtureAppointment } from '@/business/lib/fixtures'
 import {
   absence,
   bedSecuredProof,
@@ -60,7 +60,6 @@ import {
   dayBookings,
   cleanupBlocks,
   effectiveShift,
-  freeSlots,
   openDecisions,
   minuteOf,
   place,
@@ -70,7 +69,7 @@ import {
   type BuildInput,
 } from '@/business/lib/today-board'
 import * as data from '@/business/lib/data'
-import TodayPage from '@/app/[locale]/(business)/business/today/page'
+import TodayPage, { bookingProofs } from '@/app/[locale]/(business)/business/today/page'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import { customers } from '@/business/lib/fixtures'
 
@@ -396,13 +395,6 @@ describe('board derivations', () => {
     expect(utilization([]).percent).toBe(0)
   })
 
-  it('counts free slots from the same minutes 稼働率 uses', () => {
-    expect(freeSlots(480, 120)).toBe(6)
-    expect(freeSlots(480, 480)).toBe(0)
-    // A day booked past its roster reads 満, never a negative number of slots.
-    expect(freeSlots(300, 480)).toBe(0)
-  })
-
   it('suppresses only the absent lane, and only past the cut', () => {
     expect(suppressedByAbsence({ staff_id: absence.staff_id, startMinute: absence.from }, absence)).toBe(true)
     expect(suppressedByAbsence({ staff_id: absence.staff_id, startMinute: absence.from - 30 }, absence)).toBe(false)
@@ -441,6 +433,144 @@ describe('今日の運営 screen', () => {
   it('gates itself: a denied session 404s the page, not just the layout', async () => {
     supabase.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: null }, error: null }) } })
     await expect(board()).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  /** ⚖ ROOM RULE, FIX ROUND 1 (L2 N2) — THE TWO FACTS, EXECUTED ON THE REAL BOARD.
+   *
+   *  The whole round's claim is that the room need is a fact about the BOOKING
+   *  and the VIP badge is a fact about the CUSTOMER. While the sample's one
+   *  tagged row was also its one VIP customer the two coincided, so a model that
+   *  went back to reading `customer.vip` produced a byte-identical board — the
+   *  mutation lens's M10 died to a source-text pin and to nothing else.
+   *
+   *  The demo separates them now, so this asks the built board rather than the
+   *  source: テスト なぎ (apt-29) carries the tag and wears her own category word,
+   *  テスト えいた (apt-25) is the VIP and carries no tag, and both facts reach the
+   *  accessible name a keyboard operator is refused by. */
+  it('⚖ ROOM RULE — the inspector says 個室のみ about the BOOKING, never about the room', async () => {
+    // ⚖ FIX ROUND 2 (delta lens 3 N2 · JP native pass 5c · L2 S2). A parenthetical
+    // after a room name describes THAT ROOM — 「ベッド3（個室のみ）」 reads as
+    // 「bed 3 is private-room-only」, and on any row the allocator did not choose
+    // it is a flat lie about a standard bed. 予約種別 is the row that is about the
+    // booking, and 「個室のみ・単発」 is the shape the accessible name ships.
+    //
+    // Fix round 1 shipped this surface with no cover of either kind: dropping the
+    // clause left the whole battery green.
+    const p = await board(STORE_A)
+    const factOf = (id: string, key: string) => p.cases[id].facts.find(([k]) => k === key)!
+    expect(factOf('apt-29', '担当・設備')).toEqual(['担当・設備', '見本 あずさ / ベッド3'])
+    expect(factOf('apt-29', '予約種別')).toEqual(['予約種別', '個室のみ・単発 / 店頭受付'])
+    // The untagged VIP's two rows carry no trace of the rule.
+    expect(factOf('apt-25', '担当・設備')[1]).not.toContain('個室のみ')
+    expect(factOf('apt-25', '予約種別')[1]).not.toContain('個室のみ')
+    // …and the tag reaches the row through the booking's own field, in the shape
+    // the accessible name uses. (No 「not.toContain('（個室のみ）')」 pin: the
+    // comment explaining WHY the parenthetical was wrong quotes it, which is the
+    // decoy a naive source ban would trip over — the two rows above are the
+    // claim, and they are behavioural.)
+    // ⚖ FIX ROUND 3 (delta2 lens 4 D5 · lens 3 M2 · JP 3) — AND THE CATEGORY WORD
+    // COMES FROM THE TABLE. The open-coded ternary collapsed everything that was
+    // not 回数券/VIP to 単発, so cus-11's deliberately-新規 booking (apt-26, the
+    // fixture's own honest carrier of the category) read 新規 on its card and in
+    // its accessible name and 単発 in this row — one screen contradicting itself,
+    // and it was fix round 2's new shape that put the two side by side. Asked of
+    // the built board: the row and the accessible name now agree.
+    expect(factOf('apt-26', '予約種別')).toEqual(['予約種別', '新規 / Reserve'])
+    const newCard = p.lanes.flatMap((l) => l.items).find((i) => i.caseId === 'apt-26')!
+    expect(newCard.category).toBe('new')
+    expect(newCard.label).toContain('新規')
+    // ⚠ NOT the 再来/単発 question: `CATEGORY_WORD.repeat` is 単発 and
+    // `CATEGORY_LABEL.repeat` is 再来, so apt-29 still reads 単発 here and 再来 in
+    // its accessible name. That is a ruled rider (one word, one home) and this
+    // round deliberately does not answer it — pinned so the divergence is a
+    // known one rather than an accident.
+    expect(factOf('apt-29', '予約種別')[1]).toContain('単発')
+    const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],")
+    expect(PAGE).toContain("['担当・設備', `${b.staffName} / ${b.resourceName}`],")
+  })
+
+  it('⚖ ROOM RULE — the sample board separates the 個室のみ tag from the VIP badge', async () => {
+    const p = await board(STORE_A)
+    const cardFor = (id: string) => p.lanes.flatMap((l) => l.items).find((i) => i.caseId === id)!
+    const tagged = cardFor('apt-29')
+    const vip = cardFor('apt-25')
+    // the tagged row: the tag is TRUE and the category word is its own, untouched
+    expect(tagged.requiresPrivateRoom).toBe(true)
+    expect([tagged.category, tagged.ticketCat]).toEqual(['repeat', '単発'])
+    expect(tagged.label).toContain('個室のみ・再来')
+    // the VIP row: the badge is intact and the tag is absent — a VIP places
+    // anywhere, which is the rule Liam ruled.
+    expect(vip.requiresPrivateRoom).toBe(false)
+    expect([vip.category, vip.ticketCat]).toEqual(['vip', 'VIP'])
+    expect(vip.label).not.toContain('個室のみ')
+    // …and the accessible name still has exactly five segments, so the room
+    // re-label (today-interactions `parts.length === 5`) still reads it.
+    expect(tagged.label.split(' / ')).toHaveLength(5)
+    expect(vip.label.split(' / ')).toHaveLength(5)
+    // The pair, stated as the round's claim: tagged ≠ VIP, on the shipped demo.
+    expect(tagged.requiresPrivateRoom === vip.requiresPrivateRoom).toBe(false)
+    expect((tagged.category === 'vip') === (vip.category === 'vip')).toBe(false)
+  })
+
+  /** ⚖ BLANK-SAFE (Liam 2026-09-06 02:2x) — is the blank-safe claim actually
+   *  stress-tested, or only READ and implicitly exercised? Every row above,
+   *  tagged or not, carries an EXPLICIT `requires_private_room` (`slot()`
+   *  writes `false` on every row that omits it, apt-29 writes `true`) — no
+   *  fixture row has ever had the key absent, `undefined` or `null`. This pins
+   *  §1 claim 1 on those three shapes directly, and claim 3's board half (no
+   *  「個室のみ」 in the accessible name for a blank row). */
+  describe('⚖ BLANK-SAFE — a row without requires_private_room is an untagged booking', () => {
+    const apt12 = appointments().find((a) => a.id === 'apt-12')!
+    const dayKey = jstDayKey(apt12.starts_at)
+
+    /** The suite's own async BuildInput assembly (`mergedLanes`/`lanesAt`
+     *  above), reused with the appointment set swapped for the row under
+     *  test — no new harness. */
+    async function boardFor(appts: FixtureAppointment[]) {
+      const lens = STORE_A
+      const [custs, menus, staffList, beds, planes, shell, storeOptions, staffStores] = await Promise.all([
+        data.listCustomers(lens), data.listMenus(lens), data.listStaff(lens),
+        data.listResources(lens), data.readDayPlanes(lens, dayKey), data.readShellIdentity(),
+        data.listStoreOptions(), data.readStaffStores(lens),
+      ])
+      const input: BuildInput = {
+        appointments: appts, customers: custs, menus, staff: staffList, resources: beds,
+        shifts: planes.shifts, qualifications: planes.staffQualifications,
+        staffListPrice: planes.staffListPrice, staffStores, absence: planes.absence,
+        blocks: planes.blocks, sellSlots: planes.sellSlots, decisions: planes.decisions,
+        hours: planes.operatingHours, dayKey,
+        operatorStaffId: shell.operator.staff_id,
+        storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
+        crossStore: false,
+      }
+      const bookings = dayBookings(input)
+      return { bookings, lanes: buildLanes(input, bookings) }
+    }
+
+    const keyAbsent: FixtureAppointment = { ...apt12, id: 'apt-blank-a' }
+    delete keyAbsent.requires_private_room
+    const isUndefined: FixtureAppointment = { ...apt12, id: 'apt-blank-b', requires_private_room: undefined }
+    // `null` is not in the field's own type (`boolean | undefined`), so ONLY
+    // this row needs the cast — the product type is never widened for it.
+    const isNull = { ...apt12, id: 'apt-blank-c', requires_private_room: null } as unknown as FixtureAppointment
+
+    it.each([
+      ['key absent', keyAbsent],
+      ['undefined', isUndefined],
+      ['null', isNull],
+    ])('claim 1 — %s reads as requiresPrivateRoom === false, on the booking and on the board item', async (_label: string, row: FixtureAppointment) => {
+      const { bookings, lanes } = await boardFor([row])
+      expect(bookings[0].requiresPrivateRoom).toBe(false)
+      const item = lanes.flatMap((l) => l.items).find((i) => i.caseId === row.id)!
+      expect(item.requiresPrivateRoom).toBe(false)
+    })
+
+    it('claim 3 — the accessible name carries no 個室のみ for a blank row', async () => {
+      const { lanes } = await boardFor([keyAbsent])
+      const item = lanes.flatMap((l) => l.items).find((i) => i.caseId === keyAbsent.id)!
+      expect(item.label).not.toContain('個室のみ')
+    })
   })
 
   // ── band by band ────────────────────────────────────────────────────────
@@ -491,10 +621,94 @@ describe('今日の運営 screen', () => {
     expect(p.hours.labels).toHaveLength(p.hours.count)
     expect(p.hours.labels[0]).toBe(String(operatingHours.open / 60))
     expect(p.sell.gridMin).toBe(opsConfig.reserveStartGridMin)
+    // ⚖ D-15/D-24 pin 9(a) — the L1→L3 seam contract at the default: the
+    // page's own props.sell carries the store's sellSlotMin, not a literal.
+    expect(p.sell.sellSlotMin).toBe(opsConfig.sellSlotMin)
     expect(p.sell.nowMinute).toBe(boardNow)
     expect(p.dayLabel).toContain('2026年')
     expect(p.nowFraction).toBeGreaterThan(0)
     expect(p.nowLabel).toBe('13:24')
+  })
+
+  /** ⚖ D-15/D-24 pin 9(a), the non-default half — the SAME override door
+   *  `settings.test.ts`'s `roomWithOpsConfig` uses for `fixtures-today`'s
+   *  `opsConfig` (an isolated module registry + `jest.doMock`, the only way to
+   *  move a module constant for one render), aimed at the today page instead
+   *  of settings-props. Proves the seam carries a NON-default number end to
+   *  end, not just the shipped default agreeing with itself. */
+  const boardWithOpsConfig = async (overrides: { sellSlotMin?: number }, store?: string) => {
+    jest.doMock('@/business/lib/fixtures-today', () => {
+      const actual = jest.requireActual('@/business/lib/fixtures-today')
+      return { ...actual, opsConfig: { ...actual.opsConfig, ...overrides } }
+    })
+    let pageMod!: typeof import('@/app/[locale]/(business)/business/today/page')
+    let screenMod!: typeof import('@/app/[locale]/(business)/business/today/TodayScreen')
+    await jest.isolateModulesAsync(async () => {
+      pageMod = await import('@/app/[locale]/(business)/business/today/page')
+      screenMod = await import('@/app/[locale]/(business)/business/today/TodayScreen')
+    })
+    jest.dontMock('@/business/lib/fixtures-today')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const find = (node: any): any => {
+      if (!node || typeof node !== 'object') return null
+      if (node.type === screenMod.TodayScreen) return node.props
+      const kids = node.props?.children
+      for (const kid of Array.isArray(kids) ? kids.flat() : [kids]) {
+        const hit = find(kid)
+        if (hit) return hit
+      }
+      return null
+    }
+    const node = await pageMod.default({
+      params: Promise.resolve({ locale: 'ja' }),
+      searchParams: Promise.resolve(store ? { store } : {}),
+    })
+    return find(node) as import('@/app/[locale]/(business)/business/today/TodayScreen').TodayProps
+  }
+
+  it('⚖ D-15/D-24 pin 9(a) — a store at a NON-default sellSlotMin (45) reaches props.sell.sellSlotMin end to end', async () => {
+    const p = await boardWithOpsConfig({ sellSlotMin: 45 }, STORE_A)
+    expect(p.sell.sellSlotMin).toBe(45)
+  })
+
+  it('⚖ D-42/B2 — the screen hands the engine the store’s own number now, not the default', () => {
+    // A source-text pin, not a runtime one: `today-screen-interactions.test.ts`
+    // (the file that renders `TodayScreen`) has no DOM renderer and no
+    // @testing-library in its own import fence, so there is no way to reach
+    // the drawn cells there. The seam this pins is one line — `sellLayerFor`'s
+    // `sellSlotMin` argument inside `TodayScreen.tsx` — B2's commit 0 flips it
+    // to the store's own number, connected because every downstream reader
+    // now agrees with the cell's own `e`.
+    const screen = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
+      'utf8',
+    )
+    expect(screen.match(/sellSlotMin: props\.sell\.sellSlotMin,/g) ?? []).toHaveLength(1)
+    expect(screen.match(/sellSlotMin: SELL_SLOT_MIN,/g) ?? []).toHaveLength(0)
+  })
+
+  it('⚖ D-15/D-24 pin 9(b) — sellLayerFor at a non-default slot (45) on the real fixture board: every drawn cell spans exactly 45 minutes, and the layer builds without throwing', async () => {
+    const p = await board(STORE_A)
+    const run = () =>
+      sellLayerFor(p.lanes, p.hours, {
+        gridMin: p.sell.gridMin,
+        sellSlotMin: 45,
+        nowMinute: p.sell.nowMinute,
+        locked: [],
+        showPrice: true,
+        hi: p.dialogs.pricing.hqMax,
+        hqMin: p.dialogs.pricing.hqMin,
+        depth: 9,
+      })
+    expect(run).not.toThrow()
+    const sell45 = run()
+    const staffCells = sell45.cells.filter((c) => c.group === 'staff')
+    // Disclosed, not asserted further: at 45 the CHIP/count readers (枠 count,
+    // price label) still read off these same cells and move with them — that
+    // is B1's own derivation, unchanged. This pin does not touch anything the
+    // still-60-by-constant readers (B2) own.
+    expect(staffCells.length).toBeGreaterThan(0)
+    expect(staffCells.every((c) => c.e - c.h === 45)).toBe(true)
   })
 
   it('F — staff lanes and bed lanes both render, with cards, breaks and blocks', async () => {
@@ -634,16 +848,20 @@ describe('今日の運営 screen', () => {
     expect(live.length).toBeGreaterThan(earning.length)
   })
 
-  // 公開中, 安全な空き and the shelf's own header used to be three server
+  // 公開中, the 運営影響 stat and the shelf's own header used to be three server
   // numbers that had to be kept equal by hand. They are now ONE derivation the
   // browser runs (canon-logic/availability), so the equality is structural and
   // the thing worth asserting is that the derivation answers to the board it
   // reads — including a lane the operator has locked.
-  it('RECONCILES: 公開中 = 安全な空き = the shelf, because all three read one derivation', async () => {
+  // ⚖ R8 T4 — the stat used to carry a SECOND name for that count (安全な空き);
+  // it now prints the chip's own words, so this title names the surface rather
+  // than a label that no longer exists.
+  it('RECONCILES: 公開中 = the 運営影響 stat = the shelf, because all three read one derivation', async () => {
     const p = await board(STORE_A)
     const layer = (locked: string[]) =>
       sellLayerFor(p.lanes, p.hours, {
         gridMin: p.sell.gridMin,
+        sellSlotMin: p.sell.sellSlotMin,
         nowMinute: p.sell.nowMinute,
         locked,
         showPrice: true,
@@ -808,19 +1026,25 @@ describe('今日の運営 screen', () => {
     expect((await board(STORE_A, 'tomorrow')).dayOffset).toBe(0)
   })
 
-  it('the calendar covers a month either way and carries a free-slot count per day', async () => {
+  it('the calendar covers a month either way and carries あと入る数 per day', async () => {
     const p = await board(STORE_A)
     expect(p.calendar.length).toBe(91)
     expect(p.calendar.some((c) => c.offset === 0)).toBe(true)
     for (const c of p.calendar) {
-      expect(c.free).toBeGreaterThanOrEqual(0)
       expect(c.wd).toBeGreaterThanOrEqual(0)
       expect(c.wd).toBeLessThanOrEqual(6)
     }
-    // The busiest day has fewer free slots than an empty one — the number moves.
-    const empty = p.calendar.find((c) => c.booked === 0)!
-    const busy = p.calendar.find((c) => c.offset === 0)!
-    expect(busy.free).toBeLessThan(empty.free)
+    // …and in the fixture world the roster door answers for EVERY day of the
+    // window, so every one of the 91 carries numbers. A `covered: false` row is
+    // a real shape (a day the door has no roster for) but not one this world
+    // produces — see today-calendar-numbers.test.ts for that half.
+    const known = p.calendar.filter((c) => c.covered !== false)
+    expect(known).toHaveLength(91)
+    for (const c of known) expect(c.fits).toBeGreaterThanOrEqual(0)
+    // The busiest day fits fewer courses than an empty one — the number moves.
+    const empty = known.find((c) => c.booked === 0)!
+    const busy = known.find((c) => c.offset === 0)!
+    expect(busy.fits).toBeLessThan(empty.fits)
   })
 
   // ── the L-6 promise ─────────────────────────────────────────────────────
@@ -936,7 +1160,7 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
     // whole point of turning the feature off rather than just hiding the paint.
     const layerOn = (lanes: BoardLane[]) =>
       sellLayerFor(lanes, operatingHours, {
-        gridMin: 30, nowMinute: null, locked: [], showPrice: true, hi: 9000, hqMin: 5000, depth: 9,
+        gridMin: 30, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 9000, hqMin: 5000, depth: 9,
       })
     const bedOf = (lanes: BoardLane[]) => lanes.find((l) => l.key === 'bed-01')!
     const covers = (lanes: BoardLane[], at: number) =>
@@ -1008,20 +1232,19 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
     // allocateBed's own-tail exclusion: apt-12 owns ベッド1 10:00–11:00 and its
     // turnaround stands 11:00–11:30. Nudged 30 minutes later it lands ON its own
     // tail, and the allocator must still hand it the room it is already in.
-    const policy = opsConfig.roomPolicy
     const stores = [STORE_A]
     expect(
       allocateBed(cleaning, {
-        id: 'apt-12', currentBed: 'bed-01', stores, vip: false,
-        start: 10 * 60 + 30, end: 11 * 60 + 30, policy,
+        id: 'apt-12', currentBed: 'bed-01', stores, requiresPrivate: false,
+        start: 10 * 60 + 30, end: 11 * 60 + 30,
       }),
-    ).toEqual({ laneKey: 'bed-01', refusal: null, blockers: [] })
+    ).toEqual({ laneKey: 'bed-01', refusal: null, blockers: [], reseats: [] })
     // …and someone ELSE'S tail is a genuine wall: the same span, without the
     // exclusion, is refused the room.
     expect(
       allocateBed(cleaning, {
-        id: null, currentBed: 'bed-01', stores, vip: false,
-        start: 10 * 60 + 30, end: 11 * 60 + 30, policy,
+        id: null, currentBed: 'bed-01', stores, requiresPrivate: false,
+        start: 10 * 60 + 30, end: 11 * 60 + 30,
       }).laneKey,
     ).not.toBe('bed-01')
   })
@@ -1043,5 +1266,236 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
       // 分 is the dead lever this round removed.
       expect({ file, hits: src.match(/清掃\s*\d+\s*分/g) ?? [] }).toEqual({ file, hits: [] })
     }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ R8 T1 — 予約時価格を保持 IS A CLAIM ABOUT A PRICE THAT EXISTS
+//
+// apt-09 carries `booked_price: null` by documented fixture intent — a real,
+// partially-filled booking the board has to be honest about. Its 予約時価格 fact
+// already reads 記録なし; the 根拠 list underneath used to assert that the same
+// missing number was being held.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ R8 T1 — the 価格保持 根拠 follows the booking’s own price', () => {
+  const PROOF = '予約時価格を保持'
+
+  it('the scene is real: this store’s day holds a priced booking AND a price-less one', () => {
+    const mine = today().filter((a) => a.store_id === STORE_A && a.status !== 'cancelled')
+    expect(mine.some((a) => a.booked_price == null)).toBe(true)
+    expect(mine.some((a) => a.booked_price != null)).toBe(true)
+  })
+
+  it('pricedIds is the server’s own record — every booking with a price, and no other', async () => {
+    const p = await board(STORE_A)
+    const priced = today().filter((a) => a.store_id === STORE_A && a.booked_price != null).map((a) => a.id)
+    // Read off the fixture, not written down here: a fixture edit moves both
+    // sides of this together or it goes red.
+    expect([...p.pricedIds].sort()).toEqual([...new Set(priced)].sort())
+    const priceless = today().find((a) => a.store_id === STORE_A && a.booked_price == null)!
+    expect(p.pricedIds).not.toContain(priceless.id)
+  })
+
+  it('a case claims 価格保持 exactly when its booking has a price — walked over the whole day', async () => {
+    const p = await board(STORE_A)
+    const bookings = today().filter((a) => a.store_id === STORE_A && a.board_state !== null)
+    expect(bookings.length).toBeGreaterThan(1)
+    for (const a of bookings) {
+      const c = p.cases[a.id]
+      expect({ id: a.id, has: c != null }).toEqual({ id: a.id, has: true })
+      expect({ id: a.id, claims: c.proofs.includes(PROOF) }).toEqual({ id: a.id, claims: a.booked_price != null })
+      // …and the FACT line and the 根拠 line agree, which is the whole point:
+      // no case says 記録なし above and 保持 below.
+      const fact = c.facts.find(([k]) => k === '予約時価格' || k === '請求額')!
+      expect({ id: a.id, silent: fact[1] === '記録なし' }).toEqual({ id: a.id, silent: !c.proofs.includes(PROOF) })
+    }
+  })
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F2) — BOTH ARMS OF THE CONDITION, WALKED.
+   *
+   *  The rule used to be spelled once per arm of `b.resourceId ? … : …`, and the
+   *  board's only price-less booking (apt-09) has NO resource — so the
+   *  with-resource arm was never walked with a price-less booking, and making it
+   *  append the 保持 line unconditionally shipped green through all 1912 tests
+   *  (M06). A booking with a bed and no recorded price would have claimed its
+   *  price was held: the exact defect T1 exists to remove. One author now, and
+   *  this is its whole table. */
+  it('bookingProofs writes the same price rule down both arms — four combinations, exact lists', () => {
+    // ⚖ BREAKER-828 DELTA G5 — EVERY ROW FEEDS A DIFFERENT SENTENCE. This table
+    // used to hand `'ベッド1を確保'` in on every row and assert that same
+    // literal back, so the pass-through was self-fulfilling: a helper that
+    // IGNORED its first argument and printed bed 1's name for every bed shipped
+    // green at 1920 + 1 with `tsc` exit 0, and apt-22 (bed-02), apt-25 and
+    // apt-28 (bed-03) would each have read 「ベッド1を確保」 on their 根拠 list.
+    // (PRE-EXISTING, said plainly: the same hardcode was equally invisible when
+    // the sentence came from an inline call at the page's own call site.)
+    expect(bookingProofs('A', true)).toEqual(['担当の勤務時間内', '休憩と重ならない', 'A', PROOF])
+    expect(bookingProofs('B', false)).toEqual(['担当の勤務時間内', '休憩と重ならない', 'B'])
+    expect(bookingProofs(null, true)).toEqual(['担当の勤務時間内', '設備の割当てが未確定', PROOF])
+    expect(bookingProofs(null, false)).toEqual(['担当の勤務時間内', '設備の割当てが未確定'])
+    // The sentence in the list IS the argument, reproduced — never a constant
+    // that happens to match the fixture's first bed.
+    expect(bookingProofs('X', true)[2]).toBe('X')
+    for (const proof of ['ベッド2を確保', 'ベッド3を確保', '設備の名前']) {
+      expect({ proof, row: bookingProofs(proof, false)[2] }).toEqual({ proof, row: proof })
+    }
+    // The bed's own sentence is used exactly as handed over — the helper writes
+    // the rule, `bedSecuredProof` writes the room — and it lands in ITS slot.
+    expect(bookingProofs(bedSecuredProof(resources, 'bed-01'), false)[2]).toBe(bedSecuredProof(resources, 'bed-01'))
+    // …and the price line is the ONLY thing the second argument moves.
+    for (const proof of ['ベッド1を確保', null]) {
+      expect(bookingProofs(proof, false)).toEqual(bookingProofs(proof, true).filter((p) => p !== PROOF))
+    }
+  })
+
+  /** ⚖ D-53 (c) R2 (G3) — hasUnits IS THE STORE'S OWN AXIS. A no-unit store has
+   *  nothing undecided, so its resource line is SILENCE — never 未確定, never a
+   *  「設備なし」 sentence — regardless of whether a resource proof happens to
+   *  be non-null. The default (no third argument) keeps today's answer. */
+  it('bookingProofs(…, hasUnits: false) omits the 未確定 line, never a real proof (G3)', () => {
+    expect(bookingProofs('ベッド1を確保', true, false)).toEqual(['担当の勤務時間内', '休憩と重ならない', 'ベッド1を確保', PROOF])
+    expect(bookingProofs(null, false, false)).toEqual(['担当の勤務時間内'])
+    expect(bookingProofs(null, true, false)).toEqual(['担当の勤務時間内', PROOF])
+    // …and the default (today's answer) is unmoved.
+    expect(bookingProofs(null, false)).toEqual(['担当の勤務時間内', '設備の割当てが未確定'])
+    expect(bookingProofs('ベッド1を確保', true)).toEqual(['担当の勤務時間内', '休憩と重ならない', 'ベッド1を確保', PROOF])
+  })
+
+  /** ⚖ BREAKER-828 DELTA G4 — A FIXTURE-CONSISTENCY PIN, AND IT SAYS SO.
+   *
+   *  This walk CANNOT FAIL ON A CODE CHANGE, and fix round 3's title read as if
+   *  it could. A 判断 card's 根拠 is the fixture's own `d.proofs`, spread into
+   *  the case VERBATIM — `page.tsx` never meets it with `b.price` — so there is
+   *  no product line here to break. The breaker proved it: `[...d.proofs,
+   *  PRICE_HOLD_PROOF]`, every 判断 card claiming the row unconditionally, was
+   *  GREEN at 1920 + 1 with `tsc` exit 0, because every decision on this board
+   *  that names an appointment names a PRICED one (dec-recovery → apt-26,
+   *  dec-checkout → apt-25, dec-absence → apt-27, dec-sms → apt-28, dec-noshow
+   *  → apt-23).
+   *
+   *  What it IS, honestly: demo data is product truth, so this catches a FIXTURE
+   *  edit that hangs 予約時価格を保持 on a decision card whose booking has no
+   *  price — the same sentence T1 removes, printed three lines under its own
+   *  予約時価格 記録なし. `claimed > 0` keeps it from passing vacuously. The
+   *  CODE direction F6 named needs a synthetic decision this fixture does not
+   *  hold; it is unreachable on this board and it is not claimed here. */
+  it('the FIXTURE never hangs 価格保持 on a 判断 card whose booking has no price — a fixture guard, not a code pin', async () => {
+    const p = await board(STORE_A)
+    let walked = 0
+    let claimed = 0
+    for (const d of decisions) {
+      const a = d.appointment_id ? today().find((x) => x.id === d.appointment_id) : undefined
+      const c = a ? p.cases[d.id] : undefined
+      if (!a || !c) continue
+      walked += 1
+      // ONE-DIRECTIONAL, and deliberately so: a 判断 card's 根拠 is the
+      // fixture's own list about the DECISION, so a priced booking's card is
+      // free to say nothing about the price (`dec-checkout` does exactly that).
+      // What it may never do is CLAIM the row over a booking that has no price —
+      // that is the sentence T1 removes, printed three lines under its own
+      // 予約時価格 記録なし.
+      if (!c.proofs.includes(PROOF)) continue
+      claimed += 1
+      expect({ id: d.id, over: a.id, priced: a.booked_price != null }).toEqual({ id: d.id, over: a.id, priced: true })
+    }
+    expect(walked).toBeGreaterThan(0)
+    // …and the walk reaches a card that DOES carry the row, so it is measuring
+    // something: `dec-recovery` over apt-26 (¥6,600).
+    expect(claimed).toBeGreaterThan(0)
+  })
+
+  it('the two named cases, by name: apt-09 drops the row, apt-26 keeps it', async () => {
+    const p = await board(STORE_A)
+    expect(today().find((a) => a.id === 'apt-09')!.booked_price).toBeNull()
+    expect(today().find((a) => a.id === 'apt-26')!.booked_price).not.toBeNull()
+    expect(p.cases['apt-09'].proofs).not.toContain(PROOF)
+    expect(p.cases['apt-26'].proofs).toContain(PROOF)
+    // Only THAT row moved — the rest of the price-less case's 根拠 is canon's.
+    expect(p.cases['apt-09'].proofs).toContain('担当の勤務時間内')
+    // …and the 判断 card that points at apt-26 keeps the 根拠 the fixture wrote
+    // for it, because apt-26 is priced.
+    const dec = decisions.find((d) => d.appointment_id === 'apt-26')
+    if (dec) expect(p.cases[dec.id].proofs).toContain(PROOF)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ R8 T2 — ONE STORE'S BOARD NEVER SHOWS ANOTHER STORE'S TERMINAL HOLD
+//
+// `register.terminal_held` rows carry no `store_id`, so the door's `inLens`
+// could not see them and the day clamp alone let 銀座's ¥6,600 stand on 代官山's
+// board. Each row names a BOOKING, and the booking says whose terminal it is —
+// the same reading `register.ts`'s `heldForLens` makes for the レジ room, whose
+// JSDoc named this board as the unclamped second seam.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ R8 T2 — the terminal hold is clamped at the door', () => {
+  const todayKey = () => jstDayKey(new Date())
+
+  it('the scene is real: the one held row names a booking that belongs to ONE store', () => {
+    expect(register.terminal_held.length).toBe(1)
+    const named = today().find((a) => a.id === register.terminal_held[0].appointment_id)!
+    expect(named.store_id).toBe(STORE_A)
+    // A second store exists and does NOT own it — otherwise the pins below
+    // would pass on an empty world.
+    expect(today().some((a) => a.store_id === STORE_B)).toBe(true)
+  })
+
+  it('the door answers per lens: the owning store sees it, the other store does not', async () => {
+    const held = async (lens: data.StoreLens, day = todayKey()) =>
+      (await data.readDayPlanes(lens, day)).register.terminal_held
+    expect((await held(STORE_A)).map((h) => h.appointment_id)).toEqual(['apt-25'])
+    expect(await held(STORE_B)).toEqual([])
+    // viewAll is every store, so it holds everything the fixture holds.
+    expect((await held({ viewAll: true })).map((h) => h.appointment_id)).toEqual(
+      register.terminal_held.map((h) => h.appointment_id),
+    )
+    // The DAY clamp is unchanged and still outranks the store one: a day being
+    // viewed holds nothing, under every lens.
+    for (const lens of [STORE_A, STORE_B, { viewAll: true } as const]) {
+      expect(await held(lens, todayKey() + 1)).toEqual([])
+    }
+    // …and the two money aggregates beside it are NOT store-clamped (no store
+    // dimension exists on them) — this pins that the change stopped where it
+    // was meant to.
+    for (const lens of [STORE_A, STORE_B] as const) {
+      const r = (await data.readDayPlanes(lens, todayKey())).register
+      expect([r.refunds, r.cash_difference]).toEqual([register.refunds, register.cash_difference])
+    }
+  })
+
+  it('the board says it: 端末保持 1件 in the owning store, 0件 and no blocker in the other', async () => {
+    const a = await board(STORE_A)
+    const b = await board(STORE_B)
+    const terminalCheck = (p: TodayProps) => p.dialogs.closing.checks.find(([k]) => k === '決済端末')!
+    expect(terminalCheck(a)[1]).toContain('端末保持 1件')
+    expect(terminalCheck(a)[2]).toBe(true)
+    expect(a.dialogs.blockers.map(([k]) => k)).toContain('決済端末')
+
+    expect(terminalCheck(b)).toEqual(['決済端末', '端末保持 0件', false])
+    expect(b.dialogs.blockers.map(([k]) => k)).not.toContain('決済端末')
+    // The 照合 dialog those rows open has nothing to show either — no row
+    // naming a booking this lens cannot even read.
+    expect(b.dialogs.terminal.rows).toEqual([])
+    // …and the owning store's dialog shows one BLOCK of rows per held row its
+    // own door returned (page.tsx builds the block with `flatMap`), counted off
+    // the door rather than typed here.
+    const heldA = (await data.readDayPlanes(STORE_A, todayKey())).register.terminal_held
+    expect(heldA.map((h) => h.appointment_id)).toEqual(['apt-25'])
+    expect(a.dialogs.terminal.rows.filter(([k]) => k === '端末取引')).toHaveLength(heldA.length)
+  })
+
+  // ⚖ FIX ROUND 1 (blind round 1, L4 F6) — THE SIBLING DOOR ANSWERS THE SAME.
+  // `readReservationPlanes` handed the register out to the 予約一覧 / 受信箱 /
+  // レジ rooms with the list unclamped, so the plane had one answer at one door
+  // and another at the other. Same helper, same reading, both doors.
+  it('the reservations door clamps the same list', async () => {
+    const held = async (lens: data.StoreLens) => (await data.readReservationPlanes(lens)).register.terminal_held
+    expect((await held(STORE_A)).map((h) => h.appointment_id)).toEqual(['apt-25'])
+    expect(await held(STORE_B)).toEqual([])
+    expect((await held({ viewAll: true })).map((h) => h.appointment_id)).toEqual(
+      register.terminal_held.map((h) => h.appointment_id),
+    )
   })
 })

@@ -238,7 +238,13 @@ const dayRows = [
     source: 'MANUAL',
   },
 ]
-const listAppointments = jest.fn(async () => ({ appointments: dayRows }))
+// `total` rides every response: ListAppointmentsResponse declares it and the
+// window read pages against it (PKT-1a). Without it the pager cannot tell a
+// complete window from a truncated one.
+const listAppointments = jest.fn(async (..._opts: unknown[]) => ({
+  appointments: dayRows,
+  total: dayRows.length,
+}))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const fakeClient = {
   stores: {
@@ -251,6 +257,13 @@ const fakeClient = {
     get: jest.fn(async () => ({})),
   },
   staffStores: { get: staffStoresGet },
+  // Per-store opening hours + 臨時休業 (PKT-1a): core answers the platform
+  // DEFAULTS for a store with no row of its own, which is what `source:
+  // 'default'` with a null weekly_hours means here.
+  storePolicies: {
+    get: jest.fn(async () => ({ weekly_hours: null, source: 'default' })),
+    listClosedDays: jest.fn(async () => ({ closed_days: [] })),
+  },
   appointments: { list: listAppointments },
   karuteRecords: { list: jest.fn(async () => ({ karute_records: [] })) },
   staff: {
@@ -303,7 +316,8 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockCapabilities.mockResolvedValue(new Set(['customers.view']))
   staffStoresGet.mockResolvedValue({ store_ids: [] })
-  listAppointments.mockResolvedValue({ appointments: dayRows })
+  listAppointments.mockReset()
+  listAppointments.mockResolvedValue({ appointments: dayRows, total: dayRows.length })
   storeStaffIdSetForBusiness.mockResolvedValue(null)
   getCachedMenuOptionsFor.mockResolvedValue(MENU_ROWS)
   clampOverride.current = null
@@ -500,7 +514,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(dto.reservationStaff.map((s) => s.id)).toEqual(['auth-user-1', 'profile-2'])
 
     // Nothing on the books that day → the lane goes.
-    listAppointments.mockResolvedValue({ appointments: [] })
+    listAppointments.mockResolvedValue({ appointments: [], total: 0 })
     dto = await dtoOf(await GET(req(), route))
     expect(dto.reservationStaff.map((s) => s.id)).toEqual(['auth-user-1'])
     // …while the 担当 filter / booking-picker roster array keeps everyone
@@ -510,6 +524,68 @@ describe('GET /api/app/v1/screens/appointments', () => {
     // client filter itself; this array-completeness assertion is unchanged).
     expect(dto.staff.map((s) => s.id)).toEqual(['auth-user-1', 'profile-2'])
     expect(dto.staff.find((s) => s.id === 'profile-2')?.isManagement).toBe(true)
+  })
+
+  // PKT-1a: the day line's numbers have to reach the PHONE, not just exist in
+  // the builder. A pinned ?date= with rows on that day, so the assertion cannot
+  // flake when the suite runs near JST midnight.
+  it('?view=day carries dayTotals on the wire — counted, cancelled, not truncated', async () => {
+    const onDay = [
+      { ...dayRows[0], starts_at: '2026-09-15T01:00:00.000Z' }, // 10:00 JST
+      { ...dayRows[1], starts_at: '2026-09-15T02:00:00.000Z' }, // 11:00 JST, CANCELLED
+    ]
+    listAppointments.mockResolvedValue({ appointments: onDay, total: onDay.length })
+    const res = await GET(
+      req({}, 'https://s/api/app/v1/screens/appointments?view=day&date=2026-09-15'),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.truncated).toBe(false)
+    expect(dto.dayTotals).not.toBeNull()
+    expect(dto.dayTotals!.dateIso).toBe('2026-09-15')
+    expect(dto.dayTotals!.count).toBe(1) // the CANCELLED row is not a visit
+    expect(dto.dayTotals!.cancelledCount).toBe(1)
+    // No store to ask and no saved org hours → the day claims no capacity.
+    expect(dto.dayTotals!.capacityDefensible).toBe(false)
+    expect(dto.dayTotals!.hoursSaved).toBe(false)
+  })
+
+  it('?view=month carries monthStartIso on the wire', async () => {
+    const res = await GET(
+      req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-15'),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.monthData).not.toBeNull()
+    expect(dto.monthStartIso).toBe(
+      new Date('2026-09-01T00:00:00+09:00').toISOString(),
+    )
+  })
+
+  it('a truncated window reaches the phone as truncated, with NO numbers', async () => {
+    // Core says 4000 rows exist and keeps serving full pages: the cap is hit,
+    // so the screen must say the read failed rather than show a low count.
+    listAppointments.mockImplementation(async (...opts: unknown[]) => {
+      const size = (opts[0] as { page_size?: number } | undefined)?.page_size ?? 500
+      return {
+        appointments: Array.from({ length: size }, (_, i) => ({
+          ...dayRows[0],
+          id: `bulk-${i}`,
+        })),
+        total: 4000,
+      }
+    })
+    const res = await GET(
+      req({}, 'https://s/api/app/v1/screens/appointments?view=week'),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.truncated).toBe(true)
+    expect(dto.weekData).toBeNull()
+    expect(dto.dayTotals).toBeNull()
   })
 
   it('a failed pack-usage read degrades to pill-less rows, not an error', async () => {

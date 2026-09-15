@@ -18,12 +18,21 @@
 
 import { SynqedClient, type RecordingJob } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
-import { runTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
+import { runMeteredTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
 import { runKaruteExtraction } from '@/lib/ai/karute-extract'
 import { runKaruteSummary } from '@/lib/ai/karute-summarize'
 import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
-import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { isOwnAudioKey, parseRecordingKey } from '@/lib/recording/key-grammar'
+import { readStaffDiscard } from '@/lib/recording/staff-discard'
+import { hasRememberedEmptyTranscript } from '@/lib/jobs/empty-transcript-memory'
+import {
+  AI_SPEND_LIMIT,
+  DISCARDED_BY_STAFF,
+  DISCARD_LEDGER_UNREADABLE,
+  TRANSCRIPTION_LEDGER_UNAVAILABLE,
+} from '@/lib/recording/job-errors'
+import { AppApiError } from '@/lib/app-api/errors'
 import { audit } from '@/lib/audit'
 import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
@@ -44,9 +53,9 @@ export interface RecordingJobPayload {
   duration_seconds?: number
   /** Coaching label chosen at stop (packet 22 B4) — written via the SAME
    *  best-effort upsert the interactive save uses (setKaruteOutcomeWithClient),
-   *  but a failure here THROWS (unlike the interactive save's swallow):
-   *  the audio is deleted right after this function returns, so a silently
-   *  lost label has no retry path. Absent = no outcome to write. */
+   *  but a failure here THROWS (unlike the interactive save's swallow): a
+   *  silently lost label has no retry path of its own, and failing the whole
+   *  job is what gets one. Absent = no outcome to write. */
   outcome?: SessionOutcome
 }
 
@@ -55,6 +64,46 @@ function coreClient(businessId: string): SynqedClient {
   const apiKey = process.env.SYNQED_CORE_API_KEY
   if (!baseUrl || !apiKey) throw new Error('SYNQED core env missing')
   return new SynqedClient({ baseUrl, apiKey, businessId })
+}
+
+/** ⚖ A DELIBERATE DISCARD OUTRANKS THE JOB (fix round 6, R1 — Greptile P1 on #851).
+ *  The doors ask the ledger before they queue; nothing asked it again between
+ *  the queue and the write, so a STAFF discard landing in that window still
+ *  produced a karute. The read is the shared one (staff-discard.ts); here a
+ *  'discarded' verdict ends the job with a named reason, 'unreadable' and a
+ *  throw fail it too — "could not check" is never "not discarded" — and
+ *  core's requeue asks again.
+ *  ⚖ THIS REFUSAL IS DETERMINISTIC AND STILL REQUEUED, on purpose: core's
+ *  fail() has no terminal flag (recordingJobs.fail(id, error) is the whole
+ *  verb), so a discarded take is re-asked up to max_attempts times. Each
+ *  retry costs ONE ledger read and nothing else, because check #1 runs before
+ *  any yen is spent — that is the accepted cost, and it is why the early check
+ *  exists (the REVISIT_NOT_ELIGIBLE comment below describes the expensive
+ *  version of this class). A ledger BLIP now also costs an attempt; same class
+ *  as the consent read beside it, and after fix round 6 R2 the row keeps its
+ *  再試行 even inside the grace.
+ *  THIS REFUSAL IS NOT AUDITED: the discard's own recording.discard row is the
+ *  receipt, and the job row carries the last_error. A new audit action is a
+ *  core-shaped decision, not this round's.
+ *  THE DISCARD IS THE ONE FENCE THE WORKER RE-ASKS. Ownership and the store
+ *  reach are settled at enqueue by the twins' own rule (attribution-at-enqueue;
+ *  revocation is covered at the door) — a discard is different because it is a
+ *  human decision that can land AFTER the queue and must still win.
+ *  WHAT THE STAFFER SEES: 録音履歴 folds a discarded session to 破棄済み FIRST
+ *  (inbox.ts:340-347), ahead of any job state; the device pipeline shows the
+ *  terminal 'discarded' card (fix round 6, R7) and offers no retry.
+ *  THE ONE SAVE THIS FENCE DOES NOT REACH: the in-tab pipeline. global-pipeline.ts
+ *  falls back to run() when a pre-enqueue failure meets a session whose only
+ *  job is FAILED (:486-490 — an unfinalized take, a retake), and run() ends at
+ *  saveKaruteRecordInline (actions/karute.ts), which reads no discard ledger.
+ *  Pre-existing, and NARROWED by this fence (the server path now refuses), not
+ *  widened; the honest close is the same ledger read at that chokepoint, which
+ *  would protect the whole web arm too — a product decision (a new refusal on
+ *  the review screen), parked with Liam, not this round's. */
+async function assertNotDiscardedByStaff(synqed: SynqedClient, recordingSessionId: string): Promise<void> {
+  const verdict = await readStaffDiscard(synqed, recordingSessionId)
+  if (verdict === 'unreadable') throw new Error(DISCARD_LEDGER_UNREADABLE)
+  if (verdict === 'discarded') throw new Error(DISCARDED_BY_STAFF)
 }
 
 /** Process one claimed job end-to-end. Throws on failure — the caller reports
@@ -67,25 +116,67 @@ async function processJob(job: RecordingJob): Promise<string> {
   const synqed = coreClient(job.business_id)
 
   // Tenancy gate at the chokepoint EVERY arm routes through — the last line
-  // before a service-role read + delete of the object (no RLS on that client).
+  // before a service-role read of the object (no RLS on that client; PR4 left
+  // this worker no delete at all).
   // A job's audio MUST live under this job's own tenant prefix; anything else
   // — a cross-tenant `app_${other}_*` key OR a non-tenant-scoped `rec_*` key
-  // whose owner can't be verified — is refused before it can be read or
-  // deleted. This is why the ONLY audio the worker will touch is a
+  // whose owner can't be verified — is refused before it can be read.
+  // This is why the ONLY audio the worker will touch is a
   // `app_${businessId}_*` object the upload-url facade minted for THIS tenant;
   // both the facade route and the web action enforce the same shape up front,
   // and this is the invariant that holds even if a future caller forgets to.
   // The re-check runs the SHARED grammar (2026-09-03), not its own prefix twin:
   // same intent, stronger — a prefix alone accepted a separator, a traversal
-  // body or a segment fragment, and this worker only ever means a whole take.
-  if (!isOwnRecordingKey(payload.audio_path, job.business_id)) {
+  // body or a segment fragment.
+  //
+  // ⚖ A WHOLE TAKE, OR THE JOB'S RESCUE OF ONE (ADDENDUM 9.1, Liam
+  // 2026-09-06 "b"). Since the nightly assembler writes beside a take rather
+  // than on it, the audio a save door enqueues for a device that never came
+  // back is a `rsc/` object — same tenant prefix, same closed container set,
+  // same take. Fencing on 'take' alone would mean a rescued recording could
+  // never be transcribed at all. Still NEVER a segment, never a staged copy and
+  // never another tenant's object, and this path is SERVER-DERIVED throughout:
+  // the payload was written by a door that read the row, not by a client naming
+  // a key — which is why isOwnRecordingKey (take-only) stays exactly as it is at
+  // every client-facing surface.
+  if (!isOwnAudioKey(payload.audio_path, job.business_id)) {
     throw new Error('audio_path does not belong to this job’s business')
   }
 
-  // Consent gate FIRST — fail closed before spending a yen on transcription.
+  // Discard check #1 — ahead of consent and before a yen is spent: a requeued
+  // job for a discarded take costs one ledger read.
+  await assertNotDiscardedByStaff(synqed, job.recording_session_id)
+
+  // Consent gate — fail closed before spending a yen on transcription.
   // Same rule as the interactive save: unreadable consent rejects, never bypasses.
+  // The SPEND WALL is the third fence and it lives one level down, inside
+  // runMeteredTranscription: the ceiling is asked at the provider call itself so
+  // all five doors share one place, and a refusal leaves here as AI_SPEND_LIMIT.
   const { consent } = await synqed.customers.getConsent(payload.customer_id)
   if (!isConsentCurrent(consent)) throw new Error(CONSENT_REQUIRED_ERROR)
+
+  // Layer A memory: object-keyed — a re-arm of the SAME audio_path skips the
+  // paid call; no door refuses it (would push the phone to its own in-tab
+  // PAID fallback, global-pipeline.ts:536-537). One page, 50 rows, newest
+  // first (CORE-19 removes that horizon later); a read failure just pays
+  // again. THE FIRST ROUND STILL PAYS its three attempts (written only at
+  // exhaustion) ≈ 99¢/silent take, then zero — do not "fix" round one here.
+  let remembered: Awaited<ReturnType<typeof synqed.audit.list>> | null = null
+  try {
+    remembered = await synqed.audit.list({
+      target_type: 'recording',
+      target_id: job.recording_session_id,
+      category: 'recording',
+      page_size: 50,
+    })
+  } catch (err) {
+    remembered = null
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn('[jobs] empty-transcript memory read failed; transcribing as before:', message)
+  }
+  if (remembered && hasRememberedEmptyTranscript(remembered.events, payload.audio_path)) {
+    throw new Error('EMPTY_TRANSCRIPT')
+  }
 
   // Signed READ url for Deepgram — server-minted from the storage path, same
   // by-construction SSRF posture as the facade transcribe twin.
@@ -109,19 +200,56 @@ async function processJob(job: RecordingJob): Promise<string> {
   const mode = speakerIdMode()
   const reference =
     mode === 'off' ? null : await loadStaffReferenceForStaff(settings, payload.staff_id)
-  const transcription = (await runTranscription({
-    audio: { url: signed.signedUrl },
-    locale,
-    diarize,
-    reference,
-    mode,
-    businessType,
-  })) as {
+  // WHICH DOOR, read off the KEY GRAMMAR and nothing else: a `rsc/` object is
+  // the nightly assembler's rescue of a take, and the only door that can enqueue
+  // one is the save-from-session door (no client may ever name that key). A
+  // take-keyed job is reported as 'job'; the worker has no other witness for the
+  // save-from-session door when the phone's own object is present, and inventing
+  // one would mean a new payload field on three doors.
+  const parsedKey = parseRecordingKey(payload.audio_path, job.business_id)
+  const rescued = parsedKey?.kind === 'rescue'
+  let transcription: {
     transcript?: string
     paragraphs?: never[]
     words?: never[]
     confidence?: number
+    durationSec?: number
     speakerId?: { mode?: string; staffSpeakerIndex?: number; confidence?: number }
+  }
+  try {
+    // `result` is the provider body, unchanged; the meter's own receipt (the
+    // billed length, the cents, and whether the debit landed) is filed by the
+    // wrapper for this door, so the worker takes only the half it uses.
+    const metered = (await runMeteredTranscription(
+      {
+        synqed,
+        businessId: job.business_id,
+        door: rescued ? 'from_session' : 'job',
+        recordingSessionId: job.recording_session_id,
+        customerId: payload.customer_id,
+        staffId: payload.staff_id,
+        takeId: parsedKey && 'takeId' in parsedKey ? parsedKey.takeId : null,
+        attempt: job.attempts,
+        rescued,
+        requestId: job.id,
+      },
+      {
+        audio: { url: signed.signedUrl },
+        locale,
+        diarize,
+        reference,
+        mode,
+        businessType,
+      },
+    )) as { result: typeof transcription }
+    transcription = metered.result
+  } catch (err) {
+    // The ceiling's own word, so `last_error` carries a reason both surfaces can
+    // read. Everything else keeps its own message.
+    if (err instanceof AppApiError && err.code === 'rate_limited') {
+      throw new Error(AI_SPEND_LIMIT)
+    }
+    throw err
   }
   const flat = transcription.transcript ?? ''
   if (!flat.trim()) throw new Error('EMPTY_TRANSCRIPT')
@@ -154,20 +282,24 @@ async function processJob(job: RecordingJob): Promise<string> {
     runKaruteSummary(common),
   ])
 
+  // Discard check #2 — the LAST read before the write; a discard that landed
+  // during transcription ends here, with no karute.
+  await assertNotDiscardedByStaff(synqed, job.recording_session_id)
+
   // 4. ONE short write — the same idempotent by-recording-session upsert the
   // interactive path uses (core #38): a reclaimed/retried job converges on the
   // same record instead of duplicating it.
-  const record = await upsertKaruteRecord(synqed, job, payload, {
+  const { id: record, storeId: persistedStoreId } = await upsertKaruteRecord(synqed, job, payload, {
     transcript,
     summary: summary.result.summary,
     entries: extraction.result.entries,
   })
 
   // Coaching label (packet 22 B4) — same idempotent upsert the interactive
-  // save uses. UNLIKE that call site, a write failure here THROWS: the audio
-  // is deleted right after this function returns, so there is no later
-  // opportunity to retry just the outcome — failing the whole job lets core's
-  // requeue converge on the SAME record (the upsert above is idempotent too).
+  // save uses. UNLIKE that call site, a write failure here THROWS: there is no
+  // later opportunity to retry just the outcome — failing the whole job lets
+  // core's requeue converge on the SAME record (the upsert above is idempotent
+  // too, and PR4 leaves the audio in place for that re-run).
   if (payload.outcome) {
     const outcomeResult = await setKaruteOutcomeWithClient(synqed, {
       karuteRecordId: record,
@@ -211,11 +343,19 @@ async function processJob(job: RecordingJob): Promise<string> {
     businessId: job.business_id,
     targetType: 'karute',
     targetId: record,
+    // The PERSISTED store (fix round 3, mirrors karute.ts fix round 2): the
+    // converge branch below keeps the existing record's ORIGINAL store_id
+    // rather than payload.store_id, so the audit row must name that store
+    // too — else it can name a store the record isn't in.
+    storeId: persistedStoreId ?? undefined,
     detail: {
       via: 'job_pipeline',
       recording_session_id: job.recording_session_id,
       customer_id: payload.customer_id,
       staff_id: payload.staff_id,
+      // PR B2 §3: the thread page's join key — the payload carries it
+      // straight from the enqueue door.
+      appointment_id: payload.appointment_id ?? null,
     },
     // PR-M5 piece ④: job/system paths use the job id as requestId (no HTTP
     // request scope exists here — the job id is the correlating identifier).
@@ -223,12 +363,10 @@ async function processJob(job: RecordingJob): Promise<string> {
     source: 'system',
   })
 
-  // 5. Audio lifecycle: job complete → delete, exactly like the interactive
-  // flow. Best-effort — a leftover object is only REPORTED by the daily sweep
-  // (audio is never deleted, 2026-09-03); the retention round removes this
-  // delete entirely.
-  await supabase.storage.from('recordings').remove([payload.audio_path]).catch(() => {})
-
+  // 5. ⚖ THE AUDIO STAYS (capture pipeline PR4). A completed job used to delete
+  // the object it had just transcribed. `audio_path` is the take's FINALIZED
+  // key now — the recording itself, the evidence behind the karute this job
+  // just wrote — so nothing here removes it, and the daily sweep only reports.
   return record
 }
 
@@ -246,7 +384,7 @@ async function upsertKaruteRecord(
   job: RecordingJob,
   payload: RecordingJobPayload,
   result: { transcript: string; summary: string; entries: ExtractedEntry[] },
-): Promise<string> {
+): Promise<{ id: string; storeId: string | null }> {
   const entries = result.entries.map((e) => ({
     category: e.category.toUpperCase() as
       | 'SYMPTOM' | 'TREATMENT' | 'BODY_AREA' | 'PREFERENCE'
@@ -306,7 +444,10 @@ async function upsertKaruteRecord(
       entries: [...entries, ...carriedHumanEntries],
       appointment_id: payload.appointment_id ?? null,
     })
-    return existing.id
+    // CEILING (mirrors actions/karute.ts fix round 2): store_id does NOT move
+    // with this update, so the persisted store is still the EXISTING record's
+    // — already in hand from the lookup, no second read.
+    return { id: existing.id, storeId: existing.store_id }
   }
   // 施術メニュー from the linked booking — best-effort: a missing/deleted
   // booking just leaves service null and the カルテ list shows its honest '—'.
@@ -326,7 +467,70 @@ async function upsertKaruteRecord(
     duration_minutes: durationMinutesFromSeconds(payload.duration_seconds),
     entries,
   })
-  return record.id
+  return { id: record.id, storeId: record.store_id ?? payload.store_id ?? null }
+}
+
+/** 監査ログ round 2 PR C, subject 6 (PACKET-AUDITLOG-PR-C-SERVER-WATCH-
+ *  2026-09-11.md item 6), fix round 1 (PACKET-PR-C3-FIX-ROUND1-2026-09-11.md
+ *  subject 1): recording.transcribe_failed, once per round CORE ITSELF
+ *  declares exhausted — never a local guess computed from the job object the
+ *  worker was handed at claim time.
+ *
+ *  ATTEMPTS SEMANTICS, PINNED AT SOURCE (core's own service —
+ *  Synqed-kk/synqed-core src/services/recording-job.service.ts, fetched
+ *  2026-09-11): claimNext increments `attempts` ON CLAIM (:102); fail() sets
+ *  `status = spent ? 'FAILED' : 'QUEUED'` where `spent = job.attempts >=
+ *  job.maxAttempts` (:130-138) and RETURNS the updated job. So core's fail()
+ *  response IS the exhaustion verdict — the caller below only reaches this
+ *  function once it has already confirmed that response's `status ===
+ *  'FAILED'`; this function no longer recomputes attempts itself.
+ *
+ *  Never on a discard refusal (its own recording.discard row IS the record —
+ *  council amendment 4 F3), never on a spend-limit refusal, and never on a
+ *  spend-ledger-unavailable refusal (both already filed the row —
+ *  recording.transcribe_refused via
+ *  src/lib/ai/transcribe.ts#auditTranscriptionRefused; emitting here too
+ *  would double-log the same event under two actions, Greptile PR #881).
+ *
+ *  KNOWN GAP, ACCEPTED AS DESIGNED (Q2, fix round 1 subject 3): core re-arms
+ *  a FAILED job with `attempts = 0` on its next enqueue (job-errors.ts's
+ *  AI_SPEND_LIMIT comment), so a second exhaustion of the same job id writes
+ *  a second row under the same requestId — a genuinely new failure round,
+ *  not a duplicate of this one. The reader folds rows sharing (action,
+ *  target, request_id) in PR D, and core's Idempotency-Key (CORE-19) will
+ *  make it one row at the source later; neither exists yet.
+ *
+ *  Layer A (PACKET-MIC-SILENCE-LAYER-A-2026-09-11.md subject 1): the row now
+ *  also carries `audio_path` — that field is this row's memory key, keyed on
+ *  the OBJECT and never the session, because a retake mints a new object and
+ *  must still pay for its own transcription. */
+function emitTranscribeFailedIfExhausted(job: RecordingJob, message: string): void {
+  if (message === DISCARDED_BY_STAFF || message === AI_SPEND_LIMIT) return
+  if (message === DISCARD_LEDGER_UNREADABLE) return
+  if (message === TRANSCRIPTION_LEDGER_UNAVAILABLE) return
+  const payload = job.payload as unknown as RecordingJobPayload | undefined
+  audit({
+    category: 'recording',
+    action: 'recording.transcribe_failed',
+    actorId: null,
+    actorType: 'system',
+    businessId: job.business_id,
+    targetType: 'recording',
+    targetId: job.recording_session_id,
+    severity: 'notice',
+    detail: {
+      recording_session_id: job.recording_session_id,
+      customer_id: payload?.customer_id ?? null,
+      staff_id: payload?.staff_id ?? null,
+      appointment_id: payload?.appointment_id ?? null,
+      audio_path: payload?.audio_path ?? null,
+      attempt: job.attempts,
+      max_attempts: job.max_attempts,
+      reason: message === 'EMPTY_TRANSCRIPT' ? 'empty_transcript' : 'other',
+    },
+    requestId: `job:${job.id}:failed`,
+    source: 'system',
+  })
 }
 
 /** Claim-and-process loop with a wall-clock budget (the route's maxDuration
@@ -351,9 +555,19 @@ export async function processRecordingJobs(budgetMs: number): Promise<{
       processed++
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      await worker.recordingJobs.fail(job.id, message).catch(() => {})
+      // Core's own verdict decides, not a local guess (fix round 1, subject
+      // 1): a rejected fail() call leaves the job RUNNING for the
+      // stale-claim reclaim to pick up — that later round decides, so no
+      // row here.
+      const failResult = await worker.recordingJobs.fail(job.id, message).then(
+        (r) => r,
+        () => null,
+      )
       failed++
       console.error(`[jobs] recording job ${job.id} failed:`, message)
+      if (failResult !== null && failResult.status === 'FAILED') {
+        emitTranscribeFailedIfExhausted(failResult, message)
+      }
     }
   }
   return { processed, failed }

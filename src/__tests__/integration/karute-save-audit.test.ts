@@ -73,6 +73,10 @@ beforeEach(() => {
   karuteRecords.getByRecordingSession.mockRejectedValue(
     Object.assign(new Error('nf'), { status: 404 }),
   )
+  // PR B2 §3's appointmentId test is the first in this file to exercise the
+  // appointment fetch (resolveKaruteStoreId) — a resolved default so it
+  // doesn't need every OTHER test in this file to know about it too.
+  appointments.get.mockResolvedValue({ staff_id: 'staff-1', store_id: null, title: null })
   customers.getConsent.mockResolvedValue({
     consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION, granted_at: '2026-07-01T00:00:00Z' },
   })
@@ -99,6 +103,27 @@ describe('karute.save — web saveKaruteRecord emits exactly once', () => {
         }),
       }),
     )
+  })
+
+  // PR B2 §3: recording_session_id + appointment_id let the per-recording
+  // thread page (PR D) join a karute back to its recording/appointment.
+  it('detail carries recording_session_id + appointment_id when the save has them', async () => {
+    await saveKaruteRecord({ ...baseInput, recordingSessionId: 'rs-fresh', appointmentId: 'appt-1' })
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.objectContaining({
+          recording_session_id: 'rs-fresh',
+          appointment_id: 'appt-1',
+        }),
+      }),
+    )
+  })
+
+  it('detail carries null (never undefined) when the save has neither', async () => {
+    await saveKaruteRecord({ ...baseInput })
+    const [call] = audit.mock.calls[0] as [{ detail: Record<string, unknown> }]
+    expect(call.detail).toHaveProperty('recording_session_id', null)
+    expect(call.detail).toHaveProperty('appointment_id', null)
   })
 })
 
@@ -133,6 +158,25 @@ describe('karute.save — update/retry path (recording session already saved)', 
       }),
     )
   })
+
+  // Fix round 2 (Greptile P1): the update keeps the EXISTING record's
+  // store_id (CEILING F-7 in createOrUpdateKaruteRecord) — a payload store
+  // that differs (staff switched active store between the partial save and
+  // this retry) must not appear in the audit row for the persisted record.
+  it('emits the EXISTING record store_id, not payload.store_id, when they differ', async () => {
+    appointments.get.mockResolvedValue({ staff_id: 'staff-1', store_id: 'store-B', title: null })
+    karuteRecords.getByRecordingSession.mockResolvedValueOnce({
+      id: 'kar-x',
+      transcript: 'old',
+      store_id: 'store-A',
+    } as never)
+    await saveKaruteRecord({
+      ...baseInput,
+      recordingSessionId: 'rs-1',
+      appointmentId: 'appt-1',
+    })
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ storeId: 'store-A' }))
+  })
 })
 
 describe('karute.save — a FAILED write emits nothing (pins emit-after-write)', () => {
@@ -149,6 +193,14 @@ describe('karute.save — a FAILED write emits nothing (pins emit-after-write)',
     const res = await saveKaruteRecord({ ...baseInput, recordingSessionId: 'rs-1' })
     expect(res).toHaveProperty('error')
     expect(audit).not.toHaveBeenCalled()
+  })
+})
+
+describe('karute.save — fresh create emits the payload store', () => {
+  it('emits payload.store_id when there is no existing record to converge on', async () => {
+    appointments.get.mockResolvedValue({ staff_id: 'staff-1', store_id: 'store-B', title: null })
+    await saveKaruteRecord({ ...baseInput, appointmentId: 'appt-1' })
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ storeId: 'store-B' }))
   })
 })
 

@@ -195,7 +195,8 @@ interface SettingsShellProps {
   canViewAllStores: boolean
   canManageStaff: boolean
   canInviteStaff: boolean
-  /** owner OR explicit audit.view grant — gates the 監査ログ tab. */
+  /** audit.view AND stores.viewAll (PR B2 §4, canReadAuditLog) — gates the
+   *  監査ログ tab; the SAME predicate the read boundary enforces. */
   canViewAudit: boolean
   /** owner OR explicit sync.view grant — gates the 予約同期 tab (PR-M2 fix
    *  round). Same idiom as canViewAudit. */

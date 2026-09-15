@@ -16,10 +16,19 @@ export interface KaruteListRow {
   customer_id: string | null
   client_id: string
   entries: Array<{ count: number }>
+  /** Core workflow state. DISCARDED rows are retained for the Karute ledger
+   *  but must never expose a detail action. */
+  status: string
   /** Session metadata persisted on synqed-core karute_records
    *  (2026-06-11). Optional: Supabase-side rows predate the columns. */
   service?: string | null
   duration_minutes?: number | null
+  /** D10 (PR-C, self-lighting): the row's recording session's `shared_at`,
+   *  read through core #83's columns once the karute list endpoint ships
+   *  them (§CORE ORDER, DESIGN-SHARE-2026-09-14.md). Absent/null on every
+   *  row until then — never defaulted, so downstream isShared derivation
+   *  (screen-rows.ts) stays honestly false. */
+  shared_at?: string | null
 }
 
 /**
@@ -75,6 +84,7 @@ export async function listSynqedKaruteRowsOrThrow(
       session_date?: string | null
       service?: string | null
       duration_minutes?: number | null
+      shared_at?: string | null
     }
     return {
       id: r.id,
@@ -86,8 +96,10 @@ export async function listSynqedKaruteRowsOrThrow(
       customer_id: r.business_id ?? null,
       client_id: r.customer_id ?? '',
       entries: [{ count: r.entry_count ?? r.entries?.length ?? 0 }],
+      status: r.status,
       service: extra.service ?? null,
       duration_minutes: extra.duration_minutes ?? null,
+      shared_at: extra.shared_at ?? null,
     }
   })
 }
@@ -99,7 +111,95 @@ export async function listSynqedKaruteRowsOrThrow(
  *  comment below). */
 export interface KaruteRowsWithTotal {
   rows: KaruteListRow[]
+  /** Matching non-discarded rows. */
   total: number
+  /** Matching discarded rows, kept separate from the ordinary total. */
+  discardedCount: number
+  /** D10 (PR-C, self-lighting): store-wide count of non-discarded rows whose
+   *  session is shared, computed IGNORING `sharedOnly` (§CORE ORDER 2b) —
+   *  `undefined` until core ships `shared_count`, NEVER defaulted to 0 (the
+   *  feature-detection law: absent ⇒ the pill does not exist). */
+  sharedCount?: number
+}
+
+type MixedKaruteResponse = {
+  karute_records?: Array<{
+    id: string
+    business_id: string
+    customer_id: string | null
+    staff_id: string
+    status: string
+    ai_summary: string | null
+    edited_summary?: string | null
+    transcript: string | null
+    created_at: string
+    entry_count?: number
+    entries?: Array<unknown>
+    session_date?: string | null
+    service?: string | null
+    duration_minutes?: number | null
+    shared_at?: string | null
+  }>
+  total?: number
+  discarded_count?: number
+  shared_count?: number
+}
+
+/** SDK 1.34 predates include_discarded/shared_only and silently drops unknown
+ *  options. Use its public authenticated transport until 1.35 can be
+ *  published. This is now the shared fetch/mixed path for BOTH knobs — a
+ *  caller wanting either one alone, or both together, routes through here
+ *  (the plain SDK `list()` supports neither).
+ *
+ *  R4 repair (2026-09-13, F4b): a client with no fetch() used to fall back to
+ *  the plain (non-mixed) SDK list call and report `discardedCount: 0` as if
+ *  that were a real, backed answer — indistinguishable on screen from a store
+ *  that genuinely has zero discarded records. THROW instead: every production
+ *  SynqedClient (getSynqedClient / newSynqedClient) carries fetch() — grepped
+ *  every call site that casts `as unknown as SynqedClient`
+ *  (api/app/v1/karute/route.ts, .../manual/route.ts) and both are WRITE paths
+ *  (createOrUpdateKaruteRecord / createManualKaruteRecordWithClient), never
+ *  this read — so no real caller can hit this branch; only a future
+ *  fetch-less adapter would, and it must fail loudly rather than silently
+ *  under-report discards.
+ *
+ *  F2 fix (PR-C fix round 1): `include_discarded` rides the wire ONLY when
+ *  `opts.includeDiscarded` is true — it used to go unconditionally, which
+ *  would have pulled DISCARDED rows into a sharedOnly-alone read (shared
+ *  mode never asks for that; the default walk always sets includeDiscarded
+ *  itself). Verified at core source (synqed-core origin/main):
+ *  validations/karute.ts:104-115 (`include_discarded` is `.optional()`, no
+ *  default) and services/karute.service.ts:172-178,188-189
+ *  (`rowsWhere = options.include_discarded ? requestedWhere : nonDiscardedWhere`,
+ *  and `total` is ALWAYS the `nonDiscardedWhere` count regardless of the
+ *  flag) — an ABSENT `include_discarded` is falsy on the server exactly like
+ *  an explicit `false`, so leaving it off the wire here is byte-identical to
+ *  the plain SDK `list()`'s own behaviour: non-discarded rows only, `total`
+ *  = the non-discarded count. */
+async function listMixedKaruteRecords(
+  synqed: SynqedClient,
+  opts: NonNullable<Parameters<typeof listSynqedKaruteRowsWithTotalOrThrow>[1]>,
+): Promise<MixedKaruteResponse> {
+  if (typeof synqed.fetch !== 'function') {
+    throw new Error(
+      '[listMixedKaruteRecords] client has no fetch() — cannot honor includeDiscarded; refusing to report a fabricated discardedCount:0',
+    )
+  }
+  const params = new URLSearchParams()
+  // F2 fix (PR-C fix round 1): conditional, not unconditional — see the
+  // docblock above for the core-source proof that absent = the SDK's own
+  // non-discarded-only behaviour.
+  if (opts.includeDiscarded) params.set('include_discarded', 'true')
+  if (opts.customerId) params.set('customer_id', opts.customerId)
+  if (opts.storeId) params.set('store_id', opts.storeId)
+  if (opts.from) params.set('from', opts.from)
+  if (opts.to) params.set('to', opts.to)
+  if (opts.page) params.set('page', String(opts.page))
+  params.set('page_size', String(opts.page_size ?? 200))
+  // D10 (PR-C, self-lighting): today's core zod STRIPS this unknown key
+  // (§CORE ORDER) — sent unconditionally when asked, harmless until it ships.
+  if (opts.sharedOnly) params.set('shared_only', 'true')
+  return synqed.fetch<MixedKaruteResponse>(`/karute-records?${params}`)
 }
 
 /**
@@ -128,21 +228,31 @@ export async function listSynqedKaruteRowsWithTotalOrThrow(
      *  page 1 implicitly, exactly as before. */
     page?: number
     page_size?: number
+    /** Karute ledger only: retain DISCARDED rows in the returned page. */
+    includeDiscarded?: boolean
+    /** D10 (PR-C, self-lighting): scope every row IN this read to
+     *  `shared_at != null` (§CORE ORDER). Routes through the mixed/fetch path
+     *  regardless of `includeDiscarded` — the plain SDK `list()` has no such
+     *  param. */
+    sharedOnly?: boolean
   },
 ): Promise<KaruteRowsWithTotal> {
-  const res = await synqed.karuteRecords.list({
-    ...(opts?.customerId ? { customer_id: opts.customerId } : {}),
-    ...(opts?.storeId ? { store_id: opts.storeId } : {}),
-    ...(opts?.from ? { from: opts.from } : {}),
-    ...(opts?.to ? { to: opts.to } : {}),
-    ...(opts?.page ? { page: opts.page } : {}),
-    page_size: opts?.page_size ?? 200,
-  })
+  const res: MixedKaruteResponse = opts?.includeDiscarded || opts?.sharedOnly
+    ? await listMixedKaruteRecords(synqed, opts)
+    : await synqed.karuteRecords.list({
+        ...(opts?.customerId ? { customer_id: opts.customerId } : {}),
+        ...(opts?.storeId ? { store_id: opts.storeId } : {}),
+        ...(opts?.from ? { from: opts.from } : {}),
+        ...(opts?.to ? { to: opts.to } : {}),
+        ...(opts?.page ? { page: opts.page } : {}),
+        page_size: opts?.page_size ?? 200,
+      })
   const rows = (res.karute_records ?? []).map((r) => {
     const extra = r as unknown as {
       session_date?: string | null
       service?: string | null
       duration_minutes?: number | null
+      shared_at?: string | null
     }
     return {
       id: r.id,
@@ -154,11 +264,20 @@ export async function listSynqedKaruteRowsWithTotalOrThrow(
       customer_id: r.business_id ?? null,
       client_id: r.customer_id ?? '',
       entries: [{ count: r.entry_count ?? r.entries?.length ?? 0 }],
+      status: r.status,
       service: extra.service ?? null,
       duration_minutes: extra.duration_minutes ?? null,
+      shared_at: extra.shared_at ?? null,
     }
   })
-  return { rows, total: res.total ?? 0 }
+  return {
+    rows,
+    total: res.total ?? 0,
+    discardedCount: res.discarded_count ?? 0,
+    // Feature detection (D10): NEVER `?? 0` — undefined must stay undefined
+    // all the way to the pill's existence check.
+    sharedCount: res.shared_count,
+  }
 }
 
 /** Graceful sibling of {@link listSynqedKaruteRowsWithTotalOrThrow} — degrades
@@ -173,7 +292,7 @@ export async function listSynqedKaruteRowsWithTotal(
     return await listSynqedKaruteRowsWithTotalOrThrow(synqed, opts)
   } catch (err) {
     console.error('[listSynqedKaruteRowsWithTotal] synqed-core fetch failed:', err)
-    return { rows: [], total: 0 }
+    return { rows: [], total: 0, discardedCount: 0 }
   }
 }
 

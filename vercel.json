@@ -18,6 +18,14 @@
     {
       "path": "/api/packs/auto-burn",
       "schedule": "0 0-14 * * *"
+    },
+    {
+      "path": "/api/assemble",
+      "schedule": "7 18 * * *"
+    },
+    {
+      "path": "/api/audit-watch",
+      "schedule": "23 * * * *"
     }
   ]
 }

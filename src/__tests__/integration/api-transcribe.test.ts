@@ -1,10 +1,25 @@
 import { testApiHandler } from 'next-test-api-route-handler'
 import * as appHandler from '@/app/api/ai/transcribe/route'
 
-// Rate limiter is exercised in its own test — keep the transcribe tests
-// focused on Deepgram wiring.
-jest.mock('@/lib/ai-rate-limit', () => ({
-  enforceAiRateLimit: jest.fn(async () => null),
+// The AI ceiling is exercised in its own test (transcription-spend-wall) —
+// keep the transcribe tests focused on Deepgram wiring. The route no longer
+// asks the ledger itself (the meter does, inside runMeteredTranscription), so
+// the boundary to stub is the CLIENT, not the rate-limit module: the real
+// module runs against this fake and answers "allowed" every time.
+const consume = jest.fn(async () => ({
+  allowed: true,
+  reason: 'ok',
+  cap: 100,
+  used: 1,
+  remaining: 99,
+  costCap: 3000,
+  costUsed: 0,
+  resetAt: '2026-09-09T00:00:00.000Z',
+}))
+const recordUsage = jest.fn(async () => {})
+jest.mock('@/lib/synqed/client', () => ({
+  getSynqedClient: async () => ({ aiRateLimit: { consume, recordUsage } }),
+  newSynqedClient: () => ({ aiRateLimit: { consume, recordUsage } }),
 }))
 
 // Mutable auth scenario for the fail-fast guard test below (declared before
@@ -52,6 +67,7 @@ jest.mock('@/actions/org-settings', () => ({
 // Stubbing the staff-id boundary closes that off at its source.
 jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => null),
+  getBusinessId: jest.fn(async () => 'biz-1'),
 }))
 
 // Deepgram is reached via global fetch in lib/deepgram.ts. Stub fetch so the
@@ -307,7 +323,15 @@ describe('POST /api/ai/transcribe', () => {
   })
 
   it('passes a Supabase signed URL straight through to Deepgram', async () => {
-    fetchMock.mockResolvedValue(deepgramResponse('hello world'))
+    // Two outbound calls since the spend wall's fix round 4: a HEAD that reads
+    // the object's SIZE for the ledger reserve, then Deepgram. The HEAD returns
+    // headers only — the point of this test, that the audio itself is never
+    // pulled through the serverless function, is unchanged.
+    fetchMock.mockImplementation(async (_url: unknown, init?: RequestInit) =>
+      init?.method === 'HEAD'
+        ? new Response(null, { headers: { 'content-length': '3000000' } })
+        : deepgramResponse('hello world'),
+    )
 
     const audioUrl = 'https://test-dummy.supabase.co/storage/v1/object/sign/audio.webm?token=abc'
 
@@ -324,10 +348,13 @@ describe('POST /api/ai/transcribe', () => {
         const body = await response.json()
         expect(body.transcript).toBe('hello world')
 
-        // Only ONE outbound fetch — Deepgram fetches the audio itself.
-        // The serverless function should NOT download the file first.
-        expect(fetchMock).toHaveBeenCalledTimes(1)
-        const [url, init] = fetchMock.mock.calls[0]
+        // Exactly two: the reserve's HEAD, then Deepgram — which fetches the
+        // audio itself. The serverless function still never DOWNLOADS the file.
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+        const [headUrl, headInit] = fetchMock.mock.calls[0]
+        expect(String(headUrl)).toBe(audioUrl)
+        expect((headInit as RequestInit).method).toBe('HEAD')
+        const [url, init] = fetchMock.mock.calls[1]
         expect(String(url)).toMatch(/api\.deepgram\.com\/v1\/listen/)
         expect((init as RequestInit).headers).toMatchObject({
           'Content-Type': 'application/json',

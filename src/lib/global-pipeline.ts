@@ -9,8 +9,9 @@ import {
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
-import { deleteTake } from '@/lib/karute/take-store'
+import { ensureFinalizedPath, readTakeSecureMeta, settleTakeAfterSave } from '@/lib/karute/take-store'
 import { CONSENT_REQUIRED_ERROR } from '@/lib/consent'
+import { DISCARDED_BY_STAFF } from '@/lib/recording/job-errors'
 import type { RecordingJobStatusView } from '@/actions/recording-jobs'
 
 /**
@@ -35,7 +36,8 @@ import type { RecordingJobStatusView } from '@/actions/recording-jobs'
  *
  * SERVER PATH (packet 22 Stage 1): the autosave cohort — a known customer +
  * outcome AND a minted recording_sessions id — runs on Anthony's server
- * worker instead (runServerJob): stage the blob, enqueue a core job, poll.
+ * worker instead (runServerJob): enqueue a core job against the take's own
+ * finalized object (PR4 — the audio is already on the server), then poll.
  * That job survives a dead tab (core owns it, not this in-memory singleton),
  * closing the exact gap the note above describes for that cohort. Walk-ins,
  * review takes, and take-recovery accepts still run the original run() below
@@ -97,6 +99,17 @@ export interface PipelineContext {
    *  (ReviewScreen callbacks, ProcessingIndicator autosave) delete it via this
    *  id. null/absent when persistence was disabled for the take. */
   takeId?: string | null
+  /**
+   * UPDATE 25 GROUP A, piece d2 — set when this run's session id was STILL
+   * null after both mints (start-mint, then `retryRecordingSessionMint`) had
+   * their say. The karute still saves — this never widens what a save can do
+   * — but it saves UNLINKED, and the audio never reaches the server: the
+   * device is the only copy. CLIENT-SIDE ONLY, the `autoFinish`/
+   * `recoveryUnanswered` idiom above — `isServerJobEligible` already makes a
+   * null-session run unreachable by the server path (F7), so this can never
+   * reach the job payload by construction; never read it as a payload field.
+   */
+  serverRowMissing?: boolean
 }
 
 export type PipelineState =
@@ -117,7 +130,18 @@ export type PipelineState =
  *  Stage 1 surfaces the error card instead; the take is KEPT and recoverable
  *  via the record-page banner (which runs the in-tab review/consent flow).
  *  Wiring a grant-consent affordance onto the server path is Stage 2. */
-export type PipelineErrorCode = 'empty-transcript' | 'consent-required' | 'unknown'
+export type PipelineErrorCode =
+  | 'empty-transcript'
+  | 'consent-required'
+  /** ⚖ A STAFF MEMBER THREW THIS RECORDING AWAY (fix round 6, R7). The worker
+   *  re-asks the discard ledger before it writes, so a session a colleague
+   *  discarded after this save was queued now fails DISCARDED_BY_STAFF. That
+   *  is TERMINAL — the card offers no retry, because core's enqueue re-arms
+   *  the same job and the worker refuses it identically, for ever, while the
+   *  録音履歴 row beside it already reads 破棄済み. A staffer must never be
+   *  handed a button that cannot work. */
+  | 'discarded'
+  | 'unknown'
 
 type Listener = () => void
 
@@ -165,6 +189,18 @@ class GlobalPipeline {
   result: PipelineResult | null = null
   error: PipelineErrorCode | null = null
   context: PipelineContext | null = null
+  /** UPDATE 25 GROUP A, piece c — the PREVIOUS run's failure code, captured by
+   *  `retry()` before it nulls `error` for the new attempt. `error` itself
+   *  cannot answer "did this retry fail the SAME way" (retry clears it
+   *  synchronously before the new attempt resolves), so this is its own field.
+   *  Cleared by start()/reset() with the rest of the run. */
+  lastErrorCode: PipelineErrorCode | null = null
+  /** UPDATE 25 GROUP A, piece c — true when the failure that just landed has
+   *  the SAME code as the one `lastErrorCode` remembers. Read once by the
+   *  error card to show one honest line ("retrying gave the same result")
+   *  above its buttons; 再試行 is NEVER removed on it — a wrong detector must
+   *  never lock a real take out (B2's own rule). */
+  errorRepeated = false
   /** Bumped on every change so useSyncExternalStore re-renders subscribers. */
   version = 0
   /**
@@ -299,6 +335,8 @@ class GlobalPipeline {
     this.step = 'transcribing'
     this.result = null
     this.error = null
+    this.lastErrorCode = null
+    this.errorRepeated = false
     this.serverSavedRecordId = null
     this.savedRecordId = null
     this.autosaveSettled = false
@@ -311,6 +349,33 @@ class GlobalPipeline {
     } else {
       void this.run()
     }
+  }
+
+  /** The object this take's audio lives at — the key secureTake PUT the whole
+   *  take to at stop (capture pipeline PR4). null when the take was never
+   *  secured, or when there is no take row at all (persistence off): the
+   *  port's own staging leg covers that one, and PR5's drain shrinks it. */
+  private async finalizedAudioPath(): Promise<string | null> {
+    const takeId = this.context?.takeId
+    if (!takeId) return null
+    // …AFTER THE STOP HAS HAD ITS SAY (fix round 2 of PR4). This runs at the
+    // stop instant, while that take's own PUT is still in flight, so reading
+    // the row now answers null on an ordinary recording and sends the whole
+    // take down the not-finalized-yet arm. Free when there is no stop leg to
+    // wait for, bounded when there is.
+    //
+    // Lazy for the same reason enqueueJob's action import below is: the
+    // recorder's own import graph reaches @/actions/recordings → next/cache,
+    // and a static import here would drag that into every module that merely
+    // loads this one — the recordings inbox included.
+    await (await import('@/lib/global-recorder')).globalRecorder.awaitTakeSecured(takeId)
+    // ⚖ …AND SLICE THREE'S TAKES HAVE A KEY TOO (fix round 7): that deploy
+    // stamped `finalizedAt` alone, so such a take answered null here and the
+    // whole enqueue fell to the in-tab arm. The key is deterministic, so it is
+    // recomposed once through the port and remembered (null on the phone,
+    // whose cohort is empty by construction — unchanged behaviour there).
+    const meta = await readTakeSecureMeta(takeId)
+    return meta ? ensureFinalizedPath(takeId, meta, getRecordingPipelinePort()) : null
   }
 
   private async run() {
@@ -333,6 +398,7 @@ class GlobalPipeline {
       const sessionDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
       const result = await runAIPipeline(
         this.blob,
+        this.context.takeId ?? null,
         this.context.locale,
         (step) => {
           if (runId !== this.runId) return
@@ -364,13 +430,16 @@ class GlobalPipeline {
       // Raw text is for the console only — the UI localizes from the code.
       console.error('[global-pipeline] run failed:', err)
       this.error = err instanceof EmptyTranscriptError ? 'empty-transcript' : 'unknown'
+      // c: same code as the retry's own memory → this attempt failed IDENTICALLY.
+      this.errorRepeated = this.lastErrorCode !== null && this.lastErrorCode === this.error
       this.state = 'error'
       this.notify()
     }
   }
 
   /** Server-path run (packet 22 B3, Stage-1 eligible cohort only): stage the
-   *  blob, enqueue a core job, then poll. NO fallback once enqueue succeeds —
+   *  take's finalized object, enqueue a core job, then poll. NO fallback once
+ *  enqueue succeeds —
    *  the job now owns the save, so falling back here would double-process
    *  (double AI spend, a possible duplicate record). The chip stays on
    *  'processing'/'transcribing' the whole time (no server-side sub-steps to
@@ -382,13 +451,25 @@ class GlobalPipeline {
     // stays armed across staging/enqueue/ambiguity — pollServerJob flips it.
     this.serverOwned = false
     const runId = ++this.runId
-    const blob = this.blob
     const context = this.context
     const port = getRecordingPipelinePort()
     let sessionId: string
     let enqueueDispatched = false
     try {
-      const { path } = await port.stageForJob(blob)
+      // ⚖ THE JOB READS THE FINALIZED OBJECT (capture pipeline PR4). The whole
+      // take went to this key at STOP — there is no second staging upload here
+      // any more, and nothing on the worker's side deletes what it reads.
+      const path = await this.finalizedAudioPath()
+      if (runId !== this.runId) return
+      // Not secured yet: an offline stop, or a take the store never held. There
+      // is no object to enqueue a job against, so this THROWS into the very
+      // branch the staging failure it replaces used to land in — it must NOT
+      // short-circuit to the in-tab arm, because a PRIOR run may already own a
+      // live job for this session and the invariant below is what proves it
+      // does not. Once settled, the in-tab leg stages this ONE take's blob
+      // exactly as every take was staged before; PR5's launch drain, which
+      // finalizes owed takes at launch, is what removes that fallback.
+      if (!path) throw new Error('take is not finalized yet — nothing to enqueue against')
       enqueueDispatched = true
       const enqueued = await port.enqueueJob({
         recordingSessionId: context.recordingSessionId as string,
@@ -410,32 +491,33 @@ class GlobalPipeline {
       // a lost response, a double-fire) may have enqueued this session, and a
       // failed probe cannot rule that out.
       //
-      // Stage-failures (THIS run dispatched no enqueue) settle it with ONE
+      // Pre-enqueue failures (THIS run dispatched no enqueue — since PR4 that
+      // means the take carries no finalized object yet) settle it with ONE
       // probe: alive job → poll it; notFound/FAILED → in-tab fallback; dark
       // or trouble → error with the take KEPT. Erroring beats a blind in-tab
-      // attempt even for UX: staging just failed, so the network is already
-      // suspect and in-tab transcription needs it too — the error card
-      // surfaces in one round-trip instead of after a doomed pipeline run,
-      // and retry() re-dispatches through the server path, where core's
-      // idempotent enqueue reconciles with any live job.
+      // attempt even for UX: the audio is not on the server, so the in-tab leg
+      // has to upload it and needs the same network — the error card surfaces
+      // in one round-trip instead of after a doomed pipeline run, and retry()
+      // re-dispatches through the server path, where core's idempotent enqueue
+      // reconciles with any live job.
       if (!enqueueDispatched) {
         const ghost = await port
           .jobStatus(context.recordingSessionId as string)
           .catch(() => null)
         if (runId !== this.runId) return
         if (ghost && !('error' in ghost) && ghost.status !== 'FAILED') {
-          console.warn('[global-pipeline] stage failed but a prior job is live — polling it:', err)
+          console.warn('[global-pipeline] no finalized object but a prior job is live — polling it:', err)
           await this.pollServerJob(runId, context.recordingSessionId as string)
           return
         }
         if (ghost && ('error' in ghost ? ghost.notFound : true)) {
           // Definitive: FAILED job or no job at all — nothing live can race.
-          console.warn('[global-pipeline] server staging failed, falling back to in-tab:', err)
+          console.warn('[global-pipeline] no job owns this session, falling back to in-tab:', err)
           void this.run()
           return
         }
         // Dark or server trouble — not an answer; never fall back on a guess.
-        console.warn('[global-pipeline] staging failed and the probe gave no definitive answer — take kept:', err)
+        console.warn('[global-pipeline] server path unavailable and the probe gave no definitive answer — take kept:', err)
         this.error = 'unknown'
         this.state = 'error'
         this.notify()
@@ -551,7 +633,7 @@ class GlobalPipeline {
       if ('error' in status) continue
 
       if (status.status === 'DONE' && status.karuteRecordId) {
-        // The record already exists server-side. Delete the take, then settle
+        // The record already exists server-side. Settle the take, then finish
         // via the SAME 'autosaving' path the in-tab autosave uses — its effect
         // (ProcessingIndicator) checks serverSavedRecordId FIRST and skips
         // straight to the toast/hold/reset, reusing that UI verbatim instead
@@ -561,7 +643,11 @@ class GlobalPipeline {
         // rather than deleting the audio and then settling on a falsy id (which
         // would slip past ProcessingIndicator's truthy check into the in-tab
         // branch with no result → a dead review state, audio already gone).
-        if (this.context?.takeId) void deleteTake(this.context.takeId)
+        // ⚖ THROUGH THE ONE RULE (slice five, D12). This was the last bare
+        // `deleteTake` on a save path: an unsecurable take's device copy may go,
+        // a retryable one is KEPT for the drain — and only settleTakeAfterSave
+        // reads the take to tell those apart.
+        if (this.context?.takeId) void settleTakeAfterSave(this.context.takeId)
         this.serverSavedRecordId = status.karuteRecordId
         this.state = 'autosaving'
         this.notify()
@@ -588,7 +674,11 @@ class GlobalPipeline {
             ? 'consent-required'
             : status.lastError === 'EMPTY_TRANSCRIPT'
               ? 'empty-transcript'
-              : 'unknown'
+              : status.lastError === DISCARDED_BY_STAFF
+                ? 'discarded'
+                : 'unknown'
+        // c: same code as the retry's own memory → this attempt failed IDENTICALLY.
+        this.errorRepeated = this.lastErrorCode !== null && this.lastErrorCode === this.error
         this.state = 'error'
         this.notify()
         return
@@ -617,6 +707,9 @@ class GlobalPipeline {
     if (!this.blob || !this.context) return
     this.state = 'processing'
     this.step = 'transcribing'
+    // c: remember what just failed BEFORE clearing it — this attempt's own
+    // error site is the only place left that can still compare against it.
+    this.lastErrorCode = this.error
     this.error = null
     this.notify()
     if (isServerJobEligible(this.context) && getRecordingPipelinePort().supportsServerJob) {
@@ -650,6 +743,8 @@ class GlobalPipeline {
     this.step = 'transcribing'
     this.result = null
     this.error = null
+    this.lastErrorCode = null
+    this.errorRepeated = false
     this.context = null
     this.blob = null
     this.serverSavedRecordId = null

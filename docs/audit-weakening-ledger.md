@@ -279,3 +279,68 @@
   (src/actions/recordings.ts::recordings.create) is pruned rather than left
   dead — that call site no longer exists · Liam (fresh-eyes round #7, packet
   PACKET-PR2-FIX-ROUND-11.md, karute-field-issues lane)
+- 2026-09-06 · SDK_WRITE_ALLOWLIST:src/lib/recording/enqueue-from-session.ts::recordingJobs.enqueue · build 23
+  slice ③ adds a THIRD door onto the one job the worker already owns:
+  saving a recording whose audio reached the server without the device (the
+  nightly assembler sealed a stranded take, or the phone finalized at stop and
+  then died). The write is `recordingJobs.enqueue` in the shared body both new
+  doors run, and it is silent for EXACTLY the reason the two existing enqueue
+  sites are — see the src/actions/recording-jobs.ts and
+  src/app/api/app/v1/recordings/job/route.ts entries above, and
+  FACADE_AUDIT_MAP['recordings.job.enqueueFromSession']'s skip row: the enqueue
+  stages no auditable outcome, and the act becomes auditable at the job
+  pipeline's own choke point (src/lib/jobs/process-recording.ts#processJob,
+  AUDITED_CORES), which emits karute.save when the record actually lands. A live
+  row here would double-log every save the worker performs. Not a widening of
+  what goes unaudited — the same one act, reachable from one more place · Fable
+  (DESIGN-ASSEMBLER-2026-09-06 D8, PACKET-ASSEMBLER-C C3)
+- 2026-09-08 · SDK_WRITE_ALLOWLIST:src/lib/ai-rate-limit.ts::aiRateLimit.recordUsage#reportTranscriptionUsageWithClient · the
+  transcription SPEND WALL adds a second reporter onto the SAME ledger the
+  token routes already report to: transcription is billed per MINUTE, so its
+  cents are computed from the audio's own length and returned through
+  `recordUsage('transcribe', null, null, cents)`. It is silent for exactly the
+  reason the existing reportAiUsageWithClient entry above it is — a
+  system-internal accounting increment, not a user-attributable business
+  mutation — and it is the OPPOSITE of a widening in practice: the act it
+  reports (a Deepgram call) has never been audited at all until this round,
+  and the same wrapper now files a `recording.transcribe` receipt for every
+  provider answer plus a `recording.transcribe_refused` row (severity warning)
+  for every refusal, from src/lib/ai/transcribe.ts (AUDITED_CORES). The money
+  moves in one place and the log says so · Fable
+  (LENS-RULING-SPEND-2026-09-08 §3.7 / PACKET-SPEND-METER-2026-09-08 C1)
+- 2026-09-08 · SDK_WRITE_ALLOWLIST:src/lib/ai-rate-limit.ts::aiRateLimit.recordUsage#releaseTranscriptionReserveWithClient · fix
+  round 5 of the transcription SPEND WALL adds the reserve's RELEASE — the same
+  system-internal accounting write as the two symbols already on this entry,
+  in the other direction. When the provider call itself throws, no money was
+  spent, and the caller retries: the worker re-runs the job, each attempt
+  reserves again, and a reserve left standing would put max_attempts × the
+  estimate on the ledger for a recording nobody ever transcribed — so one
+  Deepgram outage would refuse honest work for the rest of the rolling day.
+  The release is `recordUsage('transcribe', null, null, -reserveCents)`, a
+  negative row on the same route, because core stores the integer as given and
+  `consume` SUMs the column over the rolling 24 h (synqed-core
+  src/services/ai-rate-limit.service.ts) — no refund call was invented and no
+  core change was needed. It is silent for exactly the reason the entry above
+  it is, and it is the OPPOSITE of a widening in what goes unlogged: the act
+  it corrects is a provider FAILURE, which every door already surfaces on its
+  own error path (the worker's fail(), the two routes' error arms), and the
+  only new place it can be reached from is the catch inside
+  src/lib/ai/transcribe.ts#runMeteredTranscription (AUDITED_CORES). A
+  SUCCESSFUL call is still never refunded — the no-refund ruling is unchanged ·
+  Fable (BLIND-LENS-SPEND-f7ca094.md MEDIUM 2 / PACKET-SPEND-FIX5-2026-09-08 C1)
+- 2026-09-14 · SDK_WRITE_ALLOWLIST:src/lib/recording/share-columns.ts::recordings.update · the
+  recorder's own share toggle (⚖ Liam 2026-09-13 sharing law) — the D13 typed
+  write wrapper (updateRecordingShare) sends shared_at/shared_by_staff_id through
+  SDK 1.34's untyped UpdateRecordingInput cast, the same "SDK predates the columns"
+  shape as every other recordings.update call on this list. Silent by design, same
+  reasoning as discard.ts#stampRecordingDuration above: the write sits ONE call
+  below the emit, not lexically inside it — setRecordingSharedWithClient
+  (src/lib/recording/share.ts, AUDITED_CORES via its own emitShareAudit helper)
+  awaits this call and then, on its one WRITING branch, emits recording.share /
+  recording.unshare, which dominates its own return; the idempotent no-op branch
+  (D6 step 5: already in the requested state) never reaches this call at all, so
+  no write is ever silent in substance — only in the walker's lexical reach. Time-
+  boxed like every other SDK-1.34 predates-the-columns entry: DELETE this file at
+  client 1.35, once the SDK's own types carry shared_at/shared_by_staff_id and the
+  cast is no longer needed · Fable (DESIGN-SHARE-2026-09-14.md D6/D13,
+  PKT-SHARE-B-2026-09-14.md C1/C2 — Liam signed off the design 9/14 01:0x)

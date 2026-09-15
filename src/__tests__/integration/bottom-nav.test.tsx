@@ -321,4 +321,61 @@ describe('BottomNav tab cells — constant stroke, instant colour', () => {
       expect(indicator.getAttribute('class')).toContain('transition-[transform,opacity]')
     })
   })
+
+  // TAB-CALM-3 (2026-09-02). Build 22 still jiggled: one frame at exactly
+  // +200ms — the indicator transition's last frame — redraws every icon inside
+  // the indicator's sweep 1-2 device px sideways (evidence/tabcalm3-20260902).
+  // Pinning each glyph to its own compositing layer takes displacement to zero
+  // while keeping the slide; see the comment at the row for the measurements.
+  // Row-level, not per-icon, so the mic FAB's recording states are covered too.
+  it('every icon in the row is pinned to its own compositing layer', () => {
+    mockPathname = '/customers'
+    const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
+
+    const row = container.querySelector('nav > div')!
+    expect(row.getAttribute('class')).toContain('[&_svg]:will-change-transform')
+  })
+
+  // TAB-CALM-4 (2026-09-08). #818 took the icons to zero, and Liam's two
+  // device recordings (69 taps, evidence/tabcalm4-20260908) confirm it: no
+  // icon or label moves a whole pixel any more. What is left is the indicator
+  // itself — 67-100ms after the slide stops, it re-renders in place, its edges
+  // moving ~0.3-0.4 device px. These two pin the answer: the bar keeps its own
+  // compositing layer (so the resting raster is the animated one), and it
+  // lands on a whole CSS pixel — on integer-DPR screens (every iPhone) that is
+  // a whole device pixel, so the two rasters agree at its rounded caps; on
+  // fractional DPRs it is the permanent layer that holds the raster still. See
+  // the comment at the row for the measurements.
+  it('the indicator keeps its compositing layer at rest', () => {
+    mockPathname = '/customers'
+    const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
+
+    const indicator = container.querySelector('span[aria-hidden].bg-primary')!
+    expect(indicator.getAttribute('class')).toContain('will-change-transform')
+  })
+
+  it('the indicator lands on a whole CSS pixel', async () => {
+    // Real geometry from the bar: a 85px-wide PRIMARY cell at x=93 puts the
+    // 40px bar at 93 + 22.5 = 115.5 — a half CSS px, 1.5 device px at dpr 3.
+    // jsdom leaves both at 0; these own properties shadow HTMLElement's
+    // read-only getters and are deleted again in the finally below.
+    const anchorProto = HTMLAnchorElement.prototype as unknown as Record<string, unknown>
+    Object.defineProperty(anchorProto, 'offsetLeft', { configurable: true, get: () => 93 })
+    Object.defineProperty(anchorProto, 'offsetWidth', { configurable: true, get: () => 85 })
+    try {
+      mockPathname = '/karute'
+      const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
+
+      await waitFor(() => {
+        const indicator = container.querySelector<HTMLElement>(
+          'span[aria-hidden].bg-primary',
+        )!
+        expect(indicator.style.transform).toBe('translateX(116px)')
+        expect(indicator.style.transform).not.toContain('.5px')
+      })
+    } finally {
+      delete anchorProto.offsetLeft
+      delete anchorProto.offsetWidth
+    }
+  })
 })

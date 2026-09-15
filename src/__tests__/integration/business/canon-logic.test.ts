@@ -12,6 +12,8 @@
  * SCREEN never sees them; it runs on our fixtures.
  */
 
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   clampPriceInputs,
   discountNote,
@@ -26,6 +28,7 @@ import {
   priceLabel,
   tierOf,
   CURVE_MAX_DIP,
+  DENSITY_CEILING,
 } from '@/business/lib/canon-logic/pricing'
 import {
   computeChecks,
@@ -53,6 +56,7 @@ import {
   kPackCount,
   mergeBands,
   trackFree,
+  type SellBand,
   type SellResourceLane,
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
@@ -511,7 +515,7 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     key: 's1', name: '見本 しろう', from: 10 * 60, until: 19 * 60, locked: false, occupied: [], listPrice: 7000, stores: null, ...over,
   })
   const bed = (over: Partial<SellResourceLane> = {}): SellResourceLane => ({ key: 'b1', name: 'ベッド1', occupied: [], storeId: 'store-a', ...over })
-  const flat = { open: HOURS.open, close: HOURS.close, gridMin: 60, priceFor: () => 7000 }
+  const flat = { open: HOURS.open, close: HOURS.close, gridMin: 60, sellSlotMin: 60, priceFor: () => 7000 }
 
   it('trackFree is a plain interval test, back-to-back included', () => {
     const busy = [{ start: 600, end: 660 }]
@@ -533,6 +537,23 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     // no window, exactly as canon's index-wise pairing caps it.
     const two = deriveSellableCells({ ...flat, staffLanes: [staff(), staff({ key: 's2', name: '見本 ごろう' })], resourceLanes: [], now: null })
     expect(two.filter((c) => c.h === 600)).toHaveLength(1)
+  })
+
+  it('⚖ D-53 (c) R1 — needsUnit: () => false sells every free staff, no cap (G1)', () => {
+    // The default (no predicate) is unmoved above — this is the seam's real
+    // answer for a store whose staff answer needsUnit false: no sentinel cap,
+    // one cell per free staff per slot, resourceKey/bed always ''.
+    const two = deriveSellableCells({
+      ...flat,
+      staffLanes: [staff(), staff({ key: 's2', name: '見本 ごろう' })],
+      resourceLanes: [],
+      now: null,
+      needsUnit: () => false,
+    })
+    const atOpen = two.filter((c) => c.h === 600)
+    expect(atOpen).toHaveLength(2)
+    expect(atOpen.every((c) => c.resourceKey === '' && c.bed === '')).toBe(true)
+    expect(two.filter((c) => c.group === 'beds')).toEqual([])
   })
 
   it('a window needs BOTH a free person and a free bed wherever beds exist', () => {
@@ -606,11 +627,179 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     expect(deriveSellableCells({ ...flat, staffLanes: [staff({ locked: true })], resourceLanes: [bed()], now: null })).toEqual([])
   })
 
+  // ⚖ D-15/D-24 (round 3, B1) — the sellable slot's length is a VALUE the
+  // engine is handed (`SellInput.sellSlotMin`), not the frozen `SELL_SLOT_MIN`
+  // constant. B1 is the layer alone + the thread from the store to the
+  // engine; it is NOT the day every reader agrees at 45 (B2 moves the
+  // remaining readers off the constant).
+  it('⚖ D-15/D-24 — sellSlotMin at 45 and at 75: every cell spans exactly its own slot, the count matches the grid, and bands close at the last cell’s own end', () => {
+    for (const slot of [45, 75]) {
+      const cells = deriveSellableCells({ ...flat, sellSlotMin: slot, staffLanes: [staff()], resourceLanes: [bed()], now: null })
+      const staffCells = cells.filter((c) => c.group === 'staff')
+      expect(staffCells.length).toBeGreaterThan(0)
+      expect(staffCells.every((c) => c.e === c.h + slot)).toBe(true)
+      // The expected count comes from the SAME walk the engine runs — no typed
+      // constant standing in for the grid's own arithmetic.
+      let expectedCount = 0
+      for (let sm = flat.open; sm + slot <= flat.close; sm += flat.gridMin) expectedCount += 1
+      expect(staffCells).toHaveLength(expectedCount)
+      const bands = mergeBands(cells)
+      const lastCell = staffCells[staffCells.length - 1]
+      // The band CONTAINING the last cell, not merely the first band: below
+      // gridMin (45 < 60) consecutive cells do not touch (a slot ending at
+      // :45 past the hour leaves a 15-minute gap before the next hour's
+      // start), so the day splits into several one-cell bands — cells sorted
+      // ascending means that band is the LAST staff band mergeBands emits.
+      const staffBands = bands.filter((b) => b.group === 'staff')
+      expect(staffBands[staffBands.length - 1].hEnd).toBe(lastCell.h + slot)
+    }
+  })
+
+  // ⚖ D-40 — below the start grid (45 < gridMin 60) consecutive 枠 stop
+  // touching, so every 枠 becomes its own band; two free lanes at 45 push the
+  // band count past DENSITY_CEILING and the density verdict flips the sell
+  // tint off. The bands are HONEST — one spanning the gap between 枠 would
+  // paint unsellable time, the ⚖ 8/9 defect class — so the split is correct;
+  // the open question is whether a hardcoded band count is the right density
+  // test at a slot shorter than the grid. B2's matrix single at 45 answers
+  // that, and when it changes the verdict this leg MOVES visibly.
+  it('⚖ D-40 — below the start grid, every 枠 is its own band and the density verdict can flip', () => {
+    // Two free lanes, one bed EACH — not the `[null]` fallback used elsewhere
+    // in this file for a bed-less store, which caps the sale to ONE lane per
+    // hour (`deriveSellableCells`' `claimed.size >= freeBeds.length` break)
+    // and so cannot show two lanes fragmenting independently.
+    const staffLanes = [staff(), staff({ key: 's2', name: '見本 じろう' })]
+    const resourceLanes = [bed(), bed({ key: 'b2', name: 'ベッド2' })]
+
+    const cells45 = deriveSellableCells({ ...flat, sellSlotMin: 45, staffLanes, resourceLanes, now: null })
+    const staffCells45 = cells45.filter((c) => c.group === 'staff')
+    const layer45 = buildSellLayer(cells45, true)
+    // Derived from the same walk the 45/75 leg above runs, times the two free
+    // lanes: 10:00–19:00 at 45 walks 9 starts per lane → 2 × 9 = 18.
+    let perLaneCount = 0
+    for (let sm = flat.open; sm + 45 <= flat.close; sm += flat.gridMin) perLaneCount += 1
+    expect(staffCells45).toHaveLength(perLaneCount * staffLanes.length)
+    expect(layer45.staffBands).toHaveLength(staffCells45.length)
+    expect(layer45.degraded).toBe(layer45.staffBands.length > DENSITY_CEILING)
+    expect(layer45.degraded).toBe(true)
+
+    const cells60 = deriveSellableCells({ ...flat, sellSlotMin: 60, staffLanes, resourceLanes, now: null })
+    const layer60 = buildSellLayer(cells60, true)
+    expect(layer60.staffBands).toHaveLength(2)
+    expect(layer60.degraded).toBe(false)
+  })
+
+  it('⚖ D-15/D-24 — the identity leg: at the shipped default (60), every cell and band is byte-identical to the OLD `h + 60` formula', () => {
+    const cells = deriveSellableCells({ ...flat, staffLanes: [staff()], resourceLanes: [bed()], now: null })
+    expect(cells.length).toBeGreaterThan(0)
+    expect(cells.every((c) => c.e - c.h === 60)).toBe(true)
+    const bands = mergeBands(cells)
+    // The proof a store at the default sees byte-identical bands: a band list
+    // built inline with the OLD formula (hEnd = h + 60), the same tier-merge
+    // rule mergeBands itself runs — never a re-import of the function under test.
+    const byLane = new Map<string, typeof cells>()
+    for (const c of cells) {
+      const k = `${c.group}:${c.group === 'staff' ? c.laneKey : c.resourceKey}`
+      const list = byLane.get(k)
+      if (list) list.push(c)
+      else byLane.set(k, [c])
+    }
+    const oldBands: SellBand[] = []
+    for (const arr of byLane.values()) {
+      arr.sort((a, b) => a.h - b.h)
+      let cur: SellBand | null = null
+      for (const c of arr) {
+        if (cur && c.h <= cur.hEnd && c.tier === cur.tier) {
+          cur.hEnd = Math.max(cur.hEnd, c.h + 60)
+          if (c.price != null) {
+            cur.lo = cur.lo == null ? c.price : Math.min(cur.lo, c.price)
+            cur.hi = cur.hi == null ? c.price : Math.max(cur.hi, c.price)
+          }
+        } else {
+          cur = {
+            laneKey: c.laneKey, resourceKey: c.resourceKey, group: c.group, staff: c.staff,
+            tier: c.tier, lo: c.price, hi: c.price, hStart: c.h, hEnd: c.h + 60,
+          }
+          oldBands.push(cur)
+        }
+      }
+    }
+    expect(bands).toEqual(oldBands)
+  })
+
+  it('⚖ D-15/D-24 — a slot longer than the day yields zero cells and no throw', () => {
+    const slot = flat.close - flat.open + 1
+    const run = () => deriveSellableCells({ ...flat, sellSlotMin: slot, staffLanes: [staff()], resourceLanes: [bed()], now: null })
+    expect(run).not.toThrow()
+    expect(run()).toEqual([])
+  })
+
+  it('⚖ D-15/D-24 pin 9(c) — availability.ts carries no SELL_SLOT_MIN token in its CODE (the engine reads the value; only a doc comment may name the sibling constant)', () => {
+    const src = readFileSync(join(process.cwd(), 'src/business/lib/canon-logic/availability.ts'), 'utf8')
+    // Strip block comments (incl. /** doc */) and line comments before looking
+    // for the token — the field's own doc is ALLOWED to name canon's sibling
+    // constant (`SELL_SLOT_MIN`) for context; no executable line may.
+    const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(codeOnly).not.toContain('SELL_SLOT_MIN')
+  })
+
+  it('⚖ D-15/D-24/B2/F1 census pin — the whole of src/ RAW text: SELL_SLOT_MIN and DEFAULT_SELL_SLOT_MIN each only in their named homes', () => {
+    // Walks every .ts/.tsx under src/, __tests__ excluded (their own imports
+    // are commit 5's own concern, not B2's rename). NO comment-stripping: a
+    // strip that regexes for /* ... */ opens a pseudo-comment at the first
+    // literal `/*` inside ANY string or template on the tree (e.g. `'file
+    // must be an image (image/* content-type)'`, `` `src/lib/app-api/*` ``)
+    // and swallows every real line up to the next `*/` — on this tree that
+    // hid up to 2,554 characters of live code in 10 files (83 `export`
+    // tokens vanished), a green result that proves nothing (⚖ D-45, L1 F4).
+    // A token inside a plain string is CODE and must be caught — strings are
+    // code — so this pin reads each file as-is and checks the RAW text
+    // against a named allowlist instead. Word-bounded, so the new spelling
+    // never accidentally matches the old token as a substring.
+    const root = join(process.cwd(), 'src')
+    const files: string[] = []
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === '__tests__') continue
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (/\.tsx?$/.test(entry.name)) files.push(full)
+      }
+    }
+    walk(root)
+    const oldHits: string[] = []
+    const newHits: string[] = []
+    for (const file of files) {
+      const code = readFileSync(file, 'utf8')
+      const rel = file.slice(root.length + 1)
+      if (/\bSELL_SLOT_MIN\b/.test(code)) oldHits.push(rel)
+      if (/\bDEFAULT_SELL_SLOT_MIN\b/.test(code)) newHits.push(rel)
+    }
+    // SELL_SLOT_MIN (old spelling) survives only as a comment in exactly two
+    // files: pricing.ts's own doc (naming canon's sibling constant for
+    // context) and capacity-ledger.ts:702-703's D-24-locked prose (frozen,
+    // outside this PR's allowed hunk).
+    expect(oldHits.sort()).toEqual([
+      'app/[locale]/(business)/business/today/capacity-ledger.ts',
+      'business/lib/canon-logic/pricing.ts',
+    ])
+    // DEFAULT_SELL_SLOT_MIN (new spelling) lives in exactly three files: the
+    // rename + definition (pricing.ts), the fixture that reads the default
+    // (fixtures-today.ts), and availability.ts's one doc line naming it —
+    // that doc hit only surfaces now that the strip is gone (it was always
+    // there, the old comment-stripping pin just couldn't see it).
+    expect(newHits.sort()).toEqual([
+      'business/lib/canon-logic/availability.ts',
+      'business/lib/canon-logic/pricing.ts',
+      'business/lib/fixtures-today.ts',
+    ])
+  })
+
   it('bands merge adjacent hours of the SAME tier, and break at a tier change', () => {
     const cells = [
-      { laneKey: 's1', resourceKey: 'b1', group: 'staff' as const, h: 600, staff: 'A', bed: 'B', price: 7000, tier: 1 as const },
-      { laneKey: 's1', resourceKey: 'b1', group: 'staff' as const, h: 660, staff: 'A', bed: 'B', price: 7000, tier: 1 as const },
-      { laneKey: 's1', resourceKey: 'b1', group: 'staff' as const, h: 720, staff: 'A', bed: 'B', price: 9000, tier: 3 as const },
+      { laneKey: 's1', resourceKey: 'b1', group: 'staff' as const, h: 600, e: 660, staff: 'A', bed: 'B', price: 7000, tier: 1 as const },
+      { laneKey: 's1', resourceKey: 'b1', group: 'staff' as const, h: 660, e: 720, staff: 'A', bed: 'B', price: 7000, tier: 1 as const },
+      { laneKey: 's1', resourceKey: 'b1', group: 'staff' as const, h: 720, e: 780, staff: 'A', bed: 'B', price: 9000, tier: 3 as const },
     ]
     const bands = mergeBands(cells)
     expect(bands).toHaveLength(2)
@@ -631,7 +820,7 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
   it('E9c: past the density ceiling, tint degrades to drag-only', () => {
     // 13 lanes each holding one lonely hour = 13 bands, one over the ceiling.
     const many = Array.from({ length: 13 }, (_, i) => ({
-      laneKey: `s${i}`, resourceKey: 'b1', group: 'staff' as const, h: 600 + i * 60,
+      laneKey: `s${i}`, resourceKey: 'b1', group: 'staff' as const, h: 600 + i * 60, e: 600 + i * 60 + 60,
       staff: `A${i}`, bed: 'B', price: 7000 + i * 100, tier: 1 as const,
     }))
     expect(buildSellLayer(many, true).degraded).toBe(true)

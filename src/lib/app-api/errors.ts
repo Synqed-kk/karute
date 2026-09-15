@@ -18,7 +18,9 @@ export type AppApiErrorCode =
   | 'store_forbidden' // 403 — store-id outside the caller's assignment/tenant
   | 'membership_inactive' // 403 — no active business membership for this user
   | 'not_found' // 404
+  | 'no_audio' // 404 — the server holds no audio for this recording (distinct from not_found so the phone can say which; a detail.reason never crosses the thin port)
   | 'conflict' // 409 — If-Match / optimistic-concurrency mismatch
+  | 'not_returning' // 422 — the revisit label cannot be true for this customer (a fact about the customer, not the request's shape)
   | 'rate_limited' // 429 — throttled (e.g. PIN attempts)
   | 'not_implemented' // 501 — a valid-but-unwired param combo (export scope/format)
   | 'jwks_unavailable' // 503 — the verifier could not CHECK the token (upstream down)
@@ -35,7 +37,9 @@ const STATUS: Record<AppApiErrorCode, number> = {
   store_forbidden: 403,
   membership_inactive: 403,
   not_found: 404,
+  no_audio: 404,
   conflict: 409,
+  not_returning: 422,
   rate_limited: 429,
   not_implemented: 501,
   jwks_unavailable: 503,

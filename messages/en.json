@@ -503,9 +503,37 @@
       "title": "Recording · transcript",
       "consentOnFile": "Consent on file",
       "duration": "Duration {duration}",
+      "play": "Play",
+      "pause": "Pause",
+      "back15": "Back 15 seconds",
+      "fwd15": "Forward 15 seconds",
+      "speed": "Playback speed",
+      "seek": "Playback position",
+      "speedChip": "{rate}×",
+      "speedNormal": "Normal",
+      "processing": "Transcribing",
+      "processingHint": "This may take a little while",
+      "playBlockedWhileRecording": "Can’t play while recording",
+      "playbackUnavailable": "Couldn’t play this recording",
       "noTranscript": "No transcript yet",
       "restrictedTitle": "Recording · transcript",
-      "restricted": "Only the staff who recorded this session can view the transcript. The summary above is shared."
+      "restricted": "Only the staff who recorded this session can view the transcript (unless they've shared it). The summary above is shared.",
+      "viaShare": "Shared by the staff who recorded this session",
+      "share": "Share with managers",
+      "sharing": "Sharing…",
+      "shared": "Shared",
+      "shareFailed": "Couldn’t share this recording"
+    },
+    "discarded": {
+      "title": "Discarded",
+      "reason": "Reason",
+      "by": "Discarded by",
+      "at": "Discarded at",
+      "staff": "Staff",
+      "duration": "Length",
+      "durationValue": "{m}m {s}s",
+      "unknown": "Unknown",
+      "withheld": "Only the staff who ran this session can view its content."
     }
   },
   "recording": {
@@ -601,6 +629,9 @@
     "pipelineErrorEmptyTranscript": "No speech could be recognized. Please check that the recording contains audio and try again.",
     "pipelineErrorConsentRequired": "Recording consent is required. Please obtain consent and try again.",
     "pipelineErrorGeneric": "Something went wrong while processing. Please try again.",
+    "pipelineErrorDiscarded": "This recording was discarded by a staff member, so it cannot be saved to a karute.",
+    "pipelineErrorRepeated": "Retrying gave the same result.",
+    "serverRowMissing": "Could not create the recording's server record. The karute will be saved, but the audio stays on this device only",
     "recordingFor": "Recording for",
     "noUpcomingAppointment": "No upcoming appointment",
     "noBookingTitle": "No booking found",
@@ -753,13 +784,20 @@
         "unsettled": "No result has come back yet",
         "autoSaved": "This recording was saved automatically (nobody has checked it yet)",
         "genericFailure": "This recording was not saved",
-        "localAudio": "The audio is still on this device (unsaved)"
+        "localAudio": "The audio is still on this device (unsaved)",
+        "tailIncomplete": "The recording ends partway (you can save what is left on this device)",
+        "serverAudio": "Audio is on the server (not saved yet; may end partway)",
+        "partialOnServer": "Audio reached the server partway (you'll be able to save it within a few days)",
+        "emptyTranscript": "No transcript came back (check the microphone connection)",
+        "sessionUnlisted": "The audio is still on this device (the server has no record of this recording)",
+        "refusedHasRecord": "This visit has a karute from another recording (saving creates a separate karute)"
       },
       "action": {
         "open": "Open",
         "check": "Check",
         "retry": "Retry",
-        "save": "Save"
+        "save": "Save",
+        "handwrite": "Handwrite"
       }
     },
     "recent": {
@@ -831,7 +869,9 @@
       "confirm": "Discard",
       "submitting": "Discarding...",
       "failed": "Could not record the discard. Please try again.",
-      "takeChanged": "This recording has already gone to transcription, so it could not be discarded."
+      "takeChanged": "This recording has already gone to transcription, so it could not be discarded.",
+      "autoReasonBelowFloor": "Accidental tap (under {n} seconds — recorded automatically)",
+      "oneTapDone": "Recording discarded. A discard record (date/time, staff) is kept."
     }
   },
   "customers": {
@@ -1039,6 +1079,8 @@
         "purchased": "Purchased {date}",
         "exhausted": "Used up",
         "cancelledPack": "Cancelled",
+        "voidPack": "Voided",
+        "unknownStatusPack": "Unknown",
         "redeem": "Use 1 session",
         "redeemConfirm": "Record",
         "redeemDone": "Session recorded",
@@ -1370,6 +1412,8 @@
     "recordList": {
       "statusLine": "Karute · {total} total · {monthCount} this month · showing {showingCount}",
       "statusLineNoMonth": "Karute · {total} total · showing {showingCount}",
+      "statusLineDiscarded": "Karute · {total} total ({discarded} discarded) · {monthCount} this month · showing {showingCount}",
+      "statusLineNoMonthDiscarded": "Karute · {total} total ({discarded} discarded) · showing {showingCount}",
       "loadMore": "Show more (karute before {date})",
       "addedCount": "Loaded {n} karute",
       "loadMoreFailed": "Couldn't load more. Please try again.",
@@ -1386,7 +1430,9 @@
         "thisWeek": "This week",
         "aiPending": "AI pending",
         "needsReview": "Needs review",
-        "draft": "Draft"
+        "draft": "Draft",
+        "discarded": "Discarded",
+        "shared": "Shared"
       },
       "dateGroup": {
         "today": "Today",
@@ -2321,7 +2367,7 @@
       "empty": "No discards have been recorded yet.",
       "truncated": "Older records are not shown — there are too many to list.",
       "detailTruncated": "Details could not be loaded for some records.",
-      "reasonLabel": "Reason (written by the staff member)",
+      "reasonLabel": "Reason",
       "transcriptShow": "Show the transcript",
       "transcriptHide": "Hide the transcript",
       "transcriptMinutes": "{n} min",
@@ -2359,12 +2405,23 @@
       "targetFilter": "Showing this customer's records only (views included)",
       "clearTarget": "Clear",
       "empty": "No events match these filters.",
+      "emptyPage": "No records on this page. Select \"Load more\" to keep going.",
       "errorLoad": "Couldn't load the audit log.",
       "errorForbidden": "You don't have access to the audit log.",
       "loadMore": "Load more",
       "systemActor": "System",
       "unknownActor": "Unknown",
+      "automation": {
+        "transcribe": "Auto-transcribe",
+        "rescue": "Auto-restore",
+        "watch": "Auto-check",
+        "autoburn": "Auto-redeem",
+        "cleanup": "Auto-discard",
+        "repair": "Data repair"
+      },
       "actions": {
+        "merge_duplicate": "Merged duplicate customer",
+        "correct_pack_import_date": "Corrected pack import date",
         "customer": {
           "view": "Viewed customer record",
           "edit": "Edited customer info",
@@ -2399,7 +2456,8 @@
           "summary_edit": "Edited detailed record",
           "outcome_set": "Recorded session outcome",
           "customer_reassign": "Reassigned karute customer",
-          "manual_create": "Manually created karute record"
+          "manual_create": "Manually created karute record",
+          "delete": "Deleted karute record"
         },
         "staff": {
           "add": "Added staff",
@@ -2459,11 +2517,21 @@
         },
         "recording": {
           "capture_finalized": "Recording audio saved",
+          "capture_resumed": "Recording audio restored on the server",
           "capture_unlinked": "Recording audio not linked to a record",
           "discard": "Discarded recording",
+          "karute_missing": "Recording never became a karute",
+          "no_sessions_today": "No recording sessions today",
+          "play": "Played recording",
           "session_cleanup": "Recording discarded",
+          "share": "Shared recording",
           "take_named": "Recording upload address issued (existing session)",
-          "transcribe": "Transcribed recording"
+          "take_refused_has_record": "Refused a duplicate link to a saved recording",
+          "transcribe": "Transcribed recording",
+          "transcribe_failed": "Transcription failed",
+          "transcribe_refused": "Recording transcription declined (usage limit)",
+          "transcribe_storm": "Recording transcribed repeatedly",
+          "unshare": "Unshared recording"
         }
       },
       "burnError": {
@@ -2481,6 +2549,7 @@
       "staffAll": "Everyone",
       "statsChanges": "changes",
       "statsWarnings": "warnings",
+      "statsCritical": "critical",
       "statsBreakGlass": "break-glass",
       "eventsCount": "{count, plural, one {# event} other {# events}}",
       "storesCount": "{count, plural, one {# store} other {# stores}}",
@@ -2495,6 +2564,39 @@
       "recordingNoCustomer": "No customer selected",
       "recordingUnresolved": "Recording",
       "durationSuffix": " · {n}s",
+      "recordingStaff": "Staff: {name}",
+      "packUnresolved": "Ticket pack",
+      "packImportDateCorrected": "Import date {date}",
+      "customerUnresolved": "Customer",
+      "fold": {
+        "count": "×{n}",
+        "range": "{from}–{to}"
+      },
+      "noSessionsToday": {
+        "sub": "{day} · {n} staff who usually record, no recording today"
+      },
+      "reason": {
+        "empty_transcript": "No transcript produced",
+        "job_failed": "Processing error",
+        "not_transcribed": "Not transcribed yet",
+        "other": "Other"
+      },
+      "recording": {
+        "ticketBurned": "Pack already redeemed",
+        "minutes": "{n} min"
+      },
+      "storm": {
+        "sub": "Transcribed {n} times · ~{cost} · {day}"
+      },
+      "thread": {
+        "title": "Records for this recording",
+        "customerTitle": "Records for this customer",
+        "partial": "Some records could not be loaded."
+      },
+      "strip": {
+        "scope": "Past {days} days · {store}",
+        "scopeAll": "All time · {store}"
+      },
       "menuUpdate": {
         "duration": "Duration",
         "price": "Price",
@@ -3407,8 +3509,10 @@
     "cap_data_export": "Export / import data",
     "cap_records_delete": "Delete records",
     "cap_records_reassign": "Reassign karute customer",
+    "cap_records_discardView": "Open discarded karute",
     "cap_records_write": "Record sessions & edit karute",
-    "cap_recordings_viewAll": "View every staff's recordings",
+    "cap_recordings_viewAll": "Play & read other staff's recordings",
+    "cap_recordings_viewShared": "Play & read shared recordings",
     "cap_analytics_viewAll": "Whole-salon analytics",
     "cap_stores_viewAll": "View all stores",
     "cap_alerts_manage": "Manage alerts",

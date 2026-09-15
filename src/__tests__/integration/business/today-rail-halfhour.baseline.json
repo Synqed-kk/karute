@@ -1,0 +1,3009 @@
+{
+ "REST": {
+  "counter": "オンライン販売中 9窓 · ¥3,510〜",
+  "lanes": {
+   "p-01": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）"
+     },
+     {
+      "start": 960,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:00〜17:00）"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   },
+   "c-03": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）"
+     },
+     {
+      "start": 960,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:00〜17:00）"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1050,
+      "face": "△17:30",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "17:30〜19:00の新規90分の空き1→0（1枠減・損を減らす）。17:30はこの区間で損が最少の開始です（17:30〜18:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1080,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと17:30〜19:00の新規（90分）が入らなくなります（18:00〜19:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     }
+    ],
+    "cues": []
+   },
+   "p-04": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 960,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと15:45〜17:15の新規（90分）が入らなくなります（16:00〜17:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 990,
+      "face": "△16:30",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "15:45〜17:15の新規90分の空き1→0（1枠減・損を減らす）。15:45はこの区間で損が最少の開始です（16:30〜17:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   },
+   "p-05": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 870,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くとテスト整体 60分が入らなくなります（14:30〜15:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 900,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと14:30〜16:00の新規（90分）が入らなくなります（15:00〜16:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 930,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと14:30〜16:00の新規（90分）が入らなくなります（15:30〜16:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 960,
+      "face": "△16:00",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "新規90分の空き1→1（0枠減・損を減らす）。16:00はこの区間で損が最少の開始です（16:00〜17:00）"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   },
+   "p-06": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 930,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと15:05〜16:35の新規（90分）が入らなくなります（15:30〜16:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 960,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと15:05〜16:35の新規（90分）が入らなくなります（16:00〜17:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   }
+  }
+ },
+ "A": {
+  "counter": "オンライン販売中 6窓 · ¥4,610",
+  "lanes": {
+   "p-01": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）"
+     },
+     {
+      "start": 960,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:00〜17:00）"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   },
+   "c-03": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "満室",
+      "state": "blocked",
+      "reason": "bed",
+      "word": "満室",
+      "sentence": "14:30〜15:30はベッドに空きがありません。ベッド1（テスト えいた様 14:00〜15:00・見本 きり様 15:00〜15:30）、ベッド2（見本 かえる様）、ベッド3（テスト なぎ様 14:05〜15:00・見本 さくら様 15:00〜16:00）が使用中です"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）"
+     },
+     {
+      "start": 960,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:00〜17:00）"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1050,
+      "face": "△17:30",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "17:30〜19:00の新規90分の空き1→0（1枠減・損を減らす）。17:30はこの区間で損が最少の開始です（17:30〜18:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1080,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと17:30〜19:00の新規（90分）が入らなくなります（18:00〜19:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     }
+    ],
+    "cues": [
+     {
+      "start": 870,
+      "end": 900,
+      "kind": null,
+      "label": []
+     }
+    ]
+   },
+   "p-04": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 960,
+      "face": "△16:00",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "16:00〜17:30の新規90分の空き1→0（1枠減・損を減らす）。16:00はこの区間で損が最少の開始です（16:00〜17:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 990,
+      "face": "△16:30",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "16:00〜17:30の新規90分の空き1→0（1枠減・損を減らす）。16:00はこの区間で損が最少の開始です（16:30〜17:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   },
+   "p-05": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 930,
+      "face": "△15:30",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "15:30〜17:00の新規90分の空き1→0（1枠減・損を減らす）。15:30はこの区間で損が最少の開始です（15:30〜16:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 960,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと15:30〜17:00の新規（90分）が入らなくなります（16:00〜17:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   },
+   "p-06": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 960,
+      "face": "△16:00",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "16:00〜17:30の新規90分の空き2→1（1枠減・損を減らす）。16:00はこの区間で損が最少の開始です（16:00〜17:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 990,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと16:00〜17:30の新規（90分）が入らなくなります（16:30〜17:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1020,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと16:00〜17:30・17:30〜19:00の新規（90分）が入らなくなります（17:00〜18:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1050,
+      "face": "△17:30",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "17:30〜19:00の新規90分の空き2→1（1枠減・損を減らす）。16:00はこの区間で損が最少の開始です（17:30〜18:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1080,
+      "face": "△18:00",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "17:30〜19:00の新規90分の空き2→1（1枠減・損を減らす）。16:00はこの区間で損が最少の開始です（18:00〜19:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     }
+    ],
+    "cues": []
+   }
+  }
+ },
+ "B": {
+  "counter": "オンライン販売中 8窓 · ¥4,550〜",
+  "lanes": {
+   "p-01": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）"
+     },
+     {
+      "start": 960,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:00〜17:00）"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   },
+   "c-03": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "✓14:30",
+      "state": "safe",
+      "reason": null,
+      "word": null,
+      "sentence": "配置できます。この区間には現在、守れる新規90分の空きはありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）"
+     },
+     {
+      "start": 960,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:00〜17:00）"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1050,
+      "face": "△17:30",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "17:30〜19:00の新規90分の空き1→0（1枠減・損を減らす）。17:30はこの区間で損が最少の開始です（17:30〜18:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1080,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと17:30〜19:00の新規（90分）が入らなくなります（18:00〜19:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     }
+    ],
+    "cues": []
+   },
+   "p-04": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "△14:30",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "新規90分の空き0→0（0枠減・損を減らす）。14:30はこの区間で損が最少の開始です（14:30〜15:30）。この開始には販売可能枠が出ていません"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 960,
+      "face": "△16:00",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "16:00〜17:30の新規90分の空き1→0（1枠減・損を減らす）。16:00はこの区間で損が最少の開始です（16:00〜17:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 990,
+      "face": "△16:30",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "16:00〜17:30の新規90分の空き1→0（1枠減・損を減らす）。16:00はこの区間で損が最少の開始です（16:30〜17:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   },
+   "p-05": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 930,
+      "face": "△15:30",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "15:30〜17:00の新規90分の空き1→0（1枠減・損を減らす）。15:30はこの区間で損が最少の開始です（15:30〜16:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 960,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと15:30〜17:00の新規（90分）が入らなくなります（16:00〜17:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   },
+   "p-06": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 930,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと15:05〜16:35の新規（90分）が入らなくなります（15:30〜16:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 960,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと15:05〜16:35の新規（90分）が入らなくなります（16:00〜17:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   }
+  }
+ },
+ "C": {
+  "counter": "オンライン販売中 7窓 · ¥4,240〜",
+  "lanes": {
+   "p-01": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）"
+     },
+     {
+      "start": 960,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:00〜17:00）"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   },
+   "c-03": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "✓14:30",
+      "state": "safe",
+      "reason": null,
+      "word": null,
+      "sentence": "配置できます。この区間には現在、守れる新規90分の空きはありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）"
+     },
+     {
+      "start": 960,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:00〜17:00）"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1050,
+      "face": "△17:30",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "17:30〜19:00の新規90分の空き1→0（1枠減・損を減らす）。17:30はこの区間で損が最少の開始です（17:30〜18:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1080,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと17:30〜19:00の新規（90分）が入らなくなります（18:00〜19:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     }
+    ],
+    "cues": []
+   },
+   "p-04": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 960,
+      "face": "△16:00",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "16:00〜17:30の新規90分の空き1→0（1枠減・損を減らす）。16:00はこの区間で損が最少の開始です（16:00〜17:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 990,
+      "face": "△16:30",
+      "state": "degraded",
+      "reason": null,
+      "word": null,
+      "sentence": "16:00〜17:30の新規90分の空き1→0（1枠減・損を減らす）。16:00はこの区間で損が最少の開始です（16:30〜17:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   },
+   "p-05": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "✓13:30",
+      "state": "safe",
+      "reason": null,
+      "word": null,
+      "sentence": "配置できます。この区間には現在、守れる新規90分の空きはありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "満室",
+      "state": "blocked",
+      "reason": "bed",
+      "word": "満室",
+      "sentence": "14:00〜15:00はベッドに空きがありません。ベッド1（見本 さくら様 14:30〜15:30）、ベッド2（見本 かえる様 13:00〜14:30）、ベッド3（テスト なぎ様 14:05〜15:05）が使用中です"
+     },
+     {
+      "start": 870,
+      "face": "✓14:30",
+      "state": "safe",
+      "reason": null,
+      "word": null,
+      "sentence": "配置できます。この区間には現在、守れる新規90分の空きはありません（14:30〜15:30）。この開始には販売可能枠が出ていません"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）"
+     },
+     {
+      "start": 930,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:30〜16:30）"
+     },
+     {
+      "start": 960,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:00〜17:00）"
+     },
+     {
+      "start": 990,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（16:30〜17:30）"
+     },
+     {
+      "start": 1020,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:00〜18:00）"
+     },
+     {
+      "start": 1050,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（17:30〜18:30）"
+     },
+     {
+      "start": 1080,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:00〜19:00）"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   },
+   "p-06": {
+    "chips": [
+     {
+      "start": 600,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:00〜11:00）"
+     },
+     {
+      "start": 630,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（10:30〜11:30）"
+     },
+     {
+      "start": 660,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:00〜12:00）"
+     },
+     {
+      "start": 690,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（11:30〜12:30）"
+     },
+     {
+      "start": 720,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:00〜13:00）"
+     },
+     {
+      "start": 750,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（12:30〜13:30）"
+     },
+     {
+      "start": 780,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:00〜14:00）"
+     },
+     {
+      "start": 810,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（13:30〜14:30）"
+     },
+     {
+      "start": 840,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:00〜15:00）"
+     },
+     {
+      "start": 870,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（14:30〜15:30）"
+     },
+     {
+      "start": 900,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（15:00〜16:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 930,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと15:30〜17:00の新規（90分）が入らなくなります（15:30〜16:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 960,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと15:30〜17:00の新規（90分）が入らなくなります（16:00〜17:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 990,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと15:30〜17:00・17:00〜18:30の新規（90分）が入らなくなります（16:30〜17:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1020,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと17:00〜18:30の新規（90分）が入らなくなります（17:00〜18:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1050,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと17:00〜18:30の新規（90分）が入らなくなります（17:30〜18:30）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1080,
+      "face": "新規用",
+      "state": "blocked",
+      "reason": "guard",
+      "word": "新規用",
+      "sentence": "ここに置くと17:00〜18:30の新規（90分）が入らなくなります（18:00〜19:00）。新規のお客様のための90分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります"
+     },
+     {
+      "start": 1110,
+      "face": "—",
+      "state": "blocked",
+      "reason": null,
+      "word": null,
+      "sentence": "この開始には60分の連続した空きがありません（18:30〜19:30）"
+     }
+    ],
+    "cues": []
+   }
+  }
+ }
+}

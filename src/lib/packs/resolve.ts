@@ -90,11 +90,21 @@ export type OutcomeMode = 'conversion' | 'auto' | 'repurchase'
  *  left — i.e. it ends at 残1 (last chance to talk) or 残0 (did they buy?). */
 export const REPURCHASE_PROMPT_REMAINING = 2
 
+/** 回数券 LAYER 1 (update 25, p1) — the question fires off the customer's
+ *  TOTAL usable balance across active counted packs, not the FIFO target's
+ *  own remaining alone: old 残1 + new 残10 must read 'auto' (finish the old
+ *  ticket silently, no "did they buy?" for a purchase that already happened).
+ *  `otherRemaining` MISSING (an old server payload, an old fixture, a caller
+ *  that never learned about it) degrades to today's single-pack read — an
+ *  honest degrade, never a lie: for anyone with only one active pack the two
+ *  reads are numerically identical anyway. */
 export function resolveOutcomeMode(
-  pack: { remaining: number } | null | undefined,
+  pack: { remaining: number; otherRemaining?: number } | null | undefined,
 ): OutcomeMode {
-  if (!pack || pack.remaining <= 0) return 'conversion'
-  if (pack.remaining <= REPURCHASE_PROMPT_REMAINING) return 'repurchase'
+  if (!pack) return 'conversion'
+  const total = pack.remaining + (pack.otherRemaining ?? 0)
+  if (total <= 0) return 'conversion'
+  if (total <= REPURCHASE_PROMPT_REMAINING) return 'repurchase'
   return 'auto'
 }
 

@@ -167,12 +167,15 @@
 }
 .biz .segmented button[aria-pressed="true"] { background: var(--select-bg); color: var(--select-ink); box-shadow: inset 0 0 0 1px var(--select-line); }
 
+/* Child combinators only: .cal-pop (E8 month calendar) nests inside .time-nav,
+   and the descendant form reached every day cell and the 今日/‹/› controls
+   (measured at the :2228 D-PR2-2 note). */
 .biz .time-nav { position: relative; display: flex; padding: 3px; border: 1px solid var(--control); border-radius: 8px; background: #fff; }
-.biz .time-nav button { min-width: 30px; min-height: 27px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); font-size: 12px; font-weight: 600; }
-.biz .time-nav button:hover { background: #f4f4f5; }
-.biz .time-nav a { display: inline-flex; align-items: center; min-width: 30px; padding: 0 8px; border-radius: 6px; color: var(--ink-2); font-size: 12px; font-weight: 600; text-decoration: none; }
-.biz .time-nav a:hover { background: #f4f4f5; }
-.biz .time-nav button.day-label { padding: 0 12px; font-weight: 700; white-space: nowrap; }
+.biz .time-nav > button { min-width: 30px; min-height: 27px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.biz .time-nav > button:hover { background: #f4f4f5; }
+.biz .time-nav > a { display: inline-flex; align-items: center; min-width: 30px; padding: 0 8px; border-radius: 6px; color: var(--ink-2); font-size: 12px; font-weight: 600; text-decoration: none; }
+.biz .time-nav > a:hover { background: #f4f4f5; }
+.biz .time-nav > button.day-label { padding: 0 12px; font-weight: 700; white-space: nowrap; }
 
 .biz .fields-pop-wrap { position: relative; }
 .biz .fields-pop {
@@ -249,7 +252,17 @@
   right: 0;
   top: calc(100% + 6px);
   z-index: 40;
-  width: 312px;
+  /* ⚖ STUDIO 2026-09-12 — 340, not 312: at 312 the 定休 cell's own word was
+     20.2px wide in a 39.1px column and 「空き12」 had nowhere to go.
+     ⚖ Liam 2026-09-12 00:5x 「I choose B」 — 380, not 340. The cell counts
+     BOOKINGS now and says so: 「あと35枠」 measures 43.81px against the 41.71px
+     column 340 leaves, so the grid pushed the card's own content to 354.67px
+     and a 393 phone grew a 61px horizontal scroll. At 380 the column is 47.14px
+     and the widest count the store can print sits inside it with 1.67px either
+     side — measured, not estimated (build-courses/renders/proof.json). The
+     clamp is what keeps a right-anchored 380px card inside a 393px phone. */
+  width: 380px;
+  max-width: calc(100vw - 32px);
   padding: 12px;
   border: 1px solid var(--control);
   border-radius: 12px;
@@ -259,22 +272,63 @@
 .biz .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .biz .cal-head strong { font-size: 14px; }
 .biz .cal-tools { display: flex; gap: 4px; }
-.biz .cal-tools button { min-height: 30px; padding: 0 9px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; }
+/* .cal-tools states its own min-width and the 今日 link's look — these used to
+   arrive via .time-nav's descendant a/button rules. */
+.biz .cal-tools button { min-width: 30px; min-height: 30px; padding: 0 9px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; }
 .biz .cal-tools button:hover { background: #f4f4f5; }
-.biz .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.biz .cal-tools a { display: inline-flex; align-items: center; min-width: 30px; padding: 0 8px; border-radius: 6px; color: var(--ink-2); font-size: 12px; font-weight: 600; text-decoration: none; }
+.biz .cal-tools a:hover { background: #f4f4f5; }
+.biz .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .biz .cal-grid .wd { padding: 3px 0 5px; text-align: center; color: var(--quiet); font-size: 11px; font-weight: 700; }
 .biz .cal-grid .wd.sun { color: var(--red-dark); }
 .biz .cal-grid .wd.sat { color: #3d6ab8; }
 .biz .cal-cell { display: grid; justify-items: center; align-content: center; gap: 1px; min-height: 44px; padding: 3px 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); }
-.biz .cal-cell b { font-size: 12.5px; font-weight: 600; }
-.biz .cal-cell small { font-size: 10.5px; line-height: 1.1; }
+/* ⚖ STUDIO S1 — the DATE is what the eye is hunting, so it leads and the count
+   sits under it a point smaller and a weight lighter. */
+.biz .cal-cell b { font-size: 13px; font-weight: 700; line-height: 1.1; }
+.biz .cal-cell small { font-size: 10px; font-weight: 500; line-height: 1.1; }
 .biz .cal-cell.open { background: var(--green-soft); color: var(--green-dark); }
+/* The count's ink is quieter than the date's but still AA at 10px. MEASURED on
+   this page's own tokens: #3b7352 on --green-soft = 4.69:1 (the mock's own
+   `opacity: .72` would have put every count near 3:1, so it is not ported, and
+   #3f7a57 — the first value tried — measures 4.27:1, under the bar). */
+.biz .cal-cell.open small { color: #3b7352; }
 .biz .cal-cell.open:hover { box-shadow: inset 0 0 0 1.5px #8ecbad; }
-.biz .cal-cell.full { background: #f4f4f5; color: var(--muted); }
+/* ⚖ STUDIO S4 — 残りわずか. The boundary is the store's own 残りわずかの目安
+   (`props.calendarTightMax`), never a number written here; `CALENDAR_TIGHT_MAX`
+   in today-interactions.ts is only its default. #8a5a00 on #fff4e0 =
+   5.44:1, the count's #946315 = 4.75:1. An amber WASH under a pressable is the
+   legal wash tier of the R13 law — no solid fill, no black. */
+.biz .cal-cell.tight { background: #fff4e0; color: #8a5a00; }
+.biz .cal-cell.tight small { color: #946315; }
+.biz .cal-cell.tight:hover { box-shadow: inset 0 0 0 1.5px #e5be7c; }
+/* 満 sits on the darkest of the three washes, and the page's --muted (#6b7280)
+   measures 4.40:1 on it — under AA for BOTH the 13px date and the 10px 「満」,
+   neither of which is large text. One step down the same blue-grey ramp:
+   #5f6672 on #f4f4f5 = 5.26:1. The token is not touched, because the shortfall
+   is this wash's, not the page's. */
+.biz .cal-cell.full { background: #f4f4f5; color: #5f6672; }
+/* ⚖ STUDIO S2 — 定休日 is FILLED, not left as a hole in the month: an empty
+   cell reads as a day nobody has data for, which is what `.unknown` below
+   actually means. #6b7280 (the page's --muted) on #f7f7f8 = 4.52:1. */
+.biz .cal-cell.closedday { background: #f7f7f8; color: var(--muted); }
+/* ⚖ ADDENDUM V2 — a day we have no numbers for: outside the ±45-day read
+   window, or inside it with no roster behind it (#890). A dated blank, not a
+   link, and deliberately paler than 定休 so the two cannot be confused — one is
+   a decision the store made, the other is data we lack. */
+.biz .cal-cell.unknown { background: transparent; color: var(--quiet); opacity: .45; }
 .biz .cal-cell.dim { opacity: .35; }
+/* ⚖ F3 — a PAST day that is also the day on screen is not a day to forget.
+   .35 over the indigo wash measured 1.60:1 — the selection disappeared, on the
+   one cell that has to say where the board is standing. The selection outranks
+   the dimming; `aria-current="date"` carries the same fact to a screen reader. */
+.biz .cal-cell.dim.cur { opacity: 1; }
 .biz .cal-cell.today { box-shadow: inset 0 0 0 1.5px var(--indigo); }
 .biz .cal-cell.cur { background: var(--indigo-soft); color: var(--indigo); }
-.biz .cal-legend { margin-top: 9px; color: var(--muted); font-size: 11px; }
+/* ⚖ STUDIO D2 — the legend wraps by PHRASE: each clause is its own nowrap span,
+   so a wrapped line can never open with 「・」. */
+.biz .cal-legend { display: flex; flex-wrap: wrap; gap: 1px 5px; margin-top: 9px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.biz .cal-legend span { white-space: nowrap; }
 
 /* ═══ F — board body + timeline ═══ */
 .biz .board-body { display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -544,11 +598,46 @@
 .biz .proxy-verdict[data-verdict="caution"] { display: block; }
 .biz .proxy-verdict[data-verdict="blocked"] { border: 1px dashed var(--red); background: var(--red-soft); color: var(--red-dark); }
 .biz .proxy-verdict[data-verdict="caution"] { border: 1px dotted var(--guard-dark); background: var(--guard-soft); color: var(--guard-dark); }
+/* ⚖ LIVE-WHILE-DRAGGING §5a — THE TWO LANDINGS THAT MOVE OTHER CUSTOMERS. No
+   new colour: the badge borrows the very palettes the ⇄ chip on the strip
+   already wears — `.guard-rail-cell.guard-slot`'s purple for a clean swap and
+   `.degraded`'s amber for a costly one (Liam: 「色の意味は ✓／△ と同じ」) — and
+   the EDGE is dashed for `.guard-rail-cell.reseat`'s own reason: the fit is
+   conditional on the board rearranging itself. */
+.biz .proxy-verdict[data-verdict="reseat"],
+.biz .proxy-verdict[data-verdict="reseat-caution"] { display: block; }
+.biz .proxy-verdict[data-verdict="reseat"] { border: 1px dashed #7656a8; background: var(--guard-soft); color: var(--guard-dark); }
+.biz .proxy-verdict[data-verdict="reseat-caution"] { border: 1px dashed #cf8427; background: #fff0d9; color: #8b4e06; }
 /* THE BOX GOES RED — canon's `.guard-ghost.refused` on the whole footprint,
    `.snap-degraded`'s dashed edge on the costly one. `!important` only where the
    `.event ${state}` classes already own the same property two classes deep. */
 .biz .drag-proxy[data-verdict="blocked"] { outline: 2px dashed var(--red); outline-offset: -1px; background: var(--red-soft) !important; }
 .biz .drag-proxy[data-verdict="caution"] { outline: 2px dotted var(--guard-dark); outline-offset: -1px; }
+/* ⇄ says the COST and the guard's word says the RANK, so the CARD keeps exactly
+   the treatment its rank already earned: a costly landing is still dotted, and a
+   clean one — even one that moves somebody — still paints nothing at all. */
+.biz .drag-proxy[data-verdict="reseat-caution"] { outline: 2px dotted var(--guard-dark); outline-offset: -1px; }
+/* ⚖ Liam 2026-09-11 — THE WORD STEPS ASIDE ON A NARROW CARD. The badge is always
+   the ⇄ icon; the word joins it only when the card in hand has room. The room is
+   the proxy's OWN inline size (`@container`, unnamed → the nearest container = the
+   proxy), not a viewport breakpoint: a 30分 card on a wide screen is still narrow.
+   The number is in the container's own units, which are its CONTENT box: the card
+   is `box-sizing: border-box` with a 1px border and 2px/6px side padding, so a
+   92px CARD measures 82px here. 92px of card = the badge's 「⇄ 入れ替え」 measured
+   at 82px + its 3px offset + air (the arithmetic in DESIGN-LIVE-DRAG §5a's table
+   said ≈81px and the render says 82.0). A 60分 card is 101px at the 1180 shell
+   floor and 129px at 1440 — both wear the word; a 30分 card is 51px → icon alone.
+   Containment is SAFE here and was checked, as analytics.css :79 checks it: the
+   proxy is already
+   `position: fixed; z-index: 120; will-change: transform` (its own containing
+   block and stacking context), its width is written by JS from the grabbed card,
+   and its only children are the card face (strong/small) and this badge.
+   ponytail: width stands in for text width (a query cannot measure glyphs); if a
+   fallback face for ⇄ ever widens the badge past 79px of content, raise it. */
+.biz .event.drag-proxy,
+.biz .drag-proxy.chip { container-type: inline-size; }
+.biz .proxy-verdict > span { display: none; }
+@container (min-width: 82px) { .biz .proxy-verdict > span { display: inline; } }
 
 /* ── 仮置きエリア (canon :1493–1507) ──────────────────────────────────────
    The WHOLE bar is the drop zone, so the whole bar is drawn as the receptacle;
@@ -628,7 +717,31 @@
    rule own `box-shadow` at this exact specificity, so a rule written up beside
    `.dragging` would lose the lift on every card that has a category. */
 .biz .event.resizing { opacity: .88; z-index: 30; cursor: grabbing; box-shadow: 0 8px 22px rgba(24, 24, 27, .22); }
-.biz .timeline.hide-time .e-time, .biz .timeline.hide-tkt .e-tkt { display: none; }
+.biz .timeline.hide-time .e-time { display: none; }
+/* ⚖ FIX ROUND 2 (delta lens 3 N5) — 「チケット・価格」 HIDES THE MONEY, NOT THE
+   PLACEMENT RULE. Hiding the whole `.e-tkt` took 個室のみ and 保持 with it, so a
+   control named after prices switched off the one fact that decides where a card
+   may go — the operator turns prices off for a dense afternoon and loses it. Only
+   the two money nodes go; the leading dot goes with the words it labelled (the
+   category still reads off the card's own left stripe), which leaves the line
+   VISUALLY EMPTY — no content, no line box, and it has no border — on a card
+   carrying neither note. It does keep `margin-top: 2px` from `.biz .event
+   small`, which `display: none` used to take: immaterial, because `.biz .event`
+   is absolutely positioned top/bottom with `overflow: hidden`, so a card's
+   height never followed its content in the first place (delta2 lens 4 D7).
+
+   ⚖ FIX ROUND 3 (delta2 lens 3 M4) — AND THE SURVIVING NOTE STARTS AT THE LEFT.
+   `.tkt-note`'s 5px is the gap AFTER the money it used to follow; with the money
+   hidden rather than removed the note is not `:first-child`, so 個室のみ sat 5px
+   right of the name above it. The gap is kept only where it still separates two
+   notes (個室のみ・保持 on one card). THIS DIAL ONLY — 密度→コンパクト takes the
+   whole line back (⚖ FIX ROUND 4, see 密度 below), so down there no note
+   survives to start at the left. */
+.biz .timeline.hide-tkt .e-tkt::before,
+.biz .timeline.hide-tkt .e-tkt .tkt-cat,
+.biz .timeline.hide-tkt .e-tkt .tkt-core { display: none; }
+.biz .timeline.hide-tkt .e-tkt .tkt-note { margin-left: 0; }
+.biz .timeline.hide-tkt .e-tkt .tkt-note + .tkt-note { margin-left: 5px; }
 .biz.drawer-open .event .tg { display: none; }
 
 /* 販売可能枠 tint (E9b), canon :586–598. The wash's alpha SCALES WITH THE
@@ -668,7 +781,25 @@
    and poking 1px past both edges of the boxes it sits under — a second geometry
    on a layer whose whole point is that it is the same layer. The signed-off mock
    is discrete rounded marks; these are those. */
-.biz .cell-rest-cue { position: absolute; z-index: 0; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); opacity: .25; pointer-events: none; }
+/* ⚖ LIAM RULINGS 1 + 2 (2026-09-09) — THE MARK CARRIES WORDS NOW, so the wash
+   moves off the element and onto a layer of its own: quarter-strength paint
+   under a label at full strength, instead of a label faded to a quarter with
+   the diagonal it is sitting on. Same gradient, same .25, same two colours —
+   `::before` is where they live, and nothing else about the mark moved. */
+.biz .cell-rest-cue { position: absolute; z-index: 0; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; pointer-events: none; }
+.biz .cell-rest-cue::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); opacity: .25; }
+/* The label: the chip's own word (満室 / 清掃), or 別の枠で販売中 on a quiet hour
+   whose bed is sold on another row. Authored lines wrap at their own boundary
+   when the cue is too narrow for one — `flex-wrap` is the whole mechanism, so a
+   wide board reads one line and a 1180px one reads two, with no measurement. */
+.biz .cell-rest-cue i { position: absolute; inset: 0; z-index: 1; display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 0; padding: 0 2px; font-family: inherit; font-size: 9px; font-style: normal; font-weight: 800; line-height: 1.15; letter-spacing: -.4px; color: #52525b; text-align: center; overflow: hidden; }
+/* ⚖ RULING 2's own mark — a FLAT card, not the 清掃 diagonal: nothing here is
+   being turned over or refused, the half hour is free and the bed it needs is
+   on sale one row up. The dashed edge is the board's own 「this is not a box you
+   can sell」 grammar, and it is the one thing telling the two marks apart at a
+   glance. */
+.biz .cell-rest-cue.sold-elsewhere { box-sizing: border-box; border: 1px dashed #d4d4d8; }
+.biz .cell-rest-cue.sold-elsewhere::before { background: #f4f4f6; opacity: 1; }
 .biz .timeline.sell-drag .cell-price { opacity: 0; }
 .biz .timeline.sell-off .cell-price { display: none; }
 /* ⚖ Liam 2026-08-20 — LENGTH-MATCHED EMPHASIS, superseding canon's uniform
@@ -793,7 +924,8 @@
 
    z-index 1 — level with `.cell-packed`, above the rest cue and the wash, under
    every card. Nothing else can be inside a held span, so it never competes. */
-.biz .cell-held {
+.biz .cell-held,
+.biz .cell-shared {
   position: absolute;
   top: 4px;
   bottom: 4px;
@@ -819,16 +951,143 @@
   cursor: pointer;
   touch-action: manipulation;
 }
-.biz .cell-held .held-title { font-size: 10px; font-weight: 700; line-height: 1; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.biz .cell-held .held-sub { font-size: 9px; line-height: 1.2; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.biz .cell-held .held-title,
+.biz .cell-shared .held-title { font-size: 10px; font-weight: 700; line-height: 1; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.biz .cell-held .held-sub,
+.biz .cell-shared .held-sub { font-size: 9px; line-height: 1.2; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — THE SHARED 枠.
+   Same box, said quieter: the board's own muted hatch (the 9/9 rail/hatch
+   round's two greys, the 清掃 mark's gradient at box strength) instead of the
+   flat fill, so a glance separates 『we are holding this』 from 『we cannot
+   actually honour this one』 without a second colour entering the page. No
+   accent, no black, no press — there is no rule on it the held box does not
+   already carry.
+
+   ⚖ HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MAJOR 1)
+   …and BECAUSE it has no press, it stands aside like every other state paint on
+   this track. F6's law below says it in as many words: 『every other layer on
+   this track is pointer-events: none, so the track's own click is what 配置モード's
+   landing and 新規予約を作成 both run on』. The held box is that law's deliberate
+   exception because it ANSWERS; this box answers nothing, so at rest it was
+   swallowing あずさ's minutes and giving the operator neither a dialog nor a
+   landing. It is a state paint like the rest cue and the 詰め込み/スキマ boxes,
+   and it carries their rule. `cursor: default` stays — harmless, and true. */
+.biz .cell-shared { cursor: default; pointer-events: none; border-color: #cbd5e1; background: repeating-linear-gradient(135deg, #e6eaf0 0 5px, #f5f7fa 5px 10px); }
+/* ⚖ HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW.md H4)
+   HONEST-COUNT ROUND 1 · fix 4 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW-2.md R1)
+   — both lines take the HELD box's own title ink, #475569; 「quieter」 is
+   carried by the hatch and the paler dashed border, not by the words. */
+.biz .cell-shared .held-title { color: #475569; font-weight: 600; }
+.biz .cell-shared .held-sub { color: #475569; }
 /* 表示設定 ▸ 空き枠表示「非表示」 takes the whole sell layer off the board, and
    the 確保 chip goes with it — the operator asked for a board with no window
    layer on it. 淡色表示/ドラッグ時のみ are about a SALE being loud or quiet and
    deliberately do not touch this: a held window is a state, and hiding the
    reason a stretch is empty is flag 44's defect. A locked lane sells nothing
    online at all (the toggle's own words), so it holds nothing to show. */
-.biz .timeline.sell-off .cell-held { display: none; }
-.biz .lane.locked .cell-held { display: none; }
+.biz .timeline.sell-off .cell-held,
+.biz .timeline.sell-off .cell-shared { display: none; }
+.biz .lane.locked .cell-held,
+.biz .lane.locked .cell-shared { display: none; }
+/* ⚖ D-10 · D-12 · SPEC-R2 §3.2 (2026-09-13) — THE WITHHELD OFFER: THE OFFER'S
+   OWN BOX, GREYED. Not a sibling beside it (⚖ ADDENDUM 2 item 1) — Liam's
+   picture says 「詰め込み（14:30–15:00・¥3,510）だけが灰色」, so the KIND and the
+   PRICE stay readable and only the colour changes. NO NEW COLOUR: the muted
+   hatch is the shared 枠's own, which is the 清掃 mark's gradient at box
+   strength, and the ink is the held box's own #475569. No accent, no black, no
+   press — the box answers nothing the two lines do not already say.
+
+   The box was a bottom-aligned row (the price at `flex-end`, the name tag
+   absolute in the corner); with two lines to carry it becomes the held box's
+   centred column and the name tag stays exactly where it was. `overflow:
+   hidden` already clips rather than grows, which is this track's own law: a
+   box's width is the offer's LENGTH and no label may move it.
+
+   These rules follow `.cell-price` / `.cell-packed` / `.cell-gapfill` in this
+   file, so the fill wins on equal specificity by source order alone — there is
+   no `!important` and no invented weight anywhere here. */
+.biz .cell-withheld { flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 2px 4px; box-sizing: border-box; text-align: center; border: 1px dashed #cbd5e1; background: repeating-linear-gradient(135deg, #e6eaf0 0 5px, #f5f7fa 5px 10px); }
+.biz .cell-withheld .held-title { font-size: 10px; font-weight: 600; line-height: 1; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.biz .cell-withheld .held-sub { font-size: 9px; line-height: 1.2; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* The kind and the price go quiet WITH the box rather than changing hue: the
+   same ink as the shared 枠's lines, so nothing new enters the page. */
+.biz .cell-withheld .cell-nametag { color: #64748b; opacity: .75; }
+.biz .cell-withheld i { color: #64748b; opacity: .8; }
+/* ⚖ B2 PIXEL FIX (2026-09-13, PKT-BUILD-R2-B2 step 14) — THE GREY HAS TO WIN,
+   and the four rules above were one class short. Measured on the four-width
+   renders, not argued:
+     · `.biz .cell-withheld` is (0,2,0). The KIND rule it must beat on a 詰め込み
+       box is `.biz .cell-packed.crumb` (0,3,0), so the ONE box Liam's picture is
+       about — 「詰め込み（14:30–15:00・¥3,510）だけが灰色」 — stayed peach with an
+       orange price at every width. Source order never got a say: specificity had
+       already decided.
+     · Mid-drag, `.biz .timeline.dragging-live .cell-price.fits` (0,5,0) repaints
+       a withheld hour with the landing wash and the blue ring, so the hour the
+       store is NOT selling looks exactly like the hour it is (B1 §Deviations 7,
+       now measured: the two frames are pixel-identical apart from the text).
+   The fix is weight, not force: each selector repeats `.cell-withheld` to MATCH
+   the rule it overrides and then wins on source order. No `!important`, no new
+   colour (the same hatch and the same #64748b ink as above), no black. `.fits`
+   keeps its whole drag meaning on every cell that is not withheld — which is
+   the point: a withheld hour is the one hour the wash must not promise.
+   ⚖ ROUND 2 blind round L1 MINOR 2 (2026-09-13) — one KIND rule was missed:
+   `.biz .timeline.dragging-live .cell-packed.crumb:not(.fits)` (0,6,0, :899)
+   still outweighed the two-deep rule above it, so a 詰め込み box painted the
+   orange crumb wash mid-drag. The dragging-live arm below now repeats
+   `.cell-withheld` a THIRD time (0,6,0) — later in source than :899, so it
+   wins on order — while the rest arm is untouched. */
+.biz .cell-withheld.cell-withheld,
+.biz .timeline.dragging-live .cell-withheld.cell-withheld.cell-withheld { border: 1px dashed #cbd5e1; background: repeating-linear-gradient(135deg, #e6eaf0 0 5px, #f5f7fa 5px 10px); box-shadow: none; opacity: 1; }
+.biz .cell-withheld.cell-withheld .cell-nametag,
+.biz .timeline.dragging-live .cell-withheld.cell-withheld.cell-withheld .cell-nametag { color: #64748b; opacity: .75; }
+.biz .cell-withheld.cell-withheld i,
+.biz .timeline.dragging-live .cell-withheld.cell-withheld.cell-withheld i { color: #64748b; opacity: .8; }
+/* ⚖ D-11 · SPEC-R2 §3.2 — THE RELEASED 枠'S MARK. The held box's geometry and
+   vocabulary again, a shade paler because the state it reports is 「this is no
+   longer being held」. It is `pointer-events: none` like every other state paint
+   on this track, so the track's own click still opens 新規予約を作成 over it; the
+   one control inside takes its pointer events back. A pill in the accent's LIGHT
+   wash, never a fill — ⚖ 8/6: a state is a wash and an action is not black. */
+.biz .cell-released { position: absolute; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); display: block; box-sizing: border-box; border: 1px dashed #cbd5e1; border-radius: 4px; background: rgba(248, 250, 252, .45); overflow: hidden; pointer-events: none; }
+/* ⚖ D-16 (3) · R2-B4, 2026-09-13 — THE NOTE IS A LABEL, NOT A LID, AND THE
+   ORDER IS THE LAYERING. The body keeps the released 枠's whole span (that IS
+   the fact it reports) but it is a backdrop: it carries NO `z-index` at all
+   and is drawn before every priced box in `renderLane`, so tree order alone
+   paints it under 販売可能枠 (0), スキマ枠 (0) and 詰め込み (1). A `z-index: 0`
+   here would open a stacking context and trap the note inside it — that is
+   what made the note show THROUGH a 詰め込み box — and a negative one would
+   sink the mark behind the timeline's own grid. With the parent context gone
+   the note's `z-index: 3` belongs to the LANE, so it sits above every box on
+   the track, everywhere, and the one rule holds: body under, note above.
+   The words are ONE row — title then pill — so the priced box underneath
+   keeps its height: a note about a release may never hide what is on sale.
+   The pill keeps its own pointer events and its light accent wash (⚖ 8/6).
+   The sub drops out of the label at every width — it stays in the DOM and in
+   the mark's `aria-label`, which is where a screen reader reads it — because
+   a second line would be the whole box again. The note's OWN dashed border and
+   its vertical padding are gone: the pill inside is ~18px on its own, and the
+   border plus 1px above and below put the strip at ~22px — over the ≤20px the
+   one row is for, and the height is exactly what the box underneath loses. The
+   mark's own dashed edge already says 「this is not a box you can sell」 one
+   pixel away, so the second dashed rectangle was noise as well as weight. The
+   fill is FULLY opaque: at .92 the box's own title read faintly through the
+   strip, which is the two-texts-crossing defect in a quieter form. */
+.biz .cell-released .held-note { position: absolute; top: 2px; right: 3px; z-index: 3; display: flex; flex-direction: row; align-items: center; gap: 4px; height: auto; max-width: calc(100% - 6px); padding: 0 4px; box-sizing: border-box; border-radius: 4px; background: #f8fafc; overflow: hidden; pointer-events: none; }
+.biz .cell-released .held-note .held-sub { display: none; }
+/* In the row, the TITLE is the one that gives way. `.held-title` already shrinks
+   to nothing (it clips its own overflow), but a flex item shrinks by default, so
+   at 440/393 the pill was being squeezed to 16px alongside a title with no room
+   for a glyph — the one control on the mark, made the smaller of the two. It
+   keeps its natural width now and only its own `max-width: 100%` trims it. */
+.biz .cell-released .held-note .held-restore { flex: 0 0 auto; }
+.biz .cell-released .held-title { font-size: 10px; font-weight: 700; line-height: 1; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.biz .cell-released .held-sub { font-size: 9px; line-height: 1.2; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.biz .cell-released .held-restore { pointer-events: auto; appearance: none; -webkit-appearance: none; margin: 0; padding: 2px 7px; font-family: inherit; font-size: 9px; font-weight: 700; line-height: 1.3; border: 1px solid var(--indigo); border-radius: 999px; background: var(--indigo-soft); color: var(--indigo); cursor: pointer; touch-action: manipulation; max-width: 100%; white-space: nowrap; overflow: hidden; }
+/* Same two switches the held and shared boxes answer to, for the same reasons:
+   空き枠表示「非表示」 takes the whole window layer off the board, and a locked
+   lane sells nothing online so it has nothing to report here. */
+.biz .timeline.sell-off .cell-released { display: none; }
+.biz .lane.locked .cell-released { display: none; }
 /* ⚖ FIX ROUND F6 (blind-final L2#3) — A PLACEMENT GOES THROUGH THE CHIP.
    Every other layer on this track is `pointer-events: none`, so the track's own
    click is what 配置モード's landing and 新規予約を作成 both run on
@@ -844,6 +1103,11 @@
    as ruled. The two classes are the ones the screen already sets. */
 .biz .timeline.placing .cell-held,
 .biz .timeline.dragging-live .cell-held { pointer-events: none; }
+/* Same law as the held box above: every layer stands aside during a gesture.
+   The released mark's pill is a second interactive element on the track, and
+   it is pressable only at rest — never mid-配置 or mid-drag. */
+.biz .timeline.placing .cell-released .held-restore,
+.biz .timeline.dragging-live .cell-released .held-restore { pointer-events: none; }
 
 /* ── スキマガード 60分配置ガイド (canon :626–686) ──────────────────────────
    An 18px status rail follows each staff lane: every exact 30-minute start,
@@ -871,6 +1135,15 @@
    cursor sweep is R8's; this is the rail's own half, and it is here because the
    press it advertises exists.) */
 .biz .guard-rail-cell.blocked { border: 1px solid #e0e0e5; background: #f2f2f4; color: #8a8a93; cursor: pointer; }
+/* ⚖ LIAM RULING 3 (2026-09-09) — 「a start that fits only by MOVING someone」.
+   NO NEW COLOUR: the chip wears `guard-slot` or `degraded` by the verdict the
+   drop will give once the shuffle is staged, so the 帯's own ✓／△ vocabulary
+   carries the meaning unchanged (Liam: 「色の意味は ✓／△ と同じ」). The one
+   thing that differs is the EDGE — dashed, because the fit is conditional on
+   the board rearranging itself — and it is `border-style` alone so each palette
+   keeps its own 1px border colour. No 3px dot: the dot rides `data-reason`, and
+   this chip is not a refusal. */
+.biz .guard-rail-cell.reseat { border-style: dashed; }
 /* ⚖ flag 44 (1)+(2) — THE ENTIRE REST BUDGET: a 10px word and a 3px dot.
    ⚖ big-tech simplicity — calm at rest, explanation on demand. No new colour on
    either: the word is the blocked family's own grey (`currentColor`, #8a8a93)
@@ -940,6 +1213,11 @@
 .biz .guard-band .degraded-key::before { border-color: #cf8427; background: #fff0d9; }
 .biz .guard-band .blocked-key { color: #686871; }
 .biz .guard-band .blocked-key::before { border-color: #d7d7dc; background: #f2f2f4; }
+/* ⚖ LIAM RULING 3 (2026-09-09) — the ⇄ key's own swatch: the ✓ purple with the
+   chip's own dashed edge, so the band shows the reader the exact mark the strip
+   draws. No new colour — the tone decides purple or amber on the chip, and the
+   key says so in words rather than painting a second swatch for it. */
+.biz .guard-band .reseat-key::before { border-style: dashed; }
 .biz .guard-band .protected-key { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 7px; background: var(--guard-soft); color: var(--guard-dark); font-weight: 800; }
 .biz .guard-band .guard-band-note { font-weight: 500; color: var(--ink-2); }
 /* ⚖ fresh-eyes finding 8/30, Fable default (overturnable) — a guard-off store
@@ -1038,7 +1316,25 @@
   transform: translate(-1px, -100%);
 }
 
-/* R21 密度 — compact packs the rows and drops the card's third line. */
+/* R21 密度 — compact packs the rows and drops the card's third line.
+
+   ⚖ FIX ROUND 4 (delta3 lens 3 X1) — AND IT DROPS THE WHOLE LINE, ON PURPOSE.
+   Fix round 3 hid only the money here, so 個室のみ and 保持 would survive
+   コンパクト the way they survive 「チケット・価格」. THE LANE CANNOT HOLD
+   THEM. This dial's 52px lane leaves a 36px content box (47px card after the
+   2px top/bottom offsets and the lane's own 1px bottom border, which
+   border-box keeps inside the 52px; minus 2px of borders and 9px of padding
+   — 48/37 only on the last lane in a group, which has no bottom border), and
+   three lines need 15.0 + 16.4 + 16.4 = 47.8px. `.biz .event` is absolutely
+   positioned with `overflow: hidden`, so the extra 11.8px is neither scrolled
+   nor grown — it is SLICED, and the operator reads the top fifth of a run of
+   kanji. A chopped fact is worse than an absent one. 標準's 72px lane leaves
+   56px, which is why the same three lines fit up there.
+
+   コンパクト drops the third line; the tag survives on the accessible name, the
+   inspector, the shelf chip and every refusal — so nobody has to read 個室のみ
+   off a 52px card. 「チケット・価格」 is the dial that keeps the note, because
+   it hides nodes without shrinking the lane. */
 .biz.board-compact .lane { min-height: 52px; }
 .biz.board-compact .event small.e-tkt { display: none; }
 .biz.board-compact .timeline-scroll { max-height: 62vh; overflow-y: auto; }
@@ -1733,3 +2029,1414 @@
 .biz .spot-foot button:hover { background: #f4f4f5; }
 .biz .spot-foot button:disabled { opacity: .4; cursor: default; }
 .biz .spot-foot .spot-done { margin-left: auto; }
+
+/* ═══ RESKIN LAYER (2026-09-08) — appended, never interleaved; one block per R-number; see PKT-RESKIN-BUILD ═══ */
+
+/* ── R-1 · Surface system — hierarchy through paper, not lines ───────────── */
+
+/* THE PAGE'S GREY LADDER — four tokens, page-scoped, never the shell.
+   These are the LIVE consumers, measured: the surfaces where the token is what
+   actually paints, not the ones the layer goes on to restate with a literal.
+     --muted    register-cell labels · board-head span · legend · park-label
+                span · cal-legend · the 表示設定 popover's text · dialog labels
+                (the incident stats and the inspector facts read grey from
+                literals in this layer, not from the token)
+     --card     decision-rows · the 仮押さえ popover's border · the dialog
+                change-list (the panel and the ops-strip take a literal here)
+     --section  register-cell dividers · decision-card and decision-row
+                hairlines · spot-foot · the time-axis header · pop-divider ·
+                the legend's cat-legend rule · dialog hairlines (lane-label,
+                group-label, inspector and section-head are restated literally)
+     --row      the lane rows · the track's gridlines · the hour ruler's left
+                borders · the 60分配置 rail
+   Two of those lists reach past this PR's own surfaces — the popovers, the
+   time axis and the dialogs are later PRs' — which is the honest cost of a
+   token: it repaints wherever it is read. It is bounded to the page, and the
+   PR body says so.
+   Semantic tokens (green / orange / red / guard / indigo) are
+   deliberately NOT redeclared: a colour's meaning may not move. --quiet stays
+   at canon's #71717a — the packet's #9ca3af is named for a chevron and a
+   header label, and is too light to become the room's text grey.
+
+   ⚖ GREPTILE G-1 — three tokens were here and are gone, because a token with no
+   consumer in this PR only repaints somebody else's surface:
+   --control  22 canon uses, all toolbar / popover / dialog / tour controls
+              (PR-2's territory) plus the lock toggle, whose look this PR keeps
+              as canon. PR-2's own block declares it.
+   --line     one use: the 配置の相談 popover's fact box (:1005). Not this PR.
+   --line-2   two uses, :1271 and :1463 — BOTH inside the ruled H2 warn-face
+              section, which must stay to the pixel. No PR declares it.
+   The layer's one `var(--control)` reader — the `.guard-band.legend-only`
+   restatement below — resolves to the shell's own #e4e4e9, which is exactly the
+   value canon gives that rule, so the restatement still says canon's word.
+   (⚖ PR-2 declared this token for one round and Greptile's G-2 took it out
+   again — see the ② block. While it was declared this line read #e4e7ec, and
+   the comment said so; it is back to the truth now. The rule paints nothing
+   either way: the width is 0.) */
+.biz .page.page-today {
+  --muted: #6b7280;
+  --card: #e4e7ec;
+  --section: #eef0f4;
+  --row: #eceef3;
+  background: #f8f9fb;
+  padding: 16px 28px 44px;
+}
+
+.biz .page-today .ops-strip,
+.biz .page-today .panel,
+.biz .page-today .incident,
+.biz .page-today .decision-section {
+  background: #fff;
+  border: 1px solid #e4e7ec;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+}
+
+.biz .page-today .section-head,
+.biz .page-today .board-head,
+.biz .page-today .inspector-head {
+  border-bottom: 1px solid #eef0f4;
+}
+.biz .page-today .section-head { min-height: 46px; padding: 0 16px; }
+.biz .page-today .section-head strong { font-size: 14px; font-weight: 700; color: #18181b; }
+.biz .page-today .section-head span,
+.biz .page-today .section-tools > span { color: #6b7280; font-size: 12px; }
+.biz .page-today .section-tools .btn.text { font-size: 12px; font-weight: 600; }
+
+/* Ultra-wide: the board is the one thing that may use width, and 1760 is the
+   cap — nothing stretches across a 2560 window. */
+@media (min-width: 1920px) {
+  .biz .page.page-today { max-width: 1760px; margin: 0 auto; }
+}
+@media (max-width: 1320px) {
+  .biz .page.page-today { padding: 16px 18px 40px; }
+}
+
+/* ── R-4 · The legend band → one quiet key row ──────────────────────────── */
+
+.biz .page-today .guard-band {
+  margin: 0;
+  padding: 8px 14px 10px;
+  border-left: 0;
+  border-radius: 0;
+  border-bottom: 1px solid #eef0f4;
+  background: transparent;
+  gap: 6px 14px;
+  color: #3f3f46;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+/* ⚖ STATE-CLASS LAW (PKT §1). Canon's guard-off band names its own left-rule
+   colour at `.biz .guard-band.legend-only` (:975, 0,3,0); the `border-left: 0`
+   above is (0,3,0) too and, appended later, rewrote that colour to
+   currentColor. Restated at 0,4,0 after the rule that beat it. The rule paints
+   nothing either way — the width is 0 — but the state keeps its own value. */
+.biz .page-today .guard-band.legend-only { border-left-color: var(--control); }
+.biz .page-today .guard-band .protected-key {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--guard-soft);
+  color: var(--guard-dark);
+  font-weight: 700;
+}
+.biz .page-today .guard-band .guard-band-note { font-size: 12px; font-weight: 500; color: #6b7280; }
+.biz .page-today .layer-legend { margin-top: 0; padding-top: 0; border-top: 0; font-weight: 700; }
+.biz .page-today .layer-legend .lk b { font-size: 12px; font-weight: 700; }
+.biz .page-today .layer-legend .lk span { color: #6b7280; font-size: 11.5px; font-weight: 500; }
+
+/* ── R-5 · Lane identity ────────────────────────────────────────────────── */
+
+/* ⚖ V3-1 (Liam, 9/6) — THE LANE CHIPS ARE OUT: 「the letters and the round
+   boxes beside the names — wasting space」. With the 26px chip and its 8px gap
+   gone the column is a plain single-column block again, and --label drops from
+   176 to 142 (136 ≤1320 — 134 until fix round 1, see the ⚖ line below).
+   D-3's measurement still governs the number: テスト さぶろう needs 95px of
+   name room, and 142 − 12 − 26 of padding leaves 104.
+   Everything else in R-5 stays — white column, hairline, ink name, grey sub,
+   the 自分 pill, the group-label tint, and the lock toggle he likes.
+   The handle (LABEL_MIN 90 / LABEL_MAX 240) is untouched; TodayScreen's
+   LABEL_DEFAULT follows this seed for the unresolved-property fallback only. */
+.biz .page-today .timeline { --label: 142px; }
+/* ⚖ accepted 9/6 — 134, not 128: at 128 the column gives 89px and テスト
+   さぶろう needs 95, so the one long name ellipsised at 1280.
+   ⚖ FIX ROUND 1 — 136, not 134: the blind round measured テスト さぶろう at
+   94.7px inside the 95px box 134 gives, i.e. 0.3px of headroom on the one name
+   the whole number was chosen for. A font-stack shift or a rounding difference
+   on another machine ellipsises it. 136 gives 97px — 2.3px of room — and costs
+   2px of track. Every other name has ≥25px spare either way. */
+@media (max-width: 1320px) { .biz .page-today .timeline { --label: 136px; } }
+
+.biz .page-today .lane-label {
+  display: grid;
+  align-content: center;
+  padding: 8px 26px 8px 12px;
+  background: #fff;
+  border-right: 1px solid #eef0f4;
+}
+.biz .page-today .lane-label > strong { font-size: 13px; font-weight: 700; color: #18181b; }
+.biz .page-today .lane-label > span { margin-top: 2px; color: #6b7280; font-size: 11.5px; }
+/* ⚖ STATE-CLASS LAW — canon's `.biz .lane-label .absent` (:352) is 0,3,0 and
+   the rule above is 0,3,1, so the sub-line's grey would have taken the absent
+   lane's red with it. Restated at 0,4,1 after it. */
+.biz .page-today .lane-label > span.absent { color: var(--red-dark); }
+/* 自分 — the same generated marker, restyled as the accent pill and dropped
+   onto the NAME's line (canon floats it at the label's top-right corner).
+   D-4: it stays out of flow. In the grid it would be a third column, and an
+   auto column narrows the name on BOTH rows — 見本 あずさ measured 61px of
+   room against 69px of name, i.e. the one lane where the pill lives would be
+   the one lane whose name got clipped. Out of flow it sits in the right
+   padding the lock toggle already owns, and costs the name nothing. */
+.biz .page-today .lane.mine .lane-label::after {
+  top: 7px;
+  right: 26px;
+  padding: 1px 5px;
+  border: 0;
+  border-radius: 4px;
+  background: #eef2ff;
+  color: #3f5be8;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+/* ⚖ STATE-CLASS LAW — a plain `.page-today .lock-toggle:hover` is 0,4,0 and
+   beats canon's pressed dress at `.biz .lock-toggle[aria-pressed="true"]`
+   (:389, 0,3,0), so hovering a LOCKED lane's toggle wiped its accent wash.
+   The hover is written to exclude the pressed state instead of restating it:
+   one rule, and the pressed toggle keeps canon's own hover behaviour. */
+.biz .page-today .lock-toggle:not([aria-pressed="true"]):hover { background: #f1f3f7; }
+
+.biz .page-today .group-label {
+  min-height: 26px;
+  background: #f8f9fb;
+  border-bottom: 1px solid #eef0f4;
+  color: #52525b;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.biz .page-today .group-label span:first-child { background: #f8f9fb; }
+.biz .page-today .group-label span:last-child { color: #6b7280; font-size: 11.5px; font-weight: 500; }
+.biz .page-today .guard-rail-label { background: #fff; border-right-color: #eef0f4; color: #9095a1; }
+
+/* ── the two TINT calibrations (PKT §0.1) — R-6's only PR-1 members ──────── */
+
+/* §0.1 — the 勤務不可 / 終業 / 本日勤務なし hatch, one calibration quieter.
+   Same 135deg / 5px / 10px grammar, same meaning, same red-dark text: it still
+   reads "not available", it stops shouting from three lanes at once. */
+.biz .page-today .event.absence {
+  border-color: #f3c2bd;
+  background: repeating-linear-gradient(135deg, #f6d3d0 0 5px, #fff7f6 5px 10px);
+}
+
+/* §0.1 — the 60分配置 rail's refused chip. The border goes, the fill goes
+   quiet: the strip becomes a thin calm line instead of 18 bordered boxes.
+   ✓ purple, △ amber, the word chips, the 3px dot and × are untouched. */
+.biz .page-today .guard-rail-cell.blocked { border: 0; background: #f3f4f7; color: #a1a1aa; }
+/* ⚖ STATE-CLASS LAW — and the ✗ still goes red. TodayScreen :5870 writes BOTH
+   classes on the same chip whenever the live verdict is 「置けない」
+   (`state` is 'blocked' AND ' inert' is appended), so canon's `.inert` (:924,
+   0,3,0) was being beaten by the tint above at 0,4,0 and the refusal lost its
+   red. Restated as the COMBINATION, not as `.inert` alone: the border shorthand
+   has to come back (the tint zeroes the width canon's `.blocked` supplied), and
+   a bare `.inert` would then draw that 1px red edge on chips canon leaves
+   borderless — the base cell (:888) has a radius and no border, so a word chip
+   that turns inert mid-drag would gain an edge it never had. At 0,5,0 this
+   touches the one pair the tint interferes with; canon's `.inert` still governs
+   `.guard-slot` (:891) and `.degraded` (:892), which bring their own border. */
+.biz .page-today .guard-rail-cell.blocked.inert { border: 1px solid #e6a09a; background: var(--red-soft); color: var(--red-dark); }
+
+/* ── R-8 · Decisions · incident · KPI ───────────────────────────────────── */
+
+.biz .page-today .decision-card { padding: 10px 14px; }
+.biz .page-today .decision-card:hover { background: #f8f9fb; transition: background-color 120ms ease-out; }
+.biz .page-today .decision-top span:first-child { color: #52525b; font-size: 12px; font-weight: 700; }
+.biz .page-today .decision-card.urgent .decision-top span:first-child { color: #52525b; }
+/* the 6px dot — the kind's urgency, without a second coloured word */
+.biz .page-today .decision-top span:first-child::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: #3f5be8;
+  vertical-align: 1px;
+}
+.biz .page-today .decision-card.urgent .decision-top span:first-child::before { background: #d97706; }
+.biz .page-today .decision-deadline { padding: 2px 6px; border-radius: 6px; font-size: 11.5px; font-weight: 700; }
+.biz .page-today .decision-card h2 { font-size: 13px; font-weight: 700; color: #18181b; }
+.biz .page-today .decision-card p { font-size: 12px; color: #6b7280; }
+.biz .page-today .decision-evidence { font-size: 11.5px; color: #6b7280; }
+.biz .page-today .decision-evidence b { margin-left: 5px; font-size: 13px; font-weight: 700; color: #18181b; font-variant-numeric: tabular-nums; }
+.biz .page-today .decision-card.urgent { box-shadow: inset 3px 0 0 #d97706; }
+/* ⚖ STATE-CLASS LAW — selected wins over urgent AND survives the hover above:
+   both this and the `:hover` rule are 0,4,0, so the restatement has to stand
+   AFTER it or a pointer over the open decision would erase its wash. */
+.biz .page-today .decision-card[aria-current="true"] { background: var(--select-bg); box-shadow: inset 3px 0 0 var(--select-line); }
+
+.biz .page-today .incident { background: #fff; border-color: #e4e7ec; box-shadow: inset 3px 0 0 #d97706, 0 1px 2px rgba(16, 24, 40, .05); }
+.biz .page-today .incident-main { border-left: 0; padding: 12px 15px; }
+.biz .page-today .incident-icon { background: #fdf1e3; border: 1px solid #f0d2ae; color: #d97706; font-size: 15px; font-weight: 800; }
+.biz .page-today .incident-main strong { font-size: 13px; font-weight: 700; color: #18181b; }
+.biz .page-today .incident-main > span:last-child > span { color: #6b7280; font-size: 12px; }
+.biz .page-today .incident-stat { border-left-color: #eef0f4; padding: 10px 14px; }
+.biz .page-today .incident-stat span { color: #6b7280; font-size: 11px; font-weight: 600; }
+.biz .page-today .incident-stat b { font-size: 15px; font-weight: 700; color: #18181b; font-variant-numeric: tabular-nums; }
+.biz .page-today .incident-stat b.warn { color: var(--orange); }
+.biz .page-today .incident-action { border-left-color: #eef0f4; }
+.biz .page-today .incident-action .btn { min-height: 32px; padding: 0 12px; font-size: 12.5px; font-weight: 600; }
+.biz .page-today .incident-steps { border-top-color: #eef0f4; color: #6b7280; font-size: 12px; }
+.biz .page-today .incident-steps .step b { padding: 2px 7px; border-radius: 6px; background: #f1f3f7; color: #3f3f46; font-size: 11.5px; font-weight: 700; }
+.biz .page-today .incident-steps .step.done b { background: #e7f5ee; color: #14532d; }
+.biz .page-today .incident-steps .step.waiting b { background: #fdf1e3; color: #92400e; }
+
+.biz .page-today .kpi-strip .register-cell b { font-size: 18px; font-weight: 800; }
+
+/* ── R-8 (inspector) + R-10 · type ──────────────────────────────────────── */
+
+.biz .page-today .inspector { border-color: #e4e7ec; border-radius: 14px; }
+.biz .page-today .inspector-head { min-height: 46px; background: #fff; }
+.biz .page-today .inspector-kicker { color: #6b7280; font-size: 12px; font-weight: 700; }
+.biz .page-today .inspector-head h2 { font-size: 17px; font-weight: 800; color: #18181b; }
+.biz .page-today .inspector-head p { color: #6b7280; font-size: 12px; }
+.biz .page-today .inspector .source { color: #6b7280; }
+.biz .page-today .fact { border-bottom-color: #eef0f4; }
+.biz .page-today .fact span { color: #6b7280; }
+.biz .page-today .fact b { font-size: 13px; font-weight: 700; color: #18181b; font-variant-numeric: tabular-nums; }
+.biz .page-today .proof-box { border-color: #dfe5fb; border-radius: 10px; }
+.biz .page-today .proof-line { color: #52525b; }
+
+.biz .page-today .decision-row .dr-main strong { font-size: 13px; font-weight: 700; color: #18181b; }
+.biz .page-today .decision-row .dr-main span { color: #6b7280; font-size: 12px; }
+/* The dialogs are descendants of .page-today (all nine of them), so the two
+   row families are scoped through the page like everything else here —
+   `.biz-dialog` alone is a shell-wide selector this route sheet may not own
+   (customers.css carries its own copy; the route-CSS collision guard is what
+   that rule protects). */
+.biz .page-today .decision-row:hover,
+.biz .page-today .biz-dialog .cust-row:hover,
+.biz .page-today .biz-dialog .course-row:hover { transition: background-color 120ms ease-out; }
+.biz .page-today .cal-cell { transition: background-color 120ms ease-out; }
+
+/* every number is tabular, and every number keeps the label it already has. */
+.biz .page-today .register-cell b,
+.biz .page-today .decision-evidence b,
+.biz .page-today .incident-stat b,
+.biz .page-today .online-chip,
+.biz .page-today .hours span,
+.biz .page-today .now-line span,
+.biz .page-today .cal-cell b,
+.biz .page-today .cal-cell small,
+.biz .page-today .spot-foot .count { font-variant-numeric: tabular-nums; }
+
+/* ── R-3 · Board head → a toolbar ───────────────────────────────────────── */
+
+/* ⚖ GREPTILE G-2 (PR-2) — NO TOKEN IS DECLARED HERE, and that is the same
+   answer PR-1 gave its own G-1. `--control` was declared on this page for one
+   round, and it repainted surfaces this slice does not own: the nine dialog
+   controls (:1618–1705), the lock toggle (:360, whose look slice ① kept as
+   canon), the 配置の相談 popover's cancel (:1031), the tour card and its footer
+   (:1762 / :1774) and the segmented track (:156). Every one of those is a later
+   slice's or a deliberate keep. A token is page-wide by construction, so the
+   slice that declares it is the slice that repaints everyone — PR-4 owns most
+   of the consumers and declares `--control` and `--line` together, with the map.
+   Every surface in THIS block already carries its edge as a literal. Exactly
+   one did not: the month calendar's 今日 / ‹ / › buttons read `var(--control)`
+   at canon :262, so the edge is stated for them, here, and nowhere wider. */
+.biz .page-today .cal-pop .cal-tools button { border-color: #e4e7ec; }
+
+.biz .page-today .board-head { min-height: 54px; padding: 0 16px; }
+/* D-PR2-1 — the mock writes this as `.board-head strong`. In the MOCK that is
+   safe; in the product it is not. Three popovers and the month calendar render
+   INSIDE `.board-head` — the shelf and 操作ヒント hang off `.bh-left`, 表示設定
+   and the calendar off `.board-tools` — so the descendant form at 0,3,1 reaches
+   furniture the toolbar has nothing to do with. MEASURED, by putting the mock's
+   own form back and diffing every computed property on every element (mutant
+   P5): the calendar's month header 「2026年9月」 grows from 14px to 15px, off
+   canon's `.cal-head strong` (0,2,1). The title is a DIRECT child of
+   `.bh-left`, so that is what the selector says — same specificity as the
+   mock's, less reach.
+   ⚖ FIX ROUND 1 (L1 #7) — the SPAN half of this pair is gone. It never painted
+   anything: no sub-line span exists under `.bh-left` in the product, and the
+   one element that matched (`span.fields-pop-wrap`, the online chip's wrapper)
+   has descendants that state their own colour. Mutant P4 measured its
+   descendant form moving five weekday greys, which is a reason not to write it
+   WIDE — not a reason to write it at all. The board head's own type is canon's
+   apart from the title. */
+.biz .page-today .bh-left > strong { font-size: 15px; font-weight: 700; color: #18181b; }
+
+/* ⚖ GREPTILE G-1 (PR-2) — THE ACCENT IS THE SHELL'S, NOT A COPY OF IT. The
+   values were written as literals (#eef2ff / #3f5be8) where the shell already
+   owns them: `--select-bg` is `--indigo-soft` #eef2ff and `--select-ink` is
+   `--indigo` #3f5be8, so these swaps are pixel-identical and the palette stops
+   being hand-copied into a route sheet.
+   And the accent is LAWFUL here: this chip is a `<button>` (TodayScreen :6207),
+   a pressable that opens the 販売可能枠 shelf, and the one-way accent law
+   (CLAUDE.md) reserves accent for exactly that. Greptile read it as
+   non-pressable status text; the DOM says otherwise. The HOVER tint below stays
+   a literal — a wash is lawful and the shell has no token for it.
+   ⚖ FIX ROUND 1 (L1 #9) — `:not([hidden])`, because this rule introduces a
+   `display` canon never gave the chip (:100–110 declares none) and TodayScreen
+   :6216 sets `hidden` on it whenever online sales are off. `display` beats the
+   `hidden` attribute, so without the guard the chip's visibility would rest on
+   Tailwind preflight's `[hidden]{display:none!important}` — a reset, in another
+   sheet, that the harness renders do not even load. The state stays the
+   element's own. */
+.biz .page-today .online-chip:not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--select-bg);
+  color: var(--select-ink);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.biz .page-today .online-chip:hover { background: #e3e9ff; }
+
+.biz .page-today .help-toggle {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #e4e7ec;
+  background: #fff;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+}
+.biz .page-today .help-toggle:hover { background: #f1f3f7; }
+/* ⚖ STATE-CLASS LAW (PKT §1) — the OPEN ? keeps its accent under the pointer.
+   The hover above is 0,4,0 and canon's `.biz .help-toggle[aria-expanded="true"]`
+   (:137) is 0,3,0, so without this line moving the pointer over the open
+   button would wipe the very dress that says it is open. Restated at 0,4,0
+   AFTER the hover, which is the order that decides it. */
+/* ⚖ D-PR2-10 (Greptile G-1) — the shell's tokens, and ONE pixel moves with
+   them: the ring. `--select-bg` and `--select-ink` are the mock's own #eef2ff
+   and #3f5be8 exactly, but `--select-line` is `--indigo` #3f5be8 where the mock
+   drew a pale #c7d2fb. That is the R13 selected recipe every other control on
+   this page already wears (canon's `.density-seg button[aria-pressed]`, the
+   segmented tab, the cal cell), so the open ? now matches its siblings instead
+   of the mock's one-off. Measured, not assumed — see the build report. */
+.biz .page-today .help-toggle[aria-expanded="true"] { background: var(--select-bg); color: var(--select-ink); border-color: var(--select-line); }
+
+.biz .page-today .session-chip {
+  border: 0;
+  border-radius: 999px;
+  padding: 3px 5px 3px 12px;
+  background: #e7f5ee;
+  color: #14532d;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.biz .page-today .session-chip i { width: 7px; height: 7px; }
+/* V2-2 — the pill wraps AS A PILL or not at all. At 1280 it was breaking inside
+   its own words (「精算待/ち」「次回予約を作/成」), which reads as damage. */
+.biz .page-today .session-chip { white-space: nowrap; }
+.biz .page-today .session-chip .btn.text { color: var(--indigo); font-weight: 700; white-space: nowrap; }
+.biz .page-today .session-chip .btn.text:hover { background: rgba(63, 91, 232, .08); }
+
+.biz .page-today .time-nav {
+  min-height: 32px;
+  padding: 0 2px;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  background: #fff;
+  align-items: center;
+}
+/* D-PR2-2 — the mock writes `.time-nav button` / `.time-nav a`. Canon makes
+   `.time-nav` the positioning parent of the month calendar (:170 `position:
+   relative`, the `.cal-pop` is its child), and in the PRODUCT every day cell is
+   a `<Link>` — an `<a>` — while the mock builds them as `<button>`. Either way
+   the descendant form reaches them. MEASURED on mutant P3 — 1537 computed
+   differences, the calendar alone: every day cell 44px → 30px, the grid
+   257px → 187px, 空き green #1d5c39 → #52525b, today's indigo #3f5be8 →
+   #52525b, and the 今日 link and 前の月/次の月 buttons repainted with it.
+   The three controls this rule is FOR — ‹ · the day label · › — are direct
+   children, so the child combinator says exactly that and nothing more. */
+.biz .page-today .time-nav > button,
+.biz .page-today .time-nav > a {
+  min-width: 30px;
+  min-height: 30px;
+  border-radius: 8px;
+  color: #52525b;
+}
+.biz .page-today .time-nav > button:hover,
+.biz .page-today .time-nav > a:hover { background: #f1f3f7; }
+/* the day label wears a calendar glyph — decorative, generated, never in the
+   accessibility tree (a background image has no accessible name). */
+.biz .page-today .time-nav > button.day-label {
+  padding: 0 12px 0 30px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='1.9' stroke-linecap='round'%3E%3Crect x='3.6' y='5' width='16.8' height='15' rx='2.6'/%3E%3Cpath d='M8 3v4M16 3v4M3.6 10h16.8'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 10px 50%;
+  background-size: 14px 14px;
+}
+/* 表示設定 gains a sliders glyph, same technique, same law. */
+.biz .page-today [data-pop="fields"] > .btn.text {
+  padding-left: 30px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233f5be8' stroke-width='1.9' stroke-linecap='round'%3E%3Cpath d='M4 8h10M18 8h2M4 16h4M12 16h8'/%3E%3Ccircle cx='16' cy='8' r='2.1'/%3E%3Ccircle cx='10' cy='16' r='2.1'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 10px 50%;
+  background-size: 14px 14px;
+}
+
+/* V2-2 — ≤1320 the head is two rows: [title · 販売中 · ? · ご来店中] over
+   [date nav · 表示設定 · 両方/スタッフ/設備], the tools right-aligned. Without
+   this the `?` fell onto a row of its own between the chip and the pill.
+   ≥1321 is untouched. Measured rather than assumed (L1 #11): only 1920 sits on
+   one row; at 1440 the tools already fall to a second row on canon's own wrap,
+   and this block simply does not reach that width. */
+@media (max-width: 1320px) {
+  .biz .page-today .board-head { flex-wrap: wrap; row-gap: 8px; }
+  .biz .page-today .bh-left { flex: 1 1 auto; min-width: 0; }
+  .biz .page-today .board-tools { flex: 0 0 auto; margin-left: auto; }
+}
+
+/* 密度 / 販売可能枠の表示 / 配置ガイド — same family, no thumb: selected is a
+   wash with an accent border, exactly as today. (The segmented control's own
+   track and its sliding thumb are PR-4's.)
+   ⚖ FIX ROUND 1 (L1 #1) — SCOPED TO THE POPOVER. Nine controls on this page
+   wear `.density-seg` and only three are the 表示設定 popover's; the other six
+   are dialog controls (登録の種類 / 性別 / 予約経路 / ブロックの種類 /
+   ブロックの長さ / 価格の見せ方) that PR-4 owns. The first version restyled all
+   nine and disclosed it; the ruling is that a slice paints its own room and
+   PR-4 unifies the dialogs' instances. Same three declarations, three
+   selectors, `.fields-pop` in front of each. */
+.biz .page-today .fields-pop .density-seg button {
+  min-height: 28px;
+  border-radius: 8px;
+  border-color: #e4e7ec;
+  color: #3f3f46;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+/* ⚖ STATE-CLASS LAW — D-PR2-3, the same answer PR-1 gave the lock toggle. A
+   plain `.density-seg button:hover` is 0,4,1 and canon's
+   `[aria-pressed="true"]` (:227) is 0,3,1, so hovering the SELECTED 密度 /
+   販売可能枠 / 配置ガイド option would wash its accent background away. Written
+   to exclude the pressed state, so the pressed button keeps canon's own hover
+   behaviour (canon's :226 hover loses to its own :227 by order). */
+.biz .page-today .fields-pop .density-seg button:not([aria-pressed="true"]):hover { background: #f1f3f7; }
+/* ⚖ STATE-CLASS LAW — and at REST the same pair ties: the base rule above is
+   0,3,1, exactly canon's `[aria-pressed="true"]` (:227), and stands later, so
+   the selected option lost its accent ink and its accent border. Restated after
+   it. `background` is NOT restated: the base rule never declares one, so
+   canon's `var(--select-bg)` wash was never in danger. */
+.biz .page-today .fields-pop .density-seg button[aria-pressed="true"] { color: var(--select-ink); border-color: var(--select-line); }
+
+/* popovers — one card, one edge, one shadow. `.sell-shelf` and `.help-pop`
+   share the `.fields-pop` base and come with it; `.store-pop` is the shell's
+   and is not this sheet's to touch. */
+.biz .page-today .fields-pop,
+.biz .page-today .cal-pop {
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, .14);
+}
+/* The 操作ヒント popover's 「画面の説明を表示」 button takes its edge from the
+   shell's `.biz .btn { border: 1px solid var(--line) }` — #e4e4e9, one
+   calibration off every other edge in this card. `--line` is not declared by
+   any PR yet (its consumers are mostly PR-4's dialog buttons and the guard-pop,
+   so PR-4 declares it); restated locally here, for this popover family only. */
+.biz .page-today .fields-pop .btn { border-color: #e4e7ec; }
+.biz .page-today .fields-pop strong { color: #18181b; font-size: 12.5px; font-weight: 700; }
+.biz .page-today .fields-pop span { color: #6b7280; }
+/* #844's signpost is a `<Link>` wearing canon's `.chip`, and a link inside a
+   pill should not also be underlined — the pill already says it is one.
+   MEASURED on both sheets, the same page (evidence/TOOLBAR-MEASURE): on main it
+   renders `text-decoration-line: underline`, and this rule takes it to `none`.
+   An earlier version of this comment said Tailwind's preflight already made it
+   inherit rather than underline, so the rule was only a belt. That was reasoned
+   from the reset and it was wrong; the page was read afterwards and it
+   disagreed. This is a fix, not a belt. */
+.biz .page-today .fields-pop .chip { text-decoration: none; color: #6b7280; }
+.biz .page-today .sell-shelf button { border-radius: 8px; font-size: 12px; }
+.biz .page-today .sell-shelf button:hover { background: var(--indigo-soft); }
+
+/* ── R-2 · The money bar (本日の店舗状態) + 自分の1日 · REVERT = delete this block (from this header to the line before the next ── header, or EOF) ── */
+
+/* label over value: the number is what the eye is hunting, so it stops being
+   the second half of a sentence and becomes the thing on the tile.
+
+   ⚖ THIS RULE ALSO STACKS THE KPI STRIP'S CELLS, and that is the 9/8 ruling,
+   not a leak. `.register-cell` is ONE component and the product wears it in
+   three places, named here by what the DOM says rather than by a line number a
+   merge moves: `header.ops-strip[aria-label="本日の店舗状態"]` (the money bar) ·
+   `header.ops-strip[aria-label="自分の1日"]` ·
+   `section[aria-labelledby="kpiStripTitle"] .kpi-strip .register-cell`.
+   ⚠ CORRECTED 9/9 — that third place is NOT 「inside the 予約一覧 dialog」, as
+   this comment said until now. It is section K 店舗全体の指標: an always-visible
+   PAGE SECTION, below the fold at 900/1000. No dialog on this route contains a
+   `.register-cell`. The ⚖ 9/8 ruling below is unchanged; the sentence was
+   false. Slice ① already sized
+   the KPI strip's NUMBER (`.kpi-strip .register-cell b`, 18px/800 at 0,4,1,
+   which still beats the 16px below); the SHAPE was ruled to land here with the
+   bar it belongs to, so the same component does not read two ways on one page.
+   In the KPI strip `:last-of-type` below drops the last divider; there is no
+   `.ops-right` there, so `:nth-last-child(2)` never matches. */
+.biz .page-today .register-cell {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-height: 58px;
+  padding: 10px 16px;
+  border-right: 1px solid #eef0f4;
+}
+.biz .page-today .register-cell span {
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.biz .page-today .register-cell b {
+  font-size: 16px;
+  font-weight: 700;
+  color: #18181b;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* 本日の予約総額 — the headline money. ⚖ REACH, derived rather than assumed:
+   `header.ops-strip` is written TWICE on this page, so this rule dresses the
+   first cell of BOTH strips — 本日の予約総額 in 本日の店舗状態, and 次のお客様 in
+   自分の1日, which is a sentence rather than a number. That is the mock's own
+   rule and it is a KEEP under Liam's #2 revert (the whole R-2 block is one
+   line to delete), disclosed here so the next reader does not re-derive it. */
+.biz .page-today .ops-strip .register-cell:first-child b { font-size: 20px; font-weight: 800; }
+/* ⚖ STATE-CLASS LAW (PKT §1) — ORDER IS THE BEHAVIOUR, twice over. Canon's
+   `.biz .register-cell b.warn` (:65) is 0,3,1 and the `b` rule above is 0,3,1
+   too, so appended later it would have painted the 施術済み・精算待ち and 未解決
+   counts ink instead of red; and canon's `.biz .ops-decisions b` (:75) is only
+   0,2,1, so the same rule would have taken 次に決めること's orange with it.
+   Both are restated here, AFTER the rule that beats them. */
+.biz .page-today .register-cell b.warn { color: var(--red-dark); }
+.biz .page-today .ops-decisions b { color: var(--orange); }
+/* canon zeroes the border on the two entrance cells; R-2 gives the strip one
+   uniform divider instead, and the last cell before .ops-right drops it.
+   ⚖ STATE-CLASS LAW — this is also the restatement canon's `.register-cell.act`
+   (:70, 0,3,0) needs: the base rule above is 0,3,0 and stands later, so its
+   `border-right` would have drawn a divider canon deliberately removes AND
+   `border: 0` would have stopped resetting the button bevel. The whole canon
+   declaration comes back, with the divider added on purpose. */
+.biz .page-today .register-cell.act,
+.biz .page-today .ops-decisions {
+  border: 0;
+  border-right: 1px solid #eef0f4;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.biz .page-today .register-cell:last-of-type,
+.biz .page-today .ops-strip > .register-cell:nth-last-child(2) { border-right: 0; }
+.biz .page-today .register-cell.act:hover,
+.biz .page-today .ops-decisions:hover { background: #f8f9fb; }
+/* the existing ::after, rendered as a chevron glyph rather than a punctuation › */
+.biz .page-today .register-cell.act > b::after,
+.biz .page-today .ops-decisions > b::after {
+  content: "›";
+  margin-left: 7px;
+  color: #9ca3af;
+  font-size: 12px;
+  font-weight: 600;
+}
+.biz .page-today .ops-right { padding: 10px 14px; gap: 6px; }
+/* ⚖ SCOPE, read at the source rather than assumed. `.chip` is canon's own pill
+   (:30) and the product writes it in seven places; `.ops-right .chip` reaches
+   exactly FIVE of them — the three `.ops-right > span.chip.ok` (Reserve 正常 ·
+   公開中の販売可能枠 · the shift pill in 自分の1日), the one
+   `.ops-right > span.chip.warn` (通知未達), and the one bare
+   `.ops-right > span.chip` (the break pill in 自分の1日). It does NOT reach
+   #844's signpost (the `<Link className="chip">` inside `.fields-pop`
+   `[data-pop="fields"]`, which is slice ②'s `.fields-pop .chip`), nor the drag
+   proxy's own `.drag-proxy.chip` (the proxy's `className` template writes
+   either `drag-proxy chip` or `drag-proxy event <state>`), nor `.session-chip`
+   / `.online-chip`, which are different classes entirely. */
+.biz .page-today .ops-right .chip {
+  min-height: 26px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: #f1f3f7;
+  color: #3f3f46;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+/* ⚖ STATE-CLASS LAW — and these two are a SPECIFICITY restatement, not just an
+   ordering one: canon's `.biz .chip.ok` / `.chip.warn` (:41 / :42) are 0,3,0
+   and the rule above is 0,4,0, so it beats them outright. Restated at 0,5,0. */
+.biz .page-today .ops-right .chip.ok { background: #e7f5ee; color: #14532d; }
+.biz .page-today .ops-right .chip.warn { background: #fdf1e3; color: #92400e; }
+.biz .page-today .ops-right .btn { min-height: 32px; padding: 0 12px; font-size: 12.5px; font-weight: 600; }
+/* 自分の1日 wears the shell's own proof pair, so it reads as "mine". */
+.biz .page-today .ops-strip + .ops-strip { background: #f7f9ff; border-color: #dfe5fb; }
+.biz .page-today .ops-strip + .ops-strip .register-cell { border-right-color: #e2e8fb; }
+
+/* ── R-6 · Card faces (calibrated washes, ink text) + 仮置きエリア · REVERT = delete this block (from this header to the line before the next ── header, or EOF) ── */
+
+/* ⚖ STATE-CLASS LAW (PKT §1) — THE BASE RULE BELOW IS THE MOST DANGEROUS LINE
+   IN THIS SLICE. `.biz .page-today .event` is 0,3,0, which is EXACTLY the
+   specificity of every canon `.event.<state>` rule, and it is appended after
+   all of them — so at rest it wins every property the two share. Read against
+   canon rule by rule (today.css :576–631), the ties it creates and what
+   answers each of them:
+     · .confirmed :600 · .attention :601 · .hold :602 · .block :603
+       → border-color + background, RECALIBRATED below at 0,4,0 (the mock's
+         own washes). `color` and the 3px inset stripe are not declared here,
+         so canon still owns them.
+     · .cleanup :604 · .noshow :605 → the two hatches. NOTHING in the mock
+       recalibrates them and nothing should: 清掃 and 無断キャンセル keep their
+       beige weave. Restated verbatim, at 0,4,0, below.
+     · .micro :598 → `padding: 0 2px`. The base rule's padding shorthand would
+       give an 18px 準備 card a 10px left gutter and clip its own 9.5px name.
+       Restated below.
+     · .absence :606/:611 → already restated by slice ① at 0,4,0
+       (`.biz .page-today .event.absence`, the §0.1 tint), which BEATS this
+       rule. Nothing to do here, and it is named so the next reader does not
+       have to re-derive it.
+     · .selected :612 (outline) · .dragging :439 (opacity/cursor/box-shadow) ·
+       .pending :440 · .attempting :446 · .parked :447 (display) ·
+       .resizing :630 · .block/.cleanup :425 (overflow/touch-action — :429 is
+       `position: absolute` inside the ::before/::after grip rule below it)
+       → checked property by property: NOT ONE of them declares padding,
+         border, border-radius, background or transition, so there is no tie
+         to answer. They are listed because "I checked" has to be visible.
+     · [data-cat] :614 → `padding-left: 9px`, and this rule's `padding`
+       shorthand does tie it and win: a card with a category gets 10px instead
+       of 9. That is the mock's own number (the stripe is 4px wide, so 10px
+       leaves 6px of gutter beside it) and it is a RECALIBRATION, disclosed
+       here rather than left to be found. `box-shadow: none` is untouched, so
+       the category stripe still replaces the state's inset bar exactly as
+       canon has it.
+       ⚠ BOTH HALVES, 9/9 — this used to disclose the left half only, and the
+       right half is the LARGER one: canon's shorthand is `5px 2px 4px 6px`, so
+       a categorised card goes padding-left 9 → 10px AND padding-right 2 → 6px.
+       Five pixels come out of the name's box, which is what ellipsises the two
+       card names `axis-measure` declares by name (見本 かえる【ベッド2】 at 1280,
+       見本 かえる【テスト さぶろう】 at 1512). The card's own box does not move. */
+.biz .page-today .event {
+  padding: 5px 6px 4px 10px;
+  border-radius: 8px;
+  border: 1px solid #c7d2fb;
+  background: #eef2ff;
+  transition: box-shadow 120ms ease-out, border-color 120ms ease-out, filter 100ms ease-out;
+}
+.biz .page-today .event.confirmed { border-color: #bfe1cd; background: #e7f5ee; }
+.biz .page-today .event.attention { border-color: #f2c0ba; background: #fdecea; }
+.biz .page-today .event.hold { border-color: #f0d2ae; background: #fdf1e3; }
+.biz .page-today .event.block { border-color: #dcd3c8; background: #f1ede8; }
+/* ⚖ STATE-CLASS LAW — the two hatches, restated VERBATIM from canon :604 /
+   :605. Without these two lines the base rule's indigo wash paints straight
+   over the beige weave and 清掃 / 無断キャンセル become ordinary bookings —
+   the packet's own 「the 清掃/noshow hatches (unchanged)」 ruling. `color:
+   var(--beige-dark)` is canon's and is not declared above, so it survives on
+   its own; only the two properties the base rule takes are given back. */
+.biz .page-today .event.cleanup { border-color: #d9d0c7; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); }
+.biz .page-today .event.noshow { border-color: #d9d0c7; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); }
+/* ink on the name — the wash, the border and the 4px stripe already carry the
+   state, and ink reads faster than a coloured name. Bookings only: a 休憩 and a
+   勤務不可 keep their own family colour, which IS their whole label.
+
+   ⚖ R8 GAP-11 — AND THE CARD IN HAND WEARS THE SAME FACE. The drag proxy
+   renders the very same `cardFace()` children as the card on the board, but the
+   product writes it as a `<div>` with `data-cat` and NO `data-book`, so keyed on
+   `[data-book]` alone these four rules stopped at the board and the booking the
+   operator was carrying kept canon's 12.5px state-coloured name. Read at source
+   in TodayScreen's proxy element (the `className` template + its `data-cat`):
+     · a BOOKING's proxy (`kind: 'card'`) carries `data-cat` — a booking's
+       `category` is `BookingCategory`, never null;
+     · a BLOCK's proxy (`kind: 'block'`) carries none — every block/break/
+       absence/cleanup item is built with `category: null` — and it renders its
+       own face (title, optional time), with no ticket line;
+     · the CHIP proxy's class is `drag-proxy chip`, never `event`, so `.event`
+       keeps it out even though it can carry `data-cat`.
+   So `[data-cat]` on the proxy is the booking marker, the same way it is in the
+   hover language above. ⚖ STATE-CLASS LAW — nothing to restate: canon's
+   `.biz .event.drag-proxy` (:483) declares `box-sizing` + `box-shadow` only, and
+   `.biz .drag-proxy.chip strong` / `small` (:504 / :505) belong to the chip and
+   are not reached. The only canon rule declaring type on the proxy's `strong`
+   is `.biz .event strong` (:595, 0,2,1), which these rules already beat on the
+   board — the proxy simply joins the elements they beat it on. */
+.biz .page-today .event[data-book] > strong,
+.biz .page-today .event.drag-proxy[data-cat] > strong { font-size: 13px; font-weight: 700; color: #18181b; }
+.biz .page-today .event[data-book] > strong .tg,
+.biz .page-today .event.drag-proxy[data-cat] > strong .tg { font-size: 10px; font-weight: 600; color: #52525b; opacity: 1; }
+.biz .page-today .event[data-book] > .e-time,
+.biz .page-today .event[data-book] > .e-tkt,
+.biz .page-today .event.drag-proxy[data-cat] > .e-time,
+.biz .page-today .event.drag-proxy[data-cat] > .e-tkt { font-size: 11.5px; color: #52525b; }
+/* ⚖ STATE-CLASS LAW — canon :598. A micro card is ~18px wide; the base rule's
+   `padding: 5px 6px 4px 10px` leaves it 2px of content box. Restated at 0,4,0.
+   `min-width: 0` is canon's other half and is not declared above, so it stays
+   canon's. */
+.biz .page-today .event.micro { padding: 0 2px; }
+.biz .page-today .event.micro > strong { font-size: 9.5px; }
+
+/* ⚖ STATE-CLASS LAW — THE HOVER LIFT NEVER TOUCHES A CARD IN A GESTURE.
+   Both gesture states are hovered while the gesture runs, so both need the
+   guard, and neither can be answered by a restatement:
+     · `.dragging` :439 (⚖ flag 19) is the husk a MOVE leaves behind —
+       `box-shadow: none` at .32 opacity IS the husk. The proxy the operator is
+       carrying is `pointer-events: none` (:471), so the element under the
+       pointer at drag start, and every time the pointer crosses home, is the
+       husk itself.
+     · `.resizing` :630 (⚖ flag 29) keeps canon's live lift `0 8px 22px`, and
+       the resize grips (`.event-resize-grip` :409, `position: absolute` with
+       the card as its containing block) sit INSIDE the card — so during an
+       edge drag the pointer is on the card that wears the state.
+   A restatement written AFTER these rules cannot win: `:hover` adds a
+   pseudo-class, so `.event.dragging` (0,4,0) still loses to a hover head at
+   0,4,1 / 0,5,0. The guard therefore goes ON the hover, exactly as slice ①
+   answered the same shape with `.lock-toggle:not([aria-pressed="true"]):hover`.
+   Canon's own hover (:594, `filter: brightness(.98); z-index: 5`) still reaches
+   both states, unchanged from main — canon's business, not this layer's. */
+.biz .page-today button.event[data-cat]:not(.dragging):not(.resizing):hover { filter: none; box-shadow: 0 2px 8px rgba(16, 24, 40, .10); z-index: 5; }
+.biz .page-today button.event.confirmed:not(.dragging):not(.resizing):hover { border-color: #9fd0b5; }
+.biz .page-today button.event.attention:not(.dragging):not(.resizing):hover { border-color: #e6a09a; }
+.biz .page-today button.event.hold:not(.dragging):not(.resizing):hover { border-color: #e2b478; }
+.biz .page-today .event.block:not(.dragging):not(.resizing):hover,
+.biz .page-today .event.cleanup:not(.dragging):not(.resizing):hover { filter: none; box-shadow: inset 3px 0 0 #b6a795, 0 2px 8px rgba(16, 24, 40, .10); border-color: #cdc2b4; z-index: 5; }
+
+/* the card in hand. ⚖ STATE-CLASS LAW — `.biz .drag-proxy.chip` (:490) is
+   0,3,0 and the rule below BEATS it at 0,4,0 (it does not merely tie it and
+   stand later — corrected 9/9), so the CHIP proxy's own lift is deliberately
+   replaced; everything else canon gives it (its padding, its orange border and
+   fill, its box-sizing) is not declared here and stays.
+   The chip proxy never wears `.event` — the proxy's `className` template writes
+   either `drag-proxy chip` or `drag-proxy event <state>` — so the base rule
+   above cannot reach it. */
+.biz .page-today .event.drag-proxy { box-shadow: inset 3px 0 0 currentColor, 0 12px 28px rgba(16, 24, 40, .22), 0 0 0 1px rgba(63, 91, 232, .25); }
+.biz .page-today .event.drag-proxy[data-cat] { box-shadow: 0 12px 28px rgba(16, 24, 40, .22), 0 0 0 1px rgba(63, 91, 232, .25); }
+.biz .page-today .drag-proxy.chip { box-shadow: 0 12px 28px rgba(16, 24, 40, .22), 0 0 0 1px rgba(63, 91, 232, .25); }
+
+.biz .page-today .park-shelf { margin: 10px 12px 6px; border-radius: 10px; border-color: #d7dae2; background: #fbfcfe; }
+/* ⚖ STATE-CLASS LAW — THE SHELF LIGHTS UP AGAIN. Canon's `.biz .park-shelf.over`
+   (today.css :560 — the mock's comment cites :1254, which is the MOCK's own
+   line number) and the rule above are BOTH 0,3,0; this layer is appended after
+   canon, so on equal specificity the resting border/background won and the drop
+   target stopped glowing. Restated here, AFTER the rule that beat it, at 0,4,0 —
+   the product's own orange, the reskin's own radius and margin. */
+.biz .page-today .park-shelf.over { border-color: var(--orange); background: var(--orange-soft); }
+.biz .page-today .park-label strong { font-size: 12.5px; font-weight: 700; color: #18181b; }
+.biz .page-today .park-label span { color: #6b7280; font-size: 11.5px; }
+.biz .page-today .park-chip,
+.biz .page-today .placing-note { border-radius: 10px; font-size: 12px; }
+.biz .page-today .park-chip .park-x,
+.biz .page-today .placing-note .park-x { width: 22px; height: 22px; border-radius: 50%; }
+
+/* ── R-7 · Time axis + now · REVERT = delete this block (from this header to the line before the next ── header, or EOF) ── */
+
+/* V2-1 — THE RULER IS TWO BANDS. With the hour label sitting AT its gridline
+   (R-7), the 13:24 pill centred on the same line landed on 「13」 at every width
+   whose hour column is under ~150px (measured: 1280/1440/1512 all overlapped).
+   36px of ruler splits the problem instead of nudging it: the pill owns the
+   upper band, the labels are bottom-aligned in the lower one, and the two can
+   never share a row at ANY width. The dot still marks the exact minute — it
+   sits on the line at the ruler's bottom edge (centre y = 36px).
+   ⚖ PRECISELY, 9/9 (Greptile's second read corrected the wording, the
+   measurement stands): under the shell's `.biz * { box-sizing: border-box }`
+   (business-shell.css :103) `min-height: 36px` is a BORDER-BOX minimum — 35px
+   of content plus canon's own `border-bottom: 1px solid var(--section)` (:287).
+   It does not govern here: R-7's `.hours span` (19px padding-top + the 11.5px
+   line, ≈17px) fills 36px of CONTENT, so the ruler's border box measures 37px
+   — probed at 1280/1440/1920 by the blind cascade lens and confirmed by the
+   delta lens. The line and the wash, both `top: 36px`, therefore start ON the
+   border row, and the dot's centre (36 − 4.5 + 4.5) sits on that same row —
+   which is what the mock shows and what the pixels measure. 36 is the right
+   value for `top`; 37 is the measured box.
+   ⚖ STATE-CLASS LAW — checked and there is nothing to answer here: no canon
+   rule carrying a state token declares anything on `.time-head`, `.hours`,
+   `.elapsed-wash` or `.now-line`. `.biz.board-compact` (:1084–1087) touches
+   `.lane`, `small.e-tkt`, `.timeline-scroll` and `.group-label` and none of
+   these; the ruler keeps its 36px in コンパクト on purpose (the pill's clearance
+   is not a density question). */
+.biz .page-today .time-head { min-height: 36px; }
+.biz .page-today .time-head > span { font-size: 11.5px; color: #9ca3af; }
+.biz .page-today .hours span {
+  padding: 19px 0 0 6px;
+  text-align: left;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: #6b7280;
+}
+.biz .page-today .elapsed-wash { top: 36px; background: rgba(16, 24, 40, .045); }
+.biz .page-today .now-line { top: 36px; }
+/* the dot's centre sits ON the line at y = 36px — the ruler's bottom edge */
+.biz .page-today .now-line::before {
+  content: "";
+  position: absolute;
+  top: -4.5px;
+  left: 1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 2px #fff;
+  transform: translateX(-50%);
+}
+/* the pill in the upper band: y = 2 … 20 of the timeline. Horizontal centring
+   only — no vertical translate, so its row is fixed and cannot ride the label. */
+.biz .page-today .now-line span {
+  top: -34px;
+  left: 1px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  transform: translateX(-50%);
+}
+
+/* ── T · The page's last two grey tokens ────────────────────────────────── */
+
+/* ⚖ THE TOKEN CORRECTION (PKT §RIDERS, 9/8) LANDS HERE, in the slice that owns
+   most of the surfaces the pair paints. Both resolve to the shell's #e4e4e9
+   today; the page's own hairline is #e4e7ec, and 「one hairline grey on every
+   edge」 was the mock's whole reason for asking.
+
+   ⚠ THE MAP IS RE-GREPPED AT THIS TIP rather than carried from the packet, and
+   the packet's own map had one dead entry, kept here as the correction.
+
+   --control, 22 canon readers in this sheet:
+     :129 .help-toggle · :146 .session-chip · :156 .segmented (this slice's own
+     track) · :170 .time-nav · :191 .fields-pop · :225 .density-seg button ·
+     :254 .cal-pop · :262 .cal-tools button ·
+     :360 .lane.mine .lane-label::after — the 自分 pill, NOT the lock toggle the
+       packet names. `.biz .lock-toggle` (:368–382) declares `border: 0` and
+       reads no token at all; and slice ① already restates the pill with
+       `border: 0` (:1940), so this reader is dead on arrival and the token
+       repaints nothing there.
+     :975 .guard-band.legend-only · :984 .layer-legend · :1031 .guard-pop
+     .gp-cancel · :1618 .biz-dialog .close · :1639 .biz-dialog
+     input/select/textarea · :1646 .range-value · :1653 .cust-results ·
+     :1667 .biz-dialog .stepper · :1671 .course-list · :1693 .cc-field textarea ·
+     :1705 .toast · :1762 .spot-card · :1774 .spot-foot button.
+     The dialogs, the tour, the toast and the segmented track are this slice's
+     room outright; the rest are ② and ③'s, already wearing #e4e7ec literally.
+   --line, two readers:
+     today.css :1005 .guard-pop .gp-facts, and business-shell.css :199
+     `.biz .btn` — EVERY button on this page. That second one IS the ask: it is
+     what puts the page's own hairline on every button edge instead of the
+     shell's.
+
+   THE SHELL CANNOT BE REACHED, read in the DOM rather than reasoned: the screen
+   is ONE `<div className="page page-today">` (TodayScreen :6375 → :7918), so
+   the shell's own readers — `--line` at business-shell :316 .fx-cols-pop and
+   :439 .store-pop, `--control` at :375 .rail-toggle, :393 .business, :413
+   .store-context, :473 .store-chip, :503 .nav .badge.flag — are ANCESTORS of
+   the element below and keep #e4e4e9. Every dialog, every popover, the tour and
+   the toast are DESCENDANTS and take the new value.
+
+   `--line-2` is never declared, by this slice or any other: its only two
+   readers (:1271 / :1463) are the ruled H2 warn face, which stays to the pixel. */
+.biz .page.page-today {
+  --control: #e4e7ec;
+  --line: #e4e7ec;
+}
+
+/* ── S · The segmented control gets a thumb; the dialogs' 密度 family joins the popover's ── */
+
+/* mock 2705–2742 — a track, and a white thumb that travels under the labels. */
+.biz .page-today .segmented {
+  position: relative;
+  padding: 3px;
+  border: 0;
+  border-radius: 10px;
+  background: #f1f3f7;
+}
+.biz .page-today .segmented button {
+  position: relative;
+  z-index: 1;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: transparent;
+  color: #3f3f46;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+/* ⚖ STATE-CLASS LAW — AN OVERRIDE ON PURPOSE, and the licence is that this rule
+   carries the state token and declares every value it takes. Canon's
+   `.biz .segmented button[aria-pressed="true"]` (:168, 0,3,1) draws the selected
+   tab with three things: the light accent wash `var(--select-bg)`, the accent
+   ink `var(--select-ink)`, and an inset accent ring. This rule (0,4,1) takes the
+   wash and the ring off the TAB — and the selection does not lose them, because
+   THE THUMB IS THAT SURFACE NOW: the wash moved from the tab to the pill that
+   slides under it (see the thumb's own rule below). The ink stays here, on the
+   label, written as the shell's own `--select-ink` (`--indigo` #3f5be8, the
+   mock's own literal), per the one-way accent law: this is a pressable's
+   selected state. So the selected surface is still wash + accent ink + 700 —
+   R13 and Liam's 8/6 rule — it is simply drawn by two elements instead of one. */
+/* ⚠ D-PR4-11 — AND THE LABEL GOES BOLD, because ink alone is not a selection
+   before hydration. The three tabs share `font-weight: 600` above, so without
+   this rule's 700 only colour would tell them apart until the thumb arrives — and the thumb is
+   placed by a `useLayoutEffect` inside an 8,000-line client component, so it
+   has no geometry until that hydrates (and none at all if it never does). The
+   family already answered this: `settings.css` gives its own pressed option
+   `font-weight: 700` beside the accent colour, so its selection survives with
+   weight AND colour while its own thumb is
+   unplaced. (Its selector is not spelled here on purpose: `settings-room.test.ts`
+   forbids any `st-` / `sp-` class name from appearing in another room's sheet,
+   and that guard reads the raw bytes — a comment quoting one trips it. Named by
+   what it does, which is what a comment is for.)
+   A 100-weight departure from the mock's uniform 600, on the SELECTED
+   label only; the thumb still lands under it and the seat reads the bolder
+   width (which is also why F-3 re-seats on `document.fonts.ready`). */
+.biz .page-today .segmented button[aria-pressed="true"] {
+  background: transparent;
+  color: var(--select-ink);
+  box-shadow: none;
+  font-weight: 700;
+}
+/* The thumb's REST state, and only that: the effect writes `transform`, `width`
+   and `opacity` inline.
+   ⚖ D-PR4-14 — THE PILL IS THE ACCENT WASH, NOT THE MOCK'S WHITE. Greptile's P2
+   on #879, upheld: the repo's R13 and Liam's 8/6 rule both say a selected
+   surface carries a light accent wash, and the mock's ④ layer had taken canon's
+   `var(--select-bg)` off the tab (the rule above) and put a WHITE card in its
+   place — which leaves the selection with no wash anywhere. So the wash follows
+   the pill: `var(--select-bg)` is the same token, at the same value, that canon
+   painted the pressed tab with at :168, and `settings.css` — the room this whole
+   thumb pattern was copied from — already paints ITS thumb with that room's own
+   accent wash rather than white. (Its selector is not spelled here on purpose:
+   `settings-room.test.ts` forbids that room's class names from appearing in
+   another room's sheet, and the guard reads the raw bytes.)
+   A VISIBLE DEPARTURE FROM THE MOCK, disclosed and Liam's to overturn: the pill
+   reads pale indigo instead of white. Reverting it is one declaration —
+   `background: #fff` on this rule — and nothing else moves.
+   ⚠ THE CEILING IS WIDER THAN jsdom, and D-PR4-11 is the answer to it. The
+   element ships with `width: 0`, and the effect that gives it geometry is a
+   `useLayoutEffect` — so a static render, a harness render AND ANY PAINT BEFORE
+   HYDRATION all show no thumb. The bold accent label is the selection until the
+   thumb arrives; the pill's own pixels are on the Vercel preview.
+   ⚠ Naming note: this is an `<i class="seg-thumb">` — the mock's element and the
+   mock's name. The family's four siblings are `<span>`s with page-prefixed
+   classes (`st-` settings, `an-` analytics, `rv-` reservations, `rc-` recording),
+   so `seg-thumb` is the one unprefixed member. `.segmented` exists nowhere else
+   in the repo and the rule is page-scoped, so nothing collides. */
+.biz .page-today .segmented > .seg-thumb {
+  position: absolute;
+  z-index: 0;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  width: 0;
+  border-radius: 8px;
+  background: var(--select-bg);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .12);
+  transform: translateX(0);
+  pointer-events: none;
+}
+
+/* ⚖ RIDER (k) — THE DIALOGS' 密度 FAMILY, unified with the popover's.
+   Slice ② scoped its three rules to `.fields-pop .density-seg` and said this
+   slice owns the other six groups: 価格の見せ方 · 登録の種類 · 性別・任意 ·
+   予約経路 · ブロックの種類 · ブロックの長さ. The same three declarations, read
+   out of ②'s block rather than re-invented, at the dialogs' own scope. */
+.biz .page-today .biz-dialog .density-seg button {
+  min-height: 28px;
+  border-radius: 8px;
+  border-color: #e4e7ec;
+  color: #3f3f46;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+/* ⚖ STATE-CLASS LAW — the same two answers ② gave, at this scope. The hover
+   excludes the pressed state (a bare hover at 0,6,1 would wash canon's accent
+   off the selected option), and the base rule above (0,4,1) beats canon's
+   `[aria-pressed="true"]` (:227, 0,3,1), so the accent ink and border are
+   restated after it at 0,5,1. `background` is NOT restated: the base rule
+   declares none, so canon's `var(--select-bg)` wash was never in danger. */
+.biz .page-today .biz-dialog .density-seg button:not([aria-pressed="true"]):hover { background: #f1f3f7; }
+.biz .page-today .biz-dialog .density-seg button[aria-pressed="true"] { color: var(--select-ink); border-color: var(--select-line); }
+
+/* ── M · Motion (R-9, rewritten for the product) ─────────────────────────── */
+
+/* D-A · THE PRESS IS `:active`. The mock's `data-press` + `.is-pressed` script
+   exists only because the mock has no framework; the platform's own `:active`
+   IS pointer-down. The list is the mock's PRESSABLE list (:3248–3252) minus the
+   shell entries (`.nav a` `.rail-toggle` `.store-context`), minus `.event`
+   (which the mock gave its own no-scale path), and with three corrections the
+   DOM forced:
+
+     · `.close` is TEN elements here, not the nine dialogs the packet assumed:
+       the tenth is `<button className="close inspector-close">`, the
+       INSPECTOR's close, outside every dialog. Both are named by their own
+       room, so the bare `.close` — a shell name this route sheet may not own —
+       never appears.
+     · `.time-nav button` / `.time-nav a` are written as ②'s ruled CHILD form.
+       The pressed set is IDENTICAL, read in the DOM (the
+       `<div className="time-nav date-nav" data-pop="cal">` group): `.time-nav`'s
+       only button/link descendants are its three direct children plus the
+       calendar's `.cal-tools a`, `.cal-tools button` ×2 and the `.cal-cell`
+       links — every one of them separately named below. The descendant form
+       would only re-open the reach ② measured at 1537 computed differences.
+     · `.lock-toggle` is NOT in this family. It is centred with a transform, and
+       its own two rules are below.
+
+   ⚠ `:active` matches ANCESTORS too, and a transform on an ancestor scales its
+   children. Read at source, element by element: NOT ONE member of this list
+   contains another. The containers that do nest a pressable — `.stepper`,
+   `.cal-tools`, `.spot-foot`, `.park-chip`, `.toast`, `.time-nav`,
+   `.fields-pop`, `.inspector-actions`, `.section-tools`, `.ops-right`,
+   `.dialog-foot`, `.session-chip` — are none of them members. (`.ops-decisions`
+   is a `<button className="register-cell ops-decisions">` that does NOT carry
+   `.act`, so it and `.register-cell.act` are never the same element either.)
+   The checker asserts this in the page rather than trusting the paragraph. */
+.biz .page-today :is(.btn, .segmented button, .density-seg button, .register-cell.act, .ops-decisions,
+    .decision-card, .decision-row, .cal-cell, .guard-rail-cell, .cell-held,
+    .help-toggle, .online-chip, .cust-row, .course-row, .stepper button,
+    .time-nav > button, .time-nav > a, .cal-tools button, .cal-tools a, .park-x,
+    .spot-foot button, .toast-undo, .group-label, .biz-dialog .close, .inspector-close) {
+  transition: transform 160ms ease-out;
+}
+/* ⚠ AND THE FIVE THAT ALSO FADE A BACKGROUND, which is ONE decision with the
+   press and not a second rule beside it. A `transition` shorthand replaces the
+   whole list, and the family head above computes to 0,4,0 (the `:is()` takes
+   `.register-cell.act`'s 0,2,0), which BEATS slice ①'s
+   `.biz .page-today .cal-cell { transition: background-color 120ms ease-out }`
+   (:2065, 0,3,0) and TIES ①'s `.decision-card:hover` (:1997) and
+   `.decision-row:hover` (:2062) — so written as two competing rules, one of the
+   two behaviours is always lost. Restated together, after, at the same 0,4,0
+   (via `.biz-dialog .cust-row`'s own 0,2,0). This is also F-4's fix: ① declared
+   those transitions INSIDE `:hover`, so the wash faded in and snapped back;
+   declared at base level the LEAVE path fades too.
+   The whole list does NOT get a background transition on purpose: it would put
+   a 120ms fade on `.guard-rail-cell` and `.cell-held`, and the 60分配置 rail is
+   a ruled surface whose live verdict has to stay crisp (⚖ V4-1). */
+.biz .page-today :is(.cal-cell, .decision-card, .decision-row, .biz-dialog .cust-row, .biz-dialog .course-row) {
+  transition: transform 160ms ease-out, background-color 120ms ease-out;
+}
+/* ⚖ F-4, the half a base rule cannot reach. ①'s two dialog-row hover heads
+   (:2063–2064) declare `transition` inside `:hover` at 0,5,0, which beats the
+   family above at 0,4,0 — so while the pointer is ON the row (which it always
+   is, during a press) the transform had no transition and the press snapped.
+   Restated once, at the same shape, with both properties. */
+.biz .page-today .biz-dialog .cust-row:hover,
+.biz .page-today .biz-dialog .course-row:hover { transition: transform 160ms ease-out, background-color 120ms ease-out; }
+/* ⚠ F-8 — BOTH SPELLINGS OF DISABLED. `:not(:disabled)` covers the seven real
+   `disabled` buttons on this route, but the shell has its own convention for a
+   control that is off without being a disabled form element:
+   `.biz .btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed }`
+   (business-shell.css). Nothing inside `.page-today` uses it TODAY — the render's
+   only `aria-disabled` is a shell nav link outside the page — so this clause
+   changes no pixel now; it is here so the first `.btn[aria-disabled]` written
+   inside this page does not get a press animation on a control that refuses.
+   The head becomes (0,7,0), which still ties nothing: the two dialog-row hover
+   heads above it are transition-only and declare no transform. */
+.biz .page-today :is(.btn, .segmented button, .density-seg button, .register-cell.act, .ops-decisions,
+    .decision-card, .decision-row, .cal-cell, .guard-rail-cell, .cell-held,
+    .help-toggle, .online-chip, .cust-row, .course-row, .stepper button,
+    .time-nav > button, .time-nav > a, .cal-tools button, .cal-tools a, .park-x,
+    .spot-foot button, .toast-undo, .group-label, .biz-dialog .close, .inspector-close):active:not(:disabled):not([aria-disabled="true"]) {
+  transform: scale(.97);
+  transition-duration: 100ms;
+}
+/* ⚠ THE LOCK TOGGLE IS CENTRED WITH A TRANSFORM, so it cannot take the family's
+   bare `scale(.97)`: canon :368–372 gives it `position: absolute; top: 50%;
+   transform: translateY(-50%)`, and a bare scale REPLACES that — the toggle
+   would drop 11px on every press. It is the ONLY member of the mock's list with
+   a canon resting transform (grepped whole: :372 here, :384 its own svg, :531
+   .proxy-verdict, :1029/:1176 the pinned answers, :1062 .now-line span,
+   :1405/:1411 the wc-hold family, :1712/:1715 the toast — and none of those is
+   a pressable). A restatement could not fix it either: the family's `:active`
+   head is 0,6,0, so a `.page-today .lock-toggle:active` restatement at 0,5,0
+   loses. Its own pair carries the centring in both states instead. */
+.biz .page-today .lock-toggle { transition: transform 160ms ease-out; }
+.biz .page-today .lock-toggle:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-50%) scale(.97); transition-duration: 100ms; }
+/* Cards never scale — the mock gave them their own path (a second pointerdown
+   listener, no transform) and this is that rule, riding the transition R-6
+   already declares on `.biz .page-today .event` (`filter 100ms ease-out`).
+   GUARDED exactly like ③'s hover heads (③'s fix round F-2): the proxy is
+   `pointer-events: none`, so the element under the pointer for a whole MOVE is
+   the ⚖ flag-19 husk, and the resize grips live inside the card, so the element
+   under the pointer for a whole RESIZE is the `.resizing` card. Both are ruled
+   surfaces; neither takes a press face.
+
+   ⚠ F-7 — AND THE HEADS ARE ③'s OWN SHAPES, because the first version of this
+   rule never painted on a single card. It was written as
+   `.biz .page-today .event:not(.dragging):not(.resizing):active` = (0,6,0), and
+   ③ answers the same element in the state that is ALWAYS co-present with a
+   press: `button.event[data-cat]:not(.dragging):not(.resizing):hover` (0,7,1)
+   and `.event.block/.cleanup:not(.dragging):not(.resizing):hover` (0,7,0), both
+   declaring `filter: none` — ③'s deliberate answer to canon's brightness(.98).
+   On a mouse, `:hover` is true for the whole time the button is down, so both
+   ③ heads out-specified the press and won. Measured on the tip, real pointer
+   down: `none` on 27 of 27 board cards. This is the layer's own STATE-CLASS LAW
+   in the other direction — a state rule that loses on the element it names — so
+   the answer is the same one the law always gives: restate at the shape that
+   beats it, standing later. Each head declares `filter` ONLY, so ③'s hover lift
+   (`box-shadow`, `z-index`, the border tints) is untouched and a pressed card
+   keeps its lift and gains the dim.
+
+   ⚠ AND THE GENERIC (0,6,0) HEAD IS GONE rather than kept 「for an uncategorised
+   booking」. Read at source, the one thing it still reached is not a booking at
+   all: `.event.absence` is a `<span class="event absence" role="note">` (five of
+   them in every render on this route) — no `data-cat`, not `.block`, not a
+   button, and not pressable. So the only surface the generic head could paint
+   was a NOTE that says 「not available」, which is the opposite of press
+   feedback. A booking's `category` is non-null by type, so there is no
+   uncategorised card for it to serve either. Two precise heads, no third. */
+.biz .page-today button.event[data-cat]:not(.dragging):not(.resizing):active { filter: brightness(.97); }
+.biz .page-today .event.block:not(.dragging):not(.resizing):active,
+.biz .page-today .event.cleanup:not(.dragging):not(.resizing):active { filter: brightness(.97); }
+/* ⚖ F-5 — canon gives `.decision-row` no hover at all (:1566–1583), so the
+   transition ① declared for it had nothing to transition. R-9's table gives the
+   row the wash every sibling row on this page already wears — canon's own
+   `.biz-dialog .course-row:hover` value (:1674), not a new colour. Read at
+   source first: the row is a `<button className="decision-row">` inside the
+   判断と閉店阻害 dialog's `<div className="decision-rows">` (both call sites), a
+   real pressable, and canon writes no state class or `[aria-current]`
+   on it, so there is no state for the wash to erase. */
+.biz .page-today .decision-row:hover { background: #fafafb; }
+
+/* D-B · ENTRANCES ARE `@starting-style`; EXITS ARE INSTANT — React unmounts the
+   popovers, EXCEPT `.cal-pop`, WHICH STAYS MOUNTED THROUGH ITS SPRING EXIT
+   (⚖ STUDIO 2026-09-12, immediately below); and F-6 makes the dialogs instant
+   too.
+   Popovers first. `.sell-shelf` (`<div className="fields-pop sell-shelf">`) and
+   `.help-pop` (`<div className="fields-pop help-pop">`) share the `.fields-pop`
+   base and come with it. The mock gave all four a `transform-origin` — fields
+   and cal from the top RIGHT, shelf and help from the top LEFT — and only
+   `.cal-pop` keeps one now, because it is the only one of the four that still
+   scales (D-PR4-10, immediately below). Canon's ≤1320 block sets no `transform`
+   on any of them, so nothing here fights a width rule. */
+/* ⚠ D-PR4-10 — THE THREE SURFACES THAT MEASURE THEMSELVES GET NO SCALE, and this
+   is a MEASUREMENT, not a caution. Four placement effects on this screen read a
+   popover's OWN `getBoundingClientRect()` inside a `useLayoutEffect` on the
+   commit that mounts it, and decide where it goes from the width: 表示設定
+   (`fieldsPopAnchor` — the width is used twice, for the side flip AND the right
+   clamp), the 配置の相談 popover and its block-advice twin (`pinInViewport`,
+   ⚖ flag 35), and the 仮押さえ confirm (`holdPopAnchor`, ⚖ flag 48 — it decides
+   which side of the card can hold the pill and falls back to `.pinned` when none
+   can). `getBoundingClientRect()` returns the TRANSFORMED border box.
+   Measured in Chromium on this tip's sheet, insert and read in ONE synchronous
+   task, exactly as the product does (evidence/STARTING-STYLE-RECT-1207966ce.txt):
+     .fields-pop      rect 276.48  offsetWidth 288   −11.52px  (4.00%)
+     .sell-shelf      rect 276.48  offsetWidth 288   −11.52px  (4.00%)
+     .help-pop        rect 276.48  offsetWidth 288   −11.52px  (4.00%)
+     .hold-pop        rect 368.60  offsetWidth 380   −11.40px  (3.00%) + 4px down
+     .guard-pop       rect 252.20  offsetWidth 260   − 7.80px  (3.00%) + 4px down
+   So the from-value IS in the box the placement reads. The screen's own stated
+   tolerance for this class of error is 0.33px («the RECT, not offsetWidth:
+   offsetWidth is rounded to an integer, and a surface measured 0.33px narrower
+   than it paints lands that far past the margin»), and none of the four effects
+   re-measures after the entrance — a wrong first placement lasts the life of the
+   popover. Placement correctness under ⚖ 35 / ⚖ 48 outranks a 140ms scale on
+   three surfaces, so these three enter on OPACITY ALONE.
+   `.cal-pop` STILL SCALES, and the measurement argument for it is UNCHANGED:
+   read at source, no placement effect measures it (it is CSS-placed inside
+   `.time-nav`; the `calPopRef` it now carries is the spring's paint target and
+   reads nothing), so the 4% is harmless there because nobody reads it.
+   ⚖ STUDIO 2026-09-12 — WHAT CHANGED IS WHO DRIVES IT. `.cal-pop` now ENTERS
+   AND LEAVES on the Studio spring (src/business/lib/spring.ts), driven from the
+   screen: one critically-damped spring, opacity and scale together, reversible
+   from its live value mid-flight — which is the one thing `@starting-style` and
+   a `transition` cannot do, since a popover that leaves by being unmounted has
+   no exit to interrupt. So this sheet declares only the ORIGIN it turns about;
+   a `transition` left on the same two properties would lag every rAF frame the
+   spring writes by 140ms, and a starting rule would fight the `jump(0)`. */
+.biz .page-today .fields-pop {
+  transition: opacity 140ms cubic-bezier(.2, .7, .2, 1);
+}
+.biz .page-today .cal-pop {
+  transform-origin: top right;
+}
+@starting-style {
+  .biz .page-today .fields-pop { opacity: 0; }
+}
+/* The two board answers. ⚖ V4-1 — 120ms, so the confirm lands with the card
+   rather than trailing it; D-PR4-10 takes the rise away and leaves the fade. */
+.biz .page-today .hold-pop,
+.biz .page-today .guard-pop { transition: opacity 120ms ease-out; }
+@starting-style {
+  .biz .page-today .hold-pop,
+  .biz .page-today .guard-pop { opacity: 0; }
+  /* ⚖ STATE-CLASS LAW — the PINNED answers are centred with `translateX(-50%)`
+     (canon `.biz .guard-pop.pinned` / `.biz .hold-pop.pinned`), so their
+     starting rule has to carry it even now that nothing else moves: without it
+     the non-pinned rule above would apply `transform`'s initial `none` at the
+     start and the pill would slide in from half its own width off-centre. */
+  .biz .page-today .hold-pop.pinned,
+  .biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%); }
+}
+/* …and the RESTING transform restated after them, at 0,4,0.
+   ⚠ CORRECTED BY ITS OWN MUTANT (red-run V4 / V4b). This comment first said the
+   line was a belt 「because the layer declares no resting transform」 — which
+   forgot block R, further down, which answers `.hold-pop` / `.guard-pop` with
+   `transform: none` at 0,3,0. That is EXACTLY canon's `.biz .hold-pop.pinned`
+   (:1176) and `.biz .guard-pop.pinned` (:1029), and it stands later, so without
+   a restatement a reduced-motion reader's pinned confirm loses its centring and
+   sits half its own width off the middle. This line and its twin inside block R
+   are BOTH 0,4,0 and either one alone holds it up — cutting one is green (V4b),
+   cutting both is red (V4). Two lines, deliberately, because a reader deleting
+   either half has to be told the other is carrying it. */
+.biz .page-today .hold-pop.pinned,
+.biz .page-today .guard-pop.pinned { transform: translateX(-50%); }
+/* The drawer: the COLUMN appears instantly (layout is never animated) and only
+   the panel's content travels. The inspector is conditionally mounted
+   (`{currentCase && <aside className="panel inspector" aria-labelledby="caseTitle">}`)
+   AND display-toggled by canon's `.biz.drawer-open
+   .inspector` (:1099), so this fires on OPEN and never on page load — nothing
+   here animates when the board is opened. `> *` is `.inspector-head` and
+   `.inspector-body`; canon declares nothing on `.inspector > *`. */
+.biz .page-today .inspector > * { transition: opacity 180ms ease-out, transform 180ms ease-out; }
+@starting-style {
+  .biz .page-today .inspector > * { opacity: 0; transform: translateX(10px); }
+}
+/* The modal family — ENTRANCE ONLY, scoped to the page (mock 3064–3077). All
+   nine dialogs are descendants of `.page.page-today`, and a `showModal()` dialog
+   in the top layer still matches a descendant selector (the top layer changes
+   paint order, not the tree). Canon's `.biz-dialog` and its `::backdrop` are
+   0,1,0; these are 0,3,0 and beat them outright.
+   ⚠ THE BACKDROP CHANGES BOTH HUE AND ALPHA: canon is rgba(24, 24, 27, .48) and
+   this is rgba(16, 24, 40, .45). Disclosed rather than slipped in — 16,24,40 is
+   the reskin layer's own shadow tint since ② (`.fields-pop`'s box-shadow), so
+   this is a recalibration into the layer's established family, not a new
+   colour.
+   ⚠ D-PR4-12 — THE EXIT IS INSTANT, and the mock's 「both ways」 yields to what
+   the exit actually costs. `overlay 120ms allow-discrete` keeps a closed dialog
+   PAINTED for those 120ms, and a dialog that has been `close()`d is no longer
+   modal: for that window the page behind it is live while a click aimed at the
+   page still lands on the fading dialog. Worse on the two `close(); showModal()`
+   hops this screen performs (判断と閉店阻害 → 決済端末, and the close that opens
+   the inspector): two dialogs sit in the top layer at once and the old one is
+   visible UNDER the new backdrop for 120ms — a ghost on a routine hop. Liam's
+   #9 keep named the materialize, not the exit, and every popover on this page
+   already exits instantly because React unmounts it. So the dialogs match them:
+   `@starting-style` entrance stays, `overlay` / `display` `allow-discrete` go. */
+.biz .page-today .biz-dialog {
+  opacity: 0;
+  transform: scale(.96);
+  transition: opacity 120ms cubic-bezier(.2, .7, .2, 1), transform 120ms cubic-bezier(.2, .7, .2, 1);
+}
+.biz .page-today .biz-dialog[open] { opacity: 1; transform: scale(1); transition-duration: 180ms; }
+.biz .page-today .biz-dialog::backdrop {
+  background: rgba(16, 24, 40, .45);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.biz .page-today .biz-dialog[open]::backdrop { opacity: 1; transition-duration: 180ms; }
+@starting-style {
+  .biz .page-today .biz-dialog[open] { opacity: 0; transform: scale(.96); }
+  .biz .page-today .biz-dialog[open]::backdrop { opacity: 0; }
+}
+/* Canon's own toast rule (:1697) is already page-scoped and already declares
+   `transition: opacity .16s ease, transform .16s ease` at the same 0,3,0 shape,
+   so this one wins by standing later. `.toast.show` (:1715) declares opacity
+   and transform only, so the duration below ties nothing. */
+.biz .page-today .toast { transition: opacity 140ms cubic-bezier(.2, .7, .2, 1), transform 140ms cubic-bezier(.2, .7, .2, 1); }
+.biz .page-today .toast.show { transition-duration: 180ms; }
+/* The tour card rides the hole's own curve. Canon animates the HOLE (:1753) and
+   gives the CARD no transition at all (:1757), so this is a rule to build
+   rather than one to restate. The mock's `step-fade` / `tour-fade` text
+   cross-fades (3105–3110) are SKIPPED: the product writes no such classes. */
+.biz .page-today .spot-card { transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1); }
+/* ⚖ V4-1 — the landing preview JUMPS lattice to lattice; the 120ms ease-out
+   softened the one thing the operator aims with, and nothing here softens it
+   again. The mock also carried `.drop-ghost { will-change: transform }` and this
+   slice built it, disclosed as inert — F-1 deletes it. Canon moves the ghost
+   with `left` / `width` (`.biz .drop-ghost`, the rule that gives it
+   `position: absolute` and `--x` / `--w`), never a transform, so the hint bought
+   a permanent compositor layer for a property the element never animates. Same
+   one-truth deletion slice ③ made with its own F-3. */
+
+/* ── R · Reduced motion — LAST, same selector shapes, no !important ───────── */
+
+/* ⚠ THE SHELL ALREADY OWNS THE DURATIONS, and this block does not fight it.
+   business-shell.css :681–683 sets `transition-duration: .01ms !important` on
+   `.biz *` under this very query, so every duration written below is already
+   .01ms before this block is read, and `!important` is forbidden in this layer
+   (rightly). What this block actually contributes is the TRANSFORMS — the
+   press scale, the card's press face, the two entrance transforms D-PR4-10
+   leaves standing — which no shell rule touches. The durations stay because they
+   are what the page MEANS: if the shell's blanket rule ever goes, these are the
+   answers.
+   ⚠ AND THE BLANKET DOES NOT REACH EVERYTHING. Read at source, the shell's rule
+   is `.biz *, .biz *::before, .biz *::after` — `::backdrop` is in none of the
+   three, and `transition` is not inherited from the originating element. So the
+   dialog's scrim is the ONE surface on this page whose reduced-motion answer has
+   to be written here rather than assumed; F-5 below is that line. (Dialog exits
+   need no answer at all any more: D-PR4-12 made them instant for everyone.) */
+@media (prefers-reduced-motion: reduce) {
+  .biz .page-today :is(.btn, .segmented button, .density-seg button, .register-cell.act, .ops-decisions,
+      .decision-card, .decision-row, .cal-cell, .guard-rail-cell, .cell-held,
+      .help-toggle, .online-chip, .cust-row, .course-row, .stepper button,
+      .time-nav > button, .time-nav > a, .cal-tools button, .cal-tools a, .park-x,
+      .spot-foot button, .toast-undo, .group-label, .biz-dialog .close, .inspector-close) {
+    transition: none;
+  }
+  .biz .page-today :is(.btn, .segmented button, .density-seg button, .register-cell.act, .ops-decisions,
+      .decision-card, .decision-row, .cal-cell, .guard-rail-cell, .cell-held,
+      .help-toggle, .online-chip, .cust-row, .course-row, .stepper button,
+      .time-nav > button, .time-nav > a, .cal-tools button, .cal-tools a, .park-x,
+      .spot-foot button, .toast-undo, .group-label, .biz-dialog .close, .inspector-close):active:not(:disabled):not([aria-disabled="true"]) {
+    transform: none;
+  }
+  /* ⚠ the lock toggle keeps its CENTRING. `translateY(-50%)` is layout, not
+     motion: `transform: none` here would drop the toggle 11px for every
+     reduced-motion reader, permanently. */
+  .biz .page-today .lock-toggle { transition: none; }
+  .biz .page-today .lock-toggle:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-50%); }
+  /* ①'s two dialog-row hover heads are 0,5,0 and need the same shape back. */
+  .biz .page-today .biz-dialog .cust-row:hover,
+  .biz .page-today .biz-dialog .course-row:hover { transition: none; }
+  /* ⚖ PR-3's L1 NOTE — R-6's card transition had no reduced-motion escape until
+     now, and neither did the press face. Same 0,3,0 / 0,5,0 shapes. */
+  .biz .page-today .event { transition: none; }
+  /* F-7 — mirrored at the SAME two shapes the press now uses. The old (0,6,0)
+     mirror went with the head it answered: at (0,6,0) it could not reach the new
+     (0,7,1) / (0,7,0) heads, so it would have been a reduced-motion answer that
+     answers nothing — the exact shape of bug F-7 itself. */
+  .biz .page-today button.event[data-cat]:not(.dragging):not(.resizing):active { filter: none; }
+  .biz .page-today .event.block:not(.dragging):not(.resizing):active,
+  .biz .page-today .event.cleanup:not(.dragging):not(.resizing):active { filter: none; }
+  /* D-PR4-10 — the three MEASURED surfaces never carry a transform now, in any
+     state, so their answer here is the duration alone.
+     ⚖ STUDIO 2026-09-12 — `.cal-pop` is answered HONESTLY rather than by a
+     duration it does not use: its motion is a spring the screen builds with
+     `reduced: segReduced`, so for this reader it LANDS INSTANTLY and writes
+     opacity and nothing else — there is no transition to shorten and no
+     transform to cancel, and saying `none` twice is the only true thing this
+     block can say about it. The selector stays so that a reader looking for
+     this surface's reduced-motion answer finds one. */
+  .biz .page-today .fields-pop,
+  .biz .page-today .hold-pop,
+  .biz .page-today .guard-pop { transition: opacity 100ms linear; }
+  .biz .page-today .cal-pop { transition: none; transform: none; }
+  .biz .page-today .hold-pop.pinned,
+  .biz .page-today .guard-pop.pinned { transform: translateX(-50%); }
+  .biz .page-today .inspector > * { transition: opacity 100ms linear; transform: none; }
+  .biz .page-today .biz-dialog,
+  .biz .page-today .biz-dialog[open] { transition: opacity 120ms linear; transform: none; }
+  /* F-5 — the scrim, the one surface the shell's blanket cannot reach (see the
+     ⚠ above). Without this line a reduced-motion reader got an instant dialog
+     over a backdrop still running the layer's 120ms / 180ms fade — the longest
+     fade left on the page, beside neighbours this very block answers at 100ms.
+     `.01ms` rather than `none`, so it matches what the shell gives everything
+     else instead of inventing a second convention. */
+  .biz .page-today .biz-dialog::backdrop,
+  .biz .page-today .biz-dialog[open]::backdrop { transition: opacity .01ms linear; }
+  .biz .page-today .toast { transition: opacity 120ms linear; }
+  .biz .page-today .spot-card { transition: none; }
+  /* The entrances, answered at the SAME selector shapes and written AFTER the
+     normal ones, which is what makes `!important` unnecessary. The pinned pair
+     keeps `translateX(-50%)` here too — it is centring, not travel. */
+  @starting-style {
+    .biz .page-today .fields-pop,
+    .biz .page-today .hold-pop,
+    .biz .page-today .guard-pop { opacity: 0; }
+    /* ⚖ STUDIO 2026-09-12 — `.cal-pop` is gone from here too: the spring seats
+       it at 0 with `jump(0)` in a LAYOUT effect, before the first paint, so a
+       starting rule would be a second answer to a question already answered. */
+    .biz .page-today .hold-pop.pinned,
+    .biz .page-today .guard-pop.pinned { opacity: 0; transform: translateX(-50%); }
+    .biz .page-today .inspector > * { opacity: 0; transform: none; }
+    .biz .page-today .biz-dialog[open] { opacity: 0; transform: none; }
+    .biz .page-today .biz-dialog[open]::backdrop { opacity: 0; }
+  }
+}

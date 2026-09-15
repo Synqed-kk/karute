@@ -38,6 +38,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { SettingsScreenDTO, type SettingsScreenDTOType } from '@/lib/app-api/settings-screen-dto'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { canReadAuditLog } from '@/lib/auth/audit-read'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { viewerStaffRosterForBusiness } from '@/lib/auth/store-scope'
@@ -133,7 +134,10 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
 
     const canManageStaff = ctx.identity.capabilities.has('staff.manage')
     const canInviteStaff = ctx.identity.capabilities.has('staff.invite')
-    const canViewAudit = isOwner || ctx.identity.capabilities.has('audit.view')
+    // 監査ログ: audit.view AND stores.viewAll (PR B2 §4, canReadAuditLog) —
+    // the SAME predicate the read boundary enforces, so a viewer who sees
+    // this section never then hits `forbidden` opening it.
+    const canViewAudit = canReadAuditLog(ctx.identity.capabilities)
     const canViewSync = isOwner || ctx.identity.capabilities.has('sync.view')
     // Bare capability, no owner fallback — web parity (settings/page.tsx:76).
     const canManageMenus = ctx.identity.capabilities.has('menus.manage')

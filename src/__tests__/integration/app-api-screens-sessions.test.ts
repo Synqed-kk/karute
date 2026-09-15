@@ -67,6 +67,34 @@ const fakeClient = {
   staffStores: { get: staffStoresGet },
   karuteRecords: { list: karuteList },
   staff: { list: staffList },
+  // R4 repair (2026-09-13, F4b): listMixedKaruteRecords now THROWS when a
+  // client has no fetch() (a fake production adapter must never silently
+  // report a fabricated discardedCount:0) — every windowed read
+  // (loadKaruteWindowRows always passes includeDiscarded:true) goes through
+  // it, so this double needs a real fetch() or the whole ?window=1
+  // describe block below 502s. Same query→opts translation as
+  // karute-window.test.ts's asClient, routed through the SAME karuteList
+  // mock so every existing assertion on karuteList.mock.calls is untouched.
+  fetch: jest.fn(async (path: string) => {
+    const query = new URL(path, 'https://core.test').searchParams
+    // Cast at the call site, not the mock's declared signature — karuteList
+    // is typed with no params (every OTHER call site calls it bare), so
+    // widening its signature would leave an unused param on those.
+    return (karuteList as unknown as (opts: Record<string, unknown>) => Promise<unknown>)({
+      ...(query.get('customer_id') ? { customer_id: query.get('customer_id') } : {}),
+      ...(query.get('store_id') ? { store_id: query.get('store_id') } : {}),
+      ...(query.get('from') ? { from: query.get('from') } : {}),
+      ...(query.get('to') ? { to: query.get('to') } : {}),
+      ...(query.get('page') ? { page: Number(query.get('page')) } : {}),
+      ...(query.get('page_size') ? { page_size: Number(query.get('page_size')) } : {}),
+      // R5 pin (2026-09-13, Y2): forward include_discarded back into the
+      // captured call, same idiom as karute-window.test.ts's asClient — a
+      // direct karuteRecords.list() call (the correct, non-mixed path) never
+      // carries this key at all, so it's the signal that distinguishes the
+      // two paths in karuteList.mock.calls.
+      include_discarded: query.get('include_discarded') === 'true',
+    })
+  }),
 }
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: jest.fn(() => fakeClient),
@@ -311,7 +339,13 @@ const windowReq = (qs: string, init: RequestInit = {}) =>
   new Request(`https://s/api/app/v1/screens/sessions${qs}`, init)
 // The shared karuteList mock is declared arg-less; the window walk calls it
 // WITH options, so read them back through one typed view.
-type KaruteListArgs = { from?: string; to?: string; store_id?: string; page_size?: number }
+type KaruteListArgs = {
+  from?: string
+  to?: string
+  store_id?: string
+  page_size?: number
+  include_discarded?: boolean
+}
 const karuteCalls = () =>
   karuteList.mock.calls as unknown as Array<[KaruteListArgs | undefined]>
 
@@ -386,10 +420,15 @@ describe('GET /api/app/v1/screens/sessions?window=1 — the release-18 windowed 
     karuteList.mockResolvedValue({ karute_records: FIXED_KARUTE, total: 1 })
   })
 
-  it('adds hasMore + windowStart ON TOP of the legacy keys (additive only)', async () => {
+  it('adds pagination and discarded counts ON TOP of the legacy keys (additive only)', async () => {
     const res = await GET(windowReq('?window=1', { headers: auth }), route)
     expect(res.status).toBe(200)
     const dto = await res.json()
+    // D10 (PR-C): viewerHoldsViewShared is UNCONDITIONAL (capabilities.has()
+    // always answers true/false), so it rides every windowed response —
+    // unlike sharedCount, which stays undefined (and so absent from the
+    // wire) until the karuteList double answers shared_count, per the block
+    // below.
     expect(Object.keys(dto)).toEqual([
       'items',
       'placeholders',
@@ -398,13 +437,22 @@ describe('GET /api/app/v1/screens/sessions?window=1 — the release-18 windowed 
       'staffList',
       'currentStaffId',
       'customerOptions',
+      'discardedCount',
       'hasMore',
       'windowStart',
+      'viewerCanOpenDiscarded',
+      'viewerHoldsViewShared',
     ])
     expect(typeof dto.windowStart).toBe('string')
+    expect(dto.discardedCount).toBe(0)
     // 1 row loaded of a 1-row store → nothing older.
     expect(dto.hasMore).toBe(false)
     expect(dto.items).toHaveLength(1)
+    // R8 discarded-record door (⚖ Liam 2026-09-13, A8): this test's caller
+    // holds no records.discardView (see the capability gate below).
+    expect(dto.viewerCanOpenDiscarded).toBe(false)
+    // D10: nor recordings.viewShared (mockCapabilities above carries neither).
+    expect(dto.viewerHoldsViewShared).toBe(false)
   })
 
   it('reads through the DATE WALK (from/to windows), not the flat slab', async () => {
@@ -433,5 +481,169 @@ describe('GET /api/app/v1/screens/sessions?window=1 — the release-18 windowed 
     const dto = await res.json()
     expect(dto.total).toBe(9)
     expect(dto.hasMore).toBe(true)
+  })
+
+  it('R5 pin (2026-09-13, Y2): the 今月 probe never rides the include_discarded/fetch path', async () => {
+    // Every page_size:1 read the WINDOWED main-row walk makes (storeProbe,
+    // the date-window probe) always sets includeDiscarded:true and so always
+    // goes through synqed.fetch, which (this file's fetch shim) stamps
+    // include_discarded:true on the way back into karuteList.mock.calls. The
+    // 今月 probe (route.ts's separate page_size:1, from/to read) reads only
+    // `.total` and, since R5, carries no includeDiscarded — it must be the
+    // ONE page_size:1+from call that does NOT carry the flag. Re-adding
+    // `includeDiscarded: windowed` to it (windowed is true for a ?window=1
+    // request) would flag it too, leaving zero unflagged candidates — the
+    // M4 mutant this pins RED.
+    await GET(windowReq('?window=1', { headers: auth }), route)
+    const unflaggedProbes = karuteCalls().filter(
+      (c) => c[0]?.page_size === 1 && c[0]?.from && !c[0]?.include_discarded,
+    )
+    expect(unflaggedProbes).toHaveLength(1)
+  })
+})
+
+// D10 (PR-C, self-lighting): sharedCount + viewerHoldsViewShared on the
+// windowed screen read.
+describe('GET /api/app/v1/screens/sessions?window=1 — D10 sharedCount + viewerHoldsViewShared', () => {
+  beforeEach(() => {
+    karuteList.mockResolvedValue({ karute_records: FIXED_KARUTE, total: 1 })
+  })
+
+  it('carries sharedCount when the karute read answers shared_count — FOR A HOLDER (F1 fix, PR-C fix round 1)', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['customers.view', 'stores.viewAll', 'recordings.viewShared']),
+    )
+    karuteList.mockResolvedValue({
+      karute_records: FIXED_KARUTE,
+      total: 1,
+      discarded_count: 0,
+      shared_count: 4,
+    } as never)
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.sharedCount).toBe(4)
+  })
+
+  it('omits sharedCount entirely when core has not shipped shared_count yet, even for a holder (feature detection, never ?? 0)', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['customers.view', 'stores.viewAll', 'recordings.viewShared']),
+    )
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.sharedCount).toBeUndefined()
+    expect('sharedCount' in dto).toBe(false)
+  })
+
+  it('viewerHoldsViewShared is true only when the caller holds recordings.viewShared', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['customers.view', 'stores.viewAll', 'recordings.viewShared']),
+    )
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.viewerHoldsViewShared).toBe(true)
+  })
+
+  it('a real sharedCount of 0 is a SHOWN value for a holder, not treated as absent', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['customers.view', 'stores.viewAll', 'recordings.viewShared']),
+    )
+    karuteList.mockResolvedValue({
+      karute_records: FIXED_KARUTE,
+      total: 1,
+      discarded_count: 0,
+      shared_count: 0,
+    } as never)
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.sharedCount).toBe(0)
+    expect('sharedCount' in dto).toBe(true)
+  })
+
+  // F1 fix (PR-C fix round 1) — the packet's own named test, end-to-end
+  // through the real facade route (not just the builder unit test): a
+  // colleague's shared row never carries isShared for a non-holder, but the
+  // recorder's OWN shared row still does; a holder sees both.
+  it('F1: a NON-holder gets no isShared on a colleague\'s shared row, but DOES see it on her own', async () => {
+    // FIXED_KARUTE's row belongs to staff_id 'sstaff-1' → profile 'staff-2'
+    // (staffList mock); the caller here is auth-user-1 — a colleague's row.
+    const ownRow = {
+      id: 'rec-own',
+      customer_id: 'cust-1',
+      created_at: FIXED,
+      session_date: FIXED,
+      ai_summary: 'まとめ',
+      transcript: '発話',
+      // staff_id maps straight through when no synqed-staff translation entry
+      // exists for it — same fallback rule screen-rows.ts documents.
+      staff_id: 'auth-user-1',
+      business_id: 'business-1',
+      entry_count: 1,
+    }
+    karuteList.mockResolvedValue({
+      karute_records: [{ ...FIXED_KARUTE[0], shared_at: '2026-09-14T00:00:00.000Z' }, { ...ownRow, shared_at: '2026-09-14T00:00:00.000Z' }],
+      total: 2,
+      discarded_count: 0,
+    } as never)
+
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    const colleagueRow = dto.items.find((i: { id: string }) => i.id === 'rec-1')
+    const ownItem = dto.items.find((i: { id: string }) => i.id === 'rec-own')
+    expect(colleagueRow.isShared).toBeUndefined()
+    expect(ownItem.isShared).toBe(true)
+  })
+
+  it('F1: a HOLDER sees isShared on a colleague\'s shared row too', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['customers.view', 'stores.viewAll', 'recordings.viewShared']),
+    )
+    karuteList.mockResolvedValue({
+      karute_records: [{ ...FIXED_KARUTE[0], shared_at: '2026-09-14T00:00:00.000Z' }],
+      total: 1,
+      discarded_count: 0,
+    } as never)
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.items.find((i: { id: string }) => i.id === 'rec-1').isShared).toBe(true)
+  })
+
+  // F1 fix (PR-C fix round 1): the wire must not tell a colleague a share
+  // happened — a non-holder gets NO sharedCount even when core answers one.
+  it('F1: sharedCount is absent for a NON-holder even when core answers a real shared_count', async () => {
+    // mockCapabilities defaults to ['customers.view', 'stores.viewAll'] — no
+    // recordings.viewShared (see the top-of-file beforeEach).
+    karuteList.mockResolvedValue({
+      karute_records: FIXED_KARUTE,
+      total: 1,
+      discarded_count: 0,
+      shared_count: 4,
+    } as never)
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.sharedCount).toBeUndefined()
+    expect('sharedCount' in dto).toBe(false)
+    expect(dto.viewerHoldsViewShared).toBe(false)
+  })
+})
+
+// D10 (PR-C): the bare/legacy path stays byte-identical — sharedCount and
+// viewerHoldsViewShared are windowed-only, exactly like discardedCount/
+// hasMore/windowStart/viewerCanOpenDiscarded.
+describe('GET /api/app/v1/screens/sessions — D10 bare call never carries the new keys', () => {
+  it('a bare call never carries sharedCount or viewerHoldsViewShared, even when the caller holds the capability and core answers shared_count', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['customers.view', 'stores.viewAll', 'recordings.viewShared']),
+    )
+    karuteList.mockResolvedValue({
+      karute_records: KARUTE,
+      total: KARUTE.length,
+      discarded_count: 0,
+      shared_count: 4,
+    } as never)
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(JSON.stringify(dto)).not.toContain('sharedCount')
+    expect(JSON.stringify(dto)).not.toContain('viewerHoldsViewShared')
   })
 })

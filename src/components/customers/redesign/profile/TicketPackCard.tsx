@@ -32,7 +32,7 @@ import {
   type PackKind,
   type PackWithUsage,
 } from '@/lib/packs/types'
-import { DEFAULT_CONTACT_THRESHOLD_DAYS } from '@/lib/packs/resolve'
+import { DEFAULT_CONTACT_THRESHOLD_DAYS, resolveOutcomeMode } from '@/lib/packs/resolve'
 import { jstDaysBetween } from '@/lib/date/jst'
 
 const yen = (n: number) => `¥${n.toLocaleString('ja-JP')}`
@@ -110,6 +110,16 @@ export function TicketPackCard({
                   o.status === 'active' &&
                   o.remaining > 0,
               )}
+              // p5 — Σ remaining over the OTHER active counted packs, same
+              // resolver the stop dialog uses (resolveOutcomeMode), so the
+              // card cannot disagree with the dialog on when to ask.
+              otherRemaining={packs.reduce(
+                (sum, o) =>
+                  o.id !== p.id && o.kind === 'pack' && o.status === 'active'
+                    ? sum + o.remaining
+                    : sum,
+                0,
+              )}
             />
           ))}
         </ul>
@@ -126,7 +136,23 @@ export function TicketPackCard({
                 {packLabel(p, t)}
                 {p.purchased_at ? ` · ${p.purchased_at}` : ''}
               </span>
-              <span>{p.status === 'exhausted' ? t('exhausted') : t('cancelledPack')}</span>
+              <span>
+                {/* UPDATE 26 (CORE-12): a 'void' pack is neither exhausted
+                 *  nor cancelled — the record itself doesn't count (entered
+                 *  in error, corrected at the source). Rendering it as
+                 *  cancelled would be a false word.
+                 *  Fix round 1 (X2): 'unknown' (the DTO's honest fail-safe
+                 *  for a status this app has never seen) gets its OWN
+                 *  neutral word too — never 「無効」, which would claim a
+                 *  fact nobody here actually knows. */}
+                {p.status === 'exhausted'
+                  ? t('exhausted')
+                  : p.status === 'void'
+                    ? t('voidPack')
+                    : p.status === 'unknown'
+                      ? t('unknownStatusPack')
+                      : t('cancelledPack')}
+              </span>
             </li>
           ))}
         </ul>
@@ -153,12 +179,14 @@ function PackRow({
   pack,
   customerId,
   hasNewerActive = false,
+  otherRemaining = 0,
   hasNextBooking = false,
   avgIntervalDays = null,
 }: {
   pack: PackWithUsage
   customerId: string
   hasNewerActive?: boolean
+  otherRemaining?: number
   hasNextBooking?: boolean
   avgIntervalDays?: number | null
 }) {
@@ -173,7 +201,16 @@ function PackRow({
   // day counter is running. 残0 with a newer pack = quietly 終了.
   const exhausted = pack.kind === 'pack' && pack.remaining === 0
   const closed = exhausted && hasNewerActive
-  const low = pack.kind === 'pack' && pack.remaining === 1
+  // 回数券 update 25, p5 — the hint fires off the SAME total-balance rule the
+  // stop dialog uses (resolveOutcomeMode), not its own "any newer pack at
+  // all" check: two packs each at 残1 (total 2) both still need the
+  // conversation, the way the dialog already asks at that total. The old
+  // `!hasNewerActive` form silenced BOTH cards there, which disagreed with
+  // the dialog — one resolver, the card cannot disagree with it.
+  const low =
+    pack.kind === 'pack' &&
+    pack.remaining === 1 &&
+    resolveOutcomeMode({ remaining: pack.remaining, otherRemaining }) === 'repurchase'
   const daysSinceLast = pack.lastRedeemedOn
     ? jstDaysBetween(pack.lastRedeemedOn)
     : null

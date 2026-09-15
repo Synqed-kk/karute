@@ -21,7 +21,8 @@
 // STILL LIVE, and still needed, for the SYSTEM/abandoned paths: the recordings
 // server action and the facade route both call in here (below), and those
 // remove rows for sessions no human ever decided about. Nothing in this
-// function changed — only who calls it.
+// function changed THEN — only who calls it. (Capture pipeline PR4 has since
+// added the audio gates below, which is the only other change it has taken.)
 //
 // P5-B (PACKET-P5-DISCARD-2026-08-25.md item B-1) still owns the rest: a
 // discarded take's CONTENT is destroyed exactly as before, and keeping it is
@@ -39,6 +40,7 @@
 // reachable as a client-invokable action where a caller could supply its own.
 
 import { audit } from '@/lib/audit'
+import { objectExists } from '@/lib/recording/mint-take-url'
 import type { newSynqedClient } from '@/lib/synqed/client'
 
 export interface SessionCleanupActor {
@@ -144,6 +146,52 @@ export async function deleteRecordingSessionWithClient(
     }
   }
 
+  // ⚖ A ROW THAT POINTS AT AUDIO IS NEVER REMOVED (capture pipeline PR4).
+  // `audio_storage_path` is the ONLY way back to the take's finalized object —
+  // core exposes no lookup by key — so deleting this row would leave the
+  // recording in the bucket with nothing naming it: audio that is not deleted
+  // but can never be found again, which is the same loss wearing a different
+  // hat. A refusal here costs one grayed 破棄済み row, which the inbox renders
+  // correctly (item A2-3).
+  //
+  // BUT THE POINTER CANNOT ANSWER THAT QUESTION (fix round 1). Since PR2 fix
+  // round 10 a session is BORN RESERVED — created with the take's key already
+  // on it, before one byte exists — so `if (row.audio_storage_path)` refused
+  // every row a current recorder ever made and quietly turned this whole
+  // cleanup into a no-op for the SYSTEM/abandoned paths it still serves. Two
+  // facts answer it honestly instead, and both keep the row on an unknown:
+  //
+  //  ① the STATUS has left RECORDING. UPLOADING/PROCESSING/COMPLETED/FAILED all
+  //    mean something happened to this take after the row was minted, and this
+  //    function is not the place to decide it did not. A row with no status at
+  //    all is the same unknown, and is kept for the same reason.
+  if (row.status !== 'RECORDING') {
+    console.warn(
+      `[session-cleanup] refused ${recordingSessionId}: status is ${String(row.status)}, not RECORDING`,
+    )
+    return { error: 'has_audio' }
+  }
+  //  ② storage actually HOLDS the reserved object — the only proof that bytes
+  //    exist. `objectExists` is the same probe the mint's own reservation runs
+  //    (one home, one spelling); 'unknown' is a probe that could not answer, so
+  //    the row stays and the caller is owed the retry.
+  if (row.audio_storage_path) {
+    let exists: boolean | 'unknown'
+    try {
+      exists = await objectExists(row.audio_storage_path)
+    } catch (err) {
+      console.warn(`[session-cleanup] object probe failed for ${recordingSessionId}:`, err)
+      return { error: 'read_failed' }
+    }
+    if (exists === 'unknown') return { error: 'read_failed' }
+    if (exists) {
+      console.warn(
+        `[session-cleanup] refused ${recordingSessionId}: the reserved object holds bytes`,
+      )
+      return { error: 'has_audio' }
+    }
+  }
+
   try {
     await synqed.recordings.delete(recordingSessionId)
   } catch (err) {
@@ -163,7 +211,15 @@ export async function deleteRecordingSessionWithClient(
     targetId: recordingSessionId,
     severity: 'notice',
     detail: {
-      customer_id: row.customer_id ?? null,
+      // customer_id (§v2, 2026-09-10 widen — fixed): a walk-in take has none,
+      // so this omits the key rather than writing null (⚖ 8/17 ids-only law).
+      ...(row.customer_id ? { customer_id: row.customer_id } : {}),
+      // staff_id (2026-09-10 widen, §v2): the actor is already this take's
+      // owning staffer (actor_id above, and always non-null here — the
+      // function's own guard refuses before this point otherwise), but every
+      // other recording-target row carries the same fact in detail too — one
+      // shape a reader can rely on without special-casing this action.
+      staff_id: actor.staffId,
       had_audio_path: !!row.audio_storage_path,
       // Ids-and-flags-safe (no PII): lets the 監査ログ subtitle carry how
       // long the take ran, since the session row itself is hard-deleted.

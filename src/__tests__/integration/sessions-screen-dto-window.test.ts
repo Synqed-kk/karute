@@ -59,6 +59,12 @@ describe('SessionsScreenDTO — the legacy shape stays exactly the legacy shape'
     ])
     expect(JSON.stringify(parsed)).not.toContain('hasMore')
     expect(JSON.stringify(parsed)).not.toContain('windowStart')
+    // R8 discarded-record door (F6, 2026-09-13): the bare/legacy body must
+    // never carry this key either — same additive-only guarantee.
+    expect(JSON.stringify(parsed)).not.toContain('viewerCanOpenDiscarded')
+    // D10 (PR-C): same additive-only guarantee, one lane over.
+    expect(JSON.stringify(parsed)).not.toContain('sharedCount')
+    expect(JSON.stringify(parsed)).not.toContain('viewerHoldsViewShared')
     // Re-parsing its own output is a fixed point.
     expect(SessionsScreenDTO.parse(parsed)).toEqual(parsed)
   })
@@ -76,7 +82,7 @@ describe('SessionsScreenDTO — the legacy shape stays exactly the legacy shape'
 })
 
 describe('SessionsScreenWindowedDTO — additive only', () => {
-  it('adds hasMore + windowStart AFTER every base key, in order', () => {
+  it('adds discardedCount + pagination AFTER every base key, in order', () => {
     const parsed = SessionsScreenWindowedDTO.parse({
       ...screen(),
       hasMore: true,
@@ -90,6 +96,7 @@ describe('SessionsScreenWindowedDTO — additive only', () => {
       'staffList',
       'currentStaffId',
       'customerOptions',
+      'discardedCount',
       'hasMore',
       'windowStart',
     ])
@@ -100,6 +107,89 @@ describe('SessionsScreenWindowedDTO — additive only', () => {
     const parsed = SessionsScreenWindowedDTO.parse(screen())
     expect(parsed.hasMore).toBe(false)
     expect(parsed.windowStart).toBeNull()
+    expect(parsed.discardedCount).toBe(0)
+    // R8 (A8): `.optional()`, not `.default()` — absent stays absent, never
+    // a silent false claim about a grant the caller never asked about.
+    expect(parsed.viewerCanOpenDiscarded).toBeUndefined()
+    // D10 (PR-C): same reasoning, one field further — see the block below.
+    expect(parsed.sharedCount).toBeUndefined()
+    expect(parsed.viewerHoldsViewShared).toBeUndefined()
+  })
+
+  it('R8 discarded-record door (A8): viewerCanOpenDiscarded rides LAST, after every other windowed key, when the caller sets it', () => {
+    const parsed = SessionsScreenWindowedDTO.parse({
+      ...screen(),
+      hasMore: true,
+      windowStart: '2026-08-12',
+      viewerCanOpenDiscarded: true,
+    })
+    expect(Object.keys(parsed)).toEqual([
+      'items',
+      'placeholders',
+      'monthCount',
+      'total',
+      'staffList',
+      'currentStaffId',
+      'customerOptions',
+      'discardedCount',
+      'hasMore',
+      'windowStart',
+      'viewerCanOpenDiscarded',
+    ])
+    expect(parsed.viewerCanOpenDiscarded).toBe(true)
+  })
+
+  // D10 (PR-C, self-lighting): the feature-detection test — sharedCount rides
+  // LAST of all, after viewerCanOpenDiscarded, and stays ABSENT (never `0`)
+  // when the upstream screen omits it.
+  it('D10: key order — sharedCount + viewerHoldsViewShared ride LAST, after every other windowed key including viewerCanOpenDiscarded', () => {
+    const parsed = SessionsScreenWindowedDTO.parse({
+      ...screen(),
+      hasMore: true,
+      windowStart: '2026-08-12',
+      viewerCanOpenDiscarded: true,
+      sharedCount: 3,
+      viewerHoldsViewShared: true,
+    })
+    expect(Object.keys(parsed)).toEqual([
+      'items',
+      'placeholders',
+      'monthCount',
+      'total',
+      'staffList',
+      'currentStaffId',
+      'customerOptions',
+      'discardedCount',
+      'hasMore',
+      'windowStart',
+      'viewerCanOpenDiscarded',
+      'sharedCount',
+      'viewerHoldsViewShared',
+    ])
+    expect(parsed.sharedCount).toBe(3)
+    expect(parsed.viewerHoldsViewShared).toBe(true)
+  })
+
+  it('D10: sharedCount ABSENT when upstream omits it — the feature-detection test (never coerced to 0)', () => {
+    const parsed = SessionsScreenWindowedDTO.parse({
+      ...screen(),
+      hasMore: true,
+      windowStart: '2026-08-12',
+    })
+    expect(parsed.sharedCount).toBeUndefined()
+    expect(JSON.stringify(parsed)).not.toContain('sharedCount')
+    expect(parsed.viewerHoldsViewShared).toBeUndefined()
+  })
+
+  it('D10: a real sharedCount of 0 parses through as a shown value, not stripped like the absent case', () => {
+    const parsed = SessionsScreenWindowedDTO.parse({
+      ...screen(),
+      hasMore: true,
+      windowStart: '2026-08-12',
+      sharedCount: 0,
+    })
+    expect(parsed.sharedCount).toBe(0)
+    expect(JSON.stringify(parsed)).toContain('"sharedCount":0')
   })
 })
 

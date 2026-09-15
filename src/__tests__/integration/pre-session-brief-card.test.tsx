@@ -85,6 +85,35 @@ describe('PreSessionBriefCard (30-second layer)', () => {
     expect(screen.getByText('愛犬パグ')).toBeInTheDocument()
   })
 
+  it('drops a hook body that only reorders the title wording', () => {
+    render(
+      <PreSessionBriefCard
+        customerName="test"
+        brief={{
+          ...base,
+          hooks: [{ title: '同棲中の彼氏', body: '彼氏と同棲中' }],
+        }}
+      />,
+    )
+    expect(screen.getByText('同棲中の彼氏')).toBeInTheDocument()
+    expect(screen.queryByText('彼氏と同棲中')).not.toBeInTheDocument()
+  })
+
+  it('keeps a hook body when it adds meaningful suffix context', () => {
+    render(
+      <PreSessionBriefCard
+        customerName="test"
+        brief={{
+          ...base,
+          hooks: [{ title: '愛犬の手術', body: '愛犬の手術後' }],
+        }}
+      />,
+    )
+    const title = screen.getByText('愛犬の手術')
+    expect(title).toBeInTheDocument()
+    expect(title.parentElement).toHaveTextContent('愛犬の手術 — 愛犬の手術後')
+  })
+
   it('orders the expanded detail history-first when the 30-second layer exists', () => {
     render(
       <PreSessionBriefCard

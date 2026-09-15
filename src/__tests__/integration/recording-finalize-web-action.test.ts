@@ -21,21 +21,30 @@ jest.mock('@/lib/auth/require-permission', () => ({
 
 const getBusinessId = jest.fn(async () => 'biz-1')
 const getCurrentUserStaffId = jest.fn(async (): Promise<string | null> => 'staff-1')
+const getCurrentAccessToken = jest.fn(async () => 'web-cookie-token')
 jest.mock('@/lib/staff', () => ({
   getBusinessId: () => getBusinessId(),
   getCurrentUserStaffId: () => getCurrentUserStaffId(),
+  getCurrentAccessToken: () => getCurrentAccessToken(),
 }))
 
 // Still mocked, still asserted NOT to matter: finalizeTake must not reach for a
 // store it no longer has any use for (fix round 4).
 const resolveStoreScope = jest.fn(async () => ({ storeId: 'store-9' as string | null }))
-jest.mock('@/lib/auth/store-scope', () => ({ resolveStoreScope: () => resolveStoreScope() }))
+// ③ …and the ACT REACH it now does resolve, but ONLY when the caller holds the
+// owner's pair. Default null = unrestricted (`stores.viewAll` or floating
+// staff) — the shape every case below already assumed.
+const viewerScopeForActs = jest.fn(async (): Promise<readonly string[] | null> => null)
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: () => resolveStoreScope(),
+  viewerScopeForActs: () => viewerScopeForActs(),
+}))
 jest.mock('@/lib/audit-web', () => ({ resolveWebAuditContext: jest.fn() }))
 
 const CLIENT = { recordings: {} }
-const newSynqedClient = jest.fn((_businessId: string) => CLIENT)
+const newSynqedClient = jest.fn((_businessId: string, _accessToken?: string) => CLIENT)
 jest.mock('@/lib/synqed/client', () => ({
-  newSynqedClient: (b: string) => newSynqedClient(b),
+  newSynqedClient: (b: string, t?: string) => newSynqedClient(b, t),
   getSynqedClient: jest.fn(),
 }))
 
@@ -118,7 +127,9 @@ describe('finalizeTake (web action) — the identity is the SESSION’s, never t
 
   it('the client and the actor carry the cookie’s business and staff', async () => {
     await finalizeTake(input)
-    expect(newSynqedClient).toHaveBeenCalledWith('biz-1')
+    // ⚖ packet hotfix 2 (2026-09-05): the cookie session's own access token now
+    // rides alongside the business id — core's actor-gated PUT 401s without it.
+    expect(newSynqedClient).toHaveBeenCalledWith('biz-1', 'web-cookie-token')
     expect(actorPassed()).toMatchObject({ staffId: 'staff-1', businessId: 'biz-1', source: 'web' })
   })
 
@@ -128,12 +139,37 @@ describe('finalizeTake (web action) — the identity is the SESSION’s, never t
     expect(resolveStoreScope).not.toHaveBeenCalled()
   })
 
+  // ③ …and it resolves the caller's REACH, which is a different question: a
+  // finalize on a COLLEAGUE's take is the owner's hand, and the owner's hand
+  // now stops at the stores that person can see. Asked only when the pair is
+  // held, so an assignment blip can never cost a recorder her own take.
+  it('resolves the act scope ONLY for a pair-holder — a plain recorder never pays for it', async () => {
+    await finalizeTake(input)
+    expect(viewerScopeForActs).not.toHaveBeenCalled()
+    expect(actorPassed().allowedStoreIds).toBeNull()
+
+    finalizeTakeWithClient.mockClear()
+    getMyCapabilities.mockResolvedValue(
+      new Set(['records.write', 'business.manage', 'recordings.viewAll']),
+    )
+    viewerScopeForActs.mockResolvedValue(['store-a'])
+    await finalizeTake(input)
+    expect(viewerScopeForActs).toHaveBeenCalledTimes(1)
+    expect(actorPassed().allowedStoreIds).toEqual(['store-a'])
+  })
+
+  // ⚖ 9/3 council + Greptile #848 point 1: finalizing a COLLEAGUE's take is an
+  // ACT, so the actor's reach is the owner's HAND (business.manage AND
+  // recordings.viewAll), never the named grant alone. The middle row is the
+  // grantee twin — a person the owner ticked for hearing gets no write reach.
   it.each([
-    ['an owner holding recordings.viewAll', ['records.write', 'recordings.viewAll'], true],
-    ['a practitioner without it', ['records.write'], false],
-  ])('canViewAll follows the capability set: %s', async (_label, caps, expected) => {
+    ['the owner’s hand (both keys)', ['records.write', 'business.manage', 'recordings.viewAll'], true],
+    ['a NAMED GRANTEE (recordings.viewAll alone)', ['records.write', 'recordings.viewAll'], false],
+    ['business.manage alone', ['records.write', 'business.manage'], false],
+    ['a practitioner with neither', ['records.write'], false],
+  ])('holdsOwnerKeys follows the capability set: %s', async (_label, caps, expected) => {
     getMyCapabilities.mockResolvedValue(new Set(caps))
     await finalizeTake(input)
-    expect(actorPassed().canViewAll).toBe(expected)
+    expect(actorPassed().holdsOwnerKeys).toBe(expected)
   })
 })

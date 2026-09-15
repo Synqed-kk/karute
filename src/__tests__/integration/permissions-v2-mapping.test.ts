@@ -6,8 +6,9 @@
  *
  * `effectiveLegacy` fixtures are built by calling the real
  * `effectiveCapabilities()` chokepoint (via buildInput), so they can't drift
- * from the real role presets — and the non-owner recordings.viewAll strip is
- * exercised for real, not assumed. ONE deliberate exception: the determinism
+ * from the real role presets — and the chokepoint's treatment of an explicit
+ * recordings.viewAll override is exercised for real, not assumed. ONE
+ * deliberate exception: the determinism
  * test hand-types its scrambled/canonical inputs, because its subject is the
  * mapper's set/sort logic under adversarial input shape, not preset fidelity.
  */
@@ -155,13 +156,14 @@ test.each(OVERRIDE_CASES)('override: $name', ({ role, storedOverride, expectedV2
 
 // ─── 3. Chokepoint parity ───────────────────────────────────────────────────
 
-test('chokepoint parity: a stale non-owner recordings.viewAll override cannot influence v2 output', () => {
+test('chokepoint parity: an explicit non-owner recordings.viewAll override PASSES the chokepoint (it IS a grant); it has no v2 twin, so the v2 set is unchanged', () => {
   executedCaseCount++
-  const staleOverride = [...presetCapabilities('practitioner'), 'recordings.viewAll']
-  const input = buildInput({ subjectId: 'stale-recordings-1', role: 'practitioner', storedOverride: staleOverride })
-  // The real effectiveCapabilities() chokepoint already stripped it — the
-  // mapper only ever sees the post-strip set.
-  expect(input.effectiveLegacy).not.toContain('recordings.viewAll')
+  const grantedOverride = [...presetCapabilities('practitioner'), 'recordings.viewAll']
+  const input = buildInput({ subjectId: 'granted-recordings-1', role: 'practitioner', storedOverride: grantedOverride })
+  // ⚖ 9/3 named grant: the real effectiveCapabilities() chokepoint no longer
+  // strips it, so the mapper DOES see it — and must still emit nothing for it,
+  // because recordings.viewAll carries no LEGACY_TO_V2_TWINS entry.
+  expect(input.effectiveLegacy).toContain('recordings.viewAll')
   const proposed = mapLegacyRights(input)
   expect(proposed.capabilitiesV2).toEqual([
     'customer_identity.view',

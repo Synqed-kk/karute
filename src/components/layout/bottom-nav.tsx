@@ -127,8 +127,14 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
       setIndicator((prev) => (prev.visible ? { ...prev, visible: false } : prev))
       return
     }
-    // 40 = the indicator span's w-10 width
-    const x = el.offsetLeft + (el.offsetWidth - 40) / 2
+    // 40 = the indicator span's w-10 width. Math.round: see TAB-CALM-4 at the
+    // row below. On integer-DPR screens (every iPhone) a whole CSS px is a
+    // whole device px, so the compositor's raster and the page's raster agree
+    // at the bar's rounded caps. On fractional DPRs (some Androids, e.g. 2.625)
+    // the bar may still rest between device pixels; there the permanent layer
+    // on the span (will-change-transform) is what keeps its raster from
+    // changing after the slide. Centering error is at most half a CSS px.
+    const x = Math.round(el.offsetLeft + (el.offsetWidth - 40) / 2)
     setIndicator((prev) => (prev.x === x && prev.visible ? prev : { x, visible: true }))
     setHasMeasured(true)
   }
@@ -292,16 +298,59 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
         className="z-40 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
         aria-label="Primary navigation"
       >
+        {/* `[&_svg]:will-change-transform` — every icon in this row keeps its own
+         *  compositing layer, permanently. This is the third round on
+         *  Liam's jiggle, and the first one aimed at the actual mover.
+         *
+         *  #809 blamed the icon's stroke-width transition; #816 removed the
+         *  bolder-active-icon effect outright. Liam's build-22 device video
+         *  (evidence/tabcalm3-20260902) shows the jiggle SURVIVING both, and
+         *  frame analysis finally names it: one frame, exactly 200ms after every
+         *  tap — the moment the sliding indicator's `transition-[transform,opacity]`
+         *  ENDS — in which カルテ's glyph is redrawn 2 device px left, 顧客's
+         *  2 px right and the mic's 1 px right. Same glyph, same colour, same
+         *  weight, just re-rasterized onto different device pixels. 予約 and
+         *  メニュー never move: the icons that jump are exactly the ones inside
+         *  the horizontal range the indicator's transform sweeps, so WebKit is
+         *  re-snapping that region's un-composited content when the animation's
+         *  layer goes away. The DOM never moves — getBoundingClientRect is
+         *  identical throughout (.build-evidence/tabcalm3/sim/reflow-probe.json).
+         *
+         *  Giving each glyph its own layer makes its raster its own: a
+         *  neighbour's animation can no longer re-snap it. Measured on the
+         *  iPhone 17 Pro Max simulator (WebKit — the device's engine, ⚖ THE
+         *  ENGINE LAW), 8 taps per run: displacement drops from 8,964 / 10,920
+         *  changed px to ZERO, in four runs, with the slide intact. Promoting
+         *  the indicator instead only halved it (3,989 — that measured ICON
+         *  displacement, before the SVG pin; the indicator's OWN rest raster is
+         *  a separate mechanism, TAB-CALM-4 below) and promoting the row
+         *  did nothing (10,016) — the fix has to sit on the things that move.
+         *  Cost is five 20x20 layers that never repaint.
+         *
+         *  TAB-CALM-4 (2026-09-08). #818 did its job: across 69 taps in two
+         *  device recordings (evidence/tabcalm4-20260908) not one icon or label
+         *  moves a whole pixel any more. What Liam still sees is the indicator
+         *  itself — 4-6 frames (67-100ms) AFTER the slide visually stops, the
+         *  bar re-renders IN PLACE, only its two rounded caps changing, its
+         *  edges shifting ~0.3-0.4 device px in the direction it had just
+         *  travelled. Two levers answer that: `will-change-transform` on the
+         *  indicator span, so WebKit keeps its compositing layer instead of
+         *  tearing it down at the end of the transition (the resting raster IS
+         *  the animated raster), and Math.round in measureIndicator, so the bar
+         *  lands on a whole CSS px — offsetWidth 85 put it on a half px, i.e.
+         *  1.5 device px, the worst case for the caps' anti-aliasing. The
+         *  simulator rig behind the paragraph above excluded the indicator
+         *  strip by design, which is why it could never see this. */}
         <div
           ref={navBarRef}
-          className="relative mx-auto flex h-16 max-w-screen-sm items-stretch px-2"
+          className="relative mx-auto flex h-16 max-w-screen-sm items-stretch px-2 [&_svg]:will-change-transform"
         >
           {/* Sliding active-tab indicator — one shared bar, positioned via
            *  transform against the measured PRIMARY Link, instead of each
            *  item mounting/unmounting its own (which teleported). */}
           <span
             aria-hidden
-            className={`absolute left-0 top-0 h-0.5 w-10 rounded-full bg-primary ${
+            className={`absolute left-0 top-0 h-0.5 w-10 rounded-full bg-primary will-change-transform ${
               indicator.visible ? 'opacity-100' : 'opacity-0'
             } ${
               transitionOn

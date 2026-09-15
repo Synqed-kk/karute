@@ -19,7 +19,7 @@
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { KaruteDetailScreenDTO } from '@/lib/app-api/karute-detail-screen-dto'
-import { readKaruteRaw } from '@/lib/app-api/karute-facade'
+import { readKaruteRawIncludingDiscarded } from '@/lib/app-api/karute-facade'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
@@ -28,8 +28,21 @@ import { getCustomerWithClient } from '@/lib/customers/queries'
 import { getKaruteOutcomeWithClient, OLD_SHELL_OUTCOMES } from '@/lib/karute/outcome'
 import { mapSynqedKaruteRecord } from '@/lib/supabase/karute'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
+import {
+  canOpenDiscardedRecord,
+  canViewAllInStore,
+  canViewTranscript,
+  ownerHandReach,
+  readDoorStoreId,
+  sharedWithViewer,
+} from '@/lib/auth/recording-acl'
+import { statusOf } from '@/lib/recording/take-binding'
+import { readSharedAt } from '@/lib/recording/share-columns'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { scopeKarutePhotos } from '@/lib/karute/scoped-photos'
+import { resolveDiscardFacts } from '@/lib/karute/discard-facts'
 
 // Node runtime: the synqed SDK + node:crypto verifier are server-only.
 export const runtime = 'nodejs'
@@ -57,12 +70,17 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
   const synqed = newSynqedClient(businessId)
 
   // Tenancy proof FIRST — cross-tenant/missing → 404, genuine upstream → 502,
-  // both OUTSIDE the wave catch so they surface with their own status.
-  const raw = await readKaruteRaw(synqed, id)
+  // both OUTSIDE the wave catch so they surface with their own status. R8
+  // discarded-record door (⚖ Liam 2026-09-13): the retry is NOT conditioned
+  // on the caller (own-ness cannot be known before the read), so this sibling
+  // is now the tenancy-proof read for EVERY detail GET — a live record's
+  // ordinary get() succeeds directly and the retry never fires (A1).
+  const raw = await readKaruteRawIncludingDiscarded(synqed, id)
   const customerId = (raw.customer_id as string | null) ?? null
+  const recordingSessionId = (raw.recording_session_id as string | null) ?? null
 
   try {
-    const [staffList, allCustomers, outcome, gated] = await Promise.all([
+    const [staffList, allCustomers, outcome, gated, recordingRead] = await Promise.all([
       staffListByBusinessOrThrow(businessId),
       listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       // Pre-ruled exception: outcome stays null-on-failure (product semantics).
@@ -91,23 +109,97 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
               ),
           ])
         : Promise.resolve(null),
+      // The recording behind this karute — the player's presence probe (slice
+      // ①). Page-parity graceful like photos above, and for the stronger
+      // reason: an accessory read that blipped must cost the PLAYER, never 502
+      // the whole karute screen. A 404 — the row was swept — is the same null
+      // as no session; anything else is 'unreadable'.
+      //
+      // ⚖ …AND THE FAILURE IS `'unreadable'`, NOT `null` (fix round 6, Greptile
+      // #849 review 2) — the web page's twin. A store we could not read is not
+      // a record with no store: collapsing the two opened a null-store karute
+      // to a store-clamped grantee on every blip. The player still goes away;
+      // only the store question sees the sentinel (readDoorStoreId). A 404 is
+      // a definite no, not an unknown, so it is exempt (a definite no is a no;
+      // only an unknown closes).
+      recordingSessionId
+        ? synqed.recordings.get(recordingSessionId).catch((err: unknown) => {
+            if (statusOf(err) === 404) return null
+            console.warn('[screens/karute] recording read failed — no player', err)
+            return 'unreadable' as const
+          })
+        : Promise.resolve(null),
     ])
 
     const customer = gated?.[0] ?? null
     const consent = gated?.[1] ?? null
     const photoRows = gated?.[2] ?? []
+    // Everything BUT the store question wants a ROW or nothing: a read that
+    // failed is no row, so the DTO's `recording` is null exactly as before (fix
+    // round 6). Only the two store computations below see the sentinel.
+    const recordingRow = recordingRead === 'unreadable' ? null : recordingRead
 
     // The caller's roster row: staff id (ACL viewer) + display role (coaching
     // panel gate). Keyed by the CONFIRMED auth user id — never client input.
     const selfRow = staffList.find((s) => s.id === ctx.identity.authUserId) ?? null
     const viewerStaffId = selfRow ? selfRow.id : null
     const viewerRole = (selfRow?.display_role ?? '') as string
-    const canViewAllRecordings = ctx.identity.capabilities.has('recordings.viewAll')
+    const holdsRecordingsViewAll = ctx.identity.capabilities.has('recordings.viewAll')
+    // R8 discarded-record door (⚖ Liam 2026-09-13).
+    const holdsDiscardView = ctx.identity.capabilities.has('records.discardView')
+    // D3/D4 sharing (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design).
+    const holdsViewShared = ctx.identity.capabilities.has('recordings.viewShared')
 
     const customerName = customerId
       ? allCustomers.customers.find((c) => c.id === customerId)?.name ?? null
       : null
     const karute = mapSynqedKaruteRecord(raw, customerName)
+
+    // THE GRANT WIDENS WHOSE RECORDINGS, NEVER WHICH STORES (⚖ Liam's store-
+    // isolation law 8/17; Greptile #848 point 2) — the Bearer twin of the web
+    // page's line. Resolved ONLY for a viewAll caller, and a failed assignment
+    // read arrives as [] (fail closed), so an assignment blip narrows the grant
+    // and never 502s the screen or hides a recorder's own transcript.
+    // ONE resolved scope, fed to BOTH the read predicate and the act predicate
+    // — they cannot disagree about which stores this viewer can see. Resolved
+    // whenever the read grant is held: the PAIR IMPLIES IT (holdsOwnerKeys is
+    // `business.manage && recordings.viewAll`), so a both-keys caller always
+    // takes this branch and a caller holding neither key pays nothing.
+    const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
+    // Widened for R8 (⚖ Liam 2026-09-13): a discardView-only caller pays for
+    // this resolution too — the discard door's store isolation reuses this
+    // exact scope (A3). Widened again for D3/D4 sharing (⚖ 2026-09-14 design):
+    // a viewShared-only caller needs the same scope for sharedWithViewer's
+    // store clamp. A caller holding none of the three still pays nothing.
+    const allowedStoreIds = holdsRecordingsViewAll || holdsDiscardView || holdsViewShared
+        ? await viewerAllowedStoreIds({
+            synqed,
+            authUserId: ctx.identity.authUserId,
+            capabilities: ctx.identity.capabilities,
+            selfStaffId: viewerStaffId,
+          })
+        : null
+    // ⚖ R1′ — WHICH STORE JUDGES THIS KARUTE (③ fix round 3; Greptile #849). The
+    // karute's own store leads; a karute that carries none inherits the RECORDING
+    // row's, which since ③ names the branch the device was in. ONE spelling for
+    // all three read doors (readDoorStoreId, auth/recording-acl.ts), so the words
+    // door and the sound door can never disagree about one karute — neither
+    // show-and-refuse, nor open where the row knows better.
+    const canViewAllRecordings = canViewAllInStore({
+      canViewAll: holdsRecordingsViewAll,
+      allowedStoreIds,
+      recordStoreId: readDoorStoreId(karute, recordingRead),
+    })
+    // D3/D4 sharing: the row already fetched above, read through the SDK-1.34
+    // trust boundary — 'unreadable' reads as no shared_at (readSharedAt only
+    // accepts an object with a genuine string field).
+    const sharedAt = readSharedAt(recordingRead)
+    const sharedWith = sharedWithViewer({
+      holdsViewShared,
+      sharedAt,
+      allowedStoreIds,
+      recordStoreId: readDoorStoreId(karute, recordingRead),
+    })
 
     // Recorder-lock fix (⚖ Liam 8/22): translate a synqed-core staff CARD id
     // (not a Supabase profile id) into its profile id before the ACL compare
@@ -119,6 +211,36 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
           businessId,
         )) ?? karute.staff_profile_id)
       : null
+
+    // R8 discarded-record door (⚖ Liam 2026-09-13). readKaruteRawIncludingDiscarded
+    // above already widened the tenancy read; decide HERE whether this
+    // viewer may actually see what came back. Refused = the SAME classified
+    // not_found the tenancy proof itself throws for a genuinely missing id —
+    // a discardView-less viewer cannot tell "discarded, not yours" from
+    // "does not exist" (A3's oracle-closing requirement, byte-identical body).
+    if (karute.status === 'DISCARDED') {
+      const allowedToOpen = canOpenDiscardedRecord({
+        ownerStaffId: ownerProfileId,
+        viewerStaffId,
+        holdsDiscardView,
+        allowedStoreIds,
+        recordStoreId: readDoorStoreId(karute, recordingRead),
+      })
+      if (!allowedToOpen) {
+        throw new AppApiError('not_found', 'karute not found in this business')
+      }
+    }
+
+    // R8 (A6/A7): the facts block's own reads — ONLY for an allowed
+    // discarded record (never for a live one; never for a refused viewer,
+    // which already threw above).
+    const discardFacts =
+      karute.status === 'DISCARDED'
+        ? await resolveDiscardFacts(synqed, businessId, {
+            recordingSessionId: karute.recording_session_id,
+            recordStaffId: ownerProfileId,
+          })
+        : { discardLedger: null, recordStaffName: null }
 
     // Merge→shell-update window gate (#689 P1). Fielded shells (iOS ≤4.6,
     // Android ≤code 12) parse this screen with a BAKED strict outcome enum
@@ -148,22 +270,54 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       outcome: outcomeForClient,
       viewerStaffId,
       canViewAllRecordings,
+      sharedWith,
+      sharedAt,
+      recordingRow,
+      businessId,
       staffCanReassignRecords: ctx.identity.capabilities.has('records.reassign'),
+      // ⚠ HIDE, NEVER SHOW-AND-REFUSE (⚖ 9/3 named grant; fix round 4) — the
+      // Bearer twin of the web page's line, the same server expression the
+      // regenerate route enforces. A named grantee reads a colleague's words
+      // and gets no 再生成 button; the recorder and the owner's hand keep theirs.
+      // The flag is the server's gate VERBATIM: `records.write` first, then
+      // the ACL — so a front-desk viewer on an unowned karute never sees a
+      // control the server refuses (the ACL alone passes every unowned record).
+      staffCanRegenerate:
+        ctx.identity.capabilities.has('records.write') &&
+        canViewTranscript({
+          ownerStaffId: ownerProfileId,
+          viewerStaffId,
+          canViewAll: ownerHandReach({
+            holdsOwnerKeys: callerHoldsOwnerKeys,
+            allowedStoreIds,
+            // ⚖ AN ACT IS NEVER MORE PERMISSIVE THAN THE READ (③ fix round
+            // 4): the SAME input as canViewAllRecordings above. Reading the
+            // karute alone here let a clamped manager who could not READ this
+            // record still be handed the 再生成 control.
+            recordStoreId: readDoorStoreId(karute, recordingRead),
+          }),
+        }),
       contact: customer ? { phone: customer.phone, email: customer.email } : null,
       consentResult: consent ? { consent: consent.consent ?? null } : null,
       customer,
       locale,
+      discardLedger: discardFacts.discardLedger,
+      recordStaffName: discardFacts.recordStaffName,
     })
 
     // Karute-scoped display (packet PR 9a): the screens facade must not leak
     // the customer's whole photo gallery onto a single karute — same rule as
     // the web page (PhotoRecordsServer), shared via scopeKarutePhotos.
-    const photos = scopeKarutePhotos(photoRows, karute.recording_session_id).map((p) => ({
-      id: p.id,
-      signedUrl: p.signed_url,
-      category: p.category,
-      caption: p.caption,
-    }))
+    // R8 (A4/A5): photos are CONTENT — withheld exactly like every other
+    // content field when this viewer may see the facts but not the content.
+    const photos = built.contentWithheld
+      ? []
+      : scopeKarutePhotos(photoRows, karute.recording_session_id).map((p) => ({
+          id: p.id,
+          signedUrl: p.signed_url,
+          category: p.category,
+          caption: p.caption,
+        }))
 
     const dto = KaruteDetailScreenDTO.parse({ ...built, photos, viewerRole })
     // karute.view audit detail (Wave V, canon's transcriptShown mandate): the

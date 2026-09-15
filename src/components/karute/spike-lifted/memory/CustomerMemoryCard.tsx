@@ -473,8 +473,9 @@ function MemoryTrustBadge({
   const router = useRouter()
   const [confirming, setConfirming] = useState(false)
   const [pending, startTransition] = useTransition()
-  // 再学習 is owner-only (dev tool — its cost scales with the customer's whole
-  // session history). Default false = staff see the plain trust chip.
+  // 再学習 is a dev tool (its cost scales with the customer's whole session
+  // history), gated to the owner, or a person the owner gave BOTH keys by hand
+  // (see actions/dev-tools.ts). Default false = staff see the plain trust chip.
   const [canRelearn, setCanRelearn] = useState(false)
   useEffect(() => {
     let alive = true
@@ -520,8 +521,9 @@ function MemoryTrustBadge({
   // (staff-added / pinned / staff-edited always survive).
   if (pastSessionCount > 0) {
     // Scaffold shells pass customerId='' — render the plain trust chip; the
-    // relearn trigger only exists for a real customer AND an owner viewer
-    // (再学習 = owner-only dev tool, Liam 2026-07-16).
+    // relearn trigger only exists for a real customer AND a viewer holding
+    // BOTH dev-tool keys — the owner, or a person the owner gave both (see
+    // actions/dev-tools.ts; 再学習 is a dev tool, Liam 2026-07-16).
     if (!customerId || !canRelearn) {
       return (
         <span

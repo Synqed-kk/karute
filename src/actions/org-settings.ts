@@ -10,7 +10,9 @@ import { getBusinessId } from '@/lib/staff'
 import { ymdInJst } from '@/lib/date/jst'
 import {
   type OperatingHours,
+  type WeekdayKey,
   normalizeOperatingHours,
+  savedWeekdays,
   validateOperatingHours,
 } from '@/lib/operating-hours'
 
@@ -53,6 +55,18 @@ export interface OrgSettings {
   audio_quality: string
   auto_stop_minutes: number
   operating_hours: OperatingHours
+  /** The weekdays the salon REALLY saved, read off the raw blob before
+   *  normalizeOperatingHours fills the rest with the 10:00–24:00 default.
+   *  Derived on every read, never stored: a 稼働/空き number may only claim a
+   *  capacity on a day a human actually set.
+   *
+   *  OPTIONAL, and it fails in the safe direction. The settings-screen DTO
+   *  (src/lib/app-api/settings-screen-dto.ts) picks OrgSettings' fields
+   *  explicitly and the thin settings screen assigns that parsed shape straight
+   *  to OrgSettings, so a REQUIRED key here would break the phone bundle over a
+   *  field it never reads. Absent reads as "nothing saved", which shows 未設定
+   *  — never an invented capacity. */
+  operating_hours_saved?: WeekdayKey[]
   theme_colors: ThemeColors
   // Onboarding-wizard fields. Null until the user finishes /welcome.
   recording_disclosure_mode: RecordingDisclosureMode | null
@@ -164,6 +178,9 @@ function normalizeOrgSettings(
     audio_quality: s.audio_quality ?? '',
     auto_stop_minutes: s.auto_stop_minutes ?? 0,
     operating_hours: normalizeOperatingHours(s.operating_hours),
+    // From the RAW blob, before normalization — normalizeOperatingHours cannot
+    // tell a saved day from a defaulted one afterwards.
+    operating_hours_saved: savedWeekdays(s.operating_hours),
     theme_colors: {
       ...DEFAULT_THEME_COLORS,
       ...(typeof s.theme_colors === 'object' && s.theme_colors !== null

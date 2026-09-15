@@ -21,6 +21,9 @@ export function useGlobalPipeline() {
     result: globalPipeline.result,
     error: globalPipeline.error,
     context: globalPipeline.context,
+    // UPDATE 25 GROUP A, piece c — the error card's "retrying gave the same
+    // result" line reads this snapshot field.
+    errorRepeated: globalPipeline.errorRepeated,
     start: (blob: Blob, ctx: PipelineContext) => globalPipeline.start(blob, ctx),
     retry: () => globalPipeline.retry(),
     reset: () => globalPipeline.reset(),

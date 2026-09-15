@@ -560,20 +560,6 @@ export async function acceptInvite(
     return { error: `Could not join the salon: ${attachErr.message}` }
   }
 
-  // The join is real from here (steps 4–5 are best-effort): the invitee became
-  // a member of the business, actor = the new account itself (no session yet,
-  // so the ids are passed explicitly).
-  await auditWeb({
-    category: 'staff',
-    action: 'staff.add',
-    actorId: userId,
-    businessId: invite.business_id as string,
-    targetType: 'staff',
-    targetId: userId,
-    detail: { via: 'invite', invite_id: invite.id as string, role },
-    requestId,
-  })
-
   // 4. Link the synqed-core staff record under the business. Prefer the staff row
   //    the invite was launched from (invited_staff_id) so re-inviting an existing
   //    person — at a new email, or with no email on file — ATTACHES to their
@@ -607,6 +593,28 @@ export async function acceptInvite(
       requestId,
     })
   }
+
+  // The join is real from here (steps 4–5 are best-effort): the invitee became
+  // a member of the business, actor = the new account itself (no session yet,
+  // so the ids are passed explicitly).
+  //
+  // EMITTED AFTER THE CORE LINK, never before: core resolves a row's
+  // `actor_label` at WRITE time from its staff roster by user id, so a
+  // staff.add written before step 4 attached this userId to a staff row
+  // snapshots an empty label — and the row that records someone JOINING
+  // reads 不明 forever once they leave. Step 4 is best-effort and its failure
+  // path emits its own staff.link_failed, so this line still lands on both
+  // branches; only its position moved.
+  await auditWeb({
+    category: 'staff',
+    action: 'staff.add',
+    actorId: userId,
+    businessId: invite.business_id as string,
+    targetType: 'staff',
+    targetId: userId,
+    detail: { via: 'invite', invite_id: invite.id as string, role },
+    requestId,
+  })
 
   // 5. Mark the invite used (in core; business scope = the invite's business).
   try {

@@ -503,9 +503,37 @@
       "title": "録音 ・ 文字起こし",
       "consentOnFile": "同意確認済",
       "duration": "再生時間 {duration}",
+      "play": "再生",
+      "pause": "一時停止",
+      "back15": "15秒戻る",
+      "fwd15": "15秒進む",
+      "speed": "再生速度",
+      "seek": "再生位置",
+      "speedChip": "{rate}倍",
+      "speedNormal": "標準",
+      "processing": "文字起こし中",
+      "processingHint": "完了までしばらくお待ちください",
+      "playBlockedWhileRecording": "録音中は再生できません",
+      "playbackUnavailable": "再生できませんでした",
       "noTranscript": "文字起こしはまだありません",
       "restrictedTitle": "録音 ・ 文字起こし",
-      "restricted": "この文字起こしは録音を担当したスタッフのみ閲覧できます。上の要約は共有されます。"
+      "restricted": "この文字起こしは録音を担当したスタッフのみ閲覧できます（本人が共有した場合を除く）。上の要約は共有されます。",
+      "viaShare": "録音を担当したスタッフが共有",
+      "share": "管理者に共有",
+      "sharing": "共有中…",
+      "shared": "共有中",
+      "shareFailed": "共有できませんでした"
+    },
+    "discarded": {
+      "title": "破棄済み",
+      "reason": "理由",
+      "by": "破棄したスタッフ",
+      "at": "破棄日時",
+      "staff": "担当スタッフ",
+      "duration": "録音時間",
+      "durationValue": "{m}分{s}秒",
+      "unknown": "不明",
+      "withheld": "この記録の内容は、記録を担当したスタッフのみ閲覧できます。"
     }
   },
   "recording": {
@@ -601,6 +629,9 @@
     "pipelineErrorEmptyTranscript": "音声が認識できませんでした。録音に音声が入っているかご確認のうえ、もう一度お試しください。",
     "pipelineErrorConsentRequired": "録音の同意が必要です。同意を取得してからもう一度お試しください。",
     "pipelineErrorGeneric": "処理中にエラーが発生しました。もう一度お試しください。",
+    "pipelineErrorDiscarded": "この録音はスタッフが破棄したため、カルテに保存できません。",
+    "pipelineErrorRepeated": "再試行しても同じ結果でした。",
+    "serverRowMissing": "サーバーに録音の記録を作成できませんでした。カルテは保存されますが、音声はこの端末にのみ残ります",
     "recordingFor": "録音対象",
     "noUpcomingAppointment": "予約がありません",
     "noBookingTitle": "予約が見つかりません",
@@ -753,13 +784,20 @@
         "unsettled": "まだ結果が届いていません",
         "autoSaved": "この録音は自動で保存されました（まだ確認されていません）",
         "genericFailure": "この録音は保存されませんでした",
-        "localAudio": "この端末に音声が残っています（未保存）"
+        "localAudio": "この端末に音声が残っています（未保存）",
+        "tailIncomplete": "録音が途中で終わっています（この端末に残っているところまで保存できます）",
+        "serverAudio": "サーバーに音声が残っています（未保存・途中までの場合があります）",
+        "partialOnServer": "サーバーに音声が途中まで届いています（数日以内に保存できるようになります）",
+        "emptyTranscript": "文字起こしの結果がありませんでした（マイクの接続をご確認ください）",
+        "sessionUnlisted": "この端末に音声が残っています（サーバーの記録には見つかりません）",
+        "refusedHasRecord": "この来店には別の録音のカルテがあります（保存すると別のカルテとして作成されます）"
       },
       "action": {
         "open": "開く",
         "check": "確認する",
         "retry": "再試行",
-        "save": "保存する"
+        "save": "保存する",
+        "handwrite": "手書き作成"
       }
     },
     "recent": {
@@ -831,7 +869,9 @@
       "confirm": "破棄する",
       "submitting": "破棄中...",
       "failed": "破棄を記録できませんでした。もう一度お試しください。",
-      "takeChanged": "この録音はすでに文字起こしに進んでいます。破棄できませんでした。"
+      "takeChanged": "この録音はすでに文字起こしに進んでいます。破棄できませんでした。",
+      "autoReasonBelowFloor": "誤操作（{n}秒未満の録音のため自動記録）",
+      "oneTapDone": "録音を破棄しました。破棄の記録（日時・担当者）が残ります。"
     }
   },
   "customers": {
@@ -1039,6 +1079,8 @@
         "purchased": "購入 {date}",
         "exhausted": "使い切り",
         "cancelledPack": "停止",
+        "voidPack": "無効",
+        "unknownStatusPack": "不明",
         "redeem": "1回消化",
         "redeemConfirm": "記録する",
         "redeemDone": "消化を記録しました",
@@ -1370,6 +1412,8 @@
     "recordList": {
       "statusLine": "カルテ 全{total}件 ・ 今月 {monthCount}件 ・ 表示中 {showingCount}件",
       "statusLineNoMonth": "カルテ 全{total}件 ・ 表示中 {showingCount}件",
+      "statusLineDiscarded": "カルテ 全{total}件（うち破棄{discarded}件）・ 今月 {monthCount}件 ・ 表示中 {showingCount}件",
+      "statusLineNoMonthDiscarded": "カルテ 全{total}件（うち破棄{discarded}件）・ 表示中 {showingCount}件",
       "loadMore": "さらに表示（{date}以前のカルテ）",
       "addedCount": "{n}件を読み込みました",
       "loadMoreFailed": "読み込みに失敗しました。もう一度お試しください",
@@ -1386,7 +1430,9 @@
         "thisWeek": "今週",
         "aiPending": "AI補完待ち",
         "needsReview": "レビュー要",
-        "draft": "下書き"
+        "draft": "下書き",
+        "discarded": "破棄済み",
+        "shared": "共有"
       },
       "dateGroup": {
         "today": "本日",
@@ -2321,7 +2367,7 @@
       "empty": "破棄の記録はまだありません。",
       "truncated": "件数が多いため、古い記録は表示していません。",
       "detailTruncated": "一部の記録は詳細を読み込めていません。",
-      "reasonLabel": "理由（スタッフ記入）",
+      "reasonLabel": "理由",
       "transcriptShow": "文字起こしを表示",
       "transcriptHide": "文字起こしを隠す",
       "transcriptMinutes": "{n}分",
@@ -2359,12 +2405,23 @@
       "targetFilter": "この顧客に関する記録のみ表示中（閲覧を含む）",
       "clearTarget": "解除",
       "empty": "この条件に一致する記録はありません。",
+      "emptyPage": "このページに表示できる記録はありません。「さらに読み込む」で続きを確認できます。",
       "errorLoad": "監査ログを読み込めませんでした。",
       "errorForbidden": "監査ログへのアクセス権がありません。",
       "loadMore": "さらに読み込む",
       "systemActor": "システム",
       "unknownActor": "不明",
+      "automation": {
+        "transcribe": "自動文字起こし",
+        "rescue": "自動復元",
+        "watch": "自動チェック",
+        "autoburn": "自動消化",
+        "cleanup": "自動破棄",
+        "repair": "データ修復"
+      },
       "actions": {
+        "merge_duplicate": "重複した顧客を統合",
+        "correct_pack_import_date": "回数券の取込日を修正",
         "customer": {
           "view": "顧客記録を閲覧",
           "edit": "顧客情報を編集",
@@ -2399,7 +2456,8 @@
           "summary_edit": "詳細記録を編集",
           "outcome_set": "セッション結果を記録",
           "customer_reassign": "カルテの顧客を変更",
-          "manual_create": "カルテを手動で作成"
+          "manual_create": "カルテを手動で作成",
+          "delete": "カルテを削除"
         },
         "staff": {
           "add": "スタッフを追加",
@@ -2459,11 +2517,21 @@
         },
         "recording": {
           "capture_finalized": "録音の音声を保存",
+          "capture_resumed": "録音の音声をサーバーで復元",
           "capture_unlinked": "録音の音声が記録に紐付かず",
           "discard": "録音を破棄",
+          "karute_missing": "カルテ未保存",
+          "no_sessions_today": "本日の録音なし",
+          "play": "録音を再生",
           "session_cleanup": "録音を破棄",
+          "share": "録音を共有",
           "take_named": "録音のアップロード先を発行（既存セッション）",
-          "transcribe": "録音を文字起こし"
+          "take_refused_has_record": "二重紐付けを拒否",
+          "transcribe": "録音を文字起こし",
+          "transcribe_failed": "文字起こしに失敗",
+          "transcribe_refused": "録音の文字起こしを見送り（利用上限）",
+          "transcribe_storm": "同じ録音連続文字起こし",
+          "unshare": "録音の共有を解除"
         }
       },
       "burnError": {
@@ -2481,6 +2549,7 @@
       "staffAll": "全員",
       "statsChanges": "変更",
       "statsWarnings": "警告",
+      "statsCritical": "重大",
       "statsBreakGlass": "緊急アクセス",
       "eventsCount": "{count}件",
       "storesCount": "{count}店舗",
@@ -2495,6 +2564,39 @@
       "recordingNoCustomer": "顧客未選択の録音",
       "recordingUnresolved": "録音",
       "durationSuffix": "（{n}秒）",
+      "recordingStaff": "担当: {name}",
+      "packUnresolved": "回数券",
+      "packImportDateCorrected": "取込日 {date}",
+      "customerUnresolved": "顧客",
+      "fold": {
+        "count": "×{n}",
+        "range": "{from}〜{to}"
+      },
+      "noSessionsToday": {
+        "sub": "{day}・録音担当{n}名、本日の録音なし"
+      },
+      "reason": {
+        "empty_transcript": "文字起こし結果なし",
+        "job_failed": "処理エラー",
+        "not_transcribed": "文字起こし未実施",
+        "other": "その他"
+      },
+      "recording": {
+        "ticketBurned": "回数券消化済み",
+        "minutes": "{n}分"
+      },
+      "storm": {
+        "sub": "文字起こし{n}回 · 約{cost} · {day}"
+      },
+      "thread": {
+        "title": "この録音に関する記録",
+        "customerTitle": "このお客様に関する記録",
+        "partial": "一部の記録を読み込めませんでした。"
+      },
+      "strip": {
+        "scope": "過去{days}日間 ・ {store}",
+        "scopeAll": "全期間 ・ {store}"
+      },
       "menuUpdate": {
         "duration": "所要時間",
         "price": "料金",
@@ -3407,8 +3509,10 @@
     "cap_data_export": "データの書き出し・取り込み",
     "cap_records_delete": "記録の削除",
     "cap_records_reassign": "カルテの顧客変更",
+    "cap_records_discardView": "破棄したカルテを開く",
     "cap_records_write": "録音・カルテ編集",
-    "cap_recordings_viewAll": "全スタッフの録音を閲覧",
+    "cap_recordings_viewAll": "他スタッフの録音の再生・文字起こしの閲覧",
+    "cap_recordings_viewShared": "共有された録音の再生・文字起こしの閲覧",
     "cap_analytics_viewAll": "全店舗の分析",
     "cap_stores_viewAll": "全店舗の閲覧",
     "cap_alerts_manage": "アラートの管理",

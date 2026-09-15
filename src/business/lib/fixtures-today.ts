@@ -22,6 +22,7 @@
 // ⚖ 8/9 forbids. Canon pins its own board the same way, at the same 13:24.
 
 import { STORE_A, STORE_B } from './fixtures'
+import { DEFAULT_SELL_SLOT_MIN } from './canon-logic/pricing'
 
 /** Store opening hours (ask T-18 — core has no per-store hours). Every booking
  *  in `./fixtures` sits inside this window, and the timeline is exactly it. */
@@ -130,13 +131,19 @@ export interface FixtureResource {
   room_class: RoomClass
 }
 
-/** ⚠SETTINGS-BATCH — 施術室 (interchangeable) vs 個室/VIP (reserved). */
+/** ⚠SETTINGS-BATCH — the room's CLASS. 施術室 rooms are interchangeable; a
+ *  個室 is the same to the allocator except that it is spent LAST, and it is the
+ *  only room a 個室のみ booking may use. ⚖ ROOM RULE: the class is an ORDER, and
+ *  nothing about a CUSTOMER (VIP included) reads it. */
 export type RoomClass = 'standard' | 'private'
 
+// ⚖ ROUND 3 · C — STORE_C (テスト渋谷店) has NO row here on purpose: it is the
+// no-bed store, and `today-board.buildLanes` (:685) draws a `group: 'beds'`
+// lane per row, so a store with no rows has no bed lane by construction.
 export const resources: FixtureResource[] = [
   { id: 'bed-01', store_id: STORE_A, name: 'ベッド1', note: '施術室A', cleanup_minutes: 0, room_class: 'standard' },
   { id: 'bed-02', store_id: STORE_A, name: 'ベッド2', note: '施術室A', cleanup_minutes: 0, room_class: 'standard' },
-  { id: 'bed-03', store_id: STORE_A, name: 'ベッド3', note: '個室 / VIP対応', cleanup_minutes: 0, room_class: 'private' },
+  { id: 'bed-03', store_id: STORE_A, name: 'ベッド3', note: '個室', cleanup_minutes: 0, room_class: 'private' },
   { id: 'bed-04', store_id: STORE_B, name: 'ベッド1', note: '施術室B', cleanup_minutes: 0, room_class: 'standard' },
 ]
 
@@ -332,6 +339,37 @@ export const storeBookingPolicy = {
    *  reach it; what it decides there is only the shape of a button that can never
    *  fire, which is why nothing in the settings copy above changes.) */
   overrideHoldToConfirm: true,
+  /** ⚠SETTINGS-BATCH — 残りわずかの目安 (⚖ Liam 2026-09-12, the month-calendar
+   *  lane's follow-up 2). 月カレンダーで橙になる、あと入る予約数の上限: a day that
+   *  still fits this many courses or fewer is painted 「残りわずか」 amber instead
+   *  of green. ⚖ Liam 9/12 00:5x 「I choose B」 — the number the bound is compared
+   *  against counts BOOKINGS THAT STILL FIT, never free hours.
+   *
+   *  It is DATA for the same reason the dials above it are: how few is 「わずか」
+   *  is a store's judgement about its own day — a busy salon calls 2 tight and a
+   *  quiet one does not — and a component that hardcoded the number would make
+   *  every store the same store (⚖ 8/21 mistake-proofing: a dial ships with a
+   *  DEFAULT and a GUARDRAIL, never a per-業種 rule).
+   *
+   *  ⚖ HIS 8/31 GENERAL LAW: 「every settings entry carries a one-line
+   *  description of what it changes/turns off」. That line, written here so the
+   *  settings round does not have to invent it:
+   *  「月カレンダーで、あと入る数がこの数以下の日を橙で示します」.
+   *  AND ITS OFF-STATE, which is the half a dial usually leaves silent:
+   *  0 にすると橙は出ません — the month keeps 緑 and 満 only.
+   *
+   *  GUARDRAIL 0–5, named where the dial is specified (`CALENDAR_TIGHT_RANGE`,
+   *  today-interactions.ts). Fable default, OVERTURNABLE on Liam's word.
+   *  NO CORE FIELD YET: `calendar_tight_max` rides
+   *  DRAFT-ANTHONY-ASK-SETTINGS-FIELDS with the others, so the 店舗設定 row
+   *  ships 準備中 like its seven siblings and this fixture is the world's value
+   *  until the column lands.
+   *
+   *  ⚠ THE NUMBER IS WRITTEN HERE, not imported from the screen that defaults
+   *  it: territory runs one way (an app screen reads this lib, never the
+   *  reverse), so this is the STORE's own 2 and today-interactions' own 2 is the
+   *  fallback for a store that has none. That they agree is pinned by a test. */
+  calendarTightMax: 2,
 }
 
 /** スキマガード / Reserve受付 dials (canon `opsConfig`). The board never
@@ -358,6 +396,11 @@ export const opsConfig = {
   gapFillMinMin: 30,
   gapFillDiscountPct: 10,
   standardSessionMin: 60,
+  /** THE LENGTH OF ONE 販売可能枠 — read by 設定 (A2) and carried to the board's
+   *  props (`page.tsx` → `props.sell.sellSlotMin`), and every reader now
+   *  reads the cell's own `e` (B2). `DEFAULT_SELL_SLOT_MIN`
+   *  (`canon-logic/pricing.ts`) is this fixture's default. */
+  sellSlotMin: DEFAULT_SELL_SLOT_MIN,
   /** ⚖ Liam 2026-08-21 — 販売可能な最小の長さ. Under this the board advertises
    *  nothing: the leftover stays plain track. Fragments are a salvage market,
    *  and a 20-minute orphan is not stock — it is the phone call that costs the
@@ -370,20 +413,22 @@ export const opsConfig = {
   gapGuardMode: storeBookingPolicy.gapGuardMode,
   newClientSessionMin: storeBookingPolicy.newClientSessionMinutes,
   leadTimeMin: 60,
-  /** ⚠SETTINGS-BATCH — 部屋の自動割り当てポリシー (⚖ Liam 2026-08-21, flag 51:
-   *  「people are chosen, rooms are solved」). The bed is re-solved at every
-   *  landing, and these two dials are the only judgements in that solve. Both
-   *  are Fable defaults and OVERTURNABLE: the 店舗設定 control ships with the
-   *  settings batch, with per-business-type defaults and the self-harm
-   *  guardrails the mistake-proofing law asks for. Stated here rather than in
-   *  the allocator so no component ever hardcodes a store's room policy. */
-  roomPolicy: {
-    /** VIP/個室クラスの予約は個室から自動で出さない — 個室が埋まっていれば、
-     *  その予約にとってはそこが満室. */
-    vipStaysPrivate: true,
-    /** 通常の予約が個室を取れるのは、施術室に空きがないときだけ. */
-    privateIsLastResort: true,
-  },
+  /** ⚖ D-11 (Liam 2026-09-13 17:0x, 「Okay let's go with option A」) — HOW MANY
+   *  MINUTES BEFORE A KEPT 新規用 枠 STARTS DOES IT LET GO?
+   *
+   *  `'linked'` is the shipped default and it is not a number on purpose: the
+   *  hold exists for online new customers, so the moment online booking closes
+   *  for that start the hold has no purpose left — which is `leadTimeMin`'s own
+   *  minute, read at read time. A copied `60` here would drift the day somebody
+   *  moves 「直前の空きは売らない」 and nothing would say so. `null` is
+   *  「解除しない」, this half's own off value; a number is an explicit override
+   *  the 設定 row offers. */
+  autoReleaseBeforeMin: 'linked' as number | 'linked' | null,
+  /* ⚖ ROOM RULE (Liam 2026-09-05) — THE TWO ROOM DIALS ARE GONE, not defaulted
+   * off. 「VIPは個室から出さない」 was a rule about the CUSTOMER and Liam has
+   * overturned it; 「個室は最後に使う」 is now law for every store, so it is a
+   * constant in the allocator rather than a lever nobody may pull. A dial with
+   * one legal setting is the dead lever this board keeps removing. */
   /** DERIVED — §6's one dial home. The ⚖ 50(d) object MOVED to
    *  `storeBookingPolicy` (its comment travelled with it); this alias stays
    *  because `readDayPlanes` hands the board `opsConfig` and every existing
@@ -404,6 +449,12 @@ export const opsConfig = {
    *  record) and this line is only the shorter name `readDayPlanes` hands the
    *  board. The number moves house, it does not change. */
   overrideHoldToConfirm: storeBookingPolicy.overrideHoldToConfirm,
+  /** DERIVED — ⚖ Liam 9/12's 残りわずかの目安, on the same one-home pattern as the
+   *  aliases above it: the value LIVES on `storeBookingPolicy` (⚠SETTINGS-BATCH,
+   *  where its description and its off-state are written) and this line is only
+   *  the shorter name `readDayPlanes` hands the month calendar and the 設定 row.
+   *  The number moves house, it does not change. */
+  calendarTightMax: storeBookingPolicy.calendarTightMax,
 }
 
 /** レジ (ask T-08). The aggregates the money band shows that no booking row

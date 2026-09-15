@@ -39,6 +39,25 @@ describe('paginateDedupe', () => {
     warn.mockRestore()
   })
 
+  it('P3-11: truncation calls onTruncated once; no callback passed = unchanged behaviour', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const onTruncated = jest.fn()
+    const withCallback = await paginateDedupe(
+      async (page) => ({ items: [c('x' + page)], total: 100 }),
+      3,
+      'test label',
+      onTruncated,
+    )
+    expect(withCallback).toHaveLength(3)
+    expect(onTruncated).toHaveBeenCalledTimes(1)
+
+    // No callback: same truncation, same warn, nothing throws.
+    const withoutCallback = await paginateDedupe(async (page) => ({ items: [c('x' + page)], total: 100 }), 3)
+    expect(withoutCallback).toHaveLength(3)
+    expect(warn).toHaveBeenCalledTimes(2)
+    warn.mockRestore()
+  })
+
   it('handles an empty list', async () => {
     expect(await paginateDedupe(pager([[]], 0))).toEqual([])
   })

@@ -349,13 +349,20 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect(dto.canManageMenus).toBe(false)
   })
 
-  it('canViewAudit is true for an owner even without the explicit audit.view grant', async () => {
+  // PR B2 §4: canViewAudit is now canReadAuditLog(caps) — audit.view AND
+  // stores.viewAll, the SAME predicate the read boundary enforces. No more
+  // owner override: an owner whose stored capability set genuinely lacks
+  // audit.view (or stores.viewAll) sees false, same as anyone else — a
+  // viewer who sees the section must never then hit `forbidden` opening it.
+  // (ROLE_PRESETS.owner = ALL by default, so this is a stripped-override
+  // edge case, not the everyday owner.)
+  it('canViewAudit is false for an owner without the audit.view + stores.viewAll grants (no owner override, PR B2 §4)', async () => {
     staffListByBusinessOrThrow.mockResolvedValue([
       { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'owner', has_pin: true, created_at: '2026-01-01' },
     ])
     const res = await GET(req(), route)
     const dto = await dtoOf(res)
-    expect(dto.canViewAudit).toBe(true)
+    expect(dto.canViewAudit).toBe(false)
   })
 
   it('?tab=audit passes through to initialTab only WITH BOTH the canViewAudit grant AND canViewAllStores', async () => {
@@ -373,19 +380,19 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect(dto.auditTargetId).toBeNull()
   })
 
-  // P-3 fix (2026-08-17): the audit tab itself requires canViewAudit AND
-  // canViewAllStores (settings-visibility.ts's visibleSettingsTabs — the
-  // audit read has no store filter yet, so a store-clamped grantee must
-  // never reach it). Before this fix, initialTab gated on canViewAudit
-  // alone, so a store-clamped audit.view grantee deep-linking ?tab=audit
-  // landed on a blank desktop panel (SettingsShell's defense-in-depth check
-  // renders null for 'audit' without canViewAllStores, but the tab strip
-  // ALSO omits 'audit' from visibleTabs — no fallback to the default tab).
-  it('?tab=audit is dropped to null for a canViewAudit grantee WITHOUT canViewAllStores (store-clamped) — falls through, never a blank panel', async () => {
+  // P-3 fix (2026-08-17), folded into PR B2 §4: a store-clamped audit.view
+  // holder must never reach the audit tab. Before PR B2, canViewAudit was
+  // audit.view-only (or owner) and initialTab separately ANDed
+  // canViewAllStores in; now canViewAudit itself already IS
+  // canReadAuditLog(caps) = audit.view AND stores.viewAll, so a
+  // store-clamped grantee reads canViewAudit:false directly — one gate, not
+  // two ANDed elsewhere, same end result: deep-linking ?tab=audit falls
+  // through, never a blank desktop panel.
+  it('?tab=audit is dropped to null for an audit.view holder WITHOUT stores.viewAll (store-clamped) — falls through, never a blank panel', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view', 'audit.view']))
     const res = await GET(req('https://s/api/app/v1/screens/settings?tab=audit&target=cust-1'), route)
     const dto = await dtoOf(res)
-    expect(dto.canViewAudit).toBe(true)
+    expect(dto.canViewAudit).toBe(false)
     expect(dto.canViewAllStores).toBe(false)
     expect(dto.initialTab).toBeNull()
     expect(dto.auditTargetId).toBeNull()

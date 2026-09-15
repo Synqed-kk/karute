@@ -9,10 +9,13 @@
 //     a supplied one is simply not read.
 //   - store-id is still CLAMPED: a request naming a store the caller may not
 //     see is refused (403) before any read, per the store-isolation law. The
-//     clamped id is not used as a filter — recordings rows carry no store_id
-//     (recordings.create never sets one), so filtering by it would return an
-//     empty list for everyone. Actor scoping is strictly NARROWER than a store
-//     lens anyway: these are the caller's own recordings and nobody else's.
+//     clamped id is still NOT used as a filter — and since slice three ③ that
+//     is a RULING, not a shortage: rows minted from ③ on DO carry a store_id
+//     (session-mint.ts:213), and this read stays ACTOR-scoped anyway. A
+//     staffer's own recordings are hers across every branch she has worked in,
+//     so the clamp here is a refusal gate on the store she asked for, never a
+//     lens on the rows. Actor scoping is strictly NARROWER than a store lens:
+//     these are the caller's own recordings and nobody else's.
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'

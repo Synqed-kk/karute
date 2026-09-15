@@ -22,7 +22,10 @@
 import { newSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
 import { getBusinessId, getCurrentUserStaffId, staffListByBusinessOrThrow } from '@/lib/staff'
-import { synqedStaffCardsForBusiness } from '@/lib/synqed/staff-map'
+import {
+  synqedStaffCardsForBusiness,
+  staffNameByIdAcrossCardsAndProfiles,
+} from '@/lib/synqed/staff-map'
 import { paginateDedupe } from '@/lib/customers/paginate'
 import { INBOX_WINDOW_MS } from '@/lib/recordings/inbox'
 import { jstStartOfMonth } from '@/lib/date/jst'
@@ -430,25 +433,10 @@ export async function listDiscardReasonsWithClient(
         })
       : null,
   ])
-  // A BLANK profile name is not a name. `'' ?? card.name` is `''`, so a
-  // linked card whose profile carries an empty (or whitespace-only)
-  // full_name lost the card's own name too and read 担当者不明 on a row we
-  // could have named honestly. Normalised here, at the one place the profile
-  // side is built, so both the card fallback below and the profile-keyed
-  // rows get the same answer.
-  const profileNames = new Map<string, string | null>(
-    roster.map((s) => [s.id, s.full_name?.trim() ? s.full_name : null]),
-  )
-  const nameById = new Map(profileNames)
-  for (const card of cards) {
-    // The profile's own full_name when the card is linked — that is the name
-    // the rest of karute shows. Else the card's own name, so a departed or
-    // unlinked staffer is still named honestly instead of erased. Read from
-    // `profileNames`, never from the map being written, so the answer cannot
-    // depend on roster order.
-    const name = (card.user_id ? profileNames.get(card.user_id) : null) ?? card.name
-    if (name) nameById.set(card.id, name)
-  }
+  // Two id spaces, one lookup — lifted into staff-map.ts (R8 A7, 2026-09-13)
+  // so the discarded-record door's own name resolution can reuse it without
+  // re-implementing the profile↔card join.
+  const nameById = staffNameByIdAcrossCardsAndProfiles(roster, cards)
 
   const rows: DiscardReasonRow[] = usable
     .map((e) => {

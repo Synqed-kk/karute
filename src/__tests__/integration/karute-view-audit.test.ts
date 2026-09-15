@@ -21,7 +21,8 @@ jest.mock('@/lib/staff', () => ({
   resolveUserId: jest.fn(async () => 'user-1'),
 }))
 jest.mock('@/lib/supabase/karute', () => ({
-  getKaruteRecord: jest.fn(async (id: string) =>
+  // R8 discarded-record door: the page now reads through this sibling.
+  getKaruteRecordIncludingDiscarded: jest.fn(async (id: string) =>
     id === 'missing' ? null : { id, client_id: 'cust-9', summary: null },
   ),
 }))
@@ -36,7 +37,11 @@ jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(async () => (
 jest.mock('@/lib/synqed/staff-map', () => ({
   lookupProfileIdForSynqedStaffId: jest.fn(async () => null),
 }))
-jest.mock('@/lib/auth/require-permission', () => ({ can: jest.fn(async () => false) }))
+jest.mock('@/lib/auth/require-permission', () => ({
+  can: jest.fn(async () => false),
+  // The page resolves the whole set for the 再生成 ACT gate (fix round 4).
+  getMyCapabilities: jest.fn(async () => new Set<string>()),
+}))
 jest.mock('@/lib/customers/list-all', () => ({
   listAllCustomers: jest.fn(async () => ({ customers: [] })),
 }))

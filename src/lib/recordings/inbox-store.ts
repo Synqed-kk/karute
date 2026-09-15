@@ -69,6 +69,19 @@ let loading = false
  *  trailing re-run, never a loop: the flag is cleared before the re-run
  *  starts, so N concurrent calls cost exactly one follow-up fold. */
 let pendingReload = false
+/** The fold currently running, so a caller that arrives mid-flight gets a
+ *  promise it can FOLLOW instead of one that has already resolved.
+ *
+ *  ⚖ fix round 2, R2. The server save holds a UI latch (the row greys, the one
+ *  button disables) until `loadInbox()` settles. On the early return below that
+ *  used to be the same tick: the row re-enabled still showing 復元可能 + 保存する,
+ *  and a second tap enqueued again. Concurrent calls are the normal case here
+ *  (this module's own docblock says so — three consumers' mount effects, the
+ *  90 s poll and the settle subscription), so that was a real race, not a
+ *  theoretical one. This promise covers the in-flight fold AND the trailing
+ *  re-run it spawns, which is the one that has actually seen the caller's
+ *  write — the caller waits for a FRESH list, never a stale one. */
+let inFlight: Promise<void> | null = null
 /** Bumped on every sign-out wipe so an in-flight fetch can't write the
  *  PREVIOUS user's sessions into a shared salon device. Same discipline as
  *  chrome-store's epoch / globalPipeline's runId. */
@@ -102,6 +115,7 @@ export function resetInbox(): void {
   epoch++
   loading = false
   pendingReload = false
+  inFlight = null
   stopPoll()
   set(EMPTY)
 }
@@ -119,7 +133,16 @@ function schedulePoll(rows: readonly InboxRow[]): void {
   stopPoll()
   // All three processing-class reasons (transcribing / unsettled / the
   // unknown-job handling) land on this one state.
-  if (listeners.size === 0 || !rows.some((r) => r.state === 'processing')) return
+  //
+  // …with ONE exception, and it is about time scales (slice ③).
+  // `partialOnServer` is 処理中 too, but what resolves it is the NIGHTLY
+  // assembler, not a run finishing in this minute — so a 90 s timer would
+  // re-read the whole inbox (two core lists, the discard ledger, the job
+  // probes and a storage listing) every 90 seconds for up to three days and
+  // never once catch the change sooner than the next mount would. The other
+  // reasons settle in minutes, which is what this poll was built for.
+  const pollable = rows.some((r) => r.state === 'processing' && r.reason !== 'partialOnServer')
+  if (listeners.size === 0 || !pollable) return
   pollTimer = setTimeout(() => {
     pollTimer = null
     void loadInbox()
@@ -128,14 +151,23 @@ function schedulePoll(rows: readonly InboxRow[]): void {
 
 /** This device's takes, minus the ones a live recorder/pipeline owns. An
  *  in-progress session is not history, and offering it as 復元可能 would let a
- *  save delete audio still being captured. */
+ *  save delete audio still being captured.
+ *
+ *  UPDATE 25 GROUP A, piece b: an ERRORED run does not own its audio the way a
+ *  live run does — the take is kept on FAILED, and it is exactly what the row
+ *  must be able to offer. Only a run still `processing`/`review`/`autosaving`
+ *  excludes its take here. */
 async function readLocalTakes() {
-  const [{ listOwnTakes }, { globalRecorder }, { globalPipeline }] = await Promise.all([
-    import('@/lib/karute/take-store'),
-    import('@/lib/global-recorder'),
-    import('@/lib/global-pipeline'),
+  const [{ listOwnTakes, BINDING_SECURE_REFUSALS }, { globalRecorder }, { globalPipeline }] =
+    await Promise.all([
+      import('@/lib/karute/take-store'),
+      import('@/lib/global-recorder'),
+      import('@/lib/global-pipeline'),
+    ])
+  const takes = await listOwnTakes([
+    globalRecorder.takeId,
+    globalPipeline.state === 'error' ? null : globalPipeline.context?.takeId,
   ])
-  const takes = await listOwnTakes([globalRecorder.takeId, globalPipeline.context?.takeId])
   return takes.map((t) => ({
     takeId: t.takeId,
     recordingSessionId: t.recordingSessionId,
@@ -143,6 +175,22 @@ async function readLocalTakes() {
     customerName: t.target?.customerName ?? null,
     startedAt: t.startedAt,
     updatedAt: t.updatedAt,
+    tailIncomplete: t.tailIncomplete,
+    stopPendingAt: t.stopPendingAt,
+    // Slice five (D12): the stop's own measurement, so the fold's sub-line
+    // shows the recording's real length instead of the flush window.
+    durationMs: t.durationMs,
+    // PR4 fix round 1 — the flag the fold needs to keep an expired unsecured
+    // take on screen. The store owns the TTL; this just carries its answer.
+    expiredUnsecured: t.expiredUnsecured,
+    // UPDATE 25 GROUP A, piece r. Mapped from the take-store's own judgement
+    // (never from inbox.ts, which must stay pure — F6) — never a per-take meta
+    // read, `listOwnTakes` already carries `secureError`. FIX ROUND 2
+    // (Greptile issue 2): maps from `BINDING_SECURE_REFUSALS` — the four
+    // codes that say "this take is spoken for" — never the full
+    // `TERMINAL_SECURE_ERRORS`, whose other seven codes mean only "cannot
+    // upload" and never licensed a detach.
+    bindingRefused: !!t.secureError && BINDING_SECURE_REFUSALS.has(t.secureError),
   }))
 }
 
@@ -160,6 +208,46 @@ async function readServerSessions() {
 }
 
 /**
+ * UPDATE 25 GROUP A, piece b — the pill reconciles with the row's durable
+ * truth. An in-tab error and the server's own failed/discarded row are two
+ * views of the SAME recording; once the row can speak for it (a durable
+ * failed row with a way forward, or a colleague's discard), the pill and the
+ * error card stand down so there is one honest status per failed take, not
+ * two that can drift.
+ *
+ * NOT reconciled, on purpose: an in-tab failure whose session reads
+ * 処理中/復元可能 (no server job exists for it yet — the card is the only
+ * truth there); an error with no session id (nothing to look up); a failed
+ * row with no audio anywhere (the card's retained blob is the last copy);
+ * and, FIX ROUND F3, an `empty-transcript` error still holding its take —
+ * `PipelineErrorCard`'s 録音を破棄する is the ONLY discard door for a take
+ * ≥10s (the recovery banner's discard is gated `belowFloor`, and the 録音履歴
+ * row itself offers no discard). Standing the card down here would remove
+ * that door with nothing replacing it, so the card stays until the row can
+ * offer 破棄 itself.
+ *
+ * NO LOOP: `reset()` notifies synchronously, which re-fires `armPipelineWatch`'s
+ * subscriber inside THIS call's own stack — re-entrant `loadInbox()` calls hit
+ * the `loading` guard and defer to ONE trailing re-run, which finds `idle` and
+ * returns here having done nothing (`state !== 'error'`).
+ */
+async function reconcilePipelineWithRows(rows: readonly InboxRow[]): Promise<void> {
+  const { globalPipeline } = await import('@/lib/global-pipeline')
+  if (globalPipeline.state !== 'error') return
+  // FIX ROUND F3 — the card is still the only 破棄 door for this code while it
+  // holds a take; nothing else in the diff gives that door back to the row.
+  if (globalPipeline.error === 'empty-transcript' && globalPipeline.context?.takeId) return
+  const sessionId = globalPipeline.context?.recordingSessionId
+  if (!sessionId) return
+  const row = rows.find((r) => r.recordingSessionId === sessionId)
+  if (!row) return
+  const rowSpeaksForIt =
+    (row.state === 'failed' && (row.canRetry || row.serverAudio === true)) ||
+    row.state === 'discarded'
+  if (rowSpeaksForIt) globalPipeline.reset()
+}
+
+/**
  * Re-read both halves and re-fold. Single-flight with a TRAILING re-run: a call
  * that arrives while a fold is in flight is remembered, not dropped, and runs
  * exactly once when the current one finishes. Several consumers mount their own
@@ -167,11 +255,22 @@ async function readServerSessions() {
  * are the normal case — and the one that matters most (a pipeline settle) is
  * precisely the one that used to be thrown away mid-load.
  */
-export async function loadInbox(): Promise<void> {
+export function loadInbox(): Promise<void> {
   if (loading) {
     pendingReload = true
-    return
+    // Never a bare early return: see `inFlight` above. Its `?? resolve()` is
+    // only reachable if `loading` were true with nothing running, which
+    // resetInbox makes impossible — it clears the flag as it wipes.
+    return inFlight ?? Promise.resolve()
   }
+  const run = runInbox().finally(() => {
+    if (inFlight === run) inFlight = null
+  })
+  inFlight = run
+  return run
+}
+
+async function runInbox(): Promise<void> {
   loading = true
   const myEpoch = epoch
   armPipelineWatch()
@@ -186,7 +285,15 @@ export async function loadInbox(): Promise<void> {
     ])
     if (epoch !== myEpoch) return
     const foldedAt = Date.now()
-    const rows = deriveInboxRows({ sessions: server.sessions, takes, now: foldedAt })
+    const rows = deriveInboxRows({
+      sessions: server.sessions,
+      takes,
+      now: foldedAt,
+      // FIX ROUND 2 (Greptile issue 1) — a thrown server read is not evidence
+      // of anything; the fold must know to withhold every unlisted-session
+      // row rather than treat the empty `sessions` as a genuine answer.
+      serverReadFailed: server.failed,
+    })
     set({
       status: server.failed ? 'partial' : 'ready',
       rows,
@@ -195,15 +302,19 @@ export async function loadInbox(): Promise<void> {
       serverFailed: server.failed,
     })
     schedulePoll(rows)
+    await reconcilePipelineWithRows(rows)
   } finally {
     if (epoch === myEpoch) {
       loading = false
       // A refresh that arrived mid-fold runs now, once. Cleared BEFORE the
       // re-run so the re-run's own concurrent callers can set it again without
-      // this one looping.
+      // this one looping. AWAITED since fix round 2 (R2) so `inFlight` — and
+      // with it every latch following this fold — spans the trailing re-run
+      // too; the mid-flight caller's own write is only visible in THAT one.
+      // ponytail: depth = concurrent callers (mount effects + poll + settle); a cap if a fold ever chains.
       if (pendingReload) {
         pendingReload = false
-        void loadInbox()
+        await loadInbox()
       }
     }
   }

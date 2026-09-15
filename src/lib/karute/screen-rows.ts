@@ -44,6 +44,14 @@ export interface SessionsListScreen {
   /** Store-wide karute total, unfiltered by date or staff (PR-1b plumbing —
    *  not rendered until PR-2a's 全件 display; see the DTO's matching field). */
   total: number
+  /** Store-wide discarded records, separate from total. */
+  discardedCount: number
+  /** F1 fix (PR-C fix round 1, ⚖ the PR-A F3 precedent: "a colleague never
+   *  learns a share happened from the detail wire" — the LIST wire keeps the
+   *  same silence): store-wide shared-karute count, sent ONLY when the
+   *  caller (a viewShared holder) asked for it — see the args doc below.
+   *  `undefined` for everyone else, and until core ships it, never `?? 0`. */
+  sharedCount?: number
   /** Staff filter pills (id + display name + initials). */
   staffList: Array<{
     id: string
@@ -83,6 +91,17 @@ export function buildSessionsListScreen(args: {
   monthCount: number
   /** See the matching field's doc on SessionsListScreen. */
   total: number
+  discardedCount?: number
+  /** D10 (PR-C): see SessionsListScreen.sharedCount. Never defaulted — an
+   *  absent input must stay absent on the way out. */
+  sharedCount?: number
+  /** F1 fix (PR-C fix round 1): REQUIRED, like storeStaffIds — every caller
+   *  decides explicitly whether THIS viewer holds recordings.viewShared.
+   *  Gates BOTH `isShared` on every row (except the viewer's own record) AND
+   *  whether `sharedCount` ships at all — the wire must never tell a
+   *  colleague a share happened, the same silence the detail screen already
+   *  keeps (PR-A F3). */
+  viewerHoldsViewShared: boolean
 }): SessionsListScreen {
   const {
     staffList,
@@ -93,6 +112,9 @@ export function buildSessionsListScreen(args: {
     synqedStaff,
     monthCount,
     total,
+    discardedCount = 0,
+    sharedCount,
+    viewerHoldsViewShared,
   } = args
 
   type RecordRow = {
@@ -104,8 +126,11 @@ export function buildSessionsListScreen(args: {
     staff_profile_id: string | null
     client_id: string
     entries: Array<{ count: number }> | null
+    status: string
     service?: string | null
     duration_minutes?: number | null
+    /** D10 (PR-C, self-lighting): drives `isShared` on the projected row. */
+    shared_at?: string | null
   }
 
   // mergeKaruteRows still gives us the sort (session_date ?? created_at desc)
@@ -193,6 +218,21 @@ export function buildSessionsListScreen(args: {
     const conversionStatus: KaruteConversionStatus =
       entryCount > 0 ? 'active' : 'provisional'
 
+    // F1 fix (PR-C fix round 1, ⚖ the PR-A F3 precedent: "a colleague never
+    // learns a share happened from the detail wire" — the LIST wire keeps
+    // the same silence): the WHO-SEES gate lives HERE, not just on the
+    // client. `recordStaffProfileId` is the SAME translated id this row's
+    // own `staffId` field carries a few lines below, so "her own record"
+    // compares like-for-like against `currentStaffId` (also profile-space) —
+    // not the raw, untranslated `r.staff_profile_id`. KaruteListRow's own
+    // client-side gate STAYS as a second, redundant check (belt and braces);
+    // its tests stay green because a server-gated `isShared` is a STRICT
+    // subset of what the client gate already allowed through.
+    const isShared =
+      r.shared_at != null &&
+      (viewerHoldsViewShared ||
+        (currentStaffId != null && recordStaffProfileId === currentStaffId))
+
     return {
       id: r.id,
       customerId: r.client_id,
@@ -215,9 +255,23 @@ export function buildSessionsListScreen(args: {
       staffName: recordStaffProfileId
         ? (staffNameById.get(recordStaffProfileId) ?? 'Unknown')
         : '—',
-      summary: r.summary ?? '',
+      // R3 repair (2026-09-13, F3b): a discarded row's summary is WITHHELD,
+      // not merely painted over — KaruteListRow renders the literal
+      // 「破棄済み」 for any !active row regardless of this value, but before
+      // this fix the raw summary still rode the wire to every viewer's
+      // network payload/React props, and the search box (i.summary.includes)
+      // could reveal a discarded row's presence by matching hidden content it
+      // never displays. Blanked here — the ONE builder every door (web list,
+      // thin SessionsScreen, the facade DTO, search) reads through — so all
+      // four close together. `aiStatus` above already read the REAL r.summary
+      // before this line runs, so a discarded row's aiStatus derivation is
+      // unaffected by the blank (its chips are suppressed anyway — see
+      // KaruteListRow.tsx's `active &&` guards).
+      summary: r.status === 'DISCARDED' ? '' : (r.summary ?? ''),
       aiStatus,
       conversionStatus,
+      ...(r.status === 'DISCARDED' ? { isDiscarded: true } : {}),
+      ...(isShared ? { isShared: true } : {}),
       href: `/karute/${r.id}`,
     }
   })
@@ -248,6 +302,11 @@ export function buildSessionsListScreen(args: {
     placeholders,
     monthCount,
     total,
+    discardedCount,
+    // F1 fix (PR-C fix round 1): the count itself is management information —
+    // it ships ONLY to a viewShared holder, never `?? 0`, undefined for
+    // everyone else even when the caller passed a real number in.
+    sharedCount: viewerHoldsViewShared ? sharedCount : undefined,
     staffList: visibleStaff.map((s) => ({
       id: s.id,
       name: s.full_name ?? 'Unknown',

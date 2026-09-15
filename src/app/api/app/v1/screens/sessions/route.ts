@@ -64,6 +64,11 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
   // named follow-up in the lane queue, tracked, never silently dropped.
   const windowed = new URL(ctx.req.url).searchParams.get('window') === '1'
 
+  // F1 fix (PR-C fix round 1): computed here (not inside the try below) so
+  // it's in scope for BOTH the builder call and the DTO's windowed-only
+  // field further down — one capability read, never two that could drift.
+  const viewerHoldsViewShared = ctx.identity.capabilities.has('recordings.viewShared')
+
   let screen: ReturnType<typeof buildSessionsListScreen>
   let windowRead: KaruteWindow | null = null
   try {
@@ -109,6 +114,15 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
       // 今月 probe (PR-1b): lean page_size:1 read over the JST month window —
       // rows discarded, only .total read. Same failure contract (throws into
       // the 502 catch below — never a swallowed stale count).
+      //
+      // R5 repair (2026-09-13, F5): this probe's ONLY consumed field is
+      // `.total` (line below, `monthCount: monthProbe.total`) — no caller
+      // reads a discarded count off it. `includeDiscarded` used to ride along
+      // anyway, widening the ROWS the mixed read returns (rows are discarded
+      // here regardless) for zero behavioural gain, and under core's real
+      // contract (proven in R4/karute-window.test.ts's comment: `total`
+      // always excludes discarded, independent of the flag) it changed
+      // nothing about `.total` either — dropped.
       listSynqedKaruteRowsWithTotalOrThrow(synqed, {
         storeId: activeStore,
         from: monthStartIso,
@@ -123,6 +137,19 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
     // keeps the legacy response free of the new keys.
     const storeTotal =
       'freshStoreTotal' in karuteRead ? karuteRead.freshStoreTotal : karuteRead.total
+    const storeDiscardedCount =
+      'freshDiscardedCount' in karuteRead
+        ? karuteRead.freshDiscardedCount
+        : karuteRead.discardedCount
+    // D10 (PR-C, self-lighting): same two-branch field-name split as the pair
+    // above — `undefined` on EITHER branch stays undefined (never `?? 0`; a
+    // legacy/bare read never even threads sharedOnly, so it is undefined by
+    // construction until core ships shared_count). Discriminated on
+    // `windowStart` (required, unique to KaruteWindow) rather than
+    // `freshSharedCount` itself — that field is OPTIONAL on both branches, so
+    // an `in` check on it can't narrow the union the way `windowStart` can.
+    const storeSharedCount =
+      'windowStart' in karuteRead ? karuteRead.freshSharedCount : karuteRead.sharedCount
     if ('windowStart' in karuteRead) windowRead = karuteRead
 
     // Page parity (getCurrentUserStaffId): the caller's staff identity is their
@@ -150,6 +177,9 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
       synqedStaff,
       monthCount: monthProbe.total,
       total: storeTotal,
+      discardedCount: storeDiscardedCount,
+      sharedCount: storeSharedCount,
+      viewerHoldsViewShared,
     })
   } catch (err) {
     if (err instanceof AppApiError) throw err
@@ -165,6 +195,12 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
         ...screen,
         hasMore: windowRead.hasMore,
         windowStart: windowRead.windowStart,
+        // R8 discarded-record door (A8) — windowed-only, same reasoning as
+        // discardedCount/hasMore/windowStart above.
+        viewerCanOpenDiscarded: ctx.identity.capabilities.has('records.discardView'),
+        // D10 (PR-C) — same windowed-only reasoning; the hoisted variable
+        // above (F1 fix) is the SAME read the builder call used.
+        viewerHoldsViewShared,
       })
     : SessionsScreenDTO.parse(screen)
   return ok(ctx, dto)

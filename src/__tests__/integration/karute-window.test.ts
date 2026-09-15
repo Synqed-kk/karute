@@ -11,6 +11,7 @@
  *     (contract inherited from PR-1b's listSynqedKaruteRowsWithMonthProbe,
  *     which moved here when its main leg became a window read)
  */
+import type { SynqedClient } from '@synqed-kk/client'
 import {
   KARUTE_MAX_PROBE_WINDOWS,
   KARUTE_SESSION_DATE_EPOCH,
@@ -29,22 +30,67 @@ type ListOpts = {
   to?: string
   page?: number
   page_size?: number
+  include_discarded?: boolean
+  shared_only?: boolean
 }
-type Rec = { id: string; created_at: string; session_date: string | null }
+type Rec = {
+  id: string
+  created_at: string
+  session_date: string | null
+  status: 'FINALIZED' | 'DISCARDED'
+  /** D10 (PR-C, self-lighting). Absent/null = not shared. */
+  sharedAt?: string | null
+}
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const asClient = (list: (o: ListOpts) => unknown) => ({ karuteRecords: { list } }) as any
+const asClient = (list: (o: ListOpts) => unknown) => ({
+  karuteRecords: { list },
+  fetch: (path: string) => {
+    const query = new URL(path, 'https://core.test').searchParams
+    return list({
+      ...(query.get('store_id') ? { store_id: query.get('store_id')! } : {}),
+      ...(query.get('from') ? { from: query.get('from')! } : {}),
+      ...(query.get('to') ? { to: query.get('to')! } : {}),
+      ...(query.get('page') ? { page: Number(query.get('page')) } : {}),
+      ...(query.get('page_size') ? { page_size: Number(query.get('page_size')) } : {}),
+      include_discarded: query.get('include_discarded') === 'true',
+      // D10 (PR-C, self-lighting): mirrors app-api-karute-window.test.ts's own
+      // fetch mock — a boolean, absent when the app never sent the param.
+      ...(query.get('shared_only') === 'true' ? { shared_only: true } : {}),
+    })
+  },
+}) as unknown as SynqedClient
 
-const rec = (id: string, iso: string): Rec => ({
+const rec = (
+  id: string,
+  iso: string,
+  status: Rec['status'] = 'FINALIZED',
+  sharedAt: string | null = null,
+): Rec => ({
   id,
   created_at: iso,
   session_date: iso.slice(0, 10),
+  status,
+  sharedAt,
 })
 
 /** A fake core that answers from an in-memory set, filtering on created_at —
  *  the REAL server semantics (proved by source read, see
  *  evidence/karute-tab-build-20260825/pr2a/NULL-DATE-PROOF.md: from/to hit
- *  created_at, NOT session_date, both bounds inclusive). */
+ *  created_at, NOT session_date, both bounds inclusive).
+ *
+ *  R4 repair (2026-09-13, ADDENDUM to F4): `total`/`discarded_count` below
+ *  mirror synqed-core's real listKaruteRecords @9d4baf99a verbatim, not a
+ *  guess — src/services/karute.service.ts:172-198 counts
+ *  `nonDiscardedWhere` into `total` and `discardedWhere` into
+ *  `discarded_count` UNCONDITIONALLY (independent of `include_discarded`,
+ *  which only widens which ROWS come back), and
+ *  src/validations/karute.ts:104-107,115 parses the query flag as the
+ *  literal string 'true' via `z.enum(['true','false'])` — exactly what
+ *  synqed-records.ts's listMixedKaruteRecords sends
+ *  (`include_discarded: 'true'`). Confirmed via `gh api
+ *  repos/Synqed-kk/synqed-core/contents/...` reads at core main 9d4baf99a;
+ *  no live Dev Salon read needed (packet's ADDENDUM 14:3x superseded the
+ *  original live-read instruction once this source proof landed). */
 function fakeCore(records: Rec[]) {
   const calls: ListOpts[] = []
   const list = (opts: ListOpts) => {
@@ -52,11 +98,55 @@ function fakeCore(records: Rec[]) {
     let rows = records
     if (opts.from) rows = rows.filter((r) => r.created_at >= opts.from!)
     if (opts.to) rows = rows.filter((r) => r.created_at <= opts.to!)
+    // D10 (PR-C, self-lighting): shared_count is computed IGNORING
+    // shared_only (§CORE ORDER 2b) — date-windowed same as total/
+    // discarded_count, but never narrowed by the flag itself.
+    const sharedCountInWindow = rows.filter(
+      (r) => r.status !== 'DISCARDED' && r.sharedAt != null,
+    ).length
+    if (opts.shared_only) rows = rows.filter((r) => r.sharedAt != null)
+    const activeRows = rows.filter((r) => r.status !== 'DISCARDED')
+    const discardedRows = rows.filter((r) => r.status === 'DISCARDED')
+    const visibleRows = opts.include_discarded ? rows : activeRows
     const size = opts.page_size ?? 100
     const page = opts.page ?? 1
     return Promise.resolve({
-      karute_records: rows.slice((page - 1) * size, page * size),
-      total: rows.length,
+      karute_records: visibleRows
+        .slice((page - 1) * size, page * size)
+        .map((r) => ({ ...r, shared_at: r.sharedAt ?? null })),
+      total: activeRows.length,
+      discarded_count: discardedRows.length,
+      shared_count: sharedCountInWindow,
+    })
+  }
+  return { list, calls }
+}
+
+// T3 (fix round 2, L2 LOW-1): a fakeCore VARIANT whose response OMITS
+// shared_count entirely (core genuinely hasn't shipped the field at all,
+// distinct from "answered 0") — every other field behaves exactly like
+// fakeCore above, so this is a sibling, not a modification of it.
+function fakeCoreNoSharedCount(records: Rec[]) {
+  const calls: ListOpts[] = []
+  const list = (opts: ListOpts) => {
+    calls.push(opts)
+    let rows = records
+    if (opts.from) rows = rows.filter((r) => r.created_at >= opts.from!)
+    if (opts.to) rows = rows.filter((r) => r.created_at <= opts.to!)
+    if (opts.shared_only) rows = rows.filter((r) => r.sharedAt != null)
+    const activeRows = rows.filter((r) => r.status !== 'DISCARDED')
+    const discardedRows = rows.filter((r) => r.status === 'DISCARDED')
+    const visibleRows = opts.include_discarded ? rows : activeRows
+    const size = opts.page_size ?? 100
+    const page = opts.page ?? 1
+    return Promise.resolve({
+      karute_records: visibleRows
+        .slice((page - 1) * size, page * size)
+        .map((r) => ({ ...r, shared_at: r.sharedAt ?? null })),
+      total: activeRows.length,
+      discarded_count: discardedRows.length,
+      // shared_count key deliberately absent — NOT `shared_count: undefined`,
+      // a real upstream response that never mentions the field at all.
     })
   }
   return { list, calls }
@@ -117,6 +207,19 @@ describe('loadKaruteWindowRows — probe-then-fetch', () => {
     const probes = core.calls.filter((c) => c.page_size === 1 && c.from)
     expect(probes.length).toBe(4)
     expect(res.windowStart).toBe('2026-07-01')
+  })
+
+  it('returns a window containing only discarded rows instead of skipping it', async () => {
+    const core = fakeCore([
+      rec('k-discarded', '2026-08-24T01:00:00.000Z', 'DISCARDED'),
+    ])
+    const res = await loadKaruteWindowRows(asClient(core.list), { now: NOW })
+
+    expect(res.rows.map((r) => r.id)).toEqual(['k-discarded'])
+    expect(res.freshStoreTotal).toBe(0)
+    expect(res.freshDiscardedCount).toBe(1)
+    expect(res.hasMore).toBe(false)
+    expect(core.calls.filter((c) => c.page_size === 1 && c.from)).toHaveLength(1)
   })
 
   it('pages a non-empty window to COMPLETION — page * page_size < total', async () => {
@@ -314,6 +417,133 @@ describe('loadKaruteWindowRows — month mode (PR-2b sends it, PR-2a ships it)',
   })
 })
 
+describe('loadKaruteWindowRows — sharedOnly (D10, PR-C, self-lighting)', () => {
+  it('threads shared_only=true into EVERY call of the walk (the storeProbe AND the page read) and reads freshSharedCount off the store probe', async () => {
+    const core = fakeCore([
+      rec('shared-1', '2026-08-24T01:00:00.000Z', 'FINALIZED', '2026-08-24T02:00:00.000Z'),
+      rec('not-shared', '2026-08-24T01:30:00.000Z'),
+    ])
+    const res = await loadKaruteWindowRows(asClient(core.list), { now: NOW, sharedOnly: true })
+
+    expect(res.rows.map((r) => r.id)).toEqual(['shared-1'])
+    expect(res.freshSharedCount).toBe(1)
+    expect(core.calls.length).toBeGreaterThan(1)
+    expect(core.calls.every((c) => c.shared_only === true)).toBe(true)
+  })
+
+  it('sharedOnly reads the SHARED universe size for hasMore, not the whole store', async () => {
+    const core = fakeCore([
+      rec('s1', '2026-08-24T01:00:00.000Z', 'FINALIZED', '2026-08-24T02:00:00.000Z'),
+      rec('s2', '2026-08-24T01:05:00.000Z', 'FINALIZED', '2026-08-24T02:00:00.000Z'),
+      rec('unshared', '2026-08-24T01:10:00.000Z'),
+    ])
+    const res = await loadKaruteWindowRows(asClient(core.list), {
+      now: NOW,
+      sharedOnly: true,
+      loadedCount: 1,
+    })
+    // freshStoreTotal under shared_only=true is 2 (the shared rows only), not
+    // 3 (the whole store) — hasMore is derived from THAT scoped total.
+    expect(res.freshStoreTotal).toBe(2)
+    expect(res.hasMore).toBe(karuteHasMore(1 + res.rows.length, 2, 0))
+  })
+
+  it('sharedOnly absent (default walk): freshSharedCount still surfaces self-lit, untouched by the app, and no call ever carries shared_only', async () => {
+    const core = fakeCore([
+      rec('shared-1', '2026-08-24T01:00:00.000Z', 'FINALIZED', '2026-08-24T02:00:00.000Z'),
+    ])
+    const res = await loadKaruteWindowRows(asClient(core.list), { now: NOW })
+    expect(res.freshSharedCount).toBe(1)
+    expect(core.calls.every((c) => !c.shared_only)).toBe(true)
+  })
+
+  it('threads sharedOnly into the legacy sweep too — a shared-mode walk that reaches the epoch never dumps unshared rows', async () => {
+    const core = fakeCore([
+      rec('legacy-shared', '2025-03-01T00:00:00.000Z', 'FINALIZED', '2025-03-01T01:00:00.000Z'),
+      rec('legacy-unshared', '2024-11-11T00:00:00.000Z'),
+    ])
+    const res = await loadKaruteWindowRows(asClient(core.list), {
+      now: NOW,
+      sharedOnly: true,
+      olderThan: KARUTE_SESSION_DATE_EPOCH,
+      loadedCount: 0,
+    })
+    expect(res.rows.map((r) => r.id)).toEqual(['legacy-shared'])
+    expect(core.calls.every((c) => c.shared_only === true)).toBe(true)
+  })
+})
+
+// H1 (PR-C fix round 3, Greptile's finding on #917): shared mode must read
+// the SAME set the 共有 pill counts — non-discarded shared rows only. Every
+// read in the walk used to pass includeDiscarded unconditionally while
+// sharedOnly threaded beside it, so shared_only=true would return shared
+// rows INCLUDING discarded ones (⚖ 8/25: a pill counts exactly the rows its
+// tap shows; discarded shared rows belong to 破棄済み mode).
+describe('loadKaruteWindowRows — sharedOnly excludes discarded rows (H1, PR-C fix round 3)', () => {
+  it('a DISCARDED shared row never rides shared mode\'s results, and no call in the walk asks for discarded rows', async () => {
+    const core = fakeCore([
+      rec('shared-active', '2026-08-24T01:00:00.000Z', 'FINALIZED', '2026-08-24T01:00:00.000Z'),
+      rec('shared-discarded', '2026-08-24T02:00:00.000Z', 'DISCARDED', '2026-08-24T02:00:00.000Z'),
+    ])
+    const res = await loadKaruteWindowRows(asClient(core.list), { now: NOW, sharedOnly: true })
+
+    // Only the non-discarded shared row comes back.
+    expect(res.rows.map((r) => r.id)).toEqual(['shared-active'])
+    expect(res.freshStoreTotal).toBe(1)
+    // freshDiscardedCount is still reported (H1 (b): the wire shape is
+    // unchanged in shared mode — the mode just has no 破棄済み pill to show
+    // it on) but it must never leak the discarded row into `rows`.
+    expect(res.freshDiscardedCount).toBe(1)
+
+    // No call in the walk (storeProbe, the epoch-loop probe, or the page
+    // read) ever asks for discarded rows while sharedOnly is set.
+    expect(core.calls.length).toBeGreaterThan(0)
+    expect(core.calls.every((c) => c.shared_only === true)).toBe(true)
+    expect(core.calls.every((c) => !c.include_discarded)).toBe(true)
+  })
+
+  it('a window whose ONLY shared rows are discarded is SKIPPED, not opened as an empty window — the walk continues to the next real one', async () => {
+    const core = fakeCore([
+      // Recent window: a shared row, but DISCARDED — must not end the walk
+      // with an honest-looking empty result.
+      rec('recent-shared-discarded', '2026-08-24T01:00:00.000Z', 'DISCARDED', '2026-08-24T01:00:00.000Z'),
+      // An older, real (non-discarded) shared row three probe-windows back —
+      // same placement the "skips EMPTY windows" test above uses.
+      rec('older-shared-active', '2026-07-06T01:00:00.000Z', 'FINALIZED', '2026-07-06T01:00:00.000Z'),
+    ])
+    const res = await loadKaruteWindowRows(asClient(core.list), { now: NOW, sharedOnly: true })
+
+    expect(res.rows.map((r) => r.id)).toEqual(['older-shared-active'])
+    // The walk reached all the way to the epoch floor's last probed window,
+    // not the recent (discarded-only) one — proof it skipped rather than
+    // stopping on the empty-looking hit.
+    expect(res.windowStart).toBe(KARUTE_SESSION_DATE_EPOCH)
+    const probes = core.calls.filter((c) => c.page_size === 1 && c.from)
+    expect(probes.length).toBe(4)
+  })
+
+  it('the default walk (sharedOnly off) still sends include_discarded=true on every call — byte-identical to today', async () => {
+    const core = fakeCore([
+      rec('k-active', '2026-08-24T01:00:00.000Z'),
+      rec('k-discarded', '2026-08-24T02:00:00.000Z', 'DISCARDED'),
+    ])
+    const res = await loadKaruteWindowRows(asClient(core.list), { now: NOW })
+
+    expect(res.rows.map((r) => r.id).sort()).toEqual(['k-active', 'k-discarded'])
+    expect(core.calls.length).toBeGreaterThan(0)
+    expect(core.calls.every((c) => c.include_discarded === true)).toBe(true)
+  })
+})
+
+// T3 (fix round 2, L2 LOW-1, optional but cheap)
+describe('loadKaruteWindowRows — T3: shared_count entirely omitted from core\'s response', () => {
+  it('freshSharedCount is undefined at this hop when core never answers shared_count at all (never 0)', async () => {
+    const core = fakeCoreNoSharedCount([rec('k1', '2026-08-24T01:00:00.000Z')])
+    const res = await loadKaruteWindowRows(asClient(core.list), { now: NOW })
+    expect(res.freshSharedCount).toBeUndefined()
+  })
+})
+
 describe('loadKaruteWindowRows — window arithmetic', () => {
   it('the first window covers KARUTE_WINDOW_DAYS ending now, and a resumed window abuts it without overlap', async () => {
     const core = fakeCore([])
@@ -387,5 +617,20 @@ describe('loadKaruteWindowWithMonthProbe', () => {
       opts,
     )
     expect(result).toEqual({ data: null, monthProbe: null })
+  })
+
+  it('R5 pin (2026-09-13, Y2): the 今月 probe carries NO include_discarded — dead plumbing, read by nobody', async () => {
+    // Re-adding `includeDiscarded: true` to the probe call routes it through
+    // listMixedKaruteRecords → synqed.fetch, which asClient's fetch always
+    // stamps `include_discarded: true` on the way back to fakeCore — this
+    // assertion goes RED the instant that happens.
+    const core = fakeCore([
+      rec('k1', '2026-08-24T01:00:00.000Z'),
+      rec('k2', '2026-08-24T02:00:00.000Z', 'DISCARDED'),
+    ])
+    await loadKaruteWindowWithMonthProbe(asClient(core.list), opts)
+    const probeCall = core.calls.find((c) => c.page_size === 1 && c.from === opts.monthFrom)
+    expect(probeCall).toBeDefined()
+    expect(probeCall?.include_discarded).not.toBe(true)
   })
 })

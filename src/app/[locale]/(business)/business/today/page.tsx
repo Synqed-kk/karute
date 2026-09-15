@@ -16,15 +16,20 @@
 //
 // COUNTS RECONCILE, and that is a rule rather than a coincidence: the nav badge,
 // 未解決, 次に決めること and the cards below the board are ONE count of open
-// decisions; 稼働率 and the calendar's free-slot numbers are ONE pair of minute
-// sums; the money band and the revenue KPI are summed from the cards on screen.
+// decisions; the money band and the revenue KPI are summed from the cards on
+// screen. 稼働率 and the month calendar are the pair that needs saying out loud
+// (⚖ Liam 2026-09-12 「I choose B」): they ask DIFFERENT questions in different
+// units — 稼働率 is booked minutes ÷ available minutes across the treating
+// staff, the calendar is how many standard-length courses the day's free
+// pockets still hold — and what has one home is the INPUT they both read
+// (roster · shifts · 勤務不可 · bookings), never a shared formula.
 //
 // DAY NAVIGATION is a link (`?day=`), not client state: the board would
 // otherwise have to carry a fortnight of composed boards to the browser to move
 // one day. Same soft navigation, one day's data.
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
-import { jstDayKey } from '@/business/lib/clock'
+import { jstDayKey, jstMinuteOfDay, jstYmd } from '@/business/lib/clock'
 import { bedSecuredProof } from '@/business/lib/fixtures-today'
 import {
   defaultStoreId,
@@ -33,6 +38,9 @@ import {
   listMenus,
   listResources,
   listStaff,
+  listAbsenceByDay,
+  listBlocksByDay,
+  listShiftsByDay,
   listStoreOptions,
   readDayPlanes,
   readShellIdentity,
@@ -41,10 +49,12 @@ import {
   type StoreLens,
 } from '@/business/lib/data'
 import {
+  absenceForDay,
+  blocksForDay,
   buildLanes,
+  coursesFitForDay,
   dayBookings,
   dayTotals,
-  freeSlots,
   hhmm,
   laneMinutes,
   openDecisions,
@@ -53,7 +63,7 @@ import {
   type BoardBooking,
   type BuildInput,
 } from '@/business/lib/today-board'
-import { canReleaseHeld, overrideLevelFor } from './today-interactions'
+import { canReleaseHeld, clampCalendarTight, overrideLevelFor, storeHasBeds, type CalendarWindowDay } from './today-interactions'
 import { TodayScreen, type DecisionCard, type InspectorCase, type TodayProps } from './TodayScreen'
 import './today.css'
 
@@ -67,20 +77,40 @@ const DAY_MS = 86_400_000
 /** 予約種別 as canon writes it on a card and in the 精算 dialog's sub-line. */
 const CATEGORY_WORD = { new: '新規', repeat: '単発', ticket: '回数券', vip: 'VIP' } as const
 const WEEKDAY_WORD = ['日曜', '月曜', '火曜', '水曜', '木曜', '金曜', '土曜'] as const
+/** ⚖ R8 T1 — the 根拠 line that asserts the booking's own price survives a move.
+ *  Named once because both proof lists append it under the same condition, and a
+ *  second literal is a second place for the condition to be forgotten. */
+const PRICE_HOLD_PROOF = '予約時価格を保持'
+
+/** ⚖ R8 FIX ROUND 3 (BREAKER-828 F2) — ONE AUTHOR FOR A BOOKING'S 根拠 LIST.
+ *
+ *  The condition used to be spelled once per arm of `b.resourceId ? … : …`, and
+ *  the fixture only ever walks one of them: its single price-less booking
+ *  (apt-09) has no resource, so a with-resource arm that appended the 保持 line
+ *  unconditionally — a booking with a bed and no recorded price claiming its
+ *  price is held, the exact defect T1 removes — shipped green through the whole
+ *  suite. Two arms, one rule, so the rule is written once and the arms differ
+ *  only in the sentence about the bed.
+ *
+ *  `resourceProof` is the bed's own line, or `null` when the booking has no
+ *  resource yet; `priced` is whether the SERVER recorded a price for it.
+ *
+ *  ⚖ D-53 (c) R2 — `hasUnits` is the booking's OWN store's axis (per
+ *  `storeHasBeds`, D-52's rule): a store with no unit has nothing undecided,
+ *  so on `hasUnits === false` and no proof, the resource line is OMITTED
+ *  entirely (a proof that exists is a fact and stays) — never
+ *  「設備の割当てが未確定」, never 「設備なし」, silence. Default `true` keeps
+ *  today's answer for a caller that hands in no store axis. */
+export function bookingProofs(resourceProof: string | null, priced: boolean, hasUnits: boolean = true): string[] {
+  return [
+    '担当の勤務時間内',
+    ...(resourceProof != null ? ['休憩と重ならない', resourceProof] : hasUnits ? ['設備の割当てが未確定'] : []),
+    ...(priced ? [PRICE_HOLD_PROOF] : []),
+  ]
+}
 /** The window the date nav and the month calendar can reach. Wide enough for a
  *  month either way, small enough that the per-day sums are free. */
 const WINDOW = 45
-
-/** Y/M/D/weekday of an instant, read in JST — the calendar grid's coordinates.
- *  Built from Intl rather than getMonth() so the server's own timezone never
- *  shifts a cell into the wrong week. */
-function jstParts(at: Date): { y: number; m: number; d: number; wd: number } {
-  const p = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', ...JST })
-    .formatToParts(at)
-  const get = (t: string) => p.find((x) => x.type === t)!.value
-  const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  return { y: Number(get('year')), m: Number(get('month')), d: Number(get('day')), wd: WD.indexOf(get('weekday')) }
-}
 
 export default async function TodayPage({
   params,
@@ -117,7 +147,8 @@ export default async function TodayPage({
   const from = new Date(now.getTime() + (-WINDOW - 1) * DAY_MS).toISOString()
   const to = new Date(now.getTime() + (WINDOW + 1) * DAY_MS).toISOString()
 
-  const [customers, appointments, menus, staff, resources, planes, shell] = await Promise.all([
+  const [customers, appointments, menus, staff, resources, planes, shell, shiftsByDay, absenceByDay, blocksByDay] =
+    await Promise.all([
     listCustomers(lens),
     listAppointments(lens, { from, to }),
     listMenus(lens),
@@ -128,6 +159,14 @@ export default async function TodayPage({
     // empty for a day the operator is only viewing — see readDayPlanes.
     readDayPlanes(lens, shownKey),
     readShellIdentity(),
+    // The calendar's capacity is a PER-DAY question, so both halves of it are
+    // asked per day. Inclusive on both ends, exactly the window the grid draws.
+    listShiftsByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
+    listAbsenceByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
+    // ⚖ FIX ROUND 3 (P1) — the fifth per-day input, same discipline as the two
+    // above it: a staff block is occupied time and the count must not disagree
+    // with what the placement rail already refuses.
+    listBlocksByDay(lens, { from: todayKey - WINDOW, to: todayKey + WINDOW }),
   ])
   const staffStores = await readStaffStores(lens)
 
@@ -169,33 +208,64 @@ export default async function TodayPage({
   const slotById = new Map(planes.sellSlots.map((s) => [s.id, s]))
 
   const shownAt = new Date(now.getTime() + dayOffset * DAY_MS)
+  const shownYmd = jstYmd(shownAt)
   const hourCount = (planes.operatingHours.close - planes.operatingHours.open) / 60
   const hourLabels = Array.from({ length: hourCount }, (_, i) => String(planes.operatingHours.open / 60 + i))
 
   // ── the day index behind the calendar (E8) and the date nav ───────────────
-  // Free slots and 稼働率 come from the SAME two sums, so a day that reads 満
-  // cannot also read as under-utilised.
-  const rosterMinutes = minutes.filter((m) => m.treats).reduce((n, m) => n + m.availableMinutes, 0)
-  const bookedByDay = new Map<number, number>()
+  // ONE PASS, because the two things the month needs about a day come off the
+  // same rows: how many bookings it holds, and WHERE on each 担当's lane they
+  // sit. The second is what 「あとN枠」 packs around — a course needs its minutes
+  // contiguous, so the day's minutes cannot be a single sum any more.
   const countByDay = new Map<number, number>()
+  const bookingsByDay = new Map<number, Array<{ staffId: string | null; start: number; end: number }>>()
   for (const a of appointments) {
     if (a.status === 'cancelled' || a.board_state === 'noshow') continue
     const key = jstDayKey(a.starts_at)
     countByDay.set(key, (countByDay.get(key) ?? 0) + 1)
-    bookedByDay.set(
-      key,
-      (bookedByDay.get(key) ?? 0) + (new Date(a.ends_at).getTime() - new Date(a.starts_at).getTime()) / 60_000,
-    )
+    // Minutes-of-day through the board's OWN clock helper — the same reading
+    // `dayBookings` makes of a booking (today-board.ts). A second clock rule in
+    // the month is how a cell and the board it opens onto come to disagree.
+    const onDay = bookingsByDay.get(key) ?? []
+    onDay.push({ staffId: a.staff_id, start: jstMinuteOfDay(a.starts_at), end: jstMinuteOfDay(a.ends_at) })
+    bookingsByDay.set(key, onDay)
   }
-  const calendar = Array.from({ length: WINDOW * 2 + 1 }, (_, i) => {
-    const offset = i - WINDOW
-    const at = new Date(now.getTime() + offset * DAY_MS)
-    const p = jstParts(at)
-    // 定休日 has no capacity to advertise — a closed day showing free slots is
+  const calendar: CalendarWindowDay[] = Array.from({ length: WINDOW * 2 + 1 }, (_, i) => i - WINDOW).map((offset) => {
+    const dayKey = todayKey + offset
+    const p = jstYmd(new Date(now.getTime() + offset * DAY_MS))
+    // ⚠ A DAY THE DOOR HAS NO ROSTER FOR STILL GETS A ROW — one that says it has
+    // no numbers. `listShiftsByDay` returns only the days it actually holds, and
+    // `?? []` here would have turned 「we do not know」 into an empty roster: the
+    // cell then painted 満, a capacity of zero nobody computed. Dropping the row
+    // instead (what this loop did until 2026-09-12) cut the date out of the
+    // month entirely, and a month with holes in it is a lie about the month.
+    //
+    // WHAT THE OPERATOR SEES, on THIS PR alone: the date is drawn in its own
+    // box, greyed and unpressable, reading 表示範囲外 — no count, no 定休, no
+    // link. The face PR (#891) gives that same row its studio paint.
+    const shifts = shiftsByDay.get(dayKey)
+    if (!shifts) return { offset, ...p, covered: false }
+    // 定休日 has no capacity to advertise — a closed day advertising capacity is
     // the impossible state, not a rounding question.
     const closed = p.wd === planes.closedWeekday
-    const free = closed ? 0 : freeSlots(rosterMinutes, bookedByDay.get(todayKey + offset) ?? 0)
-    return { offset, ...p, closed, free, booked: countByDay.get(todayKey + offset) ?? 0 }
+    // ⚠ 勤務不可 belongs to ONE day, and to that day WHATEVER DAY IS ON SCREEN.
+    // The absence comes from its own per-day door rather than from the shown
+    // day's planes, so today's cell carries today's incident while the operator
+    // is standing on next Tuesday — which is the whole point of a month grid.
+    const fits = closed
+      ? 0
+      : coursesFitForDay({
+          staff,
+          shifts,
+          qualifications: planes.staffQualifications,
+          absence: absenceForDay(dayKey, absenceByDay),
+          open: planes.operatingHours.open,
+          close: planes.operatingHours.close,
+          bookings: bookingsByDay.get(dayKey) ?? [],
+          blocks: blocksForDay(dayKey, blocksByDay),
+          sessionMin: planes.opsConfig.standardSessionMin,
+        })
+    return { offset, ...p, closed, fits, booked: countByDay.get(dayKey) ?? 0 }
   })
 
   // ── C: ops strip ──────────────────────────────────────────────────────────
@@ -301,8 +371,31 @@ export default async function TodayPage({
       statusTone,
       source: `${b.source} / ${b.displayNo}`,
       facts: [
+        // ⚖ FIX ROUND 1 (blind lens 3 F5) — the 個室のみ tag on the inspector too.
+        // The card, the inspector and the accessible name described one booking
+        // three different ways and only the card mentioned the room rule.
+        //
+        // ⚖ FIX ROUND 2 (delta lens 3 N2 · JP native pass 5c) — IN THE BOOKING'S
+        // ROW, NOT THE ROOM'S. A parenthetical after a room name describes THAT
+        // ROOM: 「ベッド3（個室のみ）」 reads as 「bed 3 is private-room-only」, which
+        // is F4's own defect one surface later — and on any row the allocator did
+        // not choose (an imported booking carrying a standard bed, or none yet) it
+        // was 「ベッド1（個室のみ）」, flatly false. 予約種別 is about the booking, and
+        // 「個室のみ・単発」 is the shape the accessible name already ships.
+        //
+        // ⚖ FIX ROUND 3 (delta2 lens 4 D5 · lens 3 M2 · JP 3) — AND THE WORD
+        // COMES FROM THE TABLE. The open-coded ternary collapsed everything that
+        // was not 回数券/VIP to 単発, so cus-11's deliberately-新規 booking read
+        // 新規 on its card and in its accessible name and 単発 here — a
+        // contradiction between two rows of one screen, and the shape fix round 2
+        // gave this line is what made it visible. `CATEGORY_WORD` is this file's
+        // own 予約種別 vocabulary and already feeds the 精算 dialog's sub-line.
+        // ⚠ It is NOT the 再来/単発 question: `CATEGORY_WORD.repeat` is 単発 and
+        // `CATEGORY_LABEL.repeat` is 再来, and which of the two a 予約種別 row
+        // should say is a ruled rider (one word, one home). This change only
+        // stops 新規 from reading as 単発.
         ['担当・設備', `${b.staffName} / ${b.resourceName}`],
-        ['予約種別', `${b.category === 'ticket' ? '回数券' : b.category === 'vip' ? 'VIP' : '単発'} / ${b.source.split(' ')[0]}`],
+        ['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],
         [b.settlement === 'awaiting' ? '請求額' : '予約時価格', b.price == null ? '記録なし' : `${yen(b.price)}（税込）`],
         ['連絡状態', b.state === 'hold' ? '未送信' : '送信済み'],
         ['カルテ', b.settlement === null ? '施術後に作成' : '施術記録あり'],
@@ -326,17 +419,33 @@ export default async function TodayPage({
     }
   }
 
+  // ⚖ D-53 (g) — the booking's OWN store is the unit axis (Greptile #933
+  // P1-2): `BoardBooking` carries no store (frozen `today-board.ts` drops
+  // `store_id`), so it is re-joined here by id from the raw rows; a staff
+  // member's store LIST was a proxy that answers wrong for a person who
+  // works in two stores.
+  const storeOfBooking = new Map(appointments.map((a) => [a.id, a.store_id]))
   const cases: Record<string, InspectorCase> = {}
   bookings.forEach((b, i) => {
+    // ⚖ D-53 (c) R2 + (g) — the booking's own store's axis (`storeHasBeds`'s
+    // store-binding form, D-52 (a)); a booking with no store answers via the
+    // whole board, which is honest wherever any unit exists.
+    const storeId = storeOfBooking.get(b.id) ?? null
+    const hasUnits = storeHasBeds(lanes, storeId == null ? null : [storeId])
     cases[b.id] = bookingCase(
       b,
       `予約 ${i + 1} / ${bookings.length}`,
       b.state === 'hold' ? '仮押さえ' : b.state === 'attention' ? '要対応' : b.state === 'noshow' ? '来店なし' : b.settlement === 'awaiting' ? '精算待ち' : '確定',
       b.state === 'hold' ? 'waiting' : b.state === 'attention' || b.settlement === 'awaiting' ? 'checkout' : 'done',
-      b.resourceId ? `${b.staffName} + ${b.resourceName}が成立` : '設備は未確定',
-      b.resourceId
-        ? ['担当の勤務時間内', '休憩と重ならない', bedSecuredProof(resources, b.resourceId), '予約時価格を保持']
-        : ['担当の勤務時間内', '設備の割当てが未確定', '予約時価格を保持'],
+      // ⚖ D-53 (c) R2 — on a no-unit store nothing is undecided: the heading
+      // states the staff fact.
+      b.resourceId ? `${b.staffName} + ${b.resourceName}が成立` : hasUnits ? '設備は未確定' : `${b.staffName}が担当`,
+      // ⚖ R8 T1 — the 価格保持 根拠 is CONDITIONAL: a booking with no recorded
+      // price has nothing to hold, and the facts above already say 記録なし
+      // about it. ⚖ FIX ROUND 3 (BREAKER-828 F2) — and the condition is written
+      // ONCE, in `bookingProofs`, because a rule spelled once per arm is a rule
+      // the fixture can only walk half of.
+      bookingProofs(b.resourceId ? bedSecuredProof(resources, b.resourceId) : null, b.price != null, hasUnits),
     )
   })
   planes.decisions.forEach((d, i) => {
@@ -403,6 +512,12 @@ export default async function TodayPage({
     lensLabel: clamped ? (storeNames.get(storeId!) ?? 'この店舗') : 'すべての店舗',
     dayOffset,
     dayLabel: fmtDayFull.format(shownAt),
+    // The month the calendar popover opens on. It is a FACT ABOUT THE SHOWN
+    // DAY, not something to be found among the calendar rows: the grid used to
+    // anchor by searching `calendar` for the shown offset and falling back to
+    // its first row, so a shown day the roster door had no entry for opened the
+    // window's FIRST month instead of the one the operator is looking at.
+    shownYm: { y: shownYmd.y, m: shownYmd.m },
     monthLabel: fmtMonth.format(shownAt),
     isToday: dayOffset === 0,
     windowDays: WINDOW,
@@ -412,6 +527,12 @@ export default async function TodayPage({
       : null,
     nowLabel: hhmm(planes.boardNow),
     lanes,
+    // ⚖ R8 T1 — WHICH OF TODAY'S BOOKINGS CARRY A RECORDED PRICE. `BoardItem`
+    // has no price field (today-board.ts) and the board is what every gesture
+    // holds, so the fact travels beside the lanes: the screen filters canon's
+    // unconditional 価格保持 check row with it, exactly as the 根拠 lists above
+    // are filtered with `b.price`. One reading of one server field, both places.
+    pricedIds: bookings.filter((b) => b.price != null).map((b) => b.id),
     // The 販売可能枠 layer is DERIVED IN THE BROWSER, not here: it has to answer
     // to a drag in progress, and a server-frozen cell list would keep painting
     // a window the card being dragged is already standing in. The dials come
@@ -419,6 +540,7 @@ export default async function TodayPage({
     // (src/business/lib/canon-logic/availability.ts).
     sell: {
       gridMin: planes.opsConfig.reserveStartGridMin,
+      sellSlotMin: planes.opsConfig.sellSlotMin,
       nowMinute: dayOffset === 0 ? planes.boardNow : null,
     },
     // スキマガード. The engine's config is assembled ONCE, here, from the store's
@@ -444,14 +566,14 @@ export default async function TodayPage({
         gapFillMinMin: planes.opsConfig.gapFillMinMin,
         blockStepMin: planes.opsConfig.blockStepMin,
         leadTimeMin: planes.opsConfig.leadTimeMin,
+        // ⚖ ROUND 2 (2026-09-13) — the timed release's own dial, beside the
+        // lead time it is linked to. `'linked'` means 「read `leadTimeMin` at
+        // read time」 and is what the store ships with; the screen resolves it
+        // in one memo so the two can never drift apart.
+        autoReleaseBeforeMin: planes.opsConfig.autoReleaseBeforeMin,
         mode: planes.opsConfig.gapGuardMode === 'strict' ? 'strict' : 'standard',
       },
     },
-    // ⚠SETTINGS-BATCH — ⚖ Liam flag 51. The bed the board hands a landing is an
-    // allocation, and these two dials are the whole of its judgement. They come
-    // from the store's own config for the same reason the guard's do: one place,
-    // read by everything, changed in 設定 rather than in code.
-    rooms: planes.opsConfig.roomPolicy,
     // ⚖ flag 77 — the dial itself, not what today happens to have on it.
     bedCleanupOn: resources.some((r) => r.cleanup_minutes > 0),
     // ⚖ R4 (2026-08-25) — THE SAME DIAL, PER ROOM. `bedCleanupOn` is a sentence
@@ -493,6 +615,18 @@ export default async function TodayPage({
     // staff member is never shown an action they would only be refused for.
     canReleaseHeld: canReleaseHeld(planes.opsConfig.releaseHeldRoles, shell.operator),
     closedWeekdayLabel: WEEKDAY_WORD[planes.closedWeekday],
+    // ⚠SETTINGS-BATCH — ⚖ Liam 9/12. 「残りわずか」 の境目, the store's own dial,
+    // read ONCE here and clamped once: the board is handed the answer, never the
+    // policy, exactly like `holdToConfirm` and `canReleaseHeld` above. The
+    // calendar LOOP is untouched — which day is tight is a paint question the
+    // cell's face helper answers, not a number the day record carries.
+    calendarTightMax: clampCalendarTight(planes.opsConfig.calendarTightMax),
+    // ⚖ Liam 2026-09-12 — THE LENGTH THE MONTH IS COUNTING, so the legend can
+    // say it instead of the operator having to know it. The store's own
+    // 標準セッション, read ONCE here from the same dial `coursesFitForDay` packs
+    // with above — a legend printing a literal 60 would be a promise the count
+    // stops keeping the day a store moves its standard session.
+    calendarSessionMin: planes.opsConfig.standardSessionMin,
     ops: {
       total: yen(totals.total),
       settled: `${totals.settled}件`,

@@ -13,7 +13,7 @@
 // (:4906–4914). Painting a slot the business cannot honour is the ⚖ 8/9 defect
 // class — sample data with impossible states — so the pairing is load-bearing.
 
-import { SELL_SLOT_MIN, DENSITY_CEILING, priceLabel, tierOf } from './pricing'
+import { DENSITY_CEILING, priceLabel, tierOf } from './pricing'
 
 export interface Span {
   start: number
@@ -63,6 +63,9 @@ export interface SellCell {
   group: 'staff' | 'beds'
   /** Slot start, minutes from midnight. */
   h: number
+  /** Slot end, minutes from midnight = `h + sellSlotMin`; every reader reads
+   *  THIS, never a constant (B2 finishes the move). */
+  e: number
   staff: string
   bed: string
   price: number | null
@@ -78,22 +81,33 @@ export interface SellInput {
    *  from. The store's lever lives in Reserve受付; the board never advertises a
    *  start Reserve's own rules could not take. */
   gridMin: number
+  /** The length of one sellable slot, the store's own number —
+   *  `opsConfig.sellSlotMin`; canon fixed it at `DEFAULT_SELL_SLOT_MIN`. */
+  sellSlotMin: number
   /** Minutes-from-midnight "now" on the day being shown, or null for a future
    *  day where the whole day is still sellable. Past hours are not inventory. */
   now: number | null
   /** Hour → price, already carrying the store's lever and depth. */
   priceFor: (lane: SellStaffLane, hour: number) => number
+  /** ⚖ D-53 (c) R1 — WHICH STAFF NEED A UNIT AT ALL, handed in by the caller
+   *  (the seam passes `storeHasBeds(lanes, s.stores)`). This file imports
+   *  nothing but `./pricing` by its own law. A staff whose store owns no unit
+   *  sells on staff time alone: one cell per free staff per slot, no unit,
+   *  never counted against the unit cap. Absent = every staff needs a unit =
+   *  the answer this function gave before N0. */
+  needsUnit?: (staff: SellStaffLane) => boolean
 }
 
 /** canon `deriveSellableCells` (:4868). */
 export function deriveSellableCells(input: SellInput): SellCell[] {
-  const { staffLanes, resourceLanes, open, close, gridMin } = input
+  const { staffLanes, resourceLanes, open, close, gridMin, sellSlotMin } = input
+  const needsUnit = input.needsUnit ?? (() => true)
   const cells: SellCell[] = []
   /** canon (:4878–4882): 「過ぎた時間は売れない」— and "now" is rounded UP to the
    *  grid, so 13:24 on a 60-minute grid first sells 14:00. */
   const firstMin = Math.max(open, Math.ceil((input.now ?? open) / gridMin) * gridMin)
-  for (let sm = firstMin; sm + SELL_SLOT_MIN <= close; sm += gridMin) {
-    const end = sm + SELL_SLOT_MIN
+  for (let sm = firstMin; sm + sellSlotMin <= close; sm += gridMin) {
+    const end = sm + sellSlotMin
     const hourOfSlot = Math.floor(sm / 60)
     const bedsExist = resourceLanes.length > 0
     /** canon :4895 — `bedsExist ? bedLanes.filter(…) : [null]`. A store with no
@@ -102,20 +116,36 @@ export function deriveSellableCells(input: SellInput): SellCell[] {
      *  the slot instead silenced the whole 販売可能 layer — tint, chip, price
      *  boxes and shelf count — for every bed-less store (ENGINE-DIFF A-1). The
      *  bed PAIRING rule below is unchanged and still load-bearing wherever beds
-     *  exist: it is a cap on advertised windows, not a precondition for selling. */
+     *  exist: it is a cap on advertised windows, not a precondition for selling.
+     *  ⚖ D-53 (c) R1 — a staff whose store owns no unit sells on staff time
+     *  alone, decided by the caller's `needsUnit`; the `[null]` sentinel below
+     *  remains the answer for a caller that hands in no predicate. */
     const freeBeds: Array<SellResourceLane | null> = bedsExist
       ? resourceLanes.filter((r) => trackFree(r.occupied, sm, end))
       : [null]
     const freeStaff = staffLanes.filter(
       (s) => !s.locked && sm >= s.from && end <= s.until && trackFree(s.occupied, sm, end),
     )
-    if (freeBeds.length === 0 || freeStaff.length === 0) continue
+    // ⚖ D-53 (c) R1 — split BEFORE the bed answer is USED (the bed list is
+    // computed above; a unitless staff never reads it). A staff who does not
+    // need a unit sells on staff time alone: one cell, no bed, never counted
+    // against the unit cap below. Order within a slot is unitless first (in
+    // `freeStaff` order), then paired.
+    const unitless = freeStaff.filter((s) => !needsUnit(s))
+    const needing = freeStaff.filter((s) => needsUnit(s))
+    for (const s of unitless) {
+      cells.push({
+        laneKey: s.key, resourceKey: '', group: 'staff', h: sm, e: end,
+        staff: s.name, bed: '', price: input.priceFor(s, hourOfSlot), tier: 1,
+      })
+    }
+    if (freeBeds.length === 0 || needing.length === 0) continue
     // canon pairs index-wise and stops at the shorter list (:4907–4914) so the
     // board can never advertise more windows than there are beds. Same rule
     // here, with one addition canon's single-store world never needed: a bed is
     // only claimable by someone who works in its store.
     const claimed = new Set<string>()
-    for (const s of freeStaff) {
+    for (const s of needing) {
       // canon's `if (i >= freeBeds.length) return` — the cap holds in the
       // bed-less case too, where the single `[null]` entry buys exactly one
       // staff cell for the slot and no bed row.
@@ -124,12 +154,12 @@ export function deriveSellableCells(input: SellInput): SellCell[] {
       if (bed === undefined) continue
       claimed.add(bed?.key ?? '')
       cells.push({
-        laneKey: s.key, resourceKey: bed?.key ?? '', group: 'staff', h: sm,
+        laneKey: s.key, resourceKey: bed?.key ?? '', group: 'staff', h: sm, e: end,
         staff: s.name, bed: bed?.name ?? '', price: input.priceFor(s, hourOfSlot), tier: 1,
       })
       if (bed == null) continue
       cells.push({
-        laneKey: s.key, resourceKey: bed.key, group: 'beds', h: sm,
+        laneKey: s.key, resourceKey: bed.key, group: 'beds', h: sm, e: end,
         staff: s.name, bed: bed.name, price: null, tier: 1,
       })
     }
@@ -166,7 +196,7 @@ export function mergeBands(cells: SellCell[]): SellBand[] {
     let cur: SellBand | null = null
     for (const c of arr) {
       if (cur && c.h <= cur.hEnd && c.tier === cur.tier) {
-        cur.hEnd = Math.max(cur.hEnd, c.h + SELL_SLOT_MIN)
+        cur.hEnd = Math.max(cur.hEnd, c.e)
         if (c.price != null) {
           cur.lo = cur.lo == null ? c.price : Math.min(cur.lo, c.price)
           cur.hi = cur.hi == null ? c.price : Math.max(cur.hi, c.price)
@@ -174,7 +204,7 @@ export function mergeBands(cells: SellCell[]): SellBand[] {
       } else {
         cur = {
           laneKey: c.laneKey, resourceKey: c.resourceKey, group: c.group, staff: c.staff,
-          tier: c.tier, lo: c.price, hi: c.price, hStart: c.h, hEnd: c.h + SELL_SLOT_MIN,
+          tier: c.tier, lo: c.price, hi: c.price, hStart: c.h, hEnd: c.e,
         }
         bands.push(cur)
       }

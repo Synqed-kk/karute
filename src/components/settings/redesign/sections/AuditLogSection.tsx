@@ -13,6 +13,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useLocale, useTranslations } from 'next-intl'
 import {
   Activity,
+  ArrowLeft,
   Calendar,
   ChevronDown,
   CreditCard,
@@ -27,11 +28,20 @@ import {
   Sparkles,
   User,
   Users,
-  X,
 } from 'lucide-react'
 import type { StaffMember } from '@/lib/staff'
+import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { listAuditLog, type AuditLogEvent } from '@/actions/audit-log'
 import { listEntryEditHistory, type EntryEditHistoryRow } from '@/actions/karute'
+import {
+  automationLabelKey,
+  foldRepeats,
+  formatStormCostUsd,
+  karuteMissingReasonKey,
+  rangeDays,
+  transcribeFailedReasonKey,
+  type FoldGroup,
+} from '@/lib/audit-labels'
 
 const CATEGORIES = [
   'auth',
@@ -63,9 +73,8 @@ const RANGE_PRESETS = ['7d', '30d', '90d', 'all'] as const
 type RangePreset = (typeof RANGE_PRESETS)[number]
 
 function presetFrom(preset: RangePreset): string | undefined {
-  if (preset === 'all') return undefined
-  const days = preset === '7d' ? 7 : preset === '30d' ? 30 : 90
-  return new Date(Date.now() - days * 86_400_000).toISOString()
+  const days = rangeDays(preset)
+  return days === null ? undefined : new Date(Date.now() - days * 86_400_000).toISOString()
 }
 
 function isViewEvent(action: string): boolean {
@@ -111,11 +120,16 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   const [range, setRange] = useState<RangePreset>('30d')
   // Deep-link opens the dispute view: views INCLUDED (§11 inversion).
   const [targetId, setTargetId] = useState(initialTargetId ?? null)
+  // I4 (round-2 D2): what `targetId` names when set. The initial deep-link is
+  // always the customer dispute view; a recording thread only opens via a tap
+  // on a recording row's sub-line (see renderEventGroup below).
+  const [targetType, setTargetType] = useState<'customer' | 'recording'>('customer')
   const [includeViews, setIncludeViews] = useState(Boolean(initialTargetId))
   const [breakGlass, setBreakGlass] = useState(false)
-  // Display-side lens from tapping the 警告 stat (core has no severity filter
-  // yet — Anthony ask; until then this narrows the loaded window client-side).
-  const [warnOnly, setWarnOnly] = useState(false)
+  // G2 (round-4 line-audit): tapping 警告 or 重大 is a SERVER filter (core's
+  // real severity param) — ONE feed at a time, never both. `days` below
+  // reads `events` directly, whichever single feed load() last fetched.
+  const [lens, setLens] = useState<'warn' | 'critical' | null>(null)
   // karute.entry_edit expansion — one row open at a time (§11 accordion).
   const [expandedEditId, setExpandedEditId] = useState<string | null>(null)
   const [editTrails, setEditTrails] = useState<Record<string, EntryEditTrailState>>({})
@@ -124,11 +138,31 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   const [breakGlassTotal, setBreakGlassTotal] = useState<number | null>(null)
   const [warningsTotal, setWarningsTotal] = useState<number | null>(null)
   const [changesTotal, setChangesTotal] = useState<number | null>(null)
+  const [criticalTotal, setCriticalTotal] = useState<number | null>(null)
   const [targetLabels, setTargetLabels] = useState<Record<string, string>>({})
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<'forbidden' | 'failed' | null>(null)
+  // I4: honest "this thread may be incomplete" flag — set only on a
+  // targetType:'recording' read (the reader's own threadPartial contract).
+  const [threadPartial, setThreadPartial] = useState(false)
+
+  // I4 — the back button's handler; leaving a thread always resets targetId/
+  // targetType/threadPartial to the plain feed.
+  // F7(a) fix (blind lens finding 7): only the customer dispute view forces
+  // 閲覧を含む on entry (the deep-link's own default, `Boolean(initialTargetId)`
+  // above) — leaving it should return to that plain-feed default, unchanged
+  // from before this fix. A recording thread never touches includeViews on
+  // entry (opening one doesn't call setIncludeViews at all), so leaving one
+  // must never silently flip a toggle the user set for themselves on the
+  // feed — `prev` carries it through untouched.
+  const closeTarget = useCallback(() => {
+    setTargetId(null)
+    setIncludeViews((prev) => (targetType === 'customer' ? false : prev))
+    setTargetType('customer')
+    setThreadPartial(false)
+  }, [targetType])
 
   const staffNames = useMemo(
     () => new Map(staffList.map((s) => [s.id, s.full_name])),
@@ -149,15 +183,33 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     async (nextPage: number, append: boolean) => {
       const myGeneration = ++generation.current
       setLoading(true)
+      // F5 fix (blind lens finding 5): a recording thread is one recording's
+      // WHOLE story within the chosen period — category and actorId don't
+      // just narrow it, they structurally break it (audit-log.ts's baseQuery
+      // applies both to the target walk too: a category other than
+      // 'recording' zeroes even the target's own rows since target_type is
+      // fixed to 'recording'; an actorId filter would hide legitimate rows
+      // written by OTHER actors — the recorder, a resolver, an automated
+      // process). severity is dropped for the same "whole story" reason. The
+      // toolbar's category/staff/severity controls stay visible (F3) but are
+      // inert for this one read; breakGlass and the period/includeViews
+      // still apply, per the packet's own enumerated list.
+      const isRecordingThread = Boolean(targetId) && targetType === 'recording'
       let res: Awaited<ReturnType<typeof listAuditLog>>
       try {
         res = await listAuditLog({
-          category: category ?? undefined,
-          actorId: actorId ?? undefined,
+          category: isRecordingThread ? undefined : category ?? undefined,
+          actorId: isRecordingThread ? undefined : actorId ?? undefined,
           from: presetFrom(range),
           targetId: targetId ?? undefined,
+          // I4: 'recording' triggers D1's thread join server-side; absent
+          // (undefined) when no target is set, same as today for customer.
+          targetType: targetId ? targetType : undefined,
           includeViews,
           breakGlass: breakGlass || undefined,
+          // G2 round-4: one real severity value at a time — see the `days`
+          // useMemo below, which never re-filters the loaded events.
+          severity: isRecordingThread ? undefined : lens ?? undefined,
           page: nextPage,
         })
       } catch {
@@ -188,12 +240,14 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       )
       setWarningsTotal((prev) => (append && res.warningsTotal === null ? prev : res.warningsTotal))
       setChangesTotal((prev) => (append && res.changesTotal === null ? prev : res.changesTotal))
+      setCriticalTotal((prev) => (append && res.criticalTotal === null ? prev : res.criticalTotal))
       setTargetLabels((prev) => (append ? { ...prev, ...res.targetLabels } : res.targetLabels))
       setPage(res.page)
       setHasMore(res.hasMore)
+      setThreadPartial(Boolean(res.threadPartial))
       setLoading(false)
     },
-    [category, actorId, range, targetId, includeViews, breakGlass],
+    [category, actorId, range, targetId, targetType, includeViews, breakGlass, lens],
   )
 
   useEffect(() => {
@@ -212,17 +266,18 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   // ends at <html>, whose scrollTop IS the window scroll in standards mode;
   // thin's ends at its own overflow container). useLayoutEffect, not effect,
   // so the reset lands before paint. Keyed on every state that REPLACES the
-  // feed: the six `load(1, false)` deps (category/actorId/range/targetId/
-  // includeViews/breakGlass) plus warnOnly — a client-side lens over already-
-  // loaded events that shrinks the visible list exactly the same way, even
-  // though it never calls load(). Deliberately NOT keyed on page/events, so a
-  // load-more append (same filters, next page) never fires this.
+  // feed: the seven `load(1, false)` deps (category/actorId/range/targetId/
+  // includeViews/breakGlass/lens — G2 round-4: lens is a server filter, not
+  // a client-side re-filter, but this effect's own dependency array is
+  // independent of load's identity, so it's listed here too).
+  // Deliberately NOT keyed on page/events, so a load-more append (same
+  // filters, next page) never fires this.
   const rootRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     for (let el = rootRef.current?.parentElement ?? null; el; el = el.parentElement) {
       el.scrollTop = 0
     }
-  }, [category, actorId, range, targetId, includeViews, breakGlass, warnOnly])
+  }, [category, actorId, range, targetId, targetType, includeViews, breakGlass, lens])
 
   const dayFmt = useMemo(
     () =>
@@ -247,15 +302,19 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   )
 
   // Summary strip. 緊急アクセス is server-exact for the whole filter window;
-  // 変更/警告 now prefer the server-exact totals (packet 18 T1 — severity/
+  // 変更/警告/重大 now prefer the server-exact totals (packet 18 T1 — severity/
   // exclude_views probes) when the server returned them (non-null); the +
   // only appears on the fallback path (probes failed/skipped), same as
-  // before this packet.
+  // before this packet. G2 (round-4): 警告 and 重大 are counted SEPARATELY —
+  // a critical row never counts toward the 警告 tile, even on the client
+  // fallback path.
   const stats = useMemo(() => {
     let changes = 0
     let warnings = 0
+    let critical = 0
     for (const e of events) {
-      if (e.severity === 'warn' || e.severity === 'critical') warnings++
+      if (e.severity === 'critical') critical++
+      else if (e.severity === 'warn') warnings++
       else if (!isViewEvent(e.action)) changes++
     }
     return {
@@ -263,17 +322,18 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       changesApprox: changesTotal === null && hasMore ? '+' : '',
       warnings: warningsTotal ?? warnings,
       warningsApprox: warningsTotal === null && hasMore ? '+' : '',
+      critical: criticalTotal ?? critical,
+      criticalApprox: criticalTotal === null && hasMore ? '+' : '',
     }
-  }, [events, changesTotal, warningsTotal, hasMore])
+  }, [events, changesTotal, warningsTotal, criticalTotal, hasMore])
 
   // Day-grouped feed (device-local dates, same zone the timestamps render in).
+  // G2 (round-4): lens is a server filter (see load() above) — `events`
+  // already IS the filtered set, so no client-side re-filter here.
   const days = useMemo(() => {
-    const visible = warnOnly
-      ? events.filter((e) => e.severity === 'warn' || e.severity === 'critical')
-      : events
     const groups: { key: string; date: Date; events: AuditLogEvent[] }[] = []
     const byKey = new Map<string, { key: string; date: Date; events: AuditLogEvent[] }>()
-    for (const e of visible) {
+    for (const e of events) {
       const d = new Date(e.at)
       const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
       let group = byKey.get(key)
@@ -285,7 +345,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       group.events.push(e)
     }
     return groups
-  }, [events, warnOnly])
+  }, [events])
 
   function actionLabel(action: string): string {
     // Known actions get a JP label; anything new renders as its raw key so a
@@ -295,6 +355,16 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
 
   function roleLabel(role: string): string {
     return tRole.has(`role_${role}`) ? tRole(`role_${role}`) : role
+  }
+
+  // I5 — one muted line naming the filter window. {store} is 全店舗 while the
+  // log is all-stores-only (PR B2 gate) — reuses the sibling already live in
+  // this same auditLog namespace (menuUpdate.allStores) rather than adding a
+  // duplicate literal.
+  function scopeLineText(): string {
+    const days = rangeDays(range)
+    const store = t('menuUpdate.allStores')
+    return days === null ? t('strip.scopeAll', { store }) : t('strip.scope', { days, store })
   }
 
   /** Second line of a row: who/what it happened to, plus the change itself
@@ -315,6 +385,17 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     // customer here) and prefixing it would just add noise to Liam's ask.
     if (e.action === 'karute.customer_reassign' && e.reassign_customer_line) {
       return e.reassign_customer_line
+    }
+    // I7 (round-2 D2): the storm has no customer/staff of its own worth
+    // naming — count, cost and day are the whole story. cost_cents_estimate
+    // is Deepgram $/min USD cents (ai-rate-limit.ts) — formatted as a dollar
+    // string, never yen.
+    if (e.action === 'recording.transcribe_storm') {
+      const n = typeof detail.count === 'number' ? detail.count : 0
+      const cost =
+        typeof detail.cost_cents_estimate === 'number' ? formatStormCostUsd(detail.cost_cents_estimate) : ''
+      const day = typeof detail.day === 'string' ? detail.day : ''
+      return t('storm.sub', { n, cost, day })
     }
     if (typeof detail.before_role === 'string' && typeof detail.after_role === 'string') {
       const change = `${roleLabel(detail.before_role)} → ${roleLabel(detail.after_role)}`
@@ -429,11 +510,89 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       const resolvedName = e.target_id ? targetLabels[e.target_id] : undefined
       const hasCustomerId = typeof detail.customer_id === 'string' && detail.customer_id.length > 0
       const base = resolvedName ?? t(hasCustomerId ? 'recordingUnresolved' : 'recordingNoCustomer')
+      // F7(c) fix (blind lens finding 10): karute_missing/transcribe_failed
+      // carry the FULL SESSION length (karuteMissingDetail passes
+      // row.durationSeconds, run.ts:148) — every other target_type:
+      // 'recording' row's duration_seconds is a short clip, where the
+      // existing 「（{n}秒）」 durationSuffix reads fine. A full session in
+      // seconds ("（3600秒）") does not, so these two rows use the ruled
+      // recording.minutes 「{n}分」 line instead (native-pass table, KEEP).
+      const isSessionLengthRow =
+        e.action === 'recording.karute_missing' || e.action === 'recording.transcribe_failed'
       const duration =
         typeof detail.duration_seconds === 'number'
-          ? t('durationSuffix', { n: detail.duration_seconds })
+          ? isSessionLengthRow
+            ? (() => {
+                const minutes = durationMinutesFromSeconds(detail.duration_seconds as number)
+                return minutes != null ? t('recording.minutes', { n: minutes }) : ''
+              })()
+            : t('durationSuffix', { n: detail.duration_seconds })
           : ''
-      return `${base}${duration}`
+      // #865 (merged 9/9) put staff_id into the assembler's detail — resolve
+      // it the same way targetName above resolves a staff target_id (live
+      // roster first, then the server's targetLabels fallback for ids the
+      // roster can't key — F3, round-2 line-audit: resolveTargetLabels now
+      // widens its staff batch to include detail.staff_id off recording rows,
+      // same idiom as the customer_id widen two branches up, so a departed
+      // staffer's row still names them). Unresolvable → append nothing, never
+      // a raw uuid (same rule the customer branch above follows).
+      const staffName =
+        typeof detail.staff_id === 'string'
+          ? (staffNames.get(detail.staff_id) ?? targetLabels[detail.staff_id])
+          : undefined
+      const staffSuffix = staffName ? ` · ${t('recordingStaff', { name: staffName })}` : ''
+      let line = `${base}${duration}${staffSuffix}`
+      // I6 (round-2 D2): karute_missing / transcribe_failed append the
+      // reason word — mapped from the writer's real value, never the raw
+      // code (karuteMissingReasonKey/transcribeFailedReasonKey return null
+      // for anything unrecognized, which renders nothing). karute_missing
+      // additionally appends the ticket-burned fact when core's bulk check
+      // found one; ticket_burned is false/null far more often than true, so
+      // this only fires on a real hit.
+      if (e.action === 'recording.karute_missing') {
+        const reasonKey = karuteMissingReasonKey(detail.reason)
+        if (reasonKey) line += ` · ${t(reasonKey)}`
+        if (detail.ticket_burned === true) line += ` · ${t('recording.ticketBurned')}`
+      } else if (e.action === 'recording.transcribe_failed') {
+        const reasonKey = transcribeFailedReasonKey(detail.reason)
+        if (reasonKey) line += ` · ${t(reasonKey)}`
+      }
+      return line
+    }
+    // C2 (PKT-GROUP-B d5): the hourly watch's "usually records, today
+    // nothing" row has NO target (targetId omitted, detail-only) — the day
+    // and how many staff it fired for are the whole story. Ids only, never
+    // names for a multi-staff row (F13/F14: no per-staff tally on this
+    // shared page).
+    if (e.action === 'recording.no_sessions_today') {
+      const day = typeof detail.day === 'string' ? detail.day : ''
+      const n = Array.isArray(detail.staff_ids) ? detail.staff_ids.length : 0
+      return t('noSessionsToday.sub', { day, n })
+    }
+    // UPDATE 26 fix round 1 (X1, lens F1): merge_duplicate's own
+    // target_type is 'customer', so it fell through to the generic
+    // targetName chain — whose last arm is the raw id. Piece 1's promise for
+    // THIS row is "a name, never a uuid" (same as the pack branch below), so
+    // give it the same honest-state fallback instead of the generic one:
+    // resolved → the kept customer's name; unresolved (hard-purged / a
+    // failed batch call) → the neutral 顧客 word, never the id.
+    if (e.action === 'merge_duplicate') {
+      const name = e.target_id ? targetLabels[e.target_id] : undefined
+      return name ?? t('customerUnresolved')
+    }
+    // UPDATE 26 (owner's 監査ログ, core PR #95's correct_pack_import_date
+    // row): target_type 'pack' rows resolve through resolveTargetLabels'
+    // pack branch (server, audit-log.ts) — same three-way honest-state rule
+    // as the recording branch above, NEVER the raw pack uuid. detail's
+    // corrected_date (yyyy-mm-dd, when present) rides as a suffix.
+    if (e.target_type === 'pack') {
+      const resolvedName = e.target_id ? targetLabels[e.target_id] : undefined
+      const base = resolvedName ?? t('packUnresolved')
+      const dateSuffix =
+        typeof detail.corrected_date === 'string'
+          ? ` · ${t('packImportDateCorrected', { date: detail.corrected_date })}`
+          : ''
+      return `${base}${dateSuffix}`
     }
     return targetName
   }
@@ -496,34 +655,328 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     })()
   }
 
+  function renderEventGroup(group: FoldGroup) {
+    // I1 — the representative row (newest member: fold's first-occurrence
+    // position IS the newest, since callers always pass one day's events,
+    // already newest-first) drives icon/title/actor/entry-edit expand; every
+    // member of the group shares the same (action, target_type, target_id,
+    // actor_id) by construction.
+    const e = group.events[0]!
+    const many = group.events.length > 1
+    const Icon = CATEGORY_ICONS[e.category] ?? Activity
+    const sub = eventSub(e)
+    // I1 — the fold count badge + time range. Range is computed from the
+    // WHOLE group (not assumed pre-sorted) and joins the sub-line, not the
+    // single-time slot — a folded row's own time stays the representative's.
+    const foldRange = many
+      ? (() => {
+          const times = group.events.map((x) => Date.parse(x.at)).sort((a, b) => a - b)
+          return t('fold.range', {
+            from: timeFmt.format(new Date(times[0]!)),
+            to: timeFmt.format(new Date(times[times.length - 1]!)),
+          })
+        })()
+      : null
+    const subText = foldRange ? (sub ? `${sub} · ${foldRange}` : foldRange) : sub
+    // I4 — a recording row's sub-line is the tap target that opens its
+    // thread, UNLESS a recording thread is already open (tapping inside it
+    // again would be a no-op reload of the same thing).
+    const isRecordingLink =
+      e.target_type === 'recording' && Boolean(e.target_id) && !(targetId && targetType === 'recording')
+    // Piece 2 (⚖ Liam 9/13): list = up to TWO lines; an opened thread
+    // (recording thread OR customer thread — both set `targetId`) = the FULL
+    // text, no clamp. One derived boolean, reused by both sub-line shapes
+    // below.
+    const inThread = Boolean(targetId)
+    // Mock 840dd1d1 note 3: view rows mix into the feed as
+    // muted gray lines, so 変更 rows stay the eye's anchor when
+    // 閲覧を含む is ON. Severity coloring still wins on the icon.
+    const isView = isViewEvent(e.action)
+    // Durable label wins (packet 18 T3, SDK 1.14 write-time
+    // snapshot) — the live roster is only a fallback for rows
+    // written before core started sending it; 不明 last. System
+    // rows keep their own distinct label (unaffected — core
+    // never resolves a label for a null actor_id).
+    // || not ?? — an empty-string snapshot must fall through to
+    // the roster/不明 chain, never render a blank (Greptile #581 P2).
+    // I2 (round-2 D2): a system row names the automation FAMILY that wrote
+    // it (自動文字起こし/自動復元/自動チェック/自動消化/自動破棄) when one
+    // matches; any other system row keeps today's plain システム.
+    const autoLabelKey = e.actor_type === 'system' ? automationLabelKey(e.action) : null
+    const actorName =
+      e.actor_type === 'system'
+        ? autoLabelKey
+          ? t(autoLabelKey)
+          : t('systemActor')
+        : e.actor_label ||
+          ((e.actor_id && staffNames.get(e.actor_id)) || t('unknownActor'))
+    const isEntryEdit =
+      e.action === 'karute.entry_edit' || e.action === 'karute.summary_edit'
+    const isOpen = isEntryEdit && expandedEditId === e.id
+    const trail = isEntryEdit ? editTrails[e.id] : undefined
+    return (
+      // Fix round 3 (P1): keyed on the representative event's id, NOT
+      // group.key — consecutive-only folding (fix round 2) can produce two
+      // SEPARATE groups sharing the same fold key (an A/X/A day), and a
+      // React key must be unique across the whole <ul>, not just unique per
+      // fold. e.id is unique by construction (every AuditLogEvent has one).
+      <li key={e.id} className="flex flex-col px-4 py-2.5">
+        <div className="flex items-center gap-3">
+          <span
+            className={`flex size-8 shrink-0 items-center justify-center rounded-full ${
+              e.severity === 'critical'
+                ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                : e.severity === 'warn'
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                  : 'bg-muted text-muted-foreground'
+            }`}
+            aria-hidden
+          >
+            <Icon className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span
+                className={
+                  isView
+                    ? 'text-sm text-muted-foreground'
+                    : 'text-sm font-medium text-foreground'
+                }
+              >
+                {actionLabel(e.action)}
+              </span>
+              {many && (
+                <span className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground tabular-nums">
+                  {t('fold.count', { n: group.events.length })}
+                </span>
+              )}
+              {e.break_glass && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300">
+                  <ShieldAlert className="size-3" />
+                  {t('breakGlassChip')}
+                </span>
+              )}
+            </div>
+            {subText &&
+              (isRecordingLink ? (
+                // I4 — one tap target, the whole sub-line: opens this
+                // recording's thread (target rows ∪ the joined karute/pack
+                // rows, D1's join). F7(b) ceiling: the join can walk up to
+                // ~28 serialized core calls / ~4,000 rows (LENS-PR-D1-BLIND
+                // §3) before CORE-19's action/detail filters remove it.
+                // F4 fix (blind lens finding 4): clear the rendered feed and
+                // force the loading idiom in THIS SAME state update — the
+                // effect that fires load() also sets loading, but only on
+                // its next tick, and without clearing `events` here the
+                // previous feed's rows (a different recording's story)
+                // would render under the thread's own title for that gap.
+                // Piece 2: line-clamp-2 sets display:-webkit-box, which the
+                // button's own `block` (needed for w-full/max-w-full to
+                // stretch it — C1) OVERRIDES in the compiled stylesheet
+                // (line-clamp-2 is emitted before block in Tailwind v4's
+                // utilities layer, so block wins the cascade on `display` —
+                // proven empirically: applying line-clamp-2 directly to this
+                // button renders un-clamped, taller than 2 lines). The clamp
+                // goes on an inner span instead; the button itself stays
+                // exactly the C1 width fix, untouched.
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEvents([])
+                    setLoading(true)
+                    setTargetType('recording')
+                    setTargetId(e.target_id)
+                  }}
+                  className="block w-full max-w-full border-b border-dotted border-muted-foreground/50 text-left text-xs text-muted-foreground hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400"
+                >
+                  <span className={inThread ? 'break-words' : 'line-clamp-2'}>{subText}</span>
+                </button>
+              ) : (
+                <p
+                  className={`text-xs text-muted-foreground ${inThread ? 'break-words' : 'line-clamp-2'}`}
+                >
+                  {subText}
+                </p>
+              ))}
+          </div>
+          <div className="shrink-0 text-right">
+            {e.actor_type === 'system' || !e.actor_id ? (
+              <div className={`text-xs ${isView ? 'text-muted-foreground' : 'text-foreground'}`}>
+                {actorName}
+              </div>
+            ) : (
+              // §10 cause-based investigation: an actor name is a
+              // one-tap person filter. Raw events only — never stats.
+              <button
+                type="button"
+                onClick={() => {
+                  setActorId(e.actor_id)
+                  setLens(null)
+                }}
+                className={`border-b border-dotted border-muted-foreground/50 text-xs hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 ${
+                  isView ? 'text-muted-foreground' : 'text-foreground'
+                }`}
+              >
+                {actorName}
+              </button>
+            )}
+            <div className="text-[11px] text-muted-foreground tabular-nums">
+              {timeFmt.format(new Date(e.at))}
+            </div>
+          </div>
+          {isEntryEdit && (
+            // §11 expand: what was edited, not just that an edit
+            // happened. Same onClick idiom as the actor-name
+            // button above — a dedicated control, not the whole
+            // row (the actor button already lives inside it).
+            <button
+              type="button"
+              onClick={() => toggleEntryEditTrail(e)}
+              aria-label={t('entryEditToggle')}
+              className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted"
+            >
+              <ChevronDown
+                className={`size-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+          )}
+        </div>
+        {isOpen && (
+          <div className="ml-11 mt-2 rounded-lg border border-border/60 bg-muted/30 p-3">
+            {/* Greptile P1, superseded 2026-08-19: the karute.entry_edit
+                emit now carries detail.entry_edit_id (app-side fix, this
+                PR — rows emitted before it lack the field, and a degraded
+                core response writes null), so exact per-event pairing IS
+                possible. This panel still deliberately shows the ENTRY's
+                whole trail, not just this audit row's own change; wiring
+                the precise entry_edit_id filter is a queued follow-up. */}
+            {trail?.status === 'ok' && (
+              <p className="mb-2 text-[11px] text-muted-foreground">
+                {t(
+                  e.action === 'karute.summary_edit'
+                    ? 'summaryEditTrailTitle'
+                    : 'entryEditTrailTitle',
+                  { count: trail.rows.length },
+                )}
+              </p>
+            )}
+            {(!trail || trail.status === 'loading') && (
+              <p className="text-xs text-muted-foreground">{tc('loading')}</p>
+            )}
+            {trail?.status === 'error' && (
+              <p className="text-xs text-red-500">{t('entryEditError')}</p>
+            )}
+            {trail?.status === 'ok' && trail.rows.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {/* Truncated + zero-match means rows may sit past
+                    the cap — never claim the record was deleted.
+                    Non-truncated zero-match: entryEditDeleted's
+                    copy states the RULE (a deleted karute's
+                    history dies with it) without asserting THIS
+                    is that case — the read has a documented
+                    offset-drift gap (listEntryEditHistoryWithClient,
+                    src/actions/karute.ts) that can also return
+                    empty for an intact record, and this is a
+                    dispute-investigation surface. */}
+                {trail.truncated ? t('entryEditPartial') : t('entryEditDeleted')}
+              </p>
+            )}
+            {trail?.status === 'ok' && trail.rows.length > 0 && (
+              <>
+                <ul className="flex flex-col gap-2">
+                  {trail.rows.map((row) => {
+                    const ts = formatEditTrailTimestamp(row.createdAt, editTrailDateFmt)
+                    return (
+                      <li
+                        key={row.id}
+                        className="flex flex-col gap-1 rounded-md border border-border/60 bg-background p-2.5"
+                      >
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            {row.actorName ?? t('unknownActor')}
+                          </span>
+                          {ts && <span className="tabular-nums">{ts}</span>}
+                        </div>
+                        {row.contentBefore !== null && (
+                          <p className="text-xs leading-relaxed text-muted-foreground line-through">
+                            {row.contentBefore}
+                          </p>
+                        )}
+                        {row.contentAfter !== null && (
+                          <p className="text-xs leading-relaxed text-foreground">
+                            {row.contentAfter}
+                          </p>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+                {trail.truncated && (
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    {t('entryEditPartial')}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </li>
+    )
+  }
+
   return (
     <div ref={rootRef} className="space-y-4">
-      <div>
-        <h3 className="text-lg font-semibold">{t('label')}</h3>
-        <p className="text-sm text-muted-foreground">{t('description')}</p>
-      </div>
-
-      {/* Dispute-view chip — present only via the per-customer deep-link. */}
-      {targetId && (
-        <div className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-sm text-sky-700 dark:text-sky-300">
-          <Eye className="size-4 shrink-0" />
-          <span className="flex-1">{t('targetFilter')}</span>
+      {/* I4 — a thread (either kind) swaps the section label for a back
+       *  button + a title naming what the thread is about; the plain feed
+       *  keeps today's label/description. */}
+      {targetId ? (
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              setTargetId(null)
-              setIncludeViews(false)
-            }}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium hover:bg-sky-500/10"
+            onClick={closeTarget}
+            aria-label={tc('back')}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md p-1 text-sm text-muted-foreground hover:bg-muted"
           >
-            <X className="size-3.5" />
-            {t('clearTarget')}
+            <ArrowLeft className="size-4" />
+            {tc('back')}
           </button>
+          <h3 className="text-lg font-semibold">
+            {targetType === 'recording' ? t('thread.title') : t('thread.customerTitle')}
+          </h3>
+        </div>
+      ) : (
+        <div>
+          <h3 className="text-lg font-semibold">{t('label')}</h3>
+          <p className="text-sm text-muted-foreground">{t('description')}</p>
         </div>
       )}
 
+      {/* Dispute-view banner — customer thread only; the recording thread's
+       *  own title above already says what this view is (⚖ NO I8: no chip,
+       *  no door, no explanation sentence beyond this existing line). */}
+      {targetId && targetType === 'customer' && (
+        <div className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-sm text-sky-700 dark:text-sky-300">
+          <Eye className="size-4 shrink-0" />
+          <span className="flex-1">{t('targetFilter')}</span>
+        </div>
+      )}
+
+      {/* I4 — the honest partial line: some of this recording's own history
+       *  could not be walked (a failed recording lookup, or an inner walk
+       *  that hit its page cap). Reuses the section's own loading idiom
+       *  while the read is in flight — this only shows once it settles. */}
+      {targetId && targetType === 'recording' && threadPartial && !loading && (
+        <p className="text-xs text-muted-foreground">{t('thread.partial')}</p>
+      )}
+
       {/* Toolbar (§11 filters, owner-vocabulary form): category + person
-       *  dropdowns, 期間 segments, the two on/off filters as icon chips. */}
+       *  dropdowns, 期間 segments, the two on/off filters as icon chips.
+       *  F3 fix (blind lens finding 3): ALWAYS visible, exactly as on main
+       *  e478c2500 — a targetId (customer dispute OR a tapped recording
+       *  thread) never hides it; the title row above is additive, never a
+       *  replacement. For a recording thread the toolbar's category/staff/
+       *  severity controls stay visible for continuity but the thread's own
+       *  read ignores them (F5, load() below) — only 期間/閲覧を含む apply. */}
       <div className="flex flex-wrap items-center gap-2">
         <ToolbarSelect
           label={t('categoryLabel')}
@@ -539,7 +992,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           value={actorId ?? ''}
           onChange={(v) => {
             setActorId(v || null)
-            setWarnOnly(false)
+            setLens(null)
           }}
           options={[
             { value: '', label: t('staffAll') },
@@ -575,10 +1028,10 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
         <FilterChip
           active={breakGlass}
           onClick={() => {
-            // Entering break-glass view clears the 警告 display lens by every
+            // Entering break-glass view clears any severity lens by every
             // path (tile AND chip): info-severity break-glass rows would be
             // lens-filtered into a count-above-empty-feed contradiction.
-            if (!breakGlass) setWarnOnly(false)
+            if (!breakGlass) setLens(null)
             setBreakGlass(!breakGlass)
           }}
           icon={<ShieldAlert className="size-3.5" />}
@@ -588,7 +1041,10 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       </div>
 
       {/* Summary strip — 「何か問題は？」 answered before the rows. Amber and
-       *  red are one-tap filters straight to those events. */}
+       *  red are one-tap filters straight to those events. F3 fix: no longer
+       *  hidden by targetId — same visibility rule as main e478c2500
+       *  (actorId only; a person filter hides the strip everywhere, thread
+       *  or not, since it never showed per-staff counts). */}
       {!error && !actorId && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-baseline gap-1.5 rounded-lg border border-border bg-background px-3.5 py-2">
@@ -602,13 +1058,14 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
             type="button"
             onClick={() => {
               // Mutual exclusion with break-glass (both directions, all
-              // paths): the 警告 lens over a break-glass feed would hide its
-              // info-severity rows under a nonzero count.
-              if (!warnOnly) setBreakGlass(false)
-              setWarnOnly(!warnOnly)
+              // paths): a severity lens over a break-glass feed would hide
+              // its info-severity rows under a nonzero count.
+              const next = lens === 'warn' ? null : 'warn'
+              if (next) setBreakGlass(false)
+              setLens(next)
             }}
             className={`inline-flex items-baseline gap-1.5 rounded-lg px-3.5 py-2 text-amber-700 transition-colors dark:text-amber-400 ${
-              warnOnly ? 'bg-amber-500/25 ring-1 ring-amber-500/40' : 'bg-amber-500/10 hover:bg-amber-500/20'
+              lens === 'warn' ? 'bg-amber-500/25 ring-1 ring-amber-500/40' : 'bg-amber-500/10 hover:bg-amber-500/20'
             }`}
           >
             <span className="text-lg font-semibold leading-none tabular-nums">
@@ -617,10 +1074,34 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
             </span>
             <span className="text-xs">{t('statsWarnings')}</span>
           </button>
+          {/* G2 (round-4 line-audit): each tile shows exactly what its tap
+           *  opens — warn and critical never share a screen. Shown only when
+           *  there's something to show (server-exact criticalTotal, or the
+           *  client fallback count while probes are degraded), same idiom
+           *  as the 警告/変更 tiles' own fallback. */}
+          {stats.critical > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                const next = lens === 'critical' ? null : 'critical'
+                if (next) setBreakGlass(false)
+                setLens(next)
+              }}
+              className={`inline-flex items-baseline gap-1.5 rounded-lg px-3.5 py-2 text-red-700 transition-colors dark:text-red-400 ${
+                lens === 'critical' ? 'bg-red-500/25 ring-1 ring-red-500/40' : 'bg-red-500/10 hover:bg-red-500/20'
+              }`}
+            >
+              <span className="text-lg font-semibold leading-none tabular-nums">
+                {stats.critical}
+                {stats.criticalApprox}
+              </span>
+              <span className="text-xs">{t('statsCritical')}</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
-              setWarnOnly(false)
+              setLens(null)
               setBreakGlass(true)
             }}
             className="inline-flex items-baseline gap-1.5 rounded-lg bg-red-500/10 px-3.5 py-2 text-red-700 transition-colors hover:bg-red-500/20 dark:text-red-400"
@@ -633,15 +1114,30 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
         </div>
       )}
 
+      {/* I5 — one muted line naming the filter window, under the strip.
+       *  F3/F5 fix: renders in thread mode too (LENS finding 5 — the scope
+       *  line is the one honest statement of the window a recording thread
+       *  is drawn from; hiding it while silently narrowing the read was the
+       *  bug). Fix round 2 (G3/P2): NOT hidden by actorId — unlike the strip
+       *  above, this line is filter context (「過去n日間 ・ 全店舗」), never a
+       *  per-staff tally, so the F13/F14 reason the strip hides under a
+       *  staff filter does not apply here. */}
+      {!error && (
+        <p className="text-xs text-muted-foreground/70">{scopeLineText()}</p>
+      )}
+
       {error ? (
         <div className="rounded-lg border border-dashed border-border/50 bg-card/30 px-6 py-10 text-center text-sm text-muted-foreground">
           {t(error === 'forbidden' ? 'errorForbidden' : 'errorLoad')}
         </div>
-      ) : days.length === 0 && !loading && !hasMore ? (
-        // Suppressed while hasMore: a page can view-filter to empty though
-        // older non-view rows remain — the load-more button stays the CTA.
+      ) : days.length === 0 && !loading ? (
+        // ④ round-2: ALWAYS shows now (not suppressed while hasMore) — a
+        // filtered page that came back blank used to read as broken, with
+        // only さらに読み込む on an otherwise-empty screen. hasMore picks the
+        // honest wording; the load-more button (below, unconditional on
+        // hasMore) stays the CTA either way.
         <div className="rounded-lg border border-dashed border-border/50 bg-card/30 px-6 py-10 text-center text-sm text-muted-foreground">
-          {t('empty')}
+          {t(hasMore ? 'emptyPage' : 'empty')}
         </div>
       ) : (
         days.map((day) => (
@@ -653,188 +1149,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
               </span>
             </div>
             <ul className="divide-y divide-border/60 rounded-xl border border-border bg-card">
-              {day.events.map((e) => {
-                const Icon = CATEGORY_ICONS[e.category] ?? Activity
-                const sub = eventSub(e)
-                // Mock 840dd1d1 note 3: view rows mix into the feed as
-                // muted gray lines, so 変更 rows stay the eye's anchor when
-                // 閲覧を含む is ON. Severity coloring still wins on the icon.
-                const isView = isViewEvent(e.action)
-                // Durable label wins (packet 18 T3, SDK 1.14 write-time
-                // snapshot) — the live roster is only a fallback for rows
-                // written before core started sending it; 不明 last. System
-                // rows keep their own distinct label (unaffected — core
-                // never resolves a label for a null actor_id).
-                // || not ?? — an empty-string snapshot must fall through to
-                // the roster/不明 chain, never render a blank (Greptile #581 P2).
-                const actorName =
-                  e.actor_type === 'system'
-                    ? t('systemActor')
-                    : e.actor_label ||
-                      ((e.actor_id && staffNames.get(e.actor_id)) || t('unknownActor'))
-                const isEntryEdit =
-                  e.action === 'karute.entry_edit' || e.action === 'karute.summary_edit'
-                const isOpen = isEntryEdit && expandedEditId === e.id
-                const trail = isEntryEdit ? editTrails[e.id] : undefined
-                return (
-                  <li key={e.id} className="flex flex-col px-4 py-2.5">
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`flex size-8 shrink-0 items-center justify-center rounded-full ${
-                          e.severity === 'critical'
-                            ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-                            : e.severity === 'warn'
-                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                              : 'bg-muted text-muted-foreground'
-                        }`}
-                        aria-hidden
-                      >
-                        <Icon className="size-4" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                          <span
-                            className={
-                              isView
-                                ? 'text-sm text-muted-foreground'
-                                : 'text-sm font-medium text-foreground'
-                            }
-                          >
-                            {actionLabel(e.action)}
-                          </span>
-                          {e.break_glass && (
-                            <span className="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300">
-                              <ShieldAlert className="size-3" />
-                              {t('breakGlassChip')}
-                            </span>
-                          )}
-                        </div>
-                        {sub && <p className="truncate text-xs text-muted-foreground">{sub}</p>}
-                      </div>
-                      <div className="shrink-0 text-right">
-                        {e.actor_type === 'system' || !e.actor_id ? (
-                          <div className={`text-xs ${isView ? 'text-muted-foreground' : 'text-foreground'}`}>
-                            {actorName}
-                          </div>
-                        ) : (
-                          // §10 cause-based investigation: an actor name is a
-                          // one-tap person filter. Raw events only — never stats.
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActorId(e.actor_id)
-                              setWarnOnly(false)
-                            }}
-                            className={`border-b border-dotted border-muted-foreground/50 text-xs hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 ${
-                              isView ? 'text-muted-foreground' : 'text-foreground'
-                            }`}
-                          >
-                            {actorName}
-                          </button>
-                        )}
-                        <div className="text-[11px] text-muted-foreground tabular-nums">
-                          {timeFmt.format(new Date(e.at))}
-                        </div>
-                      </div>
-                      {isEntryEdit && (
-                        // §11 expand: what was edited, not just that an edit
-                        // happened. Same onClick idiom as the actor-name
-                        // button above — a dedicated control, not the whole
-                        // row (the actor button already lives inside it).
-                        <button
-                          type="button"
-                          onClick={() => toggleEntryEditTrail(e)}
-                          aria-label={t('entryEditToggle')}
-                          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted"
-                        >
-                          <ChevronDown
-                            className={`size-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                          />
-                        </button>
-                      )}
-                    </div>
-                    {isOpen && (
-                      <div className="ml-11 mt-2 rounded-lg border border-border/60 bg-muted/30 p-3">
-                        {/* Greptile P1, superseded 2026-08-19: the karute.entry_edit
-                            emit now carries detail.entry_edit_id (app-side fix, this
-                            PR — rows emitted before it lack the field, and a degraded
-                            core response writes null), so exact per-event pairing IS
-                            possible. This panel still deliberately shows the ENTRY's
-                            whole trail, not just this audit row's own change; wiring
-                            the precise entry_edit_id filter is a queued follow-up. */}
-                        {trail?.status === 'ok' && (
-                          <p className="mb-2 text-[11px] text-muted-foreground">
-                            {t(
-                              e.action === 'karute.summary_edit'
-                                ? 'summaryEditTrailTitle'
-                                : 'entryEditTrailTitle',
-                              { count: trail.rows.length },
-                            )}
-                          </p>
-                        )}
-                        {(!trail || trail.status === 'loading') && (
-                          <p className="text-xs text-muted-foreground">{tc('loading')}</p>
-                        )}
-                        {trail?.status === 'error' && (
-                          <p className="text-xs text-red-500">{t('entryEditError')}</p>
-                        )}
-                        {trail?.status === 'ok' && trail.rows.length === 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            {/* Truncated + zero-match means rows may sit past
-                                the cap — never claim the record was deleted.
-                                Non-truncated zero-match: entryEditDeleted's
-                                copy states the RULE (a deleted karute's
-                                history dies with it) without asserting THIS
-                                is that case — the read has a documented
-                                offset-drift gap (listEntryEditHistoryWithClient,
-                                src/actions/karute.ts) that can also return
-                                empty for an intact record, and this is a
-                                dispute-investigation surface. */}
-                            {trail.truncated ? t('entryEditPartial') : t('entryEditDeleted')}
-                          </p>
-                        )}
-                        {trail?.status === 'ok' && trail.rows.length > 0 && (
-                          <>
-                            <ul className="flex flex-col gap-2">
-                              {trail.rows.map((row) => {
-                                const ts = formatEditTrailTimestamp(row.createdAt, editTrailDateFmt)
-                                return (
-                                  <li
-                                    key={row.id}
-                                    className="flex flex-col gap-1 rounded-md border border-border/60 bg-background p-2.5"
-                                  >
-                                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                                      <span className="font-medium text-foreground">
-                                        {row.actorName ?? t('unknownActor')}
-                                      </span>
-                                      {ts && <span className="tabular-nums">{ts}</span>}
-                                    </div>
-                                    {row.contentBefore !== null && (
-                                      <p className="text-xs leading-relaxed text-muted-foreground line-through">
-                                        {row.contentBefore}
-                                      </p>
-                                    )}
-                                    {row.contentAfter !== null && (
-                                      <p className="text-xs leading-relaxed text-foreground">
-                                        {row.contentAfter}
-                                      </p>
-                                    )}
-                                  </li>
-                                )
-                              })}
-                            </ul>
-                            {trail.truncated && (
-                              <p className="mt-2 text-[11px] text-muted-foreground">
-                                {t('entryEditPartial')}
-                              </p>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </li>
-                )
-              })}
+              {foldRepeats(day.events).map((group) => renderEventGroup(group))}
             </ul>
           </div>
         ))

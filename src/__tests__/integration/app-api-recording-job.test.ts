@@ -315,9 +315,12 @@ describe("POST recordings/job — 'revisit' eligibility is checked BEFORE any AI
     expect(call.payload.outcome).toMatchObject({ status: 'revisit' })
   })
 
-  it('first-visit prospect → 400 and NO job is queued (no AI is ever paid for)', async () => {
+  it('first-visit prospect → 422 not_returning and NO job is queued (no AI is ever paid for)', async () => {
+    // ⚖ fix round 6, R6: this was a 400 `validation` — the shape of the request
+    // was never the problem. The customer is the problem, and that is settled.
     const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withOutcome('revisit')), noRoute)
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(422)
+    expect((await res.json()).error.code).toBe('not_returning')
     expect(jobsEnqueue).not.toHaveBeenCalled()
   })
 
@@ -365,12 +368,13 @@ describe("POST recordings/job — 'revisit' eligibility is checked BEFORE any AI
 describe('POST recordings/job — a retake is not its own proof of prior history', () => {
   const withRevisit = { ...validBody, outcome: { status: 'revisit', isFirstVisit: false } }
 
-  it("the only karute on file is take-1 of THIS recording session → 400, no enqueue", async () => {
+  it("the only karute on file is take-1 of THIS recording session → 422 not_returning, no enqueue", async () => {
     listKaruteRecords.mockResolvedValue({
       karute_records: [{ id: 'k-take1', recording_session_id: 'sess-1' }],
     })
     const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withRevisit), noRoute)
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(422)
+    expect((await res.json()).error.code).toBe('not_returning')
     expect(jobsEnqueue).not.toHaveBeenCalled()
   })
 

@@ -57,6 +57,7 @@ export const AUDIT_ACTIONS = [
   'customer.reengagement_view',
   'customer.view',
   'karute.customer_reassign',
+  'karute.delete',
   'karute.entries_regenerate',
   'karute.entry_edit',
   'karute.entry_edits_view',
@@ -72,11 +73,21 @@ export const AUDIT_ACTIONS = [
   'privacy.voice_enroll',
   'privacy.voice_revoke',
   'recording.capture_finalized',
+  'recording.capture_resumed',
   'recording.capture_unlinked',
   'recording.discard',
+  'recording.karute_missing',
+  'recording.no_sessions_today',
+  'recording.play',
   'recording.session_cleanup',
+  'recording.share',
   'recording.take_named',
+  'recording.take_refused_has_record',
   'recording.transcribe',
+  'recording.transcribe_failed',
+  'recording.transcribe_refused',
+  'recording.transcribe_storm',
+  'recording.unshare',
   'settings.menu_create',
   'settings.menu_reactivate',
   'settings.menu_retire',
@@ -152,7 +163,68 @@ export const AUDITED_CORES: {
   // unconditionally, so it resolves and proves clean. Registered so the
   // real writer is provably covered, not left off as "not required."
   { file: 'src/lib/auth/pin-throttle.ts', symbols: ['auditLockout'] },
-  { file: 'src/lib/jobs/process-recording.ts', symbols: ['processJob'] },
+  // recording.transcribe_failed (監査ログ round 2 PR C, subject 6) —
+  // emitTranscribeFailedIfExhausted is a PRIVATE helper called from
+  // processRecordingJobs' catch (not lexically inside processJob or
+  // processRecordingJobs itself, so the registry-reality scan — exported
+  // symbols only — would never ask for this entry on its own; registered
+  // anyway per the same "provably covered, not left off as not required"
+  // discipline as auditLockout/processJob just above). Kept in ONE entry with
+  // processJob (not a second { file: ... } row for this same file) because
+  // check-audit-weakening.mjs's findAuditedCoresWeakenings keys removed-
+  // symbol detection by FILE (headCoresByFile = Map<file, Set<symbols>>) — a
+  // second entry for an already-registered file collapses in that Map and
+  // reads as processJob's own symbol having been silently removed.
+  // `unproven`: the ONE audit() call inside emitTranscribeFailedIfExhausted
+  // is conditional on three things at once (the exhausted round, AND not a
+  // discard refusal, AND not a spend-limit refusal) — most failures return
+  // without ever reaching it (an earlier-attempt failure, or the two
+  // excluded refusal reasons), same mechanical-proof ceiling as
+  // watchOneBusiness below. processJob itself stays proven (unconditional).
+  {
+    file: 'src/lib/jobs/process-recording.ts',
+    symbols: ['processJob', 'emitTranscribeFailedIfExhausted'],
+    unproven: [
+      {
+        symbol: 'emitTranscribeFailedIfExhausted',
+        reason:
+          'Emits only when job.attempts >= job.max_attempts (this is the round that exhausts the job) AND the failure message is neither DISCARDED_BY_STAFF/the discard-ledger-unreadable message (the discard\'s own recording.discard row is the record — council amendment 4 F3) nor AI_SPEND_LIMIT (recording.transcribe_refused already filed that row — src/lib/ai/transcribe.ts#auditTranscriptionRefused). Every other call returns with no emit at all.',
+      },
+    ],
+  },
+  // The audit-watch cron (監査ログ round 2 PR C) — the two audit() calls sit
+  // directly inside watchOneBusiness's own two candidate loops, so the
+  // registry-reality scan finds them and requires this entry. `unproven`
+  // because most returns are NOT dominated by an emit at all: the common run
+  // has zero candidates (or every candidate already has a row), which
+  // returns without ever calling audit() — the same shape as
+  // auto-burn.ts#autoBurnForBusiness / assembler.ts#runAssembler
+  // (deliberately unemitted when there is nothing to do), except the emit
+  // lives inside THIS symbol rather than a downstream one, so it cannot be
+  // left off the registry the way those batch drivers are.
+  {
+    file: 'src/lib/audit-watch/run.ts',
+    symbols: ['watchOneBusiness'],
+    unproven: [
+      {
+        symbol: 'watchOneBusiness',
+        reason:
+          'Both audit() calls are conditional on a NEW candidate existing (found via the per-target dedupe read) — the common case (no candidates, or every candidate already recorded) returns with no emit at all, and a truncated/errored run also returns unemitted. Real writes still happen on every path that finds something new: not a missing writer, a mechanical-proof ceiling on a batch driver whose emit is inline rather than in a downstream function.',
+      },
+    ],
+  },
+  // The transcription SPEND WALL (2026-09-08). Both emitters are PRIVATE
+  // helpers inside runMeteredTranscription's file, the same shape
+  // auditLockout above has: each emits unconditionally on its own single path,
+  // so the walker proves them, while the wrapper itself decides WHICH doors
+  // file a receipt (the two interactive routes emit their own row and would
+  // otherwise double-log one call). Registered so the real writers are
+  // provably covered, not left off as "not required" — registry-reality
+  // enumerates exported symbols only and would never ask for this entry.
+  {
+    file: 'src/lib/ai/transcribe.ts',
+    symbols: ['auditTranscriptionReceipt', 'auditTranscriptionRefused'],
+  },
   // Build F1 fix round 3 — the deliberate-discard orphan cleanup. Its
   // recordings.delete is the write; the audit() sits on the ONLY success path
   // (every refusal returns { error } before reaching it). INTERIM: P5's
@@ -164,6 +236,41 @@ export const AUDITED_CORES: {
   // It no longer creates rows at all: fix round 4 moved the minting to
   // mint-take-url.ts, where the take is bound before any byte exists.
   { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
+  // The nightly assembler (build 23 slice ③) — the take a dead device never
+  // came back for, rebuilt from its segments. Its ONE write sits inside this
+  // symbol alongside the emit — the bucket PUT (storage.recordings.upload) —
+  // so it needs no SDK_WRITE_ALLOWLIST row, the same shape
+  // finalizeTakeWithClient above has. It makes NO SDK write at all: the client
+  // it is handed is narrowed to `list`, because core fences a recording write
+  // behind a human actor and a cron has none (the duration is written by the
+  // save door instead). The walk driver runAssembler is deliberately NOT
+  // listed: it performs no write of its own and returns a summary whenever
+  // there is nothing old enough to rescue. Every path here that writes nothing
+  // (a concurrent run already wrote the rescue; a leaf would not come down)
+  // returns an { error } before the emit — a rescue that files a row for audio
+  // it did not actually settle would be the one lie this job must never tell.
+  // ⚖ Liam 2026-09-06 "b": no device ever writes `rsc/`, so "the device sealed
+  // its own key first" is no longer one of those paths — a folder whose phone
+  // came back is skipped by the walk, long before this symbol is called.
+  { file: 'src/lib/recording/assembler.ts', symbols: ['assembleStrandedTake'] },
+  // The play-button mint (build 23 slice ①) — its ONE success return is
+  // dominated by the recording.play emit; every refusal is an { error } literal
+  // that returns before it. It performs no SDK/storage WRITE at all
+  // (createSignedUrl is a read), so it needs no SDK_WRITE_ALLOWLIST row.
+  { file: 'src/lib/recording/playback-url.ts', symbols: ['mintPlaybackUrlWithClient'] },
+  // The recorder's own share toggle (⚖ Liam 2026-09-13 sharing law; 2026-09-14
+  // design D6/D7). `emitShareAudit` is a PRIVATE helper (the auditLockout/
+  // emitDeletionAudit shape: a real function parameter named `action`, typed
+  // as the exact literal union — CP4's one sanctioned way to author a
+  // runtime-chosen action string) called from setRecordingSharedWithClient's
+  // one writing branch; it emits unconditionally on its own single path, so
+  // the walker proves it clean, same as auditLockout. `setRecordingSharedWithClient`
+  // itself is NOT registered here: its own body calls `emitShareAudit(...)`,
+  // not `audit(`/`auditWeb(`/`auditDurable(` directly, so the registry-
+  // reality scan never requires an entry for it — and its idempotent no-op
+  // return (D6 step 5: already in the requested state, no write, no audit)
+  // would otherwise need an `unproven` marking it does not need this way.
+  { file: 'src/lib/recording/share.ts', symbols: ['emitShareAudit'] },
   // The take-URL mint (capture pipeline PR2 fix round 2, widened in fix round
   // 4, re-split in fix round 6). auditTakeNamed is a private helper emitting
   // unconditionally on its one path; mintTakeUploadUrl conditions the CALL (a
@@ -229,12 +336,27 @@ export const AUDITED_CORES: {
       // deliberately NOT listed here (Core/WithClient split, see its own
       // SDK_WRITE_ALLOWLIST entry below).
       'reassignKaruteCustomer',
+      // PR B2 §1: the only writer of karute.delete — no facade route exists
+      // for a karute delete (verified at source), so this is a web-only door.
+      'deleteKaruteRecord',
+      // PR B2 §2: the WEB manual-create wrapper's own emit — the facade twin
+      // auto-emits via FACADE_AUDIT_MAP['karute.manualCreate'] and stays
+      // registered separately (it calls logFacadeAudit, not audit() directly,
+      // so it never trips this scan). The shared body
+      // createManualKaruteRecordWithClient stays audit-free (deliberately,
+      // PHONEWIRE-2A) — do not add it here.
+      'createManualKaruteRecord',
     ],
     unproven: [
       {
         symbol: 'reassignKaruteCustomer',
         reason:
           "the requiresConfirm (preview) branch is `return result` — a plain identifier (discriminated-union variable), not an object literal or call — un-provable by the lexical/AST walker without type information, the SAME mechanical-proof ceiling as customers.ts#updateCustomer above. The preview phase deliberately emits NOTHING (success-only audit pin ⚖ HELD — only the confirmed:true write is audited); the success branch DOES lexically dominate its own return via the auditWeb() call that precedes it in the same block.",
+      },
+      {
+        symbol: 'createManualKaruteRecord',
+        reason:
+          "the shared body's error branch is `if ('error' in result) return result` — `result` is a plain identifier (the createManualKaruteRecordWithClient discriminated-union return), not an object literal or call — the SAME mechanical-proof ceiling as reassignKaruteCustomer above. Emits nothing (error path, nothing to audit); the success path DOES lexically dominate its own implicit tail return via the top-level audit() call between the try/catch and the redirect (PR B2 §2).",
       },
     ],
   },
@@ -436,6 +558,14 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-08-31',
   },
   {
+    file: 'src/lib/recording/share-columns.ts',
+    call: 'recordings.update',
+    symbols: ['updateRecordingShare'],
+    justification:
+      "The D13 typed write wrapper (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design D6/D13) — SDK 1.34's UpdateRecordingInput predates the shared_at/shared_by_staff_id columns, so this is the one place the untyped cast happens. The write itself sits one level below the emit: setRecordingSharedWithClient (src/lib/recording/share.ts, AUDITED_CORES via its own emitShareAudit helper) awaits this call and then, on its ONE writing branch, calls emitShareAudit — recording.share/recording.unshare — which dominates its own return. A second row here would double-count one act; this file stays audit-free by design, the exact same shape as discard.ts#stampRecordingDuration above (a write in a sibling helper, dominated by an emit one call-frame away, not lexically inside it).",
+    dated: '2026-09-14',
+  },
+  {
     file: 'src/actions/customers.ts',
     call: 'customers.grantConsent',
     symbols: ['grantCustomerConsentWithClient'],
@@ -453,14 +583,6 @@ export const SDK_WRITE_ALLOWLIST: {
   },
   {
     file: 'src/actions/karute.ts',
-    call: 'karuteRecords.delete',
-    symbols: ['deleteKaruteRecord'],
-    justification:
-      'deleteKaruteRecord — no FacadeEndpointKey covers karute deletion and no audit() call exists on this path today. Genuinely untracked, not pendingWave (no wave has claimed it). Flagged here rather than silently passing.',
-    dated: '2026-07-27',
-  },
-  {
-    file: 'src/actions/karute.ts',
     call: 'karuteRecords.update',
     symbols: ['reassignKaruteCustomerWithClient'],
     justification:
@@ -472,7 +594,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'karuteRecords.create',
     symbols: ['createOrUpdateKaruteRecord', 'createManualKaruteRecordWithClient'],
     justification:
-      'createOrUpdateKaruteRecord (AUDITED_CORES — this specific call site is its own fresh-record branch, dominated by its emitSave call-through, already proven by CP2/CP7) and createManualKaruteRecordWithClient (PHONEWIRE-2A: the "+ 新規カルテ" manual-entry create body, moved into a WithClient twin so the web action and the new facade POST run ONE body — the same Core/WithClient split as createCustomerWithClient. The shared body stays audit-free; the FACADE door IS now covered — karute.manualCreate is a LIVE FACADE_AUDIT_MAP mutation row emitting karute.manual_create with the target from ctx.auditTargetId. The WEB wrapper createManualKaruteRecord remains genuinely untracked, exactly as it was before this refactor — a pre-existing gap this build narrows rather than widens, not pendingWave).',
+      'createOrUpdateKaruteRecord (AUDITED_CORES — this specific call site is its own fresh-record branch, dominated by its emitSave call-through, already proven by CP2/CP7) and createManualKaruteRecordWithClient (PHONEWIRE-2A: the "+ 新規カルテ" manual-entry create body, moved into a WithClient twin so the web action and the new facade POST run ONE body — the same Core/WithClient split as createCustomerWithClient. The shared body stays audit-free; the FACADE door is covered — karute.manualCreate is a LIVE FACADE_AUDIT_MAP mutation row emitting karute.manual_create with the target from ctx.auditTargetId. PR B2 §2 (2026-09-11) closed the last gap: the WEB wrapper createManualKaruteRecord now emits its own karute.manual_create row (AUDITED_CORES) — the write call here still sits one level below that emit, in the shared WithClient body, so this allowlist entry stays).',
     dated: '2026-09-01',
   },
   {
@@ -492,6 +614,14 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-07-27',
   },
   {
+    file: 'src/lib/recording/enqueue-from-session.ts',
+    call: 'recordingJobs.enqueue',
+    symbols: ['enqueueFromSessionWithClient'],
+    justification:
+      "Build 23 slice ③ — the shared body BOTH new doors run (the web action enqueueRecordingJobFromSession and POST /api/app/v1/recordings/job/from-session). Identical reasoning to the src/actions/recording-jobs.ts entry above and to FACADE_AUDIT_MAP['recordings.job.enqueueFromSession']'s skip row: this call routes EXCLUSIVELY into the job worker (src/lib/jobs/process-recording.ts#processJob, AUDITED_CORES), which is where the recording actually becomes a karute and emits karute.save. The enqueue step stages no auditable outcome of its own, and a row here would double-log every save the worker performs. Nothing else in this symbol writes: every other SDK call is a read (recordings.get, the shared discard-ledger read, and the revisit guard's customer/pack/record lookups).",
+    dated: '2026-09-06',
+  },
+  {
     file: 'src/actions/recording-discard-transcript.ts',
     call: 'recordings.upsertSegments',
     symbols: ['writeTranscript'],
@@ -499,22 +629,13 @@ export const SDK_WRITE_ALLOWLIST: {
       "A2-2 (packet P5-A2): the WORDS of an ALREADY-AUDITED action. The staff discard that authorises this write emitted its own recording.discard receipt moments earlier (src/lib/recording/discard.ts, AUDITED_CORES — carrying discard_row_id, duration_sec and below_floor), and both callers refuse to write at all unless that STAFF discard row already exists. A second row here would double-count one act. ⚖ 8/17 doc law also forbids the CONTENT reaching an audit detail, which is exactly what this call persists — the segments are read back through getDiscardTranscript's staff.manage gate, never through the audit log. EXTENDED 2026-09-01 (PHONEWIRE-2C): the call now has a THIRD caller, the phone. persistDiscardTranscriptWithClient / transcribeAndPersistDiscardWithClient are the shared bodies the cookie wrappers and the facade route (src/app/api/app/v1/recordings/discards/transcript/route.ts POST, FACADE_AUDIT_MAP['recordings.discards.transcript.write'] — a 'skip' citing this same ruling) both run. Nothing about the justification moves: the facade door writes only after the SAME hasStaffDiscard fence proves the audited recording.discard receipt already landed, so a phone discard is still one act with one row.",
     dated: '2026-08-31',
   },
-  {
-    file: 'src/lib/recording/staged-audio.ts',
-    call: 'storage.recordings.remove',
-    symbols: ['sweepStagedDiscardAudio'],
-    justification:
-      'Best-effort cleanup of the staged audio object right after the discard transcription resolves — the same timing and the same reasoning as recording-upload.ts#removeRecordingObject and the facade transcribe route below (read-then-delete; the worker posture). Not itself a business action: the audited action is the recording.discard receipt this transcription belongs to. MOVED 2026-09-01 (PHONEWIRE-2C fix round 3, Greptile #813): the janitor was extracted out of src/actions/recording-discard-transcript.ts into its own non-server module because it grew a SECOND caller — the facade route must sweep its own pre-body refusals, since the phone stages its audio before it posts and every retry stages a fresh object. Same one delete call, now with the isOwnRecordingKey tenant fence inside it rather than at the call sites, so no caller can reach a key that is not its own business’s. Nothing about the justification moves: still best-effort, still not a business action.',
-    dated: '2026-08-31',
-  },
-  {
-    file: 'src/actions/recording-upload.ts',
-    call: 'storage.recordings.remove',
-    symbols: ['removeRecordingObject'],
-    justification:
-      "Best-effort cleanup of the staged audio object, fired by the web recording port right AFTER transcription resolves (src/lib/ai-pipeline.ts cleanup(), before extraction/summarization/save even start) — not itself a business action; the eventual karute.save is what audits. Carries over verbatim from the pruned src/lib/ports/recording-port.ts#prepareTranscription entry (2026-07-27, FIX ROUND 1 #15): the 2026-08-25 upload hotfix moved the delete off the browser's supabase-js client and onto this cookie-authed server action (bucket RLS now 403s browser-direct writes), the timing and the reasoning are unchanged. Precedent for the sibling mint legs: src/app/api/app/v1/recordings/upload-url/route.ts.",
-    dated: '2026-08-25',
-  },
+  // src/lib/recording/staged-audio.ts#sweepStagedDiscardAudio and
+  // src/actions/recording-upload.ts#removeRecordingObject both held a
+  // 'storage.recordings.remove' entry until 2026-09-04. Capture pipeline PR4
+  // deleted the janitor (file and all) and the server action outright — the
+  // pipeline reads the take's finalized object and nothing removes recording
+  // audio — so the writes are gone and the entries with them: an allowlist row
+  // for a write that no longer exists is what the dead-entry rule refuses.
   {
     file: 'src/lib/recording/session-mint.ts',
     call: 'recordings.create',
@@ -583,14 +704,9 @@ export const SDK_WRITE_ALLOWLIST: {
       "sync.run is a LIVE FACADE_AUDIT_MAP row (kind: 'mutation') — handler.ts's generic post-response hook (logFacadeAudit) auto-emits settings.sync_run_now on every 2xx from this route. No direct audit() call belongs in this file.",
     dated: '2026-07-27',
   },
-  {
-    file: 'src/app/api/app/v1/ai/transcribe/route.ts',
-    call: 'storage.recordings.remove',
-    symbols: ['POST'],
-    justification:
-      'Best-effort cleanup of the staged audio object after transcription (finally block, mirrors ai-pipeline.ts\'s own cleanup() timing — right after the transcribe call resolves, before extraction/summarization/save even start) — not itself a business action; the eventual karute.save is what audits.',
-    dated: '2026-07-27',
-  },
+  // src/app/api/app/v1/ai/transcribe/route.ts#POST held a
+  // 'storage.recordings.remove' entry until 2026-09-04 (PR4): the `finally`
+  // that deleted the transcribed object is gone, so the entry is too.
   // src/app/api/cleanup/route.ts#GET held a 'storage.recordings.remove' entry
   // until 2026-09-03. The sweep no longer deletes anything (⚖ audio is never
   // deleted — it reports orphan candidates and a human decides), so the call is
@@ -622,9 +738,14 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/ai-rate-limit.ts',
     call: 'aiRateLimit.recordUsage',
-    symbols: ['reportAiUsageWithClient'],
-    justification: 'Fire-and-forget token-usage report for the daily $-cap — system-internal accounting.',
-    dated: '2026-07-27',
+    symbols: [
+      'reportAiUsageWithClient',
+      'reportTranscriptionUsageWithClient',
+      'releaseTranscriptionReserveWithClient',
+    ],
+    justification:
+      'Fire-and-forget token-usage report for the daily $-cap — system-internal accounting. EXTENDED 2026-09-08 (the transcription spend wall): reportTranscriptionUsageWithClient reports the SAME ledger in cents-from-minutes for Deepgram, and is equally system-internal — the user-visible receipt for that spend is the recording.transcribe audit row the wrapper files (src/lib/ai/transcribe.ts, AUDITED_CORES). EXTENDED AGAIN 2026-09-08 (fix round 5): releaseTranscriptionReserveWithClient is the SAME accounting write in the other direction — a negative row that takes back a reserve the provider then threw on, so it was never spent. It writes only from inside the wrapper’s catch around the provider call (AUDITED_CORES), reports no new act, and files no row of its own: the act it corrects is the provider failure, which is already the caller’s own error path (the worker’s fail(), the routes’ error arms).',
+    dated: '2026-09-08',
   },
   {
     file: 'src/lib/jobs/process-recording.ts',
@@ -661,8 +782,8 @@ export const SDK_WRITE_ALLOWLIST: {
     file: 'src/lib/jobs/process-recording.ts',
     call: 'recordingJobs.fail',
     symbols: ['processRecordingJobs'],
-    justification: 'Job-queue status transition on failure (attempts→FAILED) — infrastructure bookkeeping, not a business mutation; nothing was committed to audit.',
-    dated: '2026-07-27',
+    justification: 'Job-queue status transition on failure (attempts→FAILED) — infrastructure bookkeeping, not a business mutation; the fail() call itself commits nothing to audit. UPDATED 2026-09-11 (監査ログ round 2 PR C, subject 6): the catch beside this call now conditionally emits recording.transcribe_failed via a separate helper (emitTranscribeFailedIfExhausted, AUDITED_CORES) ONLY on the round that exhausts the job — that emit is its own registered writer, not this SDK status-transition write.',
+    dated: '2026-09-11',
   },
   {
     file: 'src/lib/karute/outcome.ts',

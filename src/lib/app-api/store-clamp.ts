@@ -83,6 +83,25 @@ export async function resolveStoreForRequest(args: {
   // 3. Resolve the caller's assignment. A THROWN lookup is UNKNOWN, not floating:
   //    fail closed rather than fall through to "works everywhere" (the old
   //    fail-OPEN bug where missing/errored read as every-store).
+  //
+  //    ⚠ `authUserId` IS THE ROSTER'S STAFF ID HERE — one id space, not two
+  //    (Greptile #848 review 2, point 1). In this app the core roster's staff
+  //    `id` is the auth user id for every PLACED member, and the repo relies on
+  //    that equality everywhere: resolveSelfStaffId returns the auth id iff
+  //    `staffList.some((s) => s.id === authUserId)` (app-api/customer-facade.ts:99),
+  //    getCurrentUserStaffId does the same on the cookie path (lib/staff.ts:263),
+  //    and isRosterOwner compares the same way (actions/stores.ts:33). The WEB
+  //    twin keys this very SDK method with that very id: resolveStoreScope
+  //    (auth/store-scope.ts:90) passes `getCurrentUserStaffId()` — the auth id —
+  //    to getStaffStoresStrict, which is `synqed.staffStores.get(<auth id>)`
+  //    (actions/stores.ts:486-489); the facade's own caller does the same
+  //    (screens/karute/[id]/route.ts:116-117). So both transports key this
+  //    lookup on ONE space.
+  //    A caller the roster CANNOT place never reaches this line ON THE
+  //    RECORDING-READ PATH — viewerAllowedStoreIds returns [] first (its guard
+  //    below). The staff-write and export callers DO reach it, and fail closed
+  //    their own way (ensureStaffWriteInScope's roster oracle ·
+  //    resolveExportStoreId's refusal).
   let assigned: string[]
   try {
     assigned = (await synqed.staffStores.get(authUserId)).store_ids
@@ -102,6 +121,54 @@ export async function resolveStoreForRequest(args: {
     throw new AppApiError('store_forbidden', 'store-id outside your assignment', { reason: 'store_header' })
   }
   return { storeId: requestedStoreId ?? assigned[0], allowedStoreIds: assigned }
+}
+
+/**
+ * The caller's store assignment for a RECORDING read — the Bearer twin of web's
+ * `resolveStoreScope().allowedStoreIds` (src/actions/recording-playback.ts).
+ *
+ * `null` = unrestricted within the tenant (`stores.viewAll`, or floating staff
+ * assigned to no store). `[]` = the assignment could not be read, which the
+ * recording ACL FAILS CLOSED on — never widened into "every store" (⚖ Liam's
+ * store-isolation law 8/17; Greptile #848 point 2).
+ *
+ * It swallows resolveStoreForRequest's fail-closed THROW on purpose: that throw
+ * is right for a write, and wrong for this read — a blipped assignment lookup
+ * must narrow the named grant, never 403 a karute screen or a recorder's own
+ * take. `[]` carries exactly that: no store reach, everything else unchanged.
+ * `requestedStoreId: null` — the clamp deliberately IGNORES any store-id the
+ * caller sent; the ASSIGNMENT is the basis, so a phone-set pin can neither
+ * widen nor narrow the grant. The call is purely for the viewAll / assignment /
+ * fail-closed resolution.
+ *
+ * ⚠ AN UNPLACEABLE CALLER IS `[]`, NOT "UNRESTRICTED" (fix round 4, blind
+ * round 2 F3). Web's twin already fails closed there: store-scope.ts:89-91
+ * reads a null staff id as `degraded`, which both web callers map to `[]`. The
+ * facade could not, because core answers `{ store_ids: [] }` for an id it holds
+ * no rows for — indistinguishable from genuinely floating staff — so an id the
+ * roster cannot place fell through to the floating branch and heard every
+ * store. `ensureStaffWriteInScope` below already guards this exact case with
+ * the roster oracle; this read guards it with the self id its callers already
+ * hold, so no new lookup is charged.
+ */
+export async function viewerAllowedStoreIds(args: {
+  synqed: Pick<SynqedClient, 'stores' | 'staffStores'>
+  authUserId: string
+  capabilities: Set<Capability>
+  /** The caller's RESOLVED roster identity. Null = the roster could not place
+   *  them, which is not "no assignment" — it is "we could not look". */
+  selfStaffId: string | null
+}): Promise<readonly string[] | null> {
+  if (!args.selfStaffId) return []
+  try {
+    const { allowedStoreIds } = await resolveStoreForRequest({
+      ...args,
+      requestedStoreId: null,
+    })
+    return allowedStoreIds
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -127,9 +194,9 @@ export async function resolveStoreForRequest(args: {
  * would buy nothing (and on the pin/voice routes it would be the SECOND such
  * read in one request). `businessId` rides the args to reach that oracle.
  *
- * `requestedStoreId: null` deliberately: these routes carry no `store-id`
- * header, and the clamp is called purely for its viewAll / assignment /
- * fail-closed resolution. The throw carries no `reason: 'store_header'` — this
+ * `requestedStoreId: null` deliberately: the clamp IGNORES any `store-id` the
+ * caller sent — the assignment is the basis — and is called purely for its
+ * viewAll / assignment / fail-closed resolution. The throw carries no `reason: 'store_header'` — this
  * is resource ownership (the caller's pin is fine, the row isn't), the same
  * class as the karute route's "this booking belongs to a store…".
  *
@@ -228,8 +295,37 @@ export async function resolveExportStoreId(args: {
 
   // Floating staff: header store already passed tenancy validation above.
   if (clamp.storeId) return clamp.storeId
+  return resolvePrimaryStoreId(args.synqed)
+}
+
+/**
+ * The business's PRIMARY store (`is_primary`, else the first one) — the Bearer
+ * twin of web's `getPrimaryStoreId()`, i.e. the second half of web's
+ * `activeStore ?? getPrimaryStoreId()` pair.
+ *
+ * WHO USES IT, and why each one needs it:
+ *  - the EXPORT lens above — floating staff who sent no `store-id` header must
+ *    still clamp to one store, never to the whole business (two Greptile P1s);
+ *  - the facade RECORDING-SESSION mint (`app/v1/recordings/session/route.ts`) —
+ *    ⚖ amendment 10: a newly minted row must never be born store-less, whatever
+ *    the client sent. The thin shell seeds its own lens to this same store on
+ *    first boot (`thin/chrome/chrome-store.ts` seedStoreLens) and sends it as
+ *    `store-id` from then on, so this server-side answer is the twin of the
+ *    client's own seed — the two agree by construction.
+ *
+ * There is no widening here in either caller: the header (already
+ * tenant-validated by resolveStoreForRequest) always wins, and a clamped caller
+ * never reaches this function at all — resolveStoreForRequest already answers
+ * them a concrete `requested ?? assigned[0]`.
+ *
+ * FAIL CLOSED: a `stores.list` failure or a business with zero stores throws
+ * `store_forbidden` (no `store_header` marker — the verdict is UNKNOWN, so the
+ * thin shell's stranded-pin self-heal correctly does not fire). Never a silent
+ * null, and never "every store".
+ */
+export async function resolvePrimaryStoreId(synqed: Pick<SynqedClient, 'stores'>): Promise<string> {
   try {
-    const { stores } = await args.synqed.stores.list()
+    const { stores } = await synqed.stores.list()
     const primary = stores.find((s) => s.is_primary)?.id ?? stores[0]?.id
     if (primary) return primary
   } catch {

@@ -1052,7 +1052,13 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
         if (names.length && names.every((n) => styled.has(n))) reachable.add(sel)
       }
     }
-    expect([...reachable].sort()).toEqual(['.biz .btn', '.biz .btn.primary', '.biz .page .btn'])
+    // ⚠ THE DERIVED LIST IS NOW EMPTY, AND THAT IS THE MERGED TRUTH: both rooms
+    // that used to state a bare rule on a name this one styles have retired it —
+    // 顧客 in its V2 redesign (its buttons are `cu-btn-*`, its dialog states its
+    // weights at four levels) and 予約一覧 in its own. Derived freshly on every
+    // run, so the day a neighbour states one again this goes red and the fence
+    // grows in the same pass.
+    expect([...reachable].sort()).toEqual([])
     // …and every one of them is answered at FOUR levels, which beats a
     // sibling's three and removes the insertion-order coin flip.
     //
@@ -1117,10 +1123,16 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
     // fence. `.page.pg-inbox`/`.page.pg-inbox h1` stay in inbox.css as this
     // room's own styling; they just answer no sibling collision any more.
     const pairs: Array<[string, string]> = [
-      ['.page .btn', '.biz .page.pg-inbox .btn {'],
-      ['.btn', '.biz .page.pg-inbox .btn {'],
-      ['.btn.primary', '.biz .page.pg-inbox .btn.primary {'],
+      // ⚠ NO PAIRS LEFT TO CHECK — every sibling's bare rule has been retired
+      // (see the derived list above). The loop below would be vacuous, so this
+      // room's OWN four-level fence is asserted directly instead: it still has
+      // to exist, whether or not a neighbour is currently colliding with it.
+
     ]
+    expect(pairs).toHaveLength(0)
+    for (const f of ['.biz .page.pg-inbox .btn {', '.biz .page.pg-inbox .btn.primary {']) {
+      expect(CSS.includes(f)).toBe(true)
+    }
     for (const [sibling, fence] of pairs) {
       const props = declared.get(sibling) ?? new Set<string>()
       expect({ sibling, props: [...props].sort() }).not.toEqual({ sibling, props: [] })

@@ -206,7 +206,7 @@ export const threads: FixtureThread[] = [
     // a request for a slot that does not exist yet. It therefore has no
     // decision, no 予約一覧 row and no store of its own, so all three of the
     // plane's own fields are stated here and its store comes from the
-    // customer's affiliation (cus-03 books only at テスト代官山店).
+    // customer's affiliation (cus-03 books only at テスト横浜店).
     //
     // The contact story is the 顧客 screen's own: cus-03 has a 保護者 who takes
     // every booking and every message (fixtures.ts party rows) and all three

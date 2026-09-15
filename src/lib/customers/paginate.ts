@@ -15,6 +15,10 @@ export async function paginateDedupe<T extends { id: string }>(
   // so a capped recordings read pointed triage at the wrong subsystem. Callers
   // name themselves; the default keeps every existing one's log line identical.
   label = 'customers cache',
+  // P3-11: the ONE operational signal a caller can act on, not just log — a
+  // caller whose own rows can go stale on a truncated read (recordings inbox,
+  // this label's own history) needs to know, not merely have it printed.
+  onTruncated?: () => void,
 ): Promise<T[]> {
   const byId = new Map<string, T>()
   let total = 0
@@ -26,6 +30,7 @@ export async function paginateDedupe<T extends { id: string }>(
   }
   if (byId.size < total) {
     console.warn(`[${label}] truncated at ${byId.size}/${total} after ${maxPages} pages`)
+    onTruncated?.()
   }
   return [...byId.values()]
 }

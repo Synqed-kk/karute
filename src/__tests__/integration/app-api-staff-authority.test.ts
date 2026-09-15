@@ -4,8 +4,9 @@
 //   - never target the account owner (permissions PUT)
 //   - no-escalation-by-delta: a caller can only grant a capability they hold
 //     themselves (permissions PUT)
-//   - audit.view grants are owner-only, even when the caller nominally holds
-//     the capability via an override (permissions PUT)
+//   - audit.view / sync.view / recordings.viewAll grants are owner-only, even
+//     when the caller nominally holds the capability via an override
+//     (permissions PUT)
 //   - staff-stores PUT is owner-only (STRICTER than staff.manage — a
 //     requireOwner mirror, elevated to a standard facade 403)
 //   - staff-stores GET carries a staff.manage FLOOR — a deliberate
@@ -54,13 +55,17 @@ jest.mock('@/lib/staff', () => ({
 // target row, then — only when granting audit.view — the caller's own row).
 let selectResults: Array<Record<string, unknown> | null> = []
 let updateError: { message: string } | null = null
+/** The LAST payload handed to .update() — the only way to see what actually
+ *  landed in `permissions` (null = follows the preset, array = customized). */
+let lastUpdate: Record<string, unknown> | null = null
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const builder: Record<string, unknown> = {}
     for (const m of ['select', 'eq']) builder[m] = () => builder
     ;(builder as { maybeSingle: unknown }).maybeSingle = async () =>
       ({ data: selectResults.shift() ?? null })
-    ;(builder as { update: unknown }).update = () => {
+    ;(builder as { update: unknown }).update = (payload: Record<string, unknown>) => {
+      lastUpdate = payload
       const chain: Record<string, unknown> = {}
       chain.eq = () => chain
       chain.then = (resolve: (v: unknown) => unknown) => resolve({ error: updateError })
@@ -82,6 +87,7 @@ jest.mock('@/lib/synqed/client', () => ({
 
 import { GET as permissionsGET, PUT as permissionsPUT } from '@/app/api/app/v1/staff/[id]/permissions/route'
 import { GET as storesGET, PUT as storesPUT } from '@/app/api/app/v1/staff/[id]/stores/route'
+import { presetCapabilities } from '@/lib/auth/permissions'
 import { auditLines } from './helpers/audit-lines'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
@@ -117,6 +123,7 @@ beforeEach(() => {
   ])
   selectResults = []
   updateError = null
+  lastUpdate = null
   staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
   staffStoresSet.mockResolvedValue({})
 })
@@ -135,6 +142,21 @@ describe('GET /api/app/v1/staff/[id]/permissions', () => {
     const body = await res.json()
     expect(body.permissionRole).toBe('practitioner')
     expect(body.isOwner).toBe(false)
+  })
+
+  it('read-back: a stored 全スタッフの録音 override comes back in `capabilities` — the form re-opens TICKED', async () => {
+    // The other half of the bug the resolve-time strip caused (DESIGN §THE
+    // FOUR SIDES 1: "the owner's tick is a checkbox that never sticks"). The
+    // PUT cases below prove the tick is STORED; this one proves the READ hands
+    // it back, which is what the owner sees on the phone. Restoring the strip
+    // in src/lib/auth/permissions.ts turns this red.
+    selectResults = [
+      { ...nonOwnerTarget, permission_role: 'custom', permissions: ['recordings.viewAll'] },
+    ]
+    const res = await permissionsGET(getReq('staff/staff-9/permissions'), params('staff-9'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.capabilities).toContain('recordings.viewAll')
   })
 })
 
@@ -269,6 +291,318 @@ describe('PUT /api/app/v1/staff/[id]/permissions — authz invariants', () => {
     expect(await res.json()).toEqual({ ok: true })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ action: 'settings.permissions_change', target_id: 'staff-9' })
+  })
+
+  // ── 全スタッフの録音 (recordings.viewAll) — the named grant, ⚖ 9/3 council.
+  // The exact pair-shape of the audit.view / sync.view cases above: the ADD is
+  // owner-only even for a caller who holds the capability, the owner's grant
+  // lands in the stored override, and the audit row's detail says which way it
+  // moved. The resolve chokepoint no longer strips it, so THIS gate is the
+  // only hand it can come from.
+
+  it('recordings.viewAll grant is owner-only: a non-owner caller holding it via override is refused, no write, no audit row', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'recordings.viewAll']))
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Manager', display_role: 'manager' },
+    ])
+    selectResults = [
+      nonOwnerTarget,
+      { display_role: 'manager', permission_role: 'manager' }, // caller's own row
+    ]
+    const lines = await auditLines(async () => {
+      const res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'custom',
+          capabilities: ['recordings.viewAll'],
+        }),
+        params('staff-9'),
+      )
+      expect(res.status).toBe(200)
+      expect((await res.json()).error).toMatch(/Only the owner can grant recording access/i)
+    })
+    expect(lastUpdate).toBeNull()
+    expect(lines).toHaveLength(0)
+  })
+
+  it("the OWNER can grant recordings.viewAll: the stored override carries it and the audit row's detail says recordings_view_all: 'granted'", async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'recordings.viewAll']))
+    selectResults = [
+      nonOwnerTarget,
+      { display_role: 'owner', permission_role: 'owner' }, // caller's own row — the owner
+    ]
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'custom',
+          capabilities: ['recordings.viewAll'],
+        }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    // The tick STICKS — the whole point of removing the resolve-time strip.
+    expect(lastUpdate).toEqual({ permission_role: 'custom', permissions: ['recordings.viewAll'] })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action: 'settings.permissions_change',
+      target_id: 'staff-9',
+      detail: { recordings_view_all: 'granted' },
+    })
+  })
+
+  // ── recordings.viewShared (D3/D4 sharing, ⚖ Liam 2026-09-13; 2026-09-14
+  // design) — the same owner-only-add shape as recordings.viewAll above, its
+  // own refusal string, and never smuggling in the broader grant.
+
+  it("recordings.viewShared grant is owner-only: a manager ticking it for a practitioner is refused ('Only the owner can grant shared-recording access.'), no write, no audit row", async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'recordings.viewShared']))
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Manager', display_role: 'manager' },
+    ])
+    selectResults = [
+      nonOwnerTarget,
+      { display_role: 'manager', permission_role: 'manager' }, // caller's own row
+    ]
+    const lines = await auditLines(async () => {
+      const res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'custom',
+          capabilities: ['recordings.viewShared'],
+        }),
+        params('staff-9'),
+      )
+      expect(res.status).toBe(200)
+      expect((await res.json()).error).toMatch(/Only the owner can grant shared-recording access/i)
+    })
+    expect(lastUpdate).toBeNull()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('the owner grants recordings.viewShared → stored override carries exactly that capability and NOT recordings.viewAll', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'recordings.viewShared']))
+    selectResults = [
+      nonOwnerTarget,
+      { display_role: 'owner', permission_role: 'owner' }, // caller's own row — the owner
+    ]
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'custom',
+          capabilities: ['recordings.viewShared'],
+        }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    // Stored override carries EXACTLY the ticked set — not recordings.viewAll.
+    expect(lastUpdate).toEqual({ permission_role: 'custom', permissions: ['recordings.viewShared'] })
+    expect((lastUpdate as { permissions: string[] }).permissions).not.toContain('recordings.viewAll')
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ action: 'settings.permissions_change', target_id: 'staff-9' })
+  })
+
+  // ── FIX ROUND 1, F1 (Fable design correction): viewShared is owner-only
+  // ONLY as a HAND-ADD beyond the target's NEW role preset — a capability the
+  // preset already carries is not a grant. The caller in every case below
+  // holds exactly what it needs to grant (never the owner's full set), so a
+  // pass here isolates the ownerGrantedOnlyAdds gate, not the earlier
+  // hold-what-you-grant check.
+
+  it('(F1a) a non-owner staff.manage holder promotes a practitioner to manager with the manager PRESET: viewShared rides the preset, not a hand-add — ok, no refusal, no caller-row lookup needed', async () => {
+    // The caller holds exactly the manager preset (itself a manager) — covers
+    // every capability in the delta, viewShared included, without being the
+    // owner. Only ONE selectResults row queued (the target): if the fix
+    // regresses, the gate re-opens and a SECOND select (the caller's own row,
+    // to check ownership) is attempted against an empty queue — undefined,
+    // read as non-owner, refused — so this red-lines correctly on a
+    // regression rather than passing for the wrong reason.
+    mockCapabilities.mockResolvedValue(new Set(presetCapabilities('manager')))
+    selectResults = [nonOwnerTarget] // practitioner, promoted to manager
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'manager',
+          capabilities: presetCapabilities('manager'),
+        }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ action: 'settings.permissions_change', target_id: 'staff-9' })
+  })
+
+  it('(F1b) a non-owner re-saves a MANAGER whose stored override predates viewShared, requested = the manager preset — ok, no refusal', async () => {
+    mockCapabilities.mockResolvedValue(new Set(presetCapabilities('manager')))
+    selectResults = [
+      {
+        id: 'staff-9',
+        display_role: 'manager',
+        permission_role: 'manager',
+        // A stored override predating recordings.viewShared — everything the
+        // manager preset carries EXCEPT the new capability.
+        permissions: presetCapabilities('manager').filter((c) => c !== 'recordings.viewShared'),
+      },
+    ]
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'manager',
+          capabilities: presetCapabilities('manager'),
+        }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(lines).toHaveLength(1)
+  })
+
+  it("(F1c) a non-owner adds viewShared to a PRACTITIONER's override (beyond the practitioner preset, which does NOT carry it): refused, no write, no audit row", async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['staff.manage', ...presetCapabilities('practitioner'), 'recordings.viewShared']),
+    )
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Manager', display_role: 'manager' },
+    ])
+    selectResults = [
+      nonOwnerTarget,
+      { display_role: 'manager', permission_role: 'manager' }, // caller's own row
+    ]
+    const lines = await auditLines(async () => {
+      const res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'practitioner',
+          capabilities: [...presetCapabilities('practitioner'), 'recordings.viewShared'],
+        }),
+        params('staff-9'),
+      )
+      expect(res.status).toBe(200)
+      expect((await res.json()).error).toMatch(/Only the owner can grant shared-recording access/i)
+    })
+    expect(lastUpdate).toBeNull()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('(F1d) the OWNER adds viewShared to a PRACTITIONER: ok, stored override carries it and NOT recordings.viewAll', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['staff.manage', ...presetCapabilities('practitioner'), 'recordings.viewShared']),
+    )
+    selectResults = [
+      nonOwnerTarget,
+      { display_role: 'owner', permission_role: 'owner' }, // caller's own row — the owner
+    ]
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'practitioner',
+          capabilities: [...presetCapabilities('practitioner'), 'recordings.viewShared'],
+        }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(lastUpdate).toEqual({
+      permission_role: 'practitioner',
+      permissions: [...presetCapabilities('practitioner'), 'recordings.viewShared'],
+    })
+    expect((lastUpdate as { permissions: string[] }).permissions).not.toContain('recordings.viewAll')
+    expect(lines).toHaveLength(1)
+  })
+
+  // (F1e) unchanged: a non-owner adding recordings.viewAll to anyone is still
+  // refused — pinned above already ("recordings.viewAll grant is owner-only:
+  // a non-owner caller holding it via override is refused..."); F1 touched
+  // only the recordings.viewShared branch, byte-identical for the other
+  // three names.
+
+  it("the OWNER unticking it stores null when the rest matches the preset, and the detail says 'revoked'", async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'recordings.viewAll']))
+    // Target currently HOLDS the grant through a stored override.
+    selectResults = [
+      { id: 'staff-9', display_role: 'stylist', permission_role: 'custom', permissions: ['recordings.viewAll'] },
+    ]
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', { permissionRole: 'custom', capabilities: [] }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    // Untick → requested == the custom preset (empty) → stored null → gone.
+    expect(lastUpdate).toEqual({ permission_role: 'custom', permissions: null })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ detail: { recordings_view_all: 'revoked' } })
+  })
+
+  it("a MANAGER can untick the owner's grant — removals are not owner-gated (the recorded non-change)", async () => {
+    // The twin of the owner case above, run by a non-owner caller. ⚖ recorded,
+    // deliberate: the owner gate reads `added` only, exactly as audit.view and
+    // sync.view already do — taking a capability away needs staff.manage, not
+    // ownership. A guard bolted onto the removal side would silently reverse
+    // that ruling and pass every other test in the repo; this case is the one
+    // that would go red.
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage'])) // a manager, no viewAll
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Manager', display_role: 'manager' },
+    ])
+    selectResults = [
+      { id: 'staff-9', display_role: 'stylist', permission_role: 'custom', permissions: ['recordings.viewAll'] },
+    ]
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', { permissionRole: 'custom', capabilities: [] }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(lastUpdate).toEqual({ permission_role: 'custom', permissions: null })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ detail: { recordings_view_all: 'revoked' } })
+  })
+
+  it("a manager keeping a colleague's existing grant untouched is not a grant (passes, and the detail omits the flag)", async () => {
+    // Keeping what the target already holds is not an ADD — the same posture
+    // audit.view and sync.view already have. The flag rides the CHANGE only.
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage'])) // a manager, no viewAll
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Manager', display_role: 'manager' },
+    ])
+    selectResults = [
+      {
+        id: 'staff-9',
+        display_role: 'stylist',
+        permission_role: 'custom',
+        permissions: ['recordings.viewAll', 'customers.view'],
+      },
+    ]
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'custom',
+          capabilities: ['recordings.viewAll', 'customers.view'],
+        }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(lines).toHaveLength(1)
+    expect(lines[0].detail).not.toHaveProperty('recordings_view_all')
   })
 
   it('the OWNER can grant audit.view — happy path, one settings.permissions_change row, source facade', async () => {

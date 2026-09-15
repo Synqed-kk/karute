@@ -41,6 +41,52 @@ export async function readKaruteRaw(synqed: KaruteClient, id: string) {
   }
 }
 
+type KaruteClientWithFetch = Pick<
+  Awaited<ReturnType<typeof newSynqedClient>>,
+  'karuteRecords' | 'fetch'
+>
+
+/**
+ * Discarded-record sibling of {@link readKaruteRaw} (R8 discarded-record
+ * door, ⚖ Liam 2026-09-13). NEVER edits readKaruteRaw in place. The retry is
+ * NOT conditioned on the caller — own-ness cannot be known before the read —
+ * so this is the tenancy-proof read for EVERY /karute/[id] facade GET; a live
+ * record's ordinary get() succeeds directly and the retry never fires (zero
+ * behavior change there).
+ *
+ * A 404 retries ONCE, inside the classify boundary, via a raw business-scoped
+ * fetch with `include_discarded=true` (SDK 1.34 predates the typed option —
+ * same raw-transport idiom as synqed-records.ts's listMixedKaruteRecords). A
+ * retry that ALSO 404s throws the exact same classified not_found
+ * classifyGetError throws for an ordinary missing/cross-tenant id — the
+ * caller (canOpenDiscardedRecord's refusal) reuses that same classification
+ * for a byte-identical body. Any non-404 on either leg is upstream_unavailable,
+ * untouched.
+ */
+export async function readKaruteRawIncludingDiscarded(
+  synqed: KaruteClientWithFetch,
+  id: string,
+) {
+  try {
+    return await synqed.karuteRecords.get(id)
+  } catch (err) {
+    const status =
+      err && typeof err === 'object' && 'status' in err
+        ? (err as { status: unknown }).status
+        : undefined
+    if (status !== 404) {
+      throw new AppApiError('upstream_unavailable', 'karute read failed')
+    }
+    try {
+      return await synqed.fetch<Awaited<ReturnType<typeof synqed.karuteRecords.get>>>(
+        `/karute-records/${id}?include_discarded=true`,
+      )
+    } catch (retryErr) {
+      classifyGetError(retryErr, 'karute')
+    }
+  }
+}
+
 type CustomerClient = Pick<Awaited<ReturnType<typeof newSynqedClient>>, 'customers'>
 
 /** Status-aware customer tenancy proof (packet 07 §Build 4) — a cross-tenant /

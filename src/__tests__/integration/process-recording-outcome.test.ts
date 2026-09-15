@@ -27,14 +27,19 @@ jest.mock('@/lib/karute/outcome', () => ({
 const audit = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (...a: unknown[]) => audit(...(a as [])) }))
 
+// The METER is the worker's transcription door since the spend wall
+// (2026-09-08) — the wall's own behaviour (ask → spend → debit → receipt) is
+// pinned in transcription-spend-wall.test.ts against the real wrapper; here it
+// stands in for the provider exactly as runTranscription used to.
 jest.mock('@/lib/ai/transcribe', () => ({
   speakerIdMode: () => 'off',
   loadStaffReferenceForStaff: jest.fn(async () => null),
-  runTranscription: jest.fn(async () => ({
-    transcript: 'hello',
-    paragraphs: [],
-    words: [],
-    confidence: 1,
+  // `{ result, receipt }` since fix round 2 — the receipt is the meter's own
+  // half (billed length, cents, and whether the debit landed); this worker
+  // takes only `result`, so the stand-in answers a truthful pair.
+  runMeteredTranscription: jest.fn(async () => ({
+    result: { transcript: 'hello', paragraphs: [], words: [], confidence: 1 },
+    receipt: { duration_seconds: 60, cost_cents: 1, debit_recorded: true },
   })),
 }))
 jest.mock('@/lib/ai/karute-extract', () => ({
@@ -64,6 +69,7 @@ const customersGet = jest.fn(async () => ({ name: 'customer' }))
 const getByRecordingSession = jest.fn(
   async (): Promise<{
     id: string
+    store_id?: string | null
     entries?: Array<{
       id: string
       category: string
@@ -83,6 +89,10 @@ const claim = jest.fn()
 const complete = jest.fn(async () => ({}))
 const fail = jest.fn(async () => ({}))
 
+const listDiscards = jest.fn(async () => ({
+  events: [] as Array<{ id: string; recording_session_id: string; source: string }>,
+}))
+
 const staffGet = jest.fn(async () => ({ id: 'staff-1', user_id: 'auth-user-9' }))
 const appointmentsGet = jest.fn(async () => ({
   id: 'ap-1',
@@ -100,6 +110,7 @@ const fakeClient = {
     update: karuteRecordsUpdate,
   },
   recordingJobs: { claim, complete, fail },
+  recordingDiscards: { list: listDiscards },
   staff: { get: staffGet },
   appointments: { get: appointmentsGet },
 }
@@ -112,7 +123,8 @@ import { processRecordingJobs } from '@/lib/jobs/process-recording'
 // AI set, so the mocked fn needs to be reachable — the outcome tests above
 // never care about extraction content, hence the shared static default.
 import { runKaruteExtraction } from '@/lib/ai/karute-extract'
-import { conformingKey, segmentKey } from './helpers/recording-key-fixtures'
+import { runMeteredTranscription } from '@/lib/ai/transcribe'
+import { conformingKey, rescueKey, segmentKey } from './helpers/recording-key-fixtures'
 
 const baseJob = {
   id: 'job-1',
@@ -148,6 +160,7 @@ beforeEach(() => {
   setKaruteOutcomeWithClient.mockResolvedValue({})
   complete.mockResolvedValue({})
   fail.mockResolvedValue({})
+  listDiscards.mockResolvedValue({ events: [] })
 })
 
 describe('process-recording worker — outcome write (packet 22 B4)', () => {
@@ -212,6 +225,11 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
     // of these — the grammar refuses them on the body, not the prefix.
     ['own prefix + traversal body', 'app_biz-1_../../x.webm'],
     ['own prefix + non-uuid body', 'app_biz-1_stolen.webm'],
+    // ⚖ A FOREIGN rescue is refused exactly as a foreign take is: the kind
+    // widened, the TENANT never did (Liam 2026-09-06, "b").
+    ['cross-tenant rescue path', rescueKey('biz-2')],
+    // …and a rescue-shaped SEGMENT is neither kind.
+    ['rescue prefix wrapping a segment', `rsc/${segmentKey('biz-1')}`],
   ])(
     '%s → job FAILS before any service-role read (universal tenant-prefix gate)',
     async (_label, audio_path) => {
@@ -227,6 +245,29 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
       expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('does not belong'))
     },
   )
+
+  // ⚖ THE ONE WIDENING (ADDENDUM 9.1). The nightly job rebuilds a dead device's
+  // take BESIDE it, so the audio a save door enqueues for such a take is a
+  // `rsc/` object. Fencing the worker on 'take' alone would mean a rescued
+  // recording could never be transcribed at all. The path is SERVER-DERIVED —
+  // written by a door that read the row — which is why this widened and the
+  // five client-named surfaces did not (refusedKeys pins those).
+  it('this tenant’s own RESCUE path is accepted — a rescued take can still be transcribed', async () => {
+    claim
+      .mockResolvedValueOnce({
+        ...baseJob,
+        payload: { ...baseJob.payload, audio_path: rescueKey('biz-1') },
+      })
+      .mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).not.toHaveBeenCalled()
+    expect(createSignedUrl).toHaveBeenCalledWith(rescueKey('biz-1'), 3600)
+    expect(complete).toHaveBeenCalledWith('job-1', 'record-1')
+    // ⚖ …and it still removes nothing: this worker has no delete at all.
+    expect(removeObj).not.toHaveBeenCalled()
+  })
 
   it('payload.outcome absent → outcome upsert never called', async () => {
     claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
@@ -260,6 +301,32 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
       }),
     )
     expect(staffGet).toHaveBeenCalledWith('staff-1')
+  })
+
+  // PR B2 §3: appointment_id joins the recording thread page (PR D) to its
+  // booking — null (never undefined) when the job has none.
+  it('no appointment on the job → detail.appointment_id is null, not undefined', async () => {
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    const [call] = audit.mock.calls[0] as [{ detail: Record<string, unknown> }]
+    expect(call.detail).toHaveProperty('appointment_id', null)
+  })
+
+  it('appointment-linked job → detail.appointment_id carries the payload id', async () => {
+    claim
+      .mockResolvedValueOnce({
+        ...baseJob,
+        payload: { ...baseJob.payload, appointment_id: 'ap-1', duration_seconds: 3070 },
+      })
+      .mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: expect.objectContaining({ appointment_id: 'ap-1' }) }),
+    )
   })
 
   it('an UNWIRED recorder (card has no login) → actorId null, emit and job still complete', async () => {
@@ -342,6 +409,154 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
 
     expect(fail).not.toHaveBeenCalled()
     expect(complete).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Fix round 3 (mirrors round 2's karute.ts fix, karute-save-audit.test.ts):
+// upsertKaruteRecord's converge branch keeps the EXISTING record's store_id
+// (CEILING F-7) rather than payload.store_id, so the worker's karute.save
+// emit must name that store too — else it can name a store the record isn't
+// in.
+describe('process-recording worker — persisted store_id in the karute.save emit (fix round 3)', () => {
+  it('emits the EXISTING record store_id, not payload.store_id, when they differ', async () => {
+    getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing' })
+    claim
+      .mockResolvedValueOnce({
+        ...baseJob,
+        payload: { ...baseJob.payload, store_id: 'store-B' },
+      })
+      .mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ storeId: 'store-A' }))
+  })
+
+  it('emits payload.store_id when there is no existing record to converge on', async () => {
+    claim
+      .mockResolvedValueOnce({
+        ...baseJob,
+        payload: { ...baseJob.payload, store_id: 'store-B' },
+      })
+      .mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ storeId: 'store-B' }))
+  })
+})
+
+type DiscardRow = { id: string; recording_session_id: string; source: string }
+const staffRow: DiscardRow = { id: 'd-1', recording_session_id: 'sess-1', source: 'STAFF' }
+
+describe('⚖ a deliberate discard outranks the job (fix round 6, R1)', () => {
+  it('a STAFF discard on the FIRST read → the job fails DISCARDED_BY_STAFF before consent and before a yen is spent', async () => {
+    listDiscards.mockResolvedValueOnce({ events: [staffRow] })
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).toHaveBeenCalledWith('job-1', 'DISCARDED_BY_STAFF')
+    // The ledger outranks every question except identity: consent is not even
+    // asked, so a discarded-AND-consent-lapsed session can never surface the
+    // device pipeline's consent dialog over a recording somebody threw away.
+    expect(getConsent).not.toHaveBeenCalled()
+    expect(createSignedUrl).not.toHaveBeenCalled()
+    expect(runMeteredTranscription).not.toHaveBeenCalled()
+    expect(karuteRecordsCreate).not.toHaveBeenCalled()
+    expect(complete).not.toHaveBeenCalled()
+  })
+
+  it('THE RACE — a discard that lands DURING transcription still ends in no karute', async () => {
+    listDiscards
+      .mockResolvedValueOnce({ events: [] })
+      .mockResolvedValueOnce({ events: [staffRow] })
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    // Check #1 passed, so the yen WAS spent — that is the honest cost of a
+    // race nobody can close. What must never happen is the karute.
+    expect(runMeteredTranscription).toHaveBeenCalledTimes(1)
+    expect(karuteRecordsCreate).not.toHaveBeenCalled()
+    expect(fail).toHaveBeenCalledWith('job-1', 'DISCARDED_BY_STAFF')
+    expect(complete).not.toHaveBeenCalled()
+    // No karute.save emit either: the audit row follows the record.
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it('THE FENCE CHECKS — a STAFF discard on ANOTHER session never refuses this job', async () => {
+    listDiscards.mockResolvedValue({
+      events: [{ id: 'd-9', recording_session_id: 'sess-OTHER', source: 'STAFF' }],
+    })
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(complete).toHaveBeenCalledWith('job-1', 'record-1')
+    expect(fail).not.toHaveBeenCalled()
+  })
+
+  it('THE FENCE CHECKS — a SYSTEM cleanup row on this session is not a staff decision', async () => {
+    listDiscards.mockResolvedValue({
+      events: [{ id: 'd-8', recording_session_id: 'sess-1', source: 'SYSTEM' }],
+    })
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(complete).toHaveBeenCalledWith('job-1', 'record-1')
+    expect(fail).not.toHaveBeenCalled()
+  })
+
+  it('a row it CANNOT READ is not an answer — the job fails rather than writing', async () => {
+    listDiscards.mockResolvedValueOnce({
+      events: [{ id: 'd1', source: 'STAFF' } as unknown as DiscardRow],
+    })
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('unreadable'))
+    expect(karuteRecordsCreate).not.toHaveBeenCalled()
+  })
+
+  it('the ledger THROWS on the first read → the job fails before the audio is signed', async () => {
+    listDiscards.mockRejectedValueOnce(new Error('ledger down'))
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('ledger down'))
+    expect(createSignedUrl).not.toHaveBeenCalled()
+    expect(complete).not.toHaveBeenCalled()
+  })
+
+  it('a clean run asks the ledger EXACTLY TWICE, with the real session filter both times', async () => {
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    const expected = { recording_session_id: 'sess-1', source: 'STAFF', page_size: 1 }
+    expect(listDiscards).toHaveBeenCalledTimes(2)
+    expect(listDiscards).toHaveBeenNthCalledWith(1, expected)
+    expect(listDiscards).toHaveBeenNthCalledWith(2, expected)
+    expect(complete).toHaveBeenCalledWith('job-1', 'record-1')
+  })
+
+  it('ORDER — the tenant key gate still refuses BEFORE the ledger is asked', async () => {
+    claim
+      .mockResolvedValueOnce({
+        ...baseJob,
+        payload: { ...baseJob.payload, audio_path: 'app_biz-2_stolen.webm' },
+      })
+      .mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(listDiscards).not.toHaveBeenCalled()
+    expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('does not belong'))
   })
 })
 

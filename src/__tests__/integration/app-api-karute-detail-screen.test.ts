@@ -51,6 +51,14 @@ jest.mock('@/lib/auth/require-permission', () => ({
   capabilitiesForUser: jest.fn(async () => capabilities.current),
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
 }))
+// R8 discarded-record door: resolveDiscardFacts (actions/recording-discards)
+// reads the card roster for name resolution via the REAL staff-map.ts
+// (synqedStaffCardsForBusiness / staffNameByIdAcrossCardsAndProfiles) — no
+// mock needed here: @synqed-kk/client is already mocked below
+// (synqedStaffRoster), which is the only thing staff-map.ts's card read
+// touches, and lookupProfileIdForSynqedStaffIdForBusiness (the pre-existing
+// owner-translation tests further down) already exercises the real module
+// unmocked, so a staff-map mock here would silently break those.
 
 // Raw synqed karute record. staff_id drives the recording-privacy ACL.
 // recording_session_id: 'sess-1' on both the karute and the default photo
@@ -72,16 +80,89 @@ const karuteGet = jest.fn(async (id: string) => {
   if (id !== '00000000-0000-4000-8000-000000000008') throw Object.assign(new Error('nope'), { status: 404 })
   return KAR.current
 })
+// The recording behind the karute (slice ①, the player's presence probe). The
+// path is a REAL take key for this tenant — the fence is isOwnRecordingKey, so
+// a hand-written prefix would not prove what these tests claim to prove.
+/** The fixture karute's id — spelled once for the fix-round-1 cases below;
+ *  the pre-existing cases keep their literals rather than churn them. */
+const KARUTE_UUID = '00000000-0000-4000-8000-000000000008'
+const TAKE = '11111111-1111-4111-8111-111111111111'
+const TAKE_KEY = `app_business-1_${TAKE}.mp4`
+/** D3/D4 sharing (⚖ Liam 2026-09-13; 2026-09-14 design): core #83's column
+ *  is `shared_at?: string` — optional/absent by default, since readSharedAt
+ *  reads it through the SDK-1.34 trust boundary as `unknown`, so an absent
+ *  field is the same "not shared" as a genuinely un-shared row. */
+type RecFixture = {
+  id: string
+  audio_storage_path: string | null
+  duration_seconds: number | null
+  status: string
+  store_id: string | null
+  shared_at?: string
+}
+const REC: { current: RecFixture } = {
+  current: {
+    id: 'sess-1',
+    audio_storage_path: TAKE_KEY as string | null,
+    duration_seconds: 742 as number | null,
+    status: 'COMPLETED',
+    // ③ The store the device was in. `null` is the pre-③ production shape and
+    // the default; only the R1′ cases below set one.
+    store_id: null as string | null,
+  },
+}
+const recordingsGet = jest.fn(async (id: string) => {
+  if (id !== 'sess-1') throw Object.assign(new Error('nope'), { status: 404 })
+  return REC.current
+})
 const getConsent = jest.fn(async () => ({ consent: { policy_version: 'v0' } }))
 const listPhotos = jest.fn(async () => ({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: 'sess-1' as string | null }] }))
 // Return type spelled out (not inferred from the null default) so the #689
 // version-gate tests below can resolve a real outcome row through this mock.
 type OutcomeRow = { outcome: string; reason: string | null; is_first_visit: boolean; decided_at: string | null; auto_decided: boolean }
 const outcomeGet = jest.fn(async (): Promise<OutcomeRow | null> => null)
+/** The store-assignment read behind the recording ACL's store half (⚖ 8/17).
+ *  Default [] = floating staff → unrestricted within the tenant, so every
+ *  pre-existing case is untouched. */
+const staffStoresGet = jest.fn(async (_id: string) => ({ store_ids: [] as string[] }))
+// R8 discarded-record door (⚖ 2026-09-13): readKaruteRawIncludingDiscarded's
+// raw retry — fires ONLY after karuteGet 404s. Defaults to 404 too (matching
+// karuteGet's own "unknown id" posture), so every pre-existing test above
+// (missing/cross-tenant ids) sees the SAME classified not_found it always
+// did, just via one extra hop. DISCARDED_KAR opts a specific id in.
+const DISCARDED_KAR = { current: null as Record<string, unknown> | null }
+const rawKaruteFetch = jest.fn(async (path: string) => {
+  const id = path.split('/karute-records/')[1]?.split('?')[0]
+  if (DISCARDED_KAR.current && id === DISCARDED_KAR.current.id) return DISCARDED_KAR.current
+  throw Object.assign(new Error('nope'), { status: 404 })
+})
+// R8 discarded-record door — the ledger read behind the facts block.
+// Default: empty (no STAFF discard events), so every pre-existing test above
+// (never discarded) is unaffected — resolveDiscardFacts only calls this when
+// karute.status === 'DISCARDED'.
+const recordingDiscardsList = jest.fn(async (opts?: { page?: number; page_size?: number }) => {
+  void opts // this default fixture ignores args; per-test mockImplementation below reads opts.page
+  return { events: [] as Array<{
+    id: string
+    recording_session_id: string
+    source: 'STAFF' | 'SYSTEM'
+    discarded_by: string | null
+    reason: string | null
+    created_at: string
+  }> }
+})
 const fakeClient = {
   karuteRecords: { get: (id: string) => karuteGet(id) },
   customers: { getConsent, listPhotos },
   karuteOutcomes: { get: outcomeGet },
+  recordings: { get: (id: string) => recordingsGet(id) },
+  staffStores: { get: (id: string) => staffStoresGet(id) },
+  stores: { get: jest.fn(async () => ({ id: 'store-b' })) },
+  fetch: (path: string) => rawKaruteFetch(path),
+  // Forwards the call's own options through — fix round 2's pagination tests
+  // (piece 4 below) key their per-page fixtures off `opts.page`, which a
+  // no-args passthrough could never see.
+  recordingDiscards: { list: (opts?: { page?: number; page_size?: number }) => recordingDiscardsList(opts) },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -94,6 +175,7 @@ jest.mock('@/lib/customers/queries', () => ({ getCustomerWithClient: (c: unknown
 jest.mock('@/lib/customers/list-all', () => ({ listAllCustomers: jest.fn(async () => ({ customers: [{ id: 'cust-1', name: '山田 花子' }], total: 1 })) }))
 
 import { GET, OPTIONS } from '@/app/api/app/v1/screens/karute/[id]/route'
+import { KaruteDetailScreenDTO } from '@/lib/app-api/karute-detail-screen-dto'
 import { auditLines } from './helpers/audit-lines'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
@@ -113,13 +195,20 @@ const req = (init: RequestInit = {}) => new Request('https://s/api/app/v1/screen
 beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['customers.view'])
+  staffStoresGet.mockResolvedValue({ store_ids: [] })
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   synqedStaffRoster.current = []
+  DISCARDED_KAR.current = null
   synqedStaffRosterRejects.current = false
   KAR.current = { id: '00000000-0000-4000-8000-000000000008', created_at: '2026-06-01T03:00:00Z', ai_summary: '・肩こり改善傾向', transcript: 'RAW TRANSCRIPT TEXT', business_id: 'business-1', customer_id: 'cust-1', staff_id: 'other-staff', recording_session_id: 'sess-1', entries: [{ id: 'e1', category: 'SYMPTOM', content: '肩こり', original_quote: null, confidence: 0.9, is_manual: false, created_at: '2026-06-01T03:05:00Z' }] }
   getConsent.mockResolvedValue({ consent: { policy_version: 'v0' } })
   listPhotos.mockResolvedValue({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: 'sess-1' }] })
   outcomeGet.mockResolvedValue(null)
+  REC.current = { id: 'sess-1', audio_storage_path: TAKE_KEY, duration_seconds: 742, status: 'COMPLETED', store_id: null }
+  recordingsGet.mockImplementation(async (id: string) => {
+    if (id !== 'sess-1') throw Object.assign(new Error('nope'), { status: 404 })
+    return REC.current
+  })
 })
 
 describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
@@ -175,6 +264,153 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
     const dto = await res.json()
     expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
     expect(dto.transcriptRestricted).toBe(false)
+  })
+
+  // ── The PLAYER's presence (slice ①) ──────────────────────────────────────
+  // `recording` is server-decided by the SAME predicate that withholds the raw
+  // transcript, plus the take-key fence. Every null below is the mock's F5
+  // answer: no player, and the card says nothing about one.
+  describe('recording (the player) — presence + ACL + key fence', () => {
+    it('the recorder gets audioPresent + the row’s duration and status', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toEqual({ audioPresent: true, durationSeconds: 742, status: 'COMPLETED' })
+    })
+
+    it('a non-owner without recordings.viewAll gets recording:null (same withholding as the transcript)', async () => {
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+    })
+
+    it('recordings.viewAll hears any staff’s take', async () => {
+      capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording?.audioPresent).toBe(true)
+    })
+
+    // ⚠ FIX ROUND 2 — THE INVERSION THIS CLOSES. `business.manage` is a
+    // GRANTABLE row labelled 「店舗の削除・譲渡」, while `recordings.viewAll` is
+    // hard-stripped to the owner and hidden from the toggle list. Treating the
+    // former as "the owner" let an owner hand a manager every staffer's AUDIO
+    // while the WORDS stayed withheld — the exact inversion the recorder-private
+    // ruling exists to prevent. The sound now uses the words' own input.
+    it('business.manage alone does NOT reach a colleague’s take', async () => {
+      capabilities.current = new Set(['customers.view', 'business.manage'])
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+      // …and the words are withheld on the same request, as they always were:
+      // one rule, one answer, no inversion in either direction.
+      expect(dto.transcript).toBeNull()
+      expect(dto.transcriptRestricted).toBe(true)
+    })
+
+    it('an OWNERLESS karute keeps canViewTranscript’s shared answer for audio too (D-14)', async () => {
+      KAR.current = { ...KAR.current, staff_id: null }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording?.audioPresent).toBe(true)
+    })
+
+    it('no recording_session_id → recording:null and the row is never read', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1', recording_session_id: null }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+      expect(recordingsGet).not.toHaveBeenCalled()
+    })
+
+    it('a null audio path → recording:null (nothing was ever finalized)', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, audio_storage_path: null }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+    })
+
+    // A DISCARDED take's audio sits at a stg/ key the row is deliberately not
+    // re-pointed to (DESIGN-SLICE5 D10). isOwnRecordingKey is TAKE-only, so
+    // this is the same null — and the fence must never be widened to reach it.
+    it('a stg/ staged key → recording:null (the discard fence)', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, audio_storage_path: `stg/business-1_${TAKE}_${TAKE}.mp4` }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+    })
+
+    it('another tenant’s app_ key → recording:null', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, audio_storage_path: `app_other-biz_${TAKE}.mp4` }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+    })
+
+    // D-8: an accessory read that blipped costs the PLAYER, never the karute.
+    it('a failed recordings.get → recording:null AND the karute still 200s', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      recordingsGet.mockRejectedValue(Object.assign(new Error('boom'), { status: 500 }))
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      expect(res.status).toBe(200)
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+      expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    })
+
+    // FIX ROUND 1 — the row is BORN RESERVED (session-mint.ts:179), so a key
+    // with no receipt behind it is a take still on the DEVICE. A player there
+    // could only ever answer 「再生できませんでした」.
+    it('a RESERVED-but-not-secured row (UPLOADING, no duration) → recording:null', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, status: 'UPLOADING', duration_seconds: null }
+      const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+    })
+
+    it('finalize’s own stamp (UPLOADING + a duration) → the player appears', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, status: 'UPLOADING', duration_seconds: 45 }
+      const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+      const dto = await res.json()
+      expect(dto.recording).toEqual({ audioPresent: true, durationSeconds: 45, status: 'UPLOADING' })
+    })
+
+    it('a job-owned COMPLETED row with no duration still carries the player', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, status: 'COMPLETED', duration_seconds: null }
+      const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+      const dto = await res.json()
+      expect(dto.recording?.audioPresent).toBe(true)
+    })
+
+    it('a RECORDING row → recording:null (a live recorder owns it)', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, status: 'RECORDING', duration_seconds: null }
+      const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+    })
+
+    it('a PROCESSING row still carries the player — the audio is already safe (F6)', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1', transcript: null }
+      REC.current = { ...REC.current, status: 'PROCESSING', duration_seconds: null }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toEqual({ audioPresent: true, durationSeconds: null, status: 'PROCESSING' })
+    })
+
+    // Rollback compat, the staffCanReassignRecords rule: a payload minted
+    // before this field existed must still parse — absent = no player.
+    it('a payload WITHOUT the field still parses (absent = no player)', async () => {
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const { recording: _r, ...legacy } = await res.json()
+      expect(KaruteDetailScreenDTO.parse(legacy).recording).toBeUndefined()
+    })
   })
 
   // Recorder-lock fix (⚖ Liam 8/22, packet 2026-08-30): the karute's staff_id
@@ -474,5 +710,843 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
     expect(res.status).toBe(204)
     expect(res.headers.get('access-control-allow-origin')).toBe('capacitor://localhost')
     expect(karuteGet).not.toHaveBeenCalled()
+  })
+})
+
+// ── ⚖ STORE REACH AT THE DETAIL DOOR (Liam 8/17; Greptile #848 point 2) ──────
+// The karute belongs to a colleague and sits in store-b. A named grantee
+// assigned to store-a gets the SAME withholding as someone with no grant at
+// all — transcript null + transcriptRestricted, and recording null with it.
+describe('the named grant reads only inside the viewer’s own stores', () => {
+  const inStoreB = () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: 'store-b' }
+  }
+  const dtoFor = async () => {
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    return res.json()
+  }
+
+  it('a grantee assigned ELSEWHERE is refused the transcript AND the player', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+  })
+
+  it('…and the SAME grantee assigned to store-b reads and hears it', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-b'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.recording?.audioPresent).toBe(true)
+  })
+
+  it('stores.viewAll (owner / manager preset) reads any store, and never consults an assignment', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll', 'stores.viewAll'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  it('a record with NO store — and no store on its recording either — is read by a clamped grantee (全店舗 / legacy)', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  // ⚖ R1′ (③ fix round 3; Greptile #849 point 2) — the recording ROW's store is
+  // the fallback when the karute carries none. Same fixture as the web page's
+  // pin and the sound door's; all three must answer alike.
+  it('…but a NULL-store karute whose RECORDING names store-9 is closed to a store-a grantee — transcript AND player', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    REC.current = { ...REC.current, store_id: 'store-9' }
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+  })
+
+  it('…and the KARUTE still leads when it has one — karute store-a, row store-9 → read and heard', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: 'store-a' }
+    REC.current = { ...REC.current, store_id: 'store-9' }
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.recording?.audioPresent).toBe(true)
+  })
+
+  // ⚖ AN UNPLACEABLE CALLER IS NOT FLOATING STAFF (fix round 4, F3) — the
+  // detail door's half of the same guard.
+  it('a caller the ROSTER CANNOT PLACE fails the grant closed — restricted, no assignment read', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    roster.current = []
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const dto = await dtoFor()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  it('an UNREADABLE assignment fails the grant closed — restricted, never widened, and the screen still renders', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockRejectedValue(new Error('core down'))
+    const dto = await dtoFor()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.header).toBeDefined()
+  })
+
+  it('the RECORDER’s own transcript is untouched by any assignment', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1', store_id: 'store-b' }
+    staffStoresGet.mockRejectedValue(new Error('core down'))
+    expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  // ── ⚖ AN UNREADABLE ROW IS CLOSED FOR A CLAMPED VIEWER (fix round 6,
+  // Greptile #849 review 2) — the Bearer twin. ONE fixture at all three doors:
+  // the karute names NO store and the recording read THROWS. Until this round
+  // the throw collapsed into `null` ("this record names no store") and a
+  // clamped grantee was handed a colleague's transcript on every blip. The
+  // screen must still 200: the honest answer is transcriptRestricted, not 502.
+  const unreadableRow = () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    recordingsGet.mockRejectedValue(new Error('core down'))
+  }
+
+  it('an UNREADABLE row closes a null-store karute for a CLAMPED grantee — and the screen still 200s', async () => {
+    unreadableRow()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+  })
+
+  it('…and an UNRESTRICTED viewer (stores.viewAll) reads it as before', async () => {
+    unreadableRow()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll', 'stores.viewAll'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  it('…and the RECORDER reads her own through the same blip — she never meets the store leg', async () => {
+    unreadableRow()
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+    capabilities.current = new Set(['customers.view'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  it('…and the KARUTE still leads when it has one — a store-a karute is untouched by the throw', async () => {
+    unreadableRow()
+    KAR.current = { ...KAR.current, store_id: 'store-a' }
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  // ⚖ A 404 IS A DEFINITE NO, NOT AN UNKNOWN (MED-1 fix). The row was swept —
+  // the same "no store info anywhere" as a karute with no session at all — so
+  // it reads OPEN even for a clamped grantee, unlike a genuine throw above.
+  it('a 404 (SWEPT row) reads as null-store — OPEN even for a CLAMPED grantee', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    recordingsGet.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.transcriptRestricted).toBe(false)
+  })
+})
+
+// ── ⚖ 再生成 — the FACADE hands the phone the SERVER'S answer (fix round 4) ──
+// Same law, the transport Liam actually uses. `KaruteDetailView` is the SAME
+// component the thin screen mounts, so an ungated button was on the phone too.
+describe('staffCanRegenerate — hide, never show-and-refuse', () => {
+  const dtoFor = async () => {
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    return res.json()
+  }
+
+  it('a NAMED GRANTEE reads a colleague’s transcript and gets NO regenerate flag', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  // `records.write` rides every preset that could hold these keys — the flag is
+  // the server's WHOLE gate (fix round 5), so the positive cases grant it too.
+  it('…and the OWNER’S HAND (both keys) gets it', async () => {
+    capabilities.current = new Set(['customers.view', 'records.write', 'recordings.viewAll', 'business.manage'])
+    const dto = await dtoFor()
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  it('the RECORDER keeps her own, with no RECORDING keys at all', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+    capabilities.current = new Set(['customers.view', 'records.write'])
+    const dto = await dtoFor()
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  // ⚖ THE WHOLE GATE, NOT HALF (fix round 5, delta F1) — the Bearer twin.
+  it('a FRONT DESK viewer (no records.write) on an UNOWNED karute → transcript shown, flag FALSE', async () => {
+    KAR.current = { ...KAR.current, staff_id: null }
+    capabilities.current = new Set(['customers.view'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  // …and the OTHER half of the same gate — the Bearer twin. The recorder
+  // passes the ACL on her own record and still gets no button without the
+  // write key; the recorder-WITH-it case above cannot separate the two halves.
+  it('the RECORDER WITHOUT records.write on her OWN karute → transcript shown, flag FALSE', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+    capabilities.current = new Set(['customers.view'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  // ⚖ THE FLAG FOLLOWS THE ACT DOOR'S STORE LAW TOO (fix round 7). The button
+  // and the door share one predicate, so a clamped both-keys manager gets
+  // neither: the transcript is withheld by the read clamp, and the flag is
+  // false by the act clamp — nothing shown that the server would refuse.
+  it('a CLAMPED both-keys viewer on an out-of-store karute → transcript withheld AND flag false', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: 'store-b' }
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  it('…and the SAME viewer on an IN-store karute gets both', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: 'store-a' }
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  // ⚖ AN ACT IS NEVER MORE PERMISSIVE THAN THE READ (③ fix round 4) — the
+  // Bearer twin of the web page's pins. Greptile's fixture at the ACT door:
+  // karute store null, its recording row store-9, a both-keys manager clamped
+  // to store-a. The transcript is already withheld by the read clamp; the
+  // 再生成 control must be withheld with it, and the server gate refuses the
+  // post (app-api-karute-mutations.test.ts).
+  it('a NULL-store karute whose RECORDING names store-9 → transcript withheld AND no regenerate control', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    REC.current = { ...REC.current, store_id: 'store-9' }
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  it('…and the KARUTE still leads when it has one — karute store-a, row store-9 → both', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: 'store-a' }
+    REC.current = { ...REC.current, store_id: 'store-9' }
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  it('…and BOTH null is genuinely unlabelled — 全店舗/legacy, both', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  // ⚖ AN UNREADABLE ROW IS CLOSED FOR A CLAMPED HAND TOO (fix round 6). One
+  // case, so the DTO cannot withhold the words while still offering the button.
+  it('a NULL-store karute whose recording row cannot be READ → transcript withheld AND no control', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    recordingsGet.mockRejectedValue(new Error('core down'))
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  // ⚖ A 404 IS A DEFINITE NO, NOT AN UNKNOWN (MED-1 fix). The row was swept,
+  // which is the same "no store info" as no session at all — transcript
+  // visible AND control shown.
+  it('a 404 (SWEPT row) reads as no store → transcript visible AND control shown', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    recordingsGet.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  it('a plain staffer on a colleague’s karute → false, and no transcript either', async () => {
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+})
+
+// R8 discarded-record door (⚖ Liam 2026-09-13) — route-level ACCESS decision
+// (piece 3). The unit-level read-door/ACL behavior is already pinned in
+// discard-door-read.test.ts and discard-door-acl.test.ts; this exercises the
+// route's own wiring (the widened tenancy read + the refusal). Content
+// withholding (piece 4: dto.discarded / dto.contentWithheld) is tested where
+// it's built, further below.
+describe('R8 discarded-record door — access (piece 3)', () => {
+  const DISCARDED_UUID = '00000000-0000-4000-8000-000000000099'
+
+  beforeEach(() => {
+    DISCARDED_KAR.current = {
+      id: DISCARDED_UUID,
+      created_at: '2026-06-01T03:00:00Z',
+      ai_summary: '・肩こり改善傾向',
+      transcript: 'RAW TRANSCRIPT TEXT',
+      business_id: 'business-1',
+      customer_id: 'cust-1',
+      staff_id: 'other-staff',
+      recording_session_id: 'sess-1',
+      status: 'DISCARDED',
+      entries: [
+        {
+          id: 'e1',
+          category: 'SYMPTOM',
+          content: '肩こり',
+          original_quote: null,
+          confidence: 0.9,
+          is_manual: false,
+          created_at: '2026-06-01T03:05:00Z',
+        },
+      ],
+    }
+  })
+
+  const openDiscarded = () => GET(req({ headers: auth }), routeFor(DISCARDED_UUID))
+
+  it('a plain staffer — not the owner, no records.discardView — gets the SAME 404 as a missing id', async () => {
+    const res = await openDiscarded()
+    expect(res.status).toBe(404)
+    expect((await res.json()).error.code).toBe('not_found')
+  })
+
+  it('a records.discardView holder, unrestricted (allowedStoreIds null), opens it — 200', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    expect(res.status).toBe(200)
+  })
+
+  it('the record’s OWN staffer opens it, no capability needed — 200', async () => {
+    DISCARDED_KAR.current = { ...DISCARDED_KAR.current, staff_id: 'auth-user-1' }
+    const res = await openDiscarded()
+    expect(res.status).toBe(200)
+  })
+
+  it('a records.discardView holder clamped to a different store than the record → the SAME 404', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    DISCARDED_KAR.current = { ...DISCARDED_KAR.current, store_id: 'store-b' }
+    const res = await openDiscarded()
+    expect(res.status).toBe(404)
+  })
+
+  it('…and the SAME holder opens it once clamped to the record’s own store — 200', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    DISCARDED_KAR.current = { ...DISCARDED_KAR.current, store_id: 'store-a' }
+    const res = await openDiscarded()
+    expect(res.status).toBe(200)
+  })
+
+  it('a LIVE (non-discarded) record is completely unaffected — 200, unchanged', async () => {
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    expect(res.status).toBe(200)
+  })
+
+  // R8 fix round 1 (§5a / A11): the FACADE's own refusal, byte-identical to a
+  // genuinely missing id — not just "status 404 and code not_found" (which
+  // M25 proved does not catch a changed refusal string), but the actual
+  // serialized body and header shape. Same fake client, two ids: one that
+  // 404s on BOTH the get() and the raw retry (no such record exists at all),
+  // one that resolves via the raw retry to a real DISCARDED record this
+  // plain staffer is then refused by canOpenDiscardedRecord.
+  it('a genuinely MISSING id and a REFUSED discarded id return byte-identical bodies and the same header shape [mutant M25]', async () => {
+    const missingRes = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000404'))
+    const refusedRes = await openDiscarded()
+    expect(missingRes.status).toBe(404)
+    expect(refusedRes.status).toBe(missingRes.status)
+    expect(await refusedRes.text()).toBe(await missingRes.text())
+    // Header VALUES legitimately differ per request (request-id is server-
+    // minted fresh each call) — the shape, i.e. which headers are sent, must
+    // still match exactly.
+    const headerNames = (res: Response) => [...res.headers.keys()].sort()
+    expect(headerNames(refusedRes)).toEqual(headerNames(missingRes))
+  })
+})
+
+// R8 discarded-record door — CONTENT shape (piece 4). Builds on the access
+// tests above; every case here is already confirmed to open (200).
+describe('R8 discarded-record door — content (piece 4)', () => {
+  const DISCARDED_UUID = '00000000-0000-4000-8000-000000000099'
+
+  beforeEach(() => {
+    DISCARDED_KAR.current = {
+      id: DISCARDED_UUID,
+      created_at: '2026-06-01T03:00:00Z',
+      ai_summary: '・肩こり改善傾向',
+      transcript: 'RAW TRANSCRIPT TEXT',
+      business_id: 'business-1',
+      customer_id: 'cust-1',
+      staff_id: 'other-staff',
+      recording_session_id: 'sess-1',
+      status: 'DISCARDED',
+      entries: [
+        {
+          id: 'e1',
+          category: 'SYMPTOM',
+          content: '肩こり',
+          original_quote: null,
+          confidence: 0.9,
+          is_manual: false,
+          created_at: '2026-06-01T03:05:00Z',
+        },
+      ],
+    }
+    recordingDiscardsList.mockResolvedValue({
+      events: [
+        {
+          id: 'discard-1',
+          recording_session_id: 'sess-1',
+          source: 'STAFF',
+          discarded_by: 'other-staff',
+          reason: 'テスト理由',
+          created_at: '2026-06-02T00:00:00Z',
+        },
+      ],
+    })
+  })
+
+  const openDiscarded = () => GET(req({ headers: auth }), routeFor(DISCARDED_UUID))
+
+  it('a records.discardView holder, unrestricted, gets facts + reason present, EVERY content field withheld (assert each)', async () => {
+    // R8 fix round 1 (§4): a genuinely non-null outcome (no app-version
+    // header, so the #689 masking above never fires) to prove it is actually
+    // BLANKED by contentWithheld here, not merely absent by fixture default.
+    outcomeGet.mockResolvedValue({
+      outcome: 'success', reason: null, is_first_visit: false,
+      decided_at: '2026-06-01T00:00:00Z', auto_decided: false,
+    })
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.discarded.reason).toBe('テスト理由')
+    expect(dto.discarded.durationSeconds).toBe(742)
+    expect(dto.contentWithheld).toBe(true)
+    // Every content field, individually — A4/A11.
+    expect(dto.summaryBullets).toEqual([])
+    expect(dto.summaryRaw).toBeNull()
+    expect(dto.entries).toEqual([])
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+    expect(dto.photos).toEqual([])
+    // R8 fix round 1 (§4, ⚖ ruling): outcome + its typed reason is CONTENT.
+    expect(dto.outcome).toBeNull()
+  })
+
+  it('the record’s OWN staffer sees the FULL content, no capability needed — outcome included (⚖ §4: only withheld by contentWithheld)', async () => {
+    DISCARDED_KAR.current = { ...DISCARDED_KAR.current, staff_id: 'auth-user-1' }
+    outcomeGet.mockResolvedValue({
+      outcome: 'success', reason: null, is_first_visit: false,
+      decided_at: '2026-06-01T00:00:00Z', auto_decided: false,
+    })
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.contentWithheld).toBe(false)
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.entries.length).toBe(1)
+    expect(dto.summaryBullets.length).toBeGreaterThan(0)
+    expect(dto.outcome).toMatchObject({ outcome: 'success' })
+  })
+
+  it('a discardView holder who ALSO holds recordings.viewAll sees content too — recordings.viewAll alone cannot even OPEN the door (canOpenDiscardedRecord needs discardView or ownership)', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView', 'recordings.viewAll'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.contentWithheld).toBe(false)
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  it('recordings.viewAll ALONE (no discardView, not the owner) still gets the SAME 404 — content ACL never substitutes for the door', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    const res = await openDiscarded()
+    expect(res.status).toBe(404)
+  })
+
+  it('discardView+viewAll: staffCanReassignRecords/staffCanRegenerate are STILL false — read-only for everyone (A5)', async () => {
+    capabilities.current = new Set([
+      'customers.view', 'records.discardView', 'recordings.viewAll', 'records.write', 'records.reassign',
+    ])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.staffCanReassignRecords).toBe(false)
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  it('an OWNERLESS discarded record + manager (discardView) → withheld — never canViewTranscript’s "shared" branch (A4)', async () => {
+    DISCARDED_KAR.current = { ...DISCARDED_KAR.current, staff_id: null }
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.contentWithheld).toBe(true)
+    expect(dto.transcript).toBeNull()
+    expect(dto.summaryBullets).toEqual([])
+  })
+
+  it('a ledger read throw degrades discarded fields to null — the screen still opens, 200', async () => {
+    recordingDiscardsList.mockRejectedValueOnce(new Error('core down'))
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.discarded.reason).toBeNull()
+    expect(dto.discarded.discardedByName).toBeNull()
+  })
+
+  // Fix round 2 (Greptile #909, finding 3): the SDK exposes no sort and server
+  // order is not a contract — a session with more than one page of STAFF
+  // discard events could show a stale reason/actor/time. resolveDiscardFacts
+  // must page the ledger to completion, THEN sort and pick the newest.
+  it('pages the STAFF discard ledger to completion before picking the newest — two pages, real newest on page 2 (fix round 2 / mutant: a one-page read shows page 1’s stale reason instead, RED)', async () => {
+    const page1 = Array.from({ length: 200 }, (_, i) => ({
+      id: `discard-p1-${i}`,
+      recording_session_id: 'sess-1',
+      source: 'STAFF' as const,
+      discarded_by: 'other-staff',
+      reason: 'stale reason',
+      created_at: '2026-06-01T00:00:00Z',
+    }))
+    const page2 = [
+      {
+        id: 'discard-p2-newest',
+        recording_session_id: 'sess-1',
+        source: 'STAFF' as const,
+        discarded_by: 'other-staff',
+        reason: 'the real newest reason',
+        created_at: '2026-06-03T00:00:00Z',
+      },
+    ]
+    recordingDiscardsList.mockImplementation(async (opts) => ({
+      events: opts?.page === 2 ? page2 : page1,
+    }))
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded.reason).toBe('the real newest reason')
+    // A full page-1 (200, the page_size) must fetch page 2; page 2 comes back
+    // short (1 < 200) and the loop must stop there.
+    expect(recordingDiscardsList).toHaveBeenCalledTimes(2)
+  })
+
+  it('a single short page of STAFF discards still resolves the newest — regression (fix round 2)', async () => {
+    recordingDiscardsList.mockImplementation(async () => ({
+      events: [
+        {
+          id: 'discard-1',
+          recording_session_id: 'sess-1',
+          source: 'STAFF' as const,
+          discarded_by: 'other-staff',
+          reason: 'テスト理由',
+          created_at: '2026-06-02T00:00:00Z',
+        },
+      ],
+    }))
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const res = await openDiscarded()
+    const dto = await res.json()
+    expect(dto.discarded.reason).toBe('テスト理由')
+    expect(recordingDiscardsList).toHaveBeenCalledTimes(1)
+  })
+
+  it('a LIVE record’s DTO carries discarded:null, contentWithheld:false — additive-only, everything else unchanged', async () => {
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    const dto = await res.json()
+    expect(dto.discarded).toBeNull()
+    expect(dto.contentWithheld).toBe(false)
+    expect(dto.transcript).toBeNull() // unrelated ACL case, unchanged from its own pre-existing tests
+  })
+
+  it('the DTO parses fine with the new keys present, and (via KaruteDetailScreenDTO.parse directly) with them absent — rollback compat', () => {
+    const legacy = { ...({} as Record<string, unknown>) }
+    // A pre-PR server payload simply omits discarded/contentWithheld.
+    const minimal = {
+      karuteId: 'k1',
+      customerId: null,
+      outcome: null,
+      header: {
+        customerName: 'x', initials: 'x', karuteNumber: '#1', service: null,
+        sessionDateLong: 'x', staffName: null, phone: null, email: null,
+        age: null, gender: null, visitNumber: null, lastVisitDate: null,
+      },
+      sessionDateLong: 'x',
+      sessionDateIso: null,
+      entries: [],
+      summaryBullets: [],
+      transcript: null,
+      consentOnFile: false,
+      transcriptDurationLabel: null,
+      transcriptRestricted: false,
+      photos: [],
+      viewerRole: 'staff',
+      ...legacy,
+    }
+    const parsed = KaruteDetailScreenDTO.parse(minimal)
+    expect(parsed.discarded).toBeUndefined()
+    expect(parsed.contentWithheld).toBeUndefined()
+  })
+
+  // facade-audit.test.ts's karute.read/transcript_shown pin (cold-read §12)
+  // exercises the hook mechanism via a synthetic handler; this is the REAL
+  // route proving the same field for a withheld discarded open — an allowed,
+  // audited VIEW (not suppressed like a refused/404 open), whose
+  // transcript_shown is false because the content is withheld, not absent.
+  it('an allowed discarded open still emits karute.view, with transcript_shown:false (withheld, same field the live-record ACL cases already pin)', async () => {
+    capabilities.current = new Set(['customers.view', 'records.discardView'])
+    const lines = await auditLines(async () => {
+      const res = await openDiscarded()
+      expect(res.status).toBe(200)
+    })
+    const views = lines.filter((l) => l.action === 'karute.view')
+    expect(views).toHaveLength(1)
+    expect(views[0].detail).toMatchObject({ transcript_shown: false })
+  })
+})
+
+// ── D3/D4/D5/D8/D9 sharing — the layer-off matrix (D14, ⚖ Liam 2026-09-13
+// sharing law; 2026-09-14 design). S = the row is shared (shared_at set) ·
+// V = the viewer holds recordings.viewShared (store-reachable) · A =
+// recordings.viewAll · X = the record is discarded. Every case below reuses
+// the SAME default fixture (KAR.current owned by 'other-staff', viewer
+// auth-user-1/practitioner, store-unclamped) unless it says otherwise.
+describe('D14: the sharing layer-off matrix (recordings.viewShared, D3/D4/D5/D8)', () => {
+  const shareRow = () => {
+    REC.current = { ...REC.current, shared_at: '2026-09-14T00:00:00.000Z' }
+  }
+  const holdsViewShared = () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewShared'])
+  }
+  const dtoFor = async (id = KARUTE_UUID) => {
+    const res = await GET(req({ headers: auth }), routeFor(id))
+    return res.json()
+  }
+
+  // ⚖ ALL-OFF = TODAY, BYTE-FOR-BYTE. Captured from a real run against the
+  // exact default fixture (never hand-guessed — the packet forbids `git
+  // stash`/`git show … > /tmp/x` to diff against origin/main; this literal
+  // IS the origin/main behavior, verified by every pre-existing ACL test in
+  // this file that pins the SAME restricted/recording:null answer for this
+  // exact fixture). The only new thing here is the additive `share` field,
+  // and (fix round 1, L1 LOW-1) it is null: this viewer is not the owner,
+  // not a viewAll holder, and not sharedWith, so she has no more business
+  // knowing the row's share state than she does reading it.
+  it('all-off (¬S ¬V): the DTO is byte-for-byte today\'s answer, plus the additive share:null', async () => {
+    const dto = await dtoFor()
+    expect(dto).toEqual({
+      karuteId: '00000000-0000-4000-8000-000000000008',
+      customerId: 'cust-1',
+      outcome: null,
+      header: {
+        customerName: '山田 花子',
+        initials: '山花',
+        karuteNumber: '#00001',
+        service: null,
+        sessionDateLong: '2026年6月1日(月)',
+        staffName: null,
+        phone: '090',
+        email: 'h@example.com',
+        age: 36,
+        gender: '女性',
+        visitNumber: 3,
+        lastVisitDate: '2026年5月1日',
+      },
+      sessionDateLong: '2026年6月1日(月)',
+      sessionDateIso: '2026-06-01',
+      entries: [
+        { id: 'e1', category: 'concern', time: '12:05', body: '肩こり', original_ai_content: null },
+      ],
+      summaryBullets: ['肩こり改善傾向'],
+      summaryRaw: '・肩こり改善傾向',
+      summaryEdited: false,
+      transcript: null,
+      consentOnFile: true,
+      transcriptDurationLabel: null,
+      transcriptRestricted: true,
+      recording: null,
+      photos: [{ id: 'p1', signedUrl: 'https://x/p1', category: 'before', caption: null }],
+      viewerRole: 'practitioner',
+      staffCanReassignRecords: false,
+      staffCanRegenerate: false,
+      discarded: null,
+      contentWithheld: false,
+      share: null,
+    })
+  })
+
+  it('S alone: a shared row read by a viewer WITHOUT recordings.viewShared is still restricted, recording null, AND share null (fix round 1, L1 LOW-1)', async () => {
+    shareRow()
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+    expect(dto.share).toBeNull()
+  })
+
+  // ⚖ FIX ROUND 1, F3 pin — a colleague who is neither owner, viewAll nor
+  // shared-with gets share:null even when the row IS shared: `shared`/
+  // `sharedAt` are not a public fact about a karute she can merely open: a
+  // plain colleague must not learn a colleague's recording was shared with
+  // management unless she herself can reach it that way.
+  it('a colleague who is neither owner, viewAll nor shared-with gets share:null even when the row is shared', async () => {
+    shareRow()
+    capabilities.current = new Set(['customers.view'])
+    const dto = await dtoFor()
+    expect(dto.share).toBeNull()
+  })
+
+  it('V alone: a viewShared holder on an UNSHARED row is still restricted, share null', async () => {
+    holdsViewShared()
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+    expect(dto.share).toBeNull()
+  })
+
+  it('S+V: transcript + recording + share.viaShare true', async () => {
+    shareRow()
+    holdsViewShared()
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.transcriptRestricted).toBe(false)
+    expect(dto.recording).toEqual({ audioPresent: true, durationSeconds: 742, status: 'COMPLETED' })
+    expect(dto.share.viaShare).toBe(true)
+    expect(dto.share.shared).toBe(true)
+  })
+
+  it('S+V, viewer clamped to a DIFFERENT store than the record: restricted — the manager\'s window widens WHOSE recordings, never WHICH stores', async () => {
+    shareRow()
+    holdsViewShared()
+    KAR.current = { ...KAR.current, store_id: 'store-b' }
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+  })
+
+  // The discard DOOR itself is untouched by sharing (design's own "facts door
+  // untouched") — canOpenDiscardedRecord still needs discardView or ownership
+  // regardless of V/S, so a discarded record is reachable here via V+D
+  // together; once OPEN, sharing decides CONTENT exactly as it does on a live
+  // record (⚖ Liam 9/13 "shared-with = as shared").
+  it('S+V+D+X (discarded, door open via discardView): contentWithheld false — "shared-with = as shared" — facts unchanged', async () => {
+    shareRow()
+    capabilities.current = new Set(['customers.view', 'recordings.viewShared', 'records.discardView'])
+    DISCARDED_KAR.current = { ...KAR.current, id: '00000000-0000-4000-8000-000000000099', status: 'DISCARDED' }
+    const dto = await dtoFor('00000000-0000-4000-8000-000000000099')
+    expect(dto.discarded).not.toBeNull()
+    expect(dto.contentWithheld).toBe(false)
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  // The unreachable combo the door itself refuses: V alone (no discardView,
+  // not the owner) on a DISCARDED record still gets the same classified 404
+  // as any other refused viewer — sharing never opens the discard door.
+  it('S+V, DISCARDED, discardView NOT held: the door refuses (404) — sharing never opens the discard door', async () => {
+    shareRow()
+    holdsViewShared()
+    DISCARDED_KAR.current = { ...KAR.current, id: '00000000-0000-4000-8000-000000000098', status: 'DISCARDED' }
+    const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000098'))
+    expect(res.status).toBe(404)
+  })
+
+  it('A on, S off: unchanged reach — the pre-existing viewAll branch is untouched by sharing', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.share).toEqual({ canShare: false, shared: false, sharedAt: null, viaShare: false })
+  })
+
+  it('own record + S: share.canShare true, shared true, viaShare false (her own read is not "because of the share")', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+    shareRow()
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.share).toEqual({ canShare: true, shared: true, sharedAt: '2026-09-14T00:00:00.000Z', viaShare: false })
+  })
+
+  it('ownerless + S: open (unchanged, D-14\'s shared answer), share null — the viewer has no owner/viewAll/sharedWith reason to see it, and the "no owner = shared" branch is NOT what let the transcript through', async () => {
+    KAR.current = { ...KAR.current, staff_id: null }
+    shareRow()
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    // isOwnRecord is false for an ownerless record (no one to be "own" of),
+    // and this viewer holds neither viewAll nor viewShared, so share is null
+    // exactly as it would be for any other reason-less viewer (fix round 1).
+    expect(dto.share).toBeNull()
+  })
+
+  it('S+V: staffCanRegenerate stays false — D15, share grants READ only', async () => {
+    shareRow()
+    holdsViewShared()
+    capabilities.current.add('records.write')
+    const dto = await dtoFor()
+    expect(dto.staffCanRegenerate).toBe(false)
   })
 })

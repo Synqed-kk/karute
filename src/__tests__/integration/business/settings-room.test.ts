@@ -22,16 +22,32 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
-import { overrideLevelFor, protectedCapacityOf, warnFaceFor, type RailCell } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { CALENDAR_TIGHT_RANGE, clampCalendarTight, overrideLevelFor, protectedCapacityOf, warnFaceFor, type RailCell } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { commitNumberField } from '@/business/lib/settings'
 import { createGapGuard } from '@/business/lib/canon-logic/gap-guard'
 import { freePockets } from '@/business/lib/canon-logic/availability'
 import type { BoardLane } from '@/business/lib/today-board'
-import { liveFieldsFrom, MINUTE_CHOICES, nearestChoice, saveRefusal, sceneKeyFor } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
+import { dayLengthMin, liveFieldsFrom, readMinutes, saveRefusal, sceneKeyFor } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
+import { clampSlot, commitMinutes, computeScene, isIntegerTextAtLeast, nudgeBase, type SceneInput } from '@/app/[locale]/(business)/business/settings/StorePolicySection'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
-const SCREEN = read(`${ROOM_DIR}/SettingsScreen.tsx`)
-const PAGE = read(`${ROOM_DIR}/page.tsx`)
+/** ⚖ S17 FOLD (A11) — THE SUITE IS RE-POINTED, NEVER DELETED. #812's room is now
+ *  ONE SECTION of 設定, so its screen is `StorePolicySection.tsx` and its server
+ *  assembly is `store-policy-props.ts`. Everything below still asks the same
+ *  questions of the same code; only the two file names moved. The pins that
+ *  belonged to the PAGE half of #812 — the ?-button, the shared tour engine, the
+ *  crumb — now ask the shell room's own `SettingsScreen.tsx`, which owns them
+ *  for every section (A2). Every literal that could NOT be re-pointed is retired
+ *  with its reason, in the fold report and beside the pin. */
+const SCREEN = read(`${ROOM_DIR}/StorePolicySection.tsx`)
+const PAGE = read(`${ROOM_DIR}/store-policy-props.ts`)
+/** The SHELL's screen — it owns the ?, the walk and the section head this
+ *  section's own declaration rides on. */
+const SHELL_SCREEN = read(`${ROOM_DIR}/SettingsScreen.tsx`)
+/** …and the rail's props file, where the section head's kicker/title/lead and
+ *  its ONE tour declaration are stated. */
+const SHELL_PROPS = read(`${ROOM_DIR}/settings-props.ts`)
 const SEAM = read(`${ROOM_DIR}/store-policy-seam.ts`)
 const CSS = read(`${ROOM_DIR}/settings.css`)
 const SIDEBAR = read('src/app/[locale]/(business)/BusinessSidebar.tsx')
@@ -57,6 +73,8 @@ const importOf = (spec: string) => `${KEYWORD} '${spec}'`
 const SDK = `${'@synqed'}-kk/client`
 const SCREEN_CODE = stripComments(SCREEN)
 const PAGE_CODE = stripComments(PAGE)
+const SHELL_SCREEN_CODE = stripComments(SHELL_SCREEN)
+const SHELL_PROPS_CODE = stripComments(SHELL_PROPS)
 const CSS_CODE = CSS.replace(/\/\*[\s\S]*?\*\//g, '')
 
 /** Every OPENING TAG of `<tag …>` in the source, whole — the 売上・レジ scanner,
@@ -122,9 +140,19 @@ function darkFills(css: string): string[] {
 }
 
 type Declaration = { title: string; text: string }
+/** ⚖ A2 — THE SECTION HEAD'S OWN PAIR, read out of the props file where it now
+ *  lives. #812 declared 予約と確保 on its page `<header>`; the fold removed that
+ *  header (the rail owns the page head) and re-homed the declaration onto the
+ *  section head, which `SettingsScreen` renders as `data-guide-title={title}` +
+ *  `data-guide={guide ?? lead}`. Read, never restated: a fold that dropped the
+ *  declaration would shorten this census by one and go red here. */
+const HEAD_TITLE = /title: '(予約と確保)',/.exec(SHELL_PROPS_CODE)?.[1] ?? ''
+const HEAD_GUIDE = /const BOOKING_GUARD_GUIDE =\s*\n?\s*'([^']*)'/.exec(SHELL_PROPS_CODE)?.[1] ?? ''
 const DECLARATIONS: Declaration[] = [
-  ...SCREEN_CODE.matchAll(/data-guide-title="([^"]*)"\s*\n\s*data-guide="([^"]*)"/g),
-].map((m) => ({ title: m[1], text: m[2] }))
+  { title: HEAD_TITLE, text: HEAD_GUIDE },
+  ...[...SCREEN_CODE.matchAll(/data-guide-title="([^"]*)"\s*\n\s*data-guide="([^"]*)"/g)]
+    .map((m) => ({ title: m[1], text: m[2] })),
+]
 
 // ── ⚖ Liam 8/23 — the room declares every section it renders ────────────────
 
@@ -136,9 +164,18 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
       .filter((tag) => !(tag.includes('data-guide-title=') && tag.includes('data-guide=')))
       .map((tag) => /aria-labelledby="([^"]*)"/.exec(tag)?.[1] ?? /className="([^"]*)"/.exec(tag)?.[1] ?? tag.slice(0, 70))
     expect(missing).toEqual([])
-    // …and the page head declares itself too, so the walk opens on what the page
-    // is FOR before it points at parts of it (the 受信トレイ precedent).
-    expect(openingTags(SCREEN_CODE, 'header')[0]).toContain('data-guide-title="予約と確保"')
+    // …and the SECTION HEAD declares itself too, so the walk opens on what this
+    // section is FOR before it points at parts of it (the 受信トレイ precedent).
+    // ⚖ S17 (A11) — RETIRED LITERAL, with its reason: the old pin read
+    // `openingTags(SCREEN_CODE, 'header')[0]` for `data-guide-title="予約と確保"`,
+    // and #812's page `<header>` no longer exists — 設定 owns the page head for
+    // every section. The declaration moved to the section head, so the pin
+    // follows it: the TITLE and the GUIDE are both stated in the props file and
+    // both are read, and the shell's screen really renders them as the pair.
+    expect(HEAD_TITLE).toBe('予約と確保')
+    expect(HEAD_GUIDE.length).toBeGreaterThan(20)
+    expect(SHELL_SCREEN_CODE).toContain('data-guide-title={section.title}')
+    expect(SHELL_SCREEN_CODE).toContain('data-guide={section.guide || section.lead ||')
   })
 
   it('every declaration is a complete, distinct sentence — never a label repeated', () => {
@@ -153,27 +190,40 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
     expect(new Set(DECLARATIONS.map((d) => d.title)).size).toBe(DECLARATIONS.length)
   })
 
-  it('EVERY DIAL IS EXPLAINED — the eight dials plus 保存 each declare their own step', () => {
+  it('EVERY DIAL IS EXPLAINED — the nine dials plus 保存 each declare their own step', () => {
     // The room's whole subject is dials, so a dial the walk skips is a setting a
     // manager is left to guess at. Named here because these are the ROOM's
     // contract with Liam's 8/23 law, not a list the code derives.
+    // ⚖ Liam 9/12 — 残りわずかの目安 joined the list the round it landed, which is
+    // what that law asks of every new function.
     for (const title of [
       '上書きの権限', '名指しロック', '長押しで確定', '店長のみでも警告を止める',
-      'すき間の販売', '新規のお客様の確保', '確保枠の会員ランク開放', '予約の刻み', '保存',
+      'すき間の販売', '新規のお客様の確保', '確保枠の会員ランク開放', '予約の刻み',
+      '残りわずかの目安', '保存',
     ]) {
       expect(DECLARATIONS.map((d) => d.title)).toContain(title)
     }
   })
 
   it('the ? is wired to the SHARED engine, and the room adds no engine of its own', () => {
-    expect(SCREEN_CODE).toContain(importOf('@/business/lib/guide'))
+    // ⚖ S17 (A2) — ONE TOUR ENGINE, AND IT IS THE SHELL'S. #812 carried its own
+    // copy; the fold deleted that copy rather than leaving two walks on one
+    // page, so these pins ask 設定's screen. Same engine, same four functions,
+    // same scoping rule — one owner.
+    expect(SHELL_SCREEN_CODE).toContain(importOf('@/business/lib/guide'))
     for (const fn of ['spotTargets(rootRef.current)', 'spotCardAt(', 'spotHitIndex(', 'wrapStep(']) {
-      expect(SCREEN_CODE).toContain(fn)
+      expect(SHELL_SCREEN_CODE).toContain(fn)
     }
-    expect(SCREEN_CODE).toContain('aria-label="画面の説明"')
+    expect(SHELL_SCREEN_CODE).toContain('aria-label="画面の説明"')
     // The walk is scoped to the ROOM's root, never the document: the shell's rail
     // and topbar are not this page.
-    expect(SCREEN_CODE).not.toContain('spotTargets(document')
+    expect(SHELL_SCREEN_CODE).not.toContain('spotTargets(document')
+    // …and the section really has NO engine left: not the import, not a step
+    // index, not a spot layer. A second walk on one page is the defect this
+    // deletion prevents.
+    expect(SCREEN_CODE).not.toContain(importOf('@/business/lib/guide'))
+    expect(SCREEN_CODE).not.toContain('setTourIdx')
+    expect(SCREEN_CODE).not.toContain('st-spot-')
   })
 
   it('the ENGINE really walks this room’s own declarations — registry, ring, hit-test', () => {
@@ -211,8 +261,8 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
   it('⚖ F12 — a COLLAPSED 詳細設定 does not silently shorten the walk', () => {
     // THE MECHANISM, driven: `spotTargets` drops zero-sized nodes, which is the
     // right law (a hidden dial is not explained) and is exactly what a closed
-    // `<details>` does to all nine dials inside it. A manager who folded the
-    // section away and then pressed ? was walked through 3 steps instead of 12,
+    // `<details>` does to all ten dials inside it. A manager who folded the
+    // section away and then pressed ? was walked through 3 steps instead of 13,
     // with the counter reading 「1 / 3」 as though that were the page.
     const root = document.createElement('div')
     const box = (h: number) => () => ({ left: 0, top: 0, width: h === 0 ? 0 : 100, height: h, right: 100, bottom: h, x: 0, y: 0, toJSON: () => ({}) })
@@ -231,7 +281,95 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
     // is controlled, and launching the walk opens it before anything is measured.
     expect(SCREEN_CODE).toContain('const [advOpen, setAdvOpen] = useState(true)')
     expect(SCREEN_CODE).toContain('<details className="st-adv" open={advOpen} onToggle={(e) => setAdvOpen(e.currentTarget.open)}>')
-    expect(SCREEN_CODE).toContain('onClick={() => { setAdvOpen(true); setTourIdx(0) }}')
+    // ⚖ S17 (A2/A11) — RETIRED LITERAL, with its reason: the guarantee used to
+    // ride #812's OWN ? handler (`onClick={() => { setAdvOpen(true);
+    // setTourIdx(0) }}`), and that button no longer exists — the ? belongs to
+    // 設定, which opens the walk for every section. So the section ANSWERS the
+    // walk instead of launching it, and the same invariant holds through one
+    // effect. The shell really passes the flag, and the section really acts on
+    // it; a fold that dropped either half goes red here.
+    // ⚖ S17 STEP 1 — RE-PINNED. The section still renders itself and still gets
+    // `tourOpen` (⚖ A2/F12); what changed is that it hands its three pieces BACK
+    // as slots so the room can put the dials in the panel, the live card at the
+    // top of the sticky stack and the 保存 block in the save slot — a component
+    // cannot return three trees to three parents. Every dial's state is still
+    // inside the section (⚖ A12).
+    expect(SHELL_SCREEN_CODE).toContain('<StorePolicySection')
+    expect(SHELL_SCREEN_CODE).toContain('tourOpen={tourOpen}')
+    // ⚖ S17 fix round 5 · G1 (D-40) — the spread reads a NAMED local, not the
+    // prop, because the payload is nullable now: the server withholds it from a
+    // reader whose gate is shut, so the screen narrows it once and renders the
+    // section's own boundary when it is absent. Same claim (the section is
+    // handed 予約と確保's whole assembly), and the two lines that make the
+    // withholding real are pinned beside it.
+    expect(SHELL_SCREEN_CODE).toContain('const policy = props.storePolicy')
+    expect(SHELL_SCREEN_CODE).toContain('{...policy}')
+    expect(SHELL_SCREEN_CODE).toContain('isBookingGuard && policy === null ? (')
+    expect(SHELL_SCREEN_CODE).not.toContain('{...props.storePolicy}')
+    // ⚖ S17 — RE-PINNED. The room builds the reading column and the stack as ONE
+    // pair (`columnAnd`), and 予約と確保 builds the SAME pair from inside its own
+    // render prop — one call, nothing carried across the render. So the three
+    // slots are read where they are used rather than as JSX attributes.
+    expect(SHELL_SCREEN_CODE).toContain('render={(slots) =>')
+    expect(SHELL_SCREEN_CODE).toContain('<div className="st-main">{slots.main}</div>')
+    expect(SHELL_SCREEN_CODE).toContain('slots.card,')
+    expect(SHELL_SCREEN_CODE).toContain('slots.save,')
+    expect(SHELL_SCREEN_CODE).toContain('slots.jump,')
+    expect(SHELL_SCREEN_CODE).toContain('columnAnd(')
+    // ⚠ D-34 (⚖ S17 fix round 4 · M2) — THE SLOTS GAINED A FOURTH PIECE. The
+    // section hands back `onAnchorJump` beside its three trees, because 詳細設定
+    // is a FOLD and a jump onto a folded panel is a dead lever — and the fold's
+    // state is the section's (⚖ A12), so the room asks rather than writing
+    // `details.open` behind React's back. The CLAIM this line holds is unchanged:
+    // one render call, everything the room needs, nothing carried across.
+    expect(SCREEN).toContain('return <>{props.render({ main, card: cardSlot, save, jump: STORE_POLICY_ANCHORS, onAnchorJump })}</>')
+    expect(SCREEN).toContain("const onAnchorJump = (id: string) => { if (id === 'bg.adv') setAdvOpen(true) }")
+
+    /* ⚖ S17 fix round 4 · M3 — AND THE WALK PUTS THE FOLD BACK. F12 has to force
+       詳細設定 open (nine dials inside a closed `<details>` measure zero and drop
+       out of the count), and forcing it open is a LOAN: the ? is a read-only
+       action, and a manager who folded the section away, walked it and pressed
+       Escape came back to a page they had not left. The pre-tour state is
+       remembered when the walk opens and handed back when it closes — unless the
+       reader closed the fold DURING the walk, which is their own press and
+       stands. */
+    const tourEffect = SCREEN.slice(SCREEN.indexOf('const beforeTour = useRef'), SCREEN.indexOf('}, [props.tourOpen])'))
+    expect(tourEffect).toContain('beforeTour.current = advOpenRef.current')
+    expect(tourEffect).toContain('setAdvOpen(true)')
+    expect(tourEffect).toContain('setAdvOpen((now) => (now ? was : now))')
+    // …and the remembered value is READ from a live ref rather than from the
+    // effect's own closure, or the walk would restore whatever the fold was on
+    // the render that first mounted it.
+    expect(SCREEN).toContain('const advOpenRef = useRef(advOpen)')
+    expect(SCREEN).toContain('useEffect(() => { advOpenRef.current = advOpen }, [advOpen])')
+    expect(SHELL_SCREEN_CODE).toContain('(id) => { slots.onAnchorJump(id); jumpTo(id) },')
+    // ⚖ mock D4 — AND THE LEAD TELLS THE TRUTH AT BOTH WIDTHS. #812's sentence
+    // points at 「右のカード」, and the card is on the right ONLY in the ③
+    // composition; below it the card rides above the panel. One character
+    // changes, BOTH forms ship, and the SHEET picks — nothing is decided in JS,
+    // so the server and the browser cannot disagree about which one rendered.
+    expect(SHELL_SCREEN_CODE).toContain('<span className="st-lead-wide">{section.lead}</span>')
+    expect(SHELL_SCREEN_CODE).toContain('<span className="st-lead-narrow">{section.leadNarrow}</span>')
+    expect(read(`${ROOM_DIR}/settings-props.ts`)).toContain("BOOKING_GUARD_LEAD.replace('右のカード', '下のカード')")
+    // the narrow form is the BASE, because the base is where the card is not on
+    // the right; the ③ query is the only place the wide form is shown.
+    expect(CSS).toMatch(/\.st-lead-wide \{ display: none; \}/)
+    expect(CSS).toMatch(/\.st-lead-narrow \{ display: inline; \}/)
+    const three = CSS.slice(CSS.indexOf('@container st-body (min-width: 960px)'))
+    expect(three).toMatch(/\.st-lead-wide \{ display: inline; \}/)
+    expect(three).toMatch(/\.st-lead-narrow \{ display: none; \}/)
+    // ⚠ D-35 (⚖ S17 fix round 4 · M3) — THE FORCE-OPEN GAINED A RETURN LEG, so
+    // the one-line effect this pin held is now a branch. The GUARANTEE is the
+    // same and is asserted where it lives: opening the walk still opens 詳細設定
+    // (or nine dials measure zero and drop out of the count), and closing it
+    // hands the fold back — see the M3 pin above.
+    const tourBody = SCREEN_CODE.slice(SCREEN_CODE.indexOf('const beforeTour = useRef'), SCREEN_CODE.indexOf('}, [props.tourOpen])'))
+    expect(tourBody).toContain('if (props.tourOpen) {')
+    expect(tourBody).toContain('setAdvOpen(true)')
+    expect(SCREEN_CODE).toContain('}, [props.tourOpen])')
+    // …and the shell's own ? is what sets `tourOpen`, so the chain is closed.
+    expect(SHELL_SCREEN_CODE).toContain('onClick={() => setTourIdx(0)}')
+    expect(SHELL_SCREEN_CODE).toContain('const tourOpen = tourIdx >= 0')
   })
 })
 
@@ -273,47 +411,89 @@ describe('⚖ F14 — 名指しロック never renders a person this store canno
 
 // ── ⚖ 1b — the three chips ARE the wire's enum ──────────────────────────────
 
-describe('⚖ 1b RULED — 新規のお客様の確保 is three fixed choices, and they are the wire’s', () => {
-  it('the enum is 60/75/90 and lives in ONE place', () => {
-    // `SetStoreBookingPolicyInput.new_client_session_minutes?: 60 | 75 | 90` —
-    // the reason the mock's free stepper is superseded. A control that can name a
-    // value the store cannot save is a lie with a number in it.
-    expect([...MINUTE_CHOICES]).toEqual([60, 75, 90])
+describe('⚖ D-15 RULED — 新規のお客様の確保 is ANY positive minutes, and readMinutes is the one refusal home', () => {
+  it('readMinutes refuses only the meaningless values, and nothing else', () => {
+    expect(readMinutes(75, null)).toBe(75)
+    expect(readMinutes(100, null)).toBe(100)
+    expect(readMinutes(1, null)).toBe(1)
+    for (const bad of [0, -5, 1.5, Number.NaN, Infinity, -Infinity, '', 'abc']) {
+      expect(readMinutes(bad, null)).toBeNull()
+    }
+    // A ceiling is honoured only when the caller gives one — never invented.
+    expect(readMinutes(601, 600)).toBeNull()
+    expect(readMinutes(600, 600)).toBe(600)
+    expect(readMinutes(601, null)).toBe(601)
+  })
+
+  it('the 15-value union is core’s OWN debt, named at the seam and nowhere silently worked around', () => {
+    // `SetStoreBookingPolicyInput.new_client_session_minutes?: 60 | 75 | 90`
+    // (`@synqed-kk/client` 1.34.0) is still real — CORE-10's correction removes
+    // it — but this file no longer narrows the READ side or the UI to it.
     expect(SEAM).toContain('60 | 75 | 90')
+    expect(SEAM).not.toContain('export type NewClientMinutes')
+    expect(SEAM).not.toContain('MINUTE_CHOICES')
+    expect(SEAM).not.toContain('nearestChoice')
   })
 
-  it('the chips are RENDERED from that enum, never from three literals', () => {
-    expect(SCREEN_CODE).toContain('MINUTE_CHOICES.map(')
-    // …and the room never mints a stepper for this dial: 予約の刻み is the only
-    // number field on the page, which is also what the ⛔ NaN riders guard.
+  /** ⚡ Commit 3's census, made a repeatable pin: `/usr/bin/grep -rn
+   *  'MINUTE_CHOICES\|nearestChoice\|NewClientMinutes' src` returns ZERO hits at
+   *  this SHA outside this very file's own search strings (checked by hand at
+   *  build time; this leg is the room's three own files, the ones the round
+   *  touched, so a re-introduction here goes red without a repo-wide grep). */
+  it('census — the three retired names have zero live readers in the room’s own files', () => {
+    for (const dead of ['MINUTE_CHOICES', 'nearestChoice', 'NewClientMinutes']) {
+      expect(SEAM).not.toContain(dead)
+      expect(SCREEN_CODE).not.toContain(dead)
+      expect(PAGE_CODE).not.toContain(dead)
+    }
+  })
+
+  it('the field is RENDERED as free text + nudge, never three chips', () => {
+    expect(SCREEN_CODE).not.toContain('MINUTE_CHOICES')
+    expect(SCREEN_CODE).toContain('id="stMinutes"')
+    // Three typed fields on the page now, in the order the room renders them:
+    // 新規のお客様の確保, then 予約の刻み, then 残りわずかの目安.
     const inputs = openingTags(SCREEN_CODE, 'input')
-    expect(inputs.length).toBe(1)
-    expect(inputs[0]).toContain('id="stSlot"')
+    expect(inputs.map((t) => /id="(\w+)"/.exec(t)?.[1])).toEqual(['stMinutes', 'stSlot', 'stTight'])
+    // …and it commits through the SAME pure function BOTH free-length fields
+    // call — not a per-field copy of `commitNumberField`'s own four-line body
+    // (⚖ D-25 F3). A snap anywhere on either call site goes red here, not
+    // just at one field's own spelling.
+    expect(SCREEN_CODE).toContain('commitMinutes(minutesText, lastGoodMinutes.current, props.dayLenMin)')
+    expect(SCREEN_CODE).toContain('commitMinutes(slotText, lastGoodSlot.current, props.dayLenMin)')
+    // ⚖ NEVER SNAPPED — the committed value IS `commit.value` (whatever
+    // `commitMinutes` actually accepted), never a nearby fixed choice.
+    expect(SCREEN_CODE).toContain('setMinutes(commit.value)')
   })
 
-  it('a stored value off the ladder is READ, and never silently re-saved as itself', () => {
-    // core's own asymmetry: the read side is a plain number, the write side the
-    // union. So an older row at 120 is readable, and the chips fall back to the
-    // nearest value they can actually save.
-    expect(nearestChoice(90)).toBe(90)
-    expect(nearestChoice(120)).toBe(90)
-    expect(nearestChoice(30)).toBe(60)
-    expect(nearestChoice(Number.NaN)).toBe(90)
-    // A tie goes to the LONGER window: a store holding more time for new
-    // customers is not quietly moved to holding less.
-    expect(nearestChoice(67.5)).toBe(75)
-    expect(nearestChoice(82.5)).toBe(90)
-  })
+  /** ⚖ D-26 N1 — A NUDGE IS A COMMIT, same as `choosePreset`. Before this fix
+   *  the ± handlers moved only the typed text, so `minutesPending` stayed true
+   *  forever after one press — the card kept the old length and the line
+   *  underneath told the manager to leave a field they were never in. Both
+   *  handlers now route through the SAME `commitMinutes` `onBlur` already
+   *  calls (SOURCE-pinned — the closures themselves cannot be called from this
+   *  suite, the house ceiling above), and the composition they use is driven
+   *  directly through its two exported pure halves. */
+  it('⚖ D-26 N1 — both ± handlers commit through `commitMinutes`, and the composition round-trips', () => {
+    expect(SCREEN_CODE).toContain('function nudgeMinutes(delta: number)')
+    expect(SCREEN_CODE).toContain('function nudgeSlot(delta: number)')
+    expect(SCREEN_CODE).toContain('commitMinutes(String(next), lastGoodMinutes.current, props.dayLenMin)')
+    expect(SCREEN_CODE).toContain('commitMinutes(String(next), lastGoodSlot.current, props.dayLenMin)')
+    expect(SCREEN_CODE).toContain('onClick={() => nudgeMinutes(-NUDGE_MIN)}')
+    expect(SCREEN_CODE).toContain('onClick={() => nudgeMinutes(NUDGE_MIN)}')
+    expect(SCREEN_CODE).toContain('onClick={() => nudgeSlot(-NUDGE_MIN)}')
+    expect(SCREEN_CODE).toContain('onClick={() => nudgeSlot(NUDGE_MIN)}')
 
-  it('⚖ F7 — the two INFINITE ends carry a direction, and NaN carries none', () => {
-    // Every `|m − ±∞|` is equally Infinite, so the nearest-choice reduce ties all
-    // three and the tie-break hands back the longest — which answers 「shorter
-    // than every choice we offer」 with the longest window. NaN is the value that
-    // genuinely says nothing, and that is the one the hold-more-time doctrine is
-    // written for.
-    expect(nearestChoice(-Infinity)).toBe(60)
-    expect(nearestChoice(Infinity)).toBe(90)
-    expect(nearestChoice(Number.NaN)).toBe(90)
+    // The composition itself — `commitMinutes(String(clampSlot(current + delta,
+    // ceiling)), lastGood, ceiling)` — driven directly through the two
+    // exported pure functions both handlers are built from.
+    const nudge = (current: number, delta: number, ceiling: number) =>
+      commitMinutes(String(clampSlot(current + delta, ceiling)), current, ceiling)
+    expect(nudge(90, 5, 600)).toEqual({ value: 95, message: null })
+    // clampSlot already caps the candidate AT the ceiling (600), so
+    // commitMinutes receives an in-range value and stays silent — no
+    // over-ceiling message, because there is nothing left to clamp.
+    expect(nudge(598, 5, 600)).toEqual({ value: 600, message: null })
   })
 
   it('the two live fields cross the seam in CORE’s own spellings', () => {
@@ -321,9 +501,15 @@ describe('⚖ 1b RULED — 新規のお客様の確保 is three fixed choices, a
       .toEqual({ gap_guard_mode: 'STANDARD', new_client_session_minutes: 90 })
     expect(liveFieldsFrom({ gapGuardMode: 'strict', newClientSessionMinutes: 60 }).gap_guard_mode).toBe('STRICT')
     expect(liveFieldsFrom({ gapGuardMode: 'off', newClientSessionMinutes: 75 }).gap_guard_mode).toBe('OFF')
+    // ⚖ D-25 F9 — the READ side is honest OFF the old three-choice ladder too:
+    // a stored value the write union cannot re-accept still reads as itself.
+    expect(liveFieldsFrom({ gapGuardMode: 'standard', newClientSessionMinutes: 100 }).new_client_session_minutes).toBe(100)
     // …and the page reads them THROUGH it, so the reconnect is one function body.
     expect(PAGE_CODE).toContain('liveFieldsFrom({')
     expect(PAGE_CODE).toContain('live.new_client_session_minutes')
+    // ⚖ D-25 F1 — AND THE RAW READ MEETS THE PARSER before it becomes the
+    // policy's `newClientMinutes`; the default is the seam's ONE home for it.
+    expect(PAGE_CODE).toContain('readMinutes(live.new_client_session_minutes, dayLenMin) ?? NEW_CLIENT_DEFAULT_MIN')
   })
 
   it('⚖ F4 — the guard’s THIRD state crosses whole, and is never collapsed into STANDARD', () => {
@@ -336,41 +522,66 @@ describe('⚖ 1b RULED — 新規のお客様の確保 is three fixed choices, a
     expect(SCREEN_CODE).toContain('mode: GapGuardMode')
     expect(SCREEN_CODE).toContain('useState<GapGuardMode>(policy.mode)')
 
-    // THE MAPPING ITSELF, driven. The engine has two modes and no third
+    // THE MAPPING ITSELF, driven, over arbitrary minute values — ⚖ D-15 there is
+    // no fixed ladder left to loop over. The engine has two modes and no third
     // (`createGapGuard`: standard | strict), so OFF is answered BEFORE the engine
     // — `null`, meaning there is no verdict to preview at all.
-    for (const m of MINUTE_CHOICES) {
+    for (const m of [1, 45, 60, 75, 90, 100, 240]) {
       expect(sceneKeyFor('OFF', m)).toBeNull()
       expect(sceneKeyFor('STANDARD', m)).toBe(`standard:${m}`)
       expect(sceneKeyFor('STRICT', m)).toBe(`strict:${m}`)
     }
-    // …and a null key is what makes the preview draw NO warn face: the room does
-    // not fall back to a standard scene, it stops.
-    expect(SCREEN_CODE).toContain('const sceneKey = sceneKeyFor(mode, minutes)')
-    expect(SCREEN_CODE).toContain('const guardOff = sceneKey === null')
+    // …and a null answer is what makes the preview draw NO warn face: the room
+    // does not fall back to a standard scene, it stops.
+    expect(SCREEN_CODE).toContain('const guardOff = sceneKeyFor(mode, minutes) === null')
+    // ⚖ S17 — AND IT IS THE SEAM'S FUNCTION, NEVER A COPY OF IT. The whole point
+    // of `store-policy-seam.ts` is that the reconnect replaces two function
+    // bodies and no reader moves; a local re-implementation beside the caller is
+    // a second spelling of the third state, which is exactly ⚖ F4's defect
+    // wearing the fix's name.
+    expect(SCREEN_CODE).toContain(importOf('./store-policy-seam'))
+    expect(SCREEN_CODE).not.toMatch(/(?:const|function)\s+sceneKeyFor/)
+    expect(PAGE_CODE).toContain(importOf('./store-policy-seam'))
+    expect(PAGE_CODE).not.toMatch(/(?:const|function)\s+sceneKeyFor/)
     expect(SCREEN_CODE).toContain('const card = sample === null || guardOff ? null : warnFaceFor({')
 
-    // ⚖ 9/1 (fix round 1 F4b) — AND THE OFF STORE DOES NOT GET A FABRICATED
-    // ROOM-TIGHT ALARM. A `{ capacity: 0 }` fallback printed the amber 「この長さ
-    // では…ひとつも作れません（0枠）」 at every OFF store — a warning about a day
-    // that is not tight, invented by a missing key. The number is MODE-FREE (the
-    // page computes it once per 長さ, outside the strict loop, and stores the same
-    // value under both keys), so the honest one is under STANDARD.
-    expect(PAGE_CODE).toMatch(/const capacity = protectedCapacityOf\([^\n]*\n\s*for \(const strict of/)
-    expect(SCREEN_CODE).toContain("{ capacity: props.scenes[sceneKeyFor('STANDARD', minutes)!]?.capacity ?? 0, cell: null }")
+    // ⚖ 9/1 (fix round 1 F4b), CARRIED INTO computeScene — AND THE OFF STORE
+    // DOES NOT GET A FABRICATED ROOM-TIGHT ALARM. Capacity is asked under
+    // STANDARD regardless of the live `mode` — never the `{ capacity: 0 }` a
+    // missing lookup used to fall back to — so the honest number is there even
+    // with the guard off, and `cell` alone is what OFF suppresses.
+    expect(SCREEN_CODE).toContain('const capacity = protectedCapacityOf(input.lanes, railInput(false))')
+    // ⚖ D-25 F2 — computeScene's own OFF check asks the SEAM now, the same
+    // call the screen's `guardOff` makes, not a second inline spelling of it.
+    expect(SCREEN_CODE).toContain("sceneKeyFor(mode, minutes) === null || input.sampleLaneKey === null")
 
-    // The rule itself, driven: at OFF the capacity is the engine's number and the
-    // cell is still gone, so the line tells the truth and the card stays away.
-    const scenes = { 'standard:90': { capacity: 6, cell: repCell(true) }, 'strict:90': { capacity: 6, cell: repCell(false) } }
-    const pick = (m: 'OFF' | 'STANDARD' | 'STRICT') => {
-      const key = sceneKeyFor(m, 90)
-      return key === null
-        ? { capacity: scenes[sceneKeyFor('STANDARD', 90) as keyof typeof scenes]?.capacity ?? 0, cell: null }
-        : scenes[key as keyof typeof scenes] ?? { capacity: 0, cell: null }
+    // The rule itself, driven against the REAL `computeScene` — not a hand
+    // re-implementation of it, which is exactly how ⚖ 54's class of bug hides.
+    const lane: BoardLane = {
+      key: 'p-01', group: 'staff', label: 'テスト', sub: '', absentNote: null, mine: false,
+      items: [], window: { from: 600, until: 1200 }, untilLabel: null, listPrice: 7000, stores: null, roomClass: null,
     }
-    expect(pick('OFF')).toEqual({ capacity: 6, cell: null })
-    expect(pick('STANDARD').capacity).toBe(6)
-    expect(pick('STRICT').cell).not.toBeNull()
+    const sceneInput: SceneInput = {
+      lanes: [lane],
+      hours: { open: 600, close: 1200 },
+      stepMin: 30,
+      dur: 60,
+      nowMinute: null,
+      sampleLaneKey: lane.key,
+      sampleStart: 900,
+      guardBase: { services: [{ name: '見本', dur: 60 }], protectedLabel: '新規', gapFillMinMin: 0, blockStepMin: 15, leadTimeMin: 0 },
+    }
+    const off = computeScene(sceneInput, 'OFF', 90)
+    const std = computeScene(sceneInput, 'STANDARD', 90)
+    const strict = computeScene(sceneInput, 'STRICT', 90)
+    expect(off.cell).toBeNull()
+    expect(std.cell).not.toBeNull()
+    expect(strict.cell).not.toBeNull()
+    // …capacity is the SAME number under all three — mode-free, exactly the
+    // invariant the comment above states.
+    expect(off.capacity).toBe(std.capacity)
+    expect(std.capacity).toBe(strict.capacity)
+    expect(off.capacity).toBeGreaterThan(0)
     // …the OFF store gets its own sentence rather than a borrowed one…
     expect(SCREEN_CODE).toContain('確保枠の見張りそのものを止めています')
     // …and the strict dial shows NEITHER position at OFF, so nothing on screen
@@ -378,9 +589,210 @@ describe('⚖ 1b RULED — 新規のお客様の確保 is three fixed choices, a
     expect(SCREEN_CODE).toContain("aria-pressed={mode === 'STRICT'}")
     expect(SCREEN_CODE).toContain("aria-pressed={mode === 'STANDARD'}")
     expect(SCREEN_CODE).not.toMatch(/aria-pressed=\{!strict\}/)
-    // The page builds its scene keys through the SAME function, so the two sides
-    // of the map cannot spell a key two ways.
-    expect(PAGE_CODE).toContain("scenes[sceneKeyFor(strict ? 'STRICT' : 'STANDARD', minutes)!]")
+  })
+})
+
+describe('⚖ D-28 — the warn line says what is true; a nudge from an empty box starts at the committed value', () => {
+  it('the sentence — one named constant, three call sites, byte-identical to the native pass', () => {
+    // JP-NATIVE-R3/A1-WARN-LINE.md, copied byte for byte.
+    const NATIVE_SENTENCE = '数字以外は保存されません。欄を離れると前の値に戻ります'
+    const OLD_SENTENCE = '数字以外は保存されません。いま入力した文字から、数字以外を消しました'
+    expect(SCREEN_CODE).not.toContain(OLD_SENTENCE)
+    expect((SCREEN_CODE.match(/NON_DIGIT_WARN/g) ?? []).length).toBe(4) // 1 declaration + 3 call sites
+    expect(SCREEN_CODE).toContain(`const NON_DIGIT_WARN = '${NATIVE_SENTENCE}'`)
+  })
+
+  it('nudgeBase — an emptied box nudges from the committed value, never from Number(\'\') = 0', () => {
+    expect(nudgeBase('', 90, 1)).toBe(90)
+    expect(nudgeBase('100', 90, 1)).toBe(100)
+    expect(nudgeBase('  ', 90, 1)).toBe(90)
+    // ⚖ D-29 — a box holding anything commitMinutes would refuse (kept as
+    // typed, never rewritten) nudges from the committed value too, not from
+    // Number(text) on garbage/non-integer/non-positive text.
+    expect(nudgeBase('abc', 90, 1)).toBe(90)
+    expect(nudgeBase('1.5', 90, 1)).toBe(90)
+    expect(nudgeBase('-5', 90, 1)).toBe(90)
+    expect(nudgeBase('0', 90, 1)).toBe(90)
+    // ⚖ D-30 — JS numeric notation restores too, at any floor.
+    expect(nudgeBase('1e2', 90, 1)).toBe(90)
+    // ⚖ D-30 — the floor is the field's own: '0' is refused at SLOT_MIN (1)
+    // but IS a real value at the tight field's own floor (0) — the − press
+    // clamps 0-1 back to 0, the ＋ press gives 1, and nudgeBase itself answers 0.
+    expect(nudgeBase('0', 2, 0)).toBe(0)
+  })
+
+  it('source pin — every ± handler calls nudgeBase(', () => {
+    // 1 declaration + 4 call sites: nudgeMinutes, nudgeSlot, and the tight
+    // field's two inline ± handlers.
+    expect((SCREEN_CODE.match(/nudgeBase\(/g) ?? []).length).toBe(5)
+  })
+
+  it('source pin — every nudgeBase call site passes a floor argument', () => {
+    expect(SCREEN_CODE).toContain('nudgeBase(minutesText, lastGoodMinutes.current, SLOT_MIN)')
+    expect(SCREEN_CODE).toContain('nudgeBase(slotText, lastGoodSlot.current, SLOT_MIN)')
+    expect((SCREEN_CODE.match(/nudgeBase\(tightText, lastGoodTight\.current, TIGHT_MIN\)/g) ?? []).length).toBe(2)
+  })
+})
+
+describe("⚖ D-30 — isIntegerTextAtLeast, digits only, at or above the field's own floor", () => {
+  it('true only for a bare-digit text at or above the floor — no JS numeric notation', () => {
+    expect(isIntegerTextAtLeast('75', 1)).toBe(true)
+    expect(isIntegerTextAtLeast('1.5', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('abc', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('0', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('-5', 1)).toBe(false)
+    // ⚖ D-30 — Greptile pass 2, issue 1: `Number()` accepts JS numeric
+    // notation the field never shows the operator typing, and rewrites the
+    // text into a different number — 「1e2」 commits 100, 「0x10」 commits 16,
+    // 「+5」 commits 5.
+    expect(isIntegerTextAtLeast('1e2', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('0x10', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('+5', 1)).toBe(false)
+    expect(isIntegerTextAtLeast('０', 1)).toBe(false) // full-width digit — not [0-9]
+    expect(isIntegerTextAtLeast(' 75 ', 1)).toBe(true) // trims
+    // ⚖ D-30 — Greptile pass 2, issue 2: the floor is the field's own; 0 is
+    // refused at SLOT_MIN (1) but legal at TIGHT_MIN (0).
+    expect(isIntegerTextAtLeast('0', 0)).toBe(true)
+  })
+
+  it('source pin — no isPositiveIntegerText left; commitMinutes, nudgeBase and the tight onBlur all call isIntegerTextAtLeast( with a floor', () => {
+    expect(SCREEN_CODE).not.toContain('isPositiveIntegerText')
+    expect(SCREEN_CODE).toContain("isIntegerTextAtLeast(text, SLOT_MIN) ? text.trim() : ''")
+    expect(SCREEN_CODE).toContain('isIntegerTextAtLeast(text, floor) ? Number(text.trim()) : lastGood')
+    expect(SCREEN_CODE).toContain("isIntegerTextAtLeast(tightText, TIGHT_MIN) ? tightText.trim() : ''")
+  })
+})
+
+// ── ⚖ D-25 — fix round 1 on A1 (the read goes through the parser; one home
+// for OFF and for the ceiling; the browser gets geometry only) ─────────────
+
+describe('⚖ D-25 — the read goes through readMinutes, and the two accepted sets are pinned equal', () => {
+  it('equivalence — readMinutes accepts v ⇔ commitNumberField(String(v), 90, 1, 600, \'分\') commits v UNCLAMPED, at the same ceiling', () => {
+    for (const v of [1, 45, 60, 75, 90, 100, 240, 600, 601, 0, -5, 1.5, Number.NaN]) {
+      const accepted = readMinutes(v, 600) !== null
+      const commit = commitNumberField(String(v), 90, 1, 600, '分')
+      const committedUnclamped = commit.message === null && commit.value === v
+      expect({ v, accepted }).toEqual({ v, accepted: committedUnclamped })
+    }
+  })
+
+  it('dayLengthMin is the ONE ceiling — floored at 1 so a zero-length day cannot refuse everything', () => {
+    expect(dayLengthMin({ open: 600, close: 1140 })).toBe(540)
+    expect(dayLengthMin({ open: 600, close: 600 })).toBe(1)
+    // ⚖ D-25 F11 — a closed-all-day store would otherwise derive a ceiling of
+    // 0, and `clampInt(n, 1, 0)` answers 0 for every n (`Math.min(0, …)`).
+    expect(dayLengthMin({ open: 600, close: 599 })).toBe(1)
+  })
+
+  it('commitMinutes IS commitNumberField at the field\'s own floor — driven, not asserted', () => {
+    expect(commitMinutes('100', 90, 600)).toEqual({ value: 100, message: null })
+    const empty = commitMinutes('', 90, 600)
+    expect(empty.value).toBe(90)
+    expect(empty.message).not.toBeNull()
+    // ⚖ D-27 — REWRITTEN LEG: '0' used to clamp to the floor (1) with a range
+    // message; that was the room's original bug (⚖ Greptile pass 1 on #918,
+    // issue 1) — 0 is not a positive integer, so it is meaningless input, not
+    // an in-range-but-low one, and the commit RESTORES the previous value
+    // exactly like '1.5' / '-5' / 'abc100' / '' do, never a rewritten number.
+    const zero = commitMinutes('0', 90, 600)
+    expect(zero.value).toBe(90)
+    expect(zero.message).not.toBeNull()
+    // ⚖ D-27 — non-integer and negative typed text restore the same way.
+    expect(commitMinutes('1.5', 90, 600)).toEqual(commitMinutes('', 90, 600))
+    expect(commitMinutes('-5', 90, 600)).toEqual(commitMinutes('', 90, 600))
+    expect(commitMinutes('abc100', 90, 600)).toEqual(commitMinutes('', 90, 600))
+    // ⚖ D-30 — Greptile pass 2, issue 1: JS numeric notation restores too,
+    // rather than being rewritten into another number (1e2 → 100, 0x10 → 16,
+    // +5 → 5 were the room's own bug).
+    expect(commitMinutes('1e2', 90, 600)).toEqual(commitMinutes('', 90, 600))
+    expect(commitMinutes('0x10', 90, 600)).toEqual(commitMinutes('', 90, 600))
+    expect(commitMinutes('+5', 90, 600)).toEqual(commitMinutes('', 90, 600))
+    const over = commitMinutes('700', 90, 600)
+    expect(over.value).toBe(600)
+    expect(over.message).not.toBeNull()
+    // …and an in-range positive integer is accepted in silence, unchanged.
+    expect(commitMinutes('75', 90, 600)).toEqual({ value: 75, message: null })
+  })
+
+  /** ⚖ D-27 — `lastGood*` MOVES ONLY ON A COMMIT, never on a keystroke. The
+   *  three `useEffect`s that used to update it on every valid keystroke are
+   *  gone (confirmed RED-first: restoring any one of them — FIX-REPORT-R3-
+   *  A1-F3 mutant 3 — makes 「type 100, clear, blur」 restore 100, not 90, and
+   *  this pin is what catches it, since no behavioural render test drives this
+   *  room). `Math.round(n)` was that deleted effect's own spelling and
+   *  appears nowhere else in the file, so its return is a clean tripwire. */
+  it('⚖ D-27 — no useEffect writes lastGood*; every write sits beside a commit', () => {
+    expect(SCREEN_CODE).not.toContain('lastGoodMinutes.current = Math.round(n)')
+    expect(SCREEN_CODE).not.toContain('lastGoodSlot.current = Math.round(n)')
+    expect(SCREEN_CODE).not.toContain('lastGoodTight.current = Math.round(n)')
+    // …and the writes that DO exist are the commit sites named in D-27: a
+    // preset press, a nudge/± press, or a blur — never a keystroke effect.
+    const countOf = (needle: string) => SCREEN_CODE.split(needle).length - 1
+    expect(countOf('lastGoodMinutes.current =')).toBe(3) // choosePreset · nudgeMinutes · onBlur
+    expect(countOf('lastGoodSlot.current =')).toBe(3) // choosePreset · nudgeSlot · onBlur
+    expect(countOf('lastGoodTight.current =')).toBe(3) // − button · + button · onBlur
+  })
+
+  /** ⚖ D-25 L2 FOLD (m5) — `clampSlot`'s own return value, pinned directly.
+   *  Nothing else in the battery drove it (only the nudge buttons call it),
+   *  so a mutant dropping its `Math.min(ceiling, …)` survived the whole
+   *  battery green — confirmed RED-first against that exact mutant before
+   *  this pin existed (FIX-REPORT-R3-A1-F1, gate 6). */
+  it('clampSlot floors AND ceilings, standalone', () => {
+    expect(clampSlot(700, 600)).toBe(600)
+    expect(clampSlot(0, 600)).toBe(1)
+    expect(clampSlot(Number.NaN, 600)).toBe(1)
+    expect(clampSlot(75, 600)).toBe(75)
+  })
+
+  it('⚖ F8 — computeScene itself, driven across the free range: capacity non-increasing, OFF === STANDARD at every m, OFF cell always null', () => {
+    const lane: BoardLane = {
+      key: 'p-01', group: 'staff', label: 'テスト', sub: '', absentNote: null, mine: false,
+      items: [], window: { from: 600, until: 1200 }, untilLabel: null, listPrice: 7000, stores: null, roomClass: null,
+    }
+    const sceneInput: SceneInput = {
+      lanes: [lane],
+      hours: { open: 600, close: 1200 },
+      stepMin: 30,
+      dur: 60,
+      nowMinute: null,
+      sampleLaneKey: lane.key,
+      sampleStart: 900,
+      guardBase: { services: [{ name: '見本', dur: 60 }], protectedLabel: '新規', gapFillMinMin: 0, blockStepMin: 15, leadTimeMin: 0 },
+    }
+    let prevCapacity = Infinity
+    for (const m of [1, 45, 60, 75, 90, 100, 240]) {
+      const std = computeScene(sceneInput, 'STANDARD', m)
+      const off = computeScene(sceneInput, 'OFF', m)
+      expect(std.capacity).toBeLessThanOrEqual(prevCapacity)
+      prevCapacity = std.capacity
+      expect(off.capacity).toBe(std.capacity)
+      expect(off.cell).toBeNull()
+    }
+  })
+
+  it('⚖ F7 — the browser payload carries geometry, not the store\'s naming fields', () => {
+    // The two engines read `items[].startMin/endMin/x/w/kind` and the lane's
+    // own `window`/`group`/`key`/`stores`/`roomClass`/`listPrice` — never a
+    // naming field. Blanked at the boundary, source-pinned here.
+    expect(PAGE_CODE).toContain('title: \'\', tag: \'\', label: \'\', ticketCat: null, ticketCore: null')
+    expect(PAGE_CODE).toContain('lanes: blankLaneNames(lanes)')
+  })
+
+  /** ⚖ D-26 N2 — `caseId` is an opaque booking id (`b.id`, `today-board.ts`),
+   *  the same class as `key`, and the one blanked field `laneSpans`'s
+   *  exclusion filter actually reads (`today-interactions.ts`). Nulling it was
+   *  a latent trap for the day an `excludeId` is wired through — source-pinned
+   *  here since the transform's closure cannot be called from this suite (the
+   *  house ceiling above): the object spread (`...it`) runs BEFORE the
+   *  remaining overrides, and `caseId` is no longer one of them, so whatever
+   *  `caseId` the item arrived with survives by construction. */
+  it('⚖ D-26 N2 — caseId is not a name, and survives blankLaneNames', () => {
+    expect(PAGE_CODE).toContain(
+      '{ ...it, title: \'\', tag: \'\', label: \'\', ticketCat: null, ticketCore: null }',
+    )
+    expect(PAGE_CODE).not.toContain('caseId: null')
   })
 })
 
@@ -414,8 +826,25 @@ describe('⚖ the save gate is DATA, and its refusal is readable', () => {
     // refused for.
     expect(PAGE_CODE).toContain('saveRefusal(managerRoles, shell.operator.role)')
     expect(PAGE_CODE).toContain('releaseHeldRoles')
-    expect(SCREEN_CODE).toContain('disabled={props.save.refusal !== null}')
+    // ⚠ D-38 (⚖ S17 fix round 4 · M5) — THE REFUSAL IS THE SAME FACT, WORN THE
+    // WAY THIS ROOM WEARS ONE. `disabled` took the button out of the tab order
+    // and its `title` reason with it — so the reader who most needs the reason
+    // was the one who could not reach it — while the room states the law twice
+    // for its own controls: 「stays FOCUSABLE (`aria-disabled`, never
+    // `disabled`) so its reason is reachable」. Same predicate, same source, and
+    // the press is guarded where the refusal is decided, because an
+    // `aria-disabled` button is a real button the browser will not stop.
+    expect(SCREEN_CODE).toContain(`aria-disabled={props.save.refusal !== null ? 'true' : undefined}`)
+    expect(SCREEN_CODE).not.toContain('disabled={props.save.refusal !== null}')
+    expect(SCREEN_CODE).toContain('onClick={props.save.refusal !== null ? (e) => e.preventDefault() : undefined}')
+    // …and the reason rides the accessible NAME as well as the description, the
+    // way every locked control in this room does it (a screen reader drops
+    // `title` once a description is present).
+    expect(SCREEN_CODE).toContain('aria-label={props.save.refusal !== null ? `この設定を保存 — ${props.save.refusal}` : undefined}')
     expect(SCREEN_CODE).toContain('{props.save.refusal}')
+    // …and it still LOOKS refused: the shell paints `button:disabled` and cannot
+    // know about this one, so the room says it for the state it really uses.
+    expect(CSS).toContain('.biz .pg-settings .sp-save .btn[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }')
     // …and the roles are NAMED on screen, so a refusal points somewhere.
     expect(SCREEN_CODE).toContain('props.save.roles.join')
     expect(SCREEN_CODE).not.toContain('オーナー')
@@ -483,8 +912,8 @@ describe('the preview is composed by the BOARD’s own function, not by this roo
     }
   })
 
-  it('the chosen 確保 length is what the card SAYS — all three of them', () => {
-    for (const minutes of MINUTE_CHOICES) {
+  it('the chosen 確保 length is what the card SAYS — at every free value, not just three', () => {
+    for (const minutes of [45, 60, 75, 90, 100]) {
       const card = cardFor({ protectedDur: minutes })
       expect(card.face).toBe('warn')
       expect(card.impact.head).toBe(`ここに置くと、新規のお客様の${minutes}分`)
@@ -687,8 +1116,9 @@ describe('⚖ the guardrail counts what the ENGINE counts', () => {
     // ⚖ 9/1 (fix round 1 F5) — THE NUMBER IS NOW DRIVABLE, which is the whole
     // finding: spelled inline in the server component it was a value no test in
     // this repo could reach, and a fabricated capacity shipped green through the
-    // entire suite. The page hands the walk to the board's own function…
-    expect(PAGE_CODE).toContain('const capacity = protectedCapacityOf(lanes, railInputFor(minutes, false))')
+    // entire suite. ⚖ D-15 moved the walk client-side (`computeScene`, since
+    // the length is free); it hands off to the SAME board function…
+    expect(SCREEN_CODE).toContain('const capacity = protectedCapacityOf(input.lanes, railInput(false))')
     // …and the function really is the engine's own count, summed over the day's
     // own pockets. The expectation is derived HERE, in its own spelling, off
     // `protectedCapacity` directly — so a walk that drops a lane, ignores the
@@ -697,7 +1127,7 @@ describe('⚖ the guardrail counts what the ENGINE counts', () => {
     // proven green: the call passes `placement: null`, so the engine has nothing
     // to remove and the two counts are equal by construction. Recorded rather
     // than claimed — see redruns-round1/F5b-REFUTED.log.)
-    for (const minutes of MINUTE_CHOICES) {
+    for (const minutes of [45, 60, 75, 90, 100]) {
       const lanes = [laneOf('p-01', 600, 1140, [[720, 780]]), laneOf('p-02', 660, 1080), laneOf('bed-1', 600, 1140)]
       lanes[2] = { ...lanes[2], group: 'beds', window: null }
       const input = capacityIn(minutes)
@@ -719,7 +1149,7 @@ describe('⚖ the guardrail counts what the ENGINE counts', () => {
     // A LONGER 確保 cannot fit MORE windows into the same day — the monotonicity
     // the dial's own guardrail line is about, asserted without pinning 6/5/4
     // (which move with the fixture).
-    const counts = MINUTE_CHOICES.map((m) => protectedCapacityOf([laneOf('p-01', 600, 1140)], capacityIn(m)))
+    const counts = [45, 60, 75, 90, 100].map((m) => protectedCapacityOf([laneOf('p-01', 600, 1140)], capacityIn(m)))
     expect(counts).toEqual([...counts].sort((a, b) => b - a))
     // A locked lane is not a lane the rail draws on, so it holds nothing either.
     expect(protectedCapacityOf([laneOf('p-01', 600, 1140)], { ...capacityIn(90), locked: ['p-01'] })).toBe(0)
@@ -739,15 +1169,13 @@ describe('⚖ the guardrail counts what the ENGINE counts', () => {
     expect(SCREEN_CODE).toContain('ひとつも作れません（0枠）')
   })
 
-  it('a scene is evaluated for every value the two dials can take', () => {
-    // Six, so a chip press repaints the card with no data access and no
-    // arithmetic in the browser.
-    expect(PAGE_CODE).toContain('for (const minutes of MINUTE_CHOICES)')
-    expect(PAGE_CODE).toContain('for (const strict of [false, true])')
-    // ⚖ 9/1 (fix round 1 F4) — and the READ side asks the seam for the key, so
-    // the third state has one home rather than a template literal on each side.
-    expect(SCREEN_CODE).toContain('props.scenes[sceneKey]')
-    expect(SCREEN_CODE).not.toContain("`${strict ? 'strict' : 'standard'}:${minutes}`")
+  it('⚖ D-15 — a scene is evaluated for whatever the operator commits, with no data access or arithmetic of its own beyond the two engine calls', () => {
+    // No fixed set to loop over any more; the browser re-asks `computeScene` on
+    // every blur, memoised on the dials that actually change its answer.
+    expect(SCREEN_CODE).toContain('useMemo(() => computeScene(props.sceneInput, mode, minutes), [props.sceneInput, mode, minutes])')
+    expect(PAGE_CODE).not.toContain('for (const minutes of')
+    expect(PAGE_CODE).not.toContain('for (const strict of')
+    expect(SCREEN_CODE).not.toContain('props.scenes')
   })
 
   it('the sample landing is FOUND BY RULE, never written down', () => {
@@ -767,9 +1195,11 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // would let an empty field through and `String(NaN)` would land 「NaN」 in the
     // box. Same shape as `impactOf`'s own `!(protectedDur > 0)`.
     expect(SCREEN_CODE).toContain('if (!(Number.isFinite(value) && value >= SLOT_MIN)) return SLOT_MIN')
-    // …and the field itself refuses non-digits at the keystroke, so the clamp is
-    // the second line of defence rather than the only one.
-    expect(SCREEN_CODE).toContain("replace(/[^0-9]/g, '')")
+    // ⚖ D-27 — the field no longer refuses non-digits at the keystroke: typed
+    // text is kept AS TYPED (never rewritten into another number), and the
+    // commit — not the keystroke — is what refuses a non-integer. `clampSlot`
+    // above is the only clamp left, so it is the ONLY line of defence now.
+    expect(SCREEN_CODE).not.toContain('replace(/[^0-9]/g')
   })
 
   it('⚖ F10 — the rejection is SAID, not only coloured (WCAG 1.4.1)', () => {
@@ -778,7 +1208,19 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // as the sole carrier of information, on the one field in this room an
     // operator actually types into. The sentence itself moves now, inside the
     // region that was already there.
-    expect(SCREEN_CODE).toContain("{slotWarn ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました' : '数字以外は保存されません'}")
+    // ⚠ D-37 (⚖ S17 fix round 4 · M4) — THE REGION GAINED A THIRD SENTENCE, so
+    // the ternary this pin held is now a chain. The F10 CLAIM is unchanged and
+    // is asserted piece by piece: three DIFFERENT strings in one live region, so
+    // whichever state the field is in, the region's text really moves.
+    expect(SCREEN_CODE).toContain("{slotWarn")
+    expect(SCREEN_CODE).toContain("? NON_DIGIT_WARN") // ⚖ D-28 — the sentence's one home
+    expect(SCREEN_CODE).toContain(": (slotMsg ?? '数字以外は保存されません')}")
+    // …and the new sentence is the room's ONE rule for an emptied number field,
+    // not a second copy of it written for this section (⚖ D-25 F3 — through
+    // `commitMinutes`, the one pure home both free-length fields call).
+    expect(SCREEN_CODE).toContain('const commit = commitMinutes(slotText, lastGoodSlot.current, props.dayLenMin)')
+    expect(SCREEN_CODE).toContain('setSlotMsg(commit.message)')
+    expect(SCREEN_CODE).not.toContain('setSlotText(String(clampSlot(Number(slotText))))')
     // The two states are DIFFERENT text, which is the whole of the fix — a region
     // that re-renders the same string is silent to a screen reader.
     expect(SCREEN_CODE).toContain('aria-live="polite"')
@@ -787,16 +1229,122 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // cleared only on blur, so 「…消しました」 stood over the next CLEAN keystroke,
     // announcing something that had just not happened. The flag now answers the
     // keystroke it is about.
-    expect(SCREEN_CODE).toContain('setSlotWarn(clean !== e.target.value)')
+    // ⚖ D-27 — the flag no longer comes from a stripped/kept comparison (there
+    // is no stripping left): it reads the same keystroke through a `.test`,
+    // the field's warn line lighting while a non-digit is present without the
+    // text itself ever being rewritten.
+    expect(SCREEN_CODE).toContain('setSlotWarn(/[^0-9]/.test(e.target.value))')
     expect(SCREEN_CODE).not.toContain('if (clean !== e.target.value) setSlotWarn(true)')
     // Driven on the keystroke rule itself: rejected → true, and the very next
     // clean keystroke → false, which is the stale case.
-    const warns = (typed: string) => typed.replace(/[^0-9]/g, '') !== typed
+    const warns = (typed: string) => /[^0-9]/.test(typed)
     expect(warns('1a')).toBe(true)
     expect(warns('15')).toBe(false)
     expect(warns('')).toBe(false)
-    // …and the colour still moves with it: the class is the same expression.
-    expect(SCREEN_CODE).toContain("`st-ctrl-d${slotWarn ? ' warn' : ' dim'}`")
+    // …and the colour still moves with it: the class is the same expression, now
+    // answering the third state too (⚖ D-37 — a restored value is a warning as
+    // much as a stripped character is).
+    expect(SCREEN_CODE).toContain("`st-ctrl-d${slotWarn || slotMsg !== null ? ' warn' : ' dim'}`")
+  })
+
+  /** ⚖ Liam 9/12 — 残りわずかの目安 IS 予約の刻み'S GRAMMAR, AND ITS GUARDRAIL IS
+   *  THE BOARD'S. The row was built by mirroring the field above it, so it is
+   *  pinned the same way — but with one thing the older field does not need: its
+   *  bounds are READ from the dial's own home rather than spelled here. A second
+   *  literal is how 「橙＝あと1〜5枠」 and a stepper that stops at 4 come to
+   *  disagree, and neither surface would be wrong on its own. */
+  it('⚖ 9/12 — the 残りわずかの目安 field reads ONE guardrail, and 0 is a real setting', () => {
+    // 1 · THE BOUNDS ARE THE BOARD'S, destructured once, never re-typed.
+    expect(SCREEN_CODE).toContain('const { min: TIGHT_MIN, max: TIGHT_MAX } = CALENDAR_TIGHT_RANGE')
+    expect(SCREEN_CODE).not.toMatch(/TIGHT_(MIN|MAX)\s*=\s*\d/)
+    // ⚖ D-30 — the raw text meets the SAME predicate `commitMinutes` uses (a
+    // bare-digit shape, at this field's own floor) BEFORE it reaches
+    // `commitNumberField`, so '1.5'/'-5'/'abc'/''/'1e2' all restore rather
+    // than being rewritten into another number.
+    expect(SCREEN_CODE).toContain("const raw = isIntegerTextAtLeast(tightText, TIGHT_MIN) ? tightText.trim() : ''")
+    expect(SCREEN_CODE).toContain('const commit = commitNumberField(raw, lastGoodTight.current, TIGHT_MIN, TIGHT_MAX, \'枠\')')
+    // …and the ± stepper reaches for the SAME clamp the page clamps with, so a
+    // press can never land on a value the month would refuse to paint — and each
+    // press CLEARS the commit sentence (⚖ COLD-READ C4), or a stale
+    // 「0枠から5枠のあいだで…」 from an earlier blur sits over the 0 state.
+    // ⚖ D-27 — and it is a COMMIT too, so `lastGoodTight` moves with it.
+    // ⚖ D-28 — and the base it steps from is `nudgeBase`, not a bare `Number(…)`,
+    // so a press from an EMPTIED box starts at the committed value, not at 0.
+    expect(SCREEN_CODE).toContain('onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current, TIGHT_MIN) - 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}')
+    expect(SCREEN_CODE).toContain('onClick={() => { const next = clampCalendarTight(nudgeBase(tightText, lastGoodTight.current, TIGHT_MIN) + 1); lastGoodTight.current = next; setTightMsg(null); setTightText(String(next)) }}')
+    expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.max + 1)).toBe(CALENDAR_TIGHT_RANGE.max)
+    expect(clampCalendarTight(CALENDAR_TIGHT_RANGE.min - 1)).toBe(CALENDAR_TIGHT_RANGE.min)
+
+    // …and the row OPENS on the store's own value, never on a literal (⚖ COLD-READ
+    // B1: a row that ignored the store would show one number while the month
+    // painted another, and neither surface would be wrong on its own).
+    expect(SCREEN_CODE).toContain('const [tightText, setTightText] = useState(String(policy.calendarTightMax))')
+    expect(SCREEN_CODE).toContain('const lastGoodTight = useRef(clampCalendarTight(policy.calendarTightMax))')
+    // ⚠ AND 0 IS A VALUE THE FIELD REMEMBERS. A `>` floor here would mean a
+    // store that dialled the tier OFF and then emptied the box is handed 2 back —
+    // the tier switched back on without anyone choosing that.
+    // ⚖ D-30 — the `>=` floor now lives in the ONE shared predicate
+    // (`isIntegerTextAtLeast`), called here with this field's own floor —
+    // never a second, locally-typed comparison that could drift from it.
+    expect(SCREEN_CODE).toContain('Number(t) >= floor')
+    expect(SCREEN_CODE).toContain('isIntegerTextAtLeast(tightText, TIGHT_MIN)')
+    expect(SCREEN_CODE).not.toMatch(/n\s*>\s*TIGHT_MIN/)
+
+    // 2 · THE BLUR RULE, DRIVEN — the room's one rule for a number field, with
+    // this field's unit and this field's bounds.
+    const commit = (raw: string, prev: number) =>
+      commitNumberField(raw, prev, CALENDAR_TIGHT_RANGE.min, CALENDAR_TIGHT_RANGE.max, '枠')
+    expect(commit('3', 2)).toEqual({ value: 3, message: null })
+    // ⚠ 0 IS A SETTING, not a rejected value: it is how a store turns the 橙 tier
+    // off, so it commits in silence like any accepted number.
+    expect(commit('0', 2)).toEqual({ value: 0, message: null })
+    expect(commit('9', 2)).toEqual({ value: 5, message: '0枠から5枠のあいだで設定できます。5枠にしました' })
+    // …and an EMPTIED box goes back to what was there, never to the floor —
+    // which here would silently switch the tier off (⚖ 8/21).
+    expect(commit('', 2)).toEqual({ value: 2, message: '数字を入れてください。前の値の2枠に戻しました' })
+
+    // 3 · THE SAME LIVE REGION, AND IT SAYS THE OFF-STATE OUT LOUD. A dial whose
+    // 効かない state is silent is the mistake-proofing failure this room exists
+    // to prevent, so 0 is explained on the face rather than left to be noticed
+    // on the calendar.
+    // ⚖ D-27 — same shape as slot's warn flag: a `.test`, no stripping.
+    expect(SCREEN_CODE).toContain('setTightWarn(/[^0-9]/.test(e.target.value))')
+    expect(SCREEN_CODE).toContain("`st-ctrl-d${tightWarn || tightMsg !== null ? ' warn' : ' dim'}`")
+    expect(SCREEN_CODE).toContain("? NON_DIGIT_WARN") // ⚖ D-28 — the sentence's one home
+    // ⚖ COLD-READ C6 — ONE FACT, ONE SENTENCE: the live line and the ?-tour step
+    // say the off-state in the SAME words (the room's own ⚖ R3-2 rule).
+    expect(SCREEN_CODE).toContain(": (tightMsg ?? (tightText.trim() === '0' ? '0にすると橙は出ません' : '数字以外は保存されません'))}")
+    expect(SCREEN_CODE).toContain('0にすると橙は出ません。"')
+    expect(SCREEN_CODE).not.toContain('0では橙は出ません')
+    // …and the ± are named in 枠, the unit the number is in.
+    expect(SCREEN_CODE).toContain('aria-label="1枠減らす"')
+    expect(SCREEN_CODE).toContain('aria-label="1枠増やす"')
+  })
+
+  /** ⚖ Liam 9/12 00:5x 「I choose B」 — THE ROW SAYS WHAT THE NUMBER IS.
+   *
+   *  The month stopped counting free hours and started counting bookings that
+   *  still fit, so 「空きがこの数以下」 became a sentence about a different number
+   *  than the one the dial moves. The row's two sentences are pinned in the new
+   *  wording and the old one is pinned OUT — a settings page describing the
+   *  wrong quantity is the exact ⚖ 8/21 failure this row exists to avoid, and it
+   *  is invisible from inside the settings room. */
+  it('⚖ 9/12 — the description and the ?-tour step describe あと入る数, not 空き', () => {
+    expect(SCREEN_CODE).toContain(
+      '<p className="st-dial-desc">月カレンダーで、あと入る数がこの数以下の日を橙で示します</p>',
+    )
+    expect(SCREEN_CODE).toContain(
+      'data-guide="月カレンダーで「残りわずか」として橙で示す、あと入る予約数の上限です。2なら、あと1〜2枠の日が橙になります。0にすると橙は出ません。"',
+    )
+    // The superseded sentences, by name, so a revert says which.
+    expect(SCREEN_CODE).not.toContain('空きがこの数以下')
+    expect(SCREEN_CODE).not.toContain('空きが1〜2枠')
+    expect(SCREEN_CODE).not.toContain('空き枠数の上限')
+    // …and the store's own fixture carries the SAME two sentences, which is
+    // where the settings round was told to read them from.
+    const WORLD = read('src/business/lib/fixtures-today.ts')
+    expect(WORLD).toContain('月カレンダーで、あと入る数がこの数以下の日を橙で示します')
+    expect(WORLD).not.toContain('空きがこの数以下')
   })
 
   it('and its two siblings in the engine now refuse the same inputs', () => {
@@ -816,12 +1364,25 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
 describe('the room is wired into the door like its siblings', () => {
   it('the rail’s 設定 item is live, and the crumb names its own group', () => {
     expect(SIDEBAR).toContain("{ key: 'settings', segment: 'settings', label: '設定', mini: '設定', live: true }")
-    expect(TOPBAR).toContain("settings: '予約と確保'")
+    // ⚖ S17 (A4) — RETIRED LITERAL, with its reason: the crumb leaf was
+    // 「予約と確保」 while #812 was a route of its own. It is a SECTION now, so the
+    // leaf is the page the reader is on — 設定 — and the section names itself in
+    // the panel. 「設定 / 銀座店 / 設定」 would be the same word twice with a store
+    // between them, which is why the group is `null` for this segment rather
+    // than a second word.
+    expect(TOPBAR).toContain("settings: '設定',")
+    expect(TOPBAR).not.toContain("settings: '予約と確保'")
     // Every room built so far lives under 店舗フロア, which is why that word was a
-    // literal; this is the first that does not, and the default keeps every
-    // existing crumb byte-identical.
-    expect(TOPBAR).toContain("const GROUP: Record<string, string> = {")
-    expect(TOPBAR).toContain("{GROUP[segment] ?? '店舗フロア'}")
+    // literal; 設定 is the first that does not, and the default keeps every
+    // existing crumb byte-identical. ONE map does both jobs — main's name, the
+    // rail room's null semantics (A4) — so there is no second group table to
+    // disagree with it.
+    expect(TOPBAR).toContain("const GROUP: Record<string, string | null> = {")
+    expect(TOPBAR).toContain("  settings: null,")
+    expect(TOPBAR).toContain("  'ask-ai': '記録・AI',")
+    expect(TOPBAR).toContain("{GROUP[segment] === null ? '' : `${GROUP[segment] ?? '店舗フロア'} / `}")
+    expect(TOPBAR).not.toContain('CRUMB_GROUP')
+    expect(TOPBAR).not.toContain('DEFAULT_GROUP')
     expect(JA.settings.loading).toBe('読み込み中…')
   })
 
@@ -866,7 +1427,7 @@ describe('the room is wired into the door like its siblings', () => {
   })
 
   it('the room’s own class names exist nowhere else in the family', () => {
-    const own = [...new Set([...CSS_CODE.matchAll(/\.(st-[\w-]+)/g)].map((m) => m[1]))]
+    const own = [...new Set([...CSS_CODE.matchAll(/\.((?:st|sp)-[\w-]+)/g)].map((m) => m[1]))]
     expect(own.length).toBeGreaterThan(20)
     const BIZ = 'src/app/[locale]/(business)'
     for (const dir of ['analytics', 'customers', 'inbox', 'karute', 'register', 'reservations', 'shifts', 'today']) {
@@ -882,7 +1443,13 @@ describe('the room is wired into the door like its siblings', () => {
     // on the page is `.btn.primary`'s own commit recipe. (`npm run
     // audit:dark-interactive` is the family's machine for the Tailwind spelling;
     // this room writes plain CSS, so its own recipe is pinned here.)
-    expect(CSS_CODE).toContain('.biz .pg-settings .st-seg button.on { background: var(--select-bg); color: var(--select-ink); }')
+    // ⚖ S17 (A9) — RE-PINNED, with its reason: `.st-seg` and `.st-save` were the
+    // only two of the fifteen colliding names still on LIVE markup after the
+    // fold (the other thirteen belonged to the page head and the tour layer this
+    // section no longer renders). Main's side is renamed `.sp-seg` / `.sp-save`
+    // because the pins on them were 1 + 0 against the rail room's 1 + 4 — the
+    // fewest pins move.
+    expect(CSS_CODE).toContain('.biz .pg-settings .sp-seg button.on { background: var(--select-bg); color: var(--select-ink); }')
     expect(CSS_CODE).toContain('.biz .pg-settings .st-pcard.on { border-color: var(--select-line); background: var(--select-bg);')
     // ⚖ 9/1 (fix round 1 F6) — AND THE GUARD READS EVERY SPELLING OF A FILL.
     // The first cut was `/background:\s*(#[0-3][0-9a-f]{5}|black)/`, which is
@@ -919,7 +1486,7 @@ describe('the room is wired into the door like its siblings', () => {
     // …and territory really does reach no core: the room imports the SDK nowhere.
     // The comment-stripped source, so the fence's own EXPLANATION — which has to
     // name the package it is fencing out — is not read as the reach it forbids.
-    expect({ file: 'SettingsScreen.tsx', reachesCore: SCREEN_CODE.includes(SDK) }).toEqual({ file: 'SettingsScreen.tsx', reachesCore: false })
-    expect({ file: 'page.tsx', reachesCore: PAGE_CODE.includes(SDK) }).toEqual({ file: 'page.tsx', reachesCore: false })
+    expect({ file: 'StorePolicySection.tsx', reachesCore: SCREEN_CODE.includes(SDK) }).toEqual({ file: 'StorePolicySection.tsx', reachesCore: false })
+    expect({ file: 'store-policy-props.ts', reachesCore: PAGE_CODE.includes(SDK) }).toEqual({ file: 'store-policy-props.ts', reachesCore: false })
   })
 })

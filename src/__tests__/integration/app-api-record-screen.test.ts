@@ -186,6 +186,19 @@ describe('GET /api/app/v1/screens/record', () => {
     expect(backward.nearbyBookings[0].customerId).toBeUndefined()
   })
 
+  // N2 — targetPack.otherRemaining is OPTIONAL on the wire (回数券 update 25,
+  // p1): an old cached payload missing the key must still parse — never
+  // throw and take the whole record screen down.
+  it('targetPack.otherRemaining missing on the wire still parses (N2, an old cached payload)', async () => {
+    const bound = await (await GET(req(), route)).json()
+    const noOtherRemaining = {
+      ...bound,
+      targetPack: { id: 'pack-1', remaining: 1, size: 6 },
+    }
+    const parsed = RecordScreenDTO.parse(noOtherRemaining)
+    expect(parsed.targetPack).toEqual({ id: 'pack-1', remaining: 1, size: 6 })
+  })
+
   it('missing Bearer → 401', async () => {
     const res = await GET(req('', {}), route)
     expect(res.status).toBe(401)

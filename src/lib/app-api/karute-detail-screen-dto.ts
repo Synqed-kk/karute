@@ -79,6 +79,43 @@ const PhotoSchema = z.object({
   caption: z.string().nullable(),
 })
 
+// The recording AS THE VIEWER MAY HEAR IT (slice ①) — server-decided exactly
+// like `transcript` below, so the player never appears for a viewer who may not
+// hear the take, and never appears at all when the row carries no finalized
+// take key.
+//
+// `status` is z.string() and NOT core's 5-value RecordingStatus, the same
+// degrade-not-fail rule (and for the same fielded-shell reason) as the outcome
+// value above: a status a baked shell has never heard of must cost the player's
+// processing chip, never the whole detail screen's parse.
+const RecordingSchema = z.object({
+  audioPresent: z.boolean(),
+  durationSeconds: z.number().nullable(),
+  status: z.string(),
+})
+
+// R8 discarded-record door (⚖ Liam 2026-09-13) — the facts block (A6). Every
+// field independently best-effort (a ledger read failure degrades a single
+// field to null, never the screen).
+const DiscardedSchema = z.object({
+  reason: z.string().nullable(),
+  discardedByName: z.string().nullable(),
+  discardedAt: z.string().nullable(),
+  recordStaffName: z.string().nullable(),
+  durationSeconds: z.number().nullable(),
+})
+
+// D8 (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design): what the transcript
+// card's share control needs. canShare/shared/viaShare are server-decided
+// exactly like `transcriptRestricted` above, so the phone and the web page
+// can never derive a different answer from the same raw wave.
+const ShareSchema = z.object({
+  canShare: z.boolean(),
+  shared: z.boolean(),
+  sharedAt: z.string().nullable(),
+  viaShare: z.boolean(),
+})
+
 export const KaruteDetailScreenDTO = z.object({
   karuteId: z.string(),
   customerId: z.string().nullable(),
@@ -103,6 +140,11 @@ export const KaruteDetailScreenDTO = z.object({
   consentOnFile: z.boolean(),
   transcriptDurationLabel: z.string().nullable(),
   transcriptRestricted: z.boolean(),
+  /** null = no player, and the card says nothing about one. `.optional()` for
+   *  the same compat reason as staffCanReassignRecords below: a cached facade
+   *  payload minted before this field existed must still parse, and an absent
+   *  value shows no player — never a broken screen. */
+  recording: RecordingSchema.nullable().optional(),
   photos: z.array(PhotoSchema),
   /** The caller's display role — drives the staff-private coaching panel's
    *  owner-hides-it gate (the thin screen wraps the view in a SessionProvider so
@@ -113,6 +155,26 @@ export const KaruteDetailScreenDTO = z.object({
    *  (same edit-layer Wave 2 compat rule as author/version above); an absent
    *  value hides the action, never shows-and-refuses. */
   staffCanReassignRecords: z.boolean().optional(),
+  /** The 再生成 gate (⚖ 9/3 named grant; fix round 4). Optional for the same
+   *  compat reason: a cached facade payload minted before this field existed
+   *  must still parse, and an absent value HIDES the action — never
+   *  shows-and-refuses. Seeing the transcript is no longer the same question:
+   *  the READ is `recordings.viewAll`, the ACT is the owner's two keys. */
+  staffCanRegenerate: z.boolean().optional(),
+  /** R8 discarded-record door (⚖ Liam 2026-09-13, A10): non-null exactly
+   *  when this karute is DISCARDED. `.optional()` for the same compat
+   *  reason as staffCanRegenerate above — a pre-PR phone ignores the key
+   *  entirely (zod's default object parse strips unknown keys), and a
+   *  pre-PR SERVER simply omits it. */
+  discarded: DiscardedSchema.nullable().optional(),
+  /** True when this viewer sees the facts but not the content (A4).
+   *  `.optional()` for the same compat reason. */
+  contentWithheld: z.boolean().optional(),
+  /** D8: null when the karute has no recording row (nothing to share).
+   *  `.nullable().optional()` for the same compat reason as `recording`
+   *  above — a cached facade payload minted before this field existed must
+   *  still parse. */
+  share: ShareSchema.nullable().optional(),
 })
 
 export type KaruteDetailScreenDTOType = z.infer<typeof KaruteDetailScreenDTO>

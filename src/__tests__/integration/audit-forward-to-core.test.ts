@@ -1,9 +1,9 @@
 // Contract §7 / PR-M5 pieces ①②⑤ — the durable core sink (forwardToCore).
 // Never directly tested before this PR: every existing audit suite only pins
 // the console line (the "interim sink"), and forwardToCore itself silently
-// dropped requestId (core's AuditEventInput has no column yet) and never
-// sent store_id at all. These tests mock the core client the same way
-// app-api-audit-log.test.ts does and inspect the exact payload
+// dropped requestId (core's own request_id column now exists — ⑦, 2026-09-10)
+// and never sent store_id at all. These tests mock the core client the same
+// way app-api-audit-log.test.ts does and inspect the exact payload
 // `synqed.audit.log(...)` receives.
 process.env.SYNQED_CORE_URL ??= 'https://core.test'
 process.env.SYNQED_CORE_API_KEY ??= 'test-core-key'
@@ -26,8 +26,8 @@ beforeEach(() => {
   _resetCoreForwardDropCount()
 })
 
-describe('forwardToCore — requestId (piece ①)', () => {
-  it('threads a short id into detail.request_id (core has no column yet)', async () => {
+describe('forwardToCore — requestId rides core\'s own request_id column (piece ①, ⑦)', () => {
+  it('sends requestId top-level in the request_id column, not stuffed into detail', async () => {
     audit({
       category: 'staff',
       action: 'staff.add',
@@ -39,12 +39,11 @@ describe('forwardToCore — requestId (piece ①)', () => {
     })
     await flush()
     expect(auditLog).toHaveBeenCalledTimes(1)
-    expect(auditLog.mock.calls[0][0]).toMatchObject({
-      detail: { request_id: 'req-123' },
-    })
+    expect(auditLog.mock.calls[0][0]).toMatchObject({ request_id: 'req-123' })
+    expect(auditLog.mock.calls[0][0].detail).toBeUndefined()
   })
 
-  it('never overwrites an existing detail.request_id (a caller-supplied one wins)', async () => {
+  it('the request_id column is independent of a caller-supplied detail.request_id (which passes through untouched)', async () => {
     audit({
       category: 'staff',
       action: 'staff.add',
@@ -57,11 +56,12 @@ describe('forwardToCore — requestId (piece ①)', () => {
     })
     await flush()
     expect(auditLog.mock.calls[0][0]).toMatchObject({
+      request_id: 'req-outer',
       detail: { request_id: 'req-caller-supplied' },
     })
   })
 
-  it('with no requestId, detail is sent as-is (undefined stays undefined, not an empty object)', async () => {
+  it('with no requestId, the column is null (never omitted) and detail is sent as-is', async () => {
     audit({
       category: 'staff',
       action: 'staff.add',
@@ -71,10 +71,11 @@ describe('forwardToCore — requestId (piece ①)', () => {
       source: 'web',
     })
     await flush()
+    expect(auditLog.mock.calls[0][0]).toMatchObject({ request_id: null })
     expect(auditLog.mock.calls[0][0].detail).toBeUndefined()
   })
 
-  it('merges request_id alongside an existing detail that has no request_id key', async () => {
+  it('the request_id column never touches an existing detail object (no merge, no request_id key added to it)', async () => {
     audit({
       category: 'customer',
       action: 'customer.memory_add',
@@ -87,8 +88,25 @@ describe('forwardToCore — requestId (piece ①)', () => {
     })
     await flush()
     expect(auditLog.mock.calls[0][0]).toMatchObject({
-      detail: { memory_id: 'm-1', request_id: 'req-456' },
+      request_id: 'req-456',
+      detail: { memory_id: 'm-1' },
     })
+  })
+
+  it('a full uuid request id (36 chars) forwards intact — the column caps at 100, no truncation branch needed', async () => {
+    const uuid = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
+    expect(uuid.length).toBeLessThan(100)
+    audit({
+      category: 'staff',
+      action: 'staff.add',
+      actorId: 'u1',
+      actorType: 'staff',
+      businessId: 'biz-1',
+      requestId: uuid,
+      source: 'web',
+    })
+    await flush()
+    expect(auditLog.mock.calls[0][0]).toMatchObject({ request_id: uuid })
   })
 })
 

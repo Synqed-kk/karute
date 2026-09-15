@@ -62,7 +62,10 @@ import {
   shifts,
   staffListPrice,
   staffQualifications,
+  type FixtureAbsence,
+  type FixtureBlock,
   type FixtureResource,
+  type FixtureShift,
 } from './fixtures-today'
 
 export type StoreLens = string | { viewAll: true }
@@ -107,11 +110,37 @@ function inLens<T extends { store_id?: string | null }>(rows: T[], lens: StoreLe
   return rows.filter((r) => (r.store_id == null ? nullVisible : r.store_id === id))
 }
 
+/** ⚖ 8/17 STORE ISOLATION, AT THE DOOR. `register.terminal_held` rows carry no
+ *  `store_id`, so `inLens` cannot see them and the day clamp alone let 銀座's
+ *  ¥6,600 stand on 代官山's board as 「端末保持 1件」 — a leak, and a lie about a
+ *  device in another building.
+ *
+ *  Each row names a BOOKING, and the booking is what says whose terminal is
+ *  holding it — the same reading `register.ts`'s `heldForLens` makes for the レジ
+ *  room, whose own JSDoc named this board as the second, unclamped seam. It is
+ *  fixed HERE rather than in the page because the door is the lens's one home:
+ *  both rooms then read an already-clamped plane, and the today page cannot
+ *  import `register.ts` at all (its import inventory is pinned by
+ *  foundation.test.ts). The reader's clamp stays as belt-and-braces.
+ *
+ *  ponytail: a linear scan per held row — the fixture holds one of each and the
+ *  cost is invisible; index by id if a real register ever hands this hundreds. */
+function heldInLens<T extends { appointment_id: string }>(held: T[], lens: StoreLens): T[] {
+  const id = lensStoreId(lens)
+  if (!id) return held
+  const rows = appointments(renderNow())
+  return held.filter((h) => rows.find((a) => a.id === h.appointment_id)?.store_id === id)
+}
+
 /** The stores a lens can BE — the one read with no lens argument, because it
  *  enumerates the lens itself rather than reading through it.
  *  ⚠ RECONNECT: this must return only the stores the actor may see (store
  *  isolation law: hide, never show-and-refuse). Fixtures have no actor, so v1
- *  returns both. */
+ *  returns both.
+ *  ⚖ D-53 (c) R3 — `stores.business_type` (core's column, Anthony's build
+ *  order) is the truth; the fixture row carries its play-phase value; the
+ *  org-level `businessProfile` is core's BACKFILL, never a runtime fallback
+ *  here (C4). */
 export async function listStoreOptions(): Promise<FixtureStore[]> {
   return stores
 }
@@ -221,6 +250,102 @@ export async function listResources(lens: StoreLens): Promise<FixtureResource[]>
   return inLens(resources, lens, false)
 }
 
+/** THE ROSTER, BY DAY, ACROSS A RANGE — the month calendar's capacity read.
+ *
+ *  `readDayPlanes` hands back `shifts` as the store's STANDING arrangement,
+ *  「true of every open day」, and for ONE day that is the honest answer. The
+ *  month calendar asks a different question — 「how much room does each of the
+ *  91 days in the window have?」 — and the page used to answer it by summing the
+ *  SHOWN day's roster once and applying that single number to all 91. With a
+ *  fixture roster that never varies the numbers came out right; with a real one
+ *  every day but the one on screen would have been quietly wrong. That is a
+ *  SHAPE defect, so it is fixed at the door rather than in the arithmetic.
+ *
+ *  The play-phase answer is the standing roster repeated for each day in range
+ *  — which is exactly what the fixture world holds, and why no number on the
+ *  board moves — but the page now has to ask per day and can no longer collapse
+ *  91 answers into one.
+ *
+ *  Inclusive on both ends, in `jstDayKey` units (whole JST days since the
+ *  epoch), the same key `listAppointments`' callers group by.
+ *
+ *  ⚠ RECONNECT: the real door queries shifts BY DAY over [from, to] and returns
+ *  only the days it actually has rows for. A day MISSING from the map is a day
+ *  with no known roster, and the calendar renders it as 表示範囲外 rather than
+ *  inventing a capacity for it — see `calendarCellFace`'s `unknown` tone.
+ *  page.tsx holds up that end: a key this map has no entry for never becomes a
+ *  `calendar` row at all (page.tsx :208-238), so nothing downstream can invent
+ *  a count for it. */
+export async function listShiftsByDay(
+  lens: StoreLens,
+  range: { from: number; to: number },
+): Promise<Map<number, FixtureShift[]>> {
+  // VALIDATED, not applied: a shift is keyed to a staff member and never to a
+  // store, so the roster read is what decides who the lens can see — the same
+  // rule readDayPlanes states below, and clamping twice would drop the floating
+  // card that legitimately works in every store.
+  assertLens(lens)
+  const byDay = new Map<number, FixtureShift[]>()
+  for (let key = range.from; key <= range.to; key += 1) byDay.set(key, shifts)
+  return byDay
+}
+
+/** 勤務不可, BY DAY, ACROSS A RANGE — the month calendar's absence read.
+ *
+ *  `readDayPlanes` answers about ONE day and hands the incident back only when
+ *  that day is today, which is the honest answer for the board. The month grid
+ *  draws 91 days at once, and it used to shorten a day's roster by「the absence
+ *  the SHOWN day happens to hold」: stand on any day but today and today's own
+ *  cell lost its 勤務不可 and advertised 空き for hours nobody is working.
+ *
+ *  A calendar number must not depend on which day is being LOOKED at, so the
+ *  absence is asked for by day, exactly as `listShiftsByDay` asks the roster.
+ *
+ *  Inclusive on both ends, in `jstDayKey` units. The map is SPARSE: a key it
+ *  has no entry for is a day with no 勤務不可 — see `absenceForDay`.
+ *
+ *  ⚠ RECONNECT: the real door returns the absences it holds per day over
+ *  [from, to]. The fixture world holds exactly ONE incident and it is today's,
+ *  so today's key is the only one that can ever carry anything. */
+export async function listAbsenceByDay(
+  lens: StoreLens,
+  range: { from: number; to: number },
+): Promise<Map<number, FixtureAbsence | null>> {
+  assertLens(lens)
+  const byDay = new Map<number, FixtureAbsence | null>()
+  const todayKey = jstDayKey(renderNow())
+  // The same store clamp `readDayPlanes` applies below: a 勤務不可 carries a
+  // store, so a lens that cannot see that store must not see the incident.
+  if (todayKey >= range.from && todayKey <= range.to) byDay.set(todayKey, inLens([absence], lens, false)[0] ?? null)
+  return byDay
+}
+
+/** 予定ブロック, BY DAY, ACROSS A RANGE — the month calendar's block read
+ *  (fix round 3, P1). The same shape as `listAbsenceByDay` right above it, and
+ *  for the same reason: the fixture's four blocks are a snapshot of TODAY's
+ *  board (fixtures-today.ts's own header — the world is a pinned scene at
+ *  `boardNow`), not a standing roster like `shifts`, so the door answers under
+ *  TODAY's key only. `readDayPlanes` still hands the board the same rows for
+ *  the shown day — this is the second, PER-DAY door the calendar's 91-day loop
+ *  needs, exactly as `listShiftsByDay`/`listAbsenceByDay` are.
+ *
+ *  Inclusive on both ends, in `jstDayKey` units. The map is SPARSE: a key it
+ *  has no entry for is a day with no blocks — see `blocksForDay`.
+ *
+ *  ⚠ RECONNECT: the real door returns the blocks it holds per day over
+ *  [from, to]. The fixture world holds exactly one day of them, and it is
+ *  today's. */
+export async function listBlocksByDay(
+  lens: StoreLens,
+  range: { from: number; to: number },
+): Promise<Map<number, FixtureBlock[]>> {
+  assertLens(lens)
+  const byDay = new Map<number, FixtureBlock[]>()
+  const todayKey = jstDayKey(renderNow())
+  if (todayKey >= range.from && todayKey <= range.to) byDay.set(todayKey, inLens(blocks, lens, false))
+  return byDay
+}
+
 /** The three board planes core does not expose (asks T-01…T-08, T-15), read as
  *  ONE call because they are one scene: a board rendered from a shift plane and
  *  a decision plane fetched a moment apart could show a decision about a shift
@@ -266,7 +391,13 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     // today's, and the empty list is what another day genuinely holds — no
     // null arm anywhere, so the 閉店阻害 row and the 照合 dialog just have
     // nothing to show rather than showing today's.
-    register: today ? register : { ...register, refunds: 0, cash_difference: 0, terminal_held: [] },
+    // ⚖ R8 T2 — and TODAY's list is clamped by STORE as well (`heldInLens`
+    // above). `refunds` and `cash_difference` are NOT: no store dimension exists
+    // on those fixture fields, so clamping them would be an invented answer
+    // rather than a stricter one (rider filed).
+    register: today
+      ? { ...register, terminal_held: heldInLens(register.terminal_held, lens) }
+      : { ...register, refunds: 0, cash_difference: 0, terminal_held: [] },
     pricingRule,
     recoverySteps: [...recoverySteps],
   }
@@ -295,7 +426,11 @@ export async function readReservationPlanes(lens: StoreLens) {
     staffQualifications,
     absence: inLens([absence], lens, false)[0] ?? null,
     sellSlots: inLens(sellSlots, lens, false),
-    register,
+    // ⚖ R8 T2, FIX ROUND 1 (blind round 1, L4 F6) — the SAME clamp as the day
+    // door's. This plane hands the register out to three rooms, and a plane
+    // that answers 「1件」 at one door and 「0件」 at the other is two answers to
+    // one question; `heldInLens` is the one reading, so both doors make it.
+    register: { ...register, terminal_held: heldInLens(register.terminal_held, lens) },
   }
 }
 

@@ -9,7 +9,7 @@ import { Link, useRouter } from '@/i18n/navigation'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { saveKaruteRecordInline } from '@/actions/karute'
-import { deleteTake } from '@/lib/karute/take-store'
+import { settleTakeAfterSave } from '@/lib/karute/take-store'
 import type { EntryCategory } from '@/lib/karute/categories'
 
 /**
@@ -178,7 +178,23 @@ export function ProcessingIndicator() {
         // The record is saved — the persisted audio has served its purpose.
         // Unconditional (not runId-guarded): the take must be deleted
         // regardless of which run is now live, same as before this fix.
-        if (ctx.takeId) void deleteTake(ctx.takeId)
+        //
+        // ⚖ THE THIRD SETTLED EXIT (capture pipeline PR4 fix round 3), beside
+        // the record page's two taps — and since fix round 4 it asks the take
+        // what it is instead of asserting it. THIS LINE RUNS ONLY AFTER the
+        // record is on the server carrying the words the in-tab pipeline
+        // transcribed from a SERVER-SIDE copy of this very blob — the take's
+        // finalized key, or the staged path prepareTranscription answered for a
+        // take that has none. That copy is what settleTakeAfterSave decides on:
+        // a finalized take is deleted exactly as it always was; a take that can
+        // NEVER be sealed settles (its staged copy is all the server will ever
+        // hold), and without that a stranded/expired take offered as
+        // `kind: 'take'` was refused here for ever — the karute written, the
+        // take alive, the 復元可能 row back on the next fold, another karute per
+        // retap. A take whose secure merely failed RETRYABLY is KEPT, because
+        // the drain still owes it its own finalized key. Device bytes only: the
+        // settle reaches IndexedDB and nothing else.
+        if (ctx.takeId) void settleTakeAfterSave(ctx.takeId)
         const id = res.id
         // Same runId guard as the error branch above — a late success must
         // not toast (or offer a `/karute/${id}` action that pushState's the

@@ -51,6 +51,8 @@ import { reservedMaskFor, type ReleasedWindow, type ReservedLaneMask } from '@/a
 import { SELLING_ENGINE_LAW } from '@/app/[locale]/(business)/business/today/selling-engine-gate'
 import { bedDoor, bedViewsFor, TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import {
+  applyBlockMoves,
+  applyMoves,
   canReleaseHeld,
   explainRails,
   gapKindOf,
@@ -67,13 +69,17 @@ import {
   sellDrawnFor,
   sellLayerFor,
   sellStaffLanes,
+  warnFaceFor,
+  windowsOf,
+  lostOn,
   type GuardRail,
-  type RoomPolicy,
+  type RailCell,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
-import { type GapCell } from '@/business/lib/canon-logic/availability'
+import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
+import { type GapCell, type SellCell } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
-import { clampPriceInputs, SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
+import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
 import { STORE_A } from '@/business/lib/fixtures'
 import { opsConfig } from '@/business/lib/fixtures-today'
 import { cleanupBlocks, hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
@@ -245,7 +251,6 @@ interface World {
   lanes: BoardLane[]
   hours: Hours
   now: number | null
-  rooms: RoomPolicy
   cleanup: Record<string, number>
   minSellableMin: number
 }
@@ -264,7 +269,6 @@ const fixtureWorld = (): World => ({
   lanes: REAL.lanes,
   hours: REAL.hours,
   now: REAL.sell.nowMinute,
-  rooms: REAL.rooms,
   cleanup: REAL.bedCleanupMinutes,
   minSellableMin: REAL.guard.minSellableMin ?? 0,
 })
@@ -274,7 +278,6 @@ const syntheticWorld = (): World => ({
   lanes: board({ staff: 8, beds: 3, seed: 4242, perLane: 3 }),
   hours: SYNTH_HOURS,
   now: null,
-  rooms: REAL.rooms,
   cleanup: SYNTH_CLEANUP,
   minSellableMin: REAL.guard.minSellableMin ?? 0,
 })
@@ -348,7 +351,7 @@ function priceOf() {
 }
 
 const frameOf = (w: World) => ({ openMin: w.hours.open, closeMin: w.hours.close, nowMin: w.now ?? w.hours.open })
-const bookOf = (w: World): BedTruth => bedViewsFor(w.lanes, w.rooms, frameOf(w), null).world
+const bookOf = (w: World): BedTruth => bedViewsFor(w.lanes, frameOf(w), null).world
 
 const maskOf = (
   w: World,
@@ -394,13 +397,14 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
   const drops: SellDrop[] = []
   const sell = sellLayerFor(w.lanes, w.hours, {
     gridMin: c.gridMin,
+    sellSlotMin: REAL.sell.sellSlotMin,
     nowMinute: w.now,
     locked: [],
     showPrice: true,
     hi: price.hi,
     hqMin: REAL.dialogs.pricing.hqMin,
     depth,
-    reconcile: { claims, rooms: w.rooms, cleanupMinutesByBed: w.cleanup, onDrop: (d) => drops.push(d) },
+    reconcile: { claims, cleanupMinutesByBed: w.cleanup, onDrop: (d) => drops.push(d) },
     held,
   })
   const fallback: FallbackResult | null = held
@@ -411,16 +415,17 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
         survivors: sell.cells,
         claims,
         cleanupMinutesByBed: w.cleanup,
-        rooms: w.rooms,
         held,
         // ⚖ Greptile #815 — the same `locked: []` this composer already hands
         // `gap`/`sell` above (this file's worlds model no locked lanes).
         locked: [],
         // ⚖ R6 B1 — the screen hands the pass the store's own display floor, so
         // this composer does too (TodayScreen `salesDoor`). A door that differs
-        // from the screen's proves the wrong board.
+        // from the screen's proves the wrong board — now true by construction:
+        // both dials read REAL.sell.sellSlotMin, the same source the screen
+        // itself reads (⚖ D-45 L1 F6).
         minSellableMin: w.minSellableMin,
-        dials: gapPackingDials(w.lanes, dialOpts),
+        dials: { ...gapPackingDials(w.lanes, dialOpts), sellSlotMin: REAL.sell.sellSlotMin },
       })
     : null
   const gapDrawn = fallback
@@ -461,7 +466,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
 type Door = ReturnType<typeof door>
 
 function railsOf(w: World, c: Combo, book: BedTruth = bookOf(w)): GuardRail[] {
-  const views = bedViewsFor(w.lanes, w.rooms, frameOf(w), null)
+  const views = bedViewsFor(w.lanes, frameOf(w), null)
   return guardRailsFor(w.lanes, {
     open: w.hours.open,
     close: w.hours.close,
@@ -486,7 +491,7 @@ function offeredMinutes(d: Door, laneKey: string): Set<number> {
   const out = new Set<number>()
   for (const s of d.sellDrawn.cells) {
     if (s.group !== 'staff' || s.laneKey !== laneKey) continue
-    for (let m = s.h; m < s.h + SELL_SLOT_MIN; m += 5) out.add(m)
+    for (let m = s.h; m < s.e; m += 5) out.add(m)
   }
   for (const g of [...d.gapDrawn.packed, ...d.gapDrawn.scraps]) {
     if (g.group !== 'staff' || g.laneKey !== laneKey) continue
@@ -607,7 +612,7 @@ describe('1 — the HELD-SWEEP, all six invariants', () => {
     // span. The bed-row copy carries the STAFF lane key on the sell layer and
     // its own on the gap layer, so both spellings are asked.
     for (const s of on.sellDrawn.cells) {
-      if (inHeld(s.laneKey, s.h, s.h + SELL_SLOT_MIN)) broken.push(`(i) sell ${s.group} ${s.laneKey}@${hhmm(s.h)} drawn inside a held window`)
+      if (inHeld(s.laneKey, s.h, s.e)) broken.push(`(i) sell ${s.group} ${s.laneKey}@${hhmm(s.h)} drawn inside a held window`)
     }
     for (const g of [...on.gapDrawn.packed, ...on.gapDrawn.scraps]) {
       if (inHeld(g.laneKey, g.s, g.e)) broken.push(`(i) gap ${g.group} ${g.laneKey} ${span(g.s, g.e)} drawn inside a held window`)
@@ -916,6 +921,36 @@ describe('3 — the counter tells the truth by kind', () => {
   })
 })
 
+// ── ⚖ D-15/D-24/D-40/B2 · tagHeldBound READS THE CELL'S OWN END ────────────
+
+describe('⚖ B2 — a held window is judged against the cell’s own end, not the constant', () => {
+  it('a 45-minute cell [900,945) is NOT held-bound by a window that only touches it at 945; the same window widened to start at 940 DOES bind it', () => {
+    const lanes = [lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })]
+    const cellAt900 = (cells: readonly SellCell[]) => cells.find((c) => c.group === 'staff' && c.h === 900)!
+    const run = (start: number, end: number) =>
+      sellLayerFor(lanes, SYNTH_HOURS, {
+        gridMin: 60,
+        sellSlotMin: 45,
+        nowMinute: null,
+        locked: [],
+        showPrice: true,
+        hi: 9000,
+        hqMin: 5000,
+        depth: 9,
+        held: [{ laneKey: 'p-01', protectedCount: 1, spans: [{ start, end, windowStart: start }] }],
+      })
+
+    // Touching only — the real cell ends at 945, the held window starts there.
+    const touching = run(945, 960)
+    expect(cellAt900(touching.cells).e).toBe(945)
+    expect(isHeldBound(cellAt900(touching.cells))).toBe(false)
+
+    // Overlapping — the held window reaches back into the cell's own span.
+    const overlapping = run(940, 960)
+    expect(isHeldBound(cellAt900(overlapping.cells))).toBe(true)
+  })
+})
+
 // ── 4 · PAINT SUPPRESSION ───────────────────────────────────────────────────
 
 describe('4 — what paints, and what stops', () => {
@@ -924,7 +959,15 @@ describe('4 — what paints, and what stops', () => {
     // The three drawn sets, each named once and read by the paint.
     expect(screen).toContain('const cells = sellDrawn.cells.filter(onThisLane)')
     expect(screen).toContain('const gapHere = [...gapDrawn.packed, ...gapDrawn.scraps].filter(onThisLane)')
-    expect(screen).toContain('const heldHere = lane.group === \'staff\' ? (heldDrawnByLane.get(lane.key) ?? []) : []')
+    // ⚖ HONEST-COUNT ROUND 1 (2026-09-13), SPEC-HONEST-COUNT v3 N1/N2 — TWO
+    // per-lane lists at this site now, because they answer two questions. The
+    // un-netted one (`coverHere`) is what the rest cue's cover takes, unchanged.
+    // The drawn HELD boxes come off the honest set, so a 枠 the rooms cannot
+    // honour is drawn ONCE, as a shared box, and never twice.
+    expect(screen).toContain("const coverHere = lane.group === 'staff' ? (heldDrawnByLane.get(lane.key) ?? []) : []")
+    expect(screen).toContain("const honestHere = lane.group === 'staff' ? honestByLane.get(lane.key) : undefined")
+    expect(screen).toContain('const heldHere = honestHere ? honestHere.held : coverHere')
+    expect(screen).toContain('const sharedHere = honestHere?.shared ?? []')
     // ONE chip per held span, on the STAFF row only, spanning it exactly — the
     // same `place(...)` percentage grammar every other box on this track uses.
     expect(screen).toContain('heldHere.map((h) => {')
@@ -951,22 +994,65 @@ describe('4 — what paints, and what stops', () => {
     // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F4, L1#4 ≡ L2#8): the
     // counter takes §4.5's EMISSION over that set rather than the set itself —
     // one home for the reserved kind, and it is the home the screen reads.
-    expect(screen).toContain('reserved: reservedOffersFor(heldDrawn),')
+    // ⚖ HONEST-COUNT ROUND 1 — …over the HONEST half of that set. A 枠 the
+    // rooms cannot honour beside its neighbour is not an offer Reserve may
+    // show, so the reserved rows drop with the chip; `heldMaskOf` is a rename
+    // of one honest row into the shape this adapter already takes. Gate off ⇒
+    // `honestDrawn` is undefined ⇒ the line that shipped.
+    expect(screen).toContain('reserved: reservedOffersFor(honestDrawn ? honestDrawn.byLane.map(heldMaskOf) : heldDrawn),')
   })
 
   it('空き枠表示「非表示」 takes the chips with the rest of the layer', () => {
     const css = readFileSync(join(process.cwd(), HERE, 'today.css'), 'utf8')
-    expect(css).toContain('.biz .timeline.sell-off .cell-held { display: none; }')
-    expect(css).toContain('.biz .lane.locked .cell-held { display: none; }')
+    // ⚖ HONEST-COUNT ROUND 1 — the shared box is the same layer and goes with
+    // it: 空き枠表示「非表示」 takes the whole sell layer off the board, and a
+    // locked lane sells nothing online so it holds nothing to show.
+    expect(css).toContain('.biz .timeline.sell-off .cell-held,\n.biz .timeline.sell-off .cell-shared { display: none; }')
+    expect(css).toContain('.biz .lane.locked .cell-held,\n.biz .lane.locked .cell-shared { display: none; }')
     // The class the rule keys off is the one the screen already sets, so this
     // needed no new switch: one dial, one class, one rule per layer.
     expect(SRC('TodayScreen.tsx')).toContain('`sell-${sellMode}`')
     // ⚖ R13 + the one-way accent law: a STATE is a wash and a dashed border,
     // never a fill and never the accent.
-    const rule = css.slice(css.indexOf('.biz .cell-held {'), css.indexOf('.biz .cell-held .held-title'))
+    // ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — the shared box shares the held
+    // box's GEOMETRY, so the two selectors open the same rule and this anchor
+    // moved with them. The box's own paint is asserted below it.
+    const rule = css.slice(css.indexOf('.biz .cell-held,\n.biz .cell-shared {'), css.indexOf('.biz .cell-held .held-title'))
     expect(rule).toContain('border: 1px dashed #94a3b8;')
     expect(rule).toContain('background: #eef2f7;')
     expect(rule).not.toMatch(/#2563eb|var\(--primary/)
+    // …and the shared box is the board's existing muted hatch, no accent, no
+    // black, no colour the page does not already carry.
+    const shared = css.split('\n').find((l) => l.startsWith('.biz .cell-shared { cursor')) ?? ''
+    expect(shared).toContain('repeating-linear-gradient(')
+    expect(shared).not.toMatch(/#2563eb|var\(--primary|#000|black/)
+    // HONEST-COUNT ROUND 1 · fix 4 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW-2.md R1)
+    // …and 「quieter」 is the HATCH, never the words: both lines wear the HELD
+    // box's own title ink, because a box the operator cannot read is not a quiet box.
+    expect(css).toContain('.biz .cell-shared .held-title { color: #475569; font-weight: 600; }')
+    expect(css).toContain('.biz .cell-shared .held-sub { color: #475569; }')
+    // …and #475569 is not a new colour: it is the held box's own title ink,
+    // read off the rule the two boxes share.
+    const heldTitle = css.split('\n').find((l) => l.startsWith('.biz .cell-shared .held-title { font-size')) ?? ''
+    expect(heldTitle).toContain('color: #475569;')
+  })
+
+  it('the 確保 chip\u2019s tour clause falls back to main\u2019s exact words with the round off', () => {
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW.md H2)
+    // The round's clause says the number is what the ROOMS can honour and that
+    // it includes rows that sell nothing online. With `HONEST_HELD` off the chip
+    // prints the per-lane enumeration's Σ, where neither sentence is true — so
+    // the clause is asked of `honest`, the very value `dayCommitted` was built
+    // from, and falls back to the words main ships.
+    const screen = SRC('TodayScreen.tsx')
+    expect(screen).toContain('data-guide={honest')
+    // main's line, byte for byte, as the OFF arm.
+    expect(screen).toContain("                : '新規のお客様のために店全体で確保している枠の数です。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'}")
+    // …and it is not a read of the round's gate at all: the doors suite pins
+    // `HONEST_HELD` at exactly three code occurrences (the import and the two
+    // memos — the settled netting and, since fix 6, the live one), and a
+    // `HONEST_HELD ?` here would be a fourth.
+    expect(screen).not.toContain('data-guide={HONEST_HELD')
   })
 
   it('the bed row gains nothing new under a held window', () => {
@@ -982,7 +1068,7 @@ describe('4 — what paints, and what stops', () => {
     const bedSide = on.sellDrawn.cells.filter((s) => s.group === 'beds')
     expect(bedSide.length).toBeGreaterThan(0)
     for (const s of bedSide) {
-      expect((byLane.get(s.laneKey) ?? []).some((h) => meets(s.h, s.h + SELL_SLOT_MIN, h.start, h.end))).toBe(false)
+      expect((byLane.get(s.laneKey) ?? []).some((h) => meets(s.h, s.e, h.start, h.end))).toBe(false)
     }
   })
 
@@ -1080,7 +1166,6 @@ describe('5 — a 確保 window answers with the law', () => {
     const map = explainRails(rs, w.lanes, {
       dur: REAL.guard.standardSessionMin,
       handId: null,
-      rooms: w.rooms,
       stagedId: null,
       sellCells: on.sell.cells,
       claims: on.drawnClaims,
@@ -1129,7 +1214,6 @@ describe('5 — a 確保 window answers with the law', () => {
     const map = explainRails(rs, w.lanes, {
       dur: REAL.guard.standardSessionMin,
       handId: null,
-      rooms: w.rooms,
       stagedId: null,
       sellCells: on.sell.cells,
       claims: on.drawnClaims,
@@ -1146,8 +1230,11 @@ describe('5 — a 確保 window answers with the law', () => {
         [...on.gapDrawn.packed, ...on.gapDrawn.scraps].filter((g) => g.group === 'staff' && g.laneKey === rail.laneKey),
         byLane.get(rail.laneKey),
       )
-      for (const start of cues) {
-        expect((byLane.get(rail.laneKey) ?? []).some((h) => h.start < start + 30 && start < h.end)).toBe(false)
+      // ⚖ 9/9 — `restCueStarts` returns the merged SPANS now (a run of same-kind
+      // half hours is one mark), so the overlap is asked of the span's own two
+      // ends rather than of one start plus the step.
+      for (const cue of cues) {
+        expect((byLane.get(rail.laneKey) ?? []).some((h) => h.start < cue.end && cue.start < h.end)).toBe(false)
       }
     }
     // ⚖ 44's precedent: a state that answers a press is a button wearing no
@@ -1173,7 +1260,10 @@ describe('5 — a 確保 window answers with the law', () => {
     // entry; the `locked` half is gone because `heldDrawn` has already dropped
     // those lanes (`heldDrawnFor`, one spelling).
     expect(screen).toContain("const firstHeldLane = drawnLanes.find(")
-    expect(screen).toContain("(l) => l.group === 'staff' && laneRendered(l) && (heldDrawnByLane.get(l.key)?.length ?? 0) > 0,")
+    // ⚖ HONEST-COUNT ROUND 1 — the walk asks for a DRAWN box: a row whose only
+    // 枠 was demoted to shared draws no held box, and the 8/23 entry would have
+    // landed on nothing. The legacy map is still the fallback with the gate off.
+    expect(screen).toContain('(honestByLane.get(l.key)?.held.length ?? heldDrawnByLane.get(l.key)?.length ?? 0) > 0,')
     // …and the renderer asks the very same question, once, by name.
     expect(screen).toContain('if (!laneRendered(lane)) return null')
     // …and the counter's own entry moved with ⚖ Q3's definition.
@@ -1333,7 +1423,16 @@ describe('6 — a manager releases ごろう’s held window, and the board re-d
     const screen = SRC('TodayScreen.tsx')
     // One consumption, like `canOverride` — a second gate elsewhere would split
     // the authority across two lines.
-    expect(screen.match(/props\.canReleaseHeld/g)).toHaveLength(1)
+    // ⚖ ROUND 2 (2026-09-13) — 1 → 3, and the pin's MEANING is unmoved: one
+    // AUTHORITY, now consumed by the two halves of one act. D-11 added the
+    // automatic release, so the board also has a way BACK from it, and 「a staff
+    // member who cannot release cannot un-release either」 is the same server
+    // answer read the same way — never a second gate with an opinion of its own.
+    // The three sites are anchored below, so a fourth cannot arrive quietly and
+    // a gate moved out of `releaseAsk` still reds the line under this one.
+    expect(screen.match(/props\.canReleaseHeld/g)).toHaveLength(3)
+    expect(screen).toContain('    if (!props.canReleaseHeld) return\n')
+    expect(screen).toContain('{props.canReleaseHeld && (\n')
     expect(screen).toContain('if (!props.canReleaseHeld) {\n      show(law)\n      return\n    }')
     // The manager's action is the board's EXISTING confirm-with-one-action
     // surface (the toast that already carries the block delete's undo) — no new
@@ -1358,7 +1457,11 @@ describe('6 — a manager releases ごろう’s held window, and the board re-d
     // agnostic now and still says the only thing it ever meant: the same
     // `releasedHere` list is handed to BOTH world instances, on its own line,
     // exactly twice.
-    expect(screen.match(/^ +released: releasedHere,$/gm)).toHaveLength(2)
+    // ⚖ HONEST-COUNT ROUND 1 — 2 → 3. There is a THIRD settled world now, the
+    // 元に戻す board the day layer subtracts against, and it is handed the same
+    // list for the same reason: a window a manager put back on sale is released
+    // on every board the store is being asked about, or on none.
+    expect(screen.match(/^ +released: releasedHere,$/gm)).toHaveLength(3)
     expect(screen).toContain('const releasedHere = useMemo(\n    () => released.filter((r) => onShownBoard(r, board)),')
   })
 })
@@ -1415,7 +1518,6 @@ describe('7 — the fix round: the publication boundary', () => {
     ],
     hours: SYNTH_HOURS,
     now: null,
-    rooms: REAL.rooms,
     cleanup: { [BED]: 0 },
     minSellableMin: 90,
   })
@@ -1457,7 +1559,6 @@ describe('7 — the fix round: the publication boundary', () => {
       explainRails(rs, w.lanes, {
         dur: REAL.guard.standardSessionMin,
         handId: null,
-        rooms: w.rooms,
         stagedId: null,
         sellCells,
         claims: on.drawnClaims,
@@ -1494,7 +1595,6 @@ describe('7 — the fix round: the publication boundary', () => {
     const whole = explainRails(rs, w.lanes, {
       dur: REAL.guard.standardSessionMin,
       handId: null,
-      rooms: w.rooms,
       stagedId: null,
       sellCells: on.sellDrawn.cells,
       claims: on.drawnClaims,
@@ -1513,7 +1613,22 @@ describe('7 — the fix round: the publication boundary', () => {
 
   it('F1 — and the screen is wired that way: the published layer, and what it withheld', () => {
     const screen = SRC('TodayScreen.tsx')
+    // ⚖ D-17 F4, CORRECTED BY ⚖ D-18 (1) (2026-09-14) — F4 moved BOTH
+    // `sellCells`/`claims` to the published lists, and that also moved the
+    // OWN-ROW `advertised` predicate (F1's own question) off the drawn list, so
+    // a withheld box — still drawn, muted, on its own row — read as ad-less
+    // again. The anchor now names FOUR lines, not two: `sellCells`/`claims` move
+    // BACK to `sellDrawn`/`drawnClaims` (F1's finding, restored — every GEOMETRY
+    // and COVERAGE input, INCLUDING this row's own ad-less question, is the
+    // drawn list), and the two NEW opts `soldCells`/`soldClaims` carry the
+    // published lists to the one place that still needs them: the OTHER row's
+    // sold cue. 「別の枠で販売中」 claims that somebody's sale took this person's
+    // only bed, and a withheld offer is not a sale — that question alone reads
+    // what is actually for sale.
     expect(screen).toContain('sellCells: sellDrawn.cells,')
+    expect(screen).toContain('claims: drawnClaims,')
+    expect(screen).toContain('soldCells: sellPublished.cells,')
+    expect(screen).toContain('soldClaims: publishedClaims,')
     expect(screen).toContain('withheld: sell.cells.filter(isHeldBound),')
     // The DERIVATION still exists and is still what the fallback's survivor set
     // reads.
@@ -1529,13 +1644,24 @@ describe('7 — the fix round: the publication boundary', () => {
     // `withheld` widens a span's REACH and never the number the sentence quotes,
     // and `dur` stays the span's own length — so the code is unchanged and the
     // claim is.
-    expect(screen).toContain('held: heldBoard,')
+    // ⚖ HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+    // frame for the rail) — the board world minus the 枠 THIS board cannot
+    // honour. The world IS netted now: the same `honestHeld` runs on the live
+    // mask with the live lanes and the live book that mask was cut from, on
+    // every pointer frame, so a collision the tentative move creates is seen
+    // the frame it is created. (Until fix 6 it was handed the SETTLED answer's
+    // shared spans and dropped what overlapped them — `demoteShared`, v3 N4 —
+    // which could not see that case at all.)
+    expect(screen).toContain('held: heldBoardHonest,')
     expect(screen).not.toContain('the two inputs are the two halves of one fact rather than two worlds')
 
     // ⚖ MICROFIX N1 — and the board-world instance lifts the hand, which is the
     // lift `guardRailsFor` was already making on its own pockets. Proven as
     // behaviour in reserved-mask.test.ts §9; this is the WIRING half.
-    const memo = screen.indexOf('const heldBoard = useMemo(')
+    // ⚖ ROUND 2 (2026-09-13) — the timed release: the producer memo is
+    // `heldBoardRaw` now; `excludeId: handId,` is still inside it. Mechanical
+    // whole-line rename.
+    const memo = screen.indexOf('const heldBoardRaw = useMemo(')
     expect(memo).toBeGreaterThan(-1)
     expect(screen.slice(memo, memo + 700)).toContain('excludeId: handId,')
   })
@@ -1630,7 +1756,8 @@ describe('7 — the fix round: the publication boundary', () => {
     // exactly one CALL, and it is the counter's.
     const screen = SRC('TodayScreen.tsx')
     expect(screen).not.toContain('reserved: reservedOffersFor(heldCommitted),')
-    expect(screen.match(/^ +reserved: reservedOffersFor\(heldDrawn\),$/gm)).toHaveLength(1)
+    // ⚖ HONEST-COUNT ROUND 1 — one call, and its argument is the honest half.
+    expect(screen.match(/^ +reserved: reservedOffersFor\(honestDrawn \? honestDrawn\.byLane\.map\(heldMaskOf\) : heldDrawn\),$/gm)).toHaveLength(1)
     expect(screen.match(/^ +[a-zA-Z]*:? ?reservedOffersFor\(/gm)).toHaveLength(1)
   })
 
@@ -1641,14 +1768,33 @@ describe('7 — the fix round: the publication boundary', () => {
     // diverges mid-gesture whenever a drag writes `live` with nothing in hand —
     // it paints a quarter-strength 清掃 hatch under the chip, which is flag 88's
     // artifact one layer along.
-    const worded = new Map([[600, { word: '新規用' }]])
+    // ⚖ 9/9 — the cue is keyed on the CUE the composer returned rather than on
+    // the word, because a quiet hour sold on another row now carries a mark and
+    // no word at all. 新規用 never rides a cue (the 確保 chip is drawn over that
+    // emptiness), so the scene is stated in the vocabulary the helper now reads:
+    // a bed-less half hour, which is what flag 88's artifact was painted under.
+    const worded = new Map([[600, { cue: { kind: 'bed' as const, label: ['満室'] } }]])
     const committed = [{ start: 600, end: 690, windowStart: 600 }]
     expect(restCueStarts(worded, [], [], committed)).toEqual([])
-    expect(restCueStarts(worded, [], [], [])).toEqual([600])
+    expect(restCueStarts(worded, [], [], [])).toEqual([{ start: 600, end: 630, kind: 'bed', label: ['満室'] }])
     // The screen hands it `heldHere`, which is the committed list the chip on
     // the line above is drawn from…
     const screen = SRC('TodayScreen.tsx')
-    expect(screen).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere)')
+    // ⚖ FLAG 88, WHOLE (2026-09-09) — a FIFTH argument, the lane's own drawn
+    // cards. What F5 is about is untouched: `heldHere` is still the COMMITTED
+    // list the chip above the cue is drawn from, in the same position.
+    // ⚖ HONEST-COUNT ROUND 1 (v3 N2) — `coverHere`, the same COMMITTED list in
+    // the same position, under its own name now that the row also has a netted
+    // one. What F5 is about is untouched: the cue still stands down over the
+    // chips the operator can see, shared ones included.
+    // ⚖ D-17 F8 · spec §4 (2026-09-14) — `coverHere` → `coverForCues`, the same
+    // COMMITTED list in the same position PLUS this lane's released spans. What
+    // F5 is about is untouched: the cue still stands down over the boxes the
+    // operator can see, and a released mark is one of them. It is its own name
+    // rather than a wider `coverHere` because `coverHere` is also `heldHere`'s
+    // fallback with the netting off, where a released span would be DRAWN as a
+    // 確保 box on top of the mark that says it was let go.
+    expect(screen).toContain('restCueStarts(explainedHere, cells, gapHere, coverForCues, lane.items, handId)')
     // …and the board world's per-lane index is GONE, not merely unused: a second
     // held index on this screen is how the two worlds get mixed again.
     expect(screen).not.toContain('heldByLane')
@@ -1662,7 +1808,18 @@ describe('7 — the fix round: the publication boundary', () => {
     // landing and 新規予約を作成 both run on the TRACK's own click — and the
     // click returns unless the track is the target.
     expect(screen).toContain('if (e.target !== e.currentTarget || dragRef.current || blockDragRef.current) return')
+    // HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-1-delta.md MAJOR 1)
+    // BACK TO MAIN'S TEXT, because the shared box no longer needs these two
+    // classes: it is `pointer-events: none` at rest, so it stands aside on
+    // EVERY frame and not only while a placement is armed. F6's list is about
+    // the one box on this track that takes a press, and the shared box is not
+    // that box — grouping it in here is what let it swallow あずさ's minutes at
+    // rest and answer nothing.
     expect(css).toContain('.biz .timeline.placing .cell-held,\n.biz .timeline.dragging-live .cell-held { pointer-events: none; }')
+    // ⚖ ROUND 2 blind round L1 MAJOR 1 (2026-09-13) — the released mark's pill stands aside in the same two modes
+    expect(css).toContain('.biz .timeline.placing .cell-released .held-restore,\n.biz .timeline.dragging-live .cell-released .held-restore { pointer-events: none; }')
+    // …and the base rule is where the shared box says it, once, for every frame.
+    expect(css).toContain('.biz .cell-shared { cursor: default; pointer-events: none;')
     // Both classes are ones the screen already sets — no new switch.
     expect(screen).toContain("placing ? 'placing' : ''")
     expect(screen).toContain("dragLen != null || live || blockLive ? 'dragging-live' : ''")
@@ -1678,7 +1835,7 @@ describe('7 — the fix round: the publication boundary', () => {
     // ⚖ Q3's one number is the board head's. This chip counts one of its four
     // kinds and now says which, in the board's own 案C word — the same word its
     // group wears in the press-open breakdown.
-    expect(screen).toContain('公開中の販売可能枠 {sellDrawn.staffBands.length}枠')
+    expect(screen).toContain('公開中の販売可能枠 {sellPublished.staffBands.length}枠')
     expect(screen).not.toContain('>公開中 {')
     const w = fixtureWorld()
     const on = door(w, shipped(), maskOf(w, shipped()))
@@ -1706,7 +1863,8 @@ describe('7 — the fix round: the publication boundary', () => {
     // leave the 8/23 entry on no DOM node at all.
     expect(screen).toContain("(view === 'both' || view === lane.group) && !collapsed.includes(lane.group)")
     expect(screen).toContain('if (!laneRendered(lane)) return null')
-    expect(screen).toContain('laneRendered(l) && (heldDrawnByLane.get(l.key)?.length ?? 0) > 0')
+    // ⚖ HONEST-COUNT ROUND 1 — …asked of the DRAWN box (see the F1 note).
+    expect(screen).toContain('(honestByLane.get(l.key)?.held.length ?? heldDrawnByLane.get(l.key)?.length ?? 0) > 0')
     // …and the toast's one action slot is navigated rather than announced: since
     // E5 it can carry a COMMIT, and a button inside a live region is one a
     // screen-reader user hears about rather than reaches.
@@ -2212,10 +2370,10 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
    *  COMPUTED key, `[dialKey]: forcedMode,`, whose `dialKey` const is typed
    *  `string` (which dodges TS1117) and written with backticks (which dodges
    *  the quote ban). It carries no banned character and `^\s+\w+: ` cannot see
-   *  it, so the count still read ten with eleven keys in the literal. What
+   *  it, so the count still read nine with ten keys in the literal. What
    *  closes it is the BRACKET ban below, on the forwarding literal: nothing in
-   *  a ten-key pass-through needs a `[`. The count and the bracket ban hold the
-   *  no-eleventh-key claim TOGETHER; neither of them holds it alone.
+   *  a nine-key pass-through needs a `[`. The count and the bracket ban hold the
+   *  no-tenth-key claim TOGETHER; neither of them holds it alone.
    *
    *  ⚖ ONE KEY ADDED AT ROUND 2, WITH the decision, and the decision is that
    *  THE DOOR INTO THE BOOK IS NOW HANDED OVER RATHER THAN IMPORTED. Round 1
@@ -2224,8 +2382,8 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
    *  other — it ran, but a cycle on a law-bearing seam is a trap for the next
    *  edit. The screen passes the door as `bookOf` instead. So the literal is
    *  TEN lines rather than nine and the count moves with it; the claim this
-   *  test makes is untouched, because the tenth line is a bare forwarded
-   *  identifier like the other nine — a value, not a call, and the ban list
+   *  test makes is untouched, because that line is a bare forwarded
+   *  identifier like the rest — a value, not a call, and the ban list
    *  still forbids any decision being spelled around it. A mutant that hands
    *  over a DIFFERENT door has to change this line to do it, which is red here;
    *  a wrapper that ignores the door it was handed and reaches for the screen
@@ -2240,7 +2398,7 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
    *
    *  WHAT IS LEFT HERE IS A TRIPWIRE, NOT A PROOF, and it only has to hold one
    *  much smaller claim: no decision is spelled INSIDE the slice. It forwards
-   *  ten named inputs and contains no conditional and no literal of any kind —
+   *  nine named inputs and contains no conditional and no literal of any kind —
    *  no `?`, no `undefined`, no `null`, no quote character, no spread — so a
    *  mutant cannot express a guard-off branch inside the slice, and expressing
    *  one outside it means changing the tested function, where the unit test is
@@ -2289,7 +2447,11 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     // stays (POSTMERGE finding 7): the pass-through memo is short, and a slice
     // that ever over-read into the neighbouring `gapDials` memo would be a
     // false red rather than a silent pass.
-    const START = 'const heldCommitted = useMemo('
+    // ⚖ ROUND 2 (2026-09-13) — the timed release: the pass-through producer is
+    // `heldCommittedRaw` now and the NAME `heldCommitted` stays on the released
+    // answer. The CALL anchor `heldCommittedFor({` below is still true inside the
+    // renamed memo. Mechanical whole-line rename.
+    const START = 'const heldCommittedRaw = useMemo('
     const startIdx = screen.indexOf(START)
     expect(startIdx).toBeGreaterThanOrEqual(0)
     const endIdx = screen.indexOf('\n  )', startIdx + START.length)
@@ -2299,10 +2461,10 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     expect(memo.length).toBeLessThan(2500)
 
     // It calls the tested function, and the literal it hands over is EXACTLY
-    // these ten lines: the round gate, the world the book is built from, the
+    // these nine lines: the round gate, the world the book is built from, the
     // door it is built through, and the dials. Each one is a bare forwarded
     // expression, not a value this memo chose — and the count below, TOGETHER
-    // with the bracket ban further down, is what means an eleventh key cannot
+    // with the bracket ban further down, is what means a tenth key cannot
     // be smuggled in beside them: the count reads `\w+:`-spelled keys only, so
     // a computed key slips it, and the bracket is what stops one being written
     // at all (⚖ lens B B1).
@@ -2310,7 +2472,6 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     const FORWARDED = [
       'gateOn: SELLING_ENGINE_LAW,',
       'lanes: committedLanes,',
-      'rooms: props.rooms,',
       'frame: ledgerFrame,',
       // ⚖ ROUND 2 — the one door into the capacity book, handed over as a
       // VALUE. Passed, never called: `bedViewsFor,` with no parenthesis, so
@@ -2340,7 +2501,7 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     expect((memo.match(/^\s+\w+: /gm) ?? []).length).toBe(FORWARDED.length)
 
     // …and it decides NOTHING. No conditional and no literal of any kind, no
-    // spread that could override one of the ten, no loose comparison: any
+    // spread that could override one of the nine, no loose comparison: any
     // branch a mutant wants has to be written in `heldCommittedFor`, where
     // held-committed.test.ts calls it. This is the shape the old regex
     // negatives were reaching for and could not hold.
@@ -2349,9 +2510,9 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     }
 
     // ⚖ LENS B B1 — AND NO COMPUTED KEY. The count above reads `\w+:` keys, so
-    // `[dialKey]: forcedMode,` is an ELEVENTH forwarded key that the count
+    // `[dialKey]: forcedMode,` is a TENTH forwarded key that the count
     // cannot see and none of the eight bans above catches. The BRACKET is what
-    // stops it: nothing in a ten-key pass-through literal needs one. It is
+    // stops it: nothing in a nine-key pass-through literal needs one. It is
     // banned on the LITERAL rather than on the whole slice because the memo's
     // dependency array below is brackets by construction — bounding it here is
     // exactly what lets the eight bans above keep the WHOLE memo, the `() =>`
@@ -2401,7 +2562,17 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     expect([...screen.matchAll(/\bheld: ([^,\n]+),/g)].map((m) => m[1]).sort()).toEqual([
       'false',
       'false',
-      'heldBoard',
+      // ⚖ HONEST-COUNT ROUND 1 (2026-09-13) — `heldBoard` became
+      // `heldBoardHonest` at the ONE site that reads it: the rail explanation.
+      // HONEST-COUNT ROUND 1 · fix 6 (2026-09-13, ⚖ Liam: board world netted per
+      // frame for the rail) — and the answer to 「which mask is that?」 is now
+      // the LIVE board's own honest held set, netted per frame by Liam's
+      // ruling: same board mask, same memo, run through `honestHeld` with the
+      // live lanes and the live book instead of being demoted by the settled
+      // answer's shared spans. Still the BOARD world, still this one reader.
+      // This is the review question the pin asks on purpose, and the PR body
+      // answers it.
+      'heldBoardHonest',
       'heldCommitted',
       'heldCommitted',
       'heldCommitted',
@@ -2461,5 +2632,129 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     // …and the one match IS the pinned sentence, not a second gate that happens
     // to sit beside it: same index, offset by the sentence's own prefix.
     expect(door.indexOf('return null')).toBe(door.indexOf(GATE) + 'if (!heldCommitted) '.length)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, CODEX-BLIND/CODEX-REPORT-HONEST-COUNT-REVIEW.md H3)
+// 8 — THE STAGED ORIGIN BOARD, AND THE SENTENCE IT PAYS FOR.
+//
+// `honestOrigin` is the 元に戻す board's own honest set, and the whole of the
+// 16:00 warning rides on it: `lostOn` subtracts the two SETTLED boards, and if
+// the origin one collapses to the staged answer the subtraction is zero and the
+// card goes quiet about a 枠 the store really loses. Codex's mutant
+// (「`if (dayStaged) return honest` at the top of `honestOrigin`」) does exactly
+// that and no suite in the family noticed.
+//
+// ⚠ THIS SUITE CANNOT MOUNT. react-dom is off Business territory's import
+// allowlist (business-isolation.test.ts), which this file's own header states,
+// so the memo cannot be exercised through a render here. Two pins instead, and
+// between them they cover what the mutant breaks:
+//   (a) the staged board's data path, end to end through the real producers —
+//       two settled boards, one netting each, `lostOn`, and the sentence the
+//       card prints, byte for byte, plus the undo and the price-0 cases;
+//   (b) the memo's own head as an anchored slice, so an early `return honest`
+//       in front of the guard cannot be added silently.
+// The RENDERED half is the new-window rig, which does mount: the mutant takes
+// 5 of its 14 legs RED (W1/W2/W3/W6/W13 — logs/new-window-pin-final-b8-mutant.log).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('8 — the staged origin board keeps the store\u2019s loss sayable', () => {
+  /** The REST board, built the way the screen builds it (TodayScreen's
+   *  `placedLanes` then `committedLanes`, no moves). */
+  const restLanes = () => applyMoves(applyBlockMoves(REAL.lanes, {}, REAL.hours, []), {}, [], [], REAL.hours, {}, REAL.bedCleanupMinutes)
+
+  /** A settled board's honest day answer — `windowsOf(honest…)`, the producer
+   *  BOTH sides of `lostOn` read since this round. */
+  const dayOf = (lanes: BoardLane[], released: readonly ReleasedWindow[] = []) => {
+    const frame = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
+    const book = bedViewsFor(lanes, frame, null).world
+    const mask = reservedMaskFor({
+      lanes, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute,
+      guard: REAL.guard.config, gapGuardMode: REAL.guard.mode, book, released,
+    })
+    return windowsOf(honestHeld(mask, lanes, book, true), lanes)
+  }
+
+  /** The card's own face, composed by the one producer the screen calls. */
+  const faceFor = (rows: ReturnType<typeof lostOn>, landing: string, listPrice: number) =>
+    warnFaceFor({
+      rows: [],
+      cell: {
+        start: 16 * 60, state: 'warn', label: '', sentence: '', reason: null,
+        alternatives: [], alternativeKind: null, ackAllowed: true,
+        day: { laneKey: landing, before: rows.reduce((a, r) => a + r.before.length, 0), after: rows.reduce((a, r) => a + r.after.length, 0), lostOn: rows },
+      } as unknown as RailCell,
+      override: null, level: 'allow-warned', holdToConfirm: true, targetLaneMine: false,
+      operatorName: '見本 たろう', listPrice,
+      // The board's OWN price levers, through this suite's one home for them —
+      // the card's ¥ and the board's ¥ come off one set of dials by construction.
+      frame: priceOf().frame, depth: priceOf().depth,
+      protectedDur: REAL.guard.protectedDurationMin, confirmEnabled: true,
+    })
+
+  /** しろう's 15:45 枠 — the one a 16:00 landing on the row below costs the
+   *  store. The label and the price are read off the BOARD, never typed. */
+  const LOST = { laneKey: 'p-04', windowStart: 945 }
+  const LANDING = 'p-06'
+
+  it('two settled boards, one netting each: しろう loses her 15:45 枠 and the card says so', () => {
+    const lanes = restLanes()
+    const before = dayOf(lanes)
+    const after = dayOf(lanes, [{ ...LOST, dayOffset: REAL.dayOffset, store: REAL.store } as unknown as ReleasedWindow])
+    const rows = lostOn(before, after)
+    const lost = lanes.find((l) => l.key === LOST.laneKey)!
+    expect(rows.map((r) => ({ laneKey: r.laneKey, label: r.label, before: r.before, after: r.after, listPrice: r.listPrice })))
+      .toEqual([{ laneKey: LOST.laneKey, label: lost.label, before: [LOST.windowStart], after: [], listPrice: lost.listPrice }])
+    const face = faceFor(rows, LANDING, lanes.find((l) => l.key === LANDING)!.listPrice)
+    const sentence = `${face.impact.head}${face.impact.yen ? `（${face.impact.yen}）` : ''}${face.impact.tail}`
+    expect({ face: face.face, sentence }).toEqual({
+      face: 'warn',
+      sentence: `ここに置くと、${lost.label}の新規のお客様の${REAL.guard.protectedDurationMin}分の空き（${face.impact.yen}）が1枠から0枠に減ります。`,
+    })
+    expect(face.impact.yen).toMatch(/^約¥[\d,]+$/)
+    expect({ kind: face.commit?.kind, label: face.commit?.label }).toEqual({ kind: 'hold', label: '長押しで注意して配置' })
+  })
+
+  it('undo: with nothing staged the two boards agree and the card goes quiet', () => {
+    const lanes = restLanes()
+    const rows = lostOn(dayOf(lanes), dayOf(lanes))
+    expect(rows).toEqual([])
+    const face = faceFor(rows, LANDING, lanes.find((l) => l.key === LANDING)!.listPrice)
+    expect({ face: face.face, head: face.impact.head, commit: face.commit }).toEqual({ face: 'clean', head: '', commit: null })
+  })
+
+  it('a price-0 lane loses a 枠 too, and the sentence drops the ¥ rather than guessing a zero', () => {
+    const lanes = restLanes().map((l) => (l.key === LOST.laneKey ? { ...l, listPrice: 0 } : l))
+    const before = dayOf(lanes)
+    const after = dayOf(lanes, [{ ...LOST, dayOffset: REAL.dayOffset, store: REAL.store } as unknown as ReleasedWindow])
+    const rows = lostOn(before, after)
+    expect(rows.map((r) => ({ laneKey: r.laneKey, listPrice: r.listPrice, before: r.before, after: r.after })))
+      .toEqual([{ laneKey: LOST.laneKey, listPrice: 0, before: [LOST.windowStart], after: [] }])
+    const face = faceFor(rows, LANDING, lanes.find((l) => l.key === LANDING)!.listPrice)
+    const label = lanes.find((l) => l.key === LOST.laneKey)!.label
+    expect({ face: face.face, yen: face.impact.yen, head: face.impact.head, tail: face.impact.tail }).toEqual({
+      face: 'warn', yen: null,
+      head: `ここに置くと、${label}の新規のお客様の${REAL.guard.protectedDurationMin}分の空き`,
+      tail: 'が1枠から0枠に減ります。',
+    })
+  })
+
+  it('\u2026and the memo that builds the origin board cannot lose its guard', () => {
+    // Codex's mutant inserts `if (dayStaged) return honest` ABOVE this line, so
+    // the two lines stop being adjacent and this anchor goes RED. It is the
+    // repo-side half of a fact the rig proves by rendering.
+    //
+    // \u2696 D-20 (1) (2026-09-14) \u2014 the origin mask's PRODUCTION (`originHeld` /
+    // `heldCommittedFor`) moved out to its own `originReleased` memo, shared
+    // with `dayOrigin`'s netting-off arm; `honestOrigin`'s body shrank to the
+    // netting alone, so the line immediately below the guard is now the new
+    // `if (!originReleased) return honest` \u2014 same mutant, same adjacency, new
+    // second line. That second line is the `| undefined` type guard and is
+    // unreachable in practice (the law-off case already returned on the line
+    // above because `honest` is undefined too) \u2014 kept on purpose; the pin's
+    // subject is the adjacency, not that line's liveness (\u2696 D-21 (3)).
+    const screen = SRC('TodayScreen.tsx')
+    expect(screen).toContain('const honestOrigin = useMemo(() => {\n    if (!honest || !dayStaged) return honest\n    if (!originReleased) return honest')
   })
 })

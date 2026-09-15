@@ -34,11 +34,15 @@ export function SessionsScreen() {
           items={dto.items}
           monthCount={dto.monthCount}
           total={dto.total}
+          discardedCount={dto.discardedCount}
           initialWindowStart={dto.windowStart}
           initialHasMore={dto.hasMore}
           staffList={dto.staffList}
           currentStaffId={dto.currentStaffId}
           customerOptions={dto.customerOptions}
+          viewerCanOpenDiscarded={dto.viewerCanOpenDiscarded ?? false}
+          sharedCount={dto.sharedCount ?? null}
+          viewerHoldsViewShared={dto.viewerHoldsViewShared ?? false}
         />
       )}
     </ScreenStates>

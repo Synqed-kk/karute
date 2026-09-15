@@ -25,11 +25,18 @@ const baseArgs: BuildKaruteDetailScreenArgs = {
   outcome: null,
   viewerStaffId: null,
   canViewAllRecordings: false,
+  sharedWith: false,
+  sharedAt: null,
+  recordingRow: null,
+  businessId: 'biz-1',
   staffCanReassignRecords: false,
+  staffCanRegenerate: true,
   contact: null,
   consentResult: null,
   customer: null,
   locale: 'ja',
+  discardLedger: null,
+  recordStaffName: null,
 }
 
 describe('buildKaruteDetailScreen — staffCanReassignRecords (pin 8a, shared chokepoint)', () => {

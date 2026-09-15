@@ -319,12 +319,16 @@ async function facadeRevokeCustomerConsent(
 // never reaches createPackActionWithClient's derivation), so sending it from
 // this port would be a dead, misleading field. Every OTHER create/redeem
 // field still rides through verbatim.
-const idemPost = (body?: unknown): RequestInit => ({
+const idemPost = (body?: unknown, signal?: AbortSignal): RequestInit => ({
   method: 'POST',
   headers: {
     'Idempotency-Key': crypto.randomUUID(),
     ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
   },
+  // Optional, and only the start-mint passes one so far (fix round 10): a call
+  // whose answer stops mattering after a deadline needs the socket released,
+  // not just ignored.
+  ...(signal ? { signal } : {}),
   ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
 })
 
@@ -600,19 +604,44 @@ async function facadeLoadKaruteWindow(input: {
   olderThan?: string
   month?: string
   loadedCount?: number
+  sharedOnly?: boolean
 }): Promise<import('@/actions/karute').KaruteWindowPage | { error: string }> {
   try {
     const qs = new URLSearchParams()
     if (input.olderThan) qs.set('olderThan', input.olderThan)
     if (input.month) qs.set('month', input.month)
     if (input.loadedCount != null) qs.set('loadedCount', String(input.loadedCount))
+    if (input.sharedOnly) qs.set('sharedOnly', 'true')
     const res = await getDataPort().apiFetch(`/api/app/v1/karute/window?${qs.toString()}`)
     const body = (await res.json().catch(() => null)) as
       | (Partial<import('@/actions/karute').KaruteWindowPage> & {
-          error?: { message?: string }
+          error?: { code?: string; message?: string }
         })
       | null
-    if (!res.ok || !body) return { error: body?.error?.message ?? `Request failed (${res.status})` }
+    if (!res.ok || !body) {
+      // H2 fix (PR-C fix round 3, narrowed fix round 4): "the thin and web
+      // rejection semantics identical" — the web action returns `{ error:
+      // 'forbidden' }` for a sharedOnly request from a non-holder
+      // (actions/karute.ts), and the facade route throws
+      // AppApiError('forbidden', …) for the same refusal (route.ts), which
+      // serializes as `{ error: { code: 'forbidden', message } }`
+      // (app-api/errors.ts errorBody). Map that ONE code back to the same
+      // literal the web door returns — but ONLY when THIS request was
+      // sharedOnly: ensureCapability (require-permission.ts) throws the SAME
+      // 'forbidden' code for the unrelated customers.view guard the route
+      // also runs (route.ts:56), and an unscoped mapping swallowed that
+      // refusal's message too. The web door's customers.view refusal
+      // (requireCapability's sentence, caught generically in
+      // actions/karute.ts) was already a DIFFERENT literal from this port's
+      // message-passthrough before fix round 3 — that mismatch is
+      // pre-existing and out of scope, left exactly as it was. Every other
+      // code/status, and every 403 whose request was not sharedOnly, keeps
+      // today's message-passthrough unchanged.
+      if (res.status === 403 && body?.error?.code === 'forbidden' && input.sharedOnly) {
+        return { error: 'forbidden' }
+      }
+      return { error: body?.error?.message ?? `Request failed (${res.status})` }
+    }
     // A malformed 200 must read as an ERROR, never as "no more history" — a
     // silent empty window would end the list early and look like the truth.
     if (!Array.isArray(body.items) || typeof body.windowStart !== 'string') {
@@ -622,6 +651,10 @@ async function facadeLoadKaruteWindow(input: {
       items: body.items,
       windowStart: body.windowStart,
       freshStoreTotal: body.freshStoreTotal ?? 0,
+      freshDiscardedCount: body.freshDiscardedCount ?? 0,
+      // D10 (PR-C, self-lighting): NEVER `?? 0` — undefined stays undefined,
+      // exactly like every other hop of this field.
+      freshSharedCount: body.freshSharedCount,
       hasMore: body.hasMore ?? false,
     }
   } catch (err) {
@@ -748,18 +781,66 @@ async function facadeSaveKaruteInline(
   return { error: body?.error?.message ?? `Save failed (${res.status})` }
 }
 
-async function facadeStartRecordingSession(input: {
+/** How long the recorder's start-mint waits for the session door (capture
+ *  pipeline PR3 fix round 10, P1). A phone that walks out of signal does not
+ *  fail its requests, it STALLS them — and this one used to have no deadline on
+ *  either attempt, so a reply could land minutes later, after the stop had
+ *  already secured the take against a row of its own. The take's store now
+ *  refuses that late stamp, and this releases the socket that carried it: the
+ *  same 10 s the stop path waits (global-recorder's SECURE_MINT_AWAIT_MS), so
+ *  the wait and the request expire together instead of one outliving the other.
+ *
+ *  AbortController + a timer, not AbortSignal.timeout — that static is absent
+ *  from jsdom (this port's own tests) and from WebViews older than Chrome 103,
+ *  where reaching for it would throw and cost every recording its row. Same
+ *  reason, same shape as thin/ports/recording.vite.ts#doorFetch. */
+const START_SESSION_TIMEOUT_MS = 10_000
+
+async function facadeStartRecordingSession({
+  takeId,
+  mimeType,
+  ...input
+}: {
   customerId?: string | null
   appointmentId?: string | null
+  /** ⚖ BORN RESERVED (capture pipeline PR3 fix round 8). The recorder knows
+   *  both at start(), and naming them together is what lets the door compose
+   *  this take's finalized key AT CREATE — so the row is never unbound and the
+   *  mint that follows answers "already ours". Both or neither: half the pair
+   *  is a validation 400. */
+  takeId?: string
+  mimeType?: string
 }): Promise<{ id: string } | null> {
-  // Fail-OPEN: capture must NEVER block on the mint (web action contract).
+  const reserve = takeId && mimeType ? { takeId, mimeType } : null
+  // ONE deadline across both attempts, not one each: the step back is the same
+  // call in a shape an older server knows, and the caller's wait does not
+  // restart for it.
+  const deadline = new AbortController()
+  const timer = setTimeout(() => deadline.abort(), START_SESSION_TIMEOUT_MS)
+  // Fail-OPEN: capture must NEVER block on the mint (web action contract) — an
+  // abort throws, and lands in the same catch as every other failure.
   try {
-    const res = await getDataPort().apiFetch('/api/app/v1/recordings/session', idemPost(input))
+    let res = await getDataPort().apiFetch(
+      '/api/app/v1/recordings/session',
+      idemPost(reserve ? { ...input, ...reserve } : input, deadline.signal),
+    )
+    // TRANSITIONAL step back, the twin of the one in thin/ports/recording.vite.ts
+    // (see its comment): a server that predates the pair refuses the whole body,
+    // and a capture that lost its row over a field the server has never heard of
+    // would be a regression. ONCE, only on the door's 400, and both go together.
+    if (reserve && res.status === 400) {
+      res = await getDataPort().apiFetch(
+        '/api/app/v1/recordings/session',
+        idemPost(input, deadline.signal),
+      )
+    }
     if (!res.ok) return null
     const body = (await res.json().catch(() => null)) as { id?: string | null } | null
     return body?.id ? { id: body.id } : null
   } catch {
     return null
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -1315,9 +1396,9 @@ export const discardRecordingWithReason = async (
 // field bug being fixed here. No Idempotency-Key: the dedupe is server-derived.
 //
 // THE STATUS MAP IS THE CONTRACT. The relay retries ONLY `error: 'failed'` and
-// settles everything else, so a wrong mapping either deletes a take whose words
-// never landed or re-stages the whole audio on every record-page mount for the
-// take-store's seven days:
+// settles everything else, so a wrong mapping either settles a take whose words
+// never landed or re-transcribes the whole audio on every record-page mount for
+// the take-store's seven days:
 //   2xx  → the shared body's own answer, verbatim (ok / skipped / not_discarded)
 //   403  → 'forbidden', the terminal refusal the web action returns for a
 //          resolved identity without records.write, or for another tenant's key
@@ -1349,6 +1430,62 @@ export const transcribeAndPersistDiscard = ((input) =>
   facadeDiscardTranscript(
     input,
   )) satisfies typeof import('@/actions/recording-discard-transcript').transcribeAndPersistDiscard
+
+// -- recording share toggle (⚖ Liam 2026-09-13 sharing law; 2026-09-14 design
+// D6) — the recorder's own 共有 button on the transcript card. No
+// Idempotency-Key: the body is idempotent by state (the shared body's own
+// D6 step 5 no-op guard), same reasoning as the regenerate button's port.
+//
+// The wire carries an AppApiErrorCode ('forbidden' | 'not_found' |
+// 'upstream_unavailable' | ...) — narrower and differently-spelled than the
+// web action's own error union, which the button was written against
+// (recording-share.ts) — plus, for the no-recording case, a
+// `reason: 'no_recording'` SIBLING key merged onto the same `not_found` body
+// (route.ts; errors.ts's errorBody spreads AppApiError.detail directly into
+// the JSON `error` object — see handler.ts:169 → errors.ts:97-99 — so the
+// wire key is `error.reason`, never a separate AppApiErrorCode; the union
+// stays closed). `no_recording` and a genuinely missing karute used to be
+// INDISTINGUISHABLE here (both arrived as bare `not_found`) — they no longer
+// are: this port reads that `reason` and maps it through.
+async function facadeSetRecordingShared(
+  karuteId: string,
+  shared: boolean,
+): Promise<
+  | { ok: true; shared: boolean }
+  | { ok: false; error: 'not_found' | 'no_recording' | 'forbidden' | 'upstream' }
+> {
+  try {
+    const res = await getDataPort().apiFetch(
+      '/api/app/v1/recordings/share',
+      jsonInit('POST', { karuteId, shared }),
+    )
+    const body = (await res.json().catch(() => null)) as
+      | { shared?: boolean; error?: { code?: string; reason?: string } }
+      | null
+    if (!res.ok) {
+      const code = body?.error?.code
+      if (code === 'not_found' && body?.error?.reason === 'no_recording') {
+        return { ok: false, error: 'no_recording' }
+      }
+      const error = code === 'forbidden' || code === 'not_found' ? code : 'upstream'
+      return { ok: false, error }
+    }
+    // A 2xx must carry the server's OWN confirmed `shared` to count as
+    // success — `body?.shared ?? shared` used to fall back to the REQUESTED
+    // value on any malformed/empty body, reporting a false "confirmed"
+    // success (the toggle then displayed it as durable truth, never
+    // revisiting it).
+    if (typeof body?.shared !== 'boolean') return { ok: false, error: 'upstream' }
+    return { ok: true, shared: body.shared }
+  } catch {
+    return { ok: false, error: 'upstream' }
+  }
+}
+export const setRecordingShared = ((karuteId, shared) =>
+  facadeSetRecordingShared(
+    karuteId,
+    shared,
+  )) satisfies typeof import('@/actions/recording-share').setRecordingShared
 
 // 破棄の記録 — the staffer's OWN monthly discard count (⚖ 8/25 ruling B, staff
 // half). STILL NOT AVAILABLE ON THE PHONE, and no longer for the same reason as
@@ -1505,6 +1642,10 @@ type AuditLogEvent = {
   // SDK 1.14 write-time snapshot name (packet 18 T3) — optional/nullable so
   // an old cached response (missing the key entirely) still parses.
   actor_label?: string | null
+  // PR D1 (amendment 1 F6/F9): additive pass-through — optional/nullable,
+  // same idiom as actor_label above, so an old cached response still parses.
+  request_id?: string | null
+  store_id?: string | null
 }
 type AuditLogFilters = {
   category?: string
@@ -1512,8 +1653,13 @@ type AuditLogFilters = {
   from?: string
   to?: string
   targetId?: string
+  // Amendment 4 F5: mirrors AuditLogFilters.targetType (src/actions/audit-log.ts).
+  targetType?: 'customer' | 'recording' | 'karute' | 'staff'
   includeViews?: boolean
   breakGlass?: boolean
+  // G2 (round-4 line-audit): the real core severity values — mirrors
+  // AuditLogFilters.severity (src/actions/audit-log.ts).
+  severity?: 'warn' | 'critical'
   page?: number
 }
 type AuditLogListResult =
@@ -1528,6 +1674,15 @@ type AuditLogListResult =
       warningsTotal: number | null
       changesTotal: number | null
       targetLabels: Record<string, string>
+      // G2 (round-4 line-audit): exact 重大 total — mirrors
+      // ListAuditLogResult.criticalTotal (src/actions/audit-log.ts).
+      // Replaces the round-3 criticalEvents/criticalTruncated/
+      // criticalUnavailable trio, which are DELETED.
+      criticalTotal: number | null
+      // PR D1 (amendment 1 F3): the reader-side dedupe belt's drop count.
+      folded: number
+      // PR D1 (amendment 1 F6): set only for a targetType:'recording' read.
+      threadPartial?: boolean
     }
   | { ok: false; error: 'forbidden' | 'failed' }
 
@@ -1543,8 +1698,10 @@ async function facadeListAuditLog(filters: AuditLogFilters): Promise<AuditLogLis
   if (filters.from) q.set('from', filters.from)
   if (filters.to) q.set('to', filters.to)
   if (filters.targetId) q.set('targetId', filters.targetId)
+  if (filters.targetType) q.set('targetType', filters.targetType)
   if (filters.includeViews) q.set('includeViews', '1')
   if (filters.breakGlass) q.set('breakGlass', '1')
+  if (filters.severity) q.set('severity', filters.severity)
   q.set('page', String(filters.page ?? 1))
 
   try {

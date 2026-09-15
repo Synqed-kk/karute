@@ -14,6 +14,7 @@ import { corsHeaders, preflightResponse } from './cors'
 import { AppApiError, toAppApiError, errorBody } from './errors'
 import { resolveBearerIdentity, type RequestIdentity } from './identity'
 import { audit, FACADE_AUDIT_MAP, type FacadeEndpointKey } from '@/lib/audit'
+import { withRequestId } from '@/lib/observability/request-context'
 import type { VerifierConfig } from '@/lib/auth/verify-bearer'
 import type { GetUserFn } from '@/lib/auth/revocation'
 
@@ -66,6 +67,12 @@ export interface FacadeContext<P = Record<string, string>> {
    *  auditStoreId. Unset falls back to params.id, but ONLY when it's
    *  UUID-shaped — see logFacadeAudit. */
   auditTargetId?: string
+  /** Severity override for the hook's own row (fix round 3, same additive-only
+   *  contract as auditDetail / auditStoreId / auditTargetId): a route sets it
+   *  only when the row must outrank 'info' (a lost debit, same 'warning' the
+   *  wrapper's own receipt uses) — the hook never lowers a severity, and an
+   *  unset field emits exactly as before (audit.ts defaults to 'info'). */
+  auditSeverity?: 'notice' | 'warning'
   /** Per-request opt-out from the success-hook emit (success-only audit law):
    *  a route that returns a 2xx whose BODY is a soft FAILURE (e.g. karute
    *  regenerate's `{error}` result — no transcript, extraction failed) sets a
@@ -127,28 +134,41 @@ export function facadeHandler<P = Record<string, string>>(
 
     if (req.method === 'OPTIONS') return preflightResponse(origin)
 
-    try {
-      const identity = await resolveBearerIdentity(req, endpoint, deps)
-      const ctx: FacadeContext<P> = { req, identity, origin, route, meta }
-      const res = await fn(ctx)
-      await logFacadeAudit(
-        endpoint,
-        res,
-        identity,
-        route,
-        meta,
-        clientRequestId,
-        ctx.auditDetail,
-        ctx.auditStoreId,
-        ctx.auditTargetId,
-        ctx.auditSuppress,
-      )
-      return res
-    } catch (err) {
-      const apiErr = toAppApiError(err)
-      logFacadeError(endpoint, apiErr, meta)
-      return jsonResponse(errorBody(apiErr), apiErr.status, origin, requestId)
-    }
+    // The SERVER mint becomes the ambient id for everything this request
+    // awaits, so outbound core calls carry it as x-request-id and both halves
+    // of the stack log the same key. Wraps the whole try/catch: a request that
+    // FAILS is the one most in need of correlation.
+    return withRequestId(requestId, async () => {
+      // ⚖ UPDATE 25 GROUP B, d1 (L1 SHOULD 7). Hoisted above the try so the
+      // catch below can name WHICH business a failure belongs to: a bearer
+      // failure before identity resolves leaves this `undefined` (correctly —
+      // there is no tenant to blame it on), and every other throw runs after
+      // the assignment two lines down.
+      let identity: RequestIdentity | undefined
+      try {
+        identity = await resolveBearerIdentity(req, endpoint, deps)
+        const ctx: FacadeContext<P> = { req, identity, origin, route, meta }
+        const res = await fn(ctx)
+        await logFacadeAudit(
+          endpoint,
+          res,
+          identity,
+          route,
+          meta,
+          clientRequestId,
+          ctx.auditDetail,
+          ctx.auditStoreId,
+          ctx.auditTargetId,
+          ctx.auditSuppress,
+          ctx.auditSeverity,
+        )
+        return res
+      } catch (err) {
+        const apiErr = toAppApiError(err)
+        logFacadeError(endpoint, apiErr, meta, identity?.businessId)
+        return jsonResponse(errorBody(apiErr), apiErr.status, origin, requestId)
+      }
+    })
   }
 }
 
@@ -172,6 +192,7 @@ async function logFacadeAudit(
   routeStoreId?: string,
   routeTargetId?: string,
   routeSuppress?: string,
+  routeSeverity?: 'notice' | 'warning',
 ): Promise<void> {
   try {
     // 2xx only — a redirect or other non-success must not read as a completed
@@ -222,6 +243,7 @@ async function logFacadeAudit(
       actorId: identity.authUserId,
       actorType: 'staff',
       businessId: identity.businessId,
+      severity: routeSeverity,
       targetType: rule.targetType,
       // Precedence: a route's server-resolved true id (routeTargetId — set
       // when the path param is decorative or poisoned) wins verbatim;
@@ -328,11 +350,19 @@ function reportUnmappedEndpoint(
  *  — customers/[id] puts `currentVersion` (a row's updated_at) there — and this
  *  line's promise is labels, not payloads. A non-string `reason` is dropped, and
  *  JSON.stringify omits the key entirely when it is undefined, so every error
- *  that sets no reason logs byte-identically to before. */
+ *  that sets no reason logs byte-identically to before.
+ *
+ *  `businessId` (⚖ UPDATE 25 GROUP B, d1 — L1 SHOULD 7) is the SAME additive
+ *  promise: undefined for a bearer failure before identity resolves (correct —
+ *  there is no tenant yet), so this line stays byte-identical to before for
+ *  every pre-identity error and only GAINS a field for everything after, e.g.
+ *  "mint failures per business" becomes one log filter on `endpoint` +
+ *  `businessId` instead of `endpoint` alone. */
 function logFacadeError(
   endpoint: string,
   err: AppApiError,
   meta: FacadeContext['meta'],
+  businessId?: string,
 ): void {
   const reason = typeof err.detail?.reason === 'string' ? err.detail.reason : undefined
   console.warn(
@@ -345,6 +375,7 @@ function logFacadeError(
       requestId: meta.requestId,
       appVersion: meta.appVersion,
       platform: meta.platform,
+      businessId,
     }),
   )
 }

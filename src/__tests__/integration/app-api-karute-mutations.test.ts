@@ -50,7 +50,10 @@ jest.mock('@/lib/auth/require-permission', () => ({
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
   // regenerateKarute-only imports (the facade route never calls these).
   requireCapability: jest.fn(async () => undefined),
-  can: jest.fn(async () => true),
+  // The web wrapper resolves the caller's whole set and asks holdsOwnerKeys —
+  // regenerating a COLLEAGUE's record is an ACT, so it keys on the owner's hand
+  // rather than the named grant (⚖ 9/3 council; Greptile #848 point 1).
+  getMyCapabilities: jest.fn(async () => capabilities.current),
 }))
 
 // The record drives the ACL (staff_id) + tenancy (get throws 404 for foreign id).
@@ -77,7 +80,37 @@ const listKaruteRecords = jest.fn(
     karute_records: [],
   }),
 )
+/** The caller's store assignment — the ACT door's store half (fix round 7).
+ *  Default [] = floating → unrestricted, so every pre-existing case stands. */
+const staffStoresGet = jest.fn(async (_id: string) => ({ store_ids: [] as string[] }))
+/** The WEB wrapper's own scope primitive. Default: unrestricted. */
+const webScope = {
+  current: {
+    storeId: null as string | null,
+    viewAll: true,
+    allowedStoreIds: null as string[] | null,
+    degraded: false,
+  },
+}
+/** The web act doors call viewerScopeForActs (auth/store-scope.ts); its own
+ *  fail-closed behaviour is unit-pinned in store-scope.test.ts against the real
+ *  seams. Here it is the SEAM: what the door does with each answer. */
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => webScope.current),
+  viewerScopeForActs: jest.fn(async () =>
+    webScope.current.degraded ? [] : webScope.current.allowedStoreIds,
+  ),
+}))
+/** The recording row behind the karute — read by the regenerate gate ONLY when
+ *  the karute names no store of its own (③ fix round 4). Every pre-existing
+ *  fixture leaves `recording_session_id` unset, so this mock stays untouched
+ *  by them; the store-law cases below opt in. */
+const REC_ROW = { current: { id: 'sess-1', store_id: null as string | null } }
+const recordingsGet = jest.fn(async (_id: string) => REC_ROW.current)
 const fakeClient = {
+  staffStores: { get: (id: string) => staffStoresGet(id) },
+  recordings: { get: (id: string) => recordingsGet(id) },
+  stores: { get: jest.fn(async () => ({ id: 'store-a' })) },
   karuteRecords: {
     get: (id: string) => recGet(id),
     addEntry,
@@ -135,6 +168,10 @@ const jsonReq = (body: unknown, headers: Record<string, string> = auth) =>
 beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['records.write'])
+  staffStoresGet.mockResolvedValue({ store_ids: [] })
+  REC_ROW.current = { id: 'sess-1', store_id: null }
+  recordingsGet.mockImplementation(async () => REC_ROW.current)
+  webScope.current = { storeId: null, viewAll: true, allowedStoreIds: null, degraded: false }
   roster.current = [{ id: 'auth-user-1', full_name: '田中' }]
   revoked.current = false
   REC.current = { id: '00000000-0000-4000-8000-000000000007', created_at: '2026-06-01T03:00:00Z', transcript: 'RAW', staff_id: 'auth-user-1', customer_id: 'cust-1', entries: [{ id: 'old-1' }] }
@@ -204,12 +241,25 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
     expect(update).not.toHaveBeenCalled()
   })
 
-  it('ACL: a recordings.viewAll caller regenerates any staff’s record → 200', async () => {
+  it('ACL: the OWNER’S HAND (both keys) regenerates any staff’s record → 200', async () => {
     REC.current = { ...REC.current, staff_id: 'other-staff' }
-    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
     const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
     expect(addEntry).toHaveBeenCalled()
+  })
+
+  // ⚖ THE NAMED GRANTEE TWIN (9/3 council; Greptile #848 point 1). Regenerating
+  // REWRITES a colleague's record off the same raw transcript — an ACT, not a
+  // read — so the read-only grant buys no reach here. Same 403, same silence.
+  it('ACL: a NAMED GRANTEE (recordings.viewAll alone) is refused → 403, NO LLM, NO write', async () => {
+    REC.current = { ...REC.current, staff_id: 'other-staff' }
+    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
+    expect(res.status).toBe(403)
+    expect(runExtract).not.toHaveBeenCalled()
+    expect(addEntry).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
   })
 
   it('recorder-lock fix: a CARD-id owner translates to the caller’s profile id → 200 (Change 4 pin)', async () => {
@@ -339,6 +389,32 @@ describe('regenerateKarute — web wrapper twin (lane 2026-08-30)', () => {
     // text — toMatchObject would let an injected extra key (e.g. entry_title)
     // silently leak through.
     expect(lines[0].detail).toEqual({ added: 1, removed: 1 })
+  })
+
+  // ⚖ THE NAMED GRANT REWRITES NOTHING, ON THE DESKTOP (fix round 4). The
+  // FACADE half is pinned above; mutating the wrapper's own
+  // `holdsOwnerKeys(capabilities)` back to `.has('recordings.viewAll')` left
+  // every web-wrapper case green, because they only ever ran the caller against
+  // their OWN record (blind round 2, L2 F3). The message is the AppApiError the
+  // orchestration throws, mapped to `{ error }` by the wrapper's catch.
+  it('a NAMED GRANTEE (recordings.viewAll alone) cannot rewrite a colleague’s record — NO LLM, NO audit line', async () => {
+    REC.current = { ...REC.current, staff_id: 'other-staff' }
+    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    const lines = await auditLines(async () => {
+      await expect(regenerateKarute('00000000-0000-4000-8000-000000000007')).resolves.toEqual({
+        error: 'You cannot regenerate a recording you are not allowed to view.',
+      })
+    })
+    expect(runExtract).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('…while the OWNER’S HAND (both keys + unrestricted scope) rewrites the same colleague’s record', async () => {
+    REC.current = { ...REC.current, staff_id: 'other-staff' }
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    const result = await regenerateKarute('00000000-0000-4000-8000-000000000007')
+    expect(result.error).toBeUndefined()
+    expect(runExtract).toHaveBeenCalled()
   })
 
   it('soft failure (extract error): No changes applied, NO audit line', async () => {
@@ -565,5 +641,209 @@ describe('POST /karute/[id]/outcome — an old shell cannot overwrite a masked r
     expect(upsertOutcome).toHaveBeenCalledWith(
       expect.objectContaining({ karute_record_id: '00000000-0000-4000-8000-000000000007', outcome: 'success' }),
     )
+  })
+})
+
+// ── ⚖ THE OWNER'S HAND REACHES ONLY WHERE SHE CAN SEE (fix round 7) ─────────
+// Greptile #848 review 2, point 2: the ACT doors now obey the same store law
+// the READ doors obey. A hand-granted both-keys branch manager is the first
+// person to hold the pair WITHOUT stores.viewAll — she may rewrite records in
+// her own store and nowhere else. The compare lives in the shared core, so
+// both transports answer one karute the same way.
+describe('regenerate — the owner’s hand honours the store law', () => {
+  const BOTH = ['records.write', 'business.manage', 'recordings.viewAll']
+  const ID = '00000000-0000-4000-8000-000000000007'
+  const colleaguesKaruteInStoreB = () => {
+    REC.current = { ...REC.current, staff_id: 'other-staff', store_id: 'store-b' }
+  }
+  const post = () =>
+    regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor(ID))
+
+  // ── FACADE ────────────────────────────────────────────────────────────────
+  it('facade: both keys, CLAMPED to store-a, a store-B karute → 403, NO LLM, NO write', async () => {
+    colleaguesKaruteInStoreB()
+    capabilities.current = new Set(BOTH)
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const res = await post()
+    expect(res.status).toBe(403)
+    expect(runExtract).not.toHaveBeenCalled()
+    expect(addEntry).not.toHaveBeenCalled()
+  })
+
+  it('facade: the SAME caller on a store-A karute → 200', async () => {
+    REC.current = { ...REC.current, staff_id: 'other-staff', store_id: 'store-a' }
+    capabilities.current = new Set(BOTH)
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const res = await post()
+    expect(res.status).toBe(200)
+    expect(addEntry).toHaveBeenCalled()
+  })
+
+  it('facade: stores.viewAll (owner / manager preset) reaches any store, and reads no assignment', async () => {
+    colleaguesKaruteInStoreB()
+    capabilities.current = new Set([...BOTH, 'stores.viewAll'])
+    const res = await post()
+    expect(res.status).toBe(200)
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  it('facade: an UNREADABLE assignment fails the reach closed → 403', async () => {
+    colleaguesKaruteInStoreB()
+    capabilities.current = new Set(BOTH)
+    staffStoresGet.mockRejectedValue(new Error('core down'))
+    expect((await post()).status).toBe(403)
+  })
+
+  // ── WEB ───────────────────────────────────────────────────────────────────
+  it('web: both keys, CLAMPED to store-a, a store-B karute → refused, NO LLM', async () => {
+    colleaguesKaruteInStoreB()
+    capabilities.current = new Set(BOTH)
+    webScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await expect(regenerateKarute(ID)).resolves.toEqual({
+      error: 'You cannot regenerate a recording you are not allowed to view.',
+    })
+    expect(runExtract).not.toHaveBeenCalled()
+  })
+
+  it('web: the SAME caller on a store-A karute → rewrites it', async () => {
+    REC.current = { ...REC.current, staff_id: 'other-staff', store_id: 'store-a' }
+    capabilities.current = new Set(BOTH)
+    webScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    const result = await regenerateKarute(ID)
+    expect(result.error).toBeUndefined()
+    expect(runExtract).toHaveBeenCalled()
+  })
+
+  it('web: a DEGRADED scope fails the reach closed', async () => {
+    colleaguesKaruteInStoreB()
+    capabilities.current = new Set(BOTH)
+    webScope.current = { storeId: null, viewAll: false, allowedStoreIds: null, degraded: true }
+    await expect(regenerateKarute(ID)).resolves.toEqual({
+      error: 'You cannot regenerate a recording you are not allowed to view.',
+    })
+    expect(runExtract).not.toHaveBeenCalled()
+  })
+
+  // ⚖ THE THROWN ARM IS NOT PINNABLE HERE, ON PURPOSE (fix round 9). The door
+  // never sees a throw: viewerScopeForActs catches it and answers `[]`, so a
+  // "thrown" case at this level would run the DEGRADED case above under another
+  // name. The real arm is unit-pinned in store-scope.test.ts against the real
+  // seams ("a THROWN resolve → [] , never null"), which is where M23 kills.
+
+  // ── ⚖ AN ACT IS NEVER MORE PERMISSIVE THAN THE READ (③ fix round 4) ───────
+  // Greptile's fixture at the SERVER gate: the karute names no store, its
+  // recording row names store-9, the caller is a both-keys manager clamped to
+  // store-a. The read doors already hide this record from her, so the act must
+  // refuse it — the same value, through readDoorStoreId. The two button flags
+  // are pinned at their own doors (reassign-flag-threading-web-page /
+  // app-api-karute-detail-screen).
+  const nullStoreKaruteWithRow = (rowStore: string | null) => {
+    REC.current = { ...REC.current, staff_id: 'other-staff', store_id: null, recording_session_id: 'sess-1' }
+    REC_ROW.current = { id: 'sess-1', store_id: rowStore }
+  }
+
+  it('facade: a NULL-store karute whose RECORDING names store-9 → 403 for a store-a manager', async () => {
+    nullStoreKaruteWithRow('store-9')
+    capabilities.current = new Set(BOTH)
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const res = await post()
+    expect(res.status).toBe(403)
+    expect(runExtract).not.toHaveBeenCalled()
+    expect(addEntry).not.toHaveBeenCalled()
+    expect(recordingsGet).toHaveBeenCalledWith('sess-1')
+  })
+
+  // The KARUTE leads — and the row is not even read, which is the whole reason
+  // the fetch is guarded: the common shape pays nothing.
+  it('facade: the KARUTE still leads when it has one — store-a karute, row unread → 200', async () => {
+    REC.current = { ...REC.current, staff_id: 'other-staff', store_id: 'store-a', recording_session_id: 'sess-1' }
+    REC_ROW.current = { id: 'sess-1', store_id: 'store-9' }
+    capabilities.current = new Set(BOTH)
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await post()).status).toBe(200)
+    expect(recordingsGet).not.toHaveBeenCalled()
+  })
+
+  it('facade: BOTH null is genuinely unlabelled — 全店舗/legacy, 200', async () => {
+    nullStoreKaruteWithRow(null)
+    capabilities.current = new Set(BOTH)
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await post()).status).toBe(200)
+  })
+
+  // ⚖ AN UNREADABLE ROW IS CLOSED FOR A CLAMPED HAND (fix round 6, Greptile
+  // #849 review 2). THIS CASE USED TO PIN THE OPPOSITE: a failed row read
+  // reading as "no store" — the pre-③ answer, OPEN — held as the accepted
+  // trade against refusing a 再生成 on a storage blip. It is the fail-open
+  // Greptile named, and the trade was wrong at the strongest door of the
+  // three: a store we could not READ is not a record with no store, and the
+  // cost of closing it is a refusal that lasts exactly as long as the blip.
+  it('facade: an UNREADABLE recording row REFUSES a store-a manager → 403, NO LLM', async () => {
+    nullStoreKaruteWithRow('store-9')
+    recordingsGet.mockRejectedValue(new Error('core down'))
+    capabilities.current = new Set(BOTH)
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await post()).status).toBe(403)
+    expect(runExtract).not.toHaveBeenCalled()
+  })
+
+  // ⚖ A 404 IS A DEFINITE NO, NOT AN UNKNOWN (MED-1 fix). The row was swept —
+  // the same "no store info anywhere" as a karute with no session at all — so
+  // the gate stays OPEN for a clamped manager, unlike a genuine throw above.
+  it('facade: a 404 (SWEPT row) reads as no store — regenerate proceeds for a store-a manager too', async () => {
+    nullStoreKaruteWithRow('store-9')
+    recordingsGet.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
+    capabilities.current = new Set(BOTH)
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await post()).status).toBe(200)
+    expect(runExtract).toHaveBeenCalled()
+  })
+
+  it('facade: …but an UNRESTRICTED hand (stores.viewAll) still rewrites it → 200', async () => {
+    nullStoreKaruteWithRow('store-9')
+    recordingsGet.mockRejectedValue(new Error('core down'))
+    capabilities.current = new Set([...BOTH, 'stores.viewAll'])
+    expect((await post()).status).toBe(200)
+  })
+
+  // The recorder passes on the own-recording branch, which never reaches the
+  // store leg — a storage blip cannot cost her her own 再生成.
+  it('facade: …and the RECORDER’s own record is rewritten through the same blip → 200', async () => {
+    nullStoreKaruteWithRow('store-9')
+    REC.current = { ...REC.current, staff_id: 'auth-user-1' }
+    recordingsGet.mockRejectedValue(new Error('core down'))
+    capabilities.current = new Set(['records.write'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await post()).status).toBe(200)
+  })
+
+  // …and a karute that NAMES a store never asks the row at all, so a throwing
+  // read changes nothing. This is the guard itself, pinned against the throw
+  // rather than only against a resolving row.
+  it('facade: a karute WITH a store never reads the row — a throwing read changes nothing → 200', async () => {
+    REC.current = { ...REC.current, staff_id: 'other-staff', store_id: 'store-a', recording_session_id: 'sess-1' }
+    recordingsGet.mockRejectedValue(new Error('core down'))
+    capabilities.current = new Set(BOTH)
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await post()).status).toBe(200)
+    expect(recordingsGet).not.toHaveBeenCalled()
+  })
+
+  it('web: the same NULL-store karute + store-9 row is refused there too', async () => {
+    nullStoreKaruteWithRow('store-9')
+    capabilities.current = new Set(BOTH)
+    webScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await expect(regenerateKarute(ID)).resolves.toEqual({
+      error: 'You cannot regenerate a recording you are not allowed to view.',
+    })
+    expect(runExtract).not.toHaveBeenCalled()
+  })
+
+  it('the RECORDER’s own record is untouched by any of it', async () => {
+    REC.current = { ...REC.current, staff_id: 'auth-user-1', store_id: 'store-b' }
+    capabilities.current = new Set(['records.write'])
+    webScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    const result = await regenerateKarute(ID)
+    expect(result.error).toBeUndefined()
   })
 })

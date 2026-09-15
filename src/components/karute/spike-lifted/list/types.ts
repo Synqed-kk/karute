@@ -58,6 +58,14 @@ export interface KaruteListItem {
   summary: string
   aiStatus: KaruteAiStatus
   conversionStatus: KaruteConversionStatus
+  /** Retained ledger row. It is visible but never navigable/actionable. */
+  isDiscarded?: boolean
+  /** D10 (PR-C, self-lighting): true when the row's recording session carries
+   *  a `shared_at`. Absent/false → no row chip, ever. WHO sees the chip is a
+   *  SEPARATE question decided by the caller (KaruteListRow's
+   *  viewerHoldsViewShared + currentStaffId props) — this flag only states
+   *  the fact that a share exists. */
+  isShared?: boolean
   /** Tap target. Real records link to `/karute/{recordId}`; placeholder
    *  rows for customers with no records link to
    *  `/karute/customer/{customerId}`. Caller (page) decides. */
@@ -75,3 +83,9 @@ export type KaruteListFilter =
   | 'aiPending'
   | 'needsReview'
   | 'draft'
+  | 'discarded'
+  // D10 (PR-C): self-lighting — only appended to the visible filter row when
+  // sharedCount !== undefined AND the viewer holds recordings.viewShared (see
+  // KaruteRecordListView's computed filterKeys). The union member stays here
+  // unconditionally so counts/i18n type-check whether or not it is offered.
+  | 'shared'

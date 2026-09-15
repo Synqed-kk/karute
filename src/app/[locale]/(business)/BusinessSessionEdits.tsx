@@ -58,7 +58,7 @@
 // decision, and dying on the flip is the safe default until it is made.
 
 import { createContext, useContext, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
-import type { Move, Moves } from './business/today/today-interactions'
+import type { BedCompanion, Move, Moves } from './business/today/today-interactions'
 import type { BoardItem, BookingCategory } from '@/business/lib/today-board'
 
 /** ⚖ Liam 22 — where a parked card came from, WITH THE DAY AS DATA. Canon's
@@ -99,6 +99,15 @@ export interface ParkChip {
   home: ParkHome
   lenMin: number
   item: BoardItem
+  /** ⚖ R8 FIX ROUND 2 (Greptile on #828) — WHETHER THE BOOKING HAS A RECORDED
+   *  PRICE, stamped at park time, while the board that knows the answer is
+   *  still the board on screen. The chip travels to another day (⚖ Liam 22),
+   *  where neither `pricedIds` nor the server's lanes have ever heard of the
+   *  id; the placement that lands there used to infer the fact from the card's
+   *  ticket LINE, which for a price-less booking is the non-null text
+   *  「価格未記録」 (today-board.ts :409-410) — a fact read off display prose.
+   *  Carried, it cannot be re-read wrong. */
+  priced: boolean
 }
 
 /** ⚖ Liam 22 — a card this session put on a board, and THE DAY it belongs to.
@@ -115,6 +124,10 @@ export interface AddedRow {
   laneKey: string
   item: BoardItem
   fromChip?: ParkChip
+  /** ⚖ R8 FIX ROUND 2 — the same fact for a row this SESSION minted, written by
+   *  the mint that knew the price (the chip's own stamp, the lane's 定価, the
+   *  dialog's コース) and never inferred afterwards from `item.ticketCore`. */
+  priced: boolean
 }
 
 /** canon's `pendingChange`, and — ⚖ R11-4 (:5686) — the DAY it is staged on. A
@@ -145,6 +158,18 @@ export interface PendingChange {
    *  board has never had; the day-pin now names the store too when it differs. */
   store: string | null
   storeLabel: string
+  /** ⚖ 9/8 PACKING (2026-09-08) — THE OTHER PEOPLE THIS ONE CHANGE MOVED.
+   *
+   *  A landing onto a full house may now free the room by moving the fewest
+   *  other bookings that make the day fit, and those moves are part of THIS
+   *  change: they are drawn as staged, named on the 仮押さえ box, re-checked at
+   *  確定 and put back by the one 元に戻す. Bed side only — a companion's staff
+   *  lane and its time never change, which is why this carries a room and a
+   *  drawing and nothing else.
+   *
+   *  Absent on every landing that moved nobody, which is every landing the board
+   *  made before this. */
+  companions?: ReadonlyArray<BedCompanion>
   /** ⚖ Liam flag 50(d) (2026-08-22) — THE RED REASON THIS LANDING OVERRODE.
    *  A 置けない landing never places by itself; an authorised operator may place
    *  through 「注意して配置」, and the change then carries the sentence it walked

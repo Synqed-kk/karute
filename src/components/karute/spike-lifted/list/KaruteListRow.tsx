@@ -30,17 +30,43 @@ import type {
 
 interface Props {
   item: KaruteListItem
+  /** R8 discarded-record door (⚖ Liam 2026-09-13): may this viewer OPEN this
+   *  row even though it's discarded (own record OR records.discardView,
+   *  computed by the caller)? Absent → today's `!item.isDiscarded` — never
+   *  hidden, only the tap target changes. The row's GREY + 「破棄済み」 look
+   *  and content-blank stay governed by `item.isDiscarded` alone (A8: the
+   *  row's existence and honest state never depend on this flag — only
+   *  whether a tap does something). */
+  canOpen?: boolean
+  /** D10 (PR-C, WHO-SEES): does this viewer hold recordings.viewShared
+   *  (management)? Gates the 共有 chip together with `currentStaffId` below —
+   *  the recorder always sees her own shared rows marked, everyone else needs
+   *  the capability. Default false. */
+  viewerHoldsViewShared?: boolean
+  /** D10 (PR-C, WHO-SEES): the viewer's own staff id — the chip shows on
+   *  item.staffId === currentStaffId even without viewShared. Default null. */
+  currentStaffId?: string | null
 }
 
-export function KaruteListRow({ item }: Props) {
+export function KaruteListRow({ item, canOpen, viewerHoldsViewShared = false, currentStaffId = null }: Props) {
   const t = useTranslations('karute.recordList')
   const staffColor = getStaffColorByKey(item.staffColorKey)
+  const active = !item.isDiscarded
+  // D10 (PR-C, WHO-SEES): item.isShared is a fact; this is the visibility
+  // decision — a viewShared holder sees every shared row, the recorder always
+  // sees her OWN shared rows (⚖ Liam 9/13 sharing law), nobody else does.
+  const canSeeSharedChip =
+    item.isShared === true &&
+    (viewerHoldsViewShared || (currentStaffId != null && item.staffId === currentStaffId))
+  const linkable = canOpen ?? active
+  const rowClassName = cn(
+    'relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 last:border-b-0 dark:border-white/5 md:gap-4',
+    !active && 'opacity-70',
+    linkable && 'hover:bg-muted/30 active:bg-muted/50',
+  )
 
-  return (
-    <Link
-      href={item.href as Parameters<typeof Link>[0]['href']}
-      className="group relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 transition-colors last:border-b-0 hover:bg-muted/30 active:bg-muted/50 dark:border-white/5 md:gap-4"
-    >
+  const content = (
+    <>
       {/* Staff color stripe (left edge) — same idiom as customer cards */}
       <span
         aria-hidden
@@ -90,17 +116,18 @@ export function KaruteListRow({ item }: Props) {
            *  Suppressed for placeholders — a customer with no karute yet has
            *  nothing drafted (下書き) and no conversion to resolve (仮カルテ);
            *  those chips would misread as "session in progress". */}
-          {!item.isPlaceholder && (
+          {!item.isPlaceholder && active && (
             <span className="ml-auto flex shrink-0 items-center gap-1 md:hidden">
               <ConversionChip status={item.conversionStatus} />
               <AiChip status={item.aiStatus} />
+              {canSeeSharedChip && <SharedChip />}
             </span>
           )}
         </div>
 
         {/* Line 2 — summary (truncate) */}
         <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-          {item.summary || '—'}
+          {active ? item.summary || '—' : t('filters.discarded')}
         </p>
 
         {/* Line 3 (mobile) — service + duration + staff */}
@@ -149,12 +176,29 @@ export function KaruteListRow({ item }: Props) {
       </div>
 
       {/* Status chips (desktop) — suppressed for placeholders; see mobile note. */}
-      {!item.isPlaceholder && (
+      {!item.isPlaceholder && active && (
         <div className="hidden shrink-0 items-center gap-1 md:flex">
           <ConversionChip status={item.conversionStatus} />
           <AiChip status={item.aiStatus} />
+          {canSeeSharedChip && <SharedChip />}
         </div>
       )}
+    </>
+  )
+
+  if (!linkable) {
+    // R6 repair (2026-09-13, F6): a plain, non-interactive `<div>` takes no
+    // `aria-disabled` — that attribute only has meaning on something that
+    // could otherwise be operated (a button, a link). This row has no href
+    // and no click handler, so the visible 「破棄済み」 text (line 105 above)
+    // is already the honest, sufficient carrier for a screen-reader user; a
+    // fake disabled-state announcement on an inert div is noise, not a11y.
+    return <div className={rowClassName}>{content}</div>
+  }
+
+  return (
+    <Link href={item.href as Parameters<typeof Link>[0]['href']} className={rowClassName}>
+      {content}
     </Link>
   )
 }
@@ -200,6 +244,17 @@ function AiChip({ status }: { status: KaruteAiStatus }) {
     >
       <span aria-hidden>✦</span>
       <span>{t(status)}</span>
+    </span>
+  )
+}
+
+// D10 (PR-C): soft wash tier, like the AI/conversion siblings above — never a
+// solid fill (⚖ no-black-interactive; this chip is not interactive at all).
+function SharedChip() {
+  const t = useTranslations('karute.recordList')
+  return (
+    <span className="inline-flex h-5 items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-1.5 text-[10px] font-medium text-sky-700 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-300">
+      <span>{t('filters.shared')}</span>
     </span>
   )
 }

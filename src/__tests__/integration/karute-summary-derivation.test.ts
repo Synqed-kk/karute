@@ -30,11 +30,18 @@ const buildArgs = (karute: ReturnType<typeof mapSynqedKaruteRecord>) => ({
   outcome: null,
   viewerStaffId: 'staff-1',
   canViewAllRecordings: false,
+  sharedWith: false,
+  sharedAt: null,
+  recordingRow: null,
+  businessId: 'biz-1',
   staffCanReassignRecords: false,
+  staffCanRegenerate: true,
   contact: null,
   consentResult: null,
   customer: null,
   locale: 'ja',
+  discardLedger: null,
+  recordStaffName: null,
 })
 
 describe('summary derivation seam (mapper → builder → DTO)', () => {

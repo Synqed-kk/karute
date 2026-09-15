@@ -52,9 +52,25 @@ export const WeekDayCardDataDTO = z.object({
   bookedMinutes: z.number(),
   availableMinutes: z.number(),
   newCustomerCount: z.number(),
-  remindersPending: z.number(),
-  consentPending: z.number(),
-  unconfirmed: z.number(),
+  /** The row's JST calendar day, YYYY-MM-DD. */
+  dateIso: z.string().default(''),
+  /** May 稼働/空き claim a number for this day (STRESS-S F1's five conjuncts)? */
+  capacityDefensible: z.boolean().default(false),
+  /** A human really set this day's hours — the 未設定 discriminator. */
+  hoursSaved: z.boolean().default(false),
+  /** 定休日 or 臨時休業. */
+  closed: z.boolean().default(false),
+  cancelledCount: z.number().default(0),
+  noShowDayCount: z.number().default(0),
+  /** PKT-2 owns the producer; 0 on the wire until then. */
+  returningCount: z.number().default(0),
+  // .default(0) on the three dead counters — step 1 of 3 (STRESS-S §5): the
+  // producer still writes 0 today, the wire stops requiring them next, and the
+  // keys go last. Defaulting first is what makes those later steps non-breaking
+  // across every server/bundle skew (same rule as `menus` / `colorRosterIds`).
+  remindersPending: z.number().default(0),
+  consentPending: z.number().default(0),
+  unconfirmed: z.number().default(0),
   visibleBookings: z.array(WeekDayBookingChipDTO),
   hiddenCount: z.number(),
 })
@@ -149,6 +165,20 @@ export const AppointmentsScreenDTO = z.object({
   weekData: z.array(WeekDayCardDataDTO).nullable(),
   weekStartIso: z.string().nullable(),
   monthData: z.array(MonthCellDTO).nullable(),
+  /** The SELECTED day's row — the day line's numbers, from the same adapter the
+   *  week rows come from, so the two surfaces cannot disagree.
+   *
+   *  .default(null) for the bundle-skew reason `menus` and `colorRosterIds`
+   *  already carry: the thin bundle parses this SAME schema from a baked copy,
+   *  so a required key would blank the whole 予約 screen on any server/bundle
+   *  skew. Null = today's behaviour (the line falls back to nothing). */
+  dayTotals: WeekDayCardDataDTO.nullable().default(null),
+  /** JST-midnight ISO of the rendered month's 1st. Same bundle-skew default. */
+  monthStartIso: z.string().nullable().default(null),
+  /** The window could not be read to exhaustion — the surface says the read
+   *  failed rather than showing a low number. Same bundle-skew default; false
+   *  is today's (silently-truncating) behaviour. */
+  truncated: z.boolean().default(false),
 })
 
 export type AppointmentsScreenDTOType = z.infer<typeof AppointmentsScreenDTO>

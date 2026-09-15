@@ -101,6 +101,11 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // durable, staff-attributed audit row, so a just-terminated staffer must not
   // be able to file one on the local fast-path.
   'recordings.discard',
+  // The recorder's own share toggle (⚖ Liam 2026-09-13 sharing law; 2026-09-14
+  // design D6) — a POST that grants (or revokes) a manager's read reach onto
+  // customer voice data and files a durable audit row. A just-removed staffer
+  // must never reach this write on the local fast-path.
+  'recordings.share',
   // …and the WORDS behind that receipt (PHONEWIRE-2C) — a POST that persists
   // customer speech onto the discarded session AND, on the staged shape, spends
   // a transcription run on it. Both halves are exactly what a just-terminated
@@ -184,6 +189,9 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // fast-path. The status GET is read-only (no write side effect) and stays
   // OFF this list, like every other unlisted facade GET.
   'recordings.job.enqueue',
+  // …and the same job entered from a 録音履歴 row instead of from the device
+  // that just recorded (build 23 slice ③). Same act, same rule.
+  'recordings.job.enqueueFromSession',
   // 今すぐ同期 manual crawl trigger (packet 32): a just-terminated staffer
   // must not keep kicking off QuickReserve crawls on the local fast-path.
   'sync.run',

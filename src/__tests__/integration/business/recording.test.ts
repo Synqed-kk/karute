@@ -2071,7 +2071,17 @@ describe('⚖ the sibling-sheet fence', () => {
     }
     expect(losses).toEqual([])
     // \u2026and there ARE real rivals, or the pin above proves nothing.
-    expect(rivals.length).toBeGreaterThan(0)
+    // ⚠ THE RIVAL SET IS EMPTY NOW, AND THAT IS A FACT ABOUT THE FAMILY rather
+    // than a hole in this pin: every sibling that used to state a bare rule on a
+    // name this room owns has retired it (顧客 in its V2 redesign, 予約一覧 in
+    // its own). The outranking loop above is vacuous today, so the property it
+    // exists to protect is asserted DIRECTLY — this room's own four-level fence
+    // must still be there. The day a neighbour states a bare rule again,
+    // `rivals` refills and the loop does its job unchanged.
+    for (const f of ['.biz .page.pg-recording .btn { font-weight: 500; }',
+                     '.biz .page.pg-recording .btn.primary { font-weight: 600; }']) {
+      expect(ROOM_CSS).toContain(f)
+    }
   })
 
   it('NO SIBLING states a bare rule that reaches a name only this room owns', () => {
@@ -2144,7 +2154,11 @@ describe('⚖ the sibling-sheet fence', () => {
     // carry a copy of the rule in its own sheet, which is exactly that reach
     // however carefully it was scoped.
     const shell = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording) { min-width: 0; }')
+    // ⚠ THE PIN IS THIS ROOM'S OWN ENTRY, not the whole list. The list is
+    // SHELL-owned and every room that owes the ALL-SCREEN ladder joins it
+    // (売上分析 did on 2026-09-03), so a literal-string pin here would go red
+    // for a neighbour's correct change and teach nobody anything.
+    expect(shell).toMatch(/\.biz \.app:has\([^)]*\.page\.pg-recording[^)]*\)\s*\{\s*min-width:\s*0;\s*\}/)
     expect(ROOM_CSS).not.toMatch(/\.biz \.app:has/)
     // …and the room's sheet reaches OUTSIDE its own subtree nowhere at all:
     // every selector it states is scoped by `pg-recording`.

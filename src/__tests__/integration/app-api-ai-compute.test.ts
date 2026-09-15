@@ -42,9 +42,30 @@ jest.mock('@/lib/ai-rate-limit', () => ({
 }))
 
 const runTranscription = jest.fn(async () => ({ transcript: 'T', durationSec: 1, confidence: 0.9 }))
+const RECEIPT = { duration_seconds: 1, cost_cents: 1, debit_recorded: true }
 const loadRef = jest.fn(async () => null)
+/** THE METER, as a stand-in (the spend wall, 2026-09-08). This suite is about
+ *  the route's ORDER — plan gate first, ZERO consume when locked, nothing
+ *  deleted on a refusal — so the door keeps asking the same `enforceRate` mock
+ *  it always did, one level down. The wall's own behaviour (the debit, the
+ *  receipt, the refusal row) is proven against the REAL wrapper in
+ *  transcription-spend-wall.test.ts. */
+const runMeteredTranscription = jest.fn(
+  async (meter: { synqed: unknown }, params: unknown) => {
+    await (enforceRate as unknown as (c: unknown, r: string) => Promise<void>)(
+      meter.synqed,
+      'transcribe',
+    )
+    void params
+    // `{ result, receipt }` since fix round 2: the route reads `result` for the
+    // client and `receipt` for its audit row (transcriptionCostDetail is gone —
+    // only the call itself can know whether the debit landed).
+    return { result: await runTranscription(), receipt: RECEIPT }
+  },
+)
 jest.mock('@/lib/ai/transcribe', () => ({
-  runTranscription: (...a: unknown[]) => runTranscription(...(a as [])),
+  runMeteredTranscription: (...a: unknown[]) =>
+    (runMeteredTranscription as (...x: unknown[]) => unknown)(...(a as [])),
   speakerIdMode: () => 'shadow',
   loadStaffReferenceForStaff: (...a: unknown[]) => loadRef(...(a as [])),
 }))
@@ -164,20 +185,22 @@ describe('transcribe — storage-path tenancy + voice isolation', () => {
     expect(res.status).toBe(200)
     // Voice-isolation: loadStaffReferenceForStaff called with THIS caller's staff id.
     expect(loadRef).toHaveBeenCalledWith(expect.anything(), 'auth-user-1')
-    expect(removeObj).toHaveBeenCalledWith([OWN_PATH])
+    // ⚖ capture pipeline PR4: the path is the take's FINALIZED object, so the
+    // route READS it and leaves it — the `finally` that deleted it is gone.
+    expect(removeObj).not.toHaveBeenCalled()
   })
-  it('early gate failure (rate limit) AFTER upload → object still deleted', async () => {
+  it('⚖ early gate failure (rate limit) deletes nothing', async () => {
     enforceRate.mockRejectedValueOnce(new AppApiError('rate_limited', 'slow down'))
     const res = await transcribePOST(post(auth, { path: OWN_PATH, locale: 'ja' }), noRoute)
     expect(res.status).toBe(429)
-    expect(removeObj).toHaveBeenCalledWith([OWN_PATH])
+    expect(removeObj).not.toHaveBeenCalled()
     expect(runTranscription).not.toHaveBeenCalled()
   })
-  it('transcription failure → object still deleted (no orphaned audio)', async () => {
+  it('⚖ transcription failure deletes nothing — the audio outlives the failure', async () => {
     runTranscription.mockRejectedValueOnce(new Error('deepgram down'))
     const res = await transcribePOST(post(auth, { path: OWN_PATH, locale: 'ja' }), noRoute)
     expect(res.status).toBeGreaterThanOrEqual(500)
-    expect(removeObj).toHaveBeenCalledWith([OWN_PATH])
+    expect(removeObj).not.toHaveBeenCalled()
   })
   it('missing capability → 403', async () => {
     capabilities.current = new Set(['customers.view'])

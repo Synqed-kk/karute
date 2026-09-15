@@ -64,14 +64,18 @@ import {
   seedBed,
   sellLayerFor,
   sidesAt,
+  windowsOf,
+  windowsOn,
   type GuardRail,
   type Move,
   type Moves,
   type RailCell,
-  type RoomPolicy,
+  type RailCue,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
-import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { TodayScreen, bedDoor, bedViewsFor, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held'
+import { reservedMaskFor } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 
@@ -138,11 +142,79 @@ const supabase = createClient as jest.Mock
  *  argument to, is what closes it: a duplicate moves the count, and a move
  *  leaves the slice.
  *
- *  A decoy hidden as a TRAILING comment on a real code line survives the
- *  filter — and then it INFLATES the count, which is red the other way
- *  round. */
+ *  ⚖ BREAKER-828 F5 + DELTA G3 (MAJOR) — AND IT IS ONE PASS, NOT TWO. A
+ *  trailing comment that ends in `/*` used to survive the line pass into the
+ *  block pass, which then ate everything down to the next block close — real,
+ *  compiled code, invisible to every ban and count built on this helper. F5's
+ *  per-line quote walker closed that shape and not the class: an apostrophe
+ *  inside a same-line `/* … *\/` still left it believing a string was open
+ *  (`N12`), and the block pass respected no strings at all, so `const OPEN =
+ *  '/*'` … `const CLOSE = '*\/'` opened and closed a comment out of two string
+ *  literals (`N13`). v3 walks the source ONCE as a state machine over code,
+ *  `'…'`, `"…"`, `` `…` `` with `${ … }` holes, `//` and `/* … *\/`: a
+ *  delimiter inside a string is a character, comments are blanked to spaces so
+ *  the output keeps the input's length and line numbers, and strings come back
+ *  verbatim.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY (⚖ BREAKER-828 DELTA 2 H1). A regex literal
+ *  is not parsed, and a quote inside its character class is not the only
+ *  thing that leaks: the very next `/*` INSIDE the regex body (`/[/*]/`,
+ *  `/a\/*b/`) opens a real block comment too, closing string-blind on the
+ *  next `*\/`. Hiding is only red when it removes a PINNED line from a count;
+ *  hiding a mutant's own addition moves nothing. The guard is not in the
+ *  tokenizer — it is a RAW count over `src` standing beside every
+ *  `codeOnly(src)` single-reader count that a hidden second reader would
+ *  matter to (today-screen-interactions.test.ts, the `computeChecks(` and
+ *  `priceFactSets(`/`hasPriceFact(` reader counts).
+ *
+ *  Unit-pinned in today-screen-interactions.test.ts; this is a
+ *  VERBATIM copy — these three suites do not import one another — and the last
+ *  describe in this file asserts all three copies are byte-identical. */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const codeOnly = (src: string) => src.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
+// ⚖ codeOnly v3 — BYTE-IDENTICAL IN THREE SUITES (open)
+const codeOnly = (src: string) => {
+  const out: string[] = []
+  const blank = (s: string) => { out.push(s.replace(/[^\n]/g, ' ')) }
+  const holes: number[] = []
+  let tpl = false
+  let i = 0
+  while (i < src.length) {
+    const c = src[i]
+    if (tpl) {
+      if (c === '\\') { out.push(src.slice(i, i + 2)); i += 2; continue }
+      if (c === '`') { out.push(c); i += 1; tpl = false; continue }
+      if (c === '$' && src[i + 1] === '{') { holes.push(0); out.push('${'); i += 2; tpl = false; continue }
+      out.push(c); i += 1
+      continue
+    }
+    if (c === '/' && src[i + 1] === '/') {
+      const e = src.indexOf('\n', i)
+      blank(src.slice(i, e < 0 ? src.length : e)); i = e < 0 ? src.length : e
+      continue
+    }
+    if (c === '/' && src[i + 1] === '*') {
+      const e = src.indexOf('*/', i + 2)
+      blank(src.slice(i, e < 0 ? src.length : e + 2)); i = e < 0 ? src.length : e + 2
+      continue
+    }
+    if (c === "'" || c === '"') {
+      let j = i + 1
+      while (j < src.length && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1
+      const k = j < src.length && src[j] === c ? j + 1 : j
+      out.push(src.slice(i, k)); i = k
+      continue
+    }
+    if (c === '`') { out.push(c); i += 1; tpl = true; continue }
+    if (holes.length > 0 && (c === '{' || c === '}')) {
+      if (c === '{') holes[holes.length - 1] += 1
+      else if (holes[holes.length - 1] === 0) { holes.pop(); out.push(c); i += 1; tpl = true; continue }
+      else holes[holes.length - 1] -= 1
+    }
+    out.push(c); i += 1
+  }
+  return out.join('')
+}
+// ⚖ codeOnly v3 — BYTE-IDENTICAL IN THREE SUITES (close)
 const pinnedLines = (src: string, line: string) =>
   (codeOnly(src).match(new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')) ?? []).length
 const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
@@ -191,7 +263,6 @@ afterAll(() => jest.useRealTimers())
 // ── the hand-built scenes ───────────────────────────────────────────────────
 
 const HOURS = { open: 600, close: 1140 } // 10:00–19:00
-const POLICY: RoomPolicy = { vipStaysPrivate: true, privateIsLastResort: true }
 const GUARD = {
   services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
   newClientSessionMin: 90,
@@ -231,7 +302,7 @@ function lane(over: Partial<BoardLane> & Pick<BoardLane, 'key' | 'group'>): Boar
 /** The rail exactly as the screen builds it, rooms included — flag 76's
  *  callback is what makes a bed refusal reachable here at all. */
 function railOn(lanes: BoardLane[], dur = 60): GuardRail {
-  const truth = bedTruthViews(lanes, POLICY, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
+  const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
   return guardRailsFor(lanes, {
     open: HOURS.open, close: HOURS.close, stepMin: 30, dur, protectedDur: 90,
     nowMinute: null, locked: [], guard: GUARD,
@@ -255,13 +326,20 @@ const placeableOn = (rail: GuardRail): RailCell => rail.cells.find((c) => c.stat
 
 /** The screen's own composition for one chip: `allocateBed`'s answer for the
  *  chip's own window whenever the class is `bed`, and nothing otherwise. */
-const explainOn = (lanes: BoardLane[], cell: RailCell, dur = 60) =>
+/** ⚖ NEW-WINDOW L-E (2026-09-12) — `reservedHalf` is a REAL ARGUMENT now. The
+ *  board's own composer (`explainRails`) computes it from `heldExtents` over the
+ *  mark's half hour and passes it on EVERY call, on both walks; this helper left
+ *  it out, so the 新規用 arm — which is now gated on it — could only be asked one
+ *  way. Defaults to `undefined`, exactly as before, so every other caller is
+ *  byte-unchanged. */
+const explainOn = (lanes: BoardLane[], cell: RailCell, dur = 60, reservedHalf?: boolean) =>
   railExplain(cell, dur, {
+    reservedHalf,
     room:
       cell.reason === 'bed'
         ? allocateBed(lanes, {
-            id: null, currentBed: null, stores: null, vip: false,
-            start: cell.start, end: cell.start + dur, policy: POLICY,
+            id: null, currentBed: null, stores: null, requiresPrivate: false,
+            start: cell.start, end: cell.start + dur,
           })
         : null,
   })
@@ -329,7 +407,15 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     // ⚖ LIAM RULING (2026-08-30) — 新規用, not 新規. Bare 新規 is the board's
     // カテゴリー word, so on a chip it read as 「put a new customer here」 —
     // the inversion of a HOLD. The 用 is what makes the word un-invertible.
-    expect(explainOn([], guarded).word).toBe('新規用')
+    // ⚖ NEW-WINDOW L-E (2026-09-12) — AND THE WORD IS THE MASK'S. 新規用 says
+    // 「this half hour is being HELD for a 新規 and cannot be sold」, so it may only
+    // be worn where a window really is published there. The bare
+    // `cell.reason === 'guard'` arm painted it on every engine refusal, the menu
+    // repertoire one included — a half hour holding nothing wearing the word for
+    // a hold. Both directions are asserted, so neither the gate nor the arm can
+    // quietly go away.
+    expect(explainOn([], guarded, 60, true).word).toBe('新規用')
+    expect(explainOn([], guarded, 60, false).word).toBeNull()
 
     // ⚖ Fable-accepted default (overturnable, noted in the PR body): a
     // no-pocket-fit chip keeps the bare 「—」. Its blocker is drawn on the row.
@@ -353,33 +439,36 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     const cell = at(railOn(busy), 780)
     expect(cell.reason).toBe('bed')
     const lifted = allocateBed(busy, {
-      id: 'x1', currentBed: null, stores: null, vip: false, start: 780, end: 840, policy: POLICY,
+      id: 'x1', currentBed: null, stores: null, requiresPrivate: false, start: 780, end: 840,
     })
     expect([lifted.laneKey, lifted.refusal]).toEqual(['bed-01', null])
     // 満室 over a room that is standing empty is the lie. Bare 「—」 instead.
     expect(railExplain(cell, 60, { room: lifted }).word).toBeNull()
   })
 
-  it('a refusal that names NOBODY wears no word — 使えるベッドがありません is not a full house', () => {
-    // ⚖ 46 store isolation: this staff member's store has no rooms in it at all,
-    // so the allocator's candidate list is empty. It refuses — truthfully — and
-    // there is no occupant anywhere in the answer.
+  it('a store with no rooms refuses nobody — the chip is bare and the sentence is the base sentence (⚖ D-52 (a))', () => {
+    // ⚖ 46 store isolation: this staff member's store has no rooms in it at all
+    // (⚖ ROUND 3 · C, ⚖ D-52 (a)): `storeHasBeds(lanes, ['store-b'])` is false,
+    // so the untagged landing returns before the search — no refusal, no
+    // occupant anywhere in the answer, the landing stands with no room.
     const split = [
       lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-b'] }),
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', stores: ['store-a'] }),
     ]
     const empty = allocateBed(split, {
-      id: null, currentBed: null, stores: ['store-b'], vip: false, start: 780, end: 840, policy: POLICY,
+      id: null, currentBed: null, stores: ['store-b'], requiresPrivate: false, start: 780, end: 840,
     })
-    expect(empty.refusal).toBe('13:00〜14:00に使えるベッドがありません')
-    expect(empty.blockers).toEqual([])
+    expect(empty).toEqual({ laneKey: null, refusal: null, blockers: [], reseats: [] })
     const bedCell: RailCell = { ...at(railOn(sceneWith([])), 780), state: 'blocked', reason: 'bed' }
     const said = railExplain(bedCell, 60, { room: empty })
-    // 「満室」 beside 「使えるベッドがありません」 said two different things about
-    // one board — and 清掃 was the LITERAL old answer here, because `every` on an
-    // empty list is true. Neither now: the sentence still refuses, the chip is bare.
+    // 満室 beside the now-retired no-rooms refusal used to say two different
+    // things about one board — and 清掃 was the LITERAL old answer here, because
+    // `every` on an empty list is true. Neither now: with no refusal to quote, `railExplain`'s
+    // `base` falls through to the engine's own bare sentence for this cell
+    // (`${cell.sentence}${judged}`) — the chip is bare and the sentence never
+    // mentions a bed at all.
     expect(said.word).toBeNull()
-    expect(said.sentence).toBe('13:00〜14:00に使えるベッドがありません')
+    expect(said.sentence).toBe(`${bedCell.sentence}（13:00〜14:00）`)
   })
 })
 
@@ -387,13 +476,16 @@ describe('§3 — every sentence names the window it judged', () => {
   it('a bed refusal is `fullRoomsRefusal`’s sentence, whole and unedited', () => {
     const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
     const said = explainOn(busy, at(railOn(busy), 780)).sentence
-    expect(said).toBe('13:00〜14:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様）')
+    expect(said).toBe('13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）が使用中です')
     // ⛔ THE RETIRED VOCABULARY, pinned dead. The 8/25 native pass ruled
     // 「…に空きがありません」; 満室 survives as the CHIP's word and nowhere else,
     // and 「空きベッドなし」 was never vocabulary at all.
     expect(said).not.toContain('この時間帯に空いているベッドがいません')
     expect(said).not.toContain('空きベッドなし')
     expect(said).not.toContain('満室')
+    // ⚖ 9/9 — this pin is about the SENTENCE and stays exactly that. 満室 also
+    // rides the lane's rest cue from this round on, and that is paint (the
+    // chip's own word, on the track under it), which no assertion here covers.
   })
 
   it('every other class appends its own 「（HH:MM〜HH:MM）」', () => {
@@ -453,9 +545,9 @@ describe('§4 — ⚖ 75(i): the collector observes, and the clause never invent
   const layerWith = (claims: GapCell[], onDrop?: (d: SellDrop) => void) => {
     const { price, depth } = priceOf(REAL)
     return sellLayerFor(oneRoom(), REAL.hours, {
-      gridMin: 60, nowMinute: null, locked: [], showPrice: true,
+      gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true,
       hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth,
-      reconcile: { claims, rooms: POLICY, cleanupMinutesByBed: {}, onDrop },
+      reconcile: { claims, cleanupMinutesByBed: {}, onDrop },
     })
   }
 
@@ -521,7 +613,6 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
     const frame = { hi: price.hi, lo: price.lo, hqMin: REAL.dialogs.pricing.hqMin, hqMax: REAL.dialogs.pricing.hqMax }
     const truth = bedTruthViews(
       REAL.lanes,
-      REAL.rooms,
       { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open },
       null,
     ).world
@@ -554,10 +645,10 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
           const claims = [...gap.packed, ...gap.scraps]
           const drops: SellDrop[] = []
           const sell = sellLayerFor(REAL.lanes, REAL.hours, {
-            gridMin, nowMinute: REAL.sell.nowMinute, locked: [], showPrice: true,
+            gridMin, sellSlotMin: 60, nowMinute: REAL.sell.nowMinute, locked: [], showPrice: true,
             hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth,
             reconcile: {
-              claims, rooms: REAL.rooms, cleanupMinutesByBed: REAL.bedCleanupMinutes,
+              claims, cleanupMinutesByBed: REAL.bedCleanupMinutes,
               onDrop: (d) => drops.push(d),
             },
           })
@@ -571,7 +662,6 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
           const explained = explainRails(rails, REAL.lanes, {
             dur: sessionMin,
             handId: null,
-            rooms: REAL.rooms,
             stagedId: null,
             sellCells: sell.cells,
             claims,
@@ -658,7 +748,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
   ]
   const railsOn = (lanes: BoardLane[], dur = 60): GuardRail[] => {
-    const truth = bedTruthViews(lanes, POLICY, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
+    const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
     return guardRailsFor(lanes, {
       open: HOURS.open, close: HOURS.close, stepMin: 30, dur, protectedDur: 90,
       nowMinute: null, locked: [], guard: GUARD,
@@ -667,12 +757,12 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
   }
   const ask = (lanes: BoardLane[], over: Partial<Parameters<typeof explainRails>[2]> = {}) =>
     explainRails(railsOn(lanes), lanes, {
-      dur: 60, handId: null, rooms: POLICY, stagedId: null,
+      dur: 60, handId: null, stagedId: null,
       sellCells: [], claims: [], drops: [], inHand: false, sellDisplayed: true,
       ...over,
     })
   const sellAt = (laneKey: string, h: number): SellCell => ({
-    laneKey, resourceKey: 'bed-01', group: 'staff', staff: laneKey, bed: 'ベッド1', h, price: 7000, tier: 2,
+    laneKey, resourceKey: 'bed-01', group: 'staff', staff: laneKey, bed: 'ベッド1', h, e: h + 60, price: 7000, tier: 2,
   })
   /** The first start on p-05 the board did not refuse — where ⚖ 75(i) lives. */
   const okStart = (lanes: BoardLane[]) => railsOn(lanes).find((r) => r.laneKey === 'p-05')!.cells.find((c) => c.state !== 'blocked')!.start
@@ -685,26 +775,36 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // by the board itself — the operator can see the offer.
     expect(ask(lanes, { sellCells: [sellAt('p-05', start)] }).get('p-05')!.get(start)!.sentence)
       .not.toContain('販売可能枠')
-    // A box on the OTHER person's row is not this row's advertisement.
+    // A box on the OTHER person's row is not this row's advertisement, and it is
+    // not automatically the reason either. ⚖ FIX ROUND 2 (L2-M1): naming a taker
+    // is a claim that somebody TOOK the bed this person needed, so it is made
+    // only when the board can support it — the round's own door answers which
+    // rooms are free, and every one of them has to be standing under a box
+    // somewhere else. Here `twoStaff()` has ONE room and no door is handed in,
+    // so the clause stays the bare one that states the absence and invents no
+    // cause (§4's own law). The named form is proved at its own scene in
+    // today-rail-halfhour.test.ts §A, where the door is wired.
     expect(ask(lanes, { sellCells: [sellAt('p-06', start)] }).get('p-05')!.get(start)!.sentence)
       .toContain('この開始には販売可能枠が出ていません')
+    // …and with NOTHING drawn anywhere, likewise.
+    expect(ask(lanes).get('p-05')!.get(start)!.sentence).toContain('この開始には販売可能枠が出ていません')
   })
 
   it('a room-drop names the TAKER by their label — and never this lane itself', () => {
     const lanes = twoStaff()
     const start = okStart(lanes)
-    const named = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-06' }] })
+    const named = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, e: start + 60, kind: 'room', takerLaneKey: 'p-06' }] })
     expect(named.get('p-05')!.get(start)!.sentence)
       .toContain('ベッドは別のスタッフ（見本 かおる）の枠が使うため、ここには販売可能枠を出していません')
 
     // ⚖ 44 FIX ROUND (blind lens 1, F4/F5) — 別の = ANOTHER. A drop whose winner
     // is this very lane cannot be its subject, so it falls to the bare clause.
-    const own = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-05' }] })
+    const own = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, e: start + 60, kind: 'room', takerLaneKey: 'p-05' }] })
     expect(own.get('p-05')!.get(start)!.sentence).toContain('この開始には販売可能枠が出ていません')
     expect(own.get('p-05')!.get(start)!.sentence).not.toContain('別のスタッフ')
 
     // A `lane` drop is the person's own promise: the box IS drawn, no clause.
-    const laneDrop = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'lane' }] })
+    const laneDrop = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, e: start + 60, kind: 'lane' }] })
     expect(laneDrop.get('p-05')!.get(start)!.sentence).toContain('この開始には販売可能枠が出ていません')
     expect(laneDrop.get('p-05')!.get(start)!.sentence).not.toContain('別のスタッフ')
   })
@@ -714,7 +814,16 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     const per = ask(busy).get('p-01')!
     // `fullRoomsRefusal`'s sentence, whole — the composer was handed a real
     // `allocateBed` answer for this chip's own window.
-    expect(per.get(780)).toEqual({ word: '満室', sentence: '13:00〜14:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様）' })
+    // ⚖ LIAM RULING 1 (2026-09-09) — and the mark for the lane track comes back
+    // in the SAME answer as the word, which is what makes the two unable to
+    // drift apart (§6's own claim, now provable at the composer).
+    expect(per.get(780)).toEqual({
+      word: '満室',
+      sentence: '13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）が使用中です',
+      cue: { kind: 'bed', label: ['満室'] },
+      mark: null,
+      wordReason: 'bed',
+    })
     // …and a chip of any other class never grew a room answer, so it can never
     // wear a room word.
     for (const [start, said] of per) {
@@ -727,8 +836,36 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // The engine judged the whole board, so the chip is `bed`; the sentence is
     // asked with `handId` lifted out, which is the booking in the way — case (a).
     const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
-    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)).toEqual({ word: null, sentence: expect.any(String) })
-    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)!.sentence).not.toContain('ベッド1が使用中')
+    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)).toEqual({ word: null, wordReason: null, sentence: expect.any(String), cue: null, mark: null })
+    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)!.sentence).not.toContain('ベッド1（見本 かえる様')
+  })
+
+  it('⚖ ROOM RULE — the strip answers the question the DROP will ask, for the card in hand', () => {
+    // ⚖ FIX ROUND 2 (delta lens 4 N5). The rail's room probe used to ask the
+    // allocator with `requiresPrivate: false` always, so the strip beside a
+    // 個室のみ card answered a different question than the drop itself would. Fix
+    // round 1 read the hand's own tag and defended it with two source-text pins
+    // and no behaviour — this is the behaviour.
+    //
+    // Both beds busy, so the cell IS bed-refused and the probe runs. The hand
+    // sits on the STAFF row at a window of its own, so it is neither occupant.
+    const tagged = { ...booking({ key: 'h1', caseId: 'tag-1', title: 'テスト なぎ' }, 600, 660), requiresPrivateRoom: true }
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', items: [tagged] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)] }),
+      lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private', items: [booking({ key: 'b3', caseId: 'x3', title: '見本 さくら' }, 780, 900)] }),
+    ]
+    // With the tagged card in hand the strip judges the 個室 alone…
+    expect(ask(lanes, { handId: 'tag-1' }).get('p-01')!.get(780)!.sentence)
+      .toBe('13:00〜14:00は個室に空きがありません。ベッド3（見本 さくら様 13:00〜15:00）が使用中です')
+    // …and with nothing in hand it is the hypothetical it always was.
+    expect(ask(lanes).get('p-01')!.get(780)!.sentence)
+      .toBe('13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）、ベッド3（見本 さくら様 13:00〜15:00）が使用中です')
+    // An UNTAGGED hand asks the hypothetical's question, so the tag is what
+    // moved the answer rather than the presence of a hand.
+    const plain = [{ ...lanes[0], items: [{ ...tagged, requiresPrivateRoom: false }] }, lanes[1], lanes[2]]
+    expect(ask(plain, { handId: 'tag-1' }).get('p-01')!.get(780)!.sentence)
+      .toBe('13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）、ベッド3（見本 さくら様 13:00〜15:00）が使用中です')
   })
 
   it('A GESTURE EMPTIES THE MAP — nothing is composed while a card is in hand', () => {
@@ -749,7 +886,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // chip on the board — about a display the operator turned off themselves.
     const lanes = twoStaff()
     const start = okStart(lanes)
-    const off = ask(lanes, { sellDisplayed: false, drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-06' }] })
+    const off = ask(lanes, { sellDisplayed: false, drops: [{ laneKey: 'p-05', h: start, e: start + 60, kind: 'room', takerLaneKey: 'p-06' }] })
     expect(off.get('p-05')!.get(start)!.sentence).not.toContain('販売可能枠')
     // Every other sentence is untouched by the dial: it is the CLAUSE that is
     // gated, never the board's own answer.
@@ -767,6 +904,56 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
       { laneKey: 'p-05', resourceKey: 'bed-01', group: 'beds', staff: 'p-05', s: start, e: start + 60, price: 5000 },
     ]
     expect(ask(lanes, { claims }).get('p-05')!.get(start)!.sentence).not.toContain('販売枠')
+  })
+
+  it('⚖ D-18 (1) — a WITHHELD drawn box does not empty its own row, and does not leak into another row’s sold cue', () => {
+    // p-05's box is DRAWN (`sellCells`) but withheld — excluded from
+    // `soldCells`, the PUBLISHED list. p-06's box is on both: an ordinary
+    // published box. p-06's box starts at the next non-blocked cell on the
+    // 30-minute grid and a sell box spans the cell's own `e` (60 here), so the two
+    // boxes OVERLAP by 30 minutes — that overlap is what makes
+    // `boxesElsewhere` non-empty on p-05's rail. The own-row half (ad-less /
+    // taker / sold cue) is carried end-to-end by lane pin R19 at the real
+    // call site — at this level only the other-row half can go RED
+    // (⚖ D-18 addendum).
+    const lanes = twoStaff()
+    const start = okStart(lanes)
+    const otherStart = railsOn(lanes)
+      .find((r) => r.laneKey === 'p-06')!
+      .cells.find((c) => c.state !== 'blocked' && c.start !== start)!.start
+    const withheldBox = sellAt('p-05', start)
+    const publishedBoxOnY = sellAt('p-06', otherStart)
+    // A real free-bed door, so `soldElsewhere` actually runs the walk instead
+    // of bailing at `opts.bedsOver == null` — a wired door is what makes the
+    // "no claim" assertion below mean something rather than pass by default.
+    const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
+    const bedsOver = (laneKey: string, s: number, e: number) => {
+      const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
+      if (!lane) return null
+      const asker = { stores: lane.stores, requiresPrivate: false }
+      const answer = truth.bedFor(s, e, asker)
+      if (!answer.compatibleRoomsExist) return null
+      return { full: answer.laneKey === null, keys: () => truth.freeBedKeys(s, e, asker) }
+    }
+    const said = ask(lanes, {
+      sellCells: [withheldBox, publishedBoxOnY], // DRAWN — the withheld box still stands here
+      soldCells: [publishedBoxOnY], // PUBLISHED — the withheld box is gone
+      bedsOver,
+    })
+    // OWN ROW (p-05, over its own withheld hour). RED at 72cd65aff: `advertised`
+    // read the published list only, so this window flipped ad-less
+    // (`この開始には販売可能枠が出ていません`) over a box the operator can see
+    // drawn, muted, right there.
+    const x = said.get('p-05')!.get(start)!
+    expect(x.sentence).not.toContain('この開始には販売可能枠が出ていません')
+    expect(x.sentence).not.toContain('別のスタッフ') // no taker named
+    expect(x.cue?.kind).not.toBe('sold') // no sold cue on the own row
+    // OTHER ROW (p-06, asked about the SAME window p-05's box occupies). R16
+    // (D-17 F4's own fix) stays: `boxesElsewhere` reads the PUBLISHED list,
+    // which never carried the withheld box, so p-06 cannot claim p-05's
+    // withheld box as a sale that took its bed.
+    const y = said.get('p-06')!.get(start)!
+    expect(y.cue?.kind).not.toBe('sold')
   })
 })
 
@@ -786,9 +973,21 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
 
   it('the word, the dot and the hatch are all read off the same `word`', () => {
     // The chip prints the word instead of the bare 「—」…
-    expect(SRC).toContain('<i>{word ?? label}</i>')
-    // …the dot rides `data-reason`, which is set from that SAME value…
-    expect(SRC).toContain('data-reason={word ? (c.reason ?? undefined) : undefined}')
+    // ⚖ LIAM RULING 3 (2026-09-09) — …or the 「moves someone」 face, which is the
+    // same one value read one step earlier: `face` is composed from the mark and
+    // the word together, so there is still exactly ONE expression deciding what
+    // this chip says.
+    // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-2 — STILL ONE EXPRESSION, and it
+    // now answers for BOTH states in one line: at rest the mark and the word
+    // compose the face exactly as before; with a card in hand `liveChipFace` has
+    // already composed the chip's whole face from the DROP's verdict, so the ⇄ it
+    // may wear mid-drag comes out of the same single decision rather than a
+    // second one beside it.
+    expect(SRC).toContain('const face = chip ? chip.face : (mark ? `⇄${hhmm(c.start)}` : (word ?? c.label))')
+    expect(SRC).toContain('<i>{face}</i>')
+    // …the dot rides `data-reason`, which is set from that SAME value — and it
+    // stands down on a marked chip, which is not a refusal and carries no dot.
+    expect(SRC).toContain('data-reason={!v && !mark ? (explained?.wordReason ?? undefined) : undefined}')
     // …and the hatch starts from the same filter, now inside `restCueStarts`
     // (⚖ flag 88): the SOURCE of all three is still one value, and what the
     // helper adds is a narrowing of the PAINT, never a second reading of the
@@ -808,8 +1007,36 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // from the committed mask. Idle they coincide; mid-gesture they diverge, and
     // the divergence paints flag 88's artifact. `heldHere` is that committed
     // list, already in hand one line above in the renderer.
-    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere)')
-    expect(INT).toContain('.filter(([, e]) => e.word != null)')
+    // ⚖ FIX ROUND 2 (L2-m4) — …and a SIXTH, the card in hand: `explainRails`
+    // already lifts it out of the identical question, and without this the word
+    // and the mark disagreed for the length of a bed-lane drag.
+    // ⚖ FLAG 88, WHOLE (2026-09-09) — a FIFTH argument, and the same narrowing
+    // for the same reason: ruling 1 puts the word on half hours the engine
+    // refused for their POCKET, which are exactly the ones with a card, a break
+    // or an absence drawn across them. The chip keeps its word; the LANE keeps
+    // 「empty track only」. Nothing about 「one source, three faces」 moved.
+    // ⚖ HONEST-COUNT ROUND 1 (2026-09-13), SPEC-HONEST-COUNT v3 N2 — the
+    // fourth argument is now `coverHere`, the UN-netted committed list. The
+    // boxes drawn on the row read the honest set (a 枠 the rooms cannot
+    // honour is drawn as shared, not as held); the CUE's cover must still
+    // read every candidate, because the operator can see the shared box and a
+    // 清掃 wash under it is flag 88's artifact one layer along. Same
+    // position, same law, one world — two questions.
+    // ⚖ D-17 F8 · spec §4 (2026-09-14) — `coverHere` → `coverForCues`, the same
+    // COMMITTED list in the same position PLUS this lane's released spans. What
+    // F5 is about is untouched: the cue still stands down over the boxes the
+    // operator can see, and a released mark is one of them. It is its own name
+    // rather than a wider `coverHere` because `coverHere` is also `heldHere`'s
+    // fallback with the netting off, where a released span would be DRAWN as a
+    // 確保 box on top of the mark that says it was let go.
+    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, coverForCues, lane.items, handId)')
+    // ⚖ LIAM RULING 1 + 2 (2026-09-09) — the filter is the CUE now. The source
+    // of the three faces is still ONE value per chip: `railExplain` decides the
+    // word and the mark together, in one return, so they cannot drift apart —
+    // what moved is that a quiet hour sold on another row earns a mark with no
+    // word (ruling 2) and 新規用 keeps a word with no mark (⚖ E3b), which the
+    // old `word != null` filter could say neither of.
+    expect(INT).toContain('.filter(([, e]) => e.cue != null)')
     // Both cues stand down while a card is in hand — the strip is answering a
     // different question then, and the chip wears the verdict's × instead.
     expect(SRC).toContain('const word = v ? null : (explained?.word ?? null)')
@@ -830,10 +1057,21 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
   // word-without-hatch is legal from this round on, and legal EXACTLY where a
   // box overlaps: the paired-appearance pin for empty spans is the first
   // assertion below and may never weaken.
-  const worded = (...starts: number[]): ReadonlyMap<number, { word: string | null }> =>
-    new Map(starts.map((s) => [s, { word: '満室' }] as [number, { word: string | null }]))
+  // ⚖ LIAM RULING 1 (2026-09-09) — the helper is keyed on the CUE the composer
+  // returned, not on the word: a quiet hour whose bed is sold on another row
+  // now carries a mark and no word at all, and 新規用 carries a word and no
+  // mark. What flag 88 is about is unchanged — it is the PAINT that narrows —
+  // and every scene below is stated in the vocabulary the helper now reads.
+  const BED_CUE = { kind: 'bed' as const, label: ['満室'] }
+  const worded = (...starts: number[]): ReadonlyMap<number, { cue: RailCue | null }> =>
+    new Map(starts.map((s) => [s, { cue: BED_CUE }] as [number, { cue: RailCue | null }]))
+  /** The merged spans `restCueStarts` returns, as the starts these pins are
+   *  written about: same-kind neighbours are ONE mark now, so a run is spelled
+   *  by its own two ends and a list of starts is what the reader wants back. */
+  const startsOf = (cues: readonly { start: number; end: number }[]): number[] =>
+    cues.flatMap((c) => Array.from({ length: (c.end - c.start) / 30 }, (_, i) => c.start + i * 30))
   const sellAt = (h: number): SellCell => ({
-    laneKey: 'p-01', resourceKey: 'bed-01', group: 'staff', staff: 'p-01', bed: 'ベッド1', h, price: 7000, tier: 2,
+    laneKey: 'p-01', resourceKey: 'bed-01', group: 'staff', staff: 'p-01', bed: 'ベッド1', h, e: h + 60, price: 7000, tier: 2,
   })
   const gapAt = (s: number, e: number): GapCell => ({
     laneKey: 'p-01', resourceKey: 'bed-01', group: 'staff', staff: 'p-01', s, e, price: 5000,
@@ -842,34 +1080,44 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
   it('⚖ 88 — a cue under an advertised box is dropped; a cue on empty track stands', () => {
     const cues = worded(600, 630, 660, 690)
     // NOTHING ADVERTISED: every worded start keeps its hatch, which is §6's own
-    // pairing and the assertion this whole section exists for.
-    expect(restCueStarts(cues, [], [])).toEqual([600, 630, 660, 690])
-    // One 販売可能枠 covers TWO half hours — the box is a standard hour wide.
-    expect(restCueStarts(cues, [sellAt(630)], [])).toEqual([600, 690])
+    // pairing and the assertion this whole section exists for. ⚖ 9/9: the four
+    // are contiguous and the same kind, so they come back as ONE mark 10:00〜
+    // 12:00 — the merge is asserted here, and the starts under it below.
+    expect(restCueStarts(cues, [], [])).toEqual([{ start: 600, end: 720, kind: 'bed', label: ['満室'] }])
+    expect(startsOf(restCueStarts(cues, [], []))).toEqual([600, 630, 660, 690])
+    // One 販売可能枠 covers TWO half hours — the box is a standard hour wide —
+    // and the box BREAKS the run, so what is left is two marks, not one.
+    expect(restCueStarts(cues, [sellAt(630)], [])).toEqual([
+      { start: 600, end: 630, kind: 'bed', label: ['満室'] },
+      { start: 690, end: 720, kind: 'bed', label: ['満室'] },
+    ])
     // A 詰め込み／スキマ枠 promise advertises the span it draws, no more: an
     // offer is an offer, whichever layer drew it.
-    expect(restCueStarts(cues, [], [gapAt(660, 690)])).toEqual([600, 630, 690])
+    expect(startsOf(restCueStarts(cues, [], [gapAt(660, 690)]))).toEqual([600, 630, 690])
     // Both layers at once, and what survives is the genuinely empty start.
-    expect(restCueStarts(cues, [sellAt(600)], [gapAt(690, 720)])).toEqual([660])
+    expect(startsOf(restCueStarts(cues, [sellAt(600)], [gapAt(690, 720)]))).toEqual([660])
   })
 
   it('⚖ 88 — the WORD is not narrowed with the paint, and the overlap is half-open', () => {
     // A start the engine did not word never grows a cue, box or no box: the
     // source of all three faces is still the one value.
-    const mixed: ReadonlyMap<number, { word: string | null }> = new Map([
-      [600, { word: null }],
-      [630, { word: '新規用' }],
+    // A start the composer gave no CUE never grows one, box or no box — and the
+    // 新規用 chip is exactly that start: it wears a word and carries no mark,
+    // because the 確保 chip is already drawn over that emptiness (⚖ E3b).
+    const mixed: ReadonlyMap<number, { cue: RailCue | null }> = new Map([
+      [600, { cue: null }],
+      [630, { cue: BED_CUE }],
     ])
-    expect(restCueStarts(mixed, [], [])).toEqual([630])
+    expect(startsOf(restCueStarts(mixed, [], []))).toEqual([630])
     // A box that ENDS at the cue's start is not over it…
-    expect(restCueStarts(worded(660), [], [gapAt(630, 660)])).toEqual([660])
+    expect(startsOf(restCueStarts(worded(660), [], [gapAt(630, 660)]))).toEqual([660])
     // …and one that BEGINS at the cue's end is not either.
-    expect(restCueStarts(worded(660), [], [gapAt(690, 720)])).toEqual([660])
+    expect(startsOf(restCueStarts(worded(660), [], [gapAt(690, 720)]))).toEqual([660])
     // One minute of overlap on either side IS overlap.
     expect(restCueStarts(worded(660), [], [gapAt(630, 661)])).toEqual([])
     expect(restCueStarts(worded(660), [], [gapAt(689, 720)])).toEqual([])
     // The sell box's hour at both of its edges, so the 60 cannot drift to 30.
-    expect(restCueStarts(worded(570, 600, 630, 660), [sellAt(600)], [])).toEqual([570, 660])
+    expect(startsOf(restCueStarts(worded(570, 600, 630, 660), [sellAt(600)], []))).toEqual([570, 660])
   })
 
   it('the hatch never outlives the strip that explains it, and the marks are the price boxes’ own', () => {
@@ -989,9 +1237,26 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
   })
 
   it('the tour sentence teaches the third face — flag 25c’s one-sentence precedent', () => {
-    const guide = SRC.slice(SRC.indexOf("'data-guide':"), SRC.indexOf("'data-guide':") + 1400)
+    // ⚖ GUIDED-TOUR LAW (2026-09-09) — the window grew with the sentence. Two
+    // sentences were added under Liam's rulings 1 and 2 (満室 is about the half
+    // hour; the hatch carries words, and appears on a placeable half hour whose
+    // bed is sold on another row), and the last of the pinned phrases now sits
+    // 1521 characters past the key. The window is a REACH, not a budget — what
+    // it exists to stop is prose pushing the sentence out of sight, and every
+    // phrase below is still asserted inside it.
+    const guide = SRC.slice(SRC.indexOf("'data-guide':"), SRC.indexOf("'data-guide':") + 1800)
     expect(guide).toContain('どのコマも押すと、何時から何時までを判定したかと、その理由を表示します')
     expect(guide).toContain('薄い斜線')
+    // ⚖ FIX ROUND 1 (F5, 2026-09-09) — and it names the two words it is TRUE of.
+    // 新規用 carries a word and no hatch, so the old 「小さな文字が付いたコマでは」
+    // promised a mark on a chip that never grows one.
+    expect(guide).toContain('「満室」「清掃」のコマでは、すぐ上の行に薄い斜線が出て')
+    expect(guide).not.toContain('小さな文字が付いたコマでは')
+    // ⚖ RULING 1 (2026-09-09) — the 満室 change is DECLARED, in the tour's own
+    // words: it is about the 30 minutes, not about whether the session fits.
+    expect(guide).toContain(`「満室」はその30分にベッドの空きがないという意味で、\${railDur}分の予約が置けるかどうかとは関係なく付きます`)
+    // ⚖ RULING 2 (2026-09-09) — and so is the quiet-hour mark.
+    expect(guide).toContain('ベッドを別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます')
     // ⚖ LIAM RULING (2026-08-30) — the tour quotes the chips' OWN labels, so the
     // guard one moved with the chip. Bare 「新規」 is pinned dead in the quoted
     // list: a tour that teaches a word the board no longer wears is worse than
@@ -1076,10 +1341,13 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
   })
 
   it('the band carries the three words and their three meanings, verbatim from the mock', () => {
-    // ⚖ NATIVE PASS (2026-08-26, three rounds on the mock). These glosses are
-    // carried, never re-written: re-writing them here would spend that pass.
+    // ⚖ NATIVE PASS (2026-08-26, three rounds on the mock). The packed/scrap
+    // glosses are carried, never re-written. The sell gloss was rewritten in
+    // R3/B2/F1 (⚖ D-15/D-45): it hardcoded 1時間, the STORE's own slot length
+    // — it now reads the one source, `props.sell.sellSlotMin`, never a second
+    // hop or a literal.
     expect(SRC).toContain(
-      `<span className="lk lk-sell"><i /><b>販売可能枠</b><span>いま出ている価格で売り出している1時間</span></span>`,
+      '<span className="lk lk-sell"><i /><b>販売可能枠</b><span>{`いま出ている価格で売り出している${props.sell.sellSlotMin}分`}</span></span>',
     )
     expect(SRC).toContain(
       `<span className="lk lk-packed"><i /><b>詰め込み</b><span>空きに収めた1回分（満額）</span></span>`,
@@ -1089,6 +1357,12 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     )
     // Three, and only three: the legend names the layers the board can draw.
     expect((SRC.match(/className="lk lk-/g) ?? [])).toHaveLength(3)
+    // The legend must never hardcode a slot length again: no literal 60 and
+    // no 1時間 on the sell layer's own line (⚖ D-15 — the unit is 分 at every
+    // value, the whole page speaks in minutes).
+    const sellLegendLine = SRC.match(/<span className="lk lk-sell">.*<\/span><\/span>/)?.[0] ?? ''
+    expect(sellLegendLine).not.toMatch(/\b60\b/)
+    expect(sellLegendLine).not.toContain('1時間')
     // The word in the legend wears the colour the word ON THE BOX wears — that
     // pairing is the whole mechanism, so both ends are pinned.
     expect(CSS).toContain('.biz .layer-legend .lk-sell b, .biz .layer-legend .lk-packed b { color: var(--indigo); }')
@@ -1287,10 +1561,9 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
       id,
       currentBed: carried,
       stores: board.find((l) => l.key === sides.staffLane)?.stores ?? null,
-      vip: item.category === 'vip',
+      requiresPrivate: item.requiresPrivateRoom === true,
       start: minuteOf(at.x, REAL.hours),
       end: minuteOf(at.x + at.w, REAL.hours),
-      policy: REAL.rooms,
       stagedId: s.pending?.id ?? null,
     })
     // ⚖ 47 — a refusal changes nothing, so a scene that produces one is a scene
@@ -1352,13 +1625,14 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     const claims = [...gap.packed, ...gap.scraps]
     const sell = sellLayerFor(lanes, REAL.hours, {
       gridMin: REAL.sell.gridMin,
+      sellSlotMin: REAL.sell.sellSlotMin,
       nowMinute: REAL.sell.nowMinute,
       locked: [],
       showPrice: true,
       hi: price.hi,
       hqMin: REAL.dialogs.pricing.hqMin,
       depth,
-      reconcile: { claims, rooms: REAL.rooms, cleanupMinutesByBed: REAL.bedCleanupMinutes },
+      reconcile: { claims, cleanupMinutesByBed: REAL.bedCleanupMinutes },
     })
     const yen = (p: number | null) => (p == null ? '—' : money(p))
     return [
@@ -1419,7 +1693,7 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
   })
 
   it('a busy origin gets a FRESH SOLVE on return, never a blind restore', () => {
-    // 14:30, where ベッド3 is 見本 ゆうこ's (apt-29, 14:05–15:05): the outbound
+    // 14:30, where ベッド3 is テスト なぎ's (apt-29, 14:05–15:05): the outbound
     // leg is re-bedded, and so is the leg back — the seed is a candidate the
     // allocator judges, not an instruction it obeys.
     const out = landOn(REST, 'apt-28', 'c-03', span(870, 900))
@@ -1554,8 +1828,8 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     // than the substring they pinned before, and the smallest change that
     // anchors them.
     for (const line of [
-      "const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)",
-      "const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)",
+      'const bed = solveBed(solveLanes(ctx.id), on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.requiresPrivateRoom === true, at)',
+      'const bed = solveBed(solveLanes(id), on.staffLane, id, seedBed(pending, id, on.bedLane), item.requiresPrivateRoom === true, next)',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
     }
@@ -1570,25 +1844,42 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     // bed came first. The category rides `PlacingIntent` now. The seed is still
     // `null, null` — which is what this test is actually about.
     for (const line of [
-      "const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))",
-      "const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
+      'const solvedPartner = solveBed(solveLanes(null), lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))',
+      // ⚖ ROUND 3 · C (⚖ D-52 (b)) — pin moved with the line: `solvedChip` is
+      // now lifted out of the IIFE and short-circuits to null only on the
+      // OPERATOR'S OWN bed-row drop (the room chosen out loud); a no-room
+      // store's chip still enters `solveBed` and gets `laneKey: null` with no
+      // refusal.
+      'const solvedChip = dropped?.group === \'beds\' ? null : solveBed(solveLanes(chip.id), staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
     }
     // ⚖ flag 92 — A THIRD SITE, and it is the same law rather than an exception:
     // taking the warn card's safe start is another landing of a change that is
-    // already staged, so it re-solves from the room that change OWNS. It seeds
-    // the VERDICT'S carried room rather than a second `solveBed` — the press
-    // judges and stages in one tick, so one solve is the whole answer (⚖ 54),
-    // which is why the `solveBed` count below is unmoved.
+    // already staged, so it re-solves from the room that change OWNS.
+    //
+    // ⚖ FIX ROUND 2 (F2, CODE-LENS-2 BLOCKER) — AND IT SEEDS A REAL SOLVE NOW,
+    // not only the verdict's carried room. The reasoning that used to stand here
+    // — 「the press judges and stages in one tick, so one solve is the whole
+    // answer (⚖ 54)」 — was true while a landing only moved ITSELF. Once a
+    // landing can move OTHER cards, the verdict's room was chosen on the
+    // shuffled board while the staging sent those cards home, and the subject
+    // landed in a room a companion still occupied. So the press seeds twice: the
+    // verdict's carried room, and the solve that actually stages.
     expect(SRC).toContain('bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),')
     // ⚖ 92 fix round F2 — AND A FOURTH, which is the same ask asked one step
     // earlier. The card's safe start is now re-verdicted when it is DRAWN as
     // well as when it is TAKEN (⚖ 58's filter re-runs the gate per candidate),
     // and a question about where this change may land carries the room it owns
-    // whichever end of the gesture asks it. Still no second `solveBed`.
-    expect(SRC.match(/seedBed\(/g) ?? []).toHaveLength(4)
-    expect(SRC.match(/solveBed\(/g) ?? []).toHaveLength(5)
+    // whichever end of the gesture asks it.
+    // ⚖ FIX ROUND 2 (F2) — FIVE, with the safe-start press's own solve.
+    expect(SRC.match(/seedBed\(/g) ?? []).toHaveLength(5)
+    // ⚖ 9/8 PACKING — SIX: the declaration plus the four landings, and the
+    // `solveLanes` doc comment's own back-reference is a comment rather than a
+    // call.
+    // ⚖ FIX ROUND 2 (F2) — SIX: the safe-start press is the FIFTH landing, so
+    // the declaration plus five calls.
+    expect(SRC.match(/solveBed\(/g) ?? []).toHaveLength(6)
   })
 
   it('the RECORDING is the bed-row drag alone, and no other landing can clear it', () => {
@@ -1611,5 +1902,133 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     const nudge = SRC.slice(SRC.indexOf('function onCardKeyDown('), SRC.indexOf('function park('))
     expect(nudge).toContain('const on = { ...sides }')
     expect(nudge).not.toContain('bedChosen:')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ BREAKER-828 DELTA G3 — THE THREE COPIES OF codeOnly CANNOT DRIFT
+//
+// `codeOnly` is duplicated verbatim in three suites (they do not import one
+// another, and a new module is forbidden on this lane), so a fix applied to one
+// copy and forgotten in the other two leaves two suites reading the blind
+// version — which is exactly how F5's blind spot lived in three places at once.
+// Every suite asserts all three copies are byte-identical, marker to marker.
+// ═══════════════════════════════════════════════════════════════════════════
+// HONEST-COUNT ROUND 1 · fix 2 (2026-09-13, BLIND-CODE-HONEST-COUNT/LENS-2-matrix.md N4)
+// `windowsOf` — THE DAY LAYER'S ADAPTER OVER THE HONEST SET.
+//
+// L2's own mutant (zero the `listPrice` this adapter pushes) survived H1–H4,
+// J1–J10 and the whole 21-suite family battery; it died only on #898's final
+// pin, which asserts the computed ¥ sentence for a different reason entirely.
+// So the adapter had no coverage of its own, and a ¥ regression through it
+// would have been caught by an unrelated round's pin or not at all.
+//
+// Two questions here, and they are different questions: what the adapter
+// BUILDS out of a row (the shape, field by field), and that on a board where
+// the rooms refuse nobody it is the same day answer as `windowsOn` — the
+// producer the chip read before this round, and the one 設定 still reads.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('windowsOf — the day layer over the honest set', () => {
+  const span = (start: number, len: number) => ({ start, end: start + len, windowStart: start })
+
+  it('carries the lane\u2019s own label and 定価, one row per lane, total = \u03a3 held', () => {
+    const a = lane({ key: 'p-01', group: 'staff', label: '見本 いちろう', listPrice: 7000 })
+    const b = lane({ key: 'p-02', group: 'staff', label: '見本 じろう', listPrice: 9220 })
+    const honest = {
+      byLane: [
+        { laneKey: 'p-01', held: [span(600, 90), span(780, 90)] },
+        { laneKey: 'p-02', held: [span(660, 90)] },
+      ],
+    }
+    // The ¥ is the LOST LANE'S OWN — what the store loses on いちろう's window is
+    // priced at いちろう's rate — so this adapter may never take it off the lane
+    // the card lands on, and may never drop it.
+    expect(windowsOf(honest, [a, b])).toEqual({
+      total: 3,
+      byLane: [
+        { laneKey: 'p-01', label: '見本 いちろう', starts: [600, 780], listPrice: 7000 },
+        { laneKey: 'p-02', label: '見本 じろう', starts: [660], listPrice: 9220 },
+      ],
+    })
+  })
+
+  it('publishes the WINDOW start, not the span start, and drops a row the world does not carry', () => {
+    const a = lane({ key: 'p-01', group: 'staff', listPrice: 7000 })
+    const honest = {
+      byLane: [
+        // a clipped span: the 枠 the store published began at 10:00.
+        { laneKey: 'p-01', held: [{ start: 615, end: 690, windowStart: 600 }] },
+        { laneKey: 'ghost', held: [span(600, 90)] },
+      ],
+    }
+    expect(windowsOf(honest, [a])).toEqual({
+      total: 1,
+      byLane: [{ laneKey: 'p-01', label: 'p-01', starts: [600], listPrice: 7000 }],
+    })
+  })
+
+  it('is the same day answer as windowsOn on a board where the rooms refuse nobody', () => {
+    // THE IDENTITY CASE. Two staff, two beds, an empty day: every 枠 either
+    // staff publishes has a room of its own, so the netting holds all of them
+    // and the honest day answer must equal the per-lane enumeration's — the
+    // producer 設定 still reads and the chip read before this round.
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 いちろう', listPrice: 7000 }),
+      lane({ key: 'p-02', group: 'staff', label: '見本 じろう', listPrice: 9220 }),
+      lane({ key: 'bed-01', group: 'beds' }),
+      lane({ key: 'bed-02', group: 'beds' }),
+    ]
+    const frame = { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }
+    const views = bedViewsFor(lanes, frame, null)
+    const book = views.world
+    const mask = reservedMaskFor({
+      lanes, closeMin: HOURS.close, nowMin: null, guard: GUARD,
+      gapGuardMode: 'standard', book, released: [], excludeId: null,
+    })
+    const honest = honestHeld(mask, lanes, book, true)
+    const input = {
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+      nowMinute: null, locked: [], guard: GUARD, excludeId: null,
+      placementFeasible: undefined,
+      protectedWindowFeasible: bedDoor(views, lanes, null),
+      resting: null, restingWindowFeasible: undefined,
+    }
+    const legacy = windowsOn(lanes, input)
+    // The board really does publish something — an identity between two empty
+    // answers would prove nothing.
+    expect({ total: legacy.total, over: legacy.total > 0, shared: honest.byLane.flatMap((l) => l.shared) })
+      .toEqual({ total: legacy.total, over: true, shared: [] })
+    expect(windowsOf(honest, lanes)).toEqual(legacy)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ BREAKER-828 G3 — the three codeOnly copies are byte-identical', () => {
+  // Assembled from two halves on purpose: written whole, THIS line would itself
+  // be a third marker in the file it lives in.
+  const MARK = '// ⚖ codeOnly v3 — BYTE-IDENTICAL' + ' IN THREE SUITES'
+  const COPIES = ['today-screen-interactions.test.ts', 'today-explains.test.ts', 'selling-engine-doors.test.ts']
+
+  const blockOf = (file: string) => {
+    const text = readFileSync(join(process.cwd(), 'src/__tests__/integration/business', file), 'utf8')
+    const a = text.indexOf(MARK)
+    const b = text.indexOf(MARK, a + 1)
+    return { file, marks: text.split(MARK).length - 1, text: a > -1 && b > a ? text.slice(a, b) : '' }
+  }
+
+  it('every suite carries the same tokenizer, marker to marker', () => {
+    const blocks = COPIES.map(blockOf)
+    // Exactly two markers per file, and something real between them — a pair of
+    // markers around nothing would make three empty strings 「identical」.
+    for (const b of blocks) {
+      expect({ file: b.file, marks: b.marks }).toEqual({ file: b.file, marks: 2 })
+      expect({ file: b.file, opens: b.text.includes('const codeOnly = (src: string) => {') }).toEqual({ file: b.file, opens: true })
+      expect({ file: b.file, long: b.text.length > 800 }).toEqual({ file: b.file, long: true })
+    }
+    for (const b of blocks.slice(1)) {
+      expect({ file: b.file, same: b.text === blocks[0].text }).toEqual({ file: b.file, same: true })
+    }
   })
 })

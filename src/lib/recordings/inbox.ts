@@ -70,6 +70,50 @@ export type InboxReason =
   | 'emptyTranscript'
   | 'genericFailure'
   | 'localAudio'
+  /** …and the SAME device audio when the stop could not finish writing it
+   *  (capture pipeline PR3 fix round 16). The take's final flush was skipped —
+   *  the next customer's recording cleared the chunks out from under it — so
+   *  what is on disk is SHORT of what the recorder captured. No drain will ever
+   *  seal it (isStoppedTake refuses the flag, secureTake refuses it again), and
+   *  that refusal is precisely why the row has to SAY so: it is 復元可能 and
+   *  counted in 要対応 like any other unsaved take, but the audio it offers ends
+   *  partway, and a staff member deciding what to do with it deserves to know
+   *  that before they press 保存する rather than after. */
+  | 'tailIncomplete'
+  /** THE AUDIO IS ON THE SERVER, and no job has turned it into anything
+   *  (build 23 slice ③). The nightly assembler sealed a stranded take, or a
+   *  phone finalized this one at stop and then never got to 録音を使用 — the
+   *  row cannot tell which, and does not need to: the news to a staffer is the
+   *  same, and so is the one action.
+   *
+   *  It rides state `recoverable` ON PURPOSE, and that is the whole reason
+   *  this needs no new state, no new chip and no change to 要対応: 復元可能
+   *  already means "unsaved audio exists and 保存する will save it", the card
+   *  already renders the solid 保存する for it, and needsAttention already
+   *  counts it. The only thing that differs from `localAudio` is WHERE the
+   *  audio is, which is exactly what the sub-line says. */
+  | 'serverAudio'
+  /** PART of it is on the server (slice ③): the take's segments are there, the
+   *  whole object is not, and the nightly job will finish what it can.
+   *
+   *  It rides state `processing` and is therefore NEVER counted in 要対応 —
+   *  correctly, because there is nothing a staff member can do about it yet.
+   *  What it replaces is the lie: until this build such a row sat at 失敗
+   *  saying 「この録音は保存されませんでした」 while the server was in fact
+   *  holding most of the recording. */
+  | 'partialOnServer'
+  /** UPDATE 25 GROUP A, d3 — a take carries a session id the SERVER did not
+   *  return (a lost mint reply, a truncated read, the other staff-id space).
+   *  Past SESSION_UNSETTLED_GRACE_MS with still no server answer, this is the
+   *  honest name for "we could not read your session" — distinct from
+   *  `localAudio`, whose session the server DID return. */
+  | 'sessionUnlisted'
+  /** UPDATE 25 GROUP A, piece r — this take's secure attempt was TERMINALLY
+   *  refused because its own session already carries a karute (Group B's d4,
+   *  `reserved_elsewhere`/`exists`). The session's row reads 保存済み without
+   *  this take; the take gets this row instead, so its audio is never invisible
+   *  and 保存する never overwrites the visit's saved karute (F1). */
+  | 'refusedHasRecord'
 
 /** The statuses this build knows how to read. Anything else on the wire is
  *  narrowed to "unknown, still in flight" — see `jobStatus` below. */
@@ -124,6 +168,75 @@ export interface InboxServerSession {
    * ledger read per derivation pass, never a per-row probe.
    */
   discardedByStaff?: boolean
+  /**
+   * WHAT THE SERVER HOLDS for this session's audio, when it holds anything
+   * (build 23 slice ③). Derived by the shared read (inbox-read.ts) for
+   * record-less sessions only; this module never asks storage anything.
+   *
+   *   'object'   — the take's own finalized object is on the server and no job
+   *                has touched it. Either the nightly assembler sealed a
+   *                stranded take, or a phone finalized at stop and then died
+   *                before 録音を使用. Same news to a staffer either way: the
+   *                whole audio the server received is there, and unsaved.
+   *   'segments' — only PART of it is there, as the take's segment folder, and
+   *                the nightly job will finish what it can.
+   *
+   * NO PATH AND NO KEY EVER RIDES WITH IT (recordings-inbox-dto.ts's own rule:
+   * metadata only). The value says WHETHER, never WHERE — the save door
+   * derives the storage path from the ROW, server-side, and would refuse a
+   * client-named one anyway.
+   *
+   * Optional/nullish on purpose, the `discardedByStaff` idiom above: absent =
+   * an older server that never derived it, which the fold treats exactly as
+   * today. And the DTO ships it as a PLAIN STRING for `jobStatus`'s reason —
+   * an enum would blank every baked phone the day a third value lands — so a
+   * value that is not one of these two literals reaches the fold typed as one
+   * and is narrowed to "absent" by the same `===` comparisons.
+   */
+  serverAudio?: 'segments' | 'object' | null
+  /**
+   * THIS READ could not fully judge the session — a job probe past
+   * MAX_JOB_PROBES, a job probe that THREW instead of answering (alongside
+   * `jobProbeFailed`), an audio candidate dropped by maxAudioProbes, a storage
+   * probe that threw or answered 'unknown', a degraded discard ledger, or a
+   * truncated sessions/records read (inbox-read.ts; the last two, PR C2a's
+   * P1-1 / P3-11). Such a row reads `failed`/`processing` shape-identically
+   * to a real miss, so the audit-watch cron (PR C2) drops it before treating
+   * it as evidence — a row this pass could not fully check is not proof of
+   * one.
+   *
+   * Optional/additive, the `discardedByStaff` idiom: this fold never reads
+   * it (absence = "fully checked", which is every row before this build),
+   * and the DTO's plain z.object strips it — the phone parses nothing new.
+   */
+  probeIncomplete?: true
+  /**
+   * ⚖ UPDATE 25 GROUP B, d5. The recording's `staff_id` (Recording.staff_id,
+   * the SDK's own field) — absent from every reader of this interface until
+   * now, so optional/nullish matches the file's own established idiom
+   * (`discardedByStaff?`, `serverAudio?`, `probeIncomplete?` above). Fed to
+   * the audit-watch cron's find-no-sessions-today.ts finder ONLY; the pure
+   * fold (deriveInboxRows below) never reads it, and the facade DTO
+   * (recordings-inbox-dto.ts) does not declare it either — zod's z.object
+   * STRIPS unknown keys on `.parse()`, so this never reaches a phone. Two id
+   * spaces, not one (session-mint.ts:156-160): the auth/profile id on a
+   * resolved-identity mint, the core staff id on the appointment-fallback
+   * mint — the finder normalizes both through a roster map, never assumes
+   * one space here.
+   */
+  staffId?: string | null
+  /**
+   * UPDATE 25 GROUP A, piece c. Computed SERVER-SIDE (inbox-read.ts) from the
+   * SERVER clock: `ymdInJst(createdAt) === ymdInJst(now)`. The never-backfill
+   * fence for the same-day 手書き door — the card must never compute "today"
+   * from a render-time clock, and a take-only row (this device's phone clock)
+   * is never trusted for it either (see InboxRow.sameDay below).
+   *
+   * Optional/nullish, the `discardedByStaff` idiom above: absent = an older
+   * server that never derived it, which the fold treats as `false` — the door
+   * stays closed rather than open on an unproven day.
+   */
+  sameDay?: boolean
 }
 
 /** One device-local take (lib/karute/take-store). Audio is guaranteed: the
@@ -135,6 +248,37 @@ export interface InboxLocalTake {
   customerName: string | null
   startedAt: number
   updatedAt: number
+  /** The stop's final flush was SKIPPED, so this take's disk copy is short of
+   *  what its recorder captured (take-store's `tailIncomplete`). Optional
+   *  because every take written before fix round 16 carries no such field, and
+   *  absent means the honest thing: nothing says this take lost its tail. */
+  tailIncomplete?: boolean
+  /** A stop leg began for this take and never finished (take-store's
+   *  `stopPendingAt`, cleared by the duration stamp). Same fact for whoever
+   *  reads the row as a lost tail: the recording has an end nobody wrote. */
+  stopPendingAt?: number
+  /** Capture pipeline PR4 fix round 1: past the take TTL and the server still
+   *  does not have it, so the store's prune refused it (take-store.ts). Its
+   *  session is older than the window this fold and the server read both use,
+   *  so nothing else can represent it — the take carries its own row, exempt
+   *  from the floor. Absent on every ordinary take, which is what they are. */
+  expiredUnsecured?: boolean
+  /** The stop's own measured length (take-store's `durationMs`). Optional
+   *  because a take that never reached a clean stop carries no stamp — and
+   *  that is exactly the take whose flush-window estimate is the only length
+   *  there is. */
+  durationMs?: number
+  /** UPDATE 25 GROUP A, piece r. This take's last secure attempt was refused
+   *  with a BINDING refusal — take-store's `BINDING_SECURE_REFUSALS`
+   *  (`exists`, `reserved_elsewhere`, `not_reserved`, `superseded`: "this take
+   *  is spoken for"), a subset of the full `TERMINAL_SECURE_ERRORS` (FIX ROUND
+   *  2, Greptile issue 2 — the other seven terminal codes mean "cannot
+   *  upload", never "must not bind to this session"). Mapped by the store
+   *  from `secureError`, never read here beyond the boolean: this module
+   *  stays pure and must never import take-store (F6). Absent/false = not a
+   *  binding refusal, which is every take before this field existed and every
+   *  ordinary retryable or non-binding-terminal failure. */
+  bindingRefused?: boolean
 }
 
 export interface InboxRow {
@@ -157,6 +301,30 @@ export interface InboxRow {
   /** 再試行 is offered ONLY when the audio is still here. Without the blob the
    *  link would promise a retry the app cannot perform. */
   canRetry: boolean
+  /** THE SAVE COMES FROM THE SERVER, not from this device (slice ③). True only
+   *  on the `serverAudio` row, so the card's button and the page's handler read
+   *  ONE flag instead of matching on a reason string — a reason is a display
+   *  fact, and routing a save off one is how the two drift apart. */
+  serverAudio?: boolean
+  /** UPDATE 25 GROUP A, piece c — THE FENCE for the same-day 手書き door.
+   *  `s.sameDay === true` on a session row (the server's own JST-day proof);
+   *  `false` on every take-only row, whose only clock is this device's — never
+   *  trusted for a never-backfill decision. The card renders the door ONLY
+   *  when this is true; never computed from a render-time clock. */
+  sameDay: boolean
+  /** UPDATE 25 GROUP A, FIX ROUND, F4. ONE flag instead of matching on a
+   *  reason string (this file's own law, above) — set on piece r's take row
+   *  AND on a d3 row for a take whose secure attempt was refused with a
+   *  BINDING refusal (FIX ROUND 2 renames this from `secureTerminal`: it is
+   *  only the four codes that say "this take is spoken for", never the seven
+   *  "cannot upload" ones — Greptile issue 2), so the page's save door
+   *  (RecordPageView) can branch on the same ground for BOTH: a d3 row is
+   *  just a refusal whose session the server also never returned, and it must
+   *  detach before promoting exactly like piece r's row does, or its save
+   *  reaches the same F1 overwrite. Optional/nullish, the `probeIncomplete?`
+   *  idiom — absent = not a binding refusal, true on every row before this
+   *  field existed. */
+  bindingRefused?: true
 }
 
 /** The states that mean a human still owes this recording something AND can
@@ -193,15 +361,34 @@ export function deriveInboxRows(input: {
   takes: readonly InboxLocalTake[]
   now: number
   windowMs?: number
+  /** FIX ROUND 2 (Greptile issue 1) — the SERVER half of this read threw
+   *  (inbox-store's `readServerSessions`), so `sessions` is `[]` not because
+   *  the server returned nothing but because nothing was asked. Optional, the
+   *  file's own idiom: absent = an ordinary complete read, which is every
+   *  call before this field existed. */
+  serverReadFailed?: boolean
 }): InboxRow[] {
-  const { sessions, takes, now } = input
+  const { sessions, takes, now, serverReadFailed = false } = input
   const windowMs = input.windowMs ?? INBOX_WINDOW_MS
   const floor = now - windowMs
 
   // Newest take per session id; every other take stands on its own.
   const takeBySession = new Map<string, InboxLocalTake>()
   const orphanTakes: InboxLocalTake[] = []
+  /** ⚖ EXPIRED, UNSECURED, STILL ON THE DEVICE (PR4 fix round 1). These are the
+   *  takes the store's TTL prune REFUSED — audio the server never received, so
+   *  destroying it was never an option — and they are older than the window,
+   *  which means the server read (bounded by the same INBOX_WINDOW_MS) returned
+   *  no session for them and the loops below would drop them on the floor
+   *  check. They are exactly the rows a human has to see: kept forever,
+   *  invisible everywhere else. So they are pulled out here and given rows of
+   *  their own, age notwithstanding. */
+  const strandedTakes: InboxLocalTake[] = []
   for (const t of takes) {
+    if (t.expiredUnsecured) {
+      strandedTakes.push(t)
+      continue
+    }
     if (!t.recordingSessionId) {
       orphanTakes.push(t)
       continue
@@ -211,10 +398,15 @@ export function deriveInboxRows(input: {
   }
 
   const rows: InboxRow[] = []
+  /** Sessions that produced a row. Only the stranded loop reads it, and only to
+   *  stand down if the two windows ever drift apart far enough for a stranded
+   *  take's session to still be in this list — one row per session, always. */
+  const rendered = new Set<string>()
 
   for (const s of sessions) {
     const startedAt = Date.parse(s.createdAt)
     if (Number.isNaN(startedAt) || startedAt < floor) continue
+    rendered.add(s.recordingSessionId)
     const take = takeBySession.get(s.recordingSessionId) ?? null
     const base = {
       key: `session:${s.recordingSessionId}`,
@@ -228,6 +420,8 @@ export function deriveInboxRows(input: {
       startedAt,
       durationSeconds: s.durationSeconds ?? takeDuration(take),
       canRetry: false,
+      // c: the server's own JST-day proof, never a render-time clock.
+      sameDay: s.sameDay === true,
     }
 
     // PRECEDENCE, ABOVE EVERYTHING (A2-3). A deliberate discard is a decision
@@ -246,6 +440,37 @@ export function deriveInboxRows(input: {
     }
 
     if (s.karuteRecordId) {
+      // UPDATE 25 GROUP A, piece r. A take refused with a BINDING refusal
+      // because THIS session already has a karute (Group B's d4 — `exists`/
+      // `reserved_elsewhere`; FIX ROUND 2 narrows this from every terminal
+      // code to just the four that say "this take is spoken for" — Greptile
+      // issue 2) is not this session's un-settled take: folding it under the
+      // saved row makes the refused audio invisible and its 開く action opens
+      // a karute that is not this recording. The session reads what is true —
+      // saved, no take — and the refused take gets its own honest row,
+      // offered for save (F1's overwrite is closed on the page side: the door
+      // detaches the take's stale session before re-offering it, so a save
+      // here can only ever create a NEW record).
+      if (take?.bindingRefused) {
+        rows.push({ ...base, takeId: null, state: 'saved', reason: null })
+        rows.push({
+          key: `take:${take.takeId}`,
+          state: 'recoverable',
+          reason: 'refusedHasRecord',
+          recordingSessionId: s.recordingSessionId,
+          takeId: take.takeId,
+          karuteRecordId: null,
+          customerId: base.customerId,
+          customerName: base.customerName,
+          startedAt: take.startedAt,
+          durationSeconds: takeDuration(take),
+          canRetry: false,
+          sameDay: false,
+          // FIX ROUND F4 — the page branches on this, not on the reason string.
+          bindingRefused: true,
+        })
+        continue
+      }
       // The record landed. An un-settled local take means the CLIENT never saw
       // it land (supersession / closed app / crash-cron class) — we cannot
       // reliably attribute WHICH, so the row says only what is true: it was
@@ -276,13 +501,25 @@ export function deriveInboxRows(input: {
     }
 
     if (s.jobStatus === 'FAILED') {
+      // ⚖ A SPENT AFFORDANCE IS NOT A LOST RECORDING (fix round 1, R10b). A
+      // server-audio row whose job failed — consent, an empty transcript, a
+      // Deepgram outage — used to become permanently inert: no take on this
+      // device meant `canRetry: false`, and the derivation stopped offering
+      // 保存する the moment a job row existed. The audio is still on the
+      // server, and core re-arms a FAILED job per session, so 再試行 reaches
+      // the same door again. The reason stays the SERVER's (the more specific
+      // fact about what went wrong); only the affordance comes back.
       rows.push({
         ...base,
         state: 'failed',
         // The SAME mapping PipelineErrorCard uses — one honest string for the
         // one error core names, generic for everything else.
         reason: s.jobLastError === 'EMPTY_TRANSCRIPT' ? 'emptyTranscript' : 'genericFailure',
-        canRetry: !!take,
+        canRetry: !!take || s.serverAudio === 'object',
+        // The flag means "the save comes from the SERVER", so it is set only
+        // when this device holds nothing — a take on the device still routes
+        // 再試行 down the take path, exactly as it did before.
+        serverAudio: !take && s.serverAudio === 'object' ? true : undefined,
       })
       continue
     }
@@ -303,8 +540,39 @@ export function deriveInboxRows(input: {
 
     // No job row at all — the enqueue never landed, or this device's run died
     // before one existed.
+    //
+    // THE LOCAL TAKE WINS, ALWAYS (slice ③). A device that still holds the
+    // audio holds the COMPLETE copy: the server's is at best the same bytes
+    // and at worst a prefix the assembler could seal, so a row with a take
+    // keeps today's 復元可能/localAudio and today's save path, untouched.
     if (take) {
-      rows.push({ ...base, state: 'recoverable', reason: 'localAudio' })
+      rows.push({ ...base, state: 'recoverable', reason: recoverableReason(take) })
+      continue
+    }
+    // …and only THEN what the server holds. `===` on purpose: the value is a
+    // plain string on the wire, so a literal this build never heard of falls
+    // straight through to today's grace/failed line rather than inventing a
+    // state for it.
+    if (s.serverAudio === 'object') {
+      // 復元可能 with the SAME chip, the SAME solid 保存する and the SAME place
+      // in 要対応 as a device-held take. Only the sub-line and the save's
+      // source differ — and `takeId` stays null because this device holds
+      // nothing, which is also what makes 再試行 impossible here (canRetry).
+      rows.push({
+        ...base,
+        state: 'recoverable',
+        reason: 'serverAudio',
+        takeId: null,
+        canRetry: false,
+        serverAudio: true,
+      })
+      continue
+    }
+    if (s.serverAudio === 'segments') {
+      // 処理中, never counted: the server has part of the recording and the
+      // nightly job will finish what it can. Nothing for a human to do, and
+      // saying 失敗 about audio the server is holding was the lie this closes.
+      rows.push({ ...base, state: 'processing', reason: 'partialOnServer' })
       continue
     }
     // ponytail: `now` is the CLIENT's clock and `startedAt` is the SERVER's
@@ -320,6 +588,96 @@ export function deriveInboxRows(input: {
     )
   }
 
+  // UPDATE 25 GROUP A, d3. A take carries a session id, but that session is
+  // absent from what the SERVER returned — a lost mint reply after core
+  // committed, a session minted under the OTHER staff-id space
+  // (session-mint.ts:156-161), or a truncated read. Nothing before this build
+  // ever renders such a take: the sessions loop above only reads
+  // `takeBySession` for sessions the server actually returned. `rendered` is
+  // built by that same loop, so this only fires for a session that never
+  // reached it (never double-counts a session the loop already rendered).
+  //
+  // FIX ROUND, n3 — 「サーバーの記録には見つかりません」 is a claim ABOUT THE
+  // SERVER; a probe that could not fully check every returned row
+  // (`probeIncomplete`) means this read simply did not get a complete answer,
+  // which is no evidence the server lacks a record. Computed once, honestly:
+  // a session the read DID return but could not fully judge still counts as
+  // "not complete" for this purpose — the fold cannot tell which unlisted
+  // session it would have implicated.
+  //
+  // FIX ROUND 2 (Greptile issue 1) — A FAILED READ IS NOT EVIDENCE EITHER, so
+  // it must never manufacture a 'recoverable'/sessionUnlisted CLAIM about the
+  // server. But skipping the whole loop on a failed read (this build's first
+  // attempt) traded that lie for a different one: a session-stamped take past
+  // the grace got NO row at all for as long as the outage lasted, and nothing
+  // reloaded it — `schedulePoll` only re-folds while some row is 処理中, and a
+  // skipped take is never that.
+  //
+  // FIX ROUND 3 — a failed read is folded in as "no result YET" instead, the
+  // same honest unknown a live job gets inside the grace: the take renders
+  // 処理中/'unsettled' (no save door, never counted in 要対応), and — being
+  // 処理中 with a pollable reason — arms the 90 s re-fold that restores the
+  // true row the instant the server answers.
+  const readComplete = !serverReadFailed && !sessions.some((s) => s.probeIncomplete)
+  for (const [sessionId, take] of takeBySession) {
+    if (rendered.has(sessionId)) continue
+    if (take.startedAt < floor) continue
+    // Honest about what this read could not tell us: within the grace — or
+    // whenever the read itself failed — a live job on a session we could not
+    // read back may still own this take (never offer a save under it); past
+    // the grace with a COMPLETE read, nothing is coming.
+    const unsettled = serverReadFailed || now - take.startedAt <= SESSION_UNSETTLED_GRACE_MS
+    rows.push({
+      key: `take:${take.takeId}`,
+      state: unsettled ? 'processing' : 'recoverable',
+      // Past the grace: 'sessionUnlisted' claims the server has no record,
+      // which is only honest when the read was COMPLETE. A truncated read
+      // gets the device-side reason instead — it claims nothing the read
+      // cannot back up.
+      reason: unsettled ? 'unsettled' : readComplete ? 'sessionUnlisted' : recoverableReason(take),
+      recordingSessionId: sessionId,
+      takeId: take.takeId,
+      karuteRecordId: null,
+      customerId: take.customerId,
+      customerName: take.customerName,
+      startedAt: take.startedAt,
+      durationSeconds: takeDuration(take),
+      canRetry: false,
+      sameDay: false,
+      // FIX ROUND F4 — a d3 row for a take whose BINDING refusal (piece r)
+      // left its (unlisted) session must detach exactly like piece r's row,
+      // or its save reaches the same F1 overwrite.
+      bindingRefused: take.bindingRefused ? true : undefined,
+    })
+  }
+
+  // The stranded takes, in the SAME vocabulary as everything else: 復元可能,
+  // counted in 要対応, offering the one action that resolves it, 保存する. No
+  // 再試行 (there is no job to re-run) and no navigation (there is no record
+  // yet). The sub-line comes from `recoverableReason` like every other
+  // take-only row — a take that lost its tail (fix round 16) or whose stop
+  // never finished (round 17) is exactly the take that could never be secured
+  // and therefore the one most likely to strand here, so it says 「録音が途中で
+  // 終わっています」 rather than the plainer 「この端末に音声が残っています
+  // （未保存）」. No new strings either way.
+  for (const t of strandedTakes) {
+    if (t.recordingSessionId && rendered.has(t.recordingSessionId)) continue
+    rows.push({
+      key: `take:${t.takeId}`,
+      state: 'recoverable',
+      reason: recoverableReason(t),
+      recordingSessionId: t.recordingSessionId,
+      takeId: t.takeId,
+      karuteRecordId: null,
+      customerId: t.customerId,
+      customerName: t.customerName,
+      startedAt: t.startedAt,
+      durationSeconds: takeDuration(t),
+      canRetry: false,
+      sameDay: false,
+    })
+  }
+
   // Takes whose session id never resolved (the mint failed, or predates it):
   // no server row can ever represent them, so they carry their own.
   for (const t of orphanTakes) {
@@ -327,7 +685,7 @@ export function deriveInboxRows(input: {
     rows.push({
       key: `take:${t.takeId}`,
       state: 'recoverable',
-      reason: 'localAudio',
+      reason: recoverableReason(t),
       recordingSessionId: null,
       takeId: t.takeId,
       karuteRecordId: null,
@@ -336,6 +694,7 @@ export function deriveInboxRows(input: {
       startedAt: t.startedAt,
       durationSeconds: takeDuration(t),
       canRetry: false,
+      sameDay: false,
     })
   }
 
@@ -343,10 +702,29 @@ export function deriveInboxRows(input: {
   return rows
 }
 
-/** Rough length from the take's own stamps — the same estimate the recovery
- *  banner shows (updatedAt is bumped on every ~5s segment flush). */
+/** Why a 復元可能 row is 復元可能 — device audio, and whether the stop managed
+ *  to finish writing it: a lost tail (fix round 16) and a stop that never
+ *  finished at all (round 17) are the same news to a staffer, and the same
+ *  sub-line. Only the two take-only branches ask:
+ *  the failed/DONE branches carry the SERVER's reason, which is the more
+ *  specific fact about what went wrong and must not be overwritten by a
+ *  device-side one. */
+function recoverableReason(take: InboxLocalTake): InboxReason {
+  return take.tailIncomplete || take.stopPendingAt !== undefined
+    ? 'tailIncomplete'
+    : 'localAudio'
+}
+
+/** The take's length. The STOP STAMP when there is one (slice five, D12) — it
+ *  is what the recorder measured, pauses subtracted — else the flush window,
+ *  which is the same rough estimate the recovery banner shows (updatedAt is
+ *  bumped on every ~5 s segment flush) and the only length an unfinished take
+ *  has. */
 function takeDuration(take: InboxLocalTake | null): number | null {
   if (!take) return null
-  const sec = Math.round((take.updatedAt - take.startedAt) / 1000)
+  const sec =
+    take.durationMs !== undefined
+      ? Math.round(take.durationMs / 1000)
+      : Math.round((take.updatedAt - take.startedAt) / 1000)
   return sec > 0 ? sec : null
 }

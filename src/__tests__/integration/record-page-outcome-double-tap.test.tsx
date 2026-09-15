@@ -103,6 +103,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   deleteTake: jest.fn(),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: (...a: unknown[]) => mockStampTakeOutcome(...(a as [])),
+  listOwnStoppedUnsecuredTakeIds: jest.fn(async () => []),
   getRecoverableTake: jest.fn(async () => null),
   loadTakeBlob: jest.fn(),
 }))
@@ -113,6 +114,9 @@ jest.mock('@/lib/global-recorder', () => ({
     takeId: 'take-normal',
     state: 'idle',
     subscribe: () => () => {},
+    // Fix round 17: the page asks whether a stop leg is still finishing a
+    // take before it decides it has nothing left to drain.
+    isSecuring: () => false,
     discard: jest.fn(),
   },
 }))
@@ -122,7 +126,15 @@ jest.mock('@/lib/global-recorder', () => ({
 // (see global-recorder-session-race.test.ts's header note) — mock the HOOK
 // (not the singleton) so RecordPageView's phase-sync effect renders the
 // post-recording "このまま使う" card directly.
-const mockResult = { blob: new Blob(['x']), mimeType: 'audio/webm', durationMs: 5000 }
+// durationMs: 60_000 (⚖ 9/12, was 5000) — this suite's two discard flows
+// expect the written-reason DIALOG to open; a take under the accidental-tap
+// floor is now a one-tap discard that skips it entirely, and nothing here is
+// testing the floor, so the fixture stays above it.
+// ⚖ FIX ROUND 1: KEPT even after the unknown-duration fix (unlike the other
+// two bumped suites, which reverted cleanly) — 5000 here was never "unknown",
+// it's a real, known 5s duration, so it genuinely one-taps under the fixed
+// code too. Confirmed by reverting to 5000 and re-running: still red.
+const mockResult = { blob: new Blob(['x']), mimeType: 'audio/webm', durationMs: 60_000 }
 // Mutable so tests can drive a genuine take-lifecycle transition (discard →
 // new recording → recorded) instead of the static 'recorded' every render
 // used to return — needed to prove the P1 latch (outcomeResolvedRef) clears

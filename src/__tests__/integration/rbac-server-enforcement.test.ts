@@ -157,7 +157,26 @@ jest.mock('@/lib/synqed/client', () => {
     }),
     listPhotos: jest.fn(async () => ({ photos: [{ id: 'photo-1' }] })),
   }
-  const client = { karuteRecords, appointments, staffStores, stores, customers, packs, staff }
+  // R4 repair (2026-09-13, F4b): listMixedKaruteRecords now THROWS when a
+  // client has no fetch() — loadKaruteWindow always passes
+  // includeDiscarded:true, so the leap-date test below (which is meant to
+  // reach the real read) needs a real fetch() or it throws before ever
+  // calling karuteRecords.list. Routed through the SAME karuteRecords.list
+  // spy so `expect(karuteRecords.list).toHaveBeenCalled()` still holds.
+  const fetch = jest.fn(async (path: string) => {
+    const query = new URL(path, 'https://core.test').searchParams
+    // Cast at the call site, not karuteRecords.list's declared signature —
+    // every OTHER call site calls it bare.
+    return (karuteRecords.list as unknown as (opts: Record<string, unknown>) => Promise<unknown>)({
+      ...(query.get('customer_id') ? { customer_id: query.get('customer_id') } : {}),
+      ...(query.get('store_id') ? { store_id: query.get('store_id') } : {}),
+      ...(query.get('from') ? { from: query.get('from') } : {}),
+      ...(query.get('to') ? { to: query.get('to') } : {}),
+      ...(query.get('page') ? { page: Number(query.get('page')) } : {}),
+      ...(query.get('page_size') ? { page_size: Number(query.get('page_size')) } : {}),
+    })
+  })
+  const client = { karuteRecords, appointments, staffStores, stores, customers, packs, staff, fetch }
   return { getSynqedClient: jest.fn(async () => client) }
 })
 
@@ -183,9 +202,15 @@ import { deleteCustomerPhoto } from '@/actions/customers'
 // factories above) for readable, typed access in the test bodies.
 import { requireCapability as requireCapabilityImport, can as canImport } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
+// T1 (fix round 2): pulled out to fix its shape for two tests only — the
+// file's own factory default (`async () => []`) predates loadKaruteWindow's
+// real projection needing `.customers`, and no other test here exercises
+// that read closely enough to have noticed.
+import { listAllCustomersCached as listAllCustomersCachedImport } from '@/lib/customers/list-all'
 
 const requireCapability = requireCapabilityImport as jest.Mock
 const can = canImport as jest.Mock
+const listAllCustomersCached = listAllCustomersCachedImport as jest.Mock
 // Resolve the client once — the factory returns the same object every call.
 let karuteRecords: {
   create: jest.Mock; delete: jest.Mock; addEntry: jest.Mock; deleteEntry: jest.Mock;
@@ -441,5 +466,81 @@ describe('loadKaruteWindow refuses calendar-impossible input (Greptile PR #779 P
     // actually ran. Without this the test would still pass if the action bailed
     // out somewhere else before ever reading.
     expect(karuteRecords.list).toHaveBeenCalled()
+  })
+})
+
+// F1 fix (PR-C fix round 1, ⚖ "the wire must not tell a colleague a share
+// happened"): a sharedOnly request from a non-holder must be refused
+// HONESTLY, never silently served as the full unfiltered list.
+describe('F1 fix (PR-C fix round 1): loadKaruteWindow refuses sharedOnly without recordings.viewShared', () => {
+  // Restores the file's own defaults so this block's overrides never leak
+  // into a later test — `can` back to "grant everything", `list` back to
+  // its bare factory default (a plain jest.fn(impl) has no "original" to
+  // fall back to via mockReset(), so this is the explicit restore).
+  afterEach(() => {
+    can.mockImplementation(async () => true)
+    karuteRecords.list.mockResolvedValue({ karute_records: [], total: 0 })
+  })
+
+  it('sharedOnly WITHOUT the capability → { error: "forbidden" }, no reads at all', async () => {
+    can.mockImplementation(async (capability: string) => capability !== 'recordings.viewShared')
+    const result = await loadKaruteWindow({ sharedOnly: true })
+    expect(result).toEqual({ error: 'forbidden' })
+    expect(karuteRecords.list).not.toHaveBeenCalled()
+  })
+
+  it('sharedOnly WITH the capability reaches the read (the gate is capability-specific, not a blanket refusal)', async () => {
+    can.mockImplementation(async () => true)
+    const result = await loadKaruteWindow({ sharedOnly: true })
+    expect(result).not.toEqual({ error: 'forbidden' })
+    expect(karuteRecords.list).toHaveBeenCalled()
+  })
+
+  it('a PLAIN request (no sharedOnly) never consults the gate\'s refusal path, even for a non-holder', async () => {
+    can.mockImplementation(async (capability: string) => capability !== 'recordings.viewShared')
+    const result = await loadKaruteWindow({})
+    expect(result).not.toEqual({ error: 'forbidden' })
+    expect(karuteRecords.list).toHaveBeenCalled()
+  })
+
+  // T1 (fix round 2, L2 MED-1): the F1 gate on freshSharedCount itself
+  // (`freshSharedCount: holdsViewShared ? window.freshSharedCount : undefined`
+  // in actions/karute.ts) had no test that would go red if the ternary were
+  // deleted — every test above mocks a read with NO shared_count, so the
+  // ternary's TRUE branch (a real value passing through) was never exercised.
+  describe('T1: freshSharedCount itself is gated by holdsViewShared, not just the sharedOnly refusal', () => {
+    it('a NON-holder gets NO freshSharedCount even when the read answers a real shared_count', async () => {
+      can.mockImplementation(async (capability: string) => capability !== 'recordings.viewShared')
+      karuteRecords.list.mockResolvedValue({ karute_records: [], total: 0, shared_count: 3 })
+      // The file's own listAllCustomersCached mock returns a bare `[]`
+      // (pre-existing, unrelated to this fix round — every other test here
+      // never exercises buildSessionsListScreen's `.customers` read closely
+      // enough to notice). loadKaruteWindow's real projection needs the real
+      // shape; mockResolvedValueOnce covers exactly this one fan-out call
+      // and self-reverts, no restore needed.
+      listAllCustomersCached.mockResolvedValueOnce({ customers: [], total: 0 })
+
+      const result = await loadKaruteWindow({})
+
+      expect('error' in result).toBe(false)
+      // The key is PRESENT with an undefined value — the return is a plain
+      // object literal (`freshSharedCount: cond ? x : undefined`), not a
+      // conditional spread, so the key is never omitted. Both assertions
+      // are the honest shape: `toBeUndefined()` is what a non-holder must
+      // see; `'freshSharedCount' in result` is true, not false.
+      expect((result as { freshSharedCount?: number }).freshSharedCount).toBeUndefined()
+      expect('freshSharedCount' in result).toBe(true)
+    })
+
+    it('a HOLDER gets the real freshSharedCount', async () => {
+      can.mockImplementation(async () => true)
+      karuteRecords.list.mockResolvedValue({ karute_records: [], total: 0, shared_count: 3 })
+      listAllCustomersCached.mockResolvedValueOnce({ customers: [], total: 0 })
+
+      const result = await loadKaruteWindow({})
+
+      expect('error' in result).toBe(false)
+      expect((result as { freshSharedCount?: number }).freshSharedCount).toBe(3)
+    })
   })
 })

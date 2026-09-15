@@ -2,8 +2,8 @@
 // Faithful legacy → v2 rights mapper (Packet 2 §2). Pure, deterministic,
 // single export. Consumes the OUTPUT of the real effectiveCapabilities()
 // chokepoint (src/lib/auth/permissions.ts) — callers resolve that first, so
-// stale-row self-healing (e.g. the non-owner recordings.viewAll strip)
-// carries over for free; this module never re-derives it.
+// whatever that chokepoint decides carries over for free; this module never
+// re-derives it.
 //
 // Faithful = nobody loses access at migration (Liam ruling, §9.4): a legacy
 // token that grants two things today (customers.view) grants both v2 twins,

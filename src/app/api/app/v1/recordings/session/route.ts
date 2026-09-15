@@ -3,9 +3,20 @@
 // (selfStaffId) with the appointment-staff fallback, on the business-scoped
 // client. Effectful row mint → Idempotency-Key REQUIRED (orphan rows stay the
 // accepted degradation, packet-10 fact 3); records.write; revocation-sensitive
-// (recordings.session.mint). Fail-OPEN contract (capture must NEVER block on
-// the mint): like the web action, a genuine SDK failure is swallowed to
-// { id: null } after logging — the mint core documents that callers swallow.
+// (recordings.session.mint).
+//
+// ⚖ UPDATE 25 GROUP B, d1 — THE SERVER TELLS THE TRUTH. A genuine SDK failure
+// used to be swallowed to 200 { id: null } — the SAME answer as the
+// legitimate "no staff to attribute this to" null (session-mint.ts:161, a
+// settled non-throw) — which is how the 9/9-9/10 outage went unnoticed for
+// two days: a core failure read exactly like an ordinary walk-in. The catch
+// below now RE-THROWS as `upstream_unavailable` (502) instead. The fail-OPEN
+// CONTRACT itself is unchanged and still lives entirely at the CLIENT: the
+// thin port maps every non-2xx to null (thin/ports/actions.vite.ts, `if
+// (!res.ok) return null`), exactly as it already treats a 200 with no id —
+// so capture still never blocks on this route, but the SERVER's own logs
+// (handler.ts's facade_error line) now distinguish an outage from a settled
+// null.
 //
 // FIX ROUND 10 — BORN RESERVED. The body may now carry { takeId, mimeType }, and
 // when it does the row is created WITH that take's storage key already on it
@@ -15,12 +26,21 @@
 // name, because a 200 {id:null} would tell the caller "carry on regardless"
 // about a key it has to fix first. The tenant prefix the key carries comes from
 // the VERIFIED Bearer identity, never from the body.
+//
+// SLICE THREE ③ — THE STORE. The row is now minted carrying the store the
+// caller is working in: the `store-id` header, clamped, and — ⚖ amendment 10 —
+// the business's primary store when the request named none, so a NEW row is
+// never born store-less. Both run OUTSIDE the fail-open try: a store this
+// caller may not use, or a store lookup that cannot answer, is a 403, never a
+// 200 {id:null} that would let the take be captured against it anyway.
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
+import { resolvePrimaryStoreId, resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import {
   startRecordingSessionWithClient,
   type StartRecordingSessionResult,
@@ -66,12 +86,69 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
     throw new AppApiError('validation', parsed.error.issues.map((e) => e.message).join(', '))
   }
 
-  const synqed = newSynqedClient(ctx.identity.businessId)
+  const synqed = newSynqedClient(ctx.identity.businessId, extractBearer(ctx.req))
   const selfStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
 
-  // Fail-OPEN parity with the web action: a null mint (unresolvable staff) is
-  // NOT an error, and a genuine SDK throw is swallowed to { id: null } too —
-  // the client proceeds without dedupe, capture never blocks on the mint.
+  // THE STORE THIS RECORDING IS MADE IN (slice three ③) — the Bearer twin of
+  // the web action's resolveStoreScope(), and the same call the job route makes
+  // for the same field (recordings/job/route.ts:102-113): no active-store
+  // cookie exists here, so the store travels as an explicit `store-id` header
+  // and is PROVEN to be this caller's before it is written to anything.
+  //
+  // OUTSIDE the fail-open try below, deliberately. A store-id the caller may
+  // not use is a `store_forbidden` throw, and it must leave as the 403 every
+  // other facade route answers with — swallowed into `{ id: null }` it would
+  // read to the client as "carry on, the mint just failed", and the take would
+  // be captured against a store this caller was refused. The inbox route places
+  // its clamp for exactly this reason (recordings/inbox/route.ts).
+  //
+  // ⚖ AND SO DOES A LOOKUP FAILURE — an upstream blip here reads as 403, not
+  // 5xx, because that is the clamp's own fail-closed shape (store-clamp.ts:74
+  // and :109, both without the `store_header` marker, so the thin shell's
+  // stranded-pin self-heal correctly does not fire). It is NOT swallowed to
+  // `storeId: null`: under the ruled null rule an unstamped row is permanently
+  // OPEN at the take doors, so swallowing would turn a momentary blip into a
+  // permanent, invisible widening. Capture is not blocked either way — the
+  // client reads every non-2xx as a null mint, and the drain re-mints later
+  // with the CORRECT store.
+  const clamp = await resolveStoreForRequest({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    requestedStoreId: ctx.req.headers.get('store-id'),
+  })
+
+  // ⚖ AMENDMENT 10 — THIS SERVER NEVER PERSISTS A STORE-LESS NEW ROW, whatever
+  // the client sent. `null` is no longer a possible outcome of this route: the
+  // header wins when one rode the request (the clamp above has already proven
+  // it belongs to this caller), and otherwise the business's PRIMARY store is
+  // the answer. The thin shell seeds its own lens to that same store on first
+  // boot and sends it as `store-id` from then on
+  // (thin/chrome/chrome-store.ts seedStoreLens · thin/ports/facade-fetch.ts),
+  // so this is the server-side twin of the client's own seed, not a second
+  // opinion — it simply also covers the caller whose seed never stuck and the
+  // raw API caller. It is a NARROWING, never a widening: a clamped staffer
+  // cannot reach the lookup at all (the clamp already answered them
+  // `requested ?? assigned[0]`, always concrete), so nobody's reach grows —
+  // an unstamped row would have read OPEN at the take doors under the D7 null
+  // rule, which was only ever meant for rows minted before slice ③.
+  //
+  // The lookup's own failure leg is the SAME fail-closed 403 as the clamp's
+  // (`store_forbidden` from resolvePrimaryStoreId, normalized by facadeHandler
+  // → 403, errors.ts STATUS), and it stays OUTSIDE the fail-open try below for
+  // the reason above: swallowed into `{ id: null }` it would read as "carry on"
+  // and put a store-less row behind the take.
+  const storeId = clamp.storeId ?? (await resolvePrimaryStoreId(synqed))
+
+  // Fail-OPEN parity with the web action for the LEGITIMATE null: an
+  // unresolvable staff (session-mint.ts:161) is a settled answer, not an
+  // error, and still comes back here as `result === null` below — the client
+  // reads it as `{ id: null }` exactly as before. ⚖ UPDATE 25 GROUP B, d1: a
+  // genuine SDK throw is NO LONGER swallowed — it is a core failure, not a
+  // walk-in, and re-throwing here is what tells the two apart on the server's
+  // own logs. The client still cannot tell them apart (both read as "the mint
+  // failed, proceed without dedupe" — see the header comment), so capture is
+  // never blocked either way.
   let result: StartRecordingSessionResult = null
   try {
     result = await startRecordingSessionWithClient(synqed, {
@@ -83,13 +160,20 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
       businessId: ctx.identity.businessId,
       takeId: parsed.data.takeId ?? null,
       mimeType: parsed.data.mimeType ?? null,
+      storeId,
     })
   } catch (err) {
     console.error('[recordings.session.mint] failed:', err)
+    // A specific facade error is never relabeled — only a genuine SDK
+    // failure (the case this catch exists for) becomes upstream_unavailable.
+    if (err instanceof AppApiError) throw err
+    throw new AppApiError('upstream_unavailable', 'recording session mint failed')
   }
   // Named, so the recorder can renegotiate its container rather than retry
-  // blind. Checked OUTSIDE the try: an AppApiError thrown inside it would be
-  // swallowed by the fail-open catch above and answered as a 200.
+  // blind. Checked OUTSIDE the try: the catch above passes an AppApiError
+  // through unchanged and only relabels a genuine SDK failure as
+  // upstream_unavailable, so a name thrown here is never swallowed or
+  // relabeled by it.
   if (result && 'error' in result) {
     // Storage failed to say whether the key is free (fix round 11) — a real
     // upstream outage, never the client's fault, and never folded into the

@@ -48,6 +48,22 @@ const synqedStaffCardsForBusiness = jest.fn(async () => [
 ])
 jest.mock('@/lib/synqed/staff-map', () => ({
   synqedStaffCardsForBusiness: () => synqedStaffCardsForBusiness(),
+  // requireActual would drag in @synqed-kk/client's ESM export (staff-map.ts
+  // imports SynqedClient at module scope), which jest's CJS transform can't
+  // parse. Reimplemented here instead: a pure, dependency-free 8-line join
+  // (R8 A7, 2026-09-13) — same duplication as discard-reasons-enrichment.test.ts.
+  staffNameByIdAcrossCardsAndProfiles: (
+    roster: Array<{ id: string; full_name: string | null }>,
+    cards: Array<{ id: string; user_id: string | null; name: string | null }>,
+  ) => {
+    const profileNames = new Map(roster.map((s) => [s.id, s.full_name?.trim() ? s.full_name : null]))
+    const nameById = new Map(profileNames)
+    for (const card of cards) {
+      const name = (card.user_id ? profileNames.get(card.user_id) : null) ?? card.name
+      if (name) nameById.set(card.id, name)
+    }
+    return nameById
+  },
 }))
 
 /** The twin derives "this month" against `new Date()`, so an ABSOLUTE fixture
