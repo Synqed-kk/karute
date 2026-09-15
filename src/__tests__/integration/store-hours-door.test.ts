@@ -78,6 +78,10 @@ const storePoliciesSet = jest.fn<Promise<unknown>, [string, Record<string, unkno
 const storePoliciesList = jest.fn(async () => ({
   policies: [] as Record<string, unknown>[],
 }))
+// The app audit row's BEFORE half (R1-3) — one read before the write.
+const storePoliciesGet = jest.fn(async () => ({
+  weekly_hours: null as Record<string, unknown> | null,
+}))
 const storesList = jest.fn(async () => ({ stores: [] as Record<string, unknown>[] }))
 const staffStoresCounts = jest.fn(async () => ({ counts: {} as Record<string, number> }))
 const customersCountsByStore = jest.fn(async () => ({ counts: {} as Record<string, number> }))
@@ -91,7 +95,7 @@ const fakeClient = {
   stores: { list: storesList },
   staffStores: { counts: staffStoresCounts },
   customers: { countsByStore: customersCountsByStore },
-  storePolicies: { list: storePoliciesList, set: storePoliciesSet },
+  storePolicies: { list: storePoliciesList, get: storePoliciesGet, set: storePoliciesSet },
   orgSettings: { get: orgSettingsGet, upsert: orgSettingsUpsert },
 }
 const newSynqedClient = jest.fn(() => fakeClient)
@@ -182,6 +186,7 @@ beforeEach(() => {
   ])
   storePoliciesSet.mockResolvedValue({})
   storePoliciesList.mockResolvedValue({ policies: [] })
+  storePoliciesGet.mockResolvedValue({ weekly_hours: null })
   resolveSynqedStaffId.mockImplementation(async (profileId: string) => {
     if (profileId === PROFILE_ID) return CORE_STAFF_ID
     throw new Error('no synqed staff record')
@@ -365,7 +370,13 @@ describe('the exact SDK payload', () => {
     ])
   })
 
-  it('a successful save emits exactly one settings.store_hours_update row', async () => {
+  it('a successful save emits exactly one settings.store_hours_update row, carrying the week it changed', async () => {
+    // Core writes its OWN store_policy.edit row with a full diff regardless
+    // (measured 2026-09-16) — this row is the app log's, and it has to say
+    // what changed or it is the poorer twin of a row staff cannot reach.
+    storePoliciesGet.mockResolvedValue({
+      weekly_hours: { ...FULL_WEEK, mon: { open: '09:00', close: '18:00' } },
+    })
     const lines = await auditLines(async () => {
       expect(await setStoreHours('store-7', FULL_WEEK)).toEqual({ ok: true })
     })
@@ -375,6 +386,29 @@ describe('the exact SDK payload', () => {
       target_id: 'store-7',
       source: 'web',
     })
+    const detail = (lines[0] as { detail: { before: string; after: string } }).detail
+    expect(detail.before).toContain('mon=09:00-18:00')
+    expect(detail.after).toContain('mon=10:00-19:30')
+    expect(detail.after).toContain('tue=closed')
+    // ids and times only — never a store or staff name.
+    expect(`${detail.before}${detail.after}`).not.toMatch(/[ぁ-んァ-ヶ一-龥]/)
+  })
+
+  it('a store with no week of its own reads as `default` in the BEFORE, not as an empty string', async () => {
+    storePoliciesGet.mockResolvedValue({ weekly_hours: null })
+    const lines = await auditLines(async () => {
+      await setStoreHours('store-7', FULL_WEEK)
+    })
+    expect((lines[0] as { detail: { before: string } }).detail.before).toBe('default')
+  })
+
+  it('an unreadable BEFORE says so and never blocks the save', async () => {
+    storePoliciesGet.mockRejectedValue(new Error('core down'))
+    const lines = await auditLines(async () => {
+      expect(await setStoreHours('store-7', FULL_WEEK)).toEqual({ ok: true })
+    })
+    expect(storePoliciesSet).toHaveBeenCalledTimes(1)
+    expect((lines[0] as { detail: { before: string } }).detail.before).toBe('unavailable')
   })
 
   it('the phone door emits the same row with source: facade', async () => {

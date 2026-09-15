@@ -7,6 +7,7 @@ import type { SynqedClient, WeeklyHours } from '@synqed-kk/client'
 
 import { getSynqedClient } from '@/lib/synqed/client'
 import { businessDisplayName } from '@/lib/business-name'
+import { WEEKDAY_KEYS } from '@/lib/operating-hours'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import {
   storeSchema,
@@ -523,6 +524,20 @@ export async function updateStore(
  *  fallback. */
 type StoreHoursWriteDeps = StoreWriteDeps & { actingStaffId: string | null }
 
+/** One store's week as a single audit line — weekday keys and HH:MM only,
+ *  never a name. `default` = no week of its own, i.e. the company-wide hours
+ *  apply. Core writes its OWN store_policy.edit row with a full before/after
+ *  diff; this is what makes the app's row — the one salon staff actually read
+ *  in 監査ログ — carry the same change instead of naming the store and
+ *  nothing else. */
+function weekForAudit(hours: WeeklyHours | null): string {
+  if (hours === null) return 'default'
+  return WEEKDAY_KEYS.map((key) => {
+    const day = hours[key]
+    return `${key}=${day ? `${day.open}-${day.close}` : 'closed'}`
+  }).join(' ')
+}
+
 /** Client-threaded core of the 営業時間 save — the ONE place a store's own
  *  weekly hours are written, shared by the web `setStoreHours` action and the
  *  facade PATCH /stores/[id]/hours route (same owner-gate + audit-source
@@ -561,15 +576,28 @@ export async function setStoreHoursCore(
   const actingStaffId = deps.actingStaffId
   if (!actingStaffId) return { error: STORE_HOURS_ACTOR_UNRESOLVED }
   try {
+    // The week this store had before the save, for the app audit row's own
+    // diff. Never blocks the save: an unreadable policy row costs the BEFORE
+    // half of one log line, nothing else.
+    const before = await synqed.storePolicies
+      .get(storeId)
+      .then((policy) => weekForAudit(policy.weekly_hours ?? null))
+      .catch(() => 'unavailable')
     await synqed.storePolicies.set(storeId, {
       weekly_hours: parsed.hours,
       acting_staff_id: actingStaffId,
     })
-    // ONE row, from the app's own emitter — exactly how settings.store_update
-    // is emitted by updateStoreCore. The SDK's optional `audit` input is
-    // deliberately NOT used: audit() already writes the durable core row, so
-    // passing both would double-log every hours save (the same double-logging
-    // the FACADE_AUDIT_MAP 'skip' row for stores.update exists to prevent).
+    // ONE row from the app's own emitter, exactly how settings.store_update is
+    // emitted by updateStoreCore — and the SDK's optional `audit` input stays
+    // unused, because passing it would add a THIRD row.
+    //
+    // MEASURED 2026-09-16, not assumed: core audits storePolicies.set BY
+    // ITSELF, unconditionally — a store_policy.edit row with its own
+    // before/after diff, written whether or not the SDK `audit` input is
+    // passed. So every save leaves two rows: core's, in core's log, and this
+    // one, in the app's log that salon staff read. Keeping ours is the
+    // ruling; carrying the same change in `detail` is what stops it being
+    // the poorer twin.
     audit({
       category: 'settings',
       action: 'settings.store_hours_update',
@@ -580,6 +608,7 @@ export async function setStoreHoursCore(
       targetId: storeId,
       requestId: deps.requestId,
       source: deps.source,
+      detail: { before, after: weekForAudit(parsed.hours) },
     })
     return { ok: true }
   } catch (e) {
