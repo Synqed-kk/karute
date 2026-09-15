@@ -432,24 +432,30 @@ export function buildAppointmentsScreen(
         // from, so the month cell and the week row cannot disagree about a day.
         hoursFacts,
       )
+      // 先月同期間比, in the SAME branch that owns the grid: a truncated read
+      // can then never carry a delta by construction, rather than by the
+      // coincidence that month view happens to read no week or day window
+      // today. The selected-day card sitting under this grid is the obvious
+      // future day-window caller, and the day it exists the clause would have
+      // printed a number over a failed-read grid.
+      //
+      // The displayed month's own window is one side of it, so the clause and
+      // 「予約 N件」 are derived from the SAME rows; the other side is the
+      // caller's extra read. Either read truncated → null, never a low number
+      // (month-compare.ts).
+      //
+      // No previous read at all — the switch off, a future month, a failed
+      // optional read — means no clause, and the window arithmetic is skipped
+      // with it: it builds a dozen JST date parts for a discarded answer.
+      if (prevMonthWindow) {
+        monthCompareDelta = monthCompareDeltaFrom(
+          monthCompareWindow(monthRange.monthStart, now),
+          monthWin,
+          prevMonthWindow,
+        )
+      }
     }
     monthStartIso = monthRange.monthStart.toISOString()
-    // 先月同期間比. The displayed month's own window is one side of it, so the
-    // clause and 「予約 N件」 are derived from the SAME rows; the other side is
-    // the caller's extra read. Either read truncated → null, never a low
-    // number (month-compare.ts).
-    //
-    // No previous read at all — the switch off, a future month, a failed
-    // optional read — means no clause, and the window arithmetic is skipped
-    // with it: it builds a dozen JST date parts for an answer that would be
-    // thrown away on the next line.
-    if (prevMonthWindow) {
-      monthCompareDelta = monthCompareDeltaFrom(
-        monthCompareWindow(monthRange.monthStart, now),
-        monthWin,
-        prevMonthWindow,
-      )
-    }
   }
 
   // The selected day's row, from the SAME adapter — its own window when one was

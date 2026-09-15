@@ -327,6 +327,23 @@ describe('buildAppointmentsScreen — monthCompareDelta reaches both doors', () 
     ).toBeNull()
   })
 
+  it('is null when a SIBLING read is truncated too — the grid and the clause are one branch', () => {
+    // Month view reads no day window today, so `truncated` and the month
+    // read's own flag happen to be the same thing. The selected-day card
+    // sitting under the grid is the obvious future day-window caller, and the
+    // clause must not survive a failed read that nulls the grid beside it.
+    const screen = buildAppointmentsScreen({
+      ...base,
+      monthRange: computeMonthRange(base.selectedDate),
+      monthWindow,
+      dayWindow: win([], true),
+      prevMonthWindow,
+    })
+    expect(screen.truncated).toBe(true)
+    expect(screen.monthData).toBeNull()
+    expect(screen.monthCompareDelta).toBeNull()
+  })
+
   it('is null on a truncated month read, alongside the nulled grid', () => {
     const screen = buildAppointmentsScreen({
       ...base,
