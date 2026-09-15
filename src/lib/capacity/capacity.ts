@@ -171,6 +171,10 @@ export function clipToWindow(
   dayStartMs: number,
   dayEndMs: number,
 ): { insideMinutes: number; outsideMinutes: number } {
+  // R3-F2: it is exported and callable directly, skipping the isValidSpan
+  // gate capacityForDay applies before it — a NaN/±Infinity span used to
+  // launder into phantom minutes via overlapMinutes' NaN-tolerant comparisons.
+  if (!isValidSpan(span)) return { insideMinutes: 0, outsideMinutes: 0 }
   const insideMinutes = overlapMinutes(span.startMs, span.endMs, openMs, closeMs)
   const dayMinutes = overlapMinutes(span.startMs, span.endMs, dayStartMs, dayEndMs)
   const outsideMinutes = dayMinutes - insideMinutes

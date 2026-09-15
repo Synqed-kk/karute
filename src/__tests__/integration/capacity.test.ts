@@ -753,6 +753,27 @@ describe('clipToWindow — inside and outside', () => {
       ),
     ).toEqual({ insideMinutes: 60, outsideMinutes: 600 })
   })
+
+  it('R3-F2: a NaN startMs never launders into phantom minutes', () => {
+    expect(clipToWindow(span(NaN, at(11)), at(10), at(20), DAY_START, DAY_END)).toEqual({
+      insideMinutes: 0,
+      outsideMinutes: 0,
+    })
+  })
+
+  it('R3-F2: an Infinity endMs never launders into phantom minutes', () => {
+    expect(clipToWindow(span(at(10), Infinity), at(10), at(20), DAY_START, DAY_END)).toEqual({
+      insideMinutes: 0,
+      outsideMinutes: 0,
+    })
+  })
+
+  it('R3-F2: an end at or before start yields 0/0', () => {
+    expect(clipToWindow(span(at(11), at(10)), at(10), at(20), DAY_START, DAY_END)).toEqual({
+      insideMinutes: 0,
+      outsideMinutes: 0,
+    })
+  })
 })
 
 describe('PROPERTY — round 2 HIGH-1/HIGH-2: capacity-present coherence (seeded, 300 trials)', () => {
