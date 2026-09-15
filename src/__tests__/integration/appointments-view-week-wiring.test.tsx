@@ -74,6 +74,7 @@ type WeekRowsProps = {
   soloMode: boolean
   typeSlot: string
   locale: string
+  pending?: boolean
   onPickDay: (iso: string) => void
 }
 let weekRowsProps: WeekRowsProps | null = null
@@ -242,5 +243,17 @@ describe('every move keeps the 担当 filter (W-E, spec §1/§6)', () => {
     renderView({ staffFilter: 'all' })
     header().onPrev()
     expect(pushed[0]).not.toContain('staff=')
+  })
+})
+
+describe('the week’s pending state is the router transition (W-A)', () => {
+  it('WeekRows receives a pending flag, and no failed flag (the route boundary owns failure)', () => {
+    renderView()
+    // useTransition's isPending is false at rest — what matters is that the
+    // prop is WIRED (a boolean), not left undefined, and that `failed` is
+    // deliberately absent: a failed window read throws in page.tsx and
+    // ScreenBoundary owns it on the phone, so the view has no honest signal.
+    expect(typeof weekRowsProps!.pending).toBe('boolean')
+    expect((weekRowsProps as unknown as { failed?: boolean }).failed).toBeUndefined()
   })
 })

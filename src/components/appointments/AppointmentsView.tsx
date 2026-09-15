@@ -521,6 +521,17 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             // (spec §8). 'off' = the fill order supplies the fourth cell.
             typeSlot="off"
             locale={props.locale}
+            // The router transition IS the week's pending state: during a
+            // ‹ / › / 今日 / calendar move the rows on screen still describe
+            // the OLD week. The wrapper's 50% dim says "busy"; the shimmer
+            // pills say WHICH numbers are not to be read yet (mock
+            // weekSumHTML/weekGridHTML's `pend` branch).
+            // `failed` is deliberately NOT passed: this view has no honest
+            // failure signal for 週 — a failed window read THROWS in page.tsx
+            // (route error boundary) and ScreenBoundary owns it on the phone.
+            // The prop stays for 1b-month, which reads through the throwing
+            // action itself.
+            pending={isPending}
             // jstWallTimeToDate, not `new Date(iso)`: a bare parse of
             // "2026-09-17" is UTC midnight, which is the 16th in JST — the
             // tap would open the wrong day for the whole JST morning.
