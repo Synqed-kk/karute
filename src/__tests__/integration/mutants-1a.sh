@@ -79,6 +79,14 @@ run m11 $ADAPTER src/__tests__/integration/capacity-conjunction.test.ts 'booked 
 perl -0pi -e 's/s\.start <= dayEndMs && dayStartMs < s\.end/s.start >= dayStartMs \&\& s.start < dayEndMs/' $ADAPTER
 run m12 $ADAPTER src/__tests__/integration/capacity-conjunction.test.ts 'OVERLAP ACROSS JST MIDNIGHT'
 
+# m13 — the dayTotals window loses its LAST day: the selected day falls outside
+# a window that genuinely covers it and the day line reads "no bookings yet".
+# NOTE the spelling: `<=` → `<` cannot be the mutant here. selectedDate is a JST
+# MIDNIGHT and rangeTo is that day's 23:59:59.999, so the two operators agree on
+# every reachable input — a vacuous mutant of exactly the kind m7 used to be.
+perl -0pi -e 's/selectedDate <= r\.rangeTo/selectedDate <= new Date(r.rangeTo.getTime() - 86_400_000)/' $SCREEN
+run m13 $SCREEN src/__tests__/integration/screen-truncated.test.ts 'LAST day'
+
 # m9 — the WEB action's unplaceable filter falls back to a FETCH: one stylist's
 # 自分 week becomes the whole salon's, under her name.
 perl -0pi -e 's/^    unknown\n      \? Promise\.resolve/    !unknown\n      ? Promise.resolve/m' $ACTION
