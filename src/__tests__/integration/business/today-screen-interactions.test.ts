@@ -15150,13 +15150,17 @@ describe('⚖ D-53 (c) R1 — N0 source-text pin: needsUnit, the seam, the order
   })
 
   it('the unitless emission sits BEFORE the early-continue and BEFORE the unit cap (decision points ii/iii)', () => {
-    const unitlessAt = AVAIL.indexOf('const unitless = freeStaff.filter((s) => !needsUnit(s))')
+    // Anchored on the EMISSION loop itself (`for (const s of unitless)`), not
+    // the `const unitless = …` declaration above it — the declaration's
+    // position does not move if only the loop and the continue are swapped,
+    // which is exactly the shape mutant n2 tries.
+    const emissionAt = AVAIL.indexOf('for (const s of unitless) {')
     const continueAt = AVAIL.indexOf('if (freeBeds.length === 0 || needing.length === 0) continue')
     const capAt = AVAIL.indexOf('if (claimed.size >= freeBeds.length) break')
-    expect(unitlessAt).toBeGreaterThan(-1)
+    expect(emissionAt).toBeGreaterThan(-1)
     expect(continueAt).toBeGreaterThan(-1)
     expect(capAt).toBeGreaterThan(-1)
-    expect(unitlessAt).toBeLessThan(continueAt)
+    expect(emissionAt).toBeLessThan(continueAt)
     expect(continueAt).toBeLessThan(capAt)
   })
 })
