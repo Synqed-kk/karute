@@ -144,7 +144,7 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     // this section never then hits `forbidden` opening it.
     const canViewAudit = canReadAuditLog(ctx.identity.capabilities)
     const canViewSync = isOwner || ctx.identity.capabilities.has('sync.view')
-    // Bare capability, no owner fallback — web parity (settings/page.tsx:61-63).
+    // Bare capability, no owner fallback — web parity (settings/page.tsx:111-115).
     const canManageMenus = ctx.identity.capabilities.has('menus.manage')
 
     // 予約同期 status card (packet 31) — SOFT-FAIL: a throw or missing config
