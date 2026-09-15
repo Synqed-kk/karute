@@ -191,6 +191,7 @@
       "unset": "Not set",
       "closed": "Closed",
       "countValue": "{n}",
+      "countLine": "{n} bookings",
       "hours": "{h}h",
       "minutes": "{m}m",
       "loading": "Loading bookings…",

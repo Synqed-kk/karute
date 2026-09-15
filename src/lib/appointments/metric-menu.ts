@@ -39,8 +39,19 @@ export interface MetricMenuCtx {
 // Individual metric cells (no branching — one metric, one rendering).
 // ---------------------------------------------------------------------------
 
-function countCell(row: WeekDayRowData, ctx: MetricMenuCtx): Cell {
-  return { key: 'count', label: ctx.t('count'), value: ctx.t('countValue', { n: row.count }), tone: 'ink' }
+/** R3-5 — the 予約 count carries its unit INSIDE the value, because the day
+ *  line prints no label for it (mock: 「11件」, no word). JA's 「{n}件」 says
+ *  what it counts on its own; EN's grid template 「{n}」 does not, and on the
+ *  line it rendered as a naked "11". So the two surfaces read different value
+ *  keys: the GRID cell keeps `countValue` next to its own 予約 / Bookings
+ *  label, the LINE takes `countLine`, which carries the unit in every locale
+ *  (JA byte-identical to countValue, EN 「{n} bookings」). */
+function countCell(
+  row: WeekDayRowData,
+  ctx: MetricMenuCtx,
+  valueKey: 'countValue' | 'countLine',
+): Cell {
+  return { key: 'count', label: ctx.t('count'), value: ctx.t(valueKey, { n: row.count }), tone: 'ink' }
 }
 
 function bookedTimeCell(row: WeekDayRowData, ctx: MetricMenuCtx): Cell {
@@ -221,14 +232,14 @@ export function weekRowCells(row: WeekDayRowData, ctx: MetricMenuCtx): Cell[] {
 
   if (ctx.typeSlot === 'returning') {
     return placeForGrid([
-      take(countCell(row, ctx)),
+      take(countCell(row, ctx, 'countValue')),
       take(returningCell(row, ctx)),
       take(bookedTimeCell(row, ctx)),
       take(cancelledCell(row, ctx)),
     ])
   }
 
-  const count = take(countCell(row, ctx))
+  const count = take(countCell(row, ctx, 'countValue'))
   const utilization = take(utilizationSlot(row, ctx, used))
   const freeOrBooked = take(freeOrBookedTimeSlot(row, ctx, used))
   const fourth = ctx.typeSlot === 'new' ? take(newCell(row, ctx)) : take(pickNext(row, ctx, used))
@@ -247,14 +258,14 @@ export function dayLineCells(row: WeekDayRowData, ctx: MetricMenuCtx): Cell[] {
 
   if (ctx.typeSlot === 'returning') {
     return [
-      take(countCell(row, ctx)),
+      take(countCell(row, ctx, 'countLine')),
       take(returningCell(row, ctx)),
       take(bookedTimeCell(row, ctx)),
       take(cancelledCell(row, ctx)),
     ]
   }
 
-  const count = take(countCell(row, ctx))
+  const count = take(countCell(row, ctx, 'countLine'))
   if (ctx.typeSlot === 'new') {
     const newC = take(newCell(row, ctx))
     const utilization = take(utilizationSlot(row, ctx, used))

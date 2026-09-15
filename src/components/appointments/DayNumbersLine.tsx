@@ -65,7 +65,7 @@ export function DayNumbersLine({ row, soloMode, typeSlot }: DayNumbersLineProps)
         // </span>` — 休 is a VALUE (ink, 700), not a grey word.
         <>
           <span className="inline-flex items-baseline">
-            <b className={cn(VALUE, VALUE_TONE_CLASS.ink)}>{t('countValue', { n: row.count })}</b>
+            <b className={cn(VALUE, VALUE_TONE_CLASS.ink)}>{t('countLine', { n: row.count })}</b>
           </span>
           <span className="inline-flex items-baseline">
             <b className={cn(VALUE, VALUE_TONE_CLASS.ink)}>{t('closed')}</b>

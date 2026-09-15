@@ -20,6 +20,7 @@ const MESSAGES: Record<string, string> = {
   unset: '未設定',
   closed: '休',
   countValue: '{n}件',
+  countLine: '{n}件',
   hours: '{h}時間',
   minutes: '{m}分',
 }
