@@ -135,60 +135,76 @@ export function SelectedDayCard({
           className="px-4 pb-0.5 pt-3"
         />
 
-        {/* mock `.row` + `.row{border-bottom:1px solid var(--hair)}` — the
-         *  hairline stays on the LAST row too, because something always
-         *  follows it inside this card (他N件, or the door). */}
-        {top.map((r) => (
-          <div
-            key={r.id}
-            className={cn(COMPACT_ROW, 'border-b border-zinc-200/70 dark:border-zinc-800')}
-          >
-            <CompactRowContent reservation={r} tag={<RowTag reservation={r} />} />
-          </div>
-        ))}
+        {/* R1-2 (LENS-1 #2/#5, LENS-3 #2) — while the answer is in flight the
+         *  card is the day line's two shims and NOTHING ELSE. The first port
+         *  left the rows, 他N件 and the door mounted underneath and leaned on
+         *  the wrapper's opacity to hide them, which is not hiding: under
+         *  Reduce Motion the wrapper stays lit (the `motion-reduce` variant
+         *  wins at equal specificity) and the card showed the PREVIOUS day's
+         *  bookings under a chip already naming the new one, and in every mode
+         *  the invisible 44 px door stayed focusable and hit-testable and
+         *  opened the day the page had left. Spec §4's 「pending → two
+         *  shimmers, nothing else」 is a DOM rule, not an opacity one. */}
+        {!pending && (
+          <>
+            {/* mock `.row` + `.row{border-bottom:1px solid var(--hair)}` — the
+             *  hairline stays on the LAST row too, because something always
+             *  follows it inside this card (他N件, or the door). */}
+            {top.map((r) => (
+              <div
+                key={r.id}
+                className={cn(COMPACT_ROW, 'border-b border-zinc-200/70 dark:border-zinc-800')}
+              >
+                <CompactRowContent reservation={r} tag={<RowTag reservation={r} />} />
+              </div>
+            ))}
 
-        {/* mock `.selempty{padding:10px 14px 2px;font-size:13.5px}` — a day with
-         *  nothing on it SAYS so, and still offers its door: an empty day is
-         *  where a booking gets made. */}
-        {!closed && top.length === 0 && (
-          <p className="m-0 px-4 pb-0.5 pt-2.5 text-[13.5px] text-zinc-500 dark:text-zinc-400">
-            {t('noBookings')}
-          </p>
-        )}
-
-        {/* mock `.selmore{padding:8px 14px 0;font-size:12.5px;font-weight:600}`.
-         *  The wording is the app's own 「他{n}件」 pattern (native pass 2 row
-         *  D-3); the mock's 「+N 他」 is dead wording. */}
-        {extra > 0 && (
-          <div className="px-4 pt-2 text-[12.5px] font-semibold text-zinc-500 dark:text-zinc-400">
-            {t('moreRows', { n: extra })}
-          </div>
-        )}
-
-        {/* mock `.seldoor{height:44px;margin:10px;border-radius:12px;
-         *  background:var(--wash);color:var(--blue);font-size:14px;
-         *  font-weight:700}` — `--wash` is rgba(37,99,235,.08), which is the
-         *  app's `bg-primary/8`: the R13 selected/pressed recipe, never a black
-         *  or solid fill (CLAUDE.md). A closed, empty day has no day to open,
-         *  so it gets no door.
-         *
-         *  The press is the week rows' own spelling — `scale` named outright
-         *  because Tailwind v4 emits it as a standalone property (R3-14), and
-         *  cancelled by a variant at equal specificity under reduced motion. */}
-        {!closed && (
-          <button
-            type="button"
-            onClick={() => onOpenDay(dateIso)}
-            className={cn(
-              'm-2.5 flex h-11 w-[calc(100%-20px)] items-center justify-center gap-[5px] rounded-[12px]',
-              'bg-primary/8 text-[14px] font-bold text-primary',
-              'transition-[scale] duration-100 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]',
-              'motion-reduce:transition-none motion-reduce:active:scale-100',
-              'outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50',
+            {/* mock `.selempty{padding:10px 14px 2px;font-size:13.5px}` — a day
+             *  with nothing on it SAYS so, and still offers its door: an empty
+             *  day is where a booking gets made. */}
+            {!closed && top.length === 0 && (
+              <p className="m-0 px-4 pb-0.5 pt-2.5 text-[13.5px] text-zinc-500 dark:text-zinc-400">
+                {t('noBookings')}
+              </p>
             )}
-          >
-            {t('openDay')}
-          </button>
+
+            {/* mock `.selmore{padding:8px 14px 0;font-size:12.5px;
+             *  font-weight:600}`. The wording is the app's own 「他{n}件」
+             *  pattern (native pass 2 row D-3); the mock's 「+N 他」 is dead
+             *  wording. */}
+            {extra > 0 && (
+              <div className="px-4 pt-2 text-[12.5px] font-semibold text-zinc-500 dark:text-zinc-400">
+                {t('moreRows', { n: extra })}
+              </div>
+            )}
+
+            {/* mock `.seldoor{height:44px;margin:10px;border-radius:12px;
+             *  background:var(--wash);color:var(--blue);font-size:14px;
+             *  font-weight:700}` — `--wash` is rgba(37,99,235,.08), which is the
+             *  app's `bg-primary/8`: the R13 selected/pressed recipe, never a
+             *  black or solid fill (CLAUDE.md). A closed, empty day has no day
+             *  to open, so it gets no door.
+             *
+             *  The press is the week rows' own spelling — `scale` named outright
+             *  because Tailwind v4 emits it as a standalone property (R3-14),
+             *  and cancelled by a variant at equal specificity under reduced
+             *  motion. */}
+            {!closed && (
+              <button
+                type="button"
+                onClick={() => onOpenDay(dateIso)}
+                className={cn(
+                  'm-2.5 flex h-11 w-[calc(100%-20px)] items-center justify-center gap-[5px] rounded-[12px]',
+                  'bg-primary/8 text-[14px] font-bold text-primary',
+                  'transition-[scale] duration-100 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]',
+                  'motion-reduce:transition-none motion-reduce:active:scale-100',
+                  'outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50',
+                )}
+              >
+                {t('openDay')}
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -209,8 +209,45 @@ describe('pending', () => {
     const line = container.querySelector('[data-day-line]')!
     expect(line.querySelectorAll('.reservation-shim')).toHaveLength(2)
     expect(line.textContent).not.toContain('件')
-    // The whole card's content is faded OUT while the answer is in flight.
-    expect(container.querySelector('[data-sel-fade]')!.className).toContain('opacity-0')
+  })
+
+  // R1-2 (LENS-1 #2/#5, LENS-3 #2) — spec §4's 「pending → two shimmers,
+  // nothing else」 is about the DOM. The first port kept the previous day's
+  // rows, 他N件 and the door mounted and relied on the wrapper's opacity, which
+  // hides nothing: Reduce Motion keeps the wrapper lit, and an invisible door
+  // is still focusable, still tappable and still opens the day being left.
+  it('renders NO row, no 他N件, no sentence and NO DOOR — absent, not transparent', () => {
+    const { container } = renderCard({
+      rows: [1, 2, 3, 4, 5, 6].map((n) => booking(n)),
+      pending: true,
+    })
+    expect(rowsOf(container)).toHaveLength(0)
+    expect(screen.queryByText('テスト1')).toBeNull()
+    expect(screen.queryByText(/^他/)).toBeNull()
+    expect(screen.queryByText(WEEK_ROWS.noBookings)).toBeNull()
+    expect(screen.queryByText(WEEK_ROWS.openDay)).toBeNull()
+    expect(container.querySelectorAll('button')).toHaveLength(0)
+    // …and the two shims are the whole of what is left.
+    expect(
+      container.querySelector('[data-day-line]')!.querySelectorAll('.reservation-shim'),
+    ).toHaveLength(2)
+  })
+
+  it('an empty day mid-move is not read as an empty day — no sentence, no door', () => {
+    renderCard({ rows: [], dayTotals: row({ count: 0 }), pending: true })
+    expect(screen.queryByText(WEEK_ROWS.noBookings)).toBeNull()
+    expect(screen.queryByText(WEEK_ROWS.openDay)).toBeNull()
+  })
+
+  it('a CLOSED day mid-move shows the shims, not 休 — the answer has not arrived', () => {
+    const { container } = renderCard({
+      rows: [booking(1)],
+      dayTotals: row({ closed: true, count: 0 }),
+      pending: true,
+    })
+    const line = container.querySelector('[data-day-line]')!
+    expect(line.querySelectorAll('.reservation-shim')).toHaveLength(2)
+    expect(line.textContent).not.toContain(WEEK_ROWS.closed)
   })
 })
 
