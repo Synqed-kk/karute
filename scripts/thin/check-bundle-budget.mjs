@@ -816,7 +816,30 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // ownership guard and a settle, a commit that re-keys the panes puts keyboard
 // focus back on the panel, and the spring's frame loop checks reduced motion.
 // Comments are most of it. The tip is otherwise the same tree as above.
-const BUDGET_BYTES = 2_095_289
+//
+// RE-MEASURED 2026-09-15 for fix round 4 on that repair (#921 R4-1…R4-4):
+// 2,095,289 → 2,095,631. Same CI recipe, emptied thin/dist, byte-identical
+// across two clean builds on the final tip, same content hashes both times:
+// en 133,757 · index 1,023,074 · vendor 937,800 = 2,094,631 B. Ceiling =
+// 2,094,631 + 1,000.
+//
+// CORRECTION TO THE ENTRY ABOVE, so this delta is honest: the fix-round-3 tip
+// actually produced index 1,022,790 / total 2,094,290 — the figures written
+// there were one byte short (caught by that round's delta-verify, re-measured
+// twice). The real change here is therefore +341 B, not +342.
+//
+// Where those bytes went, measured per chunk rather than assumed:
+//   index  1,022,790 → 1,023,074 (+284 B) — ours. The month grid became a
+//     memoized `Pane` with its two stable props, a month's skeleton cells are
+//     cached per month, the anchor gained `mb-0` and the dialog/scrim their
+//     `will-change` classes; against that, the unreachable non-x settle branch
+//     was deleted. Comments are stripped by the bundler and cost nothing here.
+//   vendor   937,743 → 937,800 (+57 B) — NOT ours: @synqed-kk/ui 0.3.1 → 0.3.2.
+//     The lock already pinned 0.3.2; this worktree's node_modules was a patch
+//     behind it until this round ran `npm install`. The lockfile is untouched.
+//   en      133,757 → 133,757 — unchanged to the byte. No new Japanese string
+//     anywhere in the round.
+const BUDGET_BYTES = 2_095_631
 
 let dir
 try {
