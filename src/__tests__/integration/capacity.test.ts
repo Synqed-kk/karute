@@ -48,7 +48,7 @@ function input(over: Partial<CapacityInput> = {}): CapacityInput {
 }
 
 describe('capacityForDay — the council edges', () => {
-  it('E1: 4 rostered, 1 off, twelve 60-minute rows → 2400 capacity, 30%, light, 1680 free', () => {
+  it('E1: roster only — 4 rostered, 1 off, twelve 60-minute rows → 2400 capacity, 30%, light, 1680 free', () => {
     // Three staff each take 10:00,11:00,12:00,13:00 — 12 rows × 60 = 720 booked.
     const spans: BookedSpan[] = []
     for (const staff of ['s1', 's2', 's3']) {
@@ -66,6 +66,24 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.full).toBe(false)
     expect(fact.availableMinutes).toBe(1680) // 2400 − 720, and source is 'store'
     expect(fact.hoursSource).toBe('store')
+  })
+
+  it('E1: floor lifts — worked exceeds the roster, so lanes must FAIL if the floor is removed (R8)', () => {
+    // Roster 2, but 3 DISTINCT people work — worked.size(3) > rosterLanes(2),
+    // so `lanes = max(roster, worked)` must actually bind here. E1's own
+    // roster-only fixture never exercised this: roster(4) ≥ worked(3) there,
+    // so a mutant that dropped the floor (`lanes = input.rosterLanes`) would
+    // still pass it unnoticed.
+    const spans = ['s1', 's2', 's3'].map((staff) => span(at(10), at(11), staff))
+    const fact = capacityForDay(input({ rosterLanes: 2, spans }))
+
+    expect(fact.reason).toBeNull()
+    expect(fact.lanes).toBe(3) // would be 2 if the floor were removed
+    expect(fact.capacityMinutes).toBe(1800) // would be 1200 without the floor
+    expect(fact.bookedMinutes).toBe(180)
+    expect(fact.occupancyPct).toBe(10) // would be 15 without the floor
+    expect(fact.band).toBe('light')
+    expect(fact.availableMinutes).toBe(1620) // would be 1020 without the floor
   })
 
   it('E2: a helper off the roster works beside 3 rostered → the floor lifts lanes to 4, 72.5%', () => {
@@ -245,7 +263,7 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.availableMinutes).toBe(0)
   })
 
-  it('E12: the receptionist is counted (roster 5, 1800 booked) → 60% — the recorded overcount', () => {
+  it('E12: recorded overcount (receptionist counted until takesBookings is real)', () => {
     const spans = ['s1', 's2', 's3'].map((staff) => span(at(10), at(20), staff))
     const fact = capacityForDay(input({ rosterLanes: 5, spans }))
 
@@ -467,6 +485,19 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.bookedMinutes).toBe(480) // day-clipped: 00:00–08:00 today (R2)
     expect(fact.occupancyPct).toBe(0) // windowMinutes 0 — none of it lands inside 10:00–20:00
     expect(fact.availableMinutes).toBe(600)
+  })
+
+  it('R8: KIND-NONE short-circuits even when the hours would otherwise have produced capacity', () => {
+    const fact = capacityForDay(
+      input({ laneKind: 'none', rosterLanes: 2, spans: [span(at(10), at(11), 's1')] }),
+    )
+
+    expect(fact.reason).toBe('kind-none')
+    expect(fact.capacityMinutes).toBeNull()
+    expect(fact.lanes).toBe(0)
+    expect(fact.occupancyPct).toBeNull()
+    expect(fact.band).toBeNull()
+    expect(fact.availableMinutes).toBeNull()
   })
 
   it('R2: a class outside the store hours still reports its day minutes on a kind-none store', () => {
