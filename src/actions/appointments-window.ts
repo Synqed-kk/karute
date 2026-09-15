@@ -32,10 +32,13 @@ import {
   type WeekdayKey,
 } from '@/lib/operating-hours'
 
-/** Serializable twin of the maps the builder wants (a server action's return
- *  value crosses a serialization boundary, so Maps travel as entry arrays). */
+/** Serializable twin of the map the caller wants (a server action's return
+ *  value crosses a serialization boundary, so Maps travel as entry arrays).
+ *
+ *  The profile→core roster map stays INSIDE: nobody consumed it, and under the
+ *  store-isolation law a branch's staff must not receive other stores' ids at
+ *  all (the same rule screen.ts:124-131 states for colorRosterIds). */
 export type AppointmentWindowPayload = AppointmentWindow & {
-  coreStaffByProfileId: [string, string][]
   hoursFacts: [string, DayHoursFact][]
 }
 
@@ -107,7 +110,6 @@ export async function getAppointmentWindow(
 
   return {
     ...window,
-    coreStaffByProfileId: [...coreStaffByProfileId],
     hoursFacts: [...hoursFacts],
   }
 }

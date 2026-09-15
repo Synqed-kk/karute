@@ -60,7 +60,6 @@ jest.mock('@/actions/appointments-window', () => ({
     cancelled: [],
     noShow: [],
     truncated: false,
-    coreStaffByProfileId: [],
     hoursFacts: [],
   }),
 }))
