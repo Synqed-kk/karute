@@ -99,6 +99,8 @@ import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { makeSpring } from '@/lib/motion/spring'
 import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
+import ja from '../../../messages/ja.json'
+import en from '../../../messages/en.json'
 
 // 2026-09-14 (月) — the day Liam's screenshots are from; JST midnight.
 const SELECTED_ISO = new Date('2026-09-14T00:00:00+09:00').toISOString()
@@ -369,6 +371,16 @@ describe('pending is not empty, and a failure says so', () => {
     await waitFor(() =>
       expect(within(dialog).getByRole('status')).toHaveTextContent('dateJump.failed'),
     )
+    // R5-3 — and what that key actually SAYS. This suite's next-intl mock
+    // renders keys, so the assertion above proves the panel reaches the failed
+    // line and these two prove the line itself: 「…でした」 alone tells staff
+    // it went wrong and nothing about what to do, while every other read this
+    // app degrades on carries the retry tail. Byte-exact against the week
+    // rows' own failed string — one app, one sentence for one failure.
+    expect(ja.reservation.dateJump.failed).toBe(
+      '予約状況を取得できませんでした。もう一度お試しください。',
+    )
+    expect(en.reservation.dateJump.failed).toBe("Couldn't load bookings. Please try again.")
     // Navigation needs no counts.
     const cells = within(dialog).getAllByTestId('month-grid')
     fireEvent.click(within(cells[1]).getAllByRole('button')[0])

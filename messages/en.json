@@ -162,7 +162,7 @@
     },
     "dateJump": {
       "loading": "Loading bookings…",
-      "failed": "Couldn't load bookings",
+      "failed": "Couldn't load bookings. Please try again.",
       "legendCount": "Number = bookings that day"
     },
     "weekCard": {
