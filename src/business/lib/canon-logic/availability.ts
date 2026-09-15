@@ -126,10 +126,11 @@ export function deriveSellableCells(input: SellInput): SellCell[] {
     const freeStaff = staffLanes.filter(
       (s) => !s.locked && sm >= s.from && end <= s.until && trackFree(s.occupied, sm, end),
     )
-    // ⚖ D-53 (c) R1 — split BEFORE the bed question is even asked. A staff who
-    // does not need a unit sells on staff time alone: one cell, no bed, never
-    // counted against the unit cap below. Order within a slot is unitless
-    // first (in `freeStaff` order), then paired.
+    // ⚖ D-53 (c) R1 — split BEFORE the bed answer is USED (the bed list is
+    // computed above; a unitless staff never reads it). A staff who does not
+    // need a unit sells on staff time alone: one cell, no bed, never counted
+    // against the unit cap below. Order within a slot is unitless first (in
+    // `freeStaff` order), then paired.
     const unitless = freeStaff.filter((s) => !needsUnit(s))
     const needing = freeStaff.filter((s) => needsUnit(s))
     for (const s of unitless) {
