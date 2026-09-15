@@ -2288,7 +2288,7 @@
       "hours": {
         "title": "Hours",
         "hide": "Hide hours",
-        "description": "This store's own hours. Until you set them, the company-wide default applies.",
+        "description": "This store's own hours. Once saved, they take precedence over the company-wide default.",
         "usingDefault": "Using the company-wide default",
         "usingDefaultHint": "The times below are not saved yet. Save them to make them this store’s hours.",
         "openLabel": "Open",
