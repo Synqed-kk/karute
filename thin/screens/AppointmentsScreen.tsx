@@ -80,6 +80,11 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
         count: c.count,
         density: c.density,
         closed: c.closed,
+        // ⚖ PKT-2b — straight off the wire, like every other field on this
+        // door: monthCellsToDTO (route.ts) already merges the real numbers
+        // in, this mapping was the one place still throwing them away.
+        newCount: c.newCount,
+        newCountKnown: c.newCountKnown,
       })) ?? null,
     [dto.monthData],
   )

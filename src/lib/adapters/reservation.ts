@@ -126,6 +126,20 @@ export type MonthCell = MonthGridCell & {
    *  SAME hoursFacts map, so a day cannot be 休 on one surface and open on
    *  the other. */
   closed: boolean
+  /** ⚖ PKT-2b — people whose first visit falls on this day, the month
+   *  line's own rule (metric-menu.ts `monthNewCount`, Σ over `inMonth`
+   *  cells). Optional and absent reads as KNOWN with 0, the same
+   *  bundle-skew convention `WeekDayRowData.newCountKnown` already carries —
+   *  a cell nobody ever merged this onto (the pop-down's own placeholder
+   *  read) renders no 新規 slot anyway (its grid has none), so it costs
+   *  nothing there. Both real doors (screen.ts, the thin screen) always set
+   *  it alongside `newCountKnown`. */
+  newCount?: number
+  /** False = the history read behind 新規 did not happen for this window;
+   *  `monthNewCount` withholds the WHOLE month rather than summing partial
+   *  data in with real counts. The week row's own flag (reservation.ts
+   *  `WeekDayRowData.newCountKnown`), one door apart. */
+  newCountKnown?: boolean
 }
 
 /** A counted booking as the two numbers the overlap check needs. */

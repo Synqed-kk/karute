@@ -632,6 +632,16 @@ export function buildAppointmentsScreen(
           prevMonthWindow,
         )
       }
+      // ⚖ PKT-2b — this door's own cells, merged with the SAME map/flag
+      // monthCellsToDTO (route.ts) already merges onto the wire for the
+      // phone: one producer, two doors, so a month's 新規 total cannot mean
+      // two different things depending which door drew it. Out-of-month
+      // padding cells stay 0 either way (they render nothing).
+      monthData = monthData.map((c) => ({
+        ...c,
+        newCount: (newCountKnown && c.inMonth && monthNewCounts?.get(c.id)) || 0,
+        newCountKnown,
+      }))
     }
     monthStartIso = monthRange.monthStart.toISOString()
   }
