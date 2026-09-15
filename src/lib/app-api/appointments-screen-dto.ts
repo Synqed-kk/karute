@@ -184,6 +184,11 @@ export const AppointmentsScreenDTO = z.object({
   dayTotals: WeekDayCardDataDTO.nullable().default(null),
   /** JST-midnight ISO of the rendered month's 1st. Same bundle-skew default. */
   monthStartIso: z.string().nullable().default(null),
+  /** 先月同期間比 — this month so far MINUS the same elapsed span of the month
+   *  before, in 件. Null = no honest number, so the clause is absent (a future
+   *  month, a truncated read, no base to compare with). Same bundle-skew
+   *  default as every key above: null is today's behaviour (no clause). */
+  monthCompareDelta: z.number().nullable().default(null),
   /** The window could not be read to exhaustion — the surface says the read
    *  failed rather than showing a low number. Same bundle-skew default; false
    *  is today's (silently-truncating) behaviour. */
