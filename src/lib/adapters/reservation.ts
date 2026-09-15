@@ -106,6 +106,13 @@ export type WeekDayRowData = WeekDayCardData &
     noShowDayCount: number
     /** PKT-2 owns the producer; 0 here so the wire shape lands one release early. */
     returningCount: number
+    /** ⚖ R1-2 — is `newCustomerCount` a number we actually KNOW? False when the
+     *  history read behind the 新規 rule did not happen, in which case the
+     *  count is 0 and no surface may print it: the 新規 slot takes the next
+     *  metric and the week summary drops its 新規 stat. Optional, and absent
+     *  reads as KNOWN, matching the wire's `.default(true)` — an older baked
+     *  bundle keeps today's behaviour rather than blanking the cell. */
+    newCountKnown?: boolean
   }
 
 /** Everything the capacity model needs that is not in the booking rows: the
@@ -323,12 +330,19 @@ export function appointmentsToWeekData(
   businessHoursMinutes: number,
   today: Date,
   locale: string,
-  /** ⚖ PKT-2 — the 新規 number per JST day, from `newCountByDay` over the
-   *  WHOLE window (src/lib/appointments/first-visit.ts). A day absent from the
-   *  map has no 新規. Empty map = no 新規 anywhere, which is also the truncated
-   *  window's answer. Never re-derived here: the week row, the month cell and
-   *  the selected day's totals all read the one map their window produced. */
-  newCountsByDay: ReadonlyMap<string, number> = new Map(),
+  /** ⚖ PKT-2 — the 新規 number per JST day, from `newCountByDay`
+   *  (src/lib/appointments/first-visit.ts). A day absent from the map has no
+   *  新規. Never re-derived here.
+   *
+   *  ⚖ R1-2 — `known` rides WITH the counts, in one argument, so no caller can
+   *  hand over a number without saying whether it is one. False = the history
+   *  read that decides 新規 did not happen, and the row carries 0 with
+   *  `newCountKnown: false` so every surface withholds the cell instead of
+   *  printing a maximal guess. */
+  newCounts: { byDay: ReadonlyMap<string, number>; known: boolean } = {
+    byDay: new Map(),
+    known: true,
+  },
   /** The window's CANCELLED / NO_SHOW bookings (fetchAppointmentWindow's own
    *  partitions). Absent = the counts render 0, today's behaviour. */
   terminal?: { cancelled: Appointment[]; noShow: Appointment[] },
@@ -451,7 +465,8 @@ export function appointmentsToWeekData(
       cancelledCount: cancelledByDay.get(key) ?? 0,
       noShowDayCount: noShowByDay.get(key) ?? 0,
       returningCount: 0,
-      newCustomerCount: newCountsByDay.get(key) ?? 0,
+      newCustomerCount: newCounts.known ? (newCounts.byDay.get(key) ?? 0) : 0,
+      newCountKnown: newCounts.known,
       remindersPending: 0,
       consentPending: 0,
       // synqed appointments have no "unconfirmed/pending" status

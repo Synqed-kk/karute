@@ -119,6 +119,12 @@ export const WeekDayCardDataDTO = z.object({
   noShowDayCount: z.number().default(0),
   /** PKT-2 owns the producer; 0 on the wire until then. */
   returningCount: z.number().default(0),
+  /** ⚖ R1-2 — is `newCustomerCount` a number we KNOW? False when the history
+   *  read behind the 新規 rule did not happen: the count is 0 and the 新規 cell
+   *  is withheld (the slot takes the next metric). Additive and defaulted TRUE,
+   *  so an older server or an older baked bundle keeps today's behaviour rather
+   *  than blanking a cell it has always printed. */
+  newCountKnown: z.boolean().default(true),
   // .default(0) on the three dead counters — step 1 of 3 (STRESS-S §5): the
   // producer still writes 0 today, the wire stops requiring them next, and the
   // keys go last. Defaulting first is what makes those later steps non-breaking
@@ -147,6 +153,10 @@ export const MonthCellDTO = z.object({
    *  the parse. Out-of-month padding cells are always 0 — they render no
    *  numbers. A truncated window sends no month at all. */
   newCount: z.number().default(0),
+  /** ⚖ R1-2 — the month's twin of the week row's flag: false means this door
+   *  could not read the history the 新規 rule needs, so `newCount` is 0 on
+   *  every cell and the month line omits 新規 rather than printing zeros. */
+  newCountKnown: z.boolean().default(true),
 })
 /** JSON shape of one 月 grid cell — the wire type the date-jump panel's
  *  month loader returns on BOTH doors (facade GET on the phone, server action

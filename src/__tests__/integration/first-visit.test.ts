@@ -563,11 +563,14 @@ describe('⚖ ONE TRUTH — every surface answers the same day the same way', ()
       480,
       NOW,
       'ja',
-      newCountByDay(WEEK_ROWS, {
-        customers: new Map(WEEK_CUSTOMERS.map((c) => [c.id, c])),
-        enrichment: WEEK_ENRICHMENT,
-        packUsage: WEEK_PACKS,
-      }),
+      {
+        byDay: newCountByDay(WEEK_ROWS, {
+          customers: new Map(WEEK_CUSTOMERS.map((c) => [c.id, c])),
+          enrichment: WEEK_ENRICHMENT,
+          packUsage: WEEK_PACKS,
+        }),
+        known: true,
+      },
     )
     for (const row of weekRows) {
       expect({ day: row.dateIso, n: screen.monthNewCounts?.get(row.dateIso) ?? 0 }).toEqual({
@@ -642,5 +645,98 @@ describe('⚖ store isolation — the enrichment set comes from the WINDOW, neve
       counted: [appt({ kind: 'BLOCK', customer_id: null }), appt({ customer_id: null })],
     }
     expect(countedClientIds(holds)).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ⚖ R1-2 — FAIL CLOSED: a history read that never happened withholds the number
+// ---------------------------------------------------------------------------
+
+describe('⚖ R1-2 — the number is WITHHELD, never maximal', () => {
+  /** One counted first-timer on Monday, with whatever enrichment is handed in.
+   *  An EMPTY map is what both doors produce when the business-id read fails:
+   *  `businessId && ids.length ? enrichCustomers(…) : new Map()`. */
+  function screenWith(enrichment: Map<string, CustomerEnrichment>, rows = [appt({ id: 'a1', title: null })]) {
+    return buildAppointmentsScreen({
+      locale: 'ja',
+      now: NOW,
+      selectedDate: MON,
+      staffFilter: 'all',
+      staffList: [{ id: 's1', full_name: '—' }] as never,
+      activeStaffId: null,
+      storeStaffIds: null,
+      orgSettings: null,
+      customers: [cust({ id: 'c1' })],
+      dayAppointments: rows.filter((a) => a.customer_id).map(listRow),
+      weekRange: computeWeekRange(MON),
+      monthRange: null,
+      weekRangeAppts: null,
+      monthRangeAppts: null,
+      weekWindow: { counted: rows, cancelled: [], noShow: [], truncated: false },
+      enrichment,
+      packUsage: new Map(),
+    })
+  }
+
+  it('enrichment empty beside a window WITH customers → withheld, and 0 rather than everybody', () => {
+    const screen = screenWith(new Map())
+    expect(screen.newCountKnown).toBe(false)
+    expect(screen.dayTotals?.newCustomerCount).toBe(0)
+    expect(screen.dayTotals?.newCountKnown).toBe(false)
+    for (const r of screen.weekData ?? []) {
+      expect({ day: r.dateIso, n: r.newCustomerCount, known: r.newCountKnown }).toEqual({
+        day: r.dateIso,
+        n: 0,
+        known: false,
+      })
+    }
+  })
+
+  it('…and the LIST is unchanged: an absent entry already read 予約済 there', () => {
+    const screen = screenWith(new Map())
+    expect(screen.reservationViews).toHaveLength(1)
+    expect(screen.reservationViews[0].isFirstTimeVisit).toBe(false)
+    expect(screen.reservationViews[0].displayStatus).toBe('booked')
+  })
+
+  it('a window with NO customers is still KNOWN — an empty day honestly has no 新規', () => {
+    const screen = screenWith(new Map(), [
+      appt({ id: 'hold', kind: 'BLOCK', customer_id: null, title: 'オーナー業務' }),
+    ])
+    expect(screen.newCountKnown).toBe(true)
+    expect(screen.dayTotals?.newCustomerCount).toBe(0)
+    expect(screen.dayTotals?.newCountKnown).toBe(true)
+  })
+
+  it('a real enrichment read is KNOWN, even when every answer is "no history"', () => {
+    const screen = screenWith(new Map([['c1', enr()]]))
+    expect(screen.newCountKnown).toBe(true)
+    expect(screen.dayTotals?.newCustomerCount).toBe(1)
+  })
+
+  it('the MONTH withholds with the same flag', () => {
+    const monthStart = new Date('2026-09-01T00:00:00+09:00')
+    const monthEnd = new Date('2026-09-30T23:59:59+09:00')
+    const screen = buildAppointmentsScreen({
+      locale: 'ja',
+      now: NOW,
+      selectedDate: MON,
+      staffFilter: 'all',
+      staffList: [{ id: 's1', full_name: '—' }] as never,
+      activeStaffId: null,
+      storeStaffIds: null,
+      orgSettings: null,
+      customers: WEEK_CUSTOMERS,
+      dayAppointments: [],
+      weekRange: null,
+      monthRange: { monthStart, monthEnd, rangeFrom: monthStart, rangeTo: monthEnd } as never,
+      weekRangeAppts: null,
+      monthRangeAppts: null,
+      monthWindow: { counted: WEEK_ROWS, cancelled: [], noShow: [], truncated: false },
+      enrichment: new Map(),
+      packUsage: new Map(),
+    })
+    expect(screen.newCountKnown).toBe(false)
+    expect([...(screen.monthNewCounts?.values() ?? [])]).toEqual([])
   })
 })

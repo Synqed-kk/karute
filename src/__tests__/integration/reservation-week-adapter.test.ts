@@ -114,7 +114,7 @@ describe('appointmentsToWeekData — new-customer count (⚖ PKT-2: the day map)
       480,
       TODAY,
       'ja',
-      new Map([[ymdInJst(WEEK_START), 1]]),
+      { byDay: new Map([[ymdInJst(WEEK_START), 1]]), known: true },
     )
     expect(days[0].newCustomerCount).toBe(1)
   })

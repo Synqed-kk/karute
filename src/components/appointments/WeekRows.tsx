@@ -258,7 +258,7 @@ export function WeekRows({
           {pending ? <SummaryPill /> : (
             <b className={SUMMARY_NUMBER}>{t('countValue', { n: bookedSum })}</b>
           )}
-          {typeSlot !== 'off' && (
+          {typeSlot !== 'off' && openRows.every((r) => r.newCountKnown !== false) && (
             <>
               <Separator t={t} />
               <span>{t('new')}</span>
@@ -270,6 +270,9 @@ export function WeekRows({
                 // (people whose first visit is that day), not the QR import
                 // flag it carried while this slot was 'off' everywhere.
                 // Closed days are already out of `openRows`.
+                // ⚖ R1-2 — the gate above withholds this whole stat when any
+                // row's count is unknown; a sum over a withheld number is a
+                // lie the row-level cells already refuse to print.
                 <b className={SUMMARY_NUMBER}>
                   {openRows.reduce((sum, r) => sum + r.newCustomerCount, 0)}
                 </b>

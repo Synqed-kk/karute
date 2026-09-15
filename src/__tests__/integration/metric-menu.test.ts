@@ -806,3 +806,50 @@ describe('property — 1000 seeded rows × 3 typeSlots × 2 soloModes (LENS-2, m
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// ⚖ R1-2 — a WITHHELD 新規 number prints no 新規 cell
+// ---------------------------------------------------------------------------
+
+describe('newCountKnown: false — the 新規 slot takes the next metric', () => {
+  const ctx = { soloMode: false, typeSlot: 'new' as const, t }
+  const withCapacity = {
+    capacityDefensible: true,
+    hoursSaved: true,
+    bookedMinutes: 240,
+    availableMinutes: 480,
+  }
+
+  it('the week row drops 新規 and fills the slot, exactly as typeSlot off does', () => {
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: false })
+    const known = weekRowCells(row({ ...withCapacity }), ctx).map((c) => c.key)
+    const withheld = weekRowCells(row({ ...withCapacity, newCountKnown: false }), ctx).map(
+      (c) => c.key,
+    )
+    expect(known).toContain('new')
+    expect(withheld).not.toContain('new')
+    // Not a hole: the line still carries four distinct, honest cells.
+    expect(withheld).toHaveLength(4)
+    expect(new Set(withheld).size).toBe(4)
+    expect(withheld).toEqual(
+      weekRowCells(row({ ...withCapacity }), { ...ctx, typeSlot: 'off' }).map((c) => c.key),
+    )
+  })
+
+  it('the day line drops it too', () => {
+    const { dayLineCells } = loadMetricMenu({ freeTimeCell: false })
+    const withheld = dayLineCells(row({ ...withCapacity, newCountKnown: false }), ctx).map(
+      (c) => c.key,
+    )
+    expect(withheld).not.toContain('new')
+    expect(withheld).toHaveLength(4)
+    expect(new Set(withheld).size).toBe(4)
+  })
+
+  it('an ABSENT flag reads as known — an older baked bundle keeps printing 新規', () => {
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: false })
+    const r = row({ ...withCapacity })
+    delete (r as { newCountKnown?: boolean }).newCountKnown
+    expect(weekRowCells(r, ctx).map((c) => c.key)).toContain('new')
+  })
+})

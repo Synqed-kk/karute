@@ -371,6 +371,9 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             // In-month cells only: the padding cells carry no day of their own
             // to be anybody's first visit on.
             newCount: (c.inMonth && screen.monthNewCounts?.get(c.id)) || 0,
+            // ⚖ R1-2 — one flag for the month: the history read either
+            // happened for this screen or it did not.
+            newCountKnown: screen.newCountKnown,
             // The cell's own capacity fact, keyed by the same id the cell
             // carries. An out-of-month padding cell has none and takes the
             // no-capacity defaults — it renders no numbers either way.

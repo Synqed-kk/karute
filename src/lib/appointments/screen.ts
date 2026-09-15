@@ -23,7 +23,7 @@ import {
   appointmentsToMonthFacts,
   type WeekDayRowData,
 } from '@/lib/adapters/reservation'
-import type { AppointmentWindow } from '@/lib/appointments/by-date'
+import { countedClientIds, type AppointmentWindow } from '@/lib/appointments/by-date'
 import type { DayHoursFact } from '@/lib/operating-hours'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
 import {
@@ -39,6 +39,10 @@ import { jstMidnight } from '@/lib/date/calendar-range'
 import { isClassBoundBusinessType } from '@/lib/welcome/business-types'
 import type { CapacityFact, LaneKind } from '@/lib/capacity/capacity'
 import type { computeWeekRange, computeMonthRange } from '@/lib/date/calendar-range'
+
+/** ⚖ R1-2 — the withheld answer, shared so every surface of a screen whose
+ *  history read failed reads the same empty map rather than its own. */
+const EMPTY_NEW_COUNTS: ReadonlyMap<string, number> = new Map()
 
 export function parseDateParam(value: string | undefined): Date {
   // Interpret the ?date= YYYY-MM-DD as a JST calendar day. Vercel runs in
@@ -172,6 +176,12 @@ export interface AppointmentsScreen {
    *  memo the week rows and the day totals read, so one day cannot come out
    *  two ways on one screen. Null when the month was not read. */
   monthNewCounts: ReadonlyMap<string, number> | null
+  /** ⚖ R1-2 — false when the history read behind the 新規 rule did not happen,
+   *  so every 新規 number on this screen is 0 and none of them may print. Rides
+   *  beside `monthNewCounts` for the month cells (each week row carries its
+   *  own copy, because rows travel alone through the wire and the metric
+   *  menu). */
+  newCountKnown: boolean
   monthStartIso: string | null
   /** The SELECTED day's row, from the same adapter the week rows come from —
    *  so the day line and the week row can never disagree. Null when no window
@@ -420,8 +430,20 @@ export function buildAppointmentsScreen(
   // correctness mechanism — the week row, the selected day's totals and the
   // month cell agree because the rule is the same, not because they share a
   // map.
+  //
+  // ⚖ R1-2 — and it FAILS CLOSED. An empty enrichment map beside a window that
+  // genuinely holds customers does not mean none of them has ever been here: it
+  // means the history read never happened (both doors resolve the business id
+  // with a catch and then SKIP the call — page.tsx `getBusinessId().catch(() =>
+  // null)`). The old rule answered that state with its maximal number — 新規 =
+  // everybody — beside a list showing no 新規 chip at all. The number is
+  // withheld instead. The LIST is untouched: an absent entry already reads
+  // 予約済 there, which is why this is the number catching up, not a new rule.
+  const newCountKnown =
+    enrichment.size > 0 || countedClientIds(weekWin, monthWin, dayWin).length === 0
   const newCountCache = new Map<AppointmentWindow, ReadonlyMap<string, number>>()
   const newCountsFor = (win: AppointmentWindow): ReadonlyMap<string, number> => {
+    if (!newCountKnown) return EMPTY_NEW_COUNTS
     let m = newCountCache.get(win)
     if (!m) newCountCache.set(win, (m = newCountByDay(win.counted, firstVisitInputs)))
     return m
@@ -497,7 +519,7 @@ export function buildAppointmentsScreen(
       fallbackDayMinutes,
       now,
       locale,
-      newCountsFor(win),
+      { byDay: newCountsFor(win), known: newCountKnown },
       { cancelled: win.cancelled, noShow: win.noShow },
       hoursFacts,
       soloMode,
@@ -566,6 +588,7 @@ export function buildAppointmentsScreen(
     monthData,
     monthFacts,
     monthNewCounts,
+    newCountKnown,
     monthStartIso,
     dayTotals,
     truncated,

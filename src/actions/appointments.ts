@@ -328,6 +328,9 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
       // The jump panel prints no 新規 and this door reads no enrichment, so it
       // carries none rather than a number computed from inputs it never read.
       newCount: 0,
+      // ⚖ R1-2 — and this door says so: it reads no history at all, so its
+      // 新規 is not a number that is KNOWN to be zero.
+      newCountKnown: false,
       // The jump panel reads COUNTS only — no hours, no roster, no store type
       // are fetched here, so these months honestly carry no capacity rather
       // than a percentage computed from inputs this door never read. The dots

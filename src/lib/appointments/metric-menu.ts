@@ -261,6 +261,16 @@ function placeForGrid(cells: Cell[]): Cell[] {
   return out
 }
 
+/** ⚖ R1-2 — does this row have a 新規 cell at all? The switch has to be on AND
+ *  the number has to be one we KNOW: `newCountKnown: false` means the history
+ *  read behind the 新規 rule did not happen, so the slot takes the next metric
+ *  exactly as `typeSlot: 'off'` does — a withheld number, never a printed 0
+ *  that reads as "nobody new today". Absent reads as known (the wire defaults
+ *  it), so an older baked bundle keeps today's behaviour. */
+function newSlotOpen(row: WeekDayRowData, ctx: MetricMenuCtx): boolean {
+  return ctx.typeSlot === 'new' && row.newCountKnown !== false
+}
+
 /** Exactly 4 cells, week-row grid order, after `placeForGrid`:
  *  'new' → [予約, 稼働, 空き|予約時間, 新規] · 'off' → [予約, 稼働,
  *  空き|予約時間, next]. */
@@ -274,7 +284,7 @@ export function weekRowCells(row: WeekDayRowData, ctx: MetricMenuCtx): Cell[] {
   const count = take(countCell(row, ctx, 'countValue'))
   const utilization = take(utilizationSlot(row, ctx, used))
   const freeOrBooked = take(freeOrBookedTimeSlot(row, ctx, used))
-  const fourth = ctx.typeSlot === 'new' ? take(newCell(row, ctx)) : take(pickNext(row, ctx, used))
+  const fourth = newSlotOpen(row, ctx) ? take(newCell(row, ctx)) : take(pickNext(row, ctx, used))
   return placeForGrid([count, utilization, freeOrBooked, fourth])
 }
 
@@ -289,7 +299,7 @@ export function dayLineCells(row: WeekDayRowData, ctx: MetricMenuCtx): Cell[] {
   }
 
   const count = take(countCell(row, ctx, 'countLine'))
-  if (ctx.typeSlot === 'new') {
+  if (newSlotOpen(row, ctx)) {
     const newC = take(newCell(row, ctx))
     const utilization = take(utilizationSlot(row, ctx, used))
     const freeOrBooked = take(freeOrBookedTimeSlot(row, ctx, used))
