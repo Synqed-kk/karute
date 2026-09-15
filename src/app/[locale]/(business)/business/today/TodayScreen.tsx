@@ -305,6 +305,13 @@ export function bedDoor(
   const roomless = new Set(
     lanes.filter((l) => l.group === 'staff' && !storeHasBeds(lanes, l.stores)).map((l) => l.key),
   )
+  // ⚖ D-52 (g) — WHY `true` BEFORE `requiresPrivate`: this callback answers the
+  // guard's question (feasible for a room-holding subject), never the
+  // allocator's. A 個室のみ booking on a room-less row is refused by
+  // `landingVerdict` → `allocateBed` (the 個室 sentence, `hard-room`), which
+  // never reads this door; on a clamped gym board this door is `undefined` —
+  // no room test at all — and the per-lane `true` is the same answer for the
+  // same row. Pinned: today-no-bed-store.test.ts G12.
   if (!askerId) {
     const masks = new Map<string, (startMin: number) => boolean>()
     return (lane, start, dur) => {
@@ -2127,6 +2134,8 @@ export function TodayScreen(props: TodayProps) {
           committedLanes,
           bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
           true,
+          // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+          (l) => storeHasBeds(committedLanes, l.stores),
         )
       : undefined),
     [heldCommitted, locked, committedLanes, ledgerFrame],
@@ -2398,6 +2407,8 @@ export function TodayScreen(props: TodayProps) {
       committedLanes,
       bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
       BED_AWARE_SALES,
+      // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+      (l) => storeHasBeds(committedLanes, l.stores),
     )
   }, [sellDrawn, gapDrawn, honest, heldCommitted, locked, committedLanes, ledgerFrame])
 
@@ -2659,7 +2670,8 @@ export function TodayScreen(props: TodayProps) {
   // other law-off arm.
   const heldBoardHonest = useMemo(
     () => (HONEST_HELD && heldBoard && !staffCardInHand && hasBeds
-      ? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true).byLane.map(heldMaskOf)
+      // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+      ? honestHeld(heldBoard.filter((m) => !locked.includes(m.laneKey)), boardLanes, ledger.world, true, (l) => storeHasBeds(boardLanes, l.stores)).byLane.map(heldMaskOf)
       : heldBoard),
     [heldBoard, locked, boardLanes, ledger, staffCardInHand, hasBeds],
   )
@@ -2835,6 +2847,8 @@ export function TodayScreen(props: TodayProps) {
       originLanes,
       bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
       true,
+      // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
+      (l) => storeHasBeds(originLanes, l.stores),
     )
   }, [honest, dayStaged, originReleased, originLanes, ledgerFrame, locked])
   /** ⚖ D-20 (1) — the middle arm mirrors `dayCommitted`'s own: with the netting
