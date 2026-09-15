@@ -43,7 +43,55 @@ const WeekDayBookingChipDTO = z.object({
   staffColor: z.string().optional(),
 })
 
+/** The ONE capacity fact (src/lib/capacity), as the wire carries it. Shared
+ *  verbatim by the week row and the month cell so the two calendars on one
+ *  screen can never describe the same day differently (C3 E18).
+ *
+ *  Every key `.default(...)` for the bundle-skew reason `menus` and
+ *  `colorRosterIds` already carry: the thin bundle parses this SAME schema
+ *  from a baked copy, so a required key would blank the whole 予約 screen on
+ *  any server/bundle skew. Every default is the honest "no capacity" state,
+ *  which is exactly what a server that does not send these fields means. */
+const capacityFields = {
+  /** lanes × the day's declared minutes; null = no honest capacity (see
+   *  capacityReason). */
+  capacityMinutes: z.number().nullable().default(null),
+  /** The lane count used — the store's roster, floored by whoever worked. */
+  lanes: z.number().default(0),
+  /** 'none' = class-bound (one row is many people): the count table, never a
+   *  percentage. */
+  laneKind: z.enum(['staff', 'none']).default('none'),
+  /** Where the day's hours came from — 空き may ride only 'store' (E21). */
+  hoursSource: z.enum(['store', 'org', 'default']).nullable().default(null),
+  /** Integer 0–100; 100 prints only alongside `full` (E23). */
+  occupancyPct: z.number().nullable().default(null),
+  /** 満 — sold out. */
+  full: z.boolean().default(false),
+  band: z.enum(['light', 'medium', 'busy']).nullable().default(null),
+  /** 空き in minutes. Named apart from `availableMinutes`, which is the
+   *  DENOMINATOR the shipped metric menu divides by, not the free time. */
+  freeMinutes: z.number().nullable().default(null),
+  /** Why there is no capacity. The 未設定 cell reads this rather than
+   *  re-deriving it: the module checks kind → roster → hours in that order, so
+   *  an hours reason PROVES the roster was known and the store is not
+   *  class-bound. */
+  capacityReason: z
+    .enum([
+      'kind-none',
+      'roster-unknown',
+      'no-lanes',
+      'hours-unresolved',
+      'closed',
+      'hours-not-saved',
+      'outside-hours',
+      'over-concurrency',
+    ])
+    .nullable()
+    .default(null),
+}
+
 export const WeekDayCardDataDTO = z.object({
+  ...capacityFields,
   dateNumber: z.number(),
   monthNumber: z.number(),
   weekdayLabel: z.string(),
@@ -76,11 +124,15 @@ export const WeekDayCardDataDTO = z.object({
 })
 
 export const MonthCellDTO = z.object({
+  ...capacityFields,
   id: z.string(),
   dateIso: z.string(),
   inMonth: z.boolean(),
   isToday: z.boolean(),
   count: z.number(),
+  /** The count bucket. Untouched — it is the FLOOR every surface falls back to
+   *  when a day has no capacity, so the percentage bands ride beside it rather
+   *  than replacing it. */
   density: z.enum(['empty', 'light', 'medium', 'busy']),
 })
 /** JSON shape of one 月 grid cell — the wire type the date-jump panel's

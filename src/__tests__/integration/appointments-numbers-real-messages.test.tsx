@@ -20,7 +20,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { render, screen } from '@testing-library/react'
-import type { WeekDayRowData } from '@/lib/adapters/reservation'
+import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
 
 const MESSAGES: Record<string, Record<string, string>> = Object.fromEntries(
   ['ja', 'en'].map((locale) => [
@@ -67,6 +67,8 @@ function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
     closed: false,
     cancelledCount: 2,
     noShowDayCount: 0,
+    // No capacity unless a case says so — the honest default (PKT-1c-B).
+    ...capacityRowFields(undefined),
     returningCount: 2,
     ...over,
   }

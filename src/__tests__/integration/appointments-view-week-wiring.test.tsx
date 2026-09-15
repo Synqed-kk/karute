@@ -89,7 +89,7 @@ jest.mock('@/components/appointments/WeekRows', () => ({
 
 import { render } from '@testing-library/react'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
-import type { WeekDayRowData } from '@/lib/adapters/reservation'
+import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
 
 const WEEK_START = new Date('2026-09-15T00:00:00+09:00')
 
@@ -117,6 +117,8 @@ function weekRow(dayOffset: number): WeekDayRowData {
     closed: false,
     cancelledCount: 0,
     noShowDayCount: 0,
+    // No capacity unless a case says so — the honest default (PKT-1c-B).
+    ...capacityRowFields(undefined),
     returningCount: 0,
   }
 }

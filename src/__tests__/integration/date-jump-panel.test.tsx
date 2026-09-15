@@ -98,6 +98,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { makeSpring } from '@/lib/motion/spring'
 import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
+import { capacityRowFields } from '@/lib/adapters/reservation'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
 
 // 2026-09-14 (月) — the day Liam's screenshots are from; JST midnight.
@@ -112,6 +113,8 @@ function monthCells(monthKey: string, count = 4): MonthCellDTOType[] {
       isToday: false,
       count,
       density: 'medium',
+      // The jump panel's months carry no capacity — it reads counts only.
+      ...capacityRowFields(undefined),
     },
   ]
 }

@@ -6,7 +6,7 @@
  * wiring PR retires ReservationTotals once `row` is non-null).
  */
 import { render, screen } from '@testing-library/react'
-import type { WeekDayRowData } from '@/lib/adapters/reservation'
+import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
 
 const MESSAGES: Record<string, string> = {
   count: '予約',
@@ -54,6 +54,8 @@ function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
     closed: false,
     cancelledCount: 0,
     noShowDayCount: 0,
+    // No capacity unless a case says so — the honest default (PKT-1c-B).
+    ...capacityRowFields(undefined),
     returningCount: 2,
     ...over,
   }

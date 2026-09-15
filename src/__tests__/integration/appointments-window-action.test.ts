@@ -140,6 +140,9 @@ describe('getAppointmentWindow — the store clamp rides every read (mutant m10)
       openMinute: 600,
       closeMinute: 1440,
       saved: false,
+      // The 10:00–24:00 fallback nobody set — provenance, not just a boolean
+      // (S1): 'default' is the one source the capacity model may never divide.
+      source: 'default',
       closed: false,
     })
   })

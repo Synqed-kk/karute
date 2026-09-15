@@ -4,7 +4,7 @@
  * 未設定 gating. No React here; WeekRows.tsx / DayNumbersLine.tsx are
  * covered separately (week-rows.test.tsx, day-numbers-line.test.tsx).
  */
-import type { WeekDayRowData } from '@/lib/adapters/reservation'
+import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
 import type { Translate } from '@/lib/appointments/format-duration'
 import type * as MetricMenu from '@/lib/appointments/metric-menu'
 
@@ -52,6 +52,8 @@ function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
     closed: false,
     cancelledCount: 0,
     noShowDayCount: 0,
+    // No capacity unless a case says so — the honest default (PKT-1c-B).
+    ...capacityRowFields(undefined),
     returningCount: 2,
     ...over,
   }
