@@ -109,15 +109,18 @@ export interface CapacityFact {
    *  withdrawn day (e.g. 'outside-hours') still owes 予約時間 for hours the
    *  declared window doesn't describe (R2 round 1's purpose). */
   bookedMinutes: number
-  /** Math.round(window ÷ capacity × 100), UNCLAMPED — ≥100 renders 満
-   *  (E23/E24). Null whenever capacity is null. Rounded HERE (R4) — the
-   *  renderer prints this integer as-is, and `band` reads the SAME integer,
-   *  so a percentage can never sit beside a mismatched band label. */
+  /** `full ? 100 : Math.min(99, Math.round(window ÷ capacity × 100))` — E23:
+   *  100% and 満 and 空き 0 are ONE state (R2 round 2, HIGH-2), so 100 can
+   *  only print when `full` is true; any day with a sellable minute left
+   *  prints at most 99, closing the tolerance-vs-rounding gap where the two
+   *  used to disagree. Null whenever capacity is null. */
   occupancyPct: number | null
   /** capacityMinutes − windowMinutes < 0.5 (R4: a tolerance, not an exact
    *  `>=` — IEEE drift from summing many spans' minutes can land a fully
    *  tiled window a fraction of a minute under capacity and still means
-   *  満). False when there is no capacity. */
+   *  満). `occupancyPct` and `availableMinutes` are DERIVED from this same
+   *  flag (R2 round 2), so 100% / 満 / 空き 0 can never disagree. False when
+   *  there is no capacity. */
   full: boolean
   /** ONE table for every business: <35 light · 35–65 medium · >65 busy (C2 Q2 —
    *  every miscolour in the council's set was an input error, never a
@@ -125,7 +128,9 @@ export interface CapacityFact {
   band: Band | null
   /** Math.round(max(0, capacity − window)) ONLY when hoursSource === 'store'
    *  (E21: an org-blob day is a business default, never this store's
-   *  declaration — 稼働 and the band may ride it, 空き may not). Else null. */
+   *  declaration — 稼働 and the band may ride it, 空き may not). ≥ 1 whenever
+   *  `full` is false (R2 round 2 — 空き 0 prints only alongside 満). Else
+   *  null. */
   availableMinutes: number | null
   /** Why capacity is null; null when capacity is a number. */
   reason: NoCapacityReason | null
@@ -345,7 +350,15 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   //    integer, so a percentage can never sit beside a mismatched band.
   const laneMinutes = (hours.closeMs - hours.openMs) / MS_PER_MINUTE
   const capacityMinutes = lanes * laneMinutes
-  const occupancyPct = Math.round((windowMinutes / capacityMinutes) * 100)
+  // A tolerance, not an exact >= (R4): summing many spans' minutes can drift
+  // a fully tiled window a fraction of a minute under capacity in floating
+  // point, and that is still 満. `occupancyPct`/`availableMinutes` are
+  // DERIVED from this same flag (R2 round 2, HIGH-2), so 100% / 満 / 空き 0
+  // can never disagree (E23) — 100 prints ONLY when `full` is true.
+  const full = capacityMinutes - windowMinutes < 0.5
+  const occupancyPct = full
+    ? 100
+    : Math.min(99, Math.round((windowMinutes / capacityMinutes) * 100))
   const free = Math.round(Math.max(0, capacityMinutes - windowMinutes))
   return {
     capacityMinutes,
@@ -356,10 +369,7 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
     // windowMinutes — not the wider dayMinutes withdrawn days use.
     bookedMinutes: windowMinutes,
     occupancyPct,
-    // A tolerance, not an exact >= (R4): summing many spans' minutes can
-    // drift a fully tiled window a fraction of a minute under capacity in
-    // floating point, and that is still 満.
-    full: capacityMinutes - windowMinutes < 0.5,
+    full,
     band: bandFor(occupancyPct),
     availableMinutes: hours.source === 'store' ? free : null,
     reason: null,

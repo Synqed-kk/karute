@@ -337,6 +337,44 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.availableMinutes).toBe(0)
   })
 
+  it('R2-HIGH-2: 597 of 600 minutes booked → 99%, not 満, 3 free (E23/E24 held; the tolerance gap closed)', () => {
+    const fact = capacityForDay(
+      input({ rosterLanes: 1, spans: [span(at(10), at(10) + 597 * 60_000, 's1')] }),
+    )
+
+    expect(fact.reason).toBeNull()
+    expect(fact.capacityMinutes).toBe(600)
+    expect(fact.bookedMinutes).toBe(597)
+    expect(fact.occupancyPct).toBe(99)
+    expect(fact.full).toBe(false)
+    expect(fact.availableMinutes).toBe(3)
+  })
+
+  it('R2-HIGH-2: 599.7 of 600 minutes booked (inside the old 0.5-minute tolerance) still reads 満 at 100%, 0 free', () => {
+    const fact = capacityForDay(
+      input({ rosterLanes: 1, spans: [span(at(10), at(10) + 599.7 * 60_000, 's1')] }),
+    )
+
+    expect(fact.reason).toBeNull()
+    expect(fact.occupancyPct).toBe(100)
+    expect(fact.full).toBe(true)
+    expect(fact.availableMinutes).toBe(0)
+  })
+
+  it('R2-HIGH-2: a 10-lane store with 5,980 of 6,000 minutes booked → 99%, not 満, 20 free (the gap widens with store size)', () => {
+    const spans = Array.from({ length: 10 }, (_, i) =>
+      span(at(10), at(10) + 598 * 60_000, `s${i + 1}`),
+    )
+    const fact = capacityForDay(input({ rosterLanes: 10, spans }))
+
+    expect(fact.reason).toBeNull()
+    expect(fact.capacityMinutes).toBe(6000)
+    expect(fact.bookedMinutes).toBe(5980)
+    expect(fact.occupancyPct).toBe(99)
+    expect(fact.full).toBe(false)
+    expect(fact.availableMinutes).toBe(20)
+  })
+
   it('E24: the 610-in-600 shape can only reach the module as over-concurrency — and the band above 100 is still busy', () => {
     // The council's 101.67% cell came from a bed plane. On the staff plane the
     // concurrency guard runs first and bounds Σ inside-minutes by lanes ×
@@ -754,6 +792,15 @@ describe('PROPERTY — round 2 HIGH-1/HIGH-2: capacity-present coherence (seeded
       expect(
         Math.abs(fact.bookedMinutes + (fact.availableMinutes ?? 0) - (fact.capacityMinutes ?? 0)),
       ).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it("HIGH-2: full === (occupancyPct === 100) === (availableMinutes === 0) — whenever source is 'store'", () => {
+    const facts = capacityPresentStoreFacts()
+    expect(facts.length).toBeGreaterThan(50)
+    for (const fact of facts) {
+      expect(fact.full).toBe(fact.occupancyPct === 100)
+      expect(fact.occupancyPct === 100).toBe(fact.availableMinutes === 0)
     }
   })
 })
