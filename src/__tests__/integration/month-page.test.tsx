@@ -239,14 +239,45 @@ describe('MonthPage — the two marks never read as one', () => {
     expect(selected.className).not.toMatch(/bg-primary/)
   })
 
-  it('the selected day is the one marked aria-current', () => {
+  // R2-2 (LENS-1 #2) — `aria-current="date"` means "this IS today"; putting
+  // it on the SELECTED day told a screen reader the wrong day was today. Today
+  // gets aria-current, the selection gets aria-pressed — two separate facts,
+  // on two separate cells when they differ.
+  it('today carries aria-current; the selected day carries aria-pressed, not aria-current', () => {
     const { MonthPage } = loadMonthPage()
-    render(<MonthPage {...baseProps} cells={monthCells(2026, 9)} selectedDateIso="2026-09-20" />)
-    const current = screen
-      .getAllByRole('button')
-      .filter((b) => b.getAttribute('aria-current') === 'date')
+    render(
+      <MonthPage
+        {...baseProps}
+        cells={monthCells(2026, 9)}
+        todayIso="2026-09-15"
+        selectedDateIso="2026-09-16"
+      />,
+    )
+    const buttons = screen.getAllByRole('button')
+    const current = buttons.filter((b) => b.getAttribute('aria-current') === 'date')
+    const pressed = buttons.filter((b) => b.getAttribute('aria-pressed') === 'true')
     expect(current).toHaveLength(1)
-    expect(current[0].getAttribute('aria-label')).toContain('9/20')
+    expect(current[0].getAttribute('aria-label')).toContain('9/15')
+    expect(pressed).toHaveLength(1)
+    expect(pressed[0].getAttribute('aria-label')).toContain('9/16')
+    // The two marks stay on their own cell — nothing else on the grid.
+    expect(current[0].getAttribute('aria-pressed')).toBeNull()
+    expect(pressed[0].getAttribute('aria-current')).toBeNull()
+  })
+
+  it('when today IS the selection, the one cell carries both marks', () => {
+    const { MonthPage } = loadMonthPage()
+    render(
+      <MonthPage
+        {...baseProps}
+        cells={monthCells(2026, 9)}
+        todayIso="2026-09-15"
+        selectedDateIso="2026-09-15"
+      />,
+    )
+    const cellEl = days()[14]
+    expect(cellEl.getAttribute('aria-current')).toBe('date')
+    expect(cellEl.getAttribute('aria-pressed')).toBe('true')
   })
 })
 

@@ -289,7 +289,13 @@ export function MonthPage({
                   date: dateLabel,
                   cells: closed ? t('closed') : `${t('count')} ${t('countValue', { n: cell.count })}`,
                 })}
-                aria-current={isSelected ? 'date' : undefined}
+                // R2-2 (LENS-1 #2) — `aria-current="date"` means "this IS
+                // today", so it belongs on TODAY's cell, never the selection.
+                // The selection is a pressed state on a button: `aria-pressed`.
+                // A day that is both keeps both — the two facts are not the
+                // same fact.
+                aria-current={isToday ? 'date' : undefined}
+                aria-pressed={isSelected ? 'true' : undefined}
                 className={cn(
                   MONTH_CELL,
                   // mock `.cell{transition:background-color .12s ease}` — the
