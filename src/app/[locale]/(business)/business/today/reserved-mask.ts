@@ -49,7 +49,7 @@ import { freePockets } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
 import type { BoardLane } from '@/business/lib/today-board'
 import type { BedTruth } from './capacity-ledger'
-import { laneSpans } from './today-interactions'
+import { laneSpans, storeHasBeds } from './today-interactions'
 
 /** The store's スキマガード dial — core's `StoreBookingPolicy.gap_guard_mode`,
  *  which defaults OFF. 'off' is not a guard mode, it is the absence of one:
@@ -215,7 +215,17 @@ export function reservedMaskFor(input: ReservedMaskInput): readonly ReservedLane
       now: input.nowMin,
       occupied: laneSpans(lane, input.excludeId),
     })
-    const ctx: GuardContext = { protectedWindowFeasible: bedFeasibilityFor(book, lane) }
+    // ⚖ ROUND 3 · C (⚖ D-52 (a)) — THE SAME SWITCH THE DOOR THROWS. `bedDoor`
+    // (TodayScreen) hands the guard NO callback on a store with no rooms — canon's
+    // own `SCENARIO.needsBed === false` — and this mask, which spec §1 says both
+    // doors must read, asked the book anyway; the book's answer on a no-bed store
+    // is 「no room」 at every slot (capacity-ledger `newClientMask` over an empty
+    // `beds`), so the mask was EMPTY on a gym while the rail guarded windows it
+    // could not see. One switch, both doors: a lane whose store owns no bed lane
+    // is enumerated on staff time alone.
+    const ctx: GuardContext = {
+      protectedWindowFeasible: storeHasBeds(input.lanes, lane.stores) ? bedFeasibilityFor(book, lane) : undefined,
+    }
     const spans: ReservedSpan[] = []
     for (const pocket of pockets) {
       for (const windowStart of engine.protectedCapacity(pocket, null, ctx).beforeStarts) {
