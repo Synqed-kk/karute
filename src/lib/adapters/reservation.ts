@@ -127,14 +127,24 @@ function jstDayStartMs(ymd: string): number {
   return new Date(`${ymd}T00:00:00+09:00`).getTime()
 }
 
-/** One counted row's interval as CORE enforces it: ends_at, or occupied_until
- *  where core snapshotted the cleanup (C1 §7 / E35). NEVER duration_minutes —
- *  core stores that as an independent nullable column and never validates it
- *  against the interval (E30). */
+/** One counted row's interval as CORE enforces it: ends_at, EXTENDED by
+ *  occupied_until where core snapshotted the cleanup (C1 §7 / E35). NEVER
+ *  duration_minutes — core stores that as an independent nullable column and
+ *  never validates it against the interval (E30).
+ *
+ *  ⚖ R1-2 — the extension is a MAX, never a replacement. `occupied_until`
+ *  carries no contract of its own in the SDK (a bare `string | null`), so a
+ *  snapshot written before the booking was moved, or lengthened, can sit
+ *  BEFORE `ends_at`. Trusting it blindly shortened the row — and when it sat
+ *  before `starts_at` the interval ran backwards and the row was dropped
+ *  entirely, so a day with four hours booked reported 13 % occupied and seven
+ *  hours free, with the concurrency guard unable to see the row at all. It is
+ *  the same unvalidated-column trust E30 rejected for duration_minutes; a
+ *  cleanup can only ever add minutes to a booking, so the arithmetic says so. */
 function spanOf(a: Appointment): BookedSpan {
   return {
     startMs: Date.parse(a.starts_at),
-    endMs: Date.parse(a.occupied_until ?? a.ends_at),
+    endMs: Math.max(Date.parse(a.ends_at), Date.parse(a.occupied_until ?? a.ends_at)),
     staffId: a.staff_id ?? null,
   }
 }

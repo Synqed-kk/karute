@@ -397,6 +397,68 @@ describe('mutant pins', () => {
     expect(row.freeMinutes).toBe(510) // 600 − 90, not 600 − 60
   })
 
+  it('R1-2 — an occupied_until BEFORE ends_at never shortens the booking', () => {
+    // The SDK gives occupied_until no contract of its own, so a stale snapshot
+    // can sit before the row's real end. Trusting it blindly halved this
+    // booking; the max keeps its full two hours.
+    const rows = weekRows({
+      switches: ALL_ON,
+      appointments: [
+        {
+          id: 'stale-cleanup',
+          kind: 'BOOKING',
+          customer_id: 'c1',
+          staff_id: 's1',
+          starts_at: '2026-09-14T01:00:00Z', // 10:00 JST
+          ends_at: '2026-09-14T03:00:00Z', // 12:00 JST
+          occupied_until: '2026-09-14T02:00:00Z', // 11:00 JST — written before a move
+          duration_minutes: 120,
+          status: 'SCHEDULED',
+          source: 'MANUAL',
+          title: null,
+          notes: null,
+          created_at: '2026-09-01T00:00:00Z',
+          updated_at: '2026-09-01T00:00:00Z',
+        } as unknown as Appointment,
+      ],
+    })
+    const row = byDay(rows).get(YMD.mon)!
+    expect(row.occupancyPct).toBe(20) // 120 of 600, not 60
+    expect(row.freeMinutes).toBe(480)
+  })
+
+  it('R1-2 — MUTANT m2: an occupied_until before STARTS_AT used to erase the row', () => {
+    // endMs < startMs made the interval run backwards, and capacityFactsFor
+    // drops such a span — so a booked day reported itself empty and the
+    // concurrency guard could not see the row at all. Without the max this
+    // reads 0 % / 600 free.
+    const rows = weekRows({
+      switches: ALL_ON,
+      appointments: [
+        {
+          id: 'backwards-cleanup',
+          kind: 'BOOKING',
+          customer_id: 'c1',
+          staff_id: 's1',
+          starts_at: '2026-09-14T01:00:00Z', // 10:00 JST
+          ends_at: '2026-09-14T03:00:00Z', // 12:00 JST
+          occupied_until: '2026-09-14T00:00:00Z', // 09:00 JST
+          duration_minutes: 120,
+          status: 'SCHEDULED',
+          source: 'MANUAL',
+          title: null,
+          notes: null,
+          created_at: '2026-09-01T00:00:00Z',
+          updated_at: '2026-09-01T00:00:00Z',
+        } as unknown as Appointment,
+      ],
+    })
+    const row = byDay(rows).get(YMD.mon)!
+    expect(row.occupancyPct).toBe(20)
+    expect(row.freeMinutes).toBe(480)
+    expect(row.capacityReason).toBeNull()
+  })
+
   it('m4 — laneKind ignoring the class-bound store would hand it a percentage', () => {
     const classBound = byDay(
       weekRows({ switches: ALL_ON, rosterHeadcount: 3, laneKind: 'none' }),
