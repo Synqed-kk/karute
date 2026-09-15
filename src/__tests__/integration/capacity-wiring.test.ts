@@ -397,6 +397,68 @@ describe('mutant pins', () => {
     expect(row.freeMinutes).toBe(510) // 600 − 90, not 600 − 60
   })
 
+  it('R1-2 — an occupied_until BEFORE ends_at never shortens the booking', () => {
+    // The SDK gives occupied_until no contract of its own, so a stale snapshot
+    // can sit before the row's real end. Trusting it blindly halved this
+    // booking; the max keeps its full two hours.
+    const rows = weekRows({
+      switches: ALL_ON,
+      appointments: [
+        {
+          id: 'stale-cleanup',
+          kind: 'BOOKING',
+          customer_id: 'c1',
+          staff_id: 's1',
+          starts_at: '2026-09-14T01:00:00Z', // 10:00 JST
+          ends_at: '2026-09-14T03:00:00Z', // 12:00 JST
+          occupied_until: '2026-09-14T02:00:00Z', // 11:00 JST — written before a move
+          duration_minutes: 120,
+          status: 'SCHEDULED',
+          source: 'MANUAL',
+          title: null,
+          notes: null,
+          created_at: '2026-09-01T00:00:00Z',
+          updated_at: '2026-09-01T00:00:00Z',
+        } as unknown as Appointment,
+      ],
+    })
+    const row = byDay(rows).get(YMD.mon)!
+    expect(row.occupancyPct).toBe(20) // 120 of 600, not 60
+    expect(row.freeMinutes).toBe(480)
+  })
+
+  it('R1-2 — MUTANT m2: an occupied_until before STARTS_AT used to erase the row', () => {
+    // endMs < startMs made the interval run backwards, and capacityFactsFor
+    // drops such a span — so a booked day reported itself empty and the
+    // concurrency guard could not see the row at all. Without the max this
+    // reads 0 % / 600 free.
+    const rows = weekRows({
+      switches: ALL_ON,
+      appointments: [
+        {
+          id: 'backwards-cleanup',
+          kind: 'BOOKING',
+          customer_id: 'c1',
+          staff_id: 's1',
+          starts_at: '2026-09-14T01:00:00Z', // 10:00 JST
+          ends_at: '2026-09-14T03:00:00Z', // 12:00 JST
+          occupied_until: '2026-09-14T00:00:00Z', // 09:00 JST
+          duration_minutes: 120,
+          status: 'SCHEDULED',
+          source: 'MANUAL',
+          title: null,
+          notes: null,
+          created_at: '2026-09-01T00:00:00Z',
+          updated_at: '2026-09-01T00:00:00Z',
+        } as unknown as Appointment,
+      ],
+    })
+    const row = byDay(rows).get(YMD.mon)!
+    expect(row.occupancyPct).toBe(20)
+    expect(row.freeMinutes).toBe(480)
+    expect(row.capacityReason).toBeNull()
+  })
+
   it('m4 — laneKind ignoring the class-bound store would hand it a percentage', () => {
     const classBound = byDay(
       weekRows({ switches: ALL_ON, rosterHeadcount: 3, laneKind: 'none' }),
@@ -446,6 +508,196 @@ describe('mutant pins', () => {
     expect(row.occupancyPct).toBe(10)
     expect(row.band).toBe('light')
     expect(row.freeMinutes).toBeNull() // E21 — a business default is not this store's word
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// ⚖ R1-8 — THE NO-CAPACITY DEFAULT PAIRS ITS FIELDS
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('capacityRowFields(undefined) — the door that never looked says so', () => {
+  it('pairs capacityMinutes null with a REASON, like every module withdrawal', () => {
+    const { capacityRowFields } = loadAdapter()
+    const row = capacityRowFields(undefined)
+    expect(row.capacityMinutes).toBeNull()
+    // Everywhere else in the model a null reason means "there IS a capacity",
+    // so "no capacity, no reason" was a shape the 未設定 cell could not read.
+    expect(row.capacityReason).toBe('unknown')
+  })
+
+  it('does not CLAIM the store runs classes', () => {
+    const { capacityRowFields } = loadAdapter()
+    // 'none' is a positive statement — one row is many people, no percentage is
+    // honest here — and this door has not looked at the store at all.
+    expect(capacityRowFields(undefined).laneKind).not.toBe('none')
+    expect(capacityRowFields(undefined).laneKind).toBe('staff')
+  })
+
+  it('the module’s own facts are passed through unchanged, reason and all', () => {
+    const rows = byDay(weekRows({ switches: ALL_ON, rosterHeadcount: 2 }))
+    // A day WITH a capacity still carries a null reason — which is what makes
+    // the pairing readable in the first place.
+    expect(rows.get(YMD.mon)!.capacityReason).toBeNull()
+    expect(rows.get(YMD.sat)!.capacityReason).toBe('closed')
+    expect(rows.get(YMD.sun)!.capacityReason).toBe('hours-not-saved')
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// ⚖ R1 — THE FIX ROUND'S OWN MATRIX ROWS
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('⚖ R1 rows — each new guard, at every switch state', () => {
+  // The 9/12 amendment: a layer has to hold ALONE, TOGETHER, and with any one
+  // switched off. These four rows are what R1 added to the model's inputs, so
+  // each is run against ALL OFF (today's shipped gate), multiStaffCapacity
+  // alone, and ALL ON (what ships).
+  const STATES: [string, Switches][] = [
+    ['ALL OFF', ALL_OFF],
+    ['multiStaffCapacity alone', { ...ALL_OFF, multiStaffCapacity: true }],
+    ['ALL ON', ALL_ON],
+  ]
+
+  /** A 22:00-the-night-before run-in plus this store's own noon booking. */
+  const RUN_IN: Appointment[] = [
+    {
+      id: 'ran-in',
+      kind: 'BOOKING',
+      customer_id: 'c1',
+      staff_id: 'sB',
+      starts_at: '2026-09-13T13:00:00Z', // 22:00 JST Sunday
+      ends_at: '2026-09-14T02:00:00Z', // 11:00 JST Monday
+      occupied_until: null,
+      duration_minutes: 780,
+      status: 'SCHEDULED',
+      source: 'MANUAL',
+      title: null,
+      notes: null,
+      created_at: '2026-09-01T00:00:00Z',
+      updated_at: '2026-09-01T00:00:00Z',
+    } as unknown as Appointment,
+    {
+      id: 'todays-own',
+      kind: 'BOOKING',
+      customer_id: 'c2',
+      staff_id: 'sA',
+      starts_at: '2026-09-14T03:00:00Z', // 12:00 JST
+      ends_at: '2026-09-14T05:00:00Z', // 14:00 JST
+      occupied_until: null,
+      duration_minutes: 120,
+      status: 'SCHEDULED',
+      source: 'MANUAL',
+      title: null,
+      notes: null,
+      created_at: '2026-09-01T00:00:00Z',
+      updated_at: '2026-09-01T00:00:00Z',
+    } as unknown as Appointment,
+  ]
+
+  it.each(STATES)('R1-3 the RUN-IN row: %s — a solo store stays ONE lane', (_name, switches) => {
+    const row = byDay(
+      weekRows({ switches, appointments: RUN_IN, rosterHeadcount: 1, soloMode: true }),
+    ).get(YMD.mon)!
+    expect(row.lanes).toBe(1)
+    expect(row.capacityMinutes).toBe(600) // 1200 if last night claimed a lane
+    expect(row.occupancyPct).toBe(30) // 60 run-in + 120 today, of 600
+    expect(row.freeMinutes).toBe(420) // never 14 hours on a store open 10
+  })
+
+  it.each(STATES)(
+    'R1-5/R1-6 the UNLINKABLE-MEMBER row: %s — a wider roster is a bigger denominator, and the doors pass the strict one',
+    (_name, switches) => {
+      // The divisor is whatever headcount the doors resolved. R1-5 is what makes
+      // that number 4 and not 8 (store-scope's rosterForStore); this row pins
+      // the consequence the adapter is responsible for — the number moves the
+      // capacity, at every switch state, and the OFF state ignores it entirely.
+      const strict = byDay(weekRows({ switches, rosterHeadcount: 4, soloMode: false })).get(
+        YMD.mon,
+      )!
+      const inflated = byDay(weekRows({ switches, rosterHeadcount: 8, soloMode: false })).get(
+        YMD.mon,
+      )!
+      if (switches.multiStaffCapacity) {
+        expect(strict.capacityMinutes).toBe(2400)
+        expect(inflated.capacityMinutes).toBe(4800)
+        expect(strict.occupancyPct).not.toBe(inflated.occupancyPct)
+      } else {
+        // Today's gate: a multi-staff store gets nothing at all.
+        expect(strict.capacityMinutes).toBeNull()
+        expect(inflated.capacityMinutes).toBeNull()
+      }
+    },
+  )
+
+  it.each(STATES)(
+    'R1-6 the EMPTY-LENS row: %s — an unknown roster paints no number on ANY day',
+    (_name, switches) => {
+      // screen.ts turns an empty lens into null before it reaches here, so the
+      // adapter's job is to keep null meaning "no capacity" at every state —
+      // never a lane filled in from whoever got booked.
+      const booked = byDay(
+        weekRows({ switches, rosterHeadcount: null, soloMode: false }),
+      ).get(YMD.mon)!
+      const idle = byDay(
+        weekRows({ switches, rosterHeadcount: null, soloMode: false }),
+      ).get(YMD.thu)!
+      for (const row of [booked, idle]) {
+        expect(row.capacityMinutes).toBeNull()
+        expect(row.capacityReason).toBe('roster-unknown')
+        expect(row.occupancyPct).toBeNull()
+        expect(row.freeMinutes).toBeNull()
+      }
+    },
+  )
+
+  it.each(STATES)(
+    'R1-2 the STALE-CLEANUP row: %s — occupied_until never shortens a booking',
+    (_name, switches) => {
+      const rows = weekRows({
+        switches,
+        rosterHeadcount: 1,
+        soloMode: true,
+        appointments: [
+          {
+            id: 'stale',
+            kind: 'BOOKING',
+            customer_id: 'c1',
+            staff_id: 's1',
+            starts_at: '2026-09-14T01:00:00Z', // 10:00 JST
+            ends_at: '2026-09-14T03:00:00Z', // 12:00 JST
+            occupied_until: '2026-09-14T00:00:00Z', // 09:00 JST — stale
+            duration_minutes: 120,
+            status: 'SCHEDULED',
+            source: 'MANUAL',
+            title: null,
+            notes: null,
+            created_at: '2026-09-01T00:00:00Z',
+            updated_at: '2026-09-01T00:00:00Z',
+          } as unknown as Appointment,
+        ],
+      })
+      const row = byDay(rows).get(YMD.mon)!
+      expect(row.capacityMinutes).toBe(600)
+      expect(row.occupancyPct).toBe(20) // 0 if the row were erased
+      expect(row.freeMinutes).toBe(480)
+    },
+  )
+
+  it('R1-8 the NO-CAPACITY row: the padding/never-looked default is the same at every state', () => {
+    for (const [, switches] of STATES) {
+      const { capacityRowFields } = loadAdapter(switches)
+      expect(capacityRowFields(undefined)).toEqual({
+        capacityMinutes: null,
+        lanes: 0,
+        laneKind: 'staff',
+        hoursSource: null,
+        occupancyPct: null,
+        full: false,
+        band: null,
+        freeMinutes: null,
+        capacityReason: 'unknown',
+      })
+    }
   })
 })
 

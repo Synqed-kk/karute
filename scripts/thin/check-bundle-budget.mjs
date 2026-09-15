@@ -970,6 +970,10 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en 134,204 · index 1,033,180 · vendor 937,791 = 2,105,175 B.
 // Ceiling = 2,105,175 + 1,000. It is a bloat tripwire, not the gate — the
 // purchase-exclusion scan (0/13) is.
+// SUPERSEDED by the merge of feat/capacity-adapter (a906f5fc0) into this
+// branch — the capacity-adapter side's own re-measurement comments are
+// dropped here (duplicate BUDGET_BYTES const is a syntax error); the real
+// figure for the MERGED tip is re-measured fresh below in a follow-up commit.
 const BUDGET_BYTES = 2_106_175
 
 let dir

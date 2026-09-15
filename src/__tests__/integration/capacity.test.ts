@@ -87,6 +87,41 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.availableMinutes).toBe(1620) // would be 1020 without the floor
   })
 
+  it('⚖ R1-3: a run-in from last night occupies minutes but never adds a LANE', () => {
+    // The caller fetches one day early so a booking that began at 22:00 last
+    // night is visible here — it really does occupy this morning. But it is
+    // YESTERDAY's booking, and the floor counting it as a second chair turned a
+    // solo store into a two-lane day: 1200 capacity on a store open 600
+    // minutes, reading 15% occupied with fourteen free hours.
+    const spans = [
+      span(at(-2), at(11), 'sB'), // 22:00 Friday → 11:00 today
+      span(at(12), at(14), 'sA'), // today's own booking
+    ]
+    const fact = capacityForDay(input({ rosterLanes: 1, spans }))
+
+    expect(fact.lanes).toBe(1) // would be 2 if the run-in claimed a lane
+    expect(fact.capacityMinutes).toBe(600) // would be 1200
+    // The run-in's MINUTES still count: 10:00–11:00 inside the window, plus the
+    // noon booking's two hours.
+    expect(fact.bookedMinutes).toBe(180)
+    expect(fact.occupancyPct).toBe(30) // would be 15
+    expect(fact.availableMinutes).toBe(420) // would be 1020 — never 14 hours
+    expect(fact.reason).toBeNull()
+  })
+
+  it('⚖ R1-3 MUTANT m3: the same staffer running in and working today is still ONE lane', () => {
+    // Bucketing by START day is what every other surface does (件, 予約時間, the
+    // chips). A floor keyed on "had minutes today" double-counts nobody here
+    // — which is exactly why the two-person case above is the pin — but this
+    // one proves the run-in is not merely deduplicated by staff id.
+    const fact = capacityForDay(
+      input({ rosterLanes: 1, spans: [span(at(-2), at(11), 'sB')] }),
+    )
+    expect(fact.lanes).toBe(1)
+    expect(fact.capacityMinutes).toBe(600)
+    expect(fact.bookedMinutes).toBe(60) // 10:00–11:00, clipped to the window
+  })
+
   it('E2: a helper off the roster works beside 3 rostered → the floor lifts lanes to 4, 72.5%', () => {
     const spans = [
       span(at(10), at(18), 's1'), // 480
