@@ -89,7 +89,7 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
       orgSettingsWithClient(synqed),
       // Least-privilege: a non-viewAll identity never triggers the read at
       // all (the tab is hidden for them anyway) — same posture as web's own
-      // `canViewAllStores ? stores : []` gate (page.tsx:82), just applied
+      // `canViewAllStores ? stores : []` gate (page.tsx:165), just applied
       // before the fetch instead of after it.
       canViewAllStores
         ? listStoresWithClient(synqed, businessId, {
