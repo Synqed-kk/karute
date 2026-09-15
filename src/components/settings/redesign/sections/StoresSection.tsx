@@ -52,6 +52,7 @@ import {
   type StoreFormMode,
 } from './stores/StoreFormDialog'
 import { PlanComparisonDialog } from './stores/PlanComparisonDialog'
+import { StoreHoursBlock } from './stores/StoreHoursBlock'
 import type { Store, StoreFormValues } from './stores/types'
 
 interface StoresSectionProps {
@@ -444,6 +445,18 @@ export function StoresSection({
                       </button>
                     )}
                   </div>
+
+                  {/* 営業時間 — this store's own weekly hours, owner-only, per
+                   *  ROW (never the active-store pill). The seeded placeholder
+                   *  row has no core store to write to, so it gets no editor. */}
+                  {isOwner && store.id !== 'primary' && (
+                    <StoreHoursBlock
+                      storeId={store.id}
+                      storeName={store.name}
+                      weeklyHours={store.weeklyHours}
+                      orgHours={orgSettings?.operating_hours}
+                    />
+                  )}
                 </div>
               )
             })}

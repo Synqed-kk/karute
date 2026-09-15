@@ -2285,6 +2285,25 @@
         "saveEdit": "Save changes",
         "saved": "Saved"
       },
+      "hours": {
+        "title": "Hours",
+        "hide": "Hide hours",
+        "description": "This store's own hours. Until you set them, the company-wide default applies.",
+        "usingDefault": "Using the company-wide default",
+        "usingDefaultHint": "The times below are not saved yet. Save them to make them this store’s hours.",
+        "openLabel": "Open",
+        "closeLabel": "Close",
+        "closedToggle": "Closed",
+        "closedConfirm": "Closing {day} stops this store taking bookings on that day.",
+        "closedConfirmYes": "Set as closed",
+        "closedConfirmNo": "Cancel",
+        "save": "Save",
+        "saving": "Saving",
+        "saved": "Hours saved",
+        "fixBeforeSaving": "Fix the times to save",
+        "invalidWindow": "Open time must be earlier than close time.",
+        "weekIncomplete": "All seven days save at once. Reopen this panel and try again."
+      },
       "assignLabel": "Store / location",
       "assignMultiHint": "Select any number. If none are selected, the staff appears in every store.",
       "unassigned": "Unassigned"

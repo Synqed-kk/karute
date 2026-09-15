@@ -2285,6 +2285,25 @@
         "saveEdit": "変更を保存",
         "saved": "保存しました"
       },
+      "hours": {
+        "title": "営業時間",
+        "hide": "営業時間を閉じる",
+        "description": "この店舗の営業時間です。設定するまでは全店共通の初期値で受け付けます。",
+        "usingDefault": "全店共通の初期値を使用中",
+        "usingDefaultHint": "下に表示している時間はまだ保存されていません。この店舗の時間として保存してください。",
+        "openLabel": "開店",
+        "closeLabel": "閉店",
+        "closedToggle": "休業",
+        "closedConfirm": "{day}曜日を休業にすると、この曜日の予約受付が止まります。",
+        "closedConfirmYes": "休業にする",
+        "closedConfirmNo": "やめる",
+        "save": "保存",
+        "saving": "保存中",
+        "saved": "営業時間を保存しました",
+        "fixBeforeSaving": "時間を直すと保存できます",
+        "invalidWindow": "開店時間は閉店時間より前に設定してください。",
+        "weekIncomplete": "7曜日すべてを一度に保存します。画面を開き直してもう一度お試しください。"
+      },
       "assignLabel": "店舗（所属）",
       "assignMultiHint": "複数選択できます。未選択の場合は全店舗に表示されます。",
       "unassigned": "未割り当て"
