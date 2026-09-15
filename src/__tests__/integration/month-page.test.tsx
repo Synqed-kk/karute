@@ -273,6 +273,22 @@ describe('MonthPage — 休', () => {
     expect(cellEl.getAttribute('aria-label')).toBe('9/17(木) 予約 4件')
   })
 
+  // R1-3 (D-3): the tests above mock the registry to pin behaviour per switch
+  // VALUE. This one runs the SHIPPED one — no override — so 「休 is ON」 is
+  // proven where it is actually seen, on a rendered cell, and flipping the
+  // constant back goes red here and not only on a constant's own assertion.
+  //
+  // It is also the honest stand-in for a live shot: the e2e tenant (Dev Salon)
+  // has NO closed weekday saved and no 臨時休業 in the windows checked, so no
+  // 休 cell is reachable on a real screen today (R1-3 proof note).
+  it('SHIPPED: a closed, empty day really renders 休 on the page', () => {
+    const { MonthPage } = loadMonthPage()
+    const { container } = render(<MonthPage {...baseProps} cells={closedGrid} />)
+    const cellEl = Array.from(container.querySelectorAll(IN_MONTH))[15]
+    expect(cellEl.textContent).toContain('休')
+    expect(cellEl.getAttribute('aria-label')).toBe('9/16(水) 休')
+  })
+
   it('with the switch OFF no cell says 休 — the count is all it ever shows', () => {
     const { MonthPage } = loadMonthPage({ closedDays: false })
     render(<MonthPage {...baseProps} cells={closedGrid} />)
