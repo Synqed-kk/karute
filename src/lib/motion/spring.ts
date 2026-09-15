@@ -73,10 +73,16 @@ export interface Spring {
   stop: () => void
 }
 
-const DEFAULT_RAF: (cb: (t: number) => void) => number =
-  typeof requestAnimationFrame === 'function' ? requestAnimationFrame : () => 0
-const DEFAULT_CANCEL: (h: number) => void =
-  typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame : () => {}
+// ⚠ Resolved at CALL time, never captured at module load. A handle taken when
+// this module is imported keeps scheduling on whatever `requestAnimationFrame`
+// was then — so a test that installs fake timers afterwards drives a global the
+// spring is no longer using, and the spring never reaches rest however far the
+// clock is advanced. (Same for a DOM that defines rAF after import.)
+const DEFAULT_RAF = (cb: (t: number) => void): number =>
+  typeof requestAnimationFrame === 'function' ? requestAnimationFrame(cb) : 0
+const DEFAULT_CANCEL = (handle: number): void => {
+  if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(handle)
+}
 
 /**
  * One integrator, reused by every spring on the page.
