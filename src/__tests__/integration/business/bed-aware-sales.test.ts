@@ -484,9 +484,9 @@ describe('bed-aware-sales — ⚖ D-19 (3) / round 3 D: the eligibility pigeonho
   it('P8 — the refuting instant is an earlier 枠\'s END inside the span (cold-read fold 3)', () => {
     // Every 枠 is 90 minutes (the equal-length invariant). A and C share the same
     // span and the same two eligible rooms, so the netting must split them across
-    // p and q; B ENDS at 610 — strictly inside the offer's span, before either A
-    // or C's own start there — and takes its own rooms (m, j) out of the union
-    // with it. Four bed rows, so (d) is silent: n(600) = 3 < 4.
+    // p and q; B ENDS at 610 — strictly inside the offer's span, and not the
+    // START of any 枠 on this board — and takes its own rooms (m, j) out of the
+    // union with it. Four bed rows, so (d) is silent: n(600) = 3 < 4.
     const rows: Array<[string, number, number, string[]]> = [
       ['A', 600, 690, ['p', 'q']],
       ['B', 520, 610, ['m', 'j']],
