@@ -727,7 +727,7 @@ export function DateJumpPanel({
         aria-hidden
         onPointerDown={onClose}
         className={cn(
-          'absolute -left-4 -right-4 top-full z-30 h-screen bg-foreground/20 md:-left-6 md:-right-6',
+          'absolute -left-4 -right-4 top-full z-30 h-screen bg-foreground/20 will-change-[opacity] md:-left-6 md:-right-6',
           // The scrim outlives its own fade for the same ~480 ms as the dialog
           // (see the `inert` note below) and an element at opacity 0.004 is
           // still fully hit-testable — it would swallow the first tap the
@@ -757,7 +757,15 @@ export function DateJumpPanel({
         inert={!open || undefined}
         // The opacity and transform are the open spring's, written every
         // frame through panelRef — React must not set them here.
-        className="absolute inset-x-0 top-full z-40 mt-2 origin-top overflow-hidden rounded-xl border border-border bg-card shadow-lg outline-none"
+        //
+        // `will-change` is what makes those per-frame writes cheap on the
+        // phone: without it the panel has no standing compositor layer, so
+        // every frame repaints the card — border, shadow, ~40 day buttons and
+        // all. Measured on the production build under a 4× CPU throttle, an
+        // OPEN went from 51 real Paint records to 19. Both this element and
+        // the scrim are mounted only while `rendered`, so the layers are
+        // handed back the moment the panel unmounts — never a standing one.
+        className="absolute inset-x-0 top-full z-40 mt-2 origin-top overflow-hidden rounded-xl border border-border bg-card shadow-lg outline-none will-change-[transform,opacity]"
       >
         <div className="flex items-center gap-1 border-b border-black/5 px-2 py-2">
           <button
