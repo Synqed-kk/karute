@@ -142,6 +142,8 @@ describe('AppointmentsView → NewBookingDialog / ReservationStaffFilter wiring 
         weekStartIso={null}
         monthData={null}
         monthStartIso={null}
+        dayTotals={null}
+        soloMode={false}
         reservationViews={[]}
         reservationStaff={[]}
         colorRosterIds={[]}

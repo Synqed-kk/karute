@@ -128,6 +128,12 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       weekStartIso={dto.weekStartIso}
       monthData={monthData}
       monthStartIso={null}
+      // The day line's numbers and the 未設定 discriminator, straight off the
+      // wire — the same two props the web page hands this same view
+      // (PKT-1b-WIRE W-B/W-C). Both carry a schema default, so a server that
+      // predates them degrades to null / false rather than undefined.
+      dayTotals={dto.dayTotals}
+      soloMode={dto.soloMode}
       // Server-derived, DTO-validated color keys; the view's strict union is
       // a superset of the string the schema accepts (record-screen precedent).
       reservationViews={dto.reservationViews as ReservationView[]}

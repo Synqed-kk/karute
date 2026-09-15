@@ -48,11 +48,21 @@ export function densityDotClass(count: number): string | null {
 
 // Shared with DayNumbersLine.tsx (W5) — one tone→class map for both cell
 // surfaces, never a second copy.
+//
+// The three BAND tones are the mock's own three colours (`.vl.gn` #16a34a ·
+// `--blue` #2563eb · `.vl.am` #b45309), reached through the palette class that
+// IS that hex, not a literal. Not the @synqed-kk/ui `--color-*` tokens the
+// first draft used: under `data-theme="karute"` that package sets
+// `--color-accent: #18181b`, so the 普通 band — the one most days land in —
+// rendered NEAR-BLACK, which is both the wrong colour and a black-fill look
+// the brand rule forbids. `--color-warning` (#f59e0b) was likewise a dot
+// colour, too light to read as text. Dark pairs follow the Sunday-date
+// precedent below.
 export const VALUE_TONE_CLASS: Record<Cell['tone'], string> = {
   ink: 'text-[var(--color-text)]',
-  'band-low': 'text-[var(--color-success)]',
-  'band-mid': 'text-[var(--color-accent)]',
-  'band-high': 'text-[var(--color-warning)]',
+  'band-low': 'text-green-600 dark:text-green-400',
+  'band-mid': 'text-primary',
+  'band-high': 'text-amber-700 dark:text-amber-500',
   // The day list's own 新規 token (§v11c's --blue == this app's
   // --reservation-new-chip-bg, #2563eb) — reused, never a literal hex.
   new: 'text-[var(--reservation-new-chip-bg)]',

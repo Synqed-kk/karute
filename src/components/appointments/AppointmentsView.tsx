@@ -30,6 +30,7 @@ import {
   type ReservationStaffEntry,
 } from '@/components/karute/spike-lifted/reservation/ReservationStaffFilter'
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
+import { DayNumbersLine } from '@/components/appointments/DayNumbersLine'
 import { DateJumpPanel } from '@/components/appointments/DateJumpPanel'
 import { NewBookingDialog } from '@/components/appointments/NewBookingDialog'
 import { BookingActionSheetWrapper } from '@/components/appointments/BookingActionSheetWrapper'
@@ -41,6 +42,7 @@ import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import type { CachedMenuOption } from '@/lib/menus/cached'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
+import type { WeekDayRowData } from '@/lib/adapters/reservation'
 import type { ReservationStaff } from '@/components/reservation/StaffRow'
 import type { BusinessHours } from '@/components/reservation/TimeAxis'
 
@@ -66,6 +68,15 @@ interface AppointmentsViewProps {
   weekStartIso: string | null
   monthData: MonthGridCell[] | null
   monthStartIso: string | null
+  /** The SELECTED day's row — the day line's four numbers, from the same
+   *  adapter the week rows come from, so the two surfaces cannot disagree.
+   *  Null = a server or a baked bundle that predates the field; the old
+   *  ReservationTotals stays as the honest fallback for exactly that case. */
+  dayTotals: WeekDayRowData | null
+  /** The salon's `solo_mode` capability, resolved SERVER-side (screen.ts).
+   *  Never read org settings in here: the thin door carries none, so a view-
+   *  side read would hand the phone a silent `false`. */
+  soloMode: boolean
   reservationViews: ReservationView[]
   reservationStaff: ReservationStaff[]
   /** The ACTIVE STORE's staff ids — the grid's color palette source (a
@@ -429,6 +440,25 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       >
         {view === 'day' ? (
           <>
+            {/* The day's numbers (spec §2 / mock §v9d): one flowing line of
+             *  四 values, above the list, from the SAME adapter row the week
+             *  page renders — the two surfaces cannot disagree. Its own
+             *  `mb-2` is the whole seam to the list card, so it sits OUTSIDE
+             *  the space-y-6 wrapper's rhythm by design (§v9c: "no extra
+             *  margin beyond the page's normal 8px").
+             *  ReservationTotals stays ONLY while `dayTotals` is null — a
+             *  stale phone bundle or a server that predates the field. */}
+            {props.dayTotals ? (
+              <DayNumbersLine
+                row={props.dayTotals}
+                soloMode={props.soloMode}
+                // PKT-2 owns the strict 新規/再来 producer; today's
+                // newCustomerCount is the QR import flag and must not print
+                // (spec §8). 'off' = the fill order supplies the fourth cell.
+                typeSlot="off"
+                locale={props.locale}
+              />
+            ) : null}
             <div className="hidden md:block">
               {/* Desktop grid keeps terminal (cancelled/no-show) rows hidden
                *  for now — a greyed grid-block treatment is a follow-up;
@@ -452,10 +482,17 @@ export function AppointmentsView(props: AppointmentsViewProps) {
               />
             </div>
             {/* Totals must not count terminal rows — a no-show is not a
-             *  visit, and a burned ticket is accounted in packs, not here. */}
-            <ReservationTotals
-              reservations={props.reservationViews.filter((r) => !r.isCancelled && !r.isNoShow)}
-            />
+             *  visit, and a burned ticket is accounted in packs, not here.
+             *  FALLBACK ONLY (PKT-1b-WIRE W-B): once `dayTotals` arrives, the
+             *  numbers line above says the same thing better and this block
+             *  goes away. Kept for the skew window where an old server or an
+             *  old baked bundle sends no row — blanking the day's totals
+             *  there would be a silent regression. */}
+            {props.dayTotals ? null : (
+              <ReservationTotals
+                reservations={props.reservationViews.filter((r) => !r.isCancelled && !r.isNoShow)}
+              />
+            )}
           </>
         ) : view === 'week' && props.weekData && props.weekStartIso ? (
           <WeekGridSection

@@ -183,6 +183,10 @@ export const AppointmentsScreenDTO = z.object({
    *  failed rather than showing a low number. Same bundle-skew default; false
    *  is today's (silently-truncating) behaviour. */
   truncated: z.boolean().default(false),
+  /** The salon's `solo_mode` capability, resolved server-side (screen.ts) so
+   *  the view never reads org settings — the thin door carries none. Same
+   *  bundle-skew default; false is today's behaviour. */
+  soloMode: z.boolean().default(false),
 })
 
 export type AppointmentsScreenDTOType = z.infer<typeof AppointmentsScreenDTO>
