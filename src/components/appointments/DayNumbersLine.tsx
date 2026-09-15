@@ -39,8 +39,12 @@ function LineItem({ cell }: { cell: Cell }) {
       {/* mock: the spark precedes the value (`SPARK + '<b>' + val`), and
        *  `.dayline .it.nw svg{align-self:center}` re-centres it against the
        *  baseline-aligned row. */}
+      {/* ⚖ R1-4 — the colour comes off the shared tone map, never a second
+       *  spelling of the token. NewSpark inherits `currentColor`, and here the
+       *  wrapper is the WORD's middle grey, so the spark has to be told —
+       *  unlike the week cell, which sits inside the toned value itself. */}
       {cell.tone === 'new' && (
-        <NewSpark className="shrink-0 self-center text-[var(--reservation-new-chip-bg)]" />
+        <NewSpark className={cn('shrink-0 self-center', VALUE_TONE_CLASS[cell.tone])} />
       )}
       <b className={cn(VALUE, VALUE_TONE_CLASS[cell.tone])}>{cell.value}</b>
       {cell.key !== 'count' && cell.label}

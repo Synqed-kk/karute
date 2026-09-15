@@ -267,9 +267,12 @@ export function WeekRows({
                 // it, never hoisted above: a number nothing is about to render
                 // is one careless edit away from being rendered wrong.
                 // ⚖ PKT-2 — `newCustomerCount` is now the honest 新規 count
-                // (people whose first visit is that day), not the QR import
-                // flag it carried while this slot was 'off' everywhere.
-                // Closed days are already out of `openRows`.
+                // (the people the day list tags 新規), not the QR import flag
+                // it carried while this slot was 'off' everywhere.
+                // ⚖ R1-4 — `openRows` drops only the days that collapse to
+                // 「休」, i.e. closed AND empty (isClosedRow). A closed day WITH
+                // bookings stays in this sum, which is right: it can carry a
+                // real 新規.
                 // ⚖ R1-2 — the gate above withholds this whole stat when any
                 // row's count is unknown; a sum over a withheld number is a
                 // lie the row-level cells already refuse to print.

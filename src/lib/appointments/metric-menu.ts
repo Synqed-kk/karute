@@ -113,7 +113,6 @@ const NEXT_BUILDERS: Record<string, (row: WeekDayRowData, ctx: MetricMenuCtx) =>
   bookedTime: bookedTimeCell,
   cancelled: cancelledCell,
   noShow: noShowCell,
-  new: newCell,
 }
 
 /** The shared fallback order (spec §8's "Metric menu + fill order"): 予約時間
@@ -121,7 +120,12 @@ const NEXT_BUILDERS: Record<string, (row: WeekDayRowData, ctx: MetricMenuCtx) =>
  *  people-count, which PKT-2 deleted with the 再来 producer; 新規 itself is
  *  never a fallback — it has its own slot whenever the switch is on. Three
  *  fallbacks is exactly enough for a four-cell line: 予約 always takes cell 1,
- *  so at most three slots can fall through. */
+ *  so at most three slots can fall through.
+ *
+ *  ⚖ R1-4 — and 新規 has no builder in the table above either. It is taken
+ *  explicitly by the type slot and is never a fallback, so a `new` entry there
+ *  was unreachable today and a loaded gun tomorrow: put 'new' into this chain
+ *  and the line would print 新規 twice, with nothing failing. */
 const NEXT_METRIC_CHAIN: readonly CellKey[] = ['bookedTime', 'cancelled', 'noShow']
 
 /** The first metric in the fill order not already on the line. Shared by
