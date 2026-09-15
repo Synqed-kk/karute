@@ -7,6 +7,7 @@
  */
 import { render, screen } from '@testing-library/react'
 import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
+import { withDerivedCapacity } from './__fixtures__/capacity-row'
 
 const MESSAGES: Record<string, string> = {
   count: '予約',
@@ -34,7 +35,9 @@ function t(key: string, values?: Record<string, string | number | Date>): string
 jest.mock('next-intl', () => ({ useTranslations: () => t }))
 
 function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
-  return {
+  // ⚖ R1-1: the line reads the capacity model's own numbers, so a defensible
+  // fixture carries the fields the adapter would have carried.
+  return withDerivedCapacity({
     dateNumber: 15,
     monthNumber: 9,
     weekdayLabel: '火',
@@ -58,7 +61,7 @@ function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
     ...capacityRowFields(undefined),
     returningCount: 2,
     ...over,
-  }
+  }, over)
 }
 
 function loadDayNumbersLine(switchOverrides: Partial<Record<string, boolean>> = {}) {

@@ -5,6 +5,7 @@
  * covered separately (week-rows.test.tsx, day-numbers-line.test.tsx).
  */
 import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
+import { capacityOf, withDerivedCapacity } from './__fixtures__/capacity-row'
 import type { Translate } from '@/lib/appointments/format-duration'
 import type * as MetricMenu from '@/lib/appointments/metric-menu'
 
@@ -32,7 +33,7 @@ const t: Translate = (key, values) => {
 }
 
 function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
-  return {
+  const base: WeekDayRowData = {
     dateNumber: 15,
     monthNumber: 9,
     weekdayLabel: '火',
@@ -57,6 +58,11 @@ function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
     returningCount: 2,
     ...over,
   }
+  // ⚖ R1-1: a case that says "this day HAS a capacity" gets the wire row the
+  // adapter would have built for that denominator — the menu reads those keys
+  // now, so a fixture that set only capacityDefensible would silently test the
+  // no-capacity path and gut half the matrix below.
+  return withDerivedCapacity(base, over)
 }
 
 // BOOKING_SWITCHES is a plain module constant (no settings door yet, spec
@@ -466,25 +472,111 @@ describe('band thresholds (spec §2/§3: <35 low · 35–65 mid · >65 high)', (
   })
 })
 
-describe('>100% utilization is never defensible (R3-1 — ONE predicate for 稼働 AND 空き)', () => {
-  // The day that over-ran its saved capacity: 700 booked minutes against 480
-  // available, capacity otherwise defensible. Before R3-1 稼働 called that
-  // indefensible (pct > 100) and fell through to 予約時間, while 空き still
-  // read `capacityDefensible` on its own and printed 空き 0分 — TWO durations
-  // on one line, and the placement could only move one of them out of the
-  // 100 px column. One predicate, read by both slots, is what removes the
-  // disagreement at the source.
+describe('⚖ R1-1 — the screen reads the MODULE’s numbers, never its own division', () => {
+  // The blocker this round closes. The menu used to divide `bookedMinutes` by
+  // `availableMinutes`; `bookedMinutes` is Σ duration_minutes, an independent
+  // nullable column core never validates against the interval, while the model
+  // sums the booked INTERVALS clipped to the day’s declared hours. On the rows
+  // below the two answers are 30–60 points apart, and the pixel used to show
+  // the wrong one.
+  const read = (cells: { label: string; value: string }[]) =>
+    cells.map((c) => `${c.label} ${c.value}`)
+
+  it('a 400-minute duration_minutes on a two-hour booking reads 25 %, never 83 %', () => {
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
+    // 10:00–12:00 inside a 10:00–18:00 day, one lane: the module sees 120 of
+    // 480 minutes. The row’s own bookedMinutes still carries the column’s 400.
+    const r = row({
+      capacityDefensible: true,
+      hoursSaved: true,
+      bookedMinutes: 400,
+      availableMinutes: 480,
+      ...capacityOf(480, 120),
+    })
+    const cells = weekRowCells(r, { soloMode: false, typeSlot: 'off', t })
+    expect(cells[1]).toMatchObject({ key: 'utilization', value: '25%', tone: 'band-low' })
+    expect(read(cells).join('|')).not.toContain('83%')
+  })
+
+  it('a 10:00–12:00 booking held until 13:00 reads 38 % — the cleanup minutes count', () => {
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
+    // occupied_until 13:00 makes the chair busy for 180 of 480 minutes (37.5 →
+    // 38). The duration column still says 120, which is the 25 % the old
+    // division printed.
+    const r = row({
+      capacityDefensible: true,
+      hoursSaved: true,
+      bookedMinutes: 120,
+      availableMinutes: 480,
+      ...capacityOf(480, 180),
+    })
+    const cells = weekRowCells(r, { soloMode: false, typeSlot: 'off', t })
+    expect(cells[1]).toMatchObject({ key: 'utilization', value: '38%', tone: 'band-mid' })
+    expect(read(cells)).toContain('空き 5時間') // 480 − 180, not 480 − 120
+  })
+
+  it('MUTANT m1 — restoring the old division would move BOTH cells at once', () => {
+    // One row, both slots: the percentage and the free minutes come off the
+    // wire together, so the mutant that brings back bookedMinutes ÷
+    // availableMinutes (and availableMinutes − bookedMinutes) goes red here
+    // whichever half it touches.
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
+    const r = row({
+      capacityDefensible: true,
+      hoursSaved: true,
+      bookedMinutes: 400, // the old numerator
+      availableMinutes: 480,
+      ...capacityOf(480, 120), // the model: 25 %, 360 free
+    })
+    expect(read(weekRowCells(r, { soloMode: false, typeSlot: 'off', t }))).toEqual([
+      '予約 3件',
+      '稼働 25%',
+      '空き 6時間',
+      'キャンセル 0',
+    ])
+  })
+
+  it('an ORG-blob day carries 稼働 but promises no 空き minutes — the slot moves on', () => {
+    // E21: a business-wide default is not this store’s word about its hours, so
+    // the module withholds the minutes. A cell that subtracted them itself
+    // could not tell the difference.
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
+    const r = row({
+      capacityDefensible: true,
+      hoursSaved: true,
+      bookedMinutes: 120,
+      availableMinutes: 480,
+      ...capacityOf(480, 120),
+      hoursSource: 'org',
+      freeMinutes: null,
+    })
+    const keys = weekRowCells(r, { soloMode: false, typeSlot: 'off', t }).map((c) => c.key)
+    expect(keys).toContain('utilization')
+    expect(keys).not.toContain('free')
+    expect(keys).toEqual(['count', 'utilization', 'cancelled', 'noShow'])
+  })
+})
+
+describe('a day the model cannot describe shows neither 稼働% nor 空き (R1-1)', () => {
+  // This file used to hand-build a row with 700 booked minutes against 480
+  // available and a capacity still claimed, because the menu’s own predicate
+  // was the only thing refusing it. That row cannot come off the wire at all
+  // now: minutes are clipped to the window and a day running more lanes than
+  // it has is withdrawn at the source ('over-concurrency'), so an honest full
+  // day is 100 % and nothing is ever 101 %. What the screen still has to do is
+  // fall through on the withdrawal — both slots, both surfaces.
   const OVER = {
-    capacityDefensible: true,
+    capacityDefensible: false,
     hoursSaved: true,
     bookedMinutes: 700,
     availableMinutes: 480,
     closed: false,
+    capacityReason: 'over-concurrency' as const,
   }
   const read = (cells: { label: string; value: string }[]) =>
     cells.map((c) => `${c.label} ${c.value}`)
 
-  it('a pct over 100 falls through instead of rendering a percent', () => {
+  it('the withdrawn day renders no percent', () => {
     const { weekRowCells } = loadMetricMenu()
     const cells = weekRowCells(row(OVER), { soloMode: false, typeSlot: 'off', t })
     expect(cells[1].key).not.toBe('utilization')
@@ -508,14 +600,19 @@ describe('>100% utilization is never defensible (R3-1 — ONE predicate for 稼�
     expect(cells.filter((c) => c.key === 'bookedTime' || c.key === 'free')).toHaveLength(1)
   })
 
-  it('a 100.4% day rounds to 100 but is still over — the predicate reads the minutes, not the rounding', () => {
+  it('a day booked to the minute is ONE state: 100 % beside 空き 0分', () => {
+    // 満 is not built this round (the packet drops T2 here), so the full day
+    // still prints 100 %. Both halves come from the same `full` flag, which is
+    // what stops them ever disagreeing.
     const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
-    const cells = weekRowCells(
-      row({ ...OVER, bookedMinutes: 482, availableMinutes: 480 }),
-      { soloMode: false, typeSlot: 'off', t },
-    )
-    expect(cells.map((c) => c.key)).not.toContain('utilization')
-    expect(cells.map((c) => c.key)).not.toContain('free')
+    const r = row({ capacityDefensible: true, hoursSaved: true, bookedMinutes: 480, availableMinutes: 480 })
+    expect(r.full).toBe(true)
+    expect(read(weekRowCells(r, { soloMode: false, typeSlot: 'off', t }))).toEqual([
+      '予約 3件',
+      '稼働 100%',
+      '空き 0分',
+      'キャンセル 0',
+    ])
   })
 })
 

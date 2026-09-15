@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { formatCompactDateJst, jstWallTimeToDate } from '@/lib/date/jst'
 import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
+import { capacityOf, withDerivedCapacity } from './__fixtures__/capacity-row'
 
 const MESSAGES: Record<string, string> = {
   summaryRange: '{from}〜{to}',
@@ -44,7 +45,10 @@ function t(key: string, values?: Record<string, string | number | Date>): string
 jest.mock('next-intl', () => ({ useTranslations: () => t }))
 
 function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
-  return {
+  // ⚖ R1-1: a case that says "this day HAS a capacity" gets the wire row the
+  // adapter would have built for that denominator — the cells read the
+  // model's own numbers now, never a division done on the screen.
+  return withDerivedCapacity({
     dateNumber: 15,
     monthNumber: 9,
     weekdayLabel: '火',
@@ -68,7 +72,7 @@ function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
     ...capacityRowFields(undefined),
     returningCount: 2,
     ...over,
-  }
+  }, over)
 }
 
 function sevenDays(overrides: Array<Partial<WeekDayRowData>> = []): WeekDayRowData[] {
@@ -416,7 +420,16 @@ describe('WeekRows — the 少なめ band reads at AA (R3-9)', () => {
     // 96 of 480 saved minutes = 20% — the common state for a solo store, and
     // the one that used to render #00a63e (3.22:1 on white at 14.5px/600).
     const low = sevenDays().map((r) =>
-      row({ ...r, capacityDefensible: true, hoursSaved: true, bookedMinutes: 96, availableMinutes: 480 }),
+      row({
+        ...r,
+        capacityDefensible: true,
+        hoursSaved: true,
+        bookedMinutes: 96,
+        availableMinutes: 480,
+        // Spelled out because `...r` already carries the capacity keys, so the
+        // fixture's derivation stands aside here (R1-1).
+        ...capacityOf(480, 96),
+      }),
     )
     const { container } = render(
       <WeekRows {...baseProps} typeSlot="off" rows={low} onPickDay={jest.fn()} />,

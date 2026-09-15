@@ -63,9 +63,17 @@ function bookedTimeCell(row: WeekDayRowData, ctx: MetricMenuCtx): Cell {
   }
 }
 
-function freeCell(row: WeekDayRowData, ctx: MetricMenuCtx): Cell {
-  const free = Math.max(0, row.availableMinutes - row.bookedMinutes)
-  return { key: 'free', label: ctx.t('free'), value: formatHoursMinutes(free, ctx.t), tone: 'ink' }
+/** ⚖ R1-1 — the module's own free minutes, never a subtraction done here.
+ *  `freeMinutes` is null on a day whose hours the STORE did not declare (E21),
+ *  so the caller checks it before asking for this cell and passes the number
+ *  it proved. */
+function freeCell(ctx: MetricMenuCtx, freeMinutes: number): Cell {
+  return {
+    key: 'free',
+    label: ctx.t('free'),
+    value: formatHoursMinutes(freeMinutes, ctx.t),
+    tone: 'ink',
+  }
 }
 
 function newCell(row: WeekDayRowData, ctx: MetricMenuCtx): Cell {
@@ -142,26 +150,24 @@ function pickNext(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set<CellKey>): 
   throw new Error('metric menu ran dry — should be unreachable with 8 metrics')
 }
 
-/** ⚖ R3-1 (lead, 2026-09-15) — ONE predicate, read by BOTH capacity slots.
- *  稼働% and 空き are the same saved capacity wearing two dresses: either the
- *  day's capacity is worth showing or it is not, and that has to be decided
- *  ONCE. It was decided twice, and the two answers disagreed the moment a day
- *  ran over its capacity: 稼働 saw pct > 100, called the day indefensible and
- *  fell through to 予約時間, while 空き still read `capacityDefensible` alone
- *  and printed 空き 0分 — two durations on one line, one of them stranded in
- *  the 100 px column (the repo's own 700/480 fixture; the R2-1 "at most one
- *  duration" comment below was false for exactly that branch).
+/** ⚖ R1-1 (lead, 2026-09-15 22:1x) — ONE formula, and it is not this file's.
  *
- *  Spec §14: over capacity is NOT defensible, so the overrun belongs in the
- *  predicate, not in a percentage guard downstream of it. `availableMinutes >
- *  0` stays a conjunct — it is what makes the percentage divisible at all,
- *  and a 0-capacity day has no 空き to report either. */
+ *  This predicate used to re-derive the day's honesty from `bookedMinutes` and
+ *  `availableMinutes`, and `utilizationSlot` below divided the same two numbers
+ *  again. That is a SECOND capacity formula living on the screen: it read
+ *  `bookedMinutes` (Σ duration_minutes, the column core never validates against
+ *  the interval) where the model reads the booked INTERVALS clipped to the
+ *  day's declared hours, so the two disagreed by 30–60 points on ordinary
+ *  rows — a 400-minute duration on a two-hour booking printed 83 % beside a
+ *  wire that said 25 %.
+ *
+ *  So the question is answered exactly where capacity is computed. The module
+ *  already refuses an over-capacity day (the concurrency guard) and a
+ *  zero-capacity one (`no-lanes`), and stamps a reason for every refusal, so
+ *  `capacityMinutes != null` IS "this day's capacity is worth showing" — for
+ *  稼働 and 空き alike, still one predicate read by both slots. */
 function capacityShown(row: WeekDayRowData): boolean {
-  return (
-    row.capacityDefensible &&
-    row.availableMinutes > 0 &&
-    row.bookedMinutes <= row.availableMinutes
-  )
+  return row.capacityMinutes != null
 }
 
 /** ⚖ S3b (PKT-1c-B) — 未設定 reads the FACT, not a guess about the store.
@@ -187,8 +193,14 @@ function unsetShown(row: WeekDayRowData): boolean {
 /** 稼働: the defensible percentage → 未設定 (hours are the only thing missing)
  *  → next unused metric. */
 function utilizationSlot(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set<CellKey>): Cell {
-  if (capacityShown(row)) {
-    const pct = Math.round((row.bookedMinutes / row.availableMinutes) * 100)
+  // R1-1: the module rounds ONCE and pins 100 to `full` (100 % / 満 / 空き 0 are
+  // one state, E23), so the cell prints its integer rather than computing one.
+  // 満 itself is not built this round — a full day still reads 100 %.
+  // The null check cannot fire on a fact the module produced (every
+  // capacity-present row carries a percentage); it is the wire's guard, so a
+  // partial payload falls to the next metric instead of printing "null%".
+  const pct = row.full ? 100 : row.occupancyPct
+  if (capacityShown(row) && pct != null) {
     return { key: 'utilization', label: ctx.t('utilization'), value: `${pct}%`, tone: bandTone(pct) }
   }
   if (unsetShown(row)) return unsetCell(ctx)
@@ -199,8 +211,11 @@ function utilizationSlot(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set<Cell
  *  its own designated fallback 予約時間 — which itself routes through the
  *  shared fill order if 予約時間 is already taken (never a repeat). */
 function freeOrBookedTimeSlot(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set<CellKey>): Cell {
-  if (BOOKING_SWITCHES.freeTimeCell && capacityShown(row)) {
-    return freeCell(row, ctx)
+  // R1-1: 空き rides `freeMinutes`, which the module withholds on an org-blob
+  // day (a business-wide default is not this store's word about its hours,
+  // E21). No minutes to promise → no cell, and the slot takes the next metric.
+  if (BOOKING_SWITCHES.freeTimeCell && capacityShown(row) && row.freeMinutes != null) {
+    return freeCell(ctx, row.freeMinutes)
   }
   return pickNext(row, ctx, used)
 }

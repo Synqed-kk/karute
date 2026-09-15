@@ -9,6 +9,7 @@
  * which must KEEP accent (the law is one-way, not anti-blue).
  */
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import { capacityOf } from './__fixtures__/capacity-row'
 import LandingPage from '@/app/[locale]/page'
 import { ProcessingModal } from '@/components/review/ProcessingModal'
 import { ImportStepper } from '@/components/data-import/ImportStepper'
@@ -435,6 +436,9 @@ describe('week rows + day numbers line — the adjudicated accent sites (R3-10)'
     cancelledCount: 2,
     noShowDayCount: 0,
     returningCount: 2,
+    // ⚖ R1-1: 240 of 480 minutes, as the capacity model states it — the band
+    // reads `occupancyPct`, not a division the cell does itself.
+    ...capacityOf(480, 240),
   } as unknown as NonNullable<Row>
 
   const weekProps = {
