@@ -446,6 +446,21 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     expect(chip.props.children).not.toContain('17')
   })
 
+  // The BACK gesture never touches `navigateTo` — the URL changes under the
+  // page and new server props simply arrive. So the hold has to be spent by its
+  // own answer landing as well, not only by the next move starting; this is the
+  // half of R1-1 that only a prop change can prove.
+  it('a landed tap is spent WITHOUT a navigation — the back gesture is not stuck', () => {
+    renderView(MONTH_VIEW)
+    act(() => monthPageProps!.onPickDay('2026-09-17'))
+    rerenderWith({ ...MONTH_VIEW, selectedDateIso: '2026-09-17T00:00:00+09:00' })
+    // back: no handler runs, the props just change
+    rerenderWith({ ...MONTH_VIEW, selectedDateIso: '2026-09-15T00:00:00+09:00' })
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
+    expect(cardProps!.dateIso).toBe('2026-09-15')
+    expect(cardProps!.pending).toBe(false)
+  })
+
   it('the date-jump panel picking the day the tap came FROM is spent too', () => {
     renderView(MONTH_VIEW)
     act(() => monthPageProps!.onPickDay('2026-09-17'))
