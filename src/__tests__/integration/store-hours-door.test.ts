@@ -100,11 +100,32 @@ jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => fakeClient),
 }))
 
+// The app roster / Supabase profile id, and core's OWN staff id for the SAME
+// human. Deliberately different, exactly as on a real roster (every signed-up
+// member has core `staff.user_id = <profile id>` and a different `staff.id`),
+// so a payload carrying the profile id can never pass the payload pin below.
+const PROFILE_ID = 'auth-user-1'
+const CORE_STAFF_ID = 'core-staff-7f2a'
+const resolveSynqedStaffId = jest.fn(async (profileId: string) => {
+  if (profileId === PROFILE_ID) return CORE_STAFF_ID
+  throw new Error('no synqed staff record')
+})
+const lookupSynqedStaffIdForBusiness = jest.fn(
+  async (profileId: string, _businessId: string): Promise<string | null> =>
+    profileId === PROFILE_ID ? CORE_STAFF_ID : null,
+)
+jest.mock('@/lib/synqed/staff-map', () => ({
+  resolveSynqedStaffId: (profileId: string) => resolveSynqedStaffId(profileId),
+  lookupSynqedStaffIdForBusiness: (profileId: string, businessId: string) =>
+    lookupSynqedStaffIdForBusiness(profileId, businessId),
+}))
+
 import { PATCH as hoursPATCH } from '@/app/api/app/v1/stores/[id]/hours/route'
 import { setStoreHours, listStoresWithClient } from '@/actions/stores'
 import { upsertOrgSettings } from '@/actions/org-settings'
 import { StoreRowSchema } from '@/lib/app-api/settings-screen-dto'
 import {
+  STORE_HOURS_ACTOR_UNRESOLVED,
   STORE_HOURS_INVALID_WINDOW,
   STORE_HOURS_WEEK_INCOMPLETE,
   STORE_OWNER_DENIAL,
@@ -161,6 +182,14 @@ beforeEach(() => {
   ])
   storePoliciesSet.mockResolvedValue({})
   storePoliciesList.mockResolvedValue({ policies: [] })
+  resolveSynqedStaffId.mockImplementation(async (profileId: string) => {
+    if (profileId === PROFILE_ID) return CORE_STAFF_ID
+    throw new Error('no synqed staff record')
+  })
+  lookupSynqedStaffIdForBusiness.mockImplementation(
+    async (profileId: string, _businessId: string) =>
+      profileId === PROFILE_ID ? CORE_STAFF_ID : null,
+  )
   storesList.mockResolvedValue({ stores: [] })
   staffStoresCounts.mockResolvedValue({ counts: {} })
   customersCountsByStore.mockResolvedValue({ counts: {} })
@@ -308,8 +337,13 @@ describe('the exact SDK payload', () => {
     // would clobber a setting nobody touched.
     expect(body).toEqual({
       weekly_hours: FULL_WEEK,
-      acting_staff_id: 'auth-user-1',
+      // CORE's staff-id space — NOT the app's profile id. The two are
+      // different ids for the same human on every real roster, and core
+      // validates neither, so this pin is the only thing standing between a
+      // customer-facing `updated_by` and an id that is not a core staff row.
+      acting_staff_id: CORE_STAFF_ID,
     })
+    expect(CORE_STAFF_ID).not.toBe(PROFILE_ID)
     expect(Object.keys(body).sort()).toEqual(['acting_staff_id', 'weekly_hours'])
   })
 
@@ -364,6 +398,51 @@ describe('the exact SDK payload', () => {
       expect('error' in result && result.error).toBeTruthy()
     })
     expect(lines).toHaveLength(0)
+  })
+})
+
+describe('the acting id core is stamped with (CORE staff-id space, both doors)', () => {
+  it('the web door sends the RESOLVED core staff id, never the profile id it checked the roster with', async () => {
+    expect(await setStoreHours('store-7', FULL_WEEK)).toEqual({ ok: true })
+    expect(resolveSynqedStaffId).toHaveBeenCalledWith(PROFILE_ID)
+    expect(storePoliciesSet.mock.calls[0][1].acting_staff_id).toBe(CORE_STAFF_ID)
+  })
+
+  it('the phone door resolves through the Bearer-safe twin, with the token business', async () => {
+    const res = await hoursPATCH(patchReq(FULL_WEEK), params('store-7'))
+    expect(res.status).toBe(200)
+    expect(lookupSynqedStaffIdForBusiness).toHaveBeenCalledWith(PROFILE_ID, 'business-1')
+    expect(storePoliciesSet.mock.calls[0][1].acting_staff_id).toBe(CORE_STAFF_ID)
+  })
+
+  it('UNRESOLVABLE on web → the save is REFUSED: nothing reaches core, no audit row', async () => {
+    resolveSynqedStaffId.mockRejectedValue(new Error('no synqed staff record'))
+    const lines = await auditLines(async () => {
+      expect(await setStoreHours('store-7', FULL_WEEK)).toEqual({
+        error: STORE_HOURS_ACTOR_UNRESOLVED,
+      })
+    })
+    expect(storePoliciesSet).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('UNRESOLVABLE on the phone door → refused the same way, never a profile-id fallback', async () => {
+    lookupSynqedStaffIdForBusiness.mockResolvedValue(null)
+    const lines = await auditLines(async () => {
+      const res = await hoursPATCH(patchReq(FULL_WEEK), params('store-7'))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ error: STORE_HOURS_ACTOR_UNRESOLVED })
+    })
+    expect(storePoliciesSet).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it("the APP's own audit row keeps the PROFILE id — that table's actor space, unchanged", async () => {
+    const lines = await auditLines(async () => {
+      expect(await setStoreHours('store-7', FULL_WEEK)).toEqual({ ok: true })
+    })
+    expect(lines[0]).toMatchObject({ actor_id: PROFILE_ID })
+    expect(storePoliciesSet.mock.calls[0][1].acting_staff_id).toBe(CORE_STAFF_ID)
   })
 })
 

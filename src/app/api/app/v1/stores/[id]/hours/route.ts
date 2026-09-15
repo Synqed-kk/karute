@@ -23,6 +23,7 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
+import { lookupSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { setStoreHoursCore } from '@/actions/stores'
 import { STORE_OWNER_DENIAL } from '@/lib/validations/store'
 
@@ -50,12 +51,22 @@ export const PATCH = facadeHandler<Params>('stores.update', async (ctx) => {
   // core's policy row.
   const weeklyHours = (body as { weekly_hours?: unknown } | null)?.weekly_hours
 
+  // core's acting_staff_id is CORE's staff-id space, NOT the token's profile
+  // id — the Bearer-safe twin of the web door's resolveSynqedStaffId, and it
+  // must never touch the cookie session. `null` refuses the save inside the
+  // core (STORE_HOURS_ACTOR_UNRESOLVED); a profile id must never reach core.
+  const actingStaffId = await lookupSynqedStaffIdForBusiness(
+    ctx.identity.authUserId,
+    businessId,
+  ).catch(() => null)
+
   const result = await setStoreHoursCore(
     synqed,
     businessId,
     {
       staffList,
       selfUserId: ctx.identity.authUserId,
+      actingStaffId,
       source: 'facade',
       requestId: ctx.meta.requestId,
     },

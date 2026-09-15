@@ -12,6 +12,7 @@ import {
   storeSchema,
   type StoreInput,
   STORE_OWNER_DENIAL,
+  STORE_HOURS_ACTOR_UNRESOLVED,
   parseStoreWeeklyHours,
 } from '@/lib/validations/store'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
@@ -504,6 +505,24 @@ export async function updateStore(
   return result
 }
 
+/** setStoreHoursCore's identity bundle. The extra field is the whole point:
+ *  core's `acting_staff_id` lives in CORE's STAFF-id space, while
+ *  `selfUserId` is the app's PROFILE id (getCurrentUserStaffId / the Bearer
+ *  token's auth user). They are different ids for the same human — every
+ *  signed-up member of a real roster has `staff.user_id = <profile id>` and a
+ *  different `staff.id` — and src/actions/appointments.ts:378-382 already
+ *  carries the canonical translation plus the record of this exact bug having
+ *  shipped once (`:477-479`).
+ *
+ *  BOTH doors resolve it BEFORE calling the core — web through
+ *  `resolveSynqedStaffId`, the facade through the Bearer-safe
+ *  `lookupSynqedStaffIdForBusiness` — and hand the answer in here.
+ *  `null` = it would not resolve: unlike the appointments stamp (optional,
+ *  best-effort, omitted on failure) this field is REQUIRED by the SDK and core
+ *  gates on nothing, so the save is REFUSED. Never a profile id, never a null
+ *  fallback. */
+type StoreHoursWriteDeps = StoreWriteDeps & { actingStaffId: string | null }
+
 /** Client-threaded core of the 営業時間 save — the ONE place a store's own
  *  weekly hours are written, shared by the web `setStoreHours` action and the
  *  facade PATCH /stores/[id]/hours route (same owner-gate + audit-source
@@ -525,7 +544,7 @@ export async function updateStore(
 export async function setStoreHoursCore(
   synqed: StoresClient,
   businessId: string,
-  deps: StoreWriteDeps,
+  deps: StoreHoursWriteDeps,
   storeId: string,
   weeklyHours: unknown,
 ): Promise<{ ok: true } | { error: string }> {
@@ -537,10 +556,10 @@ export async function setStoreHoursCore(
   if (!isRosterOwner(deps.staffList, deps.selfUserId)) {
     return { error: STORE_OWNER_DENIAL }
   }
-  // isRosterOwner already proved this is non-null; the local narrows it for
-  // tsc without re-stating the gate.
-  const actingStaffId = deps.selfUserId
-  if (!actingStaffId) return { error: STORE_OWNER_DENIAL }
+  // CORE's staff-id space, resolved by the door (see StoreHoursWriteDeps).
+  // Unresolvable = REFUSE — never deps.selfUserId, which is a profile id.
+  const actingStaffId = deps.actingStaffId
+  if (!actingStaffId) return { error: STORE_HOURS_ACTOR_UNRESOLVED }
   try {
     await synqed.storePolicies.set(storeId, {
       weekly_hours: parsed.hours,
@@ -588,10 +607,22 @@ export async function setStoreHours(
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
+  // The canonical profile-id → CORE staff-id translation, exactly the one
+  // resolveActingStaffId uses for the appointments columns — but NOT
+  // best-effort: `null` refuses the save inside the core rather than stamping
+  // core's `updated_by` with a profile id (see StoreHoursWriteDeps).
+  // Deferred (the house idiom in this dir): staff-map pulls the SDK, and
+  // listStores() — the app-shell layout's per-render read — has no business
+  // dragging that in for a write path only this action reaches.
+  let actingStaffId: string | null = null
+  if (selfUserId) {
+    const { resolveSynqedStaffId } = await import('@/lib/synqed/staff-map')
+    actingStaffId = await resolveSynqedStaffId(selfUserId).catch(() => null)
+  }
   const result = await setStoreHoursCore(
     synqed,
     businessId,
-    { staffList, selfUserId, source: 'web', requestId: crypto.randomUUID() },
+    { staffList, selfUserId, actingStaffId, source: 'web', requestId: crypto.randomUUID() },
     storeId,
     weeklyHours,
   )

@@ -51,6 +51,13 @@ export const STORE_HOURS_WEEK_INCOMPLETE = 'STORE_HOURS_WEEK_INCOMPLETE'
  *  overnight store is refused here rather than silently mis-resolved. */
 export const STORE_HOURS_INVALID_WINDOW = 'STORE_HOURS_INVALID_WINDOW'
 
+/** The caller's id in CORE's staff-id space could not be resolved, so the
+ *  save is REFUSED. `acting_staff_id` is REQUIRED on core's policy row and
+ *  core validates nothing, so a fallback would stamp a customer-facing row
+ *  with an id that is not a core staff row at all — the exact profile-id-space
+ *  bug src/actions/appointments.ts records having shipped once. */
+export const STORE_HOURS_ACTOR_UNRESOLVED = 'STORE_HOURS_ACTOR_UNRESOLVED'
+
 /** 00:00–23:59, zero-padded. 24:00 is deliberately OUT: `<input type="time">`
  *  cannot hold it either, so the editor and this parser refuse the same set.
  *  (The read side, minuteOfHhmm, still accepts a 24:00 written by core or the
