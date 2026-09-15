@@ -385,6 +385,33 @@ describe('WeekRows — the mock’s §v5/§v6 geometry, ported rule for rule', (
   })
 })
 
+describe('WeekRows — the 少なめ band reads at AA (R3-9)', () => {
+  it('a sub-35% row carries text-green-700, not green-600', () => {
+    const WeekRows = loadWeekRows()
+    // 96 of 480 saved minutes = 20% — the common state for a solo store, and
+    // the one that used to render #00a63e (3.22:1 on white at 14.5px/600).
+    const low = sevenDays().map((r) =>
+      row({ ...r, capacityDefensible: true, hoursSaved: true, bookedMinutes: 96, availableMinutes: 480 }),
+    )
+    const { container } = render(
+      <WeekRows {...baseProps} typeSlot="off" rows={low} onPickDay={jest.fn()} />,
+    )
+    const values = Array.from(container.querySelectorAll('[data-week-value]'))
+    const band = values.find((v) => v.textContent === '20%')!
+    expect(band.className).toContain('text-green-700')
+    expect(band.className).not.toContain('text-green-600')
+    expect(band.className).toContain('dark:text-green-400')
+  })
+
+  it('the density dot keeps its own green — a 6 px shape is not text', () => {
+    const WeekRows = loadWeekRows()
+    const { container } = render(
+      <WeekRows {...baseProps} rows={sevenDays(new Array(7).fill({ count: 1 }))} onPickDay={jest.fn()} />,
+    )
+    expect(container.querySelector('.size-1\\.5')!.className).toContain('bg-[var(--color-success)]')
+  })
+})
+
 describe('WeekRows — the summary line is the mock’s .wksum (W-F)', () => {
   it('the NUMBERS are ink 700 tabular and the words stay grey', () => {
     const WeekRows = loadWeekRows()

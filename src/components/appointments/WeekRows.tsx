@@ -53,17 +53,36 @@ export function densityDotClass(count: number): string | null {
 // surfaces, never a second copy.
 //
 // The three BAND tones are the mock's own three colours (`.vl.gn` #16a34a ·
-// `--blue` #2563eb · `.vl.am` #b45309), reached through the palette class that
-// IS that hex, not a literal. Not the @synqed-kk/ui `--color-*` tokens the
-// first draft used: under `data-theme="karute"` that package sets
-// `--color-accent: #18181b`, so the 普通 band — the one most days land in —
-// rendered NEAR-BLACK, which is both the wrong colour and a black-fill look
-// the brand rule forbids. `--color-warning` (#f59e0b) was likewise a dot
-// colour, too light to read as text. Dark pairs follow the Sunday-date
-// precedent below.
+// `--blue` #2563eb · `.vl.am` #b45309), reached through the palette class
+// nearest that hex, not a literal.
+//
+// R3-11 — the reason this map does NOT use the @synqed-kk/ui `--color-*`
+// tokens, corrected. The old note claimed the karute theme sets
+// `--color-accent: #18181b`; it does not. On the installed 0.3.2,
+// `tokens.css:27` sets `--color-accent: #2563eb` (light) / `:65` `#60a5fa`
+// (dark), and `#18181b` is `--color-text` at `:33` — the near-black the first
+// draft actually rendered came from a THEME-LESS page falling back to the
+// `@theme inline` `--color-accent: var(--accent)`, which is near-white/ink,
+// not from the karute values. So `--color-accent` would in fact serve the
+// 普通 band correctly today (`densityDotClass` above uses it and renders
+// blue).
+//
+// The reason to keep explicit palette classes is the other two bands: there
+// is no token for them. `--color-success` is the calendar DOT green (#22c55e,
+// 2.2:1 as text on white) and `--color-warning` the dot amber (#f59e0b,
+// 2.1:1) — neither is a text colour, and pointing one band at a token while
+// the other two stay on the zinc/green/amber scales would leave the three
+// bands in different families, which is exactly what the band is for.
+// One scale, three steps, dark pairs beside them.
+//
+// R3-9 — 少なめ was `green-600` (#00a63e, 3.22:1 on white at 14.5px/600 —
+// under the 4.5:1 AA floor, and lower still on a today row's wash).
+// `green-700` (#008236) measures 4.95:1 on white; the dark pair `green-400`
+// measures 9.96:1 on #18181b. The DOT keeps its own green — the band it
+// draws is a 6 px shape, not text.
 export const VALUE_TONE_CLASS: Record<Cell['tone'], string> = {
   ink: 'text-[var(--color-text)]',
-  'band-low': 'text-green-600 dark:text-green-400',
+  'band-low': 'text-green-700 dark:text-green-400',
   'band-mid': 'text-primary',
   'band-high': 'text-amber-700 dark:text-amber-500',
   // The day list's own 新規 token (§v11c's --blue == this app's
