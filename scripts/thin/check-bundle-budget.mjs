@@ -1019,7 +1019,36 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
 //   en 134,204 · index 1,033,009 · vendor 937,791 = 2,105,004 B.
 // Ceiling = 2,105,004 + 1,000.
-const BUDGET_BYTES = 2_106_004
+//
+// RE-MEASURED 2026-09-15 for the MERGE of the two lines above — #921 R6
+// (78c1ddc95) merged INTO feat/booking-week-face (25c209377) so the phone
+// build carries the week page and the R6 calendar together:
+// 2,105,004 (week line) → 2,105,485. Same CI recipe as every entry above
+// (the workflow's six release-length placeholder VITE_* values, thin/dist
+// emptied before each lap), byte-identical across two clean builds on the
+// merge tip, same content hashes both times (en-Dv4fKQp9, index-D6-eQrWP,
+// vendor-BD5eMVWe; node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+// en 134,223 · index 1,033,471 · vendor 937,791 = 2,105,485 B.
+// Ceiling = 2,105,485 + 1,000. The week line's previous ceiling still passed
+// (519 B of headroom left); re-measured anyway so the ceiling tracks the tree
+// that is actually built.
+//
+// Where the +481 B went, measured per chunk and fully accounted — every byte
+// is a figure one of the two chains above already measured on its own line:
+//   index  1,033,009 → 1,033,471 (+462 B) = R6's +423 (the 予約 seam's
+//     "pt-6" → "pt-[9px] mb-[11px]" at +14, and the deferred draw at +409)
+//     PLUS +39 for the JA retry tail arriving on reservation.dateJump.failed
+//     through the ja.json conflict resolution — 「。もう一度お試しください。」
+//     is 13 characters at 3 UTF-8 bytes each, the same 39 B the #921 R5 entry
+//     above measured. ja.json is inlined into this chunk.
+//   en      134,204 → 134,223 (+19 B) — the EN half of that same string,
+//     ". Please try again." — 19 ASCII characters, exactly the 19 B the R5
+//     entry measured. en.json is its own lazy chunk.
+//   vendor   937,791 → 937,791 — unchanged to the byte. No dependency moved
+//     and the lockfile was not touched by the merge. (The #921 line's 937,800
+//     is that branch's own figure; the week line dropped 9 B when WeekDayCard
+//     stopped importing, as its PKT-1b-WIRE entry records.)
+const BUDGET_BYTES = 2_106_485
 
 let dir
 try {
