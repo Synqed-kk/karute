@@ -149,7 +149,7 @@ function renderView({
  *  pointerId and clientX/Y undefined — which silently sends the panel's axis
  *  lock down the wrong branch. Build the event and hang the properties on it. */
 function pointer(
-  type: 'pointerdown' | 'pointermove' | 'pointerup',
+  type: 'pointerdown' | 'pointermove' | 'pointerup' | 'pointercancel',
   el: Element,
   init: { pointerId: number; clientX: number; clientY: number },
 ) {
@@ -1237,6 +1237,72 @@ describe('the panel moves like the mock', () => {
     expect(push.mock.calls[0][0]).toContain('date=2026-09-01')
     await frames(1000)
     expect(panel()).toBeNull()
+  })
+
+  /**
+   * R2 (fix round 3 — LENS-1 MEDIUM 1). Pointer capture is per-pointer-id, so
+   * a second finger landing on the grid mid-drag (a palm, a second thumb)
+   * still reached `onPointerDown` and OVERWROTE the single gesture slot. The
+   * first finger's moves were then ignored (wrong id) and the second's
+   * release took the `axis !== 'x'` early return without touching the spring
+   * — the track was left showing two half-months until the next arrow tap.
+   */
+  it('t10 — a second finger cannot hijack the drag, and the release still settles', async () => {
+    renderView()
+    const dialog = openNow()
+    await frames(1000)
+
+    const grid = dialog.querySelector<HTMLElement>('.touch-none')!
+    const track = grid.firstElementChild as HTMLElement
+    const x = () => Number(/translate3d\(([-\d.]+)px/.exec(track.style.transform)?.[1] ?? NaN)
+
+    pointer('pointerdown', grid, { pointerId: 11, clientX: 200, clientY: 100 })
+    pointer('pointermove', grid, { pointerId: 11, clientX: 160, clientY: 101 })
+    expect(x()).toBe(-40) // finger A owns the track, 1:1
+
+    // Finger B lands and drags across the grid: neither event touches it.
+    pointer('pointerdown', grid, { pointerId: 12, clientX: 300, clientY: 300 })
+    pointer('pointermove', grid, { pointerId: 12, clientX: 100, clientY: 300 })
+    expect(x()).toBe(-40)
+    pointer('pointerup', grid, { pointerId: 12, clientX: 100, clientY: 300 })
+    expect(x()).toBe(-40)
+
+    // …and finger A still owns the gesture: it moves the track, and ITS
+    // release settles — 40px is nowhere near a quarter of the pane, so the
+    // track comes back to centre and the month does not change.
+    pointer('pointermove', grid, { pointerId: 11, clientX: 170, clientY: 101 })
+    expect(x()).toBe(-30)
+    // A pause on the glass, the way t4b does it: the last sample's speed is
+    // what the release reads, and this test is about the settle, not a flick.
+    await frames(200)
+    pointer('pointermove', grid, { pointerId: 11, clientX: 170, clientY: 101 })
+    pointer('pointerup', grid, { pointerId: 11, clientX: 170, clientY: 101 })
+    await frames(2000)
+    expect(x()).toBe(0)
+    expect(title()).toHaveTextContent('2026年9月')
+  })
+
+  /** R2, second half — a gesture the browser takes away settles the track too
+   *  (the mock wires pointercancel to the same handler, MOCK 1373). */
+  it('t11 — a cancelled drag never leaves the track parked between two months', async () => {
+    renderView()
+    const dialog = openNow()
+    await frames(1000)
+
+    const grid = dialog.querySelector<HTMLElement>('.touch-none')!
+    const track = grid.firstElementChild as HTMLElement
+    const x = () => Number(/translate3d\(([-\d.]+)px/.exec(track.style.transform)?.[1] ?? NaN)
+
+    pointer('pointerdown', grid, { pointerId: 13, clientX: 200, clientY: 100 })
+    pointer('pointermove', grid, { pointerId: 13, clientX: 170, clientY: 101 })
+    expect(x()).toBe(-30)
+    await frames(200)
+    pointer('pointermove', grid, { pointerId: 13, clientX: 170, clientY: 101 })
+    pointer('pointercancel', grid, { pointerId: 13, clientX: 170, clientY: 101 })
+
+    await frames(2000)
+    expect(x()).toBe(0)
+    expect(title()).toHaveTextContent('2026年9月')
   })
 
   /**

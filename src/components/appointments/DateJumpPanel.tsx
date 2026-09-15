@@ -538,6 +538,13 @@ export function DateJumpPanel({
   // its own 2025–2027 wall, and this calendar has no month bound anywhere in
   // the reducer for a band to push back from.
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    // ONE FINGER OWNS THE TRACK. Pointer capture is per-pointer-id, so a
+    // second finger landing mid-drag (a palm, a second thumb) still reaches
+    // this handler — and overwriting the single gesture slot froze the track
+    // where the first finger left it: the first finger's moves were then
+    // ignored (wrong id) and the second's release had no x-axis to settle, so
+    // the grid sat showing two half-months until the next arrow tap.
+    if (gesture.current?.axis === 'x') return
     // Deliberately does NOT touch the slide — the mock's pointerdown commits,
     // and this app's does not (R10): committing here changed the month under
     // the finger between pointerdown and click, and she tapped 9/1 and landed
@@ -597,8 +604,19 @@ export function DateJumpPanel({
 
   const onPointerEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
     const g = gesture.current
+    // Only the pointer that owns the gesture may end it (see onPointerDown).
+    if (!g || g.id !== e.pointerId) return
     gesture.current = null
-    if (!g || g.axis !== 'x') return
+    if (g.axis !== 'x') {
+      // A gesture that never claimed the x axis — a tap, a vertical swipe, or
+      // one the browser took away — must still leave the track where it
+      // belongs: on the shift already travelling, or back at centre. Never
+      // parked between two months with nothing left to move it.
+      const armed = pendingRef.current
+      if (armed) slideSpring.set(-armed * paneW())
+      else if (slideSpring.value() !== 0) slideSpring.set(0)
+      return
+    }
     if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId)
     }
