@@ -2480,6 +2480,7 @@
           "recording_autostart_toggle": "Changed auto-start recording",
           "staff_stores_change": "Changed store assignment",
           "store_create": "Store added",
+          "store_hours_update": "Updated store hours",
           "store_update": "Store updated",
           "sync_config_update": "Booking sync settings changed",
           "sync_run_now": "Ran sync now"

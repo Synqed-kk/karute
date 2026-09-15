@@ -110,11 +110,17 @@ const staffStoresCounts = jest.fn(async () => ({ counts: {} as Record<string, nu
 const customersCountsByStore = jest.fn(async () => ({ counts: {} as Record<string, number> }))
 const entitlementsGet = jest.fn(async () => ({ tier: 'free', is_unlimited: false }))
 const syncGetConfig = jest.fn(async () => null as Record<string, unknown> | null)
+// 1c-D S1: the 設定 doors list store POLICIES once for the whole business so
+// the 店舗 tab can render each store's own 営業時間.
+const storePoliciesList = jest.fn(async () => ({
+  policies: [] as Record<string, unknown>[],
+}))
 const fakeClient = {
   stores: { get: storesGet, list: storesList },
   staffStores: { get: staffStoresGet, counts: staffStoresCounts },
   customers: { countsByStore: customersCountsByStore },
   entitlements: { get: entitlementsGet },
+  storePolicies: { list: storePoliciesList },
   sync: { getConfig: syncGetConfig },
 }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
@@ -447,6 +453,8 @@ describe('GET /api/app/v1/screens/settings', () => {
         staffCount: 0,
         customerCount: 0,
         businessType: null,
+        // No policy row for this store → never configured (1c-D S1).
+        weeklyHours: null,
       },
     ])
     expect(dto.initialEntitlement).toMatchObject({ tier: 'professional', isUnlimited: true })

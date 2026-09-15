@@ -8,7 +8,12 @@ import type { SynqedClient, WeeklyHours } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { businessDisplayName } from '@/lib/business-name'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
-import { storeSchema, type StoreInput, STORE_OWNER_DENIAL } from '@/lib/validations/store'
+import {
+  storeSchema,
+  type StoreInput,
+  STORE_OWNER_DENIAL,
+  parseStoreWeeklyHours,
+} from '@/lib/validations/store'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { audit } from '@/lib/audit'
@@ -204,9 +209,11 @@ export async function listStoresWithClient(
     staffCount: staffByStore.get(s.id) ?? 0,
     customerCount: customersByStore.get(s.id) ?? 0,
     businessType: coreBusinessType(s),
-    // Absent policy row = never configured = null, the same thing the SDK
-    // returns as `weekly_hours` on a 'default'-source policy.
-    weeklyHours: hoursByStore.get(s.id) ?? null,
+    // Only when the caller ASKED. Absent policy row on a withHours read =
+    // never configured = null, the same thing the SDK returns as
+    // `weekly_hours` on a 'default'-source policy; `undefined` otherwise, so
+    // no consumer can mistake "not fetched" for "none configured".
+    weeklyHours: opts.withHours ? (hoursByStore.get(s.id) ?? null) : undefined,
   }))
 }
 
@@ -493,6 +500,103 @@ export async function updateStore(
     id,
     input,
   )
+  if ('ok' in result) revalidatePath('/settings')
+  return result
+}
+
+/** Client-threaded core of the 営業時間 save — the ONE place a store's own
+ *  weekly hours are written, shared by the web `setStoreHours` action and the
+ *  facade PATCH /stores/[id]/hours route (same owner-gate + audit-source
+ *  contract as createStoreCore/updateStoreCore above).
+ *
+ *  OWNER-ONLY for release 28, on the SAME hardcoded `isRosterOwner` gate every
+ *  other store write uses — no new capability. A manager setting their own
+ *  store's hours is the RBAC capability upgrade, a separate lane; it is
+ *  recorded, not built here.
+ *
+ *  `weekly_hours` is the ONLY policy field sent. Core honours partial update
+ *  ("undefined = keep", dist/types.d.ts:1075 — proven against the practice
+ *  business 2026-09-16), so re-sending cutoff/cancellation/gap-guard fields
+ *  would only risk clobbering settings this editor does not own.
+ *
+ *  KNOWN LIMITATION, queued: a window that closes AFTER midnight cannot be
+ *  expressed (resolveDayHours has no close < open form), so it is refused
+ *  with STORE_HOURS_INVALID_WINDOW rather than silently mis-resolved. */
+export async function setStoreHoursCore(
+  synqed: StoresClient,
+  businessId: string,
+  deps: StoreWriteDeps,
+  storeId: string,
+  weeklyHours: unknown,
+): Promise<{ ok: true } | { error: string }> {
+  // Validation BEFORE the owner check — web parity with createStore/
+  // updateStore (#578 audit finding): a non-owner submitting an invalid body
+  // sees the validation message the action always returned.
+  const parsed = parseStoreWeeklyHours(weeklyHours)
+  if ('error' in parsed) return { error: parsed.error }
+  if (!isRosterOwner(deps.staffList, deps.selfUserId)) {
+    return { error: STORE_OWNER_DENIAL }
+  }
+  // isRosterOwner already proved this is non-null; the local narrows it for
+  // tsc without re-stating the gate.
+  const actingStaffId = deps.selfUserId
+  if (!actingStaffId) return { error: STORE_OWNER_DENIAL }
+  try {
+    await synqed.storePolicies.set(storeId, {
+      weekly_hours: parsed.hours,
+      acting_staff_id: actingStaffId,
+    })
+    // ONE row, from the app's own emitter — exactly how settings.store_update
+    // is emitted by updateStoreCore. The SDK's optional `audit` input is
+    // deliberately NOT used: audit() already writes the durable core row, so
+    // passing both would double-log every hours save (the same double-logging
+    // the FACADE_AUDIT_MAP 'skip' row for stores.update exists to prevent).
+    audit({
+      category: 'settings',
+      action: 'settings.store_hours_update',
+      actorId: deps.selfUserId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'store',
+      targetId: storeId,
+      requestId: deps.requestId,
+      source: deps.source,
+    })
+    return { ok: true }
+  } catch (e) {
+    return {
+      error: `Could not update store hours: ${e instanceof Error ? e.message : 'unknown'}`,
+    }
+  }
+}
+
+/** Save one store's weekly 営業時間 (web door). Owner-only, seven weekdays
+ *  always — see setStoreHoursCore. */
+export async function setStoreHours(
+  storeId: string,
+  weeklyHours: unknown,
+): Promise<{ ok: true } | { error: string }> {
+  // No pre-gate — same reasoning as createStore/updateStore above.
+  let businessId: string
+  let staffList: RosterRow[]
+  let selfUserId: string | null
+  let synqed: StoresClient
+  try {
+    businessId = await getBusinessId()
+    ;[staffList, selfUserId] = await Promise.all([getStaffList(), getCurrentUserStaffId()])
+    synqed = await getSynqedClient()
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Not allowed' }
+  }
+  const result = await setStoreHoursCore(
+    synqed,
+    businessId,
+    { staffList, selfUserId, source: 'web', requestId: crypto.randomUUID() },
+    storeId,
+    weeklyHours,
+  )
+  // Same revalidation updateStore does — and the same NOTHING else: no cache
+  // tag exists for these numbers (both readers call storePolicies.get uncached).
   if ('ok' in result) revalidatePath('/settings')
   return result
 }

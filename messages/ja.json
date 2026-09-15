@@ -2480,6 +2480,7 @@
           "recording_autostart_toggle": "自動録音の設定を変更",
           "staff_stores_change": "所属店舗を変更",
           "store_create": "店舗を追加",
+          "store_hours_update": "営業時間を変更",
           "store_update": "店舗情報を更新",
           "sync_config_update": "予約連携設定を変更",
           "sync_run_now": "今すぐ同期を実行"

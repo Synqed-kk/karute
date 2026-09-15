@@ -96,6 +96,7 @@ export const AUDIT_ACTIONS = [
   'settings.recording_autostart_toggle',
   'settings.staff_stores_change',
   'settings.store_create',
+  'settings.store_hours_update',
   'settings.store_update',
   'settings.sync_config_update',
   'settings.sync_run_now',
@@ -312,7 +313,10 @@ export const AUDITED_CORES: {
   { file: 'src/actions/permissions.ts', symbols: ['setStaffPermissionsCore'] },
   { file: 'src/actions/staff-pin.ts', symbols: ['setStaffPinCore', 'removeStaffPinCore'] },
   { file: 'src/actions/voice.ts', symbols: ['enrollVoiceActionCore', 'revokeVoiceActionCore'] },
-  { file: 'src/actions/stores.ts', symbols: ['createStoreCore', 'updateStoreCore', 'setStaffStoresCore'] },
+  {
+    file: 'src/actions/stores.ts',
+    symbols: ['createStoreCore', 'updateStoreCore', 'setStoreHoursCore', 'setStaffStoresCore'],
+  },
   { file: 'src/actions/audit-log.ts', symbols: ['listAuditLogWithClient'] },
   // Menu catalog (PR-1a create side, PR-1b update side). listMenus is a read
   // — deliberately not listed.

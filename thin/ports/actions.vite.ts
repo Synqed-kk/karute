@@ -1203,6 +1203,29 @@ async function facadeCreateStore(
   }
 }
 
+// 営業時間 (1c-D). The whole week or nothing — the seven-keys invariant is
+// the SERVER's (setStoreHoursCore), so nothing is pre-validated here; a
+// refusal rides back as a 2xx { error } string the editor renders.
+async function facadeSetStoreHours(
+  storeId: string,
+  weeklyHours: unknown,
+): Promise<{ ok: true } | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/stores/${enc(storeId)}/hours`,
+      jsonInit('PATCH', { weekly_hours: weeklyHours }),
+    )
+    const body = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.ok) return { ok: true }
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Save failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
 async function facadeUpdateStore(
   id: string,
   input: StoreInput,
@@ -1326,6 +1349,7 @@ export const setActiveStore = async (
 export const listStores = facadeListStores
 export const createStore = facadeCreateStore
 export const updateStore = facadeUpdateStore
+export const setStoreHours = facadeSetStoreHours
 // Local read, no network — the same store-pref module setActiveStore writes
 // to, keyed per signed-in user (see thin/chrome/store-pref.ts's own header).
 export const getActiveStoreId = async (): Promise<string | null> => {
