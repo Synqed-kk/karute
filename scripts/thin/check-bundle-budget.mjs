@@ -970,11 +970,18 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en 134,204 · index 1,033,180 · vendor 937,791 = 2,105,175 B.
 // Ceiling = 2,105,175 + 1,000. It is a bloat tripwire, not the gate — the
 // purchase-exclusion scan (0/13) is.
-// SUPERSEDED by the merge of feat/capacity-adapter (a906f5fc0) into this
-// branch — the capacity-adapter side's own re-measurement comments are
-// dropped here (duplicate BUDGET_BYTES const is a syntax error); the real
-// figure for the MERGED tip is re-measured fresh below in a follow-up commit.
-const BUDGET_BYTES = 2_106_175
+// RE-MEASURED 2026-09-15 on the MERGED tip — feat/capacity-adapter
+// (a906f5fc0) merged into feat/booking-new-count (commit 9667c076e). Both
+// feature sets are now in the graph together (capacity's DTO fields +
+// PKT-2's smaller 新規 type slot); index 1,033,180 → 1,033,053 (−127 B); en
+// and vendor unchanged to the byte. Measured the workflow's own way (the
+// same six env vars listed above, same two commands, thin/dist emptied
+// before each lap) and byte-identical with matching content hashes (SHA-256)
+// across two clean laps on the merged tip (node v24.16.0, @synqed-kk/ui
+// 0.3.2, installed == lock):
+//   en 134,204 · index 1,033,053 · vendor 937,791 = 2,105,048 B.
+// Ceiling = 2,105,048 + 1,000.
+const BUDGET_BYTES = 2_106_048
 
 let dir
 try {
