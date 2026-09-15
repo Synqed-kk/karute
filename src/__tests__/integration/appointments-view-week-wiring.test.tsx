@@ -136,6 +136,7 @@ type MonthPageProps = {
   todayIso?: string
   weekdayLabels: string[]
   typeSlot: string
+  typeCount?: number | null
   locale: string
   pending?: boolean
   failed?: boolean
@@ -397,8 +398,35 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
     expect(monthPageProps!.todayIso).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(monthPageProps!.weekdayLabels).toHaveLength(7)
-    // PKT-2 owns the 新規/再来 producer; until then the line is 予約 alone.
-    expect(monthPageProps!.typeSlot).toBe('off')
+    // ⚖ PKT-2b — typeSlot is read off the one switch, same as the week/day
+    // lines; MONTH_VIEW's fixture cells carry no explicit newCount, so the
+    // month sum (0 known days, 0 new) computes to 0, not null.
+    expect(monthPageProps!.typeSlot).toBe(TYPE_SLOT)
+    expect(monthPageProps!.typeCount).toBe(0)
+  })
+
+  it('⚖ PKT-2b — typeCount is the Σ of the real cells’ newCount, out-of-month excluded', () => {
+    renderView({
+      ...MONTH_VIEW,
+      monthData: [
+        monthCell('2026-08-31', { inMonth: false, newCount: 999, newCountKnown: true }),
+        monthCell('2026-09-15', { count: 3, density: 'medium', newCount: 5, newCountKnown: true }),
+        monthCell('2026-09-16', { newCount: 2, newCountKnown: true }),
+        monthCell('2026-10-01', { inMonth: false, newCount: 999, newCountKnown: true }),
+      ],
+    })
+    expect(monthPageProps!.typeCount).toBe(7)
+  })
+
+  it('⚖ PKT-2b — typeCount is ABSENT (null) when any in-month cell’s history read did not happen', () => {
+    renderView({
+      ...MONTH_VIEW,
+      monthData: [
+        monthCell('2026-09-15', { newCount: 5, newCountKnown: true }),
+        monthCell('2026-09-16', { newCount: 0, newCountKnown: false }),
+      ],
+    })
+    expect(monthPageProps!.typeCount).toBeNull()
   })
 
   // B1/B4 — this used to open the day page. The month page is a place you
