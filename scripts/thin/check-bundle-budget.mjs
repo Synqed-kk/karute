@@ -913,7 +913,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en       134,148 → 134,204 (+56 B) — the three new EN keys plus the
 //     trailing period on `failed`.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-15 for FIXLIST-1b-MONTH-4a-R2 (the eight-fix round:
 // R2-1 the month arrows step by MONTH KEY not `setMonth`, R2-2 aria-current
 // moved to TODAY with aria-pressed added for the selection, R2-3 the
@@ -951,7 +950,35 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en       134,204 → 134,204 — unchanged to the byte: R2 added no string,
 //     JA or EN.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
-const BUDGET_BYTES = 2_111_431
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-15 for PKT-1b-MONTH PIECE 4b (tap a day = stay: the
+// selected-day card under the 月 grid, the card's 120 ms fade, and the
+// optimistic ring). The R2 entry above is kept as the immediately preceding
+// tip's figure — the one comparison this number is read against; everything
+// older stays pruned, per this file's ONE-live-entry convention.
+//
+// Same CI recipe — the workflow's own six VITE_* values, copied verbatim from
+// the checked-in step. thin/dist emptied before each lap, two clean laps,
+// byte-identical with matching content hashes both times (node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,294 · index 1,041,374 · vendor 937,791 = 2,113,459 B.
+// Ceiling = 2,113,459 + 1,000. The previous (R2) ceiling was 2,111,431, and
+// this tip genuinely passes it: the card is new code.
+//
+// Where the bytes went, measured per chunk against R2's own figure:
+//   index  1,038,436 → 1,041,374 (+2,938 B) — ours, all of it: the new
+//     SelectedDayCard.tsx (its four states, the row loop, the door and every
+//     class string on them), the compact row lifted out of
+//     ReservationMobileAgenda as the exported CompactRowContent +
+//     COMPACT_ROW / COMPACT_ROW_TAG (a small net ADD here — the extraction
+//     removes one inline copy but adds a component, its props and two
+//     exported constants), the view's held-tap pair and its month-cell tap
+//     handler, and DayNumbersLine's className passthrough.
+//   en       134,204 → 134,294 (+90 B) — the three NEW English strings:
+//     moreRows, openDay, noBookings. The thin bundle ships EN only (boot-
+//     frozen locale), so the three Japanese strings cost this bundle nothing.
+//   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
+const BUDGET_BYTES = 2_114_459
 
 let dir
 try {
