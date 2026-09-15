@@ -360,6 +360,17 @@ describe('capacityForDay — the council edges', () => {
     expect(fact.bookedMinutes).toBe(60)
   })
 
+  it('R6: a non-finite rosterLanes (NaN, Infinity) fails CLOSED like null', () => {
+    for (const rosterLanes of [NaN, Infinity]) {
+      const fact = capacityForDay(input({ rosterLanes, spans: [span(at(10), at(11))] }))
+
+      expect(fact.reason).toBe('roster-unknown')
+      expect(fact.capacityMinutes).toBeNull()
+      expect(fact.lanes).toBe(0)
+      expect(fact.bookedMinutes).toBe(60)
+    }
+  })
+
   it('E31: the solo store keeps its merged overlap guard', () => {
     const fact = capacityForDay(
       input({

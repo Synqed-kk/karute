@@ -273,8 +273,11 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   //    the day's 予約時間.
   if (input.laneKind === 'none') return withoutCapacity('kind-none')
 
-  // 2. Fail CLOSED on an unreadable roster (C1 §5 / C3 E28).
-  if (input.rosterLanes === null) return withoutCapacity('roster-unknown')
+  // 2. Fail CLOSED on an unreadable roster (C1 §5 / C3 E28), including a
+  //    non-finite one (R6) — NaN/Infinity is exactly as unreadable as null.
+  if (input.rosterLanes === null || !Number.isFinite(input.rosterLanes)) {
+    return withoutCapacity('roster-unknown')
+  }
 
   // 3. The hours, in precedence order.
   if (hours == null) return withoutCapacity('hours-unresolved')
