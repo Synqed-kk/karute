@@ -436,8 +436,11 @@ describe('G9 — no 「ベッド」 reachable', () => {
     // saved bed-census-e0132e47b.txt), by its own distinctive text — this
     // round's edits carried every one of them byte-identical except the five
     // tour sites (wrapped in `${hasBeds ? … : ''}`, the QUOTED Japanese kept
-    // whole) and the two comment rewrites named below. An allowlist of exact
-    // fragments, never a comment-stripping regex (the S10 lesson).
+    // whole) and the two comment rewrites named below. Raw lines, an exact
+    // allowlist, no comment detection of any kind (F2 fold, ⚖ D-52 (e) L1
+    // MINOR 1 — the loop used to skip `//`/`*`/`/**` lines before the
+    // allowlist check, so a NEW comment carrying a bed fact would never be
+    // seen; every line is checked now, comment or code).
     const allow = [
       // TodayScreen.tsx — the 29 census lines (comment + code), unchanged text
       'ベッド・設備', // :609/:620/:9110
@@ -505,9 +508,6 @@ describe('G9 — no 「ベッド」 reachable', () => {
       const lines = text.split('\n')
       for (const line of lines) {
         if (!line.includes('ベッド')) continue
-        const trimmed = line.trim()
-        const isComment = trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/**')
-        if (isComment) continue
         if (allow.some((a) => line.includes(a))) continue
         offenders.push(`${rel}: ${line.trim()}`)
       }
