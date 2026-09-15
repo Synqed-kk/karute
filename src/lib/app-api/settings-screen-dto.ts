@@ -15,6 +15,19 @@
 
 import { z } from 'zod'
 
+/** Mirrors the SDK's WeeklyHours (@synqed-kk/client, dist/types.d.ts:1045-1049):
+ *  one open/close window per weekday, `null`/absent weekday = 定休日. */
+const DayWindowSchema = z.object({ open: z.string(), close: z.string() })
+export const WeeklyHoursSchema = z.object({
+  mon: DayWindowSchema.nullable().optional(),
+  tue: DayWindowSchema.nullable().optional(),
+  wed: DayWindowSchema.nullable().optional(),
+  thu: DayWindowSchema.nullable().optional(),
+  fri: DayWindowSchema.nullable().optional(),
+  sat: DayWindowSchema.nullable().optional(),
+  sun: DayWindowSchema.nullable().optional(),
+})
+
 /** Mirrors StoreRow (src/actions/stores.ts). */
 export const StoreRowSchema = z.object({
   id: z.string(),
@@ -26,6 +39,10 @@ export const StoreRowSchema = z.object({
   staffCount: z.number(),
   customerCount: z.number(),
   businessType: z.string().nullable(),
+  // ADDITIVE (1c-D): an older client's DTO carries no hours key at all, so the
+  // default keeps the row parsing — `null` is exactly what "this store never
+  // configured hours" already means everywhere else.
+  weeklyHours: WeeklyHoursSchema.nullable().default(null),
 })
 
 /** Mirrors TierFeatures (src/lib/subscription/types.ts). */

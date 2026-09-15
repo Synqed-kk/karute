@@ -81,6 +81,9 @@ function mapStoreRows(rows: StoreRow[]): Store[] {
     active: r.active,
     isPrimary: r.isPrimary,
     businessType: r.businessType,
+    // Threads through as-is, undefined included: refresh() re-lists WITHOUT
+    // hours (listStores), and undefined must not read as "never configured".
+    weeklyHours: r.weeklyHours,
   }))
 }
 

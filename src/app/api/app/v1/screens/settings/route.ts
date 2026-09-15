@@ -92,7 +92,12 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
       // `canViewAllStores ? stores : []` gate (page.tsx:82), just applied
       // before the fetch instead of after it.
       canViewAllStores
-        ? listStoresWithClient(synqed, businessId, { ensurePrimary: false }).catch(() => [])
+        ? listStoresWithClient(synqed, businessId, {
+            ensurePrimary: false,
+            // The 店舗 tab's 営業時間 editor needs every store's own hours —
+            // ONE storePolicies.list() for the business (S1).
+            withHours: true,
+          }).catch(() => [])
         : Promise.resolve([]),
       canViewAllStores
         ? loadEntitlementWithClient(synqed, businessId).catch(() => null)

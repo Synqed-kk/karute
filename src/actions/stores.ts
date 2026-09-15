@@ -3,7 +3,7 @@
 import { cache } from 'react'
 import { revalidatePath, updateTag } from 'next/cache'
 import { cookies } from 'next/headers'
-import type { SynqedClient } from '@synqed-kk/client'
+import type { SynqedClient, WeeklyHours } from '@synqed-kk/client'
 
 import { getSynqedClient } from '@/lib/synqed/client'
 import { businessDisplayName } from '@/lib/business-name'
@@ -17,7 +17,10 @@ import { audit } from '@/lib/audit'
 // every twin below takes this instead of resolving getSynqedClient() from the
 // cookie session, so the facade (Bearer path, business resolved from the
 // verified token) and the web actions run the IDENTICAL write/read logic.
-type StoresClient = Pick<SynqedClient, 'stores' | 'staffStores' | 'customers' | 'entitlements' | 'orgSettings'>
+type StoresClient = Pick<
+  SynqedClient,
+  'stores' | 'staffStores' | 'customers' | 'entitlements' | 'orgSettings' | 'storePolicies'
+>
 
 /** Roster row shape the owner gate needs — a subset of StaffMember so the
  *  twin doesn't import the whole staff module's type surface. */
@@ -77,6 +80,13 @@ export interface StoreRow {
   /** This location's vertical (BUSINESS_TYPES value). Null until core's
    *  stores.business_type column exists / backfills (brief 2026-07-08). */
   businessType: string | null
+  /** This store's own weekly opening hours (core `storePolicies.weekly_hours`).
+   *  THREE states, deliberately: `undefined` = this read never asked for hours
+   *  (`opts.withHours` false — the app-shell layout's read); `null` = asked, and
+   *  the store has never configured any, so the business-wide 営業時間 answers
+   *  for it (resolveDayHours, src/lib/operating-hours.ts); an object = the
+   *  store's own week. A consumer must not read `undefined` as "none". */
+  weeklyHours?: WeeklyHours | null
 }
 
 /** Read business_type off a core store row tolerantly — the SDK types gain the
@@ -112,7 +122,7 @@ function coreBusinessType(row: unknown): string | null {
 export async function listStoresWithClient(
   synqed: StoresClient,
   businessId: string,
-  opts: { ensurePrimary: boolean },
+  opts: { ensurePrimary: boolean; withHours?: boolean },
 ): Promise<StoreRow[]> {
   // Fetch the store list AND both per-store count maps in one parallel batch —
   // they're independent reads, so there's no reason to await them in series
@@ -123,7 +133,17 @@ export async function listStoresWithClient(
   //   - staff counts: core's staff_stores link table.
   //   - customer counts: distinct customers with >=1 event at the store, derived
   //     server-side (customers stay business-wide). The heaviest of the three.
-  const [storesRes, staffByStore, customersByStore] = await Promise.all([
+  //   - weekly hours: OPT-IN (`opts.withHours`) — one storePolicies.list() for
+  //     the whole business, never one get() per store. Off by default because
+  //     the app-shell layout re-lists stores on every render and has no use for
+  //     hours; only the 設定 doors (web page + screens/settings facade), whose
+  //     店舗 tab renders the editor, ask for them. Deliberately NOT caught: a
+  //     policy read that fails must not be reported as "no hours configured" —
+  //     that reads as 全店共通の初期値 in the editor and the next save would
+  //     overwrite hours the store really has. It rides the same failure
+  //     contract as stores.list() itself (both settings doors already
+  //     `.catch(() => [])` this whole twin).
+  const [storesRes, staffByStore, customersByStore, hoursByStore] = await Promise.all([
     synqed.stores.list(),
     synqed.staffStores
       .counts()
@@ -133,6 +153,16 @@ export async function listStoresWithClient(
       .countsByStore()
       .then((r) => new Map<string, number>(Object.entries(r.counts)))
       .catch(() => new Map<string, number>()),
+    opts.withHours
+      ? synqed.storePolicies
+          .list()
+          .then(
+            (r) =>
+              new Map<string, WeeklyHours | null>(
+                r.policies.map((p) => [p.store_id, p.weekly_hours]),
+              ),
+          )
+      : Promise.resolve(new Map<string, WeeklyHours | null>()),
   ])
 
   // Lazily create the 本店 primary store so every business ends up with one —
@@ -174,13 +204,16 @@ export async function listStoresWithClient(
     staffCount: staffByStore.get(s.id) ?? 0,
     customerCount: customersByStore.get(s.id) ?? 0,
     businessType: coreBusinessType(s),
+    // Absent policy row = never configured = null, the same thing the SDK
+    // returns as `weekly_hours` on a 'default'-source policy.
+    weeklyHours: hoursByStore.get(s.id) ?? null,
   }))
 }
 
-/** All stores for the caller's business (anyone in the business can read).
- *  Thin wrapper — the lazy 本店-create prelude lives in the twin now (shared
- *  with the facade paths), so this just resolves cookie-session context. */
-export async function listStores(): Promise<StoreRow[]> {
+/** Cookie-session context resolution shared by the two web readers below —
+ *  the lazy 本店-create prelude itself lives in the twin (shared with the
+ *  facade paths). */
+async function listStoresForWeb(withHours: boolean): Promise<StoreRow[]> {
   let businessId: string
   try {
     businessId = await getBusinessId()
@@ -188,7 +221,20 @@ export async function listStores(): Promise<StoreRow[]> {
     return []
   }
   const synqed = await getSynqedClient()
-  return listStoresWithClient(synqed, businessId, { ensurePrimary: true })
+  return listStoresWithClient(synqed, businessId, { ensurePrimary: true, withHours })
+}
+
+/** All stores for the caller's business (anyone in the business can read).
+ *  NO hours — this is the app-shell layout's per-render read and StoresSection's
+ *  own refresh(); neither renders 営業時間. */
+export async function listStores(): Promise<StoreRow[]> {
+  return listStoresForWeb(false)
+}
+
+/** listStores + each store's own weekly hours (ONE storePolicies.list()). The
+ *  設定 page's read: its 店舗 tab is the only web surface that edits them. */
+export async function listStoresWithHours(): Promise<StoreRow[]> {
+  return listStoresForWeb(true)
 }
 
 /** The viewer's active store (a cookie). Null when unset → "all / primary". */

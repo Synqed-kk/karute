@@ -3,7 +3,7 @@ import { NextIntlClientProvider } from 'next-intl'
 import { PAGE_PICKS, pickMessages } from '@/i18n/client-messages'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
-import { listStores, getActiveStoreId } from '@/actions/stores'
+import { listStoresWithHours, getActiveStoreId } from '@/actions/stores'
 import { listMenus } from '@/actions/menus'
 import { getEntitlement } from '@/actions/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
@@ -43,7 +43,7 @@ export default async function SettingsPage({
     // paints complete — no placeholder-then-pop-in when the second store loads.
     // Guarded: a synqed-core hiccup here must NOT 500 the whole settings page —
     // degrade to [] and let StoresSection fall back to its client fetch.
-    listStores().catch(() => []),
+    listStoresWithHours().catch(() => []),
     getActiveStoreId().catch(() => null),
     getMyCapabilities().catch(() => new Set<Capability>()),
     // Same treatment for the entitlement — the plan row + add-store gate paint

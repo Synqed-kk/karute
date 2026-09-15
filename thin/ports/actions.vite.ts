@@ -1144,6 +1144,9 @@ export const saveKaruteRecordInline = facadeSaveKaruteInline
 // getSynqedClient, which the boundary would need to unwind for a type-only
 // need (same "redeclare the shape" convention this file already uses for
 // MarkNoShowResult / UpsertOrgSettingsResult above).
+type WeeklyHours = Partial<
+  Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', { open: string; close: string } | null>
+>
 type StoreRow = {
   id: string
   name: string
@@ -1154,6 +1157,7 @@ type StoreRow = {
   staffCount: number
   customerCount: number
   businessType: string | null
+  weeklyHours?: WeeklyHours | null
 }
 type StoreInput = {
   name: string
