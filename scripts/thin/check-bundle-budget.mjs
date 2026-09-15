@@ -1167,9 +1167,24 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // door's own cost is +1,229 B (the rule, the one-date policy read, the message
 // pick, and the three JA/EN strings that ship in the locale chunk). The prior
 // ceiling had only 1,000 B of headroom left at that base, so the overage is
-// 229 B, not a regression from nothing. Ceiling set 4,096 B above the
-// measurement, the same low-headroom convention as the raises above.
-const BUDGET_BYTES = 2_110_944
+// 229 B, not a regression from nothing.
+//
+// Re-measured 2026-09-16 after the five-lens FIX ROUND (R1-1…R1-10), and
+// NORMALISED back to the lane's +1,000 convention — the 4,096 above was a
+// one-off to absorb the base's own overage, and carrying it forward would be
+// 3 KB of silent headroom nobody asked for. Ground truth again from an
+// EMPTIED thin/dist, two clean builds with CI's six VITE_* values, both
+// 2,106,996 B byte-for-byte. The round's own cost is +148 B over the
+// pre-round tip: the thin port's refusal passthrough (R1-1), the dialog's
+// key picker for the coded refusals (R1-5), and the rewritten JA pointer
+// lines in the locale chunk. Ceiling = 2,106,996 + 1,000.
+//
+// NOTE for whoever merges feat/store-hours-door after this branch: THIS
+// CONSTANT is the one merge conflict between the two (git merge-tree, clean
+// everywhere else). Do not resolve it by picking a side — that branch's
+// ceiling predates several byte costs already on main. Re-measure from a
+// clean build of the merged tree and set measured + 1,000.
+const BUDGET_BYTES = 2_107_996
 
 let dir
 try {
