@@ -958,18 +958,19 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Byte-identical (content hashes match) across two clean builds on the final
 // code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
 //   en 134,204 · index 1,033,009 · vendor 937,791 = 2,105,004 B.
-// RE-MEASURED 2026-09-15 for PKT-1c-B (the capacity adapter): the 予約 rows
-// and month cells now carry the capacity fact on the wire, and the thin
-// bundle re-parses that same DTO schema client-side — nine keys per row plus
-// the eight-value reason enum. index 1,033,009 → 1,033,603 (+594 B);
-// en and vendor unchanged to the byte. Measured the workflow's own way (the
-// same six env vars listed above, same two commands, thin/dist emptied before
-// each lap) and byte-identical with matching content hashes across two clean
-// laps on the final code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed
-// == lock):
-//   en 134,204 · index 1,033,603 · vendor 937,791 = 2,105,598 B.
-// Ceiling = 2,105,598 + 1,000.
-const BUDGET_BYTES = 2_106_598
+// RE-MEASURED 2026-09-15 for PKT-2 (the honest 新規 count) — the bundle got
+// SMALLER. The type slot lost its 'returning' member and metric-menu lost the
+// cell builder and the two branches behind it; the 新規 producer itself is
+// server-side and never enters this graph. index 1,033,603 → 1,033,180
+// (−423 B); en and vendor unchanged to the byte. Measured the workflow's own
+// way (the same six env vars listed above, same two commands, thin/dist
+// emptied before each lap) and byte-identical with matching content hashes
+// across two clean laps on the final code tip (node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,033,180 · vendor 937,791 = 2,105,175 B.
+// Ceiling = 2,105,175 + 1,000. It is a bloat tripwire, not the gate — the
+// purchase-exclusion scan (0/13) is.
+const BUDGET_BYTES = 2_106_175
 
 let dir
 try {
