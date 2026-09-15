@@ -12,8 +12,9 @@ BY_DATE=src/lib/appointments/by-date.ts
 HOURS=src/lib/operating-hours.ts
 ADAPTER=src/lib/adapters/reservation.ts
 SCREEN=src/lib/appointments/screen.ts
+ACTION=src/actions/appointments-window.ts
 
-if [[ -n "$(git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN")" ]]; then
+if [[ -n "$(git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN" "$ACTION")" ]]; then
   echo "refusing to run: the source files under mutation are dirty" >&2
   exit 1
 fi
@@ -65,5 +66,15 @@ run m7 $HOURS src/__tests__/integration/resolve-day-hours.test.ts 'an ABSENT wee
 perl -0pi -e 's/return \{ staffId: null, unknown: true \}/return { staffId: null, unknown: false }/' $SCREEN
 run m8 $SCREEN src/__tests__/integration/resolve-fetch-staff-id.test.ts 'cannot place'
 
+# m9 — the WEB action's unplaceable filter falls back to a FETCH: one stylist's
+# 自分 week becomes the whole salon's, under her name.
+perl -0pi -e 's/^    unknown\n      \? Promise\.resolve/    !unknown\n      ? Promise.resolve/m' $ACTION
+run m9 $ACTION src/__tests__/integration/appointments-window-action.test.ts 'an unplaceable'
+
+# m10 — the WEB action drops the store clamp on the window fetch: the
+# Apple-review bug (a 銀座-only frontdesk reading the 代官山 week).
+perl -0pi -e 's/fetchAppointmentWindow\(synqed, fromIso, toIso, \{ storeId, staffId \}\)/fetchAppointmentWindow(synqed, fromIso, toIso, { storeId: undefined, staffId })/' $ACTION
+run m10 $ACTION src/__tests__/integration/appointments-window-action.test.ts 'forwards the RESOLVED store id'
+
 echo "done — tree restored:"
-git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN" || true
+git status --porcelain -- "$BY_DATE" "$HOURS" "$ADAPTER" "$SCREEN" "$ACTION" || true
