@@ -435,7 +435,17 @@ export function buildAppointmentsScreen(
   // bookings and the SDK has no non-booking role, so there is nothing to
   // filter on. A receptionist is therefore counted — a recorded overcount,
   // closed when a real `takesBookings` exists.
-  const rosterHeadcount = divisorStaffIds ? divisorStaffIds.size : null
+  //
+  // ⚖ R1-6: an EMPTY roster is not an answer either. `getStaffList` is graceful
+  // by design — a failed profiles read resolves to [] — so a degraded web read
+  // produced `Set{}`, which is not null and slipped past the gate above. The
+  // module's lane FLOOR then set lanes to whoever happened to be booked, and
+  // the store showed a confident percentage on exactly the days somebody worked
+  // and nothing on the days nobody did: capacity derived from who got booked,
+  // the one derivation this packet exists to forbid. A store with literally
+  // zero staff has no capacity anyway, so nothing honest is lost by reading 0
+  // as unknown.
+  const rosterHeadcount = divisorStaffIds?.size ? divisorStaffIds.size : null
   // 自分/担当 = ONE person's day, so ONE lane (the module's caller contract
   // (a)), and the window was already filtered at the fetch. The exception is
   // 'self' with no resolvable viewer id: that fetch is NOT filtered and the

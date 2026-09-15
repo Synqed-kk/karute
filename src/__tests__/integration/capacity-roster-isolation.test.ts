@@ -166,6 +166,39 @@ describe('the divisor is the store lens, never the business roster', () => {
   })
 })
 
+describe('⚖ R1-6 — an EMPTY roster is not a roster', () => {
+  // getStaffList is graceful by design: a profiles read error resolves to [],
+  // and a synqed-core roster failure silently drops the not-yet-signed-up
+  // teammates. The phone's twin throws; the computer keeps rendering. So the
+  // degraded web read handed the divisor `Set{}` — not null, so the
+  // fail-closed gate never fired.
+  it('a degraded roster read paints NO number, on a day with bookings or without', () => {
+    const booked = build({ staffList: [], storeStaffIds: new Set(), divisorStaffIds: new Set() })
+    const row = selectedRow(booked)
+    // MUTANT m6: read 0 as a count and the lane floor fills it in from whoever
+    // was booked — lanes 1, capacity 600, a confident wrong percentage.
+    expect(row.capacityMinutes).toBeNull()
+    expect(row.capacityReason).toBe('roster-unknown')
+    expect(row.occupancyPct).toBeNull()
+    expect(row.freeMinutes).toBeNull()
+  })
+
+  it('and the SAME store says the same thing on an empty day — capacity is never derived from who got booked', () => {
+    const empty = build({
+      staffList: [],
+      storeStaffIds: new Set(),
+      divisorStaffIds: new Set(),
+      weekWindow: { counted: [], cancelled: [], noShow: [], truncated: false },
+    })
+    const row = selectedRow(empty)
+    expect(row.capacityMinutes).toBeNull()
+    expect(row.capacityReason).toBe('roster-unknown')
+    // Before R1-6 these two days disagreed: 'no-lanes' with nobody booked,
+    // a real percentage the moment one person was.
+    expect(row.count).toBe(0)
+  })
+})
+
 describe('自分 / 担当 — one person, one lane', () => {
   it("担当 <someone>: the day divides by that person's single lane", () => {
     const row = selectedRow(build({ staffFilter: 's2' }))
