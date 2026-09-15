@@ -46,6 +46,13 @@ interface NewBookingDialogProps {
   onCreated?: () => void
 }
 
+/** The refusal's own fields → its line. A 臨時休業 date is always the store's
+ *  own declaration, so it never reads off `level`. */
+function closedDayKey(refusal: { level?: 'store' | 'org'; kind?: 'weekday' | 'closed_date' }) {
+  if (refusal.kind === 'closed_date') return 'errors.closedDayDate'
+  return refusal.level === 'org' ? 'errors.closedDayOrg' : 'errors.closedDayStore'
+}
+
 const DURATION_OPTIONS = ['30', '45', '60', '75', '90']
 const DEFAULT_DURATION = '60'
 
@@ -262,7 +269,14 @@ export function NewBookingDialog({
     setSaving(false)
 
     if ('error' in result) {
-      toast.error(result.error)
+      // ⚖ PKT-1c-C — a closed-day refusal arrives with its own provenance
+      // (which setting closed the day, and whether it was the weekly hours or a
+      // 臨時休業 date). Both doors return the identical object — the web action
+      // and the facade route — so this ONE dialog serves the phone and the
+      // computer with the same line. Nothing is decided here: the key is picked
+      // off what the validator already resolved. Every other error keeps riding
+      // its server string, exactly as before.
+      toast.error(result.code === 'closed_day' ? t(closedDayKey(result)) : result.error)
       return
     }
     toast.success(t('toasts.bookingCreated'))
