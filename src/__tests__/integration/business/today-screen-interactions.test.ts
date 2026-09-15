@@ -4381,7 +4381,9 @@ describe('the guided tour builds itself out of what is on screen', () => {
     // ⚖ flag 26's gesture and ⚖ flag 25's emphasis — the two behaviours with no
     // region of their own — register in THIS layer rather than as tour steps
     // pointing at nothing.
-    expect(SRC).toContain('休憩・清掃などの予定ブロック: ドラッグで移動・両端で時間変更')
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: site #19's 清掃 is now the CHROME
+    // store's gated turnoverWord (C6); the surrounding sentence is unchanged.
+    expect(SRC).toContain("休憩・{caps.turnover ? w.turnoverWord! : '準備'}などの予定ブロック: ドラッグで移動・両端で時間変更")
     expect(SRC).toContain('ドラッグ中は、いま持っているカードと同じ長さの販売可能枠だけが濃く表示されます')
     expect(SRC).toContain('画面の説明を表示')
     expect(SRC).toContain("onClick={() => { setPop(''); setTourIdx(0) }}")
@@ -5767,18 +5769,38 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
 
   it('⚖ 47 — every refusal in the placement family returns ahead of every write', () => {
     const place_ = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('⚖ Liam 2026-08-20 (flag 22)'))
+    // ⚖ D-53 (n) cold-read fold — the OLD pin quoted a bed-refusal sentence
+    // that is long RETIRED (today-interactions.ts:2979: 「この時間帯に空いている
+    // ベッドがいません」 is RETIRED — that sentence now arrives whole through
+    // `allocateBed`/`fullRoomsRefusal`, upstream of this function, so no
+    // literal text for it exists here any more). `indexOf` silently returns -1
+    // for a retired string, and `-1 < anything` made the OLD `toBeLessThan`
+    // pass whether or not the refusal existed at all. Both indices are now
+    // asserted non-negative FIRST — pinned on the store-guard refusal that IS
+    // still local to this function — so a future removal fails loudly instead
+    // of silently.
+    const placeForeignAt = place_.indexOf('refuse(foreign)')
+    const placeWriteAt = place_.indexOf('setPlacing(null)')
+    expect(placeForeignAt).toBeGreaterThanOrEqual(0)
+    expect(placeWriteAt).toBeGreaterThanOrEqual(0)
     // No free room: 配置モード SURVIVES, so the operator can try another slot
     // instead of walking back to 次回予約 to re-arm it.
-    expect(place_.indexOf("refuse('この時間帯に空いているベッドがいません')")).toBeLessThan(place_.indexOf('setPlacing(null)'))
+    expect(placeForeignAt).toBeLessThan(placeWriteAt)
     const shelf = SRC.slice(SRC.indexOf('function placeFromShelf('), SRC.indexOf('const monthCells'))
+    const shelfForeignAt = shelf.indexOf('refuse(foreign)')
+    const shelfWriteAt = shelf.indexOf('setParkChips(')
+    expect(shelfForeignAt).toBeGreaterThanOrEqual(0)
+    expect(shelfWriteAt).toBeGreaterThanOrEqual(0)
     // Same for the chip: the shelf entry is removed only after the room is found.
-    expect(shelf.indexOf("refuse('この時間帯に空いているベッドがいません')")).toBeLessThan(shelf.indexOf('setParkChips('))
+    expect(shelfForeignAt).toBeLessThan(shelfWriteAt)
   })
 
   it('⚖ 47 — the silent refusals now speak: a bed row, and a release over nothing', () => {
     // A person lands in a STAFF row; the room is chosen for them. While 配置モード
     // is armed a bare `return` on a bed row reads as a dead board.
-    expect(SRC).toContain("if (placing) refuse('次回予約は担当スタッフの行に置いてください（ベッドは自動で選ばれます）')")
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: site #5's ベッド is now the empty
+    // track's own lane words (wordsForLane); the sentence otherwise unchanged.
+    expect(SRC).toContain('if (placing) refuse(`次回予約は担当スタッフの行に置いてください（${wordsForLane(lane).resourceNoun}は自動で選ばれます）`)')
     // A chip carried across the board and let go over the shelf/header/gap: the
     // card drag has said this since flag 19, the shelf gesture says it now too,
     // in the same words — one sentence for one situation.
@@ -5966,12 +5988,12 @@ describe('BATCH-7 — FLAGS 25c backlog: the three unregistered surfaces join th
   // them did, which is how the count sat at 14 for three rounds.
   it('the confirm popover, the block advisor and the 60分配置 strip all declare themselves', () => {
     // The two popovers declare themselves as plain JSX attributes…
-    for (const [title, body] of [
-      ['予定の位置の提案', '休憩や清掃を置いた位置が新規のお客様の枠を分けてしまうとき、より良い位置を提案します。そのまま置くこともできます。'],
-    ]) {
-      expect(SRC).toContain(`data-guide-title="${title}"`)
-      expect(SRC).toContain(`data-guide="${body}"`)
-    }
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: site #25's `data-guide` is now a JS
+    // EXPRESSION attribute (`{...}`), not a plain string (`"..."`), because
+    // the turnover word is gated (caps.turnover); the title attribute and the
+    // surrounding sentence are unchanged.
+    expect(SRC).toContain('data-guide-title="予定の位置の提案"')
+    expect(SRC).toContain("data-guide={`休憩や${caps.turnover ? w.turnoverWord! : '準備'}を置いた位置が新規のお客様の枠を分けてしまうとき、より良い位置を提案します。そのまま置くこともできます。`}")
     /** ⚖ 92 fix round 11 P2 (breaker #10 #3, ⚖ 8/23 guided-tour law) — …and the
      *  hold pop's own sentence covers BOTH of its faces. ⚖ flag 92 gave this
      *  surface a warning face — the consequence leading, the safe start as the
@@ -6003,10 +6025,13 @@ describe('BATCH-7 — FLAGS 25c backlog: the three unregistered surfaces join th
     // ⚖ ROUND 3 · C (⚖ D-52 (a)/(b)) — pin moved with the line: the bed-swap
     // sentence is now gated on `hasBeds` (a no-room store has no beds to
     // swap); the surrounding fragments are byte-identical.
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: sites #26/#27's ベッド is now the
+    // resolved hold-popover words (its pending destination lane, the standing
+    // hold's own lane, or chrome); the surrounding fragments are byte-identical.
     expect(SRC).toContain(
       'data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、'
       + '警告のカードに変わります。'
-      + "${hasBeds ? 'ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります。入れ替えたお客様はここに表示されます。' : ''}"
+      + '${hasBeds ? `${holdPopWords.resourceNoun}が埋まっているときは、ほかのお客様の${holdPopWords.resourceNoun}を入れ替えて収めることがあります。入れ替えたお客様はここに表示されます。` : \'\'}'
       + "ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}",
     )
     // …and the strip through a conditional spread, because it renders per lane
@@ -8380,7 +8405,9 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     )
     // T5 — the room WORD is the solve's own, one spelling, so the offer line and
     // the 満室 sentence above it can never name different rooms.
-    expect(SRC).toContain("roomWord: ask.requiresPrivate ? '個室' : 'ベッド',")
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: sites #1-4 resolve the ask's target
+    // lane's words instead of the literal 個室/ベッド ternary.
+    expect(SRC).toContain('roomWord: ask.requiresPrivate ? (wordsForAsk(ask).privateWord ?? props.genericWords.privateWord!) : wordsForAsk(ask).resourceNoun,')
     // …and the WORD and the SEARCH read the same field, so the offer line can
     // never say ベッド over a 個室 hunt.
     expect(INT).toContain("const room = requiresPrivate ? '個室' : 'ベッド'")
@@ -9004,7 +9031,9 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(CSS).not.toContain('.biz.board-compact .event small.e-tkt .tkt-note')
     // The two notes are siblings of the two hidden nodes inside that one line, so
     // 「what the toggle hides」 is decided by the class each span wears.
-    expect(SRC).toContain('{item.requiresPrivateRoom === true && <span className="tkt-note">個室のみ</span>}')
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: site #17's tag word is now the card's
+    // own lane words, falling back to genericWords.privateWord.
+    expect(SRC).toContain('{item.requiresPrivateRoom === true && <span className="tkt-note">{words.privateWord ?? props.genericWords.privateWord}のみ</span>}')
     expect(SRC).toContain('{item.held && <span className="tkt-note">保持</span>}')
     expect(SRC).toContain('<span className="tkt-core">{settledHere ? \'精算済\' : item.ticketCore}</span>')
   })
@@ -11676,6 +11705,9 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // import of its own a TYPE, so this arrow adds no module to the graph below
     // the screen.
     "import { releaseTimed } from './timed-release'",
+    // ⚖ D-53 (n) R-N2-1 — DISCLOSED MOVE: a TYPE-only import, the one
+    // authorized `resource-words` reference under this screen (C5).
+    "import type { ResourceWords } from '@/business/lib/resource-words'",
   ]
 
   /** ⚖ FIX ROUND 3 (BREAKER-828 F1 + F3) — the whole binder, as two lines. */
@@ -12375,7 +12407,9 @@ describe('⚖ R8 GAP-11 — the dragged card’s time follows the landing', () =
     expect(code).not.toContain('<small className="e-time">{item.time}</small>')
     // The proxy is the ONE caller that hands it anything else, and what it
     // hands is the live landing.
-    expect(pinnedLines(SRC, 'cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId), proxyTimeLabel(proxy.item.time, liveStart))')).toBe(1)
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: `cardFace` gained a `words` parameter
+    // (site #17); the proxy carries its own originating lane's resolved words.
+    expect(pinnedLines(SRC, 'cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId), proxy.words, proxyTimeLabel(proxy.item.time, liveStart))')).toBe(1)
     // TWO callers since the fix round: the card branch here and the block
     // branch below it. Nothing else on this screen labels a thing in flight.
     expect((code.match(/proxyTimeLabel\(/g) ?? []).length).toBe(2)
@@ -12871,7 +12905,9 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
   // that refuses the drop are one vocabulary.
   it('I10 — a tagged card wears 個室のみ in the NOTE slot, its category badge intact, .tg untouched', () => {
     expect(SRC).toContain('{item.ticketCat && <span className="tkt-cat">{item.ticketCat} </span>}')
-    expect(SRC).toContain('{item.requiresPrivateRoom === true && <span className="tkt-note">個室のみ</span>}')
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: site #17's tag word is now the card's
+    // own lane words, falling back to genericWords.privateWord.
+    expect(SRC).toContain('{item.requiresPrivateRoom === true && <span className="tkt-note">{words.privateWord ?? props.genericWords.privateWord}のみ</span>}')
     expect(SRC).toContain('<i className="tg">{item.tag}</i>')
     // The category word can no longer be eaten by the tag: the old spelling is
     // gone in both of the forms it had.
@@ -13085,7 +13121,9 @@ describe('⚖ BLANK-SAFE — a row without requires_private_room is an untagged 
     // today-board.test.ts's 「⚖ ROOM RULE — the inspector says 個室のみ about
     // the BOOKING」 pins is unchanged here too.
     const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
-    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],")
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: site #29's tag word is now resolved
+    // from the booking's own store (see today-board.test.ts's sibling pin).
+    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? `${(wordsByStore[storeOfBooking.get(b.id) ?? ''] ?? words).privateWord ?? genericWords.privateWord}のみ・` : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],")
   })
 
   it('claim 4 — the bed-row drop is silent for the blank item: no room stop, floor never hard or hard-room', async () => {

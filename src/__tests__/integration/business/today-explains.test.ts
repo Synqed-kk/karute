@@ -1250,18 +1250,22 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // ⚖ FIX ROUND 1 (F5, 2026-09-09) — and it names the two words it is TRUE of.
     // 新規用 carries a word and no hatch, so the old 「小さな文字が付いたコマでは」
     // promised a mark on a chip that never grows one.
-    expect(guide).toContain('「満室」「清掃」のコマでは、すぐ上の行に薄い斜線が出て')
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: these four pin the SOURCE TEXT (not a
+    // render), so a 満室/清掃 literal became the slot expression `readFileSync`
+    // now actually sees; STORE_A's own words (fullWord 満室, turnoverWord 清掃)
+    // still render byte-identical (leg 7a of today-words.test.ts proves that).
+    expect(guide).toContain("「${w.fullWord}」${caps.turnover ? `「${w.turnoverWord!}」` : ''}のコマでは、すぐ上の行に薄い斜線が出て")
     expect(guide).not.toContain('小さな文字が付いたコマでは')
     // ⚖ RULING 1 (2026-09-09) — the 満室 change is DECLARED, in the tour's own
     // words: it is about the 30 minutes, not about whether the session fits.
-    expect(guide).toContain(`「満室」はその30分にベッドの空きがないという意味で、\${railDur}分の予約が置けるかどうかとは関係なく付きます`)
+    expect(guide).toContain("「${w.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます")
     // ⚖ RULING 2 (2026-09-09) — and so is the quiet-hour mark.
-    expect(guide).toContain('ベッドを別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます')
+    expect(guide).toContain('${w.resourceNoun}を別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます')
     // ⚖ LIAM RULING (2026-08-30) — the tour quotes the chips' OWN labels, so the
     // guard one moved with the chip. Bare 「新規」 is pinned dead in the quoted
     // list: a tour that teaches a word the board no longer wears is worse than
     // no entry at all.
-    expect(guide).toContain('「満室」「清掃」「新規用」')
+    expect(guide).toContain("「${w.fullWord}」${caps.turnover ? `「${w.turnoverWord!}」` : ''}「新規用」")
     expect(guide).not.toContain('「満室」「清掃」「新規」')
     // ⚖ NATIVE PASS (2026-08-26) — ふさがっている was FALSE of 新規, which is a
     // guard HOLD on an empty slot, not an occupied one. 置けない is true of all

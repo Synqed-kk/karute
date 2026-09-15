@@ -580,13 +580,17 @@ describe('G9 — no 「ベッド」 reachable', () => {
     // two sentences, the ⇄ legend key, the ⇄ guard-tour clause, the ⇄ key span,
     // the 仮押さえ tour's two sentences counted as one guard) = 9.
     expect(hasBedsCount).toBe(9)
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: N2a slotted the RESOURCE WORD inside
+    // each fragment (満室→${w.fullWord}, ベッド→${w.resourceNoun}/
+    // ${holdPopWords.resourceNoun}); the `hasBeds ?`/`hasBeds &&` gate itself,
+    // which is what this leg actually proves, is byte-identical.
     for (const fragment of [
-      '${hasBeds ? `「満室」はその30分にベッドの空きがないという意味で',
-      "${hasBeds ? 'ベッドを別のスタッフの枠が使っていて",
-      '{hasBeds && <b>⇄ ベッドを入れ替えて置ける</b>}',
-      "${hasBeds ? 'ボードのカードをドラッグしている間は、ベッドを入れ替えれば置ける開始に",
-      '{hasBeds && <span className="guard-key reseat-key">⇄ = ベッドを入れ替えて置ける</span>}',
-      "${hasBeds ? 'ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります",
+      '${hasBeds ? `「${w.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で',
+      '${hasBeds ? `${w.resourceNoun}を別のスタッフの枠が使っていて',
+      '{hasBeds && <b>⇄ {w.resourceNoun}を入れ替えて置ける</b>}',
+      '${hasBeds ? `ボードのカードをドラッグしている間は、${w.resourceNoun}を入れ替えれば置ける開始に',
+      '{hasBeds && <span className="guard-key reseat-key">⇄ = {w.resourceNoun}を入れ替えて置ける</span>}',
+      '${hasBeds ? `${holdPopWords.resourceNoun}が埋まっているときは、ほかのお客様の${holdPopWords.resourceNoun}を入れ替えて収めることがあります',
     ]) {
       expect(src).toContain(fragment)
     }
