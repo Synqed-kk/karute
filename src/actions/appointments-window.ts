@@ -26,6 +26,7 @@ import {
   type AppointmentWindow,
 } from '@/lib/appointments/by-date'
 import { resolveFetchStaffId } from '@/lib/appointments/screen'
+import { coreBusinessType } from '@/lib/welcome/business-types'
 import {
   jstWindowDays,
   resolveWindowHours,
@@ -41,6 +42,11 @@ import {
  *  all (the same rule screen.ts:124-131 states for colorRosterIds). */
 export type AppointmentWindowPayload = AppointmentWindow & {
   hoursFacts: [string, DayHoursFact][]
+  /** THIS STORE's vertical — the per-store column when core carries it, else
+   *  the business-wide setting. It decides only one thing: whether a day is
+   *  class-bound, in which case one booking row is many people and no
+   *  percentage is honest. Null = unknown, which reads as not class-bound. */
+  businessType: string | null
 }
 
 export async function getAppointmentWindow(
@@ -79,7 +85,7 @@ export async function getAppointmentWindow(
 
   const span = jstWindowDays(fromIso, toIso)
 
-  const [window, policy, closed] = await Promise.all([
+  const [window, policy, closed, store] = await Promise.all([
     // A filter naming somebody the roster cannot place gets ZERO rows, not the
     // whole salon's week.
     unknown
@@ -97,6 +103,18 @@ export async function getAppointmentWindow(
           to: span.toExclusiveYmd, // exclusive, per the SDK's own contract
         })
       : Promise.resolve({ closed_days: [] as { date: string }[] }),
+    // The store's own row, for its vertical. Degraded-allowed and CAUGHT on
+    // purpose, unlike its neighbours: a store row we cannot read tells us
+    // nothing about whether this shop runs classes, and the org-wide setting
+    // below already answers that question for every store that has not
+    // overridden it. Failing the whole week's numbers over it would be the
+    // louder lie.
+    storeId
+      ? synqed.stores.get(storeId).catch((err) => {
+          console.error('[appointments-window] store row read degraded:', err)
+          return null
+        })
+      : Promise.resolve(null),
   ])
 
   const hoursFacts = resolveWindowHours(span.days, {
@@ -109,5 +127,11 @@ export async function getAppointmentWindow(
   return {
     ...window,
     hoursFacts: [...hoursFacts],
+    // Per-store first (a chain can run a yoga studio next to a hair salon),
+    // the business-wide setting second. Empty string is the org default and
+    // means nothing was chosen.
+    businessType:
+      (store ? coreBusinessType(store) : null) ||
+      (orgSettings?.business_type || null),
   }
 }

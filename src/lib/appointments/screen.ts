@@ -31,6 +31,8 @@ import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import { jstStartOfToday, partsInJst } from '@/lib/date/jst'
 import { jstMidnight } from '@/lib/date/calendar-range'
+import { isClassBoundBusinessType } from '@/lib/welcome/business-types'
+import type { LaneKind } from '@/lib/capacity/capacity'
 import type { computeWeekRange, computeMonthRange } from '@/lib/date/calendar-range'
 
 export function parseDateParam(value: string | undefined): Date {
@@ -96,6 +98,12 @@ export interface AppointmentsScreenInputs {
   dayWindow?: AppointmentWindow | null
   /** That day's resolved hours, keyed by JST YYYY-MM-DD (resolveWindowHours). */
   hoursFacts?: ReadonlyMap<string, DayHoursFact>
+  /** THIS STORE's vertical — the per-store column when core carries it, else
+   *  the business-wide setting; both doors resolve it that way. It decides one
+   *  thing only: whether the store is class-bound, where one booking row is
+   *  many people and no percentage is honest at any layer. Absent/null reads
+   *  as not class-bound. */
+  businessType?: string | null
   enrichment: Map<string, CustomerEnrichment>
   packUsage: ReadonlyMap<string, { remaining: number; size: number }>
 }
@@ -204,6 +212,7 @@ export function buildAppointmentsScreen(
     monthWindow,
     dayWindow,
     hoursFacts,
+    businessType,
     enrichment,
     packUsage,
   } = input
@@ -414,6 +423,13 @@ export function buildAppointmentsScreen(
   const filteredToOnePerson =
     staffFilter !== 'all' && !(staffFilter === 'self' && !activeStaffId)
   const capacityRoster = filteredToOnePerson ? 1 : rosterHeadcount
+  // ── THE LANE KIND (S5) ───────────────────────────────────────────────────
+  // A yoga class of twelve is ONE booking row, so minutes booked over minutes
+  // open is a percentage of nothing. Those stores always take the count table
+  // — at every layer, behind every switch, until core models class capacity
+  // (C1 §6 / C2). Read from the STORE's own vertical where core carries it,
+  // so a chain can run a studio next to a salon.
+  const laneKind: LaneKind = isClassBoundBusinessType(businessType) ? 'none' : 'staff'
 
   const rowsFor = (win: AppointmentWindow, from: Date, to: Date): WeekDayRowData[] =>
     appointmentsToWeekData(
@@ -427,7 +443,7 @@ export function buildAppointmentsScreen(
       { cancelled: win.cancelled, noShow: win.noShow },
       hoursFacts,
       soloMode,
-      { rosterHeadcount: capacityRoster },
+      { rosterHeadcount: capacityRoster, laneKind },
     )
 
   let weekData: WeekDayRowData[] | null = null

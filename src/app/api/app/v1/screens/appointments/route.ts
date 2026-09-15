@@ -51,6 +51,7 @@ import {
   type WeekdayKey,
 } from '@/lib/operating-hours'
 import { ymdInJst } from '@/lib/date/jst'
+import { coreBusinessType } from '@/lib/welcome/business-types'
 
 export const runtime = 'nodejs'
 
@@ -154,6 +155,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       policy,
       closedDays,
       storeStaffIds,
+      store,
     ] = await Promise.all([
       // includeCancelled: the agenda is the ONE consumer that renders
       // terminal rows (キャンセル済み / 無断 tombstones in their slot).
@@ -193,6 +195,17 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
           })
         : Promise.resolve({ closed_days: [] as { date: string }[] }),
       storeStaffIdSetForBusiness(staffList, clamp.storeId, businessId),
+      // The store's own row, for its vertical (S5). Degraded-allowed and
+      // CAUGHT, unlike its neighbours in this wave: a store row we cannot read
+      // says nothing about whether this shop runs classes, and the org-wide
+      // setting already answers that for every store that has not overridden
+      // it. 502-ing the whole week over it would be the louder lie.
+      storeId
+        ? synqed.stores.get(storeId).catch((err) => {
+            console.error('[screens/appointments] store row read degraded:', err)
+            return null
+          })
+        : Promise.resolve(null),
     ])
 
     const hoursFacts = resolveWindowHours(span.days, {
@@ -238,6 +251,10 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       monthWindow,
       dayWindow,
       hoursFacts,
+      // Per-store first (a chain can run a yoga studio next to a hair salon),
+      // the business-wide setting second. Empty string is the org default.
+      businessType:
+        (store ? coreBusinessType(store) : null) || (orgSettings?.business_type || null),
       enrichment,
       packUsage,
     })

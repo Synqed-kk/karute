@@ -37,8 +37,11 @@ jest.mock('@/lib/synqed/client', () => {
   const appointments = { list: jest.fn() }
   const staff = { list: jest.fn() }
   const storePolicies = { get: jest.fn(), listClosedDays: jest.fn() }
+  // The store's own row — read for its vertical (class-bound or not), and
+  // degraded-allowed, so the default double answers an empty row.
+  const stores = { get: jest.fn(async () => ({})) }
   return {
-    getSynqedClient: jest.fn(async () => ({ appointments, staff, storePolicies })),
+    getSynqedClient: jest.fn(async () => ({ appointments, staff, storePolicies, stores })),
   }
 })
 
@@ -56,6 +59,7 @@ type Spies = {
   staffList: jest.Mock
   policyGet: jest.Mock
   closedDays: jest.Mock
+  storeGet: jest.Mock
 }
 
 async function spies(): Promise<Spies> {
@@ -63,12 +67,14 @@ async function spies(): Promise<Spies> {
     appointments: { list: jest.Mock }
     staff: { list: jest.Mock }
     storePolicies: { get: jest.Mock; listClosedDays: jest.Mock }
+    stores: { get: jest.Mock }
   }
   return {
     list: client.appointments.list,
     staffList: client.staff.list,
     policyGet: client.storePolicies.get,
     closedDays: client.storePolicies.listClosedDays,
+    storeGet: client.stores.get,
   }
 }
 

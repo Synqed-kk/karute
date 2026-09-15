@@ -220,6 +220,9 @@ export default async function AppointmentsPage({
     hoursFacts: new Map(
       (weekWindow ?? monthWindow ?? dayWindow)?.hoursFacts ?? [],
     ),
+    // …and that same window carries the store's vertical, resolved next to the
+    // store's hours so the two can never describe different stores.
+    businessType: (weekWindow ?? monthWindow ?? dayWindow)?.businessType ?? null,
     enrichment,
     packUsage,
   })
