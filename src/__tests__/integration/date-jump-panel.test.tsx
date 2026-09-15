@@ -994,7 +994,7 @@ describe('the panel moves like the mock', () => {
     return screen.getByRole('dialog')
   }
 
-  it('t1 — opening writes the CLOSED style before a single frame runs', () => {
+  it('t1 — opening writes the CLOSED style before a single frame runs', async () => {
     renderView()
     const dialog = openNow()
     // Not one rAF has been allowed to fire, and the panel is already in the
@@ -1002,6 +1002,12 @@ describe('the panel moves like the mock', () => {
     expect(dialog.style.opacity).toBe('0')
     expect(dialog.style.transform).toContain('scaleY(0.96')
     expect(dialog.style.transform).toContain('translateY(-4')
+    // The month read the open fired settles AFTER the assertions above, so its
+    // dispatch landed outside act() — one console.error per run, and the kind
+    // of noise that hides a real warning later. Flushed here, wrapped, the way
+    // the deferred tests in this file wrap their own settles. No frame is
+    // advanced: the closed style is still the only picture this test saw.
+    await act(async () => {})
   })
 
   it('t1b — and then rises to rest over frames, not in one', async () => {
