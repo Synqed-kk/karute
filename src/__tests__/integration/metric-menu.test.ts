@@ -96,13 +96,6 @@ describe('weekRowCells — grid order (spec §8/§3)', () => {
     ])
   })
 
-  it("'returning' → count, returning, bookedTime, cancelled — unaffected by the switch", () => {
-    const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
-    expect(weekRowCells(row(), { soloMode: false, typeSlot: 'returning', t }).map((c) => c.key)).toEqual([
-      'count', 'returning', 'bookedTime', 'cancelled',
-    ])
-  })
-
   it("'off' → count, utilization, cancelled (free OFF), next unused metric", () => {
     const { weekRowCells } = loadMetricMenu({ freeTimeCell: false })
     const r = row({ capacityDefensible: true, hoursSaved: true, bookedMinutes: 100, availableMinutes: 480 })
@@ -126,13 +119,6 @@ describe('dayLineCells — day-line order (spec §8/§2)', () => {
     const r = row({ capacityDefensible: true, hoursSaved: true, bookedMinutes: 240, availableMinutes: 480 })
     expect(dayLineCells(r, { soloMode: false, typeSlot: 'new', t }).map((c) => c.key)).toEqual([
       'count', 'new', 'utilization', 'free',
-    ])
-  })
-
-  it("'returning' → count, returning, bookedTime, cancelled", () => {
-    const { dayLineCells } = loadMetricMenu()
-    expect(dayLineCells(row(), { soloMode: false, typeSlot: 'returning', t }).map((c) => c.key)).toEqual([
-      'count', 'returning', 'bookedTime', 'cancelled',
     ])
   })
 
@@ -270,7 +256,7 @@ describe('placeForGrid — a DURATION never sits in the 100 px column (R1-1, D10
   it('holds across typeSlot × defensible × freeTimeCell × solo × hoursSaved × over-capacity', () => {
     for (const freeTimeCell of [true, false]) {
       const { weekRowCells, dayLineCells } = loadMetricMenu({ freeTimeCell })
-      for (const typeSlot of ['new', 'returning', 'off'] as const) {
+      for (const typeSlot of ['new', 'off'] as const) {
         for (const capacityDefensible of [true, false]) {
           for (const soloMode of [true, false]) {
             for (const hoursSaved of [true, false]) {
@@ -301,9 +287,9 @@ describe('placeForGrid — a DURATION never sits in the 100 px column (R1-1, D10
                 set: [...day].sort(),
               })
 
-              // …and the week row's order BEFORE placement, reconstructed from
-              // that same oracle: identical for 'off'/'returning', and for
-              // 'new' the day line only moves 新規 to the front.
+              // …and the week row's order BEFORE placement, reconstructed
+              // from that same oracle: identical for 'off', and for 'new' the
+              // day line only moves 新規 to the front.
               const before =
                 typeSlot === 'new' ? [day[0], day[2], day[3], day[1]] : day
 
@@ -422,7 +408,7 @@ describe('R2-1 — 稼働% and 予約時間 are ONE measure in two units, never 
   it('holds across typeSlot × defensible × freeTimeCell × solo × hoursSaved, on BOTH surfaces', () => {
     for (const freeTimeCell of [true, false]) {
       const { weekRowCells, dayLineCells } = loadMetricMenu({ freeTimeCell })
-      for (const typeSlot of ['new', 'returning', 'off'] as const) {
+      for (const typeSlot of ['new', 'off'] as const) {
         for (const capacityDefensible of [true, false]) {
           for (const soloMode of [true, false]) {
             for (const hoursSaved of [true, false]) {
@@ -521,7 +507,7 @@ describe('>100% utilization is never defensible (R3-1 — ONE predicate for 稼�
 
 describe('the fill order never repeats a cell', () => {
   it('produces 4 distinct keys across every typeSlot/switch/context combination', () => {
-    for (const typeSlot of ['new', 'returning', 'off'] as const) {
+    for (const typeSlot of ['new', 'off'] as const) {
       for (const solo of [true, false]) {
         for (const defensible of [true, false]) {
           for (const hoursSaved of [true, false]) {
@@ -668,7 +654,7 @@ describe('property — 1000 seeded rows × 3 typeSlots × 2 soloModes (LENS-2, m
         hoursSaved: bool(),
         closed: bool(),
       })
-      for (const typeSlot of ['new', 'returning', 'off'] as const) {
+      for (const typeSlot of ['new', 'off'] as const) {
         for (const soloMode of [true, false]) {
           const where = `#${i}/${typeSlot}/solo=${soloMode}/booked=${r.bookedMinutes}/avail=${r.availableMinutes}/def=${r.capacityDefensible}`
           const ctx = { soloMode, typeSlot, t }

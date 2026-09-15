@@ -107,14 +107,6 @@ describe('DayNumbersLine — order per typeSlot', () => {
     expect(itemTexts(container)).toEqual(['11件', '5新規', '56%稼働', '3時間30分空き'])
   })
 
-  it("'returning' → 予約, 再来, 予約時間, キャンセル", () => {
-    const DayNumbersLine = loadDayNumbersLine()
-    const { container } = render(
-      <DayNumbersLine row={row()} soloMode={false} typeSlot="returning" locale="ja" />,
-    )
-    expect(itemTexts(container)).toEqual(['11件', '2再来', '4時間30分予約時間', '0キャンセル'])
-  })
-
   it("'off' → 予約, 稼働, キャンセル (free OFF), next unused metric — never 予約時間 beside 稼働%", () => {
     const DayNumbersLine = loadDayNumbersLine({ freeTimeCell: false })
     const { container } = render(

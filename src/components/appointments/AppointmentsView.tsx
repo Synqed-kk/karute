@@ -31,6 +31,7 @@ import {
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
 import { DayNumbersLine } from '@/components/appointments/DayNumbersLine'
 import { WeekRows } from '@/components/appointments/WeekRows'
+import { TYPE_SLOT } from '@/lib/appointments/metric-menu'
 import { DateJumpPanel } from '@/components/appointments/DateJumpPanel'
 import { NewBookingDialog } from '@/components/appointments/NewBookingDialog'
 import { BookingActionSheetWrapper } from '@/components/appointments/BookingActionSheetWrapper'
@@ -485,10 +486,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
                 // day's totals.
                 pending={isPending}
                 soloMode={props.soloMode}
-                // PKT-2 owns the strict 新規/再来 producer; today's
-                // newCustomerCount is the QR import flag and must not print
-                // (spec §8). 'off' = the fill order supplies the fourth cell.
-                typeSlot="off"
+                // ⚖ PKT-2 — 新規, for every business type (Liam 2026-09-15
+                // 20:2x). One home: the slot is read off the switch registry,
+                // never spelled per call site.
+                typeSlot={TYPE_SLOT}
                 locale={props.locale}
               />
             ) : null}
@@ -539,10 +540,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             selectedDateIso={ymdInJst(selectedDate)}
             todayIso={ymdInJst(today)}
             soloMode={props.soloMode}
-            // PKT-2 owns the strict 新規/再来 producer; today's
-            // newCustomerCount is the QR import flag and must not print
-            // (spec §8). 'off' = the fill order supplies the fourth cell.
-            typeSlot="off"
+            // ⚖ PKT-2 — 新規, for every business type (Liam 2026-09-15
+            // 20:2x). One home: the slot is read off the switch registry,
+            // never spelled per call site.
+            typeSlot={TYPE_SLOT}
             locale={props.locale}
             // The router transition IS the week's pending state: during a
             // ‹ / › / 今日 / calendar move the rows on screen still describe

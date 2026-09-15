@@ -90,6 +90,7 @@ jest.mock('@/components/appointments/WeekRows', () => ({
 import { render } from '@testing-library/react'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
+import { TYPE_SLOT } from '@/lib/appointments/metric-menu'
 
 const WEEK_START = new Date('2026-09-15T00:00:00+09:00')
 
@@ -186,9 +187,12 @@ describe('the WEEK branch renders WeekRows (W-A)', () => {
     expect(weekRowsProps!.soloMode).toBe(false)
   })
 
-  it("typeSlot is 'off' — today's newCustomerCount is the QR flag and must not print (W-D, spec §8)", () => {
+  it("⚖ PKT-2 — typeSlot is 'new', for every business type, from the one switch", () => {
     renderView()
-    expect(weekRowsProps!.typeSlot).toBe('off')
+    expect(weekRowsProps!.typeSlot).toBe('new')
+    // Not a literal at the call site: the view reads the registry, so the
+    // week rows and the day line can never be given different slots.
+    expect(weekRowsProps!.typeSlot).toBe(TYPE_SLOT)
   })
 
   it('a row tap opens that row’s DAY page', () => {

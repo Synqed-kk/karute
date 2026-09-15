@@ -21,6 +21,12 @@ export const BOOKING_SWITCHES = {
   /** The month page's numbers line above the grid. ON — spec §S3, this
    *  round's build. Flip: never expected; a floor once 1b-month lands. */
   monthLine: true,
+  /** ⚖ PKT-2 — the 新規 number, on every surface and for EVERY business type
+   *  (Liam 2026-09-15 20:2x, from his own mock screenshots: 予約 · 稼働 · 空き
+   *  · 新規, no type table and no 再来 slot). ON. `TYPE_SLOT` in metric-menu is
+   *  its one reader: OFF puts the slot back to 'off' and the fill order
+   *  supplies the fourth cell, which is honest — no half-rendered 新規. */
+  countNew: true,
   /** 先月同期間比 (month-over-month compare) on the month line. OFF — needs a
    *  second month's data or core's count door (spec §8/§10). Flip: once that
    *  data exists. */
