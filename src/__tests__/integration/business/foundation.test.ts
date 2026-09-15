@@ -441,6 +441,10 @@ describe('the fixture data door', () => {
         '@/business/lib/clock',
         '@/business/lib/data',
         '@/business/lib/fixtures-today',
+        // ⚖ D-53 (n) R-N2-1 — DISCLOSED MOVE: the ONE runtime-reader module
+        // under today/. `resourceWordsFor`/`chromeWords` live here and
+        // nowhere else in this directory (the resource-words census's C5 pin).
+        '@/business/lib/resource-words',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
@@ -521,6 +525,11 @@ describe('the fixture data door', () => {
         // 保護ルール chip and nothing else. It is a string builder with no
         // imports of its own, so this arrow adds no module to the graph below
         // it.
+        // ⚖ D-53 (n) R-N2-1 — DISCLOSED MOVE: a TYPE-only import of
+        // `ResourceWords`, so this screen can type the four new props without
+        // ever calling `resourceWordsFor` itself (the C5 pin: page.tsx is the
+        // ONLY runtime caller under today/).
+        '@/business/lib/resource-words',
         '@/business/lib/settings-link',
         // ⚠ ONE SPRING INTEGRATOR FOR THE WHOLE FAMILY: the accepted mock's own
         // `makeSpring`, ported rather than re-invented and PURE of React and the

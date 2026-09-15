@@ -299,11 +299,11 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
       offenders += count
     }
     console.log('census:', JSON.stringify({ offenders, byFile }))
-    // ⚖ D-53 (c) R4/R8 — N1 pins the existing count without changing a
-    // rendered word; N2 drives the migrated route's count to 0; comments
-    // alone are exempt.
-    expect(byFile).toEqual({ 'TodayScreen.tsx': 28, 'page.tsx': 2, 'today-interactions.ts': 19 })
-    expect(offenders).toBe(49)
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: N2a (PKT-BUILD-N2A-BOARD-WORDS.md)
+    // converted page.tsx's 2 and TodayScreen.tsx's 28 sites to read the
+    // resource-words table; today-interactions.ts's 19 are N2b's.
+    expect(byFile).toEqual({ 'today-interactions.ts': 19 })
+    expect(offenders).toBe(19)
   })
 
   it('the scanner keeps regex literals and comment markers inside them out of the comment stripper (L1 MINOR-2)', () => {
@@ -344,9 +344,36 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
     expect(results).toEqual([0, 0, 0, 0, 1, 1])
   })
 
-  it('⚖ C5 — no reader of business_type or resourceWordsFor exists under today/ yet', () => {
+  // ⚖ D-53 (n) — DISCLOSED PIN MOVE: C5 no longer means "zero readers" — N2a
+  // gave page.tsx the ONE legitimate call site (R-N2-1). The pin now means
+  // "only page.tsx calls it, and TodayScreen.tsx names the type and nothing
+  // else" — a scoped allowlist, not a blanket relaxation, so a FUTURE stray
+  // `resourceWordsFor` call inside TodayScreen.tsx/today-interactions.ts
+  // still fails this leg.
+  it('⚖ C5 — resourceWordsFor/business_type/resource-words occur under today/ only in page.tsx, and in TodayScreen.tsx only as the authorized type import', () => {
+    const TYPE_IMPORT_LINE = "import type { ResourceWords } from '@/business/lib/resource-words'"
     const PATTERN = /business_type|resourceWordsFor|resource-words/
-    const hits = listSourceFiles(TODAY_DIR).filter((f) => PATTERN.test(readFileSync(f, 'utf8')))
-    expect(hits).toEqual([])
+    const hits: string[] = []
+    for (const file of listSourceFiles(TODAY_DIR)) {
+      const rel = relative(TODAY_DIR, file)
+      let stripped = stripComments(readFileSync(file, 'utf8'))
+      if (rel === 'TodayScreen.tsx') {
+        // exactly ONE authorized type-only import line — assert it, then
+        // remove ONLY that validated line before scanning for anything else.
+        expect(countOccurrences(stripped, TYPE_IMPORT_LINE)).toBe(1)
+        stripped = stripped.split(TYPE_IMPORT_LINE).join('')
+      }
+      if (PATTERN.test(stripped)) hits.push(rel)
+    }
+    expect(hits).toEqual(['page.tsx'])
+
+    // Pin page.tsx's own wiring to the ONE runtime-reader module (R-N2-1):
+    // the import specifier + the `wordsByStore` map call + the `genericWords`
+    // call = three `resourceWordsFor` identifier occurrences, two call
+    // expressions, and one `business_type` occurrence (inside the map call).
+    const pageStripped = stripComments(readFileSync(join(TODAY_DIR, 'page.tsx'), 'utf8'))
+    expect(countOccurrences(pageStripped, 'resourceWordsFor')).toBe(3)
+    expect((pageStripped.match(/resourceWordsFor\(/g) ?? []).length).toBe(2)
+    expect(countOccurrences(pageStripped, 'business_type')).toBe(1)
   })
 })
