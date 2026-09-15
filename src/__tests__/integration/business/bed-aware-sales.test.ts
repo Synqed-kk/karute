@@ -480,6 +480,53 @@ describe('bed-aware-sales — ⚖ D-19 (3) / round 3 D: the eligibility pigeonho
     expect({ withheld: setOf(w), nettings }).toEqual({ withheld: [offer.key], nettings: 2 })
     expect(w.blockedBy.has(offer.key)).toBe(false)
   })
+
+  it('P8 — the refuting instant is an earlier 枠\'s END inside the span (cold-read fold 3)', () => {
+    // Every 枠 is 90 minutes (the equal-length invariant). A and C share the same
+    // span and the same two eligible rooms, so the netting must split them across
+    // p and q; B ENDS at 610 — strictly inside the offer's span, before either A
+    // or C's own start there — and takes its own rooms (m, j) out of the union
+    // with it. Four bed rows, so (d) is silent: n(600) = 3 < 4.
+    const rows: Array<[string, number, number, string[]]> = [
+      ['A', 600, 690, ['p', 'q']],
+      ['B', 520, 610, ['m', 'j']],
+      ['C', 600, 690, ['p', 'q']],
+      ['offer', 600, 700, ['p', 'q']],
+    ]
+    const { book, asks } = tableBook(rows)
+    const candidates = rows.slice(0, 3).map(([k, s, e]) => maskOf(k, [span(s, e)]))
+    const lanes = [...['A', 'B', 'C', 'offer'].map((k) => lane(k)), ...bedRows('p', 'q', 'm', 'j')]
+    const roomUniverse = lanes.filter((l) => l.group === 'beds').length
+    const honest = honestHeld(candidates, lanes, book, true)
+    // Preconditions, derived from the objects — not asserted by hand.
+    expect({ total: honest.total, exact: honest.exact, roomUniverse }).toEqual({ total: 3, exact: true, roomUniverse: 4 })
+    const heldRoom = Object.fromEntries(honest.byLane.map((l) => [l.laneKey, l.heldRoom[0]]))
+    console.log('P8 heldRoom =', heldRoom, '· heldRooms =', honest.byLane.map((l) => l.heldRooms))
+    // All three held 枠 overlap the offer, so this equals the module's own
+    // `usedRooms`, built from `hit` only.
+    const usedRooms = new Set(honest.byLane.flatMap((l) => l.heldRoom))
+    console.log('P8 usedRooms =', [...usedRooms].sort())
+    const offer = askOf(rows[3])
+    const offerRooms = book.freeBedKeys(offer.start, offer.end, { stores: null })
+    expect(offerRooms.every((r) => usedRooms.has(r))).toBe(true)
+    // U(t): the union of eligible rooms of the held 枠 covering instant t — the
+    // same quantity the eligibility exit reads, re-derived here from the objects.
+    const heldSpans = honest.byLane.flatMap((l) => l.held.map((s, i) => ({ start: s.start, end: s.end, rooms: l.heldRooms[i] })))
+    const coveringAt = (t: number) => heldSpans.filter((s) => s.start <= t && t < s.end)
+    const unionAt = (t: number) => new Set(coveringAt(t).flatMap((s) => s.rooms))
+    console.log('P8 U(600) =', [...unionAt(600)].sort(), 'n(600) =', coveringAt(600).length)
+    console.log('P8 U(610) =', [...unionAt(610)].sort(), 'n(610) =', coveringAt(610).length)
+    // At 600 the margin is 1 for both p and q — not refuted there.
+    expect({ u: unionAt(600).size, n: coveringAt(600).length }).toEqual({ u: 4, n: 3 })
+    // At 610 — B's END, not any 枠's start — both p and q are refuted.
+    expect({ u: [...unionAt(610)].sort(), n: coveringAt(610).length }).toEqual({ u: ['p', 'q'], n: 2 })
+    const before = asks.length
+    const w = withheldOffers([offer], honest, candidates, lanes, book, true)
+    const nettings = (asks.length - before - 1) / candidates.length
+    console.log('P8: withheld =', setOf(w), 'nettings =', nettings, 'unresolved =', [...w.unresolved])
+    expect({ withheld: setOf(w), nettings, unresolved: [...w.unresolved] }).toEqual({ withheld: [offer.key], nettings: 0, unresolved: [] })
+    expect(w.blockedBy.has(offer.key)).toBe(false)
+  })
 })
 
 describe('bed-aware-sales — the one-bed store', () => {
