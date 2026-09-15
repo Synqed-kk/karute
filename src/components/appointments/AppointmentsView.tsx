@@ -368,9 +368,15 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         // In 月 mode the page already holds this month's cells — no fetch.
         seedCells={view === 'month' ? props.monthData : null}
         loadMonthCells={props.loadMonthCells}
-        // MODE PRESERVED: picking a day never switches 日/週/月.
+        // MODE PRESERVED: picking a day never switches 日/週/月 — so in 月
+        // mode this IS navigateTo('month', date): the page stays on the month
+        // page and the tapped day becomes its selection.
         onPickDay={(date) => navigateTo(view, date)}
         weekdayLabels={monthWeekdayLabels}
+        // ⚖ §v11b — in 月 mode the chip opens on the twelve month chips, never
+        // a day grid over a day grid (the two calendars looked identical, which
+        // is what started this whole round). 日/週 are unchanged.
+        defaultLevel={view === 'month' ? 2 : 1}
       />
       </div>
 

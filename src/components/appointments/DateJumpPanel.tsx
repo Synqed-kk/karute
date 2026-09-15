@@ -188,6 +188,8 @@ export interface DateJumpPanelProps {
   /** Mon-first localized weekday headers, the same array the 月 view feeds
    *  MonthGrid. */
   weekdayLabels: [string, string, string, string, string, string, string]
+  /** 2 = open on the month chips (月 mode, §v11b) instead of the day grid. */
+  defaultLevel?: 1 | 2
 }
 
 export function DateJumpPanel({
@@ -199,6 +201,7 @@ export function DateJumpPanel({
   loadMonthCells,
   onPickDay,
   weekdayLabels,
+  defaultLevel = 1,
 }: DateJumpPanelProps) {
   const locale = useLocale()
   const t = useTranslations('reservation')
@@ -307,6 +310,7 @@ export function DateJumpPanel({
   if (open !== wasOpen) {
     setWasOpen(open)
     if (open) dispatch({ type: 'open', month: openMonth, seed: seedCells })
+    if (open && defaultLevel === 2) dispatch({ type: 'setLevel', level: 'months' })
   }
 
   // The chip is the trigger: it must say so, and it must look pressed. Both

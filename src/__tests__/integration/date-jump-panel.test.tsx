@@ -295,6 +295,40 @@ describe('walking the calendar', () => {
     // Nothing navigated — level 2 moves the calendar, not the page.
     expect(push).not.toHaveBeenCalled()
   })
+
+  /**
+   * ⚖ §v11b (packet A4) — in 月 mode the chip must NOT open a day grid over a
+   * day grid: the 月 page and this panel looked identical, which is the
+   * complaint the whole round came out of. One prop, `defaultLevel`; the
+   * panel's own levels, grid and month machinery are untouched.
+   */
+  it('月 mode opens the panel ON the month chips; 日 mode still opens the day grid', async () => {
+    renderView({ view: 'month' })
+    await openPanel()
+    const dialog = screen.getByRole('dialog')
+
+    // The year row, twelve chips, and no day grid: the day level is `inert` +
+    // aria-hidden at level 2, so ByRole cannot see a single day button.
+    expect(within(dialog).getByRole('button', { expanded: true })).toHaveTextContent('2026年')
+    expect(within(dialog).getAllByRole('button', { pressed: false })).toHaveLength(11)
+    expect(within(dialog).getAllByRole('button', { pressed: true })).toHaveLength(1)
+    // No DAY is reachable: the mocked grids stay mounted for the slide, but at
+    // level 2 they are inert + aria-hidden, so nothing with a day behind it is
+    // in the accessibility tree (or the tab order).
+    expect(
+      within(dialog)
+        .getAllByRole('button')
+        .filter((b) => b.hasAttribute('data-day')),
+    ).toHaveLength(0)
+  })
+
+  it('日 mode is unchanged — the chip still opens the day grid', async () => {
+    renderView({ view: 'day' })
+    await openPanel()
+    const dialog = screen.getByRole('dialog')
+    expect(title()).toHaveTextContent('2026年9月')
+    expect(within(dialog).getAllByTestId('month-grid').length).toBeGreaterThan(0)
+  })
 })
 
 describe('picking a day KEEPS the page mode', () => {
@@ -305,6 +339,14 @@ describe('picking a day KEEPS the page mode', () => {
   ])('%s stays %s', async (view) => {
     renderView({ view })
     await openPanel()
+    if (view === 'month') {
+      // ⚖ §v11b (A4): 月 mode opens ON the month chips, so the day grid is one
+      // tap further in — picking the month the page is already on drops to it.
+      // The mode rule below is unchanged; only the route to a day is.
+      fireEvent.click(
+        within(screen.getByRole('dialog')).getByRole('button', { pressed: true }),
+      )
+    }
     await waitFor(() => expect(screen.getAllByTestId('month-grid')).toHaveLength(3))
 
     // The centre pane is the second of the three (prev, current, next).
