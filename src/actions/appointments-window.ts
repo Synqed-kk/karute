@@ -17,6 +17,7 @@
 
 import { getSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
   emptyAppointmentWindow,
@@ -42,15 +43,21 @@ export async function getAppointmentWindow(
   fromIso: string,
   toIso: string,
   staffFilter: string,
-  activeStaffId: string | null,
 ): Promise<AppointmentWindowPayload> {
-  const [synqed, scope, orgSettings] = await Promise.all([
+  const [synqed, scope, orgSettings, activeStaffId] = await Promise.all([
     getSynqedClient(),
     // Same clamp the day agenda and the old range action use: the RBAC-resolved
     // store, never the raw cookie, so a store-restricted staff's week/month
     // numbers can never include another branch.
     resolveStoreScope(),
     getOrgSettings(),
+    // 'use server' means this function IS a POST endpoint, so every argument is
+    // caller-controlled. The VIEWER's own id is never an argument: the house
+    // rule at src/lib/staff.ts:255-257 says read it here, never from client
+    // input. React-cache'd, and resolveStoreScope above already resolved it in
+    // this request, so it costs nothing. (staffFilter stays an argument — it is
+    // the 担当 chip, and it can only narrow rows this caller may already read.)
+    getCurrentUserStaffId(),
   ])
   const storeId = scope.storeId ?? undefined
 

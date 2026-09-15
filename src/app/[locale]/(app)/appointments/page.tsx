@@ -81,16 +81,13 @@ export default async function AppointmentsPage({
   // a WRITE-offer posture, not the read plane's. `null` = clamped with no store
   // to name: an EMPTY combobox, never the business-wide one (customerLensFor).
   const customerLens = customerLensFor(storeScope)
-  // Hoisted out of the wave: the window reads below need the viewer's id to turn
-  // ?staff=self into a CORE staff id. resolveStoreScope above already resolved
-  // it (store-scope.ts:68) and it is React-cache'd, so this costs nothing.
-  const activeStaffId = await t.phase('activeStaffId', () => getCurrentUserStaffId())
 
   const [
     {
       data: { user },
     },
     staffList,
+    activeStaffId,
     orgSettings,
     customers,
     dayAppointments,
@@ -102,6 +99,7 @@ export default async function AppointmentsPage({
   ] = await Promise.all([
     t.phase('auth.getUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
+    t.phase('activeStaffId', () => getCurrentUserStaffId()),
     t.phase('orgSettings', () => getOrgSettings()),
     t.phase('customerList', async () =>
       customerLens === null ? [] : getCachedCustomerList(customerLens),
@@ -123,7 +121,6 @@ export default async function AppointmentsPage({
             weekRange.rangeFrom.toISOString(),
             weekRange.rangeTo.toISOString(),
             staffFilter,
-            activeStaffId,
           )
         : Promise.resolve(null),
     ),
@@ -133,7 +130,6 @@ export default async function AppointmentsPage({
             monthRange.rangeFrom.toISOString(),
             monthRange.rangeTo.toISOString(),
             staffFilter,
-            activeStaffId,
           )
         : Promise.resolve(null),
     ),
@@ -145,7 +141,6 @@ export default async function AppointmentsPage({
             selectedDate.toISOString(),
             jstEndOfDay(selectedDate).toISOString(),
             staffFilter,
-            activeStaffId,
           )
         : Promise.resolve(null),
     ),
