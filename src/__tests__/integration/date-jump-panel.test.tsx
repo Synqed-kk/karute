@@ -1187,9 +1187,11 @@ describe('the panel moves like the mock', () => {
     const panes = within(dialog).getAllByTestId('month-grid')
     // The pane the armed shift is travelling toward is live…
     expect(panes[2].closest('[inert]')).toBeNull()
-    // …and the month leaving the screen, plus the far one, are not.
-    expect(panes[1].closest('[inert]')).not.toBeNull()
+    // …the far pane stays inert…
     expect(panes[0].closest('[inert]')).not.toBeNull()
+    // …and the departing pane — the one the panel is ON — stays live too
+    // (R2 on R1's D1): it is NEVER inert, armed or not. See t8.
+    expect(panes[1].closest('[inert]')).toBeNull()
 
     const cell = within(panes[2]).getAllByRole('button')[0]
     expect(cell).toHaveAttribute('data-day', '2026-10-01')
@@ -1199,6 +1201,40 @@ describe('the panel moves like the mock', () => {
     // so an early tap can never land on the same square of another month.
     expect(push).toHaveBeenCalled()
     expect(push.mock.calls[0][0]).toContain('date=2026-10-01')
+    await frames(1000)
+    expect(panel()).toBeNull()
+  })
+
+  /**
+   * R2 (⚖ lead ruling on R1's D1) — R1 made the CURRENT pane (the month the
+   * panel is ON) inert the instant a shift armed, so a real-browser tap on the
+   * OLD month mid-slide — still most of the screen for ~250 ms — went nowhere
+   * (R10's case, for real this time: jsdom never enforced `inert`, so R10's
+   * own test stayed green through the bug). The current pane must never go
+   * inert; only the pane the shift is NOT travelling toward stays inert.
+   */
+  it('t8 — the departing pane stays live: a day tap there still lands on that day', async () => {
+    renderView()
+    const dialog = openNow()
+    await frames(1000)
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    await frames(300)
+    // Same window as t6 — armed, not yet committed.
+    expect(title()).toHaveTextContent('2026年9月')
+
+    const panes = within(dialog).getAllByTestId('month-grid')
+    // The current pane — the one the panel is ON — is live no matter what.
+    expect(panes[1].closest('[inert]')).toBeNull()
+    // The far pane (behind the direction of travel) stays inert.
+    expect(panes[0].closest('[inert]')).not.toBeNull()
+
+    const cell = within(panes[1]).getAllByRole('button')[0]
+    expect(cell).toHaveAttribute('data-day', '2026-09-01')
+    fireEvent.click(cell)
+
+    expect(push).toHaveBeenCalled()
+    expect(push.mock.calls[0][0]).toContain('date=2026-09-01')
     await frames(1000)
     expect(panel()).toBeNull()
   })

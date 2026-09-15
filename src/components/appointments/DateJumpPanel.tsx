@@ -637,16 +637,21 @@ export function DateJumpPanel({
   // off the header walked into a month nobody could see — and Enter there
   // navigated to a date nobody chose.
   //
-  // LIVE is `liveDir`: the month the panel is on, or — while a shift is armed
-  // — the month that shift is travelling TOWARD. The slide spring rests on
-  // 0.4 px, so it keeps creeping for ~350 ms after the track has visually
-  // stopped, and the commit only happens at rest: measured on the production
-  // build, the track is 98.7 % of the way across at 301 ms with the new month
-  // filling the screen, and `state.visibleMonth` does not change until ~611 ms.
-  // Leaving the incoming pane inert through that window is a landed month that
-  // swallows taps — the exact miss this panel exists to remove. `onPickDay`
-  // carries the cell's own Date, so an early tap goes to the day that was
-  // tapped, never to the same square of another month.
+  // LIVE is: the CURRENT pane (paneDir 0 — the month the panel is ON) always,
+  // armed or not, PLUS — while a shift is armed — the pane `liveDir` is
+  // travelling TOWARD. Only the one pane left over (behind the direction of
+  // travel) is inert. The slide spring rests on 0.4 px, so it keeps creeping
+  // for ~350 ms after the track has visually stopped, and the commit only
+  // happens at rest: measured on the production build, the track is 98.7 % of
+  // the way across at 301 ms with the new month filling the screen, and
+  // `state.visibleMonth` does not change until ~611 ms. Leaving either the
+  // incoming pane OR the current pane inert through that window swallows a
+  // tap on a month that looks finished (or still mostly there) — the exact
+  // miss this panel exists to remove; an earlier round made the current pane
+  // inert the moment a shift armed, which cost exactly this on the departing
+  // month. `onPickDay` carries the cell's own Date, so an early tap on either
+  // live pane goes to the day that was tapped, never to the same square of
+  // another month.
   //
   // `key` is the month: a landed month MOUNTS, it does not inherit the cell
   // nodes of the month before it. MonthGrid's cell carries `transition-colors`,
@@ -659,7 +664,12 @@ export function DateJumpPanel({
     paneDir: -1 | 0 | 1,
     className?: string,
   ) => (
-    <div key={key} ref={ref} className={cn('w-full', className)} inert={paneDir !== liveDir || undefined}>
+    <div
+      key={key}
+      ref={ref}
+      className={cn('w-full', className)}
+      inert={(paneDir !== 0 && paneDir !== liveDir) || undefined}
+    >
       <MonthGrid
         cells={cellsFor(key)}
         copy={{ weekdayLabels }}
