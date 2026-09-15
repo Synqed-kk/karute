@@ -314,8 +314,12 @@ export function appointmentsToMonthCells(
       isToday: sameYMD(cursor, today),
       count: inMonth ? count : 0,
       density: inMonth ? densityFor(count) : 'empty',
-      // Out-of-month cells are inert on the page grid and never render a
-      // marker, so their own closed state would be a fact nothing can show.
+      // R2-5 (LENS-1 #5) — out-of-month cells ARE tappable (onPickOtherMonthDay
+      // → navigateTo('month', …) moves the page to their real month), so
+      // "inert" is stale. The reason `closed` is forced false here still
+      // holds: this window's `hoursFacts` was never fetched for a day outside
+      // the month it read, so that day's closed state is not a fact this
+      // read can answer — never claim it either way.
       closed: inMonth ? (hoursFacts?.get(key)?.closed ?? false) : false,
     })
     cursor.setDate(cursor.getDate() + 1)

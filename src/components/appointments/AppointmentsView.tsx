@@ -256,6 +256,21 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   function handlePickDate() {
     setPickerOpen((o) => !o)
   }
+  // R2-4 (LENS-1 #4 rider) — this used to be a brand-new inline arrow built
+  // INSIDE the JSX ternary on every render (`(year, month) => navigateTo(...)`
+  // as an onPickMonth prop expression). A plain named function, like
+  // handlePrev/handleNext/handleToday above, is this component's own idiom
+  // for that — this repo's React Compiler auto-memoizes plain functions in a
+  // render body on its own (its `react-hooks/preserve-manual-memoization`
+  // lint refuses a manual `useCallback` wrapper here: `today`, a plain
+  // mutable Date, is not a dependency it can prove is safe to key on).
+  function handlePickMonth(year: number, month: number) {
+    navigateTo(
+      'month',
+      monthKeyOf(year, month) === monthKeyInJst(today) ? today : jstMidnight(year, month, 1),
+    )
+  }
+
   const headerDate = selectedDate
 
   return (
@@ -411,17 +426,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         // Selection = the 1st, or TODAY when the pick is the current month, so
         // 「今月」 through the chip and 今日 agree. 日/週 pass nothing and keep
         // the panel's own level-2 → level-1 behaviour.
-        onPickMonth={
-          view === 'month'
-            ? (year, month) =>
-                navigateTo(
-                  'month',
-                  monthKeyOf(year, month) === monthKeyInJst(today)
-                    ? today
-                    : jstMidnight(year, month, 1),
-                )
-            : undefined
-        }
+        onPickMonth={view === 'month' ? handlePickMonth : undefined}
       />
       </div>
 
