@@ -68,6 +68,11 @@ const LITERAL_ONLY_CATEGORY = {
   'privacy.voice_revoke': 'privacy',
   'settings.store_create': 'settings',
   'settings.store_update': 'settings',
+  // 営業時間 (1c-D): both emitted by setStoreHoursCore — the save and its way
+  // back. Literal-only for the same reason store_update is: the facade key
+  // 'stores.update' is a skip row, so no map entry carries them.
+  'settings.store_hours_update': 'settings',
+  'settings.store_hours_reset': 'settings',
   'settings.staff_stores_change': 'settings',
   'staff.add': 'staff',
   'staff.update': 'staff',
