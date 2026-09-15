@@ -46,7 +46,9 @@ export function densityDotClass(count: number): string | null {
   return 'bg-[var(--color-warning)]'
 }
 
-const VALUE_TONE_CLASS: Record<Cell['tone'], string> = {
+// Shared with DayNumbersLine.tsx (W5) — one tone→class map for both cell
+// surfaces, never a second copy.
+export const VALUE_TONE_CLASS: Record<Cell['tone'], string> = {
   ink: 'text-[var(--color-text)]',
   'band-low': 'text-[var(--color-success)]',
   'band-mid': 'text-[var(--color-accent)]',
