@@ -441,6 +441,10 @@ describe('the fixture data door', () => {
         '@/business/lib/clock',
         '@/business/lib/data',
         '@/business/lib/fixtures-today',
+        // ⚖ D-53 (n) R-N2-1 — DISCLOSED MOVE: the ONE runtime-reader module
+        // under today/. `resourceWordsFor`/`chromeWords` live here and
+        // nowhere else in this directory (the resource-words census's C5 pin).
+        '@/business/lib/resource-words',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
@@ -521,6 +525,11 @@ describe('the fixture data door', () => {
         // 保護ルール chip and nothing else. It is a string builder with no
         // imports of its own, so this arrow adds no module to the graph below
         // it.
+        // ⚖ D-53 (n) R-N2-1 — DISCLOSED MOVE: a TYPE-only import of
+        // `ResourceWords`, so this screen can type the four new props without
+        // ever calling `resourceWordsFor` itself (the C5 pin: page.tsx is the
+        // ONLY runtime caller under today/).
+        '@/business/lib/resource-words',
         '@/business/lib/settings-link',
         // ⚠ ONE SPRING INTEGRATOR FOR THE WHOLE FAMILY: the accepted mock's own
         // `makeSpring`, ported rather than re-invented and PURE of React and the
@@ -784,6 +793,9 @@ describe('the fixture data door', () => {
       // owns a value for — its own inventory is `./fixtures` and nothing else,
       // because a plane that imported a derivation could restate a fact.
       'src/business/lib/fixtures-settings.ts': ['./fixtures'],
+      // ⚖ D-53 (c) R4, P15 — the words home, beside the mirror. Its whole
+      // import inventory is the mirror it reads types and values from.
+      'src/business/lib/resource-words.ts': ['./fixtures-settings'],
       // The rules are PURE, and the empty inventory is the pin on that: the gate,
       // the clamps and the refusal table decide things about values they are
       // handed, never values they fetch.
@@ -998,6 +1010,10 @@ describe('the fixture data door', () => {
       ],
       'src/app/[locale]/(business)/business/recording/loading.tsx': ['@/business/i18n'],
     }
+    // P15 — a presence assertion, not just a value pin: without it, deleting
+    // the entry above would leave that file invisible to this test rather
+    // than red (m5).
+    expect(Object.keys(INVENTORY)).toContain('src/business/lib/resource-words.ts')
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')
         .split('\n')

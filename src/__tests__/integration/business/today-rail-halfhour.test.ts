@@ -794,7 +794,15 @@ describe('§R-D — the precedence Liam approved, rung by rung', () => {
     }
   })
 
-  it('a lane sharing no store with any room keeps the bare 「—」 and the no-rooms sentence — never 満室 (#777)', () => {
+  it('a lane sharing no store with any room keeps the bare 「—」 and no refusal — never 満室 (#777, ⚖ D-52 (a))', () => {
+    // ⚖ ROUND 3 · C — p-01's store ('store-z') owns no bed lane on this MIXED
+    // board (bed-01 belongs to 'store-a'), which is exactly item 8's mixed-board
+    // case: `bedDoor`'s per-lane `roomless` short-circuit now answers this
+    // lane's window `true` (feasible on staff time alone), so the guard treats
+    // it as protectable staff capacity rather than refusing it as a phantom
+    // full house. The word and the mark stay bare; the sentence is whatever
+    // `railExplain`'s base/E3b composition prints for THIS pocket now — never
+    // 満室 and never a bed refusal.
     const lanes = [
       handLane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-z'] }),
       handLane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
@@ -802,8 +810,11 @@ describe('§R-D — the precedence Liam approved, rung by rung', () => {
     const said = explainHand(lanes).get('p-01')!.get(780)!
     expect(said.word).toBeNull()
     expect(said.cue).toBeNull()
-    expect(said.sentence).toBe('この店舗には使えるベッドがありません')
+    expect(said.sentence).toBe(
+      '13:00〜14:30の新規90分の空き6→5（1枠減・損を減らす）。10:00はこの区間で損が最少の開始です（13:00〜14:00）。この開始には販売可能枠が出ていません',
+    )
     expect(said.sentence).not.toContain('満室')
+    expect(said.sentence).not.toContain('ベッド')
   })
 })
 

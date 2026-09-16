@@ -45,7 +45,7 @@ export async function listCustomerPacksWithClient(
     if (!cur || r.redeemed_on > cur) lastByPack.set(r.pack_id, r.redeemed_on)
   }
   return (packs as unknown as TicketPack[]).map((p) =>
-    withUsage(p, countByPack.get(p.id) ?? 0, lastByPack.get(p.id) ?? null),
+    withUsage(p, p.usage_count ?? countByPack.get(p.id) ?? 0, p.usage_count !== undefined ? p.usage_last_redeemed_on ?? null : lastByPack.get(p.id) ?? null),
   )
 }
 
@@ -302,6 +302,8 @@ export async function removeRedemptionWithClient(
 }
 
 export interface CustomerPackUsage {
+  /** Distinguishes an entitled family member from the economic pack holder. */
+  ownsActivePack?: boolean
   /** Remaining sessions across ACTIVE counted packs (kind='pack'). */
   remaining: number
   /** Σ pack_size across active counted packs — denominator for 残3/10. */
@@ -333,19 +335,26 @@ export async function listAllPackUsageWithClient(
   for (const p of packs) {
     if (p.kind !== 'pack') continue
     const remaining = Math.max(0, p.pack_size - (countByPack.get(p.id) ?? 0))
-    const cur = map.get(p.customer_id) ?? {
-      remaining: 0,
-      size: 0,
-      unconsumed: 0,
-      hasActivePack: false,
-      firstPackId: null,
+    // The installed SDK passes additive wire fields through unchanged. Validate
+    // the optional list until consumers upgrade to the new declaration.
+    const eligible = 'eligible_customer_ids' in p && Array.isArray(p.eligible_customer_ids)
+      ? p.eligible_customer_ids.filter((id): id is string => typeof id === 'string')
+      : []
+    for (const customerId of new Set([p.customer_id, ...eligible])) {
+      const cur = map.get(customerId) ?? {
+        remaining: 0, size: 0, unconsumed: 0, hasActivePack: false, ownsActivePack: false, firstPackId: null,
+      }
+      cur.remaining += remaining
+      cur.size += p.pack_size
+      cur.hasActivePack = true
+      if (remaining > 0 && !cur.firstPackId) cur.firstPackId = p.id
+      // Money totals must count the pack once, under its actual owner.
+      if (customerId === p.customer_id) {
+        cur.unconsumed += remaining * p.unit_price
+        cur.ownsActivePack = true
+      }
+      map.set(customerId, cur)
     }
-    cur.remaining += remaining
-    cur.size += p.pack_size
-    cur.unconsumed += remaining * p.unit_price
-    cur.hasActivePack = true
-    if (remaining > 0 && !cur.firstPackId) cur.firstPackId = p.id
-    map.set(p.customer_id, cur)
   }
   return map
 }
