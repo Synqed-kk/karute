@@ -18,6 +18,11 @@ jest.mock('next/cache', () => ({
   unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
 }))
 jest.mock('next-intl/server', () => ({ getTranslations: jest.fn(async () => (k: string) => k) }))
+// ⚖ FRESH-EYES-P1B F6 — the stub above echoes the KEY WITHOUT its namespace, so
+// `DENIED` alone passes whatever namespace the action asks for, and there is no
+// next-intl IntlMessages augmentation in this repo for tsc to catch a wrong one.
+// The namespace is asserted directly instead; a wrong one ships the raw key into
+// a staff toast.
 jest.mock('@/lib/audit-web', () => ({ auditWeb: jest.fn(async () => undefined) }))
 
 const held = { current: new Set<string>(['customers.manage']) }
@@ -44,6 +49,9 @@ import {
   type PermissionRole,
 } from '@/lib/auth/permissions'
 import { createCustomer, createQuickCustomer, updateCustomer } from '@/actions/customers'
+import { getTranslations } from 'next-intl/server'
+
+const getTranslationsMock = getTranslations as unknown as jest.Mock
 
 // The refusal is now TRANSLATED (⚖ A3: it is staff-visible copy, and this file
 // shipped it as an English literal). This suite's getTranslations stub echoes
@@ -145,11 +153,15 @@ describe('the three web write doors refuse without it', () => {
     })
     expect(create).not.toHaveBeenCalled()
     expect(checkDuplicate).not.toHaveBeenCalled()
+    // The NAMESPACE, not just the key (F6): `common.noPermission` is the line
+    // that exists in messages/ja.json + en.json.
+    expect(getTranslationsMock).toHaveBeenCalledWith('common')
   })
 
   it('createQuickCustomer refuses before any core call', async () => {
     expect(await createQuickCustomer('田中 美咲')).toEqual({ success: false, error: DENIED })
     expect(create).not.toHaveBeenCalled()
+    expect(getTranslationsMock).toHaveBeenCalledWith('common')
   })
 
   it('updateCustomer refuses before any core call', async () => {
@@ -158,6 +170,7 @@ describe('the three web write doors refuse without it', () => {
       error: DENIED,
     })
     expect(update).not.toHaveBeenCalled()
+    expect(getTranslationsMock).toHaveBeenCalledWith('common')
   })
 
   it('a completely capability-less account is refused the same way', async () => {
