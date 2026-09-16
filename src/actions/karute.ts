@@ -151,6 +151,11 @@ export async function createOrUpdateKaruteRecord(
     requestId?: string
   },
   entriesMode: 'replace' | 'fill-if-empty',
+  /** THE BY-ID WRITE STORE LOCK's scope for the CONVERGE branch below —
+   *  REQUIRED, never optional, so tsc forces every transport to hand one over
+   *  (web: resolveStoreScope(); facade: resolveWriteStoreScope()). An optional
+   *  parameter would have let a future caller re-open the hole silently. */
+  scope: RecordStoreScope,
 ): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }> {
   const emitSave = (result: { id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }) => {
     audit({
@@ -203,6 +208,15 @@ export async function createOrUpdateKaruteRecord(
         throw err
       })
     if (existing) {
+      // STORE LOCK (⚖ Liam 2026-09-16; BUILD-REPORT-P1.md §9.5 — the LAST by-id
+      // write door). This branch is keyed by recording_session_id alone, and the
+      // update below re-points customer_id / transcript / ai_summary /
+      // appointment_id / entries: without this line a clamped actor who holds one
+      // session id rewrites ANOTHER store's record on either transport. Refuses
+      // with the SAME not_found readKaruteRaw throws for a missing id, so this
+      // door is no existence oracle either. The CREATE arm needs no lock — its
+      // store comes from resolveKaruteStoreId / resolveSaveStore, already clamped.
+      ensureRecordStoreInScope({ store_id: existing.store_id ?? null }, scope, KARUTE_NOT_FOUND)
       // Collision on recording_session_id (fix round — the prior "this
       // branch's payload is the SAME content by construction" premise was
       // wrong: this branch is also reached by ReviewScreen's saveKaruteRecord
@@ -392,6 +406,10 @@ export async function saveKaruteRecord(
       },
       { actorId, businessId, source: 'web', requestId: crypto.randomUUID() },
       'replace',
+      // The converge branch's store lock (same cookie scope the karute delete
+      // door passes) — resolveStoreScope is cached per request, so this costs
+      // no second assignment read.
+      await resolveStoreScope(),
     )
     recordId = id
 
@@ -517,6 +535,8 @@ export async function saveKaruteRecordInline(
       },
       { actorId, businessId, source: 'web', requestId: crypto.randomUUID() },
       'fill-if-empty',
+      // Same converge-branch store lock as saveKaruteRecord above.
+      await resolveStoreScope(),
     )
 
     // Best-effort outcome write (the coaching label) — same as saveKaruteRecord.
