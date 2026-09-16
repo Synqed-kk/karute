@@ -35,7 +35,7 @@ import {
   filterCustomers,
   useRemoteCustomerSearch,
   type CustomerOption,
-  type CustomerSearchOption,
+  type CustomerSearchResult,
 } from '@/components/karute/CustomerCombobox'
 import { CUSTOMER_SEARCH_LIMIT } from '@/lib/customers/karute-number-match'
 import type { RecordTargetBooking } from './RecordingTargetCard'
@@ -123,7 +123,7 @@ interface Props {
   dayLabel?: string
   /** Opt-in company-wide search (P3, ⚖ Liam 2026-09-16) — same remote tier
    *  CustomerCombobox uses. Undefined = local-only, exactly as before. */
-  onRemoteSearch?: (query: string) => Promise<{ options: CustomerSearchOption[] } | { error: string }>
+  onRemoteSearch?: (query: string) => Promise<CustomerSearchResult | { error: string }>
 }
 
 export function RecordCustomerPickerDialog({
@@ -208,9 +208,13 @@ export function RecordCustomerPickerDialog({
   // section — an own-store karute-number hit renders as a normal row (no
   // chip); only a genuine other-store hit gets the 他店舗 section + chip.
   const localIds = useMemo(() => new Set(matches.map((c) => c.id)), [matches])
-  const remote = useRemoteCustomerSearch(trimmed, onRemoteSearch).filter((r) => !localIds.has(r.id))
-  const remoteOwnStore = remote.filter((r) => !r.other_store)
-  const remoteOtherStore = remote.filter((r) => r.other_store)
+  const { results: remoteResults, karuteNumberUnavailable } = useRemoteCustomerSearch(trimmed, onRemoteSearch)
+  const remote = remoteResults.filter((r) => !localIds.has(r.id))
+  // other_store is tri-state (Greptile fold): only a CONFIRMED false is a
+  // normal row — null (lens read failed, unknown) must never fall through to
+  // "own store" the way `!r.other_store` would (`!null` is true).
+  const remoteOwnStore = remote.filter((r) => r.other_store === false)
+  const remoteFlagged = remote.filter((r) => r.other_store !== false)
 
   return (
     <>
@@ -309,7 +313,14 @@ export function RecordCustomerPickerDialog({
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {t('target.searchResultsCount', { n: matches.length })}
               </p>
-              {results.length === 0 && remoteOwnStore.length === 0 && remoteOtherStore.length === 0 ? (
+              {/* Greptile fold: a failed karute-number cache read must say
+                  so, never just silently drop what would have been a match. */}
+              {karuteNumberUnavailable && (
+                <p className="text-center text-[11px] text-muted-foreground">
+                  {tCustomers('karuteNumberUnavailable')}
+                </p>
+              )}
+              {results.length === 0 && remoteOwnStore.length === 0 && remoteFlagged.length === 0 ? (
                 <p className="py-4 text-center text-[13px] text-muted-foreground">
                   {tCustomers('table.noResults')}
                 </p>
@@ -340,16 +351,18 @@ export function RecordCustomerPickerDialog({
                       {t('target.searchMore', { n: hiddenMatches })}
                     </p>
                   )}
-                  {/* Remote tier (P3, ⚖ Liam 2026-09-16): a GENUINE
-                      other-store hit. No day/fact data for these (no
-                      cross-store read) — name + honest 他店舗 chip. */}
-                  {remoteOtherStore.length > 0 && (
+                  {/* Remote tier (P3, ⚖ Liam 2026-09-16): a hit that is NOT
+                      confirmed the caller's own store. No day/fact data for
+                      these (no cross-store read). Tri-state (Greptile fold):
+                      true → 他店舗, null (lens read failed, genuinely
+                      unknown) → 店舗不明 — never presented as own-store. */}
+                  {remoteFlagged.length > 0 && (
                     <>
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                         {tCustomers('otherStoreSection')}
                       </p>
                       <ul role="listbox" aria-label={tCustomers('otherStoreSection')} className="flex flex-col gap-2">
-                        {remoteOtherStore.map((c) => (
+                        {remoteFlagged.map((c) => (
                           <SearchRow
                             key={c.id}
                             customer={c}
@@ -357,7 +370,11 @@ export function RecordCustomerPickerDialog({
                             todayBooking={null}
                             onSelect={onSelectCustomer}
                             t={t}
-                            otherStoreLabel={tCustomers('otherStoreChip')}
+                            otherStoreLabel={
+                              c.other_store === null
+                                ? tCustomers('otherStoreUnknownChip')
+                                : tCustomers('otherStoreChip')
+                            }
                           />
                         ))}
                       </ul>

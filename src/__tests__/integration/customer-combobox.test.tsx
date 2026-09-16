@@ -127,7 +127,7 @@ describe('CustomerCombobox', () => {
     jest.useFakeTimers()
     try {
       const remote: CustomerSearchOption[] = [{ id: 'r1', name: '遠藤三郎', other_store: true }]
-      const onRemoteSearch = jest.fn().mockResolvedValue({ options: remote })
+      const onRemoteSearch = jest.fn().mockResolvedValue({ options: remote, karute_number_unavailable: false })
       render(
         <CustomerCombobox
           customers={[{ id: 'a', name: '田中花子' }]}
@@ -155,6 +155,7 @@ describe('CustomerCombobox', () => {
     try {
       const onRemoteSearch = jest.fn(async (q: string) => ({
         options: [{ id: `r-${q}`, name: `row-${q}`, other_store: true }] as CustomerSearchOption[],
+        karute_number_unavailable: false,
       }))
       render(
         <CustomerCombobox
@@ -190,7 +191,7 @@ describe('CustomerCombobox', () => {
   it('Greptile fold: a single-character (non-numeric) query still reaches the remote search — no length floor', async () => {
     jest.useFakeTimers()
     try {
-      const onRemoteSearch = jest.fn().mockResolvedValue({ options: [] })
+      const onRemoteSearch = jest.fn().mockResolvedValue({ options: [], karute_number_unavailable: false })
       render(
         <CustomerCombobox
           customers={[]}
@@ -215,6 +216,7 @@ describe('CustomerCombobox', () => {
     try {
       const onRemoteSearch = jest.fn().mockResolvedValue({
         options: [{ id: 'r1', name: '遠藤三郎', other_store: false }] as CustomerSearchOption[],
+        karute_number_unavailable: false,
       })
       render(
         <CustomerCombobox
@@ -237,11 +239,69 @@ describe('CustomerCombobox', () => {
     }
   })
 
+  it('Greptile fold round 2: other_store:null (lens read failed) renders the 店舗不明 chip, never presented as own-store', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r1', name: '遠藤三郎', other_store: null }] as CustomerSearchOption[],
+        karute_number_unavailable: false,
+      })
+      render(
+        <CustomerCombobox
+          customers={[{ id: 'a', name: '田中花子' }]}
+          selectedId={null}
+          onSelect={jest.fn()}
+          onCreateNew={jest.fn()}
+          onRemoteSearch={onRemoteSearch}
+        />,
+      )
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
+      // The UNKNOWN chip, never the confirmed-other-store one, and never
+      // silently merged into the normal (own-store) list.
+      expect(screen.getByText('otherStoreUnknownChip')).toBeInTheDocument()
+      expect(screen.queryByText('otherStoreChip')).toBeNull()
+      expect(screen.getByText('otherStoreSection')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('Greptile fold round 2: karute_number_unavailable renders a one-line notice', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [],
+        karute_number_unavailable: true,
+      })
+      render(
+        <CustomerCombobox
+          customers={[]}
+          selectedId={null}
+          onSelect={jest.fn()}
+          onCreateNew={jest.fn()}
+          onRemoteSearch={onRemoteSearch}
+        />,
+      )
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '0042' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('karuteNumberUnavailable')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('a remote hit already offered locally is never shown twice', async () => {
     jest.useFakeTimers()
     try {
       const onRemoteSearch = jest.fn().mockResolvedValue({
         options: [{ id: 'a', name: '田中花子', other_store: true }] as CustomerSearchOption[],
+        karute_number_unavailable: false,
       })
       render(
         <CustomerCombobox

@@ -205,6 +205,7 @@ describe('picker dialog v2 — remote tier honesty (Greptile fold, 2026-09-16)',
     try {
       const onRemoteSearch = jest.fn().mockResolvedValue({
         options: [{ id: 'r-own', name: '遠藤三郎', other_store: false }],
+        karute_number_unavailable: false,
       })
       open({ customers: [], facts: [], onRemoteSearch })
       fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
@@ -224,6 +225,7 @@ describe('picker dialog v2 — remote tier honesty (Greptile fold, 2026-09-16)',
     try {
       const onRemoteSearch = jest.fn().mockResolvedValue({
         options: [{ id: 'r-other', name: '遠藤三郎', other_store: true }],
+        karute_number_unavailable: false,
       })
       open({ customers: [], facts: [], onRemoteSearch })
       fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
@@ -233,6 +235,45 @@ describe('picker dialog v2 — remote tier honesty (Greptile fold, 2026-09-16)',
       expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
       expect(screen.getByText('他店舗')).toBeInTheDocument()
       expect(screen.getByText('他店舗のお客様')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('Greptile fold round 2: other_store:null (lens read failed) renders 店舗不明, never presented as own-store', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-unknown', name: '遠藤三郎', other_store: null }],
+        karute_number_unavailable: false,
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
+      expect(screen.getByText('店舗不明')).toBeInTheDocument()
+      expect(screen.queryByText('他店舗')).toBeNull()
+      expect(screen.getByText('他店舗のお客様')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('Greptile fold round 2: karute_number_unavailable renders the JP notice', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [],
+        karute_number_unavailable: true,
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '0042' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('カルテ番号での検索は一時的に使えません')).toBeInTheDocument()
     } finally {
       jest.useRealTimers()
     }

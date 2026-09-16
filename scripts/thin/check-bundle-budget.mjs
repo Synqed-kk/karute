@@ -1112,6 +1112,25 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // new dependency). Genuine new-feature volume, not bloat — already trimmed
 // once (a duplicated SearchRow render path merged into one .map() call)
 // before raising this; same class as every prior raise on this line.
+//
+// Raised 2026-09-16 (Greptile fold round 2, feat/cross-branch-search) — the
+// "Cache failures hide store status" finding: other_store is now TRI-STATE
+// (true/false/null) instead of collapsing a failed lens read to false, plus
+// a karute_number_unavailable notice when the business-wide cache read
+// fails on an eligible term, plus the 店舗不明 chip + カルテ番号での検索は
+// 一時的に使えません ja/en string pair. Same CI recipe, thin/dist emptied
+// between two clean builds, byte-identical both times (node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock): en 134,553 · index 1,042,796 ·
+// vendor 937,791 = 2,115,140 B. Ceiling = 2,115,140 + 1,000.
+//
+// Where the +1,550 B went, measured per chunk against the prior entry's own
+// figure: en 134,437 → 134,553 (+116 B, the two new i18n keys) · index
+// 1,041,362 → 1,042,796 (+1,434 B, the settleCache/otherStoreFor tri-state
+// logic in both the action and the facade route's shared shape, the
+// karute-number-unavailable notice markup, and the 店舗不明-vs-他店舗 chip
+// branch) · vendor 937,791 → 937,791 (unchanged — no new dependency).
+// Genuine new-feature volume (an honesty fix, not a feature addition, but
+// real code all the same) — same class as every prior raise on this line.
 const BUDGET_BYTES = 2_117_480
 
 let dir

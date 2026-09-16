@@ -10,6 +10,7 @@ import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { parsePhotoUploadFields } from '@/lib/karute/photo-upload-fields'
 import type { CustomerOption, CustomerSearchOption } from '@/components/karute/CustomerCombobox'
+import type { CachedCustomerOption } from '@/lib/customers/cached'
 import {
   CUSTOMER_SEARCH_LIMIT,
   matchKaruteNumber,
@@ -776,11 +777,14 @@ export async function revokeCustomerConsent(customerId: string) {
  */
 export async function searchCustomersCompanyWide(
   query: string,
-): Promise<{ options: CustomerSearchOption[] } | { error: string }> {
+): Promise<
+  | { options: CustomerSearchOption[]; karute_number_unavailable: boolean }
+  | { error: string }
+> {
   try {
     await requireCapability('customers.view')
     const q = query.trim()
-    if (!q) return { options: [] }
+    if (!q) return { options: [], karute_number_unavailable: false }
 
     // Lazy imports (same convention as revokeCustomerConsent above): these
     // pull in store-scope.ts's / cached.ts's own SynqedClient chains, which
@@ -802,15 +806,25 @@ export async function searchCustomersCompanyWide(
     // membership call). Unclamped viewers are already preloaded business-wide,
     // so nothing this search returns can ever be "other store" for them.
     //
-    // Each cache read is settled on its OWN — a failure here degrades that
-    // one signal (no other_store label / no karute-number merge) instead of
-    // sinking searchRes, the direct result the whole request is for.
-    const [searchRes, ownList, businessWide] = await Promise.all([
+    // Each cache read is settled on its OWN and its OUTCOME kept (ok/failed),
+    // not collapsed to a bare value — a failure here must read as UNKNOWN,
+    // never silently as "own store"/"no karute match" (Greptile fold: the
+    // prior .catch(() => null) made a failed lens read indistinguishable from
+    // "not attempted", so a foreign customer could ship with no 他店舗 chip).
+    const settleCache = (p: Promise<CachedCustomerOption[]> | null) =>
+      p ? p.then((rows) => ({ ok: true as const, rows })).catch(() => ({ ok: false as const })) : Promise.resolve(null)
+    const [searchRes, ownResult, businessResult] = await Promise.all([
       synqed.customers.list({ search: q, page_size: CUSTOMER_SEARCH_LIMIT }),
-      enforceStore && lens !== null ? getCachedCustomerList(lens).catch(() => null) : Promise.resolve(null),
-      karuteQuery ? getCachedCustomerList().catch(() => null) : Promise.resolve(null),
+      settleCache(enforceStore && lens !== null ? getCachedCustomerList(lens) : null),
+      settleCache(karuteQuery ? getCachedCustomerList() : null),
     ])
-    const ownIds = ownList ? new Set(ownList.map((c) => c.id)) : null
+    // null = not attempted (unclamped, or no karute-number term) — a real
+    // answer, not a failure. ownIds stays null on either "not attempted" OR
+    // "failed"; the caller can't tell those apart from ownIds alone, which is
+    // exactly why other_store below reads `enforceStore` too, not just ownIds.
+    const ownIds = ownResult?.ok ? new Set(ownResult.rows.map((c) => c.id)) : null
+    const businessWide = businessResult?.ok ? businessResult.rows : []
+    const karuteNumberUnavailable = karuteQuery != null && !businessResult?.ok
 
     const rows: CustomerOption[] = searchRes.customers.map((c) => ({
       id: c.id,
@@ -820,17 +834,25 @@ export async function searchCustomersCompanyWide(
     }))
     // Karute number ahead of the name/phone matches — a hit already present
     // (digits also matched a phone number) is just reordered, never duplicated.
-    const karuteHits = businessWide ? matchKaruteNumber(q, businessWide) : []
+    const karuteHits = matchKaruteNumber(q, businessWide)
     const hitIds = new Set(karuteHits.map((h) => h.id))
     const merged: CustomerOption[] = [
       ...karuteHits.map((h) => ({ id: h.id, name: h.name, furigana: h.furigana, phone: h.phone })),
       ...rows.filter((r) => !hitIds.has(r.id)),
     ]
 
+    // true/false only once the lens read actually succeeded; enforceStore
+    // with no usable ownIds (lens failed, or had nothing to look up) is
+    // UNKNOWN — never defaults to false ("confirmed own store").
+    const otherStoreFor = (id: string): boolean | null => {
+      if (!enforceStore) return false
+      if (!ownIds) return null
+      return !ownIds.has(id)
+    }
     const options: CustomerSearchOption[] = merged
       .slice(0, CUSTOMER_SEARCH_LIMIT)
-      .map((r) => ({ ...r, other_store: ownIds ? !ownIds.has(r.id) : false }))
-    return { options }
+      .map((r) => ({ ...r, other_store: otherStoreFor(r.id) }))
+    return { options, karute_number_unavailable: karuteNumberUnavailable }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }

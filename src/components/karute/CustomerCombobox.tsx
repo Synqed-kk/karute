@@ -14,8 +14,26 @@ export type CustomerOption = {
 }
 
 /** A remote (company-wide) search result — same shape as a local row plus the
- *  honest 他店舗 label (⚖ Liam 2026-09-16, P3 cross-branch search). */
-export type CustomerSearchOption = CustomerOption & { other_store: boolean }
+ *  honest 他店舗 label (⚖ Liam 2026-09-16, P3 cross-branch search).
+ *  other_store is TRI-STATE (Greptile fold): true = confirmed another store,
+ *  false = confirmed the caller's own store, null = UNKNOWN — the lens read
+ *  that would answer it failed, so the row is never presented as own-store
+ *  just because we don't know better. */
+export type CustomerSearchOption = CustomerOption & { other_store: boolean | null }
+
+/** What one remote search call answers with — the options plus whether the
+ *  karute-number tier itself was available for this query (Greptile fold: a
+ *  failed cache read used to silently drop a would-be karute-number hit with
+ *  no signal at all). */
+export type CustomerSearchResult = {
+  options: CustomerSearchOption[]
+  karute_number_unavailable: boolean
+}
+
+const EMPTY_SEARCH: { results: CustomerSearchOption[]; karuteNumberUnavailable: boolean } = {
+  results: [],
+  karuteNumberUnavailable: false,
+}
 
 /**
  * Shared debounced remote-search tier (P3): local filtering over the
@@ -27,30 +45,35 @@ export type CustomerSearchOption = CustomerOption & { other_store: boolean }
  * same remote tier — ONE place decides when to fire and how to debounce.
  *
  * Greptile fold: a result set is only ever valid for the query that produced
- * it. `setResults([])` runs SYNCHRONOUSLY at the top of every effect run (not
+ * it. The state clears SYNCHRONOUSLY at the top of every effect run (not
  * only on the ineligible branch) so a query change clears the previous
  * query's rows immediately — they never sit selectable while the new
  * debounce/request is still in flight.
  */
 export function useRemoteCustomerSearch(
   query: string,
-  search: ((query: string) => Promise<{ options: CustomerSearchOption[] } | { error: string }>) | undefined,
-): CustomerSearchOption[] {
-  const [results, setResults] = useState<CustomerSearchOption[]>([])
+  search: ((query: string) => Promise<CustomerSearchResult | { error: string }>) | undefined,
+): { results: CustomerSearchOption[]; karuteNumberUnavailable: boolean } {
+  const [state, setState] = useState(EMPTY_SEARCH)
   useEffect(() => {
-    setResults([])
+    setState(EMPTY_SEARCH)
     const trimmed = query.trim()
     if (!search || !trimmed) return
     let cancelled = false
     const timer = setTimeout(() => {
       search(trimmed)
         .then((res) => {
-          if (!cancelled) setResults('options' in res ? res.options : [])
+          if (cancelled) return
+          setState(
+            'options' in res
+              ? { results: res.options, karuteNumberUnavailable: res.karute_number_unavailable }
+              : EMPTY_SEARCH,
+          )
         })
         .catch(() => {
           // A notWired/network failure degrades to "no remote results" —
           // never an unhandled rejection or a crash of the local-only search.
-          if (!cancelled) setResults([])
+          if (!cancelled) setState(EMPTY_SEARCH)
         })
     }, 250)
     return () => {
@@ -58,7 +81,7 @@ export function useRemoteCustomerSearch(
       clearTimeout(timer)
     }
   }, [query, search])
-  return results
+  return state
 }
 
 type CustomerComboboxProps = {
@@ -71,7 +94,7 @@ type CustomerComboboxProps = {
   /** Opt-in company-wide search (P3) — omitted, the combobox stays local-only
    *  exactly as before (ReassignCustomerAction/ReviewScreen/NewKaruteDialog
    *  never pass this; only NewBookingDialog does). */
-  onRemoteSearch?: (query: string) => Promise<{ options: CustomerSearchOption[] } | { error: string }>
+  onRemoteSearch?: (query: string) => Promise<CustomerSearchResult | { error: string }>
 }
 
 // digitsOnly moved to karute-number-match.ts as foldSearchDigits (imported
@@ -170,9 +193,16 @@ export function CustomerCombobox({
   // viewer's own store is a normal row, no chip — only a genuine other-store
   // hit gets the 他店舗 section + chip.
   const localIds = new Set(filtered.map((c) => c.id))
-  const remote = useRemoteCustomerSearch(trimmedQuery, onRemoteSearch).filter((r) => !localIds.has(r.id))
-  const remoteOwnStore = remote.filter((r) => !r.other_store)
-  const remoteOtherStore = remote.filter((r) => r.other_store)
+  const { results: remoteResults, karuteNumberUnavailable } = useRemoteCustomerSearch(
+    trimmedQuery,
+    onRemoteSearch,
+  )
+  const remote = remoteResults.filter((r) => !localIds.has(r.id))
+  // other_store is tri-state (Greptile fold): only a CONFIRMED false is a
+  // normal row — null (lens read failed, unknown) must never fall through to
+  // "own store" the way `!r.other_store` would (`!null` is true).
+  const remoteOwnStore = remote.filter((r) => r.other_store === false)
+  const remoteFlagged = remote.filter((r) => r.other_store !== false)
   const normalRows: CustomerOption[] = [...filtered, ...remoteOwnStore]
 
   function handleSelect(customer: CustomerOption) {
@@ -229,8 +259,15 @@ export function CustomerCombobox({
           {/* 35dvh cap: on Android the keyboard shrinks dvh, so the list
            *  adapts to the room actually left instead of clipping at a
            *  fixed 240px inside the keyboard-shrunk dialog. */}
+          {/* Greptile fold: a failed karute-number cache read must say so,
+           *  never just silently drop what would have been a match. */}
+          {karuteNumberUnavailable && (
+            <p className="border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground">
+              {t('karuteNumberUnavailable')}
+            </p>
+          )}
           <ul className="max-h-[min(15rem,35dvh)] overflow-y-auto py-1">
-            {normalRows.length === 0 && remoteOtherStore.length === 0 ? (
+            {normalRows.length === 0 && remoteFlagged.length === 0 ? (
               <li className="px-3 py-2 text-sm text-muted-foreground">
                 {t('table.noResults')}
               </li>
@@ -257,16 +294,18 @@ export function CustomerCombobox({
                 </li>
               ))
             )}
-            {/* Remote tier (P3, ⚖ Liam 2026-09-16): a GENUINE other-store hit,
-             *  per the server's own other_store flag — never every remote row
-             *  (Greptile fold: an own-store karute-number hit is a normal row
-             *  above, no chip). */}
-            {remoteOtherStore.length > 0 && (
+            {/* Remote tier (P3, ⚖ Liam 2026-09-16): a hit that is NOT
+             *  confirmed the caller's own store, per the server's own
+             *  other_store flag — never every remote row (an own-store
+             *  karute-number hit is a normal row above, no chip). Tri-state
+             *  (Greptile fold): true → 他店舗, null (lens read failed,
+             *  genuinely unknown) → 店舗不明 — never presented as own-store. */}
+            {remoteFlagged.length > 0 && (
               <>
                 <li className="px-3 py-1 text-[11px] font-semibold text-muted-foreground" aria-hidden>
                   {t('otherStoreSection')}
                 </li>
-                {remoteOtherStore.map((customer) => (
+                {remoteFlagged.map((customer) => (
                   <li
                     key={customer.id}
                     role="option"
@@ -283,7 +322,7 @@ export function CustomerCombobox({
                     <span className="flex items-center gap-1.5">
                       {customer.name}
                       <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                        {t('otherStoreChip')}
+                        {customer.other_store === null ? t('otherStoreUnknownChip') : t('otherStoreChip')}
                       </span>
                     </span>
                     {customer.phone && (

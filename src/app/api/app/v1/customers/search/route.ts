@@ -38,7 +38,7 @@ export const GET = facadeHandler('customers.search', async (ctx) => {
     throw new AppApiError('validation', 'query must be a string of at most 200 characters')
   }
   const q = parsedQuery.data.trim()
-  if (!q) return ok(ctx, { options: [] })
+  if (!q) return ok(ctx, { options: [], karute_number_unavailable: false })
 
   const synqed = newSynqedClient(ctx.identity.businessId)
   const clamp = await resolveStoreForRequest({
@@ -61,17 +61,31 @@ export const GET = facadeHandler('customers.search', async (ctx) => {
   const karuteQuery = foldKaruteNumberQuery(q)
 
   // "other_store" = not in the CALLER's own store-lensed cached list — same
-  // definition as the web action, no core membership call. Each cache read
-  // is settled on its own — a failure here degrades that one signal instead
-  // of sinking searchRes, the direct result the whole request is for.
-  const [searchRes, ownList, businessWide] = await Promise.all([
+  // definition as the web action, no core membership call.
+  //
+  // Each cache read is settled on its OWN and its OUTCOME kept (ok/failed),
+  // not collapsed to a bare value — a failure here must read as UNKNOWN,
+  // never silently as "own store"/"no karute match" (Greptile fold: the
+  // prior .catch(() => null) made a failed lens read indistinguishable from
+  // "not attempted", so a foreign customer could ship with no 他店舗 chip).
+  const settleCache = (
+    p: ReturnType<typeof getCachedCustomerListFor> | null,
+  ) =>
+    p
+      ? p.then((rows) => ({ ok: true as const, rows })).catch(() => ({ ok: false as const }))
+      : Promise.resolve(null)
+  const [searchRes, ownResult, businessResult] = await Promise.all([
     synqed.customers.list({ search: q, page_size: CUSTOMER_SEARCH_LIMIT }),
-    enforceStore && clamp.storeId
-      ? getCachedCustomerListFor(ctx.identity.businessId, clamp.storeId).catch(() => null)
-      : Promise.resolve(null),
-    karuteQuery ? getCachedCustomerListFor(ctx.identity.businessId).catch(() => null) : Promise.resolve(null),
+    settleCache(enforceStore && clamp.storeId ? getCachedCustomerListFor(ctx.identity.businessId, clamp.storeId) : null),
+    settleCache(karuteQuery ? getCachedCustomerListFor(ctx.identity.businessId) : null),
   ])
-  const ownIds = ownList ? new Set(ownList.map((c) => c.id)) : null
+  // null = not attempted (unclamped, or no karute-number term) — a real
+  // answer, not a failure. ownIds stays null on either "not attempted" OR
+  // "failed"; other_store below reads `enforceStore` too, not just ownIds,
+  // so the two cases still resolve correctly (false vs. unknown).
+  const ownIds = ownResult?.ok ? new Set(ownResult.rows.map((c) => c.id)) : null
+  const businessWide = businessResult?.ok ? businessResult.rows : []
+  const karuteNumberUnavailable = karuteQuery != null && !businessResult?.ok
 
   const rows = searchRes.customers.map((c) => ({
     id: c.id,
@@ -80,17 +94,25 @@ export const GET = facadeHandler('customers.search', async (ctx) => {
     phone: c.phone,
   }))
   // Karute number ahead of the name/phone matches, same as list-all.ts.
-  const karuteHits = businessWide ? matchKaruteNumber(q, businessWide) : []
+  const karuteHits = matchKaruteNumber(q, businessWide)
   const hitIds = new Set(karuteHits.map((h) => h.id))
   const merged = [
     ...karuteHits.map((h) => ({ id: h.id, name: h.name, furigana: h.furigana, phone: h.phone })),
     ...rows.filter((r) => !hitIds.has(r.id)),
   ]
 
+  // true/false only once the lens read actually succeeded; enforceStore with
+  // no usable ownIds (lens failed, or had nothing to look up) is UNKNOWN —
+  // never defaults to false ("confirmed own store").
+  const otherStoreFor = (id: string): boolean | null => {
+    if (!enforceStore) return false
+    if (!ownIds) return null
+    return !ownIds.has(id)
+  }
   const options = merged
     .slice(0, CUSTOMER_SEARCH_LIMIT)
-    .map((r) => ({ ...r, other_store: ownIds ? !ownIds.has(r.id) : false }))
-  return ok(ctx, { options })
+    .map((r) => ({ ...r, other_store: otherStoreFor(r.id) }))
+  return ok(ctx, { options, karute_number_unavailable: karuteNumberUnavailable })
 })
 
 export const OPTIONS = GET

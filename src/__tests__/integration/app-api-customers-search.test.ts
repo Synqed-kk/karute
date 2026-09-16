@@ -138,8 +138,32 @@ describe('GET /api/app/v1/customers/search', () => {
     expect(getCachedCustomerListFor).not.toHaveBeenCalled()
   })
 
-  it('Greptile fold: a cache failure degrades that signal but never sinks the direct search result', async () => {
+  // MUTATION TARGET (Greptile fold round 2): reverting otherStoreFor's
+  // `if (!ownIds) return null` back to a bare `!ownIds.has(id)` — which
+  // computes `false` when ownIds is null — turns this test red.
+  it('Greptile fold: a FAILED lens read is UNKNOWN (other_store: null), never silently "own store"', async () => {
     storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
+    // '田中' isn't karute-eligible, so only the lens (own-store) cache read
+    // fires — isolates the lens-failure path from the business-wide one.
+    customersList.mockResolvedValueOnce({
+      customers: [{ id: 'cust-1', name: '田中太郎', furigana: null, phone: null, karute_number: null }],
+      total: 1,
+    })
+    getCachedCustomerListFor.mockRejectedValue(new Error('cache down'))
+    const res = await GET(req('田中'), route)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      options: { id: string; other_store: boolean | null }[]
+      karute_number_unavailable: boolean
+    }
+    expect(body.options).toEqual([expect.objectContaining({ id: 'cust-1', other_store: null })])
+    expect(body.karute_number_unavailable).toBe(false)
+  })
+
+  it('Greptile fold: a FAILED business-wide read on a karute-number-eligible term returns the direct results plus karute_number_unavailable: true', async () => {
+    // viewAll -> no lens read attempted; '0042' IS karute-eligible, so the
+    // business-wide read fires and fails.
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: null }
     customersList.mockResolvedValueOnce({
       customers: [{ id: 'cust-1', name: '田中太郎', furigana: null, phone: null, karute_number: null }],
       total: 1,
@@ -147,7 +171,11 @@ describe('GET /api/app/v1/customers/search', () => {
     getCachedCustomerListFor.mockRejectedValue(new Error('cache down'))
     const res = await GET(req('0042'), route)
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { options: { id: string; other_store: boolean }[] }
+    const body = (await res.json()) as {
+      options: { id: string; other_store: boolean | null }[]
+      karute_number_unavailable: boolean
+    }
     expect(body.options).toEqual([expect.objectContaining({ id: 'cust-1', other_store: false })])
+    expect(body.karute_number_unavailable).toBe(true)
   })
 })

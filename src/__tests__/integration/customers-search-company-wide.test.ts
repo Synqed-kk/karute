@@ -8,6 +8,17 @@
  *  4. An unclamped (viewAll) actor: never other_store (their own list is
  *     already business-wide, so nothing remote can be "other").
  *  5. Karute number merges ahead, same as list-all.ts.
+ *
+ * ⚖ Liam 2026-09-16 (Greptile fold, PR #945, round 2) added:
+ *  6. A FAILED lens read is UNKNOWN, not "own store": other_store is
+ *     TRI-STATE (true/false/null) — a .catch(() => null) that let a failed
+ *     read collapse to the same "false" a genuine own-store row gets was the
+ *     bug (a foreign customer would ship with no 他店舗 chip). MUTATION
+ *     TARGET: reverting other_store's null branch back to `false` turns the
+ *     "lens read fails → null, never false" test red.
+ *  7. A FAILED business-wide read (karute-number-eligible term) surfaces as
+ *     karute_number_unavailable: true — the direct search result still
+ *     returns, just without the karute-number merge, never silently.
  */
 jest.mock('next/cache', () => ({
   revalidatePath: jest.fn(),
@@ -73,7 +84,7 @@ beforeEach(() => {
 describe('searchCustomersCompanyWide', () => {
   it('empty query → {options: []}, no reads', async () => {
     const result = await searchCustomersCompanyWide('   ')
-    expect(result).toEqual({ options: [] })
+    expect(result).toEqual({ options: [], karute_number_unavailable: false })
     expect(customersList).not.toHaveBeenCalled()
   })
 
@@ -104,6 +115,7 @@ describe('searchCustomersCompanyWide', () => {
         expect.objectContaining({ id: 'cust-own', other_store: false }),
         expect.objectContaining({ id: 'cust-other', other_store: true }),
       ],
+      karute_number_unavailable: false,
     })
     expect(getCachedCustomerList).toHaveBeenCalledWith('store-ginza')
   })
@@ -118,7 +130,10 @@ describe('searchCustomersCompanyWide', () => {
     customersList.mockResolvedValueOnce({ customers: [cachedRow('cust-any')], total: 1 })
     getCachedCustomerList.mockResolvedValue([])
     const result = await searchCustomersCompanyWide('田中')
-    expect(result).toEqual({ options: [expect.objectContaining({ id: 'cust-any', other_store: false })] })
+    expect(result).toEqual({
+      options: [expect.objectContaining({ id: 'cust-any', other_store: false })],
+      karute_number_unavailable: false,
+    })
     // Greptile fold: '田中' isn't karute-number-eligible AND the viewer is
     // unclamped — neither cache read is needed, so getCachedCustomerList
     // never runs at all.
@@ -143,20 +158,43 @@ describe('searchCustomersCompanyWide', () => {
     expect(getCachedCustomerList).toHaveBeenCalledWith('store-ginza')
   })
 
-  it('Greptile fold: a cache failure degrades that signal but never sinks the direct search result', async () => {
+  // MUTATION TARGET (Greptile fold round 2): reverting otherStoreFor's
+  // `if (!ownIds) return null` back to a bare `!ownIds.has(id)` — which
+  // computes `false` when ownIds is null — turns this test red.
+  it('Greptile fold: a FAILED lens read is UNKNOWN (other_store: null), never silently "own store"', async () => {
     resolveStoreScope.mockResolvedValue({
       storeId: 'store-ginza',
       viewAll: false,
       allowedStoreIds: ['store-ginza'],
       degraded: false,
     })
+    // '田中' isn't karute-eligible, so only the lens (own-store) cache read
+    // fires — isolates the lens-failure path from the business-wide one.
+    customersList.mockResolvedValueOnce({ customers: [cachedRow('cust-1')], total: 1 })
+    getCachedCustomerList.mockRejectedValue(new Error('cache down'))
+    const result = await searchCustomersCompanyWide('田中')
+    expect(result).toEqual({
+      options: [expect.objectContaining({ id: 'cust-1', other_store: null })],
+      karute_number_unavailable: false,
+    })
+  })
+
+  it('Greptile fold: a FAILED business-wide read on a karute-number-eligible term returns the direct results plus karute_number_unavailable: true', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: null,
+      viewAll: true,
+      allowedStoreIds: null,
+      degraded: false,
+    })
+    // viewAll -> no lens read attempted; '0042' IS karute-eligible, so the
+    // business-wide read fires and fails.
     customersList.mockResolvedValueOnce({ customers: [cachedRow('cust-1')], total: 1 })
     getCachedCustomerList.mockRejectedValue(new Error('cache down'))
     const result = await searchCustomersCompanyWide('0042')
-    // The eligible karute-number cache call rejected, but the direct search
-    // result still comes back — degraded (no other_store, no karute merge),
-    // never {error}.
-    expect(result).toEqual({ options: [expect.objectContaining({ id: 'cust-1', other_store: false })] })
+    expect(result).toEqual({
+      options: [expect.objectContaining({ id: 'cust-1', other_store: false })],
+      karute_number_unavailable: true,
+    })
   })
 
   it('karute number merges ahead of the (empty) name/phone matches', async () => {
@@ -169,6 +207,9 @@ describe('searchCustomersCompanyWide', () => {
     customersList.mockResolvedValueOnce({ customers: [], total: 0 })
     getCachedCustomerList.mockResolvedValue([cachedRow('cust-42', { karute_number: 42 })])
     const result = await searchCustomersCompanyWide('0042')
-    expect(result).toEqual({ options: [expect.objectContaining({ id: 'cust-42', other_store: false })] })
+    expect(result).toEqual({
+      options: [expect.objectContaining({ id: 'cust-42', other_store: false })],
+      karute_number_unavailable: false,
+    })
   })
 })
