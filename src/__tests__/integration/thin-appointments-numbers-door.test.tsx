@@ -19,6 +19,7 @@ type ViewProps = {
   dayTotals: { dateIso: string; count: number } | null
   truncated?: boolean
   monthStartIso: string | null
+  monthCompareDelta?: number | null
   monthData: { id: string; closed: boolean }[] | null
 }
 let capturedProps: ViewProps | null = null
@@ -128,6 +129,25 @@ describe('the thin 予約 door — the numbers reach the shared view', () => {
       monthData: [],
     })
     expect(capturedProps!.monthStartIso).toBe('2026-08-31T15:00:00.000Z')
+  })
+
+  it("hands the DTO's monthCompareDelta through (4c C1) — the clause has no other source", async () => {
+    await mountScreen({
+      ...DTO,
+      view: 'month',
+      dayTotals: null,
+      monthStartIso: '2026-08-31T15:00:00.000Z',
+      monthData: [],
+      monthCompareDelta: -3,
+    })
+    expect(capturedProps!.monthCompareDelta).toBe(-3)
+  })
+
+  it('an old server that never sends the compare degrades to null — no clause, never a 0', async () => {
+    const legacy: Record<string, unknown> = { ...DTO, view: 'month', dayTotals: null, monthData: [] }
+    delete legacy.monthCompareDelta
+    await mountScreen(legacy)
+    expect(capturedProps!.monthCompareDelta).toBeNull()
   })
 
   it('revives the 月 cells WITH their closed fact (A2)', async () => {

@@ -24,8 +24,12 @@ export const BOOKING_SWITCHES = {
   /** The month page's numbers line above the grid. ON — spec §S3, this
    *  round's build. Flip: never expected; a floor once 1b-month lands. */
   monthLine: true,
-  /** 先月同期間比 (month-over-month compare) on the month line. OFF — needs a
-   *  second month's data or core's count door (spec §8/§10). Flip: once that
-   *  data exists. */
-  monthCompare: false,
+  /** 先月同期間比 (month-over-month compare) on the month line. ON — ⚖ Liam
+   *  9/15 16:0x 「everything as the mock」: the second month's data is now read
+   *  by the app itself (a second paged window through the same door, the same
+   *  filter and the same 件 definition as the month's own), so the clause no
+   *  longer waits on core's count door. It is honest either way — no honest
+   *  number means no clause, never a 0 and never a dash. The cost of the flip
+   *  is one extra window read per 月 page view, and only there. */
+  monthCompare: true,
 } as const

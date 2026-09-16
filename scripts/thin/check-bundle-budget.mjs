@@ -992,7 +992,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // the existing jstWallTimeToDate. The seam fix is a wrapper <div> with no
 // class at all, so it costs nothing measurable. en and vendor unchanged to
 // the byte.
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-16 on the 4b FIX-ROUND R1 tip (R1-1 … R1-6 + the 23:4x
 // type ruling). The entry above is 4b's own final measurement, which is the
 // figure this one is read against.
@@ -1007,6 +1006,50 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // pending branch, the counted-rows filter, the region name, the month branch's
 // own wrapper, and the type-scale class swaps. Real behaviour, not weight: the
 // round REMOVED a dead `gap-[5px]` and the `from` half of the held-tap pair.
+// RE-MEASURED 2026-09-16 on PIECE 4c's tip (先月同期間比: the number on both
+// doors, the clause on the month line, the switch ON). The entry above is 4b's
+// R1 measurement, which is the figure this one is read against.
+//
+// Same CI recipe — CI's own six VITE_* values, the 208-char anon-key
+// placeholder included (a shorter one inflates index and reads as a false
+// mismatch), thin/dist emptied before each of two laps, byte-identical both
+// times (matching content hashes and md5s, node v24.16.0, @synqed-kk/ui 0.3.2
+// installed == lock):
+//   en 134,342 · index 1,042,546 · vendor 937,791 = 2,114,679 B  (+420 B).
+// Ceiling = 2,114,679 + 1,000.
+//
+// Where the 420 B went:
+//   index  1,042,174 → 1,042,546 (+372 B) — the clause itself: the sign
+//     helper, the switch-gated LineItem with its tone choice and its
+//     `countValue` call, the new prop on MonthPage and on AppointmentsView,
+//     and the thin screen's own pass-through. month-compare.ts is SERVER-side
+//     and never enters this bundle; the DTO key is one line of schema.
+//   en       134,294 → 134,342 (+48 B) — one new English string,
+//     `lastMonthSamePeriod`. The thin bundle ships EN only (boot-frozen
+//     locale), so the Japanese term costs this bundle nothing.
+//   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-16 on PIECE 4c's FIX-ROUND R1 tip (R1-1 … R1-7). The
+// entry above is 4c's own final measurement, which is the figure this one is
+// read against.
+//
+// Same CI recipe — CI's own six VITE_* values, the 208-char anon-key
+// placeholder included (a shorter one inflates index and reads as a false
+// mismatch), thin/dist emptied before each of two laps, byte-identical both
+// times (matching content hashes and md5s, node v24.16.0, @synqed-kk/ui 0.3.2
+// installed == lock):
+//   en 134,342 · index 1,042,726 · vendor 937,791 = 2,114,859 B  (+180 B).
+// Ceiling = 2,114,859 + 1,000.
+//
+// Where the 180 B went:
+//   index  1,042,546 → 1,042,726 (+180 B) — the month line's two `sr-only`
+//     separators and their `ariaSep` lookups, so a screen reader hears two
+//     facts instead of one run-on string. Everything else this round is
+//     SERVER-side (the whole-vs-whole arithmetic, both doors' catch, the
+//     clamp) or test-only, and none of it reaches this bundle.
+//   en       134,342 → 134,342 — unchanged: the separator reuses a key the
+//     bundle already shipped, so the round adds NO new string.
+//   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
 //
 // RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-week-face
 // (PR #929, merge commit 320ec111f234b48cb6562ecb2820db8f68dee31a) — this
@@ -1041,7 +1084,16 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // builds, byte-identical both times (node v24.16.0, @synqed-kk/ui 0.3.2,
 // installed == lock): en 134,452 · index 1,043,010 · vendor 937,791 =
 // 2,115,253 B. Ceiling = 2,115,253 + 1,000.
-const BUDGET_BYTES = 2_116_253
+// RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-month-compare
+// (PR #935) — union of both chains above (this branch's own PIECE-4c/FIX-ROUND-R1
+// history plus main's #929/#931/#932-into-main re-measure entries it had not yet
+// seen). Same CI recipe — CI's own six VITE_* values, the 208-char anon-key
+// placeholder included, thin/dist emptied before each of two laps,
+// byte-identical both times (matching content hashes, node v24.16.0,
+// @synqed-kk/ui 0.3.2 installed == lock):
+//   en 134,544 · index 1,044,145 · vendor 937,791 = 2,116,480 B.
+// Ceiling = 2,116,480 + 1,000.
+const BUDGET_BYTES = 2_117_480
 
 let dir
 try {

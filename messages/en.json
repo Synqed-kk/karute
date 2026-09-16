@@ -188,6 +188,7 @@
       "returning": "Returning",
       "cancelled": "Cancelled",
       "noShow": "No-show",
+      "lastMonthSamePeriod": "vs same period last month",
       "unset": "Not set",
       "closed": "Closed",
       "countValue": "{n}",
