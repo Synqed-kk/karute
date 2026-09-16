@@ -144,6 +144,11 @@ export interface AppointmentsScreen {
    *  dayTotals are ALL null and the surface renders the failed-read state —
    *  never a low number. */
   truncated: boolean
+  /** The salon's `solo_mode` capability, resolved HERE from org settings so
+   *  the view never reads settings itself (the thin door carries no
+   *  orgSettings at all — reading them in the view would hand the phone a
+   *  silent `false` and kill the 未設定 discriminator, spec §8). */
+  soloMode: boolean
 }
 
 /**
@@ -443,5 +448,6 @@ export function buildAppointmentsScreen(
     monthStartIso,
     dayTotals,
     truncated,
+    soloMode,
   }
 }

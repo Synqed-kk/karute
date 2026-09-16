@@ -228,6 +228,9 @@ export default async function AppointmentsPage({
   // indistinguishable from an honest zero. The route-group boundary
   // (error.tsx) shows the retry screen, exactly as a failed window read
   // already does above (getAppointmentWindow throws).
+  // Greptile G4 — the thin door renders the inline failed line instead —
+  // AppointmentsScreen.tsx:137-141 (R1-2/D5); the two doors differ on
+  // purpose: the web has no inline failed surface for 日/月.
   if (screen.truncated) {
     throw new Error('appointments: window truncated — read incomplete')
   }
@@ -252,6 +255,11 @@ export default async function AppointmentsPage({
         weekStartIso={screen.weekStartIso}
         monthData={screen.monthData}
         monthStartIso={screen.monthStartIso}
+        // The day line's numbers and the 未設定 discriminator — both resolved
+        // in buildAppointmentsScreen so the WEB door and the PHONE door hand
+        // the shared view identical props (PKT-1b-WIRE W-B/W-C).
+        dayTotals={screen.dayTotals}
+        soloMode={screen.soloMode}
         reservationViews={screen.reservationViews}
         reservationStaff={screen.reservationStaff}
         colorRosterIds={screen.colorRosterIds}

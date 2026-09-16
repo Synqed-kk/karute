@@ -165,3 +165,33 @@ describe('buildAppointmentsScreen — dayTotals sourcing', () => {
     expect(screen.weekData![0].cancelledCount).toBe(0)
   })
 })
+
+/**
+ * W-C: the view must never read org settings itself — the thin door carries
+ * none (`orgSettings={null}`), so a view-side read hands the phone a silent
+ * `false` and the 未設定 discriminator dies on exactly the device staff use.
+ * The builder resolves the capability once, for both doors.
+ */
+describe('buildAppointmentsScreen — soloMode reaches the view from the server', () => {
+  it('no org settings → false', () => {
+    expect(build({ ...base, orgSettings: null }).soloMode).toBe(false)
+  })
+
+  it('solo_mode on → true', () => {
+    expect(
+      build({
+        ...base,
+        orgSettings: { solo_mode: true },
+      } as unknown as Parameters<typeof buildAppointmentsScreen>[0]).soloMode,
+    ).toBe(true)
+  })
+
+  it('solo_mode off → false (never undefined on the wire)', () => {
+    expect(
+      build({
+        ...base,
+        orgSettings: { solo_mode: false },
+      } as unknown as Parameters<typeof buildAppointmentsScreen>[0]).soloMode,
+    ).toBe(false)
+  })
+})
