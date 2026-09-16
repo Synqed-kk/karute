@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { revalidatePath, updateTag } from 'next/cache'
 import { getTranslations } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { requireCapability } from '@/lib/auth/require-permission'
+import { can, requireCapability } from '@/lib/auth/require-permission'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
@@ -205,7 +205,22 @@ export async function createCustomerWithClient(
  *  cache invalidations (Server-Action-only) and the success-only audit row.
  *  The collision/validation returns never reach them — the early return is
  *  the shared body's own `{ success: false }`. */
+/** The customer-profile WRITE gate (⚖ Liam 2026-09-16). Checked with can(),
+ *  not requireCapability(), because these actions return the house
+ *  { success:false, error } shape and their callers await them WITHOUT a
+ *  try/catch — the same contract createAppointment's own gate documents.
+ *
+ *  ⚠ CAPABILITY ONLY, deliberately: customers carry NO store_id (identity is
+ *  business-wide, list-all.ts's own header), so "is this customer a member of
+ *  MY store?" has no answer in this app today — membership is DERIVED from
+ *  events inside core. That store rule waits for core's membership change and
+ *  is NOT in this door. */
+const CUSTOMER_WRITE_DENIED = 'You do not have permission to add or edit customers.'
+
 export async function createCustomer(input: CustomerFormInput): Promise<ActionResult> {
+  if (!(await can('customers.manage'))) {
+    return { success: false, error: CUSTOMER_WRITE_DENIED }
+  }
   const synqed = await getSynqedClient()
   const result = await createCustomerWithClient(synqed, input)
   if (!result.success) return { success: false, error: result.error }
@@ -262,6 +277,9 @@ export async function createQuickCustomerWithClient(
 
 /** The WEB door onto the twin above — same wrapper duties as createCustomer. */
 export async function createQuickCustomer(name: string): Promise<QuickCustomerResult> {
+  if (!(await can('customers.manage'))) {
+    return { success: false, error: CUSTOMER_WRITE_DENIED }
+  }
   const synqed = await getSynqedClient()
   const result = await createQuickCustomerWithClient(synqed, name)
   if (!result.success) return { success: false, error: result.error }
@@ -331,6 +349,9 @@ export async function updateCustomer(
   id: string,
   input: CustomerFormInput | Record<string, unknown>,
 ): Promise<ActionResult> {
+  if (!(await can('customers.manage'))) {
+    return { success: false, error: CUSTOMER_WRITE_DENIED }
+  }
   const synqed = await getSynqedClient()
   const result = await updateCustomerWithClient(synqed, id, input as Record<string, unknown>)
   if (result.success) {

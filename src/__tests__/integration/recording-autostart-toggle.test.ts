@@ -78,7 +78,11 @@ function fakeClient(settings: Blob, storeIds = ['store-1', 'store-2']) {
 const read = (c: ReturnType<typeof fakeClient>) =>
   orgSettingsWithClient(c.client as never) as Promise<OrgSettings>
 
-const ACTOR = { staffId: 'staff-1', businessId: 'business-1', source: 'web' as const }
+// Store lock (⚖ 9/16): these cases are about the toggle, not the clamp — a
+// viewAll flipper is the shape every one of them already assumed. The clamped
+// case has its own test below.
+const UNCLAMPED = { viewAll: true, allowedStoreIds: null }
+const ACTOR = { staffId: 'staff-1', businessId: 'business-1', scope: UNCLAMPED, source: 'web' as const }
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -137,6 +141,38 @@ describe('setRecordingAutostartWithClient — the one audited settings write', (
     expect(r).toEqual({ ok: false, error: 'unknown_store' })
     expect(c.upsert).not.toHaveBeenCalled()
     expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  // ⚖ Liam 2026-09-16 — the store must belong to the BUSINESS and to the
+  // ACTOR. Under the shipped presets settings.manage always ships with
+  // stores.viewAll, but the model allows a 「銀座 branch settings」 custom role,
+  // and nothing else would stop it flipping 代官山's switch.
+  it('refuses a store the actor is not assigned to — the SAME answer a foreign store gets', async () => {
+    const c = fakeClient({})
+    const clamped = { ...ACTOR, scope: { viewAll: false, allowedStoreIds: ['store-2'] } }
+    const r = await setRecordingAutostartWithClient(c.client as never, clamped, 'store-1', true)
+    expect(r).toEqual({ ok: false, error: 'unknown_store' })
+    expect(c.upsert).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  it('a degraded assignment lookup fails closed, the same way', async () => {
+    const c = fakeClient({})
+    const degraded = { ...ACTOR, scope: { viewAll: false, allowedStoreIds: ['store-1'], degraded: true } }
+    expect(await setRecordingAutostartWithClient(c.client as never, degraded, 'store-1', true)).toEqual({
+      ok: false,
+      error: 'unknown_store',
+    })
+    expect(c.upsert).not.toHaveBeenCalled()
+  })
+
+  it('a clamped actor flipping their OWN store is unaffected', async () => {
+    const c = fakeClient({})
+    const own = { ...ACTOR, scope: { viewAll: false, allowedStoreIds: ['store-1'] } }
+    expect(await setRecordingAutostartWithClient(c.client as never, own, 'store-1', true)).toMatchObject({
+      ok: true,
+    })
+    expect(c.upsert).toHaveBeenCalledTimes(1)
   })
 
   it('refuses an unattributable caller before reading anything', async () => {

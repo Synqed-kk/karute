@@ -33,6 +33,7 @@
 
 import { z } from 'zod'
 import { auditDurable } from '@/lib/audit'
+import { ensureRecordStoreInScope, type RecordStoreScope } from '@/lib/auth/store-lock'
 import type { newSynqedClient } from '@/lib/synqed/client'
 import { BELOW_FLOOR_SEC } from './discard-floor'
 
@@ -142,6 +143,12 @@ export interface DiscardRecordingActor {
   staffId: string | null
   businessId: string | null
   storeId?: string
+  /** The caller's store assignment (⚖ Liam 2026-09-16) — resolved by the same
+   *  caller that vouches for the identity above (web: resolveStoreScope;
+   *  facade: resolveStoreForRequest). Required, not optional: a discard is a
+   *  write on someone's recording session, and a lock with a default is a lock
+   *  that fails open. */
+  scope: RecordStoreScope
   source: 'web' | 'facade'
   /** Minted at the web action boundary / read off ctx.meta on the facade
    *  twin (PR-M5 piece ④). Doubles as the fallback receipt id. */
@@ -166,6 +173,51 @@ export type DiscardRecordingResult =
  *  full concurrent assertion belongs there. A duplicate is silent SUCCESS,
  *  never an error — the second caller's take is just as gone as the first's.
  */
+/** STORE LOCK for a discard (⚖ Liam 2026-09-16). The receipt and the reason
+ *  row are both writes ABOUT a recording session, so a clamped caller must not
+ *  be able to file either against another branch's session by id.
+ *
+ *  A session id that cannot be READ — a pre-mint take (takeId only, no session
+ *  row yet), a 404, or an upstream blip — has no provable store, which is
+ *  exactly ensureRecordStoreInScope's null arm: viewAll and floating callers
+ *  pass unchanged, a clamped caller fails CLOSED and retries. Returns a
+ *  boolean because this module's contract is a result union, never a throw —
+ *  the ONE rule still lives in the shared helper.
+ *
+ *  ⚖ Greptile round 2 — RUN EXACTLY ONCE PER DISCARD. The STAFF path used to
+ *  call this, write the reason row, and then call it AGAIN inside
+ *  discardRecordingWithClient. A transient failure on that second read
+ *  answered `forbidden` with the reason row already in core — an orphan row
+ *  claiming a discard that never happened, which is precisely the dishonesty
+ *  this module exists to prevent. THE ORDERING NOW: authorize first, write
+ *  second, and never authorize again after a write. The vouch the STAFF door
+ *  already carries is what tells the receipt door the check has been made
+ *  (see discardRecordingWithClient's own note).
+ *
+ *  ponytail: one read on the discard path, which already awaits core three to
+ *  four times. */
+async function discardStoreAllowed(
+  synqed: Pick<ReturnType<typeof newSynqedClient>, 'recordings'>,
+  recordingSessionId: string | null | undefined,
+  scope: RecordStoreScope,
+): Promise<boolean> {
+  let storeId: string | null = null
+  if (recordingSessionId) {
+    try {
+      const session = await synqed.recordings.get(recordingSessionId)
+      storeId = (session as { store_id?: string | null }).store_id ?? null
+    } catch {
+      storeId = null // unreadable = no provable store; the null arm decides
+    }
+  }
+  try {
+    ensureRecordStoreInScope({ store_id: storeId }, scope, 'recording session not found')
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function discardRecordingWithClient(
   synqed: ReturnType<typeof newSynqedClient>,
   actor: DiscardRecordingActor,
@@ -190,6 +242,25 @@ export async function discardRecordingWithClient(
   // gives any other malformed body, on both doors at once.
   if (data.source === 'STAFF' && vouch !== STAFF_ROW_VOUCH) {
     return { ok: false, error: 'validation' }
+  }
+
+  // STORE LOCK before the idempotency probe and before any write. 'forbidden'
+  // reuses the union's existing code on purpose — both doors already map it,
+  // so the client contract is unchanged, and an out-of-store session and an
+  // unreadable one answer identically (no existence oracle).
+  //
+  // ⚖ Greptile round 2: SKIPPED when the caller carries STAFF_ROW_VOUCH,
+  // because that symbol can only come from discardRecordingWithReasonRow,
+  // which authorized this exact session id before it wrote the reason row.
+  // Re-checking there was not defence in depth — it was a second fallible
+  // authorization AFTER a write, whose only possible new answer was to
+  // refuse a discard whose reason row already existed. The vouch means
+  // "this module wrote the row", and it can only have written it past the
+  // check.
+  if (vouch !== STAFF_ROW_VOUCH) {
+    if (!(await discardStoreAllowed(synqed, data.recordingSessionId, actor.scope))) {
+      return { ok: false, error: 'forbidden' }
+    }
   }
 
   // Pre-mint takes key on takeId; everything else on the session id.
@@ -229,6 +300,15 @@ export async function discardRecordingWithReasonRow(
   if (!parsed.success) return { ok: false, error: 'validation' }
   const { reason, ...receipt } = parsed.data
 
+  // STORE LOCK — THE ONLY ONE ON THIS PATH, and it runs before any write.
+  // That row IS a write, so authorizing after it (or authorizing twice) could
+  // leave a reason row on another branch's session, or orphan an honest one
+  // behind a blipped second read. Authorize once, here; everything downstream
+  // is downstream OF this answer.
+  if (!(await discardStoreAllowed(synqed, receipt.recordingSessionId, actor.scope))) {
+    return { ok: false, error: 'forbidden' }
+  }
+
   const row = await ensureDiscardReasonRow(synqed, {
     recordingSessionId: receipt.recordingSessionId,
     staffId: actor.staffId,
@@ -239,7 +319,8 @@ export async function discardRecordingWithReasonRow(
   if (!row.ok) return { ok: false, error: 'discard_row_failed' }
 
   // The row exists and this module wrote it — the one place the STAFF claim can
-  // be vouched for.
+  // be vouched for, and (⚖ Greptile round 2) the signal that the store check
+  // has already been made and must not be repeated after this write.
   return discardRecordingWithClient(
     synqed,
     actor,

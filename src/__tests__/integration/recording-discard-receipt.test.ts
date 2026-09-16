@@ -20,6 +20,17 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
+// Store lock seam (⚖ 9/16): these cases are not about the store clamp, so the
+// resolved scope is viewAll — the PREDICATE itself is the real one.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: null,
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  })),
+  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
+}))
 jest.mock('next-intl/server', () => ({ getTranslations: async () => (k: string) => k, getLocale: async () => 'ja' }))
 
 process.env.SYNQED_CORE_URL ??= 'https://core.test'
@@ -141,10 +152,18 @@ const recordingUpdate = jest.fn(async (id: string, input: Record<string, unknown
   ...input,
 }))
 
+// Store lock (⚖ 9/16): the choke point reads the session's own store, and the
+// facade route resolves the caller's assignment. Defaults = a store-stamped
+// session and a floating (unclamped) caller, so every case below is unchanged;
+// the clamped cases have their own describe block.
+const sessionStore = { current: 'store-1' as string | null }
+const recordingsGet = jest.fn(async () => ({ id: 'rec-1', store_id: sessionStore.current }))
+const assignedStores = { current: [] as string[] }
 const fakeClient = {
   audit: new ThisSensitiveAuditClient(auditLog, auditList),
   recordingDiscards: new ThisSensitiveDiscardClient(discardCreate, discardList),
-  recordings: { update: recordingUpdate },
+  recordings: { update: recordingUpdate, get: recordingsGet },
+  staffStores: { get: jest.fn(async () => ({ store_ids: assignedStores.current })) },
 }
 
 // forwardToCore's own dynamically-imported client (the durable WRITE).
@@ -293,7 +312,11 @@ function seedRow(over: Partial<CoreRow> & { action: string; target_id: string | 
   } as CoreRow)
 }
 
-const webActor = { staffId: 'auth-user-1', businessId: 'business-1', source: 'web' as const, requestId: 'req-web-1' }
+// Store lock (⚖ 9/16): these cases are about the receipt, not the clamp — a
+// viewAll discarder is the shape every one of them already assumed. The
+// clamped case has its own test below.
+const UNCLAMPED = { viewAll: true, allowedStoreIds: null }
+const webActor = { staffId: 'auth-user-1', businessId: 'business-1', scope: UNCLAMPED, source: 'web' as const, requestId: 'req-web-1' }
 
 const discardRows = () => coreRows.filter((r) => r.action === 'recording.discard')
 
@@ -304,6 +327,8 @@ beforeEach(() => {
   logFails.next = false
   createFails.next = false
   capabilities.current = new Set(['customers.view', 'records.write'])
+  sessionStore.current = 'store-1'
+  assignedStores.current = []
 })
 
 // ── 1. Both doors, exactly one row each (T6/T9 slice) ──────────────────────
@@ -425,6 +450,93 @@ describe('one discard = exactly one recording.discard row', () => {
 
     expect(res.status).toBe(400)
     expect(discardRows()).toHaveLength(0)
+  })
+})
+
+// ── 1b. STORE LOCK (⚖ Liam 2026-09-16) ─────────────────────────────────────
+// records.write alone is no longer enough: a discard is a write ABOUT someone's
+// recording session, so the session's store must be one the caller is assigned
+// to. A session that cannot be READ has no provable store — the clamped caller
+// fails closed there too, and the unclamped one is untouched.
+
+describe('a discard outside the caller’s store is refused', () => {
+  const clamped = { ...webActor, scope: { viewAll: false, allowedStoreIds: ['store-daikanyama'] } }
+
+  it('the STAFF door refuses BEFORE the reason row — no row, no receipt', async () => {
+    const res = await discardRecordingWithReasonRow(fakeClient as never, clamped, WITH_REASON)
+    expect(res).toEqual({ ok: false, error: 'forbidden' })
+    expect(discardCreate).not.toHaveBeenCalled()
+    expect(auditLog).not.toHaveBeenCalled()
+  })
+
+  it('the receipt-only door refuses before the idempotency probe', async () => {
+    const res = await discardRecordingWithClient(fakeClient as never, clamped, SYSTEM_VALID)
+    expect(res).toEqual({ ok: false, error: 'forbidden' })
+    expect(auditList).not.toHaveBeenCalled()
+    expect(auditLog).not.toHaveBeenCalled()
+  })
+
+  it('an UNREADABLE session fails closed for a clamped caller, and is unchanged for everyone else', async () => {
+    recordingsGet.mockRejectedValueOnce(new Error('core down'))
+    expect(await discardRecordingWithClient(fakeClient as never, clamped, SYSTEM_VALID)).toEqual({
+      ok: false,
+      error: 'forbidden',
+    })
+    recordingsGet.mockRejectedValueOnce(new Error('core down'))
+    expect(await discardRecordingWithClient(fakeClient as never, webActor, SYSTEM_VALID)).toMatchObject({
+      ok: true,
+    })
+  })
+
+  it('a session INSIDE the caller’s own store still files normally', async () => {
+    const own = { ...webActor, scope: { viewAll: false, allowedStoreIds: ['store-1'] } }
+    expect(await discardRecordingWithReasonRow(fakeClient as never, own, WITH_REASON)).toMatchObject({
+      ok: true,
+    })
+    expect(discardCreate).toHaveBeenCalledTimes(1)
+  })
+
+  // ⚖ Greptile round 2 — ONE CHECK, AND IT COMES FIRST. The STAFF path used to
+  // authorize, write the reason row, then authorize AGAIN inside the receipt
+  // door; a blipped second read answered `forbidden` with the row already in
+  // core — an orphan claiming a discard that never happened. The ordering is
+  // now authorize → write → never authorize again, so the reason row can
+  // never precede its authorization and can never be stranded behind one.
+  it('a session read that fails AFTER the reason row cannot strand it — the discard completes', async () => {
+    const own = { ...webActor, scope: { viewAll: false, allowedStoreIds: ['store-1'] } }
+    // The ONE authorization read succeeds; every later read fails. Under the
+    // old double-check the second one refused and left the row behind.
+    recordingsGet.mockImplementationOnce(async () => ({ id: 'rec-1', store_id: 'store-1' }))
+    recordingsGet.mockRejectedValue(new Error('core blipped'))
+
+    const res = await discardRecordingWithReasonRow(fakeClient as never, own, WITH_REASON)
+
+    expect(res).toMatchObject({ ok: true })
+    expect(discardCreate).toHaveBeenCalledTimes(1) // the reason row stands
+    expect(auditLog).toHaveBeenCalledTimes(1) // …and the receipt it points at
+    expect(recordingsGet).toHaveBeenCalledTimes(1) // exactly one authorization
+  })
+
+  it('a clamped caller is still refused BEFORE the reason row — the check did not move, it merged', async () => {
+    const res = await discardRecordingWithReasonRow(fakeClient as never, clamped, WITH_REASON)
+    expect(res).toEqual({ ok: false, error: 'forbidden' })
+    expect(discardCreate).not.toHaveBeenCalled()
+    expect(recordingsGet).toHaveBeenCalledTimes(1)
+  })
+
+  it('the facade twin refuses the same way, through its own assignment lookup', async () => {
+    assignedStores.current = ['store-daikanyama']
+    const res = await discardPOST(
+      new Request('https://s/api/app/v1/recordings/discard', {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify(WITH_REASON),
+      }),
+      noRoute,
+    )
+    expect(res.status).toBe(403)
+    expect(discardRows()).toHaveLength(0)
+    expect(discardCreate).not.toHaveBeenCalled()
   })
 })
 

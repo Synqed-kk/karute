@@ -17,6 +17,12 @@ jest.mock('next/cache', () => ({
   unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
 }))
 jest.mock('next-intl/server', () => ({ getTranslations: jest.fn(async () => (k: string) => k) }))
+// customers.manage gate (⚖ 9/16) — this suite is about the name schema, so the
+// caller holds it; the gate's own cases live in customer-write-gate.test.ts.
+jest.mock('@/lib/auth/require-permission', () => ({
+  can: jest.fn(async () => true),
+  requireCapability: jest.fn(async () => {}),
+}))
 jest.mock('@/lib/audit-web', () => ({ auditWeb: jest.fn(async () => undefined) }))
 
 const create = jest.fn(async (input: { name: string }) => ({ id: 'cust-new', name: input.name }))

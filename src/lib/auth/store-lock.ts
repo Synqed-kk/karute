@@ -19,7 +19,8 @@
 // predicate. Same split store-clamp.ts already keeps for the same reason.
 //
 // The ONLY import is AppApiError, which is the classified-error contract and
-// costs node:crypto and nothing else.
+// costs node:crypto and nothing else. recordEditableInScope, the screen twin,
+// sits here too and for the same reason: the facade screens route reads it.
 
 import { AppApiError } from '@/lib/app-api/errors'
 
@@ -123,4 +124,25 @@ export function ensureRecordStoreInScope(
   if (sourceStoreOutOfScope(record, { viewAll: false, allowedStoreIds: scope.allowedStoreIds })) {
     throw new AppApiError('not_found', notFoundMessage)
   }
+}
+
+/**
+ * THE UI TWIN of {@link ensureRecordStoreInScope} — may this viewer see the
+ * EDIT controls on this record? Hide, never show-and-refuse (⚖ Liam
+ * 2026-09-16): the server refusal above is the wall, and a button that only
+ * ever produces it is a lie on the screen.
+ *
+ * One expression for both transports, so the screen and the server cannot
+ * disagree about one record. Fails CLOSED on a scope that could not be read
+ * at all (`null`) or a degraded one — the same direction the write door takes,
+ * so the worst a blip can do is hide a control the viewer would have been
+ * allowed, never show one they would be refused.
+ */
+export function recordEditableInScope(
+  record: { store_id: string | null },
+  scope: RecordStoreScope | null,
+): boolean {
+  if (!scope || scope.degraded) return false
+  if (scope.viewAll) return true
+  return !sourceStoreOutOfScope(record, { viewAll: false, allowedStoreIds: scope.allowedStoreIds })
 }
