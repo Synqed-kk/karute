@@ -151,8 +151,10 @@ export interface DateJumpPanelProps {
   anchorRef: RefObject<HTMLDivElement | null>
   /** The date the page is on: the month the panel opens at. */
   selectedDate: Date
-  /** The page's own 月 cells, when it is in 月 mode — that month needs no
-   *  fetch. Null in 日/週 mode. */
+  /** Cells for the month this panel OPENS on, when the host already has them
+   *  — the page's own 月 cells, or (on the phone) the same month out of the
+   *  screen cache / what the device kept from the last launch. The first paint,
+   *  never the last word: every open marks the seed stale and re-reads it. */
   seedCells: MonthGridCell[] | null
   /** THE DATA DOOR, injected by the host: the phone hands over the facade GET,
    *  web hands over the getMonthCells server action. Rejecting = that month

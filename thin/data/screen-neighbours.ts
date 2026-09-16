@@ -34,6 +34,7 @@ import { ymdInJst } from '@/lib/date/jst'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
 import { subscribeRefresh } from '../ports/nav.vite'
 import { cacheDto, dtoCache, dtoSessionEpoch } from '../screens/ScreenBoundary'
+import { rememberMonthNumbers } from './calendar-numbers-store'
 
 /**
  * THE ONE SPELLING of a 予約 screen read's URL — and therefore of its cache
@@ -145,6 +146,9 @@ function warmOne(path: string): void {
         !dtoCache.has(path)
       ) {
         cacheDto(path, dto)
+        // A warmed month is the one the pop-down opens on NEXT launch too —
+        // numbers only, the store refuses anything else.
+        rememberMonthNumbers(path, dto.monthData ?? null)
       }
     })
     // Fail-open, no retry: a non-OK response, a rejection, a bad body and a
