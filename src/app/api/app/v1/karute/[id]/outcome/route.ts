@@ -11,7 +11,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readKaruteRaw, KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
 import { ensureRecordStoreInScope } from '@/lib/auth/store-lock'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import {
@@ -54,14 +54,17 @@ export const POST = facadeHandler<Params>('karute.outcome.set', async (ctx) => {
   // the 成約 label is a write on a record, so a clamped caller must not be
   // able to set it on another branch's karute by id. Refuses with the SAME
   // not_found readKaruteRaw throws for a missing id — no existence oracle.
-  // requestedStoreId: null — the assignment is the basis, not a client header.
+  // The assignment is the basis, not a client header — and (⚖ fold round 2)
+  // the caller must be PLACED in the roster at all: core answers
+  // `{ store_ids: [] }` for an auth id it holds no staff row for, so an
+  // unplaceable caller would otherwise pass this lock as floating.
   ensureRecordStoreInScope(
     { store_id: (record.store_id as string | null) ?? null },
-    await resolveStoreForRequest({
+    await resolveWriteStoreScope({
       synqed,
       authUserId: ctx.identity.authUserId,
       capabilities: ctx.identity.capabilities,
-      requestedStoreId: null,
+      selfStaffId: await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId),
     }),
     KARUTE_NOT_FOUND,
   )

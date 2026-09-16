@@ -709,7 +709,7 @@ async function toCustomerInScope(
  *  business-wide roster ever reaches a clamped actor — this is the SERVER
  *  refusal backstopping the store-scoped picker (hide, never show-and-refuse).
  *
- *  R3-1 (fix round 4: moved to src/lib/auth/store-scope.ts —
+ *  R3-1 (fix round 4: moved out of this file — now src/lib/auth/store-lock.ts —
  *  sourceStoreOutOfScope is a pure predicate, the same class as
  *  customerLensFor/menuStoresForScope there, and shared with the
  *  reassign-options facade route): composes the SOURCE record's store clamp
@@ -735,7 +735,7 @@ async function ensureReassignStoreScope(
   scope: ReassignScope,
 ): Promise<void> {
   // R3-1's record half now lives in ONE place for every by-id write door
-  // (ensureRecordStoreInScope, src/lib/auth/store-scope.ts) — same three
+  // (ensureRecordStoreInScope, src/lib/auth/store-lock.ts) — same three
   // outcomes as before, byte for byte: viewAll passes, a degraded lookup
   // fails closed, an out-of-store record refuses as readKaruteRaw's own
   // not_found. Only the to-customer half below is reassign-specific.

@@ -10,7 +10,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
 import { updateKaruteDetailEntryWithClient } from '@/actions/karute'
 
 export const runtime = 'nodejs'
@@ -55,14 +55,17 @@ export const PATCH = facadeHandler<Params>('karute.entry.update', async (ctx) =>
   // STORE LOCK input (⚖ Liam 2026-09-16) — requestedStoreId: null because the
   // ASSIGNMENT is the basis, never a client-set store-id header. A failed
   // assignment lookup throws store_forbidden here, fail-closed.
-  const scope = await resolveStoreForRequest({
+  // ONE roster read, two jobs: the receipt's actor and the store scope's
+  // PLACEMENT (⚖ fold round 2 — core answers `{ store_ids: [] }` for an auth
+  // id it holds no staff row for, so a caller it cannot place would otherwise
+  // walk the lock as floating).
+  const actorStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
+  const scope = await resolveWriteStoreScope({
     synqed,
     authUserId: ctx.identity.authUserId,
     capabilities: ctx.identity.capabilities,
-    requestedStoreId: null,
+    selfStaffId: actorStaffId,
   })
-
-  const actorStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
   const result = await updateKaruteDetailEntryWithClient(
     synqed,
     id,
