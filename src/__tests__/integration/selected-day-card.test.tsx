@@ -455,6 +455,30 @@ describe('MOTION (B3 · R1-6) — the mock s .selfade, driven by the TAP', () =>
     expect(screen.getByText('テスト9')).toBeTruthy()
   })
 
+  // R1-6d (Greptile round 1, FIX-932-G1) — a CANCELLED fade: the props flip
+  // back to the SAME dateIso inside the window (a 今日 press, or a re-tap of
+  // the selected day, answered from the router cache well before 120 ms) —
+  // the swap the window opened for never happens, and the card must not be
+  // left dark and inert until some unrelated later swap comes along.
+  it('a cancelled fade does not leave the card stuck invisible', () => {
+    const view = renderCard({ dateIso: '2026-09-16', rows: [booking(1)], pending: false })
+    const fade = () => view.container.querySelector('[data-sel-fade]')!
+    expect(fade().className).toContain('opacity-100')
+
+    // the tap: pending flips true, the window opens
+    view.rerender(cardEl({ dateIso: '2026-09-16', rows: [booking(1)], pending: true }))
+    expect(fade().className).toContain('opacity-0')
+
+    // the answer lands INSIDE the window, well before 120ms, with the SAME
+    // dateIso and pending back to false — the day never actually moved.
+    act(() => void jest.advanceTimersByTime(30))
+    view.rerender(cardEl({ dateIso: '2026-09-16', rows: [booking(1)], pending: false }))
+
+    expect(fade().className).toContain('opacity-100')
+    expect(fade().hasAttribute('inert')).toBe(false)
+    expect(screen.getByText('テスト1')).toBeTruthy()
+  })
+
   it('the invisible half of the window is INERT — no Tab into an outgoing door', () => {
     const view = renderCard({ dateIso: '2026-09-16', rows: [booking(1)] })
     const fade = () => view.container.querySelector('[data-sel-fade]')!

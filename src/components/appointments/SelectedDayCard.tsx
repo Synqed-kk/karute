@@ -100,6 +100,16 @@ export function SelectedDayCard({
 
   useEffect(() => {
     if (!swapping) {
+      // R1-6d (Greptile round 1, FIX-932-G1) — a CANCELLED fade: the props
+      // flip back to the SAME dateIso/pending inside the 120 ms window (a 今日
+      // press, or a re-tap of the selected day, answered from the router
+      // cache) before the timer below ever fires. That timer's own cleanup
+      // (on this effect's prior run) already cancelled it, so nothing else
+      // resets `fading` — without this line the card stayed at opacity 0 and
+      // inert until the NEXT real swap. setFading bails out its own
+      // re-render when already false, so this costs nothing on the ordinary,
+      // non-cancelled path.
+      setFading(false)
       setPainted((p) =>
         p.rows === rows && p.dayTotals === dayTotals ? p : { ...p, rows, dayTotals },
       )
