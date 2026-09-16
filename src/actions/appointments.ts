@@ -7,6 +7,7 @@ import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getActiveStoreId } from '@/actions/stores'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { resolveWebAuditContext } from '@/lib/audit-web'
@@ -112,6 +113,18 @@ export async function createAppointment(input: AppointmentInput) {
     // about its side effect. The serial await costs nothing: resolveStoreScope
     // is React-cached and the layout already resolved it this request.
     const scope = await resolveStoreScope()
+    // ⚖ FRESH-EYES-P1B F4 — THE WEB TWIN of the facade's placement refusal
+    // (app/api/app/v1/appointments/route.ts). `reachesNoStore` is FALSE for a
+    // degraded scope (its allowedStoreIds is null, store-gate.ts), so a web
+    // caller whose OWN assignment lookup failed — resolveStoreScope's `degraded`,
+    // the "removed but the auth session is still alive" case getCurrentUserStaffId
+    // documents — walked straight through and booked, stamped from their own
+    // active-store cookie. A scope we could not read vouches for nothing: refuse.
+    // Same string every locked booking door already returns for this condition
+    // (ensureRecordStoreInScope's degraded arm), so the dialog gives ONE answer.
+    // ABOVE the wave for the same reason as the guard below: resolveSynqedStaffId
+    // CREATES a core staff record on a miss.
+    if (scope.degraded) return { error: STORE_SCOPE_UNVERIFIED }
     if (reachesNoStore(scope)) return { error: UNASSIGNED_STORE_DENIAL }
     const [synqed, synqedStaffId, activeStore, auditActor] = await Promise.all([
       getSynqedClient(),
