@@ -20,6 +20,8 @@ jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(async () => null),
   getDefaultStoreId: jest.fn(async () => null),
 }))
+// Only the RESOLVER is mocked; the lock's predicate lives in the pure
+// src/lib/auth/store-lock.ts and runs for real here (⚖ 9/16).
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
 }))
@@ -156,9 +158,21 @@ describe('karute.delete — deleteKaruteRecord emits exactly once, success-only'
   it('a FAILED read (record gone/unreadable) emits nothing, never deletes', async () => {
     karuteRecordsGet.mockRejectedValueOnce(new Error('not found'))
     const result = await deleteKaruteRecord('kar-3')
-    expect(result).toEqual({ error: 'not found' })
+    // The proof-read moved onto readKaruteMetaRaw (store-locks P1) so a
+    // missing id and an out-of-store refusal read IDENTICALLY here. A
+    // status-less throw is classified as an upstream failure, not a 404 —
+    // deliberately, and core's raw message no longer reaches the client.
+    expect(result).toEqual({ error: 'karute read failed' })
     expect(karuteRecordsDelete).not.toHaveBeenCalled()
     expect(audit).not.toHaveBeenCalled()
+  })
+
+  it('a 404 read is the SAME answer the store lock gives — no existence oracle', async () => {
+    karuteRecordsGet.mockRejectedValueOnce(Object.assign(new Error('gone'), { status: 404 }))
+    expect(await deleteKaruteRecord('kar-missing')).toEqual({
+      error: 'karute not found in this business',
+    })
+    expect(karuteRecordsDelete).not.toHaveBeenCalled()
   })
 
   it('a FAILED delete emits nothing (success-only, no rows on failure paths)', async () => {

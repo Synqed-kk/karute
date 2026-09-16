@@ -342,15 +342,16 @@ export async function deleteAppointment(appointmentId: string) {
     // below → house { error } shape the caller already toasts.
     await requireCapability('bookings.manage')
 
-    const [synqed, auditActor] = await Promise.all([
+    const [synqed, auditActor, scope] = await Promise.all([
       getSynqedClient(),
       resolveWebAuditContext(),
+      resolveStoreScope(), // store lock — see cancelAppointment
     ])
     const result = await deleteAppointmentCore(synqed, appointmentId, {
       ...auditActor,
       source: 'web',
       requestId: crypto.randomUUID(),
-    })
+    }, scope)
     if ('success' in result) {
       revalidatePath('/dashboard')
       updateTag('dashboard')
@@ -374,9 +375,10 @@ export async function updateAppointment(
     // caught below → house { error } shape the caller already toasts.
     await requireCapability('bookings.manage')
 
-    const [synqed, auditActor] = await Promise.all([
+    const [synqed, auditActor, scope] = await Promise.all([
       getSynqedClient(),
       resolveWebAuditContext(),
+      resolveStoreScope(), // store lock — see cancelAppointment
     ])
     const patch: {
       staffId?: string
@@ -401,7 +403,7 @@ export async function updateAppointment(
       ...auditActor,
       source: 'web',
       requestId: crypto.randomUUID(),
-    })
+    }, scope)
     if ('success' in result) {
       revalidatePath('/appointments')
       updateTag('dashboard')
@@ -450,15 +452,19 @@ export async function cancelAppointment(
     const synqed = await getSynqedClient()
     // Best-effort audit stamp in core's staff-id space (see
     // resolveActingStaffId). Omitted when unresolvable rather than blocking.
-    const [actingStaffId, auditActor] = await Promise.all([
+    const [actingStaffId, auditActor, scope] = await Promise.all([
       resolveActingStaffId(),
       resolveWebAuditContext(),
+      // The STORE lock's input (⚖ 9/16): the core refuses a booking outside
+      // this actor's assignment before it mutates anything. Same resolved
+      // scope the read plane uses, so the screen and the server agree.
+      resolveStoreScope(),
     ])
     const result = await cancelAppointmentCore(synqed, appointmentId, input, actingStaffId, {
       ...auditActor,
       source: 'web',
       requestId: crypto.randomUUID(),
-    })
+    }, scope)
     if ('success' in result) {
       revalidatePath('/appointments')
       revalidatePath('/dashboard')
@@ -491,15 +497,16 @@ export async function restoreAppointment(
     const synqed = await getSynqedClient()
     // Best-effort audit stamp in core's staff-id space (see
     // resolveActingStaffId). Omitted when unresolvable rather than blocking.
-    const [actingStaffId, auditActor] = await Promise.all([
+    const [actingStaffId, auditActor, scope] = await Promise.all([
       resolveActingStaffId(),
       resolveWebAuditContext(),
+      resolveStoreScope(), // store lock — see cancelAppointment
     ])
     const result = await restoreAppointmentCore(synqed, appointmentId, actingStaffId, {
       ...auditActor,
       source: 'web',
       requestId: crypto.randomUUID(),
-    })
+    }, scope)
     if ('success' in result) {
       revalidatePath('/appointments')
       revalidatePath('/dashboard')
@@ -535,15 +542,16 @@ export async function markNoShowAppointment(
     // Best-effort audit stamp in core's staff-id space (see
     // resolveActingStaffId — fixes the profile-id-space stamp this action
     // originally shipped with). Omitted when unresolvable, never blocking.
-    const [actingStaffId, auditActor] = await Promise.all([
+    const [actingStaffId, auditActor, scope] = await Promise.all([
       resolveActingStaffId(),
       resolveWebAuditContext(),
+      resolveStoreScope(), // store lock — see cancelAppointment
     ])
     const result = await markNoShowAppointmentCore(synqed, appointmentId, input, actingStaffId, {
       ...auditActor,
       source: 'web',
       requestId: crypto.randomUUID(),
-    })
+    }, scope)
     if ('success' in result) {
       revalidatePath('/appointments')
       revalidatePath('/dashboard')
