@@ -430,6 +430,11 @@ export interface BoardBooking {
   onBoard: boolean
 }
 
+/** ⚖ D-53 (ak)/(al) N2c-2 — the local pair Home B/C mint their sentences from;
+ *  not exported (no test needs it), local so this file's import inventory
+ *  stays what `foundation.test.ts` pins (no import of `resource-words.ts`). */
+type BoardWords = { privateWord: string | null; turnoverWord: string | null }
+
 export interface BuildInput {
   appointments: FixtureAppointment[]
   customers: FixtureCustomer[]
@@ -453,6 +458,10 @@ export interface BuildInput {
   storeNames: Map<string, string>
   /** true = viewAll; a clamped lens must not label lanes with a store name. */
   crossStore: boolean
+  /** ⚖ D-53 (ak)/(al) N2c-2 — the store's own words for the two sentences
+   *  this file composes (Home B's card label, Home C's cleanup row). */
+  wordsByStore: Record<string, BoardWords>
+  genericWords: BoardWords
 }
 
 /** ⚖ ONE WORD, ONE HOME. 顧客's lifecycle chip renders the SAME label off the
@@ -530,7 +539,7 @@ function chip(b: BoardBooking): { cat: string | null; core: string | null } {
   return { cat: '単発', core: b.price == null ? '価格未記録' : yen(b.price) }
 }
 
-function bookingItem(b: BoardBooking, hours: Hours, tag: string, keySuffix: string): BoardItem {
+function bookingItem(b: BoardBooking, hours: Hours, tag: string, keySuffix: string, privateWord: string): BoardItem {
   const c = chip(b)
   return {
     key: `${b.id}-${keySuffix}`,
@@ -553,7 +562,7 @@ function bookingItem(b: BoardBooking, hours: Hours, tag: string, keySuffix: stri
     // the board had never told them. It rides INSIDE the category segment, so
     // the five-segment skeleton `today-interactions`' room re-label depends on
     // (`parts.length === 5`) is untouched.
-    label: `${b.timeRange} ${b.customerName}様 / ${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_LABEL[b.category]} / ${b.staffName} / ${b.resourceName} / ${STATE_LABEL[b.state]}`,
+    label: `${b.timeRange} ${b.customerName}様 / ${b.requiresPrivateRoom ? `${privateWord}のみ・` : ''}${CATEGORY_LABEL[b.category]} / ${b.staffName} / ${b.resourceName} / ${STATE_LABEL[b.state]}`,
   }
 }
 
@@ -570,6 +579,19 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
   const shiftByStaff = new Map(input.shifts.map((s) => [s.staff_id, s]))
   const lanes: BoardLane[] = []
 
+  // ⚖ D-53 (ak)/(al) N2c-2 R-2 — Home B: the booking's own room word, resolved
+  // ONCE per booking so the staff-lane copy and the resource-lane copy of one
+  // card read the SAME sentence — one card, one description. The booking's
+  // resource's store wins (the room the booking actually occupies); a
+  // no-unit booking falls to its staff's first store; no store at all falls
+  // to the generic row.
+  const privateWordFor = (b: BoardBooking): string => {
+    const resourceStoreId = b.resourceId ? input.resources.find((r) => r.id === b.resourceId)?.store_id : undefined
+    const staffStoreId = b.staffId ? input.staffStores[b.staffId]?.[0] : undefined
+    const storeId = resourceStoreId ?? staffStoreId
+    return input.wordsByStore[storeId ?? '']?.privateWord ?? input.genericWords.privateWord!
+  }
+
   for (const member of input.staff) {
     const raw = shiftByStaff.get(member.id) ?? null
     const shift = raw ? effectiveShift(raw, absence) : null
@@ -579,7 +601,7 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
 
     for (const b of mine) {
       if (!b.onBoard) continue
-      items.push(bookingItem(b, hours, b.resourceName, 'staff'))
+      items.push(bookingItem(b, hours, b.resourceName, 'staff', privateWordFor(b)))
     }
     for (const br of raw?.breaks ?? []) {
       items.push({
@@ -684,7 +706,10 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
 
   for (const resource of input.resources) {
     const on = bookings.filter((b) => b.resourceId === resource.id && b.onBoard)
-    const items: BoardItem[] = on.map((b) => bookingItem(b, hours, b.staffName, 'bed'))
+    const items: BoardItem[] = on.map((b) => bookingItem(b, hours, b.staffName, 'bed', privateWordFor(b)))
+    // ⚖ D-53 (ak)/(al) N2c-2 R-3 — Home C: resolved ONCE per resource, the
+    // same store lookup Home B uses.
+    const t = input.wordsByStore[resource.store_id]?.turnoverWord ?? input.genericWords.turnoverWord!
     for (const c of cleanupBlocks(
       on.map((b) => ({ id: b.id, start: b.startMinute, end: b.endMinute })),
       resource.cleanup_minutes,
@@ -694,9 +719,9 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
         key: c.id,
         kind: 'cleanup', state: null, category: null,
         ...place(c.start, c.end, hours),
-        title: '清掃', tag: '', time: `${hhmm(c.start)}〜`,
+        title: t, tag: '', time: `${hhmm(c.start)}〜`,
         ticketCat: null, ticketCore: null, held: false, micro: c.end - c.start <= 20, caseId: null,
-        label: `${resource.name}、${hhmm(c.start)}から${hhmm(c.end)}、清掃・予約不可`,
+        label: `${resource.name}、${hhmm(c.start)}から${hhmm(c.end)}、${t}・予約不可`,
       })
     }
     for (const blk of input.blocks.filter((x) => x.resource_id === resource.id)) {
