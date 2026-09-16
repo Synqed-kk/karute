@@ -9,7 +9,7 @@ import { getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
-import { STAFF_STORE_REQUIRED, STAFF_STORES_OUTSIDE_CREATOR } from '@/lib/auth/store-gate'
+import { STAFF_STORE_REQUIRED } from '@/lib/auth/store-gate'
 import { STAFF_CARD_LEFT_BEHIND } from '@/lib/staff/new-card'
 import { createAndPlaceStaffCard } from '@/lib/staff/new-card'
 import { resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
@@ -216,7 +216,7 @@ export async function createStaff(data: StaffProfileInput): Promise<StaffActionR
     // must not be swallowed into the generic fallback below.
     if (
       result.error === STAFF_STORE_REQUIRED ||
-      result.error === STAFF_STORES_OUTSIDE_CREATOR ||
+      result.error === 'STORE_SCOPE_DENIED' ||
       // ⚖ Fold round 3 (F8): a card left behind by a failed rollback is the
       // user's answer too — only a person can clear it.
       result.error === STAFF_CARD_LEFT_BEHIND

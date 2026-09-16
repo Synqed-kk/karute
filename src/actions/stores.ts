@@ -20,7 +20,6 @@ import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import {
   actorIsUnassigned,
   storeCountForGate,
-  STAFF_STORES_OUTSIDE_CREATOR,
   STORE_UNASSIGNED_DENIAL,
 } from '@/lib/auth/store-gate'
 
@@ -577,7 +576,9 @@ export async function setStaffStoresAtCreationCore(
 ): Promise<{ ok: true } | { error: string }> {
   if (creatorAllowedStoreIds !== null) {
     const outside = storeIds.filter((id) => !creatorAllowedStoreIds.includes(id))
-    if (outside.length > 0) return { error: STAFF_STORES_OUTSIDE_CREATOR }
+    // The literal every other door in this codebase already spells (⚖ fold
+    // round 3, N1): a second NAME for one code reads as two codes.
+    if (outside.length > 0) return { error: 'STORE_SCOPE_DENIED' }
   }
   try {
     await synqed.staffStores.set(staffId, storeIds)

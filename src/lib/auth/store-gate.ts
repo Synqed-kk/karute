@@ -213,14 +213,6 @@ export const actorIsUnassigned = cache(
 )
 
 /**
- * The refusal when a creator tries to place a new hire in a store they do not
- * work in themselves (setStaffStoresAtCreationCore). A machine code, not a
- * sentence: both transports return it and each door maps it to its own copy,
- * the same convention invites.ts uses for STORE_SCOPE_DENIED.
- */
-export const STAFF_STORES_OUTSIDE_CREATOR = 'STORE_SCOPE_DENIED'
-
-/**
  * The refusal when a new staff card is submitted with NO store in a business
  * that has more than one (⚖ Liam 2026-09-16: every new staff gets a store at
  * creation). Machine code, mapped to copy at each door.

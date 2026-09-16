@@ -16,11 +16,12 @@ import { createStaffCore } from '@/actions/staff'
 import { createInviteCore, listInvitesWithClient, revokeInviteCore } from '@/actions/invites'
 import { setStaffStoresAtCreationCore, createStoreCore } from '@/actions/stores'
 import { STAFF_CARD_LEFT_BEHIND } from '@/lib/staff/new-card'
-import {
-  INVITE_NAME_REQUIRED,
-  STAFF_STORE_REQUIRED,
-  STAFF_STORES_OUTSIDE_CREATOR,
-} from '@/lib/auth/store-gate'
+import { INVITE_NAME_REQUIRED, STAFF_STORE_REQUIRED } from '@/lib/auth/store-gate'
+
+/** One name for one code (⚖ fold round 3, N1): the refusal when a creator
+ *  names a store they do not work in is the same STORE_SCOPE_DENIED every
+ *  other door already spells. */
+const STAFF_STORES_OUTSIDE_CREATOR = 'STORE_SCOPE_DENIED'
 
 jest.mock('@synqed-kk/client', () => ({
   SynqedClient: class {},

@@ -404,7 +404,7 @@ describe("re-invites are clamped to the caller's stores", () => {
     storeAssignments = { [CALLER]: ['store-a'] }
     const res = await POST(postReq(VALID_INVITE), noParams)
     expect(res.status).toBe(201)
-// Every assignment read on this door is the CALLER's own: the front gate's
+    // Every assignment read on this door is the CALLER's own: the front gate's
     // at the identity seam, and the creator-subset check's for the card it is
     // about to place. The re-invite clamp (a TARGET's row) never runs.
     expect(staffStoresGet).toHaveBeenCalledWith(CALLER)
