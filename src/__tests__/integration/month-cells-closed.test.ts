@@ -43,6 +43,9 @@ const OPEN_FACT: DayHoursFact = {
   openMinute: 600,
   closeMinute: 1200,
   saved: true,
+  // The store's own declaration — the same pairing operating-hours.ts's own
+  // CLOSED_FACT carries for a saved day.
+  source: 'store',
   closed: false,
 }
 const CLOSED_FACT: DayHoursFact = {
@@ -50,6 +53,9 @@ const CLOSED_FACT: DayHoursFact = {
   openMinute: 0,
   closeMinute: 0,
   saved: true,
+  // The store's own declaration — the same pairing operating-hours.ts's own
+  // CLOSED_FACT carries for a saved day.
+  source: 'store',
   closed: true,
 }
 

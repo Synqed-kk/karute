@@ -12,7 +12,8 @@
  * constant or a bare class back to `font-bold` turns this red.
  */
 import { render } from '@testing-library/react'
-import type { WeekDayRowData } from '@/lib/adapters/reservation'
+import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
+import { withDerivedCapacity } from './__fixtures__/capacity-row'
 
 const MESSAGES: Record<string, string> = {
   count: '予約',
@@ -47,7 +48,15 @@ function t(key: string, values?: Record<string, string | number | Date>): string
 jest.mock('next-intl', () => ({ useTranslations: () => t }))
 
 function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
-  return {
+  // MERGE 2026-09-16 (PR #934) — this fixture arrived from feat/booking-week-face,
+  // where WeekDayRowData had no capacity half. On this branch the capacity
+  // model owns nine more fields, and a row that sets capacityDefensible
+  // without them describes a day with no capacity at all — the 稼働/空き
+  // cells would render 未設定 and this guard would stop seeing the very
+  // elements it exists to check. So the row is built the way every other
+  // 予約-surface test builds one: through the shared derivation, never a
+  // re-typed percentage. What the test ASSERTS is untouched.
+  return withDerivedCapacity({
     dateNumber: 15,
     monthNumber: 9,
     weekdayLabel: '火',
@@ -67,9 +76,10 @@ function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
     closed: false,
     cancelledCount: 0,
     noShowDayCount: 0,
+    ...capacityRowFields(undefined),
     returningCount: 2,
     ...over,
-  }
+  }, over)
 }
 
 function sevenDays(): WeekDayRowData[] {
