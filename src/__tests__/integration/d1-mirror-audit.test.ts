@@ -317,6 +317,27 @@ describe('updateKaruteOutcome — web twin (Wave W3)', () => {
     expect(auditWeb).not.toHaveBeenCalled()
   })
 
+  // ⚖ Greptile fold (2026-09-16): a DEGRADED scope is the lock failing closed
+  // on the CALLER's own session — a lookup that blipped, retryable — not a
+  // statement about the record. Collapsing it into 'karute record not found'
+  // told the staff member their record was missing, which is both a lie and a
+  // hidden retry. The facade twin of this door already maps the two apart.
+  it('a DEGRADED scope keeps its own store_forbidden answer, never "not found"', async () => {
+    synqedKaruteRecords.get.mockResolvedValue({ id: 'kar-1', customer_id: 'cus-4', store_id: 'store-ginza' })
+    storeScope.current = { storeId: 'store-ginza', viewAll: false, allowedStoreIds: ['store-ginza'], degraded: true }
+    const res = await updateKaruteOutcome('kar-1', outcome)
+    expect(res.error).toBe('could not verify your store assignment (fail-closed)')
+    expect(res.error).not.toBe('karute record not found')
+    expect(setKaruteOutcome).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+
+  it('a genuine READ failure still collapses to not-found — only the lock speaks for itself', async () => {
+    synqedKaruteRecords.get.mockRejectedValue(new Error('pg: relation karute_records exploded at 10.0.0.7'))
+    expect((await updateKaruteOutcome('kar-9', outcome)).error).toBe('karute record not found')
+    expect(setKaruteOutcome).not.toHaveBeenCalled()
+  })
+
   it('a clamped actor inside the record own store still writes the label', async () => {
     synqedKaruteRecords.get.mockResolvedValue({ id: 'kar-1', customer_id: 'cus-4', store_id: 'store-ginza' })
     storeScope.current = { storeId: 'store-ginza', viewAll: false, allowedStoreIds: ['store-ginza'], degraded: false }
