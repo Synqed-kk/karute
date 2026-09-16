@@ -104,6 +104,12 @@ export function KaruteDetailScreen({ id }: { id: string }) {
             recording={dto.recording ?? null}
             staffCanReassignRecords={dto.staffCanReassignRecords ?? false}
             staffCanRegenerate={dto.staffCanRegenerate ?? false}
+            // ⚖ 9/16 store lock — NOT `?? false` like the two above, on
+            // purpose: those name a capability (unknown must hide), this one
+            // names a store, and a payload minted before the field existed
+            // belongs to a karute this shell could already edit. Pass it
+            // through and let the view's own `!== false` decide.
+            staffCanEditRecord={dto.staffCanEditRecord}
             discarded={dto.discarded ?? null}
             contentWithheld={dto.contentWithheld ?? false}
             share={dto.share ?? null}
