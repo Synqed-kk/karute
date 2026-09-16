@@ -4,7 +4,12 @@ import { useState, useRef, useEffect } from 'react'
 import { useTranslations } from 'next-intl'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import { foldSearchDigits } from '@/lib/customers/karute-number-match'
+import { foldSearchDigits, CUSTOMER_SEARCH_LIMIT } from '@/lib/customers/karute-number-match'
+
+// Re-exported (fold round, one home): existing consumers keep importing
+// CUSTOMER_SEARCH_LIMIT from here unchanged; the two server-side search paths
+// import it directly from karute-number-match.ts instead of duplicating it.
+export { CUSTOMER_SEARCH_LIMIT }
 
 export type CustomerOption = {
   id: string
@@ -64,11 +69,6 @@ type CustomerComboboxProps = {
    *  never pass this; only NewBookingDialog does). */
   onRemoteSearch?: (query: string) => Promise<{ options: CustomerSearchOption[] } | { error: string }>
 }
-
-/** Rows one customer search shows at once. Exported because a caller that caps
- *  the list also has to tell the staff how many matches it left off — a header
- *  reading the capped array announces 8 matches over a salon of 20 (C-3). */
-export const CUSTOMER_SEARCH_LIMIT = 8
 
 // digitsOnly moved to karute-number-match.ts as foldSearchDigits (imported
 // above) — the karute-number search needs the exact same fold, so there is

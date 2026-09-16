@@ -10,7 +10,7 @@ import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { parsePhotoUploadFields } from '@/lib/karute/photo-upload-fields'
 import type { CustomerOption, CustomerSearchOption } from '@/components/karute/CustomerCombobox'
-import { matchKaruteNumber } from '@/lib/customers/karute-number-match'
+import { CUSTOMER_SEARCH_LIMIT, matchKaruteNumber } from '@/lib/customers/karute-number-match'
 
 // ---------------------------------------------------------------------------
 // Backend error → user-facing message
@@ -792,11 +792,8 @@ export async function searchCustomersCompanyWide(
     // the same cached list their combobox was already seeded with (no core
     // membership call). Unclamped viewers are already preloaded business-wide,
     // so nothing this search returns can ever be "other store" for them.
-    // Mirrors CustomerCombobox's CUSTOMER_SEARCH_LIMIT — not imported (that
-    // module is 'use client'); a plain literal is the whole coupling.
-    const RESULT_LIMIT = 8
     const [searchRes, ownList, businessWide] = await Promise.all([
-      synqed.customers.list({ search: q, page_size: RESULT_LIMIT }),
+      synqed.customers.list({ search: q, page_size: CUSTOMER_SEARCH_LIMIT }),
       enforceStore && lens !== null ? getCachedCustomerList(lens) : Promise.resolve(null),
       getCachedCustomerList(),
     ])
@@ -818,7 +815,7 @@ export async function searchCustomersCompanyWide(
     ]
 
     const options: CustomerSearchOption[] = merged
-      .slice(0, RESULT_LIMIT)
+      .slice(0, CUSTOMER_SEARCH_LIMIT)
       .map((r) => ({ ...r, other_store: ownIds ? !ownIds.has(r.id) : false }))
     return { options }
   } catch (err) {

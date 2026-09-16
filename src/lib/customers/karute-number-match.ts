@@ -9,6 +9,14 @@
  * (actions/customers.ts) so the two can never disagree about it.
  */
 
+/** Rows one customer search shows/returns at once. Exported because a caller
+ *  that caps the list also has to tell the staff how many matches it left
+ *  off — a header reading the capped array announces 8 matches over a salon
+ *  of 20 (C-3). Fold round: one home — CustomerCombobox re-exports this
+ *  instead of declaring its own copy, and the two server-side search paths
+ *  (actions/customers.ts, the facade twin route) import it directly. */
+export const CUSTOMER_SEARCH_LIMIT = 8
+
 /** Same fold CustomerCombobox's phone-digit search already applies: full-width
  *  digits (０-９, the kana keyboard's default) → half-width, separators
  *  stripped, so "０/０４２" and "0042" and "00-42" all match the same way. */

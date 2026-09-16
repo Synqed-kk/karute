@@ -46,6 +46,10 @@ const getCachedCustomerListFor = jest.fn(async (...args: unknown[]) => {
   const storeId = args[1]
   return storeId === 'store-A' ? [cachedRow('cust-1')] : [cachedRow('cust-1'), cachedRow('cust-2')]
 })
+// Fold round: the route now loads this via a lazy `await import(...)` (same
+// ESM-landmine fix as list-all.ts / actions/customers.ts), not a top-level
+// import — jest.mock intercepts by module path either way, so this mock
+// doesn't depend on which import style the route happens to use.
 jest.mock('@/lib/customers/cached', () => ({
   getCachedCustomerListFor: (...a: unknown[]) => getCachedCustomerListFor(...a),
 }))

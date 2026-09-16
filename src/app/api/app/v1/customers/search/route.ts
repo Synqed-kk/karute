@@ -16,17 +16,13 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { getCachedCustomerListFor } from '@/lib/customers/cached'
-import { matchKaruteNumber } from '@/lib/customers/karute-number-match'
+import { CUSTOMER_SEARCH_LIMIT, matchKaruteNumber } from '@/lib/customers/karute-number-match'
 
 export const runtime = 'nodejs'
 
 /** Strict query-string contract: one optional free-text search term (same
  *  shape as screens/customers's own `query` param). */
 const QuerySchema = z.string().max(200)
-
-// Mirrors CustomerCombobox's CUSTOMER_SEARCH_LIMIT (a client-only module).
-const RESULT_LIMIT = 8
 
 export const GET = facadeHandler('customers.search', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'customers.view')
@@ -49,10 +45,16 @@ export const GET = facadeHandler('customers.search', async (ctx) => {
   })
   const enforceStore = clamp.allowedStoreIds != null
 
+  // Lazy import (same reason as list-all.ts / actions/customers.ts): cached.ts
+  // does a real (non-type) top-level import of @synqed-kk/client, a pure-ESM
+  // package Jest can't parse from node_modules by default — keeps that out of
+  // any test graph that doesn't explicitly mock it.
+  const { getCachedCustomerListFor } = await import('@/lib/customers/cached')
+
   // "other_store" = not in the CALLER's own store-lensed cached list — same
   // definition as the web action, no core membership call.
   const [searchRes, ownList, businessWide] = await Promise.all([
-    synqed.customers.list({ search: q, page_size: RESULT_LIMIT }),
+    synqed.customers.list({ search: q, page_size: CUSTOMER_SEARCH_LIMIT }),
     enforceStore && clamp.storeId
       ? getCachedCustomerListFor(ctx.identity.businessId, clamp.storeId)
       : Promise.resolve(null),
@@ -75,7 +77,7 @@ export const GET = facadeHandler('customers.search', async (ctx) => {
   ]
 
   const options = merged
-    .slice(0, RESULT_LIMIT)
+    .slice(0, CUSTOMER_SEARCH_LIMIT)
     .map((r) => ({ ...r, other_store: ownIds ? !ownIds.has(r.id) : false }))
   return ok(ctx, { options })
 })
