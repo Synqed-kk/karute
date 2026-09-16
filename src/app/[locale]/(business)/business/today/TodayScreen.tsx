@@ -464,10 +464,13 @@ export function handBoardFor(
   pending: { id: string; companions?: readonly BedCompanion[] } | null | undefined,
   forId: string | null,
   hours: Hours,
+  // ⚖ D-53 (u)/(n2b2) — REQUIRED, immediately after `hours` (forwarded to
+  // `lanesWithCompanionsRestored`).
+  words: { byLaneKey: Record<string, ResourceWords>; generic: ResourceWords },
   cleanupMinutesByBed?: Record<string, number>,
 ): BoardLane[] {
   return pending && forId != null && pending.id === forId
-    ? lanesWithCompanionsRestored(lanes, pending.companions, hours, cleanupMinutesByBed)
+    ? lanesWithCompanionsRestored(lanes, pending.companions, hours, words, cleanupMinutesByBed)
     : lanes
 }
 
@@ -1115,6 +1118,29 @@ export function TodayScreen(props: TodayProps) {
     const lane = key == null ? undefined : boardLanes.find((l) => l.group === (bedSide ? 'beds' : 'staff') && l.key === key)
     return lane ? wordsForLane(lane) : props.words
   }
+
+  /** ⚖ D-53 (u)/(n2b2) — R-1: THE MAP, once, from `props.lanes` (never from a
+   *  derived board — `boardLanes` is this map's OWN reader below, and reading
+   *  it back here would be circular). `applyMoves`/`applyBlockMoves`/
+   *  `applyBedMoves` preserve every lane's `key`, `group` and `stores`, so a
+   *  map keyed off `props.lanes` answers correctly for every derived board.
+   *  Keyed GROUP + KEY because a lane key is unique only within its group
+   *  (`wordsForAsk`'s own comment, above). Declared BEFORE `boardLanes`
+   *  because that memo is this map's first reader. */
+  const laneWords = useMemo(
+    () => ({
+      byLaneKey: Object.fromEntries(props.lanes.map((l) => [`${l.group}:${l.key}`, wordsForLane(l)])),
+      generic: props.genericWords,
+    }),
+    // ⚖ D-53 (u)/(n2b2) — `wordsForLane` is a plain body declaration reading
+    // `props.wordsByStore`/`props.words` (both already listed), so its own
+    // identity carries nothing exhaustive-deps cannot already see (same
+    // pattern as `wordsForAsk`'s own memo, above) — and listing the function
+    // itself would rebuild this map (and every board derived from it) on
+    // every render, which is the one cost D-53 (u)'s F2 fold forbids.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [props.lanes, props.wordsByStore, props.words, props.genericWords],
+  )
 
   /** ⚖ Liam 22 — THE SESSION'S EDITS, read from the layout rather than held
    *  here. `?day=` is a Link, so this component remounts on every day flip;
@@ -1897,8 +1923,8 @@ export function TodayScreen(props: TodayProps) {
    *  measured against. Without it `committedLanes` — the board the sell, gap and
    *  reserved layers price against — could advertise minutes core will refuse. */
   const boardLanes = useMemo(
-    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves, props.bedCleanupMinutes),
-    [placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves, props.bedCleanupMinutes],
+    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes),
+    [placedLanes, liveMoves, parked, addedHere, hours, laneWords, liveBedMoves, props.bedCleanupMinutes],
   )
   /** The board WITHOUT the in-flight pointer — what the window layers price
    *  against. canon's `renderPublicLayer` (:5343) and `renderGapFillLayer`
@@ -1913,8 +1939,8 @@ export function TodayScreen(props: TodayProps) {
    *  1. `boardLanes` stays the truth for the guard and the drop target, which
    *  DO have to answer where the card is heading. */
   const committedLanes = useMemo(
-    () => applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves, props.bedCleanupMinutes),
-    [placedLanes, moves, parked, addedHere, hours, bedMoves, props.bedCleanupMinutes],
+    () => applyMoves(placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes),
+    [placedLanes, moves, parked, addedHere, hours, laneWords, bedMoves, props.bedCleanupMinutes],
   )
   /** WHAT THE DOM DRAWS while a card is in flight: the board as it stands. The
    *  card he grabbed is under his cursor now (the proxy), so the original stays
@@ -1932,8 +1958,8 @@ export function TodayScreen(props: TodayProps) {
     if (!a) return null
     const staff = a.staffLane ? { ...moves, [a.id]: { laneKey: a.staffLane, x: a.span.x, w: a.span.w } } : moves
     const bed = a.bedLane ? { ...bedMoves, [a.id]: { laneKey: a.bedLane, x: a.span.x, w: a.span.w } } : bedMoves
-    return applyMoves(placedLanes, staff, parked, addedHere, hours, bed, props.bedCleanupMinutes)
-  }, [advice, moves, bedMoves, placedLanes, parked, addedHere, hours, props.bedCleanupMinutes])
+    return applyMoves(placedLanes, staff, parked, addedHere, hours, laneWords, bed, props.bedCleanupMinutes)
+  }, [advice, moves, bedMoves, placedLanes, parked, addedHere, hours, laneWords, props.bedCleanupMinutes])
   const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)
   /** ⚖ Liam 2026-08-20: the dashed outline is now the SNAPPED LANDING PREVIEW and
    *  is drawn for every live drag, same lane or not — with the card off travelling
@@ -2566,8 +2592,8 @@ export function TodayScreen(props: TodayProps) {
    *  Everything that must read it (`rails`, the two gated doors, the chip site,
    *  `explainRails`, `composeSlot`, `linesFor`, `handBoardRef`) is below. */
   const handBoard = useMemo(
-    () => handBoardFor(boardLanes, pending, handId, hours, props.bedCleanupMinutes),
-    [boardLanes, pending, handId, hours, props.bedCleanupMinutes],
+    () => handBoardFor(boardLanes, pending, handId, hours, laneWords, props.bedCleanupMinutes),
+    [boardLanes, pending, handId, hours, laneWords, props.bedCleanupMinutes],
   )
   /** THE CAPACITY BOOK, BUILT ONCE PER FRAME. Both worlds come out of one call,
    *  and the second only exists while a hand is holding something. Construction
@@ -2829,9 +2855,9 @@ export function TodayScreen(props: TodayProps) {
    *  so this memo — and only this one — may take the pending gate. */
   const originLanes = useMemo(
     () => (dayStaged
-      ? applyMoves(placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, bedMovesWithoutPending, props.bedCleanupMinutes)
+      ? applyMoves(placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, laneWords, bedMovesWithoutPending, props.bedCleanupMinutes)
       : committedLanes),
-    [dayStaged, placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, bedMovesWithoutPending, props.bedCleanupMinutes, committedLanes],
+    [dayStaged, placedLanes, movesWithoutPending, parked, addedWithoutPending, hours, laneWords, bedMovesWithoutPending, props.bedCleanupMinutes, committedLanes],
   )
   /** ⚖ D-20 (1) — ONE ORIGIN MASK, TWO CONSUMERS. `honestOrigin` used to
    *  produce the released mask ITSELF, gated behind `!honest` — so with
@@ -2968,9 +2994,9 @@ export function TodayScreen(props: TodayProps) {
             // question and has no hand in it at all.
             resting: restingFor(handId),
             restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId, handBoard) : undefined,
-          })
+          }, laneWords)
         : [],
-    [guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],
+    [guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
   /** ⚖ LIAM RULING 1 (2026-09-09) — THE BED TRUTH FOR ONE WINDOW ON ONE LANE.
@@ -3334,9 +3360,9 @@ export function TodayScreen(props: TodayProps) {
             protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,
             resting: restingFor(excludeId),
             restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(excludeId, lanes) : undefined,
-          })
+          }, laneWords)
         : null,
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus],
+    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],
   )
 
   /** ⚖ LIAM flag 50 (2026-08-22) — THE ONE VERDICT, ASKED FROM THE SCREEN.
@@ -3538,10 +3564,11 @@ export function TodayScreen(props: TodayProps) {
           cleanupMinutesByBed: props.bedCleanupMinutes,
           landingOn: reseatLandingAt,
         },
+        words: laneWords,
       }),
     [
       rails, handBoard, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellPublished, publishedClaims, sellDrops, inHand, sellMode,
-      heldBoardHonest, bedsOver, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt,
+      heldBoardHonest, bedsOver, hours, props.sell.nowMinute, props.bedCleanupMinutes, reseatLandingAt, laneWords,
     ],
   )
 
@@ -3603,7 +3630,7 @@ export function TodayScreen(props: TodayProps) {
       // (`allocateBed` returns `reseats: []` on every non-pack path), and this
       // says so out loud rather than relying on that.
       if (!opts.pack || v.reseats.length === 0) return v
-      const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, props.bedCleanupMinutes)
+      const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes)
       return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }
     },
     // `solveLanes` is a body function declaration (⚖ its own doc comment: one
@@ -3617,8 +3644,10 @@ export function TodayScreen(props: TodayProps) {
     // shuffle draws each moved card's tail at its NEW room's policy) and stays
     // off the list for the same reason `boardLanes` did: `verdictFor` carries it
     // and so changes identity with it.
+    // ⚖ D-53 (u)/(n2b2) — `laneWords` is added: it feeds the shuffle's own
+    // `applyBedMoves` call directly (not only through `verdictFor`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [verdictFor, verdictAt, hours, pending],
+    [verdictFor, verdictAt, hours, pending, laneWords],
   )
 
   /** ⚖ Liam flag 50 — the drag frame runs inside listeners bound once per
@@ -3824,7 +3853,7 @@ export function TodayScreen(props: TodayProps) {
       // shuffle (`verdictAtLanding` → `solveLanes`). `store.base` below stays on
       // `boardLanes` and cannot disagree with it — see the memo-gate invariant at
       // `beginDrag`: a store exists only when `handBoard === boardLanes`.
-      shuffled = applyBedMoves(handBoard, companionsFor(handBoard, v.reseats), hours, props.bedCleanupMinutes)
+      shuffled = applyBedMoves(handBoard, companionsFor(handBoard, v.reseats), hours, laneWords, props.bedCleanupMinutes)
       store.shuffledFor.set(moveSet, shuffled)
     }
     const ask = { ...inHand, staffLane: laneKey, span: place(start, start + railDur, hours) }
@@ -4796,7 +4825,7 @@ export function TodayScreen(props: TodayProps) {
   function solveLanes(id: string | null): BoardLane[] {
     return id != null && id === handIdRef.current
       ? handBoardRef.current
-      : handBoardFor(boardLanesRef.current, pending, id, hours, props.bedCleanupMinutes)
+      : handBoardFor(boardLanesRef.current, pending, id, hours, laneWords, props.bedCleanupMinutes)
   }
 
   /** ⚖ BATCH-6 flag 45 — ONE SIDE RETARGETS, BOTH RE-TIME (canon `stageChange`
@@ -8066,6 +8095,9 @@ export function TodayScreen(props: TodayProps) {
     // chip is what runs and the strip never renders with zero tab stops.
     const remembered = railStop[rail.laneKey]
     const stop = rail.cells.some((c) => c.start === remembered) ? remembered : rail.cells[0]?.start
+    // ⚖ D-53 (u)/(n2b2) — the reseat clause's own resource word: this rail's
+    // staff lane, chrome when the rail names no lane on the board.
+    const railLane = boardLanes.find((l) => l.group === 'staff' && l.key === rail.laneKey)
     return (
       <div
         className="guard-placement-rail"
@@ -8154,7 +8186,7 @@ export function TodayScreen(props: TodayProps) {
                 // plain untruth about it. 置けない is true of all three, and the
                 // hatch is now its own sentence: it APPEARS, it is not a
                 // standing mark the operator should hunt for.
-                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「${props.genericWords.fullWord}」「${props.genericWords.turnoverWord!}」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。${hasBeds ? `「${props.genericWords.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます。` : ''}「${props.genericWords.fullWord}」「${props.genericWords.turnoverWord!}」のコマでは、すぐ上の行に薄い斜線が出て、その30分と理由を短い言葉で示します。${hasBeds ? `${w.resourceNoun}を別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます。` : ''}`,
+                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「${w.fullWord}」${caps.turnover ? `「${w.turnoverWord!}」` : ''}「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。${hasBeds ? `「${w.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます。` : ''}「${w.fullWord}」${caps.turnover ? `「${w.turnoverWord!}」` : ''}のコマでは、すぐ上の行に薄い斜線が出て、その30分と理由を短い言葉で示します。${hasBeds ? `${w.resourceNoun}を別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます。` : ''}`,
             }
           : {})}
       >
@@ -8300,7 +8332,7 @@ export function TodayScreen(props: TodayProps) {
             // the cost this round priced and removed.
             const sentence =
               v && chip?.mark
-                ? reseatSentence(v.reason ?? c.sentence, linesFor(v), drop?.kind === 'caution' ? drop.reason : null)
+                ? reseatSentence(v.reason ?? c.sentence, linesFor(v), drop?.kind === 'caution' ? drop.reason : null, railLane ? wordsForLane(railLane) : props.words)
                 : (v?.reason ?? explained?.sentence ?? c.sentence)
             // ⚖ LIAM RULING 3 (2026-09-09) — 「a start that fits only by MOVING
             // someone gets a small 『moves someone』 marker instead of a plain
