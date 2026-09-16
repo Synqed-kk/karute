@@ -12,6 +12,7 @@ import { minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/b
 import {
   applyMoves,
   blockChrome,
+  explainRails,
   guardRailsFor,
   guardVerdictAt,
   landingVerdict,
@@ -414,6 +415,53 @@ describe('⚖ D-53 (u)/(n2b2) — the whole-board functions read the resolved wo
       const words = { byLaneKey: { 'staff:p-gym': GYM }, generic: G }
       const cell = guardVerdictAt([gymLane], 'p-gym', 780, railInput(), words)!
       expect(cell.sentence).toContain('ブース')
+    })
+
+    // ⚖ D-53 (ai) F-1 — the one production path from the map into railExplain, pinned
+    it('explainRails resolves EACH rail\'s own row from the map — a gym rail wears ブース\'s words, never the generic row', () => {
+      const gymLane = openStaffLane('p-gym', '見本 スタジオ')
+      // The smallest board that reaches `explainRails`' internal `allocate`
+      // call with each blocker class — the same shape as today-explains.test.ts
+      // §2's `sceneWith`/`cleanup` scene (one open staff lane, one bed lane,
+      // the bed's own items switching the blocker kind), rebuilt locally since
+      // this file does not import that file's helpers.
+      const bedLane = lane({
+        key: 'bed-01', group: 'beds', label: 'ベッド1',
+        items: [
+          { ...booking({ key: 'clean-1', caseId: null }, 780, 840), kind: 'cleanup', state: null, category: null, title: '清掃' },
+          booking({ key: 'apt-1', caseId: 'apt-1' }, 900, 960),
+        ],
+      })
+      // generic = A (chiropractic), never GYM — so a mutant that falls back to
+      // the generic row for every rail cannot pass by coincidence.
+      const words = { byLaneKey: { 'staff:p-gym': GYM }, generic: A }
+      const rails = guardRailsFor([gymLane, bedLane], railInput(), words)
+      const explained = explainRails(rails, [gymLane, bedLane], {
+        dur: 60, handId: null, stagedId: null,
+        sellCells: [], claims: [], drops: [], inHand: false, sellDisplayed: true,
+        words,
+      })
+      const chips = explained.get('p-gym')!
+      console.log('today-sentences F-1 explainRails', {
+        cleanupWord: chips.get(780)!.word, bookingWord: chips.get(900)!.word,
+        GYM_turnoverWord: GYM.turnoverWord, GYM_fullWord: GYM.fullWord,
+      })
+      // The table, first: GYM's (personal_gym) own two words.
+      expect(GYM.turnoverWord).toBe('清掃')
+      expect(GYM.fullWord).toBe('満席')
+      // An all-cleanup window wears the gym's OWN turnover word.
+      expect(chips.get(780)!.word).toBe(GYM.turnoverWord)
+      // A real-booking window wears the gym's OWN full word — 満席, never the
+      // generic row's 満室 — the one value that actually tells `railWords`
+      // (this rail's own row) apart from `opts.words.generic` (F-1's mutant).
+      expect(chips.get(900)!.word).toBe(GYM.fullWord)
+      expect(chips.get(900)!.word).not.toBe(A.fullWord)
+      // Neither chip reaches the taker clause or the reseat clause: both are
+      // bed-refused (`state === 'blocked'`), and `railExplain` returns the
+      // bare sentence for a blocked chip before either clause is asked — this
+      // scene proves the WORD only, not those two sites.
+      expect(chips.get(780)!.sentence).not.toContain('別のスタッフ')
+      expect(chips.get(900)!.sentence).not.toContain('別のスタッフ')
     })
   })
 
