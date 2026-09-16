@@ -1,5 +1,6 @@
 import 'server-only'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { listAllPackUsage } from '@/lib/packs/store'
@@ -71,6 +72,9 @@ export async function getTodaySignals(
 ): Promise<TodaySignal[]> {
   try {
     const scope = await resolveStoreScope()
+    // ⚠ `!== null` is TRUE for an EMPTY allow-list and collapses to
+    // `undefined` = every store's roster below (⚖ Liam 2026-09-16).
+    if (reachesNoStore(scope)) return []
     const storeId =
       scope.allowedStoreIds !== null ? (scope.storeId ?? undefined) : undefined
 

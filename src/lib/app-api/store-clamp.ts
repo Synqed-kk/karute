@@ -7,6 +7,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { staffStoresOverlap, type Capability } from '@/lib/auth/permissions'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { AppApiError } from './errors'
 
 /** SynqedError's HTTP status, duck-typed: a VALUE import of the SDK class
@@ -334,8 +335,20 @@ export async function resolveExportStoreId(args: {
   if (args.capabilities.has('stores.viewAll')) return undefined
 
   // Clamped staff: resolveStoreForRequest's storeId is requested ?? assigned[0]
-  // by construction — always concrete.
-  if (clamp.allowedStoreIds != null) return clamp.storeId ?? clamp.allowedStoreIds[0]
+  // by construction — always concrete, EXCEPT for an actor who reaches no
+  // store, where both halves are empty and `null ?? undefined` = undefined =
+  // the whole business's PII. The web twin (api/export/route.ts) already
+  // refuses this exact case with a 403; this door did not. Highest-severity
+  // finding of the census — REFUSE (⚖ Liam 2026-09-16).
+  if (clamp.allowedStoreIds != null) {
+    if (reachesNoStore(clamp)) {
+      throw new AppApiError(
+        'store_forbidden',
+        'could not resolve your store scope (fail-closed)',
+      )
+    }
+    return clamp.storeId ?? clamp.allowedStoreIds[0]
+  }
 
   // Floating staff: header store already passed tenancy validation above.
   if (clamp.storeId) return clamp.storeId

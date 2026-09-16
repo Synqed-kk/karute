@@ -15,6 +15,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { buildRecoveryDayFacts } from '@/lib/karute/recovery-facts'
 
 export const runtime = 'nodejs'
@@ -50,6 +51,12 @@ export const GET = facadeHandler('recovery.day_facts', async (ctx) => {
 
   const t = await getTranslations({ locale: readLocale(ctx), namespace: 'reservation.status' })
   try {
+    // `storeId ?? undefined` = every store's booked customers for that day —
+    // an actor who reaches no store hears the same honest "unavailable" the
+    // web action returns (⚖ Liam 2026-09-16; census §9).
+    if (reachesNoStore(clamp)) {
+      return ok(ctx, { date, unavailable: true, bookings: [], packs: [], redeemed: null })
+    }
     return ok(
       ctx,
       await buildRecoveryDayFacts(synqed, {

@@ -53,6 +53,11 @@ const requireCapability = jest.fn(async (_cap: string) => {})
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: (cap: string) => requireCapability(cap),
   can: jest.fn(async () => true),
+  // ⚖ Liam 2026-09-16: createAppointment now resolves the actor's store scope
+  // on EVERY create (a booking is a write into a store), and the real
+  // resolveStoreScope reads capabilities first. Unclamped here — this suite is
+  // about the booking payload, not the store rule.
+  getMyCapabilities: jest.fn(async () => new Set(['stores.viewAll'])),
 }))
 // Store lock seam (⚖ 9/16): these cases are not about the store clamp, so the
 // resolved scope is viewAll. The PREDICATE is untouched — it lives in the pure

@@ -182,6 +182,22 @@ describe('getMonthCells — store scope + the failure contract', () => {
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
   })
 
+  it('an UNASSIGNED actor gets an EMPTY grid — `storeId ?? undefined` is every store', async () => {
+    // ⚖ Greptile on #948: the day and range reads were guarded in fold round 1,
+    // getMonthCells was not, and it builds its cells from the same unlensed
+    // read. Booking VOLUME per day is not a name, but it is a
+    // competitor-grade signal, and this door handed over the whole business's.
+    scopeMock.mockResolvedValue({
+      storeId: null,
+      viewAll: false,
+      allowedStoreIds: [],
+      degraded: false,
+    })
+    expect(await getMonthCells('2026-07')).toEqual([])
+    const { list } = await appointmentsMock()
+    expect(list).not.toHaveBeenCalled()
+  })
+
   it('asks for the month window the key names, leading and trailing days included', async () => {
     crossStore(null)
     await getMonthCells('2026-07')
@@ -317,6 +333,8 @@ describe('createAppointment — active-store cookie clamp (write-side isolation)
 
     await createAppointment(bookingInput)
 
+    // The RESULT is what this pins and it is untouched: with no cookie the
+    // booking still lands via defaultBookingStore, not resolveStoreScope().storeId.
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
   })
 
@@ -335,5 +353,23 @@ describe('createAppointment — active-store cookie clamp (write-side isolation)
     await createAppointment(bookingInput)
 
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
+  })
+
+  it('an UNASSIGNED actor is REFUSED — core never gets to default a store', async () => {
+    // ⚖ Liam 2026-09-16: a booking is a WRITE into a store. Without this the
+    // unset path falls through to core's defaultBookingStore, which picks one
+    // FOR somebody nobody has placed yet.
+    scopeMock.mockResolvedValue({
+      storeId: null,
+      viewAll: false,
+      allowedStoreIds: [],
+      degraded: false,
+    })
+    const create = await createMock()
+
+    const res = await createAppointment(bookingInput)
+
+    expect(res).toHaveProperty('error')
+    expect(create).not.toHaveBeenCalled()
   })
 })
