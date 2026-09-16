@@ -88,8 +88,13 @@ import {
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getActiveStoreId } from '@/actions/stores'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 
 const scopeMock = resolveStoreScope as jest.Mock
+// The create-on-miss mapper (see unassigned-backstops-routes.test.ts's
+// resolveSynqedStaffIdForBusinessSpy) — pins that a refused booking never
+// reaches it, the same ordering the facade twin already asserts.
+const resolveSynqedStaffIdSpy = resolveSynqedStaffId as jest.Mock
 
 const GINZA = 'store-ginza'
 const DAIKANYAMA = 'store-daikanyama'
@@ -371,5 +376,6 @@ describe('createAppointment — active-store cookie clamp (write-side isolation)
 
     expect(res).toHaveProperty('error')
     expect(create).not.toHaveBeenCalled()
+    expect(resolveSynqedStaffIdSpy).not.toHaveBeenCalled()
   })
 })
