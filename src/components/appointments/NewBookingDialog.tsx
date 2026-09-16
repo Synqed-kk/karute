@@ -21,6 +21,7 @@ import { StaffCombobox, type StaffComboboxOption } from '@/components/karute/Sta
 import { QuickCreateCustomer } from '@/components/karute/QuickCreateCustomer'
 import { MenuCombobox, formatYen } from '@/components/appointments/MenuCombobox'
 import { createAppointment } from '@/actions/appointments'
+import { searchCustomersCompanyWide } from '@/actions/customers'
 import { hmInJst, jstWallTimeToDate, ymdInJst } from '@/lib/date/jst'
 import type { CachedMenuOption } from '@/lib/menus/cached'
 
@@ -299,6 +300,7 @@ export function NewBookingDialog({
                   setCustomerFlow('quick-create')
                 }}
                 placeholder={t('newBookingDialog.customerPlaceholder')}
+                onRemoteSearch={searchCustomersCompanyWide}
               />
             )}
           </Field>

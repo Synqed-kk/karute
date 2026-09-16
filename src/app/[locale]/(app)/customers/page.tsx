@@ -58,6 +58,7 @@ export default async function CustomersPage({
             search,
             store_id: scope.storeId,
             enforceStore,
+            businessId,
             sort_by: 'updated_at',
             sort_order: 'desc',
           })

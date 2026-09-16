@@ -1093,7 +1093,145 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // @synqed-kk/ui 0.3.2 installed == lock):
 //   en 134,544 · index 1,044,145 · vendor 937,791 = 2,116,480 B.
 // Ceiling = 2,116,480 + 1,000.
-const BUDGET_BYTES = 2_117_480
+//
+// Raised 2026-09-16 (Greptile fold, feat/cross-branch-search, P3 cross-branch
+// customer search) — the booking/record pickers' new company-wide search tier
+// (CustomerCombobox's useRemoteCustomerSearch hook + 他店舗 chip/section
+// rendering, RecordCustomerPickerDialog's matching remote-row split, the
+// searchCustomersCompanyWide notWired port entry) plus two new ja/en string
+// pairs (otherStoreChip, otherStoreSection). Same CI recipe, thin/dist
+// emptied between two clean builds, byte-identical both times (node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock): en 134,437 · index
+// 1,041,362 · vendor 937,791 = 2,113,590 B. Ceiling = 2,113,590 + 1,000.
+//
+// Where the +2,430 B went, measured per chunk against the prior entry's own
+// figure: en 134,223 → 134,437 (+214 B, the two new i18n keys) · index
+// 1,039,146 → 1,041,362 (+2,216 B, the remote-search tier's real runtime
+// code: the debounced hook, the own-store/other-store split and its two
+// render paths, the chip markup) · vendor 937,791 → 937,791 (unchanged — no
+// new dependency). Genuine new-feature volume, not bloat — already trimmed
+// once (a duplicated SearchRow render path merged into one .map() call)
+// before raising this; same class as every prior raise on this line.
+//
+// Raised 2026-09-16 (Greptile fold round 2, feat/cross-branch-search) — the
+// "Cache failures hide store status" finding: other_store is now TRI-STATE
+// (true/false/null) instead of collapsing a failed lens read to false, plus
+// a karute_number_unavailable notice when the business-wide cache read
+// fails on an eligible term, plus the 店舗不明 chip + カルテ番号での検索は
+// 一時的に使えません ja/en string pair. Same CI recipe, thin/dist emptied
+// between two clean builds, byte-identical both times (node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock): en 134,553 · index 1,042,796 ·
+// vendor 937,791 = 2,115,140 B. Ceiling = 2,115,140 + 1,000.
+//
+// Where the +1,550 B went, measured per chunk against the prior entry's own
+// figure: en 134,437 → 134,553 (+116 B, the two new i18n keys) · index
+// 1,041,362 → 1,042,796 (+1,434 B, the settleCache/otherStoreFor tri-state
+// logic in both the action and the facade route's shared shape, the
+// karute-number-unavailable notice markup, and the 店舗不明-vs-他店舗 chip
+// branch) · vendor 937,791 → 937,791 (unchanged — no new dependency).
+// Genuine new-feature volume (an honesty fix, not a feature addition, but
+// real code all the same) — same class as every prior raise on this line.
+//
+// RE-MEASURED 2026-09-16 after rebasing feat/cross-branch-search onto
+// origin/main (0ba652bf6, past #932's month-card merge) — S2. Same CI
+// recipe, thin/dist emptied between two clean builds, byte-identical both
+// times (matching content hashes, node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock): en 134,687 · index 1,047,137 · vendor 937,791 =
+// 2,119,615 B. Ceiling = 2,119,615 + 1,000.
+//
+// Per-chunk delta against main's #932 figure (en 134,452 · index 1,043,010 ·
+// vendor 937,791 = 2,115,253): en 134,452 → 134,687 (+235 B) · index
+// 1,043,010 → 1,047,137 (+4,127 B, this branch's own two Greptile-fold
+// entries above) · vendor 937,791 → 937,791 (unchanged). Total +4,362 B,
+// matching the sum of this branch's two prior entries on top of main's
+// figure — a plain rebase, no new code beyond what those entries already
+// describe.
+//
+// NOTE (S2 rebase, this session): the block above was measured against
+// 0ba652bf6, one rebase behind main's current tip (20926b3ac, #935). It is
+// kept as history only; the section below carries this branch forward
+// through the two folds that followed it, and the REBASE 2 entry appended
+// at the end of this file's ledger by this session's own re-measurement
+// (§C) is the only figure that describes the code as it stands now.
+//
+// RE-MEASURED 2026-09-16 (F-1 fold, FRESH-EYES-P3.md / PKT-FOLD-945-F1) — the
+// search-results header now counts `matches.length + remote.length` instead
+// of local matches alone, so a cross-store-only hit no longer announces
+// 「検索結果 (0件)」 above a visible row. Same CI recipe, thin/dist emptied
+// between two clean builds, byte-identical both times (node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock): en 134,687 · index 1,047,151 ·
+// vendor 937,791 = 2,119,629 B. Ceiling = 2,119,629 + 1,000.
+//
+// +14 B, all in index (en and vendor unchanged to the byte) — the
+// `+ remote.length` source addition, one line.
+//
+// RE-MEASURED 2026-09-16 (F-2 fold, PKT-FOLD-945-F2-REMOTE-OVERFLOW) — the
+// company-wide remote tier was silently truncating at CUSTOMER_SEARCH_LIMIT;
+// both transports now request one extra probe row, compute remote_more after
+// the karute-number merge, and both pickers render one new disclosure line
+// (customers.remoteMore). Same CI recipe, thin/dist emptied between two
+// clean builds, byte-identical both times (matching content hashes, node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock): en 134,754 · index
+// 1,047,508 · vendor 937,791 = 2,120,053 B. Ceiling = 2,120,053 + 1,000.
+//
+// +424 B against the prior entry's own figure: en 134,687 → 134,754 (+67 B,
+// the one new i18n key pair) · index 1,047,151 → 1,047,508 (+357 B, the +1
+// page_size probe, the remote_more plumbing through both transports and
+// useRemoteCustomerSearch, and the two disclosure-line render sites) ·
+// vendor 937,791 → 937,791 (unchanged — no new dependency). Genuine
+// new-feature volume, not bloat — same class as every prior raise on this
+// line.
+//
+// RE-MEASURED 2026-09-16 (REBASE 2 + F-3 fold, PKT-945-REBASE2-F3) — rebased
+// feat/cross-branch-search onto origin/main 20926b3ac (past #935's 月ページ
+// 先月同期間比), one conflict across an 11-commit rebase, in this same file
+// only (§ the two prior HEAD/theirs entries above, resolved by the file's
+// own convention: main's block kept, this branch's blocks appended after).
+// F-3 (Greptile on the pre-rebase tip) then reworded customers.remoteMore
+// from a promise about undisplayed rows — which could be a local duplicate —
+// to a fact that is always true when the flag is set: ja 「会社全体の検索は
+// 上限の{n}件に達しました — さらに入力して絞り込み」, en "Company-wide search
+// hit its limit of {n} — keep typing to narrow", both pickers now passing
+// { n: CUSTOMER_SEARCH_LIMIT }. Copy + prop only, no logic change. Same CI
+// recipe, thin/dist emptied between two clean builds, byte-identical both
+// times (matching content hashes, node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock): en 134,817 · index 1,048,091 · vendor 937,791 =
+// 2,120,699 B. Ceiling = 2,120,699 + 1,000.
+//
+// +646 B against the prior (pre-rebase) entry's own figure: en 134,754 →
+// 134,817 (+63 B, the reworded ja/en line plus the {n} arg at both call
+// sites) · index 1,047,508 → 1,048,091 (+583 B, the rebase carrying main's
+// #935 stack forward through this branch's own diff) · vendor 937,791 →
+// 937,791 (unchanged — no new dependency). Isolated against a fresh
+// same-recipe build of bare origin/main 20926b3ac (en 134,544 · index
+// 1,044,144 · vendor 937,791 = 2,116,479 B, matching this file's own #935
+// entry above to within 1 B — a different-worktree hash-length variance
+// this file has already documented, not a defect): this branch's whole P3
+// stack (company-wide search + every fold + F-3) costs the phone +4,220 B
+// over main. Genuine copy + rebase volume, not bloat — same class as every
+// prior raise on this line.
+//
+// RE-MEASURED 2026-09-16 (copy fold, house vocabulary) — customers.remoteMore
+// reworded from 会社全体/"Company-wide" to 全店舗/"All-store" to match the
+// app's own vocabulary (allStores, cap_stores_viewAll,
+// staffStoreScopeDenied); the two pinned assertions in
+// record-picker-dialog-messages.test.tsx were updated to match. Copy only,
+// no logic change. Same CI recipe, thin/dist emptied between two clean
+// builds, byte-identical both times (node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock): en 134,814 · index 1,048,197 · vendor 937,791 =
+// 2,120,802 B. Ceiling = 2,120,802 + 1,000.
+//
+// -9 B against a fresh same-environment, same-recipe build of the pre-edit
+// tip (98af943ef): en 134,817 · index 1,048,203 · vendor 937,791 =
+// 2,120,811 B — en -3 B ("Company-wide search" → "All-store search") · index
+// -6 B (「会社全体の検索」→「全店舗検索」) · vendor unchanged, matching the two
+// string literals' own UTF-8 byte deltas exactly. NOTE: that fresh pre-edit
+// rebuild does not reproduce the prior entry's own logged index figure for
+// the same tip (1,048,203 now vs 1,048,091 logged, +112 B; en/vendor
+// match) — environment drift since that entry was written, not caused by
+// this change; installed @synqed-kk/ui and vite are unchanged (0.3.2 /
+// 6.4.3, installed == lock), so the drift's cause wasn't chased further.
+const BUDGET_BYTES = 2_121_802
 
 let dir
 try {

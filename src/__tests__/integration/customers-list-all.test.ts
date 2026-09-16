@@ -22,6 +22,18 @@
  * passthrough the sibling cache suites use — dashboard-cached,
  * customers-list-enrich) because cases 4/5 specifically test the KEY, which a
  * passthrough would trivially "pass" without proving anything.
+ *
+ * ⚖ Liam 2026-09-16 (P3 cross-branch search) added:
+ *  6. Search is now business-wide even for an enforceStore-clamped actor (the
+ *     storeFilter formula dropped its `&& !enforceStore` half) — a clamped
+ *     銀座 actor searching "山田" finds a 代官山-only customer; the SAME
+ *     actor's no-search list still excludes them (store filter stays on
+ *     without a search term). This is the mutation-red target: restoring
+ *     `&& !enforceStore` turns the business-wide-search test red.
+ *  7. Karute-number search (matchKaruteNumber, karute-number-match.ts) is
+ *     opt-in via a new `businessId` field — omitted, behavior is byte-for-byte
+ *     unchanged; provided, a qualifying digit term also scans the cached
+ *     business-wide list and merges a hit in ahead of the name/phone matches.
  */
 process.env.SYNQED_CORE_URL = 'http://synqed.test'
 process.env.SYNQED_CORE_API_KEY = 'test-key'
@@ -64,7 +76,7 @@ const mk = (id: string, over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
-type ListArg = { page: number; search?: string; page_size?: number; store_id?: string }
+type ListArg = { page: number; search?: string; page_size?: number; store_id?: string; ids?: string[] }
 
 // Live-path client double (unchanged from the original suite) — used by the
 // listAllCustomers tests, which call the caller's own passed-in client directly.
@@ -175,6 +187,67 @@ describe('listAllCustomers (live, untouched)', () => {
     await listAllCustomers(c as never, { search: 'tanaka', sort_by: 'name', sort_order: 'asc' })
     await listAllCustomers(c as never, { search: 'tanaka', sort_by: 'name', sort_order: 'asc' })
     expect(c.customers.list).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('listAllCustomers — P3 cross-branch search (⚖ Liam 2026-09-16)', () => {
+  // MUTATION-RED TARGET: restoring `search && !enforceStore` on storeFilter
+  // makes this test fail (the call would carry store_id: 'store-ginza').
+  it('a clamped 銀座 actor’s search is business-wide — finds a 代官山-only customer', async () => {
+    const c = client([[mk('cust-daikanyama', { name: '山田花子' })]], 1)
+    const { customers } = await listAllCustomers(c as never, {
+      search: '山田',
+      store_id: 'store-ginza',
+      enforceStore: true,
+    })
+    expect(customers.map((x) => x.id)).toEqual(['cust-daikanyama'])
+    expect(c.customers.list).toHaveBeenCalledWith(
+      expect.objectContaining({ search: '山田', store_id: undefined }),
+    )
+  })
+
+  it('…but the SAME clamped actor’s no-search list still excludes them (store filter stays on)', async () => {
+    const c = client([[mk('cust-ginza-only')]], 1)
+    await listAllCustomers(c as never, { store_id: 'store-ginza', enforceStore: true })
+    expect(c.customers.list).toHaveBeenCalledWith(
+      expect.objectContaining({ search: undefined, store_id: 'store-ginza' }),
+    )
+  })
+
+  it('businessId omitted: no karute-number merge, byte-for-byte today’s behavior', async () => {
+    const c = client([[]], 0)
+    const { customers } = await listAllCustomers(c as never, { search: '0042' })
+    expect(customers).toEqual([])
+  })
+
+  it('karute number "0042" and its full-width twin "４２" both find #42, merged AHEAD of the (empty) name/phone matches', async () => {
+    registerBusiness('biz-karute', [[mk('cust-42', { karute_number: 42, name: '田中太郎' })]], 1)
+    // Core's own search predicate can't see karute_number — it never matches
+    // on a bare digit term, so the direct client's search returns nothing.
+    const searchList = jest.fn(async (arg: { ids?: string[] }) =>
+      arg.ids
+        ? { customers: [mk('cust-42', { karute_number: 42, name: '田中太郎' })], total: 1 }
+        : { customers: [], total: 0 },
+    )
+    const c = { customers: { list: searchList } }
+
+    const byNumber = await listAllCustomers(c as never, { search: '0042', businessId: 'biz-karute' })
+    expect(byNumber.customers.map((x) => x.id)).toEqual(['cust-42'])
+
+    const byFullWidth = await listAllCustomers(c as never, { search: '４２', businessId: 'biz-karute' })
+    expect(byFullWidth.customers.map((x) => x.id)).toEqual(['cust-42'])
+  })
+
+  it('a karute-number hit already present in the name/phone matches is reordered to the front, never duplicated', async () => {
+    registerBusiness('biz-both', [[mk('cust-42', { karute_number: 42 })]], 1)
+    const c = client(
+      [[mk('cust-other', { name: 'x' }), mk('cust-42', { karute_number: 42, name: '0042' })]],
+      2,
+    )
+    const { customers } = await listAllCustomers(c as never, { search: '0042', businessId: 'biz-both' })
+    expect(customers.map((x) => x.id)).toEqual(['cust-42', 'cust-other'])
+    // The already-present row was reused, never refetched by id.
+    expect(c.customers.list.mock.calls.every(([arg]) => !arg.ids)).toBe(true)
   })
 })
 

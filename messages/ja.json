@@ -910,6 +910,11 @@
     "title": "顧客",
     "newCustomer": "+ 新規顧客",
     "unknownName": "不明",
+    "otherStoreChip": "他店舗",
+    "otherStoreSection": "他店舗のお客様",
+    "otherStoreUnknownChip": "店舗不明",
+    "karuteNumberUnavailable": "カルテ番号での検索は一時的に使えません",
+    "remoteMore": "全店舗検索は上限の{n}件に達しました — さらに入力して絞り込み",
     "deletionBanner": {
       "title": "{name}様は削除済みです — 復元可能 残り{days}日",
       "titleToday": "{name}様のアプリ内復元期間は本日までです",

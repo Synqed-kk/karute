@@ -43,6 +43,7 @@ import {
   getCustomerConsent,
   grantCustomerConsent,
   deleteCustomerPhoto,
+  searchCustomersCompanyWide,
 } from '@/actions/customers'
 import { isConsentCurrent } from '@/lib/consent'
 import { sessionPhotoStore } from '@/lib/karute/session-photos'
@@ -3880,6 +3881,7 @@ export function RecordPageView({
         <RecordCustomerPickerDialog
           variant="repoint"
           customers={customers}
+          onRemoteSearch={searchCustomersCompanyWide}
           // B-8: the pinned row IS the original booking, so listing it again
           // below is a duplicate. Only that EXACT appointment is filtered — the
           // same customer's OTHER bookings that day stay selectable.
@@ -3964,6 +3966,7 @@ export function RecordPageView({
         <RecordCustomerPickerDialog
           variant="repoint"
           customers={customers}
+          onRemoteSearch={searchCustomersCompanyWide}
           bookings={[]}
           pinned={null}
           dayLabel={formatCompactDateJst(new Date(serverSaveRow.startedAt), locale)}
@@ -4045,6 +4048,7 @@ export function RecordPageView({
       {showCustomerPicker && showNoTargetActions && (
         <RecordCustomerPickerDialog
           customers={customers}
+          onRemoteSearch={searchCustomersCompanyWide}
           bookings={nearbyBookings}
           facts={customerFacts}
           cancelLabel={tc('cancel')}

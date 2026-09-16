@@ -1600,11 +1600,12 @@ export interface KaruteRevealCandidate {
  * can show a single muted row + カルテを作成 CTA instead of hiding them
  * entirely. Never more than one — the first qualifying candidate wins.
  *
- * Store scoping (⚖ adversarial-round ruling, packet §PR-1b):
- *   - the SEARCH itself copies list-all.ts's own enforceStore gate verbatim
- *     (list-all.ts:58-66) — business-wide unless the viewer is RBAC-clamped,
- *     in which case the store filter stays on even while searching (a
- *     branch-restricted staff can't pull another store's customer this way).
+ * Store scoping (⚖ Liam 2026-09-16, P3 cross-branch search — supersedes the
+ * PR-1b adversarial-round ruling below for the search half):
+ *   - the SEARCH itself is now ALWAYS business-wide, same as list-all.ts's
+ *     own search (list-all.ts's storeFilter formula) — a branch-restricted
+ *     staff can find another store's customer here too, matching the "find
+ *     any company customer" rule.
  *   - the zero-karute CHECK is ALWAYS scoped to the active store, regardless
  *     of whether the search itself was business-wide — a customer with
  *     karute at another branch still has none HERE, so they still reveal.
@@ -1630,11 +1631,9 @@ export async function revealNoKaruteCustomer(
     if (enforceStore && !scope.storeId) return { candidate: null }
 
     const synqed = await getSynqedClient()
-    const res = await synqed.customers.list({
-      search: q,
-      store_id: enforceStore ? (scope.storeId ?? undefined) : undefined,
-      page_size: 5,
-    })
+    // Business-wide (P3): search no longer clamps on enforceStore — see the
+    // doc comment above.
+    const res = await synqed.customers.list({ search: q, store_id: undefined, page_size: 5 })
     for (const c of res.customers) {
       const karute = await synqed.karuteRecords.list({
         customer_id: c.id,

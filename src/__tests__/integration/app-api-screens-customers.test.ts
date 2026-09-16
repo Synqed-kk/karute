@@ -228,14 +228,27 @@ describe('store clamp (#441 leak class) — REAL resolveStoreForRequest', () => 
     expect(listCustomers).not.toHaveBeenCalled()
   })
 
-  it('branch-restricted staff: list read is CLAMPED (store_id + enforceStore)', async () => {
+  it('branch-restricted staff: the NO-SEARCH list stays CLAMPED (store_id + enforceStore)', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view']))
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-1'] })
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(200)
+    expect(listCustomers).toHaveBeenCalledWith(
+      expect.objectContaining({ search: undefined, store_id: 'store-1', page: 1 }),
+    )
+  })
+
+  // ⚖ Liam 2026-09-16 (P3 cross-branch search): list-all.ts's storeFilter no
+  // longer clamps on enforceStore — a branch-restricted staff's SEARCH is now
+  // business-wide here too (this route threads enforceStore straight into
+  // listAllCustomers, so it inherits the rule with no code change of its own).
+  it('branch-restricted staff: SEARCH is now business-wide (⚖ P3, 2026-09-16)', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view']))
     staffStoresGet.mockResolvedValue({ store_ids: ['store-1'] })
     const res = await GET(req({ headers: auth }, '?query=yama'), route)
     expect(res.status).toBe(200)
-    // enforceStore keeps the store filter DURING search — the RBAC search clamp.
     expect(listCustomers).toHaveBeenCalledWith(
-      expect.objectContaining({ search: 'yama', store_id: 'store-1', page: 1 }),
+      expect.objectContaining({ search: 'yama', store_id: undefined, page: 1 }),
     )
   })
 
