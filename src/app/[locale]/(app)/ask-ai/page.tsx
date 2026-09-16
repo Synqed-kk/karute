@@ -6,6 +6,7 @@ import { getOrgSettings } from '@/actions/org-settings'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { canUseAskAi, type Capability } from '@/lib/auth/permissions'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { AIAssistantView } from '@/components/ai/redesign/AIAssistantView'
 import { getTodaySignals } from '@/lib/karute/ai-signals'
@@ -52,25 +53,42 @@ export default async function AskAIPage({
   // actors always have allowedStoreIds: null even with a pinned active store
   // (resolveStoreScope defaults their storeId to active-or-primary for the
   // switcher UI) — that pin must not narrow their business-wide counts.
+  // ⚠ The guard above is NOT enough on its own: `allowedStoreIds !== null` is
+  // TRUE for an empty allow-list, and the line then collapses to `undefined` =
+  // business-wide anyway. An actor who reaches no store is BLIND — the counts
+  // that ground the AI must be zero (⚖ Liam 2026-09-16; census §6).
+  const blind = reachesNoStore(storeScope)
   const lens =
     storeScope.allowedStoreIds !== null ? (storeScope.storeId ?? undefined) : undefined
 
   const [orgSettings, karuteRes, customerList, apptList, signals] =
     await Promise.all([
       getOrgSettings(),
-    synqedPromise.then((synqed) =>
-      synqed.karuteRecords
-        .list({ page_size: 200, store_id: lens })
-        .catch(() => ({ total: 0, karute_records: [] as { transcript?: string | null }[] })),
-    ),
-    synqedPromise.then((synqed) =>
-      synqed.customers.list({ page_size: 1, store_id: lens }).catch(() => ({ total: 0 })),
-    ),
-    synqedPromise.then((synqed) =>
-      synqed.appointments
-        .list({ from: nowIso, page_size: 1, store_id: lens })
-        .catch(() => ({ total: 0 })),
-    ),
+    blind
+      ? Promise.resolve({
+          total: 0,
+          karute_records: [] as { transcript?: string | null }[],
+        })
+      : synqedPromise.then((synqed) =>
+          synqed.karuteRecords
+            .list({ page_size: 200, store_id: lens })
+            .catch(() => ({
+              total: 0,
+              karute_records: [] as { transcript?: string | null }[],
+            })),
+        ),
+    blind
+      ? Promise.resolve({ total: 0 })
+      : synqedPromise.then((synqed) =>
+          synqed.customers.list({ page_size: 1, store_id: lens }).catch(() => ({ total: 0 })),
+        ),
+    blind
+      ? Promise.resolve({ total: 0 })
+      : synqedPromise.then((synqed) =>
+          synqed.appointments
+            .list({ from: nowIso, page_size: 1, store_id: lens })
+            .catch(() => ({ total: 0 })),
+        ),
     // Today's ranked signal chips (PKT-101); store-scoped internally, [] on error.
     // Locale-selected tag/title/prompt strings come straight from the data.
     getTodaySignals(localeArg),

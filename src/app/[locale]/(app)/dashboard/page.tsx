@@ -13,6 +13,7 @@ import { listAllPackUsage } from '@/lib/packs/store'
 import { can } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { buildDashboardScreen } from '@/lib/dashboard/screen'
 
 // Param resolution stays here (cookie session); the whole Stage-2 derivation
@@ -55,12 +56,17 @@ export default async function DashboardPage() {
     // null (no-stores business) keeps the unfiltered behavior.
     t.phase('packAlerts', () =>
       storeScopePromise.then((s) =>
-        s ? getPackAlerts(undefined, s.storeId) : emptyPackAlerts(),
+        // `s.storeId` null = "no filter" to both loaders, so an actor who
+        // reaches NO store fails closed here too — 回数券 follow-ups and
+        // 未処理来店 todos are customer data (⚖ Liam 2026-09-16).
+        s && !reachesNoStore(s) ? getPackAlerts(undefined, s.storeId) : emptyPackAlerts(),
       ),
     ),
     t.phase('reconcile', () =>
       storeScopePromise.then((s) =>
-        s ? loadUnprocessedVisits(s.storeId) : { entries: [], truncated: 0 },
+        s && !reachesNoStore(s)
+          ? loadUnprocessedVisits(s.storeId)
+          : { entries: [], truncated: 0 },
       ),
     ),
     // Manager+ only may dismiss (Kitano's rule) — alerts.manage capability.

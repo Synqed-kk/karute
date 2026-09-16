@@ -4,6 +4,7 @@ import { startTiming } from '@/lib/perf/timing'
 import { createClient } from '@/lib/supabase/server'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { customerLensFor, resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getMonthCells } from '@/actions/appointments'
@@ -207,7 +208,10 @@ export default async function AppointmentsPage({
 
   const authProfileId = user?.id ?? null
   const storeStaffIds = await t.phase('storeStaffIds', () =>
-    storeStaffIdSet(staffList, storeScope.storeId),
+    // Empty picker for an actor who reaches no store — see the customers page.
+    reachesNoStore(storeScope)
+      ? Promise.resolve(new Set<string>())
+      : storeStaffIdSet(staffList, storeScope.storeId),
   )
 
   // ─────────────────────────────────────────────────────────────

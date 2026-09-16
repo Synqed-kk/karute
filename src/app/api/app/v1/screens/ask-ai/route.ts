@@ -18,6 +18,7 @@ import { ASK_AI_REQUIRED_CAPABILITIES } from '@/lib/auth/permissions'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 
 // Node runtime: the synqed SDK + node:crypto verifier are server-only.
 export const runtime = 'nodejs'
@@ -64,6 +65,10 @@ export const GET = facadeHandler('askAi.read', async (ctx) => {
   // caller is actually clamped (allowedStoreIds non-null). A viewAll caller
   // with a tenant-verified store-id header still gets allowedStoreIds: null —
   // that header must not narrow their business-wide counts.
+  // ⚠ `!== null` is TRUE for an EMPTY allow-list and the line below then
+  // collapses to `undefined` = business-wide grounding counts (⚖ Liam
+  // 2026-09-16; census §6).
+  const blind = reachesNoStore(clamp)
   const lens = clamp.allowedStoreIds !== null ? (clamp.storeId ?? undefined) : undefined
 
   let karuteRes: { total?: number; karute_records?: Array<{ transcript?: string | null }> }
@@ -73,9 +78,13 @@ export const GET = facadeHandler('askAi.read', async (ctx) => {
   let userName: string
   try {
     ;[karuteRes, customerList, apptList, rawSettings, userName] = await Promise.all([
-      synqed.karuteRecords.list({ page_size: 200, store_id: lens }),
-      synqed.customers.list({ page_size: 1, store_id: lens }),
-      synqed.appointments.list({ from: nowIso, page_size: 1, store_id: lens }),
+      blind
+        ? { total: 0, karute_records: [] }
+        : synqed.karuteRecords.list({ page_size: 200, store_id: lens }),
+      blind ? { total: 0 } : synqed.customers.list({ page_size: 1, store_id: lens }),
+      blind
+        ? { total: 0 }
+        : synqed.appointments.list({ from: nowIso, page_size: 1, store_id: lens }),
       // Two fields of org settings are needed; the shared cached reader
       // (orgSettingsByBusiness) is module-private in a 'use server' file and
       // must stay unexported — an exported businessId-keyed action would be a

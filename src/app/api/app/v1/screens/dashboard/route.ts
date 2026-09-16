@@ -25,12 +25,13 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { DashboardScreenDTO } from '@/lib/app-api/dashboard-screen-dto'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { ensureCapability } from '@/lib/auth/require-permission'
-import type { StoreScope } from '@/lib/auth/store-scope'
+import { type StoreScope } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { getCachedCustomerListFor } from '@/lib/customers/cached'
 import { orgSettingsWithClient } from '@/actions/org-settings'
-import { getDashboardDataFor } from '@/lib/dashboard/cached'
+import { emptyDashboardData, getDashboardDataFor } from '@/lib/dashboard/cached'
 import { buildDashboardScreen } from '@/lib/dashboard/screen'
 import { emptyPackAlerts, getPackAlertsWithClient } from '@/lib/packs/alerts'
 import { loadUnprocessedVisitsWithClient } from '@/lib/packs/reconcile'
@@ -83,7 +84,14 @@ export const GET = facadeHandler('screens.dashboard', async (ctx) => {
     const [staffList, dashboard, orgSettings, customerList, packAlerts, reconcile, packUsage] =
       await Promise.all([
         staffListByBusinessOrThrow(businessId),
-        t.phase('dashboardData', () => getDashboardDataFor(businessId, storeId)),
+        // An actor who reaches NO store gets the zeroed home screen: every
+        // one of getDashboardDataFor's six queries reads `storeId: null` as
+        // "no filter" (⚖ Liam 2026-09-16; census §3).
+        t.phase('dashboardData', () =>
+          reachesNoStore(clamp)
+            ? Promise.resolve(emptyDashboardData())
+            : getDashboardDataFor(businessId, storeId),
+        ),
         orgSettingsWithClient(synqed),
         getCachedCustomerListFor(businessId),
         // Pack surfaces: page-parity fail-closed (see file header) — the
@@ -91,20 +99,33 @@ export const GET = facadeHandler('screens.dashboard', async (ctx) => {
         // decision (mirrors listAllPackUsageWithClient's catch on the
         // appointments route).
         t.phase('packAlerts', () =>
-          getPackAlertsWithClient(synqed, businessId, undefined, storeId).catch(
-            () => emptyPackAlerts(),
-          ),
+          reachesNoStore(clamp)
+            ? Promise.resolve(emptyPackAlerts())
+            : getPackAlertsWithClient(synqed, businessId, undefined, storeId).catch(
+                () => emptyPackAlerts(),
+              ),
         ),
         t.phase('reconcile', () =>
-          loadUnprocessedVisitsWithClient(synqed, businessId, storeId).catch(() => ({
-            entries: [],
-            truncated: 0,
-          })),
+          reachesNoStore(clamp)
+            ? Promise.resolve({ entries: [], truncated: 0 })
+            : loadUnprocessedVisitsWithClient(synqed, businessId, storeId).catch(() => ({
+                entries: [],
+                truncated: 0,
+              })),
         ),
         t.phase('packUsage', () =>
-          listAllPackUsageWithClient(synqed).catch(
-            () => new Map<string, CustomerPackUsage>(),
-          ),
+          // ⚖ Greptile on #948: this map is BUSINESS-WIDE by design — pack data
+          // has no store column, so every store-scoped surface clamps it by
+          // MEMBERSHIP against a store-filtered customer list. buildDashboardScreen's
+          // own lens keys on `storeId`, which is null here, so the 回数券
+          // rebooks strip would have carried another branch's customer names,
+          // pack counts and deep links. An actor who reaches no store has no
+          // membership list to clamp against either — the honest map is empty.
+          reachesNoStore(clamp)
+            ? Promise.resolve(new Map<string, CustomerPackUsage>())
+            : listAllPackUsageWithClient(synqed).catch(
+                () => new Map<string, CustomerPackUsage>(),
+              ),
         ),
       ])
 

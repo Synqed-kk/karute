@@ -14,6 +14,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readCustomerRaw } from '@/lib/app-api/karute-facade'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { SaveKaruteSchema } from '@/lib/app-api/record-schemas'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
@@ -47,6 +48,13 @@ async function resolveSaveStore(
       throw new AppApiError('store_forbidden', 'this booking belongs to a store you are not assigned to')
     }
     return { storeId: apptStore, appointment: appt }
+  }
+  // No linked booking: the record's store IS the caller's lens. A caller who
+  // reaches no store has none, and the old fallback stamped `store_id: null` —
+  // a record invisible to every store-scoped カルテ list. REFUSE (⚖ Liam
+  // 2026-09-16; web twin: resolveKaruteStoreId).
+  if (reachesNoStore(clamp)) {
+    throw new AppApiError('store_forbidden', UNASSIGNED_STORE_DENIAL)
   }
   return { storeId: clamp.storeId, appointment: null }
 }

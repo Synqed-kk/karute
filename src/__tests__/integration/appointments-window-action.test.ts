@@ -98,7 +98,10 @@ beforeEach(async () => {
   })
   s.policyGet.mockResolvedValue({ weekly_hours: { tue: { open: '10:00', close: '20:00' } } })
   s.closedDays.mockResolvedValue({ closed_days: [] })
-  ;(resolveStoreScope as jest.Mock).mockResolvedValue({ storeId: GINZA })
+  ;(resolveStoreScope as jest.Mock).mockResolvedValue({
+    storeId: GINZA,
+    allowedStoreIds: [GINZA],
+  })
   ;(getCurrentUserStaffId as jest.Mock).mockResolvedValue(VIEWER_PROFILE)
   ;(getOrgSettings as jest.Mock).mockResolvedValue({
     operating_hours: null,
@@ -117,7 +120,10 @@ describe('getAppointmentWindow — the store clamp rides every read (mutant m10)
   })
 
   it('a caller-named store cannot reach the read — only the clamp can', async () => {
-    ;(resolveStoreScope as jest.Mock).mockResolvedValue({ storeId: 'store-daikanyama' })
+    ;(resolveStoreScope as jest.Mock).mockResolvedValue({
+      storeId: 'store-daikanyama',
+      allowedStoreIds: ['store-daikanyama'],
+    })
     await getAppointmentWindow(FROM, TO, 'all')
     const s = await spies()
     expect(s.list).toHaveBeenCalledWith(
@@ -126,7 +132,10 @@ describe('getAppointmentWindow — the store clamp rides every read (mutant m10)
   })
 
   it('no store to name: no policy read at all, and the hours fall to the org blob', async () => {
-    ;(resolveStoreScope as jest.Mock).mockResolvedValue({ storeId: null })
+    ;(resolveStoreScope as jest.Mock).mockResolvedValue({
+      storeId: null,
+      allowedStoreIds: null,
+    })
     const win = await getAppointmentWindow(FROM, TO, 'all')
     const s = await spies()
     expect(s.policyGet).not.toHaveBeenCalled()

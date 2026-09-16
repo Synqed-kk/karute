@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { getOrgSettings } from '@/actions/org-settings'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { runKaruteChat, parseContextHint, capHistory, type ChatTurn } from '@/lib/ai/karute-chat'
@@ -77,6 +78,16 @@ export async function POST(request: Request) {
     // clamped staff); viewAll + floating staff = null = no filter, so their
     // context is byte-identical to pre-change (owner sees all stores).
     const scope = await resolveStoreScope()
+    // ⚠ `!== null` is TRUE for an EMPTY allow-list and the line below then
+    // collapses to `undefined` = business-wide grounding data. An actor who
+    // reaches no store is refused outright rather than grounded on every
+    // branch's karute (⚖ Liam 2026-09-16; census §6).
+    if (reachesNoStore(scope)) {
+      return NextResponse.json(
+        { error: 'Your account has no store assigned.' },
+        { status: 403 },
+      )
+    }
     const scopedStoreId =
       scope.allowedStoreIds !== null ? (scope.storeId ?? undefined) : undefined
 

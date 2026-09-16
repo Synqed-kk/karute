@@ -18,6 +18,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { requireIdempotencyKey } from '@/lib/app-api/customer-facade'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
@@ -92,6 +93,20 @@ export const POST = facadeHandler('appointment.create', async (ctx) => {
   // Profile → core staff id (create-on-miss, appointments FK to staff.id).
   // An unresolvable id returns the web action's own { error } string — the
   // dialog toasts it identically on both paths.
+  // ⚖ Liam 2026-09-16, the Bearer twin of the web action's line: an actor who
+  // reaches NO store may not CREATE a booking. `clamp.storeId` is null for
+  // them, and core's `defaultBookingStore` would stamp the booking into
+  // whatever store the business defaults to — a WRITE into a branch they do not
+  // belong to. Layers 1–2 refuse them first; the backstop holds alone.
+  //
+  // ⚠ ORDER IS LOAD-BEARING (Greptile on #948): this sits ABOVE
+  // resolveSynqedStaffIdForBusiness, which CREATES a core staff record on a
+  // miss. Below it, a refused booking still wrote a row — the refusal was
+  // honest about the booking and silent about the side effect.
+  if (reachesNoStore(clamp)) {
+    throw new AppApiError('store_forbidden', UNASSIGNED_STORE_DENIAL)
+  }
+
   let synqedStaffId: string
   try {
     synqedStaffId = await resolveSynqedStaffIdForBusiness(

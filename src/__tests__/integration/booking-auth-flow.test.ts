@@ -103,6 +103,11 @@ jest.mock('@/lib/supabase/service', () => ({
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: jest.fn(async () => {}),
   can: jest.fn(async () => true),
+  // ⚖ Liam 2026-09-16: createAppointment now resolves the actor's store scope
+  // on EVERY create (a booking is a write into a store), and the real
+  // resolveStoreScope reads capabilities first. Unclamped here — this suite is
+  // about the auth flow, not the store rule.
+  getMyCapabilities: jest.fn(async () => new Set(['stores.viewAll'])),
 }))
 
 // createAppointment now ALWAYS resolves the RBAC store scope (PKT-P4). This
