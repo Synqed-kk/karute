@@ -19,7 +19,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const LITERAL_ONLY_CATEGORY = {
   'audit.unmapped_endpoint': 'privacy',
   // The store-lock REFUSAL rows (FRESH-EYES-P1 §5a) — emitted from ONE place,
-  // src/lib/audit.ts#ensureRecordStoreInScopeAudited, which picks the action by
+  // src/lib/audit-store-lock.ts#ensureRecordStoreInScopeAudited, which picks the action by
   // the refusing door's category. CP4 still reads all four literals off that
   // emitter's literal-union parameter; only the CATEGORY column cannot be
   // inferred from a shared emit site, so it is declared here, same as the
