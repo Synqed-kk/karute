@@ -432,7 +432,7 @@ export interface BoardBooking {
 
 /** ⚖ D-53 (ak)/(al) N2c-2 — the local pair Home B/C mint their sentences from;
  *  not exported (no test needs it), local so this file's import inventory
- *  stays what `foundation.test.ts` pins (no import of `resource-words.ts`). */
+ *  stays what `foundation.test.ts` pins (the words table is never imported here). */
 type BoardWords = { privateWord: string | null; turnoverWord: string | null }
 
 export interface BuildInput {
