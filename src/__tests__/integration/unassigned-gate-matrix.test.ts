@@ -54,6 +54,13 @@ jest.mock('next/cache', () => ({
   revalidateTag: jest.fn(),
   updateTag: jest.fn(),
 }))
+// M5 fold: setActiveStore's own cookie write, captured so the refusal test can
+// prove it never fires — a stable `set` reference across every `cookies()`
+// call, not a fresh jest.fn() per call.
+const mockCookieSet = jest.fn()
+jest.mock('next/headers', () => ({
+  cookies: jest.fn(async () => ({ get: () => undefined, set: mockCookieSet, delete: jest.fn() })),
+}))
 jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: async () => 'staff-1',
   getBusinessId: async () => 'business-1',
@@ -61,6 +68,10 @@ jest.mock('@/lib/staff', () => ({
   businessIdForUser: async () => 'business-1',
 }))
 jest.mock('@/actions/stores', () => ({
+  // M5 fold: setActiveStore comes through UNMODIFIED (the real refusal clause
+  // under test) — only the three reads the rest of this suite already stubs
+  // are overridden below, same as before.
+  ...jest.requireActual('@/actions/stores'),
   getActiveStoreId: async () => null,
   getPrimaryStoreId: async () => fixture.stores[0] ?? null,
   getStaffStoresStrict: async () =>
@@ -85,8 +96,9 @@ jest.mock('@/lib/supabase/service', () => ({
 import { capabilitiesForUser } from '@/lib/auth/require-permission'
 import { resolveStoreScope, viewerIsUnassigned } from '@/lib/auth/store-scope'
 import { resolveStoreForRequest, resolveExportStoreId } from '@/lib/app-api/store-clamp'
-import { actorIsUnassigned } from '@/lib/auth/store-gate'
+import { actorIsUnassigned, STORE_UNASSIGNED_DENIAL } from '@/lib/auth/store-gate'
 import { loadKaruteWindowRows } from '@/lib/karute/karute-window'
+import { setActiveStore } from '@/actions/stores'
 
 // ── the five shapes ─────────────────────────────────────────────────────────
 type Shape = {
@@ -306,6 +318,36 @@ describe('unassigned gate — the layer matrix', () => {
       const mutantVerdict = scope.allowedStoreIds === null ? 'unclamped' : 'unassigned'
       expect(mutantVerdict).toBe('unclamped')
     })
+  })
+})
+
+// ── M5 FOLD ─────────────────────────────────────────────────────────────────
+// The third flip point (actions/stores.ts:266-268): pins that the SAME
+// refusal fires on the write side, not just the two read gates above. The
+// real `setActiveStore` runs unmocked (see the `@/actions/stores` mock's
+// `...jest.requireActual` spread) so this exercises the shipped clause, not a
+// model of it.
+describe('setActiveStore — the third flip point (M5 fold)', () => {
+  beforeEach(() => {
+    mockCookieSet.mockClear()
+  })
+
+  it('a GENUINELY unassigned actor (strict lookup []) is refused, and the cookie is never set', async () => {
+    load(SHAPES[2]) // UNASSIGNED (multi-store)
+    const result = await setActiveStore('store-ginza')
+    expect(result).toEqual({ error: STORE_UNASSIGNED_DENIAL })
+    expect(mockCookieSet).not.toHaveBeenCalled()
+  })
+
+  it('a DEGRADED lookup (strict null — the lookup itself failed) is NOT refused by this clause', async () => {
+    load(SHAPES[4]) // degraded (lookup failed)
+    const result = await setActiveStore('store-ginza')
+    expect(result).toEqual({ ok: true })
+    expect(mockCookieSet).toHaveBeenCalledWith(
+      'karute_active_store',
+      'store-ginza',
+      expect.any(Object),
+    )
   })
 })
 
