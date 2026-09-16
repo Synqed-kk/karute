@@ -12,6 +12,7 @@ import {
 import { useTranslations, useLocale } from 'next-intl'
 import { Bell, CalendarPlus } from 'lucide-react'
 import { useRouter, usePathname } from '@/i18n/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
   formatCompactDateJst,
@@ -223,11 +224,35 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   // spends it when its answer lands, and `navigateTo` spends it when any other
   // navigation starts (a 今日 press that re-selects the day already selected
   // changes no prop at all, so the effect alone could not see it).
-  const [tappedDay, setTappedDay] = useState<string | null>(null)
-  const shownDayIso = tappedDay ?? selectedIso
+  const [tappedHold, setTappedHold] = useState<{ iso: string; target: string } | null>(null)
+  const shownDayIso = tappedHold?.iso ?? selectedIso
+  // G2 (Greptile round 1, FIX-932-G1) — the effect above only spends the hold
+  // when ITS OWN answer lands (`tappedHold.iso === selectedIso`). The back
+  // gesture (web: the browser back button; phone: the OS back swipe) is the
+  // other way a move ends: it never calls `navigateTo`, so neither
+  // `tappedHold` nor `selectedIso` (still A's, since B's DTO never arrived)
+  // ever changes — the effect never re-runs and the hold sat on B forever
+  // while the page was back on A (the exact freeze LENS-1 named).
+  // `target` is the search string `navigateTo` pushed for this move; the
+  // CURRENT location's search — the same `next/navigation` hook both the web
+  // page and the shell already expose (the shell's own via the vite alias,
+  // no new listener) — is the one thing that changes the instant the browser
+  // actually leaves that target, landed or not.
+  //
+  // G2B — on the web, `useSearchParams()` keeps A's search until the
+  // transition COMMITS (Next resolves the new tree first, then the URL), so
+  // `currentSearch !== target` reads true for the whole time B is in flight —
+  // `abandoned` alone spent the hold the instant it was armed. `isPending` is
+  // the one signal that is true for that entire trip on the web (and always
+  // false on the phone, where pushState commits synchronously): a move still
+  // in flight is never abandoned.
+  const currentSearch = useSearchParams().toString()
   useEffect(() => {
-    if (tappedDay === selectedIso) setTappedDay(null)
-  }, [tappedDay, selectedIso])
+    if (!tappedHold) return
+    const landed = tappedHold.iso === selectedIso
+    const abandoned = !isPending && currentSearch !== tappedHold.target
+    if (landed || abandoned) setTappedHold(null)
+  }, [tappedHold, selectedIso, currentSearch, isPending])
   // `today` is reserved for the Today button (jump-to-now) — the displayed
   // header always reflects whichever date is currently selected.
   // jstStartOfToday() returns the UTC instant of JST 00:00 today, so
@@ -250,12 +275,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     [locale],
   )
 
-  function navigateTo(nextView: DayWeekMonthView, nextDate: Date) {
+  function navigateTo(nextView: DayWeekMonthView, nextDate: Date): string {
     // R1-1 — any move spends the held tap. A month-cell tap re-arms it right
     // after this call (both writes are urgent and batch into one commit, so the
     // newest finger wins); every other door — the arrows, 今日, the date-jump
     // panel, the view switch, the card's own door — leaves it spent.
-    setTappedDay(null)
+    setTappedHold(null)
     const search = new URLSearchParams()
     search.set('view', nextView)
     search.set('date', ymdInJst(nextDate))
@@ -269,11 +294,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     if (props.staffFilter && props.staffFilter !== 'all') {
       search.set('staff', props.staffFilter)
     }
+    // G2 — the target this move is heading for, returned so a month-cell tap
+    // can key its hold to it (see tappedHold's declaration above).
+    const target = search.toString()
     startTransition(() => {
-      router.push(
-        `${pathname}?${search.toString()}` as Parameters<typeof router.push>[0],
-      )
+      router.push(`${pathname}?${target}` as Parameters<typeof router.push>[0])
     })
+    return target
   }
 
   function handlePrev() {
@@ -312,8 +339,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       navigateTo('day', date)
       return
     }
-    navigateTo('month', date)
-    setTappedDay(iso)
+    const target = navigateTo('month', date)
+    setTappedHold({ iso, target })
   }
   function handlePickMonth(year: number, month: number) {
     navigateTo(
@@ -413,9 +440,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       <ReservationPageHeader
         // Header structure contract (Liam 8/7): mb-0 kills the package's
         // baked mb-4 — and, same property, the page's space-y-4 margin
-        // (v4 space-y is a zero-specificity :where() rule) — so the pt-6
-        // wrapper below owns the whole 24px seam. Same natural-height
-        // row as 顧客/カルテ (32px controls set the height).
+        // (v4 space-y is a zero-specificity :where() rule) — so the
+        // wrapper below owns the whole seam (9px since 9/15, the mock's
+        // own number; 24px before that). Same natural-height row as
+        // 顧客/カルテ (32px controls set the height).
         // The anchor wrapper above carries mb-0 too, and for the second
         // half of that reason: since the date-jump panel moved the anchor
         // in between, IT is the direct child space-y-4 measures — this
@@ -500,12 +528,28 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  schedule (matches the spike's mobile screenshot Liam shared).
        *  Picker mutates ?staff= which the page reads server-side to
        *  refilter reservationViews. */}
-      {/* pt-6 = the whole 24px seam (Liam 8/7): both neighbors are
-       *  bordered controls and 16px read as touching. The header's mb-0
-       *  zeroes space-y-4's contribution too (same margin property,
-       *  higher specificity), so this padding is the seam's single
-       *  owner. Padding, not margin: margins collapse. */}
-      <div className="pt-6">
+      {/* THE SEAM, AND THE ONE THAT OWNS IT — the approved mock's own two
+       *  numbers (DATE-JUMP-PICKER-MOCK.html, measured at 393 on the phone
+       *  shell, not read off the CSS):
+       *
+       *    date-bar control bottom → 日/週/月 control top   =  9px
+       *    日/週/月 control bottom → the page's next block  = 11px
+       *
+       *  In the mock those two fall out of the row boxes (a 56px date bar
+       *  holding a 40px control leaves 8px under it; the 52px filter row
+       *  centres its 40px control in a 42px content box, leaving 1px above
+       *  and 1px + its 10px padding below). This page's rows are natural
+       *  height — tight around their 32px controls — so the seam has to be
+       *  stated here instead, and these are the two places to state it: the
+       *  padding above, and the margin that replaces space-y-4's 16px below
+       *  (space-y-4 is a zero-specificity :where() rule, so a normal mb-*
+       *  utility wins — the same mechanism as the anchor's mb-0 above).
+       *
+       *  SUPERSEDES the 8/7 24px seam (pt-6): that number predates the
+       *  calendar mock Liam approved on 9/14, and on 9/15 he measured this
+       *  page against the mock and the 24px read as a gap. Padding above,
+       *  not margin: margins collapse. */}
+      <div className="pt-[9px] mb-[11px]">
       <ReservationStaffFilter
         staffList={props.staff.map<ReservationStaffEntry>((s) => ({
           id: s.id,

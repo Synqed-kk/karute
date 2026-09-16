@@ -22,6 +22,9 @@
  */
 import { appointments, STORE_A } from '@/business/lib/fixtures'
 import { jstDayKey } from '@/business/lib/clock'
+// ⚖ D-53 (u)/(n2b1) — STORE_A's words (chiropractic; byte-identical to
+// `other`, D-13) and the generic row, for the family-grep call sites below.
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import * as data from '@/business/lib/data'
 import { buildLanes, dayBookings, minuteOf, place, type BoardItem, type BoardLane, type BuildInput } from '@/business/lib/today-board'
 import {
@@ -41,6 +44,16 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const HOURS = { open: 600, close: 1140 } // 10:00–19:00
+// ⚖ D-53 (u)/(n2b1) — STORE_A's words + the generic row, for every
+// family-grep call below; runtime expected sentences are unchanged
+// (chiropractic is byte-identical to `other`, D-13).
+const A_WORDS = RESOURCE_WORDS.chiropractic
+const G_WORDS = RESOURCE_WORDS.other
+// ⚖ D-53 (u)/(n2b2) — the whole-board map, for every direct call this file
+// makes to a widened whole-board function: empty `byLaneKey` so every lane
+// falls to the generic row, STORE_A's own (chiropractic ≡ other, D-13) —
+// runtime expected sentences are unchanged.
+const LANE_WORDS = { byLaneKey: {}, generic: A_WORDS }
 
 /** Every bed in these scenes turns around instantly unless the case says
  *  otherwise — the shipped fixture's own `cleanup_minutes: 0`. */
@@ -535,7 +548,7 @@ describe('F4 — a moved card’s turnaround is the DESTINATION room’s, never 
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'a', caseId: 'apt-A', title: '見本 さくら' }, 690, 730)] }),
       lane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
     ])
-    const withTails = applyBedMoves(board, movedToBed02, HOURS, { 'bed-01': 0, 'bed-02': 15 })
+    const withTails = applyBedMoves(board, movedToBed02, HOURS, LANE_WORDS, { 'bed-01': 0, 'bed-02': 15 })
     expect(rows(withTails, 'bed-02')).toEqual([
       ['a', 'booking', 690, 730],
       ['apt-A-cleanup', 'cleanup', 730, 745],
@@ -544,7 +557,7 @@ describe('F4 — a moved card’s turnaround is the DESTINATION room’s, never 
 
     // The same board WITHOUT the room policy is byte-for-byte what shipped: no
     // tail at all, and 12:10 on ベッド2 reads as free — the defect, pinned.
-    const asShipped = applyBedMoves(board, movedToBed02, HOURS)
+    const asShipped = applyBedMoves(board, movedToBed02, HOURS, LANE_WORDS)
     expect(rows(asShipped, 'bed-02')).toEqual([['a', 'booking', 690, 730]])
     expect(bed02FreeAt(asShipped, 730, 760)).toBe('bed-02')
   })
@@ -557,11 +570,11 @@ describe('F4 — a moved card’s turnaround is the DESTINATION room’s, never 
       ] }),
       lane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
     ])
-    expect(rows(applyBedMoves(board, movedToBed02, HOURS, { 'bed-01': 15, 'bed-02': 0 }), 'bed-02'))
+    expect(rows(applyBedMoves(board, movedToBed02, HOURS, LANE_WORDS, { 'bed-01': 15, 'bed-02': 0 }), 'bed-02'))
       .toEqual([['a', 'booking', 690, 730]])
     // …and without the map the origin's 15 minutes travel to a room that needs
     // none, which is the same defect one size smaller.
-    expect(rows(applyBedMoves(board, movedToBed02, HOURS), 'bed-02'))
+    expect(rows(applyBedMoves(board, movedToBed02, HOURS, LANE_WORDS), 'bed-02'))
       .toEqual([['a', 'booking', 690, 730], ['apt-A-cleanup', 'cleanup', 730, 745]])
   })
 
@@ -575,7 +588,7 @@ describe('F4 — a moved card’s turnaround is the DESTINATION room’s, never 
         drawnTail('apt-B', 840, 845),
       ] }),
     ])
-    const moved = applyMoves(board, {}, [], [], HOURS, { 'apt-A': { laneKey: 'bed-02', x: A_SPAN.x, w: A_SPAN.w } }, { 'bed-01': 0, 'bed-02': 15 })
+    const moved = applyMoves(board, {}, [], [], HOURS, LANE_WORDS, { 'apt-A': { laneKey: 'bed-02', x: A_SPAN.x, w: A_SPAN.w } }, { 'bed-01': 0, 'bed-02': 15 })
     expect(rows(moved, 'bed-02')).toEqual([
       ['a', 'booking', 690, 730],
       ['apt-A-cleanup', 'cleanup', 730, 745],
@@ -593,7 +606,7 @@ describe('F4 — a moved card’s turnaround is the DESTINATION room’s, never 
       lane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
     ])
     const bed: Record<string, { laneKey: string; x: number; w: number }> = { 'apt-A': { laneKey: 'bed-02', x: A_SPAN.x, w: A_SPAN.w } }
-    expect(applyMoves(board, {}, [], [], HOURS, bed, undefined)).toEqual(applyMoves(board, {}, [], [], HOURS, bed))
+    expect(applyMoves(board, {}, [], [], HOURS, LANE_WORDS, bed, undefined)).toEqual(applyMoves(board, {}, [], [], HOURS, LANE_WORDS, bed))
   })
 })
 
@@ -1086,7 +1099,7 @@ describe('B — Liam’s scene, end to end through the wiring', () => {
     expect(companionLines(lanes, companions)).toEqual(['見本 さくら様 ベッド1 → ベッド2'])
     // The board the staging writes, from the same helper the verdict uses: さくら
     // is drawn on ベッド2 and ベッド1 is hers no longer.
-    const staged = applyBedMoves(lanes, companions, { open: 600, close: 1140 })
+    const staged = applyBedMoves(lanes, companions, { open: 600, close: 1140 }, LANE_WORDS)
     const on = (key: string) => staged.find((l) => l.key === key)!.items.some((i) => i.caseId === 'apt-26')
     expect({ 'bed-01': on('bed-01'), 'bed-02': on('bed-02') }).toEqual({ 'bed-01': false, 'bed-02': true })
   })
@@ -1096,13 +1109,13 @@ describe('R6 — a second landing of the same card solves against the day it sta
   it('lanesWithCompanionsRestored puts every companion back where it stood', async () => {
     const lanes = await demoLanes()
     const companions: BedCompanion[] = [{ id: 'apt-26', bedOrigin: { laneKey: 'bed-01', x: 10, w: 5 }, bedTo: 'bed-02' }]
-    const staged = applyBedMoves(lanes, companions, { open: 600, close: 1140 })
-    const back = lanesWithCompanionsRestored(staged, companions, { open: 600, close: 1140 })
+    const staged = applyBedMoves(lanes, companions, { open: 600, close: 1140 }, LANE_WORDS)
+    const back = lanesWithCompanionsRestored(staged, companions, { open: 600, close: 1140 }, LANE_WORDS)
     const roomOf = (board: BoardLane[]) => board.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === 'apt-26'))!.key
     expect([roomOf(lanes), roomOf(staged), roomOf(back)]).toEqual(['bed-01', 'bed-02', 'bed-01'])
     // No companions is the board itself, untouched — every landing that packed
     // nothing pays nothing for this rule.
-    expect(lanesWithCompanionsRestored(lanes, undefined, { open: 600, close: 1140 })).toBe(lanes)
+    expect(lanesWithCompanionsRestored(lanes, undefined, { open: 600, close: 1140 }, LANE_WORDS)).toBe(lanes)
   })
 
   it('and the screen asks that question at every landing, through ONE function', () => {
@@ -1118,8 +1131,8 @@ describe('R6 — a second landing of the same card solves against the day it sta
     // test guards (「one home for: which board does this landing solve against」)
     // is strengthened, not weakened: there is still exactly one spelling of it.
     expect(SCREEN).toContain('function solveLanes(id: string | null): BoardLane[] {')
-    expect(SCREEN).toContain('? lanesWithCompanionsRestored(lanes, pending.companions, hours, cleanupMinutesByBed)')
-    expect(SCREEN).toContain('handBoardFor(boardLanesRef.current, pending, id, hours, props.bedCleanupMinutes)')
+    expect(SCREEN).toContain('? lanesWithCompanionsRestored(lanes, pending.companions, hours, words, cleanupMinutesByBed)')
+    expect(SCREEN).toContain('handBoardFor(boardLanesRef.current, pending, id, hours, laneWords, props.bedCleanupMinutes)')
     // The HAND's arm is the very array this render already built and the rails
     // were cut from — not a second restore, and not `boardLanesRef` (that mutant
     // puts the strip and the word back on two boards and the frame-mount pin's
@@ -1177,8 +1190,8 @@ describe('R6b — a re-landing is judged on the board it is solved on', () => {
     expect({ room: first.laneKey, reseats: first.reseats })
       .toEqual({ room: 'bed-01', reseats: [{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }] })
     const companions = companionsFor(lanes, first.reseats)
-    const staged = applyBedMoves(lanes, companions, HOURS)
-    return { staff, staged, restored: lanesWithCompanionsRestored(staged, companions, HOURS) }
+    const staged = applyBedMoves(lanes, companions, HOURS, LANE_WORDS)
+    return { staff, staged, restored: lanesWithCompanionsRestored(staged, companions, HOURS, LANE_WORDS) }
   }
 
   /** The second landing, asked exactly as the screen asks it — `verdictFor`'s
@@ -1206,14 +1219,14 @@ describe('R6b — a re-landing is judged on the board it is solved on', () => {
     expect(solve.reseats).toEqual([{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }])
 
     const q = askAt(staff.key, 845, 905)
-    const judged = landingVerdict(restored, q, null)
+    const judged = landingVerdict(restored, q, null, A_WORDS, G_WORDS)
     expect({ room: judged.bedLane, reseats: judged.reseats })
       .toEqual({ room: solve.laneKey, reseats: solve.reseats })
 
     // …and the board on screen would have said NOBODY moves — the 仮押さえ box
     // would have named no one, and the guard would never have been re-asked on
     // the shuffled day at all.
-    const onScreen = landingVerdict(staged, q, null)
+    const onScreen = landingVerdict(staged, q, null, A_WORDS, G_WORDS)
     expect(onScreen.reseats).toEqual([])
     expect(onScreen.reseats).not.toEqual(solve.reseats)
   })
@@ -1224,8 +1237,8 @@ describe('R6b — a re-landing is judged on the board it is solved on', () => {
     // gets ベッド2; on the screen's board she has already vacated it.
     const solve = solveOn(restored, staff.key, staff.stores, 870, 930)
     const q = askAt(staff.key, 870, 930)
-    expect(landingVerdict(restored, q, null).bedLane).toBe(solve.laneKey)
-    expect([landingVerdict(staged, q, null).bedLane, solve.laneKey]).toEqual(['bed-01', 'bed-02'])
+    expect(landingVerdict(restored, q, null, A_WORDS, G_WORDS).bedLane).toBe(solve.laneKey)
+    expect([landingVerdict(staged, q, null, A_WORDS, G_WORDS).bedLane, solve.laneKey]).toEqual(['bed-01', 'bed-02'])
   })
 
   it('and the screen takes ONE board and asks everything on it', () => {
@@ -1234,7 +1247,7 @@ describe('R6b — a re-landing is judged on the board it is solved on', () => {
     // judgement and the solve can no longer drift apart.
     expect(SCREEN).toContain('const base = solveLanes(q.id)')
     expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), opts.pack, base)')
-    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, props.bedCleanupMinutes)')
+    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes)')
     expect(SCREEN).toContain('return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }')
     // The gesture end reads the board through `solveLanes` and nowhere else.
     const landing = SCREEN.slice(SCREEN.indexOf('const verdictAtLanding = useCallback('), SCREEN.indexOf('const verdictRef = useRef('))
@@ -1268,7 +1281,7 @@ describe('F1 — `pack` is the only switch: the same ask, two answers', () => {
   it('with the pack OFF the landing is refused, in today’s exact sentence, moving nobody', async () => {
     const lanes = await demoLanes()
     const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
-    const off = landingVerdict(lanes, askKiri(staff.key, false), null)
+    const off = landingVerdict(lanes, askKiri(staff.key, false), null, A_WORDS, G_WORDS)
     expect(off.kind).toBe('blocked')
     expect(off.bedLane).toBeNull()
     expect(off.reseats).toEqual([])
@@ -1279,13 +1292,13 @@ describe('F1 — `pack` is the only switch: the same ask, two answers', () => {
     // absent means NO — every caller that predates the pack is untouched.
     const silent: Omit<ReturnType<typeof askKiri>, 'pack'> & { pack?: boolean } = askKiri(staff.key, false)
     delete silent.pack
-    expect(landingVerdict(lanes, silent, null).reason).toBe(off.reason)
+    expect(landingVerdict(lanes, silent, null, A_WORDS, G_WORDS).reason).toBe(off.reason)
   })
 
   it('with the pack ON the same ask returns the packed room — one flag, nothing else changed', async () => {
     const lanes = await demoLanes()
     const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
-    const on = landingVerdict(lanes, askKiri(staff.key, true), null)
+    const on = landingVerdict(lanes, askKiri(staff.key, true), null, A_WORDS, G_WORDS)
     expect(on.bedLane).toBe('bed-01')
     expect(on.reseats).toEqual([{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }])
     // The 満室 refusal is gone because the room is REAL, not because the sentence
@@ -1309,18 +1322,18 @@ describe('F3 — a packing landing answers with the companions it will actually 
       requiresPrivate: false, start: 840, end: 900, span: place(840, 900, HOURS),
       foreignRefusal: null, hasPrice: true, locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
       stagedId: null, pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
-    }, null)
+    }, null, A_WORDS, G_WORDS)
     expect(v.reseats).toEqual([{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }])
 
     // Leg two, on the board the shuffle would leave: step 0 succeeds there, so
     // its OWN reseats are empty. That empty set used to be the returned answer.
-    const shuffled = applyBedMoves(lanes, companionsFor(lanes, v.reseats), HOURS)
+    const shuffled = applyBedMoves(lanes, companionsFor(lanes, v.reseats), HOURS, LANE_WORDS)
     const second = landingVerdict(shuffled, {
       staffLane: staff.key, bedLane: 'bed-01', solveRoom: true, id: 'apt-09',
       requiresPrivate: false, start: 840, end: 900, span: place(840, 900, HOURS),
       foreignRefusal: null, hasPrice: true, locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
       stagedId: null, pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
-    }, null)
+    }, null, A_WORDS, G_WORDS)
     expect(second.reseats).toEqual([])
 
     // The screen returns the second leg's verdict WITH the first leg's reseats —
@@ -1377,8 +1390,8 @@ describe('F2 — the safe-start press stages a room it solved for, on the board 
     // `stage()` writes the STAFF side too, and `applyMoves` reads every span
     // from there — a companion has no entry, so its time never moves (⚖ 51).
     const moves: Record<string, { laneKey: string; x: number; w: number }> = { 'apt-09': { laneKey: staff.key, ...span } }
-    const staged = applyMoves(lanes, moves, [], [], HOURS, bedMoves)
-    return { lanes, staff, companions, moves, bedMoves, staged, restored: lanesWithCompanionsRestored(staged, companions, HOURS) }
+    const staged = applyMoves(lanes, moves, [], [], HOURS, LANE_WORDS, bedMoves)
+    return { lanes, staff, companions, moves, bedMoves, staged, restored: lanesWithCompanionsRestored(staged, companions, HOURS, LANE_WORDS) }
   }
 
   /** The press: 「より良い開始」 at 14:05, the same 60 minutes. */
@@ -1392,14 +1405,14 @@ describe('F2 — the safe-start press stages a room it solved for, on the board 
       requiresPrivate: false, start: 845, end: 905, span: AT,
       foreignRefusal: null, hasPrice: true, locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
       stagedId: 'apt-09', pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
-    }, null)
-    const shuffled = applyBedMoves(restored, companionsFor(restored, v.reseats), HOURS)
+    }, null, A_WORDS, G_WORDS)
+    const shuffled = applyBedMoves(restored, companionsFor(restored, v.reseats), HOURS, LANE_WORDS)
     const again = landingVerdict(shuffled, {
       staffLane: staff.key, bedLane: 'bed-01', solveRoom: true, id: 'apt-09',
       requiresPrivate: false, start: 845, end: 905, span: AT,
       foreignRefusal: null, hasPrice: true, locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
       stagedId: 'apt-09', pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
-    }, null)
+    }, null, A_WORDS, G_WORDS)
     // The word says CLEAN, so the button fires…
     expect(again.kind).not.toBe('blocked')
     expect(again.bedLane).toBe('bed-01')
@@ -1408,7 +1421,7 @@ describe('F2 — the safe-start press stages a room it solved for, on the board 
     const old: Record<string, { laneKey: string; x: number; w: number }> = { ...bedMoves, 'apt-09': { laneKey: again.bedLane!, ...AT } }
     for (const c of (await scene()).companions) old[c.id] = c.bedOrigin
     const onStaff = { ...moves, 'apt-09': { laneKey: staff.key, ...AT } }
-    expect(doubleBookings(applyMoves(lanes, onStaff, [], [], HOURS, old))).toEqual(['bed-01:apt-09×apt-26'])
+    expect(doubleBookings(applyMoves(lanes, onStaff, [], [], HOURS, LANE_WORDS, old))).toEqual(['bed-01:apt-09×apt-26'])
     // (and the board it was staged FROM was clean — the press made the mess)
     expect(doubleBookings(staged)).toEqual([])
   })
@@ -1427,7 +1440,7 @@ describe('F2 — the safe-start press stages a room it solved for, on the board 
     const fixed: Record<string, { laneKey: string; x: number; w: number }> = { ...bedMoves, 'apt-09': { laneKey: solved.laneKey!, ...AT } }
     for (const c of companions) fixed[c.id] = c.bedOrigin
     for (const c of vacateBeforeOccupy(next)) fixed[c.id] = { laneKey: c.bedTo, x: c.bedOrigin.x, w: c.bedOrigin.w }
-    expect(doubleBookings(applyMoves(lanes, { ...moves, 'apt-09': { laneKey: staff.key, ...AT } }, [], [], HOURS, fixed))).toEqual([])
+    expect(doubleBookings(applyMoves(lanes, { ...moves, 'apt-09': { laneKey: staff.key, ...AT } }, [], [], HOURS, LANE_WORDS, fixed))).toEqual([])
     // …and the 仮押さえ box names さくら, rather than naming nobody while she moves.
     expect(companionLines(restored, next)).toEqual(['見本 さくら様 ベッド1 → ベッド2'])
   })
@@ -1627,7 +1640,7 @@ describe('R10 — a shuffle that kills a held window is judged on the board it w
       lane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
     ]
     const board = boardOf(beds)
-    const w = applyBedMoves(board, [{ id: 'apt-c', bedOrigin: { laneKey: 'bed-01', x: 0, w: 1 }, bedTo: 'bed-02' }], HOURS)
+    const w = applyBedMoves(board, [{ id: 'apt-c', bedOrigin: { laneKey: 'bed-01', x: 0, w: 1 }, bedTo: 'bed-02' }], HOURS, LANE_WORDS)
     // 「could a new client have ベッド2 for this hour?」 — asked of ベッド2 alone,
     // which is what a held 新規用 window depends on.
     const bed2Free = (b: BoardLane[]) =>
@@ -1641,7 +1654,7 @@ describe('R10 — a shuffle that kills a held window is judged on the board it w
   it('and the screen asks the guard on exactly that board', () => {
     expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), opts.pack, base)')
     expect(SCREEN).toContain('if (!opts.pack || v.reseats.length === 0) return v')
-    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, props.bedCleanupMinutes)')
+    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, laneWords, props.bedCleanupMinutes)')
     expect(SCREEN).toContain('return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }')
   })
 })
@@ -1985,7 +1998,7 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // 9/11 finding. `store.base` below stays on `boardLanes` and cannot disagree
     // with it: the memo-gate invariant (pinned further down) says a store exists
     // only while `handBoard === boardLanes`.
-    expect(SCREEN).toContain('      shuffled = applyBedMoves(handBoard, companionsFor(handBoard, v.reseats), hours, props.bedCleanupMinutes)\n      store.shuffledFor.set(moveSet, shuffled)\n    }')
+    expect(SCREEN).toContain('      shuffled = applyBedMoves(handBoard, companionsFor(handBoard, v.reseats), hours, laneWords, props.bedCleanupMinutes)\n      store.shuffledFor.set(moveSet, shuffled)\n    }')
     expect(SCREEN).not.toContain('applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats)')
     // …and there are exactly two places on this screen that build a shuffled
     // board at all: `verdictAtLanding`'s own second leg, and the composer.
@@ -2066,7 +2079,7 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // passing it for a CLEAN slot would invent a cost at rest the rest layer
     // does not name either.
     expect(SCREEN).toContain(
-      'const sentence =\n              v && chip?.mark\n                ? reseatSentence(v.reason ?? c.sentence, linesFor(v), drop?.kind === \'caution\' ? drop.reason : null)\n                : (v?.reason ?? explained?.sentence ?? c.sentence)',
+      'const sentence =\n              v && chip?.mark\n                ? reseatSentence(v.reason ?? c.sentence, linesFor(v), drop?.kind === \'caution\' ? drop.reason : null, railLane ? wordsForLane(railLane) : props.words)\n                : (v?.reason ?? explained?.sentence ?? c.sentence)',
     )
     expect(SCREEN).not.toContain('linesFor(v), null)')
     expect(SCREEN).not.toContain('companionLines(handBoard, companionsFor(handBoard, v.reseats)), null)')
@@ -2091,8 +2104,14 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // one round later. (The screen's single mention is a COMMENT naming this
     // helper — the regex below is anchored on the template's own opening, which
     // no comment carries.)
-    expect((SCREEN.match(/ここに置くと、ほかのお客様のベッドを入れ替えて収めます/g) ?? [])).toHaveLength(0)
-    expect((INTERACTIONS.match(/ここに置くと、ほかのお客様のベッドを入れ替えて収めます/g) ?? [])).toHaveLength(1)
+    // ⚖ D-53 (u)/(n2b2) — DISCLOSED PIN MOVE (R-4): `reseatSentence`'s own
+    // template now reads 'ここに置くと、ほかのお客様の${words.resourceNoun}を
+    // 入れ替えて収めます…' — the whole literal (「…のベッドを入れ替えて収めます」)
+    // no longer appears anywhere; the anchor below is the NEW template's own
+    // opening (the slot included), which two surviving COMMENTS quoting the
+    // old literal (「…のベッドを」) do not match.
+    expect((SCREEN.match(/ここに置くと、ほかのお客様の\$\{words\.resourceNoun\}を入れ替えて収めます/g) ?? [])).toHaveLength(0)
+    expect((INTERACTIONS.match(/ここに置くと、ほかのお客様の\$\{words\.resourceNoun\}を入れ替えて収めます/g) ?? [])).toHaveLength(1)
     // ⚖ FIX ROUND 3 (DELTA-CODE-D2 MAJOR) — AND THE ?-TOUR'S OWN SENTENCE
     // DESCRIBES THE MARK, NEVER THE RENDERED STRING. The スキマガード band's
     // tour told the operator the card in hand would read 「⇄ 入れ替え」; round
@@ -2151,7 +2170,9 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // (`parked`), this session's own cards (`addedHere`), committed moves
     // (`moves`/`bedMoves`), staging (`pending`), the day (`hours`), the clock the
     // pack's lead floor reads, and each room's turnaround.
-    expect(SCREEN).toContain('[placedLanes, parked, addedHere, moves, bedMoves, pending, hours, props.sell.nowMinute, props.bedCleanupMinutes],')
+    // ⚖ D-53 (u)/(n2b1) — DISCLOSED PIN MOVE: a words-only prop change must
+    // invalidate the same cache, so the three words props ride the same stamp.
+    expect(SCREEN).toContain('[placedLanes, parked, addedHere, moves, bedMoves, pending, hours, props.sell.nowMinute, props.bedCleanupMinutes, props.wordsByStore, props.words, props.genericWords],')
     // No default on the landing question, so a new call site cannot forget.
     expect(SCREEN).toContain('(q: LandingAsk, opts: { pack: boolean }): LandingVerdict => {')
     expect(SCREEN).not.toContain('opts: { pack: boolean } = ')
@@ -2283,7 +2304,7 @@ describe('FRAME-SEAM — one render, one world', () => {
     // (置けない on the card, △15:30 on the chip). The strip joins the drop; ⚖ 9/8
     // PACKING's re-landing rule is Liam's and is never the thing that moves.
     expect(SCREEN).toContain('export function handBoardFor(')
-    expect(SCREEN).toContain('const handBoard = useMemo(\n    () => handBoardFor(boardLanes, pending, handId, hours, props.bedCleanupMinutes),')
+    expect(SCREEN).toContain('const handBoard = useMemo(\n    () => handBoardFor(boardLanes, pending, handId, hours, laneWords, props.bedCleanupMinutes),')
     // …and the `else` arm hands back the SAME REFERENCE, which is what makes
     // nothing move at rest: with no hand `handBoard === boardLanes` by identity,
     // so every memo below sees the identical array in its dep list. A copy here

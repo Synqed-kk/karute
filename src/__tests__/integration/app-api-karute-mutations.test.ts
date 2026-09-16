@@ -466,6 +466,29 @@ describe('regenerateKaruteEntries — bulk web wrapper twin (fix round F-2)', ()
 
 // ── outcome ─────────────────────────────────────────────────────────────────
 describe('POST /karute/[id]/outcome (§Build 3)', () => {
+  // Store lock (⚖ Liam 2026-09-16): the 成約 label is a write ON a record, so
+  // records.write alone is no longer enough — the record's store must be one
+  // the caller is assigned to, and the refusal is the SAME not_found a missing
+  // id gets (no existence oracle).
+  it("a clamped caller + another store's record is refused, byte-identically to a missing id", async () => {
+    REC.current = { ...REC.current, store_id: 'store-a' }
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-b'] })
+    const refused = await outcome(jsonReq({ status: 'success' }), routeFor('00000000-0000-4000-8000-000000000007'))
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const missing = await outcome(jsonReq({ status: 'success' }), routeFor('00000000-0000-4000-8000-000000000099'))
+    expect(refused.status).toBe(404)
+    expect(await refused.json()).toEqual(await missing.json())
+    expect(upsertOutcome).not.toHaveBeenCalled()
+  })
+
+  it('a clamped caller inside the record own store still writes the label', async () => {
+    REC.current = { ...REC.current, store_id: 'store-a' }
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const res = await outcome(jsonReq({ status: 'success' }), routeFor('00000000-0000-4000-8000-000000000007'))
+    expect(res.status).toBe(200)
+    expect(upsertOutcome).toHaveBeenCalledTimes(1)
+  })
+
   it('happy path: upserts with the SERVER-derived customerId', async () => {
     const res = await outcome(jsonReq({ status: 'success', isFirstVisit: true }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)

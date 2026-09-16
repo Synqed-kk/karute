@@ -137,9 +137,12 @@ export function dateJumpReducer(
       // answered shows a status line at all.
       const cache = new Map<MonthKey, MonthEntry>()
       for (const [key, entry] of state.cache) cache.set(key, { ...entry, stale: true })
-      // The seed (the page's own 月 data) was just built by the server — it is
-      // the freshest truth for its month, so it replaces rather than ages.
-      if (action.seed) cache.set(action.month, { status: 'loaded', cells: action.seed })
+      // The seed (the page's own 月 data) is the first paint for this open —
+      // instant, no shimmer — but it is NOT exempt from the staleness above.
+      // The page stays mounted between opens, so the same seed comes back on
+      // every open; only marking it stale here makes every open re-validate,
+      // not just the first one that ever ran without a seed.
+      if (action.seed) cache.set(action.month, { status: 'loaded', cells: action.seed, stale: true })
       return {
         ...state,
         visibleMonth: action.month,

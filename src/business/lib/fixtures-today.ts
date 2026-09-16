@@ -137,6 +137,9 @@ export interface FixtureResource {
  *  nothing about a CUSTOMER (VIP included) reads it. */
 export type RoomClass = 'standard' | 'private'
 
+// ⚖ ROUND 3 · C — STORE_C (テスト渋谷店) has NO row here on purpose: it is the
+// no-bed store, and `today-board.buildLanes` (:685) draws a `group: 'beds'`
+// lane per row, so a store with no rows has no bed lane by construction.
 export const resources: FixtureResource[] = [
   { id: 'bed-01', store_id: STORE_A, name: 'ベッド1', note: '施術室A', cleanup_minutes: 0, room_class: 'standard' },
   { id: 'bed-02', store_id: STORE_A, name: 'ベッド2', note: '施術室A', cleanup_minutes: 0, room_class: 'standard' },

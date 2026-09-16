@@ -161,6 +161,18 @@ export const KaruteDetailScreenDTO = z.object({
    *  shows-and-refuses. Seeing the transcript is no longer the same question:
    *  the READ is `recordings.viewAll`, the ACT is the owner's two keys. */
   staffCanRegenerate: z.boolean().optional(),
+  /** The store lock's screen half (⚖ Liam 2026-09-16) — false hides the entry
+   *  pencil, the summary pencil and the 成約 control on a record this viewer's
+   *  store assignment does not cover.
+   *
+   *  ⚠ ABSENT MEANS ALLOWED HERE, the opposite of the two gates above, and
+   *  deliberately: those name a CAPABILITY, so an unknown answer must hide;
+   *  this one names a store, and every karute a phone could already open was
+   *  one it could already edit. A baked shell holding a payload minted before
+   *  this field existed keeps exactly today's screen until its next build —
+   *  the SERVER refuses the write either way, so the cost of the old look is a
+   *  refused tap, never an unlocked door. */
+  staffCanEditRecord: z.boolean().optional(),
   /** R8 discarded-record door (⚖ Liam 2026-09-13, A10): non-null exactly
    *  when this karute is DISCARDED. `.optional()` for the same compat
    *  reason as staffCanRegenerate above — a pre-PR phone ignores the key

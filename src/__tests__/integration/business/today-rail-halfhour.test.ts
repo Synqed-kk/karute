@@ -89,9 +89,17 @@ import {
 } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
+
+// ⚖ D-53 (u)/(n2b2) — the whole-board map, for every direct call this file
+// makes to a widened whole-board function: empty `byLaneKey` so every lane
+// falls to the generic row, STORE_A's own (chiropractic ≡ other, D-13) —
+// runtime expected sentences are unchanged.
+const LANE_WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.chiropractic }
+const A_WORDS = RESOURCE_WORDS.chiropractic
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function screenProps(node: any): TodayProps | null {
@@ -160,7 +168,7 @@ function sceneOf(moves: Moves, bedMoves: Moves, blockMoves: Moves = HIS_BLOCKS()
     [],
     [],
     REAL.hours,
-    bedMoves,
+    LANE_WORDS, bedMoves,
     REAL.bedCleanupMinutes,
   )
 }
@@ -232,7 +240,7 @@ function railsOn(lanes: BoardLane[]): GuardRail[] {
     placementFeasible: bedFree,
     protectedWindowFeasible: bedFree,
     resting: null,
-  })
+  }, LANE_WORDS)
 }
 
 const DAY_FRAME = () => ({
@@ -349,6 +357,8 @@ function readBoard(lanes: BoardLane[]): BoardRead {
             stagedId: null, now: REAL.sell.nowMinute, cleanupMinutesByBed: REAL.bedCleanupMinutes,
           },
           railsOn(after).find((r) => r.laneKey === laneKey)?.cells.find((x) => x.start === start) ?? null,
+          REAL.words,
+          REAL.genericWords,
         ),
     },
     // ⚖ ruling 1 — the screen's own door (TodayScreen `bedsOver`), out of
@@ -361,6 +371,7 @@ function readBoard(lanes: BoardLane[]): BoardRead {
       if (!answer.compatibleRoomsExist) return null
       return { full: answer.laneKey === null, keys: () => views.world.freeBedKeys(start, end, asker) }
     },
+    words: LANE_WORDS,
   })
   // ⚖ 8/30 「one number」 — R-E lives here rather than in a pin of its own: the
   // counter is part of every board's reading, so a round that moved it moves
@@ -614,6 +625,7 @@ describe('§R-B — しろう’s quiet 14:30 says where the sale went (shot 1.3
           if (!answer.compatibleRoomsExist) return null
           return { full: answer.laneKey === null, keys: () => views.world.freeBedKeys(start, end, asker) }
         },
+        words: LANE_WORDS,
         ...over,
       })
     const box: SellCell = { laneKey: 'c-03', resourceKey: 'bed-02', group: 'staff', staff: 'c-03', bed: 'ベッド2', h: 870, e: 930, price: 7010, tier: 2 }
@@ -669,15 +681,15 @@ describe('§R-C — ごろう’s 14:00 fits by moving さくら one bed over (s
       stagedId: null, now: REAL.sell.nowMinute, cleanupMinutesByBed: REAL.bedCleanupMinutes,
     }
     const cell = railsOn(lanes).find((r) => r.laneKey === 'p-05')!.cells.find((x) => x.start === 840)!
-    const drop = landingVerdict(lanes, { ...q, pack: true }, cell)
+    const drop = landingVerdict(lanes, { ...q, pack: true }, cell, REAL.words, REAL.genericWords)
     // The drop moves exactly one person, and the mark named that person.
     expect(drop.reseats).toEqual([{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }])
     expect(companionLines(lanes, companionsFor(lanes, drop.reseats))).toEqual(['見本 さくら様 ベッド1 → ベッド2'])
     // …and the amber the chip wears is the drop's own verdict on the board the
     // shuffle leaves — never the guard read a second way.
-    const after = applyBedMoves(lanes, companionsFor(lanes, drop.reseats), REAL.hours, REAL.bedCleanupMinutes)
+    const after = applyBedMoves(lanes, companionsFor(lanes, drop.reseats), REAL.hours, LANE_WORDS, REAL.bedCleanupMinutes)
     const afterCell = railsOn(after).find((r) => r.laneKey === 'p-05')!.cells.find((x) => x.start === 840)!
-    const staged = landingVerdict(after, q, afterCell)
+    const staged = landingVerdict(after, q, afterCell, REAL.words, REAL.genericWords)
     expect(staged.kind).toBe('caution')
     expect(readBoard(lanes).lanes['p-05'].chips.find((x) => x.start === 840)!.sentence).toContain(staged.reason!)
   })
@@ -724,7 +736,7 @@ function handRails(lanes: BoardLane[]) {
     open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
     nowMinute: null, locked: [], guard: HAND_GUARD, excludeId: null,
     placementFeasible: bedFree, protectedWindowFeasible: bedFree, resting: null,
-  })
+  }, LANE_WORDS)
 }
 
 function explainHand(lanes: BoardLane[], over: Partial<Parameters<typeof explainRails>[2]> = {}) {
@@ -742,6 +754,7 @@ function explainHand(lanes: BoardLane[], over: Partial<Parameters<typeof explain
       if (!answer.compatibleRoomsExist) return null
       return { full: answer.laneKey === null, keys: () => views.world.freeBedKeys(start, end, asker) }
     },
+    words: LANE_WORDS,
     ...over,
   })
 }
@@ -794,7 +807,15 @@ describe('§R-D — the precedence Liam approved, rung by rung', () => {
     }
   })
 
-  it('a lane sharing no store with any room keeps the bare 「—」 and the no-rooms sentence — never 満室 (#777)', () => {
+  it('a lane sharing no store with any room keeps the bare 「—」 and no refusal — never 満室 (#777, ⚖ D-52 (a))', () => {
+    // ⚖ ROUND 3 · C — p-01's store ('store-z') owns no bed lane on this MIXED
+    // board (bed-01 belongs to 'store-a'), which is exactly item 8's mixed-board
+    // case: `bedDoor`'s per-lane `roomless` short-circuit now answers this
+    // lane's window `true` (feasible on staff time alone), so the guard treats
+    // it as protectable staff capacity rather than refusing it as a phantom
+    // full house. The word and the mark stay bare; the sentence is whatever
+    // `railExplain`'s base/E3b composition prints for THIS pocket now — never
+    // 満室 and never a bed refusal.
     const lanes = [
       handLane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-z'] }),
       handLane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
@@ -802,8 +823,11 @@ describe('§R-D — the precedence Liam approved, rung by rung', () => {
     const said = explainHand(lanes).get('p-01')!.get(780)!
     expect(said.word).toBeNull()
     expect(said.cue).toBeNull()
-    expect(said.sentence).toBe('この店舗には使えるベッドがありません')
+    expect(said.sentence).toBe(
+      '13:00〜14:30の新規90分の空き6→5（1枠減・損を減らす）。10:00はこの区間で損が最少の開始です（13:00〜14:00）。この開始には販売可能枠が出ていません',
+    )
     expect(said.sentence).not.toContain('満室')
+    expect(said.sentence).not.toContain('ベッド')
   })
 })
 
@@ -866,11 +890,12 @@ function explainWith(lanes: BoardLane[], allocate: typeof allocateBed, over: { h
     placementFeasible: bedDoor(views, lanes, handId),
     protectedWindowFeasible: bedDoor(views, lanes, null),
     resting: null,
-  })
+  }, LANE_WORDS)
   return explainRails(rails, lanes, {
     dur, handId, stagedId: null, sellCells: [], claims: [], drops: [],
     inHand: over.inHand ?? false, sellDisplayed: true,
     allocate,
+    words: LANE_WORDS,
     bedsOver: (laneKey, start, end) => {
       const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
       if (!lane) return null
@@ -894,6 +919,8 @@ function explainWith(lanes: BoardLane[], allocate: typeof allocateBed, over: { h
             stagedId: null, now: REAL.sell.nowMinute, cleanupMinutesByBed: REAL.bedCleanupMinutes,
           },
           railsOn(after).find((r) => r.laneKey === laneKey)?.cells.find((x) => x.start === start) ?? null,
+          REAL.words,
+          REAL.genericWords,
         ),
     },
   })
@@ -1045,7 +1072,7 @@ function liveRig(rest: BoardLane[], hand: { id: string; bed: string }) {
       [],
       [],
       REAL.hours,
-      { [hand.id]: { laneKey: hand.bed, ...span } },
+      LANE_WORDS, { [hand.id]: { laneKey: hand.bed, ...span } },
       cleanup,
     )
     return span
@@ -1075,13 +1102,15 @@ function liveRig(rest: BoardLane[], hand: { id: string; bed: string }) {
         allocate: memo.allocate,
       },
       cell,
+      REAL.words,
+      REAL.genericWords,
     )
   /** `verdictAtLanding` — the gesture END, whole: the solve, and the guard's
    *  re-read on the board the shuffle would leave. */
   const dropAt = (laneKey: string, start: number) => {
     const v = verdictFor(laneKey, start, cellAt(boardLanes, laneKey, start, hand.id), true)
     if (v.reseats.length === 0) return v
-    const shuffled = applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), REAL.hours, cleanup)
+    const shuffled = applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), REAL.hours, LANE_WORDS, cleanup)
     return { ...verdictFor(laneKey, start, cellAt(shuffled, laneKey, start, hand.id), true, shuffled), reseats: v.reseats }
   }
   /** `solveBed` — the second door, which STAGES the answer. */
@@ -1285,7 +1314,7 @@ function railsOnFor(lanes: BoardLane[], excludeId: string | null): GuardRail[] {
     placementFeasible: bedDoor(views, lanes, excludeId),
     protectedWindowFeasible: bedDoor(views, lanes, null),
     resting: null,
-  })
+  }, LANE_WORDS)
 }
 
 describe('§BEHAVIOURAL (v) — a live drag pays for each question ONCE, and the drop pays for none', () => {
@@ -1577,13 +1606,13 @@ describe('§BEHAVIOURAL (v) — a live drag pays for each question ONCE, and the
       // its third argument — asserted against `reseatSentence` itself, never
       // against a second spelling of the clause, which is the defect the
       // composer was lifted to prevent.
-      const costly = reseatSentence(BASE, LINES, chipTail(slotOf({ kind: 'caution', reason: REASON })))
-      expect(costly).toBe(reseatSentence(BASE, LINES, REASON))
+      const costly = reseatSentence(BASE, LINES, chipTail(slotOf({ kind: 'caution', reason: REASON })), A_WORDS)
+      expect(costly).toBe(reseatSentence(BASE, LINES, REASON, A_WORDS))
       expect(costly.endsWith(`。${REASON}`)).toBe(true)
       // …and a swap that costs nothing still ends at the companions, exactly as
       // it does at rest.
-      const free = reseatSentence(BASE, LINES, chipTail(slotOf({ kind: 'clean', reason: null })))
-      expect(free).toBe(reseatSentence(BASE, LINES, null))
+      const free = reseatSentence(BASE, LINES, chipTail(slotOf({ kind: 'clean', reason: null })), A_WORDS)
+      expect(free).toBe(reseatSentence(BASE, LINES, null, A_WORDS))
       expect(free).not.toContain(REASON)
       expect(free.endsWith(`（${LINES[0]}）`)).toBe(true)
     }
@@ -1819,6 +1848,7 @@ describe('§F3 — the sold mark is a HALF-HOUR fact, not the 60-minute verdict�
           if (!answer.compatibleRoomsExist) return null
           return { full: answer.laneKey === null, keys: () => views.world.freeBedKeys(start, end, asker) }
         },
+        words: LANE_WORDS,
         ...over,
       }).get('p-04')!
     const soldAt = (over: Partial<Parameters<typeof explainRails>[2]>, start: number) => ask(over).get(start)!.cue
@@ -1848,7 +1878,7 @@ describe('§F4 — the ⇄ mark’s tone and caution are the CREATE path’s own
     // helper `verdictAtLanding` uses (DESIGN §5).
     const ask = { id: null, currentBed: null, stores: laneOf(lanes, 'p-05').stores, requiresPrivate: false, start: 840, end: 840 + dur }
     const packed = allocateBed(lanes, { ...ask, pack: true, now: REAL.sell.nowMinute, cleanupMinutesByBed: REAL.bedCleanupMinutes })
-    const after = applyBedMoves(lanes, companionsFor(lanes, packed.reseats), REAL.hours, REAL.bedCleanupMinutes)
+    const after = applyBedMoves(lanes, companionsFor(lanes, packed.reseats), REAL.hours, LANE_WORDS, REAL.bedCleanupMinutes)
 
     // The CREATE path's own landing: a NEW placement, no booking, no 個室 tag —
     // exactly what an operator dropping a fresh 60 at 14:00 would be told.
@@ -1862,6 +1892,8 @@ describe('§F4 — the ⇄ mark’s tone and caution are the CREATE path’s own
         stagedId: null, now: REAL.sell.nowMinute, cleanupMinutesByBed: REAL.bedCleanupMinutes,
       },
       railsOn(after).find((r) => r.laneKey === 'p-05')!.cells.find((x) => x.start === 840) ?? null,
+      REAL.words,
+      REAL.genericWords,
     )
     expect(create.kind).toBe('caution')
     // Tone and clause, both of them the verdict's own — never a second reading.
@@ -1962,6 +1994,7 @@ describe('§B — 新規用 keeps its hatch, labelled, and never carries somebod
         if (!answer.compatibleRoomsExist) return null
         return { full: answer.laneKey === null, keys: () => views.world.freeBedKeys(start, end, asker) }
       },
+      words: LANE_WORDS,
     }).get(laneKey)!
     const spans = drawHeld ? new Map(heldDrawnFor(held, lanes, []).map((m) => [m.laneKey, m.spans])) : new Map()
     const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')!
@@ -2037,7 +2070,7 @@ describe('§C — one gate for the round: no door, nothing derived (L2-m1)', () 
       const box: SellCell = { laneKey: 'c-03', resourceKey: 'bed-02', group: 'staff', staff: 'c-03', bed: 'ベッド2', h: 870, e: 930, price: 7010, tier: 2 }
       const common = {
         dur, handId: null, stagedId: null, sellCells: [box], claims: [], drops: [],
-        inHand: false, sellDisplayed: true,
+        inHand: false, sellDisplayed: true, words: LANE_WORDS,
       }
       const off = explainRails(rails, lanes, common)
       const on = explainRails(rails, lanes, { ...common, bedsOver: () => null })
@@ -2103,9 +2136,9 @@ describe('§G2 — 新規用 beats 満室 at the composer, where the only road t
     }
     const room = { refusal: '13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様）が使用中です', blockers: [{ kind: 'booking' } as unknown as BoardItem] }
     const full = { full: true, refusal: room.refusal, blockers: room.blockers }
-    const plain = railExplain(cell, 60, { room, halfHour: full })
+    const plain = railExplain(cell, 60, { room, halfHour: full, words: A_WORDS })
     expect(plain.word).toBe('満室')
-    const held = railExplain(cell, 60, { room, halfHour: full, reservedHalf: true, reservedDur: 90 })
+    const held = railExplain(cell, 60, { room, halfHour: full, reservedHalf: true, reservedDur: 90, words: A_WORDS })
     expect({ word: held.word, wordReason: held.wordReason, cue: held.cue }).toEqual({
       word: '新規用', wordReason: 'guard', cue: { kind: 'guard', label: ['新規用'] },
     })
@@ -2138,10 +2171,10 @@ describe('§H1 — the door answers on the board the chip is judged on (D1-M1)',
       open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
       nowMinute: null, locked: [], guard: HAND_GUARD, excludeId: handId,
       placementFeasible: door, protectedWindowFeasible: bedDoor(views, lanes, null), resting: null,
-    })
+    }, LANE_WORDS)
     return explainRails(rails, lanes, {
       dur: 60, handId, stagedId: null, sellCells: [], claims: [], drops: [],
-      inHand: false, sellDisplayed: true, ...over,
+      inHand: false, sellDisplayed: true, words: LANE_WORDS, ...over,
     })
   }
 
@@ -2383,10 +2416,10 @@ describe('§H9 — a 個室のみ card in hand is asked about ITS OWN rooms (MD1
       open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
       nowMinute: null, locked: [], guard: HAND_GUARD, excludeId: handId,
       placementFeasible: bedDoor(views, lanes, handId), protectedWindowFeasible: bedDoor(views, lanes, null), resting: null,
-    })
+    }, LANE_WORDS)
     return explainRails(rails, lanes, {
       dur: 60, handId, stagedId: null, sellCells: [], claims: [], drops: [],
-      inHand: false, sellDisplayed: true, bedsOver: doorOn(lanes, handId), ...over,
+      inHand: false, sellDisplayed: true, bedsOver: doorOn(lanes, handId), words: LANE_WORDS, ...over,
     }).get('p-01')!
   }
 

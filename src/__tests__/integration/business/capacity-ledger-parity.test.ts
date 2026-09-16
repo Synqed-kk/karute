@@ -529,7 +529,16 @@ describe('P2 — with a card in hand, worldMinusHand IS the rail’s excluded wo
 
 /** The rail the screen builds — the same call shape as TodayScreen's `rails`
  *  memo (stepMin 30, canon's own), for any board. */
-function railsFor(lanes: BoardLane[], hours: { open: number; close: number }, excludeId: string | null, dur: number, nowMinute: number | null = null) {
+function railsFor(
+  lanes: BoardLane[],
+  hours: { open: number; close: number },
+  excludeId: string | null,
+  dur: number,
+  nowMinute: number | null = null,
+  // ⚖ D-53 (u)/(n2b2) — the caller's own map; the one caller below (`railsOn`)
+  // always passes REAL's own row.
+  words: { byLaneKey: Record<string, TodayProps['words']>; generic: TodayProps['words'] },
+) {
   return guardRailsFor(lanes, {
     open: hours.open,
     close: hours.close,
@@ -541,12 +550,12 @@ function railsFor(lanes: BoardLane[], hours: { open: number; close: number }, ex
     guard: REAL.guard.config,
     excludeId,
     placementFeasible: bedFeasibility(lanes, excludeId),
-  })
+  }, words)
 }
 
 /** …and the same thing for the real board, at its own clock. */
 const railsOn = (props: TodayProps, excludeId: string | null, dur = props.guard.standardSessionMin) =>
-  railsFor(props.lanes, props.hours, excludeId, dur, props.sell.nowMinute)
+  railsFor(props.lanes, props.hours, excludeId, dur, props.sell.nowMinute, { byLaneKey: {}, generic: props.words })
 
 // ═══════════════════════════════════════════════════════════════════════════
 // P3 — 満室 RUNS ≡ THE STARTS THE RAIL REFUSES FOR WANT OF A ROOM
@@ -678,7 +687,9 @@ describe('P3 — fullRuns is the book’s own bedFor walk, and the rail agrees w
       protectedDur: REAL.guard.protectedDurationMin, nowMinute: null, locked: [],
       guard: REAL.guard.config, excludeId: null,
       placementFeasible: bedFeasibility(lanes, null),
-    }).find((r) => r.laneKey === 'p-free')!
+      // ⚖ D-53 (u)/(n2b2) — `NO_ROOM` below is hardcoded to ベッド, so this
+      // synthetic board's own row must be REAL's (STORE_A/chiropractic).
+    }, { byLaneKey: {}, generic: REAL.words }).find((r) => r.laneKey === 'p-free')!
     const refused = rail.cells.filter((c) => NO_ROOM(dur).test(c.sentence) && c.start + dur <= hours.close)
     expect(refused.length).toBeGreaterThan(0)
     for (const cell of refused) {

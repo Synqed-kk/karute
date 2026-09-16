@@ -19,7 +19,9 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { extractBearer } from '@/lib/app-api/identity'
+import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { newSynqedClient } from '@/lib/synqed/client'
+import { resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
 import {
   discardRecordingWithClient,
   discardRecordingWithReasonRow,
@@ -38,9 +40,22 @@ export const POST = facadeHandler('recordings.discard', async (ctx) => {
   }
 
   const businessId = ctx.identity.businessId
+  const synqed = newSynqedClient(businessId, extractBearer(ctx.req))
+  // Store lock input (⚖ Liam 2026-09-16) — the ASSIGNMENT is the basis, never
+  // a client-set store-id header, and (fold round 2) the caller must be PLACED
+  // in the roster at all: core answers `{ store_ids: [] }` for an auth id it
+  // holds no staff row for, so an unplaceable caller would otherwise file
+  // discards anywhere as floating. Either failure throws store_forbidden here,
+  // fail-closed, before the choke point is reached.
   const actor = {
     staffId: ctx.identity.authUserId,
     businessId,
+    scope: await resolveWriteStoreScope({
+      synqed,
+      authUserId: ctx.identity.authUserId,
+      capabilities: ctx.identity.capabilities,
+      selfStaffId: await resolveSelfStaffId(businessId, ctx.identity.authUserId),
+    }),
     source: 'facade' as const,
     requestId: ctx.meta.requestId,
   }
@@ -49,7 +64,6 @@ export const POST = facadeHandler('recordings.discard', async (ctx) => {
   // is the receipt-only shape. ONE endpoint either way — the phone and the web
   // page must not be able to drift into different discard semantics, and both
   // shapes are `.strict()`, so a body is never ambiguous about which it is.
-  const synqed = newSynqedClient(businessId, extractBearer(ctx.req))
   const hasReason =
     typeof body === 'object' && body !== null && 'reason' in (body as Record<string, unknown>)
   const result = hasReason
@@ -63,8 +77,11 @@ export const POST = facadeHandler('recordings.discard', async (ctx) => {
     // The chokepoint's own attribution guard — unreachable from here (Bearer
     // identity always carries both ids), mapped honestly rather than being
     // reported as an upstream failure if that ever stops being true.
+    // Two causes, one answer: an unattributable receipt (unreachable from here
+    // — Bearer identity always carries both ids) and a session outside the
+    // caller's store assignment (⚖ 9/16). Deliberately indistinguishable.
     if (result.error === 'forbidden') {
-      throw new AppApiError('forbidden', 'no staff identity for this receipt')
+      throw new AppApiError('forbidden', 'this recording cannot be discarded by you')
     }
     // Covers 'discard_row_failed' too — the reason row is the trace, so
     // losing it is exactly as fatal as losing the receipt.

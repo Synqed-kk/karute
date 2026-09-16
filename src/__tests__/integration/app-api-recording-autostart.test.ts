@@ -20,8 +20,18 @@ jest.mock('@supabase/supabase-js', () => ({
     },
   }),
 }))
+// ⚖ fold round 2: the route PLACES the caller in the roster before it resolves
+// a store scope (resolveSelfStaffId → staffListByBusinessOrThrow). Default =
+// placed, so every case below is unchanged; the unplaceable case is its own
+// test.
+// resolveSelfStaffId's chain (customer-facade → customers/queries) has a
+// top-level value import of the real ESM client — stub it so jest never parses
+// the package's ESM re-export (same convention as app-api-karute-entry-edit).
+jest.mock('@synqed-kk/client', () => ({}))
+const roster = { current: [{ id: 'auth-user-1', full_name: '田中' }] as { id: string; full_name: string }[] }
 jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
+  staffListByBusinessOrThrow: jest.fn(async () => roster.current),
 }))
 
 const mockCapabilities = jest.fn(async () => new Set(['settings.manage']))
@@ -41,7 +51,15 @@ jest.mock('@/lib/settings/recording-autostart', () => ({
   setRecordingAutostartWithClient: (...a: unknown[]) => setRecordingAutostartWithClient(...a),
 }))
 
-const fakeClient = { orgSettings: {}, stores: {} }
+// staffStores feeds the route's store-lock resolution (⚖ 9/16). Empty = a
+// floating caller (works in every store), so every case below is unchanged;
+// the clamped case has its own test.
+const assignedStores = { current: [] as string[] }
+const fakeClient = {
+  orgSettings: {},
+  stores: {},
+  staffStores: { get: jest.fn(async () => ({ store_ids: assignedStores.current })) },
+}
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: (businessId: string) => newSynqedClient(businessId),
@@ -71,6 +89,8 @@ function req(body: unknown, rawBody = false) {
 beforeEach(() => {
   jest.clearAllMocks()
   mockCapabilities.mockResolvedValue(new Set(['settings.manage']))
+  assignedStores.current = []
+  roster.current = [{ id: 'auth-user-1', full_name: '田中' }]
   setRecordingAutostartWithClient.mockResolvedValue({ ok: true, storeIds: ['store-1'] })
 })
 
@@ -102,6 +122,42 @@ describe('POST /api/app/v1/org-settings/recording-autostart', () => {
     expect(setRecordingAutostartWithClient).not.toHaveBeenCalled()
   })
 
+  // ⚖ fold round 2 — core answers `{ store_ids: [] }` for an auth id it holds
+  // no staff row for, indistinguishable from genuinely floating staff. A
+  // caller the roster cannot place is refused before any scope is handed out.
+  it('a caller with NO roster row is refused, never treated as floating', async () => {
+    roster.current = []
+    const res = await POST(req({ storeId: 'store-1', enabled: true }), route)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe('store_forbidden')
+    expect(setRecordingAutostartWithClient).not.toHaveBeenCalled()
+  })
+
+  it('a PLACED floating caller (empty assignment) is unchanged', async () => {
+    assignedStores.current = []
+    await POST(req({ storeId: 'store-1', enabled: true }), route)
+    expect(setRecordingAutostartWithClient).toHaveBeenCalledWith(
+      fakeClient,
+      expect.objectContaining({ scope: expect.objectContaining({ allowedStoreIds: null }) }),
+      'store-1',
+      true,
+    )
+  })
+
+  // ⚖ 9/16 — the route hands the choke point the caller's OWN assignment; a
+  // store outside it is refused there, and the route maps it to the SAME 400 a
+  // foreign store gets (the reply never enumerates the other branches).
+  it('passes the caller\'s resolved assignment to the choke point', async () => {
+    assignedStores.current = ['store-1']
+    await POST(req({ storeId: 'store-1', enabled: true }), route)
+    expect(setRecordingAutostartWithClient).toHaveBeenCalledWith(
+      fakeClient,
+      expect.objectContaining({ scope: expect.objectContaining({ allowedStoreIds: ['store-1'] }) }),
+      'store-1',
+      true,
+    )
+  })
+
   it('a foreign store → 400 validation (the choke point\'s unknown_store maps to validation)', async () => {
     setRecordingAutostartWithClient.mockResolvedValueOnce({ ok: false, error: 'unknown_store' })
     const res = await POST(req({ storeId: 'store-foreign', enabled: true }), route)
@@ -124,7 +180,14 @@ describe('POST /api/app/v1/org-settings/recording-autostart', () => {
     expect(newSynqedClient).toHaveBeenCalledWith('business-1')
     expect(setRecordingAutostartWithClient).toHaveBeenCalledWith(
       fakeClient,
-      expect.objectContaining({ staffId: 'auth-user-1', businessId: 'business-1', source: 'facade' }),
+      expect.objectContaining({
+        staffId: 'auth-user-1',
+        businessId: 'business-1',
+        source: 'facade',
+        // ⚖ 9/16 — the route resolves the caller's own assignment and hands it
+        // to the choke point; an empty set is the floating (unclamped) shape.
+        scope: expect.objectContaining({ allowedStoreIds: null }),
+      }),
       'store-1',
       true,
     )

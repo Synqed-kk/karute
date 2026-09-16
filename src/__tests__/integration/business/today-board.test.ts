@@ -52,6 +52,7 @@ import {
   staffQualifications,
 } from '@/business/lib/fixtures-today'
 import { allocateBed, applyMoves, sellLayerFor } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import { money } from '@/business/lib/canon-logic/pricing'
 import {
   availableMinutes,
@@ -486,7 +487,11 @@ describe('今日の運営 screen', () => {
     // known one rather than an accident.
     expect(factOf('apt-29', '予約種別')[1]).toContain('単発')
     const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
-    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],")
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: N2a resolves the tag's word from the
+    // booking's own store (site #29) instead of the literal '個室のみ・'; the
+    // rest of this row's shape (the ternary, CATEGORY_WORD, the source split)
+    // is byte-identical.
+    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? `${(wordsByStore[storeOfBooking.get(b.id) ?? ''] ?? words).privateWord ?? genericWords.privateWord}のみ・` : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],")
     expect(PAGE).toContain("['担当・設備', `${b.staffName} / ${b.resourceName}`],")
   })
 
@@ -1138,12 +1143,13 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
     // which is exactly why the data fix reaches it: there are none to key off.
     const held = p.lanes.flatMap((l) => l.items).find((i) => i.kind === 'booking' && i.caseId)!
     const lane = p.lanes.find((l) => l.items.includes(held))!
+    const WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.other }
     const staged = applyMoves(
       p.lanes,
       { [held.caseId!]: { laneKey: lane.key, x: held.x + 5, w: held.w } },
-      [], [], hours,
+      [], [], hours, WORDS,
     )
-    for (const board of [applyMoves(p.lanes, {}, [], [], hours), staged]) {
+    for (const board of [applyMoves(p.lanes, {}, [], [], hours, WORDS), staged]) {
       const items = board.flatMap((l) => l.items)
       expect(items.filter((i) => i.kind === 'cleanup')).toEqual([])
       for (const i of items) expect(i.label).not.toContain('清掃')
@@ -1213,8 +1219,11 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
     // The one piece of copy that describes the CONVENTION rather than a block on
     // the board. Gated on the dial, so a store that cleans keeps its sentence
     // and a store that does not never promises 予約不可時間 it is not holding.
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: site #24 additionally gates on the
+    // CHROME store's `turnover` capability (C6) and reads its own
+    // `turnoverWord` instead of the literal 清掃.
     expect(screen).toContain(
-      "props.bedCleanupOn ? '清掃を予約不可時間として表示' : '予約と予定ブロックを表示'",
+      "props.bedCleanupOn && caps.turnover ? `${w.turnoverWord!}を予約不可時間として表示` : '予約と予定ブロックを表示'",
     )
   })
 
@@ -1347,6 +1356,19 @@ describe('⚖ R8 T1 — the 価格保持 根拠 follows the booking’s own pric
     for (const proof of ['ベッド1を確保', null]) {
       expect(bookingProofs(proof, false)).toEqual(bookingProofs(proof, true).filter((p) => p !== PROOF))
     }
+  })
+
+  /** ⚖ D-53 (c) R2 (G3) — hasUnits IS THE STORE'S OWN AXIS. A no-unit store has
+   *  nothing undecided, so its resource line is SILENCE — never 未確定, never a
+   *  「設備なし」 sentence — regardless of whether a resource proof happens to
+   *  be non-null. The default (no third argument) keeps today's answer. */
+  it('bookingProofs(…, hasUnits: false) omits the 未確定 line, never a real proof (G3)', () => {
+    expect(bookingProofs('ベッド1を確保', true, false)).toEqual(['担当の勤務時間内', '休憩と重ならない', 'ベッド1を確保', PROOF])
+    expect(bookingProofs(null, false, false)).toEqual(['担当の勤務時間内'])
+    expect(bookingProofs(null, true, false)).toEqual(['担当の勤務時間内', PROOF])
+    // …and the default (today's answer) is unmoved.
+    expect(bookingProofs(null, false)).toEqual(['担当の勤務時間内', '設備の割当てが未確定'])
+    expect(bookingProofs('ベッド1を確保', true)).toEqual(['担当の勤務時間内', '休憩と重ならない', 'ベッド1を確保', PROOF])
   })
 
   /** ⚖ BREAKER-828 DELTA G4 — A FIXTURE-CONSISTENCY PIN, AND IT SAYS SO.

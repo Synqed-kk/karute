@@ -1050,7 +1050,47 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en       134,342 → 134,342 — unchanged: the separator reuses a key the
 //     bundle already shipped, so the round adds NO new string.
 //   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
-const BUDGET_BYTES = 2_115_859
+//
+// RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-week-face
+// (PR #929, merge commit 320ec111f234b48cb6562ecb2820db8f68dee31a) — this
+// constant was one of the merge's six ruled conflicts (union of both chains,
+// re-measure after). Same CI recipe, thin/dist emptied between two clean
+// builds, byte-identical both times (node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock): en 134,223 · index 1,033,464 · vendor 937,791 =
+// 2,105,478 B. Ceiling = 2,105,478 + 1,000.
+//
+// RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-month-grid
+// (PR #931) — union of both chains above (this branch's own #931 history plus
+// the #929-into-main re-measure entry it had not yet seen). Same CI recipe,
+// thin/dist emptied between two clean builds, byte-identical both times (node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock): en 134,223 · index
+// 1,038,559 · vendor 937,791 = 2,110,573 B. Ceiling = 2,110,573 + 1,000.
+//
+// RE-MEASURED 2026-09-16 (two-hunks correction) — the two remaining #931
+// conflicts landed: DayNumbersLine.tsx's shims (LinePill → main's explicit
+// 11px spans, font-bold → font-semibold) and DateJumpPanel.tsx's open effect
+// (main's `drawn`/`setDrawn` progressive-draw feature + this branch's
+// `defaultLevel === 2` dispatch, both). Same CI recipe, thin/dist emptied
+// between two clean builds, byte-identical both times (node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock): en 134,223 · index 1,039,146 ·
+// vendor 937,791 = 2,111,160 B. Ceiling = 2,111,160 + 1,000.
+// RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-month-card
+// (PR #932) — union of both chains above (this branch's own 4b/FIX-ROUND R1
+// history plus the #929/#931-into-main re-measure entries it had not yet
+// seen). The merge also restored DayNumbersLine.tsx's `className` passthrough
+// (SelectedDayCard.tsx's own call site) on top of main's flat 13px wrapper —
+// dropped by the raw three-way and put back by hand so the card's own padding
+// override still applies. Same CI recipe, thin/dist emptied between two clean
+// builds, byte-identical both times (node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock): en 134,452 · index 1,043,010 · vendor 937,791 =
+// 2,115,253 B. Ceiling = 2,115,253 + 1,000.
+// RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-month-compare
+// (PR #935) — union of both chains above (this branch's own PIECE-4c/FIX-ROUND-R1
+// history plus main's #929/#931/#932-into-main re-measure entries it had not yet
+// seen). Placeholder pending this merge's own two-lap thin build measurement;
+// the real constant is set in a separate final commit per the packet's rule
+// (measured + 1,000, never picked from either side).
+const BUDGET_BYTES = 2_116_253 // placeholder, re-measured below before push
 
 let dir
 try {

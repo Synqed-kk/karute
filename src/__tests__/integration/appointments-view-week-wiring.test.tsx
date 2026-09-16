@@ -20,15 +20,30 @@ jest.mock('next-intl', () => ({
   useLocale: () => 'ja',
 }))
 const pushed: string[] = []
+// G2 (FIX-932-G1) — the CURRENT location's search, as `next/navigation`'s
+// useSearchParams (the same hook AppointmentsView now reads) would answer it.
+// The push mock updates it like a real router.push does; the back-gesture
+// tests below move it directly, since a real back gesture never calls push.
+let currentSearch = ''
+// G2B — on the web, `useSearchParams()` does NOT move in the same batch as
+// the push: Next resolves the transition first, then the URL/context update.
+// `pushLags` lets a test model that gap (the mocked push leaves `currentSearch`
+// wherever it was — A's search — instead of jumping to the target the instant
+// `push` is called, the way the shell's synchronous History API does).
+let pushLags = false
 jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({
     push: (href: string) => {
       pushed.push(href)
+      if (!pushLags) currentSearch = href.includes('?') ? href.split('?')[1] : ''
     },
     replace: jest.fn(),
     refresh: jest.fn(),
   }),
   usePathname: () => '/ja/appointments',
+}))
+jest.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(currentSearch),
 }))
 jest.mock('@/hooks/use-global-recorder', () => ({ useGlobalRecorder: () => ({ state: 'idle' }) }))
 jest.mock('@/lib/notifications/hooks', () => ({ useUnreadCount: () => 0 }))
@@ -95,11 +110,33 @@ jest.mock('@/lib/appointments/booking-switches', () => ({
     return mockSwitches()
   },
 }))
-jest.mock('@/components/appointments/NewBookingDialog', () => ({ NewBookingDialog: () => null }))
+// FOLD (VERIFY-932-G1) — G1's third trigger: onCreated starts a transition
+// through router.refresh(), same day, no tap, no tappedHold. Captured so a
+// test can fire it directly.
+let dialogOnCreated: (() => void) | null = null
+jest.mock('@/components/appointments/NewBookingDialog', () => ({
+  NewBookingDialog: (props: { onCreated?: () => void }) => {
+    dialogOnCreated = props.onCreated ?? null
+    return null
+  },
+}))
 jest.mock('@/components/appointments/BookingActionSheetWrapper', () => ({
   BookingActionSheetWrapper: () => null,
 }))
 jest.mock('@/components/appointments/CancelBookingSheet', () => ({ CancelBookingSheet: () => null }))
+// G4 (FIX-932-G1) — the mocked router.push above is synchronous with no real
+// state update inside it, so React's OWN useTransition never actually reports
+// isPending true here: a test that wants the month wrapper's real busy state
+// (its aria-busy IS raw isPending, not the tappedHold mismatch) has to hold it
+// pending directly. Everything else (useState, useEffect, …) stays real.
+let mockPendingFlag = false
+jest.mock('react', () => {
+  const actual = jest.requireActual('react') as typeof import('react')
+  return {
+    ...actual,
+    useTransition: () => [mockPendingFlag, (cb: () => void) => cb()] as const,
+  }
+})
 
 type WeekRowsProps = {
   rows: WeekDayRowData[]
@@ -268,6 +305,10 @@ beforeEach(() => {
   rerender = null
   Object.assign(mockSwitches(), mockShipped())
   pushed.length = 0
+  currentSearch = ''
+  pushLags = false
+  mockPendingFlag = false
+  dialogOnCreated = null
   for (const k of Object.keys(uiProps)) delete uiProps[k]
   for (const k of Object.keys(panelProps)) delete panelProps[k]
 })
@@ -461,6 +502,113 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     expect(cardProps!.pending).toBe(false)
   })
 
+  // G2 (Greptile round 1, FIX-932-G1) — the freeze the R1-1 rider above did
+  // NOT cover: the back gesture firing BEFORE the tapped day's answer ever
+  // lands. Nothing calls navigateTo (no handler runs) and the props never
+  // change at all (B's DTO never arrived, so what's on screen was A the whole
+  // time) — the old `tappedDay === selectedIso` effect had no dependency left
+  // to re-fire on, so the hold sat on B forever. Keying it to the pushed
+  // target catches this: the location genuinely changes (or, as simulated
+  // here, reverts) even though neither prop the old effect watched does.
+  it('the BACK GESTURE spends a hold that never lands — reverting to A before B answers clears it', () => {
+    renderView(MONTH_VIEW)
+    act(() => monthPageProps!.onPickDay('2026-09-17'))
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-17')
+    expect(cardProps!.pending).toBe(true)
+    // the back gesture: the browser lands the page back on A's own location
+    // WITHOUT ever calling navigateTo — no push, no new server props, B's
+    // fetch simply never lands.
+    currentSearch = ''
+    rerenderWith(MONTH_VIEW)
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
+    expect(cardProps!.dateIso).toBe('2026-09-15')
+    expect(cardProps!.pending).toBe(false)
+    const chip = (uiProps.ReservationPageHeader as Record<string, unknown>)
+      .dateDisplayCompact as { props: { children: string } }
+    expect(chip.props.children).toContain('15')
+    expect(chip.props.children).not.toContain('17')
+  })
+
+  // G2B — G2's fix (above) modelled the SHELL's timing: the push mock updated
+  // `currentSearch` synchronously, so `abandoned` never got the chance to fire
+  // WHILE a real move was still in flight. On the web `useSearchParams()` lags
+  // the push until the transition commits — `pushLags` reproduces that gap.
+  describe('WEB TIMING (G2B) — useSearchParams lags the push, isPending does not', () => {
+    it('the hold SURVIVES the whole trip while pending, even though the search never moved', () => {
+      pushLags = true
+      renderView(MONTH_VIEW)
+      mockPendingFlag = true
+      act(() => monthPageProps!.onPickDay('2026-09-17'))
+      expect(monthPageProps!.selectedDateIso).toBe('2026-09-17')
+      expect(cardProps!.pending).toBe(true)
+      const chip = () =>
+        (uiProps.ReservationPageHeader as Record<string, unknown>)
+          .dateDisplayCompact as { props: { children: string } }
+      expect(chip().props.children).toContain('17')
+      // a re-render with no new server props and the search STILL at A (the
+      // exact shape that used to clear the hold the instant it was armed).
+      rerenderWith(MONTH_VIEW)
+      expect(monthPageProps!.selectedDateIso).toBe('2026-09-17')
+      expect(cardProps!.pending).toBe(true)
+      expect(chip().props.children).toContain('17')
+    })
+
+    it('back during the trip (pending ends, the search never reached the target) clears the hold', () => {
+      pushLags = true
+      renderView(MONTH_VIEW)
+      mockPendingFlag = true
+      act(() => monthPageProps!.onPickDay('2026-09-17'))
+      expect(cardProps!.pending).toBe(true)
+      // the transition ends without ever landing — the search is still A's.
+      mockPendingFlag = false
+      rerenderWith(MONTH_VIEW)
+      expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
+      expect(cardProps!.dateIso).toBe('2026-09-15')
+      expect(cardProps!.pending).toBe(false)
+      const chip = (uiProps.ReservationPageHeader as Record<string, unknown>)
+        .dateDisplayCompact as { props: { children: string } }
+      expect(chip.props.children).toContain('15')
+      expect(chip.props.children).not.toContain('17')
+    })
+
+    it('landing (pending ends, the search catches up, the DTO arrives) clears the hold for good', () => {
+      pushLags = true
+      renderView(MONTH_VIEW)
+      mockPendingFlag = true
+      act(() => monthPageProps!.onPickDay('2026-09-17'))
+      const target = pushed[0].split('?')[1]
+      mockPendingFlag = false
+      currentSearch = target
+      rerenderWith({ ...MONTH_VIEW, selectedDateIso: '2026-09-17T00:00:00+09:00' })
+      expect(monthPageProps!.selectedDateIso).toBe('2026-09-17')
+      expect(cardProps!.pending).toBe(false)
+      // a later, unrelated prop change must not re-arm the already-spent hold.
+      rerenderWith({ ...MONTH_VIEW, selectedDateIso: '2026-09-15T00:00:00+09:00' })
+      expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
+      expect(cardProps!.pending).toBe(false)
+    })
+  })
+
+  // FOLD (VERIFY-932-G1) — G1's third trigger: a booking created on the month
+  // page (no tap, no tappedHold) runs `onCreated={() => startTransition(() =>
+  // router.refresh())}` — the SAME false→true→false pending flip on the SAME
+  // day, through `isPending` alone. Proves AppointmentsView wires that flip
+  // into the card's `pending` prop and the day lands visible, not stuck.
+  it('a booking created on the month page flips pending through refresh and the card lands visible (G1 3rd trigger)', () => {
+    renderView(MONTH_VIEW)
+    expect(cardProps!.pending).toBe(false)
+    expect(cardProps!.dateIso).toBe('2026-09-15')
+    mockPendingFlag = true
+    act(() => dialogOnCreated!())
+    rerenderWith(MONTH_VIEW)
+    expect(cardProps!.pending).toBe(true)
+    expect(cardProps!.dateIso).toBe('2026-09-15')
+    mockPendingFlag = false
+    rerenderWith(MONTH_VIEW)
+    expect(cardProps!.pending).toBe(false)
+    expect(cardProps!.dateIso).toBe('2026-09-15')
+  })
+
   it('the date-jump panel picking the day the tap came FROM is spent too', () => {
     renderView(MONTH_VIEW)
     act(() => monthPageProps!.onPickDay('2026-09-17'))
@@ -519,11 +667,35 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
   // washed out, and a second day tap during a pending read was silently
   // dropped. The month branch is not inside it any more.
   it('the 月 branch is OUTSIDE the pending wrapper — a cell tap never locks or dims the page', () => {
+    // G4 (Greptile round 1, FIX-932-G1) — isPending is false at REST, so this
+    // test used to prove nothing about the wrapper's actual busy state: a
+    // regression that wrapped the month branch in the dangerous classes only
+    // WHILE pending would still have passed. Hold the transition genuinely
+    // pending (the mocked useTransition above) so the assertions below run
+    // against the state that matters.
+    mockPendingFlag = true
     const { container, getByTestId } = renderView(MONTH_VIEW)
     getByTestId('month-page')
     expect(container.querySelector('[data-pending-dim]')).toBeNull()
     expect(getByTestId('month-page').closest('[data-pending-dim]')).toBeNull()
     expect(getByTestId('selected-day-card').closest('[data-pending-dim]')).toBeNull()
+    // DV-4B finding 1 — the marker's absence above is a proxy: a wrapper
+    // could carry the literal dangerous classes without the marker and this
+    // suite would still be green. Pin the classes themselves on the month
+    // branch's own `aria-busy` wrapper, and on every ancestor between the
+    // page root and month-page / selected-day-card.
+    const monthWrapper = getByTestId('month-page').closest('[aria-busy]')!
+    expect(monthWrapper.getAttribute('aria-busy')).toBe('true')
+    expect(monthWrapper.className).not.toContain('pointer-events-none')
+    expect(monthWrapper.className).not.toContain('opacity-50')
+    for (const testId of ['month-page', 'selected-day-card']) {
+      let node: HTMLElement | null = getByTestId(testId).parentElement
+      while (node) {
+        expect(node.className).not.toContain('pointer-events-none')
+        expect(node.className).not.toContain('opacity-50')
+        node = node.parentElement
+      }
+    }
   })
 
   it('…and the 日/週 treatment is untouched — those views still dim and block', () => {

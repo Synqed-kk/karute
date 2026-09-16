@@ -37,6 +37,14 @@ import {
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { bookFor, handBoardFor, moveSetOf, slotKey, type BookCache } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import type { DayFrame } from '@/app/[locale]/(business)/business/today/capacity-ledger'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
+
+// ⚖ D-53 (u)/(n2b2) — the whole-board map, for every direct call this file
+// makes to a widened whole-board function: empty `byLaneKey` so every lane
+// falls to the generic row, STORE_A's own (chiropractic ≡ other, D-13) —
+// runtime expected sentences are unchanged.
+const LANE_WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.chiropractic }
+const A_WORDS = RESOURCE_WORDS.chiropractic
 
 const HOURS: Hours = { open: 540, close: 1200 }
 const FRAME: DayFrame = { openMin: HOURS.open, closeMin: HOURS.close, nowMin: 540 }
@@ -610,21 +618,21 @@ describe('`reseatSentence` — the swap said once, for both layers', () => {
    *  callers, and the wording is the board's own — 入れ替え is the legend's noun
    *  (`⇄ = ベッドを入れ替えて置ける`) and the parenthesis is `companionLines`'. */
   it('the ⇄ clause, with the companion lines in the parenthesis', () => {
-    expect(reseatSentence('この30分はベッドが空いています', ['見本 さくら様 ベッド1 → ベッド2'], null)).toBe(
+    expect(reseatSentence('この30分はベッドが空いています', ['見本 さくら様 ベッド1 → ベッド2'], null, A_WORDS)).toBe(
       'この30分はベッドが空いています。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（見本 さくら様 ベッド1 → ベッド2）',
     )
   })
 
   it('several companions ride one parenthesis, joined the surface’s own way', () => {
-    expect(reseatSentence('あ', ['い', 'う'], null)).toBe('あ。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（い、う）')
+    expect(reseatSentence('あ', ['い', 'う'], null, A_WORDS)).toBe('あ。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（い、う）')
   })
 
   it('the DEGRADED tone appends the shuffle’s own sentence, never a second wording of it', () => {
-    expect(reseatSentence('あ', ['い'], '新規用の枠が1つ減ります')).toBe(
+    expect(reseatSentence('あ', ['い'], '新規用の枠が1つ減ります', A_WORDS)).toBe(
       'あ。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（い）。新規用の枠が1つ減ります',
     )
     // …and `null` adds nothing at all, which is what a clean shuffle costs.
-    expect(reseatSentence('あ', ['い'], null).endsWith('（い）')).toBe(true)
+    expect(reseatSentence('あ', ['い'], null, A_WORDS).endsWith('（い）')).toBe(true)
   })
 })
 
@@ -853,7 +861,7 @@ describe('the memo is EXACTLY the allocator — proven at every frame of random 
         // F1 — a staff-row drag writes BOTH copies at the live span.
         const liveMoves: Moves = { [sc.hand.id]: { laneKey, x: span.x, w: span.w } }
         const liveBedMoves: Moves = { [sc.hand.id]: { laneKey: sc.hand.bed, x: span.x, w: span.w } }
-        board = applyMoves(sc.lanes, liveMoves, [], [], HOURS, liveBedMoves, sc.cleanup)
+        board = applyMoves(sc.lanes, liveMoves, [], [], HOURS, LANE_WORDS, liveBedMoves, sc.cleanup)
         frames += 1
 
         // ⚖ ADJUDICATION L4 — a third of the frames move the WORLD under the card
@@ -973,9 +981,9 @@ describe('FRAME-SEAM — handBoardFor: one rule, one home, and the same array at
     // list — so it re-runs nothing and cannot produce a different byte. A copy
     // here is still CORRECT and silently re-derives the entire chain on every
     // render, which is the mutant this clause exists for.
-    expect(handBoardFor(L, null, 'apt-1', HOURS, {})).toBe(L)
-    expect(handBoardFor(L, null, null, HOURS, {})).toBe(L)
-    expect(handBoardFor(L, undefined, 'apt-1', HOURS, {})).toBe(L)
+    expect(handBoardFor(L, null, 'apt-1', HOURS, LANE_WORDS, {})).toBe(L)
+    expect(handBoardFor(L, null, null, HOURS, LANE_WORDS, {})).toBe(L)
+    expect(handBoardFor(L, undefined, 'apt-1', HOURS, LANE_WORDS, {})).toBe(L)
   })
 
   it('A STAGED CARD THAT IS NOT THE ONE IN HAND — still the same array', () => {
@@ -984,11 +992,11 @@ describe('FRAME-SEAM — handBoardFor: one rule, one home, and the same array at
     // The question is about `apt-1`; the stage belongs to `apt-9`. Restoring
     // another card's companions here would put the strip on a day nobody is
     // looking at — and would break the identity at rest for every other reader.
-    expect(handBoardFor(L, pending, 'apt-1', HOURS, {})).toBe(L)
+    expect(handBoardFor(L, pending, 'apt-1', HOURS, LANE_WORDS, {})).toBe(L)
     // …and no hand at all, with a stage open, is still the board itself: this is
     // the state the screen is in whenever a 仮押さえ is standing and nothing is
     // being dragged, i.e. most of the time a stage exists.
-    expect(handBoardFor(L, pending, null, HOURS, {})).toBe(L)
+    expect(handBoardFor(L, pending, null, HOURS, LANE_WORDS, {})).toBe(L)
   })
 
   it('THE STAGED CARD IN HAND — every companion back in the room it came from', () => {
@@ -999,16 +1007,16 @@ describe('FRAME-SEAM — handBoardFor: one rule, one home, and the same array at
     // started on has her in bed-01, and that is the day this second gesture is
     // measured from — the drop's rule, which the strip now shares.
     expect(roomOf(L, 'apt-2')).toBe('bed-02')
-    const hand = handBoardFor(L, { id: 'apt-9', companions }, 'apt-9', HOURS, {})
+    const hand = handBoardFor(L, { id: 'apt-9', companions }, 'apt-9', HOURS, LANE_WORDS, {})
     expect(hand).not.toBe(L)
     expect(roomOf(hand, 'apt-2')).toBe('bed-01')
     // …and it is exactly `lanesWithCompanionsRestored`'s answer, never a second
     // spelling of the restore: the same helper the drop has always used.
-    const same = applyBedMoves(L, companions.map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), HOURS, {})
+    const same = applyBedMoves(L, companions.map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), HOURS, LANE_WORDS, {})
     expect(hand).toEqual(same)
     // An empty companion set is a restore of nothing — the array itself, so a
     // landing that packed nobody pays nothing for this rule.
-    expect(handBoardFor(L, { id: 'apt-9', companions: [] }, 'apt-9', HOURS, {})).toBe(L)
-    expect(handBoardFor(L, { id: 'apt-9' }, 'apt-9', HOURS, {})).toBe(L)
+    expect(handBoardFor(L, { id: 'apt-9', companions: [] }, 'apt-9', HOURS, LANE_WORDS, {})).toBe(L)
+    expect(handBoardFor(L, { id: 'apt-9' }, 'apt-9', HOURS, LANE_WORDS, {})).toBe(L)
   })
 })

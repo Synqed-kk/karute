@@ -26,6 +26,13 @@ jest.mock('next/cache', () => ({
 jest.mock('next/headers', () => ({
   cookies: jest.fn(async () => ({ get: () => undefined })),
 }))
+// createAppointment now ALWAYS resolves the RBAC store scope (PKT-P4). This
+// suite isolates the form→API mapping and audit contract, not store scoping
+// (that's appointments-store-scope.test.ts) — stub the all-stores lens, same
+// convention as rbac-server-enforcement.test.ts.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
+}))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
@@ -46,6 +53,20 @@ const requireCapability = jest.fn(async (_cap: string) => {})
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: (cap: string) => requireCapability(cap),
   can: jest.fn(async () => true),
+}))
+// Store lock seam (⚖ 9/16): these cases are not about the store clamp, so the
+// resolved scope is viewAll. The PREDICATE is untouched — it lives in the pure
+// src/lib/auth/store-lock.ts, which nothing here mocks — so a lock deleted
+// from a core still shows up as a behaviour change.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: null,
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  })),
+  customerLensFor: jest.fn(() => undefined),
+  storeStaffIdSet: jest.fn(async () => null),
 }))
 
 // Restrictive operating hours for the operating-hours rejection test below.
