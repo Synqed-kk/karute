@@ -105,6 +105,30 @@ describe('⚖ D-53 (u)/(n2b1) — the sentence functions read the resolved words
       expect(gym).toBe('この清掃は直前の予約に付いています。予約を動かせば一緒に動き、予約が消えれば一緒に消えます。')
       expect(dental).toBe('この消毒は直前の予約に付いています。予約を動かせば一緒に動き、予約が消えれば一緒に消えます。')
     })
+
+    it('parkChipText carries the store\'s own privateWord (D-53 (af) item 8)', () => {
+      // The table's actual private word — both gym and dental — is 個室 (say so).
+      expect(GYM.privateWord).toBe('個室')
+      expect(DENTAL.privateWord).toBe('個室')
+      const vip = booking({ key: 'a', caseId: 'apt-1', requiresPrivateRoom: true }, 660, 750)
+      const gym = parkChipText(vip, HOURS, '8/20', GYM, G).line1
+      const dental = parkChipText(vip, HOURS, '8/20', DENTAL, G).line1
+      console.log('today-sentences parkChipText', { gym, dental })
+      expect(gym).toBe('90分・個室のみ')
+      expect(dental).toBe('90分・個室のみ')
+    })
+
+    it('landingVerdict carries the store\'s own privateWord (D-53 (af) item 8)', () => {
+      // Byte-identical to STORE_A's own (a) reason: the table's private word
+      // is 個室 for both rows, so this leg proves the row REACHES the
+      // function — the byte identity itself is the table's fact, not a
+      // discriminating check (MINOR-2 above covers discrimination).
+      const gym = landingVerdict(roomBoard, roomAsk(true), null, GYM, G).reason
+      const dental = landingVerdict(roomBoard, roomAsk(true), null, DENTAL, G).reason
+      console.log('today-sentences landingVerdict', { gym, dental })
+      expect(gym).toBe('個室のみの予約です。ベッド1は個室ではないので、個室の行に置いてください')
+      expect(dental).toBe('個室のみの予約です。ベッド1は個室ではないので、個室の行に置いてください')
+    })
   })
 
   describe('(c) the null cases — a row with no word falls back to the generic row', () => {
@@ -112,30 +136,48 @@ describe('⚖ D-53 (u)/(n2b1) — the sentence functions read the resolved words
     // null in the table (P13, resource-words.test.ts), so it takes no
     // generic fallback and needs no null-case leg here.
     const NO_PRIVATE = RESOURCE_WORDS.yoga_studio // privateWord: null, turnoverWord: null
+    // ⚖ D-53 (af) MINOR-2 — a distinguishable generic word, so a hardcoded 個室 fails
+    const G_PROBE = { ...G, privateWord: '個室X' }
 
     it('parkChipText — a null privateWord falls back to the generic 個室', () => {
       const vip = booking({ key: 'a', caseId: 'apt-1', requiresPrivateRoom: true }, 660, 750)
       expect(parkChipText(vip, HOURS, '8/20', NO_PRIVATE, G).line1).toBe('90分・個室のみ')
+      expect(parkChipText(vip, HOURS, '8/20', NO_PRIVATE, G_PROBE).line1).toBe('90分・個室Xのみ')
     })
 
     it('landingVerdict — a null privateWord falls back to the generic word in all three slots', () => {
       const v = landingVerdict(roomBoard, roomAsk(true), null, NO_PRIVATE, G)
       expect(v.reason).toBe('個室のみの予約です。ベッド1は個室ではないので、個室の行に置いてください')
+      const vProbe = landingVerdict(roomBoard, roomAsk(true), null, NO_PRIVATE, G_PROBE)
+      expect(vProbe.reason).toBe('個室Xのみの予約です。ベッド1は個室Xではないので、個室Xの行に置いてください')
     })
 
     // ⚖ m4 (PKT-BUILD-N2B1-SINGLE-LANE.md) — blockChrome itself takes an
     // already-resolved `turnoverWord: string`, never a nullable row, so the
     // generic fallback lives at the CALLER (TodayScreen.tsx), not here. A
     // wrong-lane turnover word never goes RED on this static fixture
-    // (STORE_A's own chrome word is the same literal); this source pin is
-    // the disclosed proof the fallback exists at all three call sites, and
-    // the DOM-level proof is the N2b-2 blind round's own item.
+    // (STORE_A's own chrome word is the same literal); this source pin
+    // counts the fallback expression at all three call sites (⚖ D-53 (af)
+    // MINOR-4 — a bare `toContain` proved only one; a count pin proves all
+    // three: the drag proxy, the card face, the dialog), and the DOM-level
+    // proof is the N2b-2 blind round's own item.
     it('TodayScreen resolves a missing lane turnover word from the generic row — source pin', () => {
       const SRC = readFileSync(
         join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
         'utf8',
       )
-      expect(SRC).toContain('?? props.genericWords.turnoverWord!')
+      expect(SRC.match(/\?\? props\.genericWords\.turnoverWord!/g)).toHaveLength(3)
+    })
+
+    it('page.tsx hands the generic row from the \'other\' business type — source pin', () => {
+      const SRC = readFileSync(
+        join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'),
+        'utf8',
+      )
+      // ⚖ D-53 (af) MINOR-3 — every `generic.privateWord!` / `generic.turnoverWord!`
+      // rests on page.tsx handing `other`'s row as `genericWords`; C5 pins
+      // the call COUNT, this pins the ARGUMENT.
+      expect(SRC.match(/resourceWordsFor\('other'\)/g)).toHaveLength(1)
     })
   })
 })
