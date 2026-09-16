@@ -2498,7 +2498,8 @@
           "outcome_set": "セッション結果を記録",
           "customer_reassign": "カルテの顧客を変更",
           "manual_create": "カルテを手動で作成",
-          "delete": "カルテを削除"
+          "delete": "カルテを削除",
+          "store_write_refused": "他店舗のカルテへの書き込みを拒否"
         },
         "staff": {
           "add": "スタッフを追加",
@@ -2522,6 +2523,7 @@
           "staff_stores_change": "所属店舗を変更",
           "store_create": "店舗を追加",
           "store_update": "店舗情報を更新",
+          "store_write_refused": "他店舗の設定変更を拒否",
           "sync_config_update": "予約連携設定を変更",
           "sync_run_now": "今すぐ同期を実行"
         },
@@ -2543,7 +2545,8 @@
           "no_show": "無断キャンセル",
           "restore": "予約の復元",
           "update": "予約の変更",
-          "delete": "予約の削除"
+          "delete": "予約の削除",
+          "store_write_refused": "他店舗の予約への書き込みを拒否"
         },
         "auth": {
           "pin_lockout": "PIN連続失敗によるロック"
@@ -2567,6 +2570,7 @@
           "session_cleanup": "録音を破棄",
           "share": "録音を共有",
           "take_named": "録音のアップロード先を発行（既存セッション）",
+          "store_write_refused": "他店舗の録音への書き込みを拒否",
           "take_refused_has_record": "二重紐付けを拒否",
           "transcribe": "録音を文字起こし",
           "transcribe_failed": "文字起こしに失敗",
