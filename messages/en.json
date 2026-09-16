@@ -2495,7 +2495,8 @@
           "outcome_set": "Recorded session outcome",
           "customer_reassign": "Reassigned karute customer",
           "manual_create": "Manually created karute record",
-          "delete": "Deleted karute record"
+          "delete": "Deleted karute record",
+          "store_write_refused": "Refused a write to another store's karute record"
         },
         "staff": {
           "add": "Added staff",
@@ -2519,6 +2520,7 @@
           "staff_stores_change": "Changed store assignment",
           "store_create": "Store added",
           "store_update": "Store updated",
+          "store_write_refused": "Refused a setting change for another store",
           "sync_config_update": "Booking sync settings changed",
           "sync_run_now": "Ran sync now"
         },
@@ -2540,7 +2542,8 @@
           "no_show": "No-show recorded",
           "restore": "Booking restored",
           "update": "Booking updated",
-          "delete": "Booking deleted"
+          "delete": "Booking deleted",
+          "store_write_refused": "Refused a write to another store's booking"
         },
         "auth": {
           "pin_lockout": "PIN locked after repeated failures"
@@ -2564,6 +2567,7 @@
           "session_cleanup": "Recording discarded",
           "share": "Shared recording",
           "take_named": "Recording upload address issued (existing session)",
+          "store_write_refused": "Refused a write to another store's recording",
           "take_refused_has_record": "Refused a duplicate link to a saved recording",
           "transcribe": "Transcribed recording",
           "transcribe_failed": "Transcription failed",
