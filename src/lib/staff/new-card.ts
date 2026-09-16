@@ -19,6 +19,15 @@
 import type { SynqedClient } from '@synqed-kk/client'
 import { storeCountForGate, STAFF_STORE_REQUIRED } from '@/lib/auth/store-gate'
 
+/**
+ * The placement failed AND the rollback that undoes it failed too (⚖ fold
+ * round 3, fresh-eyes F8). A card nobody asked for is on the roster and only a
+ * person can clear it, so the door says so instead of reporting the placement
+ * error and going quiet. Machine code, mapped to copy at each door — this
+ * module carries no translations by design (see the header).
+ */
+export const STAFF_CARD_LEFT_BEHIND = 'STAFF_CARD_LEFT_BEHIND'
+
 /** The ports a card mint needs. `staffStores`/`stores` are Partial because a
  *  caller in a single-store salon (or a test double) legitimately has neither;
  *  every rule below degrades safely without them. */
@@ -82,7 +91,15 @@ export async function createAndPlaceStaffCard(
     user_id: card.userId,
   })
 
-  if (card.storeIds.length > 0 && synqed.staffStores) {
+  if (card.storeIds.length > 0) {
+    // ⚖ FOLD ROUND 3 (fresh-eyes F8) — stores were ASKED FOR and this client
+    // cannot honour them. The card used to be created and simply never placed,
+    // with no error: a floating card born of a silent skip, which is the one
+    // thing this module exists to prevent. Refuse in the STORE_SCOPE_DENIED
+    // class (the literal both doors already map), and roll the card back.
+    if (!synqed.staffStores) {
+      return rollback(synqed, created.id, 'STORE_SCOPE_DENIED')
+    }
     // LAZY import, load-bearing: actions/stores' static graph reaches
     // org-settings (unstable_cache) through business-name, and dragging that
     // into every graph that mints a card is what this module's siblings avoid
@@ -96,13 +113,33 @@ export async function createAndPlaceStaffCard(
       card.storeIds,
       deps.creatorAllowedStoreIds ?? null,
     )
-    if ('error' in placed) {
-      await synqed.staff.delete(created.id).catch((err: unknown) => {
-        console.error('[new-card] rollback of an unplaced card failed:', err)
-      })
-      return { error: placed.error }
-    }
+    if ('error' in placed) return rollback(synqed, created.id, placed.error)
   }
 
   return { id: created.id }
+}
+
+/**
+ * Undo a card that could not be placed, and say which failure the caller is
+ * actually looking at.
+ *
+ * ⚖ FOLD ROUND 3 (fresh-eyes F8) — the delete was awaited but its own error
+ * only reached console.error, so a FAILED rollback returned the PLACEMENT
+ * error and left a card on the roster that nobody knew to look for. The
+ * comment above says "the degraded outcome is honest, not silent"; here it was
+ * silent. A double failure is rare, and it is exactly the case a person has to
+ * be told about, because only a person can clear it.
+ */
+async function rollback(
+  synqed: NewCardClient,
+  staffId: string,
+  placementError: string,
+): Promise<{ error: string }> {
+  try {
+    await synqed.staff.delete(staffId)
+  } catch (err) {
+    console.error('[new-card] rollback of an unplaced card failed:', err)
+    return { error: STAFF_CARD_LEFT_BEHIND }
+  }
+  return { error: placementError }
 }

@@ -15,6 +15,7 @@
 import { createStaffCore } from '@/actions/staff'
 import { createInviteCore, listInvitesWithClient, revokeInviteCore } from '@/actions/invites'
 import { setStaffStoresAtCreationCore, createStoreCore } from '@/actions/stores'
+import { STAFF_CARD_LEFT_BEHIND } from '@/lib/staff/new-card'
 import {
   INVITE_NAME_REQUIRED,
   STAFF_STORE_REQUIRED,
@@ -63,13 +64,21 @@ function client(opts: {
   assignments?: Record<string, string[]>
   roster?: string[]
   setFails?: boolean
+  /** The ROLLBACK itself fails — the double failure F8 is about. */
+  deleteFails?: boolean
+  /** A client with no staffStores port at all (a partial test double, or a
+   *  caller wired without it): storeIds it cannot honour. */
+  noStaffStoresPort?: boolean
 }) {
   const stores = (opts.stores ?? ['store-ginza', 'store-daikanyama']).map((s) =>
     typeof s === 'string' ? { id: s } : s,
   )
   const assignments = opts.assignments ?? {}
   const staffCreate = jest.fn(async () => ({ id: 'staff-new' }))
-  const staffDelete = jest.fn(async () => ({}))
+  const staffDelete = jest.fn(async () => {
+    if (opts.deleteFails) throw new Error('core down')
+    return {}
+  })
   const staffStoresSet = jest.fn(async (id: string, ids: string[]) => {
     if (opts.setFails) throw new Error('core down')
     assignments[id] = ids
@@ -89,10 +98,14 @@ function client(opts: {
           return { staff: all.slice((page - 1) * size, page * size), total: all.length }
         },
       },
-      staffStores: {
-        get: async (id: string) => ({ store_ids: assignments[id] ?? [] }),
-        set: staffStoresSet,
-      },
+      ...(opts.noStaffStoresPort
+        ? {}
+        : {
+            staffStores: {
+              get: async (id: string) => ({ store_ids: assignments[id] ?? [] }),
+              set: staffStoresSet,
+            },
+          }),
       stores: {
         list: async () => ({ stores: stores.map((s, i) => ({ ...s, is_primary: i === 0 })) }),
         create: jest.fn(async () => ({ id: 'store-new' })),
@@ -146,6 +159,34 @@ describe('a new card must name its store', () => {
       storeIds: ['store-ginza'],
     })
     expect('error' in res).toBe(true)
+    expect(c.staffDelete).toHaveBeenCalledWith('staff-new')
+  })
+})
+
+describe('a card that could not be placed is never left silently (F8)', () => {
+  it('a FAILED rollback is SURFACED — the owner is told a card is floating', async () => {
+    // Double failure: the placement failed AND the delete that undoes it
+    // failed. The caller used to hear the PLACEMENT error while a card nobody
+    // knows about sits on the roster. "The degraded outcome is honest, not
+    // silent" — this is the one crack in it.
+    const c = client({ setFails: true, deleteFails: true })
+    const res = await createStaffCore(c.api as never, 'business-1', DEPS, {
+      ...CARD,
+      storeIds: ['store-ginza'],
+    })
+    expect(res).toEqual({ error: STAFF_CARD_LEFT_BEHIND })
+    expect(c.staffDelete).toHaveBeenCalledWith('staff-new')
+  })
+
+  it('a client that cannot place staff REFUSES the storeIds — never a silent skip', async () => {
+    // storeIds asked for, no staffStores port to honour them with: the card
+    // used to be created and simply never placed, with no error at all.
+    const c = client({ noStaffStoresPort: true })
+    const res = await createStaffCore(c.api as never, 'business-1', DEPS, {
+      ...CARD,
+      storeIds: ['store-ginza'],
+    })
+    expect(res).toEqual({ error: 'STORE_SCOPE_DENIED' })
     expect(c.staffDelete).toHaveBeenCalledWith('staff-new')
   })
 })
@@ -396,6 +437,18 @@ describe('a fresh invite makes the card', () => {
       name: '新人',
     })
     expect('error' in res).toBe(true)
+    expect(c.staffDelete).toHaveBeenCalledWith('staff-new')
+  })
+
+  it('a failed invite whose ROLLBACK also fails is SURFACED, not swallowed (F8)', async () => {
+    const c = inviteClient({ stores: ['store-ginza'], deleteFails: true })
+    c.invitesCreate.mockRejectedValue(new Error('core down'))
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com',
+      role: 'STYLIST',
+      name: '新人',
+    })
+    expect(res).toEqual({ error: STAFF_CARD_LEFT_BEHIND })
     expect(c.staffDelete).toHaveBeenCalledWith('staff-new')
   })
 

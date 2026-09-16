@@ -15,7 +15,11 @@ import { requireCapability } from '@/lib/auth/require-permission'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import { audit } from '@/lib/audit'
 import { INVITE_NAME_REQUIRED } from '@/lib/auth/store-gate'
-import { createAndPlaceStaffCard, type NewCardClient } from '@/lib/staff/new-card'
+import {
+  createAndPlaceStaffCard,
+  STAFF_CARD_LEFT_BEHIND,
+  type NewCardClient,
+} from '@/lib/staff/new-card'
 import { auditWeb, resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { synqedRoleToPreset } from '@/lib/auth/permissions'
 import {
@@ -228,10 +232,16 @@ export async function createInviteCore(
     // Roll the card back: a card whose invite never existed is exactly the
     // floating card this whole change removes, and nobody would know to delete
     // it. Same posture as createStaffCore's own placement rollback.
+    // ⚖ FOLD ROUND 3 (fresh-eyes F8): a FAILED rollback is SAID OUT LOUD. The
+    // delete's own error used to reach console.error only, so the caller heard
+    // about the invite while a card nobody knows about sat on the roster.
     if (mintedStaffId && synqed.staff) {
-      await synqed.staff.delete(mintedStaffId).catch((err: unknown) => {
+      try {
+        await synqed.staff.delete(mintedStaffId)
+      } catch (err) {
         console.error('[createInvite] rollback of an inviteless card failed:', err)
-      })
+        return { error: STAFF_CARD_LEFT_BEHIND }
+      }
     }
     return { error: `Could not create invite: ${e instanceof Error ? e.message : 'unknown error'}` }
   }

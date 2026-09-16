@@ -10,6 +10,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import { STAFF_STORE_REQUIRED, STAFF_STORES_OUTSIDE_CREATOR } from '@/lib/auth/store-gate'
+import { STAFF_CARD_LEFT_BEHIND } from '@/lib/staff/new-card'
 import { createAndPlaceStaffCard } from '@/lib/staff/new-card'
 import { resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { audit } from '@/lib/audit'
@@ -213,7 +214,13 @@ export async function createStaff(data: StaffProfileInput): Promise<StaffActionR
     // The two store-at-creation refusals are MACHINE CODES the dialog maps to
     // its own copy — they are the user's answer, not an internal failure, and
     // must not be swallowed into the generic fallback below.
-    if (result.error === STAFF_STORE_REQUIRED || result.error === STAFF_STORES_OUTSIDE_CREATOR) {
+    if (
+      result.error === STAFF_STORE_REQUIRED ||
+      result.error === STAFF_STORES_OUTSIDE_CREATOR ||
+      // ⚖ Fold round 3 (F8): a card left behind by a failed rollback is the
+      // user's answer too — only a person can clear it.
+      result.error === STAFF_CARD_LEFT_BEHIND
+    ) {
       return { error: result.error }
     }
     // Never let a thrown message reach the client raw (prod strips it). Log for

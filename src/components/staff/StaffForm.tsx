@@ -244,7 +244,9 @@ export function StaffForm({
               ? tStore('assignRequiredError')
               : res.error === 'STORE_SCOPE_DENIED'
                 ? ts('staffStoreScopeDenied')
-                : res.error,
+                : res.error === 'STAFF_CARD_LEFT_BEHIND'
+                  ? ts('staffCardLeftBehind')
+                  : res.error,
           )
           return
         }

@@ -125,6 +125,7 @@ export function InviteStaffDialog({
       else if (res.error === 'INVITE_NAME_REQUIRED') setError(t('inviteNameRequired'))
       else if (res.error === 'STORE_REQUIRED_AT_CREATION') setError(t('inviteStoreRequired'))
       else if (res.error === 'INVITE_ALREADY_PENDING') setError(t('inviteAlreadyPending'))
+      else if (res.error === 'STAFF_CARD_LEFT_BEHIND') setError(tSettings('staffCardLeftBehind'))
       else setError(res.error)
       return
     }
