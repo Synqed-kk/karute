@@ -85,18 +85,40 @@ describe('PreSessionBriefCard (30-second layer)', () => {
     expect(screen.getByText('愛犬パグ')).toBeInTheDocument()
   })
 
-  it('drops a hook body that only reorders the title wording', () => {
+  it('drops a hook body that exactly restates the normalized title', () => {
     render(
       <PreSessionBriefCard
         customerName="test"
         brief={{
           ...base,
-          hooks: [{ title: '同棲中の彼氏', body: '彼氏と同棲中' }],
+          hooks: [{ title: '同棲中の彼氏', body: '同棲中の彼氏。' }],
         }}
       />,
     )
     expect(screen.getByText('同棲中の彼氏')).toBeInTheDocument()
-    expect(screen.queryByText('彼氏と同棲中')).not.toBeInTheDocument()
+    expect(screen.queryByText('同棲中の彼氏。')).not.toBeInTheDocument()
+  })
+
+  it('keeps particle distinctions that can reverse who acts on whom', () => {
+    render(
+      <PreSessionBriefCard
+        customerName="test"
+        brief={{ ...base, hooks: [{ title: '友人の紹介', body: '友人を紹介' }] }}
+      />,
+    )
+    const title = screen.getByText('友人の紹介')
+    expect(title.parentElement).toHaveTextContent('友人の紹介 — 友人を紹介')
+  })
+
+  it('keeps the Japanese prolonged-vowel mark because it changes words', () => {
+    render(
+      <PreSessionBriefCard
+        customerName="test"
+        brief={{ ...base, hooks: [{ title: 'ビル好き', body: 'ビール好き' }] }}
+      />,
+    )
+    const title = screen.getByText('ビル好き')
+    expect(title.parentElement).toHaveTextContent('ビル好き — ビール好き')
   })
 
   it('keeps a hook body when it adds meaningful suffix context', () => {
