@@ -7,7 +7,7 @@ import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import type { WeekDayRowData } from '@/lib/adapters/reservation'
 import { dayLineCells, isClosedRow, type Cell, type TypeSlot } from '@/lib/appointments/metric-menu'
-import { LinePill, VALUE_TONE_CLASS } from './WeekRows'
+import { VALUE_TONE_CLASS } from './WeekRows'
 import { NewSpark } from './NewSpark'
 
 interface DayNumbersLineProps {
@@ -23,9 +23,9 @@ interface DayNumbersLineProps {
   pending?: boolean
 }
 
-// mock `.dayline .it b` — 700, ink, tabular. The tone map (shared with the
-// week rows) supplies the colour; 700 + tabular are the line's own.
-const VALUE = 'font-bold tabular-nums'
+// mock `.dayline .it b` — 600, ink, tabular. The tone map (shared with the
+// week rows) supplies the colour; 600 + tabular are the line's own.
+const VALUE = 'font-semibold tabular-nums'
 
 // 予約 (count) carries its own unit in the value ("11件") and shows no word;
 // every other cell is value-then-word ("5新規", "41%稼働", "4時間30分予約時間").
@@ -84,11 +84,12 @@ export function DayNumbersLine({ row, soloMode, typeSlot, pending }: DayNumbersL
         // returned null, so the line vanished mid-fetch and the list jumped up
         // by its own block height — and before that it showed the previous
         // day's numbers as if they were this day's.
-        // R2-7 — the same shared pill the month line uses (WeekRows.tsx), so
-        // the two shim gaps cannot drift.
+        // Shim height 11px (2026-09-15): matches WeekRows' own pill height
+        // for a same-size (13px) value — the two surfaces now shimmer the
+        // same proportion.
         <>
-          <LinePill />
-          <LinePill />
+          <span aria-hidden className="reservation-shim inline-block h-[11px] w-[52px] rounded-full" />
+          <span aria-hidden className="reservation-shim inline-block h-[11px] w-[52px] rounded-full" />
         </>
       ) : closed ? (
         // mock: `<span class="it"><b>0件</b></span><span class="it"><b>休</b>

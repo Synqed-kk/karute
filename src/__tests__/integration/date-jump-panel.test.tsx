@@ -100,6 +100,8 @@ import { makeSpring } from '@/lib/motion/spring'
 import { jstStartOfToday, ymdInJst } from '@/lib/date/jst'
 import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
+import ja from '../../../messages/ja.json'
+import en from '../../../messages/en.json'
 
 // 2026-09-14 (月) — the day Liam's screenshots are from; JST midnight.
 const SELECTED_ISO = new Date('2026-09-14T00:00:00+09:00').toISOString()
@@ -170,14 +172,29 @@ function renderView({
 
 /** jsdom ships no PointerEvent, so fireEvent.pointerDown/Move arrive with
  *  pointerId and clientX/Y undefined — which silently sends the panel's axis
- *  lock down the wrong branch. Build the event and hang the properties on it. */
+ *  lock down the wrong branch. Build the event and hang the properties on it.
+ *
+ *  `timeStamp` is the one property that cannot ride in on Object.assign: it is
+ *  a readonly accessor on Event.prototype, so the assignment is silently
+ *  dropped, and jsdom seeds it from the REAL clock — which jest's fake timers
+ *  do NOT fake. The panel derives a flick's px/s by dividing travel by the gap
+ *  between two stamps (`onPointerMove`), so any test that asserts on velocity
+ *  is otherwise measuring how busy the machine was between two synchronous
+ *  fireEvent calls. Pass a stamp and the flick has a stated speed.
+ *
+ *  ⚠ NEVER STAMP 0. React's SyntheticEvent reads the native stamp as
+ *  `event.timeStamp || Date.now()`, so a zero silently becomes the wall clock
+ *  — the very thing the stamp is here to remove, and it fails open (the gap
+ *  goes hugely negative and the panel's `Math.max(1, …)` floor hides it). */
 function pointer(
   type: 'pointerdown' | 'pointermove' | 'pointerup' | 'pointercancel',
   el: Element,
-  init: { pointerId: number; clientX: number; clientY: number },
+  init: { pointerId: number; clientX: number; clientY: number; timeStamp?: number },
 ) {
+  const { timeStamp, ...props } = init
   const event = new Event(type, { bubbles: true, cancelable: true })
-  Object.assign(event, init)
+  Object.assign(event, props)
+  if (timeStamp !== undefined) Object.defineProperty(event, 'timeStamp', { value: timeStamp })
   fireEvent(el, event)
 }
 
@@ -189,6 +206,23 @@ const openPanel = async () => {
 }
 /** The month the panel is showing = the pane the loader was last asked for. */
 const title = () => within(screen.getByRole('dialog')).getByRole('button', { expanded: false })
+/** R6-2 — the two FAR months are drawn one animation frame after the commit
+ *  that put them on screen (the open no longer pays for three grids in the
+ *  frame it animates in). A test that reaches for the CENTRE pane by index has
+ *  to let that frame land first, or index 1 is the next month — or nothing. */
+/** The month the panel is ON, whatever else is drawn: the far panes are the
+ *  absolutely-positioned ones, the pane in flow is the centre. Index 1 only
+ *  means "centre" while all three are on the page. */
+const centreGrid = (root: HTMLElement) =>
+  within(root)
+    .getAllByTestId('month-grid')
+    .find((grid) => !grid.parentElement!.className.includes('absolute'))!
+const allPanes = async (root: HTMLElement) => {
+  await waitFor(() => expect(within(root).getAllByTestId('month-grid')).toHaveLength(3), {
+    timeout: 3000,
+  })
+  return within(root).getAllByTestId('month-grid')
+}
 
 beforeEach(() => {
   push.mockClear()
@@ -445,8 +479,7 @@ describe('pending is not empty, and a failure says so', () => {
     // The day numbers are already there — a pending month is never blank, and
     // it is never a grid of zero-count cells either: the status line above is
     // what separates "not loaded yet" from "nothing booked".
-    const panes = within(dialog).getAllByTestId('month-grid')
-    expect(panes).toHaveLength(3)
+    const panes = await allPanes(dialog)
     expect(within(panes[1]).getAllByRole('button').length).toBeGreaterThan(0)
 
     await act(async () => {
@@ -474,8 +507,18 @@ describe('pending is not empty, and a failure says so', () => {
     await waitFor(() =>
       expect(within(dialog).getByRole('status')).toHaveTextContent('dateJump.failed'),
     )
+    // R5-3 — and what that key actually SAYS. This suite's next-intl mock
+    // renders keys, so the assertion above proves the panel reaches the failed
+    // line and these two prove the line itself: 「…でした」 alone tells staff
+    // it went wrong and nothing about what to do, while every other read this
+    // app degrades on carries the retry tail. Byte-exact against the week
+    // rows' own failed string — one app, one sentence for one failure.
+    expect(ja.reservation.dateJump.failed).toBe(
+      '予約状況を取得できませんでした。もう一度お試しください。',
+    )
+    expect(en.reservation.dateJump.failed).toBe("Couldn't load bookings. Please try again.")
     // Navigation needs no counts.
-    const cells = within(dialog).getAllByTestId('month-grid')
+    const cells = await allPanes(dialog)
     fireEvent.click(within(cells[1]).getAllByRole('button')[0])
     await waitFor(() => expect(push).toHaveBeenCalled())
   })
@@ -640,7 +683,7 @@ describe('reopening re-reads the months, showing the old counts meanwhile', () =
       expect(loadMonthCells.mock.calls.filter((c) => c[0] === '2026-09')).toHaveLength(2),
     )
     expect(within(dialog).getByRole('status')).toHaveTextContent('')
-    const centre = within(dialog).getAllByTestId('month-grid')[1]
+    const centre = (await allPanes(dialog))[1]
     expect(within(centre).getAllByRole('button')[0]).toHaveTextContent('4')
 
     // …and the fresh answer replaces them.
@@ -688,6 +731,7 @@ describe('only what is on screen is reachable by keyboard', () => {
     renderView()
     await openPanel()
     const dialog = screen.getByRole('dialog')
+    await allPanes(dialog)
     const grid = () => within(dialog).getAllByTestId('month-grid')[1]
     const chips = () => within(dialog).queryAllByRole('button', { pressed: false })
 
@@ -885,7 +929,7 @@ describe('under StrictMode (what next dev and vite dev actually run)', () => {
 
     const dialog = screen.getByRole('dialog')
     await waitFor(() => expect(within(dialog).getByRole('status')).toHaveTextContent(''))
-    const centre = within(dialog).getAllByTestId('month-grid')[1]
+    const centre = (await allPanes(dialog))[1]
     expect(within(centre).getAllByRole('button')[0]).toHaveTextContent('7')
     // And the neighbours were prefetched, which only happens once the visible
     // month's read has actually been applied.
@@ -916,7 +960,7 @@ describe('under StrictMode (what next dev and vite dev actually run)', () => {
  * all). A tap is not a drag — only a gesture that claims the x-axis commits.
  */
 describe('a day tap during a month slide goes to the day that was tapped', () => {
-  const centrePane = () => within(screen.getByRole('dialog')).getAllByTestId('month-grid')[1]
+  const centrePane = () => centreGrid(screen.getByRole('dialog'))
 
   beforeEach(() => {
     jest.useFakeTimers()
@@ -1108,6 +1152,16 @@ describe('the panel moves like the mock', () => {
     fireEvent.click(chip())
     return screen.getByRole('dialog')
   }
+  /** Open, let the open spring ARRIVE, and let the frame after it draw the two
+   *  far months (R6-2). Two advances, not one: each commit the spring causes is
+   *  flushed at the end of its own act(), so the effect that schedules the
+   *  drawing frame is only registered once the first advance has returned. */
+  const openSettled = async () => {
+    const dialog = openNow()
+    await frames(1000)
+    await frames(50)
+    return dialog
+  }
 
   it('t1 — opening writes the CLOSED style before a single frame runs', async () => {
     renderView()
@@ -1194,10 +1248,14 @@ describe('the panel moves like the mock', () => {
     expect(title()).toHaveTextContent('2026年9月')
 
     const grid = dialog.querySelector<HTMLElement>('.touch-none')!
-    // 10 px of travel — nowhere near a quarter of the pane — but fast.
-    pointer('pointerdown', grid, { pointerId: 7, clientX: 200, clientY: 100 })
-    pointer('pointermove', grid, { pointerId: 7, clientX: 190, clientY: 101 })
-    pointer('pointerup', grid, { pointerId: 7, clientX: 190, clientY: 101 })
+    // 10 px of travel — nowhere near a quarter of the pane — but fast: 10 px
+    // in 1 ms is 10,000 px/s, far past COMMIT_VELOCITY's 550. Stamped, because
+    // an unstamped pair divides that 10 px by however long the machine took
+    // between these two lines, and a loaded run that spends 18 ms there hands
+    // the panel a speed too slow to commit.
+    pointer('pointerdown', grid, { pointerId: 7, clientX: 200, clientY: 100, timeStamp: 1000 })
+    pointer('pointermove', grid, { pointerId: 7, clientX: 190, clientY: 101, timeStamp: 1001 })
+    pointer('pointerup', grid, { pointerId: 7, clientX: 190, clientY: 101, timeStamp: 1001 })
 
     await frames(2000)
     // The velocity carried it: without the flick path this stays on 9月.
@@ -1231,10 +1289,13 @@ describe('the panel moves like the mock', () => {
     const track = grid.firstElementChild as HTMLElement
     const x = () => Number(/translate3d\(([-\d.]+)px/.exec(track.style.transform)?.[1] ?? NaN)
 
-    pointer('pointerdown', grid, { pointerId: 9, clientX: 200, clientY: 100 })
-    pointer('pointermove', grid, { pointerId: 9, clientX: 190, clientY: 101 })
+    // Stamped: this test is ABOUT the speed, so the speed is stated rather
+    // than left to the gap between two synchronous lines — 10 px in 1 ms,
+    // 10,000 px/s (see `pointer`).
+    pointer('pointerdown', grid, { pointerId: 9, clientX: 200, clientY: 100, timeStamp: 1000 })
+    pointer('pointermove', grid, { pointerId: 9, clientX: 190, clientY: 101, timeStamp: 1001 })
     expect(x()).toBe(-10) // the finger owns the track, 1:1
-    pointer('pointerup', grid, { pointerId: 9, clientX: 190, clientY: 101 })
+    pointer('pointerup', grid, { pointerId: 9, clientX: 190, clientY: 101, timeStamp: 1001 })
 
     // What the SAME release would cover with no velocity handed over: the same
     // integrator, the same options, the same two frames, started from rest.
@@ -1262,8 +1323,14 @@ describe('the panel moves like the mock', () => {
     }
 
     await frames(32)
-    // The flicked track is measurably further along than a dead-stop release.
-    expect(x()).toBeLessThan(control - 10)
+    // The flicked track is further along than a dead-stop release — strictly,
+    // with no margin to tune. Both sides are now deterministic (the stamped
+    // flick above, the same two hand-driven frames here), and the integrator
+    // makes the inequality exact: one step of it is monotone in the velocity
+    // it starts from. Measured, the gap is ~52.8 px — the old fixed -10 was
+    // padding for a speed that moved with the machine's load, and a loaded
+    // full-suite run ate it.
+    expect(x()).toBeLessThan(control)
 
     await frames(2000)
     expect(title()).toHaveTextContent('2026年10月')
@@ -1372,8 +1439,7 @@ describe('the panel moves like the mock', () => {
    */
   it('t12 — a month commit does not throw the keyboard out of the panel', async () => {
     renderView()
-    const dialog = openNow()
-    await frames(1000)
+    const dialog = await openSettled()
 
     const day = within(within(dialog).getAllByTestId('month-grid')[1]).getAllByRole('button')[0]
     day.focus()
@@ -1500,6 +1566,33 @@ describe('the panel moves like the mock', () => {
   })
 
   /**
+   * R5-1 — the compositor promotion, and its release. `will-change` is what
+   * makes the open spring's per-frame writes cheap on the phone: without a
+   * standing layer every frame repaints the card — border, shadow and ~40 day
+   * buttons — and an OPEN measured 51 real Paint records on the production
+   * build under a 4x CPU throttle. Half of this test is the UNMOUNT: a
+   * promoted element that outlives its animation is a layer the compositor
+   * keeps paying for on every unrelated scroll afterwards, so the classes are
+   * only safe because both elements are mounted exclusively while `rendered`.
+   * Nothing else here can prove that — the classes are unconditional.
+   */
+  it('t9b — both moving elements carry their layer hint, and both leave the DOM at rest', async () => {
+    renderView()
+    const dialog = openNow()
+    await frames(1000)
+    const scrim = dialog.previousElementSibling as HTMLElement
+
+    expect(dialog.className).toContain('will-change-[transform,opacity]')
+    expect(scrim.className).toContain('will-change-[opacity]')
+
+    fireEvent.click(chip()) // close
+    await frames(1000) // past the open spring's rest (~483 ms)
+    expect(panel()).toBeNull()
+    expect(dialog.isConnected).toBe(false)
+    expect(scrim.isConnected).toBe(false)
+  })
+
+  /**
    * R4-3 — the cost of a shift. `setPending`, the `liveDir` flip and every
    * cache write re-render the panel, MonthGrid is a plain `forwardRef` in the
    * package (nothing memoizes it there), and all three panes were redrawing
@@ -1514,8 +1607,7 @@ describe('the panel moves like the mock', () => {
 
   it('t13 — a month shift draws ONE new grid and redraws neither month on screen', async () => {
     renderView({ loadMonthCells: neverAnswers })
-    const dialog = openNow()
-    await frames(1000)
+    const dialog = await openSettled()
     // Three months drawn, three distinct cells arrays: prev, current, next.
     const alreadyDrawn = new Set(mockGridRenders)
     expect(alreadyDrawn.size).toBe(3)
@@ -1525,16 +1617,21 @@ describe('the panel moves like the mock', () => {
     await frames(2000)
     expect(title()).toHaveTextContent('2026年10月')
 
-    // The far month that came into being is the only grid that drew: the two
-    // months already on screen kept their nodes AND their render.
+    // R6-3 — THE LANDING FRAME DRAWS NOTHING. The month that arrives behind the
+    // commit (the new far month) used to be created in this very frame: 35-44 ms
+    // measured on the production build under a 4x CPU throttle, the one frame of
+    // a shift that misses 60 fps. It is now one animation frame later, where
+    // nothing is moving. The two months already on screen keep their nodes AND
+    // their render in both frames.
+    expect(mockGridRenders).toHaveLength(0)
+    await frames(50)
     expect(mockGridRenders).toHaveLength(1)
     expect(alreadyDrawn.has(mockGridRenders[0])).toBe(false)
   })
 
   it('t14 — arming a shift with a flick redraws nothing at all', async () => {
     renderView({ loadMonthCells: neverAnswers })
-    const dialog = openNow()
-    await frames(1000)
+    const dialog = await openSettled()
 
     const grid = dialog.querySelector<HTMLElement>('.touch-none')!
     mockGridRenders.length = 0
@@ -1550,6 +1647,95 @@ describe('the panel moves like the mock', () => {
   })
 
   /**
+   * R6-2 — WHAT AN OPEN COSTS. The panel's price is MonthGrid: ~40 day buttons
+   * a month, three months on screen. All three used to be created in the commit
+   * the open spring then animates out of — one 133-184 ms task on the production
+   * build under a 4x CPU throttle, spent drawing two months nobody can see yet,
+   * while the panel is supposed to be fading in. The far two are now drawn on
+   * the first frame with nothing moving on it — for an open, the frame after
+   * the open spring arrives. (Drawing them on the frame after the FIRST paint
+   * was measurably worse: the work just moved into the middle of the fade, and
+   * the longest gap between frames of an open went 38.8-51.3 ms → 77.3-83.6.)
+   *
+   * t17 is the invariant that makes it safe: the ‹ / › handler and pointerdown
+   * draw the neighbours THEMSELVES, in the same React batch as the state that
+   * starts the travel — so a tap that beats the frame still slides to a real
+   * pane with a real height, never to an empty box.
+   */
+  it('t15 — opening the panel draws ONE month, not three', async () => {
+    renderView({ loadMonthCells: neverAnswers })
+    mockGridRenders.length = 0
+    const dialog = openNow()
+    // Not one frame has run. This is the commit the open spring animates out
+    // of, and it carries one month's day buttons.
+    expect(mockGridRenders).toHaveLength(1)
+    expect(within(dialog).getAllByTestId('month-grid')).toHaveLength(1)
+    await act(async () => {})
+  })
+
+  it('t16 — and the far months arrive one per frame, never two in one', async () => {
+    renderView({ loadMonthCells: neverAnswers })
+    const dialog = openNow()
+    expect(within(dialog).getAllByTestId('month-grid')).toHaveLength(1)
+    // The month a › would travel toward comes first — it is the one a finger
+    // can want — and it comes ALONE.
+    await frames(20)
+    expect(within(dialog).getAllByTestId('month-grid')).toHaveLength(2)
+    await frames(20)
+    expect(within(dialog).getAllByTestId('month-grid')).toHaveLength(3)
+  })
+
+  it('t17 — a › tap that beats that frame still lands on the right month', async () => {
+    renderView({ loadMonthCells: neverAnswers })
+    const dialog = openNow()
+    expect(within(dialog).getAllByTestId('month-grid')).toHaveLength(1)
+
+    // The tap draws the month it is about to travel toward — in its own commit,
+    // before the layout effect measures it — so the travel has somewhere real
+    // to go. Just that one: the month behind can wait for its own frame.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+    expect(within(dialog).getAllByTestId('month-grid')).toHaveLength(2)
+
+    await frames(2000)
+    expect(title()).toHaveTextContent('2026年10月')
+  })
+
+  /**
+   * R6-3 — and what the LANDING frame is allowed to do. The heights the slide
+   * interpolates between are read when the shift is ARMED (the › tap, or the
+   * finger's release), never when it lands: the frame that commits a month
+   * re-keys three panes and must not also force a layout.
+   */
+  it('t18 — the commit frame measures no pane: the heights were read at arm time', async () => {
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')!
+    let reads = 0
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+      configurable: true,
+      get() {
+        reads += 1
+        return original.get ? original.get.call(this) : 0
+      },
+    })
+    try {
+      renderView({ loadMonthCells: neverAnswers })
+      const dialog = await openSettled()
+      reads = 0
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
+      // Arming measures: the pane in flow, and the pane being travelled toward.
+      expect(reads).toBeGreaterThanOrEqual(1)
+      const atArm = reads
+
+      await frames(2000)
+      expect(title()).toHaveTextContent('2026年10月')
+      // Nothing between the arm and the end of the commit read a height.
+      expect(reads).toBe(atArm)
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original)
+    }
+  })
+
+  /**
    * R3 — React reuses the 21+ cell nodes across a month commit, and MonthGrid's
    * cell carries `transition-colors`: measured on the production build, 21
    * cells ran a 150 ms background fade starting 46 ms AFTER the month had
@@ -1559,8 +1745,7 @@ describe('the panel moves like the mock', () => {
    */
   it('t7 — a landed month mounts fresh instead of re-colouring the one before it', async () => {
     renderView()
-    const dialog = openNow()
-    await frames(1000)
+    const dialog = await openSettled()
     const wrapper = () => within(dialog).getAllByTestId('month-grid')[1].parentElement
     const before = wrapper()
 
@@ -1575,10 +1760,11 @@ describe('the panel moves like the mock', () => {
  * R4-1 — the seam under the date bar, measured on the phone build: 40px where
  * the page's own contract says 24px. `space-y-4` compiles to a zero-specificity
  * `:where(.space-y-4 > :not(:last-child)) { margin-block-end: 1rem }`, and the
- * header's `mb-0` is what cancels it so the `pt-6` below owns the whole seam.
- * The date-jump anchor moved in between the two: IT is the direct child of
- * `.space-y-4` now, the header is a grandchild, and the 16px came back on top
- * of the 24px. The anchor has to carry the same contract.
+ * header's `mb-0` is what cancels it so the wrapper below owns the whole seam
+ * (24px then; the mock's 9px since R6-1). The date-jump anchor moved in between
+ * the two: IT is the direct child of `.space-y-4` now, the header is a
+ * grandchild, and the 16px came back on top. The anchor carries the same
+ * contract.
  */
 describe('the date-jump anchor keeps the header margin contract', () => {
   it('the anchor carries mb-0, so space-y-4 adds nothing above the 日/週/月 row', () => {
@@ -1586,6 +1772,25 @@ describe('the date-jump anchor keeps the header margin contract', () => {
     const anchor = chip().closest<HTMLElement>('[class*="data-date-jump-chip"]')
     expect(anchor).not.toBeNull()
     expect(anchor!.classList.contains('mb-0')).toBe(true)
+  })
+
+  /**
+   * R6-1 — the seam is the MOCK's, measured at 393 on the production build:
+   * 9px from the date-bar control to the 日/週/月 control, 11px from there to
+   * the page's next block. Both live on the wrapper that holds the filter
+   * row: the padding above it, and a margin that outranks space-y-4's
+   * zero-specificity :where() 16px below it. A tailwind-merge collision or a
+   * hand-edit back to pt-6 would silently put the gap back, so the assertion
+   * is on the RENDERED class list, not on the source string.
+   */
+  it('the filter wrapper carries the mock’s two seam numbers', () => {
+    renderView()
+    const anchor = chip().closest<HTMLElement>('[class*="data-date-jump-chip"]')!
+    const filterWrapper = anchor.nextElementSibling as HTMLElement
+    expect(filterWrapper.classList.contains('pt-[9px]')).toBe(true)
+    expect(filterWrapper.classList.contains('mb-[11px]')).toBe(true)
+    // …and the seam is not silently doubled by an older one left behind.
+    expect(filterWrapper.classList.contains('pt-6')).toBe(false)
   })
 })
 
