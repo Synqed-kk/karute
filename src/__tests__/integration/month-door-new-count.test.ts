@@ -212,3 +212,34 @@ describe('getMonthCells — the month’s 新規 is computed, not hardcoded', ()
     expect(cells.every((c) => c.newCount === 0 && c.newCountKnown === true)).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// ⚖ G1 (Greptile round 1 #951) — a failed OPTIONAL read must withhold the
+// 新規 annotation, never kill the whole month grid.
+// ---------------------------------------------------------------------------
+
+describe('⚖ G1 — the three 新規-only reads are caught individually', () => {
+  it('a rejecting enrichCustomers withholds 新規 for the whole month — the grid still draws', async () => {
+    windowOf([appt({ id: 'a1', customer_id: 'c1', starts_at: at(14) })])
+    cachedCustomers.mockResolvedValue([cust({ id: 'c1' })])
+    enrich.mockRejectedValue(new Error('core unavailable'))
+
+    const cells = await getMonthCells(SEP)
+    expect(cells.every((c) => c.newCount === 0 && c.newCountKnown === false)).toBe(true)
+  })
+
+  it('a rejecting getCachedCustomerList withholds 新規 too, same reason', async () => {
+    windowOf([appt({ id: 'a1', customer_id: 'c1', starts_at: at(14) })])
+    cachedCustomers.mockRejectedValue(new Error('core unavailable'))
+    enrich.mockResolvedValue(new Map([['c1', history()]]))
+
+    const cells = await getMonthCells(SEP)
+    expect(cells.every((c) => c.newCount === 0 && c.newCountKnown === false)).toBe(true)
+  })
+
+  it('the WINDOW rejecting still throws — a failed booking read must fail the month', async () => {
+    list.mockReset()
+    list.mockRejectedValue(new Error('core unavailable'))
+    await expect(getMonthCells(SEP)).rejects.toThrow()
+  })
+})

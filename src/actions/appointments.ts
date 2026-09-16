@@ -362,6 +362,16 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
   // the ids this window already returned (so the clamp bounds it — no id can
   // enter from the business-wide roster), and the 回数券 ledger unless the org
   // has 回数券 off, in which case both other doors skip that read too.
+  //
+  // ⚖ G1 (Greptile round 1 #951) — these three reads feed the 新規 ANNOTATION
+  // only; the cells' own counts and dots never needed them, but a bare
+  // Promise.all let any one of them reject the whole call and kill the month
+  // grid over an outage in a number nobody had asked for yet. Each optional
+  // read is caught into `null` — a FAILED marker, never an empty answer
+  // impersonating a real one — so a failure withholds `newCountKnown` instead
+  // of losing the month. The WINDOW read above stays uncaught on purpose: a
+  // booking read we could not complete must still fail the month, per the
+  // docstring above.
   const clientIds = countedClientIds(window)
   const [businessId, orgSettings] = await Promise.all([
     getBusinessId().catch(() => null),
@@ -370,15 +380,19 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
   const customerLens = customerLensFor(scope)
   const [enrichment, packUsage, customers] = await Promise.all([
     businessId && clientIds.length
-      ? enrichCustomers(businessId, clientIds)
+      ? enrichCustomers(businessId, clientIds).catch(() => null)
       : Promise.resolve(new Map()),
     (orgSettings?.ticket_packs_enabled ?? true)
       ? listAllPackUsage()
       : Promise.resolve(new Map() as Awaited<ReturnType<typeof listAllPackUsage>>),
-    customerLens === null ? [] : getCachedCustomerList(customerLens),
+    customerLens === null ? [] : getCachedCustomerList(customerLens).catch(() => null),
   ])
 
-  const known = !window.truncated && (enrichment.size > 0 || clientIds.length === 0)
+  const known =
+    !window.truncated &&
+    enrichment !== null &&
+    customers !== null &&
+    (enrichment.size > 0 || clientIds.length === 0)
   const cells = appointmentsToMonthCells(
     window.counted,
     monthStart,
@@ -391,13 +405,14 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
   // dots stay the count buckets, which is what the panel renders today.
   return monthCellsToDTO(cells, {
     newCounts: {
-      byDay: known
-        ? newCountByDay(window.counted, {
-            customers: new Map(customers.map((c) => [c.id, c])),
-            enrichment,
-            packUsage,
-          })
-        : new Map(),
+      byDay:
+        known && enrichment && customers
+          ? newCountByDay(window.counted, {
+              customers: new Map(customers.map((c) => [c.id, c])),
+              enrichment,
+              packUsage,
+            })
+          : new Map(),
       known,
     },
   })
