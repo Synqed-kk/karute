@@ -3397,6 +3397,10 @@ export function TodayScreen(props: TodayProps) {
         wordsForAsk(q),
         props.genericWords,
       ),
+    // ⚖ D-53 (u)/(n2b1) — `wordsForAsk` is a plain body declaration reading
+    // `boardLanes`/`props.wordsByStore`/`props.words` (already listed), so
+    // its own identity carries nothing exhaustive-deps cannot already see.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [boardLanes, hours, locked, pending?.id, props.overrideLevel, props.sell.nowMinute, props.bedCleanupMinutes, props.wordsByStore, props.words, props.genericWords],
   )
 
