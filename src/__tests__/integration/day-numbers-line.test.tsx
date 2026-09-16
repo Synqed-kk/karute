@@ -145,7 +145,7 @@ describe('DayNumbersLine — no separators', () => {
 })
 
 describe('DayNumbersLine — the mock’s §v9d geometry and grammar', () => {
-  it('the block carries the mock line-for-line: gap 14, padding 2px 0, margin-bottom 8, 14px / 13.5px ≤400px, nowrap', () => {
+  it('the block carries the mock line-for-line: gap 14, padding 2px 0, margin-bottom 8, nowrap — font size is the app’s own 13px (2026-09-15 type-system fix), no breakpoint step', () => {
     const DayNumbersLine = loadDayNumbersLine()
     const { container } = render(
       <DayNumbersLine row={row()} soloMode={false} typeSlot="new" locale="ja" />,
@@ -155,14 +155,14 @@ describe('DayNumbersLine — the mock’s §v9d geometry and grammar', () => {
       'gap-[14px]', // .dayline{gap:14px}
       'py-0.5', // .dayline{padding:2px 0}
       'mb-2', // .dayline{margin:0 0 8px}
-      'text-[14px]', // .dayline{font-size:14px}
-      'max-[400px]:text-[13.5px]', // @media (max-width:400px)
+      'text-[13px]', // app's value size (ReservationMobileAgenda.tsx :316)
       'leading-[1.25]', // .dayline{line-height:1.25}
       'whitespace-nowrap', // .dayline{white-space:nowrap}
       'items-center', // .dayline{align-items:center}
     ]) {
       expect(cls).toContain(rule)
     }
+    expect(cls).not.toContain('max-[400px]:text-[13.5px]')
   })
 
   it('the 新規 spark PRECEDES its value (mock: SPARK + <b>val</b>), never follows it', () => {

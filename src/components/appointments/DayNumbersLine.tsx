@@ -34,8 +34,10 @@ const VALUE = 'font-semibold tabular-nums'
 function LineItem({ cell }: { cell: Cell }) {
   return (
     // R3-17 — mock `.dayline .it{color:var(--sub)}`, the same middle grey the
-    // week summary uses, with the same dark pair.
-    <span className="inline-flex items-baseline gap-1 font-semibold text-zinc-500 dark:text-zinc-400">
+    // week summary uses, with the same dark pair. Weight 500 (2026-09-15
+    // type-system fix): a word/label on this screen is 500, never the mock's
+    // own 600 — the agenda's meta labels (:291, :451) are the reference.
+    <span className="inline-flex items-baseline gap-1 font-medium text-zinc-500 dark:text-zinc-400">
       {/* mock: the spark precedes the value (`SPARK + '<b>' + val`), and
        *  `.dayline .it.nw svg{align-self:center}` re-centres it against the
        *  baseline-aligned row. */}
@@ -56,19 +58,23 @@ export function DayNumbersLine({ row, soloMode, typeSlot, pending }: DayNumbersL
 
   return (
     // mock `.dayline`: flex · align-items:center · gap 14 · padding 2px 0 ·
-    // margin 0 0 8px · line-height 1.25 · 14px (13.5px ≤400px) · nowrap.
-    // No separators, no pills, no dots (§v9d), everything left-aligned.
+    // margin 0 0 8px · line-height 1.25 · nowrap. No separators, no pills, no
+    // dots (§v9d), everything left-aligned — LAYOUT untouched.
+    //
+    // Font size is the APP's, not the mock's (2026-09-15 type-system fix):
+    // one flat 13px, matching the reservation agenda's value size
+    // (ReservationMobileAgenda.tsx :316) — the mock's own 14px (13.5px
+    // ≤400px) and its breakpoint step are dropped.
     //
     // R3-18 — the floor is the LINE's own loaded block height: 1.25em of
-    // content (16.875 px at 393's 13.5 px, 17.5 px at 430's 14 px) PLUS the
-    // 0.25rem the py-0.5 adds, because `min-height` is border-box here. So the
-    // 12 px shims cannot shrink the block and the list card beneath keeps its
-    // 8 px seam instead of jumping. It changes nothing in the loaded state,
-    // where the text already fills exactly that height — measured 20.88 px
-    // both ways at 393.
+    // content (16.25 px at the line's 13 px) PLUS the 0.25rem the py-0.5
+    // adds, because `min-height` is border-box here — 20.25 px, measured
+    // both loaded and pending at 393 (T-5 proof). So the 11 px shims cannot
+    // shrink the block and the list card beneath keeps its own seam instead
+    // of jumping.
     <div
       data-day-line
-      className="mb-2 flex min-h-[calc(1.25em+0.25rem)] items-center gap-[14px] whitespace-nowrap py-0.5 text-[14px] leading-[1.25] max-[400px]:text-[13.5px]"
+      className="mb-2 flex min-h-[calc(1.25em+0.25rem)] items-center gap-[14px] whitespace-nowrap py-0.5 text-[13px] leading-[1.25]"
     >
       {/* Greptile G2 — the two shims below are aria-hidden, so a screen
        *  reader heard nothing while this line was loading. WeekRows already
@@ -93,7 +99,7 @@ export function DayNumbersLine({ row, soloMode, typeSlot, pending }: DayNumbersL
         </>
       ) : closed ? (
         // mock: `<span class="it"><b>0件</b></span><span class="it"><b>休</b>
-        // </span>` — 休 is a VALUE (ink, 700), not a grey word.
+        // </span>` — 休 is a VALUE (ink, 600), not a grey word.
         <>
           <span className="inline-flex items-baseline">
             <b className={cn(VALUE, VALUE_TONE_CLASS.ink)}>{t('countLine', { n: row.count })}</b>
