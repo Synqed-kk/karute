@@ -1031,8 +1031,17 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // between two clean builds, byte-identical both times (node v24.16.0,
 // @synqed-kk/ui 0.3.2, installed == lock): en 134,223 · index 1,039,146 ·
 // vendor 937,791 = 2,111,160 B. Ceiling = 2,111,160 + 1,000.
-// TEMP placeholder — re-measured in the LAST commit of this merge round.
-const BUDGET_BYTES = 2_115_259
+// RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-month-card
+// (PR #932) — union of both chains above (this branch's own 4b/FIX-ROUND R1
+// history plus the #929/#931-into-main re-measure entries it had not yet
+// seen). The merge also restored DayNumbersLine.tsx's `className` passthrough
+// (SelectedDayCard.tsx's own call site) on top of main's flat 13px wrapper —
+// dropped by the raw three-way and put back by hand so the card's own padding
+// override still applies. Same CI recipe, thin/dist emptied between two clean
+// builds, byte-identical both times (node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock): en 134,452 · index 1,043,010 · vendor 937,791 =
+// 2,115,253 B. Ceiling = 2,115,253 + 1,000.
+const BUDGET_BYTES = 2_116_253
 
 let dir
 try {
