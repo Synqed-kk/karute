@@ -88,7 +88,14 @@ jest.mock('@/components/appointments/DateJumpPanel', () => ({
 // React instance is a worse test than no test.
 // Lazy on purpose: jest hoists every `jest.mock` above the imports, so the
 // copy is taken the first time a component actually reads a switch.
-let mockSwitchState: Record<string, boolean> | null = null
+// MERGE 2026-09-17 (#951) — `var`, not `let`: TYPE_SLOT (metric-menu.ts) now
+// reads BOOKING_SWITCHES.countNew at MODULE load time, so babel's hoisted
+// `require('@/components/appointments/AppointmentsView')` reaches this getter
+// before this file's own top-level statements run. `let` would TDZ-throw on
+// that early read; `var` hoists as `undefined`, which the `!mockSwitchState`
+// check below already treats the same as null.
+// eslint-disable-next-line no-var -- var is the fix; see the comment above.
+var mockSwitchState: Record<string, boolean> | null = null
 function mockSwitches(): Record<string, boolean> {
   if (!mockSwitchState) {
     mockSwitchState = {
