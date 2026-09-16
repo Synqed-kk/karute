@@ -222,11 +222,20 @@ export async function createCustomerWithClient(
  *  MY store?" has no answer in this app today — membership is DERIVED from
  *  events inside core. That store rule waits for core's membership change and
  *  is NOT in this door. */
-const CUSTOMER_WRITE_DENIED = 'You do not have permission to add or edit customers.'
+/** Staff-visible, so it is TRANSLATED, never a literal: this string is returned
+ *  straight into the house `{ success:false, error }` shape the customer form
+ *  toasts. It reuses the app's existing generic refusal
+ *  (`common.noPermission` — 「この操作を行う権限がありません。」, already
+ *  born-native in messages/ja.json and shipped in en.json) rather than minting a
+ *  fourth wording of the same sentence: the screen the staff member is looking
+ *  at names the act, so the line only has to name the missing permission. */
+async function customerWriteDenied(): Promise<string> {
+  return (await getTranslations('common'))('noPermission')
+}
 
 export async function createCustomer(input: CustomerFormInput): Promise<ActionResult> {
   if (!(await can('customers.manage'))) {
-    return { success: false, error: CUSTOMER_WRITE_DENIED }
+    return { success: false, error: await customerWriteDenied() }
   }
   const synqed = await getSynqedClient()
   const result = await createCustomerWithClient(synqed, input)
@@ -285,7 +294,7 @@ export async function createQuickCustomerWithClient(
 /** The WEB door onto the twin above — same wrapper duties as createCustomer. */
 export async function createQuickCustomer(name: string): Promise<QuickCustomerResult> {
   if (!(await can('customers.manage'))) {
-    return { success: false, error: CUSTOMER_WRITE_DENIED }
+    return { success: false, error: await customerWriteDenied() }
   }
   const synqed = await getSynqedClient()
   const result = await createQuickCustomerWithClient(synqed, name)
@@ -357,7 +366,7 @@ export async function updateCustomer(
   input: CustomerFormInput | Record<string, unknown>,
 ): Promise<ActionResult> {
   if (!(await can('customers.manage'))) {
-    return { success: false, error: CUSTOMER_WRITE_DENIED }
+    return { success: false, error: await customerWriteDenied() }
   }
   const synqed = await getSynqedClient()
   const result = await updateCustomerWithClient(synqed, id, input as Record<string, unknown>)
