@@ -16,6 +16,7 @@ export type AppApiErrorCode =
   | 'forbidden' // 403 — authenticated but lacks the capability
   | 'tenant_forbidden' // 403 — resource belongs to another business
   | 'store_forbidden' // 403 — store-id outside the caller's assignment/tenant
+  | 'store_unassigned' // 403 — the caller has NO store assigned yet: the shell shows the honest 担当店舗が未設定です screen, never an error toast (⚖ Liam 2026-09-16)
   | 'membership_inactive' // 403 — no active business membership for this user
   | 'not_found' // 404
   | 'no_audio' // 404 — the server holds no audio for this recording (distinct from not_found so the phone can say which; a detail.reason never crosses the thin port)
@@ -35,6 +36,7 @@ const STATUS: Record<AppApiErrorCode, number> = {
   forbidden: 403,
   tenant_forbidden: 403,
   store_forbidden: 403,
+  store_unassigned: 403,
   membership_inactive: 403,
   not_found: 404,
   no_audio: 404,

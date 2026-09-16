@@ -12,6 +12,23 @@ jest.mock('@/lib/staff', () => ({
 jest.mock('@/lib/auth/require-permission', () => ({
   capabilitiesForUser: jest.fn(),
 }))
+// ⚖ Liam 2026-09-16: the identity carries the unassigned verdict, and the
+// SHIPPED code resolves it through actorIsUnassigned — which lazily reaches the
+// SDK. Driven here for real (not stubbed) so the front gate's own wiring is
+// under test, not a model of it (fresh-eyes F5).
+const assignment = { current: [] as string[] }
+const storeIds = { current: ['store-ginza', 'store-daikanyama'] }
+jest.mock('@/lib/synqed/client', () => ({
+  newSynqedClient: () => ({
+    staffStores: { get: async () => ({ store_ids: assignment.current }) },
+    stores: {
+      list: async () => ({ stores: storeIds.current.map((id) => ({ id })) }),
+    },
+  }),
+  getSynqedClient: async () => {
+    throw new Error('the Bearer path must never resolve a cookie client')
+  },
+}))
 
 import { businessIdForUser } from '@/lib/staff'
 import { capabilitiesForUser } from '@/lib/auth/require-permission'
@@ -36,6 +53,9 @@ beforeEach(() => {
   jest.clearAllMocks()
   ;(businessIdForUser as jest.Mock).mockResolvedValue('business-1')
   ;(capabilitiesForUser as jest.Mock).mockResolvedValue(new Set(['customers.view']))
+  // Default caller is ASSIGNED — the unassigned tests ask for that shape.
+  assignment.current = ['store-ginza']
+  storeIds.current = ['store-ginza', 'store-daikanyama']
 })
 
 describe('resolveBearerIdentity', () => {
@@ -55,10 +75,60 @@ describe('resolveBearerIdentity', () => {
       authUserId: 'auth-user-1',
       businessId: 'business-1',
       capabilities: new Set(['customers.view']),
+      // ⚖ Liam 2026-09-16, additive: the unassigned gate's verdict rides the
+      // identity so facadeHandler can refuse with `store_unassigned` before
+      // any handler runs. A caller holding a capability can never be
+      // unassigned (the gate empties the set), so this costs no lookup.
+      unassigned: false,
       via: 'bearer',
       email: null, // no email claim on this token (additive field, packet 12 §B-2)
     })
     expect(getUser).not.toHaveBeenCalled() // customer.read is not revocation-sensitive
+  })
+
+  // ── the unassigned verdict, through the SHIPPED resolver ─────────────────
+  it('an UNPLACED caller resolves unassigned: true — the real actorIsUnassigned, not a stub', async () => {
+    assignment.current = []
+    storeIds.current = ['store-ginza', 'store-daikanyama']
+    const id = await resolveBearerIdentity(req({ authorization: `Bearer ${token()}` }), 'customer.read', {
+      config: CONFIG,
+      getUser: jest.fn(okUser),
+    })
+    expect(id.unassigned).toBe(true)
+  })
+
+  it('…and it does NOT depend on the capability set being empty (fresh-eyes F4)', async () => {
+    // Layer 1 is mocked here and hands back a NON-empty set — i.e. exactly the
+    // mutant that used to leave the front gate silently open. The gate reads
+    // the verdict itself, so it still fires.
+    assignment.current = []
+    storeIds.current = ['store-ginza', 'store-daikanyama']
+    ;(capabilitiesForUser as jest.Mock).mockResolvedValue(new Set(['customers.view']))
+    const id = await resolveBearerIdentity(req({ authorization: `Bearer ${token()}` }), 'customer.read', {
+      config: CONFIG,
+      getUser: jest.fn(okUser),
+    })
+    expect(id.capabilities.size).toBeGreaterThan(0)
+    expect(id.unassigned).toBe(true)
+  })
+
+  it('an ASSIGNED caller resolves unassigned: false', async () => {
+    assignment.current = ['store-ginza']
+    const id = await resolveBearerIdentity(req({ authorization: `Bearer ${token()}` }), 'customer.read', {
+      config: CONFIG,
+      getUser: jest.fn(okUser),
+    })
+    expect(id.unassigned).toBe(false)
+  })
+
+  it('a ONE-store salon keeps the carve-out — an empty assignment is not unassigned', async () => {
+    assignment.current = []
+    storeIds.current = ['store-ginza']
+    const id = await resolveBearerIdentity(req({ authorization: `Bearer ${token()}` }), 'customer.read', {
+      config: CONFIG,
+      getUser: jest.fn(okUser),
+    })
+    expect(id.unassigned).toBe(false)
   })
 
   it('captures the Bearer token email claim in identity.email when present (additive, packet 12 §B-2)', async () => {

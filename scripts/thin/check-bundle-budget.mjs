@@ -1499,7 +1499,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // en 134,814 · index 1,048,400 · vendor 937,791 = 2,121,005 B.
 // +143 B against the prior entry's measurement, all in index; no dependency
 // changes. Ceiling = measured 2,121,005 + 1,000 = 2,122,005 B.
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-17 — consent-name stress folds: ReviewScreen persists
 // the picked display name in its recovery draft; RecordPageView restores it
 // before the preloaded-list fallback. Draft owner, key and 24 h TTL unchanged.
@@ -1508,7 +1507,29 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // en 134,814 · index 1,048,407 · vendor 937,791 = 2,121,012 B.
 // +7 B against the prior entry's measurement, all in index; no dependency
 // changes. Ceiling = measured 2,121,012 + 1,000 = 2,122,012 B.
-const BUDGET_BYTES = 2_122_012
+//
+// origin/main itself (c8cab5df7) was freshly built in a throwaway worktree to
+// separate #948's own contribution from the gate commit's: byte-identical
+// across two clean builds there too: en 134,496 · index 1,043,597 · vendor
+// 937,791 = 2,115,884 B — +631 B over the #932 ledger figure above (#948's
+// backstops floor landing on main), and the gate's own commit (Layers 1-3:
+// the shared actorIsUnassigned memo, the two front gates, the three
+// resolvers) costs a further +1,958 B on top of that (index +1,775 · en
+// +183 · vendor unchanged) — genuine new capability/copy surface reached from
+// the thin bundle's own permission and screen-DTO code, not bloat; the
+// purchase-marker scan stays the real gate and remains 0/13.
+//
+// RE-MEASURED 2026-09-16 — REBASE 3 (PKT-GATE-REBASE3-M5-2026-09-16): the
+// gate rebased onto origin/main's tip after PR #935 landed (20926b3ac, `git
+// rebase --onto origin/main c8cab5df7 fix/unassigned-gate`, new tip
+// `e122dac57`, one commit). Same CI recipe — CI's own six VITE_* values, the
+// 208-char anon-key placeholder included, thin/dist emptied before each of
+// two laps, byte-identical both times (matching filenames, sizes and MD5s,
+// node v24.16.0): en 134,727 · index 1,045,932 · vendor 937,791 =
+// 2,118,450 B — +1,970 B over origin/main's own #935 measurement above
+// (2,116,480 B), the gate commit's own cost, same class as every prior raise
+// on this line. Ceiling = 2,118,450 + 1,000.
+const BUDGET_BYTES = 2_119_450
 
 let dir
 try {

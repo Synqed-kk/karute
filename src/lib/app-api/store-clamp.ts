@@ -7,7 +7,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { staffStoresOverlap, type Capability } from '@/lib/auth/permissions'
-import { reachesNoStore } from '@/lib/auth/store-gate'
+import { reachesNoStore, storeAssignmentVerdict } from '@/lib/auth/store-gate'
 import { AppApiError } from './errors'
 
 /** SynqedError's HTTP status, duck-typed: a VALUE import of the SDK class
@@ -25,7 +25,10 @@ export interface ClampedStore {
    *  tenant (cross-store viewer, or floating staff). Never null-means-all-tenants. */
   storeId: string | null
   /** The stores the caller is restricted to, or null when unrestricted. A
-   *  non-null array means store-scoped reads MUST stay within it. */
+   *  non-null array means store-scoped reads MUST stay within it, and an EMPTY
+   *  array means the caller reaches NO store — the unassigned verdict (⚖ Liam
+   *  2026-09-16). Read it through `reachesNoStore` (lib/auth/store-gate.ts);
+   *  there is deliberately no second `unassigned` field to drift from it. */
   allowedStoreIds: string[] | null
 }
 
@@ -122,10 +125,27 @@ export async function resolveStoreForRequest(args: {
     throw new AppApiError('store_forbidden', 'could not resolve store assignment (fail-closed)')
   }
 
-  // 4. DELIBERATE empty set = floating staff (works in every store) — unrestricted
-  //    within the verified tenant. This is the one legitimate "no clamp" case,
-  //    and it is distinguished from the errored case above by construction.
+  // 4. DELIBERATE empty set. ⚖ Liam 2026-09-16 — THE FLIP, the Bearer twin of
+  //    resolveStoreScope's: in a business with ≥2 stores this is a staff member
+  //    nobody has placed yet, and they reach NO store until a manager assigns
+  //    one. A SINGLE-store business and an unreadable store list both stay
+  //    exactly as they were — floating, unrestricted within the verified tenant
+  //    (storeAssignmentVerdict holds the whole definition). The extra
+  //    stores.list runs ONLY on this branch, so an assigned caller pays nothing.
   if (assigned.length === 0) {
+    // try/catch, not `.catch()`: a client whose stores port cannot even be
+    // called is the same UNKNOWN as a failed call, and the gate must never
+    // read UNKNOWN as "≥2 stores" (storeAssignmentVerdict).
+    let storeCount: number | null = null
+    try {
+      storeCount = (await synqed.stores.list()).stores.length
+    } catch {
+      storeCount = null
+    }
+    const verdict = storeAssignmentVerdict({ viewAll: false, assigned, storeCount })
+    if (verdict === 'unassigned') {
+      return { storeId: null, allowedStoreIds: [] }
+    }
     return { storeId: requestedStoreId, allowedStoreIds: null }
   }
 

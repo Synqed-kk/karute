@@ -362,7 +362,12 @@ describe("voice writes are clamped to the caller's stores", () => {
       storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
       const res = await run()
       expect(res.status).toBe(200)
-      expect(staffStoresGet).not.toHaveBeenCalled()
+      // ⚖ 2026-09-16 fold round 2: the WRITE CLAMP still never consults an
+    // assignment on this path — what does is the front gate at the identity
+    // seam, which reads the CALLER's own assignment on every non-viewAll
+    // request. That is auth work, one memo-shared read; the clamp's own
+    // behaviour (and the TARGET's row) is untouched.
+    expect(staffStoresGet).not.toHaveBeenCalledWith(TARGET)
     })
 
     it("a failed lookup of the caller's own assignment fails closed → 403", async () => {
@@ -396,6 +401,11 @@ describe("voice writes are clamped to the caller's stores", () => {
     const res = await DELETE(deleteReq(CALLER), params(CALLER))
     expect(res.status).toBe(200)
     expect((await res.json()).ok).toBe(true)
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the WRITE CLAMP still never consults an
+    // assignment on this path — what does is the front gate at the identity
+    // seam, which reads the CALLER's own assignment on every non-viewAll
+    // request. That is auth work, one memo-shared read; the clamp's own
+    // behaviour (and the TARGET's row) is untouched.
+    expect(staffStoresGet).not.toHaveBeenCalledWith(TARGET)
   })
 })

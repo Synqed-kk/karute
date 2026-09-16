@@ -96,7 +96,15 @@ const req = (headers: Record<string, string> = {}, qs = 'scope=customers&format=
 beforeEach(() => {
   jest.clearAllMocks()
   mockCapabilities.mockResolvedValue(new Set(['customers.view', 'data.export', 'stores.viewAll']))
-  staffStoresGet.mockResolvedValue({ store_ids: [] })
+  // ⚖ Liam 2026-09-16 (fold round 2): the front gate now reads the unassigned
+  // verdict ITSELF rather than short-circuiting on an empty capability set, so
+  // an unassigned caller is refused with `store_unassigned` before any handler
+  // runs. This suite is about the export DOOR, so its caller is assigned; the
+  // two tests that want the unassigned shape ask for it, and what they now pin
+  // is the FRONT GATE beating the door's own backstop. The backstop's own
+  // proof lives where it can still be reached alone —
+  // unassigned-backstops.test.ts drives resolveExportStoreId directly.
+  staffStoresGet.mockResolvedValue({ store_ids: ['store-1'] })
   fetchCustomers.mockResolvedValue({ customers: [], totalPages: 1 })
 })
 
@@ -137,7 +145,10 @@ describe('GET /api/app/v1/export — store clamp fail-closed (both layers, resol
 
   it('errored assignment lookup → fails CLOSED (403), never a widened business-wide export', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view', 'data.export']))
-    staffStoresGet.mockRejectedValueOnce(new Error('boom'))
+    // ⚖ 2026-09-16 fold round 2: `...Once` no longer reaches the clamp — the
+    // front gate reads the caller's assignment first, so the single rejection
+    // was consumed there. The test means "this lookup keeps failing".
+    staffStoresGet.mockRejectedValue(new Error('boom'))
     const res = await GET(req(auth), route)
     expect(res.status).toBe(403)
     expect((await res.json()).error.code).toBe('store_forbidden')
@@ -163,25 +174,77 @@ describe('GET /api/app/v1/export — export-hardened floating clamp (fix round, 
   // Floating staff = data.export granted, NO stores.viewAll, empty assignment.
   // Web's /api/export deliberately clamps them to a store lens (its own
   // Greptile-P1 history); the facade must never widen them business-wide.
+  //
+  // ⚖ Liam 2026-09-16 SPLIT THIS SHAPE IN TWO. An empty assignment still means
+  // "floating" in a ONE-store business (nothing to isolate from), and those
+  // cases keep every rule below. In a MULTI-store business it now means
+  // UNASSIGNED — a staff member nobody has placed — and this door, the bulk PII
+  // export, is the census's highest-severity finding: it used to answer
+  // `null ?? undefined` = the WHOLE BUSINESS's customer book while its web twin
+  // already refused the identical case.
   const floatingCaps = new Set(['customers.view', 'data.export'])
+  // mockResolvedValue survives jest.clearAllMocks(), so each test states the
+  // store list it means rather than inheriting the previous one's.
+  const oneStore = () =>
+    storesList.mockResolvedValue({ stores: [{ id: 'store-1', is_primary: true }] })
+  const twoStores = () =>
+    storesList.mockResolvedValue({
+      stores: [
+        { id: 'store-1', is_primary: true },
+        { id: 'store-2', is_primary: false },
+      ],
+    })
 
-  it('floating staff WITHOUT stores.viewAll clamps to the primary store — never business-wide', async () => {
+  it('UNASSIGNED staff (empty assignment, multi-store business) are REFUSED — never the business-wide book', async () => {
     mockCapabilities.mockResolvedValue(floatingCaps)
+    twoStores()
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const res = await GET(req(auth), route)
+    expect(res.status).toBe(403)
+    // The FRONT GATE answers first now, with its own code — the export lens's
+    // `store_forbidden` sits underneath it and is proved alone in
+    // unassigned-backstops.test.ts.
+    expect((await res.json()).error.code).toBe('store_unassigned')
+    expect(fetchCustomers).not.toHaveBeenCalled()
+  })
+
+  it('UNASSIGNED staff are refused even WITH a tenant-valid store-id header', async () => {
+    // The header proves the store belongs to the tenant, never that it belongs
+    // to this caller — an unplaced staff member may name no store at all.
+    mockCapabilities.mockResolvedValue(floatingCaps)
+    twoStores()
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const res = await GET(req({ ...auth, 'store-id': 'store-2' }), route)
+    expect(res.status).toBe(403)
+    expect(fetchCustomers).not.toHaveBeenCalled()
+  })
+
+  it('floating staff in a ONE-store business clamp to the primary store — never business-wide', async () => {
+    mockCapabilities.mockResolvedValue(floatingCaps)
+    oneStore()
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
     const res = await GET(req(auth), route)
     expect(res.status).toBe(200)
     expect(fetchCustomers).toHaveBeenCalledWith('business-1', expect.objectContaining({ storeId: 'store-1' }))
   })
 
-  it('floating staff with a tenant-valid store-id header clamps to THAT store', async () => {
+  it('floating staff in a ONE-store business with a tenant-valid store-id header clamp to THAT store', async () => {
     mockCapabilities.mockResolvedValue(floatingCaps)
-    const res = await GET(req({ ...auth, 'store-id': 'store-2' }), route)
+    oneStore()
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const res = await GET(req({ ...auth, 'store-id': 'store-1' }), route)
     expect(res.status).toBe(200)
-    expect(fetchCustomers).toHaveBeenCalledWith('business-1', expect.objectContaining({ storeId: 'store-2' }))
+    expect(fetchCustomers).toHaveBeenCalledWith('business-1', expect.objectContaining({ storeId: 'store-1' }))
   })
 
   it('floating staff whose store lens cannot be resolved → 403 fail-closed, no reads', async () => {
+    // Every stores.list fails: the gate reads that as UNKNOWN (never "≥2", so
+    // never a blanket lockout during an outage) and the caller stays floating —
+    // then the export's own primary-store lens cannot resolve either, and THAT
+    // is the refusal.
     mockCapabilities.mockResolvedValue(floatingCaps)
-    storesList.mockRejectedValueOnce(new Error('boom'))
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    storesList.mockRejectedValue(new Error('boom'))
     const res = await GET(req(auth), route)
     expect(res.status).toBe(403)
     expect((await res.json()).error.code).toBe('store_forbidden')

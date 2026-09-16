@@ -750,7 +750,11 @@ describe('the named grant reads only inside the viewer’s own stores', () => {
     capabilities.current = new Set(['customers.view', 'recordings.viewAll', 'stores.viewAll'])
     const dto = await dtoFor()
     expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
+    // identity seam (the front gate reads the unassigned verdict itself, for
+    // every non-viewAll request). What this pins is that the DOOR asks for
+    // nothing beyond it — no target's row, no second read.
+    expect(staffStoresGet.mock.calls.length).toBeLessThanOrEqual(1)
   })
 
   it('a record with NO store — and no store on its recording either — is read by a clamped grantee (全店舗 / legacy)', async () => {
@@ -793,7 +797,11 @@ describe('the named grant reads only inside the viewer’s own stores', () => {
     staffStoresGet.mockResolvedValue({ store_ids: [] })
     const dto = await dtoFor()
     expect(dto.transcriptRestricted).toBe(true)
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
+    // identity seam (the front gate reads the unassigned verdict itself, for
+    // every non-viewAll request). What this pins is that the DOOR asks for
+    // nothing beyond it — no target's row, no second read.
+    expect(staffStoresGet.mock.calls.length).toBeLessThanOrEqual(1)
   })
 
   it('an UNREADABLE assignment fails the grant closed — restricted, never widened, and the screen still renders', async () => {

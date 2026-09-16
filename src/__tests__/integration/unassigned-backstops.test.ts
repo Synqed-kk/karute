@@ -67,12 +67,33 @@ describe('facade bulk export lens (resolveExportStoreId)', () => {
       staffStores: { get: async () => ({ store_ids: assignment }) },
     }) as never
 
-  // ⚠ GATE-OFF LIMIT, stated rather than faked: resolveStoreForRequest still
-  // answers `allowedStoreIds: null` for an empty assignment on this branch, so
-  // the REFUSAL this lens now carries is not reachable end-to-end yet. Its
-  // proof (and its mutation proof) rides the gate branch, where the resolver
-  // mints `[]`. What these three pin is that the fix changed NOTHING for the
-  // three shapes that exist today.
+  it('REFUSES an UNASSIGNED actor — the census\'s highest-severity finding', async () => {
+    // Pre-fix this returned `clamp.storeId ?? clamp.allowedStoreIds[0]` =
+    // `null ?? undefined` = undefined = the WHOLE BUSINESS's customer book, on
+    // a door whose web twin (api/export/route.ts) already answered 403.
+    await expect(
+      resolveExportStoreId({
+        synqed: synqedWith([], ['store-ginza', 'store-daikanyama']),
+        authUserId: 'staff-1',
+        capabilities: caps(),
+        requestedStoreId: null,
+      } as never),
+    ).rejects.toMatchObject({ code: 'store_forbidden' })
+  })
+
+  it('a floating actor in a ONE-store business still clamps to that store', async () => {
+    // The carve-out: with one store there is nothing to isolate from, so an
+    // empty assignment stays exactly what it was.
+    await expect(
+      resolveExportStoreId({
+        synqed: synqedWith([], ['store-ginza']),
+        authUserId: 'staff-1',
+        capabilities: caps(),
+        requestedStoreId: null,
+      } as never),
+    ).resolves.toBe('store-ginza')
+  })
+
   it('a clamped actor still exports their OWN store', async () => {
     await expect(
       resolveExportStoreId({
@@ -84,21 +105,10 @@ describe('facade bulk export lens (resolveExportStoreId)', () => {
     ).resolves.toBe('store-ginza')
   })
 
-  it('a floating actor still clamps to the primary store', async () => {
-    await expect(
-      resolveExportStoreId({
-        synqed: synqedWith([], ['store-daikanyama', 'store-ginza']),
-        authUserId: 'staff-1',
-        capabilities: caps(),
-        requestedStoreId: null,
-      } as never),
-    ).resolves.toBe('store-daikanyama')
-  })
-
   it('stores.viewAll still exports business-wide', async () => {
     await expect(
       resolveExportStoreId({
-        synqed: synqedWith([]),
+        synqed: synqedWith([], ['store-ginza', 'store-daikanyama']),
         authUserId: 'owner-1',
         capabilities: caps('stores.viewAll'),
         requestedStoreId: null,

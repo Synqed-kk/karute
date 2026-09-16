@@ -22,6 +22,8 @@ import { listStores, getActiveStoreId } from '@/actions/stores'
 import { resolveStoreScope, viewerStaffRoster } from '@/lib/auth/store-scope'
 import { reachesNoStore } from '@/lib/auth/store-gate'
 import { redirect } from 'next/navigation'
+import { viewerIsUnassigned } from '@/lib/auth/store-scope'
+import { UnassignedStoreScreen } from '@/components/layout/UnassignedStoreScreen'
 
 export default async function DashboardLayout({
   children,
@@ -31,6 +33,19 @@ export default async function DashboardLayout({
   params: Promise<{ locale: string }>
 }) {
   const { locale } = await params
+
+  // ⚖ Liam 2026-09-16 — THE WEB FRONT GATE, ahead of everything else on
+  // purpose. A staff member of a multi-store business with no store assigned
+  // gets the honest screen and NOTHING ELSE: no nav, no store pills, no
+  // notification feed, no roster — and, because this resolves BEFORE the wave
+  // below, not one store-scoped read is even started. The backstops underneath
+  // would each return empty anyway; this is the layer that makes the screen
+  // honest rather than merely empty.
+  //
+  // It costs no extra round trip in the steady state: the staff id and the
+  // capability set it resolves are React-memoized and every surface below
+  // reads the same two answers (see actorIsUnassigned).
+  if (await viewerIsUnassigned()) return <UnassignedStoreScreen />
 
   const supabase = await createClient()
   // RBAC store scope — resolved ONCE, shared by the switcher AND the

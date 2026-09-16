@@ -244,7 +244,22 @@ const post = (body: unknown, headers: Record<string, string> = { ...auth }) =>
 /** The SIX namespaces this family's mechanism is allowed to reach. Anything
  *  else — a job queue, a karute writer, something nobody has thought of yet —
  *  shows up as an extra member, recorded at access time. */
-const ALLOWED_NAMESPACES = ['recordings', 'recordingDiscards', 'customers', 'orgSettings']
+const ALLOWED_NAMESPACES = [
+  'recordings',
+  'recordingDiscards',
+  'customers',
+  'orgSettings',
+  // ⚖ 2026-09-16 fold round 2: not the mechanism's — the FRONT GATE's. Every
+  // non-viewAll facade request now reads the caller's own store assignment at
+  // the identity seam, before any door runs, so this one appears on every
+  // request this file makes. (`stores` does NOT: the gate only counts the
+  // business's stores when the assignment comes back EMPTY, and this fixture's
+  // staffStores port is undeclared, so the verdict short-circuits.) The
+  // doctrine line is unchanged for the MECHANISM: what it may never reach is a
+  // job queue, a karute writer or anything nobody has thought of, and that is
+  // still exactly what this list refuses.
+  'staffStores',
+]
 /** Namespaces reached that the mechanism has no business touching. The ⛔
  *  doctrine line, machine-checked, and blind to NOTHING: this reads the
  *  access-time ledger, so a swallowed fire-and-forget still lands here. */
@@ -494,7 +509,12 @@ describe('POST … — tenant scope comes from the token, never the body', () =>
     const res = await post({ ...REVIEW_BODY, businessId: 'business-2' })
     expect(res.status).toBe(400)
     expect(touched).toEqual([])
-    expect(newSynqedClient).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the front gate builds its own client at the
+    // identity seam to read the caller's assignment, so "nothing read" is now
+    // about the DOOR — `touched` above is the door's own ledger, and it is
+    // empty. Every client this door builds still carries the verified
+    // business id, pinned below.
+    expect(newSynqedClient.mock.calls.every(([id]) => id === 'business-1')).toBe(true)
   })
 
   it('an unknown extra field on the staged shape → 400, nothing read', async () => {
@@ -511,9 +531,12 @@ describe('POST … — tenant scope comes from the token, never the body', () =>
     // for any other — so a caller cannot reach another tenant's audio whatever
     // it sends.
     expect((await post(STAGED_BODY)).status).toBe(200)
-    expect(newSynqedClient).toHaveBeenCalledTimes(1)
     expect(newSynqedClient).toHaveBeenCalledWith('business-1')
-    expect(newSynqedClient.mock.calls.map(([id]) => id)).toEqual(['business-1'])
+    // EVERY client built during this request — the door's and the front gate's
+    // — carries the id from the verified token, and nothing else.
+    expect([...new Set(newSynqedClient.mock.calls.map(([id]) => id))]).toEqual([
+      'business-1',
+    ])
 
     jest.clearAllMocks()
     segments = []

@@ -7,6 +7,7 @@ import {
   getCurrentSession,
 } from '@/lib/auth/mobile/session-store'
 import { clearThinActiveStore, getThinActiveStore } from '../chrome/store-pref'
+import { markStoreUnassigned } from '../chrome/store-unassigned'
 
 // PRESENCE marker + this bundle's api-level date — NOT the native build number.
 // The SAME bundle bakes into both shells and serves web, so it cannot know
@@ -67,6 +68,32 @@ export async function facadeApiFetch(
   }
   const res = await fetch(toUrl(path), { ...init, headers })
 
+  // ONE body read for the two things a 403 can mean to this shell. Both the
+  // unassigned gate below and the stranded-pin heal after it need the error
+  // code, and a second `clone().json()` would be a second suspension window —
+  // the exact window the heal's own ownership gate exists to close.
+  const body =
+    res.status === 403 && (authAttached || lensedStore)
+      ? ((await res
+          .clone()
+          .json()
+          .catch(() => null)) as { error?: { code?: string; reason?: string } } | null)
+      : null
+
+  // ⚖ Liam 2026-09-16 — THE PHONE'S HALF OF THE UNASSIGNED GATE. The server
+  // refuses EVERY facade endpoint for a staff member nobody has placed in a
+  // store, with a code of its own so the shell can answer with the honest
+  // 「担当店舗が未設定です」 screen instead of a generic failure on whatever
+  // screen happened to load first. Read here, in the one funnel every facade
+  // call passes through, so no screen has to remember to look.
+  //
+  // Independent of the heal below: this refusal has nothing to do with the
+  // store-id header — an unassigned caller is refused whether they sent a lens
+  // or not, and clearing their pin would fix nothing.
+  if (body?.error?.code === 'store_unassigned') {
+    markStoreUnassigned(getCurrentSession()?.user?.id ?? null)
+  }
+
   // Stranded-pin self-heal. A pinned store the clamp now rejects (store
   // deleted/swapped, role restricted later) 403s EVERY facade call — chrome
   // included, so the switcher is gone and the pin survives sign-out by
@@ -77,10 +104,6 @@ export async function facadeApiFetch(
   // Safe for writes too: the clamp rejects BEFORE any read/write, so nothing
   // happened server-side on the 403.
   if (!lensedStore || res.status !== 403) return res
-  const body = (await res
-    .clone()
-    .json()
-    .catch(() => null)) as { error?: { code?: string; reason?: string } } | null
   // Heal ONLY on the clamp's own VERDICT (reason: 'store_header' = "the
   // store-id you sent is un-servable for you"). store_forbidden is also
   // thrown WITHOUT the marker for two classes that must never heal: resource

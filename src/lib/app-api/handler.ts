@@ -147,6 +147,25 @@ export function facadeHandler<P = Record<string, string>>(
       let identity: RequestIdentity | undefined
       try {
         identity = await resolveBearerIdentity(req, endpoint, deps)
+        // ⚖ Liam 2026-09-16 — THE FACADE FRONT GATE. A staff member of a
+        // multi-store business with no store assigned sees nothing and does
+        // nothing: every endpoint refuses, BEFORE the handler runs, so no read
+        // is even started. It is deliberately a code of its own rather than
+        // the generic `forbidden` the empty capability set would already
+        // produce — the shell branches on it to show the honest
+        // 担当店舗が未設定です screen instead of a wall of permission errors.
+        // No allowlist: there is no facade endpoint an unplaced staff member
+        // needs, and signing out is a client-side Supabase call, so refusing
+        // everything cannot strand them.
+        //
+        // ⚠ A shell baked before this code existed has no mapping for it and
+        // will show its generic error screen until the next shell build.
+        if (identity.unassigned) {
+          throw new AppApiError(
+            'store_unassigned',
+            'no store is assigned to your account yet',
+          )
+        }
         const ctx: FacadeContext<P> = { req, identity, origin, route, meta }
         const res = await fn(ctx)
         await logFacadeAudit(

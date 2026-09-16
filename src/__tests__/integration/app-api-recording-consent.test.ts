@@ -102,7 +102,11 @@ beforeEach(() => {
   capabilities.current = new Set(['customers.view', 'records.write'])
   getUser.fn.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
-  staffStoresGet.mockImplementation(async () => ({ store_ids: [] }))
+  // ⚖ Liam 2026-09-16: the default caller is ASSIGNED. An empty assignment in
+  // this fixture's TWO-store business now means UNASSIGNED (nobody has placed
+  // this staff member), which every door refuses — the tests that want that
+  // shape ask for it explicitly.
+  staffStoresGet.mockImplementation(async () => ({ store_ids: ['store-primary'] }))
   storesGet.mockImplementation(async (id: string) => ({ id }))
   storesList.mockImplementation(async () => ({
     stores: [
@@ -202,8 +206,14 @@ describe('POST recordings/session mint — the store rides along', () => {
     )
   })
 
-  it('an UNRESTRICTED caller’s header wins too — no primary lookup happens', async () => {
+  it('an UNRESTRICTED caller’s header wins too — no primary fallback', async () => {
+    // ⚖ Liam 2026-09-16: an empty assignment only means "floating" in a
+    // ONE-store business now; in a multi-store one it means UNASSIGNED (see the
+    // test below). The clamp reads the store COUNT to tell the two apart, so
+    // `storesList` is called here — what must NOT happen is the primary-store
+    // FALLBACK, and the header's store is the proof of that.
     staffStoresGet.mockResolvedValue({ store_ids: [] })
+    storesList.mockResolvedValue({ stores: [{ id: 'store-a', is_primary: true }] })
     const res = await mintPOST(
       jreq({ ...auth, ...idem, 'store-id': 'store-a' }, { customerId: 'cust-1' }),
       noRoute,
@@ -212,7 +222,20 @@ describe('POST recordings/session mint — the store rides along', () => {
     expect(recordingsCreate).toHaveBeenCalledWith(
       expect.objectContaining({ store_id: 'store-a' }),
     )
-    expect(storesList).not.toHaveBeenCalled()
+  })
+
+  it('an UNASSIGNED caller is REFUSED — never attributed to the primary store', async () => {
+    // ⚖ Liam 2026-09-16: empty assignment + a business with ≥2 stores = a staff
+    // member nobody has placed yet. Minting here would stamp 代官山 on a 銀座
+    // hire's take. The default fixture's business has two stores.
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
+    expect(res.status).toBe(403)
+    // ⚖ 2026-09-16 fold round 2: the FRONT GATE answers first now, with its
+    // own code; the mint's own `store_forbidden` sits underneath it and is what
+    // holds if the gate is ever bypassed (proved alone in the backstops suite).
+    expect((await res.json()).error.code).toBe('store_unassigned')
+    expect(recordingsCreate).not.toHaveBeenCalled()
   })
 
   it('falls back to the caller’s first assigned store when no header is sent', async () => {
@@ -229,7 +252,11 @@ describe('POST recordings/session mint — the store rides along', () => {
   })
 
   it('an UNRESTRICTED caller with no header gets the PRIMARY store (⚖ amendment 10)', async () => {
-    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    // ⚖ Liam 2026-09-16: "unrestricted" now means a CROSS-STORE viewer. An
+    // empty assignment in a multi-store business is the unassigned verdict, not
+    // an unclamped one, so the ruled primary-store fallback is demonstrated on
+    // the shape that still reaches it.
+    capabilities.current = new Set(['customers.view', 'records.write', 'stores.viewAll'])
     const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
     expect(res.status).toBe(200)
     // `is_primary` decides — NOT the list order (the primary is second here).
@@ -239,7 +266,7 @@ describe('POST recordings/session mint — the store rides along', () => {
   })
 
   it('…and the FIRST store when the business marks none primary', async () => {
-    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    capabilities.current = new Set(['customers.view', 'records.write', 'stores.viewAll'])
     storesList.mockResolvedValue({
       stores: [
         { id: 'store-second', is_primary: false },
@@ -254,7 +281,7 @@ describe('POST recordings/session mint — the store rides along', () => {
   })
 
   it('a store lookup that cannot ANSWER → 403, and NO row is created', async () => {
-    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    capabilities.current = new Set(['customers.view', 'records.write', 'stores.viewAll'])
     storesList.mockRejectedValue(new Error('core down'))
     const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
     expect(res.status).toBe(403)
