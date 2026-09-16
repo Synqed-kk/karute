@@ -131,8 +131,18 @@ jest.mock('@/lib/auth/store-scope', () => {
   const actual = jest.requireActual('@/lib/auth/store-scope')
   return { ...actual, storeStaffIdSetForBusiness: async () => null }
 })
+// The CALLER is on the roster here — these cases are about an actor who is
+// placed but reaches no store (Layer 4's subject). `roster.current` lets the
+// N1 case below take them OFF it, which is the different failure the booking
+// door's caller-placement guard answers.
+const roster = {
+  current: [
+    { id: 'staff-1', full_name: 'カイラー' },
+    { id: 'profile-1', full_name: 'Mika' },
+  ],
+}
 jest.mock('@/lib/staff', () => ({
-  staffListByBusinessOrThrow: async () => [{ id: 'profile-1', full_name: 'Mika' }],
+  staffListByBusinessOrThrow: async () => roster.current,
   businessIdForUser: async () => 'business-1',
 }))
 // ⚠ CREATES a core staff record on a miss — which is why the booking door's
@@ -377,5 +387,32 @@ describe('booking CREATE refuses BEFORE the create-on-miss staff mapper', () => 
     clamp.current = { ...ASSIGNED }
     expect((await bookingPOST(bookReq(), route)).status).toBe(201)
     expect(resolveSynqedStaffIdForBusinessSpy).toHaveBeenCalled()
+  })
+})
+
+// FRESH-EYES-P1 N1 — the OTHER unplaceable caller. Layer 4 above is about an
+// actor the roster DOES hold who reaches no store; this is an auth id the roster
+// cannot place at all (a staff member removed mid-onboarding whose phone still
+// holds a live token). Core answers `{ store_ids: [] }` for them, byte-identical
+// to floating, so the clamp read them as unrestricted and their `store-id`
+// header picked the store.
+describe('booking CREATE refuses a caller the ROSTER cannot place', () => {
+  const route = { params: Promise.resolve({}) }
+  afterEach(() => {
+    roster.current = [
+      { id: 'staff-1', full_name: 'カイラー' },
+      { id: 'profile-1', full_name: 'Mika' },
+    ]
+  })
+
+  it('403, and NOTHING is written — not the booking, not a staff row', async () => {
+    roster.current = [{ id: 'profile-1', full_name: 'Mika' }]
+    clamp.current = { storeId: 'store-ginza', allowedStoreIds: null } // read as FLOATING
+    const res = await bookingPOST(bookReq(), route)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe('store_forbidden')
+    expect(apptCreate).not.toHaveBeenCalled()
+    expect(defaultBookingStore).not.toHaveBeenCalled()
+    expect(resolveSynqedStaffIdForBusinessSpy).not.toHaveBeenCalled()
   })
 })
