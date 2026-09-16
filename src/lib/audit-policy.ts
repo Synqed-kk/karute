@@ -702,8 +702,13 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/staff/new-card.ts',
     call: 'staff.delete',
-    symbols: ['createAndPlaceStaffCard'],
-    justification: "The shared new-card mint (⚖ Liam 2026-09-16): one home for 'a new staff card is born in a store', reached by BOTH doors that make one — the 追加 button (actions/staff.ts#createStaffCore) and a FRESH invite (actions/invites.ts#createInviteCore, which now mints the card up front so accept only attaches the login). It carries NO audit call on purpose: each door emits its own staff.add row at the point it knows what it made, which is what keeps CP7's dominating-emit walker able to read them (a shared emit here would be invisible to both). Both citations are registered AUDITED_CORES symbols. 'staff.delete' is the placement ROLLBACK — it only ever removes the card this same function created moments earlier, so it has no separate lifecycle to audit; the door's staff.add never fires for a rolled-back card.",
+    // ⚖ FOLD ROUND 3 (fresh-eyes F8, 2026-09-17): the delete moved out of
+    // createAndPlaceStaffCard into the private `rollback` helper, which is
+    // where a FAILED rollback is now turned into its own answer
+    // (STAFF_CARD_LEFT_BEHIND) instead of a console line. Same single call
+    // site, same reasoning, one level down.
+    symbols: ['rollback'],
+    justification: "The shared new-card mint's ROLLBACK (⚖ Liam 2026-09-16; moved into its own helper by the F8 fold, 2026-09-17). It only ever removes the card createAndPlaceStaffCard created moments earlier in the same request, so it has no separate lifecycle to audit: the door's staff.add never fires for a rolled-back card. The mint itself carries NO audit call on purpose — each door emits its own staff.add row at the point it knows what it made, which is what keeps CP7's dominating-emit walker able to read them (a shared emit here would be invisible to both). Both doors (actions/staff.ts#createStaffCore and actions/invites.ts#createInviteCore) are registered AUDITED_CORES symbols.",
     dated: '2026-09-16',
   },
   {
