@@ -162,6 +162,9 @@ const G_WORDS = RESOURCE_WORDS.other
 // every lane falls to the generic row, which is STORE_A's own (chiropractic
 // ≡ other, D-13) — runtime expected sentences are unchanged.
 const LANE_WORDS = { byLaneKey: {}, generic: A_WORDS }
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A = { resourceNoun: A_WORDS.resourceNoun, privateWord: A_WORDS.privateWord! }
 /** ⚖ BREAKER-827 F1/F2/F3 — A `//`-PREFIXED COPY IS NOT THE LINE.
  *
  *  The breaker commented the verdict's protected door OUT, left the pinned text
@@ -609,7 +612,7 @@ describe('the board answers to its own moves', () => {
 })
 
 describe('the sell layer moves with the board', () => {
-  const opts = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
+  const opts = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9, words: ASK_A }
 
   it('a free lane and a free bed advertise the whole day; a booking on either takes its hour off sale', () => {
     const lanes = [lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })]
@@ -1540,7 +1543,7 @@ describe('the window layers price the committed board, never the card in flight'
     newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
     mode: 'standard' as const,
   }
-  const sellOpts = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
+  const sellOpts = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9, words: ASK_A }
   const gapOpts = {
     gridMin: 60, sessionMin: 60, gapFillMin: 30, gapFillDiscountPct: 10, nowMinute: null,
     locked: [], frame: { hi: 7260, lo: 6600, hqMin: 6600, hqMax: 7260 }, depth: 9, guard: GUARD,
@@ -1632,7 +1635,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
   const railIn = (lanes: BoardLane[] | null, over: Partial<Parameters<typeof guardRailsFor>[1]> = {}) => ({
     open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
     nowMinute: null, locked: [], guard: GUARD, ...over,
-    placementFeasible: lanes ? bedFeasibility(lanes, over.excludeId ?? null) : undefined,
+    placementFeasible: lanes ? bedFeasibility(lanes, over.excludeId ?? null, ASK_A) : undefined,
   })
   /** ⚖ FIX-4 (blind round, 2026-08-25) — EVERY SCENE BELOW RUNS BOTH DOORS.
    *
@@ -1651,7 +1654,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     const askerId = over.excludeId ?? null
     const book = at({
       ...railIn(lanes, over),
-      placementFeasible: bedDoor(bedViewsFor(lanes, bookFrame, askerId), lanes, askerId),
+      placementFeasible: bedDoor(bedViewsFor(lanes, bookFrame, askerId, ASK_A), lanes, askerId),
     })
     expect([minute, book]).toEqual([minute, legacy])
     return legacy
@@ -1711,7 +1714,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // ENDS where the booking begins never overlapped it, and one that clears the
     // busy tail is feasible again. (Both starts are outside the shift, so the
     // predicate is asked directly — the guard has its own answer for those.)
-    const feasible = bedFeasibility(board, null)!
+    const feasible = bedFeasibility(board, null, ASK_A)!
     expect(feasible(board[0], 600, 60)).toBe(false)
     expect(feasible(board[0], 570, 60)).toBe(true)
     expect(feasible(board[0], 660, 60)).toBe(true)
@@ -1722,7 +1725,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // canon's own `SCENARIO.needsBed === false` switch (:7261). A store that has
     // configured no resources is not a store that cannot sell.
     const board = [staff()]
-    expect(bedFeasibility(board, null)).toBeUndefined()
+    expect(bedFeasibility(board, null, ASK_A)).toBeUndefined()
     expect(guardRailsFor(board, railIn(board), LANE_WORDS)).toEqual(guardRailsFor(board, railIn(null), LANE_WORDS))
   })
 
@@ -1778,7 +1781,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       bed('bed-01', [booking({ key: 'b1', caseId: 'x1' }, 600, 660)]),
       bed('bed-02', [booking({ key: 'b2', caseId: 'x2' }, 600, 660)]),
     ]
-    const feasible = bedFeasibility(rooms, null)!
+    const feasible = bedFeasibility(rooms, null, ASK_A)!
     const c = cellAt(rooms, 600)
     expect(c.alternatives.length).toBeGreaterThan(0)
     for (const s of c.alternatives) expect(feasible(rooms[0], s, 60)).toBe(true)
@@ -1942,9 +1945,9 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // exact-line body moves. ⚖ 39's hatch is untouched: the identity check, the
     // fallback and the frame's own `ledger` are still one decision.
     for (const line of [
-      '() => bedViewsFor(boardLanes, ledgerFrame, handId),',
-      '[boardLanes, ledgerFrame, handId],',
-      'bedDoor(lanes === boardLanes ? ledger : bookFor(lanes, ledgerFrame, handId, FOREIGN_BOOKS), lanes, askerId),',
+      '() => bedViewsFor(boardLanes, ledgerFrame, handId, chromeAsk),',
+      '[boardLanes, ledgerFrame, handId, chromeAsk],',
+      'bedDoor(lanes === boardLanes ? ledger : bookFor(lanes, ledgerFrame, handId, FOREIGN_BOOKS, chromeAsk), lanes, askerId),',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
     }
@@ -2129,14 +2132,14 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // board default, and ⚖ 39's escape hatch. The breaker's fourth line has
     // nowhere to be.
     expect(
-      sliceLines('const bedDoorFor = useCallback(', '[boardLanes, ledger, ledgerFrame, handId],').lines,
+      sliceLines('const bedDoorFor = useCallback(', '[boardLanes, ledger, ledgerFrame, handId, chromeAsk],').lines,
     ).toEqual([
       'const bedDoorFor = useCallback(',
       '(askerId: string | null, lanes: BoardLane[] = boardLanes) =>',
       // ⚖ LIVE-WHILE-DRAGGING / ADJUDICATION L2 M-5 — one call changed on this
       // line and nothing else in the body. The lift is still the FRAME's hand,
       // which is what lets ONE book serve both of this door's asks.
-      'bedDoor(lanes === boardLanes ? ledger : bookFor(lanes, ledgerFrame, handId, FOREIGN_BOOKS), lanes, askerId),',
+      'bedDoor(lanes === boardLanes ? ledger : bookFor(lanes, ledgerFrame, handId, FOREIGN_BOOKS, chromeAsk), lanes, askerId),',
     ])
 
     // 2 · THE RAIL'S INPUT — the dials, the exclusion, and both doors.
@@ -2561,7 +2564,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // freshly built one, the lifted-world door line, the escape hatch and the key
     // normalisation. D3, D4 and B10 are each a changed line in this array.
     expect(
-      sliceLines('const newClientDoorMinus = useMemo(() => {', '}, [boardLanes, ledger, ledgerFrame])').lines,
+      sliceLines('const newClientDoorMinus = useMemo(() => {', '}, [boardLanes, ledger, ledgerFrame, chromeAsk])').lines,
     ).toEqual([
       'const newClientDoorMinus = useMemo(() => {',
       'const built = new Map<string, ReturnType<typeof bedDoor>>()',
@@ -2573,7 +2576,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       // the sibling door above, and the lift is still this door's OWN: the id it
       // was asked to lift, never the frame's hand, so a caller asking about
       // nobody keeps today's `undefined` door instead of somebody's lifted world.
-      ': bookFor(lanes, ledgerFrame, excludeId, FOREIGN_BOOKS).worldMinusHand',
+      ': bookFor(lanes, ledgerFrame, excludeId, FOREIGN_BOOKS, chromeAsk).worldMinusHand',
       'return lifted === null ? undefined : bedDoor({ world: lifted, worldMinusHand: null, handId: null }, lanes, null)',
       '}',
       'return (excludeId: string | null, lanes: BoardLane[] = boardLanes) => {',
@@ -2693,13 +2696,13 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // go through it. Named here so the invariant (one door, every walk named)
     // holds at every commit on main. PR-B: the two door walks go through
     // `bookFor` now — 5 → 3, the definition and `bookFor`'s own remain.
-    expect(SRC.split('bedViewsFor(').length - 1).toBe(3)
-    expect({ liftedWalk: pinnedLines(SRC, ': bookFor(lanes, ledgerFrame, excludeId, FOREIGN_BOOKS).worldMinusHand') }).toEqual({ liftedWalk: 1 })
+    expect(SRC.split('bedViewsFor(').length - 1).toBe(5)
+    expect({ liftedWalk: pinnedLines(SRC, ': bookFor(lanes, ledgerFrame, excludeId, FOREIGN_BOOKS, chromeAsk).worldMinusHand') }).toEqual({ liftedWalk: 1 })
     // …and the shared walk is ONE expression, with BOTH the frame and the lift in
     // the record, so neither door can be served a book built for the other.
     expect(SRC).toContain('const hit = cache.get(lanes)')
     expect(SRC).toContain('if (hit && hit.frameKey === frameKey && hit.liftedId === liftedId) return hit.views')
-    expect(SRC).toContain('const views = bedViewsFor(lanes, frame, liftedId)')
+    expect(SRC).toContain('const views = bedViewsFor(lanes, frame, liftedId, words)')
     // Four mentions of `bookFor(`: the definition and the three NAMED doors — the
     // same 「a call nobody named is a second door」 rule as `bedDoor(` above.
     // ⚖ NEW-WINDOW (2026-09-12) — 3 → 4, COUNTED BY A RUN. The third door is
@@ -2731,7 +2734,9 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     expect(SRC.split('bookFor(').length - 1).toBe(9)
     expect(SRC).not.toContain('bedViewsFor(committedLanes')
     expect(SRC).toContain('gateOn: SELLING_ENGINE_LAW,')
-    expect(SRC).toContain('bookOf: bedViewsFor,')
+    // ⚖ D-53 (ak)/(al) — DISCLOSED PIN MOVE: the frozen `BookDoor` type stays
+    // 3-arg, so this door is now a closure over the chrome pair (R-6).
+    expect(SRC).toContain('bookOf: (lanes, frame, inHand) => bedViewsFor(lanes, frame, inHand, chromeAsk),')
     const WRAPPER = readFileSync(
       join(process.cwd(), 'src/app/[locale]/(business)/business/today/held-committed.ts'),
       'utf8',
@@ -2788,10 +2793,10 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     }, LANE_WORDS)
   /** THE DOOR THIS ROUND DELETED — the red-run leg. */
   const before = (lanes: BoardLane[], stagedId: string, nowMinute: number | null = null) =>
-    railsWith(lanes, stagedId, bedFeasibility(lanes, stagedId), nowMinute)
+    railsWith(lanes, stagedId, bedFeasibility(lanes, stagedId, ASK_A), nowMinute)
   /** THE DOOR THIS ROUND SHIPS. `handId` is null at rest — that is the round. */
   const after = (lanes: BoardLane[], handId: string | null = null, nowMinute: number | null = null) =>
-    railsWith(lanes, handId, bedDoor(bedViewsFor(lanes, { ...FRAME, nowMin: nowMinute ?? HOURS.open }, handId), lanes, handId), nowMinute)
+    railsWith(lanes, handId, bedDoor(bedViewsFor(lanes, { ...FRAME, nowMin: nowMinute ?? HOURS.open }, handId, ASK_A), lanes, handId), nowMinute)
   const cell = (rails: ReturnType<typeof railsWith>, laneKey: string, start: number) =>
     rails.find((r) => r.laneKey === laneKey)!.cells.find((c) => c.start === start)!
 
@@ -2878,7 +2883,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     expect(cell(after(board), 'p-01', 600).state).toBe('degraded')
     expect(cell(after(board), 'p-01', 600).label).toBe('△10:00')
     // The floor itself is untouched: asked ABOUT that booking, the answer is no.
-    const asTagged = bedDoor(bedViewsFor(board, FRAME, 'staged'), board, 'staged')!
+    const asTagged = bedDoor(bedViewsFor(board, FRAME, 'staged', ASK_A), board, 'staged')!
     expect(asTagged(board[0], 600, 60)).toBe(false)
   })
 
@@ -2933,10 +2938,10 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
   // ── the door's own contract (the mutation targets) ────────────────────────
   it('bedDoor picks its world by WHO is asking, never by who is standing there', () => {
     const board = shotBoard()
-    const views = bedViewsFor(board, FRAME, 'staged')
+    const views = bedViewsFor(board, FRAME, 'staged', ASK_A)
     // A hand exists, so the second world exists — and only then.
     expect(views.worldMinusHand).not.toBeNull()
-    expect(bedViewsFor(board, FRAME, null).worldMinusHand).toBeNull()
+    expect(bedViewsFor(board, FRAME, null, ASK_A).worldMinusHand).toBeNull()
     // The HAND is answered out of the lifted world: its own room is free to it.
     expect(bedDoor(views, board, 'staged')!(board[0], 600, 60)).toBe(true)
     // A hypothetical is answered out of the ONE world: both rooms are taken.
@@ -2945,7 +2950,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     // not count as its own obstacle, and it does not vanish for anybody else.
     // (Asking the lifted world about it would lift a second card; the book
     // refuses that, and this is the wiring that never asks.)
-    const atRest = bedViewsFor(board, FRAME, null)
+    const atRest = bedViewsFor(board, FRAME, null, ASK_A)
     expect(bedDoor(atRest, board, 'staged')!(board[0], 600, 60)).toBe(true)
     expect(bedDoor(atRest, board, 'other')!(board[0], 600, 60)).toBe(true)
     expect(bedDoor(atRest, board, null)!(board[0], 600, 60)).toBe(false)
@@ -2969,7 +2974,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
    *  stated out loud instead of being an unpinned survivor in a mutation run. */
   it('the lift is a whole-answer no-op for the hand — kept for what it forbids, not what it changes', () => {
     const board = shotBoard()
-    const views = bedViewsFor(board, FRAME, 'staged')
+    const views = bedViewsFor(board, FRAME, 'staged', ASK_A)
     const lifted = bedDoor(views, board, 'staged')!
     const unlifted = bedDoor({ ...views, worldMinusHand: null }, board, 'staged')!
     let asked = 0
@@ -2988,21 +2993,21 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
 
   it('an empty id is NOBODY, and a store with no rooms has no door at all', () => {
     const board = shotBoard()
-    const views = bedViewsFor(board, FRAME, null)
+    const views = bedViewsFor(board, FRAME, null, ASK_A)
     // `bedFeasibility` read `excludeId` for truthiness; '' meant "exclude
     // nobody" there and it means the same here, or the two are not the same
     // question.
     expect(bedDoor(views, board, '')!(board[0], 600, 60)).toBe(bedDoor(views, board, null)!(board[0], 600, 60))
     // canon's own `SCENARIO.needsBed === false` switch: absent, not false.
     const noRooms = board.filter((l) => l.group !== 'beds')
-    expect(bedDoor(bedViewsFor(noRooms, FRAME, null), noRooms, null)).toBeUndefined()
+    expect(bedDoor(bedViewsFor(noRooms, FRAME, null, ASK_A), noRooms, null)).toBeUndefined()
     // ⚖ FIX-5 (blind round) — AND THE SEAM AGREES ON BOTH SIDES. The book throws
     // on an empty hand id (rightly: a hand with no id is a bug in the caller,
     // not an empty world), so `bedViewsFor` normalises it to "no hand" before
     // that throw can reach a render — the same truthiness `bedDoor` reads.
-    expect(() => bedViewsFor(board, FRAME, '')).not.toThrow()
-    expect(bedViewsFor(board, FRAME, '').worldMinusHand).toBeNull()
-    expect(bedViewsFor(board, FRAME, '').handId).toBeNull()
+    expect(() => bedViewsFor(board, FRAME, '', ASK_A)).not.toThrow()
+    expect(bedViewsFor(board, FRAME, '', ASK_A).worldMinusHand).toBeNull()
+    expect(bedViewsFor(board, FRAME, '', ASK_A).handId).toBeNull()
   })
 
   it('the hypothetical door answers PER LENGTH, not once for the first one asked', () => {
@@ -3013,7 +3018,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
       staff('p-01'),
       bed('bed-01', [booking({ key: 'b1', caseId: 'other' }, 630, 660)]),
     ]
-    const door = bedDoor(bedViewsFor(board, FRAME, null), board, null)!
+    const door = bedDoor(bedViewsFor(board, FRAME, null, ASK_A), board, null)!
     expect(door(board[0], 600, 60)).toBe(false) // 10:00–11:00 straddles the booking
     expect(door(board[0], 600, 30)).toBe(true) // 10:00–10:30 clears it
     expect(door(board[0], 600, 60)).toBe(false) // …and the first answer is still right
@@ -3028,7 +3033,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
       staff('p-02', { items: [booking({ key: 's', caseId: 'staged' }, 900, 960)] }),
       bed('bed-01', [booking({ key: 'b1', caseId: 'other' }, 630, 660)]),
     ]
-    const door = bedDoor(bedViewsFor(board, FRAME, 'staged'), board, 'staged')!
+    const door = bedDoor(bedViewsFor(board, FRAME, 'staged', ASK_A), board, 'staged')!
     expect(door(board[0], 600, 60)).toBe(false) // 10:00–11:00 straddles the booking
     expect(door(board[0], 600, 30)).toBe(true) // 10:00–10:30 clears it
     expect(door(board[0], 600, 60)).toBe(false) // …and the first answer is still right
@@ -3039,7 +3044,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     // so the second one has to be the first one — including the two-world split.
     const board = shotBoard()
     const runs = [null, 'staged'].map((handId) =>
-      [bedViewsFor(board, FRAME, handId), bedViewsFor(board, FRAME, handId)].map((views) =>
+      [bedViewsFor(board, FRAME, handId, ASK_A), bedViewsFor(board, FRAME, handId, ASK_A)].map((views) =>
         railsWith(board, handId, bedDoor(views, board, handId)).map((r) => r.cells.map((c) => `${c.state}|${c.label}|${c.sentence}`)),
       ),
     )
@@ -3098,14 +3103,14 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     it('solveBed’s leg says it too — a 次回予約 into a full house names the staged move', () => {
       const staffLane = board.find((l) => l.key === 'p-01')!
       const solved = allocateBed(board, {
-        id: null, currentBed: null, stores: staffLane.stores, requiresPrivate: false,
+        id: null, currentBed: null, stores: staffLane.stores, words: ASK_A, requiresPrivate: false,
         start: 600, end: 660, stagedId: 'staged',
       })
       expect(solved.laneKey).toBeNull()
       expect(solved.refusal).toBe('10:00〜11:00はベッドに空きがありません。bed-01（見本 さくら様）、bed-02（仮押さえ中の見本 いつき様）が使用中です')
       // …and nothing staged is byte-identical to what this leg shipped before.
       expect(allocateBed(board, {
-        id: null, currentBed: null, stores: staffLane.stores, requiresPrivate: false,
+        id: null, currentBed: null, stores: staffLane.stores, words: ASK_A, requiresPrivate: false,
         start: 600, end: 660,
       }).refusal).toBe('10:00〜11:00はベッドに空きがありません。bed-01（見本 さくら様）、bed-02（見本 いつき様）が使用中です')
     })
@@ -3548,7 +3553,7 @@ describe('the drag emphasis follows the dragged length, and nothing else', () =>
       lane({ key: 'p-01', group: 'staff', window: { from: 840, until: 1050 }, untilLabel: '17:30' }),
       lane({ key: 'bed-01', group: 'beds' }),
     ]
-    const sell = sellLayerFor(lanes, HOURS, { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 })
+    const sell = sellLayerFor(lanes, HOURS, { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9, words: ASK_A })
     const gap = gapLayerFor(lanes, {
       gridMin: 60, sessionMin: 60, gapFillMin: 30, gapFillDiscountPct: 10, nowMinute: null,
       locked: [], frame: { hi: 7260, lo: 6600, hqMin: 6600, hqMax: 7260 }, depth: 9, guard: GUARD,
@@ -3574,7 +3579,7 @@ describe('the drag emphasis follows the dragged length, and nothing else', () =>
       lane({ key: 'p-01', group: 'staff', window: { from: 840, until: 1050 }, untilLabel: '17:30' }),
       lane({ key: 'bed-01', group: 'beds' }),
     ]
-    const sell = sellLayerFor(lanes, HOURS, { gridMin: 60, sellSlotMin: 45, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 })
+    const sell = sellLayerFor(lanes, HOURS, { gridMin: 60, sellSlotMin: 45, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9, words: ASK_A })
     const hourBoxes = sell.cells.filter((c) => c.group === 'staff')
     expect(hourBoxes.length).toBeGreaterThan(0)
     // The box advertises the cell's own length — 45, not the shipped 60 — so a
@@ -3784,7 +3789,7 @@ describe('次回予約を作成 arms the board, and the slot click makes the boo
     ]
     const staff = [lane({ key: 'p-01', group: 'staff' })]
     const solve = (start: number, end: number, lanes = [...staff, ...beds]) =>
-      allocateBed(lanes, { id: null, currentBed: null, stores: null, requiresPrivate: false, start, end })
+      allocateBed(lanes, { id: null, currentBed: null, stores: null, words: ASK_A, requiresPrivate: false, start, end })
     // 15:00–16:00: both beds are busy → the placement is refused outright, and
     // the sentence names the window and both rooms with who is in them.
     expect(solve(900, 960)).toEqual({
@@ -4270,7 +4275,7 @@ describe('the shelf family, enumerated against canon rather than against the fla
       lane({ key: 'bed-02', group: 'beds' }),
     ]
     const solve = (lanes: BoardLane[], currentBed: string | null = null) =>
-      allocateBed(lanes, { id: null, currentBed, stores: null, requiresPrivate: false, start: 900, end: 960 })
+      allocateBed(lanes, { id: null, currentBed, stores: null, words: ASK_A, requiresPrivate: false, start: 900, end: 960 })
     expect(solve([lane({ key: 'p-01', group: 'staff' }), ...beds]).laneKey).toBe('bed-02')
     // A parked card holds no ground, so its own bed reads free and comes back.
     expect(solve([lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })], 'bed-01').laneKey).toBe('bed-01')
@@ -5553,7 +5558,7 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     // bed emits no cell however free the staff lane is. Reported as a missing
     // 販売可能枠; it is the pairing cap doing its job, and selling the hour would
     // put the board's own advertisement over a room that cannot hold it.
-    const opts = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
+    const opts = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9, words: ASK_A }
     const oneBedTaken = [
       lane({ key: 'p-01', group: 'staff' }),
       lane({ key: 'bed-01', group: 'beds', items: [booking({ key: 'z', caseId: 'apt-8' }, 720, 780)] }),
@@ -6138,7 +6143,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     }),
   ]
   const solve = (lanes: BoardLane[], over: Partial<Parameters<typeof allocateBed>[1]> = {}) =>
-    allocateBed(lanes, { id: 'apt-nagi', currentBed: 'bed-03', stores: null, requiresPrivate: false, start: 960, end: 1020, ...over })
+    allocateBed(lanes, { id: 'apt-nagi', currentBed: 'bed-03', stores: null, words: ASK_A, requiresPrivate: false, start: 960, end: 1020, ...over })
 
   it('keeps the booking’s own room when it is free at the landing time', () => {
     // 見本 かえる's case: carries ベッド2, and ベッド2 is free at 16:00 → nothing
@@ -6203,7 +6208,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
         ],
       }),
     ]
-    expect(allocateBed(own, { id: 'apt-nagi', currentBed: 'bed-02', stores: null, requiresPrivate: false, start: 960, end: 1020 }))
+    expect(allocateBed(own, { id: 'apt-nagi', currentBed: 'bed-02', stores: null, words: ASK_A, requiresPrivate: false, start: 960, end: 1020 }))
       .toEqual({ laneKey: 'bed-02', refusal: null, blockers: [], reseats: [] })
     // Somebody else's turnaround is the room being unavailable, exactly as the
     // board's own 「清掃を予約不可時間として表示」 says.
@@ -6213,7 +6218,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
         items: [{ ...booking({ key: 'apt-other-cleanup', caseId: null }, 960, 990), kind: 'cleanup' as const, title: '清掃' }],
       }),
     ]
-    expect(allocateBed(theirs, { id: 'apt-nagi', currentBed: 'bed-02', stores: null, requiresPrivate: false, start: 960, end: 1020 }).laneKey)
+    expect(allocateBed(theirs, { id: 'apt-nagi', currentBed: 'bed-02', stores: null, words: ASK_A, requiresPrivate: false, start: 960, end: 1020 }).laneKey)
       .toBeNull()
   })
 
@@ -6233,7 +6238,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
       lane({ key: 'bed-b1', group: 'beds', label: 'B・ベッド1', stores: ['store-b'] }),
     ]
     const solved = allocateBed(viewAll, {
-      id: 'apt-nagi', currentBed: null, stores: ['store-a'],
+      id: 'apt-nagi', currentBed: null, stores: ['store-a'], words: ASK_A,
       requiresPrivate: false, start: 960, end: 1020,
     })
     // 満室 — and the refusal names store-a's room, never offers store-b's.
@@ -6245,19 +6250,19 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     // store is still retargeted to, on the same board.
     const withOwnFree = [...viewAll, lane({ key: 'bed-a2', group: 'beds', label: 'A・ベッド2', stores: ['store-a'] })]
     expect(allocateBed(withOwnFree, {
-      id: 'apt-nagi', currentBed: null, stores: ['store-a'],
+      id: 'apt-nagi', currentBed: null, stores: ['store-a'], words: ASK_A,
       requiresPrivate: false, start: 960, end: 1020,
     }).laneKey).toBe('bed-a2')
 
     // A floating staff member (`stores: null`) pairs with any room, and a
     // floating ROOM takes anyone — canon `canPair`'s two null cases, both ways.
     expect(allocateBed(viewAll, {
-      id: 'apt-nagi', currentBed: null, stores: null,
+      id: 'apt-nagi', currentBed: null, stores: null, words: ASK_A,
       requiresPrivate: false, start: 960, end: 1020,
     }).laneKey).toBe('bed-b1')
     const floatingRoom = [lane({ key: 'bed-any', group: 'beds', label: 'どこでも', stores: null })]
     expect(allocateBed(floatingRoom, {
-      id: 'apt-nagi', currentBed: null, stores: ['store-a'],
+      id: 'apt-nagi', currentBed: null, stores: ['store-a'], words: ASK_A,
       requiresPrivate: false, start: 960, end: 1020,
     }).laneKey).toBe('bed-any')
 
@@ -6265,7 +6270,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     // compared whole, so this does NOT inherit the A-5 `stores?.[0]` collapse.
     const shared = [lane({ key: 'bed-sh', group: 'beds', label: '共用', stores: ['store-b', 'store-a'] })]
     expect(allocateBed(shared, {
-      id: 'apt-nagi', currentBed: null, stores: ['store-a'],
+      id: 'apt-nagi', currentBed: null, stores: ['store-a'], words: ASK_A,
       requiresPrivate: false, start: 960, end: 1020,
     }).laneKey).toBe('bed-sh')
   })
@@ -6654,7 +6659,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(roomFitsNeed(priv, false)).toBe(true)
     // The auto path routes through the same predicate — a 個室のみ booking is
     // solved into the 個室 and never into the free standard bed.
-    expect(allocateBed(board(), { id: null, currentBed: null, stores: ['store-a'], requiresPrivate: true, start: 960, end: 1020 }).laneKey).toBe('bed-03')
+    expect(allocateBed(board(), { id: null, currentBed: null, stores: ['store-a'], words: ASK_A, requiresPrivate: true, start: 960, end: 1020 }).laneKey).toBe('bed-03')
     // Structurally one home: the allocator's filter IS this function, so the two
     // paths cannot drift into two answers (the defect this test exists for).
     expect(INT).toContain('const compatible = (l: BoardLane) => roomFitsNeed(l, opts.requiresPrivate)')
@@ -6942,7 +6947,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)] }),
       lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private', items: [booking({ key: 'b3', caseId: 'x3', title: '見本 さくら' }, 960, 1020)] }),
     ]
-    const opts = { id: null, currentBed: null, stores: ['store-a'], start: 960, end: 1020 }
+    const opts = { id: null, currentBed: null, stores: ['store-a'], words: ASK_A, start: 960, end: 1020 }
     // Without the escalation it is 満室, naming the rooms (⚖ 51, unchanged).
     expect(allocateBed(full, { ...opts, requiresPrivate: false }).laneKey).toBeNull()
     // With it, the allocator names the room it WOULD have chosen — 個室 last for
@@ -7116,7 +7121,7 @@ describe('BATCH-10 W1 — the trivial trio: bed solve, proxy paint, block step',
     const lanes = [staff, free]
     // `currentBed: null` is the contract — it is how `placeNextVisit` calls it.
     const solved = allocateBed(lanes, {
-      id: 'apt-akari', currentBed: null, stores: ['store-a'], requiresPrivate: false,
+      id: 'apt-akari', currentBed: null, stores: ['store-a'], words: ASK_A, requiresPrivate: false,
       start: 780, end: 840,
     })
     expect(solved.refusal).toBeNull()
@@ -8358,7 +8363,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     const full = [
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)] }),
     ]
-    const opts = { id: null, currentBed: null, stores: ['store-a'], start: 960, end: 1020, requiresPrivate: false }
+    const opts = { id: null, currentBed: null, stores: ['store-a'], words: ASK_A, start: 960, end: 1020, requiresPrivate: false }
     expect(allocateBed(full, opts).laneKey).toBeNull()
     expect(allocateBed(full, { ...opts, allowBusy: true }).laneKey).toBe('bed-01')
     expect(INT).toContain('allowBusy?: boolean')
@@ -8445,8 +8450,10 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(SRC).toContain('roomWord: ask.requiresPrivate ? (wordsForAsk(ask).privateWord ?? props.genericWords.privateWord!) : wordsForAsk(ask).resourceNoun,')
     // …and the WORD and the SEARCH read the same field, so the offer line can
     // never say ベッド over a 個室 hunt.
-    expect(INT).toContain("const room = requiresPrivate ? '個室' : 'ベッド'")
-    expect(INT).toContain('fullRoomsRefusal(rows, start, end, opts.requiresPrivate, opts.stagedId ?? null)')
+    // ⚖ D-53 (ak)/(al) — DISCLOSED PIN MOVE: the literal 個室/ベッド ternary
+    // now resolves the handed-in words (R-3).
+    expect(INT).toContain('const room = requiresPrivate ? words.privateWord : words.resourceNoun')
+    expect(INT).toContain('fullRoomsRefusal(rows, start, end, opts.requiresPrivate, opts.stagedId ?? null, opts.words)')
     // A VIP hunting a 個室 is told about 個室, not about ベッド.
     expect(verdict(board({ beds: busyBeds }), { requiresPrivate: true }, cellOf('safe', '')).reason).toContain('個室に空きがありません')
   })
@@ -12585,7 +12592,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
   const bed = (key: string, roomClass: 'standard' | 'private', items: BoardItem[] = [], stores = ['store-a']) =>
     lane({ key, group: 'beds', label: key === 'bed-03' ? 'ベッド3' : 'ベッド1', roomClass, items, stores })
   const solve = (lanes: BoardLane[], requiresPrivate: boolean, stores: string[] | null = ['store-a']) =>
-    allocateBed(lanes, { id: null, currentBed: null, stores, requiresPrivate, start: 960, end: 1020 })
+    allocateBed(lanes, { id: null, currentBed: null, stores, words: ASK_A, requiresPrivate, start: 960, end: 1020 })
 
   // I1 — NO BED-SOLVING CODE READS THE CUSTOMER. The whole defect in one grep:
   // 20 sites asked `category === 'vip'` a ROOM question. `customer.vip` keeps
@@ -12654,7 +12661,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     expect(solve(storeB, false, ['store-b'])).toEqual({ laneKey: 'bed-04', refusal: null, blockers: [], reseats: [] })
     // …at every hour of the day, not just this one.
     for (let start = 600; start + 60 <= 1140; start += 30) {
-      const at = allocateBed(storeB, { id: null, currentBed: null, stores: ['store-b'], requiresPrivate: false, start, end: start + 60 })
+      const at = allocateBed(storeB, { id: null, currentBed: null, stores: ['store-b'], words: ASK_A, requiresPrivate: false, start, end: start + 60 })
       expect([start, at.laneKey]).toEqual([start, 'bed-04'])
     }
     // …and on a board whose ONLY free room is the 個室, the plain booking takes it.
@@ -12715,7 +12722,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     expect(solve(blocked, false).refusal).toBe('16:00〜17:00はベッドに空きがありません。ベッド1（設備点検 16:30〜18:00）が使用中です')
     const staged = (items: BoardItem[]) =>
       allocateBed([staffLane(), bed('bed-01', 'standard', items)], {
-        id: null, currentBed: null, stores: ['store-a'], requiresPrivate: false, start: 960, end: 1020, stagedId: 'staged',
+        id: null, currentBed: null, stores: ['store-a'], words: ASK_A, requiresPrivate: false, start: 960, end: 1020, stagedId: 'staged',
       }).refusal
     expect(staged([booking({ key: 's5', caseId: 'staged', title: '見本 いつき' }, 950, 1080)]))
       .toBe('16:00〜17:00はベッドに空きがありません。ベッド1（仮押さえ中の見本 いつき様 15:50〜18:00）が使用中です')
@@ -12797,11 +12804,11 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
           const cell = `tag=${requiresPrivate} std=${stdBusy ? 'busy' : 'free'} priv=${privBusy ? 'busy' : 'free'}`
           // reader 1 — the allocator, asked for the card
           const allocator = allocateBed(board, {
-            id: 'ask', currentBed: null, stores: ['store-a'], requiresPrivate, start: 960, end: 1020,
+            id: 'ask', currentBed: null, stores: ['store-a'], words: ASK_A, requiresPrivate, start: 960, end: 1020,
           }).laneKey !== null
           // reader 2 — the guard's bed door, through the capacity book, asked for
           // the SAME card by id: it reads the room need off the drawn item.
-          const door = bedDoor(bedViewsFor(board, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null), board, 'ask')!
+          const door = bedDoor(bedViewsFor(board, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null, ASK_A), board, 'ask')!
           const doorSays = door(board[0], 960, 60)
           // reader 3 — the bed-row test, on the room the allocator would pick
           const named = requiresPrivate ? 'bed-03' : 'bed-01'
@@ -12864,7 +12871,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
       bed('bed-01', 'standard', [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)]),
       bed('bed-03', 'private'),
     ]
-    const door = bedDoor(bedViewsFor(onlyPrivateFree, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null), onlyPrivateFree, null)!
+    const door = bedDoor(bedViewsFor(onlyPrivateFree, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null, ASK_A), onlyPrivateFree, null)!
     expect(door(onlyPrivateFree[0], 960, 60)).toBe(true)
     expect(solve(onlyPrivateFree, false).laneKey).toBe('bed-03')
   })
@@ -13075,7 +13082,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
       bed('bed-03', 'private', privItems),
     ]
     const from = (lanes: BoardLane[]) =>
-      allocateBed(lanes, { id: 'ask', currentBed: 'bed-01', stores: ['store-a'], requiresPrivate: true, start: 960, end: 1020 })
+      allocateBed(lanes, { id: 'ask', currentBed: 'bed-01', stores: ['store-a'], words: ASK_A, requiresPrivate: true, start: 960, end: 1020 })
     // 個室 free → it MOVES, exactly as a fresh landing would.
     expect(from(stuck([])).laneKey).toBe('bed-03')
     // 個室 busy → it REFUSES, rather than being left in the room its tag forbids.
@@ -13146,7 +13153,7 @@ describe('⚖ BLANK-SAFE — a row without requires_private_room is an untagged 
   it('claim 2 — allocateBed takes a free standard bed first, and the 個室 last, never refusing for the room', async () => {
     const item = await blankItem()
     const solve = (lanes: BoardLane[]) =>
-      allocateBed(lanes, { id: null, currentBed: null, stores: ['store-a'], requiresPrivate: item.requiresPrivateRoom === true, start: 960, end: 1020 })
+      allocateBed(lanes, { id: null, currentBed: null, stores: ['store-a'], words: ASK_A, requiresPrivate: item.requiresPrivateRoom === true, start: 960, end: 1020 })
     expect(solve(board()).laneKey).toBe('bed-01')
     const onlyPrivateFree = board({
       beds: [
@@ -13279,7 +13286,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       } as RailInput['guard'],
       // TodayScreen :1796-1799 — `bedDoorFor(askerId, lanes)`, out of the frame's book.
       doors: (lanes, askerId, handId = null) =>
-        bedDoor(bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: DEMO_NOW }, handId), lanes, askerId),
+        bedDoor(bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: DEMO_NOW }, handId, ASK_A), lanes, askerId),
     }
     DEMO = built
     return built
@@ -13292,7 +13299,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
    *  that card. NOT `doors(lanes, excludeId, …)`, which asks 「may THIS booking go
    *  here」 and binds the mover's own 個室のみ tag. */
   const liftedDoor = (lanes: BoardLane[], excludeId: string | null): RailInput['restingWindowFeasible'] => {
-    const lifted = bedViewsFor(lanes, LEDGER_FRAME, excludeId).worldMinusHand
+    const lifted = bedViewsFor(lanes, LEDGER_FRAME, excludeId, ASK_A).worldMinusHand
     return lifted === null ? undefined : bedDoor({ world: lifted, worldMinusHand: null, handId: null }, lanes, null)
   }
   /** Clone a booking's cards to a new span, on every lane it sits on. */
@@ -15189,21 +15196,21 @@ describe('⚖ ROUND 3 · C F4 — G13 (⚖ D-52 (g)) — the mixed-board predica
   // selling-engine-doors.test.ts; not duplicated here.
   it("the three netting call sites carry the mixed-board predicate — the tip's exact whole call", () => {
     expect(SRC).toContain(
-      `          bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+      `          bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS, chromeAsk).world,
           true,
           // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
           (l) => storeHasBeds(committedLanes, l.stores),
         )`,
     )
     expect(SRC).toContain(
-      `      bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+      `      bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS, chromeAsk).world,
       BED_AWARE_SALES,
       // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
       (l) => storeHasBeds(committedLanes, l.stores),
     )`,
     )
     expect(SRC).toContain(
-      `      bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+      `      bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS, chromeAsk).world,
       true,
       // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
       (l) => storeHasBeds(originLanes, l.stores),

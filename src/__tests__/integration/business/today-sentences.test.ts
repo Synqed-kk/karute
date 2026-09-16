@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import { minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 import {
+  allocateBed,
   applyMoves,
   blockChrome,
   explainRails,
@@ -19,6 +20,7 @@ import {
   parkChipText,
   railExplain,
   reseatSentence,
+  sellLayerFor,
   withheldSub,
   type LandingQuestion,
   type Moves,
@@ -33,6 +35,9 @@ const HOURS: Hours = { open: 600, close: 1140 } // 10:00–19:00
 // `other` (D-13).
 const A = RESOURCE_WORDS.chiropractic
 const G = RESOURCE_WORDS.other
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A = { resourceNoun: A.resourceNoun, privateWord: A.privateWord! }
 
 function booking(over: Partial<BoardItem> & Pick<BoardItem, 'key' | 'caseId'>, start: number, end: number): BoardItem {
   return {
@@ -472,4 +477,122 @@ describe('⚖ D-53 (u)/(n2b2) — the whole-board functions read the resolved wo
   // build time; `git diff` for both files is empty (this build never opens
   // them). Recorded here rather than re-proven as a jest assertion: a diff
   // check is a build-time fact, not a runtime one.
+})
+
+// ⚖ D-53 (ak)/(al) N2c-1 (COLD-READ F11) — THE FROZEN WORD-MINTING FILES READ
+// THE HANDED-IN WORDS: `fullRoomsRefusal` (the allocator's own refusal
+// sentence, today-interactions.ts) and the frozen `capacity-ledger.ts` that
+// forwards the pair to it. `allocateBed`/`sellLayerFor` themselves are
+// N2c-1's own family (untouched by n2b1/n2b2 above); this describe is the
+// one home for their sentence-level proof.
+describe('⚖ D-53 (ak)/(al) — the frozen word-minting files read the handed-in words', () => {
+  const busyBoard = (title = '見本 かえる') => [
+    staffLane,
+    lane({
+      key: 'bed-01', group: 'beds', label: 'ベッド1', roomClass: 'standard', stores: ['store-a'],
+      items: [booking({ key: 'b1', caseId: 'apt-1', title }, 960, 1020)],
+    }),
+  ]
+  const askOver = (words: { resourceNoun: string; privateWord: string }, requiresPrivate = false) => ({
+    id: null, currentBed: null, stores: ['store-a'], words, requiresPrivate, start: 960, end: 1020,
+  })
+
+  describe('(a) STORE_A bytes — byte-for-byte against today’s shipped sentence', () => {
+    it('the untagged ask over an occupied bed', () => {
+      const solved = allocateBed(busyBoard(), askOver(ASK_A))
+      // Spot-checked against `git show c8cab5df77c1d74ead30ab116bbcc01883fa6fb7:
+      // src/app/[locale]/(business)/business/today/today-interactions.ts`'s own
+      // `fullRoomsRefusal` — the window/room/named/predicate composition,
+      // unchanged.
+      expect(solved.refusal).toBe('16:00〜17:00はベッドに空きがありません。ベッド1（見本 かえる様）が使用中です')
+    })
+
+    it('the tagged ask on a private-less board', () => {
+      const solved = allocateBed(roomBoard, askOver(ASK_A, true))
+      // Spot-checked the same way — the base's `rows.length === 0` literal,
+      // byte for byte.
+      expect(solved.refusal).toBe('この店舗には個室がありません。個室のある店舗へ移してください')
+    })
+  })
+
+  describe('(b) a dental pair and a gym pair reach the same sentence', () => {
+    const DENTAL_ASK = { resourceNoun: RESOURCE_WORDS.dental_clinic.resourceNoun, privateWord: RESOURCE_WORDS.dental_clinic.privateWord! }
+    const GYM_ASK = { resourceNoun: RESOURCE_WORDS.personal_gym.resourceNoun, privateWord: RESOURCE_WORDS.personal_gym.privateWord! }
+
+    it('a dental pair carries ユニット into the untagged refusal', () => {
+      const solved = allocateBed(busyBoard(), askOver(DENTAL_ASK))
+      console.log('today-sentences (b) dental', { refusal: solved.refusal })
+      expect(solved.refusal).toBe('16:00〜17:00はユニットに空きがありません。ベッド1（見本 かえる様）が使用中です')
+    })
+
+    it('a gym pair carries ブース into the untagged refusal', () => {
+      const solved = allocateBed(busyBoard(), askOver(GYM_ASK))
+      console.log('today-sentences (b) gym', { refusal: solved.refusal })
+      expect(solved.refusal).toBe('16:00〜17:00はブースに空きがありません。ベッド1（見本 かえる様）が使用中です')
+    })
+  })
+
+  describe('(c) the probe — a hardcoded word would fail this', () => {
+    const PROBE = { resourceNoun: 'ベッドX', privateWord: '個室X' }
+
+    it('the untagged slot reads the probe’s resourceNoun', () => {
+      const solved = allocateBed(busyBoard(), askOver(PROBE))
+      expect(solved.refusal).toBe('16:00〜17:00はベッドXに空きがありません。ベッド1（見本 かえる様）が使用中です')
+    })
+
+    it('the private-less-board slot reads the probe’s privateWord in BOTH positions', () => {
+      const solved = allocateBed(roomBoard, askOver(PROBE, true))
+      expect(solved.refusal).toBe('この店舗には個室Xがありません。個室Xのある店舗へ移してください')
+    })
+  })
+
+  it('(d) sellLayerFor’s words is pass-through: a dental pair produces byte-identical sell cells to STORE_A’s own', () => {
+    const opts = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
+    const dentalAsk = { resourceNoun: RESOURCE_WORDS.dental_clinic.resourceNoun, privateWord: RESOURCE_WORDS.dental_clinic.privateWord! }
+    const withA = sellLayerFor(roomBoard, HOURS, { ...opts, words: ASK_A })
+    const withDental = sellLayerFor(roomBoard, HOURS, { ...opts, words: dentalAsk })
+    expect(withDental.cells).toEqual(withA.cells)
+  })
+
+  describe('(e) SOURCE pins — the wiring the sentences above rest on', () => {
+    const SCREEN_PATH = join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx')
+    const LEDGER_PATH = join(process.cwd(), 'src/app/[locale]/(business)/business/today/capacity-ledger.ts')
+
+    it('TodayScreen — the `ledger` memo’s dependency array carries `chromeAsk`', () => {
+      const src = readFileSync(SCREEN_PATH, 'utf8')
+      expect(src).toContain('[boardLanes, ledgerFrame, handId, chromeAsk],')
+    })
+
+    // ⚖ addendum (session model line audit of 78aa61d8e) — TEN hooks read
+    // `chromeAsk` without listing it; `bedDoorFor` and `windowDoorOn` are the
+    // two that hand foreign books to the rail, named explicitly here.
+    it('TodayScreen — `bedDoorFor`’s dependency array carries `chromeAsk`', () => {
+      const src = readFileSync(SCREEN_PATH, 'utf8')
+      expect(src).toContain('[boardLanes, ledger, ledgerFrame, handId, chromeAsk],')
+    })
+
+    it('TodayScreen — `windowDoorOn`’s dependency array carries `chromeAsk`', () => {
+      const src = readFileSync(SCREEN_PATH, 'utf8')
+      expect(src).toContain('}, [ledgerFrame, chromeAsk])')
+    })
+
+    it('TodayScreen — `bookFor`’s `frameKey` template carries the words', () => {
+      const src = readFileSync(SCREEN_PATH, 'utf8')
+      expect(src).toContain('${words.resourceNoun}|${words.privateWord}')
+    })
+
+    it('capacity-ledger.ts — the `search` ask carries `words,` exactly once', () => {
+      const src = readFileSync(LEDGER_PATH, 'utf8')
+      expect((src.match(/^\s*words,\s*$/gm) ?? []).length).toBe(1)
+    })
+
+    it('capacity-ledger.ts — `bedTruthViews` takes four parameters', () => {
+      const src = readFileSync(LEDGER_PATH, 'utf8')
+      const start = src.indexOf('export function bedTruthViews(')
+      const sig = src.slice(start, src.indexOf('): { world: BedTruth', start))
+      const params = sig.slice(sig.indexOf('(') + 1).split(',').map((s) => s.trim()).filter(Boolean)
+      console.log('today-sentences (e) bedTruthViews params', params)
+      expect(params).toEqual(['lanes: BoardLane[]', 'frame: DayFrame', 'hand: Hand | null', 'words: AskWords'])
+    })
+  })
 })

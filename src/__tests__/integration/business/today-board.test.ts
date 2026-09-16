@@ -76,6 +76,9 @@ import { customers } from '@/business/lib/fixtures'
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A = { resourceNoun: RESOURCE_WORDS.chiropractic.resourceNoun, privateWord: RESOURCE_WORDS.chiropractic.privateWord! }
 
 function serviceStub(fallback: unknown, byTable: Record<string, unknown> = {}) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -704,6 +707,7 @@ describe('今日の運営 screen', () => {
         hi: p.dialogs.pricing.hqMax,
         hqMin: p.dialogs.pricing.hqMin,
         depth: 9,
+        words: ASK_A,
       })
     expect(run).not.toThrow()
     const sell45 = run()
@@ -873,6 +877,7 @@ describe('今日の運営 screen', () => {
         hi: p.dialogs.pricing.hqMax,
         hqMin: p.dialogs.pricing.hqMin,
         depth: 9,
+        words: ASK_A,
       })
     const open = layer([])
     expect(open.staffBands.length).toBeGreaterThan(0)
@@ -1166,7 +1171,7 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
     // whole point of turning the feature off rather than just hiding the paint.
     const layerOn = (lanes: BoardLane[]) =>
       sellLayerFor(lanes, operatingHours, {
-        gridMin: 30, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 9000, hqMin: 5000, depth: 9,
+        gridMin: 30, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 9000, hqMin: 5000, depth: 9, words: ASK_A,
       })
     const bedOf = (lanes: BoardLane[]) => lanes.find((l) => l.key === 'bed-01')!
     const covers = (lanes: BoardLane[], at: number) =>
@@ -1244,7 +1249,7 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
     const stores = [STORE_A]
     expect(
       allocateBed(cleaning, {
-        id: 'apt-12', currentBed: 'bed-01', stores, requiresPrivate: false,
+        id: 'apt-12', currentBed: 'bed-01', stores, words: ASK_A, requiresPrivate: false,
         start: 10 * 60 + 30, end: 11 * 60 + 30,
       }),
     ).toEqual({ laneKey: 'bed-01', refusal: null, blockers: [], reseats: [] })
@@ -1252,7 +1257,7 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
     // exclusion, is refused the room.
     expect(
       allocateBed(cleaning, {
-        id: null, currentBed: 'bed-01', stores, requiresPrivate: false,
+        id: null, currentBed: 'bed-01', stores, words: ASK_A, requiresPrivate: false,
         start: 10 * 60 + 30, end: 11 * 60 + 30,
       }).laneKey,
     ).not.toBe('bed-01')

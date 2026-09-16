@@ -100,6 +100,9 @@ const supabase = createClient as jest.Mock
 // runtime expected sentences are unchanged.
 const LANE_WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.chiropractic }
 const A_WORDS = RESOURCE_WORDS.chiropractic
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A = { resourceNoun: A_WORDS.resourceNoun, privateWord: A_WORDS.privateWord! }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function screenProps(node: any): TodayProps | null {
@@ -225,7 +228,7 @@ type BoardRead = { counter: string; lanes: Record<string, LaneRead>; drawn: Arra
 /** The strip as the screen builds it at rest, on any board — both guard doors
  *  out of the ONE book, the hand lifted out of nothing. */
 function railsOn(lanes: BoardLane[]): GuardRail[] {
-  const views = bedViewsFor(lanes, DAY_FRAME(), null)
+  const views = bedViewsFor(lanes, DAY_FRAME(), null, ASK_A)
   const bedFree = bedDoor(views, lanes, null)
   return guardRailsFor(lanes, {
     open: REAL.hours.open,
@@ -251,14 +254,14 @@ const DAY_FRAME = () => ({
 
 function readBoard(lanes: BoardLane[]): BoardRead {
   const frame = DAY_FRAME()
-  const views = bedViewsFor(lanes, frame, null)
+  const views = bedViewsFor(lanes, frame, null, ASK_A)
   const dur = REAL.guard.standardSessionMin
   const rails: GuardRail[] = railsOn(lanes)
   const held = heldCommittedFor({
     gateOn: true,
     lanes,
     frame,
-    bookOf: bedViewsFor,
+    bookOf: (l, f, inHand) => bedViewsFor(l, f, inHand, ASK_A),
     closeMin: REAL.hours.close,
     nowMin: REAL.sell.nowMinute,
     guard: REAL.guard.config,
@@ -292,6 +295,7 @@ function readBoard(lanes: BoardLane[]): BoardRead {
     hi: price.hi,
     hqMin: REAL.dialogs.pricing.hqMin,
     depth,
+    words: ASK_A,
     reconcile: { claims, cleanupMinutesByBed: REAL.bedCleanupMinutes, onDrop: (d) => drops.push(d) },
     held,
   })
@@ -613,7 +617,7 @@ describe('§R-B — しろう’s quiet 14:30 says where the sale went (shot 1.3
     const lanes = sceneB()
     const dur = REAL.guard.standardSessionMin
     const rails = railsOn(lanes)
-    const views = bedViewsFor(lanes, DAY_FRAME(), null)
+    const views = bedViewsFor(lanes, DAY_FRAME(), null, ASK_A)
     const ask = (over: Partial<Parameters<typeof explainRails>[2]>) =>
       explainRails(rails, lanes, {
         dur, handId: null, stagedId: null, sellCells: [], claims: [], drops: [], inHand: false, sellDisplayed: true,
@@ -730,7 +734,7 @@ function handLane(over: Partial<BoardLane> & Pick<BoardLane, 'key' | 'group'>): 
  *  book, and nothing else supplied, so each rung of the precedence is the only
  *  thing the scene varies. */
 function handRails(lanes: BoardLane[]) {
-  const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null)
+  const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null, ASK_A)
   const bedFree = bedDoor(views, lanes, null)
   return guardRailsFor(lanes, {
     open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
@@ -741,7 +745,7 @@ function handRails(lanes: BoardLane[]) {
 
 function explainHand(lanes: BoardLane[], over: Partial<Parameters<typeof explainRails>[2]> = {}) {
   const frame = { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }
-  const views = bedViewsFor(lanes, frame, null)
+  const views = bedViewsFor(lanes, frame, null, ASK_A)
   const rails = handRails(lanes)
   return explainRails(rails, lanes, {
     dur: 60, handId: null, stagedId: null, sellCells: [], claims: [], drops: [],
@@ -795,7 +799,7 @@ describe('§R-D — the precedence Liam approved, rung by rung', () => {
     // hour inside one has a bed. FOUND BY THIS ROUND's red-run, on all four
     // boards; a scene built to hold the contention could not be built.
     for (const b of boards()) {
-      const views = bedViewsFor(b.lanes, DAY_FRAME(), null)
+      const views = bedViewsFor(b.lanes, DAY_FRAME(), null, ASK_A)
       for (const rail of railsOn(b.lanes)) {
         const lane = laneOf(b.lanes, rail.laneKey)
         for (const cell of rail.cells.filter((x) => x.reason === 'guard')) {
@@ -881,7 +885,7 @@ function counting() {
  *  `handId` also picks the rails' own world, exactly as the screen does. */
 function explainWith(lanes: BoardLane[], allocate: typeof allocateBed, over: { handId?: string | null; inHand?: boolean } = {}) {
   const handId = over.handId ?? null
-  const views = bedViewsFor(lanes, DAY_FRAME(), handId)
+  const views = bedViewsFor(lanes, DAY_FRAME(), handId, ASK_A)
   const dur = REAL.guard.standardSessionMin
   const rails = guardRailsFor(lanes, {
     open: REAL.hours.open, close: REAL.hours.close, stepMin: 30, dur,
@@ -961,7 +965,7 @@ describe('§BEHAVIOURAL — the packing search never runs per frame', () => {
     explainWith(lanes, spy.allocate)
     // The candidates, counted a second way and independently: a start the rooms
     // refused for the strip's own length whose first half hour still has a bed.
-    const views = bedViewsFor(lanes, DAY_FRAME(), null)
+    const views = bedViewsFor(lanes, DAY_FRAME(), null, ASK_A)
     const candidates = railsOn(lanes).flatMap((rail) =>
       rail.cells.filter(
         (c) =>
@@ -1119,6 +1123,7 @@ function liveRig(rest: BoardLane[], hand: { id: string; bed: string }) {
       id: hand.id,
       currentBed: hand.bed,
       stores: boardLanes.find((l) => l.key === laneKey)?.stores ?? null,
+      words: ASK_A,
       requiresPrivate: false,
       start,
       end: start + dur,
@@ -1300,7 +1305,7 @@ function cellAt(lanes: BoardLane[], laneKey: string, start: number, excludeId: s
 
 /** `railsOn` with a hand lifted out — the strip's own input mid-drag. */
 function railsOnFor(lanes: BoardLane[], excludeId: string | null): GuardRail[] {
-  const views = bedViewsFor(lanes, DAY_FRAME(), excludeId)
+  const views = bedViewsFor(lanes, DAY_FRAME(), excludeId, ASK_A)
   return guardRailsFor(lanes, {
     open: REAL.hours.open,
     close: REAL.hours.close,
@@ -1411,7 +1416,7 @@ describe('§BEHAVIOURAL (v) — a live drag pays for each question ONCE, and the
     // The frame's own book and its four-door strip, built exactly as the screen
     // builds them. Neither is handed the memo and neither may find it: the book
     // imports `allocateBed` directly (R9) and the rails are handed doors.
-    bedViewsFor(rig.board(), DAY_FRAME(), HAND.id)
+    bedViewsFor(rig.board(), DAY_FRAME(), HAND.id, ASK_A)
     railsOnFor(rig.board(), HAND.id)
     expect({ hits: rig.memo.hits(), misses: rig.memo.misses(), passes: rig.memo.passes(), searches: rig.packs() })
       .toEqual({ hits: 0, misses: 0, passes: 0, searches: 0 })
@@ -1832,7 +1837,7 @@ describe('§F3 — the sold mark is a HALF-HOUR fact, not the 60-minute verdict�
 
   it('its gates are the half hour’s own: the display dial, the store’s hold, a box on THIS row', () => {
     const lanes = sceneB()
-    const views = bedViewsFor(lanes, DAY_FRAME(), null)
+    const views = bedViewsFor(lanes, DAY_FRAME(), null, ASK_A)
     const dur = REAL.guard.standardSessionMin
     const rails = railsOn(lanes)
     const box: SellCell = { laneKey: 'c-03', resourceKey: 'bed-02', group: 'staff', staff: 'c-03', bed: 'ベッド2', h: 870, e: 930, price: 7010, tier: 2 }
@@ -1876,7 +1881,7 @@ describe('§F4 — the ⇄ mark’s tone and caution are the CREATE path’s own
 
     // The same board the mark judged on: the re-seat applied through the same
     // helper `verdictAtLanding` uses (DESIGN §5).
-    const ask = { id: null, currentBed: null, stores: laneOf(lanes, 'p-05').stores, requiresPrivate: false, start: 840, end: 840 + dur }
+    const ask = { id: null, currentBed: null, stores: laneOf(lanes, 'p-05').stores, words: ASK_A, requiresPrivate: false, start: 840, end: 840 + dur }
     const packed = allocateBed(lanes, { ...ask, pack: true, now: REAL.sell.nowMinute, cleanupMinutesByBed: REAL.bedCleanupMinutes })
     const after = applyBedMoves(lanes, companionsFor(lanes, packed.reseats), REAL.hours, LANE_WORDS, REAL.bedCleanupMinutes)
 
@@ -1907,7 +1912,7 @@ describe('§F4 — the ⇄ mark’s tone and caution are the CREATE path’s own
 /** The screen's own bed door on a hand-built board, so §A's scenes can vary the
  *  rooms rather than the wiring. */
 const handDoor = (lanes: BoardLane[]) => {
-  const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null)
+  const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null, ASK_A)
   return (laneKey: string, start: number, end: number) => {
     const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
     if (!lane) return null
@@ -1979,10 +1984,10 @@ describe('§B — 新規用 keeps its hatch, labelled, and never carries somebod
     const lanes = REAL.lanes
     const frame = DAY_FRAME()
     const held = heldCommittedFor({
-      gateOn: true, lanes, frame, bookOf: bedViewsFor, closeMin: REAL.hours.close,
+      gateOn: true, lanes, frame, bookOf: (l, f, inHand) => bedViewsFor(l, f, inHand, ASK_A), closeMin: REAL.hours.close,
       nowMin: REAL.sell.nowMinute, guard: REAL.guard.config, gapGuardMode: REAL.guard.mode, released: [],
     })
-    const views = bedViewsFor(lanes, frame, null)
+    const views = bedViewsFor(lanes, frame, null, ASK_A)
     const explained = explainRails(railsOn(lanes), lanes, {
       dur: REAL.guard.standardSessionMin, handId: null, stagedId: null,
       sellCells: [], claims: [], drops: [], inHand: false, sellDisplayed: false, held,
@@ -2165,7 +2170,7 @@ describe('§H1 — the door answers on the board the chip is judged on (D1-M1)',
    *  sees the card on the row and refuses the pocket, and the question this
    *  scene is about — what the DOOR says — never gets asked. */
   const explainDrag = (lanes: BoardLane[], handId: string | null, over: Partial<Parameters<typeof explainRails>[2]>) => {
-    const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, handId)
+    const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, handId, ASK_A)
     const door = bedDoor(views, lanes, handId)
     const rails = guardRailsFor(lanes, {
       open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
@@ -2180,7 +2185,7 @@ describe('§H1 — the door answers on the board the chip is judged on (D1-M1)',
 
   /** The screen's own door, both worlds, exactly as `bedsOver` picks them. */
   const doorOn = (lanes: BoardLane[], handId: string | null) => {
-    const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, handId)
+    const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, handId, ASK_A)
     return (laneKey: string, start: number, end: number) => {
       const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
       if (!lane) return null
@@ -2398,7 +2403,7 @@ describe('§H9 — a 個室のみ card in hand is asked about ITS OWN rooms (MD1
 
   /** The screen's own door: the hand-lifted world, the hypothetical asker. */
   const doorOn = (lanes: BoardLane[], handId: string | null) => {
-    const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, handId)
+    const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, handId, ASK_A)
     return (laneKey: string, start: number, end: number) => {
       const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
       if (!lane) return null
@@ -2411,7 +2416,7 @@ describe('§H9 — a 個室のみ card in hand is asked about ITS OWN rooms (MD1
   }
 
   const dragging = (lanes: BoardLane[], handId: string | null, over: Partial<Parameters<typeof explainRails>[2]> = {}) => {
-    const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, handId)
+    const views = bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, handId, ASK_A)
     const rails = guardRailsFor(lanes, {
       open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
       nowMinute: null, locked: [], guard: HAND_GUARD, excludeId: handId,

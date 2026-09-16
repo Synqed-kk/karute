@@ -49,6 +49,9 @@ const HOURS = { open: 600, close: 1140 } // 10:00–19:00
 // (chiropractic is byte-identical to `other`, D-13).
 const A_WORDS = RESOURCE_WORDS.chiropractic
 const G_WORDS = RESOURCE_WORDS.other
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A: Parameters<typeof allocateBed>[1]['words'] = { resourceNoun: A_WORDS.resourceNoun, privateWord: A_WORDS.privateWord! }
 // ⚖ D-53 (u)/(n2b2) — the whole-board map, for every direct call this file
 // makes to a widened whole-board function: empty `byLaneKey` so every lane
 // falls to the generic row, STORE_A's own (chiropractic ≡ other, D-13) —
@@ -102,6 +105,7 @@ const packAsk = (over: Partial<Parameters<typeof allocateBed>[1]> = {}) => ({
   id: 'SUBJECT' as string | null,
   currentBed: null as string | null,
   stores: ['store-a'] as string[] | null,
+  words: ASK_A,
   requiresPrivate: false,
   start: 780,
   end: 840,
@@ -152,6 +156,7 @@ describe('R1 — きり’s stretch, on the real fixture board', () => {
     const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
     return allocateBed(lanes, {
       id: 'apt-09', currentBed: 'bed-01', stores: staff.stores,
+      words: ASK_A,
       requiresPrivate: false, start: 840, end: 900, ...over,
     })
   }
@@ -235,7 +240,7 @@ describe('R3 — 清掃 / 予定ブロック never move', () => {
       }),
     ], 'SUBJECT')
     const packed = allocateBed(withBlock, packAsk({ currentBed: 'bed-01' }))
-    const plain = allocateBed(withBlock, { id: 'SUBJECT', currentBed: 'bed-01', stores: ['store-a'], requiresPrivate: false, start: 780, end: 840 })
+    const plain = allocateBed(withBlock, { id: 'SUBJECT', currentBed: 'bed-01', stores: ['store-a'], words: ASK_A, requiresPrivate: false, start: 780, end: 840 })
     expect(packed.laneKey).toBeNull()
     expect(packed.reseats).toEqual([])
     // THE SAME SENTENCE. Not「similar」— the same string the board shipped with.
@@ -294,7 +299,7 @@ describe('F9a — a future day pins nobody, whatever the clock would have said',
     lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [at({ key: 'e', caseId: 'apt-early', title: 'E' }, 10, 20)] }),
     lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', items: [{ ...at({ key: 'blk', caseId: null }, 0, 5), kind: 'block' as const, title: '設備点検' }] }),
   ], 'SUBJECT')
-  const ask = { id: 'SUBJECT', currentBed: 'bed-01', stores: ['store-a'], requiresPrivate: false, start: 0, end: 30, cleanupMinutesByBed: NO_CLEANUP }
+  const ask = { id: 'SUBJECT', currentBed: 'bed-01', stores: ['store-a'], words: ASK_A, requiresPrivate: false, start: 0, end: 30, cleanupMinutesByBed: NO_CLEANUP }
 
   it('with no clock at all (a future day) the 00:10 booking is MOVABLE — nothing is time-pinned', () => {
     const r = allocateBed(board(), { ...ask, pack: true, now: null })
@@ -474,7 +479,7 @@ describe('R5 — the pin scene the start-ordered version refused', () => {
       lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', items: [booking({ key: 'b', caseId: 'apt-b', title: '見本 あかり' }, 780, 840)] }),
     ], 'SUBJECT')
     const packed = allocateBed(jammed, packAsk({ currentBed: 'bed-01' }))
-    const plain = allocateBed(jammed, { id: 'SUBJECT', currentBed: 'bed-01', stores: ['store-a'], requiresPrivate: false, start: 780, end: 840 })
+    const plain = allocateBed(jammed, { id: 'SUBJECT', currentBed: 'bed-01', stores: ['store-a'], words: ASK_A, requiresPrivate: false, start: 780, end: 840 })
     expect(packed.laneKey).toBeNull()
     expect(packed.refusal).toBe(plain.refusal)
     expect(packed.blockers.map((i) => i.title)).toEqual(plain.blockers.map((i) => i.title))
@@ -540,7 +545,7 @@ describe('F4 — a moved card’s turnaround is the DESTINATION room’s, never 
    *  the gap layer both end up asking of the board this draws. */
   const bed02FreeAt = (board: BoardLane[], start: number, end: number) =>
     allocateBed(board.filter((l) => l.group !== 'beds' || l.key === 'bed-02'), {
-      id: null, currentBed: 'bed-02', stores: ['store-a'], requiresPrivate: false, start, end,
+      id: null, currentBed: 'bed-02', stores: ['store-a'], words: ASK_A, requiresPrivate: false, start, end,
     }).laneKey
 
   it('origin 0 → destination 15: the tail is DRAWN in the new room, and the minutes stop being sellable', () => {
@@ -751,7 +756,7 @@ describe('R9 — the fence, in the source', () => {
 
   it('throws rather than guessing when the pack is asked for without its two facts', () => {
     const scene = boardOf([lane({ key: 'bed-01', group: 'beds', items: [booking({ key: 'a', caseId: 'apt-a' }, 780, 840)] })], 'SUBJECT')
-    const base = { id: 'SUBJECT', currentBed: 'bed-01', stores: ['store-a'], requiresPrivate: false, start: 780, end: 840 }
+    const base = { id: 'SUBJECT', currentBed: 'bed-01', stores: ['store-a'], words: ASK_A, requiresPrivate: false, start: 780, end: 840 }
     expect(() => allocateBed(scene, { ...base, pack: true, cleanupMinutesByBed: NO_CLEANUP })).toThrow('allocateBed: pack requires now and cleanupMinutesByBed')
     expect(() => allocateBed(scene, { ...base, pack: true, now: null })).toThrow('allocateBed: pack requires now and cleanupMinutesByBed')
     // `now: null` is a real answer (a future day), not a missing one.
@@ -965,6 +970,7 @@ describe('the seeded battery — 2,400 generated days against a brute-force orac
         const tails = tailsOf(s)
         const ask = {
           id: 'SUBJECT', currentBed: s.subject.currentBed, stores: ['store-a'],
+          words: ASK_A,
           requiresPrivate: s.subject.requiresPrivate, start: s.subject.start, end: s.subject.end,
         }
         stats.total += 1
@@ -1044,6 +1050,7 @@ describe('the deep battery — 80,000 bigger days, checked for validity and nece
         const tails = tailsOf(s)
         const ask = {
           id: 'SUBJECT', currentBed: s.subject.currentBed, stores: ['store-a'],
+          words: ASK_A,
           requiresPrivate: s.subject.requiresPrivate, start: s.subject.start, end: s.subject.end,
         }
         if (allocateBed(lanes, ask).laneKey !== null) continue
@@ -1086,7 +1093,7 @@ describe('B — Liam’s scene, end to end through the wiring', () => {
     const lanes = await demoLanes()
     const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
     const solved = allocateBed(lanes, {
-      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, requiresPrivate: false,
+      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, words: ASK_A, requiresPrivate: false,
       start: 840, end: 900, pack: true, now: 804, cleanupMinutesByBed: {},
     })
     const companions = companionsFor(lanes, solved.reseats)
@@ -1184,7 +1191,7 @@ describe('R6b — a re-landing is judged on the board it is solved on', () => {
     const lanes = await demoLanes()
     const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
     const first = allocateBed(lanes, {
-      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, requiresPrivate: false,
+      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, words: ASK_A, requiresPrivate: false,
       start: 840, end: 900, stagedId: null, pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
     })
     expect({ room: first.laneKey, reseats: first.reseats })
@@ -1207,7 +1214,7 @@ describe('R6b — a re-landing is judged on the board it is solved on', () => {
   /** And what `solveBed(solveLanes(id), …)` will actually do with it. */
   const solveOn = (board: BoardLane[], staffKey: string, stores: string[] | null, start: number, end: number) =>
     allocateBed(board, {
-      id: 'apt-09', currentBed: 'bed-01', stores, requiresPrivate: false,
+      id: 'apt-09', currentBed: 'bed-01', stores, words: ASK_A, requiresPrivate: false,
       start, end, stagedId: 'apt-09', pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
     })
 
@@ -1340,7 +1347,7 @@ describe('F3 — a packing landing answers with the companions it will actually 
     // and that set is exactly what the landing stages (`solveBed`'s companions).
     const returned = { ...second, reseats: v.reseats }
     const staged = companionsFor(lanes, allocateBed(lanes, {
-      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, requiresPrivate: false,
+      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, words: ASK_A, requiresPrivate: false,
       start: 840, end: 900, pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
     }).reseats)
     expect(returned.reseats.map((r) => `${r.id}:${r.from}→${r.to}`))
@@ -1378,7 +1385,7 @@ describe('F2 — the safe-start press stages a room it solved for, on the board 
     const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
     // Gesture one: きり 14:00〜15:00 takes ベッド1, さくら moves ベッド1 → ベッド2.
     const first = allocateBed(lanes, {
-      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, requiresPrivate: false,
+      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, words: ASK_A, requiresPrivate: false,
       start: 840, end: 900, pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
     })
     const companions = companionsFor(lanes, first.reseats)
@@ -1431,7 +1438,7 @@ describe('F2 — the safe-start press stages a room it solved for, on the board 
     // `solveBed(solveLanes(pending.id), …)` — the same door the other four
     // landings use, on the board with the first gesture's companions restored.
     const solved = allocateBed(restored, {
-      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, requiresPrivate: false,
+      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, words: ASK_A, requiresPrivate: false,
       start: 845, end: 905, stagedId: 'apt-09', pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
     })
     expect(solved.laneKey).not.toBeNull()
@@ -1474,7 +1481,7 @@ describe('R8 — 確定 re-asks every companion’s room, and writes vacate-befo
       ] }),
     ])
     const room = allocateBed(taken.filter((l) => l.group !== 'beds' || l.key === 'bed-02'), {
-      id: 'apt-c', currentBed: 'bed-02', stores: ['store-a'], requiresPrivate: false, start: 780, end: 840,
+      id: 'apt-c', currentBed: 'bed-02', stores: ['store-a'], words: ASK_A, requiresPrivate: false, start: 780, end: 840,
     })
     expect(room.laneKey).toBeNull()
     expect(room.refusal).toBe('13:00〜14:00はベッドに空きがありません。ベッド2（見本 かえる様）が使用中です')
@@ -1485,7 +1492,7 @@ describe('R8 — 確定 re-asks every companion’s room, and writes vacate-befo
       lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', items: [booking({ key: 'c', caseId: 'apt-c', title: '見本 さくら' }, 780, 840)] }),
     ])
     expect(allocateBed(free.filter((l) => l.group !== 'beds' || l.key === 'bed-02'), {
-      id: 'apt-c', currentBed: 'bed-02', stores: ['store-a'], requiresPrivate: false, start: 780, end: 840,
+      id: 'apt-c', currentBed: 'bed-02', stores: ['store-a'], words: ASK_A, requiresPrivate: false, start: 780, end: 840,
     }).laneKey).toBe('bed-02')
   })
 
@@ -1494,7 +1501,7 @@ describe('R8 — 確定 re-asks every companion’s room, and writes vacate-befo
     expect(confirm).toContain('for (const c of pending.companions ?? []) {')
     // ⚖ FIX ROUND 2 (F10) — the re-check is a pure function now, so the screen is
     // the thin caller and the RULE is executed above rather than spelled here.
-    expect(confirm).toContain('const room = companionRoomStillFree(boardLanes, c, span, hours)')
+    expect(confirm).toContain('const room = companionRoomStillFree(boardLanes, c, span, hours, askWordsForLane(companionBedLane))')
     expect(confirm).toContain('if (!room.ok) {')
     // ⚖ FIX ROUND 2 (F5) — and the refusal is ATTRIBUTED: the composed 満室
     // sentence is about the companion's own window and room, which match nothing
@@ -1579,7 +1586,7 @@ describe('F10 — `companionRoomStillFree`: the confirm-time re-check, on Liam�
   it('says yes while the room is hers', async () => {
     const lanes = await demoLanes()
     // かえる leaves ベッド2 at 14:30, so it is free for her whole hour.
-    expect(companionRoomStillFree(lanes, sakura, HER_SPAN, HOURS)).toEqual({ ok: true })
+    expect(companionRoomStillFree(lanes, sakura, HER_SPAN, HOURS, ASK_A)).toEqual({ ok: true })
   })
 
   it('says no, and names the room, when somebody took ベッド2 meanwhile', async () => {
@@ -1589,7 +1596,7 @@ describe('F10 — `companionRoomStillFree`: the confirm-time re-check, on Liam�
     const intruder = lanes.map((l) => (l.key === 'bed-02'
       ? { ...l, items: [...l.items, booking({ key: 'x', caseId: 'apt-x', title: '見本 かえで' }, 870, 930)] }
       : l))
-    const answer = companionRoomStillFree(intruder, sakura, HER_SPAN, HOURS)
+    const answer = companionRoomStillFree(intruder, sakura, HER_SPAN, HOURS, ASK_A)
     expect(answer.ok).toBe(false)
     expect(answer.ok === false && answer.refusal)
       .toBe('14:30〜15:30はベッドに空きがありません。ベッド2（見本 かえで様）が使用中です')
@@ -1605,7 +1612,7 @@ describe('F10 — `companionRoomStillFree`: the confirm-time re-check, on Liam�
     // whole of the filter's job, and it is why the filter lives in one place.
     const staff = intruder.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === sakura.id))!
     const unfiltered = allocateBed(intruder, {
-      id: sakura.id, currentBed: sakura.bedTo, stores: staff.stores, requiresPrivate: false, start: 870, end: 930,
+      id: sakura.id, currentBed: sakura.bedTo, stores: staff.stores, words: ASK_A, requiresPrivate: false, start: 870, end: 930,
     })
     expect(unfiltered.laneKey).not.toBe(sakura.bedTo)
     expect(unfiltered.laneKey).not.toBeNull()
@@ -1623,6 +1630,7 @@ describe('F10 — `companionRoomStillFree`: the confirm-time re-check, on Liam�
       { id: 'apt-29', bedOrigin: { laneKey: 'bed-03', x: 0, w: 1 }, bedTo: 'bed-01' },
       place(845, 905, HOURS),
       HOURS,
+      ASK_A,
       ((board, opts) => { seen.push(opts.requiresPrivate); return allocateBed(board, opts) }) as typeof allocateBed,
     )
     expect(seen).toEqual([true])
@@ -1645,7 +1653,7 @@ describe('R10 — a shuffle that kills a held window is judged on the board it w
     // which is what a held 新規用 window depends on.
     const bed2Free = (b: BoardLane[]) =>
       allocateBed(b.filter((l) => l.group !== 'beds' || l.key === 'bed-02'), {
-        id: null, currentBed: 'bed-02', stores: ['store-a'], requiresPrivate: false, start: 780, end: 840,
+        id: null, currentBed: 'bed-02', stores: ['store-a'], words: ASK_A, requiresPrivate: false, start: 780, end: 840,
       }).laneKey
     expect(bed2Free(board)).toBe('bed-02')
     expect(bed2Free(w)).toBeNull()
