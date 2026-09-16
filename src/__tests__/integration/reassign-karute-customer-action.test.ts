@@ -38,7 +38,12 @@ jest.mock('@/lib/auth/require-permission', () => ({
   can: jest.fn(async () => true),
 }))
 jest.mock('@/lib/audit', () => ({ audit: jest.fn() }))
-jest.mock('@/lib/audit-web', () => ({ auditWeb: jest.fn(async () => undefined) }))
+jest.mock('@/lib/audit-web', () => ({
+  auditWeb: jest.fn(async () => undefined),
+  // The store lock's REFUSAL row needs the same identity the success row
+  // carries, so the web doors resolve it BEFORE the lock now.
+  resolveWebAuditContext: jest.fn(async () => ({ actorId: 'auth-user-1', businessId: 'biz-1' })),
+}))
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(),
   customerLensFor: jest.requireActual('@/lib/auth/store-scope').customerLensFor,
