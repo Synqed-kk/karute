@@ -347,9 +347,14 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         ? enrichCustomers(businessId, clientIdsForDay)
         : Promise.resolve(new Map<string, CustomerEnrichment>()),
       ticketsEnabled
-        ? listAllPackUsageWithClient(synqed).catch(
-            () => new Map<string, CustomerPackUsage>(),
-          )
+        // ⚖ G2 (Greptile round 1 #951) — a FAILED read surfaces as `null`,
+        // never an empty map standing in for "nobody holds a pack": that lie
+        // let a real pack holder with no other returning signal be counted
+        // 新規 while the number claimed to be known. buildAppointmentsScreen's
+        // `newCountKnown` reads this null and withholds instead of guessing;
+        // the row-level pack pill degrades to "no pack" either way, which is
+        // this same graceful-catch contract the header comment describes.
+        ? listAllPackUsageWithClient(synqed).catch(() => null)
         : Promise.resolve(new Map<string, CustomerPackUsage>()),
     ])
 

@@ -23,7 +23,7 @@ import { appointmentsToMonthCells, monthCellsToDTO } from '@/lib/adapters/reserv
 import { newCountByDay } from '@/lib/appointments/first-visit'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
 import { getBusinessId } from '@/lib/staff'
-import { listAllPackUsage } from '@/lib/packs/store'
+import { listAllPackUsageOrNull } from '@/lib/packs/store'
 import { customerLensFor } from '@/lib/auth/store-scope'
 import { computeMonthRange } from '@/lib/date/calendar-range'
 import { jstStartOfToday } from '@/lib/date/jst'
@@ -368,10 +368,10 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
   // Promise.all let any one of them reject the whole call and kill the month
   // grid over an outage in a number nobody had asked for yet. Each optional
   // read is caught into `null` — a FAILED marker, never an empty answer
-  // impersonating a real one — so a failure withholds `newCountKnown` instead
-  // of losing the month. The WINDOW read above stays uncaught on purpose: a
-  // booking read we could not complete must still fail the month, per the
-  // docstring above.
+  // impersonating a real one — so a failure withholds `newCountKnown` (⚖ G2
+  // below) instead of losing the month. The WINDOW read above stays uncaught
+  // on purpose: a booking read we could not complete must still fail the
+  // month, per the docstring above.
   const clientIds = countedClientIds(window)
   const [businessId, orgSettings] = await Promise.all([
     getBusinessId().catch(() => null),
@@ -383,14 +383,19 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
       ? enrichCustomers(businessId, clientIds).catch(() => null)
       : Promise.resolve(new Map()),
     (orgSettings?.ticket_packs_enabled ?? true)
-      ? listAllPackUsage()
-      : Promise.resolve(new Map() as Awaited<ReturnType<typeof listAllPackUsage>>),
+      ? listAllPackUsageOrNull().catch(() => null)
+      : Promise.resolve(new Map() as Awaited<ReturnType<typeof listAllPackUsageOrNull>>),
     customerLens === null ? [] : getCachedCustomerList(customerLens).catch(() => null),
   ])
 
+  // ⚖ G2 — a failed 回数券 ledger read must withhold the number rather than let
+  // an empty map impersonate a genuinely empty ledger (`packUsage !== null`);
+  // tickets OFF above already resolves to a real empty Map, so that path
+  // stays known exactly as today.
   const known =
     !window.truncated &&
     enrichment !== null &&
+    packUsage !== null &&
     customers !== null &&
     (enrichment.size > 0 || clientIds.length === 0)
   const cells = appointmentsToMonthCells(
@@ -406,7 +411,7 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
   return monthCellsToDTO(cells, {
     newCounts: {
       byDay:
-        known && enrichment && customers
+        known && enrichment && packUsage && customers
           ? newCountByDay(window.counted, {
               customers: new Map(customers.map((c) => [c.id, c])),
               enrichment,

@@ -139,7 +139,12 @@ export interface AppointmentsScreenInputs {
    *  must not decide the store's lane kind. Absent = not degraded. */
   storeRowDegraded?: boolean
   enrichment: Map<string, CustomerEnrichment>
-  packUsage: ReadonlyMap<string, { remaining: number; size: number }>
+  /** The 回数券 ledger (listAllPackUsage/listAllPackUsageWithClient). `null` =
+   *  the read FAILED (⚖ G2, Greptile round 1 #951) — never "there was no
+   *  ledger", which stays a real empty Map (tickets off, or genuinely nobody
+   *  holds a pack). `newCountKnown` below reads this null the same way it
+   *  reads a missing `enrichment`: withhold, don't guess empty. */
+  packUsage: ReadonlyMap<string, { remaining: number; size: number }> | null
 }
 
 export interface AppointmentsScreen {
@@ -399,7 +404,10 @@ export function buildAppointmentsScreen(
     now,
     isFirstTimeByClient,
     karuteNumberByClientId,
-    packUsage,
+    // ⚖ G2 — a failed ledger read withholds the NUMBER (newCountKnown above);
+    // the row-level pack badge/renewal flag degrades to "no pack" instead,
+    // same as a genuinely empty ledger renders today.
+    packUsage ?? new Map(),
     noShowCountByClient,
   )
 
@@ -467,8 +475,16 @@ export function buildAppointmentsScreen(
   // everybody — beside a list showing no 新規 chip at all. The number is
   // withheld instead. The LIST is untouched: an absent entry already reads
   // 予約済 there, which is why this is the number catching up, not a new rule.
+  //
+  // ⚖ G2 (Greptile round 1 #951) — same posture for the 回数券 LEDGER: a FAILED
+  // read reaches here as `packUsage: null` (never an empty map standing in for
+  // "nobody holds a pack"), and a pack holder with no other returning signal
+  // would otherwise be counted 新規 while the number claims to be known.
+  // `packUsage !== null` — tickets OFF already resolves to a real empty Map
+  // upstream, so that path stays known exactly as today.
   const newCountKnown =
-    enrichment.size > 0 || countedClientIds(weekWin, monthWin, dayWin).length === 0
+    (enrichment.size > 0 && packUsage !== null) ||
+    countedClientIds(weekWin, monthWin, dayWin).length === 0
   const newCountCache = new Map<AppointmentWindow, ReadonlyMap<string, number>>()
   const newCountsFor = (win: AppointmentWindow): ReadonlyMap<string, number> => {
     if (!newCountKnown) return EMPTY_NEW_COUNTS

@@ -368,6 +368,20 @@ export async function listAllPackUsage(): Promise<Map<string, CustomerPackUsage>
   }
 }
 
+/** Same read as `listAllPackUsage`, for the three 予約 doors that must not
+ *  mistake a FAILED ledger read for a genuinely empty one (⚖ G2, Greptile
+ *  round 1 #951): a failed read surfaces as `null`, never an empty map that
+ *  impersonates a real "nobody holds a pack" answer. `listAllPackUsage`'s own
+ *  graceful-empty contract is unchanged for every other caller. */
+export async function listAllPackUsageOrNull(): Promise<Map<string, CustomerPackUsage> | null> {
+  try {
+    return await listAllPackUsageWithClient(await getSynqedClient())
+  } catch (err) {
+    warn('listAllPackUsageOrNull', err)
+    return null
+  }
+}
+
 /** Bulk lifecycle for the list page — graduated/lost customers are excluded
  *  from alerts. Throwing/graceful split identical to listAllPackUsage above. */
 export async function listAllLifecyclesWithClient(

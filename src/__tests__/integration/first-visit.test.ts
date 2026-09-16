@@ -242,6 +242,28 @@ describe('isNewCustomerForDay — the list’s rule, one home', () => {
     ).toBe(false)
   })
 
+  it('⚖ G2 — packUsage: null (a FAILED ledger read) is NO LEDGER SIGNAL, not a holder and not an outage sentinel here: the cached hasTicketPack flag still counts', () => {
+    const rows = [appt({ title: null, starts_at: at(D.tue) })]
+    // No ledger entry to read (null) and no cached flag either → falls through
+    // to history, same as a genuinely empty ledger would.
+    expect(
+      isNewCustomerForDay('c1', verdictOf(rows), inputs({ packUsage: null, enrichment: noHistoryFor(rows) })),
+    ).toBe(true)
+    // The cached QR flag alone is enough to call it returning, ledger or not —
+    // this is the fallback the withheld NUMBER (screen.ts) does not get.
+    expect(
+      isNewCustomerForDay(
+        'c1',
+        verdictOf(rows),
+        inputs({
+          packUsage: null,
+          customers: new Map([['c1', { hasTicketPack: true }]]),
+          enrichment: noHistoryFor(rows),
+        }),
+      ),
+    ).toBe(false)
+  })
+
   it('…and by course title, for customers with no ledger entry yet', () => {
     // The row-level half of the exclusion — applied by newCountByDay on the
     // number's side and by the agenda adapter on the list's, one shared regex.
@@ -808,6 +830,86 @@ describe('⚖ R1-2 — the number is WITHHELD, never maximal', () => {
       monthWindow: { counted: WEEK_ROWS, cancelled: [], noShow: [], truncated: false },
       enrichment: new Map(),
       packUsage: new Map(),
+    })
+    expect(screen.newCountKnown).toBe(false)
+    expect([...(screen.monthNewCounts?.values() ?? [])]).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ⚖ G2 (Greptile round 1 #951) — a FAILED 回数券 ledger read must withhold too,
+// never an empty map standing in for a genuinely empty one.
+// ---------------------------------------------------------------------------
+
+describe('⚖ G2 — a failed ledger read withholds, an empty ledger stays known', () => {
+  const monthStart = new Date('2026-09-01T00:00:00+09:00')
+  const monthEnd = new Date('2026-09-30T23:59:59+09:00')
+
+  /** One counted first-timer on Monday, enrichment present (so R1-2's own
+   *  clause is already satisfied) — only `packUsage` varies. */
+  function screenWithPacks(packUsage: Map<string, { remaining: number; size: number }> | null) {
+    const rows = [appt({ id: 'a1', title: null })]
+    return buildAppointmentsScreen({
+      locale: 'ja',
+      now: NOW,
+      selectedDate: MON,
+      staffFilter: 'all',
+      staffList: [{ id: 's1', full_name: '—' }] as never,
+      activeStaffId: null,
+      storeStaffIds: null,
+      orgSettings: null,
+      customers: [cust({ id: 'c1' })],
+      dayAppointments: rows.map((a) => listRow(a)),
+      weekRange: computeWeekRange(MON),
+      monthRange: null,
+      weekRangeAppts: null,
+      monthRangeAppts: null,
+      weekWindow: { counted: rows, cancelled: [], noShow: [], truncated: false },
+      enrichment: new Map([['c1', enr()]]),
+      packUsage,
+    })
+  }
+
+  it('packUsage: null (a FAILED read) → withheld on day totals AND every week row', () => {
+    const screen = screenWithPacks(null)
+    expect(screen.newCountKnown).toBe(false)
+    expect(screen.dayTotals?.newCustomerCount).toBe(0)
+    expect(screen.dayTotals?.newCountKnown).toBe(false)
+    for (const r of screen.weekData ?? []) {
+      expect({ day: r.dateIso, n: r.newCustomerCount, known: r.newCountKnown }).toEqual({
+        day: r.dateIso,
+        n: 0,
+        known: false,
+      })
+    }
+  })
+
+  it('packUsage: new Map() (a REAL empty ledger) → known, and the empty-ledger client is honestly 新規', () => {
+    const screen = screenWithPacks(new Map())
+    expect(screen.newCountKnown).toBe(true)
+    expect(screen.dayTotals?.newCustomerCount).toBe(1)
+    expect(screen.dayTotals?.newCountKnown).toBe(true)
+  })
+
+  it('the MONTH withholds on a failed ledger read too', () => {
+    const screen = buildAppointmentsScreen({
+      locale: 'ja',
+      now: NOW,
+      selectedDate: MON,
+      staffFilter: 'all',
+      staffList: [{ id: 's1', full_name: '—' }] as never,
+      activeStaffId: null,
+      storeStaffIds: null,
+      orgSettings: null,
+      customers: WEEK_CUSTOMERS,
+      dayAppointments: [],
+      weekRange: null,
+      monthRange: { monthStart, monthEnd, rangeFrom: monthStart, rangeTo: monthEnd } as never,
+      weekRangeAppts: null,
+      monthRangeAppts: null,
+      monthWindow: { counted: WEEK_ROWS, cancelled: [], noShow: [], truncated: false },
+      enrichment: WEEK_ENRICHMENT,
+      packUsage: null,
     })
     expect(screen.newCountKnown).toBe(false)
     expect([...(screen.monthNewCounts?.values() ?? [])]).toEqual([])

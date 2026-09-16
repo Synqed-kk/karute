@@ -919,6 +919,36 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(dto.reservationViews.find((r) => r.id === 'appt-1')!.pack).toBeNull()
   })
 
+  describe('⚖ G2 (Greptile round 1 #951) — a failed pack-ledger read withholds 新規, never an empty-map guess', () => {
+    it('status stays 200 and 新規 is withheld on the day totals, not just the pill', async () => {
+      listAllPackUsageWithClient.mockRejectedValueOnce(new Error('core down'))
+      const res = await GET(req(), route)
+      expect(res.status).toBe(200)
+      const dto = await dtoOf(res)
+      expect(dto.dayTotals?.newCountKnown).toBe(false)
+      expect(dto.dayTotals?.newCustomerCount).toBe(0)
+    })
+
+    it('the same failure withholds the week AND the month surfaces too', async () => {
+      listAllPackUsageWithClient.mockRejectedValueOnce(new Error('core down'))
+      const week = await dtoOf(
+        await GET(req({}, 'https://s/api/app/v1/screens/appointments?view=week'), route),
+      )
+      expect(week.weekData!.length).toBeGreaterThan(0)
+      expect(week.weekData!.every((r) => r.newCountKnown === false)).toBe(true)
+
+      listAllPackUsageWithClient.mockRejectedValueOnce(new Error('core down'))
+      const month = await dtoOf(
+        await GET(
+          req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-01'),
+          route,
+        ),
+      )
+      expect(month.monthData!.length).toBeGreaterThan(0)
+      expect(month.monthData!.every((c) => c.newCountKnown === false)).toBe(true)
+    })
+  })
+
   it('the picker menu union rides the DTO verbatim, read for THIS business', async () => {
     const res = await GET(req(), route)
     expect(res.status).toBe(200)

@@ -64,7 +64,7 @@ jest.mock('@/lib/customers/list-enrich', () => ({
   enrichCustomers: jest.fn(async () => new Map()),
 }))
 jest.mock('@/lib/packs/store', () => ({
-  listAllPackUsage: jest.fn(async () => new Map()),
+  listAllPackUsageOrNull: jest.fn(async () => new Map()),
   listCustomerPacks: jest.fn(async () => []),
 }))
 jest.mock('@/lib/synqed/client', () => {
@@ -79,12 +79,14 @@ import { getMonthCells } from '@/actions/appointments'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getBusinessId } from '@/lib/staff'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
-import { listAllPackUsage } from '@/lib/packs/store'
+import { listAllPackUsageOrNull } from '@/lib/packs/store'
+import { getOrgSettings } from '@/actions/org-settings'
 
 const cachedCustomers = getCachedCustomerList as jest.Mock
 const businessId = getBusinessId as jest.Mock
 const enrich = enrichCustomers as jest.Mock
-const packUsage = listAllPackUsage as jest.Mock
+const packUsage = listAllPackUsageOrNull as jest.Mock
+const orgSettings = getOrgSettings as jest.Mock
 const list = (jest.requireMock('@/lib/synqed/client') as { __list: jest.Mock }).__list
 
 const SEP = '2026-09'
@@ -241,5 +243,33 @@ describe('⚖ G1 — the three 新規-only reads are caught individually', () =>
     list.mockReset()
     list.mockRejectedValue(new Error('core unavailable'))
     await expect(getMonthCells(SEP)).rejects.toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ⚖ G2 (Greptile round 1 #951) — a failed 回数券 LEDGER read must withhold too,
+// never an empty map standing in for a genuinely empty ledger.
+// ---------------------------------------------------------------------------
+
+describe('⚖ G2 — a failed ledger read withholds, never an empty-map guess', () => {
+  it('a rejecting ledger read withholds 新規 for the whole month', async () => {
+    windowOf([appt({ id: 'a1', customer_id: 'c1', starts_at: at(14) })])
+    cachedCustomers.mockResolvedValue([cust({ id: 'c1' })])
+    enrich.mockResolvedValue(new Map([['c1', history()]]))
+    packUsage.mockRejectedValue(new Error('core unavailable'))
+
+    const cells = await getMonthCells(SEP)
+    expect(cells.every((c) => c.newCount === 0 && c.newCountKnown === false)).toBe(true)
+  })
+
+  it('tickets OFF → known exactly as before, and no ledger read happens at all', async () => {
+    windowOf([appt({ id: 'a1', customer_id: 'c1', starts_at: at(14) })])
+    cachedCustomers.mockResolvedValue([cust({ id: 'c1' })])
+    enrich.mockResolvedValue(new Map([['c1', history()]]))
+    orgSettings.mockResolvedValueOnce({ operating_hours: null, ticket_packs_enabled: false })
+
+    const cells = await getMonthCells(SEP)
+    expect(packUsage).not.toHaveBeenCalled()
+    expect(cellFor(cells, '2026-09-14').newCountKnown).toBe(true)
   })
 })

@@ -59,8 +59,14 @@ export interface NewCustomerInputs {
    *  person, and the list reads that as NOT 新規 (`?? false`, see
    *  reservation-view.ts) — so the number does too. Never "everyone is new". */
   enrichment: ReadonlyMap<string, HistorySignals>
-  /** The 回数券 ledger (listAllPackUsage). Only `.has` is read. */
-  packUsage: ReadonlyMap<string, unknown>
+  /** The 回数券 ledger (listAllPackUsage). Only `.has` is read. `null` = the
+   *  read FAILED (⚖ G2, Greptile round 1 #951) — treated here as NO LEDGER
+   *  SIGNAL for this tag: the cached `hasTicketPack` flag still counts, and
+   *  the list keeps rendering (never a 502 over the ledger). The NUMBER's own
+   *  withholding on a failed ledger lives in screen.ts's `newCountKnown`, not
+   *  here — this function has no way to tell "known" from "unknown" for the
+   *  screen as a whole, only what one person's own signals say. */
+  packUsage: ReadonlyMap<string, unknown> | null
 }
 
 /** The verdict the day's COURSE NAMES force, per customer (Liam 2026-07-03:
@@ -103,7 +109,7 @@ export function isNewCustomerForDay(
   titleVerdict: ReadonlyMap<string, boolean>,
   inputs: NewCustomerInputs,
 ): boolean {
-  if (inputs.packUsage.has(clientId)) return false
+  if (inputs.packUsage?.has(clientId)) return false
 
   const forced = titleVerdict.get(clientId)
   if (forced !== undefined) return forced
@@ -119,7 +125,7 @@ export function isNewCustomerForDay(
     visitCount: cached?.visitCount,
     // The QR flag OR a real ticket_packs ledger entry — a manually-registered
     // pack holder is returning even before QR knows about them.
-    hasTicketPack: (cached?.hasTicketPack ?? false) || inputs.packUsage.has(clientId),
+    hasTicketPack: (cached?.hasTicketPack ?? false) || (inputs.packUsage?.has(clientId) ?? false),
     karuteCount: history.totalKarute,
     pastAppointmentCount: history.pastAppointmentCount,
   })
