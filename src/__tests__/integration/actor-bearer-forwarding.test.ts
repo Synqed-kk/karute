@@ -13,6 +13,17 @@ import { createHmac } from 'node:crypto'
 import { fakeCreateSignedUploadUrl } from './helpers/storage-fakes'
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
+// Store lock seam (⚖ 9/16): these cases are not about the store clamp, so the
+// resolved scope is viewAll — the PREDICATE itself is the real one.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: null,
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  })),
+  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
+}))
 
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'
