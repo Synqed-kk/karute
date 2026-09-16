@@ -10,6 +10,18 @@ jest.mock('@/lib/staff', () => ({
   resolveUserId: jest.fn().mockResolvedValue('user-1'),
 }))
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn() }))
+// PKT-P0 save guard: the POST route now also resolves the actor's store —
+// a single-store business by default, so the guard's existing/store-count
+// checks below stay out of these pre-existing tests' way. The guard itself
+// is covered end-to-end in qr-save-guard.test.ts.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: 'store-A',
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  })),
+}))
 
 // PR-M2 fix round: config now carries the same sync.view capability gate as
 // the sibling run-now route. Default-granted here so every pre-existing test
@@ -75,7 +87,10 @@ describe('quickreserve config POST — audit writer (wave A part 3)', () => {
 
   it('a saved config emits settings.sync_config_update with flags only — never the credentials', async () => {
     const upsertConfig = jest.fn(async () => ({}))
-    client.getSynqedClient.mockResolvedValue({ sync: { upsertConfig } })
+    client.getSynqedClient.mockResolvedValue({
+      sync: { getConfig: jest.fn().mockResolvedValue(null), upsertConfig },
+      stores: { list: jest.fn().mockResolvedValue({ stores: [{ id: 'store-A' }] }) },
+    })
     const req = new Request('https://app.test/api/sync/quickreserve/config', {
       method: 'POST',
       body: JSON.stringify({ username: 'velune', password: 'hunter2', enabled: true }),
@@ -97,7 +112,11 @@ describe('quickreserve config POST — audit writer (wave A part 3)', () => {
 
   it('a failed core write emits nothing', async () => {
     client.getSynqedClient.mockResolvedValue({
-      sync: { upsertConfig: jest.fn(async () => { throw new Error('core down') }) },
+      sync: {
+        getConfig: jest.fn().mockResolvedValue(null),
+        upsertConfig: jest.fn(async () => { throw new Error('core down') }),
+      },
+      stores: { list: jest.fn().mockResolvedValue({ stores: [{ id: 'store-A' }] }) },
     })
     const req = new Request('https://app.test/api/sync/quickreserve/config', {
       method: 'POST',

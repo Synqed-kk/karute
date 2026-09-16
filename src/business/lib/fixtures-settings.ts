@@ -505,7 +505,7 @@ export const colorTokenMeaning: Record<string, string> = {
  *  the STORE (`src/actions/stores.ts:330,405` → `synqed.stores.create/update`,
  *  core's `stores.business_type` column). The row is per-store here, says so, and
  *  names the other home in its own 詳しく rather than pretending there is one. */
-export const businessProfiles: ReadonlyArray<{ value: string; label: string }> = [
+export const businessProfiles = [
   { value: 'esthetic_salon', label: 'エステサロン' },
   { value: 'hair_salon', label: 'ヘアサロン' },
   { value: 'nail_salon', label: 'ネイルサロン' },
@@ -532,7 +532,9 @@ export const businessProfiles: ReadonlyArray<{ value: string; label: string }> =
   { value: 'pet_grooming', label: 'トリミングサロン' },
   { value: 'training_school', label: 'スクール・レッスン' },
   { value: 'other', label: 'その他' },
-]
+] as const satisfies ReadonlyArray<{ value: string; label: string }>
+
+export type BusinessProfileKey = (typeof businessProfiles)[number]['value']
 
 // ══ ⚖ S17 · C7 — THE PERMISSION RULEBOOK, BY SHAPE ══════════════════════════
 //

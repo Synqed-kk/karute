@@ -409,9 +409,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       <ReservationPageHeader
         // Header structure contract (Liam 8/7): mb-0 kills the package's
         // baked mb-4 — and, same property, the page's space-y-4 margin
-        // (v4 space-y is a zero-specificity :where() rule) — so the pt-6
-        // wrapper below owns the whole 24px seam. Same natural-height
-        // row as 顧客/カルテ (32px controls set the height).
+        // (v4 space-y is a zero-specificity :where() rule) — so the
+        // wrapper below owns the whole seam (9px since 9/15, the mock's
+        // own number; 24px before that). Same natural-height row as
+        // 顧客/カルテ (32px controls set the height).
         // The anchor wrapper above carries mb-0 too, and for the second
         // half of that reason: since the date-jump panel moved the anchor
         // in between, IT is the direct child space-y-4 measures — this
@@ -496,12 +497,28 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  schedule (matches the spike's mobile screenshot Liam shared).
        *  Picker mutates ?staff= which the page reads server-side to
        *  refilter reservationViews. */}
-      {/* pt-6 = the whole 24px seam (Liam 8/7): both neighbors are
-       *  bordered controls and 16px read as touching. The header's mb-0
-       *  zeroes space-y-4's contribution too (same margin property,
-       *  higher specificity), so this padding is the seam's single
-       *  owner. Padding, not margin: margins collapse. */}
-      <div className="pt-6">
+      {/* THE SEAM, AND THE ONE THAT OWNS IT — the approved mock's own two
+       *  numbers (DATE-JUMP-PICKER-MOCK.html, measured at 393 on the phone
+       *  shell, not read off the CSS):
+       *
+       *    date-bar control bottom → 日/週/月 control top   =  9px
+       *    日/週/月 control bottom → the page's next block  = 11px
+       *
+       *  In the mock those two fall out of the row boxes (a 56px date bar
+       *  holding a 40px control leaves 8px under it; the 52px filter row
+       *  centres its 40px control in a 42px content box, leaving 1px above
+       *  and 1px + its 10px padding below). This page's rows are natural
+       *  height — tight around their 32px controls — so the seam has to be
+       *  stated here instead, and these are the two places to state it: the
+       *  padding above, and the margin that replaces space-y-4's 16px below
+       *  (space-y-4 is a zero-specificity :where() rule, so a normal mb-*
+       *  utility wins — the same mechanism as the anchor's mb-0 above).
+       *
+       *  SUPERSEDES the 8/7 24px seam (pt-6): that number predates the
+       *  calendar mock Liam approved on 9/14, and on 9/15 he measured this
+       *  page against the mock and the 24px read as a gap. Padding above,
+       *  not margin: margins collapse. */}
+      <div className="pt-[9px] mb-[11px]">
       <ReservationStaffFilter
         staffList={props.staff.map<ReservationStaffEntry>((s) => ({
           id: s.id,

@@ -86,34 +86,33 @@ export async function createAppointment(input: AppointmentInput) {
   if (hoursError) return { error: hoursError }
 
   try {
-    // All four are independent → resolve in parallel (resolveSynqedStaffId may
+    // All five are independent → resolve in parallel (resolveSynqedStaffId may
     // hit the DB; getActiveStoreId is a cookie read). The active-store cookie is
     // an ISOLATION input, not just a view label: it is clamped below against
     // the viewer's RBAC scope so a stale / out-of-scope cookie can't stamp a
     // booking into another branch. Business scope (x-business-id) is still applied
     // by core regardless; this clamp is additive.
-    const [synqed, synqedStaffId, activeStore, auditActor] = await Promise.all([
+    const [synqed, synqedStaffId, activeStore, auditActor, scope] = await Promise.all([
       getSynqedClient(),
       resolveSynqedStaffId(input.staffProfileId),
       getActiveStoreId(),
       resolveWebAuditContext(),
+      resolveStoreScope(),
     ])
-    // Clamp the cookie. Honor it ONLY when the viewer may act in that store
-    // (viewAll → allowedStoreIds null, or it's one of their assigned stores —
-    // the same clamp getAppointmentById applies to reads); a branch-restricted
-    // staff's stale / out-of-scope cookie is treated as unset. The unset path
-    // falls through to the core's defaultBookingStore — NOT
-    // resolveStoreScope().storeId, which would regress a viewAll staff's
-    // unset-cookie booking from "the booked staff's store" to "primary store".
-    // The scope lookup only runs when a cookie is actually set.
-    let cookieStore: string | null = null
-    if (activeStore) {
-      const scope = await resolveStoreScope()
-      cookieStore =
-        !scope.allowedStoreIds || scope.allowedStoreIds.includes(activeStore)
-          ? activeStore
-          : null
-    }
+    // A CLAMPED actor (allowedStoreIds set) never sends null: resolveStoreScope
+    // already picks the cookie when it's one of their own stores, else their
+    // first assigned store — the whole point of the clamp. Sending null here
+    // would let a clamped actor's UNSET cookie fall through to the core's
+    // defaultBookingStore, which can land on another branch when the booked
+    // practitioner works at more than one store (the 銀座 receptionist /
+    // multi-store practitioner leak this fixes).
+    // viewAll / floating (allowedStoreIds null) keep the OLD behavior: cookie
+    // when set, else null → core's defaultBookingStore ("the booked staff's
+    // store"). Using scope.storeId here instead would regress that unset-cookie
+    // default to the business's PRIMARY store — resolveStoreScope defaults a
+    // viewAll actor's own storeId to primary for VIEW purposes, which is the
+    // wrong default for a write that should follow the booked staff, not the viewer.
+    const cookieStore = scope.allowedStoreIds ? scope.storeId : activeStore
     const result = await createAppointmentCore(synqed, input, {
       synqedStaffId,
       preferredStoreId: cookieStore,

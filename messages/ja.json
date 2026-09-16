@@ -162,7 +162,7 @@
     },
     "dateJump": {
       "loading": "予約状況を読み込み中…",
-      "failed": "予約状況を取得できませんでした",
+      "failed": "予約状況を取得できませんでした。もう一度お試しください。",
       "legendCount": "数字＝その日の予約件数"
     },
     "weekCard": {
@@ -2229,6 +2229,7 @@
     "tableColors": "テーブル色",
     "bookingSync": "予約同期",
     "bookingSyncDescription": "Quick Reserve 等との同期",
+    "bookingSyncStoreNotReady": "この店舗の Quick Reserve 連携はまだ準備中です。店舗ごとの連携が入り次第ご案内します。",
     "sync": {
       "webOnly": "予約同期の設定はWeb版からご利用ください",
       "healthy": "正常に同期中",
