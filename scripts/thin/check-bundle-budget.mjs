@@ -1067,7 +1067,15 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // day line's mock breakpoint variant, `max-[400px]:text-[13.5px]`, dropped
 // outright — its own `text-[14px]`→`text-[13px]` swap is length-neutral).
 // en/vendor unchanged: no JA/EN string and no dependency moved.
-const BUDGET_BYTES = 2_106_476
+//
+// RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-week-face
+// (PR #929, merge commit 320ec111f234b48cb6562ecb2820db8f68dee31a) — this
+// constant was one of the merge's six ruled conflicts (union of both chains,
+// re-measure after). Same CI recipe, thin/dist emptied between two clean
+// builds, byte-identical both times (node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock): en 134,223 · index 1,033,464 · vendor 937,791 =
+// 2,105,478 B. Ceiling = 2,105,478 + 1,000.
+const BUDGET_BYTES = 2_106_478
 
 let dir
 try {
