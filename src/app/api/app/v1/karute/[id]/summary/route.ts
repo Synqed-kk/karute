@@ -12,6 +12,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
+import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { updateKaruteDetailSummaryWithClient } from '@/actions/karute'
 
 export const runtime = 'nodejs'
@@ -49,6 +50,16 @@ export const PATCH = facadeHandler<Params>('karute.summary.update', async (ctx) 
   const summaryBefore =
     ((record.edited_summary as string | null) ?? (record.ai_summary as string | null)) ?? null
 
+  // STORE LOCK input (⚖ Liam 2026-09-16) — requestedStoreId: null because the
+  // ASSIGNMENT is the basis, never a client-set store-id header. A failed
+  // assignment lookup throws store_forbidden here, fail-closed.
+  const scope = await resolveStoreForRequest({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    requestedStoreId: null,
+  })
+
   const actorStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
   const result = await updateKaruteDetailSummaryWithClient(
     synqed,
@@ -62,6 +73,7 @@ export const PATCH = facadeHandler<Params>('karute.summary.update', async (ctx) 
     },
     customerId,
     summaryBefore,
+    { recordStoreId: (record.store_id as string | null) ?? null, scope },
   )
   // A content-validation failure is a genuine client-input problem → 400;
   // anything else in {error} is a real upstream failure → fixed generic

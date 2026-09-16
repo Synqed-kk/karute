@@ -10,6 +10,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
+import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { updateKaruteDetailEntryWithClient } from '@/actions/karute'
 
 export const runtime = 'nodejs'
@@ -51,6 +52,16 @@ export const PATCH = facadeHandler<Params>('karute.entry.update', async (ctx) =>
   const record = await readKaruteRaw(synqed, id)
   const customerId = (record.customer_id as string | null) ?? null
 
+  // STORE LOCK input (⚖ Liam 2026-09-16) — requestedStoreId: null because the
+  // ASSIGNMENT is the basis, never a client-set store-id header. A failed
+  // assignment lookup throws store_forbidden here, fail-closed.
+  const scope = await resolveStoreForRequest({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    requestedStoreId: null,
+  })
+
   const actorStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
   const result = await updateKaruteDetailEntryWithClient(
     synqed,
@@ -69,6 +80,7 @@ export const PATCH = facadeHandler<Params>('karute.entry.update', async (ctx) =>
       requestId: ctx.meta.requestId,
     },
     customerId,
+    { recordStoreId: (record.store_id as string | null) ?? null, scope },
   )
   if ('conflict' in result) {
     throw new AppApiError('conflict', 'entry was updated elsewhere')

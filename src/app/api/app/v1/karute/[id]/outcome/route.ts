@@ -10,7 +10,9 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { readKaruteRaw } from '@/lib/app-api/karute-facade'
+import { readKaruteRaw, KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
+import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { ensureRecordStoreInScope } from '@/lib/auth/store-scope'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import {
   setKaruteOutcomeWithClient,
@@ -48,6 +50,21 @@ export const POST = facadeHandler<Params>('karute.outcome.set', async (ctx) => {
   // Prove karuteRecordId → business BEFORE the upsert; derive customerId from the
   // record (never trust the client). Cross-tenant → not_found.
   const record = await readKaruteRaw(synqed, id)
+  // STORE LOCK (⚖ Liam 2026-09-16), before the linked-customer answer below:
+  // the 成約 label is a write on a record, so a clamped caller must not be
+  // able to set it on another branch's karute by id. Refuses with the SAME
+  // not_found readKaruteRaw throws for a missing id — no existence oracle.
+  // requestedStoreId: null — the assignment is the basis, not a client header.
+  ensureRecordStoreInScope(
+    { store_id: (record.store_id as string | null) ?? null },
+    await resolveStoreForRequest({
+      synqed,
+      authUserId: ctx.identity.authUserId,
+      capabilities: ctx.identity.capabilities,
+      requestedStoreId: null,
+    }),
+    KARUTE_NOT_FOUND,
+  )
   const customerId = (record.customer_id as string | null) ?? null
   if (!customerId) throw new AppApiError('not_found', 'karute has no linked customer')
 

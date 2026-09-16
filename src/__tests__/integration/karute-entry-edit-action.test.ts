@@ -21,6 +21,21 @@ jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: jest.fn(async () => {}),
   can: jest.fn(async () => true),
 }))
+// Store lock seam (⚖ 9/16): these cases are not about the store clamp, so the
+// resolved scope is viewAll — but the PREDICATE itself is the real one, so a
+// lock deleted from a core still shows up here as a behaviour change.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: null,
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  })),
+  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
+  customerLensFor: jest.fn(() => undefined),
+  sourceStoreOutOfScope: jest.fn(() => false),
+  storeStaffIdSet: jest.fn(async () => null),
+}))
 jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
   resolveUserId: jest.fn(async () => 'auth-user-1'),
@@ -55,6 +70,10 @@ import {
 import { ENTRY_CONTENT_INVALID_ERROR } from '@/types/karute'
 import { SESSION_CATEGORY_TO_ENTRY_CATEGORY } from '@/lib/adapters/karute-detail'
 
+/** These cases are about the edit core itself, not the store lock — every one
+ *  of them already assumed an actor who may touch the record. */
+const IN_SCOPE = { recordStoreId: 'store-1', scope: { viewAll: true, allowedStoreIds: null } }
+
 beforeEach(() => jest.clearAllMocks())
 
 // Test-only partial client cast — the mock only needs to satisfy updateEntry's
@@ -88,6 +107,7 @@ describe('updateKaruteDetailEntryWithClient — CAS core', () => {
       { content: 'new body', category: 'concern', expectedVersion: 2, actorStaffId: 'staff-1' },
       actor,
       'cust-1',
+    IN_SCOPE,
     )
     expect(result).toEqual({ ok: true })
     expect(updateEntry).toHaveBeenCalledWith('kar-1', 'e1', {
@@ -126,6 +146,7 @@ describe('updateKaruteDetailEntryWithClient — CAS core', () => {
       { expectedVersion: 1, actorStaffId: 'staff-1' },
       actor,
       null,
+    IN_SCOPE,
     )
     expect(result).toEqual({ conflict: true })
     expect(updateEntry).toHaveBeenCalledTimes(1)
@@ -146,6 +167,7 @@ describe('updateKaruteDetailEntryWithClient — CAS core', () => {
       { expectedVersion: 1, actorStaffId: 'staff-1' },
       actor,
       null,
+    IN_SCOPE,
     )
     expect(upstream).toEqual({ error: 'upstream boom' })
     expect(auditSpy).not.toHaveBeenCalled()
@@ -158,6 +180,7 @@ describe('updateKaruteDetailEntryWithClient — CAS core', () => {
       { expectedVersion: 1, actorStaffId: 'staff-1' },
       actor,
       null,
+    IN_SCOPE,
     )
     expect(network).toEqual({ error: 'socket hang up' })
     expect(auditSpy).not.toHaveBeenCalled()
@@ -171,6 +194,7 @@ describe('updateKaruteDetailEntryWithClient — CAS core', () => {
       { content: '   ', expectedVersion: 1, actorStaffId: 'staff-1' },
       actor,
       null,
+    IN_SCOPE,
     )
     expect(empty).toEqual({ validationError: ENTRY_CONTENT_INVALID_ERROR })
     const tooLong = await updateKaruteDetailEntryWithClient(
@@ -180,6 +204,7 @@ describe('updateKaruteDetailEntryWithClient — CAS core', () => {
       { content: 'x'.repeat(4001), expectedVersion: 1, actorStaffId: 'staff-1' },
       actor,
       null,
+    IN_SCOPE,
     )
     expect(tooLong).toEqual({ validationError: ENTRY_CONTENT_INVALID_ERROR })
     expect(updateEntry).not.toHaveBeenCalled()
@@ -199,6 +224,7 @@ describe('entry_edit_id receipt threading (P3, core #69 / SDK 1.25)', () => {
       { content: 'body', expectedVersion: 1, actorStaffId: 'staff-1' },
       actor,
       'cust-1',
+    IN_SCOPE,
     )
 
   it('carries the id core RETURNED — a different response id changes the receipt', async () => {

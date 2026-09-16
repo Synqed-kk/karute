@@ -17,6 +17,21 @@ jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: jest.fn(async () => {}),
   can: jest.fn(async () => true),
 }))
+// Store lock seam (⚖ 9/16): these cases are not about the store clamp, so the
+// resolved scope is viewAll — but the PREDICATE itself is the real one, so a
+// lock deleted from a core still shows up here as a behaviour change.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: null,
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  })),
+  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
+  customerLensFor: jest.fn(() => undefined),
+  sourceStoreOutOfScope: jest.fn(() => false),
+  storeStaffIdSet: jest.fn(async () => null),
+}))
 jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
   resolveUserId: jest.fn(async () => 'auth-user-1'),
@@ -50,6 +65,10 @@ import {
 } from '@/actions/karute'
 import { ENTRY_CONTENT_INVALID_ERROR } from '@/types/karute'
 
+/** These cases are about the edit core itself, not the store lock — every one
+ *  of them already assumed an actor who may touch the record. */
+const IN_SCOPE = { recordStoreId: 'store-1', scope: { viewAll: true, allowedStoreIds: null } }
+
 beforeEach(() => jest.clearAllMocks())
 
 const fakeClient = { karuteRecords: { update } } as unknown as Parameters<
@@ -66,6 +85,7 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
       actor,
       'cust-1',
       '・元の要約',
+    IN_SCOPE,
     )
     expect(result).toEqual({ ok: true })
     expect(update).toHaveBeenCalledTimes(1)
@@ -107,6 +127,7 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
       actor,
       null,
       before,
+    IN_SCOPE,
     )
     const detail = auditSpy.mock.calls[0][0].detail as Record<string, unknown>
     // toEqual (not objectContaining): a re-added before/after text key must
@@ -122,6 +143,7 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
       actor,
       null,
       null,
+    IN_SCOPE,
     )
     const detail = auditSpy.mock.calls[0][0].detail as Record<string, unknown>
     expect(detail).toEqual({ customer_id: null, before_len: 0, after_len: 2 })
@@ -135,6 +157,7 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
       actor,
       'cust-1',
       '・同じ要約',
+    IN_SCOPE,
     )
     expect(result).toEqual({ ok: true })
     expect(update).not.toHaveBeenCalled()
@@ -149,6 +172,7 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
       actor,
       null,
       null,
+    IN_SCOPE,
     )
     expect(empty).toEqual({ validationError: ENTRY_CONTENT_INVALID_ERROR })
     const tooLong = await updateKaruteDetailSummaryWithClient(
@@ -158,6 +182,7 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
       actor,
       null,
       null,
+    IN_SCOPE,
     )
     expect(tooLong).toEqual({ validationError: ENTRY_CONTENT_INVALID_ERROR })
     expect(update).not.toHaveBeenCalled()
@@ -173,6 +198,7 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
         actor,
         null,
         null,
+      IN_SCOPE,
       )
       expect(result).toEqual({ validationError: ENTRY_CONTENT_INVALID_ERROR })
     }
@@ -188,6 +214,7 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
       actor,
       null,
       null,
+    IN_SCOPE,
     )
     expect(result).toEqual({ ok: true })
     expect(update).toHaveBeenCalledTimes(1)
@@ -202,6 +229,7 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
       actor,
       null,
       null,
+    IN_SCOPE,
     )
     expect(result).toEqual({ error: 'core down' })
     expect(auditSpy).not.toHaveBeenCalled()

@@ -5,6 +5,7 @@ import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
+import { ensureRecordStoreInScope, resolveStoreScope } from '@/lib/auth/store-scope'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 /**
@@ -28,6 +29,19 @@ export async function updateKaruteOutcome(
   try {
     const synqed = await getSynqedClient()
     const record = await synqed.karuteRecords.get(karuteRecordId)
+    // STORE LOCK (⚖ Liam 2026-09-16): the outcome is a write ON a record, so a
+    // clamped actor must not be able to re-label another branch's karute by
+    // id. The refusal falls into this same catch and comes out as the exact
+    // 'karute record not found' a missing id already returns here — one
+    // answer, no existence oracle. The lock lives at THIS door (not in
+    // setKaruteOutcomeWithClient) because that core is also the save-embedded
+    // and background-job writer, which carry no actor scope and stamp their
+    // store through resolveKaruteStoreId instead.
+    ensureRecordStoreInScope(
+      { store_id: (record.store_id as string | null) ?? null },
+      await resolveStoreScope(),
+      'karute record not found',
+    )
     const linked = (record.customer_id as string | null) ?? null
     if (!linked) return { error: 'karute has no linked customer' }
     customerId = linked

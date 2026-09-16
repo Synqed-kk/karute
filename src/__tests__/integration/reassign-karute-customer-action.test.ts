@@ -47,6 +47,9 @@ jest.mock('@/lib/auth/store-scope', () => ({
   // manual mock must re-expose the real implementation the same way
   // customerLensFor already does above.
   sourceStoreOutOfScope: jest.requireActual('@/lib/auth/store-scope').sourceStoreOutOfScope,
+  // Store lock (⚖ 9/16): the REAL predicate, same convention as the pure
+  // helpers already re-exposed here — a mocked-away lock proves nothing.
+  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
 }))
 jest.mock('@/lib/customers/cached', () => ({ getCachedCustomerList: jest.fn(async () => []) }))
 
