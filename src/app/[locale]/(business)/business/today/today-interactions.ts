@@ -6324,6 +6324,7 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
       staffUntil: staff.untilLabel,
       laneLocked: q.locked.includes(staff.key),
       minutesOf: q.minutesOf,
+      turnoverWord: words.turnoverWord ?? generic.turnoverWord!,
     }),
     q.hasPrice,
   )
