@@ -80,7 +80,14 @@ function client(opts: {
       staff: {
         create: staffCreate,
         delete: staffDelete,
-        list: async () => ({ staff: (opts.roster ?? []).map((id) => ({ id })) }),
+        // Honours page/page_size like core does (and reports `total`), so a
+        // roster past one page is a real read here — ⚖ fold round 3 / F3.
+        list: async (o?: { page?: number; page_size?: number }) => {
+          const all = (opts.roster ?? []).map((id) => ({ id }))
+          const size = o?.page_size ?? all.length
+          const page = o?.page ?? 1
+          return { staff: all.slice((page - 1) * size, page * size), total: all.length }
+        },
       },
       staffStores: {
         get: async (id: string) => ({ store_ids: assignments[id] ?? [] }),
@@ -261,6 +268,16 @@ describe('1 → 2 stores: nobody blanks mid-shift', () => {
     await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
     expect(c.staffStoresSet).not.toHaveBeenCalled()
     expect(c.assignments['staff-a']).toBeUndefined()
+  })
+
+  it('pages the whole roster — a 250-staff salon leaves nobody behind (F3)', async () => {
+    // ⚖ ANY-ROSTER-SIZE on the store dimension. One `page_size: 200` read left
+    // the overflow unassigned on the very day the gate started refusing them.
+    const roster = Array.from({ length: 250 }, (_, i) => `staff-${i}`)
+    const c = client({ stores: ['store-daikanyama', 'store-new'], roster })
+    await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(Object.keys(c.assignments)).toHaveLength(250)
+    expect(c.assignments['staff-249']).toEqual(['store-daikanyama'])
   })
 
   it('a failed backfill never undoes the store the owner just created', async () => {

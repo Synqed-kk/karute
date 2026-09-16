@@ -16,6 +16,7 @@ import { audit } from '@/lib/audit'
 // 'use server' module, where every export is a callable endpoint, so it cannot
 // be declared here — and the 予約 capacity path needs the same one answer.
 import { coreBusinessType } from '@/lib/welcome/business-types'
+import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import {
   actorIsUnassigned,
   storeCountForGate,
@@ -642,7 +643,12 @@ async function backfillStaffToExistingStore(
     // salon has left, hiding the store they actually work in.
     const existing = stores.find((s) => s.id !== newStoreId && s.active !== false)?.id
     if (!existing || !synqed.staff) return
-    const { staff } = await synqed.staff.list({ page_size: 200 })
+    // ⚖ FOLD ROUND 3 (fresh-eyes F3) — the WHOLE roster. One
+    // `staff.list({ page_size: 200 })` silently left a 201st staff member
+    // unassigned on the exact day the gate started refusing them, against the
+    // standing ANY-ROSTER-SIZE rule. listAllCoreStaff is the repo's one home
+    // for "every core staff row", pager and page cap included.
+    const staff = await listAllCoreStaff(synqed.staff)
     for (const member of staff) {
       const current = await synqed.staffStores.get(member.id).then((r) => r.store_ids)
       if (current.length > 0) continue
