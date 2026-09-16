@@ -20,11 +20,10 @@ jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(async () => null),
   getDefaultStoreId: jest.fn(async () => null),
 }))
+// Only the RESOLVER is mocked; the lock's predicate lives in the pure
+// src/lib/auth/store-lock.ts and runs for real here (⚖ 9/16).
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
-  // Store lock (⚖ 9/16): the REAL predicate — resolveStoreScope above returns
-  // viewAll, so it passes, and a mocked-away lock would prove nothing.
-  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
 }))
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: jest.fn(async () => {}),

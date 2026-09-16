@@ -30,7 +30,7 @@ import {
 } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { ymdInJst } from '@/lib/date/jst'
-import { ensureRecordStoreInScope, type RecordStoreScope } from '@/lib/auth/store-scope'
+import { ensureRecordStoreInScope, type RecordStoreScope } from '@/lib/auth/store-lock'
 import { audit, type AuditSeverity } from '@/lib/audit'
 
 /** Liam ruling 2026-07-26: every booking mutation writes exactly ONE audit

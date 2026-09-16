@@ -100,9 +100,6 @@ jest.mock('@/lib/auth/store-scope', () => ({
   viewerScopeForActs: jest.fn(async () =>
     webScope.current.degraded ? [] : webScope.current.allowedStoreIds,
   ),
-  // Store lock (⚖ 9/16): the REAL predicate, same convention as the pure
-  // helpers already re-exposed here — a mocked-away lock proves nothing.
-  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
 }))
 /** The recording row behind the karute — read by the regenerate gate ONLY when
  *  the karute names no store of its own (③ fix round 4). Every pre-existing

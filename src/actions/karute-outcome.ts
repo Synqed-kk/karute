@@ -5,7 +5,8 @@ import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
-import { ensureRecordStoreInScope, resolveStoreScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { ensureRecordStoreInScope } from '@/lib/auth/store-lock'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 /**

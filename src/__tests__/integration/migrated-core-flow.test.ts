@@ -51,9 +51,6 @@ jest.mock('@/actions/stores', () => ({
 // suites don't exercise store scoping, so stub it to the all-stores lens.
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
-  // Store lock (⚖ 9/16): the REAL predicate, same convention as the pure
-  // helpers already re-exposed here — a mocked-away lock proves nothing.
-  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
 }))
 
 jest.mock('@/lib/auth/require-permission', () => ({

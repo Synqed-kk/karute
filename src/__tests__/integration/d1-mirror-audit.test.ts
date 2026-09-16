@@ -35,14 +35,14 @@ jest.mock('@/lib/auth/require-permission', () => ({
   ensureCapability: jest.fn(() => undefined),
 }))
 // Store lock seam (⚖ 9/16): updateKaruteOutcome now proves the record's store
-// against the actor's assignment. The PREDICATE is the real one; only the
-// resolved scope is driven from here.
+// against the actor's assignment. The predicate itself lives in the pure
+// src/lib/auth/store-lock.ts and is untouched; only the resolved scope is
+// driven from here.
 const storeScope = {
   current: { storeId: null as string | null, viewAll: true, allowedStoreIds: null as string[] | null, degraded: false },
 }
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(async () => storeScope.current),
-  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
 }))
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(),

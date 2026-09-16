@@ -3,7 +3,7 @@
 // call, even if the screen hides them").
 //
 // One suite for the whole rule, because the rule has ONE home:
-// ensureRecordStoreInScope (src/lib/auth/store-scope.ts). Every by-id booking
+// ensureRecordStoreInScope (src/lib/auth/store-lock.ts). Every by-id booking
 // and karute write core runs it, so this file proves (a) the predicate itself,
 // and (b) that each core actually calls it — the second half is what a
 // mutation run kills: delete the lock line in a core and the matching row below
@@ -50,7 +50,7 @@ jest.mock('@/lib/audit', () => ({
   audit: (...a: unknown[]) => auditSpy(...(a as [])),
 }))
 
-import { ensureRecordStoreInScope } from '@/lib/auth/store-scope'
+import { ensureRecordStoreInScope } from '@/lib/auth/store-lock'
 import { AppApiError } from '@/lib/app-api/errors'
 import { KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 import {

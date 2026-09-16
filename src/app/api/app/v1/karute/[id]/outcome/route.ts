@@ -12,7 +12,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readKaruteRaw, KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
-import { ensureRecordStoreInScope } from '@/lib/auth/store-scope'
+import { ensureRecordStoreInScope } from '@/lib/auth/store-lock'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import {
   setKaruteOutcomeWithClient,

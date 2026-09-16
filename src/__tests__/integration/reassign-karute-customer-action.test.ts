@@ -42,14 +42,6 @@ jest.mock('@/lib/audit-web', () => ({ auditWeb: jest.fn(async () => undefined) }
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(),
   customerLensFor: jest.requireActual('@/lib/auth/store-scope').customerLensFor,
-  // Fix round 4: sourceStoreOutOfScope moved here from src/actions/karute.ts
-  // (pure predicate) — karute.ts now imports it from this module, so the
-  // manual mock must re-expose the real implementation the same way
-  // customerLensFor already does above.
-  sourceStoreOutOfScope: jest.requireActual('@/lib/auth/store-scope').sourceStoreOutOfScope,
-  // Store lock (⚖ 9/16): the REAL predicate, same convention as the pure
-  // helpers already re-exposed here — a mocked-away lock proves nothing.
-  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
 }))
 jest.mock('@/lib/customers/cached', () => ({ getCachedCustomerList: jest.fn(async () => []) }))
 
