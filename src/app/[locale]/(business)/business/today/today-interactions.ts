@@ -1074,8 +1074,7 @@ function withTrailingCleanup(
   hours: Hours,
   // ⚖ D-53 (u)/(n2b2) — REQUIRED, immediately after `hours`, before the
   // optional `cleanupMinutesByBed?`. `lane` here is always a BEDS lane (the
-  // one caller only reaches this branch on `lane.group === 'beds'`), so the
-  // map's own key formula composes exactly as `wordsFor` would.
+  // one caller only reaches this branch on `lane.group === 'beds'`).
   words: LaneWordsMap,
   cleanupMinutesByBed?: Record<string, number>,
   movedRoom?: ReadonlySet<string>,
@@ -1084,8 +1083,8 @@ function withTrailingCleanup(
   /** This room's own policy — the tail length for anyone who arrived here. */
   const policy = cleanupMinutesByBed?.[lane.key]
   // This room's own turnover word, resolved ONCE — the generic row's own is
-  // pinned non-null (P13, resource-words.test.ts), so the `!` is sound.
-  const t = (words.byLaneKey[`beds:${lane.key}`] ?? words.generic).turnoverWord ?? words.generic.turnoverWord!
+  // pinned non-null (P13 in the words table's own suite), so the `!` is sound.
+  const t = wordsFor(words, lane).turnoverWord ?? words.generic.turnoverWord!
   for (const b of items) {
     if (b.kind !== 'booking' || !b.caseId) continue
     const orig = cleanupOf.get(b.caseId)
@@ -1122,8 +1121,8 @@ function withTrailingCleanup(
 /** ⚖ 9/8 PACKING fix round 2 (F4) — a 清掃 row for a booking the server drew no
  *  turnaround for, in today-board's own shape (:594-600). Every positional field
  *  is overwritten by the caller; what lives here is the chrome a turnaround
- *  wears — its key, its kind, its 清掃 title and the nulls that say it is not a
- *  booking. */
+ *  wears — its key, its kind, the turnover word handed in as its title (e.g.
+ *  清掃), and the nulls that say it is not a booking. */
 function cleanupShell(b: BoardItem, turnoverWord: string): BoardItem {
   return {
     key: `${b.caseId}-cleanup`,
