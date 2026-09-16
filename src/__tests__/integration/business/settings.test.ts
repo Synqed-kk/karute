@@ -821,9 +821,13 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
   // from canon's staff MOCK's `CAP_ORDER`; the product's own list grew to
   // NINETEEN, then TWENTY with recordings.viewShared (⚖ 2026-09-14 sharing
   // design D3/F2 — the token sits right after recordings.viewAll, the same
-  // position Karute's own CAPABILITIES array carries it), then TWENTY-ONE with
-  // customers.manage (⚖ 2026-09-16, the customer write gate — right after
-  // customers.view, again matching Karute's own array).
+  // position Karute's own CAPABILITIES array carries it).
+  //
+  // ⚠ IT STAYS AT TWENTY. Karute's own CAPABILITIES gains a twenty-first,
+  // customers.manage (⚖ 2026-09-16, the customer write gate), but that one
+  // carries no per-person switch (NOT_YET_TOGGLEABLE) — so the GRID, which is
+  // what this case measures, offers twenty. The C7 pin below is where the
+  // twenty-one lives, and it derives the difference rather than typing it.
   it('the staff matrix is every KARUTE capability the sheet actually offers, in plain words', async () => {
     const props = await room({ store: STORE_A })
     const grid = controlsOf(props).find((c) => c.id.startsWith('staff.caps-'))!
@@ -837,7 +841,22 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     // shipped preset holds it — which is why the room can still say what a
     // role can do without offering a switch nobody can flip.
     expect(options.map((o) => o.value)).not.toContain('customers.manage')
-    expect(rulebook.grants.frontdesk).toContain('customers.manage')
+    // …in EVERY shipped preset, not just one — the claim above is about the
+    // whole mirror, so the pin has to be too.
+    for (const key of ['owner', 'manager', 'senior', 'practitioner', 'frontdesk'] as const) {
+      expect({ key, granted: rulebook.grants[key].includes('customers.manage') })
+        .toEqual({ key, granted: true })
+    }
+    expect(rulebook.grants.custom).toEqual([]) // the blank canvas holds nothing
+    // …and the complete mapping obeys the rule that makes the grant honest
+    // (⚖ Greptile round 2, Karute side): customers.manage REQUIRES
+    // customers.view, so the two travel together in every preset — a mirror
+    // that ever granted the write tier without the read tier would be
+    // advertising something effectiveCapabilities would strip.
+    for (const [key, granted] of Object.entries(rulebook.grants)) {
+      expect({ key, manage: granted.includes('customers.manage') })
+        .toEqual({ key, manage: granted.includes('customers.view') })
+    }
     // ⚠ AND NOT ONE OF THEM IS SPELLED AS A TOKEN. Karute's own file carries the
     // tokens with English comments; ⚖ 「plain names, never codes」 means the grid
     // wears the product's own language (S9L-2, kept).
@@ -845,7 +864,7 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
       expect({ value: o.value, plain: !/\./.test(o.label) && o.label.length > 0 })
         .toEqual({ value: o.value, plain: true })
     }
-    // ⚠ AND IT IS A GRID, NOT A RAG (⚖ mock D9): twenty-one chips wrapping freely
+    // ⚠ AND IT IS A GRID, NOT A RAG (⚖ mock D9): twenty chips wrapping freely
     // is the readability defect this round is for.
     expect(grid.control.kind === 'chips' && grid.control.grid).toBe(true)
   })
