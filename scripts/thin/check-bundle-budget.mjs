@@ -1087,10 +1087,13 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-month-compare
 // (PR #935) — union of both chains above (this branch's own PIECE-4c/FIX-ROUND-R1
 // history plus main's #929/#931/#932-into-main re-measure entries it had not yet
-// seen). Placeholder pending this merge's own two-lap thin build measurement;
-// the real constant is set in a separate final commit per the packet's rule
-// (measured + 1,000, never picked from either side).
-const BUDGET_BYTES = 2_116_253 // placeholder, re-measured below before push
+// seen). Same CI recipe — CI's own six VITE_* values, the 208-char anon-key
+// placeholder included, thin/dist emptied before each of two laps,
+// byte-identical both times (matching content hashes, node v24.16.0,
+// @synqed-kk/ui 0.3.2 installed == lock):
+//   en 134,544 · index 1,044,145 · vendor 937,791 = 2,116,480 B.
+// Ceiling = 2,116,480 + 1,000.
+const BUDGET_BYTES = 2_117_480
 
 let dir
 try {
