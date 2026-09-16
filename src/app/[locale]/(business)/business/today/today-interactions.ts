@@ -5355,7 +5355,10 @@ export function gestureAllocator(opts: {
     // ⚖ CODE-LENS-2 N1 — THE ASSUMPTION THE RAW `|` JOIN RESTS ON, stated: none
     // of the interpolated fields can CONTAIN a `|`. `id` and `stagedId` are
     // booking UUIDs, `currentBed` is a bed lane key, and `stores` arrives
-    // JSON-quoted. If any of them ever could, two different questions would
+    // JSON-quoted; ⚖ D-53 (ak)/(al) — the two word fields are rows of a frozen
+    // table with no `|` in any value today; when a store-editable override
+    // lands (N3) the override's validator, or a JSON-quoted pair here, must
+    // keep that true. If any of them ever could, two different questions would
     // share one key — the single failure a memo is not allowed to have — and
     // this line is where that would have to be answered.
     const key = `${o.id}|${o.currentBed}|${JSON.stringify(o.stores)}|${o.requiresPrivate}|${o.start}|${o.end}|${o.stagedId ?? ''}|${o.now}|${o.allowBusy === true}|${o.words.resourceNoun}|${o.words.privateWord}`

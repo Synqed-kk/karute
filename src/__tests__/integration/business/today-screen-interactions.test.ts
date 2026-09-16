@@ -2674,8 +2674,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // moving. The wrapper used to IMPORT this door out of the screen, so the
     // two files imported each other; now the screen HANDS IT IN (`bookOf`).
     // The count here is unchanged — measured, not assumed: the new line passes
-    // `bedViewsFor` as a value with no parenthesis, so the three calls are
-    // still the definition and the two on this screen. What changed is the
+    // `bedViewsFor` as a value with no parenthesis, so the three calls were
+    // still the definition and the two on this screen at that commit. What changed is the
     // wrapper's half: it walks the door it was GIVEN, and it is pinned that it
     // cannot name this screen or `bedTruthViews` to find another one
     // (selling-engine-doors.test.ts §1). One door, every walk still named.
@@ -2696,6 +2696,13 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // go through it. Named here so the invariant (one door, every walk named)
     // holds at every commit on main. PR-B: the two door walks go through
     // `bookFor` now — 5 → 3, the definition and `bookFor`'s own remain.
+    //
+    // ⚖ MIGRATED AGAIN at D-53 (ak)/(al) N2c-1, 3 → 5: the two `bookOf` doors
+    // became 3-argument closures over the chrome pair (`BookDoor`'s frozen
+    // 3-arg signature cannot take the 4-parameter `bedViewsFor` as a value),
+    // so walks 4 and 5 are those two closures — the sales door's and the
+    // origin door's. Every walk still named: the definition, `bookFor`'s own,
+    // the `ledger` memo, the two doors.
     expect(SRC.split('bedViewsFor(').length - 1).toBe(5)
     expect({ liftedWalk: pinnedLines(SRC, ': bookFor(lanes, ledgerFrame, excludeId, FOREIGN_BOOKS, chromeAsk).worldMinusHand') }).toEqual({ liftedWalk: 1 })
     // …and the shared walk is ONE expression, with BOTH the frame and the lift in

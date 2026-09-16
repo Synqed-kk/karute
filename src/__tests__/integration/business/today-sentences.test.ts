@@ -28,6 +28,7 @@ import {
   type RailInput,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
+import type { GapCell } from '@/business/lib/canon-logic/availability'
 
 const HOURS: Hours = { open: 600, close: 1140 } // 10:00–19:00
 
@@ -549,9 +550,36 @@ describe('⚖ D-53 (ak)/(al) — the frozen word-minting files read the handed-i
   it('(d) sellLayerFor’s words is pass-through: a dental pair produces byte-identical sell cells to STORE_A’s own', () => {
     const opts = { gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
     const dentalAsk = { resourceNoun: RESOURCE_WORDS.dental_clinic.resourceNoun, privateWord: RESOURCE_WORDS.dental_clinic.privateWord! }
-    const withA = sellLayerFor(roomBoard, HOURS, { ...opts, words: ASK_A })
-    const withDental = sellLayerFor(roomBoard, HOURS, { ...opts, words: dentalAsk })
+    // ⚖ D-53 (ao) L1 finding 3 — without a `reconcile` claim `opts.words` is
+    // never read (`sellLayerFor` only forwards it into `reconcileSellCells`,
+    // and that call is itself gated on `opts.reconcile`), so the old leg's
+    // equality held trivially. `p-09` is a STAFF LANE NOT ON THIS BOARD — its
+    // promise on bed-01 is a ROOM collision, not p-01's own lane, so p-01's
+    // own hour becomes a LOSER and is re-searched through `allocateBed` with
+    // `opts.words` (same shape as today-one-offer.test.ts §3/§4's `promise`);
+    // roomBoard has exactly one bed, so the loser has nowhere to land and is
+    // DROPPED rather than re-bedded — the drop is the observable proof the
+    // search ran.
+    const promiseOnBedOne: GapCell[] = [
+      { laneKey: 'p-09', resourceKey: 'bed-01', group: 'staff', staff: 'p-09', s: 960, e: 1020, price: 5000 },
+      { laneKey: 'p-09', resourceKey: 'bed-01', group: 'beds', staff: 'p-09', s: 960, e: 1020, price: 5000 },
+    ]
+    const reconcile = { claims: promiseOnBedOne, cleanupMinutesByBed: {} }
+    const bare = sellLayerFor(roomBoard, HOURS, { ...opts, words: ASK_A })
+    const withA = sellLayerFor(roomBoard, HOURS, { ...opts, words: ASK_A, reconcile })
+    const withDental = sellLayerFor(roomBoard, HOURS, { ...opts, words: dentalAsk, reconcile })
+    console.log('today-sentences (d) sellLayerFor pass-through cell counts', {
+      bare: bare.cells.length, withA: withA.cells.length, withDental: withDental.cells.length,
+    })
+    // the pair is REQUIRED and unobservable on this path by construction —
+    // `reconcileSellCells` reads only `found.laneKey`, never `found.refusal`;
+    // this leg pins the pass-through claim, not a visible word.
     expect(withDental.cells).toEqual(withA.cells)
+    // …and the reconcile path actually RAN, so `opts.words` actually reached
+    // `allocateBed`: the promised hour survives with no reconcile at all, and
+    // is dropped — nowhere else to land on this one-bed board — once it runs.
+    expect(bare.cells.some((c) => c.group === 'staff' && c.h === 960)).toBe(true)
+    expect(withA.cells.some((c) => c.h === 960)).toBe(false)
   })
 
   describe('(e) SOURCE pins — the wiring the sentences above rest on', () => {
