@@ -1777,6 +1777,13 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // `import()` (thin/main.tsx:130) that makes en its own lazy chunk — both
 // locales ship, ja just isn't the one that gets its own file.
 
+// Re-based 2026-09-16 (PKT-SPEED-SWIPE): measured 2,140,676 B on the CI-way
+// build of this tip, + 1,000 B of headroom. The round added 11,283 B raw over
+// its base (2,129,393 B): the shared slide gesture, the 予約 page's own track
+// and its neighbour panes, the neighbour prefetch and the calendar-numbers
+// store. Gzip went DOWN, 594,248 → 584,058 B — the new code compresses better
+// than the duplicated gesture it replaced.
+//
 // ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-19 — P1b B1 (PR #960, feat/p1b-refusal-audit-1),
 // rebased onto origin/main 77786f755 (#955, this branch's own base — no file
