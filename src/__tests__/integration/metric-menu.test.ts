@@ -4,7 +4,8 @@
  * 未設定 gating. No React here; WeekRows.tsx / DayNumbersLine.tsx are
  * covered separately (week-rows.test.tsx, day-numbers-line.test.tsx).
  */
-import type { WeekDayRowData } from '@/lib/adapters/reservation'
+import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
+import { capacityOf, withDerivedCapacity } from './__fixtures__/capacity-row'
 import type { Translate } from '@/lib/appointments/format-duration'
 import type * as MetricMenu from '@/lib/appointments/metric-menu'
 
@@ -32,7 +33,7 @@ const t: Translate = (key, values) => {
 }
 
 function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
-  return {
+  const base: WeekDayRowData = {
     dateNumber: 15,
     monthNumber: 9,
     weekdayLabel: '火',
@@ -52,9 +53,16 @@ function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
     closed: false,
     cancelledCount: 0,
     noShowDayCount: 0,
+    // No capacity unless a case says so — the honest default (PKT-1c-B).
+    ...capacityRowFields(undefined),
     returningCount: 2,
     ...over,
   }
+  // ⚖ R1-1: a case that says "this day HAS a capacity" gets the wire row the
+  // adapter would have built for that denominator — the menu reads those keys
+  // now, so a fixture that set only capacityDefensible would silently test the
+  // no-capacity path and gut half the matrix below.
+  return withDerivedCapacity(base, over)
 }
 
 // BOOKING_SWITCHES is a plain module constant (no settings door yet, spec
@@ -143,10 +151,15 @@ describe('dayLineCells — day-line order (spec §8/§2)', () => {
   })
 })
 
-describe('未設定 — only when the sole failing conjunct is the hours one', () => {
-  it('solo ∧ !hoursSaved ∧ !closed → unset', () => {
+describe('未設定 — only when the hours are the ONLY thing missing (S3b)', () => {
+  it("the day fell to the 10:00–24:00 default → unset, whatever the store's size", () => {
     const { weekRowCells } = loadMetricMenu()
-    const r = row({ capacityDefensible: false, hoursSaved: false, closed: false })
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: false,
+      closed: false,
+      capacityReason: 'hours-not-saved',
+    })
     expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t })[1]).toMatchObject({
       key: 'unset',
       value: '未設定',
@@ -154,23 +167,112 @@ describe('未設定 — only when the sole failing conjunct is the hours one', (
     })
   })
 
-  it('not solo → no unset even with hours unsaved', () => {
+  it('⚠ MOVED — a MULTI-staff store with unsaved hours now sees 未設定 too', () => {
+    // It used to be withheld from every non-solo store, which was backwards:
+    // saving this store's hours is exactly what makes a number appear, so the
+    // cell that says so belongs here. soloMode no longer decides anything.
     const { weekRowCells } = loadMetricMenu()
-    const r = row({ capacityDefensible: false, hoursSaved: false, closed: false })
-    expect(weekRowCells(r, { soloMode: false, typeSlot: 'off', t })[1].key).not.toBe('unset')
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: false,
+      closed: false,
+      capacityReason: 'hours-not-saved',
+    })
+    expect(weekRowCells(r, { soloMode: false, typeSlot: 'off', t })[1].key).toBe('unset')
   })
 
-  it('closed day → no unset even solo with hours unsaved', () => {
+  it('⚖ R1-10 — hours that ARE saved but malformed take the next metric, never 未設定', () => {
+    // 'hours-unresolved' fires two ways, and neither keeps 未設定's promise: no
+    // hours fact reached this day (a plumbing gap, on a store that may well
+    // have saved them), or the saved window does not run forwards — 10:00–10:00.
+    // Telling a store that set its hours to go and set its hours is a lie.
     const { weekRowCells } = loadMetricMenu()
-    const r = row({ capacityDefensible: false, hoursSaved: false, closed: true })
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: true,
+      hoursSource: 'store',
+      closed: false,
+      capacityReason: 'hours-unresolved',
+    })
+    expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t }).map((c) => c.key)).not.toContain(
+      'unset',
+    )
+  })
+
+  it('⚖ R1-10 — and the day that really has none is still 未設定, so the promise survives', () => {
+    // The pair: one reason keeps it, the other does not, and the difference is
+    // whether saving hours actually fixes the day.
+    const { weekRowCells } = loadMetricMenu()
+    const notSaved = row({
+      capacityDefensible: false,
+      hoursSaved: false,
+      hoursSource: 'default',
+      closed: false,
+      capacityReason: 'hours-not-saved',
+    })
+    expect(weekRowCells(notSaved, { soloMode: true, typeSlot: 'off', t })[1].key).toBe('unset')
+  })
+
+  it('MUTANT m7 — a store whose ROSTER could not be read never sees 未設定', () => {
+    // Saving hours would change nothing for this day, so promising it would be
+    // a lie. This is the line the old soloMode gate could not draw.
+    const { weekRowCells } = loadMetricMenu()
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: false,
+      closed: false,
+      capacityReason: 'roster-unknown',
+    })
+    expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t }).map((c) => c.key)).not.toContain(
+      'unset',
+    )
+  })
+
+  it('a CLASS-BOUND store never sees 未設定 — no hours will ever give it a percentage', () => {
+    const { weekRowCells } = loadMetricMenu()
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: false,
+      closed: false,
+      capacityReason: 'kind-none',
+    })
+    expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t }).map((c) => c.key)).not.toContain(
+      'unset',
+    )
+  })
+
+  it('a door that never looked falls through, never inventing 未設定', () => {
+    // R1-8 gives that row the reason 'unknown'; an older server that sends no
+    // reason at all parses to the same thing. Neither is a missing setting.
+    const { weekRowCells } = loadMetricMenu()
+    const r = row({ capacityDefensible: false, hoursSaved: false, closed: false })
+    expect(r.capacityReason).toBe('unknown')
+    expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t }).map((c) => c.key)).not.toContain(
+      'unset',
+    )
+  })
+
+  it('closed day → no unset: 休 is a fact, not a missing setting', () => {
+    const { weekRowCells } = loadMetricMenu()
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: true,
+      closed: true,
+      capacityReason: 'closed',
+    })
     expect(weekRowCells(r, { soloMode: true, typeSlot: 'off', t })[1].key).not.toBe('unset')
   })
 
-  it('solo store, two overlapping bookings (hours WERE saved) → next metric, not unset', () => {
+  it('two overlapping bookings (hours WERE saved) → next metric, not unset', () => {
     const { weekRowCells } = loadMetricMenu()
-    // capacityDefensible is false because of the overlap conjunct, not the
-    // hours conjunct — hoursSaved stays true, so 未設定 must NOT fire.
-    const r = row({ capacityDefensible: false, hoursSaved: true, closed: false })
+    // The lane count is what is wrong on this day, not the hours — so saving
+    // hours would fix nothing and 未設定 must not fire.
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: true,
+      closed: false,
+      capacityReason: 'over-concurrency',
+    })
     const cells = weekRowCells(r, { soloMode: true, typeSlot: 'off', t })
     expect(cells.map((c) => c.key)).not.toContain('unset')
     // R2-3 — pinned by KEY, and by the invariant that owns the seat, never by
@@ -336,7 +438,12 @@ describe('R2-1 — 稼働% and 予約時間 are ONE measure in two units, never 
 
   it('未設定 is not 稼働% — it prints no number, so the duration still follows it', () => {
     const { weekRowCells, dayLineCells } = loadMetricMenu({ freeTimeCell: true })
-    const r = row({ capacityDefensible: false, hoursSaved: false, closed: false })
+    const r = row({
+      capacityDefensible: false,
+      hoursSaved: false,
+      closed: false,
+      capacityReason: 'hours-not-saved',
+    })
     const ctx = { soloMode: true, typeSlot: 'off' as const, t }
     expect(weekRowCells(r, ctx).map((c) => c.key)).toEqual(['count', 'unset', 'bookedTime', 'cancelled'])
     expect(dayLineCells(r, ctx).map((c) => c.key)).toEqual(['count', 'unset', 'bookedTime', 'cancelled'])
@@ -389,25 +496,111 @@ describe('band thresholds (spec §2/§3: <35 low · 35–65 mid · >65 high)', (
   })
 })
 
-describe('>100% utilization is never defensible (R3-1 — ONE predicate for 稼働 AND 空き)', () => {
-  // The day that over-ran its saved capacity: 700 booked minutes against 480
-  // available, capacity otherwise defensible. Before R3-1 稼働 called that
-  // indefensible (pct > 100) and fell through to 予約時間, while 空き still
-  // read `capacityDefensible` on its own and printed 空き 0分 — TWO durations
-  // on one line, and the placement could only move one of them out of the
-  // 100 px column. One predicate, read by both slots, is what removes the
-  // disagreement at the source.
+describe('⚖ R1-1 — the screen reads the MODULE’s numbers, never its own division', () => {
+  // The blocker this round closes. The menu used to divide `bookedMinutes` by
+  // `availableMinutes`; `bookedMinutes` is Σ duration_minutes, an independent
+  // nullable column core never validates against the interval, while the model
+  // sums the booked INTERVALS clipped to the day’s declared hours. On the rows
+  // below the two answers are 30–60 points apart, and the pixel used to show
+  // the wrong one.
+  const read = (cells: { label: string; value: string }[]) =>
+    cells.map((c) => `${c.label} ${c.value}`)
+
+  it('a 400-minute duration_minutes on a two-hour booking reads 25 %, never 83 %', () => {
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
+    // 10:00–12:00 inside a 10:00–18:00 day, one lane: the module sees 120 of
+    // 480 minutes. The row’s own bookedMinutes still carries the column’s 400.
+    const r = row({
+      capacityDefensible: true,
+      hoursSaved: true,
+      bookedMinutes: 400,
+      availableMinutes: 480,
+      ...capacityOf(480, 120),
+    })
+    const cells = weekRowCells(r, { soloMode: false, typeSlot: 'off', t })
+    expect(cells[1]).toMatchObject({ key: 'utilization', value: '25%', tone: 'band-low' })
+    expect(read(cells).join('|')).not.toContain('83%')
+  })
+
+  it('a 10:00–12:00 booking held until 13:00 reads 38 % — the cleanup minutes count', () => {
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
+    // occupied_until 13:00 makes the chair busy for 180 of 480 minutes (37.5 →
+    // 38). The duration column still says 120, which is the 25 % the old
+    // division printed.
+    const r = row({
+      capacityDefensible: true,
+      hoursSaved: true,
+      bookedMinutes: 120,
+      availableMinutes: 480,
+      ...capacityOf(480, 180),
+    })
+    const cells = weekRowCells(r, { soloMode: false, typeSlot: 'off', t })
+    expect(cells[1]).toMatchObject({ key: 'utilization', value: '38%', tone: 'band-mid' })
+    expect(read(cells)).toContain('空き 5時間') // 480 − 180, not 480 − 120
+  })
+
+  it('MUTANT m1 — restoring the old division would move BOTH cells at once', () => {
+    // One row, both slots: the percentage and the free minutes come off the
+    // wire together, so the mutant that brings back bookedMinutes ÷
+    // availableMinutes (and availableMinutes − bookedMinutes) goes red here
+    // whichever half it touches.
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
+    const r = row({
+      capacityDefensible: true,
+      hoursSaved: true,
+      bookedMinutes: 400, // the old numerator
+      availableMinutes: 480,
+      ...capacityOf(480, 120), // the model: 25 %, 360 free
+    })
+    expect(read(weekRowCells(r, { soloMode: false, typeSlot: 'off', t }))).toEqual([
+      '予約 3件',
+      '稼働 25%',
+      '空き 6時間',
+      'キャンセル 0',
+    ])
+  })
+
+  it('an ORG-blob day carries 稼働 but promises no 空き minutes — the slot moves on', () => {
+    // E21: a business-wide default is not this store’s word about its hours, so
+    // the module withholds the minutes. A cell that subtracted them itself
+    // could not tell the difference.
+    const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
+    const r = row({
+      capacityDefensible: true,
+      hoursSaved: true,
+      bookedMinutes: 120,
+      availableMinutes: 480,
+      ...capacityOf(480, 120),
+      hoursSource: 'org',
+      freeMinutes: null,
+    })
+    const keys = weekRowCells(r, { soloMode: false, typeSlot: 'off', t }).map((c) => c.key)
+    expect(keys).toContain('utilization')
+    expect(keys).not.toContain('free')
+    expect(keys).toEqual(['count', 'utilization', 'cancelled', 'noShow'])
+  })
+})
+
+describe('a day the model cannot describe shows neither 稼働% nor 空き (R1-1)', () => {
+  // This file used to hand-build a row with 700 booked minutes against 480
+  // available and a capacity still claimed, because the menu’s own predicate
+  // was the only thing refusing it. That row cannot come off the wire at all
+  // now: minutes are clipped to the window and a day running more lanes than
+  // it has is withdrawn at the source ('over-concurrency'), so an honest full
+  // day is 100 % and nothing is ever 101 %. What the screen still has to do is
+  // fall through on the withdrawal — both slots, both surfaces.
   const OVER = {
-    capacityDefensible: true,
+    capacityDefensible: false,
     hoursSaved: true,
     bookedMinutes: 700,
     availableMinutes: 480,
     closed: false,
+    capacityReason: 'over-concurrency' as const,
   }
   const read = (cells: { label: string; value: string }[]) =>
     cells.map((c) => `${c.label} ${c.value}`)
 
-  it('a pct over 100 falls through instead of rendering a percent', () => {
+  it('the withdrawn day renders no percent', () => {
     const { weekRowCells } = loadMetricMenu()
     const cells = weekRowCells(row(OVER), { soloMode: false, typeSlot: 'off', t })
     expect(cells[1].key).not.toBe('utilization')
@@ -431,14 +624,19 @@ describe('>100% utilization is never defensible (R3-1 — ONE predicate for 稼�
     expect(cells.filter((c) => c.key === 'bookedTime' || c.key === 'free')).toHaveLength(1)
   })
 
-  it('a 100.4% day rounds to 100 but is still over — the predicate reads the minutes, not the rounding', () => {
+  it('a day booked to the minute is ONE state: 100 % beside 空き 0分', () => {
+    // 満 is not built this round (the packet drops T2 here), so the full day
+    // still prints 100 %. Both halves come from the same `full` flag, which is
+    // what stops them ever disagreeing.
     const { weekRowCells } = loadMetricMenu({ freeTimeCell: true })
-    const cells = weekRowCells(
-      row({ ...OVER, bookedMinutes: 482, availableMinutes: 480 }),
-      { soloMode: false, typeSlot: 'off', t },
-    )
-    expect(cells.map((c) => c.key)).not.toContain('utilization')
-    expect(cells.map((c) => c.key)).not.toContain('free')
+    const r = row({ capacityDefensible: true, hoursSaved: true, bookedMinutes: 480, availableMinutes: 480 })
+    expect(r.full).toBe(true)
+    expect(read(weekRowCells(r, { soloMode: false, typeSlot: 'off', t }))).toEqual([
+      '予約 3件',
+      '稼働 100%',
+      '空き 0分',
+      'キャンセル 0',
+    ])
   })
 })
 

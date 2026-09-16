@@ -17,7 +17,7 @@
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { AppointmentsScreenDTO } from '@/lib/app-api/appointments-screen-dto'
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { resolvePrimaryStoreId, resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
@@ -26,7 +26,11 @@ import { getCachedMenuOptionsFor, scopeMenuOptions } from '@/lib/menus/cached'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import { enrichCustomers, type CustomerEnrichment } from '@/lib/customers/list-enrich'
 import { listAllPackUsageWithClient, type CustomerPackUsage } from '@/lib/packs/store'
-import { customerLensFor, storeStaffIdSetForBusiness } from '@/lib/auth/store-scope'
+import {
+  customerLensFor,
+  storeDivisorRosterForBusiness,
+  storeStaffIdSetForBusiness,
+} from '@/lib/auth/store-scope'
 import { reachesNoStore } from '@/lib/auth/store-gate'
 import {
   emptyAppointmentWindow,
@@ -54,6 +58,8 @@ import {
   type WeekdayKey,
 } from '@/lib/operating-hours'
 import { ymdInJst } from '@/lib/date/jst'
+import { coreBusinessType } from '@/lib/welcome/business-types'
+import { capacityRowFields } from '@/lib/adapters/reservation'
 
 export const runtime = 'nodejs'
 
@@ -90,7 +96,39 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
   // called with it (Greptile on #948 — the census listed this route's customer
   // lens and its picker, but not its day/week/month reads).
   const blind = reachesNoStore(clamp)
-  const storeId = clamp.storeId ?? undefined
+  // ⚖ R1-4 — the SPANS and the ROSTER resolve ONE store, the same way both
+  // doors do.
+  //
+  // Web answers a viewAll viewer (and a floating one) with `activeStore ??
+  // getPrimaryStoreId()`, so its divisor always has a store to divide by. This
+  // door answered those same two viewers with the raw header, which is null
+  // whenever a client omits it — a first-boot thin shell before seedStoreLens,
+  // say — and `storeStaffIdSetForBusiness(…, null, …)` then returns null, so
+  // every day came back 'roster-unknown'. The same owner read 稼働% on the
+  // computer and nothing on the phone. resolvePrimaryStoreId is this repo's own
+  // Bearer twin of web's fallback, already used by the export lens and the
+  // recording mint for exactly this reason.
+  //
+  // It answers ONE id for the window fetch AND the roster lens below, which is
+  // the property that keeps the pair honest: one store's roster must never
+  // divide every store's minutes. The fallback is reachable only for a caller
+  // with NO store restriction (`allowedStoreIds === null` — viewAll or
+  // floating); a clamped caller is answered a concrete `requested ??
+  // assigned[0]` and must never be widened to the primary store.
+  //
+  // A business with no stores at all (or a stores.list blip) keeps today's
+  // behaviour rather than 403-ing a read screen: that caller already sees every
+  // store, and the roster lens still returns null, so the days get no capacity
+  // — the count table, never an invented number.
+  //
+  // A store-unassigned actor (`blind`, allowedStoreIds = []) never reaches the
+  // fallback: its allowedStoreIds is not null, so storeId stays undefined and
+  // every reader below is skipped on `blind` (#948).
+  const storeId =
+    clamp.storeId ??
+    (clamp.allowedStoreIds === null
+      ? await resolvePrimaryStoreId(synqed).catch(() => undefined)
+      : undefined)
   const customerLens = customerLensFor(clamp)
 
   try {
@@ -152,10 +190,24 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     )
     // A filter naming somebody the roster cannot place gets ZERO rows, never
     // the whole salon's week.
+    //
+    // ⚖ S7 — the FETCH starts one JST day EARLY (C1's window-edge leak). A
+    // booking that began at 23:00 the night before the range still occupies
+    // minutes of day 1, and core filters by the row's own instant, so a window
+    // beginning at day 1's midnight never returns it. Nothing else moves: 件,
+    // 予約時間 and the chips stay bucketed by START day, so the extra day's
+    // rows land in a bucket outside the range and are read only by the
+    // capacity model's intersection index. JST has no DST, so one day is
+    // exactly 86,400,000 ms off the JST-midnight start every caller passes.
     const windowFor = (fromIso: string, toIso: string) =>
       unknown || blind
         ? Promise.resolve(emptyAppointmentWindow())
-        : fetchAppointmentWindow(synqed, fromIso, toIso, { storeId, staffId })
+        : fetchAppointmentWindow(
+            synqed,
+            new Date(Date.parse(fromIso) - 86_400_000).toISOString(),
+            toIso,
+            { storeId, staffId },
+          )
 
     // The one window this view actually reads — its days drive the hours facts
     // and the 臨時休業 range below.
@@ -175,6 +227,8 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       policy,
       closedDays,
       storeStaffIds,
+      divisorStaffIds,
+      store,
     ] = await Promise.all([
       // includeCancelled: the agenda is the ONE consumer that renders
       // terminal rows (キャンセル済み / 無断 tombstones in their slot).
@@ -230,9 +284,37 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             to: span.toExclusiveYmd, // exclusive, per the SDK's own contract
           })
         : Promise.resolve({ closed_days: [] as { date: string }[] }),
-      reachesNoStore(clamp)
+      blind
         ? Promise.resolve(new Set<string>())
-        : storeStaffIdSetForBusiness(staffList, clamp.storeId, businessId),
+        : storeStaffIdSetForBusiness(staffList, storeId ?? null, businessId),
+      // ⚖ R1-5 — the DIVISOR's roster is the strict one: a member no assignment
+      // row could place is not a lane at this store (nor at any other).
+      blind
+        ? Promise.resolve(null)
+        : storeDivisorRosterForBusiness(staffList, storeId ?? null, businessId),
+      // The store's own row, for its vertical (S5). Degraded-allowed and
+      // CAUGHT, unlike its neighbours in this wave: a store row we cannot read
+      // says nothing about whether this shop runs classes, and the org-wide
+      // setting already answers that for every store that has not overridden
+      // it. 502-ing the whole week over it would be the louder lie.
+      //
+      // ⚖ G2 — the catch returns `undefined`, NEVER `null`: `null` stays "no
+      // store id to read" (the branch below never even calls this), so
+      // `store === undefined` is the one honest way to tell a FAILED read
+      // apart from a genuine no-row. `businessType` below still falls to the
+      // org setting either way (unchanged) — the `storeRowDegraded` field
+      // passed to buildAppointmentsScreen, derived from this sentinel, is
+      // what now tells the screen the org type is a guess it must not use to
+      // decide this store's lane kind.
+      storeId
+        ? synqed.stores.get(storeId).catch((err) => {
+            console.error(
+              '[screens/appointments] store row read degraded — capacity withheld, not guessed:',
+              err,
+            )
+            return undefined
+          })
+        : Promise.resolve(null),
     ])
 
     const hoursFacts = resolveWindowHours(span.days, {
@@ -267,6 +349,10 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       staffList,
       activeStaffId: selfRow?.id ?? null,
       storeStaffIds,
+      divisorStaffIds,
+      // ⚖ R1-9 — the same empty window the web door reports: a filter naming
+      // somebody the roster cannot place gets no capacity, not one idle lane.
+      staffFilterUnknown: unknown,
       orgSettings,
       customers,
       dayAppointments,
@@ -279,6 +365,11 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       dayWindow,
       prevMonthWindow,
       hoursFacts,
+      // Per-store first (a chain can run a yoga studio next to a hair salon),
+      // the business-wide setting second. Empty string is the org default.
+      businessType:
+        (store ? coreBusinessType(store) : null) || (orgSettings?.business_type || null),
+      storeRowDegraded: store === undefined,
       enrichment,
       packUsage,
     })
@@ -327,6 +418,10 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             count: c.count,
             density: c.density,
             closed: c.closed,
+            // The cell's own capacity fact, keyed by the same id the cell
+            // carries. An out-of-month padding cell has none and takes the
+            // no-capacity defaults — it renders no numbers either way.
+            ...capacityRowFields(screen.monthFacts?.get(c.id)),
           })) ?? null,
       }),
     )

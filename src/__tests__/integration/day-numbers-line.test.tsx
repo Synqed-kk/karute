@@ -6,7 +6,8 @@
  * wiring PR retires ReservationTotals once `row` is non-null).
  */
 import { render, screen } from '@testing-library/react'
-import type { WeekDayRowData } from '@/lib/adapters/reservation'
+import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
+import { withDerivedCapacity } from './__fixtures__/capacity-row'
 
 const MESSAGES: Record<string, string> = {
   count: '予約',
@@ -35,7 +36,9 @@ function t(key: string, values?: Record<string, string | number | Date>): string
 jest.mock('next-intl', () => ({ useTranslations: () => t }))
 
 function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
-  return {
+  // ⚖ R1-1: the line reads the capacity model's own numbers, so a defensible
+  // fixture carries the fields the adapter would have carried.
+  return withDerivedCapacity({
     dateNumber: 15,
     monthNumber: 9,
     weekdayLabel: '火',
@@ -55,9 +58,11 @@ function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
     closed: false,
     cancelledCount: 0,
     noShowDayCount: 0,
+    // No capacity unless a case says so — the honest default (PKT-1c-B).
+    ...capacityRowFields(undefined),
     returningCount: 2,
     ...over,
-  }
+  }, over)
 }
 
 function loadDayNumbersLine(switchOverrides: Partial<Record<string, boolean>> = {}) {

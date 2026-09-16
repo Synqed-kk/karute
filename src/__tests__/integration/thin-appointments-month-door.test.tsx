@@ -35,6 +35,7 @@ jest.mock('@/lib/karute/take-store', () => ({
 }))
 
 import { render, screen, waitFor } from '@testing-library/react'
+import { capacityRowFields } from '@/lib/adapters/reservation'
 import { setDataPort } from '@/lib/ports/data-port'
 import { dtoCache } from '../../../thin/screens/ScreenBoundary'
 import { AppointmentsScreen } from '../../../thin/screens/AppointmentsScreen'
@@ -63,6 +64,10 @@ const MONTH_CELL = {
   isToday: false,
   count: 4,
   density: 'medium' as const,
+  // The capacity fact every month cell now carries. The jump panel's own
+  // months read counts only, so they legitimately carry the no-capacity
+  // defaults — which is exactly what this door must pass through untouched.
+  ...capacityRowFields(undefined),
   // A2 — the 休 fact. Present on the wire so this stays a verbatim round-trip;
   // a server that predates the key is the schema default's job, pinned in
   // appointments-dto-skew.test.ts.

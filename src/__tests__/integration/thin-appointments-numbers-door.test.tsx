@@ -40,6 +40,7 @@ jest.mock('@/lib/karute/take-store', () => ({
 }))
 
 import { render, screen, waitFor } from '@testing-library/react'
+import { capacityOf } from './__fixtures__/capacity-row'
 import { setDataPort } from '@/lib/ports/data-port'
 import { dtoCache } from '../../../thin/screens/ScreenBoundary'
 import { AppointmentsScreen } from '../../../thin/screens/AppointmentsScreen'
@@ -62,6 +63,9 @@ const DAY_ROW = {
   cancelledCount: 1,
   noShowDayCount: 0,
   returningCount: 2,
+  // ⚖ R1-1: 270 of 480 minutes, as the capacity model states it — without
+  // these the thin door would render a row with no capacity at all.
+  ...capacityOf(480, 270),
 }
 
 const DTO = {

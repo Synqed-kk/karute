@@ -106,6 +106,7 @@ import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { makeSpring } from '@/lib/motion/spring'
 import { jstStartOfToday, ymdInJst } from '@/lib/date/jst'
 import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
+import { capacityRowFields } from '@/lib/adapters/reservation'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
 import ja from '../../../messages/ja.json'
 import en from '../../../messages/en.json'
@@ -128,6 +129,8 @@ function monthCells(monthKey: string, count = 4): MonthCellDTOType[] {
       isToday: false,
       count,
       density: 'medium',
+      // The jump panel's months carry no capacity — it reads counts only.
+      ...capacityRowFields(undefined),
       closed: false,
     },
   ]

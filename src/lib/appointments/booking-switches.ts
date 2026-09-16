@@ -32,4 +32,37 @@ export const BOOKING_SWITCHES = {
    *  number means no clause, never a 0 and never a dash. The cost of the flip
    *  is one extra window read per 月 page view, and only there. */
   monthCompare: true,
+
+  // ── capacity (PKT-1c-B, council C4 §(2)) ────────────────────────────────
+  // The four keys below gate the ONE capacity model (src/lib/capacity). They
+  // are disjoint from the five above: those gate CELLS, these gate where the
+  // capacity number comes from.
+
+  /** ONE switch for 稼働 AND 空き on multi-staff stores — never two (C4: 稼働%
+   *  and 空き are the same saved capacity wearing two dresses, so they can
+   *  never be flipped apart). ON: the day's lanes are the store's booking
+   *  roster, any store. OFF: only a solo-mode store with at most one booked
+   *  staffer gets a lane at all — exactly the gate that shipped before this
+   *  packet — and every other store falls back to the count table.
+   *  ⚖ Liam 2026-09-15 11:4x 「automatic… beds, staff, what percentage is full
+   *  or empty」 + 16:0x 「everything in one look」: ON. */
+  multiStaffCapacity: true,
+  /** The fixed percentage table (少なめ <35 · 普通 35–65 · 混雑 >65) as the
+   *  COLOUR, on the month dots, the week dots and the pop-down panel TOGETHER
+   *  (C3 E18: two calendars on one screen may never disagree). ON — the fact
+   *  rides the wire from this packet; the surfaces read it in the wiring
+   *  round, so flipping it changes nothing until they do. */
+  percentBands: true,
+  /** Beds as lanes. OFF and reserved — C1 §4 found zero Resource rows and
+   *  Karute never writes resource_id, so no store can be identified as
+   *  bed-bound at all; nothing reads this key yet. When beds arrive, OFF must
+   *  mean `laneKind: 'none'` for a bed-having store (the count table), NEVER a
+   *  fall-through to staff lanes (C4 §3) — a bed store's staff count is not
+   *  its capacity. Flip: when bookings actually claim beds. */
+  bedLanes: false,
+  /** Per-staff shift minutes as the lane time, replacing roster × hours.
+   *  OFF and reserved — it needs core's shift data (CORE-8). Until then a
+   *  rostered staffer who is off today still counts, which is the recorded
+   *  limitation behind the lead's 空き ruling. Flip: when CORE-8 lands. */
+  shiftLanes: false,
 } as const

@@ -19,7 +19,7 @@ import {
   validateAppointmentTime,
   type AppointmentInput,
 } from '@/lib/appointments'
-import { appointmentsToMonthCells } from '@/lib/adapters/reservation'
+import { appointmentsToMonthCells, capacityRowFields } from '@/lib/adapters/reservation'
 import { computeMonthRange } from '@/lib/date/calendar-range'
 import { jstStartOfToday } from '@/lib/date/jst'
 import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
@@ -352,6 +352,11 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
       // through the package grid and has no 休 cell), so the adapter's own
       // default rides through rather than a second, hours-less answer.
       closed: c.closed,
+      // The jump panel reads COUNTS only — no hours, no roster, no store type
+      // are fetched here, so these months honestly carry no capacity rather
+      // than a percentage computed from inputs this door never read. The dots
+      // stay the count buckets, which is what the panel renders today.
+      ...capacityRowFields(undefined),
     }),
   )
 }

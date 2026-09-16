@@ -950,6 +950,57 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en       134,204 → 134,204 — unchanged to the byte: R2 added no string,
 //     JA or EN.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
+// RE-MEASURED 2026-09-15 for FIXLIST-1b-WIRE-R3c (R3c-1 — rowAria's
+// date→cells join, R3c-3 — the today row's weekday letter tone) and a
+// MEASUREMENT-METHOD correction: DELTA-VERIFY-1B-WIRE-R3-2026-09-15.md §6
+// flagged the R3b comment above (1,032,969 B) as 389 B higher than its own
+// independent re-measurement (1,032,580 B) of the SAME tip. Reproduced here:
+// building with only `VITE_SHELL_MODE=local` set (no VITE_FACADE_URL /
+// VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY / VITE_BUILD_COMMIT /
+// VITE_BUILD_NUMBER — matching DELTA-VERIFY's own battery line, which names
+// only VITE_SHELL_MODE) measures index = 1,032,619 B on this round's tip —
+// 390 B smaller than the full-env figure below, the same gap DELTA-VERIFY
+// found. The workflow's thin bundle gate step (.github/workflows/ci.yml) sets
+// all six vars every run; the earlier local figure(s) were measured with five
+// of them unset, so Vite inlined shorter (`undefined`/absent) literals in
+// place of the CI recipe's release-length fakes. This entry is measured with
+// the workflow's own exact env, values copied from the checked-in step
+// (nothing here is or resembles a credential — the same public, obviously-
+// fake values CI itself uses):
+//   VITE_SHELL_MODE=local
+//   VITE_FACADE_URL=https://ci-dummy.invalid
+//   VITE_SUPABASE_URL=https://ci-dummy-xxxxxxxxxxx.supabase.co
+//   VITE_SUPABASE_ANON_KEY=<208-char 'not-a-key-xxx…' placeholder, verbatim
+//     from the workflow file>
+//   VITE_BUILD_COMMIT=cidummyx
+//   VITE_BUILD_NUMBER=00
+// Commands, in order (thin/dist emptied before each lap):
+//   npx --no -- vite build --config thin/vite.config.ts
+//   node scripts/thin/check-bundle-budget.mjs
+// Byte-identical (content hashes match) across two clean builds on the final
+// code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,033,009 · vendor 937,791 = 2,105,004 B.
+// RE-MEASURED 2026-09-15 for PKT-1c-B (the capacity adapter): the 予約 rows
+// and month cells now carry the capacity fact on the wire, and the thin
+// bundle re-parses that same DTO schema client-side — nine keys per row plus
+// the eight-value reason enum. index 1,033,009 → 1,033,603 (+594 B);
+// en and vendor unchanged to the byte. Measured the workflow's own way (the
+// same six env vars listed above, same two commands, thin/dist emptied before
+// each lap) and byte-identical with matching content hashes across two clean
+// laps on the final code tip (node v24.16.0, @synqed-kk/ui 0.3.2, installed
+// == lock):
+//   en 134,204 · index 1,033,603 · vendor 937,791 = 2,105,598 B.
+// RE-MEASURED 2026-09-15 for the 1c-B fix round (R1). The round is a
+// correction, not a feature: the screen stopped carrying its own capacity
+// arithmetic and reads the model's numbers instead, so index came DOWN.
+// index 1,033,603 → 1,033,476 (−127 B); en and vendor unchanged to the byte.
+// Measured the workflow's own way (the same six env vars listed above, same
+// two commands, thin/dist emptied before each lap) and byte-identical with
+// matching content hashes across two clean laps on the final code tip (node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,204 · index 1,033,476 · vendor 937,791 = 2,105,471 B.
+// Ceiling = 2,105,471 + 1,000 — re-based DOWN, because a tripwire that keeps
+// the slack a fix gave back is not a tripwire.
 // RE-MEASURED 2026-09-15 for PKT-1b-MONTH PIECE 4b (tap a day = stay: the
 // selected-day card under the 月 grid, the card's 120 ms fade, and the
 // optimistic ring). The R2 entry above is kept as the immediately preceding
@@ -1231,7 +1282,21 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // match) — environment drift since that entry was written, not caused by
 // this change; installed @synqed-kk/ui and vite are unchanged (0.3.2 /
 // 6.4.3, installed == lock), so the drift's cause wasn't chased further.
-const BUDGET_BYTES = 2_121_802
+//
+// RE-MEASURED 2026-09-16 after merging origin/main (post-#945) into
+// feat/capacity-adapter (#934) — S7's one-JST-day `windowFor` lead-in plus
+// the capacity types/adapter composed with main's line up to #945. Same CI
+// recipe, thin/dist emptied between two clean builds, byte-identical both
+// times (node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock): en 134,814
+// · index 1,048,552 · vendor 937,791 = 2,121,157 B. Ceiling = 2,121,157 +
+// 1,000 = 2,122,157.
+//
+// +355 B against the prior entry's own figure, all in index (en/vendor
+// unchanged): 1,048,197 → 1,048,552 — the capacity-adapter branch's own S7
+// window-lead-in and capacity-row plumbing landing in the thin bundle.
+// Genuine new-feature volume, not bloat — same class as every prior raise
+// on this line.
+const BUDGET_BYTES = 2_122_157
 
 let dir
 try {

@@ -325,9 +325,23 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   // not "…inside hours" — dayMinutes (inside + outside) is what decides who
   // worked; on the capacity-present path every span is in-hours, so
   // dayMinutes === insideMinutes there and nothing changes (E2/E11).
+  //
+  // ⚖ R1-3: "that day" means the booking STARTED today. A row that ran in from
+  // last night occupies minutes of this morning — the caller fetches one day
+  // early so that it does — but it is YESTERDAY's booking, and counting it as
+  // a lane invented a second chair in a solo store the moment the previous
+  // night ran long: 14 free hours on a store open eight. Every other surface
+  // buckets by start day (件, 予約時間, the chips); the floor now does too, so
+  // the same day is the single lane it was before the early fetch existed. The
+  // run-in's MINUTES still count — only its claim to a lane does not.
+  //
+  // ONE spelling of "this booking is today's", read by the floor here and by
+  // rule 4 below — the two answer the same question and must never drift.
+  const startsToday = (s: { startMs: number }): boolean =>
+    s.startMs >= input.dayStartMs && s.startMs < input.dayEndMs
   const worked = new Set<string>()
   for (const s of counted) {
-    if (s.dayMinutes > 0 && s.staffId != null) worked.add(s.staffId)
+    if (startsToday(s) && s.dayMinutes > 0 && s.staffId != null) worked.add(s.staffId)
   }
   const lanes = input.rosterLanes > worked.size ? input.rosterLanes : worked.size
 
@@ -337,8 +351,7 @@ export function capacityForDay(input: CapacityInput): CapacityFact {
   //    booking blanks one day, not two; it already withdraws the day it
   //    starts on, and the door fix prevents the app creating the class).
   for (const s of counted) {
-    const startsToday = s.startMs >= input.dayStartMs && s.startMs < input.dayEndMs
-    if (startsToday && (s.startMs < windowOpenMs || s.endMs > windowCloseMs)) {
+    if (startsToday(s) && (s.startMs < windowOpenMs || s.endMs > windowCloseMs)) {
       return withoutCapacity('outside-hours', lanes)
     }
   }

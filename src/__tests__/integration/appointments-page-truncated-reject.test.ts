@@ -43,6 +43,7 @@ jest.mock('@/lib/auth/store-scope', () => ({
     storeId: 'store-1', viewAll: false, allowedStoreIds: ['store-1'], degraded: false,
   }),
   storeStaffIdSet: async () => null,
+  storeDivisorRosterForBusiness: async () => null,
   customerLensFor: jest.requireActual('@/lib/auth/store-scope').customerLensFor,
 }))
 jest.mock('@/actions/org-settings', () => ({

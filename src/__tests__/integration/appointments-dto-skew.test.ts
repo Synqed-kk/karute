@@ -9,6 +9,7 @@
  */
 import {
   AppointmentsScreenDTO,
+  MonthCellDTO,
   WeekDayCardDataDTO,
 } from '@/lib/app-api/appointments-screen-dto'
 
@@ -150,5 +151,132 @@ describe('AppointmentsScreenDTO — the new screen keys are defaulted', () => {
     expect(dto.truncated).toBe(true)
     expect(dto.weekData).toBeNull()
     expect(dto.dayTotals).toBeNull()
+  })
+})
+
+/**
+ * ⚖ R1-11 — the capacity keys, both directions.
+ *
+ * Ten keys ride this round (the nine the model owns plus capacityDefensible),
+ * and the thin bundle re-parses this SAME schema from a baked copy. A future
+ * edit that drops one `.default()` would blank the whole 予約 screen on any
+ * server/bundle skew, and nothing in CI would have caught it — the file above
+ * only pins the PRIOR round's fields.
+ */
+describe('⚖ R1-11 — the capacity keys survive a bundle skew, both ways', () => {
+  const CAPACITY_DEFAULTS = {
+    capacityMinutes: null,
+    lanes: 0,
+    // Not 'none': that is the positive claim "this store runs classes", and a
+    // server that sent no capacity keys never looked at the store (R1-8).
+    laneKind: 'staff',
+    hoursSource: null,
+    occupancyPct: null,
+    full: false,
+    band: null,
+    freeMinutes: null,
+    // The pairing: no capacity, and a reason saying why — here, nobody looked.
+    capacityReason: 'unknown',
+    capacityDefensible: false,
+  }
+
+  const FULL_ROW = {
+    ...OLD_WEEK_ROW,
+    dateIso: '2026-09-15',
+    capacityMinutes: 1200,
+    lanes: 2,
+    laneKind: 'staff' as const,
+    hoursSource: 'store' as const,
+    occupancyPct: 40,
+    full: false,
+    band: 'medium' as const,
+    freeMinutes: 720,
+    capacityReason: null,
+    capacityDefensible: true,
+    hoursSaved: true,
+  }
+
+  it('a STRIPPED week row lands on the ten documented defaults', () => {
+    const row = WeekDayCardDataDTO.parse(OLD_WEEK_ROW) as unknown as Record<string, unknown>
+    for (const [key, value] of Object.entries(CAPACITY_DEFAULTS)) {
+      expect({ key, value: row[key] }).toEqual({ key, value })
+    }
+  })
+
+  it('a STRIPPED month cell lands on the same ten — one spelling, two surfaces', () => {
+    const cell = MonthCellDTO.parse({
+      id: '2026-09-15',
+      dateIso: '2026-09-15T00:00:00.000Z',
+      inMonth: true,
+      isToday: false,
+      count: 3,
+      density: 'medium',
+    }) as unknown as Record<string, unknown>
+    for (const [key, value] of Object.entries(CAPACITY_DEFAULTS)) {
+      if (key === 'capacityDefensible') continue // week-row only
+      expect({ key, value: cell[key] }).toEqual({ key, value })
+    }
+  })
+
+  it('a FULL row round-trips every one of them, unchanged', () => {
+    const row = WeekDayCardDataDTO.parse(FULL_ROW)
+    expect(row.capacityMinutes).toBe(1200)
+    expect(row.lanes).toBe(2)
+    expect(row.laneKind).toBe('staff')
+    expect(row.hoursSource).toBe('store')
+    expect(row.occupancyPct).toBe(40)
+    expect(row.full).toBe(false)
+    expect(row.band).toBe('medium')
+    expect(row.freeMinutes).toBe(720)
+    expect(row.capacityDefensible).toBe(true)
+  })
+
+  it('an EXPLICIT null reason stays null — a real capacity keeps saying so', () => {
+    // The default fires on `undefined` only, which is what lets "nobody looked"
+    // and "there is a capacity here" stay two different answers.
+    expect(WeekDayCardDataDTO.parse(FULL_ROW).capacityReason).toBeNull()
+    expect(
+      WeekDayCardDataDTO.parse({ ...FULL_ROW, capacityReason: 'over-concurrency' }).capacityReason,
+    ).toBe('over-concurrency')
+  })
+
+  it('an OLD bundle parsing a NEW payload strips what it does not know, and still renders', () => {
+    // The other direction: no .strict()/.passthrough() anywhere on these
+    // schemas, so a newer server's extra keys are dropped rather than throwing.
+    const row = WeekDayCardDataDTO.parse({
+      ...FULL_ROW,
+      somethingTheNextRoundAdds: 42,
+      shiftMinutes: 999,
+    }) as unknown as Record<string, unknown>
+    expect(row.somethingTheNextRoundAdds).toBeUndefined()
+    expect(row.shiftMinutes).toBeUndefined()
+    expect(row.capacityMinutes).toBe(1200)
+  })
+
+  it('the whole screen payload carries them through weekData, dayTotals and monthData', () => {
+    const dto = AppointmentsScreenDTO.parse({
+      ...OLD_PAYLOAD,
+      weekData: [FULL_ROW],
+      dayTotals: FULL_ROW,
+      monthData: [
+        {
+          id: '2026-09-15',
+          dateIso: '2026-09-15T00:00:00.000Z',
+          inMonth: true,
+          isToday: false,
+          count: 3,
+          density: 'medium',
+          capacityMinutes: 1200,
+          lanes: 2,
+          occupancyPct: 40,
+        },
+      ],
+    })
+    expect(dto.weekData![0].occupancyPct).toBe(40)
+    expect(dto.dayTotals!.freeMinutes).toBe(720)
+    expect(dto.monthData![0].capacityMinutes).toBe(1200)
+    // …and the month cell's own unsent keys still default, cell by cell.
+    expect(dto.monthData![0].capacityReason).toBe('unknown')
+    expect(dto.monthData![0].band).toBeNull()
   })
 })

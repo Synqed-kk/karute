@@ -1,0 +1,208 @@
+[
+  {
+    "dateNumber": 14,
+    "monthNumber": 9,
+    "weekdayLabel": "月",
+    "isToday": true,
+    "count": 1,
+    "bookedMinutes": 60,
+    "availableMinutes": 600,
+    "dateIso": "2026-09-14",
+    "capacityDefensible": true,
+    "hoursSaved": true,
+    "closed": false,
+    "cancelledCount": 0,
+    "noShowDayCount": 0,
+    "returningCount": 0,
+    "newCustomerCount": 0,
+    "remindersPending": 0,
+    "consentPending": 0,
+    "unconfirmed": 0,
+    "visibleBookings": [
+      {
+        "id": "mon-1",
+        "startTime": "10:00",
+        "shortName": "—"
+      }
+    ],
+    "hiddenCount": 0
+  },
+  {
+    "dateNumber": 15,
+    "monthNumber": 9,
+    "weekdayLabel": "火",
+    "isToday": false,
+    "count": 1,
+    "bookedMinutes": 60,
+    "availableMinutes": 600,
+    "dateIso": "2026-09-15",
+    "capacityDefensible": true,
+    "hoursSaved": true,
+    "closed": false,
+    "cancelledCount": 0,
+    "noShowDayCount": 0,
+    "returningCount": 0,
+    "newCustomerCount": 0,
+    "remindersPending": 0,
+    "consentPending": 0,
+    "unconfirmed": 0,
+    "visibleBookings": [
+      {
+        "id": "tue-1",
+        "startTime": "21:00",
+        "shortName": "—"
+      }
+    ],
+    "hiddenCount": 0
+  },
+  {
+    "dateNumber": 16,
+    "monthNumber": 9,
+    "weekdayLabel": "水",
+    "isToday": false,
+    "count": 1,
+    "bookedMinutes": 600,
+    "availableMinutes": 600,
+    "dateIso": "2026-09-16",
+    "capacityDefensible": true,
+    "hoursSaved": true,
+    "closed": false,
+    "cancelledCount": 0,
+    "noShowDayCount": 0,
+    "returningCount": 0,
+    "newCustomerCount": 0,
+    "remindersPending": 0,
+    "consentPending": 0,
+    "unconfirmed": 0,
+    "visibleBookings": [
+      {
+        "id": "wed-1",
+        "startTime": "10:00",
+        "shortName": "—"
+      }
+    ],
+    "hiddenCount": 0
+  },
+  {
+    "dateNumber": 17,
+    "monthNumber": 9,
+    "weekdayLabel": "木",
+    "isToday": false,
+    "count": 2,
+    "bookedMinutes": 240,
+    "availableMinutes": 480,
+    "dateIso": "2026-09-17",
+    "capacityDefensible": false,
+    "hoursSaved": true,
+    "closed": false,
+    "cancelledCount": 0,
+    "noShowDayCount": 0,
+    "returningCount": 0,
+    "newCustomerCount": 0,
+    "remindersPending": 0,
+    "consentPending": 0,
+    "unconfirmed": 0,
+    "visibleBookings": [
+      {
+        "id": "thu-1",
+        "startTime": "10:00",
+        "shortName": "—"
+      },
+      {
+        "id": "thu-2",
+        "startTime": "11:00",
+        "shortName": "—"
+      }
+    ],
+    "hiddenCount": 0
+  },
+  {
+    "dateNumber": 18,
+    "monthNumber": 9,
+    "weekdayLabel": "金",
+    "isToday": false,
+    "count": 2,
+    "bookedMinutes": 120,
+    "availableMinutes": 960,
+    "dateIso": "2026-09-18",
+    "capacityDefensible": false,
+    "hoursSaved": true,
+    "closed": false,
+    "cancelledCount": 0,
+    "noShowDayCount": 0,
+    "returningCount": 0,
+    "newCustomerCount": 0,
+    "remindersPending": 0,
+    "consentPending": 0,
+    "unconfirmed": 0,
+    "visibleBookings": [
+      {
+        "id": "fri-1",
+        "startTime": "10:00",
+        "shortName": "—"
+      },
+      {
+        "id": "fri-2",
+        "startTime": "13:00",
+        "shortName": "—"
+      }
+    ],
+    "hiddenCount": 0
+  },
+  {
+    "dateNumber": 19,
+    "monthNumber": 9,
+    "weekdayLabel": "土",
+    "isToday": false,
+    "count": 1,
+    "bookedMinutes": 60,
+    "availableMinutes": 480,
+    "dateIso": "2026-09-19",
+    "capacityDefensible": false,
+    "hoursSaved": true,
+    "closed": true,
+    "cancelledCount": 0,
+    "noShowDayCount": 0,
+    "returningCount": 0,
+    "newCustomerCount": 0,
+    "remindersPending": 0,
+    "consentPending": 0,
+    "unconfirmed": 0,
+    "visibleBookings": [
+      {
+        "id": "sat-1",
+        "startTime": "10:00",
+        "shortName": "—"
+      }
+    ],
+    "hiddenCount": 0
+  },
+  {
+    "dateNumber": 20,
+    "monthNumber": 9,
+    "weekdayLabel": "日",
+    "isToday": false,
+    "count": 1,
+    "bookedMinutes": 60,
+    "availableMinutes": 480,
+    "dateIso": "2026-09-20",
+    "capacityDefensible": false,
+    "hoursSaved": false,
+    "closed": false,
+    "cancelledCount": 0,
+    "noShowDayCount": 0,
+    "returningCount": 0,
+    "newCustomerCount": 0,
+    "remindersPending": 0,
+    "consentPending": 0,
+    "unconfirmed": 0,
+    "visibleBookings": [
+      {
+        "id": "sun-1",
+        "startTime": "10:00",
+        "shortName": "—"
+      }
+    ],
+    "hiddenCount": 0
+  }
+]
