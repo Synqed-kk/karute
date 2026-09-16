@@ -227,6 +227,15 @@ interface SettingsShellProps {
    *  the server's "choose a store" refusal arrives with no control to satisfy
    *  it. The matching server clamp is setStaffStoresAtCreationCore. */
   assignableStores: StoreRow[]
+  /** ⚖ Fold round 3 (fresh-eyes F1b) — the actor's RESOLVED store
+   *  (resolveStoreScope().storeId), the default pick for a new card's
+   *  担当店舗. Separate from initialActiveStoreId, which is the raw
+   *  active-store cookie the 店舗 tab is actually about: an unset or stale
+   *  cookie must not seed this picker with nothing, or with a store the
+   *  creator no longer works in. Optional: the facade DTO's own
+   *  initialActiveStoreId is ALREADY clamp.storeId (route.ts), so the phone
+   *  door is correct without it. */
+  assignableActiveStoreId?: string | null
   initialActiveStoreId: string | null
   /** Service-menu catalog fetched on the server, passed straight to
    *  MenusSection (same idiom as initialStores). null = the fetch FAILED —
@@ -295,6 +304,7 @@ export function SettingsShell({
   initialStores,
   menuStores,
   assignableStores,
+  assignableActiveStoreId,
   initialActiveStoreId,
   initialMenus,
   initialEntitlement,
@@ -453,7 +463,7 @@ export function SettingsShell({
       case 'staff':
         return (
           <StaffSection
-            activeStoreId={initialActiveStoreId}
+            activeStoreId={assignableActiveStoreId ?? initialActiveStoreId}
             staffList={visibleStaff}
             activeStaffId={activeStaffId}
             canManageStaff={canManageStaff}

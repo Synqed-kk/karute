@@ -143,15 +143,23 @@ export function StaffForm({
   const staffId = staff?.id
 
   // ⚖ Liam 2026-09-16 — STORE AT CREATION. A new card with no store is a staff
-  // member who meets the 担当店舗が未設定です screen on their first login, so the
-  // picker is REQUIRED on create — but only where the choice exists: a
-  // single-store salon has nothing to choose, and the server treats an empty
-  // assignment there as that one store, exactly as before. The server enforces
-  // the same rule (createStaffCore); this is the UI half that makes the
-  // refusal impossible to reach by accident.
-  const multiStore = (stores ?? []).length >= 2
-  const mustPickStore = storesEnabled && mode === 'create' && multiStore
-  const showStorePicker = storesEnabled && (mode === 'edit' || mustPickStore)
+  // member who meets the 担当店舗が未設定です screen on their first login, so a
+  // create always CARRIES a store. The server enforces the same rule
+  // (createStaffCore); this is the UI half that makes the refusal impossible to
+  // reach by accident.
+  //
+  // ⚖ FOLD ROUND 3 (fresh-eyes F1) — ASKING and SENDING are two questions.
+  // The picker used to decide both from "do I have ≥2 stores to offer?", which
+  // is the CREATOR's own subset, while the server asks "does the BUSINESS have
+  // ≥2 stores?". A 銀座-only manager in a two-store business fell in the gap:
+  // no picker, no storeIds, and a refusal naming a control that was not on the
+  // screen — that manager could never hire again. So: with exactly ONE
+  // assignable store there is nothing to choose and the submission simply
+  // carries it (always inside the creator's own subset, by construction); the
+  // picker appears at TWO or more, where the choice is real.
+  const assignable = stores ?? []
+  const mustPickStore = storesEnabled && mode === 'create' && assignable.length >= 1
+  const showStorePicker = storesEnabled && (mode === 'edit' || assignable.length >= 2)
 
   useEffect(() => {
     if (!(mode === 'edit' && staffId) || staff?.unlinked) return
@@ -179,11 +187,16 @@ export function StaffForm({
 
   // The creator's ACTIVE store is the default pick: a 銀座 manager adding a
   // 銀座 hire should not have to say so. Seeded once, never re-applied, so a
-  // deliberate un-tick sticks.
+  // deliberate un-tick sticks. Only a store the creator may actually use is
+  // seeded — a stale active-store cookie pointing outside their assignment
+  // would otherwise pre-tick an invisible store and earn STORE_SCOPE_DENIED.
   useEffect(() => {
     if (!mustPickStore || !activeStoreId) return
+    if (!assignable.some((s) => s.id === activeStoreId)) return
     setStoreIds((prev) => (prev.length === 0 ? [activeStoreId] : prev))
-  }, [mustPickStore, activeStoreId])
+    // `assignable` is a fresh array each render; its CONTENT is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mustPickStore, activeStoreId, assignable.map((s) => s.id).join(',')])
 
   useEffect(() => {
     if (!(storesEnabled && mode === 'edit' && staffId)) return
@@ -213,12 +226,15 @@ export function StaffForm({
   async function onSubmit(data: StaffProfileInput) {
     try {
       if (mode === 'create') {
-        if (mustPickStore && storeIds.length === 0) {
+        // One assignable store = no picker and nothing to choose, so the
+        // submission carries it whatever the checkbox state says (F1).
+        const chosen = assignable.length === 1 ? [assignable[0].id] : storeIds
+        if (mustPickStore && chosen.length === 0) {
           toast.error(tStore('assignRequiredError'))
           return
         }
         const res = await createStaff(
-          mustPickStore ? { ...data, storeIds } : data,
+          mustPickStore ? { ...data, storeIds: chosen } : data,
         )
         if (res?.error) {
           // Two MACHINE codes come back from the store-at-creation rules; the

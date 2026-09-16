@@ -136,6 +136,15 @@ export default async function SettingsPage({
   // server clamp), so it is reused rather than reinvented. A degraded actor
   // gets no picker AND a server refusal — both fail closed, and the outage
   // clears itself.
+  //
+  // ⚖ FOLD ROUND 3 (fresh-eyes F1b) — the DEFAULT PICK is the RESOLVED store,
+  // not the raw cookie. resolveStoreScope already answers "which store is this
+  // actor actually on" (their own assignment when clamped, the primary when the
+  // cookie is unset), and the facade twin has always sent `clamp.storeId`. The
+  // raw cookie could be empty or point at a store this actor left, seeding the
+  // 担当店舗 picker with nothing ・ with somebody else's store. `initialStores`'
+  // own prop keeps the raw cookie: the 店舗 tab is about the cookie.
+  const assignableActiveStoreId = storeScope?.storeId ?? initialActiveStoreId
 
   // Deep-link support (?tab=audit&target=<customerId> from the privacy tab's
   // アクセス履歴 row). Unknown tab values — and audit links followed by staff
@@ -172,6 +181,7 @@ export default async function SettingsPage({
         initialStores={canViewAllStores ? stores : []}
         menuStores={menuStores}
         assignableStores={menuStores}
+        assignableActiveStoreId={assignableActiveStoreId}
         initialActiveStoreId={initialActiveStoreId}
         initialMenus={canManageMenus ? initialMenus : []}
         initialEntitlement={entitlement}

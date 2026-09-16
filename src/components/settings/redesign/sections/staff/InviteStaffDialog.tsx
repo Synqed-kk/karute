@@ -58,8 +58,21 @@ export function InviteStaffDialog({
   // ⚖ Liam 2026-09-16 — a FRESH invite mints the card, so it needs a NAME
   // always, and a 担当店舗 wherever there is a choice. Picking an EXISTING staff
   // member skips both: that card already has its own name and stores.
+  //
+  // ⚖ FOLD ROUND 3 (fresh-eyes F1b) — the twin of StaffForm's rule: the
+  // picker appears only where there is a CHOICE (≥2 assignable stores), and a
+  // creator with exactly one simply sends it. The seed is the creator's
+  // RESOLVED store and is ignored unless it is one they may actually use — an
+  // unset or stale active-store cookie used to strand this door with an empty
+  // ・ out-of-scope pick and no control to correct it.
   const fresh = !staffId
-  const mustPickStore = fresh && stores.length >= 2
+  const showStorePicker = fresh && stores.length >= 2
+  const defaultStoreIds = () =>
+    stores.length === 1
+      ? [stores[0].id]
+      : activeStoreId && stores.some((s) => s.id === activeStoreId)
+        ? [activeStoreId]
+        : []
 
   async function refresh() {
     setPending(await listInvites())
@@ -73,7 +86,7 @@ export function InviteStaffDialog({
       setEmail('')
       setName('')
       // The creator's active store is the default pick, same as the 追加 form.
-      setStoreIds(activeStoreId ? [activeStoreId] : [])
+      setStoreIds(defaultStoreIds())
       setStaffId('')
       void refresh()
     }
@@ -95,7 +108,13 @@ export function InviteStaffDialog({
     const res = await createInvite(
       staffId
         ? { email, role, staffId }
-        : { email, role, name: name.trim(), storeIds },
+        : {
+            email,
+            role,
+            name: name.trim(),
+            // One assignable store = no picker and nothing to choose (F1b).
+            storeIds: stores.length === 1 ? [stores[0].id] : storeIds,
+          },
     )
     setLoading(false)
     if ('error' in res) {
@@ -189,7 +208,7 @@ export function InviteStaffDialog({
               />
             </div>
           )}
-          {mustPickStore && (
+          {showStorePicker && (
             <div>
               <label className="block text-xs font-medium mb-1">
                 {t('inviteStoreLabel')}
