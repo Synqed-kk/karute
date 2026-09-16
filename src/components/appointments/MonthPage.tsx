@@ -115,7 +115,8 @@ function LineItem({
       {label}
       <span className={cn('inline-flex items-baseline gap-[3px]', VALUE_TONE_CLASS[tone])}>
         {spark && <NewSpark className="shrink-0 self-center" />}
-        <b className="font-bold tabular-nums">{value}</b>
+        {/* ⚖ TYPE (Liam 23:4x) — the month line's numbers are 600, not 700. */}
+        <b className="font-semibold tabular-nums">{value}</b>
       </span>
     </span>
   )
@@ -200,7 +201,8 @@ export function MonthPage({
             <div
               key={label}
               className={cn(
-                'flex h-[26px] items-center justify-center text-[12px] font-bold',
+                // ⚖ TYPE (Liam 23:4x) — a 12 px LABEL is medium, not bold.
+                'flex h-[26px] items-center justify-center text-[12px] font-medium',
                 i === 5
                   ? 'text-primary'
                   : i === 6
@@ -328,9 +330,12 @@ export function MonthPage({
                   className={cn(
                     DAY_NUMBER,
                     isToday
-                      ? 'bg-primary font-bold text-primary-foreground'
+                      // ⚖ TYPE (Liam 23:4x) — the day number is 600 in every
+                      // state; the solid fill and the hollow ring are what say
+                      // today and selected, not a heavier weight.
+                      ? 'bg-primary font-semibold text-primary-foreground'
                       : isSelected
-                        ? 'font-bold text-primary ring-[1.8px] ring-inset ring-primary'
+                        ? 'font-semibold text-primary ring-[1.8px] ring-inset ring-primary'
                         : wd === 6
                           ? 'font-semibold text-primary'
                           : wd === 0
@@ -346,7 +351,7 @@ export function MonthPage({
                 <span className={COUNT_ROW}>
                   {closed ? (
                     // mock `.cell .c .rest{color:var(--mute);font-weight:600}`
-                    <span className="font-semibold text-[var(--color-text-muted)]">
+                    <span className="font-medium text-[var(--color-text-muted)]">
                       {t('closed')}
                     </span>
                   ) : (
@@ -355,7 +360,8 @@ export function MonthPage({
                         {dot && (
                           <span aria-hidden className={cn('size-1.5 shrink-0 rounded-full', dot)} />
                         )}
-                        <span className="font-semibold tabular-nums">{cell.count}</span>
+                        {/* ⚖ TYPE (Liam 23:4x) — the 10.5 px count is medium. */}
+                        <span className="font-medium tabular-nums">{cell.count}</span>
                       </>
                     )
                   )}
@@ -376,7 +382,8 @@ export function MonthPage({
          *  independent clauses (native pass 2 row F). Between the three words
          *  there is no character at all — each carries its own dot, as the mock
          *  draws them. */}
-        <div className="flex flex-wrap items-center gap-3 px-2.5 py-[5px] text-[11.5px] font-semibold text-zinc-500 dark:text-zinc-400">
+        {/* ⚖ TYPE (Liam 23:4x) — the 11.5 px legend is medium. */}
+        <div className="flex flex-wrap items-center gap-3 px-2.5 py-[5px] text-[11.5px] font-medium text-zinc-500 dark:text-zinc-400">
           <span className="flex items-center gap-[5px]">
             <LegendDot bucket="light" />
             {tMonth('legendLight')}

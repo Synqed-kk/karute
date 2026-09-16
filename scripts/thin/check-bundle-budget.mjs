@@ -913,7 +913,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en       134,148 → 134,204 (+56 B) — the three new EN keys plus the
 //     trailing period on `failed`.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-15 for FIXLIST-1b-MONTH-4a-R2 (the eight-fix round:
 // R2-1 the month arrows step by MONTH KEY not `setMonth`, R2-2 aria-current
 // moved to TODAY with aria-pressed added for the selection, R2-3 the
@@ -951,6 +950,63 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en       134,204 → 134,204 — unchanged to the byte: R2 added no string,
 //     JA or EN.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
+// RE-MEASURED 2026-09-15 for PKT-1b-MONTH PIECE 4b (tap a day = stay: the
+// selected-day card under the 月 grid, the card's 120 ms fade, and the
+// optimistic ring). The R2 entry above is kept as the immediately preceding
+// tip's figure — the one comparison this number is read against; everything
+// older stays pruned, per this file's ONE-live-entry convention.
+//
+// Same CI recipe — the workflow's own six VITE_* values, copied verbatim from
+// the checked-in step. thin/dist emptied before each lap, two clean laps,
+// byte-identical with matching content hashes both times (node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock):
+//   en 134,294 · index 1,041,374 · vendor 937,791 = 2,113,459 B.
+// Ceiling = 2,113,459 + 1,000. The previous (R2) ceiling was 2,111,431, and
+// this tip genuinely passes it: the card is new code.
+//
+// Where the bytes went, measured per chunk against R2's own figure:
+//   index  1,038,436 → 1,041,374 (+2,938 B) — ours, all of it: the new
+//     SelectedDayCard.tsx (its four states, the row loop, the door and every
+//     class string on them), the compact row lifted out of
+//     ReservationMobileAgenda as the exported CompactRowContent +
+//     COMPACT_ROW / COMPACT_ROW_TAG (a small net ADD here — the extraction
+//     removes one inline copy but adds a component, its props and two
+//     exported constants), the view's held-tap pair and its month-cell tap
+//     handler, and DayNumbersLine's className passthrough.
+//   en       134,204 → 134,294 (+90 B) — the three NEW English strings:
+//     moreRows, openDay, noBookings. The thin bundle ships EN only (boot-
+//     frozen locale), so the three Japanese strings cost this bundle nothing.
+//   vendor   937,791 → 937,791 — unchanged to the byte: no dependency moved.
+// RE-MEASURED 2026-09-15 on 4b's FINAL tip, after the two proof fixes the
+// production build caught (the card's 8 px seam to the grid card; the header
+// chip following the ring in 月 mode so the selected day is named the whole
+// time). The entry above is 4b's first measurement, kept as the figure this
+// one is read against.
+//
+// Same CI recipe, thin/dist emptied before each of two laps, byte-identical
+// with matching content hashes both times:
+//   en 134,294 · index 1,041,400 · vendor 937,791 = 2,113,485 B  (+26 B).
+// Ceiling = 2,113,485 + 1,000.
+//
+// +26 B, all in index: the chip's month-mode ternary and its one call into
+// the existing jstWallTimeToDate. The seam fix is a wrapper <div> with no
+// class at all, so it costs nothing measurable. en and vendor unchanged to
+// the byte.
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-16 on the 4b FIX-ROUND R1 tip (R1-1 … R1-6 + the 23:4x
+// type ruling). The entry above is 4b's own final measurement, which is the
+// figure this one is read against.
+//
+// Same CI recipe, thin/dist emptied before each of two laps, byte-identical
+// both times (matching content hashes, node v24.16.0):
+//   en 134,294 · index 1,042,174 · vendor 937,791 = 2,114,259 B  (+774 B).
+// Ceiling = 2,114,259 + 1,000.
+//
+// +774 B, all in index; en and vendor unchanged to the byte. The card's fade
+// window (a second piece of state, the painted snapshot and its effect), the
+// pending branch, the counted-rows filter, the region name, the month branch's
+// own wrapper, and the type-scale class swaps. Real behaviour, not weight: the
+// round REMOVED a dead `gap-[5px]` and the `from` half of the held-tap pair.
 //
 // RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-week-face
 // (PR #929, merge commit 320ec111f234b48cb6562ecb2820db8f68dee31a) — this
@@ -975,7 +1031,17 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // between two clean builds, byte-identical both times (node v24.16.0,
 // @synqed-kk/ui 0.3.2, installed == lock): en 134,223 · index 1,039,146 ·
 // vendor 937,791 = 2,111,160 B. Ceiling = 2,111,160 + 1,000.
-const BUDGET_BYTES = 2_112_160
+// RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-month-card
+// (PR #932) — union of both chains above (this branch's own 4b/FIX-ROUND R1
+// history plus the #929/#931-into-main re-measure entries it had not yet
+// seen). The merge also restored DayNumbersLine.tsx's `className` passthrough
+// (SelectedDayCard.tsx's own call site) on top of main's flat 13px wrapper —
+// dropped by the raw three-way and put back by hand so the card's own padding
+// override still applies. Same CI recipe, thin/dist emptied between two clean
+// builds, byte-identical both times (node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock): en 134,452 · index 1,043,010 · vendor 937,791 =
+// 2,115,253 B. Ceiling = 2,115,253 + 1,000.
+const BUDGET_BYTES = 2_116_253
 
 let dir
 try {
