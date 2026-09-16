@@ -61,6 +61,11 @@ export type { DragMode, DragOrigin }
 // compatible.
 type LaneWords = { resourceNoun: string; privateWord: string | null; fullWord: string; turnoverWord: string | null }
 
+// ⚖ D-53 (ak)/(al) — a LOCAL structural alias, never an import: this file is
+// frozen for the round and may not import the words table. The caller
+// resolves a null private word with the generic row before handing this in.
+type AskWords = { resourceNoun: string; privateWord: string }
+
 // ⚖ D-53 (u)/(n2b2) — the WHOLE-BOARD shape: every lane's own row, keyed
 // GROUP + KEY (a lane key is unique only within its group), plus the ONE
 // fallback for a lane this map has no row for (a floating/unknown lane, or a
@@ -1396,7 +1401,7 @@ export interface SellDrop {
  *  and it is legal: both are alternatives on one room's menu, and one booking
  *  takes the menu away. What the cap really guarantees is the per-slot form —
  *  within ONE slot the rooms are distinct — and that is the whole of it. */
-function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellReconcile): SellCell[] {
+function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellReconcile, words: AskWords): SellCell[] {
   /** The gap layer emits every box twice — once for the staff row, once for the
    *  bed row — so the pair collapses to one promise before anything is judged. */
   // ⚖ 75(i) — the claim's OWN LANE rides along. It was already on the `GapCell`
@@ -1514,6 +1519,7 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
         id: null,
         currentBed: null,
         stores,
+        words,
         // ⚖ ROOM RULE — a hypothetical never needs the private room. A window is
         // an advertisement, not a booking: there is no booking to carry a
         // 個室のみ tag, so the offer takes a standard room first like anyone else.
@@ -1567,6 +1573,9 @@ export function sellLayerFor(
     hi: number
     hqMin: number
     depth: number
+    /** ⚖ D-53 (ak)/(al) — pass-through to the reconcile's own allocator ask;
+     *  never read for the sell layer's own cells. */
+    words: AskWords
     /** ⚖ R4 — the other layer's finished promises. See `SellReconcile`. */
     reconcile?: SellReconcile
     /** ⚖ SPEC-SELLING-ENGINE §4.2 Q4 — the held set for THIS world. Absent =
@@ -1594,7 +1603,7 @@ export function sellLayerFor(
   // bands, the density verdict and 「販売可能枠 N窓」 are all computed from these
   // cells, and a layer built from boxes the screen then declines to draw is a
   // board that counts what it does not show.
-  const cells = opts.reconcile ? reconcileSellCells(raw, lanes, opts.reconcile) : raw
+  const cells = opts.reconcile ? reconcileSellCells(raw, lanes, opts.reconcile, opts.words) : raw
   // ⚖ Q4 — TAGGED, NOT WITHHELD, and the difference is the whole ruling. A
   // standard hour inside a held window is exactly what a rank-opened store or a
   // release sells, so it stays derived and the layer keeps counting it; what it
@@ -3797,6 +3806,14 @@ export function explainRails(
   // one. Reachable and worth fixing; not the commonest path.
   const handItem =
     opts.handId == null ? null : (lanes.flatMap((l) => l.items).find((i) => i.caseId === opts.handId) ?? null)
+  // ⚖ D-53 (ak)/(al) COLD-READ F1 — the ask's own word pair, per lane. `askOn`
+  // and `halfWalk` are declared ABOVE the rail loop, so the per-rail
+  // `railWords` below is out of scope here; this resolves the same map entry
+  // itself, once per lane asked.
+  const askWords = (lane: BoardLane): AskWords => {
+    const w = wordsFor(opts.words, lane)
+    return { resourceNoun: w.resourceNoun, privateWord: w.privateWord ?? opts.words.generic.privateWord! }
+  }
   /** THE STRIP'S OWN ROOM QUESTION, spelled once and asked over two windows: the
    *  chip's own length (the sentence a press answers with) and — ⚖ ruling 1 —
    *  its first half hour (the word it wears). Two windows of ONE question, so
@@ -3814,6 +3831,7 @@ export function explainRails(
     // it never gets here (fix round 3, delta2 lens 4 D8).
     requiresPrivate: handItem?.requiresPrivateRoom === true,
     stores: lane.stores,
+    words: askWords(lane),
     start: from,
     end: to,
     stagedId: opts.stagedId,
@@ -5098,6 +5116,10 @@ export function allocateBed(
      *  construction. An optional field defaulting to "every store" would be
      *  fail-open, which is the one thing this must not be. */
     stores: string[] | null
+    /** ⚖ D-53 (ak)/(al) — the word the refusal sentence names the room by,
+     *  the store's own. REQUIRED: a silent literal default is exactly the
+     *  wrong-word bug this round exists to close. */
+    words: AskWords
     /** ⚖ ROOM RULE — 個室のみ, read off the BOOKING's own tag and never off the
      *  customer. Sitting in the 個室 grants nothing: an untagged booking in it
      *  moves to any free room with no verdict and no manager. */
@@ -5233,7 +5255,7 @@ export function allocateBed(
   if (packed) return { laneKey: packed.laneKey, refusal: null, blockers: [], reseats: packed.reseats }
   return {
     laneKey: null,
-    refusal: fullRoomsRefusal(rows, start, end, opts.requiresPrivate, opts.stagedId ?? null),
+    refusal: fullRoomsRefusal(rows, start, end, opts.requiresPrivate, opts.stagedId ?? null, opts.words),
     blockers: rows.flatMap(([, blockers]) => blockers),
     reseats: [],
   }
@@ -5333,10 +5355,13 @@ export function gestureAllocator(opts: {
     // ⚖ CODE-LENS-2 N1 — THE ASSUMPTION THE RAW `|` JOIN RESTS ON, stated: none
     // of the interpolated fields can CONTAIN a `|`. `id` and `stagedId` are
     // booking UUIDs, `currentBed` is a bed lane key, and `stores` arrives
-    // JSON-quoted. If any of them ever could, two different questions would
+    // JSON-quoted; ⚖ D-53 (ak)/(al) — the two word fields are rows of a frozen
+    // table with no `|` in any value today; when a store-editable override
+    // lands (N3) the override's validator, or a JSON-quoted pair here, must
+    // keep that true. If any of them ever could, two different questions would
     // share one key — the single failure a memo is not allowed to have — and
     // this line is where that would have to be answered.
-    const key = `${o.id}|${o.currentBed}|${JSON.stringify(o.stores)}|${o.requiresPrivate}|${o.start}|${o.end}|${o.stagedId ?? ''}|${o.now}|${o.allowBusy === true}`
+    const key = `${o.id}|${o.currentBed}|${JSON.stringify(o.stores)}|${o.requiresPrivate}|${o.start}|${o.end}|${o.stagedId ?? ''}|${o.now}|${o.allowBusy === true}|${o.words.resourceNoun}|${o.words.privateWord}`
     const hit = memo.get(key)
     if (hit !== undefined) {
       hits += 1
@@ -5449,6 +5474,7 @@ export function handRowStamp(boardLanes: readonly BoardLane[], handId: string, h
 export function bedFeasibility(
   lanes: BoardLane[],
   excludeId: string | null,
+  words: AskWords,
 ): ((lane: BoardLane, start: number, dur: number) => boolean) | undefined {
   // ⚖ ROUND 3 · C (⚖ D-52 (a)) — the spelling moves to the one home; the answer
   // is identical on every board.
@@ -5471,6 +5497,7 @@ export function bedFeasibility(
         id: excludeId,
         currentBed,
         stores: lane.stores,
+        words,
         // ⚖ ROOM RULE — the BOOKING's own tag, never the customer's badge.
         requiresPrivate: held?.requiresPrivateRoom === true,
         start,
@@ -5676,6 +5703,7 @@ export function companionRoomStillFree(
    *  the two percent numbers are read. */
   span: { x: number; w: number },
   hours: Hours,
+  words: AskWords,
   allocate: typeof allocateBed = allocateBed,
 ): { ok: true } | { ok: false; refusal: string | null } {
   const staffLane = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === companion.id))
@@ -5684,6 +5712,7 @@ export function companionRoomStillFree(
     id: companion.id,
     currentBed: companion.bedTo,
     stores: staffLane?.stores ?? null,
+    words,
     requiresPrivate: held?.requiresPrivateRoom === true,
     start: minuteOf(span.x, hours),
     end: minuteOf(span.x + span.w, hours),
@@ -5793,9 +5822,10 @@ function fullRoomsRefusal(
   end: number,
   requiresPrivate: boolean,
   stagedId: string | null = null,
+  words: AskWords,
 ): string {
   const window = `${clockOf(start)}〜${clockOf(end)}`
-  const room = requiresPrivate ? '個室' : 'ベッド'
+  const room = requiresPrivate ? words.privateWord : words.resourceNoun
   // ⚖ ROOM RULE clause 5 — A DEAD END GETS THE WAY OUT. 「使える個室がありません」
   // told the operator a true thing they could do nothing with, so the move they
   // can actually make is named instead.
@@ -5822,7 +5852,7 @@ function fullRoomsRefusal(
   // room that does not exist at any hour); ⚖ D-52 (a) closes that case before
   // this function is ever called, so only the 個室 sentence remains.
   if (rows.length === 0) {
-    return 'この店舗には個室がありません。個室のある店舗へ移してください'
+    return `この店舗には${words.privateWord}がありません。${words.privateWord}のある店舗へ移してください`
   }
   // ⚖ ROOM RULE clause 5 — AND UNTIL WHEN. The name alone left the operator to
   // go hunting the card for the one fact that lets them rearrange by hand, and
@@ -6235,6 +6265,10 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // already passes a null escalation here (⚖ 61). `hard` is what that means.
   if (!staff) return stop('予約を置く行の中で離してください', 'hard')
 
+  // ⚖ D-53 (ak)/(al) COLD-READ F2 — the allocator's own resolved pair,
+  // declared here rather than beside this function's own `p` below (`solved`
+  // is used before `p`'s declaration otherwise — TS2448).
+  const ask: AskWords = { resourceNoun: words.resourceNoun, privateWord: words.privateWord ?? generic.privateWord! }
   // The room, solved or named. A refusal is HELD rather than returned: a person
   // who is already busy at this time is the more useful sentence, and saying
   // 満室 to someone whose staff member is double-booked answers the wrong half.
@@ -6245,6 +6279,7 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
         id: q.id,
         currentBed: q.bedLane,
         stores: staff.stores,
+        words: ask,
         requiresPrivate: q.requiresPrivate,
         start: q.start,
         end: q.end,

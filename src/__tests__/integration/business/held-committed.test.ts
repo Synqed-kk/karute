@@ -78,8 +78,13 @@ import {
 } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import { bedViewsFor, TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import { STORE_A } from '@/business/lib/fixtures'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A: Parameters<typeof bedViewsFor>[3] = { resourceNoun: RESOURCE_WORDS.chiropractic.resourceNoun, privateWord: RESOURCE_WORDS.chiropractic.privateWord! }
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
@@ -132,7 +137,7 @@ beforeAll(async () => {
   // (`bedViewsFor`) with the same `null` hand the committed world has always
   // passed, and it is what §3 and §4 compare the wrapper's answer against. If
   // the wrapper ever answered out of a different world, the two would part.
-  BOOK = bedViewsFor(REAL.lanes, FRAME, null).world
+  BOOK = bedViewsFor(REAL.lanes, FRAME, null, ASK_A).world
 })
 
 afterAll(() => jest.useRealTimers())
@@ -153,7 +158,7 @@ const inputFor = (
   // `bedViewsFor` out of TodayScreen, which made the two files import each
   // other; the screen hands it over instead, and this is the same value the
   // screen hands over (selling-engine-flip.test.ts §9 pins that spelling).
-  bookOf: bedViewsFor,
+  bookOf: (lanes, frame, inHand) => bedViewsFor(lanes, frame, inHand, ASK_A),
   closeMin: REAL.hours.close,
   nowMin: REAL.sell.nowMinute,
   guard: REAL.guard.config,
@@ -271,7 +276,7 @@ describe('3 — in every live mode the answer is `reservedMaskFor`’s, byte for
     // book's door; it uses the one it is handed, so hand it a different one.
     // An EMPTY world is the cleanest different one available — the real door,
     // asked about zero lanes — and it is a real book rather than a stub shape.
-    const emptyWorld = bedViewsFor([], FRAME, null)
+    const emptyWorld = bedViewsFor([], FRAME, null, ASK_A)
     // ⚖ ROUND 3 — AND WHAT THE DOOR IS HANDED IS RECORDED, not only what it
     // gives back. The stub took no arguments, so this test proved the door's
     // RETURN was load-bearing and said nothing about the world the wrapper

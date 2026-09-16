@@ -228,6 +228,7 @@ export function bedViewsFor(
   lanes: BoardLane[],
   frame: DayFrame,
   handId: string | null,
+  words: Parameters<typeof allocateBed>[1]['words'],
 ): BedViews {
   // ⚖ FIX-5 (blind round) — AN EMPTY ID IS NOBODY, HERE TOO. `bedFeasibility`
   // read `excludeId` for truthiness and `bedDoor` below keeps that reading, so
@@ -237,7 +238,7 @@ export function bedViewsFor(
   // in the caller, not an empty world), and normalising is what stops that
   // throw reaching a render.
   const hand = handId === null || handId === '' ? null : handId
-  return { handId: hand, ...bedTruthViews(lanes, frame, hand === null ? null : { id: hand }) }
+  return { handId: hand, ...bedTruthViews(lanes, frame, hand === null ? null : { id: hand }, words) }
 }
 
 /** ⚖ LIAM flag 76 (2026-08-23) + ⚖ R3 ONE WORLD (2026-08-25) — THE ROOMS,
@@ -379,11 +380,11 @@ export type BookCache = WeakMap<BoardLane[], { frameKey: string; liftedId: strin
  *  and an entry is collected the moment its board is. */
 const FOREIGN_BOOKS: BookCache = new WeakMap()
 
-export function bookFor(lanes: BoardLane[], frame: DayFrame, liftedId: string | null, cache: BookCache): BedViews {
-  const frameKey = `${frame.openMin}|${frame.closeMin}|${frame.nowMin}`
+export function bookFor(lanes: BoardLane[], frame: DayFrame, liftedId: string | null, cache: BookCache, words: Parameters<typeof allocateBed>[1]['words']): BedViews {
+  const frameKey = `${frame.openMin}|${frame.closeMin}|${frame.nowMin}|${words.resourceNoun}|${words.privateWord}`
   const hit = cache.get(lanes)
   if (hit && hit.frameKey === frameKey && hit.liftedId === liftedId) return hit.views
-  const views = bedViewsFor(lanes, frame, liftedId)
+  const views = bedViewsFor(lanes, frame, liftedId, words)
   cache.set(lanes, { frameKey, liftedId, views })
   return views
 }
@@ -1095,6 +1096,13 @@ export function TodayScreen(props: TodayProps) {
   // reads these, never a per-lane lookup (C7).
   const w = props.words
   const caps = props.caps
+  // ⚖ D-53 (ak)/(al) — THE CHROME PAIR, memoised once: the allocator's own
+  // ask reads only these two fields, and a null private word resolves to the
+  // generic row exactly as every other caller in this file already does.
+  const chromeAsk = useMemo<Parameters<typeof allocateBed>[1]['words']>(
+    () => ({ resourceNoun: props.words.resourceNoun, privateWord: props.words.privateWord ?? props.genericWords.privateWord! }),
+    [props.words, props.genericWords],
+  )
 
   /** ⚖ D-53 (n) R-N2-3 — the DISPLAY words for a rendering lane: its first
    *  store affiliation's words, or the CHROME words for a floating/unknown
@@ -1117,6 +1125,15 @@ export function TodayScreen(props: TodayProps) {
     const key = bedSide ? ask.bedLane : ask.staffLane
     const lane = key == null ? undefined : boardLanes.find((l) => l.group === (bedSide ? 'beds' : 'staff') && l.key === key)
     return lane ? wordsForLane(lane) : props.words
+  }
+
+  /** ⚖ D-53 (ak)/(al) — the same DISPLAY policy, resolved to the allocator's
+   *  own pair: the lane's row (null private word falling back to the generic
+   *  row), or the memoised chrome pair when there is no lane. */
+  function askWordsForLane(lane: BoardLane | undefined): Parameters<typeof allocateBed>[1]['words'] {
+    if (!lane) return chromeAsk
+    const row = wordsForLane(lane)
+    return { resourceNoun: row.resourceNoun, privateWord: row.privateWord ?? props.genericWords.privateWord! }
   }
 
   /** ⚖ D-53 (u)/(n2b2) — R-1: THE MAP, once, from `props.lanes` (never from a
@@ -2138,7 +2155,12 @@ export function TodayScreen(props: TodayProps) {
         // the next edit. The screen hands the door over instead, so R3s ONE
         // DOOR holds in a stronger form: the wrapper cannot reach the book
         // except through what it is given.
-        bookOf: bedViewsFor,
+        //
+        // ⚖ D-53 (ak)/(al) — the `BookDoor` type comment calls this out: the
+        // door signature (`bedViewsFor`) is the one that leads, so a 3-arg
+        // closure over the chrome pair sits here rather than widening the
+        // frozen type.
+        bookOf: (lanes, frame, inHand) => bedViewsFor(lanes, frame, inHand, chromeAsk),
         closeMin: hours.close,
         nowMin: props.sell.nowMinute,
         guard: props.guard.config,
@@ -2149,7 +2171,7 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ FIX ROUND F2 — and it is the BOARD-SCOPED list, at both doors.
         released: releasedHere,
       }),
-    [committedLanes, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
+    [committedLanes, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere, chromeAsk],
   )
 
   /** ⚖ D-11 · ROUND 2 (2026-09-13) — THE TIMED RELEASE, APPLIED ONCE, WHERE
@@ -2203,13 +2225,13 @@ export function TodayScreen(props: TodayProps) {
       ? honestHeld(
           heldCommitted.filter((m) => !locked.includes(m.laneKey)),
           committedLanes,
-          bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+          bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS, chromeAsk).world,
           true,
           // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
           (l) => storeHasBeds(committedLanes, l.stores),
         )
       : undefined),
-    [heldCommitted, locked, committedLanes, ledgerFrame],
+    [heldCommitted, locked, committedLanes, ledgerFrame, chromeAsk],
   )
 
   /** ⚖ SPEC-HONEST-COUNT v5 (1) — THE SALE FILTER, ON TOP OF THE ONE NETTING.
@@ -2316,6 +2338,7 @@ export function TodayScreen(props: TodayProps) {
         hi: price.hi,
         hqMin: dialogs.pricing.hqMin,
         depth,
+        words: chromeAsk,
         // ⚖ R4 — ONE ADVERTISED OFFER PER BED. The reconciliation happens inside
         // `sellLayerFor`, BEFORE `buildSellLayer`, so 公開中 N枠 / 販売可能枠 N窓 /
         // the 運営影響 stat and the price button all count the boxes the board
@@ -2343,6 +2366,7 @@ export function TodayScreen(props: TodayProps) {
       price.hi,
       dialogs.pricing.hqMin,
       depth,
+      chromeAsk,
       gapClaims,
       props.bedCleanupMinutes,
       heldCommitted,
@@ -2476,12 +2500,12 @@ export function TodayScreen(props: TodayProps) {
       honest,
       heldCommitted ? heldCommitted.filter((m) => !locked.includes(m.laneKey)) : [],
       committedLanes,
-      bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+      bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS, chromeAsk).world,
       BED_AWARE_SALES,
       // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
       (l) => storeHasBeds(committedLanes, l.stores),
     )
-  }, [sellDrawn, gapDrawn, honest, heldCommitted, locked, committedLanes, ledgerFrame])
+  }, [sellDrawn, gapDrawn, honest, heldCommitted, locked, committedLanes, ledgerFrame, chromeAsk])
 
   /** ⚖ SPEC-R2 §3.1 — THE TWO PUBLISHED LAYERS, and they are the only thing the
    *  counters read. `sellDrawn`/`gapDrawn` stay the DERIVATION: the row draws
@@ -2601,8 +2625,8 @@ export function TodayScreen(props: TodayProps) {
    *  strip asks this thousands of times per frame, and a book built inside the
    *  asking is a book per ask. */
   const ledger = useMemo(
-    () => bedViewsFor(boardLanes, ledgerFrame, handId),
-    [boardLanes, ledgerFrame, handId],
+    () => bedViewsFor(boardLanes, ledgerFrame, handId, chromeAsk),
+    [boardLanes, ledgerFrame, handId, chromeAsk],
   )
   /** ⚖ 39 — the same escape hatch the verdict has: a caller may ask about a board
    *  it has already taken something OUT of (the block advisor's drop), and the
@@ -2612,8 +2636,8 @@ export function TodayScreen(props: TodayProps) {
    *  and reads the frame's book. */
   const bedDoorFor = useCallback(
     (askerId: string | null, lanes: BoardLane[] = boardLanes) =>
-      bedDoor(lanes === boardLanes ? ledger : bookFor(lanes, ledgerFrame, handId, FOREIGN_BOOKS), lanes, askerId),
-    [boardLanes, ledger, ledgerFrame, handId],
+      bedDoor(lanes === boardLanes ? ledger : bookFor(lanes, ledgerFrame, handId, FOREIGN_BOOKS, chromeAsk), lanes, askerId),
+    [boardLanes, ledger, ledgerFrame, handId, chromeAsk],
   )
   /** ⚖ NUDGE-GUARD — WHERE THE STORE'S COMMITTED DAY STILL HAS THE CARD BEING MOVED.
    *  The guard prices a move against this span, not against the lane with the card
@@ -2651,7 +2675,7 @@ export function TodayScreen(props: TodayProps) {
       const lifted =
         lanes === boardLanes && excludeId === ledger.handId
           ? ledger.worldMinusHand
-          : bookFor(lanes, ledgerFrame, excludeId, FOREIGN_BOOKS).worldMinusHand
+          : bookFor(lanes, ledgerFrame, excludeId, FOREIGN_BOOKS, chromeAsk).worldMinusHand
       return lifted === null ? undefined : bedDoor({ world: lifted, worldMinusHand: null, handId: null }, lanes, null)
     }
     return (excludeId: string | null, lanes: BoardLane[] = boardLanes) => {
@@ -2660,7 +2684,7 @@ export function TodayScreen(props: TodayProps) {
       if (!built.has(key)) built.set(key, doorFor(excludeId, lanes))
       return built.get(key)
     }
-  }, [boardLanes, ledger, ledgerFrame])
+  }, [boardLanes, ledger, ledgerFrame, chromeAsk])
   /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET FOR THE STAFF DOOR: the same
    *  builder, the BOARD world's snapshot, out of the frame's own book. One
    *  builder, two worlds; the sales door's instance is above.
@@ -2765,8 +2789,8 @@ export function TodayScreen(props: TodayProps) {
    *  open-paren-then-gate ban, and a wrapped head would add a second bare gate
    *  line. */
   const windowDoorOn = useCallback((lanes: BoardLane[]) => {
-    return SELLING_ENGINE_LAW ? bedDoor(bookFor(lanes, ledgerFrame, null, FOREIGN_BOOKS), lanes, null) : undefined
-  }, [ledgerFrame])
+    return SELLING_ENGINE_LAW ? bedDoor(bookFor(lanes, ledgerFrame, null, FOREIGN_BOOKS, chromeAsk), lanes, null) : undefined
+  }, [ledgerFrame, chromeAsk])
   /** The rail's own input, asked of a SETTLED board. Every field's source is
    *  named; the five constants are what make this the DAY question rather than a
    *  placement one — nothing is being placed, so there is no `excludeId`, no
@@ -2841,7 +2865,7 @@ export function TodayScreen(props: TodayProps) {
           honestHeld(
             heldCommitted.filter((m) => !locked.includes(m.laneKey)),
             committedLanes,
-            bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+            bookFor(committedLanes, ledgerFrame, null, FOREIGN_BOOKS, chromeAsk).world,
             false,
           ),
           committedLanes,
@@ -2849,7 +2873,7 @@ export function TodayScreen(props: TodayProps) {
       }
       return windowsOn(committedLanes, inputOn(committedLanes))
     },
-    [guardOn, honest, heldCommitted, locked, committedLanes, ledgerFrame, inputOn],
+    [guardOn, honest, heldCommitted, locked, committedLanes, ledgerFrame, inputOn, chromeAsk],
   )
   /** THE 元に戻す BOARD. It collapses to `committedLanes` when nothing is staged,
    *  so this memo — and only this one — may take the pending gate. */
@@ -2876,7 +2900,7 @@ export function TodayScreen(props: TodayProps) {
       gateOn: SELLING_ENGINE_LAW,
       lanes: originLanes,
       frame: ledgerFrame,
-      bookOf: bedViewsFor,
+      bookOf: (lanes, frame, inHand) => bedViewsFor(lanes, frame, inHand, chromeAsk),
       closeMin: hours.close,
       nowMin: props.sell.nowMinute,
       guard: props.guard.config,
@@ -2889,7 +2913,7 @@ export function TodayScreen(props: TodayProps) {
     // board-scoped keep-back as the committed side at :2085 — `lostOn` subtracts
     // these two boards, so a release on one of them alone IS a reported loss.
     return releaseTimed(originHeld, props.sell.nowMinute, beforeMin, keptBackHere).mask
-  }, [dayStaged, originLanes, ledgerFrame, hours.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere])
+  }, [dayStaged, originLanes, ledgerFrame, hours.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere, chromeAsk])
   /** ⚖ HONEST-COUNT ROUND 1 — THE 元に戻す BOARD'S OWN HONEST SET.
    *
    *  `lostOn` subtracts two settled boards, so both of them have to come out of
@@ -2916,12 +2940,12 @@ export function TodayScreen(props: TodayProps) {
     return honestHeld(
       originReleased.filter((m) => !locked.includes(m.laneKey)),
       originLanes,
-      bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+      bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS, chromeAsk).world,
       true,
       // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
       (l) => storeHasBeds(originLanes, l.stores),
     )
-  }, [honest, dayStaged, originReleased, originLanes, ledgerFrame, locked])
+  }, [honest, dayStaged, originReleased, originLanes, ledgerFrame, locked, chromeAsk])
   /** ⚖ D-20 (1) — the middle arm mirrors `dayCommitted`'s own: with the netting
    *  off but the law on and a released origin mask in hand, read that RELEASED
    *  mask in the day layer's shape (`on: false`, the identity answer) instead
@@ -2937,7 +2961,7 @@ export function TodayScreen(props: TodayProps) {
                     honestHeld(
                       originReleased.filter((m) => !locked.includes(m.laneKey)),
                       originLanes,
-                      bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS).world,
+                      bookFor(originLanes, ledgerFrame, null, FOREIGN_BOOKS, chromeAsk).world,
                       false,
                     ),
                     originLanes,
@@ -2945,7 +2969,7 @@ export function TodayScreen(props: TodayProps) {
                 : windowsOn(originLanes, inputOn(originLanes)))
           : dayCommitted)
       : EMPTY_WINDOWS),
-    [guardOn, dayStaged, honestOrigin, originReleased, originLanes, ledgerFrame, locked, inputOn, dayCommitted],
+    [guardOn, dayStaged, honestOrigin, originReleased, originLanes, ledgerFrame, locked, inputOn, dayCommitted, chromeAsk],
   )
   // ⚖ FIX ROUND F5 — the board world's per-lane index is GONE, not merely
   // unused: the rest cue was its only reader and it now reads the committed
@@ -4758,6 +4782,9 @@ export function TodayScreen(props: TodayProps) {
   //  that answers 「which board does this landing solve against?」.
   function solveBed(board: BoardLane[], staffLaneKey: string | null, id: string | null, currentBed: string | null, requiresPrivate: boolean, span: { x: number; w: number }): { laneKey: string | null; companions: BedCompanion[] } | null {
     const start = minuteOf(span.x, hours)
+    // ⚖ D-53 (ak)/(al) — the one walk, read for both the store rule and the
+    // word: the same lane `landingVerdict`'s own copy of this lookup finds.
+    const staffLane = board.find((l) => l.key === staffLaneKey && l.group === 'staff')
     // ⚖ LIVE-WHILE-DRAGGING §6 — THROUGH THE GESTURE'S OWN MEMO, so the room
     // this stages is the very entry the cursor's word and the chip's mark were
     // read out of: one object, not a second search that could answer differently.
@@ -4767,7 +4794,8 @@ export function TodayScreen(props: TodayProps) {
       // ⚖ NEW-WINDOW §M-4 — the same staff test `landingVerdict` carries on its
       // own copy of this lookup. No behaviour change on today's key scheme; it
       // removes a way for the two spellings of one question to drift.
-      stores: board.find((l) => l.key === staffLaneKey && l.group === 'staff')?.stores ?? null,
+      stores: staffLane?.stores ?? null,
+      words: askWordsForLane(staffLane),
       requiresPrivate,
       start,
       end: minuteOf(span.x + span.w, hours),
@@ -5004,7 +5032,10 @@ export function TodayScreen(props: TodayProps) {
     for (const c of pending.companions ?? []) {
       const span = bedMoves[c.id]
       if (!span) continue
-      const room = companionRoomStillFree(boardLanes, c, span, hours)
+      // ⚖ D-53 (ak)/(al) — the companion's own room's word: the bed lane it is
+      // staged on, or chrome when it is not on the board.
+      const companionBedLane = boardLanes.find((l) => l.group === 'beds' && l.key === c.bedTo)
+      const room = companionRoomStillFree(boardLanes, c, span, hours, askWordsForLane(companionBedLane))
       if (!room.ok) {
         // ⚖ FIX ROUND 2 (F5, CODE-LENS-3 F2) — AND IT SAYS WHOSE MOVE FAILED.
         // The composed 満室 sentence is about the COMPANION's window and the

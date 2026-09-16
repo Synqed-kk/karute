@@ -61,6 +61,11 @@ import {
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { computeChecks, type Check, type CheckContext, type CheckSpan } from '@/business/lib/canon-logic/drag-rules'
 import { bedTruthViews, type DayFrame, type NewClient } from '@/app/[locale]/(business)/business/today/capacity-ledger'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
+
+// ⚖ D-53 (ak)/(al) N2c-1 — STORE_A's resolved pair; byte-identical to `other`
+// (resource-words.test.ts's own C9 pin), so nothing below moves a value.
+const ASK_A = { resourceNoun: RESOURCE_WORDS.chiropractic.resourceNoun, privateWord: RESOURCE_WORDS.chiropractic.privateWord! }
 
 const FROZEN_PATH = join(process.cwd(), 'src/__tests__/integration/business/today-off-identity.frozen.json')
 const FROZEN_INSTANT = '2026-08-19T00:00:00Z'
@@ -303,6 +308,7 @@ function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number],
       id: firstBooking.id,
       currentBed: null,
       stores: bookingStaffLane?.stores ?? null,
+      words: ASK_A,
       requiresPrivate: need,
       start: firstBooking.startMinute,
       end: firstBooking.endMinute,
@@ -312,6 +318,7 @@ function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number],
       id: 'off-identity-full',
       currentBed: null,
       stores: typeof lens === 'string' ? [lens] : null,
+      words: ASK_A,
       requiresPrivate: false,
       start: busiestT,
       end: busiestT + 60,
@@ -324,6 +331,7 @@ function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number],
       id: firstBooking.id,
       currentBed: firstBooking.resourceId,
       stores: bookingStaffLane?.stores ?? null,
+      words: ASK_A,
       requiresPrivate: need,
       start: firstBooking.startMinute,
       end: firstBooking.endMinute,
@@ -333,6 +341,7 @@ function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number],
       id: firstBooking.id,
       currentBed: firstBooking.resourceId,
       stores: bookingStaffLane?.stores ?? null,
+      words: ASK_A,
       requiresPrivate: true,
       start: firstBooking.startMinute,
       end: firstBooking.endMinute,
@@ -352,6 +361,7 @@ function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number],
     hi: pricingRule.hq_max,
     hqMin: pricingRule.hq_min,
     depth: 9,
+    words: ASK_A,
   }
   // `atOpen` alone leaves 「過ぎた時間は売れない」 untested: NOW_MIN (09:00) sits
   // before `hours.open` (10:00), so `Math.max(open, …)` is always dominated by
@@ -367,7 +377,7 @@ function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number],
   // includes `stats`. `mask` is a function (`(startMin) => boolean`), so it
   // is evaluated at each slot's own `t` rather than serialised as a closure.
   const frame: DayFrame = { openMin: hours.open, closeMin: hours.close, nowMin: NOW_MIN }
-  const { world: bedWorld } = bedTruthViews(lanes, frame, null)
+  const { world: bedWorld } = bedTruthViews(lanes, frame, null, ASK_A)
   const asker: NewClient = { stores: null }
   const dur = 60
   const runs = bedWorld.fullRuns(dur, null)

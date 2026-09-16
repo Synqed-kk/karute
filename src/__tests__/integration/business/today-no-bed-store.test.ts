@@ -26,6 +26,7 @@ jest.mock('next/navigation', () => ({
 }))
 
 import { STORE_C } from '@/business/lib/fixtures'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import * as data from '@/business/lib/data'
 import {
   hhmm,
@@ -66,6 +67,14 @@ import { join } from 'node:path'
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
+// ⚖ D-53 (ao) L1 finding 4 — THE GYM'S OWN PAIR, not STORE_A's. This board
+// (STORE_C) is bedless by construction, so the allocator answers
+// `refusal: null` on every ask here no matter which pair it is handed — no
+// expected value below moves for that reason. The pair is the gym's own row
+// so a real gym caller's ask is what this file actually proves; its private
+// word is 個室, byte-identical to the generic row (D-13), which is why the
+// private-room sentences this file pins are unchanged too.
+const ASK_GYM = { resourceNoun: RESOURCE_WORDS.personal_gym.resourceNoun, privateWord: RESOURCE_WORDS.personal_gym.privateWord! }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function screenProps(node: any): TodayProps | null {
@@ -114,7 +123,7 @@ beforeAll(async () => {
 afterAll(() => jest.useRealTimers())
 
 const frameOf = () => ({ openMin: GYM.hours.open, closeMin: GYM.hours.close, nowMin: GYM.sell.nowMinute ?? GYM.hours.open })
-const bookOf = (): BedTruth => bedViewsFor(GYM.lanes, frameOf(), null).world
+const bookOf = (): BedTruth => bedViewsFor(GYM.lanes, frameOf(), null, ASK_GYM).world
 const maskOf = (book: BedTruth = bookOf()): readonly ReservedLaneMask[] =>
   reservedMaskFor({
     lanes: GYM.lanes,
@@ -164,6 +173,7 @@ function gymDoor(held: readonly ReservedLaneMask[]) {
     hi: price.hi,
     hqMin: GYM.dialogs.pricing.hqMin,
     depth,
+    words: ASK_GYM,
     reconcile: { claims, cleanupMinutesByBed: GYM.bedCleanupMinutes, onDrop: (d) => drops.push(d) },
     held,
   })
@@ -207,7 +217,7 @@ function gymDoor(held: readonly ReservedLaneMask[]) {
 /** The screen's rail composition, on THIS board (⚖ `explainHand` in
  *  today-rail-halfhour.test.ts). */
 function gymRails() {
-  const views = bedViewsFor(GYM.lanes, frameOf(), null)
+  const views = bedViewsFor(GYM.lanes, frameOf(), null, ASK_GYM)
   const bedFree = bedDoor(views, GYM.lanes, null)
   const rails = guardRailsFor(GYM.lanes, {
     open: GYM.hours.open,
@@ -280,8 +290,8 @@ describe('G2 — the mask holds windows on staff time alone', () => {
 describe('G3 — the allocator and the landing verdict', () => {
   it('an untagged ask stands with no room; a 個室のみ ask gets the 個室 sentence; the verdict is not hard-room', () => {
     const c03 = GYM.lanes.find((l) => l.key === 'c-03' && l.group === 'staff')!
-    const untagged = allocateBed(GYM.lanes, { id: null, currentBed: null, stores: [STORE_C], requiresPrivate: false, start: 780, end: 840 })
-    const tagged = allocateBed(GYM.lanes, { id: null, currentBed: null, stores: [STORE_C], requiresPrivate: true, start: 780, end: 840 })
+    const untagged = allocateBed(GYM.lanes, { id: null, currentBed: null, stores: [STORE_C], words: ASK_GYM, requiresPrivate: false, start: 780, end: 840 })
+    const tagged = allocateBed(GYM.lanes, { id: null, currentBed: null, stores: [STORE_C], words: ASK_GYM, requiresPrivate: true, start: 780, end: 840 })
     const q: LandingQuestion = {
       staffLane: c03.key,
       bedLane: null,
@@ -317,6 +327,7 @@ describe('G4 — the sell layer: staff cells only', () => {
       hi: price.hi,
       hqMin: GYM.dialogs.pricing.hqMin,
       depth,
+      words: ASK_GYM,
     })
     const bedCells = sell.cells.filter((c) => c.group === 'beds')
     console.log('G4', { cellCount: sell.cells.length, bedCellCount: bedCells.length, resourceKeys: [...new Set(sell.cells.map((c) => c.resourceKey))] })
@@ -341,7 +352,7 @@ describe('G4 — the sell layer: staff cells only', () => {
     const { price, depth } = priceOf()
     const sell = sellLayerFor(twoStaff, hours, {
       gridMin: GYM.sell.gridMin, sellSlotMin: GYM.sell.sellSlotMin, nowMinute: null,
-      locked: [], showPrice: true, hi: price.hi, hqMin: GYM.dialogs.pricing.hqMin, depth,
+      locked: [], showPrice: true, hi: price.hi, hqMin: GYM.dialogs.pricing.hqMin, depth, words: ASK_GYM,
     })
     const perHour = new Map<number, number>()
     for (const c of sell.cells) perHour.set(c.h, (perHour.get(c.h) ?? 0) + 1)
@@ -452,7 +463,7 @@ describe('G9 — no 「ベッド」 reachable', () => {
     const book = bookOf()
     const mask = maskOf(book)
     const door = gymDoor(mask)
-    const untagged = allocateBed(GYM.lanes, { id: null, currentBed: null, stores: [STORE_C], requiresPrivate: false, start: 780, end: 840 })
+    const untagged = allocateBed(GYM.lanes, { id: null, currentBed: null, stores: [STORE_C], words: ASK_GYM, requiresPrivate: false, start: 780, end: 840 })
     const sentences: string[] = []
     for (const per of explained.values()) for (const said of per.values()) sentences.push(said.sentence)
     for (const g of door.online.groups) for (let i = 0; i < g.rows.length; i += 1) sentences.push(g.label)
@@ -534,7 +545,11 @@ describe('G9 — no 「ベッド」 reachable', () => {
       'ベッド3 →', // :5404
       'ベッド2. The allocator retargets', // :5405
       '「…はベッドが満室です」',
-      "const room = requiresPrivate ? '個室' : 'ベッド'", // :5710
+      // ⚖ D-53 (ak)/(al) N2c-1 — PRUNED: the line this entry allowed
+      // (`const room = requiresPrivate ? '個室' : 'ベッド'`, :5710) now reads
+      // `words.privateWord : words.resourceNoun` — no literal word left at
+      // that line for this entry to match (the integrity check below would
+      // catch it as stale otherwise).
       '使えるベッドがありません」 named', // :5732 N8 rewrite, quote kept
       '「10:00〜11:00はベッドに空きがありません。',
       '「⇄ = ベッドを入れ替えて置ける」',
@@ -568,7 +583,7 @@ describe('G9 — no 「ベッド」 reachable', () => {
     // N2a) — pruned alongside the twelve, out of an abundance of the same
     // fix.
     const stale = allow.filter((a) => (matchCounts.get(a) ?? 0) === 0)
-    console.log('G9-ALLOWLIST-INTEGRITY', { entryCount: allow.length, prunedCount: 17, stale })
+    console.log('G9-ALLOWLIST-INTEGRITY', { entryCount: allow.length, prunedCount: 18, stale })
     expect(stale).toEqual([])
   })
 
@@ -632,7 +647,7 @@ describe('THE MATRIX — the rows this file can print (PLAN §4)', () => {
     const { price, depth } = priceOf()
     const sell = sellLayerFor(GYM.lanes, GYM.hours, {
       gridMin: GYM.sell.gridMin, sellSlotMin: 45, nowMinute: GYM.sell.nowMinute,
-      locked: [], showPrice: true, hi: price.hi, hqMin: GYM.dialogs.pricing.hqMin, depth,
+      locked: [], showPrice: true, hi: price.hi, hqMin: GYM.dialogs.pricing.hqMin, depth, words: ASK_GYM,
     })
     console.log('MATRIX B×C', { cellCount: sell.cells.length, bedCells: sell.cells.filter((c) => c.group === 'beds').length })
     expect(sell.cells.filter((c) => c.group === 'beds')).toEqual([])
@@ -742,7 +757,7 @@ describe('G12 — Greptile P1-1, pinned as NOT a defect (⚖ D-52 (g))', () => {
       }),
     ]
     const frame = { openMin: D52G_HOURS.open, closeMin: D52G_HOURS.close, nowMin: D52G_HOURS.open }
-    const views = bedViewsFor(lanes, frame, null)
+    const views = bedViewsFor(lanes, frame, null, ASK_GYM)
     const storeZLane = lanes.find((l) => l.key === 'p-z')!
     const door = bedDoor(views, lanes, 'z-ask-1')
     const q: LandingQuestion = {
@@ -759,7 +774,7 @@ describe('G12 — Greptile P1-1, pinned as NOT a defect (⚖ D-52 (g))', () => {
 
     // the SAME two reads on the CLAMPED gym board (STORE_C alone)
     const c03 = GYM.lanes.find((l) => l.key === 'c-03' && l.group === 'staff')!
-    const gymViews = bedViewsFor(GYM.lanes, frameOf(), null)
+    const gymViews = bedViewsFor(GYM.lanes, frameOf(), null, ASK_GYM)
     const gymDoorFn = bedDoor(gymViews, GYM.lanes, 'gym-ask-1')
     const gymQ: LandingQuestion = {
       staffLane: c03.key, bedLane: null, solveRoom: true, id: null, requiresPrivate: true,
@@ -945,7 +960,7 @@ describe('⚖ D-53 (c) R1 — N0 seeded family: a store-bound no-unit roster bes
       const b = genN0Board(seed)
       const opts = {
         gridMin: b.gridMin, sellSlotMin: b.sellSlotMin, nowMinute: null, locked: [],
-        showPrice: true, hi: price.hi, hqMin: GYM.dialogs.pricing.hqMin, depth,
+        showPrice: true, hi: price.hi, hqMin: GYM.dialogs.pricing.hqMin, depth, words: ASK_GYM,
       }
       const mixed = sellLayerFor(b.lanes, hours, opts)
       const unitOnlyLanes = b.floatingLane ? [...b.unitLanes, b.floatingLane] : b.unitLanes
@@ -1029,7 +1044,7 @@ describe('⚖ D-53 (c) R1 — N0 seeded family: a store-bound no-unit roster bes
       const { price, depth } = priceOf()
       const opts = {
         gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [],
-        showPrice: true, hi: price.hi, hqMin: GYM.dialogs.pricing.hqMin, depth,
+        showPrice: true, hi: price.hi, hqMin: GYM.dialogs.pricing.hqMin, depth, words: ASK_GYM,
       }
       const aStaff = n0StaffLane('p1-a-staff', ['store-a'])
       const zStaff = n0StaffLane('p1-z-staff', ['store-z'])

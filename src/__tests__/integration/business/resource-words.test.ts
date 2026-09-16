@@ -310,10 +310,13 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
     // converted the map sites' own literals (#31/#32 `withTrailingCleanup`/
     // `cleanupShell`, #34 `railCell`'s R-UNAVAILABLE branch, #36 `reseatSentence`,
     // #37-40 `railExplain`'s two chip ternaries, #41 the taker clause — 9
-    // occurrences); the remaining 4 are N2c's parked allocator sites
-    // (`fullRoomsRefusal`, #43-46).
-    expect(byFile).toEqual({ 'today-interactions.ts': 4 })
-    expect(offenders).toBe(4)
+    // occurrences); the remaining 4 were N2c's parked allocator sites.
+    // ⚖ D-53 (ak)/(al) — DISCLOSED PIN MOVE: N2c-1 (PKT-BUILD-N2C1-ALLOCATOR-WORDS.md)
+    // converted `fullRoomsRefusal`'s last 4 occurrences (#43-46) — the allocator's
+    // refusal text now reads the words handed to `allocateBed`. today/ is 0; the
+    // scanner does not yet walk today-board.ts/drag-rules.ts (N2c-2 widens it).
+    expect(byFile).toEqual({})
+    expect(offenders).toBe(0)
   })
 
   it('the scanner keeps regex literals and comment markers inside them out of the comment stripper (L1 MINOR-2)', () => {
