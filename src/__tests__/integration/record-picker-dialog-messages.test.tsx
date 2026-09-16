@@ -278,4 +278,46 @@ describe('picker dialog v2 — remote tier honesty (Greptile fold, 2026-09-16)',
       jest.useRealTimers()
     }
   })
+
+  // F-1 (FRESH-EYES-P3.md fold): the header must count what it shows below —
+  // local matches PLUS the deduped remote rows, not local matches alone.
+  it('F-1: 0 local + 1 remote renders 検索結果 (1件), not (0件)', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-other', name: '遠藤三郎', other_store: true }],
+        karute_number_unavailable: false,
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('検索結果 (1件)')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('F-1: 1 local + 1 remote renders 検索結果 (2件)', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-other', name: '遠藤三郎', other_store: true }],
+        karute_number_unavailable: false,
+      })
+      open({
+        customers: [{ id: 'c-1', name: '原 奏恵', furigana: null, phone: null }],
+        facts: [],
+        onRemoteSearch,
+      })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '原' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('検索結果 (2件)')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
 })

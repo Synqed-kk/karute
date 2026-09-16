@@ -311,7 +311,7 @@ export function RecordCustomerPickerDialog({
           {searching ? (
             <div id={LIST_ID} className="flex flex-col gap-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t('target.searchResultsCount', { n: matches.length })}
+                {t('target.searchResultsCount', { n: matches.length + remote.length })}
               </p>
               {/* Greptile fold: a failed karute-number cache read must say
                   so, never just silently drop what would have been a match. */}

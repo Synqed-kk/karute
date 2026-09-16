@@ -1153,7 +1153,18 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // through the two folds that followed it, and the REBASE 2 entry appended
 // at the end of this file's ledger by this session's own re-measurement
 // (§C) is the only figure that describes the code as it stands now.
-const BUDGET_BYTES = 2_120_615
+//
+// RE-MEASURED 2026-09-16 (F-1 fold, FRESH-EYES-P3.md / PKT-FOLD-945-F1) — the
+// search-results header now counts `matches.length + remote.length` instead
+// of local matches alone, so a cross-store-only hit no longer announces
+// 「検索結果 (0件)」 above a visible row. Same CI recipe, thin/dist emptied
+// between two clean builds, byte-identical both times (node v24.16.0,
+// @synqed-kk/ui 0.3.2, installed == lock): en 134,687 · index 1,047,151 ·
+// vendor 937,791 = 2,119,629 B. Ceiling = 2,119,629 + 1,000.
+//
+// +14 B, all in index (en and vendor unchanged to the byte) — the
+// `+ remote.length` source addition, one line.
+const BUDGET_BYTES = 2_120_629
 
 let dir
 try {
