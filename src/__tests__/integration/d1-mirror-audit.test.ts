@@ -312,14 +312,35 @@ describe('updateKaruteOutcome — web twin (Wave W3)', () => {
     expect(auditWeb).not.toHaveBeenCalled()
   })
 
-  it("a clamped actor + another store's record is refused, byte-identically to a missing record", async () => {
+  it("a clamped actor + another store's record is refused, byte-identically to a missing record, and files ONE refusal row", async () => {
     synqedKaruteRecords.get.mockResolvedValue({ id: 'kar-1', customer_id: 'cus-4', store_id: 'store-ginza' })
     storeScope.current = { storeId: 'store-daikanyama', viewAll: false, allowedStoreIds: ['store-daikanyama'], degraded: false }
-    const res = await updateKaruteOutcome('kar-1', outcome)
+    // ⚖ FRESH-EYES-P1B F2 — the refusal ROW is what PR B ships, and on this door
+    // nothing enforced it: the twin could be reverted to the pure lock and the
+    // whole suite stayed green. Read off the real audit() console sink, so this
+    // pins the shipped emitter, not a stub.
+    let res: Awaited<ReturnType<typeof updateKaruteOutcome>> | undefined
+    const lines = await auditLines(async () => {
+      res = await updateKaruteOutcome('kar-1', outcome)
+    })
     // The exact string a missing record already produced above — no oracle.
-    expect(res.error).toBe('karute record not found')
+    expect(res?.error).toBe('karute record not found')
     expect(setKaruteOutcome).not.toHaveBeenCalled()
     expect(auditWeb).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'karute',
+      action: 'karute.store_write_refused',
+      severity: 'warning',
+      target_type: 'karute',
+      target_id: 'kar-1',
+      source: 'web',
+      detail: expect.objectContaining({
+        door: 'karute.outcome_set',
+        record_store_id: 'store-ginza',
+        code: 'not_found',
+      }),
+    })
   })
 
   // ⚖ Greptile fold (2026-09-16): a DEGRADED scope is the lock failing closed
