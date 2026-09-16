@@ -45,6 +45,9 @@ import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 // runtime expected sentences are unchanged.
 const LANE_WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.chiropractic }
 const A_WORDS = RESOURCE_WORDS.chiropractic
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A = { resourceNoun: A_WORDS.resourceNoun, privateWord: A_WORDS.privateWord! }
 
 const HOURS: Hours = { open: 540, close: 1200 }
 const FRAME: DayFrame = { openMin: HOURS.open, closeMin: HOURS.close, nowMin: 540 }
@@ -152,7 +155,7 @@ describe('M2 — `packImpossible`: a NECESSARY condition, never a sufficient one
     // search would have refused anyway.
     expect(
       allocateBed(lanes, {
-        id: 'HAND', currentBed: null, stores: ['store-a'], requiresPrivate: false,
+        id: 'HAND', currentBed: null, stores: ['store-a'], words: ASK_A, requiresPrivate: false,
         start: 600, end: 660, pack: true, now: 540, cleanupMinutesByBed: {},
       }).laneKey,
     ).toBeNull()
@@ -240,7 +243,7 @@ describe('M2 — `packImpossible`: a NECESSARY condition, never a sufficient one
     ]
     expect(pruned(lanes, { id: 'HAND', start: 600, end: 660 }, cleanup)).toBe(false)
     const solved = allocateBed(lanes, {
-      id: 'HAND', currentBed: null, stores: ['store-a'], requiresPrivate: true,
+      id: 'HAND', currentBed: null, stores: ['store-a'], words: ASK_A, requiresPrivate: true,
       start: 600, end: 660, pack: true, now: 540, cleanupMinutesByBed: cleanup,
     })
     expect({ laneKey: solved.laneKey, moved: solved.reseats.map((r) => `${r.id}:${r.from}→${r.to}`) })
@@ -260,7 +263,7 @@ describe('M2 — `packImpossible`: a NECESSARY condition, never a sufficient one
     ]
     expect(pruned(lanes, { id: 'HAND', start: 600, end: 660 }, {}, ['s'])).toBe(false)
     const solved = allocateBed(lanes, {
-      id: 'HAND', currentBed: null, stores: ['s'], requiresPrivate: false,
+      id: 'HAND', currentBed: null, stores: ['s'], words: ASK_A, requiresPrivate: false,
       start: 600, end: 660, pack: true, now: 540, cleanupMinutesByBed: {},
     })
     expect({ laneKey: solved.laneKey, moved: solved.reseats.map((r) => `${r.id}:${r.from}→${r.to}`) })
@@ -280,6 +283,7 @@ const memoAsk = (over: Partial<Parameters<typeof allocateBed>[1]> = {}) => ({
   id: 'HAND' as string | null,
   currentBed: null as string | null,
   stores: ['store-a'] as string[] | null,
+  words: ASK_A,
   requiresPrivate: false,
   start: 600,
   end: 660,
@@ -531,12 +535,12 @@ describe('`bookFor` — one capacity book per lanes array, and it dies with the 
   it('the SAME array with the same frame and the same lift is built once', () => {
     const cache: BookCache = new WeakMap()
     const lanes = board()
-    expect(bookFor(lanes, FRAME, 'a', cache)).toBe(bookFor(lanes, FRAME, 'a', cache))
+    expect(bookFor(lanes, FRAME, 'a', cache, ASK_A)).toBe(bookFor(lanes, FRAME, 'a', cache, ASK_A))
   })
 
   it('a DIFFERENT array is a different book', () => {
     const cache: BookCache = new WeakMap()
-    expect(bookFor(board(), FRAME, 'a', cache)).not.toBe(bookFor(board(), FRAME, 'a', cache))
+    expect(bookFor(board(), FRAME, 'a', cache, ASK_A)).not.toBe(bookFor(board(), FRAME, 'a', cache, ASK_A))
   })
 
   it('a different LIFT on the same array rebuilds — each door keeps its own', () => {
@@ -545,8 +549,8 @@ describe('`bookFor` — one capacity book per lanes array, and it dies with the 
     // so a caller asking about nobody can never be handed somebody's lifted world.
     const cache: BookCache = new WeakMap()
     const lanes = board()
-    const withHand = bookFor(lanes, FRAME, 'a', cache)
-    const withNobody = bookFor(lanes, FRAME, null, cache)
+    const withHand = bookFor(lanes, FRAME, 'a', cache, ASK_A)
+    const withNobody = bookFor(lanes, FRAME, null, cache, ASK_A)
     expect(withNobody).not.toBe(withHand)
     expect(withNobody.worldMinusHand).toBeNull()
     expect(withHand.worldMinusHand).not.toBeNull()
@@ -555,8 +559,28 @@ describe('`bookFor` — one capacity book per lanes array, and it dies with the 
   it('a different FRAME rebuilds', () => {
     const cache: BookCache = new WeakMap()
     const lanes = board()
-    const a = bookFor(lanes, FRAME, 'a', cache)
-    expect(bookFor(lanes, { ...FRAME, nowMin: 900 }, 'a', cache)).not.toBe(a)
+    const a = bookFor(lanes, FRAME, 'a', cache, ASK_A)
+    expect(bookFor(lanes, { ...FRAME, nowMin: 900 }, 'a', cache, ASK_A)).not.toBe(a)
+  })
+
+  // ⚖ D-53 (ak)/(al) N2c-1 mutant a5 — a WORDS-only change is a cache miss too
+  // (`frameKey` carries `${words.resourceNoun}|${words.privateWord}`), and the
+  // two books answer a full-house ask with two DIFFERENT refusal sentences,
+  // each wearing its own resourceNoun.
+  it('a different WORDS pair on the SAME array rebuilds, and the refusal wears its own resourceNoun', () => {
+    const cache: BookCache = new WeakMap()
+    const lanes = board()
+    const DENTAL_ASK = { resourceNoun: RESOURCE_WORDS.dental_clinic.resourceNoun, privateWord: RESOURCE_WORDS.dental_clinic.privateWord! }
+    const withA = bookFor(lanes, FRAME, null, cache, ASK_A)
+    const withDental = bookFor(lanes, FRAME, null, cache, DENTAL_ASK)
+    expect(withDental).not.toBe(withA)
+    const asker = { stores: ['store-a'] }
+    const refusalA = withA.world.bedFor(600, 660, asker).refusal
+    const refusalDental = withDental.world.bedFor(600, 660, asker).refusal
+    console.log('today-live-drag a5', { refusalA, refusalDental })
+    expect(refusalA).not.toBe(refusalDental)
+    expect(refusalA).toContain('ベッド')
+    expect(refusalDental).toContain('ユニット')
   })
 })
 
@@ -760,6 +784,7 @@ describe('the pre-check is SOUND — a pruned ask is one the search would have r
           id: sc.hand.id,
           currentBed: sc.hand.bed,
           stores: staff.stores,
+          words: ASK_A,
           requiresPrivate,
           start,
           end,
@@ -873,6 +898,7 @@ describe('the memo is EXACTLY the allocator — proven at every frame of random 
           id: sc.hand.id,
           currentBed: sc.hand.bed,
           stores: board.find((x) => x.key === l && x.group === 'staff')!.stores,
+          words: ASK_A,
           requiresPrivate: priv,
           start: s,
           end: s + 60,

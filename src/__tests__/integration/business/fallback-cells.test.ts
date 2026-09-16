@@ -83,12 +83,16 @@ import {
 import { createGapGuard, type GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { clampPriceInputs, gapFillPrice, packedPrice } from '@/business/lib/canon-logic/pricing'
 import { STORE_A } from '@/business/lib/fixtures'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import { cleanupBlocks, hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A = { resourceNoun: RESOURCE_WORDS.chiropractic.resourceNoun, privateWord: RESOURCE_WORDS.chiropractic.privateWord! }
 
 // ── THE REAL FIXTURE WORLD, driven exactly as PROBE-E2 drove it ─────────────
 
@@ -202,6 +206,7 @@ function run(w: World, d: Dials, held: readonly ReservedLaneMask[] = [], locked:
     hi: price.hi,
     hqMin: REAL.dialogs.pricing.hqMin,
     depth,
+    words: ASK_A,
     reconcile: {
       claims,
       cleanupMinutesByBed: w.cleanup,
@@ -728,6 +733,7 @@ describe('3 — class-aware rooms: the 個室 is spent last, always', () => {
       id: null,
       currentBed: null,
       stores: ['store-a'],
+      words: ASK_A,
       requiresPrivate: false,
       start: 930,
       end: 960,
@@ -745,7 +751,7 @@ const maskFor = (w: World, guard: GuardConfig, mode: 'off' | 'standard' | 'stric
     nowMin: w.now,
     guard,
     gapGuardMode: mode,
-    book: bedTruthViews(w.lanes, { openMin: w.hours.open, closeMin: w.hours.close, nowMin: w.now ?? w.hours.open }, null)
+    book: bedTruthViews(w.lanes, { openMin: w.hours.open, closeMin: w.hours.close, nowMin: w.now ?? w.hours.open }, null, ASK_A)
       .world,
   })
 

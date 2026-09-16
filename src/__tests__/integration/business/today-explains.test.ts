@@ -91,6 +91,9 @@ const supabase = createClient as jest.Mock
 // calls.
 const LANE_WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.chiropractic }
 const A_WORDS = RESOURCE_WORDS.chiropractic
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A = { resourceNoun: A_WORDS.resourceNoun, privateWord: A_WORDS.privateWord! }
 
 /** ⚖ BREAKER-827 F1/F2/F3 — A `//`-PREFIXED COPY IS NOT THE LINE.
  *
@@ -312,7 +315,7 @@ function lane(over: Partial<BoardLane> & Pick<BoardLane, 'key' | 'group'>): Boar
 /** The rail exactly as the screen builds it, rooms included — flag 76's
  *  callback is what makes a bed refusal reachable here at all. */
 function railOn(lanes: BoardLane[], dur = 60): GuardRail {
-  const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
+  const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null, ASK_A).world
   return guardRailsFor(lanes, {
     open: HOURS.open, close: HOURS.close, stepMin: 30, dur, protectedDur: 90,
     nowMinute: null, locked: [], guard: GUARD,
@@ -348,7 +351,7 @@ const explainOn = (lanes: BoardLane[], cell: RailCell, dur = 60, reservedHalf?: 
     room:
       cell.reason === 'bed'
         ? allocateBed(lanes, {
-            id: null, currentBed: null, stores: null, requiresPrivate: false,
+            id: null, currentBed: null, stores: null, words: ASK_A, requiresPrivate: false,
             start: cell.start, end: cell.start + dur,
           })
         : null,
@@ -450,7 +453,7 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     const cell = at(railOn(busy), 780)
     expect(cell.reason).toBe('bed')
     const lifted = allocateBed(busy, {
-      id: 'x1', currentBed: null, stores: null, requiresPrivate: false, start: 780, end: 840,
+      id: 'x1', currentBed: null, stores: null, words: ASK_A, requiresPrivate: false, start: 780, end: 840,
     })
     expect([lifted.laneKey, lifted.refusal]).toEqual(['bed-01', null])
     // 満室 over a room that is standing empty is the lie. Bare 「—」 instead.
@@ -467,7 +470,7 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', stores: ['store-a'] }),
     ]
     const empty = allocateBed(split, {
-      id: null, currentBed: null, stores: ['store-b'], requiresPrivate: false, start: 780, end: 840,
+      id: null, currentBed: null, stores: ['store-b'], words: ASK_A, requiresPrivate: false, start: 780, end: 840,
     })
     expect(empty).toEqual({ laneKey: null, refusal: null, blockers: [], reseats: [] })
     const bedCell: RailCell = { ...at(railOn(sceneWith([])), 780), state: 'blocked', reason: 'bed' }
@@ -557,7 +560,7 @@ describe('§4 — ⚖ 75(i): the collector observes, and the clause never invent
     const { price, depth } = priceOf(REAL)
     return sellLayerFor(oneRoom(), REAL.hours, {
       gridMin: 60, sellSlotMin: 60, nowMinute: null, locked: [], showPrice: true,
-      hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth,
+      hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth, words: ASK_A,
       reconcile: { claims, cleanupMinutesByBed: {}, onDrop },
     })
   }
@@ -626,6 +629,7 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
       REAL.lanes,
       { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open },
       null,
+      ASK_A,
     ).world
 
     const rows: string[] = []
@@ -657,7 +661,7 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
           const drops: SellDrop[] = []
           const sell = sellLayerFor(REAL.lanes, REAL.hours, {
             gridMin, sellSlotMin: 60, nowMinute: REAL.sell.nowMinute, locked: [], showPrice: true,
-            hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth,
+            hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth, words: ASK_A,
             reconcile: {
               claims, cleanupMinutesByBed: REAL.bedCleanupMinutes,
               onDrop: (d) => drops.push(d),
@@ -760,7 +764,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
   ]
   const railsOn = (lanes: BoardLane[], dur = 60): GuardRail[] => {
-    const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
+    const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null, ASK_A).world
     return guardRailsFor(lanes, {
       open: HOURS.open, close: HOURS.close, stepMin: 30, dur, protectedDur: 90,
       nowMinute: null, locked: [], guard: GUARD,
@@ -939,7 +943,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // A real free-bed door, so `soldElsewhere` actually runs the walk instead
     // of bailing at `opts.bedsOver == null` — a wired door is what makes the
     // "no claim" assertion below mean something rather than pass by default.
-    const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
+    const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null, ASK_A).world
     const bedsOver = (laneKey: string, s: number, e: number) => {
       const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
       if (!lane) return null
@@ -1594,6 +1598,7 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
       id,
       currentBed: carried,
       stores: board.find((l) => l.key === sides.staffLane)?.stores ?? null,
+      words: ASK_A,
       requiresPrivate: item.requiresPrivateRoom === true,
       start: minuteOf(at.x, REAL.hours),
       end: minuteOf(at.x + at.w, REAL.hours),
@@ -1665,6 +1670,7 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
       hi: price.hi,
       hqMin: REAL.dialogs.pricing.hqMin,
       depth,
+      words: ASK_A,
       reconcile: { claims, cleanupMinutesByBed: REAL.bedCleanupMinutes },
     })
     const yen = (p: number | null) => (p == null ? '—' : money(p))
@@ -2013,7 +2019,7 @@ describe('windowsOf — the day layer over the honest set', () => {
       lane({ key: 'bed-02', group: 'beds' }),
     ]
     const frame = { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }
-    const views = bedViewsFor(lanes, frame, null)
+    const views = bedViewsFor(lanes, frame, null, ASK_A)
     const book = views.world
     const mask = reservedMaskFor({
       lanes, closeMin: HOURS.close, nowMin: null, guard: GUARD,
