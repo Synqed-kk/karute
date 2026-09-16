@@ -97,8 +97,10 @@ describe('the cache: pending is not empty', () => {
     const reopened = reduce(browsed, { type: 'open', month: '2026-09', seed: SEPT })
     expect(reopened.visibleMonth).toBe('2026-09')
     expect(reopened.level).toBe('grid')
-    // Months fetched while browsing survive the re-open — the cache is the point.
-    expect(reopened.cache.get('2026-09')).toEqual({ status: 'loaded', cells: SEPT })
+    // Months fetched while browsing survive the re-open — the cache is the
+    // point — but the seed is stale like every other entry (Greptile P1): the
+    // page never remounts, so the same seed must not skip the re-read forever.
+    expect(reopened.cache.get('2026-09')).toEqual({ status: 'loaded', cells: SEPT, stale: true })
   })
 })
 
@@ -214,15 +216,35 @@ describe('re-opening refreshes the counts without blanking them', () => {
     expect(neverAnswered.cache.get('2026-09')?.cells).toBeUndefined()
   })
 
-  it('the 月-view seed replaces its month rather than ageing it', () => {
+  it('the 月-view seed paints its month but still re-validates it (Greptile P1)', () => {
     const reopened = reduce(
       initialDateJumpState('2026-09'),
       { type: 'loaded', month: '2026-09', cells: [cell('2026-09-03')] },
       { type: 'open', month: '2026-09', seed: SEPT },
     )
-    expect(reopened.cache.get('2026-09')).toEqual({ status: 'loaded', cells: SEPT })
-    // Fresh from the server this render — nothing to re-ask for.
-    expect(monthsToLoad(reopened)).toEqual(['2026-10', '2026-08'])
+    // The seed replaces the cells for an instant, shimmer-free paint...
+    expect(reopened.cache.get('2026-09')).toEqual({ status: 'loaded', cells: SEPT, stale: true })
+    // ...but it is stale, so the visible month is still offered for a re-read.
+    // Without this, a booking made on another device or by another staff
+    // member never shows up in the ONE month the staff member is looking at.
+    expect(monthsToLoad(reopened)).toEqual(['2026-09'])
+  })
+
+  it('a SECOND open with the same (unchanged) seed offers the month again too', () => {
+    // The page stays mounted between opens, so `seed` is the SAME server
+    // render both times — this is the actual bug: a seed that only skips the
+    // re-read once is fine, but skipping it on every later open is not.
+    const first = reduce(
+      initialDateJumpState('2026-09'),
+      { type: 'open', month: '2026-09', seed: SEPT },
+      { type: 'pending', month: '2026-09' },
+      { type: 'loaded', month: '2026-09', cells: SEPT },
+    )
+    expect(monthsToLoad(first)).toEqual(['2026-10', '2026-08'])
+
+    const second = reduce(first, { type: 'open', month: '2026-09', seed: SEPT })
+    expect(second.cache.get('2026-09')).toEqual({ status: 'loaded', cells: SEPT, stale: true })
+    expect(monthsToLoad(second)).toEqual(['2026-09'])
   })
 })
 
