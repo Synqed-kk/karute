@@ -109,6 +109,19 @@ jest.mock('@/components/appointments/BookingActionSheetWrapper', () => ({
   BookingActionSheetWrapper: () => null,
 }))
 jest.mock('@/components/appointments/CancelBookingSheet', () => ({ CancelBookingSheet: () => null }))
+// G4 (FIX-932-G1) — the mocked router.push above is synchronous with no real
+// state update inside it, so React's OWN useTransition never actually reports
+// isPending true here: a test that wants the month wrapper's real busy state
+// (its aria-busy IS raw isPending, not the tappedHold mismatch) has to hold it
+// pending directly. Everything else (useState, useEffect, …) stays real.
+let mockPendingFlag = false
+jest.mock('react', () => {
+  const actual = jest.requireActual('react') as typeof import('react')
+  return {
+    ...actual,
+    useTransition: () => [mockPendingFlag, (cb: () => void) => cb()] as const,
+  }
+})
 
 type WeekRowsProps = {
   rows: WeekDayRowData[]
@@ -278,6 +291,7 @@ beforeEach(() => {
   Object.assign(mockSwitches(), mockShipped())
   pushed.length = 0
   currentSearch = ''
+  mockPendingFlag = false
   for (const k of Object.keys(uiProps)) delete uiProps[k]
   for (const k of Object.keys(panelProps)) delete panelProps[k]
 })
@@ -556,6 +570,13 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
   // washed out, and a second day tap during a pending read was silently
   // dropped. The month branch is not inside it any more.
   it('the 月 branch is OUTSIDE the pending wrapper — a cell tap never locks or dims the page', () => {
+    // G4 (Greptile round 1, FIX-932-G1) — isPending is false at REST, so this
+    // test used to prove nothing about the wrapper's actual busy state: a
+    // regression that wrapped the month branch in the dangerous classes only
+    // WHILE pending would still have passed. Hold the transition genuinely
+    // pending (the mocked useTransition above) so the assertions below run
+    // against the state that matters.
+    mockPendingFlag = true
     const { container, getByTestId } = renderView(MONTH_VIEW)
     getByTestId('month-page')
     expect(container.querySelector('[data-pending-dim]')).toBeNull()
@@ -567,6 +588,7 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     // branch's own `aria-busy` wrapper, and on every ancestor between the
     // page root and month-page / selected-day-card.
     const monthWrapper = getByTestId('month-page').closest('[aria-busy]')!
+    expect(monthWrapper.getAttribute('aria-busy')).toBe('true')
     expect(monthWrapper.className).not.toContain('pointer-events-none')
     expect(monthWrapper.className).not.toContain('opacity-50')
     for (const testId of ['month-page', 'selected-day-card']) {
