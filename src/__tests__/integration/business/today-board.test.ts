@@ -152,6 +152,8 @@ async function mergedLanes() {
     operatorStaffId: shell.operator.staff_id,
     storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
     crossStore: true,
+    wordsByStore: {},
+    genericWords: RESOURCE_WORDS.other,
   }
   return buildLanes(input, dayBookings(input))
 }
@@ -551,6 +553,8 @@ describe('今日の運営 screen', () => {
         operatorStaffId: shell.operator.staff_id,
         storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
         crossStore: false,
+        wordsByStore: {},
+        genericWords: RESOURCE_WORDS.other,
       }
       const bookings = dayBookings(input)
       return { bookings, lanes: buildLanes(input, bookings) }
@@ -1105,6 +1109,8 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
       operatorStaffId: shell.operator.staff_id,
       storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
       crossStore: false,
+      wordsByStore: {},
+      genericWords: RESOURCE_WORDS.other,
     }
     return buildLanes(input, dayBookings(input))
   }

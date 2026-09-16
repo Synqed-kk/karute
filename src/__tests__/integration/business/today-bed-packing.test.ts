@@ -140,6 +140,8 @@ async function demoLanes(): Promise<BoardLane[]> {
     operatorStaffId: shell.operator.staff_id,
     storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
     crossStore: false,
+    wordsByStore: {},
+    genericWords: RESOURCE_WORDS.other,
   }
   DEMO = buildLanes(input, dayBookings(input))
   return DEMO

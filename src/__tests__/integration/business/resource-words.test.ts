@@ -287,15 +287,28 @@ function listSourceFiles(dir: string): string[] {
 
 const TODAY_DIR = join(process.cwd(), 'src/app/[locale]/(business)/business/today')
 const TARGET_WORDS = ['ベッド', '個室', '満室', '清掃']
+// ⚖ D-53 (ak)/(al) R-6 — the two frozen word-minting files under
+// src/business/lib/, scanned explicitly (they sit outside TODAY_DIR, so
+// `listSourceFiles(TODAY_DIR)` cannot reach them on its own).
+const EXTRA_SCANNED_FILES = [
+  join(process.cwd(), 'src/business/lib/today-board.ts'),
+  join(process.cwd(), 'src/business/lib/canon-logic/drag-rules.ts'),
+]
 
 describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
   it('counts ベッド・個室・満室・清掃 in today/ source text outside comments (string, template and JSX text included), per file', () => {
     const byFile: Record<string, number> = {}
     let offenders = 0
-    for (const file of listSourceFiles(TODAY_DIR)) {
+    // ⚖ D-53 (ak)/(al) R-6 — the scanned set widens to the two frozen
+    // word-minting files from N2c-2 on; the key switches to
+    // `relative(process.cwd(), file)` for EVERY scanned file so the two new
+    // ones pin as `src/business/lib/…` (the today/ key never appeared at
+    // zero, so the existing zero pin is untouched by the key change).
+    const scanned = [...listSourceFiles(TODAY_DIR), ...EXTRA_SCANNED_FILES]
+    for (const file of scanned) {
       const stripped = stripComments(readFileSync(file, 'utf8'))
       const count = TARGET_WORDS.reduce((sum, w) => sum + countOccurrences(stripped, w), 0)
-      if (count > 0) byFile[relative(TODAY_DIR, file)] = count
+      if (count > 0) byFile[relative(process.cwd(), file)] = count
       offenders += count
     }
     console.log('census:', JSON.stringify({ offenders, byFile }))
@@ -313,10 +326,22 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
     // occurrences); the remaining 4 were N2c's parked allocator sites.
     // ⚖ D-53 (ak)/(al) — DISCLOSED PIN MOVE: N2c-1 (PKT-BUILD-N2C1-ALLOCATOR-WORDS.md)
     // converted `fullRoomsRefusal`'s last 4 occurrences (#43-46) — the allocator's
-    // refusal text now reads the words handed to `allocateBed`. today/ is 0; the
-    // scanner does not yet walk today-board.ts/drag-rules.ts (N2c-2 widens it).
+    // refusal text now reads the words handed to `allocateBed`. N2c-2
+    // (PKT-BUILD-N2C2-BOARD-AND-RULES-WORDS.md) widens the scanner to
+    // today-board.ts (3 occurrences: bookingItem's private-room slot, the
+    // cleanup title and label) and drag-rules.ts (2 occurrences: the
+    // yielded-derived check label's two slots) and converts both — the
+    // widened census is 0 everywhere.
     expect(byFile).toEqual({})
     expect(offenders).toBe(0)
+    // ⚖ mutant b6 catch — the {}/0 pins above cannot tell "both files scanned
+    // and clean" from "widening dropped back to today/-only", since a fixed
+    // today-board.ts/drag-rules.ts would ALSO read 0 if never scanned. This
+    // inspects the array actually iterated, so dropping the widening fails
+    // here regardless of the two files' own content.
+    expect(scanned.map((f) => relative(process.cwd(), f)).sort()).toEqual(
+      expect.arrayContaining(['src/business/lib/canon-logic/drag-rules.ts', 'src/business/lib/today-board.ts']),
+    )
   })
 
   it('the scanner keeps regex literals and comment markers inside them out of the comment stripper (L1 MINOR-2)', () => {
