@@ -1181,7 +1181,36 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // vendor 937,791 → 937,791 (unchanged — no new dependency). Genuine
 // new-feature volume, not bloat — same class as every prior raise on this
 // line.
-const BUDGET_BYTES = 2_121_053
+//
+// RE-MEASURED 2026-09-16 (REBASE 2 + F-3 fold, PKT-945-REBASE2-F3) — rebased
+// feat/cross-branch-search onto origin/main 20926b3ac (past #935's 月ページ
+// 先月同期間比), one conflict across an 11-commit rebase, in this same file
+// only (§ the two prior HEAD/theirs entries above, resolved by the file's
+// own convention: main's block kept, this branch's blocks appended after).
+// F-3 (Greptile on the pre-rebase tip) then reworded customers.remoteMore
+// from a promise about undisplayed rows — which could be a local duplicate —
+// to a fact that is always true when the flag is set: ja 「会社全体の検索は
+// 上限の{n}件に達しました — さらに入力して絞り込み」, en "Company-wide search
+// hit its limit of {n} — keep typing to narrow", both pickers now passing
+// { n: CUSTOMER_SEARCH_LIMIT }. Copy + prop only, no logic change. Same CI
+// recipe, thin/dist emptied between two clean builds, byte-identical both
+// times (matching content hashes, node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock): en 134,817 · index 1,048,091 · vendor 937,791 =
+// 2,120,699 B. Ceiling = 2,120,699 + 1,000.
+//
+// +646 B against the prior (pre-rebase) entry's own figure: en 134,754 →
+// 134,817 (+63 B, the reworded ja/en line plus the {n} arg at both call
+// sites) · index 1,047,508 → 1,048,091 (+583 B, the rebase carrying main's
+// #935 stack forward through this branch's own diff) · vendor 937,791 →
+// 937,791 (unchanged — no new dependency). Isolated against a fresh
+// same-recipe build of bare origin/main 20926b3ac (en 134,544 · index
+// 1,044,144 · vendor 937,791 = 2,116,479 B, matching this file's own #935
+// entry above to within 1 B — a different-worktree hash-length variance
+// this file has already documented, not a defect): this branch's whole P3
+// stack (company-wide search + every fold + F-3) costs the phone +4,220 B
+// over main. Genuine copy + rebase volume, not bloat — same class as every
+// prior raise on this line.
+const BUDGET_BYTES = 2_121_699
 
 let dir
 try {

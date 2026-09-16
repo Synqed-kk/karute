@@ -352,7 +352,7 @@ export function CustomerCombobox({
            *  Sibling of the <ul>, so it never counts as an option. */}
           {remoteMore && (
             <p className="px-3 py-1.5 text-center text-[11px] text-muted-foreground">
-              {t('remoteMore')}
+              {t('remoteMore', { n: CUSTOMER_SEARCH_LIMIT })}
             </p>
           )}
 

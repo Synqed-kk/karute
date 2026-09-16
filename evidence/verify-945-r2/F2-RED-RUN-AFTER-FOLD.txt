@@ -1,3 +1,13 @@
+PKT-945-REBASE2-F3-2026-09-16 §C: F-2 red-run proof, reproduced at the
+post-rebase/F-3 tip (this session).
+
+Reverted src/actions/customers.ts:850 `const remoteMore = merged.length >
+CUSTOMER_SEARCH_LIMIT` to `const remoteMore = false` for one run, then ran
+`npx jest src/__tests__/integration/customers-search-company-wide.test.ts
+--verbose`. The two `remote_more: true` cases go red; the "exactly 8 →
+false" case stays green (it never depended on the flag being forced). Fix
+restored immediately after, `git diff` clean.
+
   console.log
     Integration test environment ready
 
@@ -12,15 +22,15 @@ FAIL src/__tests__/integration/customers-search-company-wide.test.ts
   searchCustomersCompanyWide
     ✓ empty query → {options: []}, no reads (1 ms)
     ✓ a failed capability gate collapses to {error}, never throws
-    ✓ clamped actor: a result outside their own store-lensed list is other_store: true; one inside is false (46 ms)
-    ✓ unclamped (viewAll) actor: never other_store — their own list is already business-wide
+    ✓ clamped actor: a result outside their own store-lensed list is other_store: true; one inside is false (35 ms)
+    ✓ unclamped (viewAll) actor: never other_store — their own list is already business-wide (1 ms)
     ✓ Greptile fold: a non-digit term never loads the business-wide cache (eligibility checked first)
     ✓ Greptile fold: a FAILED lens read is UNKNOWN (other_store: null), never silently "own store"
     ✓ Greptile fold: a FAILED business-wide read on a karute-number-eligible term returns the direct results plus karute_number_unavailable: true
     ✓ karute number merges ahead of the (empty) name/phone matches
-    ✕ F-2: 9 rows from core → remote_more: true, options still slice to 8 (3 ms)
-    ✓ F-2: exactly 8 rows from core → remote_more: false (1 ms)
-    ✕ F-2: a karute-number hit plus 8 direct-search rows → remote_more: true (merge pushes past the cap)
+    ✕ F-2: 9 rows from core → remote_more: true, options still slice to 8 (2 ms)
+    ✓ F-2: exactly 8 rows from core → remote_more: false
+    ✕ F-2: a karute-number hit plus 8 direct-search rows → remote_more: true (merge pushes past the cap) (1 ms)
 
   ● searchCustomersCompanyWide › F-2: 9 rows from core → remote_more: true, options still slice to 8
 
@@ -69,5 +79,5 @@ FAIL src/__tests__/integration/customers-search-company-wide.test.ts
 Test Suites: 1 failed, 1 total
 Tests:       2 failed, 9 passed, 11 total
 Snapshots:   0 total
-Time:        0.624 s, estimated 1 s
+Time:        0.43 s, estimated 1 s
 Ran all test suites matching /src\/__tests__\/integration\/customers-search-company-wide.test.ts/i.

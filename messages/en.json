@@ -914,7 +914,7 @@
     "otherStoreSection": "Other store customers",
     "otherStoreUnknownChip": "Store unknown",
     "karuteNumberUnavailable": "Karute-number search is temporarily unavailable",
-    "remoteMore": "More matches company-wide — keep typing to narrow",
+    "remoteMore": "Company-wide search hit its limit of {n} — keep typing to narrow",
     "deletionBanner": {
       "title": "{name} is deleted — restorable for {days, plural, one {# more day} other {# more days}}",
       "titleToday": "The in-app restore window for {name} ends today",

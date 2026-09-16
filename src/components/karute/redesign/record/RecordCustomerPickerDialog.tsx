@@ -386,7 +386,7 @@ export function RecordCustomerPickerDialog({
                       Outside the listbox, so it never counts as an option. */}
                   {remoteMore && (
                     <p className="text-center text-[11px] text-muted-foreground">
-                      {tCustomers('remoteMore')}
+                      {tCustomers('remoteMore', { n: CUSTOMER_SEARCH_LIMIT })}
                     </p>
                   )}
                 </>
