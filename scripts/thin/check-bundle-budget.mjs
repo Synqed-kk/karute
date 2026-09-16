@@ -1544,7 +1544,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // (2,118,450 B), this fold's own cost (new strings + the recheck/probe code
 // reaching the thin bundle). Ceiling was 2,119,471 + 1,000.
 //
-// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-17 — REBASE 4 + G-2b (PKT-GATE-REBASE4-G2B-2026-09-17):
 // the gate rebased onto origin/main's tip after PR #945 landed (dc883ecbf,
 // `git rebase --onto origin/main 20926b3ac fix/unassigned-gate`, one conflict
@@ -1558,7 +1557,7 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // CI's own six VITE_* values, the 208-char anon-key placeholder included,
 // thin/dist emptied before each of two laps, byte-identical both times
 // (matching filenames, sizes and MD5s, node v24.16.0): en 135,045 · index
-// 1,050,846 · vendor 937,791 = 2,123,682 B. Ceiling = 2,123,682 + 1,000.
+// 1,050,846 · vendor 937,791 = 2,123,682 B. Ceiling was 2,123,682 + 1,000.
 //
 // +4,211 B over the G-1..3 fold's own figure above (2,119,471 B): the rebase
 // carrying main's #945 (cross-branch customer search) forward through this
@@ -1568,7 +1567,37 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // whole gate stack (Layers 1-3 + M5 fold + G-1..3 Greptile fold + G-2b) costs
 // +2,880 B — genuine feature/rebase volume, not bloat, same class as every
 // prior raise on this line.
-const BUDGET_BYTES = 2_124_682
+//
+// `activeStoreCount` (renamed `storeCountForGate`) then folded once more
+// (X6, no ledger entry of its own at the time — folded into the branch
+// without a re-measurement pass): judges by TOTAL store count when every row
+// reads inactive, so an all-archived multi-store business still isolates an
+// unassigned staffer instead of falling through to the business-wide view.
+// store-gate.ts + store-clamp.ts, logic-only, no new string reaching the
+// thin bundle. Tip after this fold (pre-rebase): `4837a8f65`.
+//
+// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-17 — REBASE 5 (PKT-REBASE-GATE-S3-2026-09-17): the gate
+// (pre-rebase tip `4837a8f65`, the X6 fold above included) rebased onto
+// origin/main's tip after PR #950 landed (53bc4e9fb, `git rebase --onto
+// origin/main dc883ecbf fix/unassigned-gate`), one conflict across the
+// 5-commit replay, in this same file and in src/actions/stores.ts only —
+// main's #934 capacity-adapter ledger kept first, this branch's own gate
+// ledger appended after, one live `BUDGET_BYTES`, same convention as every
+// prior rebase's own resolution above (REBASE 2/3/4); new tip `3a059e627`.
+// stores.ts: main's own `coreBusinessType` import (moved out to
+// @/lib/welcome/business-types) kept, the gate's own `actorIsUnassigned` /
+// `STORE_UNASSIGNED_DENIAL` import layered beside it — no logic on either
+// side touched. Same CI recipe — CI's own six VITE_* values read straight out
+// of .github/workflows/ci.yml (not hand-typed, to rule out a transcription-
+// length drift), thin/dist emptied before each of two laps, byte-identical
+// both times (matching filenames, sizes and MD5s, node v24.16.0): en 135,045
+// · index 1,051,317 · vendor 937,791 = 2,124,153 B — +471 B over the G-2b
+// entry's own figure above (2,123,682 B), the rebase carrying main's #950
+// (Business file) and #934 (capacity adapter) forward through this branch's
+// whole gate stack. Genuine rebase volume, not bloat, same class as every
+// prior raise on this line. Ceiling = 2,124,153 + 1,000.
+const BUDGET_BYTES = 2_125_153
 
 let dir
 try {
