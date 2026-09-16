@@ -76,6 +76,14 @@ const DEGRADED = { viewAll: false, allowedStoreIds: ['store-ginza'], degraded: t
 
 const RECORD = { store_id: 'store-ginza' }
 
+/** Every `*.store_write_refused` row the audit spy saw — the refusal trace
+ *  (FRESH-EYES-P1 §5a). A door that PASSES the lock must file none: the row is
+ *  the refusal's receipt, not the write's. */
+const refusalRows = () =>
+  auditSpy.mock.calls.filter((c) =>
+    String((c[0] as { action?: unknown } | undefined)?.action ?? '').endsWith('.store_write_refused'),
+  )
+
 describe('ensureRecordStoreInScope — the one predicate', () => {
   const run = (record: { store_id: string | null }, scope: Parameters<typeof ensureRecordStoreInScope>[1]) => {
     try {
@@ -319,14 +327,26 @@ describe('karute detail edits — the shared cores are store-locked', () => {
     ['summary edit', summary, 'update'],
   ] as const) {
     describe(name, () => {
-      it('a clamped actor + another store record → the SAME not_found a missing id gets', async () => {
+      it('a clamped actor + another store record → the SAME not_found a missing id gets, and ONE refusal row', async () => {
         const c = karuteClient()
         await expect(call(c, { recordStoreId: 'store-ginza', scope: CLAMPED_FOREIGN })).rejects.toMatchObject({
           code: 'not_found',
           message: KARUTE_NOT_FOUND,
         })
         expect(c[writeName]).not.toHaveBeenCalled()
-        expect(auditSpy).not.toHaveBeenCalled()
+        expect(auditSpy).toHaveBeenCalledTimes(1)
+        expect(auditSpy.mock.calls[0][0]).toMatchObject({
+          category: 'karute',
+          action: 'karute.store_write_refused',
+          severity: 'warning',
+          targetType: 'karute',
+          targetId: 'kar-1',
+          detail: expect.objectContaining({
+            door: name === 'entry edit' ? 'karute.entry_edit' : 'karute.summary_edit',
+            record_store_id: 'store-ginza',
+            code: 'not_found',
+          }),
+        })
       })
 
       it('a legacy store-less record is refused for a clamped actor', async () => {
@@ -375,6 +395,7 @@ describe('karute detail edits — the shared cores are store-locked', () => {
           const c = karuteClient()
           await expect(call(c, { recordStoreId: 'store-ginza', scope })).resolves.toEqual({ ok: true })
           expect(c[writeName]).toHaveBeenCalledTimes(1)
+          expect(refusalRows()).toHaveLength(0)
         }
       })
     })
@@ -433,7 +454,20 @@ describe('karute save converge branch — the recording_session_id door is store
     })
     expect(c.update).not.toHaveBeenCalled()
     expect(c.create).not.toHaveBeenCalled()
-    expect(auditSpy).not.toHaveBeenCalled()
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0]).toMatchObject({
+      category: 'karute',
+      action: 'karute.store_write_refused',
+      severity: 'warning',
+      targetType: 'karute',
+      targetId: 'kar-1',
+      detail: expect.objectContaining({
+        door: 'karute.save',
+        recording_session_id: 'rec-1',
+        record_store_id: 'store-ginza',
+        code: 'not_found',
+      }),
+    })
   })
 
   it("an UNASSIGNED Bearer caller (real resolver, 2-store business) cannot converge-save onto any store's record", async () => {
@@ -484,7 +518,17 @@ describe('karute save converge branch — the recording_session_id door is store
     await expect(save(c, DEGRADED)).rejects.toMatchObject({ code: 'store_forbidden' })
     expect(c.update).not.toHaveBeenCalled()
     expect(c.create).not.toHaveBeenCalled()
-    expect(auditSpy).not.toHaveBeenCalled()
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'karute.store_write_refused',
+      targetId: 'kar-1',
+      detail: {
+        door: 'karute.save',
+        recording_session_id: 'rec-1',
+        record_store_id: 'store-ginza',
+        code: 'store_forbidden',
+      },
+    }))
   })
 
   it('viewAll, floating and same-store actors converge normally', async () => {
@@ -496,6 +540,7 @@ describe('karute save converge branch — the recording_session_id door is store
       const c = convergeClient(store)
       await expect(save(c, scope)).resolves.toMatchObject({ id: 'kar-1', fresh: false })
       expect({ label, updates: c.update.mock.calls.length }).toEqual({ label, updates: 1 })
+      expect(refusalRows()).toHaveLength(0)
     }
   })
 

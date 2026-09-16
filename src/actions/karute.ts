@@ -22,6 +22,11 @@ import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import { audit } from '@/lib/audit'
+import {
+  auditStoreWriteRefused,
+  ensureRecordStoreInScopeAudited,
+  type StoreRefusalActor,
+} from '@/lib/audit-store-lock'
 import { resolveWebAuditContext, auditWeb } from '@/lib/audit-web'
 import { SESSION_CATEGORY_TO_ENTRY_CATEGORY, summaryTextToBullets } from '@/lib/adapters/karute-detail'
 import { ENTRY_CONTENT_INVALID_ERROR, type SaveKaruteInput } from '@/types/karute'
@@ -213,7 +218,14 @@ export async function createOrUpdateKaruteRecord(
       // with the SAME not_found readKaruteRaw throws for a missing id, so this
       // door is no existence oracle either. The CREATE arm needs no lock — its
       // store comes from resolveKaruteStoreId / resolveSaveStore, already clamped.
-      ensureRecordStoreInScope({ store_id: existing.store_id ?? null }, scope, KARUTE_NOT_FOUND)
+      ensureRecordStoreInScopeAudited({ store_id: existing.store_id ?? null }, scope, KARUTE_NOT_FOUND, {
+        actor,
+        category: 'karute',
+        targetType: 'karute',
+        targetId: existing.id,
+        door: 'karute.save',
+        detail: { recording_session_id: recordingSessionId },
+      })
       // Collision on recording_session_id (fix round — the prior "this
       // branch's payload is the SAME content by construction" premise was
       // wrong: this branch is also reached by ReviewScreen's saveKaruteRecord
@@ -590,18 +602,27 @@ export async function deleteKaruteRecord(karuteId: string): Promise<{ success: t
     // src/actions/audit-log.ts:437) so the full clinical text never ships
     // over the wire just to read four ids.
     const record = await readKaruteMetaRaw(synqed, karuteId)
+    // Resolved BEFORE the lock now (it was resolved just below): the REFUSAL
+    // files its own row too, and it needs the same identity the success row
+    // carries. resolveWebAuditContext never throws.
+    const { actorId, businessId } = await resolveWebAuditContext()
     // STORE LOCK (⚖ Liam 2026-09-16) — a clamped actor holding records.delete
     // must not be able to delete another branch's karute by id. Refuses with
     // the SAME not_found readKaruteMetaRaw throws for a missing/cross-tenant
     // id, so this door is no existence oracle either. Web-only door: no
     // facade twin exists (verified by grep, 2026-09-16).
-    ensureRecordStoreInScope(record, await resolveStoreScope(), KARUTE_NOT_FOUND)
+    ensureRecordStoreInScopeAudited(record, await resolveStoreScope(), KARUTE_NOT_FOUND, {
+      actor: { actorId, businessId, source: 'web' },
+      category: 'karute',
+      targetType: 'karute',
+      targetId: karuteId,
+      door: 'karute.delete',
+    })
     await synqed.karuteRecords.delete(karuteId)
 
     // Emit BEFORE revalidatePath/updateTag (F6) — if either throws after a
     // successful delete, the row still landed; audit() itself never throws
     // (src/lib/audit.ts:77-92), so the reverse risk does not exist.
-    const { actorId, businessId } = await resolveWebAuditContext()
     audit({
       category: 'karute',
       action: 'karute.delete',
@@ -758,18 +779,51 @@ async function toCustomerInScope(
 async function ensureReassignStoreScope(
   synqed: Pick<SynqedClient, 'customers'>,
   record: { store_id: string | null },
+  karuteId: string,
   toCustomerId: string,
   scope: ReassignScope,
+  actor: StoreRefusalActor | undefined,
 ): Promise<void> {
   // R3-1's record half now lives in ONE place for every by-id write door
   // (ensureRecordStoreInScope, src/lib/auth/store-lock.ts) — same three
   // outcomes as before, byte for byte: viewAll passes, a degraded lookup
   // fails closed, an out-of-store record refuses as readKaruteRaw's own
   // not_found. Only the to-customer half below is reassign-specific.
-  ensureRecordStoreInScope(record, scope, KARUTE_NOT_FOUND)
+  // AUDITED when an actor is in hand (FRESH-EYES-P1 §5a) — the thrown error is
+  // byte-unchanged either way, so the no-oracle guarantee above still holds.
+  if (actor) {
+    ensureRecordStoreInScopeAudited(record, scope, KARUTE_NOT_FOUND, {
+      actor,
+      category: 'karute',
+      targetType: 'karute',
+      targetId: karuteId,
+      door: 'karute.customer_reassign',
+    })
+  } else {
+    ensureRecordStoreInScope(record, scope, KARUTE_NOT_FOUND)
+  }
   if (scope.viewAll) return
   if (!scope.allowedStoreIds) return // floating — unclamped
   if (await toCustomerInScope(synqed, toCustomerId, scope.allowedStoreIds)) return
+  // ⚖ FRESH-EYES-P1B F7 — THE OTHER HALF OF THE SAME PROBE. The record half above
+  // files its row; this one refused silently, so a clamped actor could enumerate
+  // customer ids against a karute they legitimately hold and no owner would ever
+  // see it. Exactly ONE row per request either way: the record half THROWS, so
+  // control only reaches here when it passed.
+  // The throw below is untouched — auditStoreWriteRefused records, never decides.
+  if (actor) {
+    auditStoreWriteRefused({
+      actor,
+      category: 'karute',
+      targetType: 'karute',
+      targetId: karuteId,
+      door: 'reassign.to_customer',
+      recordStoreId: record.store_id,
+      code: 'store_forbidden',
+      // The id that was probed. Ids only — never the customer's name.
+      detail: { to_customer_id: toCustomerId },
+    })
+  }
   throw new AppApiError('store_forbidden', 'that customer is outside your assigned store')
 }
 
@@ -798,6 +852,12 @@ export async function reassignKaruteCustomerWithClient(
   toCustomerId: string,
   opts: { confirmed: boolean },
   scope: ReassignScope,
+  /** For the store-lock REFUSAL row (FRESH-EYES-P1 §5a). OPTIONAL, unlike the
+   *  scope beside it: this is a trace, not a gate — a caller that omits it
+   *  loses the row, never the lock, and the 20-odd suites that drive this core
+   *  directly keep saying exactly what they mean. Both shipped callers (the web
+   *  wrapper below, the facade route) pass one. */
+  actor?: StoreRefusalActor,
 ): Promise<ReassignPreview | ReassignSuccess> {
   const record = await readKaruteRaw(synqed, karuteId)
   const fromCustomerId = record.customer_id
@@ -822,7 +882,7 @@ export async function reassignKaruteCustomerWithClient(
   // membership by roster presence, and a record's own attached customer is
   // always in that record's store roster (event-derived membership), so
   // to === from still passes the clamp and reaches the guards below.
-  await ensureReassignStoreScope(synqed, record, toCustomerId, scope)
+  await ensureReassignStoreScope(synqed, record, karuteId, toCustomerId, scope, actor)
 
   if (!fromCustomerId) {
     throw new AppApiError('validation', 'this karute has no customer to reassign from')
@@ -887,11 +947,15 @@ export async function reassignKaruteCustomer(
     await requireCapability('records.reassign')
     const synqed = await getSynqedClient()
     const { viewAll, allowedStoreIds, degraded } = await resolveStoreScope()
-    const result = await reassignKaruteCustomerWithClient(synqed, karuteId, toCustomerId, opts, {
-      viewAll,
-      allowedStoreIds,
-      degraded,
-    })
+    const { actorId, businessId } = await resolveWebAuditContext()
+    const result = await reassignKaruteCustomerWithClient(
+      synqed,
+      karuteId,
+      toCustomerId,
+      opts,
+      { viewAll, allowedStoreIds, degraded },
+      { actorId, businessId, source: 'web' },
+    )
     if ('requiresConfirm' in result) return result
 
     await auditWeb({
@@ -1216,7 +1280,13 @@ export async function updateKaruteDetailEntryWithClient(
   // even that their edit was well-formed. Throws (never returns): the web
   // wrapper's catch maps it to the house { error }, the facade handler maps it
   // to the same 404 body a missing id gets.
-  ensureRecordStoreInScope({ store_id: lock.recordStoreId }, lock.scope, KARUTE_NOT_FOUND)
+  ensureRecordStoreInScopeAudited({ store_id: lock.recordStoreId }, lock.scope, KARUTE_NOT_FOUND, {
+    actor,
+    category: 'karute',
+    targetType: 'karute',
+    targetId: recordId,
+    door: 'karute.entry_edit',
+  })
   // Content bounds checked HERE (not just the facade's zod) so the web path
   // is covered too — a whitespace-only edit or a >4000-char paste never
   // reaches updateEntry.
@@ -1395,7 +1465,13 @@ export async function updateKaruteDetailSummaryWithClient(
   lock: KaruteStoreLock,
 ): Promise<CoreUpdateDetailSummaryResult> {
   // STORE LOCK FIRST — see updateKaruteDetailEntryWithClient.
-  ensureRecordStoreInScope({ store_id: lock.recordStoreId }, lock.scope, KARUTE_NOT_FOUND)
+  ensureRecordStoreInScopeAudited({ store_id: lock.recordStoreId }, lock.scope, KARUTE_NOT_FOUND, {
+    actor,
+    category: 'karute',
+    targetType: 'karute',
+    targetId: recordId,
+    door: 'karute.summary_edit',
+  })
   // Content bounds checked HERE (not just the facade's zod) so the web path
   // is covered too — same rule as updateKaruteDetailEntryWithClient: an
   // emptied or >4000-char summary never reaches core. The bullet-split check
