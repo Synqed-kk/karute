@@ -24,6 +24,13 @@ jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ push, replace: jest.fn(), refresh: jest.fn() }),
   usePathname: () => '/ja/appointments',
 }))
+// G2 (FIX-932-G1) — AppointmentsView now reads next/navigation's
+// useSearchParams to spend a tapped-day hold the moment the browser leaves
+// its target. This suite never exercises that hold, so a static empty
+// params object is enough to keep the real component from throwing.
+jest.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(),
+}))
 jest.mock('@/hooks/use-global-recorder', () => ({ useGlobalRecorder: () => ({ state: 'idle' }) }))
 jest.mock('@/lib/notifications/hooks', () => ({ useUnreadCount: () => 0 }))
 jest.mock('@/components/notifications/NotificationsPanel', () => ({ NotificationsPanel: () => null }))
