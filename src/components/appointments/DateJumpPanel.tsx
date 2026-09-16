@@ -55,7 +55,7 @@ import { MonthGrid, type MonthGridCell } from '@synqed-kk/ui'
 import { useLocale, useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { makeSpring, type Spring, type SpringOptions } from '@/lib/motion/spring'
-import { useHorizontalSlide } from '@/lib/motion/use-horizontal-slide'
+import { useHorizontalSlide, usePrefersReducedMotion } from '@/lib/motion/use-horizontal-slide'
 import { appointmentsToMonthCells } from '@/lib/adapters/reservation'
 import { computeMonthRange, jstMidnight } from '@/lib/date/calendar-range'
 import {
@@ -105,21 +105,6 @@ function chipButton(anchor: HTMLElement | null): HTMLElement | null {
     // :has() is everywhere the app runs, but a stub DOM may not implement it.
     return null
   }
-}
-
-function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
-  useEffect(() => {
-    // A DOM without matchMedia (jsdom) means "no preference expressed" — the
-    // panel keeps its motion rather than refusing to mount.
-    if (typeof window.matchMedia !== 'function') return
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-    setReduced(mq.matches)
-    const onChange = () => setReduced(mq.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [])
-  return reduced
 }
 
 interface PaneProps {
