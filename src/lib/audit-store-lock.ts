@@ -73,7 +73,8 @@ function emitStoreWriteRefused(
  * deliberately NOT routed here: a read refusal fires on every legitimately
  * hidden row and would bury the probe it is meant to surface.
  *
- * ids only, never names (the PII rule at the top of this file).
+ * ids only, never names — the PII rule at the top of src/lib/audit.ts, which
+ * governs every sink this module reaches.
  */
 export function ensureRecordStoreInScopeAudited(
   record: { store_id: string | null },
