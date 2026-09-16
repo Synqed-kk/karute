@@ -1636,6 +1636,26 @@ describe('F10 — `companionRoomStillFree`: the confirm-time re-check, on Liam�
     expect(seen).toEqual([true])
     expect(answer.ok).toBe(false)
   })
+
+  // ⚖ D-53 (ao), a6 — L1/L2's shared coverage gap: no fixture reached
+  // `companionRoomStillFree` with a pair that DIFFERS from the chrome one, so
+  // feeding it the wrong pair was invisible. `intruder` is the SAME full
+  // window as the leg above (ベッド2 taken across her hour), asked with the
+  // DENTAL pair through the spy instead: this proves the pair actually rides
+  // this door and shows up in the refusal it produces.
+  it('the DENTAL pair reaches the allocator through this door, and the refusal carries it', async () => {
+    const lanes = await demoLanes()
+    const intruder = lanes.map((l) => (l.key === 'bed-02'
+      ? { ...l, items: [...l.items, booking({ key: 'x', caseId: 'apt-x', title: '見本 かえで' }, 870, 930)] }
+      : l))
+    const DENTAL_ASK = { resourceNoun: RESOURCE_WORDS.dental_clinic.resourceNoun, privateWord: RESOURCE_WORDS.dental_clinic.privateWord! }
+    const seen: Array<typeof DENTAL_ASK> = []
+    const spy = ((board, opts) => { seen.push(opts.words); return allocateBed(board, opts) }) as typeof allocateBed
+    const answer = companionRoomStillFree(intruder, sakura, HER_SPAN, HOURS, DENTAL_ASK, spy)
+    expect(seen).toEqual([DENTAL_ASK])
+    expect(answer.ok).toBe(false)
+    expect(answer.ok === false && answer.refusal).toContain('ユニット')
+  })
 })
 
 describe('R10 — a shuffle that kills a held window is judged on the board it would leave', () => {

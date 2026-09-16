@@ -609,6 +609,21 @@ describe('⚖ D-53 (ak)/(al) — the frozen word-minting files read the handed-i
       expect(src).toContain('${words.resourceNoun}|${words.privateWord}')
     })
 
+    // ⚖ D-53 (ao), a6 — the SOURCE half of the coverage gap: `confirmPending`
+    // resolves the COMPANION'S OWN bed lane and asks for ITS words, never the
+    // board's chrome pair — pinned once each so a rewrite that swapped in
+    // `chromeAsk` would fail here even on a fixture no screen-level scene can
+    // reach (recorded in the report; the mixed-type fixture rides N3).
+    it('TodayScreen — `confirmPending` resolves the COMPANION’S OWN bed lane, exactly once', () => {
+      const src = readFileSync(SCREEN_PATH, 'utf8')
+      expect((src.match(/boardLanes\.find\(\(l\) => l\.group === 'beds' && l\.key === c\.bedTo\)/g) ?? []).length).toBe(1)
+    })
+
+    it('TodayScreen — `companionRoomStillFree` is asked with that lane’s words, never `chromeAsk`, exactly once', () => {
+      const src = readFileSync(SCREEN_PATH, 'utf8')
+      expect((src.match(/companionRoomStillFree\(boardLanes, c, span, hours, askWordsForLane\(companionBedLane\)\)/g) ?? []).length).toBe(1)
+    })
+
     it('capacity-ledger.ts — the `search` ask carries `words,` exactly once', () => {
       const src = readFileSync(LEDGER_PATH, 'utf8')
       expect((src.match(/^\s*words,\s*$/gm) ?? []).length).toBe(1)
