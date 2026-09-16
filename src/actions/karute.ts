@@ -17,6 +17,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { resolveStoreScope, customerLensFor, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { sourceStoreOutOfScope, ensureRecordStoreInScope, type RecordStoreScope } from '@/lib/auth/store-lock'
+import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
@@ -94,7 +95,14 @@ async function resolveKaruteStoreId(
     }
     return { storeId: apptStore, appointment: appt }
   }
-  return { storeId: (await resolveStoreScope()).storeId, appointment: null }
+  // No linked appointment: the record's store IS the actor's lens. An actor who
+  // reaches no store has no lens to stamp, and the old fallback wrote
+  // `store_id: null` — the exact failure mode this function's own doc above
+  // exists to prevent ("vanishes from every store-scoped カルテ list"). REFUSE
+  // the save instead (⚖ Liam 2026-09-16: unassigned does nothing).
+  const scope = await resolveStoreScope()
+  if (reachesNoStore(scope)) throw new Error(UNASSIGNED_STORE_DENIAL)
+  return { storeId: scope.storeId, appointment: null }
 }
 
 /**
@@ -1741,6 +1749,8 @@ export async function loadKaruteWindow(input: {
         getCurrentUserStaffId(),
         loadKaruteWindowRows(synqed, {
           storeId: activeStore,
+          // Same clamp the customer list above carries — see the page.
+          enforceStore: clamped,
           olderThan: input.olderThan,
           month: input.month,
           loadedCount: input.loadedCount,
@@ -1749,7 +1759,9 @@ export async function loadKaruteWindow(input: {
         synqed.staff.list({ page_size: 200 }),
       ])
 
-    const storeStaffIds = await storeStaffIdSet(staffList, activeStore)
+    const storeStaffIds = reachesNoStore(scope)
+      ? new Set<string>()
+      : await storeStaffIdSet(staffList, activeStore)
     const screen = buildSessionsListScreen({
       staffList,
       storeStaffIds,

@@ -17,6 +17,7 @@
 
 import { getSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
@@ -81,8 +82,10 @@ export async function getAppointmentWindow(
 
   const [window, policy, closed] = await Promise.all([
     // A filter naming somebody the roster cannot place gets ZERO rows, not the
-    // whole salon's week.
-    unknown
+    // whole salon's week — and neither does an actor who reaches NO store
+    // (`storeId` is undefined for them, which core reads as "every store";
+    // ⚖ Liam 2026-09-16, census: week/month window, FO).
+    unknown || reachesNoStore(scope)
       ? Promise.resolve(emptyAppointmentWindow())
       : fetchAppointmentWindow(synqed, fromIso, toIso, { storeId, staffId }),
     // No catch on purpose. `storePolicies.get` answers the PLATFORM DEFAULTS for

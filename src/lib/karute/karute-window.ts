@@ -286,6 +286,13 @@ export async function loadKaruteWindowRows(
      *  the SAME server-scoped read. No effect until core ships `shared_only`
      *  (§CORE ORDER; today's zod silently strips the unknown key). */
     sharedOnly?: boolean
+    /** RBAC clamp, same name + same meaning as listAllCustomers' option
+     *  (src/lib/customers/list-all.ts): the caller is store-CLAMPED, so a
+     *  missing `storeId` is a clamp it could not name — return an EMPTY
+     *  window instead of reading the business-wide karute list. Every caller
+     *  (web page + さらに表示 action + facade window/sessions routes) passes
+     *  `allowedStoreIds != null`, so the four doors share ONE guard. */
+    enforceStore?: boolean
     /** Injectable clock — tests pin "now" instead of racing the calendar. */
     now?: Date
   },
@@ -293,6 +300,20 @@ export async function loadKaruteWindowRows(
   const now = opts.now ?? new Date()
   const loadedCount = opts.loadedCount ?? 0
   const storeId = opts.storeId
+
+  // Clamped with no store to name = the actor reaches NO store (the unassigned
+  // gate, ⚖ Liam 2026-09-16). `storeId: undefined` means "every store" to core,
+  // so without this the カルテ list — transcripts, summaries, service detail —
+  // would go BUSINESS-WIDE for exactly the actor who must see nothing.
+  if (opts.enforceStore && !storeId) {
+    return {
+      rows: [],
+      windowStart: ymdInJst(now),
+      freshStoreTotal: 0,
+      freshDiscardedCount: 0,
+      hasMore: false,
+    }
+  }
 
   // Fresh store total on EVERY call — hasMore must never ride a snapshot taken
   // when the page was first rendered. sharedOnly threads through so the
@@ -488,25 +509,32 @@ export async function loadKaruteWindowWithMonthProbe(
     storeId?: string | null
     monthFrom: string
     monthTo: string
+    /** See loadKaruteWindowRows' option — threaded to BOTH legs, because the
+     *  今月 probe reads the same population as the rows it counts. */
+    enforceStore?: boolean
     now?: Date
   },
 ): Promise<KaruteWindowWithMonthProbe> {
   const [data, monthProbe] = await Promise.all([
-    loadKaruteWindowRows(synqed, { storeId: opts.storeId, now: opts.now }).catch(
-      (err: unknown) => {
-        console.error('[loadKaruteWindowWithMonthProbe] window read failed:', err)
-        return null
-      },
-    ),
-    listSynqedKaruteRowsWithTotalOrThrow(synqed, {
+    loadKaruteWindowRows(synqed, {
       storeId: opts.storeId,
-      from: opts.monthFrom,
-      to: opts.monthTo,
-      page_size: 1,
+      enforceStore: opts.enforceStore,
+      now: opts.now,
     }).catch((err: unknown) => {
-      console.error('[loadKaruteWindowWithMonthProbe] 今月 probe failed:', err)
+      console.error('[loadKaruteWindowWithMonthProbe] window read failed:', err)
       return null
     }),
+    opts.enforceStore && !opts.storeId
+      ? Promise.resolve({ total: 0 })
+      : listSynqedKaruteRowsWithTotalOrThrow(synqed, {
+          storeId: opts.storeId,
+          from: opts.monthFrom,
+          to: opts.monthTo,
+          page_size: 1,
+        }).catch((err: unknown) => {
+          console.error('[loadKaruteWindowWithMonthProbe] 今月 probe failed:', err)
+          return null
+        }),
   ])
   return {
     data,

@@ -355,6 +355,13 @@ export async function storeStaffIdSetForBusiness(
  * (a staff missing from their own drawer/settings list is broken). Unclamped
  * viewers (stores.viewAll, or a floating staff with an empty assignment —
  * both `allowedStoreIds: null`) keep the full roster, unchanged.
+ *
+ * ⚠ The unclamped test is an IDENTITY check (`=== null`), NOT `.length` — this
+ * is the one derived helper that does not get the "`[]` is truthy" answer for
+ * free, and a `.length` test reads an EMPTY allow-list as "unclamped" and ships
+ * every branch's names + emails (census §5, the roster leak). A clamped viewer
+ * who reaches NO store falls through to the union below, which over an empty
+ * store list is just themselves — honest, and never the other store's people.
  */
 export async function viewerStaffRosterForBusiness<
   T extends { id: string; email?: string | null },
@@ -364,7 +371,7 @@ export async function viewerStaffRosterForBusiness<
   selfId: string | null,
   businessId: string,
 ): Promise<T[]> {
-  if (!allowedStoreIds?.length) return [...staff]
+  if (allowedStoreIds === null) return [...staff]
   const sets = await Promise.all(
     allowedStoreIds.map((storeId) =>
       storeStaffIdSetForBusiness(staff, storeId, businessId),
@@ -382,7 +389,7 @@ export async function viewerStaffRoster<
 >(staff: readonly T[], selfId: string | null): Promise<T[]> {
   try {
     const { allowedStoreIds } = await resolveStoreScope()
-    if (!allowedStoreIds?.length) return [...staff]
+    if (allowedStoreIds === null) return [...staff]
     return await viewerStaffRosterForBusiness(
       staff,
       allowedStoreIds,

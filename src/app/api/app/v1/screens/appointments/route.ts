@@ -27,6 +27,7 @@ import { orgSettingsWithClient } from '@/actions/org-settings'
 import { enrichCustomers, type CustomerEnrichment } from '@/lib/customers/list-enrich'
 import { listAllPackUsageWithClient, type CustomerPackUsage } from '@/lib/packs/store'
 import { customerLensFor, storeStaffIdSetForBusiness } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import {
   emptyAppointmentWindow,
   fetchAppointmentWindow,
@@ -81,6 +82,12 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     capabilities: ctx.identity.capabilities,
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
+  // ⚠ `clamp.storeId ?? undefined` is the WHOLE bug class: `undefined` means
+  // EVERY STORE to core. For an actor who reaches no store that is the exact
+  // opposite of the answer, so every reader below is skipped rather than
+  // called with it (Greptile on #948 — the census listed this route's customer
+  // lens and its picker, but not its day/week/month reads).
+  const blind = reachesNoStore(clamp)
   const storeId = clamp.storeId ?? undefined
   const customerLens = customerLensFor(clamp)
 
@@ -133,7 +140,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     // A filter naming somebody the roster cannot place gets ZERO rows, never
     // the whole salon's week.
     const windowFor = (fromIso: string, toIso: string) =>
-      unknown
+      unknown || blind
         ? Promise.resolve(emptyAppointmentWindow())
         : fetchAppointmentWindow(synqed, fromIso, toIso, { storeId, staffId })
 
@@ -157,11 +164,13 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     ] = await Promise.all([
       // includeCancelled: the agenda is the ONE consumer that renders
       // terminal rows (キャンセル済み / 無断 tombstones in their slot).
-      getAppointmentsByDateWithClient(synqed, selectedDateStr, {
-        storeId,
-        nameById,
-        includeCancelled: true,
-      }),
+      blind
+        ? Promise.resolve([])
+        : getAppointmentsByDateWithClient(synqed, selectedDateStr, {
+            storeId,
+            nameById,
+            includeCancelled: true,
+          }),
       weekRange
         ? windowFor(
             weekRange.rangeFrom.toISOString(),
@@ -192,7 +201,9 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             to: span.toExclusiveYmd, // exclusive, per the SDK's own contract
           })
         : Promise.resolve({ closed_days: [] as { date: string }[] }),
-      storeStaffIdSetForBusiness(staffList, clamp.storeId, businessId),
+      reachesNoStore(clamp)
+        ? Promise.resolve(new Set<string>())
+        : storeStaffIdSetForBusiness(staffList, clamp.storeId, businessId),
     ])
 
     const hoursFacts = resolveWindowHours(span.days, {

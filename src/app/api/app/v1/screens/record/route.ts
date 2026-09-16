@@ -17,6 +17,7 @@ import { RecordScreenDTO } from '@/lib/app-api/record-screen-dto'
 import { buildRecordScreen } from '@/lib/karute/record-screen'
 import { readCustomerRaw } from '@/lib/app-api/karute-facade'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
@@ -196,10 +197,14 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
     const nameById = new Map(customers.map((c) => [c.id, c.name]))
 
     // Today's recording-target set (store-scoped, same as the web page).
-    const todayAppts = await getAppointmentsByDateWithClient(synqed, todayStr, {
-      storeId: activeStore ?? undefined,
-      nameById,
-    })
+    // `activeStore ?? undefined` = every store's bookings, so an actor who
+    // reaches no store gets NO targets (⚖ Liam 2026-09-16; census §4).
+    const todayAppts = reachesNoStore(clamp)
+      ? []
+      : await getAppointmentsByDateWithClient(synqed, todayStr, {
+          storeId: activeStore ?? undefined,
+          nameById,
+        })
 
     // The caller's roster row: staff identity (page's getCurrentUserStaffId) +
     // display role (the SessionProvider seed). Keyed by the CONFIRMED auth id.

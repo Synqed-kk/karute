@@ -6,6 +6,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getActiveStoreId } from '@/actions/stores'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { resolveWebAuditContext } from '@/lib/audit-web'
@@ -92,12 +93,26 @@ export async function createAppointment(input: AppointmentInput) {
     // the viewer's RBAC scope so a stale / out-of-scope cookie can't stamp a
     // booking into another branch. Business scope (x-business-id) is still applied
     // by core regardless; this clamp is additive.
-    const [synqed, synqedStaffId, activeStore, auditActor, scope] = await Promise.all([
+    // ⚖ Liam 2026-09-16 — an actor who reaches NO store may not CREATE a
+    // booking either. `preferredStoreId: null` falls through to core's
+    // `defaultBookingStore`, which stamps the booking into whatever store the
+    // business defaults to — a WRITE into a branch this person does not belong
+    // to. Layers 1–2 refuse them long before this line; the backstop has to
+    // hold on its own anyway.
+    //
+    // ⚠ ORDER IS LOAD-BEARING (Greptile on #948): this sits ABOVE the wave,
+    // not inside it, because `resolveSynqedStaffId` CREATES a core staff
+    // record on a miss. Resolved together with the wave, a refused booking
+    // still wrote that row — a refusal honest about the booking and silent
+    // about its side effect. The serial await costs nothing: resolveStoreScope
+    // is React-cached and the layout already resolved it this request.
+    const scope = await resolveStoreScope()
+    if (reachesNoStore(scope)) return { error: UNASSIGNED_STORE_DENIAL }
+    const [synqed, synqedStaffId, activeStore, auditActor] = await Promise.all([
       getSynqedClient(),
       resolveSynqedStaffId(input.staffProfileId),
       getActiveStoreId(),
       resolveWebAuditContext(),
-      resolveStoreScope(),
     ])
     // A CLAMPED actor (allowedStoreIds set) never sends null: resolveStoreScope
     // already picks the cookie when it's one of their own stores, else their
@@ -167,6 +182,9 @@ export async function getAppointmentsByDate(
       resolveStoreScope(),
       getCachedCustomerList(),
     ])
+    // `storeId ?? undefined` below means "every store's bookings" to core, so
+    // an actor who reaches no store must stop here (⚖ Liam 2026-09-16).
+    if (reachesNoStore(scope)) return []
     const { getAppointmentsByDateWithClient } = await import('@/lib/appointments/by-date')
     // `return await` (not a bare `return` of the promise) so a rejection lands in
     // this try/catch → the swallowed-[] contract holds.
@@ -267,6 +285,8 @@ export async function getAppointmentsInRange(
       getSynqedClient(),
       resolveStoreScope(),
     ])
+    // Same fail-closed line as the day read above.
+    if (reachesNoStore(scope)) return []
     const { getAppointmentsInRangeWithClient } = await import('@/lib/appointments/by-date')
     // `return await` so a rejection lands in this catch → the []-contract holds.
     return await getAppointmentsInRangeWithClient(synqed, fromIso, toIso, {
@@ -309,6 +329,10 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
     new Date(`${monthKey}-01T00:00:00+09:00`),
   )
   const [synqed, scope] = await Promise.all([getSynqedClient(), resolveStoreScope()])
+  // Same fail-closed line as the day and range reads above: `storeId ??
+  // undefined` is "every store" to core, and a month grid built from every
+  // branch's bookings is the same leak in a different shape.
+  if (reachesNoStore(scope)) return []
   const { getAppointmentsInRangeWithClient } = await import('@/lib/appointments/by-date')
   const appointments = await getAppointmentsInRangeWithClient(
     synqed,
