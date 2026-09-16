@@ -6,12 +6,14 @@
  * typed something. Matches by name or phone digits (dashes/spaces ignored on
  * both sides), caps results at 8, and closes on blur.
  */
+import { useState } from 'react'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import {
   CustomerCombobox,
   type CustomerOption,
   type CustomerSearchOption,
 } from '@/components/karute/CustomerCombobox'
+import { RecordCustomerPickerDialog } from '@/components/karute/redesign/record/RecordCustomerPickerDialog'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -393,5 +395,77 @@ describe('CustomerCombobox', () => {
     expect(screen.getByRole('listbox')).toBeInTheDocument()
     fireEvent.blur(input)
     expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  // post-#945 follow-up: a customer picked from the company-wide (remote)
+  // tier is never in the preloaded `customers` list, so the old
+  // `customers.find(selectedId)` lookup came back null and blur/outside-click
+  // wiped the name back to '' — a filled form that reads as empty with the
+  // save button still enabled. The picker now hands the whole row up via
+  // `onSelect(id, customer)` and keeps it, so a lookup miss is never the
+  // only source of truth for the current selection.
+  it('a remote-only pick keeps its name after blur (onSelect receives the row)', async () => {
+    jest.useFakeTimers()
+    try {
+      const remoteRow: CustomerSearchOption = { id: 'r1', name: '遠藤三郎', other_store: false }
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [remoteRow],
+        karute_number_unavailable: false,
+        remote_more: false,
+      })
+      const onSelect = jest.fn()
+      // A minimal controlled wrapper — real callers (NewBookingDialog etc.)
+      // feed onSelect straight into a setState setter, so selectedId tracks
+      // the pick exactly like this.
+      function Wrapper() {
+        const [selectedId, setSelectedId] = useState<string | null>(null)
+        return (
+          <CustomerCombobox
+            customers={[]}
+            selectedId={selectedId}
+            onSelect={(id, customer) => {
+              onSelect(id, customer)
+              setSelectedId(id)
+            }}
+            onCreateNew={jest.fn()}
+            onRemoteSearch={onRemoteSearch}
+          />
+        )
+      }
+      render(<Wrapper />)
+      const input = screen.getByRole('combobox')
+      fireEvent.change(input, { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      fireEvent.mouseDown(screen.getByText('遠藤三郎'))
+      expect(onSelect).toHaveBeenCalledWith('r1', remoteRow)
+      fireEvent.blur(input)
+      expect(input).toHaveValue('遠藤三郎')
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+})
+
+// RecordCustomerPickerDialog has no dedicated test file (`find src -name
+// '*RecordCustomerPicker*'` matches only the component) — smallest render
+// test lives next to the combobox one it shares onSelect's shape with.
+describe('RecordCustomerPickerDialog', () => {
+  it('a search-result row click calls onSelectCustomer with (id, name)', () => {
+    const onSelectCustomer = jest.fn()
+    render(
+      <RecordCustomerPickerDialog
+        customers={[{ id: 'c1', name: '山田太郎' }]}
+        bookings={[]}
+        onSelectBooking={jest.fn()}
+        onSelectCustomer={onSelectCustomer}
+        onClose={jest.fn()}
+        cancelLabel="cancel"
+      />,
+    )
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '山田' } })
+    fireEvent.click(screen.getByText('山田太郎'))
+    expect(onSelectCustomer).toHaveBeenCalledWith('c1', '山田太郎')
   })
 })
