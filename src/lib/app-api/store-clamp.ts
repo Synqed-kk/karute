@@ -219,8 +219,22 @@ export interface WriteScopeArgs {
  * CANNOT tell them apart, and an unplaceable caller would otherwise resolve to
  * `allowedStoreIds: null` and walk through every store lock as floating, while
  * the same person on the web transport is refused (resolveStoreScope marks a
- * null staff id `degraded`). A staff member removed from the roster whose phone
- * still holds a live token is not hypothetical during an onboarding.
+ * null staff id `degraded`).
+ *
+ * ⚠ WHAT IT CATCHES, EXACTLY (⚖ FRESH-EYES-P1B F3 — the earlier claim here was
+ *   wrong and is corrected, not softened). It does NOT catch a staff member removed
+ *   from the roster whose phone still holds a live token: deleteStaff
+ *   (src/actions/staff.ts) removes the synqed-core staff record ONLY — its own doc
+ *   note says so — and the Supabase `profiles` row stays, which is the table
+ *   staffListByBusinessOrThrow / resolveSelfStaffId read (src/lib/staff.ts). That
+ *   person still resolves a staff id, still carries businessId + capabilities, and
+ *   core's `{ store_ids: [] }` still reads as floating.
+ *   What it DOES catch is an auth id with no `profiles` row at all, one whose
+ *   `profiles.customer_id` names another business, or one the roster read filters
+ *   out (`full_name IS NULL` / `full_name ILIKE '_system_%'`). Strictly narrower
+ *   than before, never wider — a real fail-closed narrowing, just not that one.
+ *   FOLLOW-UP QUEUED: roster removal must neutralise the profiles row, or core must
+ *   tell "no staff row" apart from "floating" (a CORE ask).
  *
  * `requestedStoreId: null`, always: the ASSIGNMENT is the basis, so a phone-set
  * store-id header can neither widen nor narrow a lock.

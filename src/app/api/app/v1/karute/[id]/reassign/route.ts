@@ -54,6 +54,8 @@ export const POST = facadeHandler<Params>('karute.reassign', async (ctx: FacadeC
   // holds no staff row for, so calling resolveStoreForRequest directly read such
   // a caller as floating and let them re-point ANY karute in the business. No
   // separate "degraded" arm to thread: the refusal throws before a scope exists.
+  // See resolveWriteStoreScope's own header (store-clamp.ts) for exactly which
+  // callers that fence does and does not catch — ⚖ FRESH-EYES-P1B F3.
   const { allowedStoreIds } = await resolveWriteStoreScope({
     synqed,
     authUserId: ctx.identity.authUserId,
