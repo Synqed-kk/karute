@@ -7,8 +7,12 @@
 // names the state plainly and points at the one person who can fix it; it does
 // not apologise, offer a retry, or hint at a permission problem.
 //
-// The only control is 「ログアウト」, for the shared-device case: the wrong
-// account signed in on the salon's iPad must be able to get out.
+// 「もう一度確認する」 (G-1 fold, Greptile) is the one exception — once a
+// manager HAS assigned them, staring at this screen until sign-out/restart is
+// its own dead end, so a primary re-check action sits above ログアウト. Web
+// has no client-side recheck of its own (the layout gate that decides this
+// screen runs server-side): a reload IS the recheck. The phone passes its own
+// probe (thin/AuthGate.tsx), which also fires automatically on foreground.
 
 import { useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
@@ -18,11 +22,18 @@ import { LogOut, Store } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 
-export function UnassignedStoreScreen() {
+export function UnassignedStoreScreen({
+  onRecheck,
+}: {
+  /** The phone's recheck — omitted on web, where the button reloads instead. */
+  onRecheck?: () => Promise<void>
+} = {}) {
   const t = useTranslations('unassignedStore')
   const locale = useLocale()
   const router = useRouter()
   const [signingOut, setSigningOut] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const busy = signingOut || checking
 
   async function handleSignOut() {
     setSigningOut(true)
@@ -35,6 +46,21 @@ export function UnassignedStoreScreen() {
       router.refresh()
     } catch {
       setSigningOut(false)
+    }
+  }
+
+  async function handleRecheck() {
+    setChecking(true)
+    if (onRecheck) {
+      try {
+        await onRecheck()
+      } finally {
+        setChecking(false)
+      }
+    } else {
+      // The web gate is server-side ((app)/layout.tsx) — a fresh navigation
+      // re-runs it, so a reload IS the recheck.
+      window.location.reload()
     }
   }
 
@@ -52,9 +78,17 @@ export function UnassignedStoreScreen() {
         </p>
         <button
           type="button"
+          onClick={handleRecheck}
+          disabled={busy}
+          className="mt-8 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-60"
+        >
+          {checking ? t('checking') : t('checkAgain')}
+        </button>
+        <button
+          type="button"
           onClick={handleSignOut}
-          disabled={signingOut}
-          className="mt-8 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+          disabled={busy}
+          className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
         >
           <LogOut className="size-4" aria-hidden />
           {t('logout')}

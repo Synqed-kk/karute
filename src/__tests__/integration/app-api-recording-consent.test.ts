@@ -45,13 +45,17 @@ const getConsent = jest.fn(async () => ({ consent: { granted_at: '2026-05-01T00:
 // ⚖ amendment 10: an unrestricted caller who sent no `store-id` now falls back
 // to the business's PRIMARY store, so `stores.list` is part of this route's
 // contract too.
-type FakeStore = { id: string; is_primary: boolean }
+// G-2 (Greptile, 2026-09-17): the gate's storeCount now counts ACTIVE stores
+// only (store-gate.ts activeStoreCount), so every fixture row needs the real
+// SDK's `active` field — an inactive store must not silently masquerade as a
+// second location and flip the unassigned verdict.
+type FakeStore = { id: string; is_primary: boolean; active: boolean }
 const staffStoresGet = jest.fn(async (_id: string) => ({ store_ids: [] as string[] }))
 const storesGet = jest.fn(async (id: string) => ({ id }))
 const storesList = jest.fn(async () => ({
   stores: [
-    { id: 'store-second', is_primary: false },
-    { id: 'store-primary', is_primary: true },
+    { id: 'store-second', is_primary: false, active: true },
+    { id: 'store-primary', is_primary: true, active: true },
   ] as FakeStore[],
 }))
 const fakeClient = {
@@ -110,8 +114,8 @@ beforeEach(() => {
   storesGet.mockImplementation(async (id: string) => ({ id }))
   storesList.mockImplementation(async () => ({
     stores: [
-      { id: 'store-second', is_primary: false },
-      { id: 'store-primary', is_primary: true },
+      { id: 'store-second', is_primary: false, active: true },
+      { id: 'store-primary', is_primary: true, active: true },
     ],
   }))
 })
@@ -213,7 +217,7 @@ describe('POST recordings/session mint — the store rides along', () => {
     // `storesList` is called here — what must NOT happen is the primary-store
     // FALLBACK, and the header's store is the proof of that.
     staffStoresGet.mockResolvedValue({ store_ids: [] })
-    storesList.mockResolvedValue({ stores: [{ id: 'store-a', is_primary: true }] })
+    storesList.mockResolvedValue({ stores: [{ id: 'store-a', is_primary: true, active: true }] })
     const res = await mintPOST(
       jreq({ ...auth, ...idem, 'store-id': 'store-a' }, { customerId: 'cust-1' }),
       noRoute,
@@ -269,8 +273,8 @@ describe('POST recordings/session mint — the store rides along', () => {
     capabilities.current = new Set(['customers.view', 'records.write', 'stores.viewAll'])
     storesList.mockResolvedValue({
       stores: [
-        { id: 'store-second', is_primary: false },
-        { id: 'store-third', is_primary: false },
+        { id: 'store-second', is_primary: false, active: true },
+        { id: 'store-third', is_primary: false, active: true },
       ],
     })
     const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)

@@ -28,6 +28,43 @@ export function markStoreUnassigned(userId: string | null): void {
   notify()
 }
 
+/** The server no longer refuses this user — clear their mark. Compare-and-
+ *  clear, like `markStoreUnassigned`'s own match: only fires when the marked
+ *  user is STILL this one, so a sign-out/switch racing the probe (⚖ Liam
+ *  2026-09-16, G-1 fold) can never clear a DIFFERENT user's mark. */
+export function clearStoreUnassigned(userId: string | null): void {
+  if (!userId || unassignedFor !== userId) return
+  unassignedFor = null
+  notify()
+}
+
+/**
+ * Re-probes the server for this user and clears the mark once it no longer
+ * refuses. `probe` is a light facade call (the caller's choice — the
+ * `/screens/chrome` fetch is fine) that resolves `true` once the server
+ * answers normally, `false` on any refusal. This module stays fetch-free on
+ * purpose (see the header comment): the probe is INJECTED so a phone's own
+ * `facadeApiFetch` funnel can re-mark independently, never imported back here.
+ *
+ * A network error / thrown probe is the same UNKNOWN `markStoreUnassigned`
+ * already refuses to treat as "assigned" — never cleared, only a genuine
+ * success does (⚖ reversible-by-default: leaving the mark set costs nothing,
+ * clearing it wrongly stands up a shell that will 403 on its very next call).
+ */
+export async function recheckStoreUnassigned(
+  userId: string | null,
+  probe: () => Promise<boolean>,
+): Promise<void> {
+  if (!userId) return
+  let ok: boolean
+  try {
+    ok = await probe()
+  } catch {
+    ok = false
+  }
+  if (ok) clearStoreUnassigned(userId)
+}
+
 /** The user this shell last heard `store_unassigned` for, or null. The snapshot
  *  for `useSyncExternalStore` — a plain string, stable between notifications. */
 export function unassignedUserId(): string | null {

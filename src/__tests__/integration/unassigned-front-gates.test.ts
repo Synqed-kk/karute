@@ -90,4 +90,11 @@ describe('web front gate — the honest screen', () => {
     expect(ja.unassignedStore.logout).toBe('ログアウト')
     expect(Object.keys(en.unassignedStore)).toEqual(Object.keys(ja.unassignedStore))
   })
+
+  it('carries the G-1 recheck action verbatim (Greptile, 2026-09-16), same register as ログアウト', () => {
+    expect(ja.unassignedStore.checkAgain).toBe('もう一度確認する')
+    expect(ja.unassignedStore.checking).toBe('確認中…')
+    expect(en.unassignedStore.checkAgain).toBe('Check again')
+    expect(en.unassignedStore.checking).toBe('Checking…')
+  })
 })

@@ -46,11 +46,11 @@ const fixture = { assignment: [] as string[], stores: ['store-ginza', 'store-dai
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: async () => ({
     staffStores: { get: async () => ({ store_ids: fixture.assignment }) },
-    stores: { list: async () => ({ stores: fixture.stores.map((id) => ({ id })) }) },
+    stores: { list: async () => ({ stores: fixture.stores.map((id) => ({ id, active: true })) }) },
   }),
   newSynqedClient: () => ({
     staffStores: { get: async () => ({ store_ids: fixture.assignment }) },
-    stores: { list: async () => ({ stores: fixture.stores.map((id) => ({ id })) }) },
+    stores: { list: async () => ({ stores: fixture.stores.map((id) => ({ id, active: true })) }) },
   }),
 }))
 jest.mock('@synqed-kk/client', () => ({
@@ -61,9 +61,16 @@ jest.mock('@synqed-kk/client', () => ({
 // Everything the layout reaches for that is not the gate.
 const redirect = jest.fn()
 jest.mock('next/navigation', () => ({ redirect: (...a: unknown[]) => redirect(...a) }))
+// G-3 (Greptile, 2026-09-17): mutable so the revoked-session suite below can
+// flip it per test — every OTHER test in this file wants the default
+// authenticated shape.
+const authFixture = {
+  user: { id: 'profile-self' } as { id: string } | null,
+  error: null as { message: string } | null,
+}
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: 'profile-self' } }, error: null }) },
+    auth: { getUser: async () => ({ data: { user: authFixture.user }, error: authFixture.error }) },
   })),
 }))
 jest.mock('@/components/layout/UnassignedStoreScreen', () => ({
@@ -101,6 +108,8 @@ beforeEach(() => {
   mockCapabilities.mockResolvedValue(new Set(['customers.view']))
   fixture.assignment = []
   fixture.stores = ['store-ginza', 'store-daikanyama']
+  authFixture.user = { id: 'profile-self' }
+  authFixture.error = null
 })
 
 describe('the web gate does not depend on Layer 1 having emptied the capability set', () => {
@@ -144,5 +153,43 @@ describe('…and it still refuses to fire on every other shape', () => {
   it('a thrown capability read never takes the shell down', async () => {
     mockCapabilities.mockRejectedValue(new Error('caps read failed'))
     expect(await viewerIsUnassigned()).toBe(false)
+  })
+})
+
+// G-3 (Greptile, 2026-09-17): the layout's OWN supabase.auth.getUser() now
+// runs (and its existing revoked/no-user redirect fires) BEFORE the gate —
+// previously the gate ran first, so a revoked session paid for the gate's own
+// reads (and every other read in the wave) before the redirect that should
+// have stopped it all.
+describe('the authoritative session check runs BEFORE the gate', () => {
+  it('no user (revoked session) → redirect fires, and the gate never runs', async () => {
+    authFixture.user = null
+    authFixture.error = null
+    redirect.mockImplementationOnce(() => {
+      throw new Error('NEXT_REDIRECT')
+    })
+    await expect(render()).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirect).toHaveBeenCalledWith('/ja/login')
+    // Never the honest screen, never the gate, never the wave beneath it.
+    expect(mockCapabilities).not.toHaveBeenCalled()
+    expect(getStaffList).not.toHaveBeenCalled()
+  })
+
+  it('a getUser() error (same shape) → redirect fires, and the gate never runs', async () => {
+    authFixture.user = { id: 'profile-self' }
+    authFixture.error = { message: 'revoked' }
+    redirect.mockImplementationOnce(() => {
+      throw new Error('NEXT_REDIRECT')
+    })
+    await expect(render()).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirect).toHaveBeenCalledWith('/ja/login')
+    expect(mockCapabilities).not.toHaveBeenCalled()
+  })
+
+  it('a valid session still reaches the gate — the reorder changes nothing else', async () => {
+    const el = (await render()) as { type: unknown }
+    expect(el.type).toBe('UnassignedStoreScreen') // default fixture is unassigned
+    expect(redirect).not.toHaveBeenCalled()
+    expect(mockCapabilities).toHaveBeenCalled()
   })
 })

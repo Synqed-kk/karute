@@ -29,6 +29,10 @@ const fixture = {
   assignment: [] as string[] | null, // null = the lookup FAILS (degraded)
   stores: ['store-ginza', 'store-daikanyama'] as string[],
   role: 'practitioner' as string,
+  // G-2 (Greptile, 2026-09-17): ids from `stores` that should report
+  // `active: false`. Default empty — every existing shape below keeps every
+  // store active, byte-identical to before this field existed.
+  inactiveStores: [] as string[],
 }
 
 const staffStoresGet = jest.fn(async () => {
@@ -36,7 +40,11 @@ const staffStoresGet = jest.fn(async () => {
   return { store_ids: fixture.assignment }
 })
 const storesList = jest.fn(async () => ({
-  stores: fixture.stores.map((id, i) => ({ id, is_primary: i === 0 })),
+  stores: fixture.stores.map((id, i) => ({
+    id,
+    is_primary: i === 0,
+    active: !fixture.inactiveStores.includes(id),
+  })),
 }))
 const fakeClient = {
   staffStores: { get: staffStoresGet },
@@ -96,7 +104,12 @@ jest.mock('@/lib/supabase/service', () => ({
 import { capabilitiesForUser } from '@/lib/auth/require-permission'
 import { resolveStoreScope, viewerIsUnassigned } from '@/lib/auth/store-scope'
 import { resolveStoreForRequest, resolveExportStoreId } from '@/lib/app-api/store-clamp'
-import { actorIsUnassigned, STORE_UNASSIGNED_DENIAL } from '@/lib/auth/store-gate'
+import {
+  activeStoreCount,
+  actorIsUnassigned,
+  STORE_UNASSIGNED_DENIAL,
+  storeAssignmentVerdict,
+} from '@/lib/auth/store-gate'
 import { loadKaruteWindowRows } from '@/lib/karute/karute-window'
 import { setActiveStore } from '@/actions/stores'
 
@@ -158,6 +171,7 @@ function load(shape: Shape) {
   fixture.assignment = shape.assignment
   fixture.stores = shape.stores
   fixture.role = shape.role
+  fixture.inactiveStores = []
 }
 
 // ── the emitted table ───────────────────────────────────────────────────────
@@ -318,6 +332,89 @@ describe('unassigned gate — the layer matrix', () => {
       const mutantVerdict = scope.allowedStoreIds === null ? 'unclamped' : 'unassigned'
       expect(mutantVerdict).toBe('unclamped')
     })
+  })
+})
+
+// ── G-2 (Greptile, 2026-09-17) ───────────────────────────────────────────────
+// The single-store carve-out must count ACTIVE stores only — an archived
+// store isn't a real second location a floating staff member could be posted
+// to, so it must not turn the carve-out off. One shared helper
+// (`activeStoreCount`, store-gate.ts) feeds BOTH `actorIsUnassigned` and the
+// facade's clamp so they can't drift; driven here through both transports,
+// same shape as the layer matrix above.
+describe('G-2 — the carve-out counts ACTIVE stores only', () => {
+  afterEach(() => {
+    fixture.inactiveStores = []
+  })
+
+  it('one ACTIVE + one inactive → single-store carve-out (unclamped, full caps)', async () => {
+    fixture.assignment = []
+    fixture.stores = ['store-ginza', 'store-daikanyama']
+    fixture.role = 'practitioner'
+    fixture.inactiveStores = ['store-daikanyama']
+
+    // web
+    const caps = await capabilitiesForUser('staff-1')
+    expect(caps.size).toBeGreaterThan(0) // never emptied — this actor is NOT unassigned
+    expect(await viewerIsUnassigned()).toBe(false)
+    const scope = await resolveStoreScope()
+    expect(scope.allowedStoreIds).toBeNull() // unclamped, same as a real one-store salon
+
+    // facade
+    const facadeCaps = await capabilitiesForUser('staff-1', { businessId: 'business-1' })
+    expect(await actorIsUnassigned('staff-1', 'business-1')).toBe(false)
+    const clamp = await resolveStoreForRequest({
+      synqed: fakeClient as never,
+      authUserId: 'staff-1',
+      capabilities: facadeCaps as Set<Capability>,
+      requestedStoreId: null,
+    })
+    expect(clamp).toEqual({ storeId: null, allowedStoreIds: null })
+  })
+
+  it('two ACTIVE + one inactive → unassigned (the inactive store never counts)', async () => {
+    fixture.assignment = []
+    fixture.stores = ['store-ginza', 'store-daikanyama', 'store-old']
+    fixture.role = 'practitioner'
+    fixture.inactiveStores = ['store-old']
+
+    // web
+    const caps = await capabilitiesForUser('staff-1')
+    expect(caps.size).toBe(0)
+    expect(await viewerIsUnassigned()).toBe(true)
+    const scope = await resolveStoreScope()
+    expect(scope.allowedStoreIds).toEqual([])
+    expect(scope.storeId).toBeNull()
+
+    // facade
+    const facadeCaps = await capabilitiesForUser('staff-1', { businessId: 'business-1' })
+    expect(await actorIsUnassigned('staff-1', 'business-1')).toBe(true)
+    const clamp = await resolveStoreForRequest({
+      synqed: fakeClient as never,
+      authUserId: 'staff-1',
+      capabilities: facadeCaps as Set<Capability>,
+      requestedStoreId: null,
+    })
+    expect(clamp).toEqual({ storeId: null, allowedStoreIds: [] })
+  })
+
+  it('MUTANT — drop the active filter → an inactive store falsely disables the carve-out', () => {
+    const rows = [
+      { id: 'store-ginza', active: true },
+      { id: 'store-daikanyama', active: false },
+    ]
+    // Shipped: counts ACTIVE rows only — the carve-out fires (correct: this
+    // business has exactly one ACTIVE store).
+    expect(activeStoreCount(rows)).toBe(1)
+    expect(
+      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: activeStoreCount(rows) }),
+    ).toBe('unclamped')
+
+    // The pre-fix line, verbatim: `r.stores.length` — every row, active or not.
+    const mutantCount = rows.length
+    expect(
+      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: mutantCount }),
+    ).toBe('unassigned') // WRONG — would blank a floating staffer in a real one-store salon
   })
 })
 

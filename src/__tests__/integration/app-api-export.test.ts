@@ -63,8 +63,8 @@ const storesGet = jest.fn(async (id: string) => {
 })
 const storesList = jest.fn(async () => ({
   stores: [
-    { id: 'store-1', is_primary: true },
-    { id: 'store-2', is_primary: false },
+    { id: 'store-1', is_primary: true, active: true },
+    { id: 'store-2', is_primary: false, active: true },
   ],
 }))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
@@ -186,12 +186,12 @@ describe('GET /api/app/v1/export — export-hardened floating clamp (fix round, 
   // mockResolvedValue survives jest.clearAllMocks(), so each test states the
   // store list it means rather than inheriting the previous one's.
   const oneStore = () =>
-    storesList.mockResolvedValue({ stores: [{ id: 'store-1', is_primary: true }] })
+    storesList.mockResolvedValue({ stores: [{ id: 'store-1', is_primary: true, active: true }] })
   const twoStores = () =>
     storesList.mockResolvedValue({
       stores: [
-        { id: 'store-1', is_primary: true },
-        { id: 'store-2', is_primary: false },
+        { id: 'store-1', is_primary: true, active: true },
+        { id: 'store-2', is_primary: false, active: true },
       ],
     })
 

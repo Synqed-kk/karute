@@ -7,7 +7,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { staffStoresOverlap, type Capability } from '@/lib/auth/permissions'
-import { reachesNoStore, storeAssignmentVerdict } from '@/lib/auth/store-gate'
+import { activeStoreCount, reachesNoStore, storeAssignmentVerdict } from '@/lib/auth/store-gate'
 import { AppApiError } from './errors'
 
 /** SynqedError's HTTP status, duck-typed: a VALUE import of the SDK class
@@ -138,7 +138,7 @@ export async function resolveStoreForRequest(args: {
     // read UNKNOWN as "≥2 stores" (storeAssignmentVerdict).
     let storeCount: number | null = null
     try {
-      storeCount = (await synqed.stores.list()).stores.length
+      storeCount = activeStoreCount((await synqed.stores.list()).stores)
     } catch {
       storeCount = null
     }
