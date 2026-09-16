@@ -3390,8 +3390,14 @@ export function TodayScreen(props: TodayProps) {
           allocate: gestureMemoRef.current?.allocate,
         },
         cell,
+        // ⚖ D-53 (u)/(n2b1) — `lanes` may be a shuffled board, but its lane
+        // KEYS and stores are identical to `boardLanes`' (D-53 (u) item 3), so
+        // `wordsForAsk(q)`, which resolves against `boardLanes`, still names
+        // the right store.
+        wordsForAsk(q),
+        props.genericWords,
       ),
-    [boardLanes, hours, locked, pending?.id, props.overrideLevel, props.sell.nowMinute, props.bedCleanupMinutes],
+    [boardLanes, hours, locked, pending?.id, props.overrideLevel, props.sell.nowMinute, props.bedCleanupMinutes, props.wordsByStore, props.words, props.genericWords],
   )
 
   // ⚖ LIAM RULING 3 (2026-09-09) — THE TWO MEMOS BELOW SIT HERE, under the one
@@ -3661,8 +3667,37 @@ export function TodayScreen(props: TodayProps) {
    *  list cannot be pruned as unused: a stamp blind to one of its inputs serves
    *  a stale answer in silence, which is the one failure a memo can have. */
   const worldStamp = useMemo(
-    () => ({ placedLanes, parked, addedHere, moves, bedMoves, pending, hours, now: props.sell.nowMinute, cleanup: props.bedCleanupMinutes }),
-    [placedLanes, parked, addedHere, moves, bedMoves, pending, hours, props.sell.nowMinute, props.bedCleanupMinutes],
+    () => ({
+      placedLanes,
+      parked,
+      addedHere,
+      moves,
+      bedMoves,
+      pending,
+      hours,
+      now: props.sell.nowMinute,
+      cleanup: props.bedCleanupMinutes,
+      // ⚖ D-53 (u)/(n2b1) — a words-only prop change must invalidate the
+      // gesture's cached `liveWord`/`ToneSlot.reason`, same as any other
+      // world input; source-proven, not reachable on the static fixture.
+      wordsByStore: props.wordsByStore,
+      words: props.words,
+      genericWords: props.genericWords,
+    }),
+    [
+      placedLanes,
+      parked,
+      addedHere,
+      moves,
+      bedMoves,
+      pending,
+      hours,
+      props.sell.nowMinute,
+      props.bedCleanupMinutes,
+      props.wordsByStore,
+      props.words,
+      props.genericWords,
+    ],
   )
   const worldStampRef = useRef(worldStamp)
   worldStampRef.current = worldStamp
@@ -6312,7 +6347,12 @@ export function TodayScreen(props: TodayProps) {
     if (!ctx.moved) {
       ctx.moved = true
       if (inHand) {
-        const { cls } = blockChrome(ctx.item.kind)
+        // ⚖ D-53 (u)/(n2b1) — `ctx.homeLane` is a string key with no group;
+        // require the matched lane's items to contain `ctx.key` too, since a
+        // lane key is unique only within its own group.
+        const homeLane = boardLanes.find((l) => l.key === ctx.homeLane && l.items.some((i) => i.key === ctx.key))
+        const w = homeLane ? wordsForLane(homeLane) : props.words
+        const { cls } = blockChrome(ctx.item.kind, w.turnoverWord ?? props.genericWords.turnoverWord!)
         setProxy({ kind: 'block', item: ctx.item, state: cls, w: ctx.grab.w, h: ctx.grab.h })
       }
     }
@@ -6754,7 +6794,9 @@ export function TodayScreen(props: TodayProps) {
     // paged forward to 8/22, which is the whole point of the shelf. The same day
     // goes onto `home` as DATA, because a printed sentence is not something the
     // × can restore from (canon's snapshot carries `day`, :5567-5570).
-    const text = parkChipText(item, hours, props.dayLabel)
+    // ⚖ D-53 (u)/(n2b1) — `from.laneKey` is the booking's own STAFF lane.
+    const parkLane = boardLanes.find((l) => l.group === 'staff' && l.key === from.laneKey)
+    const text = parkChipText(item, hours, props.dayLabel, parkLane ? wordsForLane(parkLane) : props.words, props.genericWords)
     setParked((was) => (was.includes(id) ? was : [...was, id]))
     setParkChips((was) => [...was.filter((c) => c.id !== id), {
       id, ...text, category: item.category,
@@ -7465,7 +7507,11 @@ export function TodayScreen(props: TodayProps) {
       ? (drawnLanes.find((l) => l.key === blocker)?.label ?? null)
       : null
     const title = withheldTitle(withName)
-    const sub = withheldSub(end - start)
+    // ⚖ D-53 (u)/(n2b1) — `laneKey` is the STAFF lane's own key (`key` above is
+    // the OFFER's identity, `offerKey(laneKey, start)`), so the withheld
+    // resource's words come from that same staff lane.
+    const lane = drawnLanes.find((l) => l.group === 'staff' && l.key === laneKey)
+    const sub = withheldSub(end - start, lane ? wordsForLane(lane) : props.words)
     return { key, title, sub, label: `${title}。${sub}` }
   }
   /** ⚖ 8/23 guided-tour law — the FIRST withheld box on the board registers its
@@ -8389,7 +8435,8 @@ export function TodayScreen(props: TodayProps) {
           ? 'confirmed'
           : (item.state ?? '')
     if (item.kind !== 'booking') {
-      const { cls, opens, locked } = blockChrome(item.kind)
+      // ⚖ D-53 (u)/(n2b1) — `lane` is the card face's own rendering lane.
+      const { cls, opens, locked } = blockChrome(item.kind, wordsForLane(lane).turnoverWord ?? props.genericWords.turnoverWord!)
       const body = (
         <>
           <strong>{item.title}</strong>
@@ -8555,7 +8602,21 @@ export function TodayScreen(props: TodayProps) {
 
   /** ⚖ Q6 — read once, so the sentence in the body and the missing button in
    *  the footer can never disagree about the same block. */
-  const blockNotDeletable = blockInfo ? blockChrome(blockInfo.itemKind).notDeletable : null
+  // ⚖ D-53 (u)/(n2b1) — `blockInfo.laneKey` is the CLICKED rendering lane's
+  // key: a rendered cleanup carries its BEDS key, an ordinary block can carry
+  // either group's key (cross-group landings are legal). Look up by key in
+  // BOTH groups, preferring the lane whose items actually contain the item —
+  // never assume a group; chrome when no lane matches.
+  const blockInfoLane = blockInfo
+    ? (boardLanes.find((l) => l.key === blockInfo.laneKey && l.items.some((i) => i.key === blockInfo.key))
+        ?? boardLanes.find((l) => l.key === blockInfo.laneKey))
+    : undefined
+  const blockNotDeletable = blockInfo
+    ? blockChrome(
+        blockInfo.itemKind,
+        (blockInfoLane ? wordsForLane(blockInfoLane) : props.words).turnoverWord ?? props.genericWords.turnoverWord!,
+      ).notDeletable
+    : null
 
   const liveClamp = clampPriceInputs(hiInput, loInput, dialogs.pricing)
   const liveChanged = liveClamp.hi !== appliedPrice.hi || liveClamp.lo !== appliedPrice.lo
