@@ -57,9 +57,14 @@ jest.mock('@/lib/auth/store-scope', () => ({
 
 const staffCreate = jest.fn(async () => ({ id: 'new-1' }))
 const staffUpdate = jest.fn(async () => ({}))
+const staffDelete = jest.fn(async () => ({}))
+const staffStoresSet = jest.fn(async () => ({}))
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
-    staff: { create: staffCreate, update: staffUpdate },
+    // delete + staffStores are the mint's placement/rollback ports — a client
+    // without them cannot exercise a refused placement at all.
+    staff: { create: staffCreate, update: staffUpdate, delete: staffDelete },
+    staffStores: { set: staffStoresSet, get: jest.fn(async () => ({ store_ids: [] })) },
   })),
 }))
 
@@ -81,6 +86,7 @@ jest.mock('@/lib/supabase/service', () => ({
 }))
 
 import { createStaff, updateStaff } from '@/actions/staff'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 
 const validData = { name: 'New Person', position: '', email: '', phone: '' }
 
@@ -123,6 +129,17 @@ describe('createStaff — error contract', () => {
     can.mockResolvedValue(false)
     await expect(createStaff(validData)).resolves.toEqual({ error: 'noPermission' })
     expect(staffCreate).not.toHaveBeenCalled()
+  })
+
+  it('a THROWN store-scope lookup fails closed, never an unhandled action error (F6)', async () => {
+    // ⚖ FOLD ROUND 3 (fresh-eyes F6): resolveStoreScope sat outside the
+    // try/catch every other risky call here is inside. A throw turned a hire
+    // into the stripped render/digest toast instead of a reason.
+    ;(resolveStoreScope as jest.Mock).mockRejectedValueOnce(new Error('core down'))
+    await expect(
+      createStaff({ ...validData, storeIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'] }),
+    ).resolves.toEqual({ error: 'STORE_SCOPE_DENIED' })
+    expect(staffStoresSet).not.toHaveBeenCalled()
   })
 
   it('granted + valid: resolves undefined', async () => {

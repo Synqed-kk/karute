@@ -191,8 +191,13 @@ export async function createStaff(data: StaffProfileInput): Promise<StaffActionR
   // store instead. This is the file's own sibling convention (staffWriteInScope
   // returns false on degraded) and what the facade twin already does by
   // throwing. A WRITE fails closed on an unknown; only the read plane doesn't.
-  const scope = await resolveStoreScope()
-  const allowedStoreIds = scope.degraded ? [] : scope.allowedStoreIds
+  // ⚖ FOLD ROUND 3 (fresh-eyes F6) — and a THROW is the same unknown. Every
+  // other risky call in this action is guarded; this one was not, so a core
+  // blip turned a hire into an unhandled Server Action error (message stripped
+  // in production — the exact contract staff-action-error-contract pins). The
+  // file's own sibling viewerScopeForActs catches and returns [] for this.
+  const scope = await resolveStoreScope().catch(() => null)
+  const allowedStoreIds = scope === null || scope.degraded ? [] : scope.allowedStoreIds
   const result = await createStaffCore(
     synqed,
     businessId,

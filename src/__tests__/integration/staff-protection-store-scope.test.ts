@@ -89,7 +89,17 @@ jest.mock('@/lib/synqed/client', () => ({
     // ⚖ Liam 2026-09-16: a FRESH invite mints the card first, so the invite
     // door reaches the staff ports too. One store = the carve-out, so this
     // suite's invite needs no 担当店舗 and the clamp rule it pins is untouched.
-    staff: { setPin, removePin, create: jest.fn(async () => ({ id: 'staff-new' })) },
+    staff: {
+      setPin,
+      removePin,
+      create: jest.fn(async () => ({ id: 'staff-new' })),
+      // The mint's ROLLBACK port — a refused placement deletes the card it
+      // just made, so a client without this cannot exercise the refusal.
+      delete: jest.fn(async () => ({})),
+      get: jest.fn(async () => ({ id: 'staff-new', email: null, user_id: null })),
+      update: jest.fn(async () => ({})),
+    },
+    staffStores: { set: jest.fn(async () => ({})), get: jest.fn(async () => ({ store_ids: [] })) },
     stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-a', is_primary: true }] })) },
     invites: { create: invitesCreate, list: invitesList, updateStatus: invitesUpdateStatus },
   })),
@@ -207,6 +217,20 @@ describe('setStaffPin / removeStaffPin — the SELF path is untouched', () => {
       error: 'Not authorized to set a PIN',
     })
     expect(setPin).not.toHaveBeenCalled()
+  })
+})
+
+describe('createInvite — a thrown store-scope lookup fails closed (F6)', () => {
+  it('returns the house { error } shape, never an unhandled server-action error', async () => {
+    // ⚖ FOLD ROUND 3 (fresh-eyes F6). resolveStoreScope sat OUTSIDE the
+    // try/catch every other risky call in this action is inside, so a core blip
+    // turned a hire into the stripped "An error occurred in the Server
+    // Components render…" toast. Caught → `[]`, the same fail-closed value a
+    // degraded lookup already takes.
+    resolveStoreScope.mockRejectedValueOnce(new Error('core down'))
+    await expect(createInvite({ ...INVITE, storeIds: [TARGET] })).resolves.toEqual({
+      error: 'STORE_SCOPE_DENIED',
+    })
   })
 })
 
