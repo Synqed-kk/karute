@@ -16,7 +16,8 @@ import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
+import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { reassignKaruteCustomerWithClient } from '@/actions/karute'
 
 export const runtime = 'nodejs'
@@ -45,14 +46,19 @@ export const POST = facadeHandler<Params>('karute.reassign', async (ctx: FacadeC
   const synqed = newSynqedClient(ctx.identity.businessId)
 
   // Same clamp rule as the web wrapper (menus.ts's storeScopeError shape),
-  // resolved through the Bearer twin — resolveStoreForRequest already fails
-  // closed (throws store_forbidden) on an unreadable assignment, so there is
-  // no separate "degraded" arm to thread here.
-  const { allowedStoreIds } = await resolveStoreForRequest({
+  // resolved through the Bearer twin — the SAME resolveWriteStoreScope every
+  // other facade write door uses (outcome / summary / entries / cancel / no-show
+  // / restore / discard / autostart). It fails closed twice over: on an
+  // unreadable assignment, and (⚖ fold round 2, FRESH-EYES-P1 N1) on a caller
+  // the ROSTER CANNOT PLACE — core answers `{ store_ids: [] }` for an auth id it
+  // holds no staff row for, so calling resolveStoreForRequest directly read such
+  // a caller as floating and let them re-point ANY karute in the business. No
+  // separate "degraded" arm to thread: the refusal throws before a scope exists.
+  const { allowedStoreIds } = await resolveWriteStoreScope({
     synqed,
     authUserId: ctx.identity.authUserId,
     capabilities: ctx.identity.capabilities,
-    requestedStoreId: null,
+    selfStaffId: await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId),
   })
 
   const result = await reassignKaruteCustomerWithClient(
