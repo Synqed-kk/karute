@@ -92,13 +92,20 @@ export const STORE_UNASSIGNED_DENIAL =
 export type StoreAssignmentVerdict = 'viewAll' | 'clamped' | 'unassigned' | 'unclamped'
 
 /**
- * How many of a `stores.list()` response's rows are ACTIVE — the ONE place
- * the single-store carve-out's business size is computed (Greptile G-2,
- * 2026-09-17), used by BOTH `actorIsUnassigned` below and the facade's
- * `resolveWriteStoreScope` (store-clamp.ts) so they cannot drift. An inactive
- * (archived/closed) store is not a real second location a floating staff
- * member could be assigned to, so it must not turn the carve-out off for a
- * genuinely single-active-store business.
+ * The ONE place the single-store carve-out's business size is computed
+ * (Greptile G-2, 2026-09-17), used by BOTH `actorIsUnassigned` below and the
+ * facade's `resolveWriteStoreScope` (store-clamp.ts) so they cannot drift.
+ *
+ * The rule: active stores, or all stores when none is active — an
+ * all-archived multi-store business still has something to isolate. An
+ * inactive (archived/closed) store is not a real second location a floating
+ * staff member could be assigned to, so it must not turn the carve-out off
+ * for a genuinely single-active-store business — but a business with ≥2
+ * store ROWS that has archived every one of them is still multi-store for
+ * this gate: an unassigned staffer there must not fall through to the
+ * business-wide view just because nothing is currently marked active (⚖
+ * session-model fold, 2026-09-17 — closes the posture note from the S2
+ * delta-verify).
  *
  * ⚖ Greptile fold, G-2b (2026-09-17): only an EXPLICIT `false` counts as
  * inactive — a missing flag counts as active. A row with no `active` field at
@@ -107,16 +114,18 @@ export type StoreAssignmentVerdict = 'viewAll' | 'clamped' | 'unassigned' | 'unc
  * genuine multi-store business count as single-store and switch the
  * unassigned gate OFF. Unknown must never turn the gate off.
  */
-export function activeStoreCount(rows: readonly { active?: boolean | null }[]): number {
-  return rows.filter((s) => s.active !== false).length
+export function storeCountForGate(rows: readonly { active?: boolean | null }[]): number {
+  const active = rows.filter((s) => s.active !== false).length
+  return active === 0 && rows.length > 0 ? rows.length : active
 }
 
 export function storeAssignmentVerdict(facts: {
   viewAll: boolean
   /** staff_stores rows, or null when the lookup itself failed. */
   assigned: readonly string[] | null
-  /** How many ACTIVE stores the business has (Greptile G-2, `activeStoreCount`
-   *  above); null = the list could not be read. */
+  /** The business's store count for this gate (Greptile G-2, `storeCountForGate`
+   *  above — active stores, or all stores when none is active); null = the
+   *  list could not be read. */
   storeCount: number | null
 }): StoreAssignmentVerdict {
   if (facts.viewAll) return 'viewAll'
@@ -192,7 +201,7 @@ export const actorIsUnassigned = cache(
       if (assigned === null || assigned.length > 0) return false
       const storeCount = await synqed.stores
         .list()
-        .then((r) => activeStoreCount(r.stores))
+        .then((r) => storeCountForGate(r.stores))
         .catch(() => null)
       return (
         storeAssignmentVerdict({ viewAll: false, assigned, storeCount }) === 'unassigned'

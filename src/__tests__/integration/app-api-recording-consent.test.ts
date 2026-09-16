@@ -46,7 +46,7 @@ const getConsent = jest.fn(async () => ({ consent: { granted_at: '2026-05-01T00:
 // to the business's PRIMARY store, so `stores.list` is part of this route's
 // contract too.
 // G-2 (Greptile, 2026-09-17): the gate's storeCount now counts ACTIVE stores
-// only (store-gate.ts activeStoreCount), so every fixture row needs the real
+// only (store-gate.ts storeCountForGate), so every fixture row needs the real
 // SDK's `active` field — an inactive store must not silently masquerade as a
 // second location and flip the unassigned verdict.
 type FakeStore = { id: string; is_primary: boolean; active: boolean }
