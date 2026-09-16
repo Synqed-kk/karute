@@ -163,11 +163,18 @@ function jstDayStartMs(ymd: string): number {
  *  entirely, so a day with four hours booked reported 13 % occupied and seven
  *  hours free, with the concurrency guard unable to see the row at all. It is
  *  the same unvalidated-column trust E30 rejected for duration_minutes; a
- *  cleanup can only ever add minutes to a booking, so the arithmetic says so. */
+ *  cleanup can only ever add minutes to a booking, so the arithmetic says so.
+ *
+ *  ⚖ G1 (Greptile #934) — `occupied_until` is unvalidated in BOTH directions:
+ *  a value that fails to parse (`Date.parse` → NaN) is no extension at all,
+ *  never a NaN that poisons the Math.max and drops the whole row from the
+ *  span validation below. */
 function spanOf(a: Appointment): BookedSpan {
+  const endMs = Date.parse(a.ends_at)
+  const cleanupMs = a.occupied_until == null ? NaN : Date.parse(a.occupied_until)
   return {
     startMs: Date.parse(a.starts_at),
-    endMs: Math.max(Date.parse(a.ends_at), Date.parse(a.occupied_until ?? a.ends_at)),
+    endMs: Number.isFinite(cleanupMs) ? Math.max(endMs, cleanupMs) : endMs,
     staffId: a.staff_id ?? null,
   }
 }

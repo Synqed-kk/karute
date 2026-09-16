@@ -397,6 +397,64 @@ describe('mutant pins', () => {
     expect(row.freeMinutes).toBe(510) // 600 − 90, not 600 − 60
   })
 
+  it('G1 — MUTANT: a malformed occupied_until never drops the booking', () => {
+    // occupied_until is an unvalidated column (E30/R1-2) — a value that fails
+    // to parse is no extension at all, never a NaN that erases the whole
+    // span (Math.max(finite, NaN) === NaN, which the span validation drops).
+    const malformed = byDay(
+      weekRows({
+        switches: ALL_ON,
+        appointments: [
+          {
+            id: 'malformed-cleanup',
+            kind: 'BOOKING',
+            customer_id: 'c1',
+            staff_id: 's1',
+            starts_at: '2026-09-14T01:00:00Z', // 10:00 JST
+            ends_at: '2026-09-14T02:00:00Z', // 11:00 JST
+            occupied_until: 'not-a-date',
+            duration_minutes: 60,
+            status: 'SCHEDULED',
+            source: 'MANUAL',
+            title: null,
+            notes: null,
+            created_at: '2026-09-01T00:00:00Z',
+            updated_at: '2026-09-01T00:00:00Z',
+          } as unknown as Appointment,
+        ],
+      }),
+    ).get(YMD.mon)!
+    const noCleanup = byDay(
+      weekRows({
+        switches: ALL_ON,
+        appointments: [
+          {
+            id: 'no-cleanup',
+            kind: 'BOOKING',
+            customer_id: 'c1',
+            staff_id: 's1',
+            starts_at: '2026-09-14T01:00:00Z',
+            ends_at: '2026-09-14T02:00:00Z',
+            occupied_until: null,
+            duration_minutes: 60,
+            status: 'SCHEDULED',
+            source: 'MANUAL',
+            title: null,
+            notes: null,
+            created_at: '2026-09-01T00:00:00Z',
+            updated_at: '2026-09-01T00:00:00Z',
+          } as unknown as Appointment,
+        ],
+      }),
+    ).get(YMD.mon)!
+    // A malformed snapshot occupies exactly its ends_at minutes — the same
+    // day as occupied_until: null — and never erases the row.
+    expect(malformed.count).toBe(1)
+    expect(malformed.occupancyPct).toBe(noCleanup.occupancyPct)
+    expect(malformed.freeMinutes).toBe(noCleanup.freeMinutes)
+    expect(malformed.occupancyPct).toBe(10) // 60 of 600
+  })
+
   it('R1-2 — an occupied_until BEFORE ends_at never shortens the booking', () => {
     // The SDK gives occupied_until no contract of its own, so a stale snapshot
     // can sit before the row's real end. Trusting it blindly halved this
