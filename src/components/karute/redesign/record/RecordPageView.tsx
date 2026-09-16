@@ -39,6 +39,7 @@ import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { useTimetableStore } from '@/stores/timetable-store'
 import { type CustomerOption } from '@/components/karute/CustomerCombobox'
+import { pickedCustomerName } from '@/lib/customers/picked-customer-name'
 import {
   getCustomerConsent,
   grantCustomerConsent,
@@ -3940,8 +3941,7 @@ export function RecordPageView({
             // lookup fallback alone would mislabel it recoverCustomerUnknown).
             repointTo({
               customerId: id,
-              customerName:
-                name || customers.find((c) => c.id === id)?.name || t('recoverCustomerUnknown'),
+              customerName: pickedCustomerName(name, customers, id, t('recoverCustomerUnknown')),
               appointmentId: null,
             })
           }}
