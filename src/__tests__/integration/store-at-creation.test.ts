@@ -57,12 +57,16 @@ const DEPS = { actorId: 'owner-1', source: 'web' as const, requestId: 'req-1' }
 const CARD = { name: '田中', position: '', email: '', phone: '' }
 
 function client(opts: {
-  stores?: string[]
+  /** A bare id is an ACTIVE store; `{ id, active: false }` is an archived one
+   *  (⚖ fold round 3 / fresh-eyes F2 — the gate counts ACTIVE stores). */
+  stores?: (string | { id: string; active: boolean })[]
   assignments?: Record<string, string[]>
   roster?: string[]
   setFails?: boolean
 }) {
-  const stores = opts.stores ?? ['store-ginza', 'store-daikanyama']
+  const stores = (opts.stores ?? ['store-ginza', 'store-daikanyama']).map((s) =>
+    typeof s === 'string' ? { id: s } : s,
+  )
   const assignments = opts.assignments ?? {}
   const staffCreate = jest.fn(async () => ({ id: 'staff-new' }))
   const staffDelete = jest.fn(async () => ({}))
@@ -83,7 +87,7 @@ function client(opts: {
         set: staffStoresSet,
       },
       stores: {
-        list: async () => ({ stores: stores.map((id, i) => ({ id, is_primary: i === 0 })) }),
+        list: async () => ({ stores: stores.map((s, i) => ({ ...s, is_primary: i === 0 })) }),
         create: jest.fn(async () => ({ id: 'store-new' })),
       },
     },
@@ -226,6 +230,37 @@ describe('1 → 2 stores: nobody blanks mid-shift', () => {
     })
     await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
     expect(c.staffStoresSet).not.toHaveBeenCalled()
+  })
+
+  // ⚖ FOLD ROUND 3 (fresh-eyes F2) — ONE SPELLING OF THE STORE COUNT. The
+  // backfill used to count raw store ROWS while the gate counts
+  // storeCountForGate (active stores, or all rows when none is active). An
+  // ARCHIVED store made the two disagree in both directions.
+  it('an ARCHIVED store + the first real second store: the backfill still runs (F2a)', async () => {
+    // The gate goes 1 → 2 here (one active store becomes two), so every
+    // floating card is about to become UNASSIGNED — the exact blanking this
+    // backfill exists to prevent. Raw rows = 3, which used to return early.
+    const c = client({
+      stores: ['store-daikanyama', { id: 'store-old', active: false }, 'store-new'],
+      roster: ['staff-a'],
+    })
+    const res = await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(res).toEqual({ id: 'store-new' })
+    expect(c.assignments['staff-a']).toEqual(['store-daikanyama'])
+  })
+
+  it('never backfills into an ARCHIVED store (F2b)', async () => {
+    // A business that archived its only store and opened a new one: the gate
+    // counts ONE active store, so the single-store carve-out still holds and
+    // nobody blanks. Raw rows = 2, which used to fire the backfill and clamp
+    // everyone into the CLOSED store, hiding the live one from them.
+    const c = client({
+      stores: [{ id: 'store-old', active: false }, 'store-new'],
+      roster: ['staff-a'],
+    })
+    await createStoreCore(c.api as never, 'business-1', ownerDeps, input)
+    expect(c.staffStoresSet).not.toHaveBeenCalled()
+    expect(c.assignments['staff-a']).toBeUndefined()
   })
 
   it('a failed backfill never undoes the store the owner just created', async () => {

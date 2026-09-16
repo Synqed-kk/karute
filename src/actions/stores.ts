@@ -18,6 +18,7 @@ import { audit } from '@/lib/audit'
 import { coreBusinessType } from '@/lib/welcome/business-types'
 import {
   actorIsUnassigned,
+  storeCountForGate,
   STAFF_STORES_OUTSIDE_CREATOR,
   STORE_UNASSIGNED_DENIAL,
 } from '@/lib/auth/store-gate'
@@ -628,8 +629,18 @@ async function backfillStaffToExistingStore(
 ): Promise<void> {
   try {
     const { stores } = await synqed.stores.list()
-    if (stores.length !== 2) return // not the 1→2 transition
-    const existing = stores.find((s) => s.id !== newStoreId)?.id
+    // ⚖ FOLD ROUND 3 (fresh-eyes F2) — the SAME count the gate uses. Counting
+    // raw rows made this disagree with storeAssignmentVerdict the moment a
+    // business held an archived store: a salon going from one active store to
+    // two (with an old closed one on file) saw the gate flip everyone to
+    // UNASSIGNED while this returned early on `rows === 3` — every floating
+    // staff member blanked the next morning, which is the one thing this
+    // function exists to prevent.
+    if (storeCountForGate(stores) !== 2) return // not the 1→2 transition
+    // ...and never INTO a closed store: `stores.find(s => s.id !== newStoreId)`
+    // could pick an archived row and clamp the whole roster to premises the
+    // salon has left, hiding the store they actually work in.
+    const existing = stores.find((s) => s.id !== newStoreId && s.active !== false)?.id
     if (!existing || !synqed.staff) return
     const { staff } = await synqed.staff.list({ page_size: 200 })
     for (const member of staff) {

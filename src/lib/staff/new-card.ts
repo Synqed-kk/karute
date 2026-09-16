@@ -17,7 +17,7 @@
 // walker able to read them.
 
 import type { SynqedClient } from '@synqed-kk/client'
-import { STAFF_STORE_REQUIRED } from '@/lib/auth/store-gate'
+import { storeCountForGate, STAFF_STORE_REQUIRED } from '@/lib/auth/store-gate'
 
 /** The ports a card mint needs. `staffStores`/`stores` are Partial because a
  *  caller in a single-store salon (or a test double) legitimately has neither;
@@ -66,7 +66,10 @@ export async function createAndPlaceStaffCard(
     // same UNKNOWN as a failed call, and UNKNOWN never blocks.
     let storeCount: number | null = null
     try {
-      storeCount = (await synqed.stores!.list()).stores.length
+      // ⚖ FOLD ROUND 3 (fresh-eyes F2) — the gate's own helper, not a raw row
+      // count. Three spellings of "how many stores" is three chances to
+      // disagree with the screen the refusal points at.
+      storeCount = storeCountForGate((await synqed.stores!.list()).stores)
     } catch {
       storeCount = null
     }
