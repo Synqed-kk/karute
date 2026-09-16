@@ -597,8 +597,12 @@ describe('G9 — no 「ベッド」 reachable', () => {
     // each fragment (満室→${w.fullWord}, ベッド→${w.resourceNoun}/
     // ${holdPopWords.resourceNoun}); the `hasBeds ?`/`hasBeds &&` gate itself,
     // which is what this leg actually proves, is byte-identical.
+    // ⚖ D-53 (z), PKT-FIX-N2A-F4 — PIN MOVE: the first fragment's chip token
+    // is now `props.genericWords.fullWord` (same rule as the other two
+    // chip-naming spots); the gate syntax and `${w.resourceNoun}` are
+    // unchanged.
     for (const fragment of [
-      '${hasBeds ? `「${w.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で',
+      '${hasBeds ? `「${props.genericWords.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で',
       '${hasBeds ? `${w.resourceNoun}を別のスタッフの枠が使っていて',
       '{hasBeds && <b>⇄ {w.resourceNoun}を入れ替えて置ける</b>}',
       '${hasBeds ? `ボードのカードをドラッグしている間は、${w.resourceNoun}を入れ替えれば置ける開始に',

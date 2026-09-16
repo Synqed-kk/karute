@@ -1263,7 +1263,15 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     expect(guide).not.toContain('小さな文字が付いたコマでは')
     // ⚖ RULING 1 (2026-09-09) — the 満室 change is DECLARED, in the tour's own
     // words: it is about the 30 minutes, not about whether the session fits.
-    expect(guide).toContain("「${w.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます")
+    // ⚖ D-53 (z), PKT-FIX-N2A-F4 — PIN MOVE: this is the THIRD chip-naming
+    // token in the same sentence (the 満室-explains clause) — it too is
+    // minted generic until N2b-2's switch-back; its `${w.resourceNoun}` is
+    // the store's own noun and stays unchanged.
+    expect(guide).toContain("「${props.genericWords.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます")
+    // ⚖ D-53 (z), PKT-FIX-N2A-F4 — source pin: this third token is a
+    // deliberate count of ONE (it has no turnoverWord pair, unlike the other
+    // two), so a future switch-back has to touch this pin too.
+    expect((guide.match(/「\$\{props\.genericWords\.fullWord\}」はその30分に/g) ?? []).length).toBe(1)
     // ⚖ RULING 2 (2026-09-09) — and so is the quiet-hour mark.
     expect(guide).toContain('${w.resourceNoun}を別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます')
     // ⚖ LIAM RULING (2026-08-30) — the tour quotes the chips' OWN labels, so the
