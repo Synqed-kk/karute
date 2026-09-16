@@ -78,7 +78,7 @@ interface Props {
   bookings: RecordTargetBooking[]
   facts?: RecordCustomerFact[]
   onSelectBooking: (booking: RecordTargetBooking) => void
-  onSelectCustomer: (customerId: string) => void
+  onSelectCustomer: (customerId: string, name?: string) => void
   onClose: () => void
   cancelLabel: string
   /**
@@ -537,7 +537,7 @@ function PinnedRow({
   fact: RecordCustomerFact | undefined
   bookedToday: boolean
   isCurrent: boolean
-  onSelect: (id: string) => void
+  onSelect: (id: string, name?: string) => void
   t: T
 }) {
   return (
@@ -546,7 +546,7 @@ function PinnedRow({
         type="button"
         role="option"
         aria-selected={false}
-        onClick={() => onSelect(pinned.customerId)}
+        onClick={() => onSelect(pinned.customerId, pinned.name)}
         className={cn(
           'flex w-full items-start gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors',
           isCurrent ? 'bg-primary/8 hover:bg-primary/12' : 'hover:bg-muted/60',
@@ -733,7 +733,7 @@ function SearchRow({
   customer: CustomerOption
   fact: RecordCustomerFact | undefined
   todayBooking: RecordTargetBooking | null
-  onSelect: (id: string) => void
+  onSelect: (id: string, name?: string) => void
   t: T
   /** Set (P3) only for a remote/company-wide row the local list didn't
    *  already have — renders the honest 他店舗 chip next to the name. */
@@ -754,7 +754,7 @@ function SearchRow({
         type="button"
         role="option"
         aria-selected={false}
-        onClick={() => onSelect(customer.id)}
+        onClick={() => onSelect(customer.id, customer.name)}
         className={cn(
           'relative flex w-full flex-col gap-1 rounded-xl border border-border py-2.5 pr-3 text-left transition-colors hover:bg-muted/60',
           todayBooking ? 'pl-4' : 'pl-3.5',

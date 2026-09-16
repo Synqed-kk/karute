@@ -99,7 +99,7 @@ export function useRemoteCustomerSearch(
 type CustomerComboboxProps = {
   customers: CustomerOption[]
   selectedId: string | null
-  onSelect: (id: string) => void
+  onSelect: (id: string, customer: CustomerOption) => void
   onCreateNew: (query?: string) => void
   placeholder?: string
   disabled?: boolean
@@ -162,7 +162,13 @@ export function CustomerCombobox({
   onRemoteSearch,
 }: CustomerComboboxProps) {
   const t = useTranslations('customers')
-  const selectedCustomer = customers.find((c) => c.id === selectedId) ?? null
+  // A remote (company-wide) pick never lands in the preloaded `customers`
+  // list — it stays the only source of truth for its own row so blur/
+  // outside-click never wipe the name back to empty (post-#945 follow-up).
+  const [picked, setPicked] = useState<CustomerOption | null>(null)
+  const selectedCustomer =
+    customers.find((c) => c.id === selectedId) ??
+    (picked && picked.id === selectedId ? picked : null)
 
   const [query, setQuery] = useState(selectedCustomer?.name ?? '')
   const [open, setOpen] = useState(false)
@@ -218,7 +224,8 @@ export function CustomerCombobox({
   const normalRows: CustomerOption[] = [...filtered, ...remoteOwnStore]
 
   function handleSelect(customer: CustomerOption) {
-    onSelect(customer.id)
+    setPicked(customer)
+    onSelect(customer.id, customer)
     setQuery(customer.name)
     setOpen(false)
   }
