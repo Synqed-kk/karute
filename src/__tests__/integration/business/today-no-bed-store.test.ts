@@ -483,26 +483,23 @@ describe('G9 — no 「ベッド」 reachable', () => {
       'with an intruder in ベッド2, because',
       "on Liam's own board: ベッド1",
       'retarget PRINT — ベッド3 → ベッド2',
-      "roomWord: ask.requiresPrivate ? '個室' : 'ベッド'", // :5978/:6547
-      '空いているベッドがいません」、which told', // fallback if reflowed
+      // ⚖ D-53 (n) — twelve entries PRUNED here: N2a slotted the resource word
+      // into every one of these TodayScreen.tsx sentences (roomWord ternary,
+      // 自動で選ばれます, the withheld/shared-lane guides, the two hasBeds-wrapped
+      // rail-tour sentences, the day-chip guide, the three ⇄ sites, the hold-
+      // popover guide), so the old literal text no longer appears on the tip —
+      // a dead entry left in place would silently re-permit that exact literal
+      // if it were ever reintroduced. See the allowlist-integrity leg below.
+      // (A 13th entry — a PRE-EXISTING "fallback if reflowed" duplicate of
+      // the line below, matching 0 lines even before N2a — was pruned here
+      // too: the new integrity leg caught it on its first run.)
       '空いているベッドがいません',
       '【ベッド3】 over an occupied ベッド3',
       'so in ベッド view,',
       'ベッド2 were never compared',
-      'ベッドは自動で選ばれます', // :7532
-      'この時間のベッドを先に使う予定です', // :7738/:7799
-      'ベッドを共有している確保枠', // :7887
-      'このベッドを必要とする確保枠が重なっている', // :7890
-      '「満室」はその30分にベッドの空きがないという意味で', // :8012 (hasBeds-wrapped)
-      'ベッドを別のスタッフの枠が使っていて', // :8012 (hasBeds-wrapped)
       '【ベッド3】 while', // :8382
       'its twin stands on ベッド2 is the impossible state ⚖ 51', // :8383
       "the card's own 【ベッド3】 reads as a description", // :8395
-      '今日の予約に対してベッドが用意できる数で', // :8522 (chip tour, honest-gated)
-      '⇄ ベッドを入れ替えて置ける', // :8853 (hasBeds-wrapped)
-      '⇄ = ベッドを入れ替えて置ける', // :8996 (hasBeds-wrapped)
-      'ベッドを入れ替えれば置ける開始に', // :8979 (hasBeds-wrapped)
-      'ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて', // :9803 (hasBeds-wrapped)
       // today-interactions.ts — the 30 census lines, unchanged text (5738 deleted)
       '担当/ベッド sentence',
       'while sitting in ベッド1',
@@ -536,17 +533,33 @@ describe('G9 — no 「ベッド」 reachable', () => {
       'now-retired 「ベッドがありません」', // :5127, item 3's doc paraphrase
     ]
     const offenders: string[] = []
+    const matchCounts = new Map<string, number>(allow.map((a) => [a, 0]))
     for (const rel of files) {
       const text = readFileSync(join(process.cwd(), rel), 'utf8')
       const lines = text.split('\n')
       for (const line of lines) {
         if (!line.includes('ベッド')) continue
-        if (allow.some((a) => line.includes(a))) continue
-        offenders.push(`${rel}: ${line.trim()}`)
+        const hit = allow.filter((a) => line.includes(a))
+        for (const a of hit) matchCounts.set(a, (matchCounts.get(a) ?? 0) + 1)
+        if (hit.length === 0) offenders.push(`${rel}: ${line.trim()}`)
       }
     }
     console.log('G9-CENSUS', { offenderCount: offenders.length, offenders })
     expect(offenders).toEqual([])
+
+    // ⚖ D-53 (n) item 3, L1 MINOR-2's fix — 12 dead entries were pruned above
+    // (N2a slotted the resource word into their sentences, so the old literal
+    // text no longer appears on the tip). A 0-match entry left in the list
+    // would be a standing permission nobody is protecting any more; this
+    // proves every SURVIVING entry still matches at least one real line, so a
+    // future prune can never leave a stale entry behind undetected. This leg
+    // itself caught a 13th, PRE-EXISTING dead entry (a "fallback if
+    // reflowed" duplicate of the line above it, matching 0 lines even before
+    // N2a) — pruned alongside the twelve, out of an abundance of the same
+    // fix.
+    const stale = allow.filter((a) => (matchCounts.get(a) ?? 0) === 0)
+    console.log('G9-ALLOWLIST-INTEGRITY', { entryCount: allow.length, prunedCount: 13, stale })
+    expect(stale).toEqual([])
   })
 
   // ⚖ m3's own catch — a SOURCE-TEXT pin on the two ⚖ D-52 (a) gates (item
@@ -580,13 +593,21 @@ describe('G9 — no 「ベッド」 reachable', () => {
     // two sentences, the ⇄ legend key, the ⇄ guard-tour clause, the ⇄ key span,
     // the 仮押さえ tour's two sentences counted as one guard) = 9.
     expect(hasBedsCount).toBe(9)
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: N2a slotted the RESOURCE WORD inside
+    // each fragment (満室→${w.fullWord}, ベッド→${w.resourceNoun}/
+    // ${holdPopWords.resourceNoun}); the `hasBeds ?`/`hasBeds &&` gate itself,
+    // which is what this leg actually proves, is byte-identical.
+    // ⚖ D-53 (z), PKT-FIX-N2A-F4 — PIN MOVE: the first fragment's chip token
+    // is now `props.genericWords.fullWord` (same rule as the other two
+    // chip-naming spots); the gate syntax and `${w.resourceNoun}` are
+    // unchanged.
     for (const fragment of [
-      '${hasBeds ? `「満室」はその30分にベッドの空きがないという意味で',
-      "${hasBeds ? 'ベッドを別のスタッフの枠が使っていて",
-      '{hasBeds && <b>⇄ ベッドを入れ替えて置ける</b>}',
-      "${hasBeds ? 'ボードのカードをドラッグしている間は、ベッドを入れ替えれば置ける開始に",
-      '{hasBeds && <span className="guard-key reseat-key">⇄ = ベッドを入れ替えて置ける</span>}',
-      "${hasBeds ? 'ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります",
+      '${hasBeds ? `「${props.genericWords.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で',
+      '${hasBeds ? `${w.resourceNoun}を別のスタッフの枠が使っていて',
+      '{hasBeds && <b>⇄ {w.resourceNoun}を入れ替えて置ける</b>}',
+      '${hasBeds ? `ボードのカードをドラッグしている間は、${w.resourceNoun}を入れ替えれば置ける開始に',
+      '{hasBeds && <span className="guard-key reseat-key">⇄ = {w.resourceNoun}を入れ替えて置ける</span>}',
+      '${hasBeds ? `${holdPopWords.resourceNoun}が埋まっているときは、ほかのお客様の${holdPopWords.resourceNoun}を入れ替えて収めることがあります',
     ]) {
       expect(src).toContain(fragment)
     }

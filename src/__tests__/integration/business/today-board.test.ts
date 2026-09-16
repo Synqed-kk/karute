@@ -486,7 +486,11 @@ describe('今日の運営 screen', () => {
     // known one rather than an accident.
     expect(factOf('apt-29', '予約種別')[1]).toContain('単発')
     const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
-    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],")
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: N2a resolves the tag's word from the
+    // booking's own store (site #29) instead of the literal '個室のみ・'; the
+    // rest of this row's shape (the ternary, CATEGORY_WORD, the source split)
+    // is byte-identical.
+    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? `${(wordsByStore[storeOfBooking.get(b.id) ?? ''] ?? words).privateWord ?? genericWords.privateWord}のみ・` : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],")
     expect(PAGE).toContain("['担当・設備', `${b.staffName} / ${b.resourceName}`],")
   })
 
@@ -1213,8 +1217,11 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
     // The one piece of copy that describes the CONVENTION rather than a block on
     // the board. Gated on the dial, so a store that cleans keeps its sentence
     // and a store that does not never promises 予約不可時間 it is not holding.
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: site #24 additionally gates on the
+    // CHROME store's `turnover` capability (C6) and reads its own
+    // `turnoverWord` instead of the literal 清掃.
     expect(screen).toContain(
-      "props.bedCleanupOn ? '清掃を予約不可時間として表示' : '予約と予定ブロックを表示'",
+      "props.bedCleanupOn && caps.turnover ? `${w.turnoverWord!}を予約不可時間として表示` : '予約と予定ブロックを表示'",
     )
   })
 

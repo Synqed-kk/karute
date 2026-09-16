@@ -64,6 +64,7 @@ import {
   type BuildInput,
 } from '@/business/lib/today-board'
 import { canReleaseHeld, clampCalendarTight, overrideLevelFor, storeHasBeds, type CalendarWindowDay } from './today-interactions'
+import { resourceWordsFor, chromeWords, type ResourceWords } from '@/business/lib/resource-words'
 import { TodayScreen, type DecisionCard, type InspectorCase, type TodayProps } from './TodayScreen'
 import './today.css'
 
@@ -171,6 +172,37 @@ export default async function TodayPage({
   const staffStores = await readStaffStores(lens)
 
   const storeNames = new Map(storeOptions.map((s) => [s.id, s.name]))
+  // ⚖ D-53 (n) R-N2-1 — the ONE runtime-reader module under today/: every
+  // `resourceWordsFor` call lives here, beside the `storeNames` precedent it
+  // follows. TodayScreen/today-interactions never call it themselves — they
+  // only index the maps/values built below (C5).
+  const wordsByStore: Record<string, ResourceWords> = Object.fromEntries(
+    storeOptions.map((s) => [s.id, resourceWordsFor(s.business_type)]),
+  )
+  // C1 — the ONE fallback a `null` word (privateWord/turnoverWord) may ever
+  // take, so no literal word can re-enter today/ through a gap.
+  const genericWords: ResourceWords = resourceWordsFor('other')
+  // C7 — the board's CHROME words: the signed-in store's own row when
+  // clamped; under viewAll, the store options' rows agree → that row, else
+  // the generic row (`chromeWords`, the pure helper in resource-words.ts).
+  const words: ResourceWords = clamped ? wordsByStore[storeId!] : chromeWords(storeOptions.map((s) => wordsByStore[s.id]))
+  // C6 — the per-TYPE default of the per-store WORD-bearing capability flags
+  // (does this store's type have a private class / a turnover word at all).
+  // N3 adds the per-store override on top; nothing here reads the type for
+  // BEHAVIOUR — the flags gate word-bearing controls only.
+  // ⚖ D-53 (z) — page-local only (TodayScreen never read this as a prop); N3
+  // threads its per-store override through here when it lands.
+  const capabilitiesByStore: Record<string, { privateClass: boolean; turnover: boolean }> = Object.fromEntries(
+    storeOptions.map((s) => {
+      const row = wordsByStore[s.id]
+      return [s.id, { privateClass: row.privateWord != null, turnover: row.turnoverWord != null }]
+    }),
+  )
+  // The CHROME store's own capabilities — same rule as `words` above — for
+  // `blockKinds` (#30) below and the screen's own gated examples.
+  const chromeCaps: { privateClass: boolean; turnover: boolean } = clamped
+    ? capabilitiesByStore[storeId!]
+    : { privateClass: words.privateWord != null, turnover: words.turnoverWord != null }
   const input: BuildInput = {
     appointments,
     customers,
@@ -395,7 +427,12 @@ export default async function TodayPage({
         // should say is a ruled rider (one word, one home). This change only
         // stops 新規 from reading as 単発.
         ['担当・設備', `${b.staffName} / ${b.resourceName}`],
-        ['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],
+        // ⚖ D-53 (n) R-N2-3 — the tag's word from the BOOKING'S OWN store
+        // (re-joined via `storeOfBooking`, below); `?? genericWords.privateWord`
+        // is the impossible-state guard (a private-tagged booking on a
+        // no-private-class store — unreachable until N3/N4 build the upstream
+        // gate; pinned never-hit on this fixture).
+        ['予約種別', `${b.requiresPrivateRoom ? `${(wordsByStore[storeOfBooking.get(b.id) ?? ''] ?? words).privateWord ?? genericWords.privateWord}のみ・` : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],
         [b.settlement === 'awaiting' ? '請求額' : '予約時価格', b.price == null ? '記録なし' : `${yen(b.price)}（税込）`],
         ['連絡状態', b.state === 'hold' ? '未送信' : '送信済み'],
         ['カルテ', b.settlement === null ? '施術後に作成' : '施術記録あり'],
@@ -510,6 +547,13 @@ export default async function TodayPage({
     locale,
     store: storeId,
     lensLabel: clamped ? (storeNames.get(storeId!) ?? 'この店舗') : 'すべての店舗',
+    // ⚖ D-53 (n) — the resource-words plumbing (R-N2-1/2): every store's
+    // words, the board's own CHROME words/capabilities, and the ONE fallback
+    // a `null` word may take. TodayScreen/today-interactions only index these.
+    wordsByStore,
+    words,
+    genericWords,
+    caps: chromeCaps,
     dayOffset,
     dayLabel: fmtDayFull.format(shownAt),
     // The month the calendar popover opens on. It is a FACT ABOUT THE SHOWN
@@ -757,7 +801,11 @@ export default async function TodayPage({
           .filter((c) => !c.external_owner)
           .map((c) => ({ id: c.id, name: c.name, no: c.member_number, phone: c.phone ?? '電話未登録', furigana: c.furigana ?? '' })),
         sources: ['店頭', '電話', 'Reserve', '紹介'],
-        blockKinds: ['休憩', '準備', '記録', '清掃', 'ミーティング'],
+        // ⚖ D-53 (n) — 清掃 is the CHROME store's own `turnoverWord`, GATED
+        // (C6): a store whose type has no turnover concept drops the entry
+        // entirely (a real removed option, not a relabelled one) — the ORDER
+        // is otherwise kept (清掃 sat fourth).
+        blockKinds: ['休憩', '準備', '記録', ...(chromeCaps.turnover ? [words.turnoverWord!] : []), 'ミーティング'],
         // canon's block flow is 種類 / 長さ / メモ.
         //
         // ⚖ Liam flag 65 (2026-08-22) — A PLAIN LIST, NOT A DERIVATION. These

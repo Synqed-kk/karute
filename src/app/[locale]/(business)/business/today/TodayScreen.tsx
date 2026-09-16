@@ -205,6 +205,7 @@ import { heldMaskOf, honestHeld, type HonestHeld } from './honest-held'
 import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'
 import { BED_AWARE_SALES, HONEST_HELD, SELLING_ENGINE_LAW } from './selling-engine-gate'
 import { releaseTimed } from './timed-release'
+import type { ResourceWords } from '@/business/lib/resource-words'
 
 const HINT = '見本データのため実行できません'
 
@@ -572,6 +573,22 @@ export interface TodayProps {
   locale: string
   store: string | null
   lensLabel: string
+  /** ⚖ D-53 (n) R-N2-1/2 — every store option's words, resolved ONCE in
+   *  page.tsx (the ONLY `resourceWordsFor` call site under today/). This
+   *  screen and today-interactions never call `resourceWordsFor` themselves
+   *  — they only index this map, or read `words`/`genericWords` below (C5). */
+  wordsByStore: Record<string, ResourceWords>
+  /** The board's CHROME words: the signed-in store's own row when clamped;
+   *  under viewAll, the store options' rows agree → that row, else the
+   *  generic row (C7). Every board-wide site (group header, tab, legend,
+   *  rail tour, the create dialog) reads THIS — never a per-lane lookup. */
+  words: ResourceWords
+  /** `other`'s row — the ONLY fallback a `null` word (privateWord/
+   *  turnoverWord) may ever take, so no literal word re-enters today/. */
+  genericWords: ResourceWords
+  /** The CHROME store's own capabilities (same rule as `words` above) — what
+   *  `blockKinds` and the 「休憩・清掃」-shaped example pairs gate on. */
+  caps: { privateClass: boolean; turnover: boolean }
   dayOffset: number
   dayLabel: string
   /** THE MONTH THE CALENDAR OPENS ON — the shown day's own year/month, in JST,
@@ -868,7 +885,7 @@ interface DragCtx {
  *  this screen does not (⚖ Liam 22). */
 
 type DragProxy =
-  | { kind: 'card'; item: BoardItem; state: string; w: number; h: number }
+  | { kind: 'card'; item: BoardItem; state: string; w: number; h: number; words: ResourceWords }
   /** ⚖ Liam flag 26 — a block travels under the cursor for the same reason a
    *  booking does (flag 19): a box that only slides sideways while the pointer
    *  goes down is the "can't drag it to another lane" report all over again. */
@@ -1070,6 +1087,34 @@ interface GuardAdvice {
 
 export function TodayScreen(props: TodayProps) {
   const { hours, ops, dialogs } = props
+  // ⚖ D-53 (n) — the board's CHROME words/capabilities, aliased once: every
+  // board-wide site (group header, tab, legend, rail tour, create dialog)
+  // reads these, never a per-lane lookup (C7).
+  const w = props.words
+  const caps = props.caps
+
+  /** ⚖ D-53 (n) R-N2-3 — the DISPLAY words for a rendering lane: its first
+   *  store affiliation's words, or the CHROME words for a floating/unknown
+   *  lane. A staff lane can span stores (or float, `stores: null`), so this
+   *  is a DISPLAY policy for what the lane's own cells/cards read, never a
+   *  claim about any one booking's actual store — `BoardItem` carries no
+   *  store_id at all. */
+  function wordsForLane(lane: BoardLane): ResourceWords {
+    const storeId = lane.stores?.[0]
+    return storeId ? (props.wordsByStore[storeId] ?? props.words) : props.words
+  }
+
+  /** The same DISPLAY policy for a landing ask, which carries only lane
+   *  KEYS (never a lane object): its explicit bed-side lane for a solved bed
+   *  ask, otherwise its staff lane — each looked up in its own GROUP, since
+   *  lane keys are unique only within a group. Chrome when no such lane is
+   *  on the board (never the off-lane caller's home `laneKey`). */
+  function wordsForAsk(ask: Pick<LandingAsk, 'solveRoom' | 'bedLane' | 'staffLane'>): ResourceWords {
+    const bedSide = !ask.solveRoom && ask.bedLane != null
+    const key = bedSide ? ask.bedLane : ask.staffLane
+    const lane = key == null ? undefined : boardLanes.find((l) => l.group === (bedSide ? 'beds' : 'staff') && l.key === key)
+    return lane ? wordsForLane(lane) : props.words
+  }
 
   /** ⚖ Liam 22 — THE SESSION'S EDITS, read from the layout rather than held
    *  here. `?day=` is a Link, so this component remounts on every day flip;
@@ -4392,6 +4437,17 @@ export function TodayScreen(props: TodayProps) {
         confirmEnabled: pendingConfirm.enabled,
       })
   const pendingWarn = pendingWarnModel?.face === 'warn' ? pendingWarnModel : null
+  // ⚖ D-53 (n) R-N2-3 — #26/#27 have no lane in JSX scope: the on-board
+  // pending destination (`pendingWarnLane` above, already scoped to its own
+  // group), or the standing hold's own lane (found by its booking id);
+  // chrome for an off-board pending hold or when no lane is found on the
+  // board at all.
+  const holdPopLane = pending
+    ? pendingWarnLane
+    : props.hold
+      ? boardLanes.find((l) => l.group === 'staff' && l.items.some((it) => it.caseId === props.hold!.bookingId))
+      : undefined
+  const holdPopWords = holdPopLane ? wordsForLane(holdPopLane) : props.words
 
   /** ⚖ Liam flag 34 — THE CONFIRM COMES TO THE CARD, one surface answering for
    *  whichever 仮押さえ is live: this session's staged change, or the day's own
@@ -5549,7 +5605,7 @@ export function TodayScreen(props: TodayProps) {
         setDragLen(ctx.item.endMin - ctx.item.startMin)
         // The proxy's CONTENT is set once, here. Everything after this is a
         // transform written straight to the node — React never sees the motion.
-        setProxy({ kind: 'card', item: ctx.item, state: ctx.item.state ?? '', w: ctx.grab.w, h: ctx.grab.h })
+        setProxy({ kind: 'card', item: ctx.item, state: ctx.item.state ?? '', w: ctx.grab.w, h: ctx.grab.h, words: wordsForLane(ctx.lane) })
       }
     }
     if (inHand) {
@@ -6014,7 +6070,9 @@ export function TodayScreen(props: TodayProps) {
       kind: 'blocked',
       // ⚖ 73 — carried, never re-derived. The box reads its own class off this.
       floor: v.floor,
-      roomWord: ask.requiresPrivate ? '個室' : 'ベッド',
+      // ⚖ D-53 (n) R-N2-3 — the ask's own target lane's display words (C1's
+      // generic fallback covers the impossible no-private-class state).
+      roomWord: ask.requiresPrivate ? (wordsForAsk(ask).privateWord ?? props.genericWords.privateWord!) : wordsForAsk(ask).resourceNoun,
       facts,
       reason: v.reason ?? '配置できません',
       anchor: at,
@@ -6583,7 +6641,8 @@ export function TodayScreen(props: TodayProps) {
       // A caution is nothing's floor — it PLACES. ⚖ 73 has no opinion here and
       // ⚖ 74's facts belong to the confirm this landing is about to raise.
       floor: null,
-      roomWord: ask.requiresPrivate ? '個室' : 'ベッド',
+      // ⚖ D-53 (n) R-N2-3 — same lookup as `explainBlocked` above.
+      roomWord: ask.requiresPrivate ? (wordsForAsk(ask).privateWord ?? props.genericWords.privateWord!) : wordsForAsk(ask).resourceNoun,
       facts: null,
       reason: v.reason ?? '',
       anchor: at,
@@ -7579,7 +7638,7 @@ export function TodayScreen(props: TodayProps) {
             // `return`, which reads as a dead board to the one operator who is
             // actively looking for somewhere to click.
             if (lane.group !== 'staff') {
-              if (placing) refuse('次回予約は担当スタッフの行に置いてください（ベッドは自動で選ばれます）')
+              if (placing) refuse(`次回予約は担当スタッフの行に置いてください（${wordsForLane(lane).resourceNoun}は自動で選ばれます）`)
               return
             }
             if (isLocked) {
@@ -7785,7 +7844,7 @@ export function TodayScreen(props: TodayProps) {
                   data-guide-title={whOwn && guideWithheldKey === wh.key ? '販売を見合わせている枠' : undefined}
                   data-guide={
                     whOwn && guideWithheldKey === wh.key
-                      ? '新規のお客様のために確保している枠が、この時間のベッドを先に使う予定です。確保が解除されると、この枠は通常どおり販売に戻ります。'
+                      ? `新規のお客様のために確保している枠が、この時間の${wordsForLane(lane).resourceNoun}を先に使う予定です。確保が解除されると、この枠は通常どおり販売に戻ります。`
                       : undefined
                   }
                   style={{ '--x': `${span.x}%`, '--w': `${span.w}%`, '--tier': c.tier, ...(whOwn ? { pointerEvents: 'none' as const } : {}) } as React.CSSProperties}
@@ -7846,7 +7905,7 @@ export function TodayScreen(props: TodayProps) {
                   data-guide-title={whOwn && guideWithheldKey === wh.key ? '販売を見合わせている枠' : undefined}
                   data-guide={
                     whOwn && guideWithheldKey === wh.key
-                      ? '新規のお客様のために確保している枠が、この時間のベッドを先に使う予定です。確保が解除されると、この枠は通常どおり販売に戻ります。'
+                      ? `新規のお客様のために確保している枠が、この時間の${wordsForLane(lane).resourceNoun}を先に使う予定です。確保が解除されると、この枠は通常どおり販売に戻ります。`
                       : undefined
                   }
                   style={{ '--x': `${span.x}%`, '--w': `${span.w}%`, ...(whOwn ? { pointerEvents: 'none' as const } : {}) } as React.CSSProperties}
@@ -7934,10 +7993,10 @@ export function TodayScreen(props: TodayProps) {
                   key={`shared-${s.start}`}
                   style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
                   aria-label={`${title}。${sub}`}
-                  data-guide-title={firstSharedLane === lane.key && s === sharedHere[0] ? 'ベッドを共有している確保枠' : undefined}
+                  data-guide-title={firstSharedLane === lane.key && s === sharedHere[0] ? `${wordsForLane(lane).resourceNoun}を共有している確保枠` : undefined}
                   data-guide={
                     firstSharedLane === lane.key && s === sharedHere[0]
-                      ? 'このベッドを必要とする確保枠が重なっているため、実際にお使いいただけるのは片方だけです。こちらは確保枠の数には入れておらず、オンラインでは販売していません。'
+                      ? `この${wordsForLane(lane).resourceNoun}を必要とする確保枠が重なっているため、実際にお使いいただけるのは片方だけです。こちらは確保枠の数には入れておらず、オンラインでは販売していません。`
                       : undefined
                   }
                 >
@@ -8024,6 +8083,18 @@ export function TodayScreen(props: TodayProps) {
               // 注意して配置 places exactly what the × sat on. The passed wording
               // is true on both: the drop does not land, and the board says why.
               //
+              // ⚖ D-53 (z) — THE GUIDE NAMES WHAT THE RAIL DRAWS. The chip words are
+              // minted in today-interactions (`railExplain`) with the generic row
+              // until slice N2b-2 hands that function the lane's words; this line
+              // switches back to `w` + the `caps.turnover` gate in that same commit,
+              // never before. (Placed here, ABOVE the §8 pin's anchor comment below,
+              // so it does not eat into that fixed-length slice's budget.)
+              // …and the 満室-explains token in the resource-gated clause below,
+              // same rule; its ${w.resourceNoun} is the store's own noun and
+              // stays. (Worded to avoid the literal string below's own gate
+              // keyword — today-no-bed-store.test.ts's m5-catch census counts
+              // that keyword's occurrences across the whole file, comments
+              // included, and pins the count at 9.)
               // ⚖ GUIDED-TOUR LAW (8/23) — THREE MEANING CHANGES DECLARED
               // (2026-09-09), which is why the sentence below grew: 満室 now
               // rides a half hour whose 60-minute start is refused for another
@@ -8059,7 +8130,7 @@ export function TodayScreen(props: TodayProps) {
                 // plain untruth about it. 置けない is true of all three, and the
                 // hatch is now its own sentence: it APPEARS, it is not a
                 // standing mark the operator should hunt for.
-                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「満室」「清掃」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。${hasBeds ? `「満室」はその30分にベッドの空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます。` : ''}「満室」「清掃」のコマでは、すぐ上の行に薄い斜線が出て、その30分と理由を短い言葉で示します。${hasBeds ? 'ベッドを別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます。' : ''}`,
+                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「${props.genericWords.fullWord}」「${props.genericWords.turnoverWord!}」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。${hasBeds ? `「${props.genericWords.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます。` : ''}「${props.genericWords.fullWord}」「${props.genericWords.turnoverWord!}」のコマでは、すぐ上の行に薄い斜線が出て、その30分と理由を短い言葉で示します。${hasBeds ? `${w.resourceNoun}を別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます。` : ''}`,
             }
           : {})}
       >
@@ -8407,7 +8478,7 @@ export function TodayScreen(props: TodayProps) {
         onPointerDown={(e) => onCardPointerDown(e, item, lane)}
         onKeyDown={(e) => onCardKeyDown(e, item, lane)}
       >
-        {cardFace(item, settledHere)}
+        {cardFace(item, settledHere, wordsForLane(lane))}
         {/* The grips say what they do through the card's own 操作ヒント and the
             cursor; a `title` here is the same mid-drag tooltip as above. */}
         <span className="event-resize-grip left" aria-hidden="true" />
@@ -8419,7 +8490,7 @@ export function TodayScreen(props: TodayProps) {
   /** The card's FACE — name, tag, time, ticket line. Shared with the drag proxy
    *  so what travels under the cursor is the visual he grabbed, to the character,
    *  rather than a second rendering of the same booking that can drift from it. */
-  function cardFace(item: BoardItem, settledHere: boolean, timeLabel: string = item.time) {
+  function cardFace(item: BoardItem, settledHere: boolean, words: ResourceWords, timeLabel: string = item.time) {
     return (
       <>
         <strong>
@@ -8446,7 +8517,7 @@ export function TodayScreen(props: TodayProps) {
               booking IS, not a rule about the room it NEEDS; on a card sitting
               in a standard bed it reads as simply wrong. 個室のみ is the exact
               phrase both refusals use, so badge and sentence are one vocabulary. */}
-          {item.requiresPrivateRoom === true && <span className="tkt-note">個室のみ</span>}
+          {item.requiresPrivateRoom === true && <span className="tkt-note">{words.privateWord ?? props.genericWords.privateWord}のみ</span>}
           {item.held && <span className="tkt-note">保持</span>}
         </small>
       </>
@@ -8569,7 +8640,7 @@ export function TodayScreen(props: TodayProps) {
               // is not. Asked of `honest` — the value `dayCommitted` itself was
               // built from — so this is not a second read of the gate.
               data-guide={honest
-                ? '新規のお客様のために店全体で確保している枠の数です。今日の予約に対してベッドが用意できる数で、販売中の枠は差し引いていません。オンライン販売をしていないスタッフの確保枠も含みます。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'
+                ? `新規のお客様のために店全体で確保している枠の数です。今日の予約に対して${w.resourceNoun}が用意できる数で、販売中の枠は差し引いていません。オンライン販売をしていないスタッフの確保枠も含みます。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。`
                 : '新規のお客様のために店全体で確保している枠の数です。上の合計は店全体の増減、配置時の確認文はそのスタッフ1人分の増減です。そのため、合計が増えても確認文では減ることがあります。'}
             >
               新規用に確保 {dayCommitted.total}枠
@@ -8682,7 +8753,7 @@ export function TodayScreen(props: TodayProps) {
                         gestures are said. Its lattice differs from a予約's, and
                         an operator who does not know that reads the finer snap
                         as the board being imprecise. */}
-                    <span>休憩・清掃などの予定ブロック: ドラッグで移動・両端で時間変更（{props.guard.config.blockStepMin ?? 5}分きざみ）・クリックでブロック情報</span>
+                    <span>休憩・{caps.turnover ? w.turnoverWord! : '準備'}などの予定ブロック: ドラッグで移動・両端で時間変更（{props.guard.config.blockStepMin ?? 5}分きざみ）・クリックでブロック情報</span>
                     {/* ⚖ Liam flag 25 — the length-matched emphasis has no region
                         of its own to spotlight (it is a property of every window
                         on the board), so it registers HERE, in the 操作ヒント
@@ -8900,7 +8971,7 @@ export function TodayScreen(props: TodayProps) {
                           : '細い配置ガイドを隠します。表示だけの個人設定で、保護ルールは停止しません。'}
                     </span>
                     <div className="guard-guide-key" aria-label="配置ガイドの記号の意味">
-                      <b>紫 ✓ 空きを減らさない</b><b>橙 △ 空きが減るが置ける</b><b>灰 — 置けない</b>{hasBeds && <b>⇄ ベッドを入れ替えて置ける</b>}
+                      <b>紫 ✓ 空きを減らさない</b><b>橙 △ 空きが減るが置ける</b><b>灰 — 置けない</b>{hasBeds && <b>⇄ {w.resourceNoun}を入れ替えて置ける</b>}
                     </div>
                     <span className="guard-guide-copy">非表示にしても、店舗のスキマガード保護ルールは変わりません。</span>
                     <div className="guard-guide-policy">
@@ -8964,14 +9035,14 @@ export function TodayScreen(props: TodayProps) {
                 role="group"
                 aria-label="ボード表示"
                 data-guide-title="表示の切替"
-                data-guide="スタッフだけ・設備だけ・両方の表示を切り替えます。"
+                data-guide={`スタッフだけ・${w.tabWord}だけ・両方の表示を切り替えます。`}
                 ref={segWrapRef}
               >
                 {/* the thumb — decorative, aria-hidden, never in the
                     accessibility tree; the buttons above it are what a reader
                     hears and what `aria-pressed` says. */}
                 <i className="seg-thumb" aria-hidden="true" ref={segThumbRef} />
-                {([['both', '両方'], ['staff', 'スタッフ'], ['beds', '設備']] as const).map(([k, label]) => (
+                {([['both', '両方'], ['staff', 'スタッフ'], ['beds', w.tabWord]] as const).map(([k, label]) => (
                   <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}>{label}</button>
                 ))}
               </div>
@@ -9026,7 +9097,7 @@ export function TodayScreen(props: TodayProps) {
             // ⇄ key below it does, and it is true at every width a card can take.
             data-guide={
               guardOn
-                ? `新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。${hasBeds ? 'ボードのカードをドラッグしている間は、ベッドを入れ替えれば置ける開始に ⇄ が付き、いま持っているカードにも ⇄ の印が付きます（入れ替えたお客様は、仮押さえの確認に表示されます）。' : ''}各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。${LAYER_LEGEND_GUIDE}`
+                ? `新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。${hasBeds ? `ボードのカードをドラッグしている間は、${w.resourceNoun}を入れ替えれば置ける開始に ⇄ が付き、いま持っているカードにも ⇄ の印が付きます（入れ替えたお客様は、仮押さえの確認に表示されます）。` : ''}各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。${LAYER_LEGEND_GUIDE}`
                 : LAYER_LEGEND_GUIDE
             }
           >
@@ -9043,7 +9114,7 @@ export function TodayScreen(props: TodayProps) {
                     word: the mark borrows the ✓ or the △ palette by what the
                     drop would say, and those two keys beside it already carry
                     the colour vocabulary. */}
-                {hasBeds && <span className="guard-key reseat-key">⇄ = ベッドを入れ替えて置ける</span>}
+                {hasBeds && <span className="guard-key reseat-key">⇄ = {w.resourceNoun}を入れ替えて置ける</span>}
                 <span className="guard-band-note">
                   {guideMode === 'selected'
                     ? `下の「${railDur}分配置」で、ドラッグ前に全開始を確認できます。`
@@ -9157,8 +9228,8 @@ export function TodayScreen(props: TodayProps) {
                           aria-expanded={!collapsed.includes(group)}
                           onClick={() => setCollapsed((was) => toggle(was, group))}
                         >
-                          <span>{group === 'staff' ? 'スタッフ' : 'ベッド・設備'}</span>
-                          <span>{group === 'staff' ? '勤務・資格・休憩を含む' : props.bedCleanupOn ? '清掃を予約不可時間として表示' : '予約と予定ブロックを表示'}</span>
+                          <span>{group === 'staff' ? 'スタッフ' : w.groupLabel}</span>
+                          <span>{group === 'staff' ? '勤務・資格・休憩を含む' : props.bedCleanupOn && caps.turnover ? `${w.turnoverWord!}を予約不可時間として表示` : '予約と予定ブロックを表示'}</span>
                         </button>
                         {groupLanes.map(renderLane)}
                       </div>
@@ -9481,6 +9552,7 @@ export function TodayScreen(props: TodayProps) {
           setAdded((was) => [...was, { ...board, laneKey, item, priced }])
           show(message)
         }}
+        turnoverWord={caps.turnover ? w.turnoverWord! : '準備'}
       />
 
       <dialog className="biz-dialog" ref={storeFrontRef} aria-labelledby="storeFrontTitle">
@@ -9768,7 +9840,7 @@ export function TodayScreen(props: TodayProps) {
           // registry is a live-document walk that drops what has no box, so it
           // explains itself exactly when the operator is looking at it.
           data-guide-title="予定の位置の提案"
-          data-guide="休憩や清掃を置いた位置が新規のお客様の枠を分けてしまうとき、より良い位置を提案します。そのまま置くこともできます。"
+          data-guide={`休憩や${caps.turnover ? w.turnoverWord! : '準備'}を置いた位置が新規のお客様の枠を分けてしまうとき、より良い位置を提案します。そのまま置くこともできます。`}
         >
           <div className="gp-reason">{blockAdvice.cell.sentence}</div>
           {/* The consult's own two lines, with 開始 → 位置: this surface is
@@ -9850,7 +9922,7 @@ export function TodayScreen(props: TodayProps) {
           // byte-identical; this is one more, in the same plain voice, sitting
           // with the other 「what can happen here」 clause and before the 「what you
           // do here」 one. ⚠ PLACEHOLDER JAPANESE, awaiting the native pass.
-          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。${hasBeds ? 'ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります。入れ替えたお客様はここに表示されます。' : ''}ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
+          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。${hasBeds ? `${holdPopWords.resourceNoun}が埋まっているときは、ほかのお客様の${holdPopWords.resourceNoun}を入れ替えて収めることがあります。入れ替えたお客様はここに表示されます。` : ''}ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
         >
           <div className="hp-head">
             <span className={`status ${holdPop.tone}`}>{holdPop.status}</span>
@@ -10089,7 +10161,7 @@ export function TodayScreen(props: TodayProps) {
             // ⚖ R8 GAP-11 — the ONE difference between the card in hand and the
             // card at rest: the time under the cursor. Everything else is the
             // face he grabbed, to the character.
-            cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId), proxyTimeLabel(proxy.item.time, liveStart))
+            cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId), proxy.words, proxyTimeLabel(proxy.item.time, liveStart))
           )}
           {/* ⚖ LIAM flag 50(b) — 「置けない」 / 「要確認」, live, at the cursor,
               before any drop. Canon's demo hangs its own ghost off the pointer
@@ -10195,12 +10267,18 @@ function CreateDialog({
   hours,
   seed,
   onCreate,
+  turnoverWord,
 }: {
   dialogRef: React.RefObject<HTMLDialogElement | null>
   data: TodayProps['dialogs']['create']
   hours: TodayProps['hours']
   seed: { staffId: string; start: number; nonce: number } | null
   onCreate: (laneKey: string, item: BoardItem, message: string, priced: boolean) => void
+  /** ⚖ D-53 (n) R-N2-4 — #28's already-resolved 「休憩・◯◯」 example word: the
+   *  CHROME store's `turnoverWord` when its capability is on, else the
+   *  existing block kind 準備 (no new word). Resolved by the caller so this
+   *  module-level component never needs `ResourceWords`/`caps` of its own. */
+  turnoverWord: string
 }) {
   const [tab, setTab] = useState<'book' | 'block'>('book')
   const [start, setStart] = useState(hours.open + 6 * 60 >= hours.close ? hours.open : hours.open + 6 * 60)
@@ -10325,7 +10403,7 @@ function CreateDialog({
         <div className="cc-left">
           <div className="density-seg" role="group" aria-label="登録の種類">
             <button type="button" aria-pressed={tab === 'book'} onClick={() => setTab('book')}>予約</button>
-            <button type="button" aria-pressed={tab === 'block'} onClick={() => setTab('block')}>予定ブロック（休憩・清掃など）</button>
+            <button type="button" aria-pressed={tab === 'block'} onClick={() => setTab('block')}>予定ブロック（休憩・{turnoverWord}など）</button>
           </div>
 
           <div className="cc-controls">
