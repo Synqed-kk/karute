@@ -154,9 +154,25 @@ describe('N2A (c) — the null-word gates, driven through the producer', () => {
     const caps = { privateClass: w.privateWord != null, turnover: w.turnoverWord != null }
     const slot = caps.turnover ? w.turnoverWord! : '準備'
     expect(slot).toBe('準備')
-    expect(`休憩・${slot}などの予定ブロック`.startsWith('休憩・準備')).toBe(true)
-    expect(`休憩・${slot}`).toBe('休憩・準備')
-    expect(`休憩や${slot}を置いた位置`).toBe('休憩や準備を置いた位置')
+    // ⚖ D-53 (x) N5 — the delta-verify found the three expects that used to
+    // stand here (`` `休憩・${slot}` ``, its `startsWith` sibling, and the
+    // や form) proved only JavaScript string concatenation against a value
+    // this same test built — no mutant on TodayScreen.tsx could ever turn
+    // one of them red. Replaced with SOURCE pins on the real gate
+    // expression at its two actual sites (・ form: #19's hint at :8752; や
+    // form: #25's popover advice at :9839). The DOM proof for #19/#24/#28
+    // already lives in the harness's yoga scenario
+    // (n2a-words.harness.test.tsx, 'N2A — a yoga-typed chrome store…').
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
+      'utf8',
+    )
+    const nakaguroCount = src.split("休憩・{caps.turnover ? w.turnoverWord! : '準備'}").length - 1
+    const yaCount = src.split("休憩や${caps.turnover ? w.turnoverWord! : '準備'}").length - 1
+    console.log('N2A-NAKAGURO-PIN', { count: nakaguroCount })
+    console.log('N2A-YA-PIN', { count: yaCount })
+    expect(nakaguroCount).toBeGreaterThanOrEqual(1)
+    expect(yaCount).toBeGreaterThanOrEqual(1)
   })
 
   // ⚖ D-53 (n) L2's own finding, item 8 — the OLD body re-derived this
@@ -187,6 +203,21 @@ describe('N2A (c) — the null-word gates, driven through the producer', () => {
     )
     const count = src.split("turnoverWord={caps.turnover ? w.turnoverWord! : '準備'}").length - 1
     console.log('N2A-28-PIN', { count })
+    expect(count).toBe(1)
+  })
+
+  // ⚖ D-53 (x) — the delta-verify's m5 (the `l.group === 'staff' &&` filter
+  // reverted) left the whole battery and the harness green: the standing-hold
+  // popover's own lane pick had no pin and no test anywhere. This pin is the
+  // fix's proof, the same form as #24/#28 above (no `holdPopWords` legs exist
+  // in this file to sit beside, so it lives here with the other source pins).
+  it('the standing-hold lane resolves through a staff-group lane only, source-present exactly once', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
+      'utf8',
+    )
+    const count = src.split("boardLanes.find((l) => l.group === 'staff' && l.items.some((it) => it.caseId === props.hold!.bookingId))").length - 1
+    console.log('N2A-HOLD-PIN', { count })
     expect(count).toBe(1)
   })
 })
