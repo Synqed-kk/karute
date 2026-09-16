@@ -8659,6 +8659,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     const rows = computeChecks(place(960, 1020, HOURS), {
       spans: [], bookingId: 'apt-1', staffName: '見本 あずさ', staffUntil: '19:00',
       laneLocked: false, minutesOf: (x: number) => minuteOf(x, HOURS),
+      turnoverWord: A_WORDS.turnoverWord!,
     })
     expect(rows.some((c) => c.label.includes('満室'))).toBe(false)
     expect(rows.some((c) => c.label.includes('VIP'))).toBe(false)
@@ -9948,6 +9949,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     const oks = computeChecks(place(630, 690, HOURS), {
       spans: [], bookingId: 'apt-1', staffName: '見本 あずさ', staffUntil: '19:00',
       laneLocked: false, minutesOf: (x) => minuteOf(x, HOURS),
+      turnoverWord: A_WORDS.turnoverWord!,
     }).filter((c) => c.ok)
     expect(oks).toHaveLength(4)
     expect(warnFaceFor(input({ cell: REP(), rows: oks.map((c) => ({ label: c.label, tone: '' as const })) })).greensLine)
@@ -12191,7 +12193,12 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     expect(pinnedLines(SRC, '}, [live, proxy, parkChips, boardLanes, props.store, staffCardInHand, hasPriceFor])')).toBe(1)
     // ROUND 2 (2026-09-13, blind L1 MINOR 1) — the dep list follows `checksFor`'s
     // own switch to the published layer (selling-engine-doors.test.ts §1).
-    expect(pinnedLines(SRC, '[boardLanes, sellPublished.cells, hours, locked, hasPriceFor],')).toBe(1)
+    // ⚖ D-53 (ak)/(al) N2c-2 — DISCLOSED PIN MOVE: the dep list gains the raw
+    // words props Home D's resolution reads; `hasPriceFor` stays LAST so it is
+    // never immediately followed by a comma-bound identifier (the
+    // "hasPriceFor bound as an argument or a parameter" armour a few lines
+    // below would otherwise misread the new deps as a smuggled binding).
+    expect(pinnedLines(SRC, '[boardLanes, sellPublished.cells, hours, locked, props.wordsByStore, props.words, props.genericWords, hasPriceFor],')).toBe(1)
   })
 
   /** ⚖ BREAKER-828 DELTA G2 (MAJOR) — THE TWO HELPERS THE WHOLE ITEM RESTS ON
@@ -12924,7 +12931,9 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     // one function the field passes through is pinned byte-for-byte instead.
     const seam = BOARD.slice(BOARD.indexOf('function bookingItem('), BOARD.indexOf('export const STATE_LABEL'))
     expect(seam.split('\n').slice(0, 9).map((l) => l.trimEnd())).toEqual([
-      'function bookingItem(b: BoardBooking, hours: Hours, tag: string, keySuffix: string): BoardItem {',
+      // ⚖ D-53 (ak)/(al) N2c-2 — DISCLOSED PIN MOVE: the signature gains the
+      // resolved `privateWord: string` parameter (R-2).
+      'function bookingItem(b: BoardBooking, hours: Hours, tag: string, keySuffix: string, privateWord: string): BoardItem {',
       '  const c = chip(b)',
       '  return {',
       '    key: `${b.id}-${keySuffix}`,',
@@ -12942,7 +12951,9 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     // ⚖ FIX ROUND 1 (blind lens 3 F5) — AND THE ACCESSIBLE NAME CARRIES THE TAG,
     // inside the CATEGORY segment so the five-part skeleton the room re-label
     // depends on (`parts.length === 5`, today-interactions) is untouched.
-    expect(BOARD).toContain("label: `${b.timeRange} ${b.customerName}様 / ${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_LABEL[b.category]} / ${b.staffName} / ${b.resourceName} / ${STATE_LABEL[b.state]}`,")
+    // ⚖ D-53 (ak)/(al) N2c-2 — DISCLOSED PIN MOVE: the private-room slot reads
+    // the resolved `privateWord` (R-2), every other byte identical.
+    expect(BOARD).toContain("label: `${b.timeRange} ${b.customerName}様 / ${b.requiresPrivateRoom ? `${privateWord}のみ・` : ''}${CATEGORY_LABEL[b.category]} / ${b.staffName} / ${b.resourceName} / ${STATE_LABEL[b.state]}`,")
     expect(INT).toContain('const label = room != null && parts.length === 5 ?')
   })
 
@@ -13135,6 +13146,8 @@ describe('⚖ BLANK-SAFE — a row without requires_private_room is an untagged 
       operatorStaffId: shell.operator.staff_id,
       storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
       crossStore: false,
+      wordsByStore: {},
+      genericWords: RESOURCE_WORDS.other,
     }
     const lanes = buildLanes(input, dayBookings(input))
     return lanes.flatMap((l) => l.items).find((i) => i.caseId === blankRow.id)!
@@ -13281,6 +13294,8 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       operatorStaffId: shell.operator.staff_id,
       storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
       crossStore: false,
+      wordsByStore: {},
+      genericWords: RESOURCE_WORDS.other,
     }
     const built: Demo = {
       lanes: buildLanes(input, dayBookings(input)),

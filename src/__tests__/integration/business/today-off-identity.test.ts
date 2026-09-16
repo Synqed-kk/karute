@@ -149,6 +149,10 @@ async function buildWorld(lens: StoreLens): Promise<World> {
     operatorStaffId: shell.operator.staff_id,
     storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
     crossStore: typeof lens !== 'string',
+    // ⚖ D-53 (ak)/(al) N2c-2 — the generic row, byte-identical to STORE_A/B's
+    // own chiropractic row (D-13), so the frozen json cannot move.
+    wordsByStore: {},
+    genericWords: RESOURCE_WORDS.other,
   }
   const bookings = dayBookings(input)
   const lanes = buildLanes(input, bookings)
@@ -267,6 +271,10 @@ function cellsFor(world: World, lens: StoreLens): Record<(typeof PATHS)[number],
     staffUntil: staffLaneWithTwo.untilLabel,
     laneLocked: false,
     minutesOf: (x: number) => minuteOf(x, hours),
+    // ⚖ D-53 (ak)/(al) N2c-2 — the fixture's beds all carry 0 cleanup
+    // (fixtures-today.ts), so this cell can never reach the label; the frozen
+    // json cannot move.
+    turnoverWord: '清掃',
   }
   const computeChecksValue: Check[] = computeChecks(checkNow, ctx)
 
