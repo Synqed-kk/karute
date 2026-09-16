@@ -75,16 +75,16 @@ export async function POST(request: Request) {
   const existing = await synqed.sync.getConfig('QUICKRESERVE')
   const { storeId } = await resolveStoreScope()
 
-  // existing config: only the store it's already labeled for may resave it —
-  // a legacy row with no karute_store_id label is unproven, so it fails
-  // closed (refused for EVERY actor, not just a mismatched one) rather than
-  // being silently adopted by whoever saves next.
-  // no config yet: a single-store business gets a fresh, unlabeled config;
-  // a multi-store business has no safe store to bind it to, so it's refused
-  // instead of silently taking the hardcoded (and possibly wrong) ids.
-  const misfiled = existing
-    ? !existing.karute_store_id || existing.karute_store_id !== storeId
-    : (await synqed.stores.list()).stores.length > 1
+  // Labeled existing config: only the store it's already labeled for may
+  // resave it. Otherwise (no config yet, OR an existing config nobody ever
+  // labeled — a legacy row) this save is about to STAMP the label below, so
+  // it needs exactly one knowable store: refuse on a multi-store business
+  // (no safe store to bind to), and refuse if the actor's own store lookup
+  // came back null even though a store exists (a resolveStoreScope failure
+  // must never write a null label — that's the original bug one save later).
+  const misfiled = existing?.karute_store_id
+    ? existing.karute_store_id !== storeId
+    : (await synqed.stores.list()).stores.length > 1 || storeId === null
 
   if (misfiled) {
     return NextResponse.json(
@@ -113,6 +113,12 @@ export async function POST(request: Request) {
       // which has no store_slug/store_id to give it).
       ...(existing?.store_slug ? { store_slug: existing.store_slug } : {}),
       ...(existing?.store_id ? { store_id: existing.store_id } : {}),
+      // Stamp the karute_store_id label the guard above reads on every
+      // future save — the bug this fix round closes: the guard checked this
+      // field but nothing ever wrote it, so a fresh single-store business
+      // saved once (unlabeled) and was refused on its very next save. The
+      // guard already proved this value is non-null whenever we reach here.
+      karute_store_id: existing?.karute_store_id ?? storeId,
     })
   } catch (e) {
     // The old route never checked the write and always returned success — the
