@@ -446,6 +446,79 @@ describe('CustomerCombobox', () => {
       jest.useRealTimers()
     }
   })
+
+  // Finding 1 (blind read, fix/picker-remote-selected @ 3296749): the
+  // `picked.id === selectedId` guard is what stops a stale remote pick from
+  // being shown for the WRONG selectedId. Exercise both directions: the
+  // parent externally deselecting (selectedId → null) must clear the
+  // remembered remote name, and a later externally-driven LOCAL pick must
+  // show the local name, never the stale remote one.
+  it('a remote pick never survives an external deselect or a later local pick', async () => {
+    jest.useFakeTimers()
+    try {
+      const remoteRow: CustomerSearchOption = { id: 'r1', name: '遠藤三郎', other_store: false }
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [remoteRow],
+        karute_number_unavailable: false,
+        remote_more: false,
+      })
+      const onSelect = jest.fn()
+      // Same controlled-wrapper convention as the test above, plus the two
+      // external transitions a real parent can drive: a deselect (e.g. a
+      // dialog re-seed) and a later pick of an unrelated local customer.
+      function Wrapper() {
+        const [selectedId, setSelectedId] = useState<string | null>(null)
+        const [customers, setCustomers] = useState<CustomerOption[]>([])
+        return (
+          <>
+            <button type="button" onClick={() => setSelectedId(null)}>
+              deselect
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCustomers([{ id: 'local-b', name: '佐藤次郎' }])
+                setSelectedId('local-b')
+              }}
+            >
+              pick-local-b
+            </button>
+            <CustomerCombobox
+              customers={customers}
+              selectedId={selectedId}
+              onSelect={(id, customer) => {
+                onSelect(id, customer)
+                setSelectedId(id)
+              }}
+              onCreateNew={jest.fn()}
+              onRemoteSearch={onRemoteSearch}
+            />
+          </>
+        )
+      }
+      render(<Wrapper />)
+      const input = screen.getByRole('combobox')
+      fireEvent.change(input, { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      fireEvent.mouseDown(screen.getByText('遠藤三郎'))
+      expect(input).toHaveValue('遠藤三郎')
+
+      // External deselect — selectedId goes back to null. The stale
+      // `picked` row must not keep showing.
+      fireEvent.click(screen.getByText('deselect'))
+      expect(input).toHaveValue('')
+
+      // Later, a DIFFERENT local customer is selected externally. The name
+      // shown must be the local one, never the earlier remote pick.
+      fireEvent.click(screen.getByText('pick-local-b'))
+      expect(input).toHaveValue('佐藤次郎')
+      expect(screen.queryByDisplayValue('遠藤三郎')).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
 })
 
 // RecordCustomerPickerDialog has no dedicated test file (`find src -name
