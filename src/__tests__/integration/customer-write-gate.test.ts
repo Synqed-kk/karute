@@ -45,7 +45,12 @@ import {
 } from '@/lib/auth/permissions'
 import { createCustomer, createQuickCustomer, updateCustomer } from '@/actions/customers'
 
-const DENIED = 'You do not have permission to add or edit customers.'
+// The refusal is now TRANSLATED (⚖ A3: it is staff-visible copy, and this file
+// shipped it as an English literal). This suite's getTranslations stub echoes
+// the KEY back, the same way its other message reads do — so what is pinned is
+// "the gate returns the app's generic no-permission line", not a hardcoded
+// sentence that could drift from messages/*.json.
+const DENIED = 'noPermission'
 
 beforeEach(() => {
   jest.clearAllMocks()

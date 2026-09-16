@@ -176,7 +176,11 @@ describe('saveKaruteRecordInline — store_id resolution', () => {
     )
     // The booking's store is the only source of truth for an appointment-linked
     // save — a failed lookup means "unknown", not "assume the viewer's store".
-    expect(resolveStoreScopeMock).not.toHaveBeenCalled()
+    // ⚖ A1: resolveStoreScope IS called now, for the converge branch's store
+    // LOCK — a different question from where this record is STAMPED, so "never
+    // called" stopped being a proof of this rule. The store_id: null above is
+    // the rule itself, and 'store-B' is deliberately the value it would catch
+    // if the viewer's store ever leaked into the stamp.
   })
 })
 
