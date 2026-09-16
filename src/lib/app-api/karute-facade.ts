@@ -22,6 +22,15 @@ type KaruteClient = Pick<Awaited<ReturnType<typeof newSynqedClient>>, 'karuteRec
  * which collapses EVERY failure to null → notFound(). The facade errs toward a
  * retryable 5xx on a genuine outage (errors.ts contract; batch-1 ruling 3).
  */
+/** The not_found message classifyGetError produces for a karute id that is
+ *  missing OR cross-tenant. Exported so the write-side STORE lock
+ *  (ensureRecordStoreInScope) can refuse with the SAME string: an
+ *  out-of-store refusal that reads differently from a missing id is an
+ *  existence oracle (R9-2, the reassign door's own finding). Pinned to
+ *  readKaruteRaw's real output by a test — never re-typed at a call site.
+ *  ponytail: a plain const, not a message factory — one resource needs this. */
+export const KARUTE_NOT_FOUND = 'karute not found in this business'
+
 function classifyGetError(err: unknown, resource: string): never {
   const status =
     err && typeof err === 'object' && 'status' in err
@@ -36,6 +45,28 @@ function classifyGetError(err: unknown, resource: string): never {
 export async function readKaruteRaw(synqed: KaruteClient, id: string) {
   try {
     return await synqed.karuteRecords.get(id)
+  } catch (err) {
+    classifyGetError(err, 'karute')
+  }
+}
+
+/**
+ * METADATA-ONLY twin of {@link readKaruteRaw} — same status classification,
+ * but `include_entries: false`, so a door that only needs the record's ids
+ * (customer_id, store_id) never pulls the full clinical text over the wire
+ * just to read four fields (the repo convention deleteKaruteRecord and the
+ * entry/summary edit wrappers already spell inline).
+ *
+ * Why the wrappers moved onto it (store-locks P1): their bare
+ * `karuteRecords.get` turned a missing id into core's raw 'Karute record not
+ * found', while the store lock refuses with KARUTE_NOT_FOUND — two different
+ * strings for "you cannot have this one" is the existence oracle the lock
+ * exists to close. Routing both through this classifier makes them one answer
+ * on the web transport, exactly as the facade twins already are.
+ */
+export async function readKaruteMetaRaw(synqed: KaruteClient, id: string) {
+  try {
+    return await synqed.karuteRecords.get(id, { include_entries: false })
   } catch (err) {
     classifyGetError(err, 'karute')
   }

@@ -279,6 +279,29 @@ describe('buildDashboardScreen', () => {
       expect(screen.heroSlides.find((s) => s.clientId === 'c-out')?.ticket).toBeNull()
     })
 
+    // ⚖ Greptile on #948 — the gate below used to read `scope?.storeId && …`,
+    // and an actor who reaches NO store has `storeId: null`. So the membership
+    // filter was SKIPPED, the business-wide map passed straight through, and
+    // every pack-derived surface — the 残N ticket chips, the id set the
+    // enrichment is fetched for, the 回数券 rebooks strip — carried another
+    // branch's customers. This builder is shared by the WEB dashboard page and
+    // the facade route, so both had it.
+    it('an UNASSIGNED scope fails CLOSED — no ticket chips, and the lens fetch is never called', async () => {
+      const screen = await buildDashboardScreen(
+        twoHolderDeps({
+          scope: { storeId: null, viewAll: false, allowedStoreIds: [], degraded: false },
+        }),
+      )
+      // Not "the filter ran and matched nobody" — there is nothing to filter
+      // AGAINST, so the map is dropped before the fetch is even attempted.
+      expect(getCachedCustomerListFor).not.toHaveBeenCalled()
+      expect(screen.heroSlides.find((s) => s.clientId === 'c-in')?.ticket).toBeNull()
+      expect(screen.heroSlides.find((s) => s.clientId === 'c-out')?.ticket).toBeNull()
+      // …and nothing pack-derived survives anywhere else on the screen either.
+      expect(screen.rebooks).toEqual([])
+      expect(screen.renewals).toEqual([])
+    })
+
     it('scope === null fails CLOSED regardless of packUsage (never calls the lens fetch)', async () => {
       const screen = await buildDashboardScreen(twoHolderDeps({ scope: null }))
       expect(getCachedCustomerListFor).not.toHaveBeenCalled()

@@ -85,9 +85,19 @@ import { opsConfig } from '@/business/lib/fixtures-today'
 import { cleanupBlocks, hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A = { resourceNoun: RESOURCE_WORDS.chiropractic.resourceNoun, privateWord: RESOURCE_WORDS.chiropractic.privateWord! }
+
+// ⚖ D-53 (u)/(n2b2) — the whole-board map, for every direct call this file
+// makes to a widened whole-board function: empty `byLaneKey` so every lane
+// falls to the generic row, STORE_A's own (chiropractic ≡ other, D-13) —
+// runtime expected sentences are unchanged.
+const LANE_WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.chiropractic }
 
 const HERE = 'src/app/[locale]/(business)/business/today'
 const SRC = (f: string) => readFileSync(join(process.cwd(), HERE, f), 'utf8')
@@ -351,7 +361,7 @@ function priceOf() {
 }
 
 const frameOf = (w: World) => ({ openMin: w.hours.open, closeMin: w.hours.close, nowMin: w.now ?? w.hours.open })
-const bookOf = (w: World): BedTruth => bedViewsFor(w.lanes, frameOf(w), null).world
+const bookOf = (w: World): BedTruth => bedViewsFor(w.lanes, frameOf(w), null, ASK_A).world
 
 const maskOf = (
   w: World,
@@ -404,6 +414,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
     hi: price.hi,
     hqMin: REAL.dialogs.pricing.hqMin,
     depth,
+    words: ASK_A,
     reconcile: { claims, cleanupMinutesByBed: w.cleanup, onDrop: (d) => drops.push(d) },
     held,
   })
@@ -466,7 +477,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
 type Door = ReturnType<typeof door>
 
 function railsOf(w: World, c: Combo, book: BedTruth = bookOf(w)): GuardRail[] {
-  const views = bedViewsFor(w.lanes, frameOf(w), null)
+  const views = bedViewsFor(w.lanes, frameOf(w), null, ASK_A)
   return guardRailsFor(w.lanes, {
     open: w.hours.open,
     close: w.hours.close,
@@ -479,7 +490,7 @@ function railsOf(w: World, c: Combo, book: BedTruth = bookOf(w)): GuardRail[] {
     excludeId: null,
     placementFeasible: bedDoor(views, w.lanes, null),
     protectedWindowFeasible: (l, start, dur) => book.newClientMask(l, dur)(start),
-  })
+  }, LANE_WORDS)
 }
 
 /** Every minute this lane is OFFERING to a regular customer, as a sorted set of
@@ -937,6 +948,7 @@ describe('⚖ B2 — a held window is judged against the cell’s own end, not t
         hi: 9000,
         hqMin: 5000,
         depth: 9,
+        words: ASK_A,
         held: [{ laneKey: 'p-01', protectedCount: 1, spans: [{ start, end, windowStart: start }] }],
       })
 
@@ -1173,6 +1185,7 @@ describe('5 — a 確保 window answers with the law', () => {
       inHand: false,
       sellDisplayed: true,
       held,
+      words: LANE_WORDS,
     })
     let said = 0
     const wrong: string[] = []
@@ -1221,6 +1234,7 @@ describe('5 — a 確保 window answers with the law', () => {
       inHand: false,
       sellDisplayed: true,
       held,
+      words: LANE_WORDS,
     })
     const byLane = new Map(held.map((m) => [m.laneKey, m.spans]))
     for (const rail of rs) {
@@ -1567,6 +1581,7 @@ describe('7 — the fix round: the publication boundary', () => {
         sellDisplayed: true,
         held,
         withheld: withheldCells,
+        words: LANE_WORDS,
       })
         .get(LANE)!
         .get(690)!.sentence
@@ -1603,6 +1618,7 @@ describe('7 — the fix round: the publication boundary', () => {
       sellDisplayed: true,
       held,
       withheld,
+      words: LANE_WORDS,
     }).get(LANE)!
     for (const [start, e] of whole) {
       if (start >= 720 || start + REAL.guard.standardSessionMin <= 600) {
@@ -2473,10 +2489,10 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
       'gateOn: SELLING_ENGINE_LAW,',
       'lanes: committedLanes,',
       'frame: ledgerFrame,',
-      // ⚖ ROUND 2 — the one door into the capacity book, handed over as a
-      // VALUE. Passed, never called: `bedViewsFor,` with no parenthesis, so
-      // this memo still spells no derivation of its own.
-      'bookOf: bedViewsFor,',
+      // ⚖ D-53 (ak)/(al) — DISCLOSED PIN MOVE: the frozen `BookDoor` type
+      // stays 3-arg, so this door is now a closure over the chrome pair
+      // (R-6) rather than the bare value ROUND 2 passed.
+      'bookOf: (lanes, frame, inHand) => bedViewsFor(lanes, frame, inHand, chromeAsk),',
       'closeMin: hours.close,',
       'nowMin: props.sell.nowMinute,',
       'guard: props.guard.config,',
@@ -2662,13 +2678,13 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
 describe('8 — the staged origin board keeps the store\u2019s loss sayable', () => {
   /** The REST board, built the way the screen builds it (TodayScreen's
    *  `placedLanes` then `committedLanes`, no moves). */
-  const restLanes = () => applyMoves(applyBlockMoves(REAL.lanes, {}, REAL.hours, []), {}, [], [], REAL.hours, {}, REAL.bedCleanupMinutes)
+  const restLanes = () => applyMoves(applyBlockMoves(REAL.lanes, {}, REAL.hours, []), {}, [], [], REAL.hours, LANE_WORDS, {}, REAL.bedCleanupMinutes)
 
   /** A settled board's honest day answer — `windowsOf(honest…)`, the producer
    *  BOTH sides of `lostOn` read since this round. */
   const dayOf = (lanes: BoardLane[], released: readonly ReleasedWindow[] = []) => {
     const frame = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
-    const book = bedViewsFor(lanes, frame, null).world
+    const book = bedViewsFor(lanes, frame, null, ASK_A).world
     const mask = reservedMaskFor({
       lanes, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute,
       guard: REAL.guard.config, gapGuardMode: REAL.guard.mode, book, released,

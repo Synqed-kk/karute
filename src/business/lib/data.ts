@@ -136,7 +136,11 @@ function heldInLens<T extends { appointment_id: string }>(held: T[], lens: Store
  *  enumerates the lens itself rather than reading through it.
  *  ⚠ RECONNECT: this must return only the stores the actor may see (store
  *  isolation law: hide, never show-and-refuse). Fixtures have no actor, so v1
- *  returns both. */
+ *  returns both.
+ *  ⚖ D-53 (c) R3 — `stores.business_type` (core's column, Anthony's build
+ *  order) is the truth; the fixture row carries its play-phase value; the
+ *  org-level `businessProfile` is core's BACKFILL, never a runtime fallback
+ *  here (C4). */
 export async function listStoreOptions(): Promise<FixtureStore[]> {
   return stores
 }

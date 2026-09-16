@@ -27,11 +27,21 @@ import { jstSlot, jstSlotEnd } from './clock'
 
 export const STORE_A = 'store-test-ginza'
 export const STORE_B = 'store-test-daikanyama'
+/** ⚖ ROUND 3 · C — the store with NO rooms: zero `resources` rows in
+ *  fixtures-today.ts, zero bookings, zero menus of its own; its roster is the
+ *  floating card c-03 (テスト さぶろう, works in every store, shift 11:00–19:00,
+ *  break 15:00–16:00 — fixtures-today.ts:50). A gym-shaped board: staff time
+ *  is the only capacity. */
+export const STORE_C = 'store-test-shibuya'
 
-export interface FixtureStore { id: string; name: string }
+/** `business_type` — ⚖ D-53 (c) R3 — the play-phase value of core's
+ *  `stores.business_type`; a key of the mirror `businessProfiles`; never a
+ *  fallback to the org-level profile (C4). */
+export interface FixtureStore { id: string; name: string; business_type: string }
 export const stores: FixtureStore[] = [
-  { id: STORE_A, name: 'テスト東京店' },
-  { id: STORE_B, name: 'テスト横浜店' },
+  { id: STORE_A, name: 'テスト東京店', business_type: 'chiropractic' },
+  { id: STORE_B, name: 'テスト横浜店', business_type: 'massage' },
+  { id: STORE_C, name: 'テスト渋谷店', business_type: 'personal_gym' },
 ]
 
 /** The business the shell names. One tenant, two stores. */

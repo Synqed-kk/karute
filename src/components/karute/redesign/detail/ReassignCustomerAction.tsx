@@ -24,7 +24,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
-import { CUSTOMER_SEARCH_LIMIT, filterCustomers, type CustomerOption } from '@/components/karute/CustomerCombobox'
+import { filterCustomers, type CustomerOption } from '@/components/karute/CustomerCombobox'
+import { CUSTOMER_SEARCH_LIMIT } from '@/lib/customers/karute-number-match'
 import { listReassignCustomerOptions, reassignKaruteCustomer } from '@/actions/karute'
 
 // The search box owns the results region (aria-controls) — same idiom as

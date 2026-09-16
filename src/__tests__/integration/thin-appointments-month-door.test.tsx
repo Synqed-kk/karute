@@ -75,6 +75,10 @@ const MONTH_CELL = {
   // months read counts only, so they legitimately carry the no-capacity
   // defaults — which is exactly what this door must pass through untouched.
   ...capacityRowFields(undefined),
+  // A2 — the 休 fact. Present on the wire so this stays a verbatim round-trip;
+  // a server that predates the key is the schema default's job, pinned in
+  // appointments-dto-skew.test.ts.
+  closed: false,
 }
 
 const jsonResponse = (body: unknown, ok = true): Response =>

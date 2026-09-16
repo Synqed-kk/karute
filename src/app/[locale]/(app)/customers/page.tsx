@@ -12,6 +12,7 @@ import {
 import { buildCustomersListScreen } from '@/lib/customers/screen-rows'
 import { listAllCustomers, listAllCustomersCached } from '@/lib/customers/list-all'
 import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
 import { listAllLifecycles, listAllPackUsage, listBurnRedemptions } from '@/lib/packs/store'
@@ -57,6 +58,7 @@ export default async function CustomersPage({
             search,
             store_id: scope.storeId,
             enforceStore,
+            businessId,
             sort_by: 'updated_at',
             sort_order: 'desc',
           })
@@ -111,7 +113,12 @@ export default async function CustomersPage({
   // Clamp the 担当 filter pills to the active store's staff (floating staff
   // included). Filtered AFTER buildCustomersListScreen so row 担当 names keep
   // resolving business-wide — only the picker narrows.
-  const storeStaffIds = await storeStaffIdSet(staffList, scope.storeId)
+  // An actor who reaches no store gets an EMPTY picker — storeStaffIdSet's
+  // `null` ("show everyone") is the fail-OPEN for a MISSING lens, never the
+  // answer for a clamp with no store (⚖ Liam 2026-09-16).
+  const storeStaffIds = reachesNoStore(scope)
+    ? new Set<string>()
+    : await storeStaffIdSet(staffList, scope.storeId)
   const pickerStaff = storeStaffIds
     ? screen.staffList.filter((s) => storeStaffIds.has(s.id))
     : screen.staffList

@@ -9,6 +9,7 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ChromeScreenDTO } from '@/lib/app-api/chrome-dto'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { getCachedCustomerListFor } from '@/lib/customers/cached'
@@ -51,16 +52,29 @@ export const GET = facadeHandler('screens.chrome', async (ctx) => {
     // the web layout's catch-to-empty seeding. Today's appointments are
     // fetched ONCE and feed BOTH the next-customer pick and the feed's
     // 本日のご予約 digest (Greptile #562: no double day-read per request).
-    const customersPromise = getCachedCustomerListFor(businessId).catch(
-      () => [],
-    )
-    const apptsPromise = customersPromise
-      .then((customers) =>
-        getAppointmentsByDateWithClient(synqed, ymdInJst(new Date()), {
-          nameById: new Map(customers.map((c) => [c.id, c.name])),
-        }),
-      )
-      .catch(() => [])
+    // ⚖ Greptile on #948 — the guard below skipped only the FEED. This read
+    // runs before it and feeds `nextCustomer`, the label on the bottom nav: an
+    // actor who reaches no store would have been shown another branch's next
+    // customer by name. Skip the read itself, so there is nothing to derive a
+    // label from and no customer list fetched to name it with.
+    //
+    // ⚠ NOTE, out of this change's scope: this day read carries NO store lens
+    // at all — not even for an ASSIGNED caller, whose nextCustomer therefore
+    // comes from the whole business. That is pre-existing and is listed in
+    // BUILD-REPORT-P2A.md's sweep rather than fixed here.
+    const blind = reachesNoStore(clamp)
+    const customersPromise = blind
+      ? Promise.resolve([])
+      : getCachedCustomerListFor(businessId).catch(() => [])
+    const apptsPromise = blind
+      ? Promise.resolve([])
+      : customersPromise
+          .then((customers) =>
+            getAppointmentsByDateWithClient(synqed, ymdInJst(new Date()), {
+              nameById: new Map(customers.map((c) => [c.id, c.name])),
+            }),
+          )
+          .catch(() => [])
     const [storeRows, notifications, todayAppts] = await Promise.all([
       synqed.stores
         .list()
@@ -71,6 +85,13 @@ export const GET = facadeHandler('screens.chrome', async (ctx) => {
           const existingById = new Map(
             customers.map((c) => [c.id, c.isExistingCustomer]),
           )
+          // ⚖ Liam 2026-09-16 — the same fail-closed line the WEB layout
+          // carries. `clamp.storeId` is null for an actor who reaches no
+          // store, and every read inside derive.ts treats null as "no
+          // filter": new bookings, draft カルテ and 要フォロー/休眠 counts would
+          // go business-wide — and, because the feed is cached 60s per
+          // business, SHARED with every other unassigned viewer.
+          if (blind) return []
           return buildNotificationFeed(businessId, locale, clamp.storeId, {
             todayAppointments: appts.map((a) => ({
               isExistingCustomer: existingById.get(a.client_id),

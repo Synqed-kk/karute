@@ -26,6 +26,7 @@ import {
   type Subject,
 } from '@/app/[locale]/(business)/business/today/capacity-ledger'
 import { allocateBed } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import {
   cleanupBlocks,
   hhmm,
@@ -50,9 +51,13 @@ const HERE: NewClient = { stores: ['store-a'] }
 const AWAY: NewClient = { stores: ['store-b'] }
 const FLOATING: NewClient = { stores: null }
 
+// ⚖ D-53 (ak)/(al) N2c-1 — STORE_A's resolved pair; byte-identical to `other`
+// (resource-words.test.ts's own C9 pin), so no expected value below moves.
+const ASK_A = { resourceNoun: RESOURCE_WORDS.chiropractic.resourceNoun, privateWord: RESOURCE_WORDS.chiropractic.privateWord! }
+
 /** The book, for one board. `bedTruthViews` is the only door — the battery goes
  *  through it exactly as production will. */
-const truthOn = (lanes: BoardLane[], frame = FRAME) => bedTruthViews(lanes, frame, null).world
+const truthOn = (lanes: BoardLane[], frame = FRAME) => bedTruthViews(lanes, frame, null, ASK_A).world
 
 /** Deterministic pseudo-randomness — a plain LCG. No Date.now, no Math.random:
  *  a fixture that changes between runs cannot pin anything. */
@@ -337,6 +342,7 @@ describe('1 — the book wraps the one bed search and never disagrees with it', 
         id: q.id,
         currentBed: q.currentBed,
         stores: q.stores,
+        words: ASK_A,
         requiresPrivate: q.requiresPrivate,
         start,
         end: start + dur,
@@ -564,7 +570,7 @@ describe('2b — a hypothetical booking asks on ITS store’s rooms, never on th
   it('the excluded world takes a half-object as a hypothetical, not as a second lift', () => {
     const spec = { ...DENSE_25, beds: 3 }
     const hand = syntheticBookings(spec)[0]
-    const views = bedTruthViews(syntheticBoard(spec), FRAME, { id: hand.id })
+    const views = bedTruthViews(syntheticBoard(spec), FRAME, { id: hand.id }, ASK_A)
     const strayId = { id: 'apt-02-1', stores: ['store-a'] } as NewClient
     // Fail-safe: a half-object is a hypothetical, so it cannot lift anything
     // and there is nothing to throw about.
@@ -703,7 +709,7 @@ describe('3 — exactly two worlds, and the second one needs a hand', () => {
     const spec = { ...DENSE_25, beds: 4 }
     const hand = firstOnItsBed(spec)
     const lanes = syntheticBoard(spec)
-    const views = bedTruthViews(lanes, FRAME, { id: hand.id })
+    const views = bedTruthViews(lanes, FRAME, { id: hand.id }, ASK_A)
     expect(views.worldMinusHand).not.toBeNull()
     sameAnswers(views.worldMinusHand!, truthOn(lanesWithout(lanes, hand.id)))
   })
@@ -715,7 +721,7 @@ describe('3 — exactly two worlds, and the second one needs a hand', () => {
     // The board really does carry the hand's own 清掃 block — otherwise this
     // pin would prove nothing about the second exclusion.
     expect(lanes.flatMap((l) => l.items).some((i) => i.key === `${hand.id}-cleanup`)).toBe(true)
-    const views = bedTruthViews(lanes, FRAME, { id: hand.id })
+    const views = bedTruthViews(lanes, FRAME, { id: hand.id }, ASK_A)
     sameAnswers(views.worldMinusHand!, truthOn(lanesWithout(lanes, hand.id)))
   })
 
@@ -726,27 +732,27 @@ describe('3 — exactly two worlds, and the second one needs a hand', () => {
     // `excludedWorld`; this pin claims the equality only where it holds.
     const spec = { ...DENSE_25, beds: 4, cleanupMinutes: 15 }
     const hand = firstOnItsBed(spec)
-    const views = bedTruthViews(syntheticBoard(spec), FRAME, { id: hand.id })
+    const views = bedTruthViews(syntheticBoard(spec), FRAME, { id: hand.id }, ASK_A)
     sameAnswers(views.worldMinusHand!, truthOn(syntheticBoard({ ...spec, omit: [hand.id] })))
   })
 
   it('the world itself keeps the card: staged is real for every reader', () => {
     const spec = { ...DENSE_25, beds: 2 }
     const hand = firstOnItsBed(spec)
-    const views = bedTruthViews(syntheticBoard(spec), FRAME, { id: hand.id })
+    const views = bedTruthViews(syntheticBoard(spec), FRAME, { id: hand.id }, ASK_A)
     sameAnswers(views.world, truthOn(syntheticBoard(spec)))
     expect(views.world.freeBedKeys(hand.start, hand.end, HERE)).not.toContain(hand.bedKey)
     expect(views.worldMinusHand!.freeBedKeys(hand.start, hand.end, HERE)).toContain(hand.bedKey)
   })
 
   it('no hand, no second world', () => {
-    const views = bedTruthViews(syntheticBoard(SMALL_6), FRAME, null)
+    const views = bedTruthViews(syntheticBoard(SMALL_6), FRAME, null, ASK_A)
     expect(views.worldMinusHand).toBeNull()
     expect(views.world.bedFor(600, 660, HERE).laneKey).not.toBeUndefined()
   })
 
   it('a hand with no id is not a hand — it throws rather than deleting nothing', () => {
-    expect(() => bedTruthViews(syntheticBoard(SMALL_6), FRAME, { id: '' })).toThrow(/live gesture/)
+    expect(() => bedTruthViews(syntheticBoard(SMALL_6), FRAME, { id: '' }, ASK_A)).toThrow(/live gesture/)
   })
 
   it('a pending id is not expressible: the hand is an object, not a loose string', () => {
@@ -761,7 +767,7 @@ describe('3 — exactly two worlds, and the second one needs a hand', () => {
     const bookings = syntheticBookings(spec)
     const hand = bookings[0]
     const other = bookings.find((b) => b.id !== hand.id)!
-    const views = bedTruthViews(syntheticBoard(spec), FRAME, { id: hand.id })
+    const views = bedTruthViews(syntheticBoard(spec), FRAME, { id: hand.id }, ASK_A)
     const asOther: Subject = { id: other.id, currentBed: other.bedKey, requiresPrivate: false, stores: ['store-a'] }
     // allocateBed excludes the subject's own card, so this would lift a SECOND
     // one — the three-world board rebuilt by composition.
@@ -822,7 +828,7 @@ describe('5 — memoised answers equal unmemoised ones, across both views', () =
     const spec = { ...SMALL_6, cleanupMinutes: 10 }
     const lanes = syntheticBoard(spec)
     const handId = lanes.flatMap((l) => l.items).find((i) => i.caseId != null)!.caseId!
-    const memo = bedTruthViews(lanes, FRAME, { id: handId })
+    const memo = bedTruthViews(lanes, FRAME, { id: handId }, ASK_A)
     const next = rng(505)
     for (let n = 0; n < 300; n += 1) {
       const start = pick(next, lattice(90))
@@ -832,7 +838,7 @@ describe('5 — memoised answers equal unmemoised ones, across both views', () =
         next() < 0.35 ? { id: handId, currentBed: 'bed-01', requiresPrivate: next() < 0.4, stores: ['store-a'] } : next() < 0.5 ? HERE : FLOATING
       // The unmemoised twin: a book built for this ONE question, so nothing it
       // returns can have come from a cache.
-      const fresh = bedTruthViews(lanes, FRAME, { id: handId })
+      const fresh = bedTruthViews(lanes, FRAME, { id: handId }, ASK_A)
       const asked = inHand ? memo.worldMinusHand! : memo.world
       const virgin = inHand ? fresh.worldMinusHand! : fresh.world
       expect(asked.bedFor(start, start + dur, asker)).toEqual(virgin.bedFor(start, start + dur, asker))
@@ -844,7 +850,7 @@ describe('5 — memoised answers equal unmemoised ones, across both views', () =
     const spec = { ...DENSE_25, beds: 3 }
     const lanes = syntheticBoard(spec)
     const hand = syntheticBookings(spec)[0]
-    const views = bedTruthViews(lanes, FRAME, { id: hand.id })
+    const views = bedTruthViews(lanes, FRAME, { id: hand.id }, ASK_A)
     const staff = staffLanesOf(lanes)[0]
     // Each view is compared against a FRESHLY BUILT book on the lanes that view
     // is supposed to be reading — not against itself.
@@ -1224,7 +1230,7 @@ describe('9 — the cost of the book, measured rather than asserted in prose', (
     const mask = truth.newClientMask(lane, ninth)
     for (let start = OPEN; start + ninth <= CLOSE; start += LATTICE_STEP_MIN) {
       const direct = allocateBed(lanes, {
-        id: null, currentBed: null, stores: lane.stores, requiresPrivate: false,
+        id: null, currentBed: null, stores: lane.stores, words: ASK_A, requiresPrivate: false,
         start, end: start + ninth,
       })
       expect([start, mask(start)]).toEqual([start, direct.laneKey !== null])

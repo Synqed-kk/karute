@@ -4,12 +4,96 @@ import { useState, useRef, useEffect } from 'react'
 import { useTranslations } from 'next-intl'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { foldSearchDigits, CUSTOMER_SEARCH_LIMIT } from '@/lib/customers/karute-number-match'
 
 export type CustomerOption = {
   id: string
   name: string
   furigana?: string | null
   phone?: string | null
+}
+
+/** A remote (company-wide) search result — same shape as a local row plus the
+ *  honest 他店舗 label (⚖ Liam 2026-09-16, P3 cross-branch search).
+ *  other_store is TRI-STATE (Greptile fold): true = confirmed another store,
+ *  false = confirmed the caller's own store, null = UNKNOWN — the lens read
+ *  that would answer it failed, so the row is never presented as own-store
+ *  just because we don't know better. */
+export type CustomerSearchOption = CustomerOption & { other_store: boolean | null }
+
+/** What one remote search call answers with — the options plus whether the
+ *  karute-number tier itself was available for this query (Greptile fold: a
+ *  failed cache read used to silently drop a would-be karute-number hit with
+ *  no signal at all), plus whether more company-wide matches exist beyond
+ *  the CUSTOMER_SEARCH_LIMIT rows returned (F-2 fold, ⚖ Liam 2026-09-16:
+ *  numbers explain themselves — the remote tier was silently truncating). */
+export type CustomerSearchResult = {
+  options: CustomerSearchOption[]
+  karute_number_unavailable: boolean
+  remote_more: boolean
+}
+
+const EMPTY_SEARCH: {
+  results: CustomerSearchOption[]
+  karuteNumberUnavailable: boolean
+  remoteMore: boolean
+} = {
+  results: [],
+  karuteNumberUnavailable: false,
+  remoteMore: false,
+}
+
+/**
+ * Shared debounced remote-search tier (P3): local filtering over the
+ * preloaded store-lensed `customers` prop always runs first and instantly;
+ * this ADDS a company-wide lookup for any non-empty term (⚖ Liam: find by
+ * name applies to a one-character name too — no length floor here, only the
+ * debounce). Used by CustomerCombobox itself and by
+ * RecordCustomerPickerDialog, which renders its own list but wants the exact
+ * same remote tier — ONE place decides when to fire and how to debounce.
+ *
+ * Greptile fold: a result set is only ever valid for the query that produced
+ * it. The state clears SYNCHRONOUSLY at the top of every effect run (not
+ * only on the ineligible branch) so a query change clears the previous
+ * query's rows immediately — they never sit selectable while the new
+ * debounce/request is still in flight.
+ */
+export function useRemoteCustomerSearch(
+  query: string,
+  search: ((query: string) => Promise<CustomerSearchResult | { error: string }>) | undefined,
+): { results: CustomerSearchOption[]; karuteNumberUnavailable: boolean; remoteMore: boolean } {
+  const [state, setState] = useState(EMPTY_SEARCH)
+  useEffect(() => {
+    setState(EMPTY_SEARCH)
+    const trimmed = query.trim()
+    if (!search || !trimmed) return
+    let cancelled = false
+    const timer = setTimeout(() => {
+      search(trimmed)
+        .then((res) => {
+          if (cancelled) return
+          setState(
+            'options' in res
+              ? {
+                  results: res.options,
+                  karuteNumberUnavailable: res.karute_number_unavailable,
+                  remoteMore: res.remote_more,
+                }
+              : EMPTY_SEARCH,
+          )
+        })
+        .catch(() => {
+          // A notWired/network failure degrades to "no remote results" —
+          // never an unhandled rejection or a crash of the local-only search.
+          if (!cancelled) setState(EMPTY_SEARCH)
+        })
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [query, search])
+  return state
 }
 
 type CustomerComboboxProps = {
@@ -19,21 +103,16 @@ type CustomerComboboxProps = {
   onCreateNew: (query?: string) => void
   placeholder?: string
   disabled?: boolean
+  /** Opt-in company-wide search (P3) — omitted, the combobox stays local-only
+   *  exactly as before (ReassignCustomerAction/ReviewScreen/NewKaruteDialog
+   *  never pass this; only NewBookingDialog does). */
+  onRemoteSearch?: (query: string) => Promise<CustomerSearchResult | { error: string }>
 }
 
-/** Rows one customer search shows at once. Exported because a caller that caps
- *  the list also has to tell the staff how many matches it left off — a header
- *  reading the capped array announces 8 matches over a salon of 20 (C-3). */
-export const CUSTOMER_SEARCH_LIMIT = 8
-
-/** Strip separators so "080-1234-5678" and "08012345678" match the same way.
- *  Full-width digits (０-９, the kana keyboard's default) fold to half-width
- *  first so phone search works without switching keyboards. */
-function digitsOnly(s: string): string {
-  return s
-    .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0))
-    .replace(/[-\s－]/g, '')
-}
+// digitsOnly moved to karute-number-match.ts as foldSearchDigits (imported
+// above) — the karute-number search needs the exact same fold, so there is
+// now one canonical version instead of two that could drift apart.
+const digitsOnly = foldSearchDigits
 
 /**
  * THE customer-search rule — name, furigana, or phone digits (separators
@@ -80,6 +159,7 @@ export function CustomerCombobox({
   onCreateNew,
   placeholder,
   disabled = false,
+  onRemoteSearch,
 }: CustomerComboboxProps) {
   const t = useTranslations('customers')
   const selectedCustomer = customers.find((c) => c.id === selectedId) ?? null
@@ -118,6 +198,24 @@ export function CustomerCombobox({
 
   const trimmedQuery = query.trim()
   const filtered = filterCustomers(customers, trimmedQuery)
+  // Remote tier (P3): local rows always win a dupe — a remote hit already
+  // offered locally is dropped, never shown twice. The server's own
+  // other_store flag (Greptile fold), not "is it remote", decides the
+  // section: a hit found ONLY via the karute-number merge but still the
+  // viewer's own store is a normal row, no chip — only a genuine other-store
+  // hit gets the 他店舗 section + chip.
+  const localIds = new Set(filtered.map((c) => c.id))
+  const { results: remoteResults, karuteNumberUnavailable, remoteMore } = useRemoteCustomerSearch(
+    trimmedQuery,
+    onRemoteSearch,
+  )
+  const remote = remoteResults.filter((r) => !localIds.has(r.id))
+  // other_store is tri-state (Greptile fold): only a CONFIRMED false is a
+  // normal row — null (lens read failed, unknown) must never fall through to
+  // "own store" the way `!r.other_store` would (`!null` is true).
+  const remoteOwnStore = remote.filter((r) => r.other_store === false)
+  const remoteFlagged = remote.filter((r) => r.other_store !== false)
+  const normalRows: CustomerOption[] = [...filtered, ...remoteOwnStore]
 
   function handleSelect(customer: CustomerOption) {
     onSelect(customer.id)
@@ -173,13 +271,20 @@ export function CustomerCombobox({
           {/* 35dvh cap: on Android the keyboard shrinks dvh, so the list
            *  adapts to the room actually left instead of clipping at a
            *  fixed 240px inside the keyboard-shrunk dialog. */}
+          {/* Greptile fold: a failed karute-number cache read must say so,
+           *  never just silently drop what would have been a match. */}
+          {karuteNumberUnavailable && (
+            <p className="border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground">
+              {t('karuteNumberUnavailable')}
+            </p>
+          )}
           <ul className="max-h-[min(15rem,35dvh)] overflow-y-auto py-1">
-            {filtered.length === 0 ? (
+            {normalRows.length === 0 && remoteFlagged.length === 0 ? (
               <li className="px-3 py-2 text-sm text-muted-foreground">
                 {t('table.noResults')}
               </li>
             ) : (
-              filtered.map((customer) => (
+              normalRows.map((customer) => (
                 <li
                   key={customer.id}
                   role="option"
@@ -201,7 +306,55 @@ export function CustomerCombobox({
                 </li>
               ))
             )}
+            {/* Remote tier (P3, ⚖ Liam 2026-09-16): a hit that is NOT
+             *  confirmed the caller's own store, per the server's own
+             *  other_store flag — never every remote row (an own-store
+             *  karute-number hit is a normal row above, no chip). Tri-state
+             *  (Greptile fold): true → 他店舗, null (lens read failed,
+             *  genuinely unknown) → 店舗不明 — never presented as own-store. */}
+            {remoteFlagged.length > 0 && (
+              <>
+                <li className="px-3 py-1 text-[11px] font-semibold text-muted-foreground" aria-hidden>
+                  {t('otherStoreSection')}
+                </li>
+                {remoteFlagged.map((customer) => (
+                  <li
+                    key={customer.id}
+                    role="option"
+                    aria-selected={customer.id === selectedId}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      handleSelect(customer)
+                    }}
+                    className={cn(
+                      'flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-muted',
+                      customer.id === selectedId && 'bg-muted font-medium',
+                    )}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {customer.name}
+                      <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        {customer.other_store === null ? t('otherStoreUnknownChip') : t('otherStoreChip')}
+                      </span>
+                    </span>
+                    {customer.phone && (
+                      <span className="text-xs text-muted-foreground">{customer.phone}</span>
+                    )}
+                  </li>
+                ))}
+              </>
+            )}
           </ul>
+
+          {/* F-2 fold (⚖ Liam 2026-09-16): the company-wide tier was capping
+           *  at CUSTOMER_SEARCH_LIMIT with no signal — named, not silently
+           *  dropped, same disclosure the local overflow already gets.
+           *  Sibling of the <ul>, so it never counts as an option. */}
+          {remoteMore && (
+            <p className="px-3 py-1.5 text-center text-[11px] text-muted-foreground">
+              {t('remoteMore', { n: CUSTOMER_SEARCH_LIMIT })}
+            </p>
+          )}
 
           {/* Divider before create option */}
           <div className="border-t border-border" />

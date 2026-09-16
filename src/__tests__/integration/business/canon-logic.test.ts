@@ -539,6 +539,23 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     expect(two.filter((c) => c.h === 600)).toHaveLength(1)
   })
 
+  it('⚖ D-53 (c) R1 — needsUnit: () => false sells every free staff, no cap (G1)', () => {
+    // The default (no predicate) is unmoved above — this is the seam's real
+    // answer for a store whose staff answer needsUnit false: no sentinel cap,
+    // one cell per free staff per slot, resourceKey/bed always ''.
+    const two = deriveSellableCells({
+      ...flat,
+      staffLanes: [staff(), staff({ key: 's2', name: '見本 ごろう' })],
+      resourceLanes: [],
+      now: null,
+      needsUnit: () => false,
+    })
+    const atOpen = two.filter((c) => c.h === 600)
+    expect(atOpen).toHaveLength(2)
+    expect(atOpen.every((c) => c.resourceKey === '' && c.bed === '')).toBe(true)
+    expect(two.filter((c) => c.group === 'beds')).toEqual([])
+  })
+
   it('a window needs BOTH a free person and a free bed wherever beds exist', () => {
     // One staff, one bed: nine hours → nine windows, mirrored onto the bed lane.
     const cells = deriveSellableCells({ ...flat, staffLanes: [staff()], resourceLanes: [bed()], now: null })

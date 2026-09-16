@@ -14,7 +14,7 @@
  * ACTUALLY match, not the 8 that fit on screen, and the overflow gets its own
  * quiet cue line.
  */
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 
 jest.mock('next-intl', () => {
   const ja = jest.requireActual('../../../messages/ja.json')
@@ -195,5 +195,175 @@ describe('picker dialog v2 — honest search count (C-3)', () => {
     expect(screen.getByText('検索結果 (8件)')).toBeInTheDocument()
     expect(screen.getAllByRole('option')).toHaveLength(8)
     expect(screen.queryByText(/さらに入力して絞り込み/)).not.toBeInTheDocument()
+  })
+})
+
+// ── Greptile fold, P3 remote tier: chip/section from other_store only ───────
+describe('picker dialog v2 — remote tier honesty (Greptile fold, 2026-09-16)', () => {
+  it('other_store:false renders as a normal row — no 他店舗 chip, no separate section', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-own', name: '遠藤三郎', other_store: false }],
+        karute_number_unavailable: false,
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
+      expect(screen.queryByText('他店舗')).toBeNull()
+      expect(screen.queryByText('他店舗のお客様')).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('other_store:true renders under the 他店舗のお客様 section with the chip', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-other', name: '遠藤三郎', other_store: true }],
+        karute_number_unavailable: false,
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
+      expect(screen.getByText('他店舗')).toBeInTheDocument()
+      expect(screen.getByText('他店舗のお客様')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('Greptile fold round 2: other_store:null (lens read failed) renders 店舗不明, never presented as own-store', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-unknown', name: '遠藤三郎', other_store: null }],
+        karute_number_unavailable: false,
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
+      expect(screen.getByText('店舗不明')).toBeInTheDocument()
+      expect(screen.queryByText('他店舗')).toBeNull()
+      expect(screen.getByText('他店舗のお客様')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('Greptile fold round 2: karute_number_unavailable renders the JP notice', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [],
+        karute_number_unavailable: true,
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '0042' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('カルテ番号での検索は一時的に使えません')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  // F-1 (FRESH-EYES-P3.md fold): the header must count what it shows below —
+  // local matches PLUS the deduped remote rows, not local matches alone.
+  it('F-1: 0 local + 1 remote renders 検索結果 (1件), not (0件)', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-other', name: '遠藤三郎', other_store: true }],
+        karute_number_unavailable: false,
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('検索結果 (1件)')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  // F-2 fold (⚖ Liam 2026-09-16, PR #945 Greptile finding): the remote tier
+  // was capping at CUSTOMER_SEARCH_LIMIT with no signal — this asserts the
+  // exact real-ja.json disclosure line, only when remote_more is true.
+  it('F-2: remote_more renders the exact company-wide overflow line', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-other', name: '遠藤三郎', other_store: true }],
+        karute_number_unavailable: false,
+        remote_more: true,
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(
+        screen.getByText('全店舗検索は上限の8件に達しました — さらに入力して絞り込み'),
+      ).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('F-2: remote_more:false renders no overflow line', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-other', name: '遠藤三郎', other_store: true }],
+        karute_number_unavailable: false,
+        remote_more: false,
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
+      expect(
+        screen.queryByText('全店舗検索は上限の8件に達しました — さらに入力して絞り込み'),
+      ).not.toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('F-1: 1 local + 1 remote renders 検索結果 (2件)', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-other', name: '遠藤三郎', other_store: true }],
+        karute_number_unavailable: false,
+      })
+      open({
+        customers: [{ id: 'c-1', name: '原 奏恵', furigana: null, phone: null }],
+        facts: [],
+        onRemoteSearch,
+      })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '原' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('検索結果 (2件)')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 })

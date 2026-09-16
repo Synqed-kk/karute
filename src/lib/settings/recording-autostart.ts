@@ -35,6 +35,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { auditDurable } from '@/lib/audit'
+import { ensureRecordStoreInScope, type RecordStoreScope } from '@/lib/auth/store-lock'
 import { orgSettingsWithClient, writeOrgSettingsBlobWithClient } from '@/actions/org-settings'
 
 type AutostartClient = Pick<SynqedClient, 'orgSettings' | 'stores'>
@@ -43,6 +44,12 @@ export interface RecordingAutostartActor {
   /** Auth user UUID of the staff member flipping the switch. */
   staffId: string | null
   businessId: string | null
+  /** The flipper's store assignment (⚖ Liam 2026-09-16). Resolved by the same
+   *  caller that vouches for the identity above. Required, not optional: the
+   *  shipped presets happen to pair settings.manage with stores.viewAll, but
+   *  the permission model lets an owner build a 「銀座 branch settings」 custom
+   *  role, and nothing else would stop it flipping 代官山's switch. */
+  scope: RecordStoreScope
   source: 'facade' | 'web'
   requestId?: string
 }
@@ -87,6 +94,18 @@ export async function setRecordingAutostartWithClient(
     // scoped, so this also can't be answered with another tenant's list.
     const { stores } = await synqed.stores.list()
     if (!stores.some((s) => s.id === storeId)) return { ok: false, error: 'unknown_store' }
+
+    // STORE LOCK (⚖ Liam 2026-09-16): membership in the BUSINESS was never
+    // enough — the store must be one this actor is assigned to, unless they
+    // range freely (viewAll / floating). The refusal reuses 'unknown_store'
+    // deliberately: a store the flipper may not touch answers byte-identically
+    // to one that does not exist, so the reply never enumerates the business's
+    // other branches.
+    try {
+      ensureRecordStoreInScope({ store_id: storeId }, actor.scope, 'unknown store')
+    } catch {
+      return { ok: false, error: 'unknown_store' }
+    }
 
     // Fresh read — deliberately NOT getOrgSettings(), whose unstable_cache
     // holds for 300s: computing a new list off a 5-minute-old one would drop

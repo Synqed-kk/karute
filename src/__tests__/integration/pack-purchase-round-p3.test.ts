@@ -87,9 +87,9 @@ beforeEach(() => {
 describe('createPackActionWithClient (via createPackAction) — the live case: a cancelled 3回目 must not become 4回目', () => {
   it('初回 + 2枚目 (active) + 3回目 (cancelled) → the next real purchase derives 3', async () => {
     mockListCustomerPacks.mockResolvedValueOnce([
-      row(1, 'active'),
-      row(2, 'active'),
-      row(3, 'cancelled'),
+      { ...row(1, 'active'), customer_id: 'cust-1' },
+      { ...row(2, 'active'), customer_id: 'cust-1' },
+      { ...row(3, 'cancelled'), customer_id: 'cust-1' },
     ])
     await createPackAction({ customerId: 'cust-1', kind: 'pack', packSize: 10, unitPrice: 9900 })
     expect(mockCreatePack).toHaveBeenCalledWith(

@@ -24,6 +24,7 @@ const MESSAGES: Record<string, string> = {
   countLine: '{n}件',
   hours: '{h}時間',
   minutes: '{m}分',
+  loading: '予約状況を読み込み中…',
 }
 
 function t(key: string, values?: Record<string, string | number | Date>): string {
@@ -195,8 +196,23 @@ describe('DayNumbersLine — the pending state is two shims, not nothing (R3-18)
       expect(shim.className).toContain('w-[52px]')
       expect(shim.className).toContain('h-[11px]')
     }
-    // no stale number survives the move
-    expect(container.querySelector('[data-day-line]')!.textContent).toBe('')
+    // no stale number survives the move (the sr-only status text added below,
+    // Greptile G2, carries no digits either)
+    expect(container.querySelector('[data-day-line]')!.textContent).not.toMatch(/\d/)
+  })
+
+  it('is announced to screen readers too — an sr-only role="status" carrying the shared loading key (Greptile G2, DayNumbersLine.tsx:94)', () => {
+    const DayNumbersLine = loadDayNumbersLine()
+    render(<DayNumbersLine row={row()} soloMode={false} typeSlot="off" locale="ja" pending />)
+    const status = screen.getByRole('status')
+    expect(status.textContent).toBe(MESSAGES.loading)
+    expect(status.className).toContain('sr-only')
+  })
+
+  it('not pending renders no status role — the announcement stops with the shimmer', () => {
+    const DayNumbersLine = loadDayNumbersLine()
+    render(<DayNumbersLine row={row()} soloMode={false} typeSlot="off" locale="ja" />)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
   it('keeps the loaded line’s block height, so the list card below does not jump', () => {
