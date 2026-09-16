@@ -105,7 +105,7 @@ import { capabilitiesForUser } from '@/lib/auth/require-permission'
 import { resolveStoreScope, viewerIsUnassigned } from '@/lib/auth/store-scope'
 import { resolveStoreForRequest, resolveExportStoreId } from '@/lib/app-api/store-clamp'
 import {
-  activeStoreCount,
+  storeCountForGate,
   actorIsUnassigned,
   STORE_UNASSIGNED_DENIAL,
   storeAssignmentVerdict,
@@ -339,7 +339,7 @@ describe('unassigned gate — the layer matrix', () => {
 // The single-store carve-out must count ACTIVE stores only — an archived
 // store isn't a real second location a floating staff member could be posted
 // to, so it must not turn the carve-out off. One shared helper
-// (`activeStoreCount`, store-gate.ts) feeds BOTH `actorIsUnassigned` and the
+// (`storeCountForGate`, store-gate.ts) feeds BOTH `actorIsUnassigned` and the
 // facade's clamp so they can't drift; driven here through both transports,
 // same shape as the layer matrix above.
 describe('G-2 — the carve-out counts ACTIVE stores only', () => {
@@ -405,9 +405,9 @@ describe('G-2 — the carve-out counts ACTIVE stores only', () => {
     ]
     // Shipped: counts ACTIVE rows only — the carve-out fires (correct: this
     // business has exactly one ACTIVE store).
-    expect(activeStoreCount(rows)).toBe(1)
+    expect(storeCountForGate(rows)).toBe(1)
     expect(
-      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: activeStoreCount(rows) }),
+      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: storeCountForGate(rows) }),
     ).toBe('unclamped')
 
     // The pre-fix line, verbatim: `r.stores.length` — every row, active or not.
@@ -416,21 +416,54 @@ describe('G-2 — the carve-out counts ACTIVE stores only', () => {
       storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: mutantCount }),
     ).toBe('unassigned') // WRONG — would blank a floating staffer in a real one-store salon
   })
+
+  // ── X6 fold (session model, 2026-09-17) ──────────────────────────────────
+  // Zero ACTIVE stores is not the same fact as zero STORES. A ≥2-row business
+  // that has archived every one of them still has something to isolate from —
+  // falling all the way back to `unclamped` would hand an unassigned staffer
+  // the business-wide view. `storeCountForGate` falls back to the total row
+  // count only when the active count is 0 AND there is at least one row.
+  it('two rows, both active:false → falls back to the total (2) → unassigned', () => {
+    const rows = [
+      { id: 'store-ginza', active: false },
+      { id: 'store-daikanyama', active: false },
+    ]
+    expect(storeCountForGate(rows)).toBe(2)
+    expect(
+      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: storeCountForGate(rows) }),
+    ).toBe('unassigned')
+  })
+
+  it('one row, active:false → falls back to the total (1) → single-store carve-out', () => {
+    const rows = [{ id: 'store-ginza', active: false }]
+    expect(storeCountForGate(rows)).toBe(1)
+    expect(
+      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: storeCountForGate(rows) }),
+    ).toBe('unclamped')
+  })
+
+  it('zero rows → stays 0, nothing to fall back to → carve-out', () => {
+    const rows: { id: string; active?: boolean }[] = []
+    expect(storeCountForGate(rows)).toBe(0)
+    expect(
+      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: storeCountForGate(rows) }),
+    ).toBe('unclamped')
+  })
 })
 
 // ── G-2b (Greptile fold, 2026-09-17) ─────────────────────────────────────────
 // A missing `active` field must count as ACTIVE — only an EXPLICIT `false` is
 // inactive; unknown must never turn the gate off (same discipline as
 // `assigned === null` and `storeCount === null` above). Direct unit checks on
-// `activeStoreCount`/`storeAssignmentVerdict`, same shape as the G-2 mutant
+// `storeCountForGate`/`storeAssignmentVerdict`, same shape as the G-2 mutant
 // proof above — the mocked `stores.list()` fixture always sets an explicit
 // boolean, so a genuinely MISSING field can only be driven directly.
 describe('G-2b — a missing `active` flag counts as active, never inactive', () => {
   it('two rows with no `active` field → count 2 → unassigned', () => {
     const rows: { id: string; active?: boolean }[] = [{ id: 'store-a' }, { id: 'store-b' }]
-    expect(activeStoreCount(rows)).toBe(2)
+    expect(storeCountForGate(rows)).toBe(2)
     expect(
-      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: activeStoreCount(rows) }),
+      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: storeCountForGate(rows) }),
     ).toBe('unassigned')
   })
 
@@ -440,9 +473,9 @@ describe('G-2b — a missing `active` flag counts as active, never inactive', ()
       { id: 'store-b', active: false },
       { id: 'store-c' },
     ]
-    expect(activeStoreCount(rows)).toBe(2)
+    expect(storeCountForGate(rows)).toBe(2)
     expect(
-      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: activeStoreCount(rows) }),
+      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: storeCountForGate(rows) }),
     ).toBe('unassigned')
   })
 
@@ -451,9 +484,9 @@ describe('G-2b — a missing `active` flag counts as active, never inactive', ()
       { id: 'store-a', active: true },
       { id: 'store-b', active: false },
     ]
-    expect(activeStoreCount(rows)).toBe(1)
+    expect(storeCountForGate(rows)).toBe(1)
     expect(
-      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: activeStoreCount(rows) }),
+      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: storeCountForGate(rows) }),
     ).toBe('unclamped')
   })
 })
