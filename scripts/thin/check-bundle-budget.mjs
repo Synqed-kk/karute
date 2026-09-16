@@ -962,11 +962,11 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //
 // RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-month-grid
 // (PR #931) — union of both chains above (this branch's own #931 history plus
-// the #929-into-main re-measure entry it had not yet seen). TEMP value below
-// carried at the higher of the two merged constants pending this merge's own
-// two-lap thin re-measure (filled in by the follow-up "thin: budget
-// re-measure after main merge" commit, per the gate packet).
-const BUDGET_BYTES = 2_111_431
+// the #929-into-main re-measure entry it had not yet seen). Same CI recipe,
+// thin/dist emptied between two clean builds, byte-identical both times (node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock): en 134,223 · index
+// 1,038,559 · vendor 937,791 = 2,110,573 B. Ceiling = 2,110,573 + 1,000.
+const BUDGET_BYTES = 2_111_573
 
 let dir
 try {
