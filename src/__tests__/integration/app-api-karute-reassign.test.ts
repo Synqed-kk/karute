@@ -215,12 +215,45 @@ describe('POST /karute/[id]/reassign', () => {
     )
   })
 
-  it('store clamp: an out-of-store to-customer is refused → 403, no write, no audit', async () => {
+  // ⚖ FRESH-EYES-P1B F7 — the DESTINATION half of the same probe. The record half
+  // has always filed a row; this one refused silently, so a clamped actor could
+  // enumerate customer ids against a karute they legitimately hold and leave
+  // nothing behind. 403 and the write are both unchanged.
+  it('store clamp: an out-of-store to-customer is refused → 403, no write, no SUCCESS row — and ONE refusal row', async () => {
     storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
     const res = await POST(postReq({ to_customer_id: 'cust-OTHER-STORE', confirmed: true }), routeFor('kar-1'))
     expect(res.status).toBe(403)
     expect(karuteUpdate).not.toHaveBeenCalled()
-    expect(auditSpy).not.toHaveBeenCalled()
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0]).toMatchObject({
+      category: 'karute',
+      action: 'karute.store_write_refused',
+      severity: 'warning',
+      targetType: 'karute',
+      targetId: 'kar-1',
+      detail: expect.objectContaining({
+        door: 'reassign.to_customer',
+        to_customer_id: 'cust-OTHER-STORE',
+        code: 'store_forbidden',
+      }),
+    })
+    // ids only — the probed customer's NAME never rides the row.
+    expect(JSON.stringify(auditSpy.mock.calls[0][0])).not.toContain('他店 太郎')
+  })
+
+  // EXACTLY ONE ROW PER REQUEST when BOTH halves would refuse: the record half
+  // throws, so the to-customer half is never reached.
+  it('a cross-store SOURCE record AND a cross-store to-customer still file exactly ONE row — the record half', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
+    const res = await POST(postReq({ to_customer_id: 'cust-OTHER-STORE', confirmed: true }), routeFor('kar-1'))
+    expect(res.status).toBe(404)
+    expect(karuteUpdate).not.toHaveBeenCalled()
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0]).toMatchObject({
+      action: 'karute.store_write_refused',
+      detail: expect.objectContaining({ door: 'karute.customer_reassign' }),
+    })
   })
 
   it('store clamp: a viewAll actor (stores.viewAll capability) reaches the SAME out-of-store target', async () => {

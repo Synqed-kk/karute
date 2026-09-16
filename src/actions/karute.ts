@@ -22,7 +22,11 @@ import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import { audit } from '@/lib/audit'
-import { ensureRecordStoreInScopeAudited, type StoreRefusalActor } from '@/lib/audit-store-lock'
+import {
+  auditStoreWriteRefused,
+  ensureRecordStoreInScopeAudited,
+  type StoreRefusalActor,
+} from '@/lib/audit-store-lock'
 import { resolveWebAuditContext, auditWeb } from '@/lib/audit-web'
 import { SESSION_CATEGORY_TO_ENTRY_CATEGORY, summaryTextToBullets } from '@/lib/adapters/karute-detail'
 import { ENTRY_CONTENT_INVALID_ERROR, type SaveKaruteInput } from '@/types/karute'
@@ -802,6 +806,25 @@ async function ensureReassignStoreScope(
   if (scope.viewAll) return
   if (!scope.allowedStoreIds) return // floating — unclamped
   if (await toCustomerInScope(synqed, toCustomerId, scope.allowedStoreIds)) return
+  // ⚖ FRESH-EYES-P1B F7 — THE OTHER HALF OF THE SAME PROBE. The record half above
+  // files its row; this one refused silently, so a clamped actor could enumerate
+  // customer ids against a karute they legitimately hold and no owner would ever
+  // see it. Exactly ONE row per request either way: the record half THROWS, so
+  // control only reaches here when it passed.
+  // The throw below is untouched — auditStoreWriteRefused records, never decides.
+  if (actor) {
+    auditStoreWriteRefused({
+      actor,
+      category: 'karute',
+      targetType: 'karute',
+      targetId: karuteId,
+      door: 'reassign.to_customer',
+      recordStoreId: record.store_id,
+      code: 'store_forbidden',
+      // The id that was probed. Ids only — never the customer's name.
+      detail: { to_customer_id: toCustomerId },
+    })
+  }
   throw new AppApiError('store_forbidden', 'that customer is outside your assigned store')
 }
 

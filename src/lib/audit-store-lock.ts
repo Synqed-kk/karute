@@ -98,26 +98,59 @@ export function ensureRecordStoreInScopeAudited(
   try {
     ensureRecordStoreInScope(record, scope, notFoundMessage)
   } catch (err) {
-    emitStoreWriteRefused(STORE_WRITE_REFUSED[trace.category], {
-      category: trace.category,
-      actorId: trace.actor.actorId,
-      businessId: trace.actor.businessId,
-      targetType: trace.targetType,
-      targetId: trace.targetId,
-      // A cross-store write attempt is a security event, same tier as a PIN
-      // lockout or a scheduled deletion — the viewer's 警告 strip.
-      severity: 'warning',
-      detail: {
-        door: trace.door,
-        record_store_id: record.store_id,
-        // Which refusal: an out-of-store probe ('not_found') reads very
-        // differently from a blipped assignment lookup ('store_forbidden').
-        code: err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : null,
-        ...trace.detail,
-      },
-      requestId: trace.actor.requestId,
-      source: trace.actor.source,
+    auditStoreWriteRefused({
+      ...trace,
+      recordStoreId: record.store_id,
+      // Which refusal: an out-of-store probe ('not_found') reads very
+      // differently from a blipped assignment lookup ('store_forbidden').
+      code: err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : null,
     })
     throw err
   }
+}
+
+/**
+ * THE ROW, on its own — for a store refusal that is NOT keyed on a record's own
+ * `store_id` and so cannot go through the twin above.
+ *
+ * One caller today (⚖ FRESH-EYES-P1B F7): the reassign door's TO-CUSTOMER half
+ * (`ensureReassignStoreScope`, src/actions/karute.ts). Its record half is already
+ * audited; its destination half refuses a customer outside the actor's stores,
+ * and left nothing behind — so a clamped actor could enumerate customer ids
+ * against a karute they legitimately hold and no owner would ever see it. Same
+ * probe, same row.
+ *
+ * It RECORDS ONLY. The caller throws its own error, unchanged — this never
+ * invents, wraps or swallows one, so no refusal shape moves.
+ */
+export function auditStoreWriteRefused(trace: {
+  actor: StoreRefusalActor
+  category: keyof typeof STORE_WRITE_REFUSED
+  targetType?: AuditEvent['targetType']
+  targetId?: string
+  door: string
+  /** The record's own store when there is one, else null. */
+  recordStoreId: string | null
+  /** The AppApiError code the caller is about to throw, when it has one. */
+  code: string | null
+  detail?: Record<string, string | null>
+}): void {
+  emitStoreWriteRefused(STORE_WRITE_REFUSED[trace.category], {
+    category: trace.category,
+    actorId: trace.actor.actorId,
+    businessId: trace.actor.businessId,
+    targetType: trace.targetType,
+    targetId: trace.targetId,
+    // A cross-store write attempt is a security event, same tier as a PIN
+    // lockout or a scheduled deletion — the viewer's 警告 strip.
+    severity: 'warning',
+    detail: {
+      door: trace.door,
+      record_store_id: trace.recordStoreId,
+      code: trace.code,
+      ...trace.detail,
+    },
+    requestId: trace.actor.requestId,
+    source: trace.actor.source,
+  })
 }
