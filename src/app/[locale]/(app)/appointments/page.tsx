@@ -6,6 +6,7 @@ import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { customerLensFor, resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
+import { getMonthCells } from '@/actions/appointments'
 import { getCachedDayAgenda } from '@/lib/appointments/day-agenda-cached'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCachedMenuOptions, scopeMenuOptions } from '@/lib/menus/cached'
@@ -257,6 +258,11 @@ export default async function AppointmentsPage({
         businessHours={screen.businessHours}
         staffFilter={staffFilter}
         menus={menus}
+        // The date-jump panel's WEB month door. The facade GET the phone uses
+        // is Bearer-only (lib/app-api/identity.ts), so this cookie session
+        // reads months through the action instead — same range fetch, same
+        // density rule, same store clamp.
+        loadMonthCells={getMonthCells}
       />
     </>
   )

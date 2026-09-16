@@ -148,6 +148,7 @@ describe('AppointmentsView → NewBookingDialog / ReservationStaffFilter wiring 
         businessHours={{ start: 10, end: 19 }}
         staffFilter="all"
         menus={[]}
+        loadMonthCells={async () => []}
       />,
     )
     // M26
