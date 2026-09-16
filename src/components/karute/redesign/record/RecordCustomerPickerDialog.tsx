@@ -33,11 +33,11 @@ import { PackPill } from '@/components/reservation/AppointmentCard'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
 import {
   filterCustomers,
-  CUSTOMER_SEARCH_LIMIT,
   useRemoteCustomerSearch,
   type CustomerOption,
   type CustomerSearchOption,
 } from '@/components/karute/CustomerCombobox'
+import { CUSTOMER_SEARCH_LIMIT } from '@/lib/customers/karute-number-match'
 import type { RecordTargetBooking } from './RecordingTargetCard'
 
 /**

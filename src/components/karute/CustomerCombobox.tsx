@@ -6,11 +6,6 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { foldSearchDigits, CUSTOMER_SEARCH_LIMIT } from '@/lib/customers/karute-number-match'
 
-// Re-exported (fold round, one home): existing consumers keep importing
-// CUSTOMER_SEARCH_LIMIT from here unchanged; the two server-side search paths
-// import it directly from karute-number-match.ts instead of duplicating it.
-export { CUSTOMER_SEARCH_LIMIT }
-
 export type CustomerOption = {
   id: string
   name: string
