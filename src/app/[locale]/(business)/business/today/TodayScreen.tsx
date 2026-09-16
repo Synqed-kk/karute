@@ -3666,38 +3666,12 @@ export function TodayScreen(props: TodayProps) {
    *  turnaround. It is an OBJECT of them rather than an empty literal so the
    *  list cannot be pruned as unused: a stamp blind to one of its inputs serves
    *  a stale answer in silence, which is the one failure a memo can have. */
+  // ⚖ D-53 (u)/(n2b1) — a words-only prop change must invalidate the
+  // gesture's cached `liveWord`/`ToneSlot.reason`, same as any other world
+  // input; source-proven, not reachable on the static fixture.
   const worldStamp = useMemo(
-    () => ({
-      placedLanes,
-      parked,
-      addedHere,
-      moves,
-      bedMoves,
-      pending,
-      hours,
-      now: props.sell.nowMinute,
-      cleanup: props.bedCleanupMinutes,
-      // ⚖ D-53 (u)/(n2b1) — a words-only prop change must invalidate the
-      // gesture's cached `liveWord`/`ToneSlot.reason`, same as any other
-      // world input; source-proven, not reachable on the static fixture.
-      wordsByStore: props.wordsByStore,
-      words: props.words,
-      genericWords: props.genericWords,
-    }),
-    [
-      placedLanes,
-      parked,
-      addedHere,
-      moves,
-      bedMoves,
-      pending,
-      hours,
-      props.sell.nowMinute,
-      props.bedCleanupMinutes,
-      props.wordsByStore,
-      props.words,
-      props.genericWords,
-    ],
+    () => ({ placedLanes, parked, addedHere, moves, bedMoves, pending, hours, now: props.sell.nowMinute, cleanup: props.bedCleanupMinutes, wordsByStore: props.wordsByStore, words: props.words, genericWords: props.genericWords }),
+    [placedLanes, parked, addedHere, moves, bedMoves, pending, hours, props.sell.nowMinute, props.bedCleanupMinutes, props.wordsByStore, props.words, props.genericWords],
   )
   const worldStampRef = useRef(worldStamp)
   worldStampRef.current = worldStamp

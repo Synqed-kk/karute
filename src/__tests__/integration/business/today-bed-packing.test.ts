@@ -22,6 +22,9 @@
  */
 import { appointments, STORE_A } from '@/business/lib/fixtures'
 import { jstDayKey } from '@/business/lib/clock'
+// ⚖ D-53 (u)/(n2b1) — STORE_A's words (chiropractic; byte-identical to
+// `other`, D-13) and the generic row, for the family-grep call sites below.
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import * as data from '@/business/lib/data'
 import { buildLanes, dayBookings, minuteOf, place, type BoardItem, type BoardLane, type BuildInput } from '@/business/lib/today-board'
 import {
@@ -41,6 +44,11 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const HOURS = { open: 600, close: 1140 } // 10:00–19:00
+// ⚖ D-53 (u)/(n2b1) — STORE_A's words + the generic row, for every
+// family-grep call below; runtime expected sentences are unchanged
+// (chiropractic is byte-identical to `other`, D-13).
+const A_WORDS = RESOURCE_WORDS.chiropractic
+const G_WORDS = RESOURCE_WORDS.other
 
 /** Every bed in these scenes turns around instantly unless the case says
  *  otherwise — the shipped fixture's own `cleanup_minutes: 0`. */
@@ -1206,14 +1214,14 @@ describe('R6b — a re-landing is judged on the board it is solved on', () => {
     expect(solve.reseats).toEqual([{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }])
 
     const q = askAt(staff.key, 845, 905)
-    const judged = landingVerdict(restored, q, null)
+    const judged = landingVerdict(restored, q, null, A_WORDS, G_WORDS)
     expect({ room: judged.bedLane, reseats: judged.reseats })
       .toEqual({ room: solve.laneKey, reseats: solve.reseats })
 
     // …and the board on screen would have said NOBODY moves — the 仮押さえ box
     // would have named no one, and the guard would never have been re-asked on
     // the shuffled day at all.
-    const onScreen = landingVerdict(staged, q, null)
+    const onScreen = landingVerdict(staged, q, null, A_WORDS, G_WORDS)
     expect(onScreen.reseats).toEqual([])
     expect(onScreen.reseats).not.toEqual(solve.reseats)
   })
@@ -1224,8 +1232,8 @@ describe('R6b — a re-landing is judged on the board it is solved on', () => {
     // gets ベッド2; on the screen's board she has already vacated it.
     const solve = solveOn(restored, staff.key, staff.stores, 870, 930)
     const q = askAt(staff.key, 870, 930)
-    expect(landingVerdict(restored, q, null).bedLane).toBe(solve.laneKey)
-    expect([landingVerdict(staged, q, null).bedLane, solve.laneKey]).toEqual(['bed-01', 'bed-02'])
+    expect(landingVerdict(restored, q, null, A_WORDS, G_WORDS).bedLane).toBe(solve.laneKey)
+    expect([landingVerdict(staged, q, null, A_WORDS, G_WORDS).bedLane, solve.laneKey]).toEqual(['bed-01', 'bed-02'])
   })
 
   it('and the screen takes ONE board and asks everything on it', () => {
@@ -1268,7 +1276,7 @@ describe('F1 — `pack` is the only switch: the same ask, two answers', () => {
   it('with the pack OFF the landing is refused, in today’s exact sentence, moving nobody', async () => {
     const lanes = await demoLanes()
     const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
-    const off = landingVerdict(lanes, askKiri(staff.key, false), null)
+    const off = landingVerdict(lanes, askKiri(staff.key, false), null, A_WORDS, G_WORDS)
     expect(off.kind).toBe('blocked')
     expect(off.bedLane).toBeNull()
     expect(off.reseats).toEqual([])
@@ -1279,13 +1287,13 @@ describe('F1 — `pack` is the only switch: the same ask, two answers', () => {
     // absent means NO — every caller that predates the pack is untouched.
     const silent: Omit<ReturnType<typeof askKiri>, 'pack'> & { pack?: boolean } = askKiri(staff.key, false)
     delete silent.pack
-    expect(landingVerdict(lanes, silent, null).reason).toBe(off.reason)
+    expect(landingVerdict(lanes, silent, null, A_WORDS, G_WORDS).reason).toBe(off.reason)
   })
 
   it('with the pack ON the same ask returns the packed room — one flag, nothing else changed', async () => {
     const lanes = await demoLanes()
     const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
-    const on = landingVerdict(lanes, askKiri(staff.key, true), null)
+    const on = landingVerdict(lanes, askKiri(staff.key, true), null, A_WORDS, G_WORDS)
     expect(on.bedLane).toBe('bed-01')
     expect(on.reseats).toEqual([{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }])
     // The 満室 refusal is gone because the room is REAL, not because the sentence
@@ -1309,7 +1317,7 @@ describe('F3 — a packing landing answers with the companions it will actually 
       requiresPrivate: false, start: 840, end: 900, span: place(840, 900, HOURS),
       foreignRefusal: null, hasPrice: true, locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
       stagedId: null, pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
-    }, null)
+    }, null, A_WORDS, G_WORDS)
     expect(v.reseats).toEqual([{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }])
 
     // Leg two, on the board the shuffle would leave: step 0 succeeds there, so
@@ -1320,7 +1328,7 @@ describe('F3 — a packing landing answers with the companions it will actually 
       requiresPrivate: false, start: 840, end: 900, span: place(840, 900, HOURS),
       foreignRefusal: null, hasPrice: true, locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
       stagedId: null, pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
-    }, null)
+    }, null, A_WORDS, G_WORDS)
     expect(second.reseats).toEqual([])
 
     // The screen returns the second leg's verdict WITH the first leg's reseats —
@@ -1392,14 +1400,14 @@ describe('F2 — the safe-start press stages a room it solved for, on the board 
       requiresPrivate: false, start: 845, end: 905, span: AT,
       foreignRefusal: null, hasPrice: true, locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
       stagedId: 'apt-09', pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
-    }, null)
+    }, null, A_WORDS, G_WORDS)
     const shuffled = applyBedMoves(restored, companionsFor(restored, v.reseats), HOURS)
     const again = landingVerdict(shuffled, {
       staffLane: staff.key, bedLane: 'bed-01', solveRoom: true, id: 'apt-09',
       requiresPrivate: false, start: 845, end: 905, span: AT,
       foreignRefusal: null, hasPrice: true, locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
       stagedId: 'apt-09', pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
-    }, null)
+    }, null, A_WORDS, G_WORDS)
     // The word says CLEAN, so the button fires…
     expect(again.kind).not.toBe('blocked')
     expect(again.bedLane).toBe('bed-01')
@@ -2151,7 +2159,9 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // (`parked`), this session's own cards (`addedHere`), committed moves
     // (`moves`/`bedMoves`), staging (`pending`), the day (`hours`), the clock the
     // pack's lead floor reads, and each room's turnaround.
-    expect(SCREEN).toContain('[placedLanes, parked, addedHere, moves, bedMoves, pending, hours, props.sell.nowMinute, props.bedCleanupMinutes],')
+    // ⚖ D-53 (u)/(n2b1) — DISCLOSED PIN MOVE: a words-only prop change must
+    // invalidate the same cache, so the three words props ride the same stamp.
+    expect(SCREEN).toContain('[placedLanes, parked, addedHere, moves, bedMoves, pending, hours, props.sell.nowMinute, props.bedCleanupMinutes, props.wordsByStore, props.words, props.genericWords],')
     // No default on the landing question, so a new call site cannot forget.
     expect(SCREEN).toContain('(q: LandingAsk, opts: { pack: boolean }): LandingVerdict => {')
     expect(SCREEN).not.toContain('opts: { pack: boolean } = ')

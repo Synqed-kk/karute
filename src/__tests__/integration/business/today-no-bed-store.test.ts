@@ -295,7 +295,7 @@ describe('G3 — the allocator and the landing verdict', () => {
       locked: [],
       minutesOf: (x: number) => minuteOf(x, GYM.hours),
     }
-    const verdict = landingVerdict(GYM.lanes, q, null)
+    const verdict = landingVerdict(GYM.lanes, q, null, GYM.words, GYM.genericWords)
     console.log('G3', { untagged, tagged, verdict: { kind: verdict.kind, floor: verdict.floor, reason: verdict.reason } })
     expect(untagged).toEqual({ laneKey: null, refusal: null, blockers: [], reseats: [] })
     expect(tagged.refusal).toBe('この店舗には個室がありません。個室のある店舗へ移してください')
@@ -512,7 +512,9 @@ describe('G9 — no 「ベッド」 reachable', () => {
       '空いているベッドがいません」 is RETIRED',
       '空きベッドなし」 was never',
       '「ベッドが空いていません」 is the reason',
-      'ベッドが空いていません・確保が解除されれば', // :3067 (withheldSub)
+      // ⚖ D-53 (u)/(n2b1) — PRUNED: withheldSub's literal 'ベッドが空いていません・
+      // 確保が解除されれば' now reads '${words.resourceNoun}が空いていません…' —
+      // the line no longer carries the literal word at all (PKT-BUILD-N2B1-SINGLE-LANE.md).
       '「ベッドは別のスタッフ（…）の枠が使う」) and 販売中',
       '「ここに置くと、ほかのお客様のベッドを', // :3249/:3487
       'ここに置くと、ほかのお客様のベッドを入れ替えて収めます', // :3268 (reseatSentence)
@@ -558,7 +560,7 @@ describe('G9 — no 「ベッド」 reachable', () => {
     // N2a) — pruned alongside the twelve, out of an abundance of the same
     // fix.
     const stale = allow.filter((a) => (matchCounts.get(a) ?? 0) === 0)
-    console.log('G9-ALLOWLIST-INTEGRITY', { entryCount: allow.length, prunedCount: 13, stale })
+    console.log('G9-ALLOWLIST-INTEGRITY', { entryCount: allow.length, prunedCount: 14, stale })
     expect(stale).toEqual([])
   })
 
@@ -737,7 +739,7 @@ describe('G12 — Greptile P1-1, pinned as NOT a defect (⚖ D-52 (g))', () => {
       start: 780, end: 840, span: place(780, 840, D52G_HOURS), foreignRefusal: null, hasPrice: true,
       locked: [], minutesOf: (x: number) => minuteOf(x, D52G_HOURS),
     }
-    const verdict = landingVerdict(lanes, q, null)
+    const verdict = landingVerdict(lanes, q, null, GYM.words, GYM.genericWords)
     console.log('G12 mixed', { door: door?.(storeZLane, 780, 60), verdict: { kind: verdict.kind, floor: verdict.floor, reason: verdict.reason } })
     expect(door?.(storeZLane, 780, 60)).toBe(true)
     expect(verdict.kind).toBe('blocked')
@@ -753,7 +755,7 @@ describe('G12 — Greptile P1-1, pinned as NOT a defect (⚖ D-52 (g))', () => {
       start: 780, end: 840, span: place(780, 840, GYM.hours), foreignRefusal: null, hasPrice: true,
       locked: [], minutesOf: (x: number) => minuteOf(x, GYM.hours),
     }
-    const gymVerdict = landingVerdict(GYM.lanes, gymQ, null)
+    const gymVerdict = landingVerdict(GYM.lanes, gymQ, null, GYM.words, GYM.genericWords)
     console.log('G12 clamped', { door: gymDoorFn, verdict: { kind: gymVerdict.kind, floor: gymVerdict.floor, reason: gymVerdict.reason } })
     expect(gymDoorFn).toBeUndefined()
     expect(gymVerdict.kind).toBe('blocked')

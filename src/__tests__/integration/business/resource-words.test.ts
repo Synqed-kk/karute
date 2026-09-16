@@ -302,8 +302,12 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
     // ⚖ D-53 (n) — DISCLOSED PIN MOVE: N2a (PKT-BUILD-N2A-BOARD-WORDS.md)
     // converted page.tsx's 2 and TodayScreen.tsx's 28 sites to read the
     // resource-words table; today-interactions.ts's 19 are N2b's.
-    expect(byFile).toEqual({ 'today-interactions.ts': 19 })
-    expect(offenders).toBe(19)
+    // ⚖ D-53 (u)/(n2b1) — DISCLOSED PIN MOVE: N2b-1 (PKT-BUILD-N2B1-SINGLE-LANE.md)
+    // converted blockChrome / withheldSub / parkChipText / landingVerdict
+    // (6 occurrences: #33, #35, #42, #47, #48, #49); the remaining 13 are
+    // N2b-2's map sites (9) and N2c's parked allocator sites (4).
+    expect(byFile).toEqual({ 'today-interactions.ts': 13 })
+    expect(offenders).toBe(13)
   })
 
   it('the scanner keeps regex literals and comment markers inside them out of the comment stripper (L1 MINOR-2)', () => {
