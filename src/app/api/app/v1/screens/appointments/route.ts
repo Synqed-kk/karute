@@ -421,10 +421,8 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         monthCompareDelta: screen.monthCompareDelta,
         truncated: screen.truncated,
         soloMode: screen.soloMode,
-        // ⚖ R1-3 — the shared mapper, the same one the web door's month calls.
-        // `closed` (main's A2 fact) does not ride the shared mapper — its
-        // other callers (the jump panel) never read hours — so it is zipped
-        // back in here, index for index, same array, same order.
+        // ⚖ R1-3 — the shared mapper, the same one the web door's month calls;
+        // it now carries `closed` (main's A2 fact) itself (MERGE #951, reservation.ts).
         monthData: screen.monthData
           ? monthCellsToDTO(screen.monthData, {
               newCounts: {
@@ -432,7 +430,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
                 known: screen.newCountKnown,
               },
               facts: screen.monthFacts,
-            }).map((cell, i) => ({ ...cell, closed: screen.monthData![i].closed }))
+            })
           : null,
       }),
     )

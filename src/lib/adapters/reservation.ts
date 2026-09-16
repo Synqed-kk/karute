@@ -535,7 +535,7 @@ function densityFor(count: number): MonthDensityBucket {
  *  `newCounts` absent = this door read no history at all, which is NOT the same
  *  as "nobody was new" — the cells then carry 0 with `newCountKnown: false`. */
 export function monthCellsToDTO(
-  cells: readonly MonthGridCell[],
+  cells: readonly MonthCell[],
   opts: {
     newCounts?: { byDay: ReadonlyMap<string, number>; known: boolean }
     facts?: ReadonlyMap<string, CapacityFact> | null
@@ -553,6 +553,11 @@ export function monthCellsToDTO(
     // anybody's first visit on.
     newCount: (known && c.inMonth && opts.newCounts?.byDay.get(c.id)) || 0,
     newCountKnown: known,
+    // MERGE 2026-09-17 (#951) — `closed` (main's A2 fact) rides straight off
+    // the MonthCell the caller already built; the shared mapper's own callers
+    // both compute it from the same hoursFacts read, so it is never a second,
+    // less-informed answer.
+    closed: c.closed,
     // The cell's own capacity fact, keyed by the same id the cell carries. A
     // padding cell has none and takes the no-capacity defaults — it renders no
     // numbers either way.
