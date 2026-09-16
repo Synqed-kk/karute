@@ -38,7 +38,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
+import { ensureStaffWriteInScope, resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { createInviteCore, listInvitesWithClient, memberEmailsForBusiness } from '@/actions/invites'
 import { inviteSchema } from '@/lib/validations/invite'
 import { staffAddAllowedWithClient } from '@/lib/subscription/feature-gate'
@@ -119,10 +119,23 @@ export const POST = facadeHandler('invite.create', async (ctx) => {
   }
 
   const invitedBy = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
+  // ⚖ Liam 2026-09-16: the same creator-subset rule as web, resolved from the
+  // Bearer identity — a fresh invite mints the card, so this door places staff.
+  const { allowedStoreIds } = await resolveStoreForRequest({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    requestedStoreId: null,
+  })
   const result = await createInviteCore(
     synqed,
     businessId,
-    { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
+    {
+      actorId: ctx.identity.authUserId,
+      source: 'facade',
+      requestId: ctx.meta.requestId,
+      creatorAllowedStoreIds: allowedStoreIds,
+    },
     invitedBy,
     parsed.data,
   )

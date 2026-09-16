@@ -86,7 +86,11 @@ const invitesList = jest.fn(async () => ({ invites: [] as Record<string, unknown
 const invitesUpdateStatus = jest.fn(async () => ({}))
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
-    staff: { setPin, removePin },
+    // ⚖ Liam 2026-09-16: a FRESH invite mints the card first, so the invite
+    // door reaches the staff ports too. One store = the carve-out, so this
+    // suite's invite needs no 担当店舗 and the clamp rule it pins is untouched.
+    staff: { setPin, removePin, create: jest.fn(async () => ({ id: 'staff-new' })) },
+    stores: { list: jest.fn(async () => ({ stores: [{ id: 'store-a', is_primary: true }] })) },
     invites: { create: invitesCreate, list: invitesList, updateStatus: invitesUpdateStatus },
   })),
   newSynqedClient: jest.fn(() => ({})),
@@ -108,7 +112,10 @@ const resolveStoreScope = resolveStoreScopeImport as unknown as jest.Mock
 // other seam so the shared pins below stay byte-identical across transports.
 const TARGET = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const ACTOR = 'actor-1'
-const INVITE = { email: 'new@test.com', role: 'STYLIST' as const }
+// ⚖ Liam 2026-09-16: a FRESH invite now MAKES the staff card, so it carries the
+// person's name (never an email-named card). The clamp rule this suite pins is
+// unchanged — a fresh invite still consults no re-invite clamp.
+const INVITE = { email: 'new@test.com', role: 'STYLIST' as const, name: '新人' }
 
 // Every clamped transport, so a clamp that lands on three of four is red.
 // Third element = the SDK write this seam would make, or null when the seam

@@ -34,6 +34,7 @@ import { createStaffCore } from '@/actions/staff'
 import { staffProfileSchema } from '@/lib/validations/staff'
 import { staffAddAllowedWithClient } from '@/lib/subscription/feature-gate'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
+import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 
 export const runtime = 'nodejs'
 
@@ -61,10 +62,23 @@ export const POST = facadeHandler('staff.create', async (ctx) => {
   if (!gate.allowed) {
     return ok(ctx, { error: 'Staff limit reached for the current plan.' })
   }
+  // ⚖ Liam 2026-09-16: the same subset rule as web, resolved from the Bearer
+  // identity rather than the cookie session.
+  const { allowedStoreIds } = await resolveStoreForRequest({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    requestedStoreId: null,
+  })
   const result = await createStaffCore(
     synqed,
     businessId,
-    { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
+    {
+      actorId: ctx.identity.authUserId,
+      source: 'facade',
+      requestId: ctx.meta.requestId,
+      creatorAllowedStoreIds: allowedStoreIds,
+    },
     parsed.data,
   )
   return ok(ctx, result, 'id' in result ? 201 : 200)

@@ -33,6 +33,10 @@ interface StaffSectionProps {
   featureStaffInvites?: boolean
   /** Same, for NEXT_PUBLIC_FEATURE_MULTI_STORE — threaded through to
    *  StaffForm's store-assignment UI. */
+  /** ⚖ Liam 2026-09-16 — the creator's active store, the default pick for a
+   *  NEW staff card's required 担当店舗. Threaded, never fetched: the settings
+   *  surface already resolved it. */
+  activeStoreId?: string | null
   featureMultiStore?: boolean
 }
 
@@ -47,6 +51,7 @@ export function StaffSection({
   stores,
   featureStaffInvites,
   featureMultiStore,
+  activeStoreId,
 }: StaffSectionProps) {
   const t = useTranslations('settings')
   const invitesEnabled =
@@ -86,6 +91,7 @@ export function StaffSection({
         businessType={businessType}
         stores={stores}
         featureMultiStore={featureMultiStore}
+        activeStoreId={activeStoreId}
       />
 
       {/* Invite staff — capability-gated (staff.invite: owner + manager + any
@@ -105,6 +111,8 @@ export function StaffSection({
           )}
           <InviteStaffDialog
             staff={staffList.map((s) => ({ id: s.id, full_name: s.full_name, email: s.email }))}
+            stores={stores}
+            activeStoreId={activeStoreId}
           />
         </div>
       )}

@@ -16,13 +16,18 @@ import { audit } from '@/lib/audit'
 // 'use server' module, where every export is a callable endpoint, so it cannot
 // be declared here — and the 予約 capacity path needs the same one answer.
 import { coreBusinessType } from '@/lib/welcome/business-types'
-import { actorIsUnassigned, STORE_UNASSIGNED_DENIAL } from '@/lib/auth/store-gate'
+import {
+  actorIsUnassigned,
+  STAFF_STORES_OUTSIDE_CREATOR,
+  STORE_UNASSIGNED_DENIAL,
+} from '@/lib/auth/store-gate'
 
 // Explicit-client seam (design-parity packet 12 §B-3 S2 — the P-B pattern):
 // every twin below takes this instead of resolving getSynqedClient() from the
 // cookie session, so the facade (Bearer path, business resolved from the
 // verified token) and the web actions run the IDENTICAL write/read logic.
-type StoresClient = Pick<SynqedClient, 'stores' | 'staffStores' | 'customers' | 'entitlements' | 'orgSettings'>
+type StoresClient = Pick<SynqedClient, 'stores' | 'staffStores' | 'customers' | 'entitlements' | 'orgSettings'> &
+  Partial<Pick<SynqedClient, 'staff'>>
 
 /** Roster row shape the owner gate needs — a subset of StaffMember so the
  *  twin doesn't import the whole staff module's type surface. */
@@ -337,6 +342,9 @@ export async function createStoreCore(
       business_type: parsed.data.business_type,
     }
     const store = await synqed.stores.create(payload)
+    // ⚖ Liam 2026-09-16 — nobody blanks mid-shift. Inside the same action,
+    // before it returns.
+    await backfillStaffToExistingStore(synqed, businessId, deps, store.id)
     audit({
       category: 'settings',
       action: 'settings.store_create',
@@ -535,6 +543,115 @@ export async function setStaffStoresCore(
     return { ok: true }
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Could not update stores' }
+  }
+}
+
+/**
+ * STORES AT CREATION — the second entry into `staffStores.set` (⚖ Liam's pick
+ * 2026-09-16).
+ *
+ * `setStaffStoresCore` above stays literal-OWNER-only: CHANGING an existing
+ * card's stores is an ownership act, and nothing here loosens `isRosterOwner`.
+ * But a manager who may CREATE staff (`staff.invite`) must be able to place the
+ * new hire, or every new card is born unassigned — the exact hole this whole
+ * change closes. So creation gets its own door with its own, narrower rule:
+ *
+ *   the creator may set the NEW card's stores WITHIN their own allowed stores.
+ *
+ * `creatorAllowedStoreIds: null` = unclamped (stores.viewAll, or a floating
+ * creator in a one-store salon) — any store of the business, which core
+ * validates on its side. A non-null array is a real clamp and the requested set
+ * must be a SUBSET of it: a 銀座-only manager cannot mint a 代官山 colleague.
+ * Enforced HERE, so both transports inherit it from one place rather than each
+ * route remembering to check.
+ */
+export async function setStaffStoresAtCreationCore(
+  synqed: StoresClient,
+  businessId: string,
+  deps: StoreWriteDeps,
+  staffId: string,
+  storeIds: string[],
+  creatorAllowedStoreIds: readonly string[] | null,
+): Promise<{ ok: true } | { error: string }> {
+  if (creatorAllowedStoreIds !== null) {
+    const outside = storeIds.filter((id) => !creatorAllowedStoreIds.includes(id))
+    if (outside.length > 0) return { error: STAFF_STORES_OUTSIDE_CREATOR }
+  }
+  try {
+    await synqed.staffStores.set(staffId, storeIds)
+    audit({
+      category: 'settings',
+      action: 'settings.staff_stores_change',
+      severity: 'notice',
+      actorId: deps.selfUserId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'staff',
+      targetId: staffId,
+      detail: { store_ids: storeIds.join(','), count: storeIds.length, at_creation: true },
+      requestId: deps.requestId,
+      source: deps.source,
+    })
+    return { ok: true }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Could not set stores' }
+  }
+}
+
+/**
+ * 1 → 2 STORES: nobody blanks mid-shift (⚖ Liam 2026-09-16).
+ *
+ * The day a salon opens its second store, every staff member with an empty
+ * assignment stops being "floating" and becomes UNASSIGNED — they would arrive
+ * at work to the 担当店舗が未設定です screen. So the moment the count goes 1→2,
+ * every such card is backfilled to the store they have in fact been working in
+ * all along, inside the same action, before it returns.
+ *
+ * ponytail: it backfills EVERY card with an empty assignment, not just the
+ * non-viewAll ones. A `stores.viewAll` holder's assignment is never consulted
+ * (both resolvers short-circuit on the capability), so the row is behaviourally
+ * a no-op for them — and it is also TRUE, since the business had exactly one
+ * store. That buys us no per-staff capability derivation and no mixing of the
+ * profile and core id spaces. The visible cost is cosmetic: the owner's card
+ * now shows the first store ticked, and that store's staff count includes them.
+ *
+ * BEST-EFFORT by design: a failure here must not undo a store the owner just
+ * created. The degraded outcome is honest, not silent — the staff member sees
+ * the empty screen and the owner assigns them by hand, which is the same door
+ * this whole change points at.
+ */
+async function backfillStaffToExistingStore(
+  synqed: StoresClient,
+  businessId: string,
+  deps: StoreWriteDeps,
+  newStoreId: string,
+): Promise<void> {
+  try {
+    const { stores } = await synqed.stores.list()
+    if (stores.length !== 2) return // not the 1→2 transition
+    const existing = stores.find((s) => s.id !== newStoreId)?.id
+    if (!existing || !synqed.staff) return
+    const { staff } = await synqed.staff.list({ page_size: 200 })
+    for (const member of staff) {
+      const current = await synqed.staffStores.get(member.id).then((r) => r.store_ids)
+      if (current.length > 0) continue
+      await synqed.staffStores.set(member.id, [existing])
+      audit({
+        category: 'settings',
+        action: 'settings.staff_stores_change',
+        severity: 'notice',
+        actorId: deps.selfUserId,
+        actorType: 'staff',
+        businessId,
+        targetType: 'staff',
+        targetId: member.id,
+        detail: { store_ids: existing, count: 1, backfill: '1_to_2_stores' },
+        requestId: deps.requestId,
+        source: deps.source,
+      })
+    }
+  } catch (err) {
+    console.error('[createStore] staff store backfill failed:', err)
   }
 }
 

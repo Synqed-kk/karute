@@ -312,7 +312,20 @@ export const AUDITED_CORES: {
   { file: 'src/actions/permissions.ts', symbols: ['setStaffPermissionsCore'] },
   { file: 'src/actions/staff-pin.ts', symbols: ['setStaffPinCore', 'removeStaffPinCore'] },
   { file: 'src/actions/voice.ts', symbols: ['enrollVoiceActionCore', 'revokeVoiceActionCore'] },
-  { file: 'src/actions/stores.ts', symbols: ['createStoreCore', 'updateStoreCore', 'setStaffStoresCore'] },
+  {
+    file: 'src/actions/stores.ts',
+    // ⚖ Liam 2026-09-16 added two more audited writers here: the
+    // store-at-CREATION entry (a manager placing a new hire within their own
+    // stores) and the 1→2-store backfill (nobody blanks mid-shift). Both emit
+    // settings.staff_stores_change, the same row setStaffStoresCore writes,
+    // distinguished by detail.at_creation / detail.backfill.
+    symbols: [
+      'createStoreCore',
+      'updateStoreCore',
+      'setStaffStoresCore',
+      'setStaffStoresAtCreationCore',
+    ],
+  },
   { file: 'src/actions/audit-log.ts', symbols: ['listAuditLogWithClient'] },
   // Menu catalog (PR-1a create side, PR-1b update side). listMenus is a read
   // — deliberately not listed.
@@ -678,6 +691,28 @@ export const SDK_WRITE_ALLOWLIST: {
     justification:
       'verifyStaffPin — a PIN verification attempt (correct or wrong), not a mutation of the target. FIX ROUND 1 #15 correction: auth.pin_lockout only fires once failures reach the lockout THRESHOLD (>= 5 within the rolling window, src/lib/auth/pin-throttle.ts recordPinFailure) — a single wrong PIN attempt below that threshold audits nothing at all, correctly (nothing was mutated). A successful verify is a profile-switch read-path, not a write the taxonomy tracks. Derives as a write only because the SDK endpoint is POST-shaped (known accepted noise).',
     dated: '2026-07-27',
+  },
+  {
+    file: 'src/lib/staff/new-card.ts',
+    call: 'staff.create',
+    symbols: ['createAndPlaceStaffCard'],
+    justification: "The shared new-card mint (⚖ Liam 2026-09-16): one home for 'a new staff card is born in a store', reached by BOTH doors that make one — the 追加 button (actions/staff.ts#createStaffCore) and a FRESH invite (actions/invites.ts#createInviteCore, which now mints the card up front so accept only attaches the login). It carries NO audit call on purpose: each door emits its own staff.add row at the point it knows what it made, which is what keeps CP7's dominating-emit walker able to read them (a shared emit here would be invisible to both). Both citations are registered AUDITED_CORES symbols. 'staff.delete' is the placement ROLLBACK — it only ever removes the card this same function created moments earlier, so it has no separate lifecycle to audit; the door's staff.add never fires for a rolled-back card.",
+    dated: '2026-09-16',
+  },
+  {
+    file: 'src/lib/staff/new-card.ts',
+    call: 'staff.delete',
+    symbols: ['createAndPlaceStaffCard'],
+    justification: "The shared new-card mint (⚖ Liam 2026-09-16): one home for 'a new staff card is born in a store', reached by BOTH doors that make one — the 追加 button (actions/staff.ts#createStaffCore) and a FRESH invite (actions/invites.ts#createInviteCore, which now mints the card up front so accept only attaches the login). It carries NO audit call on purpose: each door emits its own staff.add row at the point it knows what it made, which is what keeps CP7's dominating-emit walker able to read them (a shared emit here would be invisible to both). Both citations are registered AUDITED_CORES symbols. 'staff.delete' is the placement ROLLBACK — it only ever removes the card this same function created moments earlier, so it has no separate lifecycle to audit; the door's staff.add never fires for a rolled-back card.",
+    dated: '2026-09-16',
+  },
+  {
+    file: 'src/actions/stores.ts',
+    call: 'staffStores.set',
+    symbols: ['backfillStaffToExistingStore'],
+    justification:
+      "The 1→2-store backfill (⚖ Liam 2026-09-16: nobody blanks mid-shift). It DOES audit — one settings.staff_stores_change row per staff member it places, detail.backfill = '1_to_2_stores' — but the emit sits INSIDE the per-staff loop, and the function returns without emitting on the paths where it wrote nothing at all (not the 1→2 transition; no roster; every card already assigned). CP7's dominating-emit walker cannot express 'emits once per write', so the registry would fail on a function whose every WRITE is in fact audited. Allowlisted rather than registered, for that mechanical reason only.",
+    dated: '2026-09-16',
   },
   {
     file: 'src/actions/stores.ts',

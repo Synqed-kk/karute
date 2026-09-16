@@ -14,6 +14,8 @@ import { chooseStaffToLink } from '@/lib/invites/link'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import { audit } from '@/lib/audit'
+import { INVITE_NAME_REQUIRED } from '@/lib/auth/store-gate'
+import { createAndPlaceStaffCard, type NewCardClient } from '@/lib/staff/new-card'
 import { auditWeb, resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { synqedRoleToPreset } from '@/lib/auth/permissions'
 import {
@@ -27,12 +29,21 @@ import {
 // as the S4a cores): the cores below take this instead of resolving
 // getSynqedClient() from the cookie session, so the facade (Bearer path) and
 // the web actions run the IDENTICAL write logic.
-type InviteClient = Pick<SynqedClient, 'invites'>
+type InviteClient = Pick<SynqedClient, 'invites'> &
+  // ⚖ Liam 2026-09-16: a FRESH invite mints the staff card first, through the
+  // same placement path createStaff uses — so the core needs the staff ports
+  // too. Partial, because every RE-invite path works without them.
+  Partial<Pick<SynqedClient, 'staff' | 'staffStores' | 'stores'>>
 
 /** Identity + provenance a Bearer/cookie caller feeds an invite write core. */
 type InviteWriteDeps = {
   actorId: string | null
   source: 'web' | 'facade'
+  /** ⚖ Liam 2026-09-16 — the CREATOR's own allowed stores, resolved by each
+   *  transport from its own identity. A fresh invite's card can only be placed
+   *  inside them; the rule itself lives in setStaffStoresAtCreationCore, the
+   *  one home both the staff door and this one share. `null` = unclamped. */
+  creatorAllowedStoreIds?: readonly string[] | null
   /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
    *  the facade twin. */
   requestId?: string
@@ -112,6 +123,55 @@ export async function createInviteCore(
     .maybeSingle()
   if (existingMember) return { error: 'That email is already a member of this salon.' }
 
+  // ⚖ Liam 2026-09-16 — A FRESH INVITE MAKES THE CARD FIRST.
+  //
+  // Before this, an email-only invite carried no staff row at all: the card was
+  // minted on ACCEPT, with no store, and the new hire's first login landed them
+  // on another branch's data (now: on the honest empty screen — still wrong for
+  // the person's first day). So the card is created HERE, with a real name and
+  // a real store, and the invite carries its id as `invited_staff_id` — which
+  // means accept attaches the login through the EXISTING re-invite path
+  // (chooseStaffToLink → staff.update), with no change to acceptInvite at all.
+  //
+  // NEVER an email-named card: a fresh invite with no name is refused outright.
+  // The store rule is not spelled here either — createStaffCore owns it, so the
+  // invite door and the 追加 door enforce one rule, including the
+  // creator-subset check and the delete-the-card-if-placement-fails rollback.
+  let mintedStaffId: string | null = null
+  if (!staffId) {
+    if (!input.name) return { error: INVITE_NAME_REQUIRED }
+    if (!synqed.staff) return { error: 'This client cannot create staff.' }
+    const card = await createAndPlaceStaffCard(
+      synqed as NewCardClient,
+      businessId,
+      {
+        actorId: deps.actorId,
+        source: deps.source,
+        requestId: deps.requestId,
+        creatorAllowedStoreIds: deps.creatorAllowedStoreIds ?? null,
+      },
+      // user_id null by construction: the existing-member check above just
+      // proved this email has no login in this business. acceptInvite fills it
+      // in through the re-invite path.
+      { name: input.name, email, userId: null, storeIds: input.storeIds ?? [] },
+    )
+    if ('error' in card) return { error: card.error }
+    mintedStaffId = card.id
+    // The card really was added — the same row the 追加 door emits, from the
+    // door that actually made it.
+    audit({
+      category: 'staff',
+      action: 'staff.add',
+      actorId: deps.actorId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'staff',
+      targetId: mintedStaffId,
+      requestId: deps.requestId,
+      source: deps.source,
+    })
+  }
+
   const token = randomBytes(32).toString('hex')
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86_400_000).toISOString()
 
@@ -122,10 +182,18 @@ export async function createInviteCore(
       role,
       token,
       invited_by: invitedBy,
-      invited_staff_id: staffId ?? null,
+      invited_staff_id: staffId ?? mintedStaffId,
       expires_at: expiresAt,
     })
   } catch (e) {
+    // Roll the card back: a card whose invite never existed is exactly the
+    // floating card this whole change removes, and nobody would know to delete
+    // it. Same posture as createStaffCore's own placement rollback.
+    if (mintedStaffId && synqed.staff) {
+      await synqed.staff.delete(mintedStaffId).catch((err: unknown) => {
+        console.error('[createInvite] rollback of an inviteless card failed:', err)
+      })
+    }
     return { error: `Could not create invite: ${e instanceof Error ? e.message : 'unknown error'}` }
   }
 
@@ -136,8 +204,8 @@ export async function createInviteCore(
     actorId: deps.actorId,
     actorType: 'staff',
     businessId,
-    targetType: staffId ? 'staff' : undefined,
-    targetId: staffId ?? undefined,
+    targetType: staffId || mintedStaffId ? 'staff' : undefined,
+    targetId: staffId ?? mintedStaffId ?? undefined,
     detail: { invite_id: created.id ?? null, role, reinvite: !!staffId },
     requestId: deps.requestId,
     source: deps.source,
@@ -207,10 +275,26 @@ export async function createInvite(
   }
   const invitedBy = await getCurrentUserStaffId().catch(() => null)
   const actorId = await resolveWebActorId()
+  // ⚖ Liam 2026-09-16: a fresh invite mints the card, so the same
+  // creator-subset rule the 追加 door applies has to reach this door too.
+  // ⚖ Liam 2026-09-16 (fold round 2, F7): `degraded ? [] : allowedStoreIds`.
+  // `allowedStoreIds` is null when the staff_stores lookup FAILED, and null
+  // means UNCLAMPED here — so during a core blip a 銀座-only creator would
+  // silently become able to place a new hire in 代官山. `[]` refuses every
+  // store instead. This is the file's own sibling convention (staffWriteInScope
+  // returns false on degraded) and what the facade twin already does by
+  // throwing. A WRITE fails closed on an unknown; only the read plane doesn't.
+  const scope = await resolveStoreScope()
+  const allowedStoreIds = scope.degraded ? [] : scope.allowedStoreIds
   const result = await createInviteCore(
     synqed,
     businessId,
-    { actorId, source: 'web', requestId: crypto.randomUUID() },
+    {
+      actorId,
+      source: 'web',
+      requestId: crypto.randomUUID(),
+      creatorAllowedStoreIds: allowedStoreIds,
+    },
     invitedBy,
     parsed.data,
   )

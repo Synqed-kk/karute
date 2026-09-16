@@ -1305,10 +1305,11 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // RE-MEASURED 2026-09-16 — REBASE 3 (PKT-GATE-REBASE3-M5-2026-09-16): the
 // gate rebased onto origin/main's tip after PR #935 landed (20926b3ac, `git
 // rebase --onto origin/main c8cab5df7 fix/unassigned-gate`, new tip
-// `e122dac57`, one commit). Same CI recipe — CI's own six VITE_* values, the
-// 208-char anon-key placeholder included, thin/dist emptied before each of
-// two laps, byte-identical both times (matching filenames, sizes and MD5s,
-// node v24.16.0): en 134,727 · index 1,045,932 · vendor 937,791 =
+// `e122dac57`, one commit; the M5 fold test then landed as a second commit,
+// final gate tip `93acdf77c`). Same CI recipe — CI's own six VITE_* values,
+// the 208-char anon-key placeholder included, thin/dist emptied before each
+// of two laps, byte-identical both times (matching filenames, sizes and
+// MD5s, node v24.16.0): en 134,727 · index 1,045,932 · vendor 937,791 =
 // 2,118,450 B — +1,970 B over origin/main's own #935 measurement above
 // (2,116,480 B), the gate commit's own cost, same class as every prior raise
 // on this line. Ceiling was 2,118,450 + 1,000.
@@ -1325,7 +1326,54 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // sizes and MD5s, node v24.16.0): en 134,775 · index 1,046,905 · vendor
 // 937,791 = 2,119,471 B — +1,021 B over the REBASE 3 measurement above
 // (2,118,450 B), this fold's own cost (new strings + the recheck/probe code
-// reaching the thin bundle). Ceiling was 2,119,471 + 1,000.
+// reaching the thin bundle). New gate tip `668c16fca`. Ceiling was
+// 2,119,471 + 1,000.
+//
+// RE-MEASURED 2026-09-17 — REBASE 4 + G-2b on the gate branch itself
+// (PKT-GATE-REBASE4-G2B-2026-09-17): the gate rebased onto origin/main's tip
+// after PR #945 landed (dc883ecbf), then G-2b (Greptile fold) widened
+// `activeStoreCount`'s predicate from `s.active` to `s.active !== false` — a
+// row with no `active` field at all now counts as active instead of silently
+// reading as closed (store-gate.ts). New gate tip `194d5295a`. On the gate
+// branch alone: en 135,045 · index 1,050,846 · vendor 937,791 = 2,123,682 B.
+// Ceiling was 2,123,682 + 1,000.
+//
+// RE-MEASURED 2026-09-16 for feat/store-at-creation, ONE commit rebased onto
+// the gate tip above (P2b: new staff get their assigned store at
+// registration, an invite makes the karute row first, and the day a business
+// crosses to two stores every existing staff member gets stamped with the
+// store they already work in) — superseded by the fresh re-measurement below
+// now that the gate itself moved from `972b8979d`/`e5d0ce3d8` to `93acdf77c`.
+// Same CI recipe, thin/dist emptied between two clean builds, byte-identical
+// both times (node v24.16.0): en 135,123 · index 1,048,113 · vendor 937,791
+// = 2,121,027 B — +3,185 B over the gate tip above (index +2,741 · en +444 ·
+// vendor unchanged), genuine new settings/invite-flow surface reaching the
+// thin bundle's staff-form and settings code, not bloat; the purchase-marker
+// scan stays the real gate and remains 0/13. Ceiling was 2,121,027 + 1,000.
+//
+// RE-MEASURED 2026-09-16 — REBASE 3 (PKT-GATE-REBASE3-M5-2026-09-16): rebased
+// onto the gate's final tip `93acdf77c` (`git rebase --onto 93acdf77c
+// e5d0ce3d8 feat/store-at-creation`, new tip `c6debb207`, one commit). Same
+// CI recipe, thin/dist emptied between two clean builds, byte-identical both
+// times (matching filenames, sizes and MD5s, node v24.16.0): en 135,171 ·
+// index 1,048,672 · vendor 937,791 = 2,121,634 B — +3,184 B over the gate tip
+// above (2,118,450 B; index +559 · en +48 · vendor unchanged), essentially
+// unchanged from this branch's own prior measurement (+607 B, from the gate
+// having moved underneath it, not from this branch's own diff). Ceiling was
+// 2,121,634 + 1,000.
+//
+// RE-MEASURED 2026-09-17 — rebased onto the GREPTILE FOLD G-1..3 gate tip
+// `668c16fca` (`git rebase --onto 668c16fca 93acdf77c feat/store-at-creation`,
+// new tip `062f981a0`, one commit; conflict in this file only — resolved by
+// keeping every prior prose block, same union convention as every earlier
+// ledger conflict on this branch). Same CI recipe — CI's own six VITE_*
+// values, the 208-char anon-key placeholder included, thin/dist emptied
+// before each of two laps, byte-identical both times (matching filenames,
+// sizes and MD5s, node v24.16.0): en 135,219 · index 1,049,645 · vendor
+// 937,791 = 2,122,655 B — +1,021 B over the gate tip above (2,121,634 B; the
+// same +1,021 B the G-1..3 fold cost on the gate branch itself, carried
+// through unchanged since this branch's own diff didn't move). Ceiling was
+// 2,122,655 + 1,000.
 //
 // RE-MEASURED 2026-09-17 — REBASE 4 + G-2b (PKT-GATE-REBASE4-G2B-2026-09-17):
 // the gate rebased onto origin/main's tip after PR #945 landed (dc883ecbf,
@@ -1359,7 +1407,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // store-gate.ts + store-clamp.ts, logic-only, no new string reaching the
 // thin bundle. Tip after this fold (pre-rebase): `4837a8f65`.
 //
-// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-17 — REBASE 5 (PKT-REBASE-GATE-S3-2026-09-17): the gate
 // (pre-rebase tip `4837a8f65`, the X6 fold above included) rebased onto
 // origin/main's tip after PR #950 landed (53bc4e9fb, `git rebase --onto
@@ -1379,8 +1426,41 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // entry's own figure above (2,123,682 B), the rebase carrying main's #950
 // (Business file) and #934 (capacity adapter) forward through this branch's
 // whole gate stack. Genuine rebase volume, not bloat, same class as every
-// prior raise on this line. Ceiling = 2,124,153 + 1,000.
-const BUDGET_BYTES = 2_125_153
+// prior raise on this line. Ceiling was 2,124,153 + 1,000. Pushed as the new
+// gate tip `64bd5da1b` (the REBASE 5 ledger entry above committed as its own
+// follow-up commit on the gate branch).
+//
+// RE-MEASURED 2026-09-17 — REBASE onto the (then-current) gate tip
+// `194d5295a` (REBASE 4 + G-2b, above): `git rebase --onto 194d5295a
+// 668c16fca feat/store-at-creation`, one conflict in this file only (resolved
+// by the same union convention as every earlier ledger conflict on this
+// branch — every prior prose block kept, in order, one live BUDGET_BYTES).
+// Same CI recipe — CI's own six VITE_* values, the 208-char anon-key
+// placeholder included, thin/dist emptied before each of two laps,
+// byte-identical both times (matching filenames, sizes and MD5s, node
+// v24.16.0): en 135,489 · index 1,053,584 · vendor 937,791 = 2,126,864 B —
+// +3,182 B over the gate tip alone (2,123,682 B), essentially unchanged from
+// this branch's own prior measurement (+3,18x B, same class every rebase),
+// i.e. the gate having moved underneath it, not from this branch's own diff.
+// Ceiling was 2,126,864 + 1,000.
+//
+// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-17 — REBASE onto the new gate tip `64bd5da1b` (REBASE 5
+// above, PKT-REBASE-GATE-S3-2026-09-17): `git rebase --onto 64bd5da1b
+// 4837a8f65 feat/store-at-creation`, one conflict in this file and in
+// src/actions/stores.ts only (stores.ts: the gate's `coreBusinessType` +
+// `actorIsUnassigned`/`STORE_UNASSIGNED_DENIAL` imports kept, this branch's
+// own `STAFF_STORES_OUTSIDE_CREATOR` merged into the same store-gate import —
+// no logic on either side touched). Same CI recipe — CI's own six VITE_*
+// values read straight out of .github/workflows/ci.yml, thin/dist emptied
+// before each of two laps, byte-identical both times (matching filenames,
+// sizes and MD5s, node v24.16.0): en 135,489 · index 1,054,051 · vendor
+// 937,791 = 2,127,331 B — +3,178 B over the gate tip's own REBASE 5 figure
+// above (2,124,153 B), essentially unchanged from this branch's own prior
+// measurement (+3,182 B / +3,178 B, same class every rebase — the gate
+// having moved underneath it, not from this branch's own diff). Ceiling =
+// 2,127,331 + 1,000.
+const BUDGET_BYTES = 2_128_331
 
 let dir
 try {

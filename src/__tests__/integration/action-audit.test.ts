@@ -234,18 +234,24 @@ describe('staff lifecycle writers', () => {
 
 describe('invite writers', () => {
   it('createInvite emits staff.invite_create with ids-only detail (never the email)', async () => {
+    // ⚖ Liam 2026-09-16: a FRESH invite now MAKES the staff card first (name +
+    // store), so TWO rows are honest — the card was added AND the invite was
+    // created — and the invite row now names the card it will attach to.
     const lines = await auditLines(async () => {
-      const res = await createInvite({ email: 'newhire@example.com', role: 'STYLIST' })
+      const res = await createInvite({
+        email: 'newhire@example.com',
+        role: 'STYLIST',
+        name: '新人',
+      })
       expect(res).toHaveProperty('token')
     })
-    expect(lines).toHaveLength(1)
-    expect(lines[0]).toMatchObject({
+    expect(lines.map((l) => l.action)).toEqual(['staff.add', 'staff.invite_create'])
+    expect(lines[1]).toMatchObject({
       action: 'staff.invite_create',
       business_id: 'biz-1',
-      target_id: null, // brand-new hire — no staff row yet
       detail: { invite_id: 'inv-1', role: 'STYLIST', reinvite: false },
     })
-    expect(JSON.stringify(lines[0])).not.toContain('newhire@example.com')
+    expect(JSON.stringify(lines)).not.toContain('newhire@example.com')
   })
 
   it('revokeInvite emits staff.invite_revoke carrying the invite id', async () => {

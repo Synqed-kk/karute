@@ -233,6 +233,13 @@ export const SettingsScreenDTO = z.object({
   // Least-privilege (packet 12 §B-3 S2): [] / null for a non-viewAll identity
   // — the 店舗 tab is hidden for them anyway (canViewAllStores === false).
   initialStores: z.array(StoreRowSchema),
+  /** ⚖ Liam 2026-09-16 (fold round 2) — the stores this ACTOR may place a NEW
+   *  staff card in. Distinct from initialStores, which stays [] for a
+   *  branch-restricted identity by the ⚖ 8/17 isolation law: the 店舗 tab shows
+   *  them nothing, but the 担当店舗 picker must name the stores they genuinely
+   *  may use, or the server's "choose a store" refusal arrives with no control
+   *  to satisfy it. Defaulted so an older shell's DTO still parses. */
+  assignableStores: z.array(StoreRowSchema).default([]),
   initialEntitlement: EntitlementSchema.nullable(),
   // Server-truth feature flags (design-parity packet 12 §S4a): thin's
   // process.env is {} (thin/vite.config.ts:125), so a component reading

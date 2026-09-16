@@ -2324,8 +2324,11 @@
         "saved": "Saved"
       },
       "assignLabel": "Store / location",
-      "assignMultiHint": "Select any number. If none are selected, the staff appears in every store.",
-      "unassigned": "Unassigned"
+      "assignMultiHint": "Select any number. Leaving this empty means the staff member has no store assigned and sees nothing.",
+      "unassigned": "Unassigned",
+      "assignCreateLabel": "Store",
+      "assignCreateHint": "Choose the store this person works in. You can pick more than one.",
+      "assignRequiredError": "Please choose a store."
     },
     "coaching": {
       "title": "Coaching settings",
@@ -3521,8 +3524,13 @@
     "linkedBadge": "Connected",
     "revoke": "Revoke",
     "inviteExistingLabel": "Invite an existing team member (optional)",
-    "inviteExistingNone": "New hire (email only)",
-    "staffLimitReached": "Your plan's staff limit is reached, so new staff can't be invited. Re-inviting existing staff still works"
+    "inviteExistingNone": "New staff member (enter a name and store)",
+    "staffLimitReached": "Your plan's staff limit is reached, so new staff can't be invited. Re-inviting existing staff still works",
+    "inviteNameLabel": "Staff member's name",
+    "inviteNameRequired": "Please enter a name.",
+    "inviteStoreLabel": "Store",
+    "inviteStoreHint": "Choose the store this person works in. You can pick more than one.",
+    "inviteStoreRequired": "Please choose a store."
   },
   "permissions": {
     "roleLabel": "Role & permissions",

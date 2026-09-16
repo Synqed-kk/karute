@@ -81,10 +81,19 @@ const staffList = jest.fn(async () => ({ staff: [] as { id: string; user_id?: st
 // against.
 let storeAssignments: Record<string, string[]> = {}
 const staffStoresGet = jest.fn(async (id: string) => ({ store_ids: storeAssignments[id] ?? [] }))
+// ⚖ Liam 2026-09-16: a FRESH invite MAKES the staff card before the invite
+// exists (name + store), so this door reaches the staff/stores write ports too.
+// ONE store here, so the carve-out holds and the existing pins — which are about
+// invited_by, the audit row and the re-invite clamp — keep their shape.
+const staffCreate = jest.fn(async () => ({ id: 'card-new' }))
+const staffDelete = jest.fn(async () => ({}))
+const storesList = jest.fn(async () => ({ stores: [{ id: 'store-a', is_primary: true }] }))
+const staffStoresSet = jest.fn(async () => ({}))
 const fakeClient = {
   invites: { create: invitesCreate, list: invitesList, updateStatus: invitesUpdateStatus },
-  staff: { list: staffList },
-  staffStores: { get: staffStoresGet },
+  staff: { list: staffList, create: staffCreate, delete: staffDelete },
+  staffStores: { get: staffStoresGet, set: staffStoresSet },
+  stores: { list: storesList },
 }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
@@ -109,7 +118,9 @@ const auth = { authorization: `Bearer ${bearer()}` }
 const noParams = { params: Promise.resolve({}) }
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
 
-const VALID_INVITE = { email: 'newhire@example.com', role: 'STYLIST' }
+// A fresh invite now carries the person's NAME — the card is named by a human,
+// never by an email address.
+const VALID_INVITE = { email: 'newhire@example.com', role: 'STYLIST', name: '新人' }
 
 const getReq = () => new Request('https://s/api/app/v1/invites', { headers: auth })
 const postReq = (body: unknown, headers: Record<string, string> = {}) =>
@@ -209,7 +220,7 @@ describe('POST /api/app/v1/invites (create)', () => {
     expect(invitesCreate).not.toHaveBeenCalled()
   })
 
-  it('happy path → 201 { token }, exactly one staff.invite_create row, ids-only detail (never the email)', async () => {
+  it('happy path → 201 { token }, the card row + the invite row, ids-only detail (never the email)', async () => {
     let res!: Response
     const lines = await auditLines(async () => {
       res = await POST(postReq(VALID_INVITE), noParams)
@@ -218,16 +229,19 @@ describe('POST /api/app/v1/invites (create)', () => {
     const body = await res.json()
     expect(body).toHaveProperty('token')
     expect(newSynqedClient).toHaveBeenCalledWith('business-1')
-    expect(lines).toHaveLength(1)
-    expect(lines[0]).toMatchObject({
+    // ⚖ Liam 2026-09-16: a fresh invite MAKES the card, so two rows are the
+    // honest record — the staff member was added, and an invite was created
+    // for them. The invite row now names the card instead of carrying null.
+    expect(lines.map((l) => l.action)).toEqual(['staff.add', 'staff.invite_create'])
+    expect(lines[1]).toMatchObject({
       action: 'staff.invite_create',
       actor_id: 'auth-user-1',
       business_id: 'business-1',
-      target_id: null, // brand-new hire — no staff row yet
+      target_id: 'card-new',
       detail: { invite_id: 'inv-new', role: 'STYLIST', reinvite: false },
       source: 'facade',
     })
-    expect(JSON.stringify(lines[0])).not.toContain('newhire@example.com')
+    expect(JSON.stringify(lines)).not.toContain('newhire@example.com')
   })
 
   it('invitedBy (the SDK create call\'s invited_by field) is the roster-resolved self id, never caller-supplied', async () => {
@@ -375,15 +389,19 @@ describe("re-invites are clamped to the caller's stores", () => {
     expect(invitesCreate).not.toHaveBeenCalled()
   })
 
-  it('a FRESH invite (no staffId) is never clamped, even for a clamped caller', async () => {
+  it('a FRESH invite reads the CALLER\'s stores, never a target\'s', async () => {
+    // ⚖ Liam 2026-09-16: there is no target to clamp on a fresh invite — the
+    // card does not exist yet, this door makes it. What IS read is the
+    // CREATOR's own assignment, because the new card may only be placed inside
+    // it. The re-invite clamp (a TARGET's assignment) still never runs.
     storeAssignments = { [CALLER]: ['store-a'] }
     const res = await POST(postReq(VALID_INVITE), noParams)
     expect(res.status).toBe(201)
-    // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
-    // identity seam (the front gate reads the unassigned verdict itself, for
-    // every non-viewAll request). What this pins is that the DOOR asks for
-    // nothing beyond it — no target's row, no second read.
-    expect(staffStoresGet.mock.calls.length).toBeLessThanOrEqual(1)
+// Every assignment read on this door is the CALLER's own: the front gate's
+    // at the identity seam, and the creator-subset check's for the card it is
+    // about to place. The re-invite clamp (a TARGET's row) never runs.
+    expect(staffStoresGet).toHaveBeenCalledWith(CALLER)
+    expect(staffStoresGet.mock.calls.every(([id]) => id === CALLER)).toBe(true)
     expect(invitesCreate).toHaveBeenCalled()
   })
 })

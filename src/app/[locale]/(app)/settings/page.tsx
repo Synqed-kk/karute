@@ -129,6 +129,13 @@ export default async function SettingsPage({
   // rather than every branch's name behind a doomed edit control (Greptile
   // P1 on #707).
   const menuStores = menuStoresForScope(storeScope, canViewAllStores, stores)
+  // ⚖ Liam 2026-09-16 (fold round 2) — the SAME rule, for a different control:
+  // which stores this actor may place a NEW staff card in. menuStoresForScope
+  // already answers exactly that question (own assignment · every store for
+  // viewAll or a floating actor · [] when the scope is degraded, matching the
+  // server clamp), so it is reused rather than reinvented. A degraded actor
+  // gets no picker AND a server refusal — both fail closed, and the outage
+  // clears itself.
 
   // Deep-link support (?tab=audit&target=<customerId> from the privacy tab's
   // アクセス履歴 row). Unknown tab values — and audit links followed by staff
@@ -164,6 +171,7 @@ export default async function SettingsPage({
         auditTargetId={auditTargetId}
         initialStores={canViewAllStores ? stores : []}
         menuStores={menuStores}
+        assignableStores={menuStores}
         initialActiveStoreId={initialActiveStoreId}
         initialMenus={canManageMenus ? initialMenus : []}
         initialEntitlement={entitlement}

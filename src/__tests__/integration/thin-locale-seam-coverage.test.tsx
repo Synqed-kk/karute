@@ -211,6 +211,7 @@ describe('SettingsScreenInner — locale prop carries the runtime locale into Se
     auditTargetId: null,
     initialActiveStoreId: null,
     initialStores: [],
+    assignableStores: [],
     initialEntitlement: null,
     featureStaffInvites: false,
     featureMultiStore: false,

@@ -8,7 +8,9 @@ import { getTranslations } from 'next-intl/server'
 import { getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
 import { can, requireCapability } from '@/lib/auth/require-permission'
-import { staffWriteInScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
+import { STAFF_STORE_REQUIRED, STAFF_STORES_OUTSIDE_CREATOR } from '@/lib/auth/store-gate'
+import { createAndPlaceStaffCard } from '@/lib/staff/new-card'
 import { resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { audit } from '@/lib/audit'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
@@ -19,7 +21,9 @@ import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/st
 // facade (Bearer path, business resolved from the verified token) and the
 // web actions run the IDENTICAL write logic. Web keeps its own cookie
 // resolution; the core takes an explicit (synqed, businessId, actor).
-type StaffClient = Pick<SynqedClient, 'staff'>
+type StaffClient = Pick<SynqedClient, 'staff'> &
+  // ⚖ Liam 2026-09-16: creation now PLACES the new card, in the same action.
+  Partial<Pick<SynqedClient, 'staffStores' | 'stores'>>
 
 /** Identity + provenance a Bearer/cookie caller feeds a staff write core: the
  *  resolved actor (audit actor id) and which path is calling (the audit
@@ -30,6 +34,12 @@ type StaffWriteDeps = {
   /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
    *  the facade twin. */
   requestId?: string
+  /** ⚖ Liam 2026-09-16 — the CREATOR's own allowed stores, resolved by each
+   *  transport from its own identity (web: resolveStoreScope, facade:
+   *  resolveStoreForRequest). `null` = unclamped. The new card's stores must
+   *  be a subset of it; the rule itself lives in
+   *  setStaffStoresAtCreationCore, one home for both transports. */
+  creatorAllowedStoreIds?: readonly string[] | null
 }
 
 /** House result shape for the staff mutations: undefined = success, else a
@@ -111,11 +121,23 @@ export async function createStaffCore(
     const email = data.email || null
     const userId = email ? await findProfileIdByEmail(email, businessId) : null
 
-    const created = await synqed.staff.create({
+    // ⚖ Liam 2026-09-16 — STORE AT CREATION, in its one home
+    // (lib/staff/new-card.ts), shared with the fresh-invite door so both mint
+    // a card the same way: the multi-store store requirement, the
+    // creator-subset placement, and the delete-the-card-if-placement-fails
+    // rollback. The audit row stays HERE, at the door that knows what it made.
+    const created = await createAndPlaceStaffCard(synqed, businessId, deps, {
       name: data.name,
       email,
-      user_id: userId,
+      userId,
+      storeIds: data.storeIds ?? [],
     })
+    // An object LITERAL, not `return created`: the emission walker reads
+    // returns lexically, and a discriminated-union VARIABLE is the documented
+    // ceiling it cannot see through (audit-policy.ts's own note on
+    // updateCustomer). Spelling the error arm out keeps staff.add provably
+    // dominating every success return.
+    if ('error' in created) return { error: created.error }
 
     audit({
       category: 'staff',
@@ -159,13 +181,36 @@ export async function createStaff(data: StaffProfileInput): Promise<StaffActionR
   }
 
   const { actorId, businessId } = await resolveWebAuditContext()
+  // ⚖ Liam 2026-09-16: the creator may place the new hire WITHIN their own
+  // stores. `allowedStoreIds: null` = unclamped (viewAll, or a floating creator
+  // in a one-store salon).
+  // ⚖ Liam 2026-09-16 (fold round 2, F7): `degraded ? [] : allowedStoreIds`.
+  // `allowedStoreIds` is null when the staff_stores lookup FAILED, and null
+  // means UNCLAMPED here — so during a core blip a 銀座-only creator would
+  // silently become able to place a new hire in 代官山. `[]` refuses every
+  // store instead. This is the file's own sibling convention (staffWriteInScope
+  // returns false on degraded) and what the facade twin already does by
+  // throwing. A WRITE fails closed on an unknown; only the read plane doesn't.
+  const scope = await resolveStoreScope()
+  const allowedStoreIds = scope.degraded ? [] : scope.allowedStoreIds
   const result = await createStaffCore(
     synqed,
     businessId,
-    { actorId, source: 'web', requestId: crypto.randomUUID() },
+    {
+      actorId,
+      source: 'web',
+      requestId: crypto.randomUUID(),
+      creatorAllowedStoreIds: allowedStoreIds,
+    },
     parsed.data,
   )
   if ('error' in result) {
+    // The two store-at-creation refusals are MACHINE CODES the dialog maps to
+    // its own copy — they are the user's answer, not an internal failure, and
+    // must not be swallowed into the generic fallback below.
+    if (result.error === STAFF_STORE_REQUIRED || result.error === STAFF_STORES_OUTSIDE_CREATOR) {
+      return { error: result.error }
+    }
     // Never let a thrown message reach the client raw (prod strips it). Log for
     // observability; return the generic translated fallback.
     console.error('[createStaff]', result.error)

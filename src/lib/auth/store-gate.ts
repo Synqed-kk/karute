@@ -211,3 +211,26 @@ export const actorIsUnassigned = cache(
     }
   },
 )
+
+/**
+ * The refusal when a creator tries to place a new hire in a store they do not
+ * work in themselves (setStaffStoresAtCreationCore). A machine code, not a
+ * sentence: both transports return it and each door maps it to its own copy,
+ * the same convention invites.ts uses for STORE_SCOPE_DENIED.
+ */
+export const STAFF_STORES_OUTSIDE_CREATOR = 'STORE_SCOPE_DENIED'
+
+/**
+ * The refusal when a new staff card is submitted with NO store in a business
+ * that has more than one (⚖ Liam 2026-09-16: every new staff gets a store at
+ * creation). Machine code, mapped to copy at each door.
+ */
+export const STAFF_STORE_REQUIRED = 'STORE_REQUIRED_AT_CREATION'
+
+/**
+ * The refusal when a FRESH invite arrives with no name (⚖ Liam 2026-09-16). A
+ * fresh invite now mints the staff card, and a card must be named by a person,
+ * never by their email address — so the invite is refused rather than guessed
+ * at. Machine code, mapped to copy at each door.
+ */
+export const INVITE_NAME_REQUIRED = 'INVITE_NAME_REQUIRED'

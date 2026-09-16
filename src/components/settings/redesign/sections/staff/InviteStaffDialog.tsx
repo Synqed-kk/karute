@@ -24,9 +24,19 @@ interface InviteStaffDialogProps {
   /** Existing staff rows the owner can invite to log in. Choosing one carries its
    *  id so acceptInvite LINKS that record instead of minting a duplicate. */
   staff?: { id: string; full_name: string | null; email?: string | null }[]
+  /** ⚖ Liam 2026-09-16 — a FRESH invite now MAKES the staff card, so this
+   *  dialog asks for the two things a card cannot exist without: a name and,
+   *  where there is a choice, a 担当店舗. Both threaded from the settings
+   *  surface, never fetched here. */
+  stores?: { id: string; name: string; isPrimary?: boolean }[]
+  activeStoreId?: string | null
 }
 
-export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
+export function InviteStaffDialog({
+  staff = [],
+  stores = [],
+  activeStoreId,
+}: InviteStaffDialogProps) {
   const t = useTranslations('invite')
   // Only for the re-invite store-scope refusal — the same copy the staff
   // editor shows for the same clamp. This dialog renders inside the settings
@@ -35,6 +45,8 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
   const locale = useLocale()
   const [open, setOpen] = useState(false)
   const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [storeIds, setStoreIds] = useState<string[]>([])
   const [staffId, setStaffId] = useState('')
   const [role, setRole] = useState<InviteRole>('STYLIST')
   const [link, setLink] = useState<string | null>(null)
@@ -42,6 +54,12 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [pending, setPending] = useState<InviteRow[]>([])
+
+  // ⚖ Liam 2026-09-16 — a FRESH invite mints the card, so it needs a NAME
+  // always, and a 担当店舗 wherever there is a choice. Picking an EXISTING staff
+  // member skips both: that card already has its own name and stores.
+  const fresh = !staffId
+  const mustPickStore = fresh && stores.length >= 2
 
   async function refresh() {
     setPending(await listInvites())
@@ -53,6 +71,9 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
       setLink(null)
       setError(null)
       setEmail('')
+      setName('')
+      // The creator's active store is the default pick, same as the 追加 form.
+      setStoreIds(activeStoreId ? [activeStoreId] : [])
       setStaffId('')
       void refresh()
     }
@@ -71,18 +92,25 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
     setLoading(true)
     setError(null)
     setLink(null)
-    const res = await createInvite({ email, role, staffId: staffId || undefined })
+    const res = await createInvite(
+      staffId
+        ? { email, role, staffId }
+        : { email, role, name: name.trim(), storeIds },
+    )
     setLoading(false)
     if ('error' in res) {
-      // Machine codes from the plan gate / the re-invite store clamp → honest
-      // copy (STORE_LIMIT precedent).
+      // Machine codes from the plan gate / the store rules → honest copy
+      // (STORE_LIMIT precedent).
       if (res.error === 'STAFF_LIMIT_REACHED') setError(t('staffLimitReached'))
       else if (res.error === 'STORE_SCOPE_DENIED') setError(tSettings('staffStoreScopeDenied'))
+      else if (res.error === 'INVITE_NAME_REQUIRED') setError(t('inviteNameRequired'))
+      else if (res.error === 'STORE_REQUIRED_AT_CREATION') setError(t('inviteStoreRequired'))
       else setError(res.error)
       return
     }
     setLink(`${publicSiteOrigin()}/${locale}/join?token=${res.token}`)
     setEmail('')
+    setName('')
     void refresh()
   }
 
@@ -142,6 +170,54 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+          {fresh && (
+            <div>
+              <label htmlFor="invite-name" className="block text-xs font-medium mb-1">
+                {t('inviteNameLabel')}
+                <span className="ml-1 text-destructive">*</span>
+              </label>
+              <input
+                id="invite-name"
+                type="text"
+                required
+                maxLength={100}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className={inputCls}
+              />
+            </div>
+          )}
+          {mustPickStore && (
+            <div>
+              <label className="block text-xs font-medium mb-1">
+                {t('inviteStoreLabel')}
+                <span className="ml-1 text-destructive">*</span>
+              </label>
+              <p className="mb-1.5 text-xs text-muted-foreground">{t('inviteStoreHint')}</p>
+              <div className="flex flex-col gap-1.5">
+                {stores.map((s) => (
+                  <label
+                    key={s.id}
+                    className="flex cursor-pointer items-center gap-2.5 rounded-md border border-border px-3 py-2 text-sm transition-colors hover:bg-muted"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={storeIds.includes(s.id)}
+                      onChange={(e) =>
+                        setStoreIds((prev) =>
+                          e.target.checked
+                            ? [...new Set([...prev, s.id])]
+                            : prev.filter((x) => x !== s.id),
+                        )
+                      }
+                      className="size-4 accent-blue-600"
+                    />
+                    <span>{s.name}</span>
+                  </label>
+                ))}
+              </div>
             </div>
           )}
           <div>
