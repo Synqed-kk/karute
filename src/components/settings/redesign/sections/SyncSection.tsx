@@ -77,6 +77,17 @@ export function SyncSection() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password, enabled }),
       })
+      // The save guard's 409 (PKT-P0) carries a stable code, not a message
+      // meant for display — show OUR localized copy so it follows the
+      // language toggle, in the same error slot as any other failure.
+      if (res.status === 409) {
+        const body: { error?: string } = await res.json().catch(() => ({}))
+        if (body.error === 'qr_store_not_ready') {
+          setLastResult(`Error (409): ${t('bookingSyncStoreNotReady')}`)
+          setSyncing(false)
+          return
+        }
+      }
       const parsed = await readSyncResponse(res)
       setLastResult(parsed.ok ? 'Config saved' : parsed.message)
     } catch {
