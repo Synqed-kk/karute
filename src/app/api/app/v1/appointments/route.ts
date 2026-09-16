@@ -73,6 +73,18 @@ export const POST = facadeHandler('appointment.create', async (ctx) => {
   // resolver below would mint a synqed staff record for ANY profile id
   // (customer ids included) sent with bookings.manage.
   const roster = await staffListByBusinessOrThrow(businessId)
+  // ⚖ FRESH-EYES-P1 N1 — and the CALLER must be on that roster too. Core answers
+  // `{ store_ids: [] }` for an auth id it holds no staff row for, byte-identical
+  // to genuinely floating staff, so the clamp above reads a caller the roster
+  // cannot place as FLOATING and lets them book into whatever store their
+  // `store-id` header names. That is resolveWriteStoreScope's fail-closed
+  // placement rule (store-clamp.ts) and karute/manual's own
+  // `no staff identity` refusal, spelled against the roster THIS door already
+  // holds — no second read, and the store-id pin this create door needs is
+  // preserved (resolveWriteStoreScope drops it by design).
+  if (!roster.some((s) => s.id === ctx.identity.authUserId)) {
+    throw new AppApiError('store_forbidden', 'could not resolve store assignment (fail-closed)')
+  }
   if (!roster.some((s) => s.id === parsed.data.staffProfileId)) {
     throw new AppApiError(
       'validation',
