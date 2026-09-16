@@ -1131,7 +1131,29 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // branch) · vendor 937,791 → 937,791 (unchanged — no new dependency).
 // Genuine new-feature volume (an honesty fix, not a feature addition, but
 // real code all the same) — same class as every prior raise on this line.
-const BUDGET_BYTES = 2_117_480
+//
+// RE-MEASURED 2026-09-16 after rebasing feat/cross-branch-search onto
+// origin/main (0ba652bf6, past #932's month-card merge) — S2. Same CI
+// recipe, thin/dist emptied between two clean builds, byte-identical both
+// times (matching content hashes, node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock): en 134,687 · index 1,047,137 · vendor 937,791 =
+// 2,119,615 B. Ceiling = 2,119,615 + 1,000.
+//
+// Per-chunk delta against main's #932 figure (en 134,452 · index 1,043,010 ·
+// vendor 937,791 = 2,115,253): en 134,452 → 134,687 (+235 B) · index
+// 1,043,010 → 1,047,137 (+4,127 B, this branch's own two Greptile-fold
+// entries above) · vendor 937,791 → 937,791 (unchanged). Total +4,362 B,
+// matching the sum of this branch's two prior entries on top of main's
+// figure — a plain rebase, no new code beyond what those entries already
+// describe.
+//
+// NOTE (S2 rebase, this session): the block above was measured against
+// 0ba652bf6, one rebase behind main's current tip (20926b3ac, #935). It is
+// kept as history only; the section below carries this branch forward
+// through the two folds that followed it, and the REBASE 2 entry appended
+// at the end of this file's ledger by this session's own re-measurement
+// (§C) is the only figure that describes the code as it stands now.
+const BUDGET_BYTES = 2_120_615
 
 let dir
 try {
