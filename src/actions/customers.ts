@@ -10,7 +10,11 @@ import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { parsePhotoUploadFields } from '@/lib/karute/photo-upload-fields'
 import type { CustomerOption, CustomerSearchOption } from '@/components/karute/CustomerCombobox'
-import { CUSTOMER_SEARCH_LIMIT, matchKaruteNumber } from '@/lib/customers/karute-number-match'
+import {
+  CUSTOMER_SEARCH_LIMIT,
+  matchKaruteNumber,
+  foldKaruteNumberQuery,
+} from '@/lib/customers/karute-number-match'
 
 // ---------------------------------------------------------------------------
 // Backend error → user-facing message
@@ -788,14 +792,23 @@ export async function searchCustomersCompanyWide(
     const enforceStore = scope.allowedStoreIds != null
     const lens = customerLensFor(scope)
 
+    // Eligibility FIRST (Greptile fold): the business-wide cache scan is only
+    // useful for a karute-number term, so an ordinary name search never pays
+    // for loading it.
+    const karuteQuery = foldKaruteNumberQuery(q)
+
     // "other_store" = not in the CALLER's own store-lensed preloaded list —
     // the same cached list their combobox was already seeded with (no core
     // membership call). Unclamped viewers are already preloaded business-wide,
     // so nothing this search returns can ever be "other store" for them.
+    //
+    // Each cache read is settled on its OWN — a failure here degrades that
+    // one signal (no other_store label / no karute-number merge) instead of
+    // sinking searchRes, the direct result the whole request is for.
     const [searchRes, ownList, businessWide] = await Promise.all([
       synqed.customers.list({ search: q, page_size: CUSTOMER_SEARCH_LIMIT }),
-      enforceStore && lens !== null ? getCachedCustomerList(lens) : Promise.resolve(null),
-      getCachedCustomerList(),
+      enforceStore && lens !== null ? getCachedCustomerList(lens).catch(() => null) : Promise.resolve(null),
+      karuteQuery ? getCachedCustomerList().catch(() => null) : Promise.resolve(null),
     ])
     const ownIds = ownList ? new Set(ownList.map((c) => c.id)) : null
 
@@ -807,7 +820,7 @@ export async function searchCustomersCompanyWide(
     }))
     // Karute number ahead of the name/phone matches — a hit already present
     // (digits also matched a phone number) is just reordered, never duplicated.
-    const karuteHits = matchKaruteNumber(q, businessWide)
+    const karuteHits = businessWide ? matchKaruteNumber(q, businessWide) : []
     const hitIds = new Set(karuteHits.map((h) => h.id))
     const merged: CustomerOption[] = [
       ...karuteHits.map((h) => ({ id: h.id, name: h.name, furigana: h.furigana, phone: h.phone })),

@@ -20,10 +20,17 @@ export type CustomerSearchOption = CustomerOption & { other_store: boolean }
 /**
  * Shared debounced remote-search tier (P3): local filtering over the
  * preloaded store-lensed `customers` prop always runs first and instantly;
- * this ADDS a company-wide lookup once the query is long/specific enough to
- * be worth a round trip. Used by CustomerCombobox itself and by
+ * this ADDS a company-wide lookup for any non-empty term (⚖ Liam: find by
+ * name applies to a one-character name too — no length floor here, only the
+ * debounce). Used by CustomerCombobox itself and by
  * RecordCustomerPickerDialog, which renders its own list but wants the exact
  * same remote tier — ONE place decides when to fire and how to debounce.
+ *
+ * Greptile fold: a result set is only ever valid for the query that produced
+ * it. `setResults([])` runs SYNCHRONOUSLY at the top of every effect run (not
+ * only on the ineligible branch) so a query change clears the previous
+ * query's rows immediately — they never sit selectable while the new
+ * debounce/request is still in flight.
  */
 export function useRemoteCustomerSearch(
   query: string,
@@ -31,18 +38,20 @@ export function useRemoteCustomerSearch(
 ): CustomerSearchOption[] {
   const [results, setResults] = useState<CustomerSearchOption[]>([])
   useEffect(() => {
+    setResults([])
     const trimmed = query.trim()
-    const digits = foldSearchDigits(trimmed)
-    const eligible = !!search && (trimmed.length >= 2 || (digits.length > 0 && /^\d+$/.test(digits)))
-    if (!eligible) {
-      setResults([])
-      return
-    }
+    if (!search || !trimmed) return
     let cancelled = false
     const timer = setTimeout(() => {
-      search!(trimmed).then((res) => {
-        if (!cancelled) setResults('options' in res ? res.options : [])
-      })
+      search(trimmed)
+        .then((res) => {
+          if (!cancelled) setResults('options' in res ? res.options : [])
+        })
+        .catch(() => {
+          // A notWired/network failure degrades to "no remote results" —
+          // never an unhandled rejection or a crash of the local-only search.
+          if (!cancelled) setResults([])
+        })
     }, 250)
     return () => {
       cancelled = true
@@ -155,10 +164,16 @@ export function CustomerCombobox({
   const trimmedQuery = query.trim()
   const filtered = filterCustomers(customers, trimmedQuery)
   // Remote tier (P3): local rows always win a dupe — a remote hit already
-  // offered locally is dropped, never shown twice.
+  // offered locally is dropped, never shown twice. The server's own
+  // other_store flag (Greptile fold), not "is it remote", decides the
+  // section: a hit found ONLY via the karute-number merge but still the
+  // viewer's own store is a normal row, no chip — only a genuine other-store
+  // hit gets the 他店舗 section + chip.
   const localIds = new Set(filtered.map((c) => c.id))
-  const remote = useRemoteCustomerSearch(trimmedQuery, onRemoteSearch)
-  const remoteRows = remote.filter((r) => !localIds.has(r.id))
+  const remote = useRemoteCustomerSearch(trimmedQuery, onRemoteSearch).filter((r) => !localIds.has(r.id))
+  const remoteOwnStore = remote.filter((r) => !r.other_store)
+  const remoteOtherStore = remote.filter((r) => r.other_store)
+  const normalRows: CustomerOption[] = [...filtered, ...remoteOwnStore]
 
   function handleSelect(customer: CustomerOption) {
     onSelect(customer.id)
@@ -215,12 +230,12 @@ export function CustomerCombobox({
            *  adapts to the room actually left instead of clipping at a
            *  fixed 240px inside the keyboard-shrunk dialog. */}
           <ul className="max-h-[min(15rem,35dvh)] overflow-y-auto py-1">
-            {filtered.length === 0 && remoteRows.length === 0 ? (
+            {normalRows.length === 0 && remoteOtherStore.length === 0 ? (
               <li className="px-3 py-2 text-sm text-muted-foreground">
                 {t('table.noResults')}
               </li>
             ) : (
-              filtered.map((customer) => (
+              normalRows.map((customer) => (
                 <li
                   key={customer.id}
                   role="option"
@@ -242,15 +257,16 @@ export function CustomerCombobox({
                 </li>
               ))
             )}
-            {/* Remote tier (P3, ⚖ Liam 2026-09-16): company-wide rows the local
-             *  preloaded list doesn't have, appended below with a 他店舗 chip —
-             *  honest labelling, never mixed into the local rows above. */}
-            {remoteRows.length > 0 && (
+            {/* Remote tier (P3, ⚖ Liam 2026-09-16): a GENUINE other-store hit,
+             *  per the server's own other_store flag — never every remote row
+             *  (Greptile fold: an own-store karute-number hit is a normal row
+             *  above, no chip). */}
+            {remoteOtherStore.length > 0 && (
               <>
                 <li className="px-3 py-1 text-[11px] font-semibold text-muted-foreground" aria-hidden>
                   {t('otherStoreSection')}
                 </li>
-                {remoteRows.map((customer) => (
+                {remoteOtherStore.map((customer) => (
                   <li
                     key={customer.id}
                     role="option"

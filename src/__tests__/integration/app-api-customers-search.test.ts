@@ -125,4 +125,29 @@ describe('GET /api/app/v1/customers/search', () => {
     const body = (await res.json()) as { options: { id: string; other_store: boolean }[] }
     expect(body.options).toEqual([expect.objectContaining({ id: 'cust-2', other_store: false })])
   })
+
+  it('Greptile fold: a non-digit term never loads the business-wide cache (eligibility checked first)', async () => {
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: null }
+    customersList.mockResolvedValueOnce({
+      customers: [{ id: 'cust-2', name: '田中花子', furigana: null, phone: null, karute_number: null }],
+      total: 1,
+    })
+    await GET(req('田中'), route)
+    // viewAll -> no own-store lens call; '田中' isn't karute-eligible -> no
+    // business-wide call either. getCachedCustomerListFor never runs at all.
+    expect(getCachedCustomerListFor).not.toHaveBeenCalled()
+  })
+
+  it('Greptile fold: a cache failure degrades that signal but never sinks the direct search result', async () => {
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
+    customersList.mockResolvedValueOnce({
+      customers: [{ id: 'cust-1', name: '田中太郎', furigana: null, phone: null, karute_number: null }],
+      total: 1,
+    })
+    getCachedCustomerListFor.mockRejectedValue(new Error('cache down'))
+    const res = await GET(req('0042'), route)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { options: { id: string; other_store: boolean }[] }
+    expect(body.options).toEqual([expect.objectContaining({ id: 'cust-1', other_store: false })])
+  })
 })

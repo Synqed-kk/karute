@@ -1093,6 +1093,25 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // @synqed-kk/ui 0.3.2 installed == lock):
 //   en 134,544 · index 1,044,145 · vendor 937,791 = 2,116,480 B.
 // Ceiling = 2,116,480 + 1,000.
+//
+// Raised 2026-09-16 (Greptile fold, feat/cross-branch-search, P3 cross-branch
+// customer search) — the booking/record pickers' new company-wide search tier
+// (CustomerCombobox's useRemoteCustomerSearch hook + 他店舗 chip/section
+// rendering, RecordCustomerPickerDialog's matching remote-row split, the
+// searchCustomersCompanyWide notWired port entry) plus two new ja/en string
+// pairs (otherStoreChip, otherStoreSection). Same CI recipe, thin/dist
+// emptied between two clean builds, byte-identical both times (node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock): en 134,437 · index
+// 1,041,362 · vendor 937,791 = 2,113,590 B. Ceiling = 2,113,590 + 1,000.
+//
+// Where the +2,430 B went, measured per chunk against the prior entry's own
+// figure: en 134,223 → 134,437 (+214 B, the two new i18n keys) · index
+// 1,039,146 → 1,041,362 (+2,216 B, the remote-search tier's real runtime
+// code: the debounced hook, the own-store/other-store split and its two
+// render paths, the chip markup) · vendor 937,791 → 937,791 (unchanged — no
+// new dependency). Genuine new-feature volume, not bloat — already trimmed
+// once (a duplicated SearchRow render path merged into one .map() call)
+// before raising this; same class as every prior raise on this line.
 const BUDGET_BYTES = 2_117_480
 
 let dir

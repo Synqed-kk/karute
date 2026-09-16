@@ -203,10 +203,14 @@ export function RecordCustomerPickerDialog({
   )
   const hiddenMatches = matches.length - results.length
   const searching = trimmed.length > 0
-  // Remote tier (P3): local matches always win a dupe.
+  // Remote tier (P3): local matches always win a dupe. The server's own
+  // other_store flag (Greptile fold), not "is it remote", decides the
+  // section — an own-store karute-number hit renders as a normal row (no
+  // chip); only a genuine other-store hit gets the 他店舗 section + chip.
   const localIds = useMemo(() => new Set(matches.map((c) => c.id)), [matches])
-  const remote = useRemoteCustomerSearch(trimmed, onRemoteSearch)
-  const remoteRows = remote.filter((r) => !localIds.has(r.id))
+  const remote = useRemoteCustomerSearch(trimmed, onRemoteSearch).filter((r) => !localIds.has(r.id))
+  const remoteOwnStore = remote.filter((r) => !r.other_store)
+  const remoteOtherStore = remote.filter((r) => r.other_store)
 
   return (
     <>
@@ -305,14 +309,20 @@ export function RecordCustomerPickerDialog({
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {t('target.searchResultsCount', { n: matches.length })}
               </p>
-              {results.length === 0 && remoteRows.length === 0 ? (
+              {results.length === 0 && remoteOwnStore.length === 0 && remoteOtherStore.length === 0 ? (
                 <p className="py-4 text-center text-[13px] text-muted-foreground">
                   {tCustomers('table.noResults')}
                 </p>
               ) : (
                 <>
+                  {/* remoteOwnStore appended (Greptile fold, ⚖ Liam
+                      2026-09-16): an own-store karute-number hit is a normal
+                      row here too — other_store alone decides the chip/
+                      section, not "is it remote". factById/todayByCustomer
+                      simply miss a remote id, same as passing undefined/null
+                      explicitly. */}
                   <ul role="listbox" aria-label={t('target.searchResultsLabel')} className="flex flex-col gap-2">
-                    {results.map((c) => (
+                    {[...results, ...remoteOwnStore].map((c) => (
                       <SearchRow
                         key={c.id}
                         customer={c}
@@ -330,16 +340,16 @@ export function RecordCustomerPickerDialog({
                       {t('target.searchMore', { n: hiddenMatches })}
                     </p>
                   )}
-                  {/* Remote tier (P3, ⚖ Liam 2026-09-16): company-wide rows the
-                      local preloaded list doesn't have. No day/fact data for
-                      these (no cross-store read) — name + honest 他店舗 chip. */}
-                  {remoteRows.length > 0 && (
+                  {/* Remote tier (P3, ⚖ Liam 2026-09-16): a GENUINE
+                      other-store hit. No day/fact data for these (no
+                      cross-store read) — name + honest 他店舗 chip. */}
+                  {remoteOtherStore.length > 0 && (
                     <>
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                         {tCustomers('otherStoreSection')}
                       </p>
                       <ul role="listbox" aria-label={tCustomers('otherStoreSection')} className="flex flex-col gap-2">
-                        {remoteRows.map((c) => (
+                        {remoteOtherStore.map((c) => (
                           <SearchRow
                             key={c.id}
                             customer={c}

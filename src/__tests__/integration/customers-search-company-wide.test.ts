@@ -119,8 +119,44 @@ describe('searchCustomersCompanyWide', () => {
     getCachedCustomerList.mockResolvedValue([])
     const result = await searchCustomersCompanyWide('田中')
     expect(result).toEqual({ options: [expect.objectContaining({ id: 'cust-any', other_store: false })] })
-    // customerLensFor(unclamped) === undefined → the own-list fetch never runs.
+    // Greptile fold: '田中' isn't karute-number-eligible AND the viewer is
+    // unclamped — neither cache read is needed, so getCachedCustomerList
+    // never runs at all.
+    expect(getCachedCustomerList).not.toHaveBeenCalled()
+  })
+
+  it('Greptile fold: a non-digit term never loads the business-wide cache (eligibility checked first)', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+      degraded: false,
+    })
+    customersList.mockResolvedValueOnce({ customers: [cachedRow('cust-own')], total: 1 })
+    getCachedCustomerList.mockImplementation(async (storeId?: string) =>
+      storeId === 'store-ginza' ? [cachedRow('cust-own')] : [cachedRow('cust-own'), cachedRow('cust-other')],
+    )
+    await searchCustomersCompanyWide('田中')
+    // Only the own-store lens call (for other_store) — never the unscoped
+    // business-wide call, which is only needed for a karute-number term.
     expect(getCachedCustomerList).toHaveBeenCalledTimes(1)
+    expect(getCachedCustomerList).toHaveBeenCalledWith('store-ginza')
+  })
+
+  it('Greptile fold: a cache failure degrades that signal but never sinks the direct search result', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+      degraded: false,
+    })
+    customersList.mockResolvedValueOnce({ customers: [cachedRow('cust-1')], total: 1 })
+    getCachedCustomerList.mockRejectedValue(new Error('cache down'))
+    const result = await searchCustomersCompanyWide('0042')
+    // The eligible karute-number cache call rejected, but the direct search
+    // result still comes back — degraded (no other_store, no karute merge),
+    // never {error}.
+    expect(result).toEqual({ options: [expect.objectContaining({ id: 'cust-1', other_store: false })] })
   })
 
   it('karute number merges ahead of the (empty) name/phone matches', async () => {

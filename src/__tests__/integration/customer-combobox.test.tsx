@@ -150,6 +150,93 @@ describe('CustomerCombobox', () => {
     }
   })
 
+  it('Greptile fold: stale remote results are cleared the instant the query changes, before the new one returns', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn(async (q: string) => ({
+        options: [{ id: `r-${q}`, name: `row-${q}`, other_store: true }] as CustomerSearchOption[],
+      }))
+      render(
+        <CustomerCombobox
+          customers={[]}
+          selectedId={null}
+          onSelect={jest.fn()}
+          onCreateNew={jest.fn()}
+          onRemoteSearch={onRemoteSearch}
+        />,
+      )
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'A' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('row-A')).toBeInTheDocument()
+
+      // Query changes to B — A's row must be gone IMMEDIATELY, before B's
+      // debounce/request even resolves (not just once B's own row arrives).
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'B' } })
+      expect(screen.queryByText('row-A')).toBeNull()
+      expect(screen.queryByRole('option', { name: /row-A/ })).toBeNull()
+
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('row-B')).toBeInTheDocument()
+      expect(screen.queryByText('row-A')).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('Greptile fold: a single-character (non-numeric) query still reaches the remote search — no length floor', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({ options: [] })
+      render(
+        <CustomerCombobox
+          customers={[]}
+          selectedId={null}
+          onSelect={jest.fn()}
+          onCreateNew={jest.fn()}
+          onRemoteSearch={onRemoteSearch}
+        />,
+      )
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '陽' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(onRemoteSearch).toHaveBeenCalledWith('陽')
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('Greptile fold: other_store:false on a remote row renders no chip, in the normal section', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r1', name: '遠藤三郎', other_store: false }] as CustomerSearchOption[],
+      })
+      render(
+        <CustomerCombobox
+          customers={[{ id: 'a', name: '田中花子' }]}
+          selectedId={null}
+          onSelect={jest.fn()}
+          onCreateNew={jest.fn()}
+          onRemoteSearch={onRemoteSearch}
+        />,
+      )
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
+      expect(screen.queryByText('otherStoreChip')).toBeNull()
+      expect(screen.queryByText('otherStoreSection')).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('a remote hit already offered locally is never shown twice', async () => {
     jest.useFakeTimers()
     try {

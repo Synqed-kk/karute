@@ -27,18 +27,31 @@ export function foldSearchDigits(s: string): string {
 }
 
 /**
- * Matches `term` against `rows` by karute_number. Only fires when the folded
- * term is ALL digits and ≤ 6 characters — real salons never reach a 7-digit
- * chart number, so anything longer is a phone/other search, not this one.
- * Returns [] (never throws) on a non-qualifying term, so callers can run it
- * unconditionally over whatever list they already have in hand.
+ * Returns the folded digit string when `term` qualifies as a karute-number
+ * query — ALL digits and ≤ 6 characters after folding (real salons never
+ * reach a 7-digit chart number, so anything longer is a phone/other search) —
+ * else null. Exported so a caller can check eligibility BEFORE paying for a
+ * cached-list fetch it won't need (Greptile fold: actions/customers.ts loaded
+ * the business-wide cache on every search, digit or not); matchKaruteNumber
+ * below uses it internally too, so the two can never disagree about it.
+ */
+export function foldKaruteNumberQuery(term: string): string | null {
+  const folded = foldSearchDigits(term)
+  if (!folded || folded.length > 6 || !/^\d+$/.test(folded)) return null
+  return folded
+}
+
+/**
+ * Matches `term` against `rows` by karute_number. Returns [] (never throws)
+ * on a non-qualifying term, so callers can run it unconditionally over
+ * whatever list they already have in hand.
  */
 export function matchKaruteNumber<T extends { karute_number: number | null }>(
   term: string,
   rows: T[],
 ): T[] {
-  const folded = foldSearchDigits(term)
-  if (!folded || folded.length > 6 || !/^\d+$/.test(folded)) return []
+  const folded = foldKaruteNumberQuery(term)
+  if (!folded) return []
   const n = Number(folded)
   return rows.filter((r) => r.karute_number === n)
 }

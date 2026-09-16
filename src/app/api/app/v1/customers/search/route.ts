@@ -16,7 +16,11 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { CUSTOMER_SEARCH_LIMIT, matchKaruteNumber } from '@/lib/customers/karute-number-match'
+import {
+  CUSTOMER_SEARCH_LIMIT,
+  matchKaruteNumber,
+  foldKaruteNumberQuery,
+} from '@/lib/customers/karute-number-match'
 
 export const runtime = 'nodejs'
 
@@ -51,14 +55,21 @@ export const GET = facadeHandler('customers.search', async (ctx) => {
   // any test graph that doesn't explicitly mock it.
   const { getCachedCustomerListFor } = await import('@/lib/customers/cached')
 
+  // Eligibility FIRST (Greptile fold): the business-wide cache scan is only
+  // useful for a karute-number term, so an ordinary name search never pays
+  // for loading it.
+  const karuteQuery = foldKaruteNumberQuery(q)
+
   // "other_store" = not in the CALLER's own store-lensed cached list — same
-  // definition as the web action, no core membership call.
+  // definition as the web action, no core membership call. Each cache read
+  // is settled on its own — a failure here degrades that one signal instead
+  // of sinking searchRes, the direct result the whole request is for.
   const [searchRes, ownList, businessWide] = await Promise.all([
     synqed.customers.list({ search: q, page_size: CUSTOMER_SEARCH_LIMIT }),
     enforceStore && clamp.storeId
-      ? getCachedCustomerListFor(ctx.identity.businessId, clamp.storeId)
+      ? getCachedCustomerListFor(ctx.identity.businessId, clamp.storeId).catch(() => null)
       : Promise.resolve(null),
-    getCachedCustomerListFor(ctx.identity.businessId),
+    karuteQuery ? getCachedCustomerListFor(ctx.identity.businessId).catch(() => null) : Promise.resolve(null),
   ])
   const ownIds = ownList ? new Set(ownList.map((c) => c.id)) : null
 
@@ -69,7 +80,7 @@ export const GET = facadeHandler('customers.search', async (ctx) => {
     phone: c.phone,
   }))
   // Karute number ahead of the name/phone matches, same as list-all.ts.
-  const karuteHits = matchKaruteNumber(q, businessWide)
+  const karuteHits = businessWide ? matchKaruteNumber(q, businessWide) : []
   const hitIds = new Set(karuteHits.map((h) => h.id))
   const merged = [
     ...karuteHits.map((h) => ({ id: h.id, name: h.name, furigana: h.furigana, phone: h.phone })),

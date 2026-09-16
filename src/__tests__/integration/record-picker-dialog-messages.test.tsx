@@ -14,7 +14,7 @@
  * ACTUALLY match, not the 8 that fit on screen, and the overflow gets its own
  * quiet cue line.
  */
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 
 jest.mock('next-intl', () => {
   const ja = jest.requireActual('../../../messages/ja.json')
@@ -195,5 +195,46 @@ describe('picker dialog v2 — honest search count (C-3)', () => {
     expect(screen.getByText('検索結果 (8件)')).toBeInTheDocument()
     expect(screen.getAllByRole('option')).toHaveLength(8)
     expect(screen.queryByText(/さらに入力して絞り込み/)).not.toBeInTheDocument()
+  })
+})
+
+// ── Greptile fold, P3 remote tier: chip/section from other_store only ───────
+describe('picker dialog v2 — remote tier honesty (Greptile fold, 2026-09-16)', () => {
+  it('other_store:false renders as a normal row — no 他店舗 chip, no separate section', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-own', name: '遠藤三郎', other_store: false }],
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
+      expect(screen.queryByText('他店舗')).toBeNull()
+      expect(screen.queryByText('他店舗のお客様')).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('other_store:true renders under the 他店舗のお客様 section with the chip', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-other', name: '遠藤三郎', other_store: true }],
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
+      expect(screen.getByText('他店舗')).toBeInTheDocument()
+      expect(screen.getByText('他店舗のお客様')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 })
