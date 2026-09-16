@@ -24,12 +24,33 @@ import {
   cancelNeighbourWarm,
   warmAppointmentNeighbours,
 } from '../data/screen-neighbours'
+import { readMonthNumbers, rememberMonthNumbers } from '../data/calendar-numbers-store'
+import { monthKeyInJst } from '@/lib/appointments/date-jump'
 import { getThinLocale } from '../locale'
 import { useSearchParams } from '../ports/nav.vite'
 import { cacheDto, dtoCache, fetchedAtByPath, STALE_MS, ScreenStates, useScreenDto } from './ScreenBoundary'
 
 const parse = (raw: unknown): AppointmentsScreenDTOType =>
   AppointmentsScreenDTO.parse(raw)
+
+/** The wire's month cells → what the grid renders. ONE mapping, because the
+ *  page's own month and the pop-down's seed must never disagree about a cell.
+ *  ⚖ PKT-2b — every field straight off the wire: monthCellsToDTO (route.ts)
+ *  already merges the real numbers in, and this mapping was once the one place
+ *  still throwing them away. */
+function toMonthCells(cells: NonNullable<AppointmentsScreenDTOType['monthData']>): MonthCell[] {
+  return cells.map((c) => ({
+    id: c.id,
+    date: new Date(c.dateIso),
+    inMonth: c.inMonth,
+    isToday: c.isToday,
+    count: c.count,
+    density: c.density,
+    closed: c.closed,
+    newCount: c.newCount,
+    newCountKnown: c.newCountKnown,
+  }))
+}
 
 function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
   // Perf packet 28: warm the pre-session-brief cache for today's active
@@ -95,23 +116,30 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
 
   // MonthCell wants a real Date; the DTO ships dateIso (JSON-safe).
   const monthData = useMemo<MonthCell[] | null>(
-    () =>
-      dto.monthData?.map((c) => ({
-        id: c.id,
-        date: new Date(c.dateIso),
-        inMonth: c.inMonth,
-        isToday: c.isToday,
-        count: c.count,
-        density: c.density,
-        closed: c.closed,
-        // ⚖ PKT-2b — straight off the wire, like every other field on this
-        // door: monthCellsToDTO (route.ts) already merges the real numbers
-        // in, this mapping was the one place still throwing them away.
-        newCount: c.newCount,
-        newCountKnown: c.newCountKnown,
-      })) ?? null,
+    () => (dto.monthData ? toMonthCells(dto.monthData) : null),
     [dto.monthData],
   )
+  /** THE POP-DOWN'S FIRST PAINT. The panel opens on the month the page is on;
+   *  these are that month's cells if this session has already read them, or the
+   *  ones the device kept from the last launch (numbers only — see
+   *  calendar-numbers-store.ts). The panel marks every seed STALE on open and
+   *  re-reads through `loadMonthCells` regardless (the 52ecd1c2a rule), so this
+   *  changes WHEN the counts appear, never whether they are checked.
+   *  Null in 月 mode: the page's own cells are the seed there, and they are
+   *  fresher than either of these. */
+  const popdownMonth = useMemo<MonthCell[] | null>(() => {
+    if (dto.monthData) return null
+    const path = appointmentsScreenPath({
+      date: `${monthKeyInJst(new Date(dto.selectedDateIso))}-01`,
+      view: 'month',
+      staff: null,
+      locale: getThinLocale(),
+    })
+    const cached = (dtoCache.get(path) as AppointmentsScreenDTOType | undefined)?.monthData
+    const cells = cached ?? readMonthNumbers(path)
+    return cells ? toMonthCells(cells) : null
+  }, [dto.monthData, dto.selectedDateIso])
+
   // The date-jump panel's PHONE month door. The shell has no server actions,
   // so months come from the screen GET with view=month and any day of the
   // month wanted — the same route this screen already reads, so no new
@@ -152,8 +180,10 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       // question, which the panel must show as failed, not as a free month.
       if (!monthDto.monthData) throw new Error('date-jump month read returned no monthData')
       // …and the answer is worth keeping: a 月 page opened right after is then
-      // a cache hit, and the next open of the panel is instant.
+      // a cache hit, the next open of the panel is instant, and the NEXT LAUNCH
+      // opens the panel filled instead of empty.
       cacheDto(path, monthDto)
+      rememberMonthNumbers(path, monthDto.monthData)
       return monthDto.monthData
     },
     [],
@@ -173,7 +203,9 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       selectedDateIso={dto.selectedDateIso}
       weekData={dto.weekData}
       weekStartIso={dto.weekStartIso}
-      monthData={monthData}
+      // On 日/週 the page has no month of its own, so the pop-down's seed rides
+      // this prop (the view uses it for nothing else outside 月 mode).
+      monthData={monthData ?? popdownMonth}
       // Straight off the wire, like every other field on this door. It was
       // hardcoded null here while screen.ts set it and the route serialised it
       // — the phone was the one door that threw the answer away.
@@ -217,6 +249,13 @@ export function AppointmentsScreen() {
     locale: getThinLocale(),
   })
   const { state, retry, fetching } = useScreenDto(path, parse)
+  // A 月 read this screen made itself is worth keeping for the next launch, on
+  // exactly the same terms as one the pop-down's own door made: numbers only.
+  useEffect(() => {
+    if (state.status === 'ready' && state.path === path) {
+      rememberMonthNumbers(path, state.dto.monthData ?? null)
+    }
+  }, [state, path])
   // Dim ONLY a cross-path fetch — date/view/filter nav where the rendered
   // dto is still the OLD day and misreading it as the new one is the real
   // hazard. A SAME-path background revalidate (the packet-24 cache's

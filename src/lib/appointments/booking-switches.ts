@@ -50,6 +50,19 @@ export const BOOKING_SWITCHES = {
    *  is one extra window read per 月 page view, and only there. */
   monthCompare: true,
 
+  /** ⚖ SPEED (Liam 9/16) — the calendar's NUMBERS survive an app launch.
+   *  WHAT: the last month read's cells (counts · density · 休 · the capacity
+   *  numbers) are written to the device, so the pop-down calendar opens FILLED
+   *  instead of filling in after a round trip (measured cold: 2.2 s).
+   *  WHY: rendering was never the cost — the read is. The cells are the one
+   *  part of this screen that is pure arithmetic, so they are the one part
+   *  worth keeping.
+   *  THE RULE THAT DOES NOT BEND: names never go in. Only `monthData` is kept;
+   *  a customer's booking, the customer list and the menu catalogue are never
+   *  written, and the store REFUSES a cell carrying a name-shaped field.
+   *  OFF is honest: the panel loads over the network exactly as before. */
+  persistCalendarNumbers: true,
+
   // ── capacity (PKT-1c-B, council C4 §(2)) ────────────────────────────────
   // The four keys below gate the ONE capacity model (src/lib/capacity). They
   // are disjoint from the five above: those gate CELLS, these gate where the

@@ -11,6 +11,7 @@ import {
   isSeedPendingVerification,
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
+import { clearCalendarNumbers } from '../data/calendar-numbers-store'
 import { subscribeRefresh, subscribeRevalidate } from '../ports/nav.vite'
 
 type State<T> =
@@ -97,6 +98,10 @@ subscribeSessionState(() => {
     sessionEpoch++ // invalidate every in-flight mount fetch's settle (fence above)
     dtoCache.clear()
     fetchedAtByPath.clear()
+    // …and the durable half of the same guard: the calendar numbers written to
+    // the device go with the in-memory cache, at the same moment, for the same
+    // reason (thin/data/calendar-numbers-store.ts).
+    clearCalendarNumbers()
   }
 })
 

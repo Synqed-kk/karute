@@ -794,8 +794,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         onClose={() => setPickerOpen(false)}
         anchorRef={dateJumpAnchorRef}
         selectedDate={selectedDate}
-        // In 月 mode the page already holds this month's cells — no fetch.
-        seedCells={view === 'month' ? props.monthData : null}
+        // The cells for the month the panel will open on, whenever the host
+        // has them: in 月 mode that is the page's own month; on 日/週 the phone
+        // hands over the same month's cells from this session's cache or from
+        // what the device kept (numbers only). Either way the panel marks the
+        // seed STALE on open and re-reads it — the seed changes WHEN the counts
+        // appear, never whether they are checked (52ecd1c2a).
+        seedCells={props.monthData}
         loadMonthCells={props.loadMonthCells}
         // MODE PRESERVED: picking a day never switches 日/週/月 — so in 月
         // mode this IS navigateTo('month', date): the page stays on the month
