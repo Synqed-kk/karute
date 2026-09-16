@@ -46,7 +46,14 @@ const consentRow = { current: { policy_version: RECORDING_CONSENT_POLICY_VERSION
 const consentThrows = { current: false }
 const customersGet = jest.fn(async (id: string) => { if (id !== 'cust-1') throw Object.assign(new Error('x'), { status: id === 'cust-boom' ? 500 : 404 }); return { id, name: 'Y' } })
 const getConsent = jest.fn(async () => { if (consentThrows.current) throw new Error('consent down'); return { consent: consentRow.current } })
-const existingBySession = { current: null as null | { id: string; transcript: string; entries?: Array<{ id: string }> } }
+const existingBySession = {
+  current: null as null | { id: string; transcript: string; store_id?: string | null; entries?: Array<{ id: string }> },
+}
+// The caller's OWN store assignment — what resolveWriteStoreScope reads for the
+// converge branch's store lock. `[]` is core's answer for floating staff (and
+// the default here), so every pre-existing case keeps its old unclamped shape.
+const assignedStores = { current: [] as string[] }
+const staffStoresGet = jest.fn(async () => ({ store_ids: assignedStores.current }))
 const getByRecordingSession = jest.fn(async () => { if (existingBySession.current) return existingBySession.current; throw Object.assign(new Error('none'), { status: 404 }) })
 const create = jest.fn(async () => ({ id: 'kar-new' }))
 const update = jest.fn(async () => ({ id: 'kar-existing' }))
@@ -69,6 +76,8 @@ const fakeClient = {
   },
   karuteOutcomes: { upsert: outcomeUpsert, get: outcomeGet },
   packs: { removeRedemption, listPacks },
+  staffStores: { get: staffStoresGet },
+  stores: { get: jest.fn(async (id: string) => ({ id })) },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -100,6 +109,7 @@ beforeEach(() => {
   consentRow.current = { policy_version: RECORDING_CONSENT_POLICY_VERSION }
   consentThrows.current = false
   existingBySession.current = null
+  assignedStores.current = []
   outcomeGet.mockResolvedValue(null)
   listPacks.mockResolvedValue([])
   listKaruteRecords.mockResolvedValue({ karute_records: [] })
@@ -193,6 +203,37 @@ describe('POST /api/app/v1/karute (save)', () => {
     expect((await res.json()).id).toBe('kar-existing')
     expect(update).toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
+  })
+
+  // ⚖ FRESH-EYES-P1B F1 — THE WIRING, not the core. store-write-locks.test.ts
+  // calls createOrUpdateKaruteRecord directly with a scope it chooses, so it
+  // proves the lock and says nothing about what THIS door hands it. A required
+  // parameter stops a caller OMITTING a scope; it cannot stop one handing over a
+  // permissive one, and that is exactly the shape nothing caught: with
+  // `{ viewAll: true, allowedStoreIds: null }` in place of `lockScope` the whole
+  // suite stayed green while a 代官山 staffer on the phone overwrote a 銀座 karute
+  // through the converge branch.
+  it('a clamped Bearer caller + an existing record in ANOTHER store → 404, nothing written', async () => {
+    capabilities.current = new Set(['records.write']) // no stores.viewAll — the clamp reads the assignment
+    assignedStores.current = ['store-daikanyama']
+    existingBySession.current = { id: 'kar-existing', transcript: 'old', store_id: 'store-ginza' }
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, recordingSessionId: 'rec-1' }), noRoute)
+    expect(res.status).toBe(404)
+    expect((await res.json()).error).toMatchObject({
+      code: 'not_found',
+      message: 'karute not found in this business',
+    })
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('the same clamped caller converges normally on a record in their OWN store', async () => {
+    capabilities.current = new Set(['records.write'])
+    assignedStores.current = ['store-ginza']
+    existingBySession.current = { id: 'kar-existing', transcript: 'old', store_id: 'store-ginza' }
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, recordingSessionId: 'rec-1' }), noRoute)
+    expect(res.status).toBe(200)
+    expect(update).toHaveBeenCalledTimes(1)
   })
   // E-1 (PR-B1 fix round 1): the dedupe UPDATE must carry the CUSTOMER, not
   // only the appointment. The recovery banner's 保存先を変更 can re-point a
