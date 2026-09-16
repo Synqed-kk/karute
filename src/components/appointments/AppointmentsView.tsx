@@ -452,7 +452,17 @@ export function AppointmentsView(props: AppointmentsViewProps) {
 
   const slide = useHorizontalSlide({
     reduced,
-    width: () => paneWidthRef.current || slideBoxRef.current?.clientWidth || 0,
+    // ⚠ NEVER 0 — found by S7's own test. The commit rule is a FRACTION of
+    // this, so a width of zero makes every drag of any length past its own
+    // threshold: one pixel sideways would land the page on the next week. A box
+    // that has not laid out yet still has to answer with something finite, and
+    // the pane IS the page's width, so the viewport is the honest fallback (the
+    // pop-down calendar's own fallback is its 377 px grid, same rule).
+    width: () =>
+      paneWidthRef.current ||
+      slideBoxRef.current?.clientWidth ||
+      (typeof window !== 'undefined' ? window.innerWidth : 0) ||
+      393,
     onGestureStart: () => {
       setNeighboursDrawn(true)
       const box = slideBoxRef.current
