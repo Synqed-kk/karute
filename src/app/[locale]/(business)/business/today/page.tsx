@@ -190,6 +190,8 @@ export default async function TodayPage({
   // (does this store's type have a private class / a turnover word at all).
   // N3 adds the per-store override on top; nothing here reads the type for
   // BEHAVIOUR — the flags gate word-bearing controls only.
+  // ⚖ D-53 (z) — page-local only (TodayScreen never read this as a prop); N3
+  // threads its per-store override through here when it lands.
   const capabilitiesByStore: Record<string, { privateClass: boolean; turnover: boolean }> = Object.fromEntries(
     storeOptions.map((s) => {
       const row = wordsByStore[s.id]
@@ -551,7 +553,6 @@ export default async function TodayPage({
     wordsByStore,
     words,
     genericWords,
-    capabilitiesByStore,
     caps: chromeCaps,
     dayOffset,
     dayLabel: fmtDayFull.format(shownAt),

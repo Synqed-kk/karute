@@ -121,9 +121,10 @@ describe('N2A (c) — the null-word gates, driven through the producer', () => {
     expect(props.dialogs.create.blockKinds).not.toContain('清掃')
     expect(props.dialogs.create.blockKinds.some((k) => k == null)) .toBe(false)
     // The capability the gate reads is really off (C6's type default) —
-    // pinned so a future change to `capabilitiesByStore`'s formula that
-    // still happened to produce the right blockKinds by coincidence fails
-    // HERE instead of hiding behind the array shape.
+    // pinned so a future change to page.tsx's page-local `capabilitiesByStore`
+    // map's formula (⚖ D-53 (z): not a TodayProps field — TodayScreen never
+    // read it) that still happened to produce the right blockKinds by
+    // coincidence fails HERE instead of hiding behind the array shape.
     expect(props.caps).toEqual({ privateClass: false, turnover: false })
     expect(props.words.turnoverWord).toBeNull()
     expect(props.words.privateWord).toBeNull()

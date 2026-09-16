@@ -586,14 +586,6 @@ export interface TodayProps {
   /** `other`'s row — the ONLY fallback a `null` word (privateWord/
    *  turnoverWord) may ever take, so no literal word re-enters today/. */
   genericWords: ResourceWords
-  /** C6 — the per-TYPE default of the per-store WORD-bearing capability
-   *  flags (does this store's type have a private class / a turnover word
-   *  at all). N3 adds the per-store override on top; nothing here gates
-   *  BEHAVIOUR, only whether a word-bearing control may render. */
-  // ⚖ D-53 (n) — read by nothing yet (every gate on this screen uses the
-  // CHROME `caps` below); packet-ordered for N3, which is the round that has
-  // to justify keeping it (L1 NOTE-1).
-  capabilitiesByStore: Record<string, { privateClass: boolean; turnover: boolean }>
   /** The CHROME store's own capabilities (same rule as `words` above) — what
    *  `blockKinds` and the 「休憩・清掃」-shaped example pairs gate on. */
   caps: { privateClass: boolean; turnover: boolean }
