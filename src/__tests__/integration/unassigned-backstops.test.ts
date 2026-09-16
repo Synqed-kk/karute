@@ -62,7 +62,9 @@ describe('facade bulk export lens (resolveExportStoreId)', () => {
     ({
       stores: {
         get: async (id: string) => ({ id }),
-        list: async () => ({ stores: stores.map((id) => ({ id, is_primary: id === stores[0] })) }),
+        list: async () => ({
+          stores: stores.map((id) => ({ id, is_primary: id === stores[0], active: true })),
+        }),
       },
       staffStores: { get: async () => ({ store_ids: assignment }) },
     }) as never

@@ -30,7 +30,9 @@ jest.mock('@/lib/ports/data-port', () => ({ getDataPort: () => ({ apiFetch }) })
 import { facadeApiFetch } from '../../../thin/ports/facade-fetch'
 import { viteRecordingPort } from '../../../thin/ports/recording.vite'
 import {
+  clearStoreUnassigned,
   markStoreUnassigned,
+  recheckStoreUnassigned,
   resetStoreUnassigned,
   subscribeStoreUnassigned,
   unassignedUserId,
@@ -97,6 +99,69 @@ describe('the shell learns the verdict from any refused call', () => {
     off()
     markStoreUnassigned('u2') // unsubscribed
     expect(seen).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('G-1 — recovery after a manager assigns the store', () => {
+  describe('clearStoreUnassigned', () => {
+    it('clears the mark for the matching user, and notifies', () => {
+      markStoreUnassigned('u1')
+      const seen = jest.fn()
+      const off = subscribeStoreUnassigned(seen)
+      clearStoreUnassigned('u1')
+      off()
+      expect(unassignedUserId()).toBeNull()
+      expect(seen).toHaveBeenCalledTimes(1)
+    })
+
+    it('a DIFFERENT user never clears the marked one — compare-and-clear', () => {
+      markStoreUnassigned('u1')
+      clearStoreUnassigned('u2')
+      expect(unassignedUserId()).toBe('u1')
+    })
+
+    it('null / nothing marked → a no-op, no notification', () => {
+      const seen = jest.fn()
+      const off = subscribeStoreUnassigned(seen)
+      clearStoreUnassigned(null)
+      clearStoreUnassigned('u1') // nothing marked
+      off()
+      expect(seen).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('recheckStoreUnassigned', () => {
+    it('probe succeeds → the mark clears', async () => {
+      markStoreUnassigned('u1')
+      await recheckStoreUnassigned('u1', async () => true)
+      expect(unassignedUserId()).toBeNull()
+    })
+
+    it('probe still says refused (false) → the mark stays', async () => {
+      markStoreUnassigned('u1')
+      await recheckStoreUnassigned('u1', async () => false)
+      expect(unassignedUserId()).toBe('u1')
+    })
+
+    it('the probe throws (network error) → the mark stays — unknown is never assigned', async () => {
+      markStoreUnassigned('u1')
+      await recheckStoreUnassigned('u1', async () => {
+        throw new Error('offline')
+      })
+      expect(unassignedUserId()).toBe('u1')
+    })
+
+    it('mark keyed by user survives a recheck for someone else', async () => {
+      markStoreUnassigned('u1')
+      await recheckStoreUnassigned('u2', async () => true)
+      expect(unassignedUserId()).toBe('u1')
+    })
+
+    it('null userId → a no-op, the probe never even runs', async () => {
+      const probe = jest.fn(async () => true)
+      await recheckStoreUnassigned(null, probe)
+      expect(probe).not.toHaveBeenCalled()
+    })
   })
 })
 

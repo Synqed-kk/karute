@@ -38,8 +38,8 @@ const storesGet = jest.fn(async (id: string) => {
 })
 const storesList = jest.fn(async () => ({
   stores: [
-    { id: 'store-1', is_primary: true },
-    { id: 'store-2', is_primary: false },
+    { id: 'store-1', is_primary: true, active: true },
+    { id: 'store-2', is_primary: false, active: true },
   ],
 }))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
@@ -178,7 +178,7 @@ describe('GET /api/app/v1/screens/data-export — store clamp threads store_id',
     mockCapabilities.mockResolvedValue(new Set(['customers.view']))
     // ⚖ Liam 2026-09-16: an empty assignment only reads as "floating" when the
     // business has ONE store; with two it is the unassigned verdict (below).
-    storesList.mockResolvedValue({ stores: [{ id: 'store-1', is_primary: true }] })
+    storesList.mockResolvedValue({ stores: [{ id: 'store-1', is_primary: true, active: true }] })
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
     expect(customersList).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-1' }))
@@ -192,8 +192,8 @@ describe('GET /api/app/v1/screens/data-export — store clamp threads store_id',
     // one-store override above would otherwise leak into this test.
     storesList.mockResolvedValue({
       stores: [
-        { id: 'store-1', is_primary: true },
-        { id: 'store-2', is_primary: false },
+        { id: 'store-1', is_primary: true, active: true },
+        { id: 'store-2', is_primary: false, active: true },
       ],
     })
     const res = await GET(req(), route)

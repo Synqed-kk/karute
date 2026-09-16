@@ -1528,8 +1528,23 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // node v24.16.0): en 134,727 · index 1,045,932 · vendor 937,791 =
 // 2,118,450 B — +1,970 B over origin/main's own #935 measurement above
 // (2,116,480 B), the gate commit's own cost, same class as every prior raise
-// on this line. Ceiling = 2,118,450 + 1,000.
-const BUDGET_BYTES = 2_119_450
+// on this line. Ceiling was 2,118,450 + 1,000.
+//
+// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-17 — GREPTILE FOLD G-1..3 (PKT-GATE-FOLD-GREPTILE-3):
+// on top of gate tip `93acdf77c`, folding the phone recheck (G-1: `thin/chrome/
+// store-unassigned.ts`'s clearStoreUnassigned/recheckStoreUnassigned + the
+// shared UnassignedStoreScreen's 「もう一度確認する」 action + AuthGate's
+// foreground recheck), the ACTIVE-store carve-out fix (G-2: `activeStoreCount`,
+// store-gate.ts), and the web gate reorder (G-3, `(app)/layout.tsx` — no
+// bundle-shape effect, server-only). Same CI recipe — CI's own six VITE_*
+// values, the 208-char anon-key placeholder included, thin/dist emptied
+// before each of two laps, byte-identical both times (matching filenames,
+// sizes and MD5s, node v24.16.0): en 134,775 · index 1,046,905 · vendor
+// 937,791 = 2,119,471 B — +1,021 B over the REBASE 3 measurement above
+// (2,118,450 B), this fold's own cost (new strings + the recheck/probe code
+// reaching the thin bundle). Ceiling = 2,119,471 + 1,000.
+const BUDGET_BYTES = 2_120_471
 
 let dir
 try {

@@ -22,7 +22,7 @@ jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => ({
     staffStores: { get: async () => ({ store_ids: assignment.current }) },
     stores: {
-      list: async () => ({ stores: storeIds.current.map((id) => ({ id })) }),
+      list: async () => ({ stores: storeIds.current.map((id) => ({ id, active: true })) }),
     },
   }),
   getSynqedClient: async () => {

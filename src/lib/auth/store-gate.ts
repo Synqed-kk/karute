@@ -91,11 +91,25 @@ export const STORE_UNASSIGNED_DENIAL =
  */
 export type StoreAssignmentVerdict = 'viewAll' | 'clamped' | 'unassigned' | 'unclamped'
 
+/**
+ * How many of a `stores.list()` response's rows are ACTIVE — the ONE place
+ * the single-store carve-out's business size is computed (Greptile G-2,
+ * 2026-09-17), used by BOTH `actorIsUnassigned` below and the facade's
+ * `resolveWriteStoreScope` (store-clamp.ts) so they cannot drift. An inactive
+ * (archived/closed) store is not a real second location a floating staff
+ * member could be assigned to, so it must not turn the carve-out off for a
+ * genuinely single-active-store business.
+ */
+export function activeStoreCount(rows: readonly { active: boolean }[]): number {
+  return rows.filter((s) => s.active).length
+}
+
 export function storeAssignmentVerdict(facts: {
   viewAll: boolean
   /** staff_stores rows, or null when the lookup itself failed. */
   assigned: readonly string[] | null
-  /** How many stores the business has; null = the list could not be read. */
+  /** How many ACTIVE stores the business has (Greptile G-2, `activeStoreCount`
+   *  above); null = the list could not be read. */
   storeCount: number | null
 }): StoreAssignmentVerdict {
   if (facts.viewAll) return 'viewAll'
@@ -171,7 +185,7 @@ export const actorIsUnassigned = cache(
       if (assigned === null || assigned.length > 0) return false
       const storeCount = await synqed.stores
         .list()
-        .then((r) => r.stores.length)
+        .then((r) => activeStoreCount(r.stores))
         .catch(() => null)
       return (
         storeAssignmentVerdict({ viewAll: false, assigned, storeCount }) === 'unassigned'
