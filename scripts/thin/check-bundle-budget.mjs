@@ -966,7 +966,17 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // thin/dist emptied between two clean builds, byte-identical both times (node
 // v24.16.0, @synqed-kk/ui 0.3.2, installed == lock): en 134,223 · index
 // 1,038,559 · vendor 937,791 = 2,110,573 B. Ceiling = 2,110,573 + 1,000.
-const BUDGET_BYTES = 2_111_573
+//
+// RE-MEASURED 2026-09-16 (re-resolve) — #931's prior merge above used the
+// wrong base (e88fbba71, not an ancestor of this branch); re-run with the
+// true fork point (25c209377) landed main's 2026-09-15 type-system fix on
+// WeekRows.tsx and the #929 R6 seam fix on AppointmentsView.tsx (net +21 B —
+// DayNumbersLine.tsx's own hunk stayed as before; it hit a genuine conflict
+// and is unchanged pending a session-model decision). Same CI recipe,
+// thin/dist emptied between two clean builds, byte-identical both times (node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock): en 134,223 · index
+// 1,038,580 · vendor 937,791 = 2,110,594 B. Ceiling = 2,110,594 + 1,000.
+const BUDGET_BYTES = 2_111_594
 
 let dir
 try {
