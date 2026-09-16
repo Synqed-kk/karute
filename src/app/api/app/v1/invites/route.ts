@@ -38,7 +38,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { ensureStaffWriteInScope, resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { ensureStaffWriteInScope, resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
 import { createInviteCore, listInvitesWithClient, memberEmailsForBusiness } from '@/actions/invites'
 import { inviteSchema } from '@/lib/validations/invite'
 import { staffAddAllowedWithClient } from '@/lib/subscription/feature-gate'
@@ -125,11 +125,17 @@ export const POST = facadeHandler('invite.create', async (ctx) => {
   const invitedBy = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
   // ⚖ Liam 2026-09-16: the same creator-subset rule as web, resolved from the
   // Bearer identity — a fresh invite mints the card, so this door places staff.
-  const { allowedStoreIds } = await resolveStoreForRequest({
+  //
+  // ⚖ FOLD ROUND 3 (fresh-eyes F7) — through resolveWriteStoreScope, the one
+  // home for a Bearer WRITE door, and with the roster identity this line
+  // already resolved one line above. Without it an UNPLACEABLE caller (core
+  // answers `{ store_ids: [] }` for a staff row it does not hold) reads as
+  // floating, i.e. unclamped.
+  const { allowedStoreIds } = await resolveWriteStoreScope({
     synqed,
     authUserId: ctx.identity.authUserId,
     capabilities: ctx.identity.capabilities,
-    requestedStoreId: null,
+    selfStaffId: invitedBy,
   })
   const result = await createInviteCore(
     synqed,

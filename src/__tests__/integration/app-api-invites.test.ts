@@ -249,11 +249,18 @@ describe('POST /api/app/v1/invites (create)', () => {
     expect(invitesCreate).toHaveBeenCalledWith(expect.objectContaining({ invited_by: 'auth-user-1' }))
   })
 
-  it('a caller absent from the roster → invited_by is null, write still proceeds', async () => {
+  it('a caller absent from the roster → refused, nothing written (⚖ fold round 3, F7)', async () => {
+    // This used to proceed with `invited_by: null` — written when a fresh
+    // invite created nothing. It MINTS a staff card now, so it is a write door
+    // that must fail closed: core answers `{ store_ids: [] }` for an auth id it
+    // holds no staff row for, byte-identical to genuinely floating staff, so an
+    // unplaceable caller read as unclamped and could place a hire anywhere.
+    // resolveWriteStoreScope asks roster-placement FIRST — the same posture web
+    // takes (a null staff id is `degraded` there, which maps to `[]`).
     staffListByBusinessOrThrow.mockResolvedValue([])
     const res = await POST(postReq(VALID_INVITE), noParams)
-    expect(res.status).toBe(201)
-    expect(invitesCreate).toHaveBeenCalledWith(expect.objectContaining({ invited_by: null }))
+    expect(res.status).toBe(403)
+    expect(invitesCreate).not.toHaveBeenCalled()
   })
 
   it('an existing member email → business-level { error }, no SDK write, no audit row', async () => {

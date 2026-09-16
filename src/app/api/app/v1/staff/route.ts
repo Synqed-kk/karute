@@ -34,7 +34,8 @@ import { createStaffCore } from '@/actions/staff'
 import { staffProfileSchema } from '@/lib/validations/staff'
 import { staffAddAllowedWithClient } from '@/lib/subscription/feature-gate'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
+import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 
 export const runtime = 'nodejs'
 
@@ -64,11 +65,19 @@ export const POST = facadeHandler('staff.create', async (ctx) => {
   }
   // ⚖ Liam 2026-09-16: the same subset rule as web, resolved from the Bearer
   // identity rather than the cookie session.
-  const { allowedStoreIds } = await resolveStoreForRequest({
+  //
+  // ⚖ FOLD ROUND 3 (fresh-eyes F7) — through resolveWriteStoreScope, the one
+  // home store-clamp.ts names for "every Bearer door that must FAIL CLOSED".
+  // resolveStoreForRequest alone cannot tell an UNPLACEABLE caller from a
+  // floating one — core answers `{ store_ids: [] }` for both — so a phone still
+  // holding a token for somebody taken off the roster read as floating, i.e.
+  // unclamped, and could mint staff into any store. The placement check has to
+  // happen outside the clamp, and it lives there.
+  const { allowedStoreIds } = await resolveWriteStoreScope({
     synqed,
     authUserId: ctx.identity.authUserId,
     capabilities: ctx.identity.capabilities,
-    requestedStoreId: null,
+    selfStaffId: await resolveSelfStaffId(businessId, ctx.identity.authUserId),
   })
   const result = await createStaffCore(
     synqed,
