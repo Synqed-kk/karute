@@ -44,6 +44,7 @@
 // preview an honest answer to 「what will my staff actually see?」.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import { commitNumberField } from '@/business/lib/settings'
 import {
   CALENDAR_TIGHT_RANGE,
@@ -128,7 +129,8 @@ export function computeScene(input: SceneInput, mode: GapGuardMode, minutes: num
   const cell =
     sceneKeyFor(mode, minutes) === null || input.sampleLaneKey === null
       ? null
-      : guardVerdictAt(input.lanes, input.sampleLaneKey, input.sampleStart, railInput(mode === 'STRICT'))
+      : // ⚖ D-53 (u) — the generic row until N3 hands the settings room its store's own row
+        guardVerdictAt(input.lanes, input.sampleLaneKey, input.sampleStart, railInput(mode === 'STRICT'), { byLaneKey: {}, generic: RESOURCE_WORDS.other })
   return { capacity, cell }
 }
 

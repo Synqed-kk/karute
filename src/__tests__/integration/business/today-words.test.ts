@@ -275,3 +275,43 @@ describe('N2A — cross-check: STORE_B (massage) is also byte-identical (C9)', (
     expect(props.dialogs.create.blockKinds).toEqual(['休憩', '準備', '記録', '清掃', 'ミーティング'])
   })
 })
+
+// ⚖ D-53 (u)/(ad)/(n2b2) — Commit 2b's own leg: the real bug on main, fixed.
+// `c-05` (staff `p-05`) belongs to BOTH STORE_A and STORE_B
+// (fixtures.ts:349), so `readStaffStores` hands its lane `stores: [STORE_A,
+// STORE_B]` regardless of which store the operator is looking at
+// (`staffStoreMap` ignores the lens entirely). Before the fix, a clamped
+// `wordsByStore` carried every store's row, so `wordsForLane`'s
+// `lane.stores?.[0]` picked STORE_A's row on STORE_B's own board. The
+// mounted DOM proof (a rendered lane showing no ユニット anywhere) is the
+// blind round's own item, on the harness at
+// LIVEDRAG-2026-09-10/harness/new-window/ — this leg is the PRODUCER half,
+// the same door every other leg in this file uses.
+describe('N2b-2 Commit 2b — the shared-lane fix: a clamped board indexes only its own store', () => {
+  it("STORE_B's page props, with STORE_A retyped dental: wordsByStore has exactly one key (STORE_B), and c-05's shared lane cannot read STORE_A's row", async () => {
+    ;(data.listStoreOptions as jest.Mock).mockResolvedValueOnce(
+      stores.map((s) => (s.id === STORE_A ? { ...s, business_type: 'dental_clinic' } : s)),
+    )
+    const props = await propsFor(STORE_B)
+    // The map carries ONLY the selected store's row — the fix itself.
+    expect(Object.keys(props.wordsByStore)).toEqual([STORE_B])
+    expect(props.wordsByStore[STORE_A]).toBeUndefined()
+    // The shared lane really does carry BOTH stores (the fixture fact the bug
+    // depends on) — `stores[0]` is STORE_A, the retyped dental store.
+    const sharedLane = props.lanes.find((l) => l.group === 'staff' && l.key === 'p-05')!
+    expect(sharedLane.stores).toEqual([STORE_A, STORE_B])
+    // `wordsForLane` (TodayScreen) falls to `props.words` for any store
+    // affiliation the (now-narrowed) map has no row for — which is STORE_B's
+    // own row (massage ≡ other, D-13), never the dental row (ユニット) STORE_A
+    // now carries, even though the lane's first affiliation is STORE_A.
+    expect(props.wordsByStore[STORE_B]).toEqual(props.words)
+    expect(props.words.resourceNoun).toBe('ベッド')
+    expect(props.words.resourceNoun).not.toBe('ユニット')
+  })
+
+  // viewAll is not reachable through this page door on this fixture set
+  // (`defaultStoreId` always resolves to a real store — see this file's own
+  // header, item (d)); the unclamped branch of `wordsByStore` (every store
+  // option keeps its own row, unnarrowed) is exercised directly in
+  // page.tsx's own logic and needs no separate leg here.
+})

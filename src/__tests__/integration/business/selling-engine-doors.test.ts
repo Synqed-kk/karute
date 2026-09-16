@@ -83,9 +83,16 @@ import { STORE_A } from '@/business/lib/fixtures'
 import { cleanupBlocks, hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
+
+// ⚖ D-53 (u)/(n2b2) — the whole-board map, for every direct call this file
+// makes to a widened whole-board function: empty `byLaneKey` so every lane
+// falls to the generic row, STORE_A's own (chiropractic ≡ other, D-13) —
+// runtime expected sentences are unchanged.
+const LANE_WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.chiropractic }
 
 const HERE = 'src/app/[locale]/(business)/business/today'
 const SRC = (f: string) => readFileSync(join(process.cwd(), HERE, f), 'utf8')
@@ -679,7 +686,7 @@ function railInputFor(w: World, c: Combo, kind: 'raw' | 'lattice' | 'bed', book:
 }
 
 function rails(w: World, c: Combo, kind: 'raw' | 'lattice' | 'bed', book: BedTruth = bookOf(w)): GuardRail[] {
-  return guardRailsFor(w.lanes, railInputFor(w, c, kind, book))
+  return guardRailsFor(w.lanes, railInputFor(w, c, kind, book), LANE_WORDS)
 }
 
 const cellKey = (c: RailCell) =>
@@ -1009,8 +1016,8 @@ describe('1 — the round gate', () => {
       expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
       return s
     }
-    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],')
-    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus],')
+    const rail = uniqueSlice('guardRailsFor(handBoard, {', '[guardOn, handBoard, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus, laneWords],')
     for (const [where, call, line] of [
       ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, handBoard) : undefined,'],
       ['verdict', verdict.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,'],
@@ -1222,6 +1229,7 @@ function explainOf(
     inHand: false,
     sellDisplayed: true,
     held,
+    words: LANE_WORDS,
   })
   const byLane = new Map((held ?? []).map((m) => [m.laneKey, m.spans]))
   return rs.map((r) => {
@@ -1676,8 +1684,8 @@ describe('4b — the DROP verdict answers from the same held set as the rail', (
           for (const r of rail) {
             for (const cell of r.cells) {
               cells += 1
-              const vBefore = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withoutDoor)
-              const vAfter = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withDoor)
+              const vBefore = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withoutDoor, LANE_WORDS)
+              const vAfter = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withDoor, LANE_WORDS)
               const railK = cellKey(cell)
               const railFull = JSON.stringify(cell)
               if ((vBefore ? cellKey(vBefore) : 'NULL') !== railK) {
@@ -1769,7 +1777,7 @@ describe('4b — the DROP verdict answers from the same held set as the rail', (
             const withoutDoor = railInputFor(wv, c, 'raw', book)
             for (const r of rail) {
               for (const cell of r.cells) {
-                const vBefore = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withoutDoor)
+                const vBefore = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withoutDoor, LANE_WORDS)
                 const railK = cellKey(cell)
                 const visMatch = (vBefore ? cellKey(vBefore) : 'NULL') === railK
                 const fullMatch = JSON.stringify(vBefore) === JSON.stringify(cell)
@@ -1916,7 +1924,7 @@ describe('4b — the DROP verdict answers from the same held set as the rail', (
     // the very scene it exists to demonstrate.
     const rail = rails(w, c, 'bed', book).find((r) => r.laneKey === 'p-05')!
     const ne = (input: RailInput) =>
-      rail.cells.filter((cell) => JSON.stringify(guardVerdictAt(w.lanes, 'p-05', cell.start, input)) !== JSON.stringify(cell)).length
+      rail.cells.filter((cell) => JSON.stringify(guardVerdictAt(w.lanes, 'p-05', cell.start, input, LANE_WORDS)) !== JSON.stringify(cell)).length
     const railVsWith = ne(railInputFor(w, c, 'bed', book))
     const railVsWithout = ne(railInputFor(w, c, 'raw', book))
     expect({ cells: rail.cells.length, railVsWith, railVsWithout }).toEqual({ cells: 18, railVsWith: 0, railVsWithout: 2 })

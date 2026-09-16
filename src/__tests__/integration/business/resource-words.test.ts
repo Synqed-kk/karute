@@ -306,8 +306,14 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
     // converted blockChrome / withheldSub / parkChipText / landingVerdict
     // (6 occurrences: #33, #35, #42, #47, #48, #49); the remaining 13 are
     // N2b-2's map sites (9) and N2c's parked allocator sites (4).
-    expect(byFile).toEqual({ 'today-interactions.ts': 13 })
-    expect(offenders).toBe(13)
+    // ⚖ D-53 (u)/(n2b2) — DISCLOSED PIN MOVE: N2b-2 (PKT-BUILD-N2B2-BOARD-MAP.md)
+    // converted the map sites' own literals (#31/#32 `withTrailingCleanup`/
+    // `cleanupShell`, #34 `railCell`'s R-UNAVAILABLE branch, #36 `reseatSentence`,
+    // #37-40 `railExplain`'s two chip ternaries, #41 the taker clause — 9
+    // occurrences); the remaining 4 are N2c's parked allocator sites
+    // (`fullRoomsRefusal`, #43-46).
+    expect(byFile).toEqual({ 'today-interactions.ts': 4 })
+    expect(offenders).toBe(4)
   })
 
   it('the scanner keeps regex literals and comment markers inside them out of the comment stripper (L1 MINOR-2)', () => {
@@ -372,9 +378,13 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
     expect(hits).toEqual(['page.tsx'])
 
     // Pin page.tsx's own wiring to the ONE runtime-reader module (R-N2-1):
-    // the import specifier + the `wordsByStore` map call + the `genericWords`
-    // call = three `resourceWordsFor` identifier occurrences, two call
-    // expressions, and one `business_type` occurrence (inside the map call).
+    // the import specifier + the `allWordsByStore` map call + the
+    // `genericWords` call = three `resourceWordsFor` identifier occurrences,
+    // two call expressions, and one `business_type` occurrence (inside the
+    // map call). ⚖ D-53 (u)/(ad)/(n2b2) — `wordsByStore` (the clamped-narrowed
+    // prop) and `capabilitiesByStore` both now derive from this ONE internal
+    // map rather than calling `resourceWordsFor` a second/third time, so the
+    // count is unchanged from N2a.
     const pageStripped = stripComments(readFileSync(join(TODAY_DIR, 'page.tsx'), 'utf8'))
     expect(countOccurrences(pageStripped, 'resourceWordsFor')).toBe(3)
     expect((pageStripped.match(/resourceWordsFor\(/g) ?? []).length).toBe(2)

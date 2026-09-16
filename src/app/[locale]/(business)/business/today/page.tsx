@@ -176,9 +176,23 @@ export default async function TodayPage({
   // `resourceWordsFor` call lives here, beside the `storeNames` precedent it
   // follows. TodayScreen/today-interactions never call it themselves — they
   // only index the maps/values built below (C5).
-  const wordsByStore: Record<string, ResourceWords> = Object.fromEntries(
+  // ⚖ D-53 (u)/(ad)/(n2b2) — EVERY store's own row, computed once — the fact
+  // `capabilitiesByStore` below still needs for every store option regardless
+  // of clamping. `wordsByStore` (the prop every lane indexes) narrows this on
+  // a clamped board (next line's own comment); this internal map does not.
+  const allWordsByStore: Record<string, ResourceWords> = Object.fromEntries(
     storeOptions.map((s) => [s.id, resourceWordsFor(s.business_type)]),
   )
+  // ⚖ D-53 (u)/(ad)/(n2b2) — a real bug on main, fixed here: on a CLAMPED
+  // board this map used to carry every store's row, so a shared staff lane
+  // (fixture c-05 belongs to both STORE_A and STORE_B) read `stores[0]`'s row
+  // even when the operator was looking at the OTHER store's board. Clamped,
+  // the map carries only the selected store's own row; `wordsForLane` already
+  // falls to `props.words` (= that same row) for any lane affiliated with a
+  // different store, so nothing else has to change.
+  const wordsByStore: Record<string, ResourceWords> = clamped
+    ? { [storeId!]: allWordsByStore[storeId!] }
+    : allWordsByStore
   // C1 — the ONE fallback a `null` word (privateWord/turnoverWord) may ever
   // take, so no literal word can re-enter today/ through a gap.
   const genericWords: ResourceWords = resourceWordsFor('other')
@@ -192,9 +206,12 @@ export default async function TodayPage({
   // BEHAVIOUR — the flags gate word-bearing controls only.
   // ⚖ D-53 (z) — page-local only (TodayScreen never read this as a prop); N3
   // threads its per-store override through here when it lands.
+  // ⚖ D-53 (u)/(ad)/(n2b2) — reads `allWordsByStore`, never the (now
+  // clamp-narrowed) `wordsByStore`: indexing THAT for every other store
+  // option would read `undefined` on a clamped board.
   const capabilitiesByStore: Record<string, { privateClass: boolean; turnover: boolean }> = Object.fromEntries(
     storeOptions.map((s) => {
-      const row = wordsByStore[s.id]
+      const row = allWordsByStore[s.id]
       return [s.id, { privateClass: row.privateWord != null, turnover: row.turnoverWord != null }]
     }),
   )
