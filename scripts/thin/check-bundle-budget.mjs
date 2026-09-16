@@ -1485,10 +1485,14 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // RE-MEASURED 2026-09-17 after merging origin/main into feat/booking-new-count
 // (PR #951) — the 新規 count feature (isNewCustomerForDay/newCountByDay, the
 // week day card and month cell's newCountKnown, monthCellsToDTO) composed
-// with main's line up to this tip (past #934's capacity-adapter squash).
-// Re-measured per the gate's own step 3; see the commit that sets this
-// constant for the two-lap figures.
-const BUDGET_BYTES = 2_122_157
+// with main's line up to this tip (past #934's capacity-adapter squash,
+// #948's store-gate hardening and #935's 先月同期間比/closed). Same CI
+// recipe (the workflow's six release-length placeholder VITE_* values,
+// thin/dist emptied before each of two laps), byte-identical both times
+// (matching content hashes, node v24.16.0, @synqed-kk/ui 0.3.2, installed
+// == lock): en 134,814 · index 1,048,257 · vendor 937,791 = 2,120,862 B.
+// Ceiling = 2,120,862 + 1,000.
+const BUDGET_BYTES = 2_121_862
 
 let dir
 try {
