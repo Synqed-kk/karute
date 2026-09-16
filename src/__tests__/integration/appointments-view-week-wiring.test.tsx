@@ -20,15 +20,24 @@ jest.mock('next-intl', () => ({
   useLocale: () => 'ja',
 }))
 const pushed: string[] = []
+// G2 (FIX-932-G1) — the CURRENT location's search, as `next/navigation`'s
+// useSearchParams (the same hook AppointmentsView now reads) would answer it.
+// The push mock updates it like a real router.push does; the back-gesture
+// tests below move it directly, since a real back gesture never calls push.
+let currentSearch = ''
 jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({
     push: (href: string) => {
       pushed.push(href)
+      currentSearch = href.includes('?') ? href.split('?')[1] : ''
     },
     replace: jest.fn(),
     refresh: jest.fn(),
   }),
   usePathname: () => '/ja/appointments',
+}))
+jest.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(currentSearch),
 }))
 jest.mock('@/hooks/use-global-recorder', () => ({ useGlobalRecorder: () => ({ state: 'idle' }) }))
 jest.mock('@/lib/notifications/hooks', () => ({ useUnreadCount: () => 0 }))
@@ -268,6 +277,7 @@ beforeEach(() => {
   rerender = null
   Object.assign(mockSwitches(), mockShipped())
   pushed.length = 0
+  currentSearch = ''
   for (const k of Object.keys(uiProps)) delete uiProps[k]
   for (const k of Object.keys(panelProps)) delete panelProps[k]
 })
@@ -459,6 +469,33 @@ describe('the MONTH branch renders MonthPage (A1-A3)', () => {
     expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
     expect(cardProps!.dateIso).toBe('2026-09-15')
     expect(cardProps!.pending).toBe(false)
+  })
+
+  // G2 (Greptile round 1, FIX-932-G1) — the freeze the R1-1 rider above did
+  // NOT cover: the back gesture firing BEFORE the tapped day's answer ever
+  // lands. Nothing calls navigateTo (no handler runs) and the props never
+  // change at all (B's DTO never arrived, so what's on screen was A the whole
+  // time) — the old `tappedDay === selectedIso` effect had no dependency left
+  // to re-fire on, so the hold sat on B forever. Keying it to the pushed
+  // target catches this: the location genuinely changes (or, as simulated
+  // here, reverts) even though neither prop the old effect watched does.
+  it('the BACK GESTURE spends a hold that never lands — reverting to A before B answers clears it', () => {
+    renderView(MONTH_VIEW)
+    act(() => monthPageProps!.onPickDay('2026-09-17'))
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-17')
+    expect(cardProps!.pending).toBe(true)
+    // the back gesture: the browser lands the page back on A's own location
+    // WITHOUT ever calling navigateTo — no push, no new server props, B's
+    // fetch simply never lands.
+    currentSearch = ''
+    rerenderWith(MONTH_VIEW)
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
+    expect(cardProps!.dateIso).toBe('2026-09-15')
+    expect(cardProps!.pending).toBe(false)
+    const chip = (uiProps.ReservationPageHeader as Record<string, unknown>)
+      .dateDisplayCompact as { props: { children: string } }
+    expect(chip.props.children).toContain('15')
+    expect(chip.props.children).not.toContain('17')
   })
 
   it('the date-jump panel picking the day the tap came FROM is spent too', () => {

@@ -12,6 +12,7 @@ import {
 import { useTranslations, useLocale } from 'next-intl'
 import { Bell, CalendarPlus } from 'lucide-react'
 import { useRouter, usePathname } from '@/i18n/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
   formatCompactDateJst,
@@ -219,11 +220,27 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   // spends it when its answer lands, and `navigateTo` spends it when any other
   // navigation starts (a 今日 press that re-selects the day already selected
   // changes no prop at all, so the effect alone could not see it).
-  const [tappedDay, setTappedDay] = useState<string | null>(null)
-  const shownDayIso = tappedDay ?? selectedIso
+  const [tappedHold, setTappedHold] = useState<{ iso: string; target: string } | null>(null)
+  const shownDayIso = tappedHold?.iso ?? selectedIso
+  // G2 (Greptile round 1, FIX-932-G1) — the effect above only spends the hold
+  // when ITS OWN answer lands (`tappedHold.iso === selectedIso`). The back
+  // gesture (web: the browser back button; phone: the OS back swipe) is the
+  // other way a move ends: it never calls `navigateTo`, so neither
+  // `tappedHold` nor `selectedIso` (still A's, since B's DTO never arrived)
+  // ever changes — the effect never re-runs and the hold sat on B forever
+  // while the page was back on A (the exact freeze LENS-1 named).
+  // `target` is the search string `navigateTo` pushed for this move; the
+  // CURRENT location's search — the same `next/navigation` hook both the web
+  // page and the shell already expose (the shell's own via the vite alias,
+  // no new listener) — is the one thing that changes the instant the browser
+  // actually leaves that target, landed or not.
+  const currentSearch = useSearchParams().toString()
   useEffect(() => {
-    if (tappedDay === selectedIso) setTappedDay(null)
-  }, [tappedDay, selectedIso])
+    if (!tappedHold) return
+    const landed = tappedHold.iso === selectedIso
+    const abandoned = currentSearch !== tappedHold.target
+    if (landed || abandoned) setTappedHold(null)
+  }, [tappedHold, selectedIso, currentSearch])
   // `today` is reserved for the Today button (jump-to-now) — the displayed
   // header always reflects whichever date is currently selected.
   // jstStartOfToday() returns the UTC instant of JST 00:00 today, so
@@ -246,12 +263,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     [locale],
   )
 
-  function navigateTo(nextView: DayWeekMonthView, nextDate: Date) {
+  function navigateTo(nextView: DayWeekMonthView, nextDate: Date): string {
     // R1-1 — any move spends the held tap. A month-cell tap re-arms it right
     // after this call (both writes are urgent and batch into one commit, so the
     // newest finger wins); every other door — the arrows, 今日, the date-jump
     // panel, the view switch, the card's own door — leaves it spent.
-    setTappedDay(null)
+    setTappedHold(null)
     const search = new URLSearchParams()
     search.set('view', nextView)
     search.set('date', ymdInJst(nextDate))
@@ -265,11 +282,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     if (props.staffFilter && props.staffFilter !== 'all') {
       search.set('staff', props.staffFilter)
     }
+    // G2 — the target this move is heading for, returned so a month-cell tap
+    // can key its hold to it (see tappedHold's declaration above).
+    const target = search.toString()
     startTransition(() => {
-      router.push(
-        `${pathname}?${search.toString()}` as Parameters<typeof router.push>[0],
-      )
+      router.push(`${pathname}?${target}` as Parameters<typeof router.push>[0])
     })
+    return target
   }
 
   function handlePrev() {
@@ -308,8 +327,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       navigateTo('day', date)
       return
     }
-    navigateTo('month', date)
-    setTappedDay(iso)
+    const target = navigateTo('month', date)
+    setTappedHold({ iso, target })
   }
   function handlePickMonth(year: number, month: number) {
     navigateTo(
