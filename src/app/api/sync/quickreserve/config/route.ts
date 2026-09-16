@@ -72,34 +72,40 @@ export async function POST(request: Request) {
   // 銀座 manager (or a brand-new company's owner) saving here would silently
   // rebind — or misfile — 代官山's live crawl. Per-store crawling is ordered
   // from core; until it lands, refuse rather than misfile.
-  const existing = await synqed.sync.getConfig('QUICKRESERVE')
-  const { storeId } = await resolveStoreScope()
-
-  // Labeled existing config: only the store it's already labeled for may
-  // resave it. Otherwise (no config yet, OR an existing config nobody ever
-  // labeled — a legacy row) this save is about to STAMP the label below, so
-  // it needs exactly one knowable store: refuse on a multi-store business
-  // (no safe store to bind to), and refuse if the actor's own store lookup
-  // came back null even though a store exists (a resolveStoreScope failure
-  // must never write a null label — that's the original bug one save later).
-  const misfiled = existing?.karute_store_id
-    ? existing.karute_store_id !== storeId
-    : (await synqed.stores.list()).stores.length > 1 || storeId === null
-
-  if (misfiled) {
-    return NextResponse.json(
-      {
-        error: 'qr_store_not_ready',
-        // Dev/log-facing only — the settings UI shows its own localized
-        // copy (messages/*.json: settings.bookingSyncStoreNotReady) keyed
-        // off the error code above, never this string.
-        message: "Quick Reserve sync isn't wired up for this store yet.",
-      },
-      { status: 409 },
-    )
-  }
-
+  //
+  // Greptile fold: the guard's own reads (getConfig, resolveStoreScope, the
+  // conditional stores.list) used to run BEFORE this try, so a core outage or
+  // a scope-lookup failure escaped as an opaque 500 instead of the 502 shape
+  // the settings screen already knows how to show. They now share the same
+  // error boundary as the write below — one catch, one 502 shape either way.
   try {
+    const existing = await synqed.sync.getConfig('QUICKRESERVE')
+    const { storeId } = await resolveStoreScope()
+
+    // Labeled existing config: only the store it's already labeled for may
+    // resave it. Otherwise (no config yet, OR an existing config nobody ever
+    // labeled — a legacy row) this save is about to STAMP the label below, so
+    // it needs exactly one knowable store: refuse on a multi-store business
+    // (no safe store to bind to), and refuse if the actor's own store lookup
+    // came back null even though a store exists (a resolveStoreScope failure
+    // must never write a null label — that's the original bug one save later).
+    const misfiled = existing?.karute_store_id
+      ? existing.karute_store_id !== storeId
+      : (await synqed.stores.list()).stores.length > 1 || storeId === null
+
+    if (misfiled) {
+      return NextResponse.json(
+        {
+          error: 'qr_store_not_ready',
+          // Dev/log-facing only — the settings UI shows its own localized
+          // copy (messages/*.json: settings.bookingSyncStoreNotReady) keyed
+          // off the error code above, never this string.
+          message: "Quick Reserve sync isn't wired up for this store yet.",
+        },
+        { status: 409 },
+      )
+    }
+
     await synqed.sync.upsertConfig('QUICKRESERVE', {
       username,
       // Only send the password when the owner typed one — core keeps the stored
@@ -114,15 +120,17 @@ export async function POST(request: Request) {
       ...(existing?.store_slug ? { store_slug: existing.store_slug } : {}),
       ...(existing?.store_id ? { store_id: existing.store_id } : {}),
       // Stamp the karute_store_id label the guard above reads on every
-      // future save — the bug this fix round closes: the guard checked this
-      // field but nothing ever wrote it, so a fresh single-store business
-      // saved once (unlabeled) and was refused on its very next save. The
-      // guard already proved this value is non-null whenever we reach here.
+      // future save — the bug the earlier fix round closes: the guard
+      // checked this field but nothing ever wrote it, so a fresh
+      // single-store business saved once (unlabeled) and was refused on its
+      // very next save. The guard already proved this value is non-null
+      // whenever we reach here.
       karute_store_id: existing?.karute_store_id ?? storeId,
     })
   } catch (e) {
     // The old route never checked the write and always returned success — the
-    // "Config saved" false positive. Surface the real failure now.
+    // "Config saved" false positive. Surface the real failure now — whether
+    // it came from a guard read above or the write itself.
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Could not save QuickReserve settings' },
       { status: 502 },

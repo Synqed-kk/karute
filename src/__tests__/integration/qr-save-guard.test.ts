@@ -23,6 +23,14 @@
  *   (h) the actor's own store lookup resolves null even though a store
  *       exists → refuse (never write a null label — that IS the bug, one
  *       save later)
+ *
+ * Greptile fold: the guard's own reads (getConfig, resolveStoreScope, the
+ * conditional stores.list) ran BEFORE the try/catch, so a failure there
+ * escaped as an opaque 500 instead of the 502 shape the settings screen
+ * already knows how to render. Added:
+ *   (i) sync.getConfig throws → 502
+ *   (j) resolveStoreScope throws → 502
+ *   (k) stores.list throws → 502
  * See PKT-P0-QR-SAVE-GUARD-2026-09-16.md.
  */
 
@@ -49,6 +57,7 @@ jest.mock('@/lib/auth/store-scope', () => ({
 import { POST } from '@/app/api/sync/quickreserve/config/route'
 
 const client = jest.requireMock('@/lib/synqed/client') as { getSynqedClient: jest.Mock }
+const storeScope = jest.requireMock('@/lib/auth/store-scope') as { resolveStoreScope: jest.Mock }
 
 function mockClient(opts: {
   existing: Record<string, unknown> | null
@@ -157,5 +166,36 @@ describe('POST /api/sync/quickreserve/config — save guard (PKT-P0)', () => {
     actorStore.current = null
     const res = await POST(req())
     expect(res.status).toBe(409)
+  })
+
+  it('(i) sync.getConfig throws → 502, same shape as a failed write', async () => {
+    client.getSynqedClient.mockResolvedValue({
+      sync: {
+        getConfig: jest.fn(async () => { throw new Error('core down') }),
+        upsertConfig: jest.fn(async () => ({})),
+      },
+      stores: { list: jest.fn().mockResolvedValue({ stores: [{ id: 'store-0' }] }) },
+    })
+    const res = await POST(req())
+    expect(res.status).toBe(502)
+    expect(await res.json()).toMatchObject({ error: 'core down' })
+  })
+
+  it('(j) resolveStoreScope throws → 502', async () => {
+    mockClient({ existing: null, storeCount: 1 })
+    storeScope.resolveStoreScope.mockRejectedValueOnce(new Error('scope lookup failed'))
+    const res = await POST(req())
+    expect(res.status).toBe(502)
+    expect(await res.json()).toMatchObject({ error: 'scope lookup failed' })
+  })
+
+  it('(k) stores.list throws (multi-store check) → 502', async () => {
+    client.getSynqedClient.mockResolvedValue({
+      sync: { getConfig: jest.fn().mockResolvedValue(null), upsertConfig: jest.fn(async () => ({})) },
+      stores: { list: jest.fn(async () => { throw new Error('core down') }) },
+    })
+    const res = await POST(req())
+    expect(res.status).toBe(502)
+    expect(await res.json()).toMatchObject({ error: 'core down' })
   })
 })
