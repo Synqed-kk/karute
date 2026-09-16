@@ -1282,7 +1282,21 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // match) — environment drift since that entry was written, not caused by
 // this change; installed @synqed-kk/ui and vite are unchanged (0.3.2 /
 // 6.4.3, installed == lock), so the drift's cause wasn't chased further.
-const BUDGET_BYTES = 2_121_802
+//
+// RE-MEASURED 2026-09-16 after merging origin/main (post-#945) into
+// feat/capacity-adapter (#934) — S7's one-JST-day `windowFor` lead-in plus
+// the capacity types/adapter composed with main's line up to #945. Same CI
+// recipe, thin/dist emptied between two clean builds, byte-identical both
+// times (node v24.16.0, @synqed-kk/ui 0.3.2, installed == lock): en 134,814
+// · index 1,048,552 · vendor 937,791 = 2,121,157 B. Ceiling = 2,121,157 +
+// 1,000 = 2,122,157.
+//
+// +355 B against the prior entry's own figure, all in index (en/vendor
+// unchanged): 1,048,197 → 1,048,552 — the capacity-adapter branch's own S7
+// window-lead-in and capacity-row plumbing landing in the thin bundle.
+// Genuine new-feature volume, not bloat — same class as every prior raise
+// on this line.
+const BUDGET_BYTES = 2_122_157
 
 let dir
 try {
