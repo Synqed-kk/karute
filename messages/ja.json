@@ -910,6 +910,8 @@
     "title": "顧客",
     "newCustomer": "+ 新規顧客",
     "unknownName": "不明",
+    "otherStoreChip": "他店舗",
+    "otherStoreSection": "他店舗のお客様",
     "deletionBanner": {
       "title": "{name}様は削除済みです — 復元可能 残り{days}日",
       "titleToday": "{name}様のアプリ内復元期間は本日までです",

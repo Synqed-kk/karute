@@ -4,12 +4,52 @@ import { useState, useRef, useEffect } from 'react'
 import { useTranslations } from 'next-intl'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { foldSearchDigits } from '@/lib/customers/karute-number-match'
 
 export type CustomerOption = {
   id: string
   name: string
   furigana?: string | null
   phone?: string | null
+}
+
+/** A remote (company-wide) search result — same shape as a local row plus the
+ *  honest 他店舗 label (⚖ Liam 2026-09-16, P3 cross-branch search). */
+export type CustomerSearchOption = CustomerOption & { other_store: boolean }
+
+/**
+ * Shared debounced remote-search tier (P3): local filtering over the
+ * preloaded store-lensed `customers` prop always runs first and instantly;
+ * this ADDS a company-wide lookup once the query is long/specific enough to
+ * be worth a round trip. Used by CustomerCombobox itself and by
+ * RecordCustomerPickerDialog, which renders its own list but wants the exact
+ * same remote tier — ONE place decides when to fire and how to debounce.
+ */
+export function useRemoteCustomerSearch(
+  query: string,
+  search: ((query: string) => Promise<{ options: CustomerSearchOption[] } | { error: string }>) | undefined,
+): CustomerSearchOption[] {
+  const [results, setResults] = useState<CustomerSearchOption[]>([])
+  useEffect(() => {
+    const trimmed = query.trim()
+    const digits = foldSearchDigits(trimmed)
+    const eligible = !!search && (trimmed.length >= 2 || (digits.length > 0 && /^\d+$/.test(digits)))
+    if (!eligible) {
+      setResults([])
+      return
+    }
+    let cancelled = false
+    const timer = setTimeout(() => {
+      search!(trimmed).then((res) => {
+        if (!cancelled) setResults('options' in res ? res.options : [])
+      })
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [query, search])
+  return results
 }
 
 type CustomerComboboxProps = {
@@ -19,6 +59,10 @@ type CustomerComboboxProps = {
   onCreateNew: (query?: string) => void
   placeholder?: string
   disabled?: boolean
+  /** Opt-in company-wide search (P3) — omitted, the combobox stays local-only
+   *  exactly as before (ReassignCustomerAction/ReviewScreen/NewKaruteDialog
+   *  never pass this; only NewBookingDialog does). */
+  onRemoteSearch?: (query: string) => Promise<{ options: CustomerSearchOption[] } | { error: string }>
 }
 
 /** Rows one customer search shows at once. Exported because a caller that caps
@@ -26,14 +70,10 @@ type CustomerComboboxProps = {
  *  reading the capped array announces 8 matches over a salon of 20 (C-3). */
 export const CUSTOMER_SEARCH_LIMIT = 8
 
-/** Strip separators so "080-1234-5678" and "08012345678" match the same way.
- *  Full-width digits (０-９, the kana keyboard's default) fold to half-width
- *  first so phone search works without switching keyboards. */
-function digitsOnly(s: string): string {
-  return s
-    .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0))
-    .replace(/[-\s－]/g, '')
-}
+// digitsOnly moved to karute-number-match.ts as foldSearchDigits (imported
+// above) — the karute-number search needs the exact same fold, so there is
+// now one canonical version instead of two that could drift apart.
+const digitsOnly = foldSearchDigits
 
 /**
  * THE customer-search rule — name, furigana, or phone digits (separators
@@ -80,6 +120,7 @@ export function CustomerCombobox({
   onCreateNew,
   placeholder,
   disabled = false,
+  onRemoteSearch,
 }: CustomerComboboxProps) {
   const t = useTranslations('customers')
   const selectedCustomer = customers.find((c) => c.id === selectedId) ?? null
@@ -118,6 +159,11 @@ export function CustomerCombobox({
 
   const trimmedQuery = query.trim()
   const filtered = filterCustomers(customers, trimmedQuery)
+  // Remote tier (P3): local rows always win a dupe — a remote hit already
+  // offered locally is dropped, never shown twice.
+  const localIds = new Set(filtered.map((c) => c.id))
+  const remote = useRemoteCustomerSearch(trimmedQuery, onRemoteSearch)
+  const remoteRows = remote.filter((r) => !localIds.has(r.id))
 
   function handleSelect(customer: CustomerOption) {
     onSelect(customer.id)
@@ -174,7 +220,7 @@ export function CustomerCombobox({
            *  adapts to the room actually left instead of clipping at a
            *  fixed 240px inside the keyboard-shrunk dialog. */}
           <ul className="max-h-[min(15rem,35dvh)] overflow-y-auto py-1">
-            {filtered.length === 0 ? (
+            {filtered.length === 0 && remoteRows.length === 0 ? (
               <li className="px-3 py-2 text-sm text-muted-foreground">
                 {t('table.noResults')}
               </li>
@@ -200,6 +246,41 @@ export function CustomerCombobox({
                   )}
                 </li>
               ))
+            )}
+            {/* Remote tier (P3, ⚖ Liam 2026-09-16): company-wide rows the local
+             *  preloaded list doesn't have, appended below with a 他店舗 chip —
+             *  honest labelling, never mixed into the local rows above. */}
+            {remoteRows.length > 0 && (
+              <>
+                <li className="px-3 py-1 text-[11px] font-semibold text-muted-foreground" aria-hidden>
+                  {t('otherStoreSection')}
+                </li>
+                {remoteRows.map((customer) => (
+                  <li
+                    key={customer.id}
+                    role="option"
+                    aria-selected={customer.id === selectedId}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      handleSelect(customer)
+                    }}
+                    className={cn(
+                      'flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-muted',
+                      customer.id === selectedId && 'bg-muted font-medium',
+                    )}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {customer.name}
+                      <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        {t('otherStoreChip')}
+                      </span>
+                    </span>
+                    {customer.phone && (
+                      <span className="text-xs text-muted-foreground">{customer.phone}</span>
+                    )}
+                  </li>
+                ))}
+              </>
             )}
           </ul>
 

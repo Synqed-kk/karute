@@ -6,8 +6,12 @@
  * typed something. Matches by name or phone digits (dashes/spaces ignored on
  * both sides), caps results at 8, and closes on blur.
  */
-import { render, screen, fireEvent } from '@testing-library/react'
-import { CustomerCombobox, type CustomerOption } from '@/components/karute/CustomerCombobox'
+import { render, screen, fireEvent, act } from '@testing-library/react'
+import {
+  CustomerCombobox,
+  type CustomerOption,
+  type CustomerSearchOption,
+} from '@/components/karute/CustomerCombobox'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -117,6 +121,59 @@ describe('CustomerCombobox', () => {
       />,
     )
     expect(screen.getByRole('combobox')).toHaveValue('')
+  })
+
+  it('P3 (⚖ Liam 2026-09-16): appends a debounced remote result below the local ones with a 他店舗 chip', async () => {
+    jest.useFakeTimers()
+    try {
+      const remote: CustomerSearchOption[] = [{ id: 'r1', name: '遠藤三郎', other_store: true }]
+      const onRemoteSearch = jest.fn().mockResolvedValue({ options: remote })
+      render(
+        <CustomerCombobox
+          customers={[{ id: 'a', name: '田中花子' }]}
+          selectedId={null}
+          onSelect={jest.fn()}
+          onCreateNew={jest.fn()}
+          onRemoteSearch={onRemoteSearch}
+        />,
+      )
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(onRemoteSearch).toHaveBeenCalledWith('遠藤')
+      expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
+      expect(screen.getByText('otherStoreChip')).toBeInTheDocument()
+      expect(screen.getByText('otherStoreSection')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('a remote hit already offered locally is never shown twice', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'a', name: '田中花子', other_store: true }] as CustomerSearchOption[],
+      })
+      render(
+        <CustomerCombobox
+          customers={[{ id: 'a', name: '田中花子' }]}
+          selectedId={null}
+          onSelect={jest.fn()}
+          onCreateNew={jest.fn()}
+          onRemoteSearch={onRemoteSearch}
+        />,
+      )
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '田中' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getAllByText('田中花子')).toHaveLength(1)
+      expect(screen.queryByText('otherStoreChip')).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('closes the list on blur', () => {

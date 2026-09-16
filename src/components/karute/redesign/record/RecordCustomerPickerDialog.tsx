@@ -34,7 +34,9 @@ import { deriveFamilyInitials } from '@/lib/customers/identity'
 import {
   filterCustomers,
   CUSTOMER_SEARCH_LIMIT,
+  useRemoteCustomerSearch,
   type CustomerOption,
+  type CustomerSearchOption,
 } from '@/components/karute/CustomerCombobox'
 import type { RecordTargetBooking } from './RecordingTargetCard'
 
@@ -119,6 +121,9 @@ interface Props {
   currentAppointmentId?: string | null
   /** repoint: the recording day, pre-formatted ("8月18日(月)"). */
   dayLabel?: string
+  /** Opt-in company-wide search (P3, ⚖ Liam 2026-09-16) — same remote tier
+   *  CustomerCombobox uses. Undefined = local-only, exactly as before. */
+  onRemoteSearch?: (query: string) => Promise<{ options: CustomerSearchOption[] } | { error: string }>
 }
 
 export function RecordCustomerPickerDialog({
@@ -134,6 +139,7 @@ export function RecordCustomerPickerDialog({
   pinnedIsCurrent = true,
   currentAppointmentId = null,
   dayLabel,
+  onRemoteSearch,
 }: Props) {
   const repoint = variant === 'repoint'
   // A-7: the day restriction anchors on the ORIGINAL binding. An unbound take
@@ -197,6 +203,10 @@ export function RecordCustomerPickerDialog({
   )
   const hiddenMatches = matches.length - results.length
   const searching = trimmed.length > 0
+  // Remote tier (P3): local matches always win a dupe.
+  const localIds = useMemo(() => new Set(matches.map((c) => c.id)), [matches])
+  const remote = useRemoteCustomerSearch(trimmed, onRemoteSearch)
+  const remoteRows = remote.filter((r) => !localIds.has(r.id))
 
   return (
     <>
@@ -295,7 +305,7 @@ export function RecordCustomerPickerDialog({
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {t('target.searchResultsCount', { n: matches.length })}
               </p>
-              {results.length === 0 ? (
+              {results.length === 0 && remoteRows.length === 0 ? (
                 <p className="py-4 text-center text-[13px] text-muted-foreground">
                   {tCustomers('table.noResults')}
                 </p>
@@ -319,6 +329,29 @@ export function RecordCustomerPickerDialog({
                     <p className="text-center text-[11px] text-muted-foreground">
                       {t('target.searchMore', { n: hiddenMatches })}
                     </p>
+                  )}
+                  {/* Remote tier (P3, ⚖ Liam 2026-09-16): company-wide rows the
+                      local preloaded list doesn't have. No day/fact data for
+                      these (no cross-store read) — name + honest 他店舗 chip. */}
+                  {remoteRows.length > 0 && (
+                    <>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {tCustomers('otherStoreSection')}
+                      </p>
+                      <ul role="listbox" aria-label={tCustomers('otherStoreSection')} className="flex flex-col gap-2">
+                        {remoteRows.map((c) => (
+                          <SearchRow
+                            key={c.id}
+                            customer={c}
+                            fact={undefined}
+                            todayBooking={null}
+                            onSelect={onSelectCustomer}
+                            t={t}
+                            otherStoreLabel={tCustomers('otherStoreChip')}
+                          />
+                        ))}
+                      </ul>
+                    </>
                   )}
                 </>
               )}
@@ -659,12 +692,16 @@ function SearchRow({
   todayBooking,
   onSelect,
   t,
+  otherStoreLabel,
 }: {
   customer: CustomerOption
   fact: RecordCustomerFact | undefined
   todayBooking: RecordTargetBooking | null
   onSelect: (id: string) => void
   t: T
+  /** Set (P3) only for a remote/company-wide row the local list didn't
+   *  already have — renders the honest 他店舗 chip next to the name. */
+  otherStoreLabel?: string
 }) {
   const staffColor = getStaffColorByKey(
     fact?.staffColorKey as Parameters<typeof getStaffColorByKey>[0],
@@ -708,6 +745,11 @@ function SearchRow({
             {fact?.karuteNumber && (
               <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
                 {fact.karuteNumber}
+              </span>
+            )}
+            {otherStoreLabel && (
+              <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                {otherStoreLabel}
               </span>
             )}
           </span>
