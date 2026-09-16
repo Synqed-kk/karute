@@ -176,7 +176,7 @@ describe('DayNumbersLine — the mock’s §v9d geometry and grammar', () => {
     expect(item.children[1].tagName.toLowerCase()).toBe('b')
   })
 
-  it('a closed day’s 休 is a VALUE (ink, bold), not a grey word (mock: <b>休</b>)', () => {
+  it('a closed day’s 休 is a VALUE (ink, 600), not a grey word (mock: <b>休</b>)', () => {
     const DayNumbersLine = loadDayNumbersLine({ closedDays: true })
     const { container } = render(
       <DayNumbersLine row={row({ closed: true, count: 0 })} soloMode={false} typeSlot="new" locale="ja" />,
@@ -188,7 +188,7 @@ describe('DayNumbersLine — the mock’s §v9d geometry and grammar', () => {
 })
 
 describe('DayNumbersLine — the pending state is two shims, not nothing (R3-18)', () => {
-  it('renders the mock’s two 52×11 shims while the router transition runs', () => {
+  it('renders the mock’s two 52-wide shims while the router transition runs (height 11px, 2026-09-15: matches WeekRows’ pill for the same 13px value)', () => {
     const DayNumbersLine = loadDayNumbersLine()
     const { container } = render(
       <DayNumbersLine row={row()} soloMode={false} typeSlot="off" locale="ja" pending />,
@@ -221,9 +221,10 @@ describe('DayNumbersLine — the pending state is two shims, not nothing (R3-18)
   it('keeps the loaded line’s block height, so the list card below does not jump', () => {
     // jsdom cannot measure, so the rule is pinned rather than the pixels: the
     // line's min-height is its own loaded block height — 1.25em of content at
-    // whichever font size the breakpoint gives it (16.875 px at 393, 17.5 px
-    // at 430) plus the 0.25rem of py-0.5, because min-height is border-box.
-    // Measured 20.88 px loaded AND pending at 393; the proof is Playwright's.
+    // the line's own 13px (16.25 px, 2026-09-15 type-system fix — one flat
+    // size, no breakpoint) plus the 0.25rem of py-0.5, because min-height is
+    // border-box. Measured 20.25 px loaded AND pending at 393; the proof is
+    // the T-5 production-build screenshot.
     const DayNumbersLine = loadDayNumbersLine()
     const loaded = render(<DayNumbersLine row={row()} soloMode={false} typeSlot="off" locale="ja" />)
     const busy = render(

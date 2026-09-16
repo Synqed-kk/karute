@@ -23,8 +23,11 @@ interface DayNumbersLineProps {
   pending?: boolean
 }
 
-// mock `.dayline .it b` — 600, ink, tabular. The tone map (shared with the
-// week rows) supplies the colour; 600 + tabular are the line's own.
+// mock `.dayline .it b` — ink, tabular. The tone map (shared with the week
+// rows) supplies the colour. Weight is the APP's type scale (2026-09-15,
+// feedback_design_system_type_not_mock_type.md), not the mock's own 700: it
+// matches the reservation agenda's value weight (ReservationMobileAgenda.tsx
+// :316) — 600, never 700, on a value at this size.
 const VALUE = 'font-semibold tabular-nums'
 
 // 予約 (count) carries its own unit in the value ("11件") and shows no word;
@@ -90,6 +93,7 @@ export function DayNumbersLine({ row, soloMode, typeSlot, pending }: DayNumbersL
         // returned null, so the line vanished mid-fetch and the list jumped up
         // by its own block height — and before that it showed the previous
         // day's numbers as if they were this day's.
+        //
         // Shim height 11px (2026-09-15): matches WeekRows' own pill height
         // for a same-size (13px) value — the two surfaces now shimmer the
         // same proportion.
