@@ -354,10 +354,22 @@ export async function listInvitesWithClient(
    *  staffWriteInScope, the facade's Bearer ensureStaffWriteInScope. Omitted
    *  = unfiltered, the shape every pre-clamp caller had.
    *
-   *  FRESH invites (no invited_staff_id) always stay: an email-only invite
-   *  has no store dimension to judge yet — it gets one when the
-   *  mandatory-store-at-creation lane lands, and this filter widens then. */
+   *  ⚖ FOLD ROUND 3 (fresh-eyes F5) — THE WIDENING, STATED. That lane is this
+   *  branch: a fresh invite now MINTS its card, so fresh rows carry an
+   *  invited_staff_id and go through this lens like any re-invite. That is the
+   *  rule now — a pending invite is visible to whoever may write to the card it
+   *  points at.
+   *
+   *  With ONE exception, `selfStaffId`: the person who CREATED the invite keeps
+   *  it on their own pending list. A card minted during a core blip can end up
+   *  with no store at all (the "an unreadable store list never blocks hiring"
+   *  arm), and a store-clamped creator would otherwise lose sight of the invite
+   *  they had just sent, with no way to cancel it. The revoke clamp free-passes
+   *  the same rows for the same reason (reinviteTargetStaffIdWithClient) —
+   *  never show-and-refuse. */
   canSeeReinvite?: (staffId: string) => Promise<boolean>,
+  /** The VIEWER's own staff id, so their own invites stay on their list. */
+  selfStaffId?: string | null,
 ): Promise<InviteRow[]> {
   try {
     const { invites } = await synqed.invites.list()
@@ -373,7 +385,9 @@ export async function listInvitesWithClient(
       // per row (queued, not built).
       const visible = await Promise.all(
         pending.map((i) =>
-          i.invited_staff_id ? canSeeReinvite(i.invited_staff_id) : Promise.resolve(true),
+          i.invited_staff_id && !(selfStaffId && i.invited_by === selfStaffId)
+            ? canSeeReinvite(i.invited_staff_id)
+            : Promise.resolve(true),
         ),
       )
       pending = pending.filter((_, idx) => visible[idx])
@@ -451,6 +465,7 @@ export async function listInvites(): Promise<InviteRow[]> {
       synqed,
       await memberEmailsForBusiness(businessId),
       (targetStaffId) => staffWriteInScope({ targetStaffId, actorId }),
+      actorId,
     )
   } catch {
     return []
@@ -468,9 +483,18 @@ export async function listInvites(): Promise<InviteRow[]> {
 export async function reinviteTargetStaffIdWithClient(
   synqed: InviteClient,
   id: string,
+  /** The CALLER's own staff id. An invite they created themselves has nothing
+   *  to clamp: it is on their own pending list (listInvitesWithClient's same
+   *  free-pass), and cancelling it adds nobody to any store — ⚖ fold round 3,
+   *  fresh-eyes F5. Without the pair, a clamped creator sees an invite they
+   *  cannot cancel, which is the show-and-refuse the isolation law forbids. */
+  selfStaffId?: string | null,
 ): Promise<string | null> {
   const { invites } = await synqed.invites.list()
-  return invites.find((i) => i.id === id)?.invited_staff_id ?? null
+  const invite = invites.find((i) => i.id === id)
+  if (!invite) return null
+  if (selfStaffId && invite.invited_by === selfStaffId) return null
+  return invite.invited_staff_id ?? null
 }
 
 /** Client-threaded core of revokeInvite (facade Bearer path, design-parity
@@ -581,7 +605,7 @@ export async function revokeInvite(id: string): Promise<{ ok: true } | { error: 
   // resolveStoreScope is request-cached, so this costs nothing extra.
   try {
     if (!(await resolveStoreScope()).viewAll) {
-      const targetStaffId = await reinviteTargetStaffIdWithClient(synqed, id)
+      const targetStaffId = await reinviteTargetStaffIdWithClient(synqed, id, actorId)
       if (targetStaffId && !(await staffWriteInScope({ targetStaffId, actorId }))) {
         return { error: 'STORE_SCOPE_DENIED' }
       }

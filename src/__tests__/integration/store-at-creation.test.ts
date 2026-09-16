@@ -13,7 +13,7 @@
  */
 
 import { createStaffCore } from '@/actions/staff'
-import { createInviteCore, revokeInviteCore } from '@/actions/invites'
+import { createInviteCore, listInvitesWithClient, revokeInviteCore } from '@/actions/invites'
 import { setStaffStoresAtCreationCore, createStoreCore } from '@/actions/stores'
 import {
   INVITE_NAME_REQUIRED,
@@ -493,6 +493,29 @@ describe('a revoked fresh invite leaves no orphan card (F4)', () => {
 // other is permanent. The duplicate check that existed only looked at people
 // who ALREADY have a login.
 // ─────────────────────────────────────────────────────────────────────────────
+describe('a creator never loses sight of the invite they just sent (F5)', () => {
+  // A fresh invite now carries invited_staff_id, so it goes through the same
+  // store lens as a re-invite. A card minted during a core blip can have NO
+  // store (the "an unreadable store list never blocks hiring" arm), and the
+  // lens refuses a storeless target — which used to hide the row from the very
+  // manager who had just created it, with no way to cancel it.
+  const rows = [
+    { id: 'inv-mine', email: 'a@test.com', role: 'STYLIST', status: 'pending', created_at: '', expires_at: null, invited_by: 'mgr-1', invited_staff_id: 'card-a' },
+    { id: 'inv-theirs', email: 'b@test.com', role: 'STYLIST', status: 'pending', created_at: '', expires_at: null, invited_by: 'mgr-2', invited_staff_id: 'card-b' },
+  ]
+  const api = { invites: { list: async () => ({ invites: rows }) } }
+
+  it('keeps the creator’s own row and still hides somebody else’s', async () => {
+    const list = await listInvitesWithClient(
+      api as never,
+      undefined,
+      async () => false, // every card is out of this clamped viewer's stores
+      'mgr-1',
+    )
+    expect(list.map((i) => i.id)).toEqual(['inv-mine'])
+  })
+})
+
 describe('one pending fresh invite per email (F4)', () => {
   const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1' }
 

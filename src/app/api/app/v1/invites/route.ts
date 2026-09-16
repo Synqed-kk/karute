@@ -69,6 +69,10 @@ export const GET = facadeHandler('invite.list', async (ctx) => {
         () => true,
         () => false,
       ),
+    // ⚖ Fold round 3 (F5): the caller's own invites stay on their own list,
+    // even when the card they point at has no store yet. Bearer twin of the
+    // id web's listInvites passes.
+    ctx.identity.authUserId,
   )
   return ok(ctx, { invites })
 })

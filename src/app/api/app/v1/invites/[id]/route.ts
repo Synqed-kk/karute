@@ -46,7 +46,11 @@ export const DELETE = facadeHandler<Params>('invite.revoke', async (ctx) => {
   // tell a re-invite from a fresh one — is pure cost there, and its failure
   // must never block a revoke that was never clampable.
   if (!ctx.identity.capabilities.has('stores.viewAll')) {
-    const targetStaffId = await reinviteTargetStaffIdWithClient(synqed, id)
+    const targetStaffId = await reinviteTargetStaffIdWithClient(
+      synqed,
+      id,
+      ctx.identity.authUserId,
+    )
     if (targetStaffId) {
       await ensureStaffWriteInScope({
         synqed,
