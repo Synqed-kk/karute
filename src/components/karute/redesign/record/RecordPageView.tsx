@@ -3926,7 +3926,7 @@ export function RecordPageView({
               appointmentId: booking.id,
             })
           }}
-          onSelectCustomer={(id) => {
+          onSelectCustomer={(id, name) => {
             // The pinned original → back to the take's own binding, appointment
             // and all. A re-point never invents a booking.
             if (offerBinding && id === offerBinding.customerId) {
@@ -3935,11 +3935,13 @@ export function RecordPageView({
             }
             // A-7: a searched customer, which only an UNBOUND take can reach —
             // no booking to attach, exactly like the walk-in pick-at-review
-            // path this mirrors.
+            // path this mirrors. `name` comes straight from the picker row
+            // (post-#945: a company-wide pick is not in `customers`, so the
+            // lookup fallback alone would mislabel it recoverCustomerUnknown).
             repointTo({
               customerId: id,
               customerName:
-                customers.find((c) => c.id === id)?.name || t('recoverCustomerUnknown'),
+                name ?? customers.find((c) => c.id === id)?.name ?? t('recoverCustomerUnknown'),
               appointmentId: null,
             })
           }}
