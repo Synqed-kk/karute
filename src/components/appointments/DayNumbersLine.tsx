@@ -79,6 +79,15 @@ export function DayNumbersLine({ row, soloMode, typeSlot, pending }: DayNumbersL
       data-day-line
       className="mb-2 flex min-h-[calc(1.25em+0.25rem)] items-center gap-[14px] whitespace-nowrap py-0.5 text-[13px] leading-[1.25]"
     >
+      {/* Greptile G2 — the two shims below are aria-hidden, so a screen
+       *  reader heard nothing while this line was loading. WeekRows already
+       *  announces its own pending state this way (role="status", the same
+       *  key); ported verbatim, sr-only so no visible pixel moves. */}
+      {pending && (
+        <p role="status" className="sr-only">
+          {t('loading')}
+        </p>
+      )}
       {pending || !row ? (
         // mock line 790: `numsHTML(d, pend)` returns TWO shims. The port
         // returned null, so the line vanished mid-fetch and the list jumped up
