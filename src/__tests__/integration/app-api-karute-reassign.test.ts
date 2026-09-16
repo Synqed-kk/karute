@@ -243,7 +243,13 @@ describe('POST /karute/[id]/reassign', () => {
     const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
     expect(res.status).toBe(404)
     expect(karuteUpdate).not.toHaveBeenCalled()
-    expect(auditSpy).not.toHaveBeenCalled()
+    // No SUCCESS row — and one REFUSAL row (FRESH-EYES-P1 §5a). The 404 body is byte-unchanged, which the comparison pin below still proves.
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0]).toMatchObject({
+      action: 'karute.store_write_refused',
+      targetId: 'kar-1',
+      detail: expect.objectContaining({ door: 'karute.customer_reassign' }),
+    })
   })
 
   it('R9-2 (was R3-1): clamped actor + an out-of-store SOURCE record → 404 on the PREVIEW phase too (confirmed:false) — the leak-close half', async () => {
@@ -252,7 +258,13 @@ describe('POST /karute/[id]/reassign', () => {
     const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: false }), routeFor('kar-1'))
     expect(res.status).toBe(404)
     expect(karuteUpdate).not.toHaveBeenCalled()
-    expect(auditSpy).not.toHaveBeenCalled()
+    // No SUCCESS row — and one REFUSAL row (FRESH-EYES-P1 §5a). The 404 body is byte-unchanged, which the comparison pin below still proves.
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0]).toMatchObject({
+      action: 'karute.store_write_refused',
+      targetId: 'kar-1',
+      detail: expect.objectContaining({ door: 'karute.customer_reassign' }),
+    })
   })
 
   // R5-1: flips the round-3 "ALLOWED" pin — null-store now fails closed for
@@ -264,7 +276,13 @@ describe('POST /karute/[id]/reassign', () => {
     const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
     expect(res.status).toBe(404)
     expect(karuteUpdate).not.toHaveBeenCalled()
-    expect(auditSpy).not.toHaveBeenCalled()
+    // No SUCCESS row — and one REFUSAL row (FRESH-EYES-P1 §5a). The 404 body is byte-unchanged, which the comparison pin below still proves.
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0]).toMatchObject({
+      action: 'karute.store_write_refused',
+      targetId: 'kar-1',
+      detail: expect.objectContaining({ door: 'karute.customer_reassign' }),
+    })
   })
 
   // R9-1/R9-2 (fix round 9, Greptile round-5 3/5) — existence-oracle class.

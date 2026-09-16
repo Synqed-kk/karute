@@ -202,7 +202,13 @@ describe('PATCH /karute/[id]/summary (edit-layer W2 summary half)', () => {
     const res = await PATCH(patchReq({ content: '・直した要約' }), routeFor('kar-1'))
     expect(res.status).toBe(404)
     expect(update).not.toHaveBeenCalled()
-    expect(auditSpy).not.toHaveBeenCalled()
+    // See app-api-karute-entry-edit: the refusal files its own row now.
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0]).toMatchObject({
+      action: 'karute.store_write_refused',
+      targetId: 'kar-1',
+      detail: expect.objectContaining({ door: 'karute.summary_edit' }),
+    })
   })
 
   it('that refusal is BYTE-IDENTICAL to a missing id — no existence oracle', async () => {

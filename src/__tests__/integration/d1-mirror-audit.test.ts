@@ -22,7 +22,12 @@ jest.mock('next/cache', () => ({
 jest.mock('next-intl/server', () => ({
   getTranslations: jest.fn(async () => (k: string) => k),
 }))
-jest.mock('@/lib/audit-web', () => ({ auditWeb: jest.fn(async () => undefined) }))
+jest.mock('@/lib/audit-web', () => ({
+  auditWeb: jest.fn(async () => undefined),
+  // The store lock's REFUSAL row needs the same identity the success row
+  // carries, so the web doors resolve it BEFORE the lock now.
+  resolveWebAuditContext: jest.fn(async () => ({ actorId: 'auth-user-1', businessId: 'biz-1' })),
+}))
 jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
   getCurrentUserStaffId: jest.fn(async () => 'staff-1'),

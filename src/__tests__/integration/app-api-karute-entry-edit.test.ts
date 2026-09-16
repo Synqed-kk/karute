@@ -199,7 +199,13 @@ describe('PATCH /karute/[id]/entries/[entryId] (edit-layer W2 PR-B)', () => {
     const res = await PATCH(patchReq({ content: 'edited', expectedVersion: 4 }), routeFor('kar-1', 'e1'))
     expect(res.status).toBe(404)
     expect(updateEntry).not.toHaveBeenCalled()
-    expect(auditSpy).not.toHaveBeenCalled()
+    // No SUCCESS row — and one REFUSAL row (FRESH-EYES-P1 §5a). The 404 body stays byte-identical to a missing id; the pin below still proves it.
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0]).toMatchObject({
+      action: 'karute.store_write_refused',
+      targetId: 'kar-1',
+      detail: expect.objectContaining({ door: 'karute.entry_edit' }),
+    })
   })
 
   it('that refusal is BYTE-IDENTICAL to a missing id — no existence oracle', async () => {
