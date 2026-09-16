@@ -2156,9 +2156,10 @@ export function TodayScreen(props: TodayProps) {
         // DOOR holds in a stronger form: the wrapper cannot reach the book
         // except through what it is given.
         //
-        // ⚖ D-53 (ak)/(al) — `BookDoor`'s own comment calls this: the door's
-        // signature (`bedViewsFor`) is the one that leads, so a 3-arg closure
-        // over the chrome pair sits here rather than widening the frozen type.
+        // ⚖ D-53 (ak)/(al) — the `BookDoor` type comment calls this out: the
+        // door signature (`bedViewsFor`) is the one that leads, so a 3-arg
+        // closure over the chrome pair sits here rather than widening the
+        // frozen type.
         bookOf: (lanes, frame, inHand) => bedViewsFor(lanes, frame, inHand, chromeAsk),
         closeMin: hours.close,
         nowMin: props.sell.nowMinute,
@@ -2170,7 +2171,7 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ FIX ROUND F2 — and it is the BOARD-SCOPED list, at both doors.
         released: releasedHere,
       }),
-    [committedLanes, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
+    [committedLanes, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere, chromeAsk],
   )
 
   /** ⚖ D-11 · ROUND 2 (2026-09-13) — THE TIMED RELEASE, APPLIED ONCE, WHERE
@@ -2230,7 +2231,7 @@ export function TodayScreen(props: TodayProps) {
           (l) => storeHasBeds(committedLanes, l.stores),
         )
       : undefined),
-    [heldCommitted, locked, committedLanes, ledgerFrame],
+    [heldCommitted, locked, committedLanes, ledgerFrame, chromeAsk],
   )
 
   /** ⚖ SPEC-HONEST-COUNT v5 (1) — THE SALE FILTER, ON TOP OF THE ONE NETTING.
@@ -2504,7 +2505,7 @@ export function TodayScreen(props: TodayProps) {
       // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
       (l) => storeHasBeds(committedLanes, l.stores),
     )
-  }, [sellDrawn, gapDrawn, honest, heldCommitted, locked, committedLanes, ledgerFrame])
+  }, [sellDrawn, gapDrawn, honest, heldCommitted, locked, committedLanes, ledgerFrame, chromeAsk])
 
   /** ⚖ SPEC-R2 §3.1 — THE TWO PUBLISHED LAYERS, and they are the only thing the
    *  counters read. `sellDrawn`/`gapDrawn` stay the DERIVATION: the row draws
@@ -2636,7 +2637,7 @@ export function TodayScreen(props: TodayProps) {
   const bedDoorFor = useCallback(
     (askerId: string | null, lanes: BoardLane[] = boardLanes) =>
       bedDoor(lanes === boardLanes ? ledger : bookFor(lanes, ledgerFrame, handId, FOREIGN_BOOKS, chromeAsk), lanes, askerId),
-    [boardLanes, ledger, ledgerFrame, handId],
+    [boardLanes, ledger, ledgerFrame, handId, chromeAsk],
   )
   /** ⚖ NUDGE-GUARD — WHERE THE STORE'S COMMITTED DAY STILL HAS THE CARD BEING MOVED.
    *  The guard prices a move against this span, not against the lane with the card
@@ -2683,7 +2684,7 @@ export function TodayScreen(props: TodayProps) {
       if (!built.has(key)) built.set(key, doorFor(excludeId, lanes))
       return built.get(key)
     }
-  }, [boardLanes, ledger, ledgerFrame])
+  }, [boardLanes, ledger, ledgerFrame, chromeAsk])
   /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET FOR THE STAFF DOOR: the same
    *  builder, the BOARD world's snapshot, out of the frame's own book. One
    *  builder, two worlds; the sales door's instance is above.
@@ -2789,7 +2790,7 @@ export function TodayScreen(props: TodayProps) {
    *  line. */
   const windowDoorOn = useCallback((lanes: BoardLane[]) => {
     return SELLING_ENGINE_LAW ? bedDoor(bookFor(lanes, ledgerFrame, null, FOREIGN_BOOKS, chromeAsk), lanes, null) : undefined
-  }, [ledgerFrame])
+  }, [ledgerFrame, chromeAsk])
   /** The rail's own input, asked of a SETTLED board. Every field's source is
    *  named; the five constants are what make this the DAY question rather than a
    *  placement one — nothing is being placed, so there is no `excludeId`, no
@@ -2872,7 +2873,7 @@ export function TodayScreen(props: TodayProps) {
       }
       return windowsOn(committedLanes, inputOn(committedLanes))
     },
-    [guardOn, honest, heldCommitted, locked, committedLanes, ledgerFrame, inputOn],
+    [guardOn, honest, heldCommitted, locked, committedLanes, ledgerFrame, inputOn, chromeAsk],
   )
   /** THE 元に戻す BOARD. It collapses to `committedLanes` when nothing is staged,
    *  so this memo — and only this one — may take the pending gate. */
@@ -2912,7 +2913,7 @@ export function TodayScreen(props: TodayProps) {
     // board-scoped keep-back as the committed side at :2085 — `lostOn` subtracts
     // these two boards, so a release on one of them alone IS a reported loss.
     return releaseTimed(originHeld, props.sell.nowMinute, beforeMin, keptBackHere).mask
-  }, [dayStaged, originLanes, ledgerFrame, hours.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere])
+  }, [dayStaged, originLanes, ledgerFrame, hours.close, props.sell.nowMinute, beforeMin, keptBackHere, props.guard.config, props.guard.mode, releasedHere, chromeAsk])
   /** ⚖ HONEST-COUNT ROUND 1 — THE 元に戻す BOARD'S OWN HONEST SET.
    *
    *  `lostOn` subtracts two settled boards, so both of them have to come out of
@@ -2944,7 +2945,7 @@ export function TodayScreen(props: TodayProps) {
       // ⚖ D-52 (g) — the mixed board: a row whose store owns no bed lane holds its 枠 on staff time alone (the mask's and the door's rule, handed to the netting).
       (l) => storeHasBeds(originLanes, l.stores),
     )
-  }, [honest, dayStaged, originReleased, originLanes, ledgerFrame, locked])
+  }, [honest, dayStaged, originReleased, originLanes, ledgerFrame, locked, chromeAsk])
   /** ⚖ D-20 (1) — the middle arm mirrors `dayCommitted`'s own: with the netting
    *  off but the law on and a released origin mask in hand, read that RELEASED
    *  mask in the day layer's shape (`on: false`, the identity answer) instead
@@ -2968,7 +2969,7 @@ export function TodayScreen(props: TodayProps) {
                 : windowsOn(originLanes, inputOn(originLanes)))
           : dayCommitted)
       : EMPTY_WINDOWS),
-    [guardOn, dayStaged, honestOrigin, originReleased, originLanes, ledgerFrame, locked, inputOn, dayCommitted],
+    [guardOn, dayStaged, honestOrigin, originReleased, originLanes, ledgerFrame, locked, inputOn, dayCommitted, chromeAsk],
   )
   // ⚖ FIX ROUND F5 — the board world's per-lane index is GONE, not merely
   // unused: the rest cue was its only reader and it now reads the committed
