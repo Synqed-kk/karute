@@ -141,6 +141,13 @@ export interface CapacityInputs {
   /** The salon's solo_mode capability — only consulted while
    *  BOOKING_SWITCHES.multiStaffCapacity is OFF. */
   soloMode?: boolean
+  /** The store row could not be read (a transient failure — never "no store
+   *  id to read"). No fact is set for ANY day in this call, so every row and
+   *  cell falls through the SAME no-store path an unresolved door already
+   *  uses (`capacityRowFields(undefined)` → `'unknown'`), rather than let the
+   *  caller's org-wide fallback type decide a lane kind for a store we could
+   *  not actually check (⚖ G2, Greptile round 1 #934). */
+  storeRowDegraded?: boolean
 }
 
 const MS_PER_DAY = 86_400_000
@@ -242,6 +249,11 @@ function capacityFactsFor(
 
   const facts = new Map<string, CapacityFact>()
   for (const key of dayKeys) {
+    // ⚖ G2 — degraded: no entry at all, so the caller reading this key falls
+    // through to the same no-store path an out-of-window month already hits
+    // (capacityRowFields(undefined)), withholding capacity instead of
+    // computing one off the org-wide fallback type.
+    if (inputs.storeRowDegraded) continue
     const dayStartMs = jstDayStartMs(key)
     const hoursFact = inputs.hoursFacts?.get(key)
     facts.set(

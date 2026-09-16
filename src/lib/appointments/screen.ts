@@ -123,6 +123,12 @@ export interface AppointmentsScreenInputs {
    *  many people and no percentage is honest at any layer. Absent/null reads
    *  as not class-bound. */
   businessType?: string | null
+  /** ⚖ G2 (Greptile round 1 #934) — the store row the caller tried to read
+   *  FAILED (never "there was no store id to read"); `businessType` above
+   *  still fell to the org-wide setting the same way a genuine no-override
+   *  store would, so THIS is the flag that says that fallback is a guess and
+   *  must not decide the store's lane kind. Absent = not degraded. */
+  storeRowDegraded?: boolean
   enrichment: Map<string, CustomerEnrichment>
   packUsage: ReadonlyMap<string, { remaining: number; size: number }>
 }
@@ -247,6 +253,7 @@ export function buildAppointmentsScreen(
     prevMonthWindow,
     hoursFacts,
     businessType,
+    storeRowDegraded,
     enrichment,
     packUsage,
   } = input
@@ -486,7 +493,12 @@ export function buildAppointmentsScreen(
   // — at every layer, behind every switch, until core models class capacity
   // (C1 §6 / C2). Read from the STORE's own vertical where core carries it,
   // so a chain can run a studio next to a salon.
-  const laneKind: LaneKind = isClassBoundBusinessType(businessType) ? 'none' : 'staff'
+  // ⚖ G2 — a degraded store read never gets to decide a lane kind: laneKind
+  // stays the adapter's own neutral default ('staff'), and storeRowDegraded
+  // below withholds capacity entirely (capacityFactsFor's own no-store path)
+  // before this value would ever be read.
+  const laneKind: LaneKind =
+    !storeRowDegraded && isClassBoundBusinessType(businessType) ? 'none' : 'staff'
 
   const rowsFor = (win: AppointmentWindow, from: Date, to: Date): WeekDayRowData[] =>
     appointmentsToWeekData(
@@ -500,7 +512,7 @@ export function buildAppointmentsScreen(
       { cancelled: win.cancelled, noShow: win.noShow },
       hoursFacts,
       soloMode,
-      { rosterHeadcount: capacityRoster, laneKind },
+      { rosterHeadcount: capacityRoster, laneKind, storeRowDegraded },
     )
 
   let weekData: WeekDayRowData[] | null = null
@@ -532,7 +544,7 @@ export function buildAppointmentsScreen(
         monthWin.counted,
         monthRange.monthStart,
         monthRange.monthEnd,
-        { hoursFacts, soloMode, rosterHeadcount: capacityRoster, laneKind },
+        { hoursFacts, soloMode, rosterHeadcount: capacityRoster, laneKind, storeRowDegraded },
       )
       // 先月同期間比, in the SAME branch that owns the grid: a truncated read
       // can then never carry a delta by construction, rather than by the

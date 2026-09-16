@@ -286,6 +286,10 @@ export default async function AppointmentsPage({
     // …and that same window carries the store's vertical, resolved next to the
     // store's hours so the two can never describe different stores.
     businessType: (weekWindow ?? monthWindow ?? dayWindow)?.businessType ?? null,
+    // ⚖ G2 — a store row the action could not read (never "no store id"):
+    // buildAppointmentsScreen must withhold capacity for this window rather
+    // than let the org-wide fallback above decide a lane kind for it.
+    storeRowDegraded: (weekWindow ?? monthWindow ?? dayWindow)?.storeRowDegraded ?? false,
     enrichment,
     packUsage,
   })

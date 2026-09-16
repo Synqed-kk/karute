@@ -297,10 +297,22 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       // says nothing about whether this shop runs classes, and the org-wide
       // setting already answers that for every store that has not overridden
       // it. 502-ing the whole week over it would be the louder lie.
+      //
+      // ⚖ G2 — the catch returns `undefined`, NEVER `null`: `null` stays "no
+      // store id to read" (the branch below never even calls this), so
+      // `store === undefined` is the one honest way to tell a FAILED read
+      // apart from a genuine no-row. `businessType` below still falls to the
+      // org setting either way (unchanged) — the `storeRowDegraded` field
+      // passed to buildAppointmentsScreen, derived from this sentinel, is
+      // what now tells the screen the org type is a guess it must not use to
+      // decide this store's lane kind.
       storeId
         ? synqed.stores.get(storeId).catch((err) => {
-            console.error('[screens/appointments] store row read degraded:', err)
-            return null
+            console.error(
+              '[screens/appointments] store row read degraded — capacity withheld, not guessed:',
+              err,
+            )
+            return undefined
           })
         : Promise.resolve(null),
     ])
@@ -357,6 +369,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       // the business-wide setting second. Empty string is the org default.
       businessType:
         (store ? coreBusinessType(store) : null) || (orgSettings?.business_type || null),
+      storeRowDegraded: store === undefined,
       enrichment,
       packUsage,
     })

@@ -467,6 +467,54 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(totalRangeBookings).toBe(1)
   })
 
+  // ⚖ G2 (Greptile round 1 #934, P1, CONFIRMED) — a store row read that FAILS
+  // must never be indistinguishable from "no override": the org-wide type
+  // used to decide the lane kind either way, so a salon under a class-bound
+  // org lost its percentage, and a studio under a salon org printed one.
+  describe('⚖ G2 — a degraded store row withholds capacity, never guesses it from the org type', () => {
+    it('stores.get rejects → every week row is unknown, never a number, and the count table still renders', async () => {
+      fakeClient.stores.get.mockRejectedValueOnce(new Error('core 503'))
+      const res = await GET(
+        req({}, 'https://s/api/app/v1/screens/appointments?view=week'),
+        route,
+      )
+      expect(res.status).toBe(200)
+      const dto = await dtoOf(res)
+      expect(dto.weekData).toHaveLength(7)
+      for (const day of dto.weekData!) {
+        expect(day.capacityReason).toBe('unknown')
+        expect(day.capacityMinutes).toBeNull()
+        expect(day.occupancyPct).toBeNull()
+      }
+      // The 件 count is untouched — a degraded store row is not a degraded week.
+      const totalRangeBookings = dto.weekData!.reduce((n, d) => n + d.count, 0)
+      expect(totalRangeBookings).toBe(1)
+    })
+
+    it('the positive twin: a resolved store row with no override still falls to a class-bound org type', async () => {
+      const orgSettingsMock = jest.requireMock('@/actions/org-settings') as {
+        orgSettingsWithClient: jest.Mock
+      }
+      orgSettingsMock.orgSettingsWithClient.mockResolvedValueOnce({
+        ticket_packs_enabled: true,
+        operating_hours: null,
+        business_type: 'yoga_studio',
+      })
+      // fakeClient.stores.get's default ({}) resolves cleanly with no
+      // business_type of its own — a genuine no-override, not a degraded read.
+      const res = await GET(
+        req({}, 'https://s/api/app/v1/screens/appointments?view=week'),
+        route,
+      )
+      expect(res.status).toBe(200)
+      const dto = await dtoOf(res)
+      for (const day of dto.weekData!) {
+        expect(day.laneKind).toBe('none')
+        expect(day.capacityReason).toBe('kind-none')
+      }
+    })
+  })
+
   // The 予約 date-jump panel's PHONE month door: the shell has no server
   // actions, so it re-reads THIS route with view=month and any day of the month
   // it wants. No new endpoint and no new audit action — but until now nothing

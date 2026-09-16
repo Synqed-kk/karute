@@ -245,6 +245,20 @@ describe('getAppointmentWindow — a failed read is an ERROR, never a calm empty
   })
 })
 
+describe('⚖ G2 — a degraded store row is reported, never silently absorbed (Greptile round 1 #934)', () => {
+  it('stores.get rejects → storeRowDegraded true, never null-shaped like "no store id"', async () => {
+    const s = await spies()
+    s.storeGet.mockRejectedValueOnce(new Error('core 503'))
+    const win = await getAppointmentWindow(FROM, TO, 'all')
+    expect(win.storeRowDegraded).toBe(true)
+  })
+
+  it('a successfully-read store row (even an empty one) is NOT degraded', async () => {
+    const win = await getAppointmentWindow(FROM, TO, 'all')
+    expect(win.storeRowDegraded).toBe(false)
+  })
+})
+
 describe('⚖ S7 — the fetch starts one JST day EARLY (the window-edge leak)', () => {
   it('asks core from the PREVIOUS JST midnight, while the hours still cover the visible days', async () => {
     await getAppointmentWindow(FROM, TO, 'all')

@@ -52,6 +52,12 @@ export type AppointmentWindowPayload = AppointmentWindow & {
    *  class-bound, in which case one booking row is many people and no
    *  percentage is honest. Null = unknown, which reads as not class-bound. */
   businessType: string | null
+  /** ⚖ G2 (Greptile round 1 #934) — the store row read FAILED (never "there
+   *  was no store id to read"); `businessType` above already fell to the
+   *  org-wide setting the same way a genuine no-override store would, so the
+   *  screen must read THIS flag, not `businessType`, to know the org type is
+   *  a guess for this store and must not decide its lane kind. */
+  storeRowDegraded: boolean
 }
 
 export async function getAppointmentWindow(
@@ -141,10 +147,21 @@ export async function getAppointmentWindow(
     // below already answers that question for every store that has not
     // overridden it. Failing the whole week's numbers over it would be the
     // louder lie.
+    //
+    // ⚖ G2 — the catch returns `undefined`, NEVER `null`: `null` stays "no
+    // store id to read" (the branch below never even calls this), so
+    // `store === undefined` is the one honest way to tell a FAILED read
+    // apart from a genuine no-row. `businessType` below still falls to the
+    // org setting either way (unchanged) — `storeRowDegraded`, derived from
+    // this sentinel, is what now tells the screen the org type is a guess it
+    // must not use to decide this store's lane kind.
     storeId
       ? synqed.stores.get(storeId).catch((err) => {
-          console.error('[appointments-window] store row read degraded:', err)
-          return null
+          console.error(
+            '[appointments-window] store row read degraded — capacity withheld, not guessed:',
+            err,
+          )
+          return undefined
         })
       : Promise.resolve(null),
   ])
@@ -168,5 +185,6 @@ export async function getAppointmentWindow(
     businessType:
       (store ? coreBusinessType(store) : null) ||
       (orgSettings?.business_type || null),
+    storeRowDegraded: store === undefined,
   }
 }
