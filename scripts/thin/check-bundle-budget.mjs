@@ -951,6 +951,21 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //   en       134,204 → 134,204 — unchanged to the byte: R2 added no string,
 //     JA or EN.
 //   vendor   937,791 → 937,791 — unchanged to the byte.
+//
+// RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-week-face
+// (PR #929, merge commit 320ec111f234b48cb6562ecb2820db8f68dee31a) — this
+// constant was one of the merge's six ruled conflicts (union of both chains,
+// re-measure after). Same CI recipe, thin/dist emptied between two clean
+// builds, byte-identical both times (node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock): en 134,223 · index 1,033,464 · vendor 937,791 =
+// 2,105,478 B. Ceiling = 2,105,478 + 1,000.
+//
+// RE-MEASURED 2026-09-16 after merging origin/main into feat/booking-month-grid
+// (PR #931) — union of both chains above (this branch's own #931 history plus
+// the #929-into-main re-measure entry it had not yet seen). TEMP value below
+// carried at the higher of the two merged constants pending this merge's own
+// two-lap thin re-measure (filled in by the follow-up "thin: budget
+// re-measure after main merge" commit, per the gate packet).
 const BUDGET_BYTES = 2_111_431
 
 let dir

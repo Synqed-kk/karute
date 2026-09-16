@@ -72,7 +72,7 @@ export async function createPackActionWithClient(
   // (unnumbered), matching the store convention.
   const purchaseRound =
     input.kind === 'pack'
-      ? nextPurchaseRound(await listCustomerPacksWithClient(synqed, input.customerId))
+      ? nextPurchaseRound((await listCustomerPacksWithClient(synqed, input.customerId)).filter(pack => pack.customer_id === input.customerId))
       : 0
   // SERVER-derived 合計金額: unit × size (the app prices per-session), so pack
   // revenue is never zeroed. ALWAYS derived — no caller override (a facade

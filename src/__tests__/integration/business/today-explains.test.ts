@@ -446,10 +446,11 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     expect(railExplain(cell, 60, { room: lifted }).word).toBeNull()
   })
 
-  it('a refusal that names NOBODY wears no word — この店舗には使えるベッドがありません is not a full house', () => {
-    // ⚖ 46 store isolation: this staff member's store has no rooms in it at all,
-    // so the allocator's candidate list is empty. It refuses — truthfully — and
-    // there is no occupant anywhere in the answer.
+  it('a store with no rooms refuses nobody — the chip is bare and the sentence is the base sentence (⚖ D-52 (a))', () => {
+    // ⚖ 46 store isolation: this staff member's store has no rooms in it at all
+    // (⚖ ROUND 3 · C, ⚖ D-52 (a)): `storeHasBeds(lanes, ['store-b'])` is false,
+    // so the untagged landing returns before the search — no refusal, no
+    // occupant anywhere in the answer, the landing stands with no room.
     const split = [
       lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-b'] }),
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', stores: ['store-a'] }),
@@ -457,15 +458,17 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     const empty = allocateBed(split, {
       id: null, currentBed: null, stores: ['store-b'], requiresPrivate: false, start: 780, end: 840,
     })
-    expect(empty.refusal).toBe('この店舗には使えるベッドがありません')
-    expect(empty.blockers).toEqual([])
+    expect(empty).toEqual({ laneKey: null, refusal: null, blockers: [], reseats: [] })
     const bedCell: RailCell = { ...at(railOn(sceneWith([])), 780), state: 'blocked', reason: 'bed' }
     const said = railExplain(bedCell, 60, { room: empty })
-    // 「満室」 beside 「この店舗には使えるベッドがありません」 said two different things about
-    // one board — and 清掃 was the LITERAL old answer here, because `every` on an
-    // empty list is true. Neither now: the sentence still refuses, the chip is bare.
+    // 満室 beside the now-retired no-rooms refusal used to say two different
+    // things about one board — and 清掃 was the LITERAL old answer here, because
+    // `every` on an empty list is true. Neither now: with no refusal to quote, `railExplain`'s
+    // `base` falls through to the engine's own bare sentence for this cell
+    // (`${cell.sentence}${judged}`) — the chip is bare and the sentence never
+    // mentions a bed at all.
     expect(said.word).toBeNull()
-    expect(said.sentence).toBe('この店舗には使えるベッドがありません')
+    expect(said.sentence).toBe(`${bedCell.sentence}（13:00〜14:00）`)
   })
 })
 
@@ -1247,19 +1250,41 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // ⚖ FIX ROUND 1 (F5, 2026-09-09) — and it names the two words it is TRUE of.
     // 新規用 carries a word and no hatch, so the old 「小さな文字が付いたコマでは」
     // promised a mark on a chip that never grows one.
-    expect(guide).toContain('「満室」「清掃」のコマでは、すぐ上の行に薄い斜線が出て')
+    // ⚖ D-53 (n) — DISCLOSED PIN MOVE: these four pin the SOURCE TEXT (not a
+    // render), so a 満室/清掃 literal became the slot expression `readFileSync`
+    // now actually sees; STORE_A's own words (fullWord 満室, turnoverWord 清掃)
+    // still render byte-identical (leg 7a of today-words.test.ts proves that).
+    // ⚖ D-53 (z) — PIN MOVE: the two chip-naming tokens no longer gate on
+    // `caps.turnover` — the rail's chips are minted with the GENERIC words
+    // for every store type until slice N2b-2, so the guide now names those
+    // unconditionally (STORE_A's own words are `other`'s row already, so its
+    // rendered bytes are unchanged — leg 7a of today-words.test.ts proves it).
+    expect(guide).toContain("「${props.genericWords.fullWord}」「${props.genericWords.turnoverWord!}」のコマでは、すぐ上の行に薄い斜線が出て")
     expect(guide).not.toContain('小さな文字が付いたコマでは')
     // ⚖ RULING 1 (2026-09-09) — the 満室 change is DECLARED, in the tour's own
     // words: it is about the 30 minutes, not about whether the session fits.
-    expect(guide).toContain(`「満室」はその30分にベッドの空きがないという意味で、\${railDur}分の予約が置けるかどうかとは関係なく付きます`)
+    // ⚖ D-53 (z), PKT-FIX-N2A-F4 — PIN MOVE: this is the THIRD chip-naming
+    // token in the same sentence (the 満室-explains clause) — it too is
+    // minted generic until N2b-2's switch-back; its `${w.resourceNoun}` is
+    // the store's own noun and stays unchanged.
+    expect(guide).toContain("「${props.genericWords.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます")
+    // ⚖ D-53 (z), PKT-FIX-N2A-F4 — source pin: this third token is a
+    // deliberate count of ONE (it has no turnoverWord pair, unlike the other
+    // two), so a future switch-back has to touch this pin too.
+    expect((guide.match(/「\$\{props\.genericWords\.fullWord\}」はその30分に/g) ?? []).length).toBe(1)
     // ⚖ RULING 2 (2026-09-09) — and so is the quiet-hour mark.
-    expect(guide).toContain('ベッドを別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます')
+    expect(guide).toContain('${w.resourceNoun}を別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます')
     // ⚖ LIAM RULING (2026-08-30) — the tour quotes the chips' OWN labels, so the
     // guard one moved with the chip. Bare 「新規」 is pinned dead in the quoted
     // list: a tour that teaches a word the board no longer wears is worse than
     // no entry at all.
-    expect(guide).toContain('「満室」「清掃」「新規用」')
+    expect(guide).toContain("「${props.genericWords.fullWord}」「${props.genericWords.turnoverWord!}」「新規用」")
     expect(guide).not.toContain('「満室」「清掃」「新規」')
+    // ⚖ D-53 (z) — source pin: the unconditional generic-word token appears
+    // TWICE in the sentence (both chip-naming spots above) — a deliberate
+    // count, not one, so N2b-2's switch back to `w` + the `caps.turnover`
+    // gate has to touch this pin rather than slip past it unnoticed.
+    expect((guide.match(/「\$\{props\.genericWords\.fullWord\}」「\$\{props\.genericWords\.turnoverWord!\}」/g) ?? []).length).toBe(2)
     // ⚖ NATIVE PASS (2026-08-26) — ふさがっている was FALSE of 新規, which is a
     // guard HOLD on an empty slot, not an occupied one. 置けない is true of all
     // three, and the retired word is pinned dead so it cannot come back.
@@ -1842,7 +1867,12 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     // `null, null` — which is what this test is actually about.
     for (const line of [
       'const solvedPartner = solveBed(solveLanes(null), lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))',
-      'const solvedChip = solveBed(solveLanes(chip.id), staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)',
+      // ⚖ ROUND 3 · C (⚖ D-52 (b)) — pin moved with the line: `solvedChip` is
+      // now lifted out of the IIFE and short-circuits to null only on the
+      // OPERATOR'S OWN bed-row drop (the room chosen out loud); a no-room
+      // store's chip still enters `solveBed` and gets `laneKey: null` with no
+      // refusal.
+      'const solvedChip = dropped?.group === \'beds\' ? null : solveBed(solveLanes(chip.id), staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
     }
