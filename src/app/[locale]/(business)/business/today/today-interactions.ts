@@ -55,6 +55,12 @@ import type { ReservedLaneMask, ReservedSpan } from './reserved-mask'
 
 export type { DragMode, DragOrigin }
 
+// ⚖ D-53 (u)/(n2b1) — a LOCAL structural alias, never an import: this file may
+// not import the words table even type-only (its inventory entry + the C5
+// leg both forbid it). Callers pass the table's rows, which are structurally
+// compatible.
+type LaneWords = { resourceNoun: string; privateWord: string | null; fullWord: string; turnoverWord: string | null }
+
 /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET, INDEXED BY LANE, once per pass.
  *
  *  Every seam below reads the mask the same way and none of them derives it: an
@@ -1133,7 +1139,7 @@ const clock = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${S
  *  シフト管理 instead of watching nothing happen. The sentence rides with the
  *  decision rather than sitting in the JSX so it is provable without a
  *  renderer: null here and the board goes silent again. */
-export function blockChrome(kind: BoardItem['kind']): {
+export function blockChrome(kind: BoardItem['kind'], turnoverWord: string): {
   cls: 'cleanup' | 'absence' | 'block'
   opens: boolean
   locked: string | null
@@ -1158,7 +1164,7 @@ export function blockChrome(kind: BoardItem['kind']): {
     cls,
     opens,
     locked: opens ? null : '勤務不可はシフト管理で変更します — ボード上では動かせません',
-    notDeletable: cls === 'cleanup' ? 'この清掃は直前の予約に付いています。予約を動かせば一緒に動き、予約が消えれば一緒に消えます。' : null,
+    notDeletable: cls === 'cleanup' ? `この${turnoverWord}は直前の予約に付いています。予約を動かせば一緒に動き、予約が消えれば一緒に消えます。` : null,
   }
 }
 
@@ -3067,8 +3073,8 @@ export const withheldTitle = (withName: string | null): string =>
  *  is the thing that is short, not the hour.
  *
  *  // JP-NATIVE PASS 2026-09-13: PASS as written */
-export const withheldSub = (dur: number): string =>
-  `${dur}分・ベッドが空いていません・確保が解除されれば販売に戻ります`
+export const withheldSub = (dur: number, words: LaneWords): string =>
+  `${dur}分・${words.resourceNoun}が空いていません・確保が解除されれば販売に戻ります`
 
 /** ⚖ D-11 · SPEC-R2 §3.2 — THE 枠 THE CLOCK LET GO OF, and its mark says so in
  *  the same words the manual release's own toast uses (TodayScreen `releaseAsk`),
@@ -4314,16 +4320,17 @@ export function nextSpan(origin: DragOrigin, track: Element, dx: number, step: n
 /** canon `parkBooking` (:5556). What the shelf chip says about a parked card:
  *  its length, its ticket line, and where it came from — because the chip is
  *  the only remaining record of a card that is no longer on the board. */
-export function parkChipText(item: BoardItem, hours: Hours, dayLabel: string): { title: string; line1: string; line2: string } {
+export function parkChipText(item: BoardItem, hours: Hours, dayLabel: string, words: LaneWords, generic: LaneWords): { title: string; line1: string; line2: string } {
   const durMin = item.endMin - item.startMin
   const tkt = [item.ticketCat, item.ticketCore].filter(Boolean).join(' ')
+  const p = words.privateWord ?? generic.privateWord!
   return {
     title: `${item.title}様（仮押さえ・未配置）`,
     // ⚖ FIX ROUND 1 (blind lens 4 F6) — AND THE 個室のみ TAG RIDES THE SHELF TOO.
     // The shelf is exactly where the operator re-places a parked card, and the
     // one fact that will refuse the drop was invisible there: the card said
     // 個室のみ and its own chip said only 「VIP 月額」.
-    line1: `${durMin}分${tkt ? `・${tkt}` : ''}${item.requiresPrivateRoom === true ? '・個室のみ' : ''}`,
+    line1: `${durMin}分${tkt ? `・${tkt}` : ''}${item.requiresPrivateRoom === true ? `・${p}のみ` : ''}`,
     line2: `元: ${dayLabel} ${clock(item.startMin)}〜${clock(item.endMin)} — 置きたい日の枠へドラッグ`,
   }
 }
@@ -6148,7 +6155,7 @@ export interface LandingQuestion {
  *
  *  ⚖ 52 holds by construction: `blocked` is exactly the set where release does
  *  nothing, which is exactly where red and × are allowed to appear. */
-export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: RailCell | null): LandingVerdict {
+export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: RailCell | null, words: LaneWords, generic: LaneWords): LandingVerdict {
   // ⚖ 74 — the two facts this function computes and used to discard. They are
   // filled in as it walks, so a `stop` that fires before the walk reaches them
   // honestly reports none: no room had been solved and no row had been read.
@@ -6271,8 +6278,9 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // both were wrong: the repetition is the rule's own vocabulary and it did not
   // change (three times in 36 now). What went is the third stop — 「〜ので」 joins
   // the reason to the action so they read in one breath.
+  const p = words.privateWord ?? generic.privateWord!
   if (!q.solveRoom && bed && !roomFitsNeed(bed, q.requiresPrivate)) {
-    return stop(`個室のみの予約です。${bed.label}は個室ではないので、個室の行に置いてください`, 'hard', null)
+    return stop(`${p}のみの予約です。${bed.label}は${p}ではないので、${p}の行に置いてください`, 'hard', null)
   }
 
   const failed = checks.find((c) => !c.ok)

@@ -349,6 +349,8 @@ function readBoard(lanes: BoardLane[]): BoardRead {
             stagedId: null, now: REAL.sell.nowMinute, cleanupMinutesByBed: REAL.bedCleanupMinutes,
           },
           railsOn(after).find((r) => r.laneKey === laneKey)?.cells.find((x) => x.start === start) ?? null,
+          REAL.words,
+          REAL.genericWords,
         ),
     },
     // ⚖ ruling 1 — the screen's own door (TodayScreen `bedsOver`), out of
@@ -669,7 +671,7 @@ describe('§R-C — ごろう’s 14:00 fits by moving さくら one bed over (s
       stagedId: null, now: REAL.sell.nowMinute, cleanupMinutesByBed: REAL.bedCleanupMinutes,
     }
     const cell = railsOn(lanes).find((r) => r.laneKey === 'p-05')!.cells.find((x) => x.start === 840)!
-    const drop = landingVerdict(lanes, { ...q, pack: true }, cell)
+    const drop = landingVerdict(lanes, { ...q, pack: true }, cell, REAL.words, REAL.genericWords)
     // The drop moves exactly one person, and the mark named that person.
     expect(drop.reseats).toEqual([{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }])
     expect(companionLines(lanes, companionsFor(lanes, drop.reseats))).toEqual(['見本 さくら様 ベッド1 → ベッド2'])
@@ -677,7 +679,7 @@ describe('§R-C — ごろう’s 14:00 fits by moving さくら one bed over (s
     // shuffle leaves — never the guard read a second way.
     const after = applyBedMoves(lanes, companionsFor(lanes, drop.reseats), REAL.hours, REAL.bedCleanupMinutes)
     const afterCell = railsOn(after).find((r) => r.laneKey === 'p-05')!.cells.find((x) => x.start === 840)!
-    const staged = landingVerdict(after, q, afterCell)
+    const staged = landingVerdict(after, q, afterCell, REAL.words, REAL.genericWords)
     expect(staged.kind).toBe('caution')
     expect(readBoard(lanes).lanes['p-05'].chips.find((x) => x.start === 840)!.sentence).toContain(staged.reason!)
   })
@@ -905,6 +907,8 @@ function explainWith(lanes: BoardLane[], allocate: typeof allocateBed, over: { h
             stagedId: null, now: REAL.sell.nowMinute, cleanupMinutesByBed: REAL.bedCleanupMinutes,
           },
           railsOn(after).find((r) => r.laneKey === laneKey)?.cells.find((x) => x.start === start) ?? null,
+          REAL.words,
+          REAL.genericWords,
         ),
     },
   })
@@ -1086,6 +1090,8 @@ function liveRig(rest: BoardLane[], hand: { id: string; bed: string }) {
         allocate: memo.allocate,
       },
       cell,
+      REAL.words,
+      REAL.genericWords,
     )
   /** `verdictAtLanding` — the gesture END, whole: the solve, and the guard's
    *  re-read on the board the shuffle would leave. */
@@ -1873,6 +1879,8 @@ describe('§F4 — the ⇄ mark’s tone and caution are the CREATE path’s own
         stagedId: null, now: REAL.sell.nowMinute, cleanupMinutesByBed: REAL.bedCleanupMinutes,
       },
       railsOn(after).find((r) => r.laneKey === 'p-05')!.cells.find((x) => x.start === 840) ?? null,
+      REAL.words,
+      REAL.genericWords,
     )
     expect(create.kind).toBe('caution')
     // Tone and clause, both of them the verdict's own — never a second reading.

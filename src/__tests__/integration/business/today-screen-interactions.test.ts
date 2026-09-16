@@ -19,6 +19,9 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { opsConfig, resources } from '@/business/lib/fixtures-today'
 import { appointments, customers, STORE_A } from '@/business/lib/fixtures'
+// ⚖ D-53 (u)/(n2b1) — STORE_A's words (chiropractic; byte-identical to
+// `other`, D-13) and the generic row, for the family-grep call sites below.
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import { jstDayKey } from '@/business/lib/clock'
 import * as data from '@/business/lib/data'
 import { computeChecks, confirmCaption, type Check } from '@/business/lib/canon-logic/drag-rules'
@@ -148,6 +151,11 @@ if (typeof HTMLDialogElement.prototype.close !== 'function') {
 
 const HOURS = { open: 600, close: 1140 } // 10:00–19:00
 const STEP = stepPct(9)
+// ⚖ D-53 (u)/(n2b1) — STORE_A's words + the generic row, for every family-grep
+// call below; runtime expected sentences are unchanged (chiropractic is
+// byte-identical to `other`, D-13).
+const A_WORDS = RESOURCE_WORDS.chiropractic
+const G_WORDS = RESOURCE_WORDS.other
 /** ⚖ BREAKER-827 F1/F2/F3 — A `//`-PREFIXED COPY IS NOT THE LINE.
  *
  *  The breaker commented the verdict's protected door OUT, left the pinned text
@@ -637,7 +645,7 @@ describe('the sell layer moves with the board', () => {
 describe('the 仮置きエリア chip', () => {
   it('says what was taken off the board and where it came from', () => {
     const item = booking({ key: 'a', caseId: 'apt-1' }, 660, 720)
-    expect(parkChipText(item, HOURS, '2026年8月19日(水)')).toEqual({
+    expect(parkChipText(item, HOURS, '2026年8月19日(水)', A_WORDS, G_WORDS)).toEqual({
       title: '見本 はなこ様（仮押さえ・未配置）',
       line1: '60分・単発 ¥6,600',
       line2: '元: 2026年8月19日(水) 11:00〜12:00 — 置きたい日の枠へドラッグ',
@@ -646,7 +654,7 @@ describe('the 仮置きエリア chip', () => {
 
   it('a card with no ticket line says only its length', () => {
     const item = booking({ key: 'a', caseId: 'apt-1', ticketCat: null, ticketCore: null }, 660, 750)
-    expect(parkChipText(item, HOURS, '本日').line1).toBe('90分')
+    expect(parkChipText(item, HOURS, '本日', A_WORDS, G_WORDS).line1).toBe('90分')
   })
 
   it('⚖ ROOM RULE — and a 個室のみ card says so, because the shelf is where it is re-placed', () => {
@@ -657,11 +665,11 @@ describe('the 仮置きエリア chip', () => {
     // untagged card, so the clause was dead in every one and a single token
     // would have removed it with the whole battery green.
     const item = booking({ key: 'a', caseId: 'apt-1', ticketCat: null, ticketCore: null }, 660, 750)
-    expect(parkChipText({ ...item, requiresPrivateRoom: true }, HOURS, '本日').line1).toBe('90分・個室のみ')
-    expect(parkChipText({ ...item, requiresPrivateRoom: false }, HOURS, '本日').line1).toBe('90分')
+    expect(parkChipText({ ...item, requiresPrivateRoom: true }, HOURS, '本日', A_WORDS, G_WORDS).line1).toBe('90分・個室のみ')
+    expect(parkChipText({ ...item, requiresPrivateRoom: false }, HOURS, '本日', A_WORDS, G_WORDS).line1).toBe('90分')
     // …and it rides AFTER the ticket line rather than replacing any of it.
     const tkt = booking({ key: 'b', caseId: 'apt-2' }, 660, 720)
-    expect(parkChipText({ ...tkt, requiresPrivateRoom: true }, HOURS, '本日').line1).toBe('60分・単発 ¥6,600・個室のみ')
+    expect(parkChipText({ ...tkt, requiresPrivateRoom: true }, HOURS, '本日', A_WORDS, G_WORDS).line1).toBe('60分・単発 ¥6,600・個室のみ')
   })
 })
 
@@ -699,7 +707,7 @@ describe('the chip in hand is a board card at the booking’s own length', () =>
   it('the minutes it is sized from are the parked record’s — the same figure the chip prints', () => {
     const item = booking({ key: 'a', caseId: 'apt-1' }, 660, 720)
     const lenMin = item.endMin - item.startMin
-    expect(parkChipText(item, HOURS, '本日').line1.startsWith(`${lenMin}分`)).toBe(true)
+    expect(parkChipText(item, HOURS, '本日', A_WORDS, G_WORDS).line1.startsWith(`${lenMin}分`)).toBe(true)
     expect(chipProxySize(boardWithTrack(900, 72), HOURS, lenMin)?.w).toBeCloseTo(100, 9)
   })
 
@@ -964,7 +972,9 @@ describe('what a non-booking item wears, and whether it opens', () => {
   /** The JSX branch for a non-booking item, on real nodes: same element choice,
    *  same class string, same click wiring as TodayScreen's renderItem. */
   function paint(item: BoardItem, onOpen: () => void, onToast: (m: string) => void = () => {}) {
-    const { cls, opens, locked } = blockChrome(item.kind)
+    // ⚖ D-53 (u)/(n2b1) — this helper never reads `.notDeletable`, so the
+    // turnover word passed through has no effect on any assertion here.
+    const { cls, opens, locked } = blockChrome(item.kind, '清掃')
     const el = document.createElement(opens ? 'button' : 'span')
     el.className = `event ${cls}${item.micro ? ' micro' : ''}`
     el.setAttribute('aria-label', item.label)
@@ -3037,7 +3047,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
         staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, requiresPrivate: false,
         start: 600, end: 660, span: place(600, 660, HOURS), foreignRefusal: null, hasPrice: true,
         locked: [], minutesOf: (x) => minuteOf(x, HOURS), stagedId,
-      }, null)
+      }, null, A_WORDS, G_WORDS)
 
     it('the staged card is named as the operator’s own, and the room is still 満室', () => {
       const v = ask('staged')
@@ -3841,7 +3851,7 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
   it('parked: the origin day loses the card, and the chip keeps the origin date in its 元: line', () => {
     const parkedDay = applyMoves(origin, {}, ['apt-1'], [], HOURS)
     expect(parkedDay[0].items.filter((i) => i.caseId === 'apt-1')).toHaveLength(0)
-    const chip = parkChipText(booking({ key: 'a', caseId: 'apt-1' }, 720, 780), HOURS, '2026年8月20日(木)')
+    const chip = parkChipText(booking({ key: 'a', caseId: 'apt-1' }, 720, 780), HOURS, '2026年8月20日(木)', A_WORDS, G_WORDS)
     expect(chip.title).toBe('見本 はなこ様（仮押さえ・未配置）')
     expect(chip.line2).toBe('元: 2026年8月20日(木) 12:00〜13:00 — 置きたい日の枠へドラッグ')
   })
@@ -4016,7 +4026,11 @@ describe('the session’s edits outlive the day flip, and the × knows which day
     expect(body).toContain('store: props.store,')
     expect(body).toContain('storeLabel: props.lensLabel,')
     // …and the printed line is still the printed line.
-    expect(body).toContain('const text = parkChipText(item, hours, props.dayLabel)')
+    // ⚖ D-53 (u)/(n2b1) — DISCLOSED PIN MOVE: parkChipText now takes the
+    // resolved lane words + the generic fallback (PKT-BUILD-N2B1-SINGLE-LANE.md).
+    expect(body).toContain(
+      'const text = parkChipText(item, hours, props.dayLabel, parkLane ? wordsForLane(parkLane) : props.words, props.genericWords)',
+    )
   })
 
   it('the × is answered by the recorded day, never by the board on screen', () => {
@@ -4602,18 +4616,20 @@ describe('予定ブロック move, resize and open — canon’s second pipeline
   it('⚖ Q6 — a 清掃 opens and reads, but carries no 削除, and says why', () => {
     // The rule lives where the paint and the openability already do, so it is
     // provable without a renderer — the point of blockChrome having a header.
-    const cleanup = blockChrome('cleanup')
+    // ⚖ D-53 (u)/(n2b1) — DISCLOSED: blockChrome's turnover word is now
+    // required; every call below passes today's literal explicitly.
+    const cleanup = blockChrome('cleanup', '清掃')
     expect(cleanup.opens).toBe(true)
     expect(cleanup.notDeletable).toContain('直前の予約')
     // Every ordinary block IS deletable…
     for (const k of ['break', 'admin', 'closing'] as Array<BoardItem['kind']>) {
-      expect(blockChrome(k).notDeletable).toBeNull()
-      expect(blockChrome(k).opens).toBe(true)
+      expect(blockChrome(k, '清掃').notDeletable).toBeNull()
+      expect(blockChrome(k, '清掃').opens).toBe(true)
     }
     // …and 勤務不可 never opened in the first place, so the question never
     // reaches it: its refusal is one level up, unchanged.
-    expect(blockChrome('absence').opens).toBe(false)
-    expect(blockChrome('absence').locked).toContain('シフト管理')
+    expect(blockChrome('absence', '清掃').opens).toBe(false)
+    expect(blockChrome('absence', '清掃').locked).toContain('シフト管理')
   })
 
   it('⚖ 64 + sweep rider (i) — ブロック情報 is honest: one live 削除, no dead 保存', () => {
@@ -6485,7 +6501,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     ...over,
   })
   const verdict = (lanes: BoardLane[], over = {}, cell: RailCell | null = null) =>
-    landingVerdict(lanes, ask(over), cell)
+    landingVerdict(lanes, ask(over), cell, A_WORDS, G_WORDS)
 
   const cellOf = (state: RailCell['state'], sentence: string): RailCell => ({
     start: 960, state, label: '', sentence, reason: state === 'blocked' ? 'guard' : null,
@@ -6587,7 +6603,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
       lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'] }),
       lane({ key: 'bed-09', group: 'beds', label: 'ベッド9', stores: ['store-b'] }),
     ]
-    const v = landingVerdict(cross, ask({ solveRoom: false, bedLane: 'bed-09' }), cellOf('safe', ''))
+    const v = landingVerdict(cross, ask({ solveRoom: false, bedLane: 'bed-09' }), cellOf('safe', ''), A_WORDS, G_WORDS)
     expect(v.kind).toBe('blocked')
     expect(v.reason).toBe('担当と店舗が異なります: 見本 あずさ / ベッド9')
     // …and the allocator is NOT consulted on that path — the operator named the
@@ -6948,7 +6964,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
       ['person busy', board({ staff: { items: [booking({ key: 'a', caseId: 'apt-other', title: '見本 あかり' }, 960, 1020)] } }), cellOf('safe', 'ok'), 'blocked', '置けない'],
     ]
     for (const [name, lanes, cell, kind, label] of cases) {
-      const v = landingVerdict(lanes, ask(), cell)
+      const v = landingVerdict(lanes, ask(), cell, A_WORDS, G_WORDS)
       expect([name, v.kind, v.label]).toEqual([name, kind, VERDICT_WORD[kind]])
       expect([name, v.label]).toEqual([name, label])
       // Anything that is not silent ALWAYS carries a sentence the surface can
@@ -7307,7 +7323,7 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
 
   it('ROOT A — the SAME sentence Liam photographed now reads 要確認, and the floor still reads 置けない', () => {
     const cell = ackAllowedCell()
-    const v = landingVerdict([staff(), ...beds], askAt(630), cell)
+    const v = landingVerdict([staff(), ...beds], askAt(630), cell, A_WORDS, G_WORDS)
     expect(v.kind).toBe('caution')
     expect(v.label).toBe('要確認')
     // ⚖ 90 — the photographed sentence, now naming its window.
@@ -7316,7 +7332,7 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     // 置けない — this is not "the guard stopped blocking", it is the guard's own
     // two tiers finally being told apart.
     const floor = { ...cell, ackAllowed: false }
-    expect(landingVerdict([staff(), ...beds], askAt(630), floor).kind).toBe('blocked')
+    expect(landingVerdict([staff(), ...beds], askAt(630), floor, A_WORDS, G_WORDS).kind).toBe('blocked')
     // ONE predicate, in the ONE home. (⚖ 9/1 fix round 2 D1 gave it a second
     // tier — see the matrix below; the ack-allowed arm here is untouched.)
     expect(INT).toContain("if (cell?.state === 'blocked' && !cell.ackAllowed) {")
@@ -7351,7 +7367,7 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     expect(lossOf(physics)).toBe(0)
 
     const at = (cell: RailCell, level?: 'allow-warned' | 'needs-approval' | 'refuse') =>
-      landingVerdict([staff(), ...beds], { ...askAt(630), overrideLevel: level }, cell)
+      landingVerdict([staff(), ...beds], { ...askAt(630), overrideLevel: level }, cell, A_WORDS, G_WORDS)
 
     // ── STANDARD (ack-allowed) — untouched at every level: ⚖ ruling 1/2's loosen.
     for (const level of ['allow-warned', 'needs-approval', 'refuse'] as const) {
@@ -7398,7 +7414,7 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
 
   it('ROOT A — the cursor word, the rail mark and the release are the same call, on this class too', () => {
     const cell = ackAllowedCell()
-    const v = landingVerdict([staff(), ...beds], askAt(630), cell)
+    const v = landingVerdict([staff(), ...beds], askAt(630), cell, A_WORDS, G_WORDS)
     // Cursor: `wearVerdict` writes `v.label` and `v.kind`.
     expect(v.label).toBe(VERDICT_WORD[v.kind])
     // Rail mid-drag: `renderRail` maps the SAME `v.kind` — blocked → ×,
@@ -7441,10 +7457,10 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     // Before ROOT A that △ contradicted a red 置けない on the same cell in the
     // same frame — two laws, one cell, opposite marks. Now the verdict for that
     // same cell IS caution, so the △ is TRUE rather than merely forced…
-    expect(landingVerdict([staff(), ...beds], askAt(630), cell).kind).toBe('caution')
+    expect(landingVerdict([staff(), ...beds], askAt(630), cell, A_WORDS, G_WORDS).kind).toBe('caution')
     // …and a cell that is genuinely a floor never reaches the confirm surface
     // at all, because the release refused before anything staged.
-    expect(landingVerdict([staff(), ...beds], askAt(630), { ...cell, ackAllowed: false }).kind).toBe('blocked')
+    expect(landingVerdict([staff(), ...beds], askAt(630), { ...cell, ackAllowed: false }, A_WORDS, G_WORDS).kind).toBe('blocked')
     // `guardCheckRow` itself is UNTOUCHED — the type still forbids ×.
     expect(INT).toContain("export function guardCheckRow(cell: RailCell | null): { label: string; tone: 'warn' } | null {")
   })
@@ -7605,7 +7621,7 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
       staffLane: null, bedLane: null, solveRoom: true, id: null, requiresPrivate: false,
       start: 720, end: 780, span: place(720, 780, HOURS), foreignRefusal: null, hasPrice: true,
       locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
-    }, null)
+    }, null, A_WORDS, G_WORDS)
     expect(v.kind).toBe('blocked')
     expect(v.reason).toBe('予約を置く行の中で離してください')
   })
@@ -8164,7 +8180,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     ...over,
   })
   const verdict = (lanes: BoardLane[], over = {}, cell: RailCell | null = null) =>
-    landingVerdict(lanes, ask(over), cell)
+    landingVerdict(lanes, ask(over), cell, A_WORDS, G_WORDS)
   const cellOf = (state: RailCell['state'], sentence: string): RailCell => ({
     start: 960, state, label: '', sentence, reason: state === 'blocked' ? 'guard' : null,
     alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked',
@@ -8182,7 +8198,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
       ['no lane', verdict(board(), { staffLane: null }), 'hard'],
       ['store-mismatch bed row', landingVerdict(
         [lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'] }), lane({ key: 'bed-09', group: 'beds', label: 'ベッド9', stores: ['store-b'] })],
-        ask({ solveRoom: false, bedLane: 'bed-09' }), cellOf('safe', '')), 'hard'],
+        ask({ solveRoom: false, bedLane: 'bed-09' }), cellOf('safe', ''), A_WORDS, G_WORDS), 'hard'],
       ['時間帯が重複', verdict(board({ staff: { items: [booking({ key: 'a', caseId: 'apt-other', title: '見本 あかり' }, 960, 1020)] } }), {}, cellOf('safe', '')), 'hard'],
       ['満室', verdict(board({ beds: busyBeds }), {}, cellOf('safe', '')), 'hard-room'],
       ['R-UNAVAILABLE (engine floor)', verdict(board(), {}, cellOf('blocked', 'この開始には既存90分を配置できません')), 'hard'],
@@ -8262,7 +8278,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(realCell?.ackAllowed).toBe(false)
     // …and the verdict is POLICY anyway, with the row's own sentence, because
     // the row is asked first. One class for one situation.
-    const v = landingVerdict(short, ask(), realCell)
+    const v = landingVerdict(short, ask(), realCell, A_WORDS, G_WORDS)
     expect(v.floor).toBe('policy')
     expect(v.reason).toBe('見本 あずさは16:30以降勤務不可')
     // The ORDER is what guarantees it, and it is one file, two adjacent lines.
@@ -8715,7 +8731,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     const shiftEnds = { staff: { untilLabel: '16:30', window: { from: 600, until: 990 } } }
     const lanes = board({ ...shiftEnds, beds: busyBeds })
     const gate = (start: number) =>
-      landingVerdict(lanes, ask({ start, end: start + 60, span: place(start, start + 60, HOURS) }), cellOf('safe', '')).kind !== 'blocked'
+      landingVerdict(lanes, ask({ start, end: start + 60, span: place(start, start + 60, HOURS) }), cellOf('safe', ''), A_WORDS, G_WORDS).kind !== 'blocked'
     // 15:00 is room-free (the busy beds end at 17:00… they START at 16:00) and
     // inside the shift; 17:30 is room-free but PAST 16:30, so the gate refuses
     // it and it is never offered.
@@ -8893,7 +8909,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // The store-mismatch stop too — same block, same reason.
     const cross = landingVerdict(
       [lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'] }), lane({ key: 'bed-09', group: 'beds', label: 'ベッド9', stores: ['store-b'] })],
-      ask({ solveRoom: false, bedLane: 'bed-09' }), cellOf('safe', ''),
+      ask({ solveRoom: false, bedLane: 'bed-09' }), cellOf('safe', ''), A_WORDS, G_WORDS,
     )
     expect(cross.checks.length).toBeGreaterThan(0)
     // The stops that fire before there is a staff lane still honestly carry none…
@@ -9874,9 +9890,13 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // that silently reads nothing is the failure mode this test exists to close.
     expect(memo.length).toBeGreaterThan(500)
     expect(press.length).toBeGreaterThan(500)
-    // …and the family is THREE, with M6's own pinned above: every place the
-    // staged card's lane is looked up scopes by group first.
-    expect(SRC.match(/l\.group === 'staff' && l\.key ===/g)).toHaveLength(3)
+    // …and the family is FIVE (three from M6 + `withheldMark` + `park`,
+    // D-53 (u)): every place a card's STAFF lane is looked up by key scopes
+    // by group first.
+    // ⚖ D-53 (u)/(n2b1) — DISCLOSED PIN MOVE: 3 -> 5. `withheldMark` and
+    // `park` now resolve their own staff lane the same safe, group-scoped
+    // way, for the same reason (PKT-BUILD-N2B1-SINGLE-LANE.md).
+    expect(SRC.match(/l\.group === 'staff' && l\.key ===/g)).toHaveLength(5)
   })
 
   it('the name line is automatic, and only when the shift belongs to somebody else', () => {
@@ -10135,7 +10155,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
       start: s, end: s + 90, span: place(s, s + 90, HOURS),
       foreignRefusal: null, hasPrice: true, locked: [] as string[],
       minutesOf: (x: number) => minuteOf(x, HOURS),
-    }, at(s)).kind
+    }, at(s), A_WORDS, G_WORDS).kind
     // `lossOf` is the SHIPPED one, imported — ⚖ 9/1 ruling 2/2 re-homed it into
     // today-interactions, so the replica this test used to carry is gone and the
     // model below reads the very function the screen does.
@@ -10254,7 +10274,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
         start: s, end: s + dur, span: place(s, s + dur, HOURS),
         foreignRefusal: null, hasPrice: true, locked: [] as string[],
         minutesOf: (x: number) => minuteOf(x, HOURS),
-      }, at(s)).kind
+      }, at(s), A_WORDS, G_WORDS).kind
       // ⚖ 92 final hygiene (breaker #6 F9) threaded the gate's FIRST arm —
       // `props.overrideLevel === 'refuse'` — in here so the replica could not
       // silently diverge from the shipped gate it is named for. ⚖ 9/1 ruling 1/2
@@ -11795,14 +11815,14 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
       start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice,
       locked: [] as string[], minutesOf: (x: number) => minuteOf(x, HOURS),
     })
-    const priced = landingVerdict(lanes, q(true), null).checks.map((c) => c.label)
-    const priceless = landingVerdict(lanes, q(false), null).checks.map((c) => c.label)
+    const priced = landingVerdict(lanes, q(true), null, A_WORDS, G_WORDS).checks.map((c) => c.label)
+    const priceless = landingVerdict(lanes, q(false), null, A_WORDS, G_WORDS).checks.map((c) => c.label)
     expect(priced).toContain(PRICE_HOLD_ROW)
     expect(priceless).not.toContain(PRICE_HOLD_ROW)
     // Everything else about the landing is identical — the filter took one row
     // and changed no judgement.
     expect(priceless).toEqual(priced.filter((l) => l !== PRICE_HOLD_ROW))
-    expect(landingVerdict(lanes, q(false), null).kind).toBe(landingVerdict(lanes, q(true), null).kind)
+    expect(landingVerdict(lanes, q(false), null, A_WORDS, G_WORDS).kind).toBe(landingVerdict(lanes, q(true), null, A_WORDS, G_WORDS).kind)
   })
 
   // (d) — BOTH RAW-CANON ENTRY POINTS GO THROUGH IT. Anchored whole lines over
@@ -12776,7 +12796,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
             staffLane: 'p-01', bedLane: named, solveRoom: false, id: 'ask', requiresPrivate,
             start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
             locked: [], minutesOf: (x) => minuteOf(x, HOURS),
-          }, null)
+          }, null, A_WORDS, G_WORDS)
           const roomRefusal = (v: ReturnType<typeof landingVerdict>) => v.reason?.startsWith('個室のみの予約です') ?? false
           const rowSaysRoomIsWrong = roomRefusal(row)
           // ⚖ FIX ROUND 1 (blind lens 4 F4) — AND A CELL THE THIRD READER CAN
@@ -12790,7 +12810,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
             staffLane: 'p-01', bedLane: 'bed-01', solveRoom: false, id: 'ask', requiresPrivate,
             start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
             locked: [], minutesOf: (x) => minuteOf(x, HOURS),
-          }, null)
+          }, null, A_WORDS, G_WORDS)
           const wrongClassRefused = roomRefusal(wrongClass)
           rows.push(`${cell} | allocateBed=${allocator ? 'placed' : 'refused'} | door=${doorSays} | bed-row=${rowSaysRoomIsWrong ? 'refused' : row.kind} | bed-row@bed-01=${wrongClassRefused ? 'refused' : wrongClass.kind}`)
           if (allocator !== doorSays) disagree.push(`${cell}: allocator=${allocator} door=${doorSays}`)
@@ -12949,7 +12969,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
         staffLane: 'p-01', bedLane, solveRoom: false, id: null, requiresPrivate,
         start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
         locked: [], minutesOf: (x) => minuteOf(x, HOURS),
-      }, null)
+      }, null, A_WORDS, G_WORDS)
     const tagged = rowAt('bed-01', true)
     expect([tagged.kind, tagged.floor]).toEqual(['blocked', 'hard'])
     expect(tagged.reason).toBe('個室のみの予約です。ベッド1は個室ではないので、個室の行に置いてください')
@@ -12962,7 +12982,9 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     // The dead sentence is gone from the tree, and the tag's floor is never
     // `policy` — which is the floor 「注意して配置」 grows on.
     expect(INT).not.toContain('VIP・個室クラスのご予約です')
-    expect(INT).toContain("return stop(`個室のみの予約です。${bed.label}は個室ではないので、個室の行に置いてください`, 'hard', null)")
+    // ⚖ D-53 (u)/(n2b1) — DISCLOSED PIN MOVE: the literal 個室 is now the
+    // resolved private word `p` (PKT-BUILD-N2B1-SINGLE-LANE.md).
+    expect(INT).toContain("return stop(`${p}のみの予約です。${bed.label}は${p}ではないので、${p}の行に置いてください`, 'hard', null)")
     // ⚖ FIX ROUND 1 (blind lens 3 F1) — and it OFFERS NOTHING about start times.
     // A room refusal is true at every start on the lane, so the guard's own
     // 「より損の少ない開始」 ranking under it answered the wrong question out loud.
@@ -12977,7 +12999,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
       staffLane: 'p-01', bedLane: 'bed-01', solveRoom: false, id: null, requiresPrivate: true,
       start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
       locked: [], minutesOf: (x) => minuteOf(x, HOURS),
-    }, offered)
+    }, offered, A_WORDS, G_WORDS)
     expect(withCell.cell).toBeNull()
     // …and a stop that IS about the clock keeps the cell it was handed — the room
     // refusal earns an exception, it does not become the default.
@@ -12985,7 +13007,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
       staffLane: null, bedLane: 'bed-01', solveRoom: false, id: null, requiresPrivate: false,
       start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
       locked: [], minutesOf: (x) => minuteOf(x, HOURS),
-    }, offered)
+    }, offered, A_WORDS, G_WORDS)
     expect(clockFloor.cell).toBe(offered)
     expect(INT).toContain('const stop = (reason: string, floor: LandingFloor, offer: RailCell | null = cell): LandingVerdict =>')
   })
@@ -13009,6 +13031,8 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
           locked: [], minutesOf: (x) => minuteOf(x, HOURS),
         },
         null,
+        A_WORDS,
+        G_WORDS,
       )
     const busy = solved([booking({ key: 'b3', caseId: 'x3', title: '見本 あかり' }, 960, 1020)])
     expect([busy.kind, busy.floor]).toEqual(['blocked', 'hard-room'])
@@ -13104,7 +13128,7 @@ describe('⚖ BLANK-SAFE — a row without requires_private_room is an untagged 
     locked: [] as string[], minutesOf: (x: number) => minuteOf(x, HOURS),
     ...over,
   })
-  const verdict = (lanes: BoardLane[], over = {}, cell: RailCell | null = null) => landingVerdict(lanes, ask(over), cell)
+  const verdict = (lanes: BoardLane[], over = {}, cell: RailCell | null = null) => landingVerdict(lanes, ask(over), cell, A_WORDS, G_WORDS)
 
   it('claim 2 — allocateBed takes a free standard bed first, and the 個室 last, never refusing for the room', async () => {
     const item = await blankItem()
@@ -13125,7 +13149,7 @@ describe('⚖ BLANK-SAFE — a row without requires_private_room is an untagged 
   it('claim 3 — the shelf chip carries no 個室のみ for the blank item, and the inspector seam is unchanged', async () => {
     const item = await blankItem()
     expect(item.requiresPrivateRoom).toBe(false)
-    expect(parkChipText(item, HOURS, '本日').line1).not.toContain('個室のみ')
+    expect(parkChipText(item, HOURS, '本日', A_WORDS, G_WORDS).line1).not.toContain('個室のみ')
     // The inspector's 予約種別 row reads the SAME `b.requiresPrivateRoom` this
     // claim just proved is a real `false` at this layer — the seam
     // today-board.test.ts's 「⚖ ROOM RULE — the inspector says 個室のみ about
