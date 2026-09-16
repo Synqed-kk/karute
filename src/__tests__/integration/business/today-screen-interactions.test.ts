@@ -4403,7 +4403,10 @@ describe('the guided tour builds itself out of what is on screen', () => {
       ['ご来店中', 'いま店内にいるお客様。ここから次回予約をその場で作成できます。'],
       ['日付の移動', '日付を押すと月カレンダーで、日ごとにあと何枠入るかを確認できます。'],
       ['表示設定', 'カード・販売可能枠・配置ガイドの見え方と、ボードの密度を調整します。'],
-      ['表示の切替', 'スタッフだけ・設備だけ・両方の表示を切り替えます。'],
+      // ⚖ D-53 (n) — 表示の切替 MOVED OUT of this loop: F11/MINOR-1 slotted
+      // its data-guide into a template literal (${w.tabWord}), so it is no
+      // longer a plain string attribute the generic `data-guide="${body}"`
+      // check can match. Pinned separately just below the loop.
       ['仮置きエリア', '日付をまたぐ変更の一時置き場。ドラッグで置くと仮押さえになります。'],
       ['今日のボード', '空き枠をクリックで新規予約。カードはドラッグで移動、端をつかんで時間変更。'],
       ['本日の運営影響', 'いま起きている問題と、対応がどこまで進んだかを示します。'],
@@ -4413,6 +4416,8 @@ describe('the guided tour builds itself out of what is on screen', () => {
       expect(SRC).toContain(`data-guide-title="${title}"`)
       expect(SRC).toContain(`data-guide="${body}"`)
     }
+    expect(SRC).toContain('data-guide-title="表示の切替"')
+    expect(SRC).toContain('data-guide={`スタッフだけ・${w.tabWord}だけ・両方の表示を切り替えます。`}')
     // F2 (fix round 2, COLD-READ) — 「空き状況」 was a claim about free TIME; the
     // control opens a count of bookings, and its settings twin was already
     // carried to あと入る数 while this one was not. Pinned out so a revert of
@@ -5783,15 +5788,20 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     const placeWriteAt = place_.indexOf('setPlacing(null)')
     expect(placeForeignAt).toBeGreaterThanOrEqual(0)
     expect(placeWriteAt).toBeGreaterThanOrEqual(0)
-    // No free room: 配置モード SURVIVES, so the operator can try another slot
-    // instead of walking back to 次回予約 to re-arm it.
+    // ⚖ D-53 (n) — what this asserts now: the foreign-store refusal
+    // (`refuse(foreign)`) returns ahead of the write that ends 配置モード
+    // (`setPlacing(null)`), so a cross-store landing is refused before the
+    // mode is torn down, not after.
     expect(placeForeignAt).toBeLessThan(placeWriteAt)
     const shelf = SRC.slice(SRC.indexOf('function placeFromShelf('), SRC.indexOf('const monthCells'))
     const shelfForeignAt = shelf.indexOf('refuse(foreign)')
     const shelfWriteAt = shelf.indexOf('setParkChips(')
     expect(shelfForeignAt).toBeGreaterThanOrEqual(0)
     expect(shelfWriteAt).toBeGreaterThanOrEqual(0)
-    // Same for the chip: the shelf entry is removed only after the room is found.
+    // ⚖ D-53 (n) — same shape for the shelf path: the foreign-store refusal
+    // returns ahead of the write that clears the shelf chip
+    // (`setParkChips(`), so a cross-store landing is refused before the chip
+    // is removed.
     expect(shelfForeignAt).toBeLessThan(shelfWriteAt)
   })
 

@@ -159,12 +159,35 @@ describe('N2A (c) — the null-word gates, driven through the producer', () => {
     expect(`休憩や${slot}を置いた位置`).toBe('休憩や準備を置いた位置')
   })
 
-  it('the #24 sub-label falls back to 予約と予定ブロックを表示 even with bedCleanupOn: true (the capability gates, not the runtime flag alone)', () => {
-    const w = resourceWordsFor('yoga_studio')
-    const caps = { privateClass: w.privateWord != null, turnover: w.turnoverWord != null }
-    const bedCleanupOn = true // the runtime flag, forced on — still not enough alone
-    const subLabel = bedCleanupOn && caps.turnover ? `${w.turnoverWord}を予約不可時間として表示` : '予約と予定ブロックを表示'
-    expect(subLabel).toBe('予約と予定ブロックを表示')
+  // ⚖ D-53 (n) L2's own finding, item 8 — the OLD body re-derived this
+  // ternary locally and asserted its own copy, never touching TodayScreen's
+  // real render (a tautology: it did not catch mutant w3, which loosened the
+  // gate to `bedCleanupOn` alone). Replaced with a SOURCE pin on the exact
+  // gate expression, plus the mounted DOM proof (bedCleanupOn forced true,
+  // caps.turnover false) in the harness's yoga scenario (item 5(b)) —
+  // n2a-words.harness.test.tsx, 'N2A — a yoga-typed chrome store…'.
+  it('the #24 gate is source-present as `props.bedCleanupOn && caps.turnover` exactly once (catches w3; DOM proof in the harness)', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
+      'utf8',
+    )
+    const count = src.split('props.bedCleanupOn && caps.turnover').length - 1
+    console.log('N2A-24-PIN', { count })
+    expect(count).toBe(1)
+  })
+
+  // ⚖ D-53 (n) item 5(a) — L1 MINOR-4: #28 had no source pin and no
+  // no-turnover render anywhere in the repo (both mounted stores are
+  // turnover-ON). The rendered no-turnover proof is item 5(b), the same
+  // harness yoga scenario referenced above.
+  it('#28\'s gate is source-present as `turnoverWord={caps.turnover ? w.turnoverWord! : \'準備\'}` exactly once', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
+      'utf8',
+    )
+    const count = src.split("turnoverWord={caps.turnover ? w.turnoverWord! : '準備'}").length - 1
+    console.log('N2A-28-PIN', { count })
+    expect(count).toBe(1)
   })
 })
 
