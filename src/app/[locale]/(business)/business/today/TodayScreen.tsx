@@ -4450,7 +4450,7 @@ export function TodayScreen(props: TodayProps) {
   const holdPopLane = pending
     ? pendingWarnLane
     : props.hold
-      ? boardLanes.find((l) => l.items.some((it) => it.caseId === props.hold!.bookingId))
+      ? boardLanes.find((l) => l.group === 'staff' && l.items.some((it) => it.caseId === props.hold!.bookingId))
       : undefined
   const holdPopWords = holdPopLane ? wordsForLane(holdPopLane) : props.words
 
@@ -9028,7 +9028,7 @@ export function TodayScreen(props: TodayProps) {
                 role="group"
                 aria-label="ボード表示"
                 data-guide-title="表示の切替"
-                data-guide="スタッフだけ・設備だけ・両方の表示を切り替えます。"
+                data-guide={`スタッフだけ・${w.tabWord}だけ・両方の表示を切り替えます。`}
                 ref={segWrapRef}
               >
                 {/* the thumb — decorative, aria-hidden, never in the
