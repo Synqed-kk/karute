@@ -1576,7 +1576,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // store-gate.ts + store-clamp.ts, logic-only, no new string reaching the
 // thin bundle. Tip after this fold (pre-rebase): `4837a8f65`.
 //
-// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-17 — REBASE 5 (PKT-REBASE-GATE-S3-2026-09-17): the gate
 // (pre-rebase tip `4837a8f65`, the X6 fold above included) rebased onto
 // origin/main's tip after PR #950 landed (53bc4e9fb, `git rebase --onto
@@ -1596,8 +1595,33 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // entry's own figure above (2,123,682 B), the rebase carrying main's #950
 // (Business file) and #934 (capacity adapter) forward through this branch's
 // whole gate stack. Genuine rebase volume, not bloat, same class as every
-// prior raise on this line. Ceiling = 2,124,153 + 1,000.
-const BUDGET_BYTES = 2_125_153
+// prior raise on this line. Ceiling was 2,124,153 + 1,000.
+//
+// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-17 — REBASE 6 (PKT-REBASE-GATE-S4-2026-09-17): the gate
+// (pre-rebase tip `64bd5da1b`, six commits on `53bc4e9fb`) rebased onto
+// origin/main `dbdc2d9ad`, after #953 / #952 / #951 / #954 landed. One
+// conflict during the six-commit replay, in this ledger only: main's entries
+// kept verbatim, this branch's gate history appended, one live BUDGET_BYTES.
+// The appointments facade test auto-merged; its patch against the new main
+// matches the pre-rebase patch apart from Git's blob-index metadata.
+//
+// Same CI recipe — both commands and all six VITE_* values read directly
+// from .github/workflows/ci.yml, thin/dist emptied before each of two laps
+// on rebased code tip `76a610768`, byte-identical both times (matching
+// filenames, sizes, SHA-256s and MD5s, node v24.16.0):
+//   en 135,045 · index 1,050,985 · vendor 937,791 = 2,123,821 B.
+// Ceiling = 2,123,821 + 1,000 = 2,124,821.
+//
+// Against REBASE 5's recorded figure: index 1,051,317 → 1,050,985 (−332 B),
+// en and vendor unchanged to the byte; total 2,124,153 → 2,123,821 B. The
+// gate's non-ledger patch is unchanged, so this is the composed result of
+// carrying moved main through the existing gate stack, not a new gate edit.
+// Against main's own #951 ledger figure above (2,120,862 B, not freshly
+// rebuilt here): +2,959 B total (en +231 · index +2,728 · vendor unchanged).
+// The ceiling follows the fresh measurement DOWN by 332 B, keeping exactly
+// 1,000 B headroom. Purchase exclusion remains 0/13 in both clean builds.
+const BUDGET_BYTES = 2_124_821
 
 let dir
 try {
