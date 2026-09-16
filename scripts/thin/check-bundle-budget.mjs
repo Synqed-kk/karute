@@ -1486,7 +1486,13 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     全店共通の初期値 ×8 · the folded TYPE_SLOT reading `to="new"` and passed
 //     as `typeSlot:to` at 4 call sites, with ZERO `typeSlot:"off"` literals
 //     left (the 2b round wired the month line and the selected-day card).
-const BUDGET_BYTES = 2_130_388
+// Re-based 2026-09-16 (PKT-SPEED-SWIPE): measured 2,140,676 B on the CI-way
+// build of this tip, + 1,000 B of headroom. The round added 11,283 B raw over
+// its base (2,129,393 B): the shared slide gesture, the 予約 page's own track
+// and its neighbour panes, the neighbour prefetch and the calendar-numbers
+// store. Gzip went DOWN, 594,248 → 584,058 B — the new code compresses better
+// than the duplicated gesture it replaced.
+const BUDGET_BYTES = 2_141_676
 let dir
 try {
   dir = readdirSync(DIST)
