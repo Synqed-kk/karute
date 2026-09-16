@@ -56,8 +56,8 @@ import type { ReservedLaneMask, ReservedSpan } from './reserved-mask'
 export type { DragMode, DragOrigin }
 
 // ⚖ D-53 (u)/(n2b1) — a LOCAL structural alias, never an import: this file may
-// not import resource-words even type-only (its inventory + the C5 regex both
-// forbid it). Callers pass `ResourceWords` rows, which are structurally
+// not import the words table even type-only (its inventory entry + the C5
+// leg both forbid it). Callers pass the table's rows, which are structurally
 // compatible.
 type LaneWords = { resourceNoun: string; privateWord: string | null; fullWord: string; turnoverWord: string | null }
 

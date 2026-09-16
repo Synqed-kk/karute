@@ -9890,8 +9890,9 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // that silently reads nothing is the failure mode this test exists to close.
     expect(memo.length).toBeGreaterThan(500)
     expect(press.length).toBeGreaterThan(500)
-    // …and the family is THREE, with M6's own pinned above: every place the
-    // staged card's lane is looked up scopes by group first.
+    // …and the family is FIVE (three from M6 + `withheldMark` + `park`,
+    // D-53 (u)): every place a card's STAFF lane is looked up by key scopes
+    // by group first.
     // ⚖ D-53 (u)/(n2b1) — DISCLOSED PIN MOVE: 3 -> 5. `withheldMark` and
     // `park` now resolve their own staff lane the same safe, group-scoped
     // way, for the same reason (PKT-BUILD-N2B1-SINGLE-LANE.md).
