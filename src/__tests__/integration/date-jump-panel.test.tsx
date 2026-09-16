@@ -97,6 +97,7 @@ import { StrictMode } from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { makeSpring } from '@/lib/motion/spring'
+import { jstStartOfToday, ymdInJst } from '@/lib/date/jst'
 import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
 import ja from '../../../messages/ja.json'
@@ -104,6 +105,12 @@ import en from '../../../messages/en.json'
 
 // 2026-09-14 (月) — the day Liam's screenshots are from; JST midnight.
 const SELECTED_ISO = new Date('2026-09-14T00:00:00+09:00').toISOString()
+
+/** A month of the panel's own year (the selected date's, 2026) that is NEVER
+ *  the current one — so a landing day of 「the 1st」 is the only right answer.
+ *  This suite runs on the real clock: 8月 would be today's month for a whole
+ *  month of the year, and the assertion would read as a bug in the code. */
+const OTHER_MONTH = ymdInJst(jstStartOfToday()).startsWith('2026-08') ? 7 : 8
 
 function monthCells(monthKey: string, count = 4): MonthCellDTOType[] {
   return [
@@ -114,6 +121,7 @@ function monthCells(monthKey: string, count = 4): MonthCellDTOType[] {
       isToday: false,
       count,
       density: 'medium',
+      closed: false,
     },
   ]
 }
@@ -122,12 +130,16 @@ function renderView({
   view = 'day' as DayWeekMonthView,
   loadMonthCells = jest.fn(async (key: string) => monthCells(key)),
   strict = false,
+  staffFilter = 'all',
 }: {
   view?: DayWeekMonthView
   loadMonthCells?: (key: string) => Promise<MonthCellDTOType[]>
   /** Wrap in <StrictMode>, i.e. what `next dev` and the shell's `vite dev`
    *  actually run: mount → unmount → remount, effects double-invoked. */
   strict?: boolean
+  /** The 担当 scope the page is under — it must survive every move the panel
+   *  makes, the month chip's landing included (spec §1/§6). */
+  staffFilter?: string
 } = {}) {
   const tree = (
     <AppointmentsView
@@ -149,7 +161,7 @@ function renderView({
       reservationStaff={[]}
       colorRosterIds={[]}
       businessHours={{ start: 10, end: 19 }}
-      staffFilter="all"
+      staffFilter={staffFilter}
       menus={[]}
       loadMonthCells={loadMonthCells}
     />
@@ -328,6 +340,90 @@ describe('walking the calendar', () => {
     // Nothing navigated — level 2 moves the calendar, not the page.
     expect(push).not.toHaveBeenCalled()
   })
+
+  /**
+   * ⚖ §v11b (packet A4) — in 月 mode the chip must NOT open a day grid over a
+   * day grid: the 月 page and this panel looked identical, which is the
+   * complaint the whole round came out of. One prop, `defaultLevel`; the
+   * panel's own levels, grid and month machinery are untouched.
+   */
+  it('月 mode opens the panel ON the month chips; 日 mode still opens the day grid', async () => {
+    renderView({ view: 'month' })
+    await openPanel()
+    const dialog = screen.getByRole('dialog')
+
+    // The year row, twelve chips, and no day grid: the day level is `inert` +
+    // aria-hidden at level 2, so ByRole cannot see a single day button.
+    expect(within(dialog).getByRole('button', { expanded: true })).toHaveTextContent('2026年')
+    expect(within(dialog).getAllByRole('button', { pressed: false })).toHaveLength(11)
+    expect(within(dialog).getAllByRole('button', { pressed: true })).toHaveLength(1)
+    // No DAY is reachable: the mocked grids stay mounted for the slide, but at
+    // level 2 they are inert + aria-hidden, so nothing with a day behind it is
+    // in the accessibility tree (or the tab order).
+    expect(
+      within(dialog)
+        .getAllByRole('button')
+        .filter((b) => b.hasAttribute('data-day')),
+    ).toHaveLength(0)
+  })
+
+  it('日 mode is unchanged — the chip still opens the day grid', async () => {
+    renderView({ view: 'day' })
+    await openPanel()
+    const dialog = screen.getByRole('dialog')
+    expect(title()).toHaveTextContent('2026年9月')
+    expect(within(dialog).getAllByTestId('month-grid').length).toBeGreaterThan(0)
+  })
+
+  /**
+   * R1-1 (D-2) — the other half of §v11 point 1, which 4a shipped without: in
+   * 月 mode the twelve chips are the whole reason the panel opens at level 2,
+   * so picking one LANDS that month on the page (MOCK 1263-1272's mGrid
+   * handler) instead of dropping into a day grid nobody asked for. The panel
+   * learns ONE optional callback; with no callback (日/週) its own behaviour is
+   * byte-for-byte what it was — pinned by the level-2 test above, which still
+   * expects a 12月 chip to move the calendar and navigate nothing.
+   */
+  it('月 mode: a month chip lands THAT month on the page and closes the panel', async () => {
+    // The panel's chips are the SELECTED date's year (2026). Never assert on a
+    // chip that could be the current month: the landing day would then be today
+    // rather than the 1st, and this suite runs on the real clock.
+    const pick = OTHER_MONTH
+    renderView({ view: 'month', staffFilter: 'staff-7' })
+    await openPanel()
+    const dialog = screen.getByRole('dialog')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: `${pick}月` }))
+
+    await waitFor(() => expect(push).toHaveBeenCalledTimes(1))
+    const url = push.mock.calls[0][0] as string
+    // The month page, the 1st of the month picked — and the 担当 scope the page
+    // was under, which every other move already carries (spec §1/§6).
+    expect(url).toContain('view=month')
+    expect(url).toContain(`date=2026-${String(pick).padStart(2, '0')}-01`)
+    expect(url).toContain('staff=staff-7')
+    // One tap is the whole decision.
+    await waitFor(() => expect(panel()).toBeNull())
+  })
+
+  it('日 mode passes NO month callback — a chip still just moves the calendar', async () => {
+    const loadMonthCells = jest.fn(async (key: string) => monthCells(key))
+    renderView({ view: 'day', loadMonthCells })
+    await openPanel()
+    const dialog = screen.getByRole('dialog')
+
+    fireEvent.click(title())
+    await waitFor(() =>
+      expect(within(dialog).getByRole('button', { expanded: true })).toHaveTextContent('2026年'),
+    )
+    fireEvent.click(within(dialog).getByRole('button', { name: `${OTHER_MONTH}月` }))
+
+    // Level 1, that month, still open, nothing navigated.
+    await waitFor(() => expect(title()).toHaveTextContent(`2026年${OTHER_MONTH}月`))
+    expect(within(dialog).getAllByTestId('month-grid').length).toBeGreaterThan(0)
+    expect(push).not.toHaveBeenCalled()
+    expect(panel()).not.toBeNull()
+  })
 })
 
 describe('picking a day KEEPS the page mode', () => {
@@ -338,6 +434,13 @@ describe('picking a day KEEPS the page mode', () => {
   ])('%s stays %s', async (view) => {
     renderView({ view })
     await openPanel()
+    if (view === 'month') {
+      // ⚖ §v11b (A4) + R1-1 (D-2): 月 mode opens ON the month chips, and since
+      // R1-1 a chip LANDS its month on the page — so the way to a day grid in
+      // 月 mode is the title, which toggles the level back down. The mode rule
+      // below is unchanged; only the route to a day is.
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { expanded: true }))
+    }
     await waitFor(() => expect(screen.getAllByTestId('month-grid')).toHaveLength(3))
 
     // The centre pane is the second of the three (prev, current, next).

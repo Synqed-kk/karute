@@ -8,7 +8,7 @@
 // actions port; they are wired to facade endpoints in the P-B mutations PR.
 
 import { useCallback, useEffect, useMemo } from 'react'
-import type { MonthGridCell } from '@synqed-kk/ui'
+import type { MonthCell } from '@/lib/adapters/reservation'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 import {
@@ -69,8 +69,8 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
     warmRecordForBookings(upcoming)
   }, [dto])
 
-  // MonthGridCell wants a real Date; the DTO ships dateIso (JSON-safe).
-  const monthData = useMemo<MonthGridCell[] | null>(
+  // MonthCell wants a real Date; the DTO ships dateIso (JSON-safe).
+  const monthData = useMemo<MonthCell[] | null>(
     () =>
       dto.monthData?.map((c) => ({
         id: c.id,
@@ -79,6 +79,7 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
         isToday: c.isToday,
         count: c.count,
         density: c.density,
+        closed: c.closed,
       })) ?? null,
     [dto.monthData],
   )
@@ -127,7 +128,10 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       weekData={dto.weekData}
       weekStartIso={dto.weekStartIso}
       monthData={monthData}
-      monthStartIso={null}
+      // Straight off the wire, like every other field on this door. It was
+      // hardcoded null here while screen.ts set it and the route serialised it
+      // — the phone was the one door that threw the answer away.
+      monthStartIso={dto.monthStartIso}
       // The day line's numbers and the 未設定 discriminator, straight off the
       // wire — the same two props the web page hands this same view
       // (PKT-1b-WIRE W-B/W-C). Both carry a schema default, so a server that

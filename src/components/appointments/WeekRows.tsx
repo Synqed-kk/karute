@@ -7,6 +7,7 @@
 // The `data-week-*` markers exist so the port itself is testable: every one of
 // those CSS rules is pinned by a named test, not left to a screenshot.
 import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { MonthDensityBucket } from '@synqed-kk/ui'
 import { useTranslations } from 'next-intl'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -50,14 +51,24 @@ function shortMonthDay(dateIso: string): string {
   return `${p.month}/${p.day}`
 }
 
+/** ONE band→colour map for every 予約 surface that draws a density dot: the
+ *  week row's own dot and the 月 grid's (MonthPage's `cellTone`). A second map
+ *  is how the same day ends up green here and blue there. */
+export const DENSITY_DOT_CLASS: Record<MonthDensityBucket, string | null> = {
+  empty: null,
+  light: 'bg-[var(--color-success)]',
+  medium: 'bg-[var(--color-accent)]',
+  busy: 'bg-[var(--color-warning)]',
+}
+
 /** The app's ONE fixed density table (mirrors reservation.ts's private
  *  densityFor / @synqed-kk/ui's MonthDensityBucket thresholds — not
  *  exported, so reproduced here; pinned equal by a test). null = no dot. */
 export function densityDotClass(count: number): string | null {
-  if (count === 0) return null
-  if (count <= 2) return 'bg-[var(--color-success)]'
-  if (count <= 5) return 'bg-[var(--color-accent)]'
-  return 'bg-[var(--color-warning)]'
+  if (count === 0) return DENSITY_DOT_CLASS.empty
+  if (count <= 2) return DENSITY_DOT_CLASS.light
+  if (count <= 5) return DENSITY_DOT_CLASS.medium
+  return DENSITY_DOT_CLASS.busy
 }
 
 // Shared with DayNumbersLine.tsx (W5) — one tone→class map for both cell
@@ -100,6 +111,22 @@ export const VALUE_TONE_CLASS: Record<Cell['tone'], string> = {
   // --reservation-new-chip-bg, #2563eb) — reused, never a literal hex.
   new: 'text-[var(--reservation-new-chip-bg)]',
   muted: 'text-[var(--color-text-muted)]',
+}
+
+// mock `.dayline .shim{width:52px;height:12px;border-radius:999px;
+// margin-right:12px}` — the day line's AND the month line's pending pill,
+// through ONE door so the two surfaces cannot drift (R2-7). `mr-3` (12px) on
+// top of the line's own `gap-[14px]` is the mock's 26px edge-to-edge gap
+// between the two shims — margin and gap stack, they don't replace one
+// another. The trailing margin on the second pill is harmless (nothing sits
+// after it).
+export function LinePill() {
+  return (
+    <span
+      aria-hidden
+      className="reservation-shim mr-3 inline-block h-[12px] w-[52px] rounded-full"
+    />
+  )
 }
 
 // mock `.wkcell .shim{width:62px;height:11px;transform:translateY(1px)}` —
@@ -368,12 +395,16 @@ export function WeekRows({
                 // R3-17 — mock `--hair` (#eef0f2) for the row rule against
                 // `--line` (#e6e8eb) for the card edge: two deliberately
                 // different greys, so the block reads as a card with hairlines
-                // inside it rather than a ruled table. Both pointed at
-                // `--color-border`. zinc-100 is the lighter step; on dark the
-                // zinc scale has nothing between the card's own background
-                // (#18181b) and its edge (#27272a), so the dark pair keeps
-                // today's relationship.
-                'flex min-h-[76px] w-full items-center gap-2.5 border-b border-zinc-100 py-3 pl-3 pr-2.5 text-left last:border-b-0 dark:border-zinc-800',
+                // inside it rather than a ruled table.
+                // R2-6 (LENS-3 #2) — zinc-100 (#f4f4f5) measured ~35% weaker
+                // than the mock's --hair on real pixels; `border-zinc-200/70`
+                // (≈#ececee over white) is the ONE hair token, shared with the
+                // month grid's own cell borders (MonthPage.tsx) — still
+                // lighter than the card edge (`--color-border`, zinc-200's
+                // full strength). On dark the zinc scale has nothing between
+                // the card's own background (#18181b) and its edge (#27272a),
+                // so the dark pair keeps today's relationship.
+                'flex min-h-[76px] w-full items-center gap-2.5 border-b border-zinc-200/70 py-3 pl-3 pr-2.5 text-left last:border-b-0 dark:border-zinc-800',
                 // MOTION (W-I), read off the mock's own cascade: `.wkrow`
                 // (line 144) sets `transition:background-color .12s ease`, but
                 // `[data-press]` (line 282) re-declares the same SHORTHAND at

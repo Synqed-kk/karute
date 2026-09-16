@@ -9,12 +9,15 @@ export const BOOKING_SWITCHES = {
    *  The honesty gate is unchanged — the cell still renders only where
    *  `capacityDefensible` holds (spec §14); elsewhere the slot takes 予約時間. */
   freeTimeCell: true,
-  /** The 休 (closed-day) cell replacing a zero-booking day's numbers. OFF — a
-   *  discovered surface; core's write-path refusal is still the ask (core
-   *  ticket 1) so a staff member could still book INTO a 休 day today. The
-   *  1a wire field ships regardless. Flip: once core ships the refusal, or
-   *  Liam accepts the gap. */
-  closedDays: false,
+  /** The 休 (closed-day) cell replacing a zero-booking day's numbers. ON —
+   *  ⚖ Liam 9/15 16:0x 「everything as the mock」, ruled again at R1-3: the
+   *  cell is honest either way (it reads the store's SAVED hours; with none
+   *  saved nothing changes), and a staff member who can see the shop is shut
+   *  is better off than one who cannot. The remaining gap is the WRITE side —
+   *  the app will still accept a booking into a 休 day — and that door is
+   *  closed on the app side by PKT-1c-C, this same release; core's own
+   *  write-path refusal stays the ask (core ticket 1). */
+  closedDays: true,
   /** The month page's selected-day list-card below the grid. ON — spec §S1,
    *  this round's build. Flip: never expected; a floor once 1b-month lands. */
   selectedDayCard: true,

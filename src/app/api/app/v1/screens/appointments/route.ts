@@ -284,6 +284,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             isToday: c.isToday,
             count: c.count,
             density: c.density,
+            closed: c.closed,
           })) ?? null,
       }),
     )

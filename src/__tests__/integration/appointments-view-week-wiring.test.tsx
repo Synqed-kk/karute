@@ -1,7 +1,9 @@
 /** @jest-environment jsdom */
 /**
- * PKT-1b-WIRE — what the 予約 page's WEEK branch actually renders, and what it
- * hands it.
+ * PKT-1b-WIRE / PKT-1b-MONTH — what the 予約 page's WEEK and MONTH branches
+ * actually render, and what they hand over. (The file keeps its week name: the
+ * month branch landed later and shares every stub, and splitting it would have
+ * meant a second copy of the whole harness.)
  *
  * Until this PR the week branch mapped @synqed-kk/ui's `WeekDayCard` over the
  * rows: seven cards in a responsive grid, nothing like the approved mock, and
@@ -59,7 +61,13 @@ jest.mock('@/components/karute/spike-lifted/reservation/ReservationStaffFilter',
   ReservationStaffFilter: ({ prependSlot }: { prependSlot?: React.ReactNode }) => prependSlot ?? null,
 }))
 jest.mock('@/components/reservation/ReservationTotals', () => ({ ReservationTotals: () => null }))
-jest.mock('@/components/appointments/DateJumpPanel', () => ({ DateJumpPanel: () => null }))
+const panelProps: Record<string, unknown> = {}
+jest.mock('@/components/appointments/DateJumpPanel', () => ({
+  DateJumpPanel: (props: Record<string, unknown>) => {
+    Object.assign(panelProps, props)
+    return null
+  },
+}))
 jest.mock('@/components/appointments/NewBookingDialog', () => ({ NewBookingDialog: () => null }))
 jest.mock('@/components/appointments/BookingActionSheetWrapper', () => ({
   BookingActionSheetWrapper: () => null,
@@ -85,11 +93,33 @@ jest.mock('@/components/appointments/WeekRows', () => ({
     return <div data-testid="week-rows" />
   },
   VALUE_TONE_CLASS: {},
+  DENSITY_DOT_CLASS: {},
+}))
+
+type MonthPageProps = {
+  cells: MonthCell[]
+  selectedDateIso: string
+  todayIso?: string
+  weekdayLabels: string[]
+  typeSlot: string
+  locale: string
+  pending?: boolean
+  failed?: boolean
+  onPickDay: (iso: string) => void
+  onPickOtherMonthDay: (iso: string) => void
+}
+let monthPageProps: MonthPageProps | null = null
+jest.mock('@/components/appointments/MonthPage', () => ({
+  MonthPage: (props: MonthPageProps) => {
+    monthPageProps = props
+    return <div data-testid="month-page" />
+  },
 }))
 
 import { render } from '@testing-library/react'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
-import type { WeekDayRowData } from '@/lib/adapters/reservation'
+import { firstDayOfMonthKey, shiftMonthKey } from '@/lib/appointments/date-jump'
+import type { MonthCell, WeekDayRowData } from '@/lib/adapters/reservation'
 
 const WEEK_START = new Date('2026-09-15T00:00:00+09:00')
 
@@ -123,6 +153,28 @@ function weekRow(dayOffset: number): WeekDayRowData {
 
 const WEEK = Array.from({ length: 7 }, (_, i) => weekRow(i))
 
+function monthCell(id: string, over: Partial<MonthCell> = {}): MonthCell {
+  return {
+    id,
+    date: new Date(`${id}T00:00:00+09:00`),
+    inMonth: true,
+    isToday: false,
+    count: 0,
+    density: 'empty',
+    closed: false,
+    ...over,
+  }
+}
+
+/** The props that put the view on its 月 branch. */
+const MONTH_VIEW = {
+  initialView: 'month' as const,
+  weekData: null,
+  weekStartIso: null,
+  monthData: [monthCell('2026-09-15', { count: 3, density: 'medium' }), monthCell('2026-09-16')],
+  monthStartIso: '2026-08-31T15:00:00.000Z',
+}
+
 function renderView(over: Record<string, unknown> = {}) {
   return render(
     <AppointmentsView
@@ -154,8 +206,10 @@ function renderView(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   weekRowsProps = null
+  monthPageProps = null
   pushed.length = 0
   for (const k of Object.keys(uiProps)) delete uiProps[k]
+  for (const k of Object.keys(panelProps)) delete panelProps[k]
 })
 
 /** The header's ‹ / › / 今日 handlers, as the package receives them. */
@@ -244,6 +298,177 @@ describe('every move keeps the 担当 filter (W-E, spec §1/§6)', () => {
     renderView({ staffFilter: 'all' })
     header().onPrev()
     expect(pushed[0]).not.toContain('staff=')
+  })
+
+  // A6 — the same rule at MONTH level: ‹ / › step whole months there, and a
+  // 担当 that fell off a month move would leave the whole salon's numbers under
+  // a pill that still reads as selected.
+  it('every 月 move carries it too — the arrows and a cell tap', () => {
+    renderView({ ...MONTH_VIEW, staffFilter: STAFF })
+    header().onPrev()
+    header().onNext()
+    header().onToday()
+    monthPageProps!.onPickDay('2026-09-17')
+    expect(pushed).toHaveLength(4)
+    for (const href of pushed) expect(href).toContain(`staff=${STAFF}`)
+    expect(pushed[0]).toContain('view=month')
+    expect(pushed[3]).toContain('date=2026-09-17')
+  })
+})
+
+describe('the MONTH branch renders MonthPage (A1-A3)', () => {
+  it('hands it the cells, the selected day, today and the 月 weekday labels', () => {
+    const { getByTestId } = renderView(MONTH_VIEW)
+    getByTestId('month-page')
+    expect(monthPageProps!.cells).toHaveLength(2)
+    expect(monthPageProps!.selectedDateIso).toBe('2026-09-15')
+    expect(monthPageProps!.todayIso).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(monthPageProps!.weekdayLabels).toHaveLength(7)
+    // PKT-2 owns the 新規/再来 producer; until then the line is 予約 alone.
+    expect(monthPageProps!.typeSlot).toBe('off')
+  })
+
+  it('a cell tap opens THAT day — the JST day, not a UTC-midnight parse of it', () => {
+    renderView(MONTH_VIEW)
+    monthPageProps!.onPickDay('2026-09-17')
+    expect(pushed[0]).toContain('date=2026-09-17')
+    expect(pushed[0]).toContain('view=day')
+  })
+
+  it('a FILLER tap moves the page to THAT month, never to a day page (R1-2)', () => {
+    renderView(MONTH_VIEW)
+    monthPageProps!.onPickOtherMonthDay('2026-10-01')
+    expect(pushed).toHaveLength(1)
+    expect(pushed[0]).toContain('view=month')
+    expect(pushed[0]).toContain('date=2026-10-01')
+  })
+
+  it('the month line s pending state is the router transition, like the week s', () => {
+    renderView(MONTH_VIEW)
+    expect(typeof monthPageProps!.pending).toBe('boolean')
+  })
+})
+
+/**
+ * R2-1 (LENS-1 #1, HIGH) — ‹ / › used to step 月 mode via raw `setMonth`,
+ * which overflows from a 31st: 8/31 › landed on 10/1 (September skipped
+ * whole), 3/31 ‹ didn't move at all. The fix steps by MONTH KEY through the
+ * same date-jump helpers `onPickMonth` already uses (see R1-1 below) and
+ * lands on the 1st — or on TODAY when the target IS the current month.
+ *
+ * The six fixed cases below run a year behind whatever year this suite
+ * happens to run on, so none of them can ever collide with the real current
+ * month (same trick R1-1 uses below via `todayIso()`). The "current month"
+ * case gets its own test, built FROM the real today.
+ */
+describe('the month arrows step by MONTH KEY, never a raw Date (R2-1)', () => {
+  let Y: string
+
+  beforeAll(() => {
+    const probe = renderView(MONTH_VIEW)
+    Y = String(Number(monthPageProps!.todayIso!.slice(0, 4)) - 1)
+    probe.unmount()
+  })
+
+  it.each([
+    ['01-31', 'next', '02-01'],
+    ['03-31', 'prev', '02-01'],
+    ['08-31', 'next', '09-01'],
+    ['10-31', 'next', '11-01'],
+    ['09-15', 'next', '10-01'],
+    ['09-15', 'prev', '08-01'],
+  ])('%s %s lands on %s in TZ=Asia/Tokyo — the 1st, never a skipped/short month', (md, dir, expectedMd) => {
+    renderView({ ...MONTH_VIEW, selectedDateIso: `${Y}-${md}` })
+    if (dir === 'next') header().onNext()
+    else header().onPrev()
+    expect(pushed[0]).toContain('view=month')
+    expect(pushed[0]).toContain(`date=${Y}-${expectedMd}`)
+  })
+
+  it('lands on TODAY, not the 1st, when the target month IS the current one — same rule the chip uses', () => {
+    const probe = renderView(MONTH_VIEW)
+    const todayIso = monthPageProps!.todayIso!
+    probe.unmount()
+    const prevMonthFirst = firstDayOfMonthKey(shiftMonthKey(todayIso.slice(0, 7), -1))
+    renderView({ ...MONTH_VIEW, selectedDateIso: prevMonthFirst.toISOString() })
+    header().onNext()
+    expect(pushed[0]).toContain(`date=${todayIso}`)
+  })
+})
+
+/**
+ * R1-1 (D-2) — the month CHIP's landing, the half of §v11 point 1 that 4a left
+ * out. The decision lives here, not in the panel: the panel says "a month was
+ * picked", the view decides which DAY of it the page lands on.
+ */
+describe('a month pick LANDS that month on the 月 page (R1-1)', () => {
+  const pickMonth = () => panelProps.onPickMonth as ((y: number, m: number) => void) | undefined
+  const todayIso = () => monthPageProps!.todayIso!
+
+  it('an ordinary month lands on its 1st, in 月 view', () => {
+    renderView(MONTH_VIEW)
+    // A year behind today's, so it can never BE the current month whatever day
+    // this suite runs on.
+    const [y, m] = todayIso().split('-')
+    pickMonth()!(Number(y) - 1, Number(m))
+    expect(pushed).toHaveLength(1)
+    expect(pushed[0]).toContain('view=month')
+    expect(pushed[0]).toContain(`date=${Number(y) - 1}-${m}-01`)
+  })
+
+  it('the CURRENT month lands on TODAY — 「今月」 through the chip and 今日 agree', () => {
+    renderView(MONTH_VIEW)
+    const [y, m] = todayIso().split('-')
+    pickMonth()!(Number(y), Number(m))
+    expect(pushed[0]).toContain(`date=${todayIso()}`)
+  })
+
+  it('it carries the 担当 scope, like every other move (spec §1/§6)', () => {
+    renderView({ ...MONTH_VIEW, staffFilter: 'staff-3' })
+    const [y, m] = todayIso().split('-')
+    pickMonth()!(Number(y) - 1, Number(m))
+    expect(pushed[0]).toContain('staff=staff-3')
+  })
+
+  it('日/週 pass NO callback — there the chip is not a month lander', () => {
+    renderView()
+    expect(pickMonth()).toBeUndefined()
+    expect(panelProps.defaultLevel).toBe(1)
+  })
+})
+
+describe('a cut-off MONTH says so too (A5b, LENS-1 L1-5)', () => {
+  // The 月 branch used to fall through to 「データがありません」 on a truncated
+  // read: thirty days painted as calm and empty when the truth is that the
+  // window was cut off. The phone is the only door that can reach it (the web
+  // page throws to its error boundary).
+  const noDataText = 'empty.noData'
+
+  it('truncated → MonthPage in its failed state, and no 「データがありません」', () => {
+    const { queryByText, getByTestId } = renderView({
+      ...MONTH_VIEW,
+      truncated: true,
+      monthData: null,
+    })
+    getByTestId('month-page')
+    expect(monthPageProps!.failed).toBe(true)
+    expect(queryByText(noDataText)).toBeNull()
+  })
+
+  it('truncated with cells still on the wire is STILL failed — the read is incomplete', () => {
+    renderView({ ...MONTH_VIEW, truncated: true })
+    expect(monthPageProps!.failed).toBe(true)
+  })
+
+  it('a month that answered renders its cells, never the failed line', () => {
+    renderView(MONTH_VIEW)
+    expect(monthPageProps!.failed).toBe(false)
+    expect(monthPageProps!.cells).toHaveLength(2)
+  })
+
+  it('a null month with no truncation flag also says so', () => {
+    renderView({ ...MONTH_VIEW, monthData: null })
+    expect(monthPageProps!.failed).toBe(true)
   })
 })
 
