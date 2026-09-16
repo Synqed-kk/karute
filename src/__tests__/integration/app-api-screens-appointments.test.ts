@@ -323,6 +323,17 @@ function bearer() {
 }
 const auth = { authorization: `Bearer ${bearer()}` }
 const route = { params: Promise.resolve({}) }
+
+// The `from` the merged route actually asks core for, for a JST day.
+//
+// Since the capacity side landed, `windowFor` asks for 86,400,000 ms BEFORE
+// every window it reads, so a booking that starts before day 1's midnight and
+// runs into it is in the rows the intersection index needs. The lead-in moves
+// no count — every consumer re-applies its own YMD spans — so the numbers these
+// tests pin are unchanged; only the boundary the route asks for moved. ONE
+// helper so the month read and the compare read can never drift apart here.
+const askedFrom = (ymd: string) =>
+  new Date(Date.parse(new Date(`${ymd}T00:00:00+09:00`).toISOString()) - 86_400_000).toISOString()
 const req = (
   headers: Record<string, string> = {},
   url = 'https://s/api/app/v1/screens/appointments',
@@ -716,8 +727,15 @@ describe('GET /api/app/v1/screens/appointments', () => {
     )
     // Both spans really were read: the month's own padded window and the
     // previous one, which starts seven days before the 1st.
-    expect(froms).toContain(new Date('2026-08-25T00:00:00+09:00').toISOString())
-    expect(froms).toContain(new Date('2026-07-25T00:00:00+09:00').toISOString())
+    //
+    // Each `from` also carries the route's ONE-DAY LEAD-IN: since the capacity
+    // side landed, `windowFor` asks core for 86,400,000 ms before every window
+    // it reads, so a booking that starts before day 1's midnight and runs into
+    // it is in the rows the intersection index needs. It moves no count — the
+    // compare re-applies its own YMD spans — which is why 先月同期間比 is still
+    // +3 above. These are the boundaries the merged route actually asks for.
+    expect(froms).toContain(askedFrom('2026-08-25'))
+    expect(froms).toContain(askedFrom('2026-07-25'))
   })
 
   it('the previous span is clamped EXACTLY like the month read — same store, same 担当', async () => {
@@ -741,8 +759,7 @@ describe('GET /api/app/v1/screens/appointments', () => {
         staff_id?: string
       }[][]
     ).map((c) => c[0])
-    const at = (ymd: string) =>
-      calls.find((c) => c?.from === new Date(`${ymd}T00:00:00+09:00`).toISOString())
+    const at = (ymd: string) => calls.find((c) => c?.from === askedFrom(ymd))
     const month = at('2026-08-25') // the month's own padded window
     const prev = at('2026-07-25') // the compare's, seven days ahead of the 1st
     expect(month).toBeDefined()
@@ -780,8 +797,8 @@ describe('GET /api/app/v1/screens/appointments', () => {
         (c) => c[0]?.from,
       )
       // The month's own window is still read; the previous one never is.
-      expect(froms).toContain(new Date('2026-08-25T00:00:00+09:00').toISOString())
-      expect(froms).not.toContain(new Date('2026-07-25T00:00:00+09:00').toISOString())
+      expect(froms).toContain(askedFrom('2026-08-25'))
+      expect(froms).not.toContain(askedFrom('2026-07-25'))
     } finally {
       jest.dontMock('@/lib/appointments/booking-switches')
       jest.resetModules()
