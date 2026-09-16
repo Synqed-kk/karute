@@ -19,7 +19,12 @@ import {
   validateAppointmentTime,
   type AppointmentInput,
 } from '@/lib/appointments'
-import { appointmentsToMonthCells, capacityRowFields } from '@/lib/adapters/reservation'
+import { appointmentsToMonthCells, monthCellsToDTO } from '@/lib/adapters/reservation'
+import { newCountByDay } from '@/lib/appointments/first-visit'
+import { enrichCustomers } from '@/lib/customers/list-enrich'
+import { getBusinessId } from '@/lib/staff'
+import { listAllPackUsageOrNull } from '@/lib/packs/store'
+import { customerLensFor } from '@/lib/auth/store-scope'
 import { computeMonthRange } from '@/lib/date/calendar-range'
 import { jstStartOfToday } from '@/lib/date/jst'
 import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
@@ -319,6 +324,14 @@ export async function getAppointmentsInRange(
  * staff filter touches reservationViews only (lib/appointments/screen.ts), so
  * no staff scope is applied or accepted here.
  *
+ * ⚖ R1-3 — and the month's 新規 is computed HERE, through the same producer the
+ * facade's month goes through (`newCountByDay`), mapped by the same
+ * `monthCellsToDTO`. This door used to hardcode `newCount: 0` on the identical
+ * wire type the phone filled honestly — harmless only while nothing renders it.
+ * It fails closed with everything else: no business id, no history read, or a
+ * window we could not read to exhaustion, and the cells carry 0 with
+ * `newCountKnown: false` rather than a number nobody may print.
+ *
  * @param monthKey 'YYYY-MM' in the JST calendar.
  */
 export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[]> {
@@ -333,32 +346,81 @@ export async function getMonthCells(monthKey: string): Promise<MonthCellDTOType[
   // undefined` is "every store" to core, and a month grid built from every
   // branch's bookings is the same leak in a different shape.
   if (reachesNoStore(scope)) return []
-  const { getAppointmentsInRangeWithClient } = await import('@/lib/appointments/by-date')
-  const appointments = await getAppointmentsInRangeWithClient(
+  const { fetchAppointmentWindow, countedClientIds } = await import('@/lib/appointments/by-date')
+  // The WINDOW, not the counted-rows wrapper: `truncated` is a fact this door
+  // has to carry into the 新規 flag — a month read that stopped short would
+  // otherwise report a confident 新規 0 for every day in it.
+  const window = await fetchAppointmentWindow(
     synqed,
     rangeFrom.toISOString(),
     rangeTo.toISOString(),
     { storeId: scope.storeId ?? undefined },
   )
-  return appointmentsToMonthCells(appointments, monthStart, monthEnd, jstStartOfToday()).map(
-    (c) => ({
-      id: c.id,
-      dateIso: c.date.toISOString(),
-      inMonth: c.inMonth,
-      isToday: c.isToday,
-      count: c.count,
-      density: c.density,
-      // This door reads no store hours (it answers the pop-down, which renders
-      // through the package grid and has no 休 cell), so the adapter's own
-      // default rides through rather than a second, hours-less answer.
-      closed: c.closed,
-      // The jump panel reads COUNTS only — no hours, no roster, no store type
-      // are fetched here, so these months honestly carry no capacity rather
-      // than a percentage computed from inputs this door never read. The dots
-      // stay the count buckets, which is what the panel renders today.
-      ...capacityRowFields(undefined),
-    }),
+
+  // The 新規 rule's inputs, resolved exactly as the page and the facade resolve
+  // them: the store-clamped cached customer list, the history aggregate for
+  // the ids this window already returned (so the clamp bounds it — no id can
+  // enter from the business-wide roster), and the 回数券 ledger unless the org
+  // has 回数券 off, in which case both other doors skip that read too.
+  //
+  // ⚖ G1 (Greptile round 1 #951) — these three reads feed the 新規 ANNOTATION
+  // only; the cells' own counts and dots never needed them, but a bare
+  // Promise.all let any one of them reject the whole call and kill the month
+  // grid over an outage in a number nobody had asked for yet. Each optional
+  // read is caught into `null` — a FAILED marker, never an empty answer
+  // impersonating a real one — so a failure withholds `newCountKnown` (⚖ G2
+  // below) instead of losing the month. The WINDOW read above stays uncaught
+  // on purpose: a booking read we could not complete must still fail the
+  // month, per the docstring above.
+  const clientIds = countedClientIds(window)
+  const [businessId, orgSettings] = await Promise.all([
+    getBusinessId().catch(() => null),
+    getOrgSettings(),
+  ])
+  const customerLens = customerLensFor(scope)
+  const [enrichment, packUsage, customers] = await Promise.all([
+    businessId && clientIds.length
+      ? enrichCustomers(businessId, clientIds).catch(() => null)
+      : Promise.resolve(new Map()),
+    (orgSettings?.ticket_packs_enabled ?? true)
+      ? listAllPackUsageOrNull().catch(() => null)
+      : Promise.resolve(new Map() as Awaited<ReturnType<typeof listAllPackUsageOrNull>>),
+    customerLens === null ? [] : getCachedCustomerList(customerLens).catch(() => null),
+  ])
+
+  // ⚖ G2 — a failed 回数券 ledger read must withhold the number rather than let
+  // an empty map impersonate a genuinely empty ledger (`packUsage !== null`);
+  // tickets OFF above already resolves to a real empty Map, so that path
+  // stays known exactly as today.
+  const known =
+    !window.truncated &&
+    enrichment !== null &&
+    packUsage !== null &&
+    customers !== null &&
+    (enrichment.size > 0 || clientIds.length === 0)
+  const cells = appointmentsToMonthCells(
+    window.counted,
+    monthStart,
+    monthEnd,
+    jstStartOfToday(),
   )
+  // The jump panel reads COUNTS only — no hours, no roster, no store type are
+  // fetched here, so these months honestly carry no capacity (no `facts`)
+  // rather than a percentage computed from inputs this door never read. The
+  // dots stay the count buckets, which is what the panel renders today.
+  return monthCellsToDTO(cells, {
+    newCounts: {
+      byDay:
+        known && enrichment && packUsage && customers
+          ? newCountByDay(window.counted, {
+              customers: new Map(customers.map((c) => [c.id, c])),
+              enrichment,
+              packUsage,
+            })
+          : new Map(),
+      known,
+    },
+  })
 }
 
 // NOTE (2026-07-27): no caller anywhere yet (no UI, no facade twin, no

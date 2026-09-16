@@ -5,9 +5,16 @@ import type { WeekDayRowData } from '@/lib/adapters/reservation'
 import { BOOKING_SWITCHES } from './booking-switches'
 import { formatHoursMinutes, type Translate } from './format-duration'
 
-/** PKT-2 supplies 'new'|'returning' from the business type; until then every
- *  caller passes 'off'. */
-export type TypeSlot = 'new' | 'returning' | 'off'
+/** ⚖ PKT-2 — 'new' for EVERY business type (Liam 2026-09-15 20:2x: the four
+ *  numbers are 予約 · 稼働 · 空き · 新規 everywhere, no type table). The
+ *  'returning' member is gone with its producer: 再来 was never built, and a
+ *  slot with no honest number behind it is a cell waiting to print a lie.
+ *  'off' stays reachable so the switch has somewhere to mean OFF. */
+export type TypeSlot = 'new' | 'off'
+
+/** THE slot every caller passes. One home, read off the switch registry —
+ *  `TYPE_SLOT` is what makes `countNew` a real switch rather than a comment. */
+export const TYPE_SLOT: TypeSlot = BOOKING_SWITCHES.countNew ? 'new' : 'off'
 
 export type CellKey =
   | 'count'
@@ -15,7 +22,6 @@ export type CellKey =
   | 'free'
   | 'bookedTime'
   | 'new'
-  | 'returning'
   | 'cancelled'
   | 'noShow'
   | 'unset'
@@ -82,10 +88,6 @@ function newCell(row: WeekDayRowData, ctx: MetricMenuCtx): Cell {
   return { key: 'new', label: ctx.t('new'), value: String(row.newCustomerCount), tone: 'new' }
 }
 
-function returningCell(row: WeekDayRowData, ctx: MetricMenuCtx): Cell {
-  return { key: 'returning', label: ctx.t('returning'), value: String(row.returningCount), tone: 'ink' }
-}
-
 function cancelledCell(row: WeekDayRowData, ctx: MetricMenuCtx): Cell {
   return { key: 'cancelled', label: ctx.t('cancelled'), value: String(row.cancelledCount), tone: 'ink' }
 }
@@ -111,25 +113,27 @@ const NEXT_BUILDERS: Record<string, (row: WeekDayRowData, ctx: MetricMenuCtx) =>
   bookedTime: bookedTimeCell,
   cancelled: cancelledCell,
   noShow: noShowCell,
-  new: newCell,
-  returning: returningCell,
 }
 
 /** The shared fallback order (spec §8's "Metric menu + fill order"): 予約時間
- *  · キャンセル · 無断 · (再来 if typeSlot is 'new' else 新規 — only when
- *  typeSlot isn't 'off', since 'off' shows no PKT-2 slot at all). */
-function nextMetricChain(typeSlot: TypeSlot): CellKey[] {
-  const base: CellKey[] = ['bookedTime', 'cancelled', 'noShow']
-  if (typeSlot === 'off') return base
-  return [...base, typeSlot === 'new' ? 'returning' : 'new']
-}
+ *  · キャンセル · 無断. The chain's old fourth entry was the type's OTHER
+ *  people-count, which PKT-2 deleted with the 再来 producer; 新規 itself is
+ *  never a fallback — it has its own slot whenever the switch is on. Three
+ *  fallbacks is exactly enough for a four-cell line: 予約 always takes cell 1,
+ *  so at most three slots can fall through.
+ *
+ *  ⚖ R1-4 — and 新規 has no builder in the table above either. It is taken
+ *  explicitly by the type slot and is never a fallback, so a `new` entry there
+ *  was unreachable today and a loaded gun tomorrow: put 'new' into this chain
+ *  and the line would print 新規 twice, with nothing failing. */
+const NEXT_METRIC_CHAIN: readonly CellKey[] = ['bookedTime', 'cancelled', 'noShow']
 
 /** The first metric in the fill order not already on the line. Shared by
  *  every slot that falls back — 稼働 (when not 未設定-eligible) and 空き
  *  (when its own 予約時間 fallback is already taken) both route through
  *  here, which is what keeps a line from ever repeating a cell. */
 function pickNext(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set<CellKey>): Cell {
-  for (const key of nextMetricChain(ctx.typeSlot)) {
+  for (const key of NEXT_METRIC_CHAIN) {
     if (used.has(key)) continue
     // ⚖ R2-1 (lead, 2026-09-15), re-worded under R3-2 — the rule is about the
     // NUMBERS, not the labels: a percentage and the minutes it was computed
@@ -145,9 +149,10 @@ function pickNext(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set<CellKey>): 
     if (key === 'bookedTime' && used.has('utilization')) continue
     return NEXT_BUILDERS[key](row, ctx)
   }
-  // Cannot happen with 8 metrics on a 4-cell line — pinned by a test, not
-  // silently swallowed.
-  throw new Error('metric menu ran dry — should be unreachable with 8 metrics')
+  // Cannot happen: 予約 owns cell 1, so at most three of the four slots can
+  // fall through, and the chain holds three. Pinned by a test, not silently
+  // swallowed.
+  throw new Error('metric menu ran dry — should be unreachable with 3 fallbacks')
 }
 
 /** ⚖ R1-1 (lead, 2026-09-15 22:1x) — ONE formula, and it is not this file's.
@@ -264,9 +269,19 @@ function placeForGrid(cells: Cell[]): Cell[] {
   return out
 }
 
+/** ⚖ R1-2 — does this row have a 新規 cell at all? The switch has to be on AND
+ *  the number has to be one we KNOW: `newCountKnown: false` means the history
+ *  read behind the 新規 rule did not happen, so the slot takes the next metric
+ *  exactly as `typeSlot: 'off'` does — a withheld number, never a printed 0
+ *  that reads as "nobody new today". Absent reads as known (the wire defaults
+ *  it), so an older baked bundle keeps today's behaviour. */
+function newSlotOpen(row: WeekDayRowData, ctx: MetricMenuCtx): boolean {
+  return ctx.typeSlot === 'new' && row.newCountKnown !== false
+}
+
 /** Exactly 4 cells, week-row grid order, after `placeForGrid`:
- *  'new' → [予約, 稼働, 空き|予約時間, 新規] · 'returning' → [予約, 再来,
- *  予約時間, キャンセル] · 'off' → [予約, 稼働, 空き|予約時間, next]. */
+ *  'new' → [予約, 稼働, 空き|予約時間, 新規] · 'off' → [予約, 稼働,
+ *  空き|予約時間, next]. */
 export function weekRowCells(row: WeekDayRowData, ctx: MetricMenuCtx): Cell[] {
   const used = new Set<CellKey>()
   const take = (cell: Cell): Cell => {
@@ -274,25 +289,16 @@ export function weekRowCells(row: WeekDayRowData, ctx: MetricMenuCtx): Cell[] {
     return cell
   }
 
-  if (ctx.typeSlot === 'returning') {
-    return placeForGrid([
-      take(countCell(row, ctx, 'countValue')),
-      take(returningCell(row, ctx)),
-      take(bookedTimeCell(row, ctx)),
-      take(cancelledCell(row, ctx)),
-    ])
-  }
-
   const count = take(countCell(row, ctx, 'countValue'))
   const utilization = take(utilizationSlot(row, ctx, used))
   const freeOrBooked = take(freeOrBookedTimeSlot(row, ctx, used))
-  const fourth = ctx.typeSlot === 'new' ? take(newCell(row, ctx)) : take(pickNext(row, ctx, used))
+  const fourth = newSlotOpen(row, ctx) ? take(newCell(row, ctx)) : take(pickNext(row, ctx, used))
   return placeForGrid([count, utilization, freeOrBooked, fourth])
 }
 
 /** Exactly 4 cells, day-line order:
- *  'new' → [予約, 新規, 稼働, 空き|予約時間] · 'returning' → [予約, 再来,
- *  予約時間, キャンセル] · 'off' → [予約, 稼働, 空き|予約時間, next]. */
+ *  'new' → [予約, 新規, 稼働, 空き|予約時間] · 'off' → [予約, 稼働,
+ *  空き|予約時間, next]. */
 export function dayLineCells(row: WeekDayRowData, ctx: MetricMenuCtx): Cell[] {
   const used = new Set<CellKey>()
   const take = (cell: Cell): Cell => {
@@ -300,17 +306,8 @@ export function dayLineCells(row: WeekDayRowData, ctx: MetricMenuCtx): Cell[] {
     return cell
   }
 
-  if (ctx.typeSlot === 'returning') {
-    return [
-      take(countCell(row, ctx, 'countLine')),
-      take(returningCell(row, ctx)),
-      take(bookedTimeCell(row, ctx)),
-      take(cancelledCell(row, ctx)),
-    ]
-  }
-
   const count = take(countCell(row, ctx, 'countLine'))
-  if (ctx.typeSlot === 'new') {
+  if (newSlotOpen(row, ctx)) {
     const newC = take(newCell(row, ctx))
     const utilization = take(utilizationSlot(row, ctx, used))
     const freeOrBooked = take(freeOrBookedTimeSlot(row, ctx, used))

@@ -119,6 +119,48 @@ describe('AppointmentsScreenDTO — the new screen keys are defaulted', () => {
     expect(dto.dayTotals?.cancelledCount).toBe(1)
   })
 
+  it('⚖ PKT-2 — a month cell with no newCount reads 0, never a crash', () => {
+    // The skew that matters: a phone baked with THIS schema talking to a
+    // server that predates PKT-2. The cell must parse and print nothing,
+    // rather than blanking the whole 月 screen.
+    const dto = AppointmentsScreenDTO.parse({
+      ...OLD_PAYLOAD,
+      view: 'month',
+      weekData: null,
+      weekStartIso: null,
+      monthData: [
+        {
+          id: '2026-09-15',
+          dateIso: '2026-09-15T00:00:00.000Z',
+          inMonth: true,
+          isToday: false,
+          count: 4,
+          density: 'medium',
+        },
+      ],
+    })
+    expect(dto.monthData![0].newCount).toBe(0)
+    // …and a server that DOES send it round-trips the number.
+    const withCount = AppointmentsScreenDTO.parse({
+      ...OLD_PAYLOAD,
+      view: 'month',
+      weekData: null,
+      weekStartIso: null,
+      monthData: [
+        {
+          id: '2026-09-15',
+          dateIso: '2026-09-15T00:00:00.000Z',
+          inMonth: true,
+          isToday: false,
+          count: 4,
+          density: 'medium',
+          newCount: 2,
+        },
+      ],
+    })
+    expect(withCount.monthData![0].newCount).toBe(2)
+  })
+
   it('a month cell from a server that predates `closed` parses as open', () => {
     // A2's new key. Without the default a phone bundle baked with it would
     // blank the whole 予約 screen the moment it met an older server, which is

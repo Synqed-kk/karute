@@ -88,7 +88,14 @@ jest.mock('@/components/appointments/DateJumpPanel', () => ({
 // React instance is a worse test than no test.
 // Lazy on purpose: jest hoists every `jest.mock` above the imports, so the
 // copy is taken the first time a component actually reads a switch.
-let mockSwitchState: Record<string, boolean> | null = null
+// MERGE 2026-09-17 (#951) — `var`, not `let`: TYPE_SLOT (metric-menu.ts) now
+// reads BOOKING_SWITCHES.countNew at MODULE load time, so babel's hoisted
+// `require('@/components/appointments/AppointmentsView')` reaches this getter
+// before this file's own top-level statements run. `let` would TDZ-throw on
+// that early read; `var` hoists as `undefined`, which the `!mockSwitchState`
+// check below already treats the same as null.
+// eslint-disable-next-line no-var -- var is the fix; see the comment above.
+var mockSwitchState: Record<string, boolean> | null = null
 function mockSwitches(): Record<string, boolean> {
   if (!mockSwitchState) {
     mockSwitchState = {
@@ -201,6 +208,7 @@ import { act, render } from '@testing-library/react'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { firstDayOfMonthKey, shiftMonthKey } from '@/lib/appointments/date-jump'
 import { capacityRowFields, type MonthCell, type WeekDayRowData } from '@/lib/adapters/reservation'
+import { TYPE_SLOT } from '@/lib/appointments/metric-menu'
 
 const WEEK_START = new Date('2026-09-15T00:00:00+09:00')
 
@@ -341,9 +349,12 @@ describe('the WEEK branch renders WeekRows (W-A)', () => {
     expect(weekRowsProps!.soloMode).toBe(false)
   })
 
-  it("typeSlot is 'off' — today's newCustomerCount is the QR flag and must not print (W-D, spec §8)", () => {
+  it("⚖ PKT-2 — typeSlot is 'new', for every business type, from the one switch", () => {
     renderView()
-    expect(weekRowsProps!.typeSlot).toBe('off')
+    expect(weekRowsProps!.typeSlot).toBe('new')
+    // Not a literal at the call site: the view reads the registry, so the
+    // week rows and the day line can never be given different slots.
+    expect(weekRowsProps!.typeSlot).toBe(TYPE_SLOT)
   })
 
   it('a row tap opens that row’s DAY page', () => {

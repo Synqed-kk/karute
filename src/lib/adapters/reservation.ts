@@ -4,6 +4,7 @@ import { partsInJst, ymdInJst } from '@/lib/date/jst'
 import { isCountedBooking } from '@/lib/appointments/by-date'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import type { DayHoursFact } from '@/lib/operating-hours'
+import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 import {
   capacityForDay,
   type Band,
@@ -106,6 +107,13 @@ export type WeekDayRowData = WeekDayCardData &
     noShowDayCount: number
     /** PKT-2 owns the producer; 0 here so the wire shape lands one release early. */
     returningCount: number
+    /** ⚖ R1-2 — is `newCustomerCount` a number we actually KNOW? False when the
+     *  history read behind the 新規 rule did not happen, in which case the
+     *  count is 0 and no surface may print it: the 新規 slot takes the next
+     *  metric and the week summary drops its 新規 stat. Optional, and absent
+     *  reads as KNOWN, matching the wire's `.default(true)` — an older baked
+     *  bundle keeps today's behaviour rather than blanking the cell. */
+    newCountKnown?: boolean
   }
 
 /** One month cell: the package's MonthGridCell plus the one fact the 月 page's
@@ -357,9 +365,19 @@ export function appointmentsToWeekData(
   businessHoursMinutes: number,
   today: Date,
   locale: string,
-  // Client ids flagged new (QR `is_existing_customer === false`) — drives the
-  // per-day "new customer" chip. Empty set = no new-customer highlighting.
-  newCustomerIds: Set<string> = new Set(),
+  /** ⚖ PKT-2 — the 新規 number per JST day, from `newCountByDay`
+   *  (src/lib/appointments/first-visit.ts). A day absent from the map has no
+   *  新規. Never re-derived here.
+   *
+   *  ⚖ R1-2 — `known` rides WITH the counts, in one argument, so no caller can
+   *  hand over a number without saying whether it is one. False = the history
+   *  read that decides 新規 did not happen, and the row carries 0 with
+   *  `newCountKnown: false` so every surface withholds the cell instead of
+   *  printing a maximal guess. */
+  newCounts: { byDay: ReadonlyMap<string, number>; known: boolean } = {
+    byDay: new Map(),
+    known: true,
+  },
   /** The window's CANCELLED / NO_SHOW bookings (fetchAppointmentWindow's own
    *  partitions). Absent = the counts render 0, today's behaviour. */
   terminal?: { cancelled: Appointment[]; noShow: Appointment[] },
@@ -482,8 +500,8 @@ export function appointmentsToWeekData(
       cancelledCount: cancelledByDay.get(key) ?? 0,
       noShowDayCount: noShowByDay.get(key) ?? 0,
       returningCount: 0,
-      newCustomerCount: dayAppts.filter((a) => a.customer_id && newCustomerIds.has(a.customer_id))
-        .length,
+      newCustomerCount: newCounts.known ? (newCounts.byDay.get(key) ?? 0) : 0,
+      newCountKnown: newCounts.known,
       remindersPending: 0,
       consentPending: 0,
       // synqed appointments have no "unconfirmed/pending" status
@@ -503,6 +521,48 @@ function densityFor(count: number): MonthDensityBucket {
   if (count <= 2) return 'light'
   if (count <= 5) return 'medium'
   return 'busy'
+}
+
+/** ⚖ R1-3 — ONE month-cell wire mapping, and both doors call it.
+ *
+ *  The facade GET and the web server action each built this object by hand,
+ *  and the web one hardcoded `newCount: 0` on the SAME wire type the phone was
+ *  filling honestly. Nothing renders the month's 新規 yet, so today that costs
+ *  nothing; the day it is rendered, one of the two doors prints a lie. A
+ *  divergence you can only fix by remembering both call sites is a divergence
+ *  waiting to come back, so there is one call site now.
+ *
+ *  `newCounts` absent = this door read no history at all, which is NOT the same
+ *  as "nobody was new" — the cells then carry 0 with `newCountKnown: false`. */
+export function monthCellsToDTO(
+  cells: readonly MonthCell[],
+  opts: {
+    newCounts?: { byDay: ReadonlyMap<string, number>; known: boolean }
+    facts?: ReadonlyMap<string, CapacityFact> | null
+  } = {},
+): MonthCellDTOType[] {
+  const known = opts.newCounts?.known ?? false
+  return cells.map((c) => ({
+    id: c.id,
+    dateIso: c.date.toISOString(),
+    inMonth: c.inMonth,
+    isToday: c.isToday,
+    count: c.count,
+    density: c.density,
+    // In-month cells only: a padding cell carries no day of its own to be
+    // anybody's first visit on.
+    newCount: (known && c.inMonth && opts.newCounts?.byDay.get(c.id)) || 0,
+    newCountKnown: known,
+    // MERGE 2026-09-17 (#951) — `closed` (main's A2 fact) rides straight off
+    // the MonthCell the caller already built; the shared mapper's own callers
+    // both compute it from the same hoursFacts read, so it is never a second,
+    // less-informed answer.
+    closed: c.closed,
+    // The cell's own capacity fact, keyed by the same id the cell carries. A
+    // padding cell has none and takes the no-capacity defaults — it renders no
+    // numbers either way.
+    ...capacityRowFields(opts.facts?.get(c.id)),
+  }))
 }
 
 export function appointmentsToMonthCells(

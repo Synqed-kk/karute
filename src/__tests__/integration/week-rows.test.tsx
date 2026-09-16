@@ -655,3 +655,37 @@ describe('WeekRows — the press is the app’s own recipe (W-I)', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// ⚖ R1-2 — the week summary withholds its 新規 stat with the rows
+// ---------------------------------------------------------------------------
+
+describe('WeekRows — a withheld 新規 number is withheld in the summary too', () => {
+  const countOf = (html: string, word: string) => html.split(word).length - 1
+
+  it('every row withheld → not one 新規 on the card, summary included', () => {
+    const WeekRows = loadWeekRows()
+    const all = render(
+      <WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />,
+    )
+    // Seven row cells plus the summary's own stat.
+    expect(countOf(all.container.textContent!, '新規')).toBe(8)
+    all.unmount()
+
+    const rows = sevenDays().map((r) => ({ ...r, newCountKnown: false }))
+    const withheld = render(<WeekRows {...baseProps} rows={rows} onPickDay={jest.fn()} />)
+    expect(withheld.container.textContent).not.toContain('新規')
+    // The rest of the card is untouched — this withholds one stat, not the week.
+    expect(withheld.container.textContent).toContain('予約')
+    expect(withheld.getAllByRole('button')).toHaveLength(7)
+  })
+
+  it('ONE row withheld → that row loses its cell and the SUMMARY loses its stat', () => {
+    // A sum over a number the rows themselves refuse to print is the lie the
+    // row-level gate exists to prevent.
+    const WeekRows = loadWeekRows()
+    const rows = sevenDays().map((r, i) => (i === 3 ? { ...r, newCountKnown: false } : r))
+    const out = render(<WeekRows {...baseProps} rows={rows} onPickDay={jest.fn()} />)
+    expect(countOf(out.container.textContent!, '新規')).toBe(6)
+  })
+})

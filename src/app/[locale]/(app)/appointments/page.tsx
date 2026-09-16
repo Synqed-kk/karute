@@ -14,13 +14,14 @@ import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getMonthCells } from '@/actions/appointments'
 import { getCachedDayAgenda } from '@/lib/appointments/day-agenda-cached'
+import { countedClientIds } from '@/lib/appointments/by-date'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCachedMenuOptions, scopeMenuOptions } from '@/lib/menus/cached'
 import { getAppointmentWindow } from '@/actions/appointments-window'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import { monthCompareWindow } from '@/lib/appointments/month-compare'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
-import { listAllPackUsage } from '@/lib/packs/store'
+import { listAllPackUsageOrNull } from '@/lib/packs/store'
 import { getBusinessId } from '@/lib/staff'
 import {
   buildAppointmentsScreen,
@@ -234,12 +235,30 @@ export default async function AppointmentsPage({
   // dayAppointments (it needs the client_ids of today's bookings)
   // AND businessId. Both came back in Stage 1.
   // ─────────────────────────────────────────────────────────────
+  // ⚖ PKT-2 — the enrichment set is the WINDOW's clients, not just the
+  // selected day's. The 新規 rule asks "is this person's first visit this
+  // day?" for every day on screen, so seeding it from one day would leave the
+  // other six with no reconciled history to read and drop them all onto the
+  // window-earliest fallback. Cost is nil: enrichCustomers reads ONE cached
+  // business-wide aggregate and maps the ids it is handed — no per-id fetch,
+  // no pager. Store isolation is unchanged: every id here comes out of a
+  // window that was fetched under the RBAC-resolved store.
   const clientIdsForDay = Array.from(
-    new Set(dayAppointments.map((a) => a.client_id)),
+    new Set([
+      ...dayAppointments.map((a) => a.client_id),
+      ...countedClientIds(weekWindow, monthWindow, dayWindow),
+    ]),
   )
   // Pack usage loads in parallel — the 残3/10 pill on each agenda row. Empty
   // map until the ticket_packs migration applies (graceful). 回数券 off (org
   // setting, wave 1) → skip the read; the pills just don't render.
+  //
+  // ⚖ G2 (Greptile round 1 #951) — `listAllPackUsageOrNull` surfaces a FAILED
+  // read as `null` rather than the graceful empty map `listAllPackUsage`
+  // hands every other caller: an empty ledger from an outage must not be
+  // mistaken for a genuinely empty one. It never rejects (same try/catch
+  // shape as `listAllPackUsage`), so this stays the same never-502 read the
+  // page has always made — `newCountKnown` withholds the number instead.
   const ticketsEnabled = orgSettings?.ticket_packs_enabled ?? true
   const [enrichment, packUsage] = await Promise.all([
     t.phase('enrichCustomers', () =>
@@ -249,8 +268,8 @@ export default async function AppointmentsPage({
     ),
     t.phase('packUsage', () =>
       ticketsEnabled
-        ? listAllPackUsage()
-        : Promise.resolve(new Map() as Awaited<ReturnType<typeof listAllPackUsage>>),
+        ? listAllPackUsageOrNull()
+        : Promise.resolve(new Map() as Awaited<ReturnType<typeof listAllPackUsageOrNull>>),
     ),
   ])
   t.end()

@@ -64,6 +64,13 @@ const MONTH_CELL = {
   isToday: false,
   count: 4,
   density: 'medium' as const,
+  // ⚖ PKT-2 — the jump panel's door prints no 新規. Passed through untouched,
+  // like the capacity fact below.
+  newCount: 0,
+  // ⚖ R1-2 — and the flag that says whether that 0 is a number anyone may
+  // print. Defaulted TRUE on the wire, so a cell from a server that predates
+  // the flag reads as known rather than blanking a cell it always showed.
+  newCountKnown: true,
   // The capacity fact every month cell now carries. The jump panel's own
   // months read counts only, so they legitimately carry the no-capacity
   // defaults — which is exactly what this door must pass through untouched.

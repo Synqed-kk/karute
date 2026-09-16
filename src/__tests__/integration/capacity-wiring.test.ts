@@ -88,7 +88,7 @@ function weekRows(opts: WeekOpts = {}) {
     FALLBACK,
     TODAY,
     'ja',
-    new Set<string>(),
+    { byDay: new Map<string, number>(), known: true },
     undefined,
     opts.facts ?? hoursFacts(),
     opts.soloMode ?? true,

@@ -129,6 +129,8 @@ function monthCells(monthKey: string, count = 4): MonthCellDTOType[] {
       isToday: false,
       count,
       density: 'medium',
+      newCountKnown: true,
+      newCount: 0,
       // The jump panel's months carry no capacity — it reads counts only.
       ...capacityRowFields(undefined),
       closed: false,

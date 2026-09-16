@@ -307,21 +307,26 @@ export function WeekRows({
           {pending ? <SummaryPill /> : (
             <b className={SUMMARY_NUMBER}>{t('countValue', { n: bookedSum })}</b>
           )}
-          {typeSlot !== 'off' && (
+          {typeSlot !== 'off' && openRows.every((r) => r.newCountKnown !== false) && (
             <>
               <Separator t={t} />
-              <span>{t(typeSlot === 'new' ? 'new' : 'returning')}</span>
+              <span>{t('new')}</span>
               {pending ? <SummaryPill /> : (
-                // R3-4 — the sum is computed INSIDE the gate that prints it.
-                // Hoisted above, `newCustomerCount` was read on every render
-                // whatever the typeSlot, and today that field is the QR import
-                // flag, not the 新規 count PKT-2 will produce (spec §8). Dead
-                // compute one careless edit away from printing a wrong number.
+                // R3-4 — the sum is computed INSIDE the gate that prints
+                // it, never hoisted above: a number nothing is about to render
+                // is one careless edit away from being rendered wrong.
+                // ⚖ PKT-2 — `newCustomerCount` is now the honest 新規 count
+                // (the people the day list tags 新規), not the QR import flag
+                // it carried while this slot was 'off' everywhere.
+                // ⚖ R1-4 — `openRows` drops only the days that collapse to
+                // 「休」, i.e. closed AND empty (isClosedRow). A closed day WITH
+                // bookings stays in this sum, which is right: it can carry a
+                // real 新規.
+                // ⚖ R1-2 — the gate above withholds this whole stat when any
+                // row's count is unknown; a sum over a withheld number is a
+                // lie the row-level cells already refuse to print.
                 <b className={SUMMARY_NUMBER}>
-                  {openRows.reduce(
-                    (sum, r) => sum + (typeSlot === 'new' ? r.newCustomerCount : r.returningCount),
-                    0,
-                  )}
+                  {openRows.reduce((sum, r) => sum + r.newCustomerCount, 0)}
                 </b>
               )}
             </>

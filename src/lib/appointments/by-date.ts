@@ -191,6 +191,27 @@ export function emptyAppointmentWindow(): AppointmentWindow {
   return { ...EMPTY_WINDOW, counted: [], cancelled: [], noShow: [] }
 }
 
+/** Every customer with a counted booking somewhere in these windows.
+ *
+ *  ⚖ PKT-2 — the 新規 rule asks about people across a whole WEEK or MONTH, so
+ *  the enrichment read can no longer be seeded from the selected day's clients
+ *  alone (day 1 of the week would be the only day with any history to read).
+ *  It stays inside the store clamp by construction: a window is fetched with
+ *  the RBAC-resolved store on both doors, so no other branch's customer can be
+ *  in these rows and none can reach the enrichment call. Both doors call this
+ *  — one id set, one posture. */
+export function countedClientIds(
+  ...windows: (AppointmentWindow | null | undefined)[]
+): string[] {
+  const ids = new Set<string>()
+  for (const w of windows) {
+    for (const a of w?.counted ?? []) {
+      if (a.customer_id != null) ids.add(a.customer_id)
+    }
+  }
+  return Array.from(ids)
+}
+
 /**
  * The week/month/day window read: paged to exhaustion against core's `total`
  * (the auto-burn / audit-watch idiom, src/lib/audit-watch/run.ts:130-134) and

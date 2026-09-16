@@ -33,6 +33,7 @@ import {
 } from '@/lib/auth/store-scope'
 import { reachesNoStore } from '@/lib/auth/store-gate'
 import {
+  countedClientIds,
   emptyAppointmentWindow,
   fetchAppointmentWindow,
   fetchCoreStaffByProfileId,
@@ -59,7 +60,7 @@ import {
 } from '@/lib/operating-hours'
 import { ymdInJst } from '@/lib/date/jst'
 import { coreBusinessType } from '@/lib/welcome/business-types'
-import { capacityRowFields } from '@/lib/adapters/reservation'
+import { monthCellsToDTO } from '@/lib/adapters/reservation'
 
 export const runtime = 'nodejs'
 
@@ -326,8 +327,19 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
 
     // Stage 2 — enrichment for today's clients + the pack pills (page parity:
     // pack read is graceful, 回数券 off skips it entirely).
+    // ⚖ PKT-2 — the enrichment set is the WINDOW's clients, not just the
+    // selected day's. The 新規 rule asks "is this person's first visit this
+    // day?" for every day on screen, so seeding it from one day would leave the
+    // other six with no reconciled history to read and drop them all onto the
+    // window-earliest fallback. Cost is nil: enrichCustomers reads ONE cached
+    // business-wide aggregate and maps the ids it is handed — no per-id fetch,
+    // no pager. Store isolation is unchanged: every id here comes out of a
+    // window that was fetched under the RBAC-resolved store.
     const clientIdsForDay = Array.from(
-      new Set(dayAppointments.map((a) => a.client_id)),
+      new Set([
+        ...dayAppointments.map((a) => a.client_id),
+        ...countedClientIds(weekWindow, monthWindow, dayWindow),
+      ]),
     )
     const ticketsEnabled = orgSettings?.ticket_packs_enabled ?? true
     const [enrichment, packUsage] = await Promise.all([
@@ -335,9 +347,14 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         ? enrichCustomers(businessId, clientIdsForDay)
         : Promise.resolve(new Map<string, CustomerEnrichment>()),
       ticketsEnabled
-        ? listAllPackUsageWithClient(synqed).catch(
-            () => new Map<string, CustomerPackUsage>(),
-          )
+        // ⚖ G2 (Greptile round 1 #951) — a FAILED read surfaces as `null`,
+        // never an empty map standing in for "nobody holds a pack": that lie
+        // let a real pack holder with no other returning signal be counted
+        // 新規 while the number claimed to be known. buildAppointmentsScreen's
+        // `newCountKnown` reads this null and withholds instead of guessing;
+        // the row-level pack pill degrades to "no pack" either way, which is
+        // this same graceful-catch contract the header comment describes.
+        ? listAllPackUsageWithClient(synqed).catch(() => null)
         : Promise.resolve(new Map<string, CustomerPackUsage>()),
     ])
 
@@ -409,20 +426,17 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         monthCompareDelta: screen.monthCompareDelta,
         truncated: screen.truncated,
         soloMode: screen.soloMode,
-        monthData:
-          screen.monthData?.map((c) => ({
-            id: c.id,
-            dateIso: c.date.toISOString(),
-            inMonth: c.inMonth,
-            isToday: c.isToday,
-            count: c.count,
-            density: c.density,
-            closed: c.closed,
-            // The cell's own capacity fact, keyed by the same id the cell
-            // carries. An out-of-month padding cell has none and takes the
-            // no-capacity defaults — it renders no numbers either way.
-            ...capacityRowFields(screen.monthFacts?.get(c.id)),
-          })) ?? null,
+        // ⚖ R1-3 — the shared mapper, the same one the web door's month calls;
+        // it now carries `closed` (main's A2 fact) itself (MERGE #951, reservation.ts).
+        monthData: screen.monthData
+          ? monthCellsToDTO(screen.monthData, {
+              newCounts: {
+                byDay: screen.monthNewCounts ?? new Map(),
+                known: screen.newCountKnown,
+              },
+              facts: screen.monthFacts,
+            })
+          : null,
       }),
     )
   } catch (err) {
