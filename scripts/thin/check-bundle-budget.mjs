@@ -1444,7 +1444,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // i.e. the gate having moved underneath it, not from this branch's own diff.
 // Ceiling was 2,126,864 + 1,000.
 //
-// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-17 — REBASE onto the new gate tip `64bd5da1b` (REBASE 5
 // above, PKT-REBASE-GATE-S3-2026-09-17): `git rebase --onto 64bd5da1b
 // 4837a8f65 feat/store-at-creation`, one conflict in this file and in
@@ -1458,9 +1457,28 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // 937,791 = 2,127,331 B — +3,178 B over the gate tip's own REBASE 5 figure
 // above (2,124,153 B), essentially unchanged from this branch's own prior
 // measurement (+3,182 B / +3,178 B, same class every rebase — the gate
-// having moved underneath it, not from this branch's own diff). Ceiling =
+// having moved underneath it, not from this branch's own diff). Ceiling was
 // 2,127,331 + 1,000.
-const BUDGET_BYTES = 2_128_331
+//
+// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-17 — P2b FOLD ROUND 3 (PKT-P2B-FOLD-2026-09-17), on the
+// gate tip `64bd5da1b` (unmoved — `git fetch origin` confirmed it, so no
+// rebase was needed). No rebase, no conflict: this is THIS BRANCH'S OWN diff
+// growing, for the first time on this line. What ships into the thin bundle
+// from the nine folds: the two creation forms' picker predicate (F1/F1b), the
+// settings shell's new `assignableActiveStoreId` prop, and four new message
+// lines across BOTH dictionaries — `invite.inviteAlreadyPending` and
+// `settings.staffCardLeftBehind` in en.json (the boot-frozen locale the thin
+// bundle actually lazy-loads) plus their ja.json twins. Same CI recipe — CI's
+// own six VITE_* values read straight out of .github/workflows/ci.yml,
+// thin/dist emptied before each of two laps, byte-identical both times
+// (matching filenames, sizes and MD5s, node v24.16.0): en 135,742 · index
+// 1,054,806 · vendor 937,791 = 2,128,339 B — +1,008 B over this branch's own
+// previous measurement above (2,127,331 B) and +4,186 B over the gate tip's
+// own REBASE 5 figure (2,124,153 B). Genuine feature volume (copy + two
+// predicates), not bloat: vendor is byte-identical, so nothing new was
+// dragged in. Ceiling = 2,128,339 + 1,000.
+const BUDGET_BYTES = 2_129_339
 
 let dir
 try {
