@@ -3,19 +3,20 @@
 // same store-scoping rules, mirrored via resolveStoreForRequest ('store-id'
 // header, fail-closed) instead of the cookie-bound resolveStoreScope.
 //
-// The zero-karute check is scoped to the caller's STORE LENS, not
-// unconditionally store-scoped — for a viewAll caller with NO store-id
-// header, clamp.storeId is genuinely null (resolveStoreForRequest has no
-// primary-store fallback the way the web action's resolveStoreScope does;
-// store-scope.ts:23 — "an unset cookie resolves to the primary store"), so
-// the check runs business-wide same as the web action would if it ever hit
-// that combination. This is deliberate, not a gap: that SAME caller's
-// candidate search above is ALSO business-wide in this case (enforceStore
-// is false for viewAll), so a customer with a cross-store karute already
-// appears in their candidate list — checking only one store would "reveal"
-// someone the list already shows as having a session, contradicting the
-// page. Scoping the check tighter than the search would introduce exactly
-// that contradiction (Greptile PR #776, adjudicated 2026-08-25).
+// ⚖ Liam 2026-09-16 (P3 cross-branch search): the candidate SEARCH is now
+// ALWAYS business-wide, for every caller including a clamped one — a
+// branch's staff can find another store's customer here too. The zero-karute
+// CHECK stays scoped to the caller's STORE LENS, not unconditionally
+// store-scoped — for a viewAll caller with NO store-id header, clamp.storeId
+// is genuinely null (resolveStoreForRequest has no primary-store fallback the
+// way the web action's resolveStoreScope does; store-scope.ts:23 — "an unset
+// cookie resolves to the primary store"), so the check runs business-wide in
+// that case too. This is deliberate, not a gap: that SAME caller's candidate
+// search is ALSO business-wide, so a customer with a cross-store karute
+// already appears in their candidate list — checking only one store would
+// "reveal" someone the list already shows as having a session, contradicting
+// the page. Scoping the check tighter than the search would introduce
+// exactly that contradiction (Greptile PR #776, adjudicated 2026-08-25).
 //
 // Never enrichment(), which is business-wide by declaration for an
 // unrelated reason (no params at all, not a lens choice). Read-only →
@@ -62,11 +63,9 @@ export const GET = facadeHandler('karute.reveal', async (ctx) => {
   // resolvable store must never fall through to an unscoped search.
   if (enforceStore && !clamp.storeId) return ok(ctx, { candidate: null })
 
-  const res = await synqed.customers.list({
-    search: q,
-    store_id: enforceStore ? (clamp.storeId ?? undefined) : undefined,
-    page_size: 5,
-  })
+  // Business-wide (P3): search no longer clamps on enforceStore — see the
+  // file-header comment.
+  const res = await synqed.customers.list({ search: q, store_id: undefined, page_size: 5 })
   for (const c of res.customers) {
     // Scoped to clamp.storeId when set, business-wide when it's genuinely
     // null (viewAll + no header) — matches the search's own lens, see the
