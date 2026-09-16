@@ -234,13 +234,21 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   // page and the shell already expose (the shell's own via the vite alias,
   // no new listener) — is the one thing that changes the instant the browser
   // actually leaves that target, landed or not.
+  //
+  // G2B — on the web, `useSearchParams()` keeps A's search until the
+  // transition COMMITS (Next resolves the new tree first, then the URL), so
+  // `currentSearch !== target` reads true for the whole time B is in flight —
+  // `abandoned` alone spent the hold the instant it was armed. `isPending` is
+  // the one signal that is true for that entire trip on the web (and always
+  // false on the phone, where pushState commits synchronously): a move still
+  // in flight is never abandoned.
   const currentSearch = useSearchParams().toString()
   useEffect(() => {
     if (!tappedHold) return
     const landed = tappedHold.iso === selectedIso
-    const abandoned = currentSearch !== tappedHold.target
+    const abandoned = !isPending && currentSearch !== tappedHold.target
     if (landed || abandoned) setTappedHold(null)
-  }, [tappedHold, selectedIso, currentSearch])
+  }, [tappedHold, selectedIso, currentSearch, isPending])
   // `today` is reserved for the Today button (jump-to-now) — the displayed
   // header always reflects whichever date is currently selected.
   // jstStartOfToday() returns the UTC instant of JST 00:00 today, so
