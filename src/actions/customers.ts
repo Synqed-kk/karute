@@ -9,6 +9,8 @@ import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { parsePhotoUploadFields } from '@/lib/karute/photo-upload-fields'
+import type { CustomerOption, CustomerSearchOption } from '@/components/karute/CustomerCombobox'
+import { matchKaruteNumber } from '@/lib/customers/karute-number-match'
 
 // ---------------------------------------------------------------------------
 // Backend error → user-facing message
@@ -755,5 +757,71 @@ export async function revokeCustomerConsent(customerId: string) {
     // Same policy as the other mutating actions in this file: never leak a
     // raw Prisma/synqed-core message into a user-facing toast.
     return { ok: false as const, error: await translateBackendError(err) }
+  }
+}
+
+/**
+ * Company-wide customer search (⚖ Liam 2026-09-16, P3 cross-branch search) —
+ * the REMOTE tier behind CustomerCombobox's/RecordCustomerPickerDialog's
+ * onRemoteSearch: their local filter over the preloaded store-lensed list
+ * runs first and stays instant; this backs the "find ANY company customer"
+ * half. Read-only — booking/karute creation from a picked row still writes
+ * at the actor's OWN store, which P1 already allows. ReassignCustomerAction
+ * does not use this (excluded — reassigning a karute to another store's
+ * customer is the write P1 refuses).
+ */
+export async function searchCustomersCompanyWide(
+  query: string,
+): Promise<{ options: CustomerSearchOption[] } | { error: string }> {
+  try {
+    await requireCapability('customers.view')
+    const q = query.trim()
+    if (!q) return { options: [] }
+
+    // Lazy imports (same convention as revokeCustomerConsent above): these
+    // pull in store-scope.ts's / cached.ts's own SynqedClient chains, which
+    // every OTHER action in this file has no reason to carry as a permanent
+    // module-load cost.
+    const { resolveStoreScope, customerLensFor } = await import('@/lib/auth/store-scope')
+    const { getCachedCustomerList } = await import('@/lib/customers/cached')
+    const [synqed, scope] = await Promise.all([getSynqedClient(), resolveStoreScope()])
+    const enforceStore = scope.allowedStoreIds != null
+    const lens = customerLensFor(scope)
+
+    // "other_store" = not in the CALLER's own store-lensed preloaded list —
+    // the same cached list their combobox was already seeded with (no core
+    // membership call). Unclamped viewers are already preloaded business-wide,
+    // so nothing this search returns can ever be "other store" for them.
+    // Mirrors CustomerCombobox's CUSTOMER_SEARCH_LIMIT — not imported (that
+    // module is 'use client'); a plain literal is the whole coupling.
+    const RESULT_LIMIT = 8
+    const [searchRes, ownList, businessWide] = await Promise.all([
+      synqed.customers.list({ search: q, page_size: RESULT_LIMIT }),
+      enforceStore && lens !== null ? getCachedCustomerList(lens) : Promise.resolve(null),
+      getCachedCustomerList(),
+    ])
+    const ownIds = ownList ? new Set(ownList.map((c) => c.id)) : null
+
+    const rows: CustomerOption[] = searchRes.customers.map((c) => ({
+      id: c.id,
+      name: c.name,
+      furigana: c.furigana,
+      phone: c.phone,
+    }))
+    // Karute number ahead of the name/phone matches — a hit already present
+    // (digits also matched a phone number) is just reordered, never duplicated.
+    const karuteHits = matchKaruteNumber(q, businessWide)
+    const hitIds = new Set(karuteHits.map((h) => h.id))
+    const merged: CustomerOption[] = [
+      ...karuteHits.map((h) => ({ id: h.id, name: h.name, furigana: h.furigana, phone: h.phone })),
+      ...rows.filter((r) => !hitIds.has(r.id)),
+    ]
+
+    const options: CustomerSearchOption[] = merged
+      .slice(0, RESULT_LIMIT)
+      .map((r) => ({ ...r, other_store: ownIds ? !ownIds.has(r.id) : false }))
+    return { options }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }
