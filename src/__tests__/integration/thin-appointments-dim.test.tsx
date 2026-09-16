@@ -168,3 +168,35 @@ it('cross-path date-nav WITHIN THE MONTH VIEW does not dim or block — the mont
   expect(container.querySelector('.pointer-events-none')).toBeNull()
   expect(container.querySelector('.opacity-50')).toBeNull()
 })
+
+// G5 (Greptile round 2, FIX-932-G5) — the G3 exemption above read only the
+// NEW url's `view`, so a 日/週 → 月 switch was already `view=month` while the
+// screen still rendered the OLD day/week dto (cross-path fetch in flight):
+// the exemption held even though the controls on screen were still the old
+// view's, letting a tap on them push a stale day/week url over the month
+// move the user just asked for. The exemption must hold only when BOTH the
+// destination url AND the DISPLAYED dto are month views.
+it.each([
+  ['日', DTO],
+  ['週', { ...DTO, view: 'week' as const }],
+])(
+  '%s dto displayed + url flips to view=month while it is still in flight → dim + block stay (the old views controls are still live)',
+  async (_label, startDto) => {
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValueOnce(jsonResponse(startDto))
+      .mockImplementationOnce(() => new Promise<Response>(() => {}))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    const { container } = render(<AppointmentsScreen />)
+    await waitFor(() => expect(screen.getByTestId('appointments-view')).toBeTruthy())
+
+    // The move into 月: url flips, but the month dto hasn't landed — the
+    // rendered dto is still startDto's (day/week) view.
+    act(() => redirect('/appointments?view=month&date=2026-07-24'))
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
+    expect(container.querySelector('.pointer-events-none')).not.toBeNull()
+    expect(container.querySelector('.opacity-50')).not.toBeNull()
+  },
+)

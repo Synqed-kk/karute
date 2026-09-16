@@ -182,26 +182,38 @@ export function AppointmentsScreen() {
   // the web (R1-6). The month page's own machinery (the card's shims,
   // latest-finger-wins) is the pending treatment there; 日/週 still leave on
   // a tap, so they keep the dim + block.
+  // G5 (Greptile round 2, FIX-932-G5) — the exemption above read only the
+  // URL's `view`, so a 日/週 → 月 switch (URL already `view=month`, dto still
+  // the old day/week screen mid cross-path fetch) skipped the dim: the OLD
+  // day/week controls stayed live and undimmed, and a tap on them pushed a
+  // day/week URL that superseded the month move the user just asked for. The
+  // exemption is for a month-to-month move (a cell tap, the arrows, the
+  // pop-down inside 月) — a move INTO 月 from 日/週 must keep the dim, because
+  // the controls on screen are still the old view's. Needs the DISPLAYED
+  // dto's own view (`AppointmentsScreenDTO.view`), so the check moves inside
+  // the render callback where `dto` is in scope.
   const view = search.get('view') ?? 'day'
-  const dim = crossPathPending && view !== 'month'
   return (
     <ScreenStates state={state} retry={retry}>
-      {(dto) => (
-        // Web-parity pending treatment for in-place date/view/filter nav: the
-        // page dims + blocks input during its server roundtrip (isPending);
-        // in the shell pushState commits synchronously so that transition
-        // never shows — this dim covers the cross-path DTO refetch instead,
-        // and the pointer-events block stops a second 翌日 tap from
-        // re-pushing the same stale-derived date mid-fetch.
-        <div
-          className={`transition-opacity duration-150 ${
-            dim ? 'pointer-events-none opacity-50' : ''
-          }`}
-          aria-busy={crossPathPending}
-        >
-          <AppointmentsScreenInner dto={dto} />
-        </div>
-      )}
+      {(dto) => {
+        const dim = crossPathPending && !(view === 'month' && dto.view === 'month')
+        return (
+          // Web-parity pending treatment for in-place date/view/filter nav:
+          // the page dims + blocks input during its server roundtrip
+          // (isPending); in the shell pushState commits synchronously so that
+          // transition never shows — this dim covers the cross-path DTO
+          // refetch instead, and the pointer-events block stops a second 翌日
+          // tap from re-pushing the same stale-derived date mid-fetch.
+          <div
+            className={`transition-opacity duration-150 ${
+              dim ? 'pointer-events-none opacity-50' : ''
+            }`}
+            aria-busy={crossPathPending}
+          >
+            <AppointmentsScreenInner dto={dto} />
+          </div>
+        )
+      }}
     </ScreenStates>
   )
 }
