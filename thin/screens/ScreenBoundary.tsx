@@ -47,7 +47,7 @@ export const dtoCache = new Map<string, unknown>()
 // with dtoCache so the two maps never diverge. 30s = the fresh end of Liam's
 // ruled 30–60s band; a hop-away-and-back inside 30s costs zero network.
 // Exported for the packet's hygiene tests, same rationale as dtoCache's export.
-const STALE_MS = 30_000
+export const STALE_MS = 30_000
 export const fetchedAtByPath = new Map<string, number>()
 
 export function cacheDto(path: string, dto: unknown): void {

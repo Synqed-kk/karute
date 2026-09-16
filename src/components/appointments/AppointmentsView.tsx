@@ -21,12 +21,8 @@ import {
   ymdInJst,
 } from '@/lib/date/jst'
 import { computeMonthRange, computeWeekRange, jstMidnight } from '@/lib/date/calendar-range'
-import {
-  firstDayOfMonthKey,
-  monthKeyInJst,
-  monthKeyOf,
-  shiftMonthKey,
-} from '@/lib/appointments/date-jump'
+import { firstDayOfMonthKey, monthKeyInJst, monthKeyOf } from '@/lib/appointments/date-jump'
+import { shiftAppointmentsDate } from '@/lib/appointments/date-step'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import {
   useHorizontalSlide,
@@ -147,30 +143,6 @@ const CHIP_OPEN =
 // helpers — karute is Japan-targeted, so display always reflects Tokyo
 // wall-clock regardless of where the renderer is (Vercel UTC server vs.
 // traveler-with-VPN browser).
-
-// Cursor delta for prev/next, tuned to the visible chrome. The week/month
-// views advance the full unit; the day view advances one day.
-//
-// R2-1 (LENS-1 #1, HIGH) — 月 no longer advances via `next.setMonth()`: raw
-// Date month arithmetic overflows from a 31st (8/31 › used to land on 10/1,
-// skipping September whole; 3/31 ‹ didn't move at all). The month step goes
-// through the SAME helpers `onPickMonth` below already uses — one home, no
-// new date math — landing on the target month's 1st, or on `today` when the
-// target IS the current month.
-function shiftDate(date: Date, view: DayWeekMonthView, dir: 1 | -1, today: Date): Date {
-  if (view === 'day') {
-    const next = new Date(date)
-    next.setDate(next.getDate() + dir)
-    return next
-  }
-  if (view === 'week') {
-    const next = new Date(date)
-    next.setDate(next.getDate() + dir * 7)
-    return next
-  }
-  const targetKey = shiftMonthKey(monthKeyInJst(date), dir)
-  return targetKey === monthKeyInJst(today) ? today : firstDayOfMonthKey(targetKey)
-}
 
 /** How far the header's date chip fades while a pane travels. The incoming
  *  date cannot be printed before the page has it, so the chip HANDS OVER: it
@@ -335,7 +307,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   // `today` is reserved for the Today button (jump-to-now) — the displayed
   // header always reflects whichever date is currently selected.
   // jstStartOfToday() returns the UTC instant of JST 00:00 today, so
-  // arithmetic on it (via shiftDate) stays consistent in JST.
+  // arithmetic on it (via shiftAppointmentsDate) stays consistent in JST.
   const today = jstStartOfToday()
   const locale = useLocale()
   const tReservation = useTranslations('reservation')
@@ -381,10 +353,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   }
 
   function handlePrev() {
-    navigateTo(view, shiftDate(selectedDate, view, -1, today))
+    navigateTo(view, shiftAppointmentsDate(selectedDate, view, -1, today))
   }
   function handleNext() {
-    navigateTo(view, shiftDate(selectedDate, view, 1, today))
+    navigateTo(view, shiftAppointmentsDate(selectedDate, view, 1, today))
   }
   function handleToday() {
     navigateTo(view, today)
@@ -471,7 +443,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     // the spring comes to REST, never at the release: a `navigateTo` fired at
     // pointerup re-renders the page underneath a track that is still sliding,
     // which is the flicker this round exists to remove.
-    onCommit: (dir) => navigateTo(view, shiftDate(selectedDate, view, dir, today)),
+    onCommit: (dir) => navigateTo(view, shiftAppointmentsDate(selectedDate, view, dir, today)),
     onFrame: (x) => {
       const t = Math.min(1, Math.abs(x) / Math.max(1, paneWidthRef.current || 1))
       for (const chip of chipsRef.current) chip.style.opacity = String(1 - CHIP_FADE * t)
@@ -990,7 +962,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
                 <NeighbourPane
                   key={side}
                   view={view}
-                  date={shiftDate(selectedDate, view, side, today)}
+                  date={shiftAppointmentsDate(selectedDate, view, side, today)}
                   today={today}
                   locale={props.locale}
                   weekdayLabels={monthWeekdayLabels}
