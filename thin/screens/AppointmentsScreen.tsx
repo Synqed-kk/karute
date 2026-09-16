@@ -127,7 +127,15 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
    *  changes WHEN the counts appear, never whether they are checked.
    *  Null in 月 mode: the page's own cells are the seed there, and they are
    *  fresher than either of these. */
-  const popdownMonth = useMemo<MonthCell[] | null>(() => {
+  //
+  // ⚠ NOT memoized on the DTO. The cache fills from the neighbour warm AFTER
+  // this screen has rendered, and neither `dto.monthData` nor
+  // `dto.selectedDateIso` changes when it does — a memo keyed on them held the
+  // null it was born with, and the panel opened empty and filled in a frame
+  // later (measured: filled at 82 ms instead of on the first painted frame).
+  // The cost of not memoizing is one Map lookup, and ~42 small objects only
+  // when there IS a month to hand over.
+  const popdownMonth: MonthCell[] | null = (() => {
     if (dto.monthData) return null
     const path = appointmentsScreenPath({
       date: `${monthKeyInJst(new Date(dto.selectedDateIso))}-01`,
@@ -138,7 +146,7 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
     const cached = (dtoCache.get(path) as AppointmentsScreenDTOType | undefined)?.monthData
     const cells = cached ?? readMonthNumbers(path)
     return cells ? toMonthCells(cells) : null
-  }, [dto.monthData, dto.selectedDateIso])
+  })()
 
   // The date-jump panel's PHONE month door. The shell has no server actions,
   // so months come from the screen GET with view=month and any day of the

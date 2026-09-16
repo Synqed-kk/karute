@@ -1,6 +1,15 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react'
+import {
+  memo,
+  startTransition as startLowPriority,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from 'react'
 import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
 import { useUnreadCount } from '@/lib/notifications/hooks'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
@@ -21,7 +30,7 @@ import {
   ymdInJst,
 } from '@/lib/date/jst'
 import { computeMonthRange, computeWeekRange, jstMidnight } from '@/lib/date/calendar-range'
-import { firstDayOfMonthKey, monthKeyInJst, monthKeyOf } from '@/lib/appointments/date-jump'
+import { monthKeyInJst, monthKeyOf } from '@/lib/appointments/date-jump'
 import { shiftAppointmentsDate } from '@/lib/appointments/date-step'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
 import {
@@ -161,23 +170,54 @@ const CHIP_FADE = 0.55
  *  The two builders are the app's own, called with no appointments — exactly
  *  how the pop-down calendar already draws a month it has not read yet. One
  *  rule for the shape of an unknown day, everywhere. */
-function NeighbourPane({
+const NeighbourPane = memo(function NeighbourPane({
   view,
-  date,
-  today,
+  dateIso,
+  todayIso,
   locale,
   weekdayLabels,
   businessHours,
   side,
 }: {
   view: DayWeekMonthView
-  date: Date
-  today: Date
+  /** ⚠ A STRING, not a Date. `memo` compares by identity, and a fresh Date per
+   *  render compares unequal — which redrew ~42 day cells twice on every render
+   *  of the page, including every frame of a drag (measured: one long task
+   *  inside the gesture on 月, at CPU ×4). */
+  dateIso: string
+  todayIso: string
   locale: string
   weekdayLabels: [string, string, string, string, string, string, string]
   businessHours: BusinessHours
   side: -1 | 1
 }) {
+  const date = useMemo(() => jstWallTimeToDate(dateIso, '00:00'), [dateIso])
+  const today = useMemo(() => jstWallTimeToDate(todayIso, '00:00'), [todayIso])
+  /** Built ONCE per neighbour date — the pane is a picture of a date, and a
+   *  date does not change while a finger is on the glass. */
+  const cells = useMemo(
+    () => {
+      if (view !== 'month') return null
+      const { monthStart, monthEnd } = computeMonthRange(date)
+      return appointmentsToMonthCells([], monthStart, monthEnd, today)
+    },
+    [view, date, today],
+  )
+  const rows = useMemo(
+    () => {
+      if (view !== 'week') return null
+      const { weekStart, weekEnd } = computeWeekRange(date)
+      return appointmentsToWeekData(
+        [],
+        weekStart,
+        weekEnd,
+        (businessHours.end - businessHours.start) * 60,
+        today,
+        locale,
+      )
+    },
+    [view, date, today, locale, businessHours.start, businessHours.end],
+  )
   const noop = () => {}
   return (
     <div
@@ -187,12 +227,9 @@ function NeighbourPane({
     >
       {view === 'month' ? (
         <MonthPage
-          cells={(() => {
-            const { monthStart, monthEnd } = computeMonthRange(date)
-            return appointmentsToMonthCells([], monthStart, monthEnd, today)
-          })()}
-          selectedDateIso={ymdInJst(date)}
-          todayIso={ymdInJst(today)}
+          cells={cells ?? []}
+          selectedDateIso={dateIso}
+          todayIso={todayIso}
           weekdayLabels={weekdayLabels}
           typeSlot={TYPE_SLOT}
           typeCount={null}
@@ -204,20 +241,10 @@ function NeighbourPane({
         />
       ) : view === 'week' ? (
         <WeekRows
-          rows={(() => {
-            const { weekStart, weekEnd } = computeWeekRange(date)
-            return appointmentsToWeekData(
-              [],
-              weekStart,
-              weekEnd,
-              (businessHours.end - businessHours.start) * 60,
-              today,
-              locale,
-            )
-          })()}
-          weekStartIso={ymdInJst(date)}
-          selectedDateIso={ymdInJst(date)}
-          todayIso={ymdInJst(today)}
+          rows={rows ?? []}
+          weekStartIso={dateIso}
+          selectedDateIso={dateIso}
+          todayIso={todayIso}
           soloMode={false}
           typeSlot={TYPE_SLOT}
           locale={locale}
@@ -240,7 +267,7 @@ function NeighbourPane({
       )}
     </div>
   )
-}
+})
 
 export function AppointmentsView(props: AppointmentsViewProps) {
   const router = useRouter()
@@ -437,7 +464,18 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       (typeof window !== 'undefined' ? window.innerWidth : 0) ||
       393,
     onGestureStart: () => {
-      setNeighboursDrawn(true)
+      // NOT URGENT. Drawing two month panes is ~84 day cells, and measured on
+      // the phone bundle at CPU ×4 that landed as ONE long task inside the
+      // pointerdown that asked for them. A transition hands the same work to
+      // React at low priority: the track still follows the finger from the
+      // first move (the spring writes the transform itself, never through
+      // React), and the panes arrive a frame or two later — while they are
+      // still off screen.
+      // ⚠ React's OWN startTransition, aliased — the component already holds a
+      // `startTransition` from `useTransition`, and THAT one also raises
+      // `isPending`, which dims the whole page to 50 %. Using it here would
+      // have flashed the dim at the start of every drag.
+      startLowPriority(() => setNeighboursDrawn(true))
       const box = slideBoxRef.current
       paneWidthRef.current = box?.clientWidth ?? 0
       chipsRef.current = box
@@ -977,8 +1015,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
                 <NeighbourPane
                   key={side}
                   view={view}
-                  date={shiftAppointmentsDate(selectedDate, view, side, today)}
-                  today={today}
+                  dateIso={ymdInJst(shiftAppointmentsDate(selectedDate, view, side, today))}
+                  todayIso={ymdInJst(today)}
                   locale={props.locale}
                   weekdayLabels={monthWeekdayLabels}
                   businessHours={props.businessHours}
