@@ -316,7 +316,7 @@ describe('picker dialog v2 — remote tier honesty (Greptile fold, 2026-09-16)',
         jest.advanceTimersByTime(250)
       })
       expect(
-        screen.getByText('会社全体の検索は上限の8件に達しました — さらに入力して絞り込み'),
+        screen.getByText('全店舗検索は上限の8件に達しました — さらに入力して絞り込み'),
       ).toBeInTheDocument()
     } finally {
       jest.useRealTimers()
@@ -338,7 +338,7 @@ describe('picker dialog v2 — remote tier honesty (Greptile fold, 2026-09-16)',
       })
       expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
       expect(
-        screen.queryByText('会社全体の検索は上限の8件に達しました — さらに入力して絞り込み'),
+        screen.queryByText('全店舗検索は上限の8件に達しました — さらに入力して絞り込み'),
       ).not.toBeInTheDocument()
     } finally {
       jest.useRealTimers()

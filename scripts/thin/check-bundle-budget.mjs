@@ -1210,7 +1210,28 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // stack (company-wide search + every fold + F-3) costs the phone +4,220 B
 // over main. Genuine copy + rebase volume, not bloat — same class as every
 // prior raise on this line.
-const BUDGET_BYTES = 2_121_699
+//
+// RE-MEASURED 2026-09-16 (copy fold, house vocabulary) — customers.remoteMore
+// reworded from 会社全体/"Company-wide" to 全店舗/"All-store" to match the
+// app's own vocabulary (allStores, cap_stores_viewAll,
+// staffStoreScopeDenied); the two pinned assertions in
+// record-picker-dialog-messages.test.tsx were updated to match. Copy only,
+// no logic change. Same CI recipe, thin/dist emptied between two clean
+// builds, byte-identical both times (node v24.16.0, @synqed-kk/ui 0.3.2,
+// installed == lock): en 134,814 · index 1,048,197 · vendor 937,791 =
+// 2,120,802 B. Ceiling = 2,120,802 + 1,000.
+//
+// -9 B against a fresh same-environment, same-recipe build of the pre-edit
+// tip (98af943ef): en 134,817 · index 1,048,203 · vendor 937,791 =
+// 2,120,811 B — en -3 B ("Company-wide search" → "All-store search") · index
+// -6 B (「会社全体の検索」→「全店舗検索」) · vendor unchanged, matching the two
+// string literals' own UTF-8 byte deltas exactly. NOTE: that fresh pre-edit
+// rebuild does not reproduce the prior entry's own logged index figure for
+// the same tip (1,048,203 now vs 1,048,091 logged, +112 B; en/vendor
+// match) — environment drift since that entry was written, not caused by
+// this change; installed @synqed-kk/ui and vite are unchanged (0.3.2 /
+// 6.4.3, installed == lock), so the drift's cause wasn't chased further.
+const BUDGET_BYTES = 2_121_802
 
 let dir
 try {
