@@ -822,13 +822,41 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
   // NINETEEN, then TWENTY with recordings.viewShared (⚖ 2026-09-14 sharing
   // design D3/F2 — the token sits right after recordings.viewAll, the same
   // position Karute's own CAPABILITIES array carries it).
-  it('the staff matrix is KARUTE’s own twenty capabilities, in plain words', async () => {
+  //
+  // ⚠ IT STAYS AT TWENTY. Karute's own CAPABILITIES gains a twenty-first,
+  // customers.manage (⚖ 2026-09-16, the customer write gate), but that one
+  // carries no per-person switch (NOT_YET_TOGGLEABLE) — so the GRID, which is
+  // what this case measures, offers twenty. The C7 pin below is where the
+  // twenty-one lives, and it derives the difference rather than typing it.
+  it('the staff matrix is every KARUTE capability the sheet actually offers, in plain words', async () => {
     const props = await room({ store: STORE_A })
     const grid = controlsOf(props).find((c) => c.id.startsWith('staff.caps-'))!
     expect(grid.control.kind).toBe('chips')
     const options = grid.control.kind === 'chips' ? grid.control.options : []
     expect(options.map((o) => o.value)).toEqual(rulebook.capabilities.map((c) => c.token))
     expect(options).toHaveLength(20)
+    // ⚖ 2026-09-16 — and NOT one more: customers.manage has no per-person
+    // switch on Karute's own sheet (NOT_YET_TOGGLEABLE), so the mirror must
+    // not advertise one. It IS in `grants`, where it is simply true — every
+    // shipped preset holds it — which is why the room can still say what a
+    // role can do without offering a switch nobody can flip.
+    expect(options.map((o) => o.value)).not.toContain('customers.manage')
+    // …in EVERY shipped preset, not just one — the claim above is about the
+    // whole mirror, so the pin has to be too.
+    for (const key of ['owner', 'manager', 'senior', 'practitioner', 'frontdesk'] as const) {
+      expect({ key, granted: rulebook.grants[key].includes('customers.manage') })
+        .toEqual({ key, granted: true })
+    }
+    expect(rulebook.grants.custom).toEqual([]) // the blank canvas holds nothing
+    // …and the complete mapping obeys the rule that makes the grant honest
+    // (⚖ Greptile round 2, Karute side): customers.manage REQUIRES
+    // customers.view, so the two travel together in every preset — a mirror
+    // that ever granted the write tier without the read tier would be
+    // advertising something effectiveCapabilities would strip.
+    for (const [key, granted] of Object.entries(rulebook.grants)) {
+      expect({ key, manage: granted.includes('customers.manage') })
+        .toEqual({ key, manage: granted.includes('customers.view') })
+    }
     // ⚠ AND NOT ONE OF THEM IS SPELLED AS A TOKEN. Karute's own file carries the
     // tokens with English comments; ⚖ 「plain names, never codes」 means the grid
     // wears the product's own language (S9L-2, kept).
@@ -850,10 +878,32 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     const src = readFileSync(join(process.cwd(), 'src/lib/auth/permissions.ts'), 'utf8')
     const caps = src.slice(src.indexOf('export const CAPABILITIES = ['), src.indexOf('] as const', src.indexOf('export const CAPABILITIES = [')))
     const tokens = [...caps.matchAll(/^\s*'([a-z]+\.[a-zA-Z]+)',/gm)].map((m) => m[1])
-    expect(tokens).toEqual(rulebook.capabilities.map((c) => c.token))
-    // ⚖ 2026-09-14 sharing design D3/F2: recordings.viewShared bumped this
-    // from nineteen to twenty.
-    expect(tokens).toHaveLength(20)
+    // ⚖ 2026-09-16 — THE MIRROR CARRIES WHAT THE SHEET *OFFERS*, which is
+    // Karute's CAPABILITIES minus NOT_YET_TOGGLEABLE (a capability whose
+    // per-person switch cannot ship yet — see that constant's own REMOVAL
+    // note). Both halves are read off the SAME file, so a token added to
+    // either side without the other still goes red here.
+    //
+    // ⚠ AND THE COUNT IS DERIVED, NOT TYPED. This pin lives in Business
+    // territory and the capability that needs it lands on the Karute side
+    // (fix/store-locks-2, the customers.manage write gate) — CI's isolation
+    // guard forbids one PR touching both. So it must hold BEFORE and AFTER
+    // that branch merges: today NOT_YET_TOGGLEABLE does not exist yet and
+    // this resolves to `[]`; afterwards it resolves to ['customers.manage']
+    // and the token count goes up by exactly that one. A hard-coded length
+    // would have made the two PRs un-mergeable in either order.
+    const declared = src.indexOf('export const NOT_YET_TOGGLEABLE')
+    const notToggleable =
+      declared === -1
+        ? []
+        : [
+            ...src
+              .slice(declared, src.indexOf('])', declared))
+              .matchAll(/'([a-z]+\.[a-zA-Z]+)'/g),
+          ].map((m) => m[1])
+    const offered = rulebook.capabilities.map((c) => c.token)
+    expect(tokens.filter((t) => !notToggleable.includes(t))).toEqual(offered)
+    expect(tokens).toHaveLength(offered.length + notToggleable.length)
 
     const roles = src.slice(src.indexOf('export const PERMISSION_ROLES = ['), src.indexOf('] as const', src.indexOf('export const PERMISSION_ROLES = [')))
     const roleKeys = [...roles.matchAll(/^\s*'([a-z]+)',/gm)].map((m) => m[1])

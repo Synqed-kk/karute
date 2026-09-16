@@ -3549,6 +3549,7 @@
     "cap_stores_viewAll": "全店舗の閲覧",
     "cap_alerts_manage": "アラートの管理",
     "cap_customers_view": "顧客の閲覧",
+    "cap_customers_manage": "顧客の登録・編集",
     "cap_bookings_manage": "予約の管理"
   },
   "staffSelector": {

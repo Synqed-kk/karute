@@ -84,6 +84,10 @@ import { POST as packRedeem } from '@/app/api/app/v1/customers/[id]/packs/redeem
 import { addRedemptionWithClient } from '@/lib/packs/store'
 import { cancelAppointmentCore, markNoShowAppointmentCore } from '@/lib/appointments/mutations'
 
+/** These cases are about the idempotency key, not the store lock — a viewAll
+ *  actor is the shape every one of them already assumed. */
+const UNCLAMPED = { viewAll: true, allowedStoreIds: null }
+
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
 const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
@@ -168,6 +172,7 @@ describe('booking-linked burn — the key reaches the SDK', () => {
         requestId: 'req-1',
         idempotencyKey: 'booking-action-key',
       },
+      UNCLAMPED,
     )
 
     expect(res).toMatchObject({ success: true })
@@ -189,6 +194,7 @@ describe('booking-linked burn — the key reaches the SDK', () => {
         requestId: 'req-1',
         idempotencyKey: 'cancel-action-key',
       },
+      UNCLAMPED,
     )
 
     expect(res).toMatchObject({ success: true })
@@ -203,8 +209,8 @@ describe('booking-linked burn — the key reaches the SDK', () => {
       requestId: 'req-1',
       idempotencyKey: 'booking-action-key',
     }
-    await markNoShowAppointmentCore(fakeSynqed as never, 'appt-1', { burnPack: true }, 'staff-1', actor)
-    await markNoShowAppointmentCore(fakeSynqed as never, 'appt-1', { burnPack: true }, 'staff-1', actor)
+    await markNoShowAppointmentCore(fakeSynqed as never, 'appt-1', { burnPack: true }, 'staff-1', actor, UNCLAMPED)
+    await markNoShowAppointmentCore(fakeSynqed as never, 'appt-1', { burnPack: true }, 'staff-1', actor, UNCLAMPED)
     expect(addRedemption).toHaveBeenCalledTimes(2)
     expect(sdkOptions(1)?.idempotencyKey).toBe(sdkOptions(0)?.idempotencyKey)
   })

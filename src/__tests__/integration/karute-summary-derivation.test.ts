@@ -36,6 +36,7 @@ const buildArgs = (karute: ReturnType<typeof mapSynqedKaruteRecord>) => ({
   businessId: 'biz-1',
   staffCanReassignRecords: false,
   staffCanRegenerate: true,
+  staffCanEditRecord: true,
   contact: null,
   consentResult: null,
   customer: null,

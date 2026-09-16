@@ -3549,6 +3549,7 @@
     "cap_stores_viewAll": "View all stores",
     "cap_alerts_manage": "Manage alerts",
     "cap_customers_view": "View customers",
+    "cap_customers_manage": "Add & edit customers",
     "cap_bookings_manage": "Manage bookings"
   },
   "staffSelector": {

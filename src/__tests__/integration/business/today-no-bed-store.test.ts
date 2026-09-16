@@ -222,7 +222,7 @@ function gymRails() {
     placementFeasible: bedFree,
     protectedWindowFeasible: bedFree,
     resting: null,
-  })
+  }, { byLaneKey: {}, generic: GYM.words })
   const explained = explainRails(rails, GYM.lanes, {
     dur: GYM.guard.standardSessionMin,
     handId: null,
@@ -232,6 +232,7 @@ function gymRails() {
     drops: [],
     inHand: false,
     sellDisplayed: true,
+    words: { byLaneKey: {}, generic: GYM.words },
     bedsOver: (laneKey, start, end) => {
       const lane = GYM.lanes.find((l) => l.key === laneKey && l.group === 'staff')
       if (!lane) return null
@@ -508,7 +509,9 @@ describe('G9 — no 「ベッド」 reachable', () => {
       'its twin stands on ベッド2 is the impossible state ⚖ 8/9',
       'still says ベッド3 is the impossible state',
       'both point at ベッド2 at the same minute',
-      'この開始ではベッドを', // :2800 — behind ctx.placementFeasible already
+      // ⚖ D-53 (u)/(n2b2) — PRUNED: `railCell`'s R-UNAVAILABLE sentence now
+      // reads 'この開始では${words.resourceNoun}を…' — the line no longer
+      // carries the literal word (PKT-BUILD-N2B2-BOARD-MAP.md, #34).
       '空いているベッドがいません」 is RETIRED',
       '空きベッドなし」 was never',
       '「ベッドが空いていません」 is the reason',
@@ -517,11 +520,16 @@ describe('G9 — no 「ベッド」 reachable', () => {
       // the line no longer carries the literal word at all (PKT-BUILD-N2B1-SINGLE-LANE.md).
       '「ベッドは別のスタッフ（…）の枠が使う」) and 販売中',
       '「ここに置くと、ほかのお客様のベッドを', // :3249/:3487
-      'ここに置くと、ほかのお客様のベッドを入れ替えて収めます', // :3268 (reseatSentence)
+      // ⚖ D-53 (u)/(n2b2) — PRUNED: `reseatSentence`'s own template now reads
+      // 'ここに置くと、ほかのお客様の${words.resourceNoun}を入れ替えて収めます…'
+      // — the line no longer carries the literal word
+      // (PKT-BUILD-N2B2-BOARD-MAP.md, #36/R-4).
       '「…使えるベッドがありません」 and NO occupants',
       '「ベッド満室」',
       '「ベッドは別の販売枠（…）が使っています」',
-      'ベッドは別のスタッフ（${opts.takerLabel}）の枠が使うため', // :3532 (taker clause)
+      // ⚖ D-53 (u)/(n2b2) — PRUNED: the taker clause now reads
+      // '${w.resourceNoun}は別のスタッフ（…）の枠が使うため…' — the line no
+      // longer carries the literal word (PKT-BUILD-N2B2-BOARD-MAP.md, #41).
       '「ベッドは別のスタッフ（…）の枠が使う」 — naming',
       'ベッド3 →', // :5404
       'ベッド2. The allocator retargets', // :5405
@@ -560,7 +568,7 @@ describe('G9 — no 「ベッド」 reachable', () => {
     // N2a) — pruned alongside the twelve, out of an abundance of the same
     // fix.
     const stale = allow.filter((a) => (matchCounts.get(a) ?? 0) === 0)
-    console.log('G9-ALLOWLIST-INTEGRITY', { entryCount: allow.length, prunedCount: 14, stale })
+    console.log('G9-ALLOWLIST-INTEGRITY', { entryCount: allow.length, prunedCount: 17, stale })
     expect(stale).toEqual([])
   })
 
@@ -600,11 +608,14 @@ describe('G9 — no 「ベッド」 reachable', () => {
     // ${holdPopWords.resourceNoun}); the `hasBeds ?`/`hasBeds &&` gate itself,
     // which is what this leg actually proves, is byte-identical.
     // ⚖ D-53 (z), PKT-FIX-N2A-F4 — PIN MOVE: the first fragment's chip token
-    // is now `props.genericWords.fullWord` (same rule as the other two
+    // was `props.genericWords.fullWord` (same rule as the other two
     // chip-naming spots); the gate syntax and `${w.resourceNoun}` are
     // unchanged.
+    // ⚖ D-53 (u)/(n2b2) — PIN MOVE: `railExplain` now reads the lane's own
+    // words, so the tour's switch-back (Commit 2 step 0) returns this token
+    // to `w.fullWord` too.
     for (const fragment of [
-      '${hasBeds ? `「${props.genericWords.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で',
+      '${hasBeds ? `「${w.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で',
       '${hasBeds ? `${w.resourceNoun}を別のスタッフの枠が使っていて',
       '{hasBeds && <b>⇄ {w.resourceNoun}を入れ替えて置ける</b>}',
       '${hasBeds ? `ボードのカードをドラッグしている間は、${w.resourceNoun}を入れ替えれば置ける開始に',

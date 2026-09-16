@@ -57,6 +57,31 @@ export const CAPABILITIES = [
   'alerts.manage',     // dismiss 離客/pack alerts (Kitano's rule: manager+ only —
                        // staff must show the manager they contacted the customer)
   'customers.view',    // baseline — view customers + karute
+  'customers.manage',  // baseline — create / edit a customer profile (⚖ Liam
+                       // 2026-09-16). Seeded into EVERY shipped preset, in
+                       // parity with bookings.manage: the three write doors
+                       // carried no gate at all on the web transport and only
+                       // the read-tier customers.view on the facade.
+                       //
+                       // ⚠ A PRESET IS NOT THE WHOLE POPULATION. An override
+                       // is stored whenever it DIFFERS from the preset, so
+                       // every staff member carrying one was written before
+                       // this capability existed and cannot name it — which
+                       // would have taken the door away from exactly the
+                       // people an owner had already customised. The implied
+                       // rule in effectiveCapabilities() below is what makes
+                       // "no real role loses a door" true of LIVE DATA and
+                       // not just of the presets.
+                       //
+                       // ⚖ REQUIRES customers.view (Greptile round 2): the
+                       // write tier cannot outlive the read tier, so
+                       // effectiveCapabilities drops it whenever view is
+                       // absent — an owner unticking 顧客の閲覧 revokes both.
+                       //
+                       // NOT a store rule: customers are business-wide
+                       // identities with no store_id, and the
+                       // member-of-my-store question waits for core's
+                       // membership change.
   'bookings.manage',   // baseline — manage appointments
 ] as const
 export type Capability = (typeof CAPABILITIES)[number]
@@ -95,11 +120,11 @@ export const ROLE_PRESETS: Record<PermissionRole, Capability[]> = {
   ),
   // Lead practitioner / SV (supervisor): does the work + sees whole-salon
   // analytics + exports + cross-store visibility; no settings/staff/billing.
-  senior: ['records.write', 'records.delete', 'records.reassign', 'data.export', 'analytics.viewAll', 'stores.viewAll', 'customers.view', 'bookings.manage', 'menus.manage'],
+  senior: ['records.write', 'records.delete', 'records.reassign', 'data.export', 'analytics.viewAll', 'stores.viewAll', 'customers.view', 'customers.manage', 'bookings.manage', 'menus.manage'],
   // Practitioner: the core service provider.
-  practitioner: ['records.write', 'customers.view', 'bookings.manage'],
+  practitioner: ['records.write', 'customers.view', 'customers.manage', 'bookings.manage'],
   // Front desk: books + views, no records, nothing destructive.
-  frontdesk: ['customers.view', 'bookings.manage'],
+  frontdesk: ['customers.view', 'customers.manage', 'bookings.manage'],
   // Custom: blank canvas — toggle up exactly what this business needs.
   custom: [],
 }
@@ -134,6 +159,28 @@ export function presetCapabilities(role: PermissionRole): Capability[] {
   return ROLE_PRESETS[role] ?? []
 }
 
+/**
+ * Capabilities the permissions SHEET does not offer yet — rendered nowhere, so
+ * no owner can tick or untick them by hand (StaffForm maps CAPABILITIES, so a
+ * new entry becomes a checkbox the same day it is declared unless it is named
+ * here).
+ *
+ * `customers.manage` is here because the implied rule below would otherwise
+ * make its checkbox one that never sticks: an owner unticking it would produce
+ * exactly the shape the rule treats as "an override that predates the
+ * capability", and the tick would come straight back. That is the failure the
+ * recordings.viewAll note in effectiveCapabilities() describes, and it is not
+ * worth re-introducing for a capability every shipped preset holds.
+ *
+ * REMOVAL: the two go together. The day per-person revocation of customer
+ * editing is actually wanted, drop the implied rule and this entry in the SAME
+ * change — a live backfill (write the capability into every existing override)
+ * replaces the rule, and only then can an absence mean "the owner said no".
+ */
+export const NOT_YET_TOGGLEABLE: ReadonlySet<Capability> = new Set<Capability>([
+  'customers.manage',
+])
+
 /** Effective capability set: an explicit per-staff override wins; otherwise the
  *  role's preset. Unknown stored capabilities are dropped (forward-compatible). */
 export function effectiveCapabilities(
@@ -160,6 +207,39 @@ export function effectiveCapabilities(
   // can't smuggle it in: overrides are stored only when they DIFFER from the
   // preset (setStaffPermissions stores null on preset match) and the toggle UI
   // was feature-flagged off until #528.
+  //
+  // ⚖ 2026-09-16 — THE ONE IMPLIED CAPABILITY, and the only one. A stored
+  // override is written only when it DIFFERS from its preset, so every
+  // override in the database today was written BEFORE customers.manage
+  // existed and cannot possibly name it. Resolving such a row literally would
+  // silently take customer create/edit away from the very staff an owner had
+  // already customised — a capability gate that REMOVES a door nobody decided
+  // to close. So: an override that grants the read tier grants the write tier
+  // with it.
+  //
+  // It is safe to be this blunt only because the sheet cannot express the
+  // opposite: customers.manage is in NOT_YET_TOGGLEABLE above, so an absence
+  // is always "this row predates the capability" and never "the owner said
+  // no". The two are one decision — see that constant's REMOVAL note before
+  // changing either.
+  //
+  // Deliberately NOT keyed on the preset path: presets already carry the
+  // capability, so this arm only ever fires for a stored override.
+  //
+  // ⚖ Greptile round 2 — AND IT GOES BOTH WAYS: customers.manage REQUIRES
+  // customers.view. Without the second line, revocation preserved write
+  // access: StaffForm submits the EFFECTIVE set, which carries the hidden
+  // customers.manage, so an owner unticking 顧客の閲覧 stored an override with
+  // manage and no view — and the add-only rule never took it back. The person
+  // kept creating and editing customers they could not see. A capability that
+  // can only be granted and never withdrawn is not a permission, and the fix
+  // belongs HERE rather than in the form: the server owns the answer, and
+  // every transport reads it from this one function.
+  if (caps.has('customers.view')) {
+    if (override) caps.add('customers.manage')
+  } else {
+    caps.delete('customers.manage')
+  }
   return caps
 }
 

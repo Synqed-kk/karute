@@ -12,6 +12,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { resolveWebActorId } from '@/lib/audit-web'
 import { getBusinessId } from '@/lib/staff'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import {
   setRecordingAutostartWithClient,
   type SetRecordingAutostartResult,
@@ -20,8 +21,9 @@ import {
 /** Web twin of the orgSettings.recordingAutostart facade route. Gate =
  *  `settings.manage`, the SAME capability upsertOrgSettings enforces (spec
  *  §8.1: "Controlled by settings.manage") — this action exists to add an
- *  audit row and a store-membership check to that write, never to widen who
- *  may perform it. */
+ *  audit row and a store check to that write, never to widen who may perform
+ *  it. Since ⚖ 9/16 that check is two-layered: the store must belong to the
+ *  business AND to the actor's own assignment. */
 export async function setRecordingAutostart(
   storeId: string,
   enabled: boolean,
@@ -46,6 +48,10 @@ export async function setRecordingAutostart(
     {
       staffId: await resolveWebActorId(),
       businessId,
+      // Store lock (⚖ Liam 2026-09-16) — a clamped actor may only flip their
+      // own store's switch; a failed lookup arrives as `degraded` and the
+      // choke point fails closed on it.
+      scope: await resolveStoreScope(),
       source: 'web',
       // PR-M5 piece ④: minted once at the action boundary.
       requestId: crypto.randomUUID(),

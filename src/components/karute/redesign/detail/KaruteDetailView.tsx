@@ -65,6 +65,17 @@ export interface KaruteDetailViewProps {
    *  the button is hidden for her rather than shown and refused
    *  (⚖ 9/3 named grant; fix round 4). Absent = hidden. */
   staffCanRegenerate?: boolean
+  /** THE STORE LOCK'S SCREEN HALF (⚖ Liam 2026-09-16). False hides every
+   *  control that writes to this record — the entry pencil, the summary
+   *  pencil and the 成約 button — because the server refuses each of them for
+   *  a record outside the viewer's store assignment (hide, never
+   *  show-and-refuse).
+   *
+   *  ⚠ ABSENT MEANS ALLOWED, unlike the two capability gates above: this one
+   *  names a STORE, and a baked shell holding a payload minted before the
+   *  field existed keeps exactly today's screen until its next build. The
+   *  server refuses the write either way. */
+  staffCanEditRecord?: boolean
   /** R8 discarded-record door (⚖ Liam 2026-09-13): non-null exactly when
    *  this karute is DISCARDED. Replaces OutcomeCard at the top of the
    *  column; also hides the entry pencil, both AI slots and
@@ -106,10 +117,14 @@ export function KaruteDetailView({
   outcome,
   staffCanReassignRecords,
   staffCanRegenerate,
+  staffCanEditRecord,
   discarded,
   contentWithheld,
   share,
 }: KaruteDetailViewProps) {
+  // Absent = allowed (see the prop's own note) — only an explicit `false`
+  // closes the write controls below.
+  const editable = staffCanEditRecord !== false
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
       <DetailBreadcrumb
@@ -143,6 +158,9 @@ export function KaruteDetailView({
         ) : (
           <OutcomeCard
             karuteRecordId={karuteId}
+            // ⚖ 9/16 store lock: the label still READS (it is part of the
+            // record), only the 記録/編集 control goes away.
+            readOnly={!editable}
             customerId={customerId}
             customerName={header.customerName}
             current={
@@ -176,7 +194,9 @@ export function KaruteDetailView({
               // R8: omit the id (never null the entries themselves — the
               // owner/viewAll holder still READS them) to disable the entry
               // pencil — a discarded record is read-only for everyone (A5).
-              karuteRecordId={discarded ? undefined : karuteId}
+              // ⚖ 9/16: the store lock closes it the same way, through the
+              // same seam — a record outside the viewer's stores is read-only.
+              karuteRecordId={discarded || !editable ? undefined : karuteId}
               headerAction={
                 transcript && staffCanRegenerate ? (
                   <RegenerateEntriesButton karuteRecordId={karuteId} />
@@ -193,7 +213,9 @@ export function KaruteDetailView({
             <AISummaryCard
               sessionDate={sessionDateLong}
               bullets={summaryBullets}
-              karuteRecordId={karuteId}
+              // ⚖ 9/16 store lock — same seam as the entry pencil: no id, no
+              // pencil, and the summary still reads.
+              karuteRecordId={editable ? karuteId : undefined}
               summaryRaw={summaryRaw}
               summaryEdited={summaryEdited}
             />

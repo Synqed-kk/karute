@@ -28,13 +28,18 @@ jest.mock('@synqed-kk/client', () => ({
 jest.mock('@/lib/customers/queries', () => ({
   getCustomerWithClient: jest.fn(async () => ({ id: 'cust-1' })),
 }))
+// The create route's roster clamp (only these profile ids are bookable) AND,
+// since ⚖ fold round 2, the store scope's PLACEMENT check — a mutable ref
+// rather than a per-test `mockResolvedValueOnce`, so an unconsumed queue entry
+// can never leak into the next case (jest.clearAllMocks does not drain them).
+const ROSTER = [
+  { id: 'profile-1', full_name: 'Mika' },
+  { id: 'auth-user-1', full_name: 'Viewer' },
+]
+const roster = { current: ROSTER as { id: string; full_name: string }[] }
 jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
-  // The create route's roster clamp: only these profile ids are bookable.
-  staffListByBusinessOrThrow: jest.fn(async () => [
-    { id: 'profile-1', full_name: 'Mika' },
-    { id: 'auth-user-1', full_name: 'Viewer' },
-  ]),
+  staffListByBusinessOrThrow: jest.fn(async () => roster.current),
 }))
 const mockCapabilities = jest.fn(async () => new Set(['bookings.manage']))
 jest.mock('@/lib/auth/require-permission', () => {
@@ -162,6 +167,7 @@ const MENU_ID = '2c9f5e3a-70b6-4d84-a153-4e8f12cd96a7'
 
 beforeEach(() => {
   jest.clearAllMocks()
+  roster.current = ROSTER
   mockCapabilities.mockResolvedValue(new Set(['bookings.manage']))
   staffStoresGet.mockResolvedValue({ store_ids: [] })
   listPacks.mockResolvedValue([])
@@ -415,6 +421,85 @@ describe('POST /api/app/v1/appointments/[id]/restore', () => {
       expect.objectContaining({ status: 'SCHEDULED' }),
     )
   })
+})
+
+// ── ⚖ THE STORE LOCK'S WIRING, PER BOOKING ROUTE (fold round 2, F1) ────────
+// store-write-locks.test.ts pins the five CORES with a hand-built scope. What
+// nothing pinned was these three routes RESOLVING one and handing it over:
+// a blind round proved that giving any of the three an unclamped scope left
+// the whole 638-suite battery green. Each case below fails if its own route
+// stops resolving the clamp.
+//
+// The refusal is the core's result, and these routes return it VERBATIM at
+// HTTP 200 (RPC-style — the sheet branches on `code`/`burnError`, so an
+// HTTP-normalised error would lose the discriminators). There is no 404 on
+// this transport for a missing id either, which is exactly why byte-identity
+// is asserted against a real missing-id response rather than against a status
+// code.
+describe('booking facade routes — the store lock is wired, on each route', () => {
+  const FOREIGN = { store_ids: ['store-other'] }
+  const call = {
+    cancel: () => cancelPOST(post('https://s/x', {}), params('appt-1')),
+    'no-show': () => noShowPOST(post('https://s/x', { burnPack: false }), params('appt-1')),
+    restore: () => restorePOST(post('https://s/x', undefined), params('appt-1')),
+  } as const
+  const missing = {
+    cancel: () => cancelPOST(post('https://s/x', {}), params('appt-gone')),
+    'no-show': () => noShowPOST(post('https://s/x', { burnPack: false }), params('appt-gone')),
+    restore: () => restorePOST(post('https://s/x', undefined), params('appt-gone')),
+  } as const
+
+  for (const route of ['cancel', 'no-show', 'restore'] as const) {
+    it(`${route}: a clamped caller + another store's booking → refused, nothing written`, async () => {
+      staffStoresGet.mockResolvedValue(FOREIGN) // the booking lives in store-1
+      const res = await call[route]()
+      expect(await res.json()).toEqual({ error: 'Appointment not found' })
+      expect(apptUpdate).not.toHaveBeenCalled()
+      expect(addRedemption).not.toHaveBeenCalled()
+    })
+
+    it(`${route}: that refusal is byte-identical to a genuinely missing id`, async () => {
+      staffStoresGet.mockResolvedValue(FOREIGN)
+      const refused = await call[route]()
+      const refusedBody = await refused.json()
+
+      staffStoresGet.mockResolvedValue({ store_ids: [] })
+      apptGet.mockRejectedValueOnce(
+        Object.assign(new Error('Appointment not found'), { status: 404 }),
+      )
+      const gone = await missing[route]()
+      expect(refused.status).toBe(gone.status)
+      expect(refusedBody).toEqual(await gone.json())
+    })
+
+    it(`${route}: a clamped caller inside the booking's own store still writes`, async () => {
+      staffStoresGet.mockResolvedValue({ store_ids: ['store-1'] })
+      if (route === 'restore') {
+        apptGet.mockResolvedValue({
+          id: 'appt-1',
+          customer_id: 'cust-1',
+          store_id: 'store-1',
+          status: 'CANCELLED',
+          starts_at: '2026-07-20T02:00:00.000Z',
+          created_at: '2026-07-20T02:00:00.000Z',
+        })
+      }
+      const res = await call[route]()
+      expect(await res.json()).toMatchObject({ success: true })
+      expect(apptUpdate).toHaveBeenCalledTimes(1)
+    })
+
+    // ⚖ fold round 2, F4: core answers `{ store_ids: [] }` for an auth id it
+    // holds no staff row for — indistinguishable from genuinely floating
+    // staff — so the route places the caller first and refuses if it cannot.
+    it(`${route}: a caller with NO roster row is refused, never treated as floating`, async () => {
+      roster.current = []
+      const res = await call[route]()
+      expect(res.status).toBe(403)
+      expect((await res.json()).error.code).toBe('store_forbidden')
+      expect(apptUpdate).not.toHaveBeenCalled()
+    })
+  }
 })
 
 describe('GET /api/app/v1/customers/[id]/packs/burnable', () => {

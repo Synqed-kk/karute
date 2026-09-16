@@ -61,6 +61,19 @@ export type { DragMode, DragOrigin }
 // compatible.
 type LaneWords = { resourceNoun: string; privateWord: string | null; fullWord: string; turnoverWord: string | null }
 
+// ⚖ D-53 (u)/(n2b2) — the WHOLE-BOARD shape: every lane's own row, keyed
+// GROUP + KEY (a lane key is unique only within its group), plus the ONE
+// fallback for a lane this map has no row for (a floating/unknown lane, or a
+// key nobody built the map for). Built once in TodayScreen from `props.lanes`
+// (R-1); every function below that walks a whole board takes this rather than
+// re-deriving `lane.stores` itself.
+type LaneWordsMap = { byLaneKey: Record<string, LaneWords>; generic: LaneWords }
+
+/** The one lane's resolved row, or the map's own fallback. Local — no test
+ *  needs it directly, every whole-board function below is exercised through
+ *  its own exported entry point. */
+const wordsFor = (words: LaneWordsMap, lane: BoardLane): LaneWords => words.byLaneKey[`${lane.group}:${lane.key}`] ?? words.generic
+
 /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET, INDEXED BY LANE, once per pass.
  *
  *  Every seam below reads the mask the same way and none of them derives it: an
@@ -848,6 +861,10 @@ export function applyMoves(
   parked: string[],
   added: Array<{ laneKey: string; item: BoardItem }>,
   hours: Hours,
+  // ⚖ D-53 (u)/(n2b2) — REQUIRED, immediately after `hours`: a booking that
+  // changes room re-mints its trailing turnaround (`withTrailingCleanup`
+  // below), which needs the destination lane's own word.
+  words: LaneWordsMap,
   /** ⚖ BATCH-6 flag 45 — THE BED SIDE'S OWN MEMBERSHIP. Absent (the default) is
    *  the behaviour this file shipped with and still the right one for every
    *  booking nobody has grabbed by its bed row: the room keeps the lane the
@@ -1020,7 +1037,7 @@ export function applyMoves(
       arrivals.push(row)
     }
     const settled = [...kept, ...arrivals].map((i) => moved(i, lane.group)).sort(byX)
-    return { ...lane, items: lane.group === 'beds' ? withTrailingCleanup(lane, settled, cleanupOf, hours, cleanupMinutesByBed, movedRoom) : settled }
+    return { ...lane, items: lane.group === 'beds' ? withTrailingCleanup(lane, settled, cleanupOf, hours, words, cleanupMinutesByBed, movedRoom) : settled }
   })
 }
 
@@ -1055,12 +1072,19 @@ function withTrailingCleanup(
   items: BoardItem[],
   cleanupOf: Map<string, BoardItem>,
   hours: Hours,
+  // ⚖ D-53 (u)/(n2b2) — REQUIRED, immediately after `hours`, before the
+  // optional `cleanupMinutesByBed?`. `lane` here is always a BEDS lane (the
+  // one caller only reaches this branch on `lane.group === 'beds'`).
+  words: LaneWordsMap,
   cleanupMinutesByBed?: Record<string, number>,
   movedRoom?: ReadonlySet<string>,
 ): BoardItem[] {
   const out = [...items]
   /** This room's own policy — the tail length for anyone who arrived here. */
   const policy = cleanupMinutesByBed?.[lane.key]
+  // This room's own turnover word, resolved ONCE — the generic row's own is
+  // pinned non-null (P13 in the words table's own suite), so the `!` is sound.
+  const t = wordsFor(words, lane).turnoverWord ?? words.generic.turnoverWord!
   for (const b of items) {
     if (b.kind !== 'booking' || !b.caseId) continue
     const orig = cleanupOf.get(b.caseId)
@@ -1081,14 +1105,14 @@ function withTrailingCleanup(
       // A room whose turnaround the SERVER never drew (origin 0, destination 15)
       // has no `orig` to re-place, so the tail is minted in today-board's own
       // shape (:594-600) rather than skipped — the same row, one room over.
-      ...(orig ?? cleanupShell(b)),
+      ...(orig ?? cleanupShell(b, t)),
       ...place(start, end, hours),
       time: `${clock(start)}〜`,
       micro: end - start <= 20,
       // The room's name is in the sentence a screen reader reads out, so a
       // retargeted turnaround that still says ベッド3 is the impossible state
       // ⚖ 8/9 forbids — the same reason the card's 【tag】 is rebuilt above.
-      label: `${lane.label}、${clock(start)}から${clock(end)}、清掃・予約不可`,
+      label: `${lane.label}、${clock(start)}から${clock(end)}、${t}・予約不可`,
     })
   }
   return out.sort(byX)
@@ -1097,14 +1121,14 @@ function withTrailingCleanup(
 /** ⚖ 9/8 PACKING fix round 2 (F4) — a 清掃 row for a booking the server drew no
  *  turnaround for, in today-board's own shape (:594-600). Every positional field
  *  is overwritten by the caller; what lives here is the chrome a turnaround
- *  wears — its key, its kind, its 清掃 title and the nulls that say it is not a
- *  booking. */
-function cleanupShell(b: BoardItem): BoardItem {
+ *  wears — its key, its kind, the turnover word handed in as its title (e.g.
+ *  清掃), and the nulls that say it is not a booking. */
+function cleanupShell(b: BoardItem, turnoverWord: string): BoardItem {
   return {
     key: `${b.caseId}-cleanup`,
     kind: 'cleanup', state: null, category: null,
     x: 0, w: 0, startMin: 0, endMin: 0,
-    title: '清掃', tag: '', time: '',
+    title: turnoverWord, tag: '', time: '',
     ticketCat: null, ticketCore: null, held: false, micro: false, caseId: null,
     label: '',
   }
@@ -2428,7 +2452,7 @@ function beforeCtxFor(lane: BoardLane, input: RailInput, ctx: GuardContext): Gua
 /** The 60分配置 rail for every staff lane — canon `renderSlotBoxes` (:7543),
  *  minus the DOM. Every exact 30-minute start on the board, judged by the
  *  guard engine against the pocket it would land in. */
-export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[] {
+export function guardRailsFor(lanes: BoardLane[], input: RailInput, words: LaneWordsMap): GuardRail[] {
   // ⚖ AMENDMENT 2, N2 — the same insurance, and here it is a TRUE hang: the cell
   // walk below is `start += input.stepMin`, so a zero step never reaches
   // `input.close` and takes the render thread with it. Unreachable today only
@@ -2465,7 +2489,7 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[]
     // ⚖ perf — the gap axis's rest leg, once for the whole rail (see `restResidueOn`).
     const restGap = restResidueOn(engine, pockets, resting, ctx, RESIDUE_COMPARE_STRIPS_EXEMPTIONS)
     for (let start = input.open; start < input.close; start += input.stepMin) {
-      cells.push(railCell(engine, pockets, start, input, ctx, resting, beforeCtx, restGap))
+      cells.push(railCell(engine, pockets, start, input, ctx, resting, beforeCtx, restGap, wordsFor(words, lane)))
     }
     rails.push({ laneKey: lane.key, laneLabel: lane.label, cells })
   }
@@ -2474,7 +2498,7 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[]
 
 /** The same verdict for ONE placement — the card actually in hand, at its own
  *  length, which is the question a drop asks and the 60-minute rail does not. */
-export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: number, input: RailInput): RailCell | null {
+export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: number, input: RailInput, words: LaneWordsMap): RailCell | null {
   const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
   if (!lane || lane.window == null || input.locked.includes(lane.key)) return null
   const pockets = freePockets({
@@ -2485,7 +2509,7 @@ export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: numbe
     occupied: laneSpans(lane, input.excludeId),
   })
   const ctx = railCtx(lane, input)
-  return railCell(createGapGuard(input.guard), pockets, start, input, ctx, restingOn(lane, input), beforeCtxFor(lane, input, ctx))
+  return railCell(createGapGuard(input.guard), pockets, start, input, ctx, restingOn(lane, input), beforeCtxFor(lane, input, ctx), undefined, wordsFor(words, lane))
 }
 
 /** ⚖ Liam 2026-09-07 (MOCK-NUDGE-RESIDUE-2026-09-07/SIGNOFF.md) — THE SLIVER POLICY.
@@ -2697,6 +2721,10 @@ function railCell(
   resting: GuardPlacement | null = null,
   beforeCtx: GuardContext = ctx,
   restGap: RestResidue | null = null,
+  // ⚖ D-53 (u)/(n2b2) — REQUIRED, trailing after the default-initialised
+  // params above (a required parameter may follow them; both callers already
+  // pass every earlier positional explicitly).
+  words: LaneWords,
 ): RailCell {
   const blocked = (sentence: string, reason: RailReason): RailCell => ({
     start, state: 'blocked', label: '—', sentence, reason, alternatives: [], alternativeKind: null, ackAllowed: false,
@@ -2807,7 +2835,7 @@ function railCell(
     return {
       ...blocked(
         input.placementFeasible
-          ? `この開始ではベッドを${input.dur}分確保できません`
+          ? `この開始では${words.resourceNoun}を${input.dur}分確保できません`
           : reasonLine(v.reason, input.protectedDur),
         'bed',
       ),
@@ -3274,8 +3302,8 @@ export const RAIL_STEP_MIN = 30
  *  `companionLines`' own, byte for byte; `caution` is the verdict's own sentence
  *  when the shuffle costs a protected window, and `null` when it does not — it
  *  is never a second wording of one. */
-export function reseatSentence(base: string, lines: readonly string[], caution: string | null): string {
-  const moved = `ここに置くと、ほかのお客様のベッドを入れ替えて収めます（${lines.join('、')}）`
+export function reseatSentence(base: string, lines: readonly string[], caution: string | null, words: LaneWords): string {
+  const moved = `ここに置くと、ほかのお客様の${words.resourceNoun}を入れ替えて収めます（${lines.join('、')}）`
   return `${base}。${moved}${caution != null ? `。${caution}` : ''}`
 }
 
@@ -3353,12 +3381,18 @@ export function railExplain(
      *  by a minute and be perfectly placeable, and the sentence says so while
      *  the word must not. The word is about the 30 minutes it is drawn over. */
     reservedHalf?: boolean
-  } = {},
+    /** ⚖ D-53 (u)/(n2b2) — this chip's own lane's row, resolved by the caller
+     *  (`explainRails`, per-rail: its own staff lane's words, chrome when the
+     *  rail names no lane on the board). REQUIRED — a chip's word and sentence
+     *  are never generic by omission. */
+    words: LaneWords
+  },
 ): { word: string | null; wordReason: RailReason | null; sentence: string; cue: RailCue | null; mark: RailMark | null } {
   // ⚖ NATIVE PASS (2026-08-26) — 〜, NOT AN EN DASH. The bed branch's own
   // sentence, two chips away on the same strip, spells the identical window
   // 「13:30〜14:30」; one strip may not punctuate one fact two ways. The ⚖-ruled
   // appended-parenthesis SHAPE is untouched — this is the glyph inside it.
+  const w = opts.words
   const judged = `（${clockOf(cell.start)}〜${clockOf(cell.start + dur)}）`
   const blockers = opts.room?.blockers ?? []
   // ⚖ 44 FIX ROUND (blind lens 1, F1) — A WORD MAY ONLY RIDE A REFUSAL THAT
@@ -3384,7 +3418,10 @@ export function railExplain(
       //
       // ⚖ NATIVE PASS (2026-08-26) — 満室 and 清掃 confirmed as ruled. Both are
       // chip vocabulary, which the 8/25 pass deliberately left standing.
-      ? (blockers.every((i) => i.kind === 'cleanup') ? '清掃' : '満室')
+      // ⚖ D-53 (u)/(n2b2) — the store's own two words, with the null collapse:
+      // a row with no turnover word (yoga) never wears it, on a cleanup window
+      // or otherwise — the chip stays `w.fullWord` either way.
+      ? (w.turnoverWord == null ? w.fullWord : (blockers.every((i) => i.kind === 'cleanup') ? w.turnoverWord : w.fullWord))
       : null
   // ⚖ LIAM RULING 1 + 3 (2026-09-09) — THE SAME CLASSIFICATION, ASKED OF THE
   // HALF HOUR. One rule, one spelling: a refusal that named somebody, sorted
@@ -3393,7 +3430,7 @@ export function railExplain(
   const halfBlockers = opts.halfHour?.blockers ?? []
   const halfWord =
     opts.halfHour != null && opts.halfHour.full && opts.halfHour.refusal != null && halfBlockers.length > 0
-      ? (halfBlockers.every((i) => i.kind === 'cleanup') ? '清掃' : '満室')
+      ? (w.turnoverWord == null ? w.fullWord : (halfBlockers.every((i) => i.kind === 'cleanup') ? w.turnoverWord : w.fullWord))
       : null
   const word =
     // ⚖ PRECEDENCE, as Liam read it on the mock's 「変わらないもの」 tab and
@@ -3516,7 +3553,7 @@ export function railExplain(
     return {
       word: null,
       wordReason: null,
-      sentence: reseatSentence(base, opts.reseat.lines, opts.reseat.caution),
+      sentence: reseatSentence(base, opts.reseat.lines, opts.reseat.caution, w),
       cue: null,
       mark: { face: 'reseat', tone: opts.reseat.tone },
     }
@@ -3539,7 +3576,7 @@ export function railExplain(
   //     and invites 「then turn it back on」. The honest fact is that no sellable
   //     box was ever put out for this start.
   const clause = opts.takerLabel
-    ? `ベッドは別のスタッフ（${opts.takerLabel}）の枠が使うため、ここには販売可能枠を出していません`
+    ? `${w.resourceNoun}は別のスタッフ（${opts.takerLabel}）の枠が使うため、ここには販売可能枠を出していません`
     : 'この開始には販売可能枠が出ていません'
   return {
     word,
@@ -3735,6 +3772,10 @@ export function explainRails(
      *  the 9/8 round already lost a positional `true` to exactly that blind
      *  spot — so the count is the belt and this is the braces. */
     allocate?: typeof allocateBed
+    /** ⚖ D-53 (u)/(n2b2) — the WHOLE board's map, REQUIRED: each rail resolves
+     *  its own staff lane's row from it (chrome when the rail names no lane),
+     *  and the reseat search's own `applyBedMoves` call needs the whole map. */
+    words: LaneWordsMap
   },
 ): RailExplained {
   const out: RailExplained = new Map()
@@ -3797,6 +3838,11 @@ export function explainRails(
   }
   for (const rail of rails) {
     const staff = lanes.find((l) => l.key === rail.laneKey && l.group === 'staff')
+    // ⚖ D-53 (u)/(n2b2) — this rail's own row, once per rail: its staff lane's
+    // words, or chrome when the rail names no lane on the board (`staff` is
+    // `undefined` only in that case — every rail this function ever builds a
+    // strip for came from a real staff lane, but the type admits the miss).
+    const railWords = staff ? wordsFor(opts.words, staff) : opts.words.generic
     // Per lane, once — the ad-less test below is asked per cell and these three
     // lists do not change between them.
     const sellHere = opts.sellCells.filter((s) => s.group === 'staff' && s.laneKey === rail.laneKey)
@@ -4032,7 +4078,7 @@ export function explainRails(
         if (packed == null || packed.laneKey == null || packed.reseats.length === 0) return null
         const companions = companionsFor(lanes, packed.reseats)
         if (companions.length === 0) return null
-        const after = applyBedMoves(lanes, companions, opts.reseat!.hours, opts.reseat!.cleanupMinutesByBed)
+        const after = applyBedMoves(lanes, companions, opts.reseat!.hours, opts.words, opts.reseat!.cleanupMinutesByBed)
         const v = opts.reseat!.landingOn(after, rail.laneKey, c.start)
         if (v.kind === 'blocked') return null
         return {
@@ -4052,6 +4098,7 @@ export function explainRails(
           adless: !advertised && reserved == null && opts.sellDisplayed,
           takerLabel: takerKey != null ? (lanes.find((l) => l.key === takerKey)?.label ?? null) : null,
           reservedDur: reserved ? reserved.dur : null,
+          words: railWords,
         }),
       )
     }
@@ -5537,12 +5584,15 @@ export function applyBedMoves(
   lanes: BoardLane[],
   companions: readonly BedCompanion[],
   hours: Hours,
+  // ⚖ D-53 (u)/(n2b2) — REQUIRED, immediately after `hours` (same rule as
+  // `applyMoves`, which this forwards to).
+  words: LaneWordsMap,
   cleanupMinutesByBed?: Record<string, number>,
 ): BoardLane[] {
   if (companions.length === 0) return lanes
   const bedMoves: Moves = {}
   for (const c of companions) bedMoves[c.id] = { laneKey: c.bedTo, x: c.bedOrigin.x, w: c.bedOrigin.w }
-  return applyMoves(lanes, {}, [], [], hours, bedMoves, cleanupMinutesByBed)
+  return applyMoves(lanes, {}, [], [], hours, words, bedMoves, cleanupMinutesByBed)
 }
 
 /** ⚖ 9/8 PACKING, THE RE-LANDING RULE — every companion put back where it stood
@@ -5556,9 +5606,12 @@ export function lanesWithCompanionsRestored(
   lanes: BoardLane[],
   companions: readonly BedCompanion[] | undefined,
   hours: Hours,
+  // ⚖ D-53 (u)/(n2b2) — REQUIRED, immediately after `hours` (forwarded to
+  // `applyBedMoves`).
+  words: LaneWordsMap,
   cleanupMinutesByBed?: Record<string, number>,
 ): BoardLane[] {
-  return applyBedMoves(lanes, (companions ?? []).map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), hours, cleanupMinutesByBed)
+  return applyBedMoves(lanes, (companions ?? []).map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), hours, words, cleanupMinutesByBed)
 }
 
 /** ⚖ 9/8 PACKING — VACATE BEFORE OCCUPY. A card moving INTO a room is written

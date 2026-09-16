@@ -20,6 +20,8 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
+import { resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
+import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { setRecordingAutostartWithClient } from '@/lib/settings/recording-autostart'
 
 export const runtime = 'nodejs'
@@ -39,11 +41,22 @@ export const POST = facadeHandler('orgSettings.recordingAutostart', async (ctx) 
   }
 
   const businessId = ctx.identity.businessId
+  const synqed = newSynqedClient(businessId)
   const result = await setRecordingAutostartWithClient(
-    newSynqedClient(businessId),
+    synqed,
     {
       staffId: ctx.identity.authUserId,
       businessId,
+      // Store lock input (⚖ Liam 2026-09-16) — the caller's ASSIGNMENT decides,
+      // never the store-id they sent in the body, and (fold round 2) they must
+      // be PLACED in the roster at all: core answers `{ store_ids: [] }` for an
+      // auth id it holds no staff row for.
+      scope: await resolveWriteStoreScope({
+        synqed,
+        authUserId: ctx.identity.authUserId,
+        capabilities: ctx.identity.capabilities,
+        selfStaffId: await resolveSelfStaffId(businessId, ctx.identity.authUserId),
+      }),
       source: 'facade',
       requestId: ctx.meta.requestId,
     },
@@ -52,6 +65,8 @@ export const POST = facadeHandler('orgSettings.recordingAutostart', async (ctx) 
   )
 
   if (!result.ok) {
+    // Also the store-lock refusal (⚖ 9/16) — deliberately the same answer, so
+    // the reply never tells a clamped caller which other stores exist.
     if (result.error === 'unknown_store') {
       throw new AppApiError('validation', 'no such store in this business')
     }

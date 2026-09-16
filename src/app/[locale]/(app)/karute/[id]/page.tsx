@@ -34,6 +34,7 @@ import { statusOf } from '@/lib/recording/take-binding'
 import { readSharedAt } from '@/lib/recording/share-columns'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { recordEditableInScope } from '@/lib/auth/store-lock'
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { getCustomer } from '@/lib/customers/queries'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
@@ -283,6 +284,11 @@ export default async function KaruteDetailPage({
     businessId,
     staffCanReassignRecords: canReassign,
     staffCanRegenerate,
+    // The store lock's screen half (⚖ Liam 2026-09-16) — the SAME predicate
+    // every by-id write door enforces, off the scope this page already
+    // resolved. `storeScope` is null when that read itself failed, which
+    // hides the controls rather than showing ones the server would refuse.
+    staffCanEditRecord: recordEditableInScope({ store_id: karute.store_id ?? null }, storeScope),
     contact,
     consentResult,
     customer,
@@ -331,6 +337,7 @@ export default async function KaruteDetailPage({
       recording={built.recording}
       staffCanReassignRecords={built.staffCanReassignRecords}
       staffCanRegenerate={built.staffCanRegenerate}
+      staffCanEditRecord={built.staffCanEditRecord}
       discarded={built.discarded}
       contentWithheld={built.contentWithheld}
       share={built.share}

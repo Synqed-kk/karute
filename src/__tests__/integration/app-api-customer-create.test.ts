@@ -35,7 +35,7 @@ jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'business-1'),
 }))
 jest.mock('@/lib/auth/require-permission', () => ({
-  capabilitiesForUser: jest.fn(async () => new Set(['customers.view'])),
+  capabilitiesForUser: jest.fn(async () => new Set(['customers.view', 'customers.manage'])),
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
 }))
 jest.mock('@synqed-kk/client', () => ({
@@ -130,6 +130,14 @@ describe('POST /api/app/v1/customers (新規顧客)', () => {
 
   it('missing capability → 403, no core write', async () => {
     ;(capabilitiesForUser as jest.Mock).mockResolvedValueOnce(new Set())
+    const res = await POST(post({ name: '山田 花子' }), route)
+    expect(res.status).toBe(403)
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  // ⚖ Liam 2026-09-16 — the READ tier alone no longer opens the write door.
+  it('customers.view WITHOUT customers.manage → 403, no core write', async () => {
+    ;(capabilitiesForUser as jest.Mock).mockResolvedValueOnce(new Set(['customers.view']))
     const res = await POST(post({ name: '山田 花子' }), route)
     expect(res.status).toBe(403)
     expect(create).not.toHaveBeenCalled()

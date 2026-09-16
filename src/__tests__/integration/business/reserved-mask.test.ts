@@ -68,6 +68,7 @@ import { freePockets, type GuardPocketSpan } from '@/business/lib/canon-logic/av
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
 import { opsConfig } from '@/business/lib/fixtures-today'
 import { hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 
 // ── the store the fixture runs in ───────────────────────────────────────────
 
@@ -1000,7 +1001,7 @@ describe('9 — the hand is lifted from the mask exactly as the rail lifts it', 
         excludeId,
         // The same bed truth the mask is built from — spec §1's one held set.
         protectedWindowFeasible: (l, start, dur) => BOOK.newClientMask(l, dur)(start),
-      }).find((r) => r.laneKey === lane.key)!.cells
+      }, { byLaneKey: {}, generic: RESOURCE_WORDS.other }).find((r) => r.laneKey === lane.key)!.cells
 
     expect(JSON.stringify(railCells(id))).not.toBe(JSON.stringify(railCells(null)))
   })

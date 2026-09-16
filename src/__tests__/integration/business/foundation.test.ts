@@ -865,6 +865,9 @@ describe('the fixture data door', () => {
         './Collapse',
         './store-policy-seam',
         '@/business/lib/canon-logic/pricing',
+        // ⚖ D-53 (u)/(n2b2) — `RESOURCE_WORDS.other`, the generic row this
+        // room hands `guardVerdictAt` until N3 gives it the store's own row.
+        '@/business/lib/resource-words',
         // ⚠ D-36 (⚖ S17 fix round 4 · M4) — THE ROOM'S OWN RULES FILE, for the
         // one rule this section shares with the other twenty-two: what a number
         // field does with an empty box. Both used to answer the guardrail's LOW
@@ -900,6 +903,8 @@ describe('the fixture data door', () => {
         '@/business/lib/canon-logic/pricing',
         '@/business/lib/clock',
         '@/business/lib/data',
+        // ⚖ D-53 (u)/(n2b2) — same reason as StorePolicySection.tsx, above.
+        '@/business/lib/resource-words',
         '@/business/lib/today-board',
       ],
       // ⚠ THE SEAM'S EMPTY INVENTORY IS THE FENCE, MADE MACHINE-READABLE: the one
