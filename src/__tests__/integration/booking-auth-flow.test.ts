@@ -105,6 +105,14 @@ jest.mock('@/lib/auth/require-permission', () => ({
   can: jest.fn(async () => true),
 }))
 
+// createAppointment now ALWAYS resolves the RBAC store scope (PKT-P4). This
+// suite isolates staff attribution, not store scoping (that's
+// appointments-store-scope.test.ts) — stub the all-stores lens, same
+// convention as rbac-server-enforcement.test.ts.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
+}))
+
 // Mock resolveSynqedStaffId so the test controls translation. In prod the
 // resolver self-heals via email fallback; here we simulate the "no synqed
 // staff matches this profile" failure as a thrown error, mirroring what

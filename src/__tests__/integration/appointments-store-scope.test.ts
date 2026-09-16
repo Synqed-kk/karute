@@ -122,6 +122,11 @@ async function appointmentsMock() {
   return client.appointments as { list: jest.Mock; get: jest.Mock }
 }
 
+async function bookingStoreMocks() {
+  const client = await (getSynqedClient as jest.Mock)()
+  return client as { staffStores: { get: jest.Mock }; stores: { list: jest.Mock } }
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
 })
@@ -273,15 +278,25 @@ describe('createAppointment — active-store cookie clamp (write-side isolation)
     return client.appointments.create as jest.Mock
   }
 
-  it('branch-restricted staff + cookie for a NOT-allowed store: books via defaultBookingStore, never the cookie', async () => {
+  it('clamped staff + cookie already on their own store: books to that store', async () => {
+    clampedToGinza()
+    ;(getActiveStoreId as jest.Mock).mockResolvedValueOnce(GINZA)
+    const create = await createMock()
+
+    await createAppointment(bookingInput)
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
+  })
+
+  it('clamped staff + a stale cookie for a NOT-allowed store: books to their own first store, not the cookie', async () => {
     clampedToGinza()
     ;(getActiveStoreId as jest.Mock).mockResolvedValueOnce(DAIKANYAMA)
     const create = await createMock()
 
     await createAppointment(bookingInput)
 
-    // The 代官山 cookie is out of scope → dropped → defaultBookingStore stamps
-    // their own 銀座 store, NOT the cookie's 代官山.
+    // The 代官山 cookie is out of scope — resolveStoreScope already clamped it
+    // to their own 銀座 store, which createAppointment forwards as-is.
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
   })
 
@@ -295,16 +310,30 @@ describe('createAppointment — active-store cookie clamp (write-side isolation)
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: DAIKANYAMA }))
   })
 
-  it('branch-restricted staff + unset cookie: unchanged — books via defaultBookingStore, scope not consulted', async () => {
-    clampedToGinza()
+  it('cross-store viewer + unset cookie: unchanged — still falls through to defaultBookingStore', async () => {
+    crossStore(null)
     // getActiveStoreId default mock → null (no cookie)
     const create = await createMock()
 
     await createAppointment(bookingInput)
 
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
-    // No cookie to clamp → the scope lookup never runs (unset-cookie behavior
-    // is untouched — defaultBookingStore, not resolveStoreScope().storeId).
-    expect(scopeMock).not.toHaveBeenCalled()
+  })
+
+  it('clamped staff + unset cookie + a multi-store practitioner: books to the ACTOR\'s own store, never a defaultBookingStore guess (the 銀座/代官山 leak this fixes)', async () => {
+    clampedToGinza()
+    // getActiveStoreId default mock → null (no cookie)
+    const { staffStores, stores } = await bookingStoreMocks()
+    // The booked practitioner works at BOTH stores (defeats defaultBookingStore's
+    // single-store shortcut) and the business's primary store is the OTHER
+    // branch — if createAppointment ever fell through to defaultBookingStore
+    // for a clamped actor again, this would catch it landing on 代官山.
+    staffStores.get.mockResolvedValueOnce({ store_ids: [GINZA, DAIKANYAMA] })
+    stores.list.mockResolvedValueOnce({ stores: [{ id: DAIKANYAMA, is_primary: true }] })
+    const create = await createMock()
+
+    await createAppointment(bookingInput)
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
   })
 })

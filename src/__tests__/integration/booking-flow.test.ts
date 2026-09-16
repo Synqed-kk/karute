@@ -26,6 +26,13 @@ jest.mock('next/cache', () => ({
 jest.mock('next/headers', () => ({
   cookies: jest.fn(async () => ({ get: () => undefined })),
 }))
+// createAppointment now ALWAYS resolves the RBAC store scope (PKT-P4). This
+// suite isolates the form→API mapping and audit contract, not store scoping
+// (that's appointments-store-scope.test.ts) — stub the all-stores lens, same
+// convention as rbac-server-enforcement.test.ts.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
+}))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
