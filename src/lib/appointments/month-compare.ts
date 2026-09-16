@@ -163,6 +163,16 @@ export function monthCompareDeltaFrom(
     // bookings BEFORE the compared window. Otherwise the honest answer is
     // "there is nothing to compare against", and 「+12件」 against a shop that
     // did not exist would be a made-up fact.
+    //
+    // The proxy is the earliest counted booking across the two reads this
+    // view already makes (the previous span's seven-day pad plus the current
+    // month's grid range) — an established shop that is quiet across that
+    // whole span loses the clause for that ONE month: absent, never a wrong
+    // number. A store "opened on" date would replace the proxy, but none is
+    // loaded here: the store record's `created_at` is only when the row was
+    // made in Karute (an imported salon's could be long after the shop
+    // actually opened), so even as a floor on the shop's age it would need
+    // an extra read this clause does not make today.
     const earliest = earliestCountedYmd(previous.counted, current.counted)
     if (earliest === null || earliest >= window.previousFromYmd) return null
   }
