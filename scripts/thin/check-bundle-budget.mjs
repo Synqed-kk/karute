@@ -1530,7 +1530,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // (2,116,480 B), the gate commit's own cost, same class as every prior raise
 // on this line. Ceiling was 2,118,450 + 1,000.
 //
-// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-17 — GREPTILE FOLD G-1..3 (PKT-GATE-FOLD-GREPTILE-3):
 // on top of gate tip `93acdf77c`, folding the phone recheck (G-1: `thin/chrome/
 // store-unassigned.ts`'s clearStoreUnassigned/recheckStoreUnassigned + the
@@ -1543,8 +1542,33 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // sizes and MD5s, node v24.16.0): en 134,775 · index 1,046,905 · vendor
 // 937,791 = 2,119,471 B — +1,021 B over the REBASE 3 measurement above
 // (2,118,450 B), this fold's own cost (new strings + the recheck/probe code
-// reaching the thin bundle). Ceiling = 2,119,471 + 1,000.
-const BUDGET_BYTES = 2_120_471
+// reaching the thin bundle). Ceiling was 2,119,471 + 1,000.
+//
+// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-17 — REBASE 4 + G-2b (PKT-GATE-REBASE4-G2B-2026-09-17):
+// the gate rebased onto origin/main's tip after PR #945 landed (dc883ecbf,
+// `git rebase --onto origin/main 20926b3ac fix/unassigned-gate`, one conflict
+// across the 3-commit replay, in this same file only — main's cross-branch
+// search ledger kept first, this branch's own gate ledger appended after, one
+// live `BUDGET_BYTES`, same convention as REBASE 2's own resolution above; new
+// tip `6711589a0`). G-2b (Greptile fold) then widened `activeStoreCount`'s
+// predicate from `s.active` to `s.active !== false` — a row with no `active`
+// field at all now counts as active instead of silently reading as closed
+// (store-gate.ts, doc comment + three new matrix cases). Same CI recipe —
+// CI's own six VITE_* values, the 208-char anon-key placeholder included,
+// thin/dist emptied before each of two laps, byte-identical both times
+// (matching filenames, sizes and MD5s, node v24.16.0): en 135,045 · index
+// 1,050,846 · vendor 937,791 = 2,123,682 B. Ceiling = 2,123,682 + 1,000.
+//
+// +4,211 B over the G-1..3 fold's own figure above (2,119,471 B): the rebase
+// carrying main's #945 (cross-branch customer search) forward through this
+// branch's whole gate stack, plus G-2b's own one-line predicate change (bytes
+// too small to isolate past minification). Against main's own #945 ledger
+// figure (2,120,802 B, in this file's search-feature history above): the
+// whole gate stack (Layers 1-3 + M5 fold + G-1..3 Greptile fold + G-2b) costs
+// +2,880 B — genuine feature/rebase volume, not bloat, same class as every
+// prior raise on this line.
+const BUDGET_BYTES = 2_124_682
 
 let dir
 try {

@@ -99,9 +99,16 @@ export type StoreAssignmentVerdict = 'viewAll' | 'clamped' | 'unassigned' | 'unc
  * (archived/closed) store is not a real second location a floating staff
  * member could be assigned to, so it must not turn the carve-out off for a
  * genuinely single-active-store business.
+ *
+ * ⚖ Greptile fold, G-2b (2026-09-17): only an EXPLICIT `false` counts as
+ * inactive — a missing flag counts as active. A row with no `active` field at
+ * all (SDK skew this codebase already casts around, cf. `deleted_at` /
+ * `first_visit_at`) must not silently read as closed: that would let a
+ * genuine multi-store business count as single-store and switch the
+ * unassigned gate OFF. Unknown must never turn the gate off.
  */
-export function activeStoreCount(rows: readonly { active: boolean }[]): number {
-  return rows.filter((s) => s.active).length
+export function activeStoreCount(rows: readonly { active?: boolean | null }[]): number {
+  return rows.filter((s) => s.active !== false).length
 }
 
 export function storeAssignmentVerdict(facts: {

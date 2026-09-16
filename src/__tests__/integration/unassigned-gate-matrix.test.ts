@@ -418,6 +418,46 @@ describe('G-2 — the carve-out counts ACTIVE stores only', () => {
   })
 })
 
+// ── G-2b (Greptile fold, 2026-09-17) ─────────────────────────────────────────
+// A missing `active` field must count as ACTIVE — only an EXPLICIT `false` is
+// inactive; unknown must never turn the gate off (same discipline as
+// `assigned === null` and `storeCount === null` above). Direct unit checks on
+// `activeStoreCount`/`storeAssignmentVerdict`, same shape as the G-2 mutant
+// proof above — the mocked `stores.list()` fixture always sets an explicit
+// boolean, so a genuinely MISSING field can only be driven directly.
+describe('G-2b — a missing `active` flag counts as active, never inactive', () => {
+  it('two rows with no `active` field → count 2 → unassigned', () => {
+    const rows: { id: string; active?: boolean }[] = [{ id: 'store-a' }, { id: 'store-b' }]
+    expect(activeStoreCount(rows)).toBe(2)
+    expect(
+      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: activeStoreCount(rows) }),
+    ).toBe('unassigned')
+  })
+
+  it('one active:true + one active:false + one with no field → count 2 → unassigned', () => {
+    const rows = [
+      { id: 'store-a', active: true },
+      { id: 'store-b', active: false },
+      { id: 'store-c' },
+    ]
+    expect(activeStoreCount(rows)).toBe(2)
+    expect(
+      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: activeStoreCount(rows) }),
+    ).toBe('unassigned')
+  })
+
+  it('one active:true + one active:false → 1 → single-store carve-out', () => {
+    const rows = [
+      { id: 'store-a', active: true },
+      { id: 'store-b', active: false },
+    ]
+    expect(activeStoreCount(rows)).toBe(1)
+    expect(
+      storeAssignmentVerdict({ viewAll: false, assigned: [], storeCount: activeStoreCount(rows) }),
+    ).toBe('unclamped')
+  })
+})
+
 // ── M5 FOLD ─────────────────────────────────────────────────────────────────
 // The third flip point (actions/stores.ts:266-268): pins that the SAME
 // refusal fires on the write side, not just the two read gates above. The
