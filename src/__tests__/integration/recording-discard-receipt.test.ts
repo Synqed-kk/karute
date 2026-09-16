@@ -462,18 +462,32 @@ describe('one discard = exactly one recording.discard row', () => {
 describe('a discard outside the caller’s store is refused', () => {
   const clamped = { ...webActor, scope: { viewAll: false, allowedStoreIds: ['store-daikanyama'] } }
 
-  it('the STAFF door refuses BEFORE the reason row — no row, no receipt', async () => {
+  it('the STAFF door refuses BEFORE the reason row — no row, no receipt, ONE refusal row', async () => {
     const res = await discardRecordingWithReasonRow(fakeClient as never, clamped, WITH_REASON)
     expect(res).toEqual({ ok: false, error: 'forbidden' })
     expect(discardCreate).not.toHaveBeenCalled()
-    expect(auditLog).not.toHaveBeenCalled()
+    // The DISCARD row is still absent — nothing was discarded. What lands is the
+    // REFUSAL row (FRESH-EYES-P1 §5a): someone reaching for another branch's
+    // recording is exactly the event an owner wants to see.
+    expect(auditLog).toHaveBeenCalledTimes(1)
+    expect(auditLog.mock.calls[0][0]).toMatchObject({
+      category: 'recording',
+      action: 'recording.store_write_refused',
+      target_type: 'recording',
+      target_id: 'rs-1',
+      detail: expect.objectContaining({ door: 'recording.discard_with_reason' }),
+    })
   })
 
-  it('the receipt-only door refuses before the idempotency probe', async () => {
+  it('the receipt-only door refuses before the idempotency probe, and files ONE refusal row', async () => {
     const res = await discardRecordingWithClient(fakeClient as never, clamped, SYSTEM_VALID)
     expect(res).toEqual({ ok: false, error: 'forbidden' })
     expect(auditList).not.toHaveBeenCalled()
-    expect(auditLog).not.toHaveBeenCalled()
+    expect(auditLog).toHaveBeenCalledTimes(1)
+    expect(auditLog.mock.calls[0][0]).toMatchObject({
+      action: 'recording.store_write_refused',
+      detail: expect.objectContaining({ door: 'recording.discard' }),
+    })
   })
 
   it('an UNREADABLE session fails closed for a clamped caller, and is unchanged for everyone else', async () => {
