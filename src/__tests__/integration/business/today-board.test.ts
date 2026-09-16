@@ -52,6 +52,7 @@ import {
   staffQualifications,
 } from '@/business/lib/fixtures-today'
 import { allocateBed, applyMoves, sellLayerFor } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import { money } from '@/business/lib/canon-logic/pricing'
 import {
   availableMinutes,
@@ -1142,12 +1143,13 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
     // which is exactly why the data fix reaches it: there are none to key off.
     const held = p.lanes.flatMap((l) => l.items).find((i) => i.kind === 'booking' && i.caseId)!
     const lane = p.lanes.find((l) => l.items.includes(held))!
+    const WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.other }
     const staged = applyMoves(
       p.lanes,
       { [held.caseId!]: { laneKey: lane.key, x: held.x + 5, w: held.w } },
-      [], [], hours,
+      [], [], hours, WORDS,
     )
-    for (const board of [applyMoves(p.lanes, {}, [], [], hours), staged]) {
+    for (const board of [applyMoves(p.lanes, {}, [], [], hours, WORDS), staged]) {
       const items = board.flatMap((l) => l.items)
       expect(items.filter((i) => i.kind === 'cleanup')).toEqual([])
       for (const i of items) expect(i.label).not.toContain('清掃')

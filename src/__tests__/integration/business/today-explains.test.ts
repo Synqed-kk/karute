@@ -78,9 +78,19 @@ import { honestHeld } from '@/app/[locale]/(business)/business/today/honest-held
 import { reservedMaskFor } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
+
+// ⚖ D-53 (u)/(n2b2) — the whole-board map, for every direct call this file
+// makes to a widened whole-board function: empty `byLaneKey` so every lane
+// falls to the generic row, STORE_A's own (chiropractic ≡ other, D-13) —
+// runtime expected sentences are unchanged. `A_WORDS` is the single-lane
+// (`LaneWords`) form the same row takes for `reseatSentence`'s own direct
+// calls.
+const LANE_WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.chiropractic }
+const A_WORDS = RESOURCE_WORDS.chiropractic
 
 /** ⚖ BREAKER-827 F1/F2/F3 — A `//`-PREFIXED COPY IS NOT THE LINE.
  *
@@ -309,7 +319,7 @@ function railOn(lanes: BoardLane[], dur = 60): GuardRail {
     placementFeasible: lanes.some((l) => l.group === 'beds')
       ? (l, start, d) => truth.newClientMask(l, d)(start)
       : undefined,
-  })[0]
+  }, LANE_WORDS)[0]
 }
 
 const at = (rail: GuardRail, minute: number): RailCell => rail.cells.find((c) => c.start === minute)!
@@ -342,6 +352,7 @@ const explainOn = (lanes: BoardLane[], cell: RailCell, dur = 60, reservedHalf?: 
             start: cell.start, end: cell.start + dur,
           })
         : null,
+    words: A_WORDS,
   })
 
 /** ONE STAFF LANE, ONE ROOM. The room is what the scene varies. */
@@ -443,7 +454,7 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     })
     expect([lifted.laneKey, lifted.refusal]).toEqual(['bed-01', null])
     // 満室 over a room that is standing empty is the lie. Bare 「—」 instead.
-    expect(railExplain(cell, 60, { room: lifted }).word).toBeNull()
+    expect(railExplain(cell, 60, { room: lifted, words: A_WORDS }).word).toBeNull()
   })
 
   it('a store with no rooms refuses nobody — the chip is bare and the sentence is the base sentence (⚖ D-52 (a))', () => {
@@ -460,7 +471,7 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     })
     expect(empty).toEqual({ laneKey: null, refusal: null, blockers: [], reseats: [] })
     const bedCell: RailCell = { ...at(railOn(sceneWith([])), 780), state: 'blocked', reason: 'bed' }
-    const said = railExplain(bedCell, 60, { room: empty })
+    const said = railExplain(bedCell, 60, { room: empty, words: A_WORDS })
     // 満室 beside the now-retired no-rooms refusal used to say two different
     // things about one board — and 清掃 was the LITERAL old answer here, because
     // `every` on an empty list is true. Neither now: with no refusal to quote, `railExplain`'s
@@ -584,21 +595,21 @@ describe('§4 — ⚖ 75(i): the collector observes, and the clause never invent
     // A room-drop explains the hole: the sentence says who is using the room.
     // ⚖ NATIVE PASS (2026-08-26) — the taker is a person, so it hangs off
     // スタッフ, and what took the room is that person's 枠, never a 販売枠.
-    expect(railExplain(safe, 60, { adless: true, takerLabel: '見本 かおる' }).sentence)
+    expect(railExplain(safe, 60, { adless: true, takerLabel: '見本 かおる', words: A_WORDS }).sentence)
       .toBe(`${safe.sentence}${win}。ベッドは別のスタッフ（見本 かおる）の枠が使うため、ここには販売可能枠を出していません`)
 
     // Nothing was dropped — the hour was simply never derived. The clause states
     // that and invents no cause for it. ⚖ NATIVE PASS (2026-08-26) — and it
     // states it as a FACT about the inventory, not about the display.
-    const bare = railExplain(safe, 60, { adless: true, takerLabel: null }).sentence
+    const bare = railExplain(safe, 60, { adless: true, takerLabel: null, words: A_WORDS }).sentence
     expect(bare).toBe(`${safe.sentence}${win}。この開始には販売可能枠が出ていません`)
     expect(bare).not.toContain('ベッド')
 
     // A window that DOES carry a box gets no clause at all.
-    expect(railExplain(safe, 60, { adless: false, takerLabel: '見本 かおる' }).sentence).toBe(`${safe.sentence}${win}`)
+    expect(railExplain(safe, 60, { adless: false, takerLabel: '見本 かおる', words: A_WORDS }).sentence).toBe(`${safe.sentence}${win}`)
     // …and a refused chip is already answering, so it never grows one either.
     const noFit = at(railOn([lane({ key: 'p-01', group: 'staff', items: [booking({ key: 's1', caseId: 'y1' }, 780, 840)] })]), 780)
-    expect(railExplain(noFit, 60, { adless: true, takerLabel: '見本 かおる' }).sentence).not.toContain('別のスタッフ')
+    expect(railExplain(noFit, 60, { adless: true, takerLabel: '見本 かおる', words: A_WORDS }).sentence).not.toContain('別のスタッフ')
   })
 })
 
@@ -635,7 +646,7 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
             dur: sessionMin, protectedDur: REAL.guard.protectedDurationMin,
             nowMinute: REAL.sell.nowMinute, locked: [], guard: REAL.guard.config,
             placementFeasible: (l, start, d) => truth.newClientMask(l, d)(start),
-          })
+          }, LANE_WORDS)
           expect(rails.length).toBeGreaterThan(0)
           const gap = gapLayerFor(REAL.lanes, {
             gridMin, sessionMin, gapFillMin: REAL.guard.gapFillMinMin,
@@ -668,6 +679,7 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
             drops,
             inHand: false,
             sellDisplayed: true,
+            words: LANE_WORDS,
           })
 
           let blocked = 0
@@ -753,12 +765,13 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
       open: HOURS.open, close: HOURS.close, stepMin: 30, dur, protectedDur: 90,
       nowMinute: null, locked: [], guard: GUARD,
       placementFeasible: lanes.some((l) => l.group === 'beds') ? (l, start, d) => truth.newClientMask(l, d)(start) : undefined,
-    })
+    }, LANE_WORDS)
   }
   const ask = (lanes: BoardLane[], over: Partial<Parameters<typeof explainRails>[2]> = {}) =>
     explainRails(railsOn(lanes), lanes, {
       dur: 60, handId: null, stagedId: null,
       sellCells: [], claims: [], drops: [], inHand: false, sellDisplayed: true,
+      words: LANE_WORDS,
       ...over,
     })
   const sellAt = (laneKey: string, h: number): SellCell => ({
@@ -1254,37 +1267,35 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // render), so a 満室/清掃 literal became the slot expression `readFileSync`
     // now actually sees; STORE_A's own words (fullWord 満室, turnoverWord 清掃)
     // still render byte-identical (leg 7a of today-words.test.ts proves that).
-    // ⚖ D-53 (z) — PIN MOVE: the two chip-naming tokens no longer gate on
-    // `caps.turnover` — the rail's chips are minted with the GENERIC words
-    // for every store type until slice N2b-2, so the guide now names those
-    // unconditionally (STORE_A's own words are `other`'s row already, so its
-    // rendered bytes are unchanged — leg 7a of today-words.test.ts proves it).
-    expect(guide).toContain("「${props.genericWords.fullWord}」「${props.genericWords.turnoverWord!}」のコマでは、すぐ上の行に薄い斜線が出て")
+    // ⚖ D-53 (u)/(n2b2) — PIN MOVE (the switch-back, Commit 2 step 0): now
+    // that `railExplain` reads the lane's own words, the two chip-naming
+    // tokens return to `w.fullWord` + the `caps.turnover` gate (STORE_A's own
+    // words are `other`'s row already, so its rendered bytes are unchanged —
+    // leg 7a of today-words.test.ts proves it).
+    expect(guide).toContain("「${w.fullWord}」${caps.turnover ? `「${w.turnoverWord!}」` : ''}のコマでは、すぐ上の行に薄い斜線が出て")
     expect(guide).not.toContain('小さな文字が付いたコマでは')
     // ⚖ RULING 1 (2026-09-09) — the 満室 change is DECLARED, in the tour's own
     // words: it is about the 30 minutes, not about whether the session fits.
-    // ⚖ D-53 (z), PKT-FIX-N2A-F4 — PIN MOVE: this is the THIRD chip-naming
-    // token in the same sentence (the 満室-explains clause) — it too is
-    // minted generic until N2b-2's switch-back; its `${w.resourceNoun}` is
-    // the store's own noun and stays unchanged.
-    expect(guide).toContain("「${props.genericWords.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます")
-    // ⚖ D-53 (z), PKT-FIX-N2A-F4 — source pin: this third token is a
-    // deliberate count of ONE (it has no turnoverWord pair, unlike the other
-    // two), so a future switch-back has to touch this pin too.
-    expect((guide.match(/「\$\{props\.genericWords\.fullWord\}」はその30分に/g) ?? []).length).toBe(1)
+    // ⚖ D-53 (u)/(n2b2) — PIN MOVE: this is the THIRD chip-naming token in the
+    // same sentence (the 満室-explains clause) — it too returns to `w.fullWord`
+    // in this commit; its `${w.resourceNoun}` was already the store's own noun
+    // and stays unchanged.
+    expect(guide).toContain("「${w.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます")
+    // ⚖ D-53 (u)/(n2b2) — source pin: this third token is a deliberate count
+    // of ONE (it has no turnoverWord pair, unlike the other two).
+    expect((guide.match(/「\$\{w\.fullWord\}」はその30分に/g) ?? []).length).toBe(1)
     // ⚖ RULING 2 (2026-09-09) — and so is the quiet-hour mark.
     expect(guide).toContain('${w.resourceNoun}を別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます')
     // ⚖ LIAM RULING (2026-08-30) — the tour quotes the chips' OWN labels, so the
     // guard one moved with the chip. Bare 「新規」 is pinned dead in the quoted
     // list: a tour that teaches a word the board no longer wears is worse than
     // no entry at all.
-    expect(guide).toContain("「${props.genericWords.fullWord}」「${props.genericWords.turnoverWord!}」「新規用」")
+    expect(guide).toContain("「${w.fullWord}」${caps.turnover ? `「${w.turnoverWord!}」` : ''}「新規用」")
     expect(guide).not.toContain('「満室」「清掃」「新規」')
-    // ⚖ D-53 (z) — source pin: the unconditional generic-word token appears
-    // TWICE in the sentence (both chip-naming spots above) — a deliberate
-    // count, not one, so N2b-2's switch back to `w` + the `caps.turnover`
-    // gate has to touch this pin rather than slip past it unnoticed.
-    expect((guide.match(/「\$\{props\.genericWords\.fullWord\}」「\$\{props\.genericWords\.turnoverWord!\}」/g) ?? []).length).toBe(2)
+    // ⚖ D-53 (u)/(n2b2) — source pin: the switched-back `w`/`caps.turnover`
+    // token appears TWICE in the sentence (both chip-naming spots above) — a
+    // deliberate count, not one.
+    expect((guide.match(/「\$\{w\.fullWord\}」\$\{caps\.turnover \? `「\$\{w\.turnoverWord!\}」` : ''\}/g) ?? []).length).toBe(2)
     // ⚖ NATIVE PASS (2026-08-26) — ふさがっている was FALSE of 新規, which is a
     // guard HOLD on an empty slot, not an occupied one. 置けない is true of all
     // three, and the retired word is pinned dead so it cannot come back.
@@ -1566,7 +1577,7 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
 
   /** The screen's `boardLanes` at rest: `placedLanes` is `props.lanes` while no
    *  block has been dragged, and nothing is parked, added or in flight. */
-  const boardOf = (s: Staged) => applyMoves(REAL.lanes, s.moves, [], [], REAL.hours, s.bedMoves)
+  const boardOf = (s: Staged) => applyMoves(REAL.lanes, s.moves, [], [], REAL.hours, LANE_WORDS, s.bedMoves)
 
   const span = (start: number, end: number) => place(start, end, REAL.hours)
 

@@ -85,9 +85,16 @@ import { opsConfig } from '@/business/lib/fixtures-today'
 import { cleanupBlocks, hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
+
+// ⚖ D-53 (u)/(n2b2) — the whole-board map, for every direct call this file
+// makes to a widened whole-board function: empty `byLaneKey` so every lane
+// falls to the generic row, STORE_A's own (chiropractic ≡ other, D-13) —
+// runtime expected sentences are unchanged.
+const LANE_WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.chiropractic }
 
 const HERE = 'src/app/[locale]/(business)/business/today'
 const SRC = (f: string) => readFileSync(join(process.cwd(), HERE, f), 'utf8')
@@ -479,7 +486,7 @@ function railsOf(w: World, c: Combo, book: BedTruth = bookOf(w)): GuardRail[] {
     excludeId: null,
     placementFeasible: bedDoor(views, w.lanes, null),
     protectedWindowFeasible: (l, start, dur) => book.newClientMask(l, dur)(start),
-  })
+  }, LANE_WORDS)
 }
 
 /** Every minute this lane is OFFERING to a regular customer, as a sorted set of
@@ -1173,6 +1180,7 @@ describe('5 — a 確保 window answers with the law', () => {
       inHand: false,
       sellDisplayed: true,
       held,
+      words: LANE_WORDS,
     })
     let said = 0
     const wrong: string[] = []
@@ -1221,6 +1229,7 @@ describe('5 — a 確保 window answers with the law', () => {
       inHand: false,
       sellDisplayed: true,
       held,
+      words: LANE_WORDS,
     })
     const byLane = new Map(held.map((m) => [m.laneKey, m.spans]))
     for (const rail of rs) {
@@ -1567,6 +1576,7 @@ describe('7 — the fix round: the publication boundary', () => {
         sellDisplayed: true,
         held,
         withheld: withheldCells,
+        words: LANE_WORDS,
       })
         .get(LANE)!
         .get(690)!.sentence
@@ -1603,6 +1613,7 @@ describe('7 — the fix round: the publication boundary', () => {
       sellDisplayed: true,
       held,
       withheld,
+      words: LANE_WORDS,
     }).get(LANE)!
     for (const [start, e] of whole) {
       if (start >= 720 || start + REAL.guard.standardSessionMin <= 600) {
@@ -2662,7 +2673,7 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
 describe('8 — the staged origin board keeps the store\u2019s loss sayable', () => {
   /** The REST board, built the way the screen builds it (TodayScreen's
    *  `placedLanes` then `committedLanes`, no moves). */
-  const restLanes = () => applyMoves(applyBlockMoves(REAL.lanes, {}, REAL.hours, []), {}, [], [], REAL.hours, {}, REAL.bedCleanupMinutes)
+  const restLanes = () => applyMoves(applyBlockMoves(REAL.lanes, {}, REAL.hours, []), {}, [], [], REAL.hours, LANE_WORDS, {}, REAL.bedCleanupMinutes)
 
   /** A settled board's honest day answer — `windowsOf(honest…)`, the producer
    *  BOTH sides of `lostOn` read since this round. */
