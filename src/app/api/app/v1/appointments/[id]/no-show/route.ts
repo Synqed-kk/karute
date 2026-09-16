@@ -11,6 +11,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey } from '@/lib/app-api/customer-facade'
 import { lookupSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
+import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { markNoShowAppointmentCore } from '@/lib/appointments/mutations'
 
 export const runtime = 'nodejs'
@@ -48,13 +49,25 @@ export const POST = facadeHandler<Params>('appointment.noShow', async (ctx) => {
     businessId,
   ).catch(() => null)
 
+  // STORE LOCK input (⚖ Liam 2026-09-16). requestedStoreId: null on purpose —
+  // the ASSIGNMENT is the basis, so a phone-set store-id header can neither
+  // widen nor narrow the refusal (viewerAllowedStoreIds' own rule). A failed
+  // assignment lookup THROWS store_forbidden here, fail-closed, before the
+  // core is reached.
+  const scope = await resolveStoreForRequest({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    requestedStoreId: null,
+  })
+
   const result = await markNoShowAppointmentCore(synqed, id, parsed.data, actingStaffId, {
     actorId: ctx.identity.authUserId,
     businessId,
     source: 'facade',
     requestId: ctx.meta.requestId,
     idempotencyKey,
-  })
+  }, scope)
   return ok(ctx, result)
 })
 

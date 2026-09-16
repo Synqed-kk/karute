@@ -92,6 +92,18 @@ jest.mock('@/lib/synqed/client', () => ({
     packs,
   })),
 }))
+// Store lock seam (⚖ 9/16): these cases are not about the store clamp, so the
+// resolved scope is viewAll — but the PREDICATE itself is the real one, so a
+// lock deleted from a core still shows up here as a behaviour change.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: null,
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  })),
+  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
+}))
 
 // getAppointmentsByDate switched from N+1 customers.get calls to a single
 // cached batch via getCachedCustomerList — mock that or it returns [].

@@ -105,6 +105,9 @@ jest.mock('@synqed-kk/client', () => {
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
   storeStaffIdSet: jest.fn(async () => null),
+  // Store lock (⚖ 9/16): the REAL predicate, same convention as the pure
+  // helpers already re-exposed here — a mocked-away lock proves nothing.
+  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
 }))
 
 jest.mock('@/lib/auth/require-permission', () => ({

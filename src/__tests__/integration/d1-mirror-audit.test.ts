@@ -15,6 +15,9 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 jest.mock('next/cache', () => ({
   revalidatePath: jest.fn(),
   updateTag: jest.fn(),
+  // The booking cores reach the store lock (⚖ 9/16) in src/lib/auth/
+  // store-scope.ts, which mints an unstable_cache at module scope.
+  unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
 }))
 jest.mock('next-intl/server', () => ({
   getTranslations: jest.fn(async () => (k: string) => k),

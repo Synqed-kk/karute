@@ -16,6 +16,7 @@ import { getMyCapabilities } from './require-permission'
 import { staffStoresOverlap } from './permissions'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
+import { AppApiError } from '@/lib/app-api/errors'
 
 export interface StoreScope {
   /** The store_id to filter store-scoped reads by. null = no store filter
@@ -202,6 +203,58 @@ export function sourceStoreOutOfScope(
   if (scope.viewAll) return false
   if (!scope.allowedStoreIds) return false // floating — unclamped
   return record.store_id === null || !scope.allowedStoreIds.includes(record.store_id)
+}
+
+/** What a WRITE door needs to know about its actor to answer
+ *  {@link ensureRecordStoreInScope}. Both transports already produce it:
+ *  web's StoreScope (resolveStoreScope) and the facade's ClampedStore
+ *  (resolveStoreForRequest) are each assignable as-is — `viewAll` and
+ *  `degraded` are optional because the facade clamp carries neither
+ *  (it encodes viewAll as `allowedStoreIds: null` and THROWS on a failed
+ *  assignment lookup before a caller ever holds a scope). */
+export interface RecordStoreScope {
+  viewAll?: boolean
+  allowedStoreIds: string[] | null
+  degraded?: boolean
+}
+
+/**
+ * THE WRITE-SIDE STORE LOCK — refuse a by-id write against a record that sits
+ * outside the actor's store assignment (⚖ Liam 2026-09-16: a staff member of
+ * one store must never be able to change another store's records, even by
+ * direct call, even when the screen hides them).
+ *
+ * The record-side half of ensureReassignStoreScope (src/actions/karute.ts),
+ * lifted here so every by-id write door spells the refusal ONCE: the predicate
+ * is sourceStoreOutOfScope just above, and the two error shapes are the ones
+ * that door already shipped —
+ *
+ *   - `degraded` (a clamped actor whose own staff_stores lookup FAILED, web's
+ *     F-A convention) → `store_forbidden`, fail-closed: a scope we cannot read
+ *     vouches for nothing, and it is never widened into "every store";
+ *   - out of scope → `not_found`, with the message the CALLER supplies so the
+ *     refusal is byte-identical to that door's own missing-id answer. That is
+ *     the whole point (R9-2, existence-oracle class): a distinct "you may not
+ *     touch that one" lets a clamped actor probe ids for existence across the
+ *     business by error shape alone.
+ *
+ * viewAll and floating actors (`allowedStoreIds: null`) pass through
+ * untouched; a legacy `store_id: null` record is REFUSED for a clamped actor
+ * (sourceStoreOutOfScope's R5-1 arm — an unprovable membership fails closed,
+ * and the write plane is allowed to be narrower than the read plane).
+ */
+export function ensureRecordStoreInScope(
+  record: { store_id: string | null },
+  scope: RecordStoreScope,
+  notFoundMessage: string,
+): void {
+  if (scope.viewAll) return
+  if (scope.degraded) {
+    throw new AppApiError('store_forbidden', 'could not verify your store assignment (fail-closed)')
+  }
+  if (sourceStoreOutOfScope(record, { viewAll: false, allowedStoreIds: scope.allowedStoreIds })) {
+    throw new AppApiError('not_found', notFoundMessage)
+  }
 }
 
 export function customerLensFor(scope: {

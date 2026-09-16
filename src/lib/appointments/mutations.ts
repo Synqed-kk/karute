@@ -30,6 +30,7 @@ import {
 } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { ymdInJst } from '@/lib/date/jst'
+import { ensureRecordStoreInScope, type RecordStoreScope } from '@/lib/auth/store-scope'
 import { audit, type AuditSeverity } from '@/lib/audit'
 
 /** Liam ruling 2026-07-26: every booking mutation writes exactly ONE audit
@@ -57,6 +58,35 @@ type BookingActor = {
    *  NOT requestId: that one is minted per REQUEST on both sides, so it
    *  differs between the two halves of a retried action. */
   idempotencyKey?: string
+}
+
+/** THE STORE LOCK'S REFUSAL STRING for every by-id booking write.
+ *
+ *  It is core's OWN 404 text (synqed-core src/routes/appointments.ts: `{ error:
+ *  'Appointment not found' }`), which the SDK re-throws as SynqedError.message
+ *  and each core's catch below turns into `{ error: … }`. Using the same string
+ *  makes an out-of-store refusal BYTE-IDENTICAL to a genuinely missing id on
+ *  BOTH transports (these cores' results ride the facade body verbatim) — no
+ *  existence oracle, the R9-2 rule the karute reassign door established.
+ *  Pinned by a test against a real SDK-shaped 404. */
+const APPOINTMENT_NOT_FOUND = 'Appointment not found'
+
+/** The store lock every by-id booking write runs BEFORE it mutates (⚖ Liam
+ *  2026-09-16). Placed right after each core's authoritative
+ *  `appointments.get`, so a 銀座-clamped caller handed a 代官山 appointment id —
+ *  from a stale screen or a crafted direct call — is refused by the SERVER,
+ *  not just hidden by the UI. Throws; each core's own catch maps it to the
+ *  house `{ error }` shape, which is also what the facade twins return
+ *  verbatim. */
+function lockAppointmentStore(
+  appt: { store_id?: string | null } | null | undefined,
+  scope: RecordStoreScope,
+): void {
+  // `appt?.` because the lock runs BEFORE each core's own null check: a row
+  // the client could not read is a row whose store cannot be proven, and for a
+  // clamped caller that fails closed (sourceStoreOutOfScope's null arm) rather
+  // than falling through to a message about a booking they may not have.
+  ensureRecordStoreInScope({ store_id: appt?.store_id ?? null }, scope, APPOINTMENT_NOT_FOUND)
 }
 
 /** A no-show or a same-day-contact cancel is the one shape where a ticket may
@@ -252,6 +282,7 @@ export async function cancelAppointmentCore(
   input: { reason?: string; burnPack?: boolean } | undefined,
   actingStaffId: string | null,
   actor: BookingActor,
+  scope: RecordStoreScope,
 ): Promise<MarkNoShowResult> {
   try {
     // Optional reason chip (taxonomy fix 2026-07-10): a cancel implies the
@@ -272,6 +303,10 @@ export async function cancelAppointmentCore(
     // ONE read, reused by the burn path below (no second get()) — see the
     // contract-change note above.
     const appt = await synqed.appointments.get(appointmentId)
+    // Store lock BEFORE every other answer this row could give (terminal
+    // state, customer presence): those are facts about a booking the caller
+    // may not have, so leaking them is the same oracle the refusal closes.
+    lockAppointmentStore(appt, scope)
     if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     if (isTerminalStatus(appt.status)) {
       return { error: 'This booking is already cancelled or marked as a no-show.', code: 'already_terminal' }
@@ -381,6 +416,7 @@ export async function restoreAppointmentCore(
   appointmentId: string,
   actingStaffId: string | null,
   actor: BookingActor,
+  scope: RecordStoreScope,
 ): Promise<{ success: true } | { error: string }> {
   try {
     // Precondition: only a terminal booking can be restored. Without this, a
@@ -388,6 +424,7 @@ export async function restoreAppointmentCore(
     // staff already restored and started (SCHEDULED → IN_PROGRESS) back to
     // SCHEDULED with no error. Mirrors markNoShowCore's read-check.
     const appt = await synqed.appointments.get(appointmentId)
+    lockAppointmentStore(appt, scope) // see cancelAppointmentCore — lock first
     if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     if (!isTerminalStatus(appt.status)) {
       return { error: 'This booking is already active.' }
@@ -440,9 +477,11 @@ export async function markNoShowAppointmentCore(
   input: { burnPack: boolean },
   actingStaffId: string | null,
   actor: BookingActor,
+  scope: RecordStoreScope,
 ): Promise<MarkNoShowResult> {
   try {
     const appt = await synqed.appointments.get(appointmentId)
+    lockAppointmentStore(appt, scope) // see cancelAppointmentCore — lock first
     if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     // Already CANCELLED/NO_SHOW (double-open race, stale agenda): refuse
     // rather than re-mark — re-marking is harmless but a second burn is not.
@@ -540,6 +579,7 @@ export async function updateAppointmentCore(
   appointmentId: string,
   patch: { staffId?: string; startsAt?: string; endsAt?: string; durationMinutes?: number },
   actor: BookingActor,
+  scope: RecordStoreScope,
 ): Promise<{ success: true } | { error: string }> {
   try {
     // Terminal guard (Fable fix-round finding, 2026-07-27 — this core had NO
@@ -547,6 +587,7 @@ export async function updateAppointmentCore(
     // restoreAppointmentCore's read-check so a stale sheet can't silently
     // reschedule/reassign a booking that's already cancelled or no-show.
     const appt = await synqed.appointments.get(appointmentId)
+    lockAppointmentStore(appt, scope) // see cancelAppointmentCore — lock first
     if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     if (isTerminalStatus(appt.status)) {
       return { error: 'A cancelled or no-show booking cannot be edited.' }
@@ -619,9 +660,11 @@ export async function deleteAppointmentCore(
   synqed: MutationClient,
   appointmentId: string,
   actor: BookingActor,
+  scope: RecordStoreScope,
 ): Promise<{ success: true } | { error: string }> {
   try {
     const appt = await synqed.appointments.get(appointmentId)
+    lockAppointmentStore(appt, scope) // see cancelAppointmentCore — lock first
     if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
 
     // Burn-dedup guard (FIX 8, Fable fix-round finding, 2026-07-27): the burn

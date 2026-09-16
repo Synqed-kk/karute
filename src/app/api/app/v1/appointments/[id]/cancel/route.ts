@@ -6,9 +6,12 @@
 // code? }) — CancelBookingSheet branches on `code` and `burnError`, so an
 // HTTP-normalized error would lose the discriminators the UI needs.
 //
-// No store clamp here, mirroring the web action: cancel is gated by
-// capability only; the business-scoped client already fences the tenant
-// (a foreign id fails the core-side update honestly).
+// STORE LOCK (⚖ Liam 2026-09-16): the core refuses an appointment outside
+// this caller's store assignment BEFORE it mutates — byte-identically to a
+// missing id, so the refusal is no existence oracle. The clamp resolved here
+// is the same one the web action passes; the rule itself lives in the core,
+// so neither transport can drift. The business-scoped client still fences the
+// tenant on top.
 
 import { z } from 'zod'
 import { facadeHandler, ok } from '@/lib/app-api/handler'
@@ -17,6 +20,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey } from '@/lib/app-api/customer-facade'
 import { lookupSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
+import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { cancelAppointmentCore } from '@/lib/appointments/mutations'
 
 export const runtime = 'nodejs'
@@ -65,13 +69,25 @@ export const POST = facadeHandler<Params>('appointment.cancel', async (ctx) => {
     businessId,
   ).catch(() => null)
 
+  // STORE LOCK input (⚖ Liam 2026-09-16). requestedStoreId: null on purpose —
+  // the ASSIGNMENT is the basis, so a phone-set store-id header can neither
+  // widen nor narrow the refusal (viewerAllowedStoreIds' own rule). A failed
+  // assignment lookup THROWS store_forbidden here, fail-closed, before the
+  // core is reached.
+  const scope = await resolveStoreForRequest({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    requestedStoreId: null,
+  })
+
   const result = await cancelAppointmentCore(synqed, id, parsed.data, actingStaffId, {
     actorId: ctx.identity.authUserId,
     businessId,
     source: 'facade',
     requestId: ctx.meta.requestId,
     idempotencyKey,
-  })
+  }, scope)
   return ok(ctx, result)
 })
 

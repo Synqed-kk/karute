@@ -36,6 +36,18 @@ jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: (cap: string) => requireCapability(cap),
   can: jest.fn(async () => true),
 }))
+// Store lock seam (⚖ 9/16): these cases are not about the store clamp, so the
+// resolved scope is viewAll — but the PREDICATE itself is the real one, so a
+// lock deleted from a core still shows up here as a behaviour change.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: null,
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  })),
+  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
+}))
 
 const getCurrentUserStaffId = jest.fn(async (): Promise<string | null> => 'staff-1')
 jest.mock('@/lib/staff', () => ({

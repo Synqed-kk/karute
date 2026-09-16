@@ -54,6 +54,21 @@ jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: (cap: string) => requireCapability(cap),
   can: jest.fn(async () => true),
 }))
+// Store lock seam (⚖ 9/16): these cases are not about the store clamp, so the
+// resolved scope is viewAll — but the PREDICATE itself is the real one, so a
+// lock deleted from a core still shows up here as a behaviour change.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: null,
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  })),
+  ensureRecordStoreInScope: jest.requireActual('@/lib/auth/store-scope').ensureRecordStoreInScope,
+  customerLensFor: jest.fn(() => undefined),
+  sourceStoreOutOfScope: jest.fn(() => false),
+  storeStaffIdSet: jest.fn(async () => null),
+}))
 
 // Restrictive operating hours for the operating-hours rejection test below.
 // 09:00–18:00 every day, in minutes-since-midnight.
