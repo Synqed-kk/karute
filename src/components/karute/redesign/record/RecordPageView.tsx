@@ -3941,7 +3941,7 @@ export function RecordPageView({
             repointTo({
               customerId: id,
               customerName:
-                name ?? customers.find((c) => c.id === id)?.name ?? t('recoverCustomerUnknown'),
+                name || customers.find((c) => c.id === id)?.name || t('recoverCustomerUnknown'),
               appointmentId: null,
             })
           }}
