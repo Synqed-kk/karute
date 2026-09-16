@@ -778,13 +778,13 @@ export async function revokeCustomerConsent(customerId: string) {
 export async function searchCustomersCompanyWide(
   query: string,
 ): Promise<
-  | { options: CustomerSearchOption[]; karute_number_unavailable: boolean }
+  | { options: CustomerSearchOption[]; karute_number_unavailable: boolean; remote_more: boolean }
   | { error: string }
 > {
   try {
     await requireCapability('customers.view')
     const q = query.trim()
-    if (!q) return { options: [], karute_number_unavailable: false }
+    if (!q) return { options: [], karute_number_unavailable: false, remote_more: false }
 
     // Lazy imports (same convention as revokeCustomerConsent above): these
     // pull in store-scope.ts's / cached.ts's own SynqedClient chains, which
@@ -814,7 +814,10 @@ export async function searchCustomersCompanyWide(
     const settleCache = (p: Promise<CachedCustomerOption[]> | null) =>
       p ? p.then((rows) => ({ ok: true as const, rows })).catch(() => ({ ok: false as const })) : Promise.resolve(null)
     const [searchRes, ownResult, businessResult] = await Promise.all([
-      synqed.customers.list({ search: q, page_size: CUSTOMER_SEARCH_LIMIT }),
+      // +1 (F-2 fold, ⚖ Liam 2026-09-16): a probe row so the cap below can
+      // tell "exactly 8" from "8 shown, more exist" — the source of truth
+      // for remote_more, never the SDK's own total.
+      synqed.customers.list({ search: q, page_size: CUSTOMER_SEARCH_LIMIT + 1 }),
       settleCache(enforceStore && lens !== null ? getCachedCustomerList(lens) : null),
       settleCache(karuteQuery ? getCachedCustomerList() : null),
     ])
@@ -840,6 +843,11 @@ export async function searchCustomersCompanyWide(
       ...karuteHits.map((h) => ({ id: h.id, name: h.name, furigana: h.furigana, phone: h.phone })),
       ...rows.filter((r) => !hitIds.has(r.id)),
     ]
+    // F-2 fold (Greptile, PR #945): the remote tier was capping at
+    // CUSTOMER_SEARCH_LIMIT with no signal at all — computed AFTER the
+    // karute-number merge, off the +1 probe above (⚖ 8/25: numbers explain
+    // themselves; nothing hidden silently).
+    const remoteMore = merged.length > CUSTOMER_SEARCH_LIMIT
 
     // true/false only once the lens read actually succeeded; enforceStore
     // with no usable ownIds (lens failed, or had nothing to look up) is
@@ -852,7 +860,7 @@ export async function searchCustomersCompanyWide(
     const options: CustomerSearchOption[] = merged
       .slice(0, CUSTOMER_SEARCH_LIMIT)
       .map((r) => ({ ...r, other_store: otherStoreFor(r.id) }))
-    return { options, karute_number_unavailable: karuteNumberUnavailable }
+    return { options, karute_number_unavailable: karuteNumberUnavailable, remote_more: remoteMore }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }

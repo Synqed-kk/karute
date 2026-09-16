@@ -208,7 +208,7 @@ export function RecordCustomerPickerDialog({
   // section — an own-store karute-number hit renders as a normal row (no
   // chip); only a genuine other-store hit gets the 他店舗 section + chip.
   const localIds = useMemo(() => new Set(matches.map((c) => c.id)), [matches])
-  const { results: remoteResults, karuteNumberUnavailable } = useRemoteCustomerSearch(trimmed, onRemoteSearch)
+  const { results: remoteResults, karuteNumberUnavailable, remoteMore } = useRemoteCustomerSearch(trimmed, onRemoteSearch)
   const remote = remoteResults.filter((r) => !localIds.has(r.id))
   // other_store is tri-state (Greptile fold): only a CONFIRMED false is a
   // normal row — null (lens read failed, unknown) must never fall through to
@@ -379,6 +379,15 @@ export function RecordCustomerPickerDialog({
                         ))}
                       </ul>
                     </>
+                  )}
+                  {/* F-2 fold (⚖ Liam 2026-09-16): more company-wide matches
+                      exist beyond the remote rows shown above — named, not
+                      silently dropped, same as the local 他{n}件 line.
+                      Outside the listbox, so it never counts as an option. */}
+                  {remoteMore && (
+                    <p className="text-center text-[11px] text-muted-foreground">
+                      {tCustomers('remoteMore')}
+                    </p>
                   )}
                 </>
               )}

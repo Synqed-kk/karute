@@ -178,4 +178,68 @@ describe('GET /api/app/v1/customers/search', () => {
     expect(body.options).toEqual([expect.objectContaining({ id: 'cust-1', other_store: false })])
     expect(body.karute_number_unavailable).toBe(true)
   })
+
+  // ── F-2 fold (⚖ Liam 2026-09-16, PR #945 Greptile finding) ────────────────
+  // remote_more off the +1 probe, computed AFTER the karute-number merge —
+  // same rule as the web action's twin (customers-search-company-wide.test.ts).
+  it('F-2: 9 rows from core → remote_more: true, options still slice to 8', async () => {
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: null }
+    customersList.mockResolvedValueOnce({
+      customers: Array.from({ length: 9 }, (_, i) => ({
+        id: `cust-${i}`,
+        name: `田中${i}`,
+        furigana: null,
+        phone: null,
+        karute_number: null,
+      })),
+      total: 9,
+    })
+    const res = await GET(req('田中'), route)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { options: unknown[]; remote_more: boolean }
+    expect(body.options).toHaveLength(8)
+    expect(body.remote_more).toBe(true)
+  })
+
+  it('F-2: exactly 8 rows from core → remote_more: false', async () => {
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: null }
+    customersList.mockResolvedValueOnce({
+      customers: Array.from({ length: 8 }, (_, i) => ({
+        id: `cust-${i}`,
+        name: `田中${i}`,
+        furigana: null,
+        phone: null,
+        karute_number: null,
+      })),
+      total: 8,
+    })
+    const res = await GET(req('田中'), route)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { options: unknown[]; remote_more: boolean }
+    expect(body.options).toHaveLength(8)
+    expect(body.remote_more).toBe(false)
+  })
+
+  it('F-2: a karute-number hit plus 8 direct-search rows → remote_more: true (merge pushes past the cap)', async () => {
+    // viewAll -> no lens read; '0042' IS karute-eligible, so the business-wide
+    // read fires and supplies the karute-number hit.
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: null }
+    customersList.mockResolvedValueOnce({
+      customers: Array.from({ length: 8 }, (_, i) => ({
+        id: `cust-${i}`,
+        name: `田中${i}`,
+        furigana: null,
+        phone: null,
+        karute_number: null,
+      })),
+      total: 8,
+    })
+    getCachedCustomerListFor.mockResolvedValue([cachedRow('cust-hit', { karute_number: 42 })])
+    const res = await GET(req('0042'), route)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { options: { id: string }[]; remote_more: boolean }
+    expect(body.options).toHaveLength(8)
+    expect(body.options[0]).toEqual(expect.objectContaining({ id: 'cust-hit' }))
+    expect(body.remote_more).toBe(true)
+  })
 })

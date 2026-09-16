@@ -299,6 +299,52 @@ describe('picker dialog v2 — remote tier honesty (Greptile fold, 2026-09-16)',
     }
   })
 
+  // F-2 fold (⚖ Liam 2026-09-16, PR #945 Greptile finding): the remote tier
+  // was capping at CUSTOMER_SEARCH_LIMIT with no signal — this asserts the
+  // exact real-ja.json disclosure line, only when remote_more is true.
+  it('F-2: remote_more renders the exact company-wide overflow line', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-other', name: '遠藤三郎', other_store: true }],
+        karute_number_unavailable: false,
+        remote_more: true,
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(
+        screen.getByText('会社全体では他にも該当あり — さらに入力して絞り込み'),
+      ).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('F-2: remote_more:false renders no overflow line', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r-other', name: '遠藤三郎', other_store: true }],
+        karute_number_unavailable: false,
+        remote_more: false,
+      })
+      open({ customers: [], facts: [], onRemoteSearch })
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
+      expect(
+        screen.queryByText('会社全体では他にも該当あり — さらに入力して絞り込み'),
+      ).not.toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('F-1: 1 local + 1 remote renders 検索結果 (2件)', async () => {
     jest.useFakeTimers()
     try {

@@ -19,6 +19,13 @@
  *  7. A FAILED business-wide read (karute-number-eligible term) surfaces as
  *     karute_number_unavailable: true — the direct search result still
  *     returns, just without the karute-number merge, never silently.
+ *
+ * ⚖ Liam 2026-09-16 (F-2 fold, PR #945, Greptile finding at
+ * RecordCustomerPickerDialog.tsx:314) added:
+ *  8. remote_more is true once more than CUSTOMER_SEARCH_LIMIT rows are
+ *     available after the karute-number merge (a +1 probe row from core is
+ *     the source of truth, never the SDK's own total), false at exactly the
+ *     limit — options always still slice to CUSTOMER_SEARCH_LIMIT either way.
  */
 jest.mock('next/cache', () => ({
   revalidatePath: jest.fn(),
@@ -84,7 +91,7 @@ beforeEach(() => {
 describe('searchCustomersCompanyWide', () => {
   it('empty query → {options: []}, no reads', async () => {
     const result = await searchCustomersCompanyWide('   ')
-    expect(result).toEqual({ options: [], karute_number_unavailable: false })
+    expect(result).toEqual({ options: [], karute_number_unavailable: false, remote_more: false })
     expect(customersList).not.toHaveBeenCalled()
   })
 
@@ -116,6 +123,7 @@ describe('searchCustomersCompanyWide', () => {
         expect.objectContaining({ id: 'cust-other', other_store: true }),
       ],
       karute_number_unavailable: false,
+      remote_more: false,
     })
     expect(getCachedCustomerList).toHaveBeenCalledWith('store-ginza')
   })
@@ -133,6 +141,7 @@ describe('searchCustomersCompanyWide', () => {
     expect(result).toEqual({
       options: [expect.objectContaining({ id: 'cust-any', other_store: false })],
       karute_number_unavailable: false,
+      remote_more: false,
     })
     // Greptile fold: '田中' isn't karute-number-eligible AND the viewer is
     // unclamped — neither cache read is needed, so getCachedCustomerList
@@ -176,6 +185,7 @@ describe('searchCustomersCompanyWide', () => {
     expect(result).toEqual({
       options: [expect.objectContaining({ id: 'cust-1', other_store: null })],
       karute_number_unavailable: false,
+      remote_more: false,
     })
   })
 
@@ -194,6 +204,7 @@ describe('searchCustomersCompanyWide', () => {
     expect(result).toEqual({
       options: [expect.objectContaining({ id: 'cust-1', other_store: false })],
       karute_number_unavailable: true,
+      remote_more: false,
     })
   })
 
@@ -210,6 +221,70 @@ describe('searchCustomersCompanyWide', () => {
     expect(result).toEqual({
       options: [expect.objectContaining({ id: 'cust-42', other_store: false })],
       karute_number_unavailable: false,
+      remote_more: false,
     })
+  })
+
+  // ── F-2 fold (⚖ Liam 2026-09-16, PR #945 Greptile finding) ────────────────
+  // remote_more off the +1 probe, computed AFTER the karute-number merge.
+  it('F-2: 9 rows from core → remote_more: true, options still slice to 8', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: null,
+      viewAll: true,
+      allowedStoreIds: null,
+      degraded: false,
+    })
+    customersList.mockResolvedValueOnce({
+      customers: Array.from({ length: 9 }, (_, i) => cachedRow(`cust-${i}`)),
+      total: 9,
+    })
+    const result = await searchCustomersCompanyWide('田中')
+    expect(result).toEqual({
+      options: Array.from({ length: 8 }, (_, i) => expect.objectContaining({ id: `cust-${i}` })),
+      karute_number_unavailable: false,
+      remote_more: true,
+    })
+  })
+
+  it('F-2: exactly 8 rows from core → remote_more: false', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: null,
+      viewAll: true,
+      allowedStoreIds: null,
+      degraded: false,
+    })
+    customersList.mockResolvedValueOnce({
+      customers: Array.from({ length: 8 }, (_, i) => cachedRow(`cust-${i}`)),
+      total: 8,
+    })
+    const result = (await searchCustomersCompanyWide('田中')) as {
+      options: unknown[]
+      remote_more: boolean
+    }
+    expect(result.options).toHaveLength(8)
+    expect(result.remote_more).toBe(false)
+  })
+
+  it('F-2: a karute-number hit plus 8 direct-search rows → remote_more: true (merge pushes past the cap)', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: null,
+      viewAll: true,
+      allowedStoreIds: null,
+      degraded: false,
+    })
+    // viewAll -> no lens read; '0042' IS karute-eligible, so the business-wide
+    // read fires and supplies the karute-number hit.
+    customersList.mockResolvedValueOnce({
+      customers: Array.from({ length: 8 }, (_, i) => cachedRow(`cust-${i}`)),
+      total: 8,
+    })
+    getCachedCustomerList.mockResolvedValue([cachedRow('cust-hit', { karute_number: 42 })])
+    const result = (await searchCustomersCompanyWide('0042')) as {
+      options: { id: string }[]
+      remote_more: boolean
+    }
+    expect(result.options).toHaveLength(8)
+    expect(result.options[0]).toEqual(expect.objectContaining({ id: 'cust-hit' }))
+    expect(result.remote_more).toBe(true)
   })
 })

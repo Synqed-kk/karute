@@ -38,7 +38,7 @@ export const GET = facadeHandler('customers.search', async (ctx) => {
     throw new AppApiError('validation', 'query must be a string of at most 200 characters')
   }
   const q = parsedQuery.data.trim()
-  if (!q) return ok(ctx, { options: [], karute_number_unavailable: false })
+  if (!q) return ok(ctx, { options: [], karute_number_unavailable: false, remote_more: false })
 
   const synqed = newSynqedClient(ctx.identity.businessId)
   const clamp = await resolveStoreForRequest({
@@ -75,7 +75,10 @@ export const GET = facadeHandler('customers.search', async (ctx) => {
       ? p.then((rows) => ({ ok: true as const, rows })).catch(() => ({ ok: false as const }))
       : Promise.resolve(null)
   const [searchRes, ownResult, businessResult] = await Promise.all([
-    synqed.customers.list({ search: q, page_size: CUSTOMER_SEARCH_LIMIT }),
+    // +1 (F-2 fold, ⚖ Liam 2026-09-16): a probe row so the cap below can
+    // tell "exactly 8" from "8 shown, more exist" — the source of truth for
+    // remote_more, never the SDK's own total.
+    synqed.customers.list({ search: q, page_size: CUSTOMER_SEARCH_LIMIT + 1 }),
     settleCache(enforceStore && clamp.storeId ? getCachedCustomerListFor(ctx.identity.businessId, clamp.storeId) : null),
     settleCache(karuteQuery ? getCachedCustomerListFor(ctx.identity.businessId) : null),
   ])
@@ -100,6 +103,10 @@ export const GET = facadeHandler('customers.search', async (ctx) => {
     ...karuteHits.map((h) => ({ id: h.id, name: h.name, furigana: h.furigana, phone: h.phone })),
     ...rows.filter((r) => !hitIds.has(r.id)),
   ]
+  // F-2 fold (Greptile, PR #945): the remote tier was capping at
+  // CUSTOMER_SEARCH_LIMIT with no signal at all — computed AFTER the
+  // karute-number merge, off the +1 probe above, same as the web action.
+  const remoteMore = merged.length > CUSTOMER_SEARCH_LIMIT
 
   // true/false only once the lens read actually succeeded; enforceStore with
   // no usable ownIds (lens failed, or had nothing to look up) is UNKNOWN —
@@ -112,7 +119,7 @@ export const GET = facadeHandler('customers.search', async (ctx) => {
   const options = merged
     .slice(0, CUSTOMER_SEARCH_LIMIT)
     .map((r) => ({ ...r, other_store: otherStoreFor(r.id) }))
-  return ok(ctx, { options, karute_number_unavailable: karuteNumberUnavailable })
+  return ok(ctx, { options, karute_number_unavailable: karuteNumberUnavailable, remote_more: remoteMore })
 })
 
 export const OPTIONS = GET

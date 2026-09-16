@@ -156,6 +156,7 @@ describe('CustomerCombobox', () => {
       const onRemoteSearch = jest.fn(async (q: string) => ({
         options: [{ id: `r-${q}`, name: `row-${q}`, other_store: true }] as CustomerSearchOption[],
         karute_number_unavailable: false,
+        remote_more: false,
       }))
       render(
         <CustomerCombobox
@@ -318,6 +319,61 @@ describe('CustomerCombobox', () => {
       })
       expect(screen.getAllByText('田中花子')).toHaveLength(1)
       expect(screen.queryByText('otherStoreChip')).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('F-2 fold (⚖ Liam 2026-09-16): remote_more renders the company-wide overflow disclosure', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r1', name: '遠藤三郎', other_store: true }] as CustomerSearchOption[],
+        karute_number_unavailable: false,
+        remote_more: true,
+      })
+      render(
+        <CustomerCombobox
+          customers={[]}
+          selectedId={null}
+          onSelect={jest.fn()}
+          onCreateNew={jest.fn()}
+          onRemoteSearch={onRemoteSearch}
+        />,
+      )
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('remoteMore')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('F-2 fold: remote_more:false renders no overflow disclosure', async () => {
+    jest.useFakeTimers()
+    try {
+      const onRemoteSearch = jest.fn().mockResolvedValue({
+        options: [{ id: 'r1', name: '遠藤三郎', other_store: true }] as CustomerSearchOption[],
+        karute_number_unavailable: false,
+        remote_more: false,
+      })
+      render(
+        <CustomerCombobox
+          customers={[]}
+          selectedId={null}
+          onSelect={jest.fn()}
+          onCreateNew={jest.fn()}
+          onRemoteSearch={onRemoteSearch}
+        />,
+      )
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+      await act(async () => {
+        jest.advanceTimersByTime(250)
+      })
+      expect(screen.getByText('遠藤三郎')).toBeInTheDocument()
+      expect(screen.queryByText('remoteMore')).toBeNull()
     } finally {
       jest.useRealTimers()
     }

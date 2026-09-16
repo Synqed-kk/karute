@@ -1164,7 +1164,24 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //
 // +14 B, all in index (en and vendor unchanged to the byte) — the
 // `+ remote.length` source addition, one line.
-const BUDGET_BYTES = 2_120_629
+//
+// RE-MEASURED 2026-09-16 (F-2 fold, PKT-FOLD-945-F2-REMOTE-OVERFLOW) — the
+// company-wide remote tier was silently truncating at CUSTOMER_SEARCH_LIMIT;
+// both transports now request one extra probe row, compute remote_more after
+// the karute-number merge, and both pickers render one new disclosure line
+// (customers.remoteMore). Same CI recipe, thin/dist emptied between two
+// clean builds, byte-identical both times (matching content hashes, node
+// v24.16.0, @synqed-kk/ui 0.3.2, installed == lock): en 134,754 · index
+// 1,047,508 · vendor 937,791 = 2,120,053 B. Ceiling = 2,120,053 + 1,000.
+//
+// +424 B against the prior entry's own figure: en 134,687 → 134,754 (+67 B,
+// the one new i18n key pair) · index 1,047,151 → 1,047,508 (+357 B, the +1
+// page_size probe, the remote_more plumbing through both transports and
+// useRemoteCustomerSearch, and the two disclosure-line render sites) ·
+// vendor 937,791 → 937,791 (unchanged — no new dependency). Genuine
+// new-feature volume, not bloat — same class as every prior raise on this
+// line.
+const BUDGET_BYTES = 2_121_053
 
 let dir
 try {

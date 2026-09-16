@@ -24,15 +24,23 @@ export type CustomerSearchOption = CustomerOption & { other_store: boolean | nul
 /** What one remote search call answers with — the options plus whether the
  *  karute-number tier itself was available for this query (Greptile fold: a
  *  failed cache read used to silently drop a would-be karute-number hit with
- *  no signal at all). */
+ *  no signal at all), plus whether more company-wide matches exist beyond
+ *  the CUSTOMER_SEARCH_LIMIT rows returned (F-2 fold, ⚖ Liam 2026-09-16:
+ *  numbers explain themselves — the remote tier was silently truncating). */
 export type CustomerSearchResult = {
   options: CustomerSearchOption[]
   karute_number_unavailable: boolean
+  remote_more: boolean
 }
 
-const EMPTY_SEARCH: { results: CustomerSearchOption[]; karuteNumberUnavailable: boolean } = {
+const EMPTY_SEARCH: {
+  results: CustomerSearchOption[]
+  karuteNumberUnavailable: boolean
+  remoteMore: boolean
+} = {
   results: [],
   karuteNumberUnavailable: false,
+  remoteMore: false,
 }
 
 /**
@@ -53,7 +61,7 @@ const EMPTY_SEARCH: { results: CustomerSearchOption[]; karuteNumberUnavailable: 
 export function useRemoteCustomerSearch(
   query: string,
   search: ((query: string) => Promise<CustomerSearchResult | { error: string }>) | undefined,
-): { results: CustomerSearchOption[]; karuteNumberUnavailable: boolean } {
+): { results: CustomerSearchOption[]; karuteNumberUnavailable: boolean; remoteMore: boolean } {
   const [state, setState] = useState(EMPTY_SEARCH)
   useEffect(() => {
     setState(EMPTY_SEARCH)
@@ -66,7 +74,11 @@ export function useRemoteCustomerSearch(
           if (cancelled) return
           setState(
             'options' in res
-              ? { results: res.options, karuteNumberUnavailable: res.karute_number_unavailable }
+              ? {
+                  results: res.options,
+                  karuteNumberUnavailable: res.karute_number_unavailable,
+                  remoteMore: res.remote_more,
+                }
               : EMPTY_SEARCH,
           )
         })
@@ -193,7 +205,7 @@ export function CustomerCombobox({
   // viewer's own store is a normal row, no chip — only a genuine other-store
   // hit gets the 他店舗 section + chip.
   const localIds = new Set(filtered.map((c) => c.id))
-  const { results: remoteResults, karuteNumberUnavailable } = useRemoteCustomerSearch(
+  const { results: remoteResults, karuteNumberUnavailable, remoteMore } = useRemoteCustomerSearch(
     trimmedQuery,
     onRemoteSearch,
   )
@@ -333,6 +345,16 @@ export function CustomerCombobox({
               </>
             )}
           </ul>
+
+          {/* F-2 fold (⚖ Liam 2026-09-16): the company-wide tier was capping
+           *  at CUSTOMER_SEARCH_LIMIT with no signal — named, not silently
+           *  dropped, same disclosure the local overflow already gets.
+           *  Sibling of the <ul>, so it never counts as an option. */}
+          {remoteMore && (
+            <p className="px-3 py-1.5 text-center text-[11px] text-muted-foreground">
+              {t('remoteMore')}
+            </p>
+          )}
 
           {/* Divider before create option */}
           <div className="border-t border-border" />
