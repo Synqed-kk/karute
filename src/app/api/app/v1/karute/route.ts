@@ -13,7 +13,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readCustomerRaw } from '@/lib/app-api/karute-facade'
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { resolveStoreForRequest, resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
 import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { SaveKaruteSchema } from '@/lib/app-api/record-schemas'
@@ -106,8 +106,11 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
   }
 
   // Attribution: selfStaffId first, appointment-staff fallback (web parity);
-  // unresolvable → 403-class.
-  let staffId = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
+  // unresolvable → 403-class. The UNFALLEN-BACK id is kept: the appointment's
+  // staff is fine to ATTRIBUTE a karute to, and says nothing about whether the
+  // roster can place the CALLER — which is what the store lock below rests on.
+  const selfStaffId = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
+  let staffId = selfStaffId
   let fetchedAppt: Appointment | null = null
   if (!staffId && input.appointmentId) {
     fetchedAppt = (await synqed.appointments.get(input.appointmentId).catch(() => null)) as Appointment | null
@@ -123,6 +126,20 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
     fetchedAppt,
     clamp,
   )
+
+  // The converge branch's store lock scope — the same shape every other karute
+  // facade write door passes (outcome / summary / entries): the ASSIGNMENT is the
+  // basis, so the store-id header can neither widen nor narrow it, and an
+  // unplaceable caller is refused rather than read as floating (⚖ fold round 2).
+  // Deliberately NOT the `clamp` above: that one carries the header pin because
+  // it also decides where a walk-in karute is STAMPED, which is a different
+  // question from what this caller may overwrite.
+  const lockScope = await resolveWriteStoreScope({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    selfStaffId,
+  })
 
   const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(
     synqed as unknown as SynqedClient,
@@ -148,6 +165,7 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
     },
     { actorId: ctx.identity.authUserId, businessId, source: 'facade', requestId: ctx.meta.requestId },
     input.entriesMode,
+    lockScope,
   )
 
   // Best-effort outcome (the coaching label) — never gate the save on it.

@@ -61,6 +61,7 @@ import {
   deleteAppointmentCore,
 } from '@/lib/appointments/mutations'
 import {
+  createOrUpdateKaruteRecord,
   updateKaruteDetailEntryWithClient,
   updateKaruteDetailSummaryWithClient,
 } from '@/actions/karute'
@@ -370,4 +371,93 @@ describe('karute detail edits — the shared cores are store-locked', () => {
       })
     })
   }
+})
+
+// ──────────────────────────────────────────────────────────────────────
+// The karute SAVE converge branch (BUILD-REPORT-P1.md §9.5) — the last by-id
+// write door. Keyed by recording_session_id, not by karute id, which is exactly
+// why it was missed: the caller never names a record, so nothing looked like a
+// by-id write. It is one — the update re-points customer / transcript /
+// summary / appointment / entries on whatever record that session id resolves to.
+// ──────────────────────────────────────────────────────────────────────
+
+function convergeClient(existingStore: string | null) {
+  const update = jest.fn(async () => ({ id: 'kar-1' }))
+  const create = jest.fn(async () => ({ id: 'kar-new', store_id: 'store-daikanyama' }))
+  const getByRecordingSession = jest.fn(async () => ({
+    id: 'kar-1',
+    store_id: existingStore,
+    transcript: 'what the first save landed',
+    entries: [],
+  }))
+  return {
+    update,
+    create,
+    getByRecordingSession,
+    client: { karuteRecords: { getByRecordingSession, update, create } },
+  }
+}
+
+/** A 代官山 actor's payload — their own store, their own customer, aimed at a
+ *  recording session whose record already sits in 銀座. */
+const CONVERGE_PAYLOAD = {
+  customer_id: 'cust-daikanyama',
+  store_id: 'store-daikanyama',
+  staff_id: 'staff-1',
+  appointment_id: null,
+  recording_session_id: 'rec-1',
+  transcript: 'rewritten',
+  ai_summary: 'rewritten',
+  entries: [],
+}
+
+describe('karute save converge branch — the recording_session_id door is store-locked', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  const save = (c: ReturnType<typeof convergeClient>, scope: Scope) =>
+    createOrUpdateKaruteRecord(c.client as never, CONVERGE_PAYLOAD as never, KARUTE_ACTOR, 'replace', scope)
+
+  it('a clamped 代官山 actor + a 銀座 record under that session id → the SAME not_found a missing id gets', async () => {
+    const c = convergeClient('store-ginza')
+    await expect(save(c, CLAMPED_FOREIGN)).rejects.toMatchObject({
+      code: 'not_found',
+      message: KARUTE_NOT_FOUND,
+    })
+    expect(c.update).not.toHaveBeenCalled()
+    expect(c.create).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  it('a legacy store-less record is refused for a clamped actor', async () => {
+    const c = convergeClient(null)
+    await expect(save(c, CLAMPED_OWN)).rejects.toMatchObject({ code: 'not_found' })
+    expect(c.update).not.toHaveBeenCalled()
+  })
+
+  it('a degraded assignment lookup fails closed', async () => {
+    const c = convergeClient('store-ginza')
+    await expect(save(c, DEGRADED)).rejects.toMatchObject({ code: 'store_forbidden' })
+    expect(c.update).not.toHaveBeenCalled()
+  })
+
+  it('viewAll, floating and same-store actors converge normally', async () => {
+    for (const [label, scope, store] of [
+      ['viewAll', VIEW_ALL, 'store-ginza'],
+      ['floating', FLOATING, 'store-ginza'],
+      ['same store', CLAMPED_OWN, 'store-ginza'],
+    ] as const) {
+      const c = convergeClient(store)
+      await expect(save(c, scope)).resolves.toMatchObject({ id: 'kar-1', fresh: false })
+      expect({ label, updates: c.update.mock.calls.length }).toEqual({ label, updates: 1 })
+    }
+  })
+
+  it('the CREATE arm is untouched — a session id with no record yet still creates', async () => {
+    const c = convergeClient('store-ginza')
+    c.getByRecordingSession.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('not found'), { status: 404 })
+    })
+    await expect(save(c, CLAMPED_OWN)).resolves.toMatchObject({ id: 'kar-new', fresh: true })
+    expect(c.create).toHaveBeenCalledTimes(1)
+  })
 })
