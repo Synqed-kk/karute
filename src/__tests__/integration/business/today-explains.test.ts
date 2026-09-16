@@ -1254,7 +1254,12 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // render), so a 満室/清掃 literal became the slot expression `readFileSync`
     // now actually sees; STORE_A's own words (fullWord 満室, turnoverWord 清掃)
     // still render byte-identical (leg 7a of today-words.test.ts proves that).
-    expect(guide).toContain("「${w.fullWord}」${caps.turnover ? `「${w.turnoverWord!}」` : ''}のコマでは、すぐ上の行に薄い斜線が出て")
+    // ⚖ D-53 (z) — PIN MOVE: the two chip-naming tokens no longer gate on
+    // `caps.turnover` — the rail's chips are minted with the GENERIC words
+    // for every store type until slice N2b-2, so the guide now names those
+    // unconditionally (STORE_A's own words are `other`'s row already, so its
+    // rendered bytes are unchanged — leg 7a of today-words.test.ts proves it).
+    expect(guide).toContain("「${props.genericWords.fullWord}」「${props.genericWords.turnoverWord!}」のコマでは、すぐ上の行に薄い斜線が出て")
     expect(guide).not.toContain('小さな文字が付いたコマでは')
     // ⚖ RULING 1 (2026-09-09) — the 満室 change is DECLARED, in the tour's own
     // words: it is about the 30 minutes, not about whether the session fits.
@@ -1265,8 +1270,13 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // guard one moved with the chip. Bare 「新規」 is pinned dead in the quoted
     // list: a tour that teaches a word the board no longer wears is worse than
     // no entry at all.
-    expect(guide).toContain("「${w.fullWord}」${caps.turnover ? `「${w.turnoverWord!}」` : ''}「新規用」")
+    expect(guide).toContain("「${props.genericWords.fullWord}」「${props.genericWords.turnoverWord!}」「新規用」")
     expect(guide).not.toContain('「満室」「清掃」「新規」')
+    // ⚖ D-53 (z) — source pin: the unconditional generic-word token appears
+    // TWICE in the sentence (both chip-naming spots above) — a deliberate
+    // count, not one, so N2b-2's switch back to `w` + the `caps.turnover`
+    // gate has to touch this pin rather than slip past it unnoticed.
+    expect((guide.match(/「\$\{props\.genericWords\.fullWord\}」「\$\{props\.genericWords\.turnoverWord!\}」/g) ?? []).length).toBe(2)
     // ⚖ NATIVE PASS (2026-08-26) — ふさがっている was FALSE of 新規, which is a
     // guard HOLD on an empty slot, not an occupied one. 置けない is true of all
     // three, and the retired word is pinned dead so it cannot come back.

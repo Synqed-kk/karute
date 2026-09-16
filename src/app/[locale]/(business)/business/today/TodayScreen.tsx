@@ -8091,6 +8091,12 @@ export function TodayScreen(props: TodayProps) {
               // 注意して配置 places exactly what the × sat on. The passed wording
               // is true on both: the drop does not land, and the board says why.
               //
+              // ⚖ D-53 (z) — THE GUIDE NAMES WHAT THE RAIL DRAWS. The chip words are
+              // minted in today-interactions (`railExplain`) with the generic row
+              // until slice N2b-2 hands that function the lane's words; this line
+              // switches back to `w` + the `caps.turnover` gate in that same commit,
+              // never before. (Placed here, ABOVE the §8 pin's anchor comment below,
+              // so it does not eat into that fixed-length slice's budget.)
               // ⚖ GUIDED-TOUR LAW (8/23) — THREE MEANING CHANGES DECLARED
               // (2026-09-09), which is why the sentence below grew: 満室 now
               // rides a half hour whose 60-minute start is refused for another
@@ -8126,7 +8132,7 @@ export function TodayScreen(props: TodayProps) {
                 // plain untruth about it. 置けない is true of all three, and the
                 // hatch is now its own sentence: it APPEARS, it is not a
                 // standing mark the operator should hunt for.
-                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「${w.fullWord}」${caps.turnover ? `「${w.turnoverWord!}」` : ''}「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。${hasBeds ? `「${w.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます。` : ''}「${w.fullWord}」${caps.turnover ? `「${w.turnoverWord!}」` : ''}のコマでは、すぐ上の行に薄い斜線が出て、その30分と理由を短い言葉で示します。${hasBeds ? `${w.resourceNoun}を別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます。` : ''}`,
+                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「${props.genericWords.fullWord}」「${props.genericWords.turnoverWord!}」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。${hasBeds ? `「${w.fullWord}」はその30分に${w.resourceNoun}の空きがないという意味で、${railDur}分の予約が置けるかどうかとは関係なく付きます。` : ''}「${props.genericWords.fullWord}」「${props.genericWords.turnoverWord!}」のコマでは、すぐ上の行に薄い斜線が出て、その30分と理由を短い言葉で示します。${hasBeds ? `${w.resourceNoun}を別のスタッフの枠が使っていて、そちらで販売中のため空いている30分にも、同じ斜線と言葉が出ます。` : ''}`,
             }
           : {})}
       >
