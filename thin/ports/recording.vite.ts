@@ -466,7 +466,17 @@ export const viteRecordingPort: RecordingPipelinePort = {
       // two fail-CLOSED lookups (store-clamp.ts:43-48) — the wire cannot tell
       // them apart, so the port takes the status at its word. Nothing branches
       // on the difference today: runServerSave shows one toast for every arm.
-      if (code === 'forbidden' || code === 'store_forbidden' || code === 'tenant_forbidden')
+      // ⚖ Liam 2026-09-16: `store_unassigned` is the FOURTH terminal 403 — the
+      // caller has no store assigned yet, and only a manager can change that.
+      // Leaving it to fall through would have classified it `upstream`, i.e.
+      // the RETRYABLE arm: the recording port would sit there re-sending a
+      // refusal that cannot change until somebody edits the roster.
+      if (
+        code === 'forbidden' ||
+        code === 'store_forbidden' ||
+        code === 'store_unassigned' ||
+        code === 'tenant_forbidden'
+      )
         return { error: 'forbidden' }
       // 409 — a staff member deliberately discarded this recording. Terminal,
       // and worth keeping distinct from the retryable arms: no amount of

@@ -41,6 +41,7 @@ import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { resolvePrimaryStoreId, resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import {
   startRecordingSessionWithClient,
   type StartRecordingSessionResult,
@@ -138,6 +139,14 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
   // → 403, errors.ts STATUS), and it stays OUTSIDE the fail-open try below for
   // the reason above: swallowed into `{ id: null }` it would read as "carry on"
   // and put a store-less row behind the take.
+  // ⚖ Liam 2026-09-16: a caller who reaches NO store must not mint a recording
+  // at all. Without this line the primary-store fallback below would silently
+  // attribute an unplaced 銀座 hire's take to 代官山 — not a leak, but the same
+  // wrong-store class the census flags for the karute doors, and a lie the
+  // owner would later read off the audit row. REFUSE instead.
+  if (reachesNoStore(clamp)) {
+    throw new AppApiError('store_forbidden', UNASSIGNED_STORE_DENIAL)
+  }
   const storeId = clamp.storeId ?? (await resolvePrimaryStoreId(synqed))
 
   // Fail-OPEN parity with the web action for the LEGITIMATE null: an

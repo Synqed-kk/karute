@@ -127,7 +127,10 @@ describe('GET /api/app/v1/screens/data-export — happy path DTO shape', () => {
 describe('GET /api/app/v1/screens/data-export — failure contract (family rule: clamp 403s reach the client; counts zero-degrade)', () => {
   it('a failed store-scope resolution → 403 store_forbidden, NOT silent zeros (fresh-eyes round: the self-heal + ScreenBoundary retry both need the error to surface)', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view'])) // forces the assignment-lookup path
-    staffStoresGet.mockRejectedValueOnce(new Error('boom'))
+    // ⚖ 2026-09-16 fold round 2: `...Once` no longer reaches the clamp — the
+    // front gate reads the caller's assignment first, so the single rejection
+    // was consumed there. The test means "this lookup keeps failing".
+    staffStoresGet.mockRejectedValue(new Error('boom'))
     const res = await GET(req(), route)
     expect(res.status).toBe(403)
     expect((await res.json()).error.code).toBe('store_forbidden')
@@ -171,13 +174,35 @@ describe('GET /api/app/v1/screens/data-export — store clamp threads store_id',
     expect(customersList).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
   })
 
-  it('floating staff (no stores.viewAll, empty assignment) see PRIMARY-store totals, not business-wide — the numbers must preview what the export twin produces (fix round, blind-fleet finding)', async () => {
+  it('floating staff in a ONE-store business see PRIMARY-store totals, not business-wide — the numbers must preview what the export twin produces (fix round, blind-fleet finding)', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view']))
+    // ⚖ Liam 2026-09-16: an empty assignment only reads as "floating" when the
+    // business has ONE store; with two it is the unassigned verdict (below).
+    storesList.mockResolvedValue({ stores: [{ id: 'store-1', is_primary: true }] })
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
     expect(customersList).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-1' }))
     expect(appointmentsList).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-1' }))
     expect(karuteRecordsList).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-1' }))
+  })
+
+  it('UNASSIGNED staff (empty assignment, multi-store business) are REFUSED — the preview inherits the export twin\'s refusal', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view']))
+    // Explicit: mockResolvedValue survives jest.clearAllMocks(), so the
+    // one-store override above would otherwise leak into this test.
+    storesList.mockResolvedValue({
+      stores: [
+        { id: 'store-1', is_primary: true },
+        { id: 'store-2', is_primary: false },
+      ],
+    })
+    const res = await GET(req(), route)
+    expect(res.status).toBe(403)
+    // ⚖ 2026-09-16 fold round 2: the FRONT GATE answers first now, with its
+    // own code; the export lens's `store_forbidden` sits underneath it and is
+    // proved alone in unassigned-backstops.test.ts.
+    expect((await res.json()).error.code).toBe('store_unassigned')
+    expect(customersList).not.toHaveBeenCalled()
   })
 })
 
