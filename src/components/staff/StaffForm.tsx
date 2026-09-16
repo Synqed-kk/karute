@@ -33,6 +33,7 @@ import { getStaffStores, setStaffStores, type StoreRow } from '@/actions/stores'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
 import {
   CAPABILITIES,
+  NOT_YET_TOGGLEABLE,
   PERMISSION_ROLES,
   presetCapabilities,
   type Capability,
@@ -197,7 +198,14 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
           return
         }
         if (permsState === 'ready') {
-          const res = await setStaffPermissions(staff.id, role, [...caps])
+          // ⚖ Greptile round 2 hygiene: never SUBMIT a capability the sheet
+          // does not offer. `caps` is seeded from the EFFECTIVE set, which
+          // carries server-derived entries (customers.manage), and shipping
+          // them back made an untick look like a grant the owner had chosen.
+          // The server derives them either way — effectiveCapabilities is the
+          // one home — so the payload carries only what this form can express.
+          const payload = [...caps].filter((c) => !NOT_YET_TOGGLEABLE.has(c))
+          const res = await setStaffPermissions(staff.id, role, payload)
           if ('error' in res) {
             toast.error(res.error) // keep the dialog open so they can adjust
             return
@@ -394,7 +402,7 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
                     <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                       {tp('permissionsLabel')}
                     </p>
-                    {CAPABILITIES.map((c) => (
+                    {CAPABILITIES.filter((c) => !NOT_YET_TOGGLEABLE.has(c)).map((c) => (
                       <label key={c} className="flex cursor-pointer items-center justify-between gap-3 text-xs">
                         <span className="text-foreground/90">{tp(`cap_${c.replace('.', '_')}`)}</span>
                         <input
