@@ -562,6 +562,26 @@ describe('`bookFor` — one capacity book per lanes array, and it dies with the 
     const a = bookFor(lanes, FRAME, 'a', cache, ASK_A)
     expect(bookFor(lanes, { ...FRAME, nowMin: 900 }, 'a', cache, ASK_A)).not.toBe(a)
   })
+
+  // ⚖ D-53 (ak)/(al) N2c-1 mutant a5 — a WORDS-only change is a cache miss too
+  // (`frameKey` carries `${words.resourceNoun}|${words.privateWord}`), and the
+  // two books answer a full-house ask with two DIFFERENT refusal sentences,
+  // each wearing its own resourceNoun.
+  it('a different WORDS pair on the SAME array rebuilds, and the refusal wears its own resourceNoun', () => {
+    const cache: BookCache = new WeakMap()
+    const lanes = board()
+    const DENTAL_ASK = { resourceNoun: RESOURCE_WORDS.dental_clinic.resourceNoun, privateWord: RESOURCE_WORDS.dental_clinic.privateWord! }
+    const withA = bookFor(lanes, FRAME, null, cache, ASK_A)
+    const withDental = bookFor(lanes, FRAME, null, cache, DENTAL_ASK)
+    expect(withDental).not.toBe(withA)
+    const asker = { stores: ['store-a'] }
+    const refusalA = withA.world.bedFor(600, 660, asker).refusal
+    const refusalDental = withDental.world.bedFor(600, 660, asker).refusal
+    console.log('today-live-drag a5', { refusalA, refusalDental })
+    expect(refusalA).not.toBe(refusalDental)
+    expect(refusalA).toContain('ベッド')
+    expect(refusalDental).toContain('ユニット')
+  })
 })
 
 describe('`slotKey` — the ⇄ tone slot\u2019s ONE spelling, and every field separates', () => {
