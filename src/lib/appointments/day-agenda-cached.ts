@@ -2,6 +2,7 @@ import { unstable_cache } from 'next/cache'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId } from '@/lib/staff'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { getCachedCustomerListFor } from '@/lib/customers/cached'
 import { getAppointmentsByDateWithClient } from '@/lib/appointments/by-date'
 import type { AppointmentRow } from '@/actions/appointments'
@@ -90,6 +91,11 @@ export async function getCachedDayAgenda(
       getBusinessId(),
       resolveStoreScope(),
     ])
+    // An actor who reaches no store gets an EMPTY day — the `null` branch
+    // below is the ZERO-STORE-BUSINESS path ("no filter"), and letting an
+    // unassigned actor take it would hand them every branch's bookings
+    // (⚖ Liam 2026-09-16; census: 予約 day agenda, FO-HIGH).
+    if (reachesNoStore(scope)) return []
     const rows = scope.storeId
       ? await dayAgendaByBusiness(businessId, scope.storeId, dateStr)
       : await fetchDayAgendaRows(businessId, null, dateStr)

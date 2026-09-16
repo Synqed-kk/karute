@@ -17,6 +17,7 @@
 
 import { getSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
@@ -57,6 +58,14 @@ export async function getAppointmentWindow(
   fromIso: string,
   toIso: string,
   staffFilter: string,
+  /** `false` = the bare window: the rows, and no store hours / 臨時休業 read
+   *  for this span at all. 先月同期間比's previous month wants a COUNT, and the
+   *  page takes its hours facts from the displayed window — so with the flag
+   *  left on, every 月 page view paid for two core calls and an hours
+   *  resolution over ~30 days that were thrown away on the next line. The
+   *  store clamp, the 担当 filter and the rows are identical either way; this
+   *  only says whether to ask about opening hours. */
+  withHours = true,
 ): Promise<AppointmentWindowPayload> {
   const [synqed, scope, orgSettings, activeStaffId] = await Promise.all([
     getSynqedClient(),
@@ -108,8 +117,10 @@ export async function getAppointmentWindow(
 
   const [window, policy, closed, store] = await Promise.all([
     // A filter naming somebody the roster cannot place gets ZERO rows, not the
-    // whole salon's week.
-    unknown
+    // whole salon's week — and neither does an actor who reaches NO store
+    // (`storeId` is undefined for them, which core reads as "every store";
+    // ⚖ Liam 2026-09-16, census: week/month window, FO).
+    unknown || reachesNoStore(scope)
       ? Promise.resolve(emptyAppointmentWindow())
       : fetchAppointmentWindow(synqed, fetchFromIso, toIso, { storeId, staffId }),
     // No catch on purpose. `storePolicies.get` answers the PLATFORM DEFAULTS for
@@ -117,8 +128,8 @@ export async function getAppointmentWindow(
     // @synqed-kk/client dist/store-policies.d.ts), so "no policy row" is a
     // normal 200, never an error to swallow. Anything that does throw here is a
     // real outage and must reach the page.
-    storeId ? synqed.storePolicies.get(storeId) : Promise.resolve(null),
-    storeId
+    withHours && storeId ? synqed.storePolicies.get(storeId) : Promise.resolve(null),
+    withHours && storeId
       ? synqed.storePolicies.listClosedDays(storeId, {
           from: span.fromYmd,
           to: span.toExclusiveYmd, // exclusive, per the SDK's own contract
@@ -138,12 +149,14 @@ export async function getAppointmentWindow(
       : Promise.resolve(null),
   ])
 
-  const hoursFacts = resolveWindowHours(span.days, {
-    weeklyHours: policy?.weekly_hours ?? null,
-    closedDates: new Set(closed.closed_days.map((d) => d.date)),
-    orgHours: orgSettings?.operating_hours,
-    orgSaved: new Set<WeekdayKey>(orgSettings?.operating_hours_saved ?? []),
-  })
+  const hoursFacts = withHours
+    ? resolveWindowHours(span.days, {
+        weeklyHours: policy?.weekly_hours ?? null,
+        closedDates: new Set(closed.closed_days.map((d) => d.date)),
+        orgHours: orgSettings?.operating_hours,
+        orgSaved: new Set<WeekdayKey>(orgSettings?.operating_hours_saved ?? []),
+      })
+    : new Map<string, DayHoursFact>()
 
   return {
     ...window,

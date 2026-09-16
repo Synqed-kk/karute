@@ -14,6 +14,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { ASK_AI_REQUIRED_CAPABILITIES } from '@/lib/auth/permissions'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import { enforceAiRateLimitWithClient, reportAiUsageWithClient } from '@/lib/ai-rate-limit'
 import { getCachedCustomerListFor } from '@/lib/customers/cached'
@@ -53,6 +54,11 @@ export const POST = facadeHandler('ai.chat', async (ctx) => {
     capabilities: ctx.identity.capabilities,
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
+  // ⚠ `!== null` is TRUE for an EMPTY allow-list and collapses to `undefined`
+  // = every store's karute as grounding. Refuse instead (⚖ Liam 2026-09-16).
+  if (reachesNoStore(clamp)) {
+    throw new AppApiError('store_forbidden', 'no store assigned to your account')
+  }
   const scopedStoreId =
     clamp.allowedStoreIds !== null ? (clamp.storeId ?? undefined) : undefined
 

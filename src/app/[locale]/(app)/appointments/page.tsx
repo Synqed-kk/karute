@@ -9,6 +9,7 @@ import {
   storeDivisorRosterForBusiness,
   storeStaffIdSet,
 } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getMonthCells } from '@/actions/appointments'
@@ -16,6 +17,8 @@ import { getCachedDayAgenda } from '@/lib/appointments/day-agenda-cached'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCachedMenuOptions, scopeMenuOptions } from '@/lib/menus/cached'
 import { getAppointmentWindow } from '@/actions/appointments-window'
+import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
+import { monthCompareWindow } from '@/lib/appointments/month-compare'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
 import { listAllPackUsage } from '@/lib/packs/store'
 import { getBusinessId } from '@/lib/staff'
@@ -71,8 +74,19 @@ export default async function AppointmentsPage({
   // (measured 1.0–1.8s per press from the browser, 2026-07-30) was never split
   // into its parts. One [perf] line per request in the Vercel logs.
   const t = startTiming(`appointments view=${view}`)
+  // ONE clock for this render: the compare window below and the screen build
+  // further down both read it, and two `new Date()` calls either side of a
+  // midnight would compare one month against a different elapsed window.
+  const now = new Date()
   const weekRange = view === 'week' ? computeWeekRange(selectedDate) : null
   const monthRange = view === 'month' ? computeMonthRange(selectedDate) : null
+  // 先月同期間比's extra read (spec §8). Null = no clause, hence no read: a
+  // future month has nothing elapsed to compare, and while the switch is off
+  // nothing renders it either — so neither case pays for a fetch.
+  const compareWindow =
+    monthRange && BOOKING_SWITCHES.monthCompare
+      ? monthCompareWindow(monthRange.monthStart, now)
+      : null
 
   // Resolved BEFORE the wave because the customer read is now an ARGUMENT of
   // it (⚖ Liam 2026-08-17: a clamped actor's booking picker must not offer
@@ -100,6 +114,7 @@ export default async function AppointmentsPage({
     weekWindow,
     monthWindow,
     dayWindow,
+    prevMonthWindow,
     menuOptions,
   ] = await Promise.all([
     t.phase('auth.getUser', () => supabase.auth.getUser()),
@@ -149,6 +164,30 @@ export default async function AppointmentsPage({
           )
         : Promise.resolve(null),
     ),
+    // The previous month's compared span — the same action, the same store
+    // clamp and the same 担当 filter as the month read above, so the two sides
+    // of the comparison can never be scoped differently. In this wave, so it
+    // costs no waterfall, and WITHOUT the hours read: this span is a count,
+    // and the page's hours facts come from the displayed window below.
+    //
+    // The ONLY read on this page that is allowed to fail quietly. Every other
+    // one throws, because an empty week must never be indistinguishable from
+    // an unread one — but this is an optional annotation whose absent state is
+    // exactly `null`, so a half-down core costs the reader one clause instead
+    // of the whole 予約 screen.
+    t.phase('range.prevMonth', () =>
+      compareWindow
+        ? getAppointmentWindow(
+            compareWindow.fromIso,
+            compareWindow.toIso,
+            staffFilter,
+            false,
+          ).catch((err) => {
+            console.error('[appointments] 先月同期間比 read degraded:', err)
+            return null
+          })
+        : Promise.resolve(null),
+    ),
     // 60s cached active-menu union for the booking picker. Degraded the same
     // way the facade route degrades it — a menus outage must not 500 the
     // agenda; the dialog keeps today's free-text service field. Degraded is
@@ -174,7 +213,10 @@ export default async function AppointmentsPage({
 
   const authProfileId = user?.id ?? null
   const storeStaffIds = await t.phase('storeStaffIds', () =>
-    storeStaffIdSet(staffList, storeScope.storeId),
+    // Empty picker for an actor who reaches no store — see the customers page.
+    reachesNoStore(storeScope)
+      ? Promise.resolve(new Set<string>())
+      : storeStaffIdSet(staffList, storeScope.storeId),
   )
   // ⚖ R1-5 — the CAPACITY divisor reads its own, stricter roster: assigned to
   // this store or explicitly floating, never a member no assignment row could
@@ -215,7 +257,7 @@ export default async function AppointmentsPage({
 
   const screen = buildAppointmentsScreen({
     locale,
-    now: new Date(),
+    now,
     selectedDate,
     staffFilter,
     staffList,
@@ -236,6 +278,7 @@ export default async function AppointmentsPage({
     weekWindow,
     monthWindow,
     dayWindow,
+    prevMonthWindow,
     // Exactly one window is read per view, and it carries that window's days.
     hoursFacts: new Map(
       (weekWindow ?? monthWindow ?? dayWindow)?.hoursFacts ?? [],
@@ -251,6 +294,9 @@ export default async function AppointmentsPage({
   // indistinguishable from an honest zero. The route-group boundary
   // (error.tsx) shows the retry screen, exactly as a failed window read
   // already does above (getAppointmentWindow throws).
+  // Greptile G4 — the thin door renders the inline failed line instead —
+  // AppointmentsScreen.tsx:137-141 (R1-2/D5); the two doors differ on
+  // purpose: the web has no inline failed surface for 日/月.
   if (screen.truncated) {
     throw new Error('appointments: window truncated — read incomplete')
   }
@@ -275,6 +321,7 @@ export default async function AppointmentsPage({
         weekStartIso={screen.weekStartIso}
         monthData={screen.monthData}
         monthStartIso={screen.monthStartIso}
+        monthCompareDelta={screen.monthCompareDelta}
         // The day line's numbers and the 未設定 discriminator — both resolved
         // in buildAppointmentsScreen so the WEB door and the PHONE door hand
         // the shared view identical props (PKT-1b-WIRE W-B/W-C).

@@ -681,8 +681,11 @@ describe('isClosedRow', () => {
     expect(isClosedRow(row({ closed: true, count: 0 }))).toBe(true)
   })
 
-  it('false while the switch stays OFF (today), even closed with zero bookings', () => {
-    const { isClosedRow } = loadMetricMenu()
+  it('false while the switch is OFF, even closed with zero bookings', () => {
+    // R1-3 flipped the shipped default ON, so the OFF path needs saying now.
+    // It is still the honest path: with the switch off the cell shows numbers,
+    // never a half-rendered 休.
+    const { isClosedRow } = loadMetricMenu({ closedDays: false })
     expect(isClosedRow(row({ closed: true, count: 0 }))).toBe(false)
   })
 })
@@ -696,6 +699,9 @@ describe('the SHIPPED switch registry (⚖ Liam 9/15 11:1x — 空き ON, everyw
       typeof import('@/lib/appointments/booking-switches')
     >('@/lib/appointments/booking-switches')
     expect(BOOKING_SWITCHES.freeTimeCell).toBe(true)
+    // R1-3 (D-3), ⚖ Liam 16:0x 「everything as the mock」: 休 ships ON. The
+    // write-side door (booking INTO a closed day) is PKT-1c-C, same release.
+    expect(BOOKING_SWITCHES.closedDays).toBe(true)
 
     const { weekRowCells, dayLineCells } = jest.requireActual<typeof MetricMenu>(
       '@/lib/appointments/metric-menu',

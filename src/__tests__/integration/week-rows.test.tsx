@@ -80,10 +80,10 @@ function sevenDays(overrides: Array<Partial<WeekDayRowData>> = []): WeekDayRowDa
   return isoDays.map((dateIso, i) => row({ dateIso, dateNumber: 14 + i, ...overrides[i] }))
 }
 
-// BOOKING_SWITCHES is a plain module constant — closedDays defaults OFF
-// (spec §10), so a "closed row" scenario needs a per-file module mock, then
-// a fresh require of WeekRows.tsx (which imports metric-menu.ts, which
-// captures BOOKING_SWITCHES at import time).
+// BOOKING_SWITCHES is a plain module constant captured at import time, so
+// pinning a scenario per switch VALUE (closedDays either way — it ships ON
+// since R1-3) needs a per-file module mock, then a fresh require of
+// WeekRows.tsx (which imports metric-menu.ts, which reads the registry).
 function loadWeekRows(switchOverrides: Partial<Record<string, boolean>> = {}) {
   jest.resetModules()
   jest.doMock('@/lib/appointments/booking-switches', () => {
@@ -451,13 +451,14 @@ describe('WeekRows — the 少なめ band reads at AA (R3-9)', () => {
 })
 
 describe('WeekRows — the summary line is the mock’s .wksum (W-F)', () => {
-  it('the NUMBERS are ink 700 tabular and the words stay grey', () => {
+  it('the NUMBERS are ink 600 tabular and the words stay grey', () => {
     const WeekRows = loadWeekRows()
     render(<WeekRows {...baseProps} rows={sevenDays()} onPickDay={jest.fn()} />)
     const summary = screen.getByTestId('week-summary')
-    // grey 12.5/600 on the line (mock .wksum), ink 700 tabular on each <b>.
-    expect(summary.className).toContain('text-[12.5px]')
-    expect(summary.className).toContain('font-semibold')
+    // grey 12/500 on the line (2026-09-15 type-system fix; app's own scale,
+    // not the mock's 12.5/600), ink 600 tabular on each <b>.
+    expect(summary.className).toContain('text-[12px]')
+    expect(summary.className).toContain('font-medium')
     // R3-17 — the mock's MIDDLE grey (--sub), with the dark pair the 4.5:1
     // word floor needs on the dark card.
     expect(summary.className).toContain('text-zinc-500')
@@ -465,7 +466,7 @@ describe('WeekRows — the summary line is the mock’s .wksum (W-F)', () => {
     const bolds = Array.from(summary.querySelectorAll('b'))
     expect(bolds).toHaveLength(2) // typeSlot 'new' → 予約 + 新規
     for (const b of bolds) {
-      expect(b.className).toContain('font-bold')
+      expect(b.className).toContain('font-semibold')
       expect(b.className).toContain('tabular-nums')
       expect(b.className).toContain('text-[var(--color-text)]')
     }
@@ -531,9 +532,12 @@ describe('WeekRows — the mock’s three greys, not one (R3-17)', () => {
     expect(container.querySelector('[data-week-chevron]')!.getAttribute('class')).toContain(
       'text-zinc-300',
     )
-    // mock --hair (#eef0f2) vs the card's own --line (#e6e8eb)
+    // mock --hair (#eef0f2) vs the card's own --line (#e6e8eb). R2-6: zinc-100
+    // measured ~35% weaker than --hair on real pixels; border-zinc-200/70 is
+    // the shared hair token, the SAME one the month grid's cells now carry.
     const row0 = screen.getAllByRole('button')[0]
-    expect(row0.className).toContain('border-zinc-100')
+    expect(row0.className).toContain('border-zinc-200/70')
+    expect(row0.className).not.toContain('border-zinc-100')
     expect(row0.className).not.toContain('border-[var(--color-border)]')
     // mock .listcard{overflow:hidden} — the today wash must not square off the
     // card's 16 px corner

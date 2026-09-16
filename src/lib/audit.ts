@@ -258,6 +258,7 @@ export type FacadeEndpointKey =
   | 'customer.read'
   | 'customer.update'
   | 'customers.list'
+  | 'customers.search'
   | 'entitlement.read'
   | 'export'
   | 'invite.create'
@@ -381,6 +382,9 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // rule readers: do not add 'karute.save' to this map.
   // List render ≠ a view (Liam ruling 2026-07-17) — names on a list don't log.
   'customers.list': { kind: 'skip', category: 'customer', action: '' },
+  // Same wayfinding rule as customers.list/reassign-options/karute.reveal —
+  // a picker's search results are a list render, not a view (P3).
+  'customers.search': { kind: 'skip', category: 'customer', action: '' },
   // AI相談 mint (⚖ Liam ruled Option A, 2026-07-28): the row mints PER
   // EXCHANGE at the send (ai.chat) — the generic hook fires on every 2xx now
   // that the marker is off, and the route enriches it with

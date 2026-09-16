@@ -33,9 +33,11 @@ import { PackPill } from '@/components/reservation/AppointmentCard'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
 import {
   filterCustomers,
-  CUSTOMER_SEARCH_LIMIT,
+  useRemoteCustomerSearch,
   type CustomerOption,
+  type CustomerSearchResult,
 } from '@/components/karute/CustomerCombobox'
+import { CUSTOMER_SEARCH_LIMIT } from '@/lib/customers/karute-number-match'
 import type { RecordTargetBooking } from './RecordingTargetCard'
 
 /**
@@ -119,6 +121,9 @@ interface Props {
   currentAppointmentId?: string | null
   /** repoint: the recording day, pre-formatted ("8月18日(月)"). */
   dayLabel?: string
+  /** Opt-in company-wide search (P3, ⚖ Liam 2026-09-16) — same remote tier
+   *  CustomerCombobox uses. Undefined = local-only, exactly as before. */
+  onRemoteSearch?: (query: string) => Promise<CustomerSearchResult | { error: string }>
 }
 
 export function RecordCustomerPickerDialog({
@@ -134,6 +139,7 @@ export function RecordCustomerPickerDialog({
   pinnedIsCurrent = true,
   currentAppointmentId = null,
   dayLabel,
+  onRemoteSearch,
 }: Props) {
   const repoint = variant === 'repoint'
   // A-7: the day restriction anchors on the ORIGINAL binding. An unbound take
@@ -197,6 +203,18 @@ export function RecordCustomerPickerDialog({
   )
   const hiddenMatches = matches.length - results.length
   const searching = trimmed.length > 0
+  // Remote tier (P3): local matches always win a dupe. The server's own
+  // other_store flag (Greptile fold), not "is it remote", decides the
+  // section — an own-store karute-number hit renders as a normal row (no
+  // chip); only a genuine other-store hit gets the 他店舗 section + chip.
+  const localIds = useMemo(() => new Set(matches.map((c) => c.id)), [matches])
+  const { results: remoteResults, karuteNumberUnavailable, remoteMore } = useRemoteCustomerSearch(trimmed, onRemoteSearch)
+  const remote = remoteResults.filter((r) => !localIds.has(r.id))
+  // other_store is tri-state (Greptile fold): only a CONFIRMED false is a
+  // normal row — null (lens read failed, unknown) must never fall through to
+  // "own store" the way `!r.other_store` would (`!null` is true).
+  const remoteOwnStore = remote.filter((r) => r.other_store === false)
+  const remoteFlagged = remote.filter((r) => r.other_store !== false)
 
   return (
     <>
@@ -293,16 +311,29 @@ export function RecordCustomerPickerDialog({
           {searching ? (
             <div id={LIST_ID} className="flex flex-col gap-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t('target.searchResultsCount', { n: matches.length })}
+                {t('target.searchResultsCount', { n: matches.length + remote.length })}
               </p>
-              {results.length === 0 ? (
+              {/* Greptile fold: a failed karute-number cache read must say
+                  so, never just silently drop what would have been a match. */}
+              {karuteNumberUnavailable && (
+                <p className="text-center text-[11px] text-muted-foreground">
+                  {tCustomers('karuteNumberUnavailable')}
+                </p>
+              )}
+              {results.length === 0 && remoteOwnStore.length === 0 && remoteFlagged.length === 0 ? (
                 <p className="py-4 text-center text-[13px] text-muted-foreground">
                   {tCustomers('table.noResults')}
                 </p>
               ) : (
                 <>
+                  {/* remoteOwnStore appended (Greptile fold, ⚖ Liam
+                      2026-09-16): an own-store karute-number hit is a normal
+                      row here too — other_store alone decides the chip/
+                      section, not "is it remote". factById/todayByCustomer
+                      simply miss a remote id, same as passing undefined/null
+                      explicitly. */}
                   <ul role="listbox" aria-label={t('target.searchResultsLabel')} className="flex flex-col gap-2">
-                    {results.map((c) => (
+                    {[...results, ...remoteOwnStore].map((c) => (
                       <SearchRow
                         key={c.id}
                         customer={c}
@@ -318,6 +349,44 @@ export function RecordCustomerPickerDialog({
                   {hiddenMatches > 0 && (
                     <p className="text-center text-[11px] text-muted-foreground">
                       {t('target.searchMore', { n: hiddenMatches })}
+                    </p>
+                  )}
+                  {/* Remote tier (P3, ⚖ Liam 2026-09-16): a hit that is NOT
+                      confirmed the caller's own store. No day/fact data for
+                      these (no cross-store read). Tri-state (Greptile fold):
+                      true → 他店舗, null (lens read failed, genuinely
+                      unknown) → 店舗不明 — never presented as own-store. */}
+                  {remoteFlagged.length > 0 && (
+                    <>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {tCustomers('otherStoreSection')}
+                      </p>
+                      <ul role="listbox" aria-label={tCustomers('otherStoreSection')} className="flex flex-col gap-2">
+                        {remoteFlagged.map((c) => (
+                          <SearchRow
+                            key={c.id}
+                            customer={c}
+                            fact={undefined}
+                            todayBooking={null}
+                            onSelect={onSelectCustomer}
+                            t={t}
+                            otherStoreLabel={
+                              c.other_store === null
+                                ? tCustomers('otherStoreUnknownChip')
+                                : tCustomers('otherStoreChip')
+                            }
+                          />
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  {/* F-2 fold (⚖ Liam 2026-09-16): more company-wide matches
+                      exist beyond the remote rows shown above — named, not
+                      silently dropped, same as the local 他{n}件 line.
+                      Outside the listbox, so it never counts as an option. */}
+                  {remoteMore && (
+                    <p className="text-center text-[11px] text-muted-foreground">
+                      {tCustomers('remoteMore', { n: CUSTOMER_SEARCH_LIMIT })}
                     </p>
                   )}
                 </>
@@ -659,12 +728,16 @@ function SearchRow({
   todayBooking,
   onSelect,
   t,
+  otherStoreLabel,
 }: {
   customer: CustomerOption
   fact: RecordCustomerFact | undefined
   todayBooking: RecordTargetBooking | null
   onSelect: (id: string) => void
   t: T
+  /** Set (P3) only for a remote/company-wide row the local list didn't
+   *  already have — renders the honest 他店舗 chip next to the name. */
+  otherStoreLabel?: string
 }) {
   const staffColor = getStaffColorByKey(
     fact?.staffColorKey as Parameters<typeof getStaffColorByKey>[0],
@@ -708,6 +781,11 @@ function SearchRow({
             {fact?.karuteNumber && (
               <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
                 {fact.karuteNumber}
+              </span>
+            )}
+            {otherStoreLabel && (
+              <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                {otherStoreLabel}
               </span>
             )}
           </span>

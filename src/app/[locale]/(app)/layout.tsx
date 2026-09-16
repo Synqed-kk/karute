@@ -20,6 +20,7 @@ import { buildNotificationFeed } from '@/lib/notifications/derive'
 import { createClient } from '@/lib/supabase/server'
 import { listStores, getActiveStoreId } from '@/actions/stores'
 import { resolveStoreScope, viewerStaffRoster } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { redirect } from 'next/navigation'
 
 export default async function DashboardLayout({
@@ -55,7 +56,12 @@ export default async function DashboardLayout({
         // Fail CLOSED on scope-resolution failure (scope === null): an empty
         // feed, never an unfiltered business-wide one. A RESOLVED scope with
         // storeId null (business has no stores) keeps the unfiltered feed.
-        scope ? buildNotificationFeed(businessId, locale, scope.storeId) : [],
+        // scope.storeId null = "no filter" inside every derived read, so an
+        // actor who reaches NO store gets an empty bell, not the business's
+        // (⚖ Liam 2026-09-16; census §7).
+        scope && !reachesNoStore(scope)
+          ? buildNotificationFeed(businessId, locale, scope.storeId)
+          : [],
       )
       .catch(() => []),
     // Multi-store header switcher data (best-effort; [] / null → switcher hides).

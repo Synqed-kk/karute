@@ -40,6 +40,7 @@ import { statusOf } from '@/lib/recording/take-binding'
 import { readSharedAt } from '@/lib/recording/share-columns'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
+import { recordEditableInScope } from '@/lib/auth/store-lock'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { scopeKarutePhotos } from '@/lib/karute/scoped-photos'
 import { resolveDiscardFacts } from '@/lib/karute/discard-facts'
@@ -171,14 +172,19 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     // exact scope (A3). Widened again for D3/D4 sharing (⚖ 2026-09-14 design):
     // a viewShared-only caller needs the same scope for sharedWithViewer's
     // store clamp. A caller holding none of the three still pays nothing.
-    const allowedStoreIds = holdsRecordingsViewAll || holdsDiscardView || holdsViewShared
-        ? await viewerAllowedStoreIds({
-            synqed,
-            authUserId: ctx.identity.authUserId,
-            capabilities: ctx.identity.capabilities,
-            selfStaffId: viewerStaffId,
-          })
-        : null
+    // ⚖ 2026-09-16 — WIDENED TO EVERY CALLER. The store lock's screen half
+    // (staffCanEditRecord below) needs this viewer's assignment whatever
+    // capabilities they hold, so the "a caller holding none of the three pays
+    // nothing" carve-out above is gone: one staffStores read on a screen that
+    // already fans out five, in exchange for never showing an edit control the
+    // server refuses. Everything downstream is unchanged — a viewAll caller
+    // still resolves to null (unrestricted), a failed read still to [].
+    const allowedStoreIds = await viewerAllowedStoreIds({
+      synqed,
+      authUserId: ctx.identity.authUserId,
+      capabilities: ctx.identity.capabilities,
+      selfStaffId: viewerStaffId,
+    })
     // ⚖ R1′ — WHICH STORE JUDGES THIS KARUTE (③ fix round 3; Greptile #849). The
     // karute's own store leads; a karute that carries none inherits the RECORDING
     // row's, which since ③ names the branch the device was in. ONE spelling for
@@ -275,6 +281,14 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       recordingRow,
       businessId,
       staffCanReassignRecords: ctx.identity.capabilities.has('records.reassign'),
+      // The store lock's screen half (⚖ Liam 2026-09-16) — the Bearer twin of
+      // the web page's line, through the SAME predicate the write doors
+      // enforce. `allowedStoreIds: null` = unrestricted (viewAll or floating);
+      // `[]` = a failed assignment read, which hides rather than shows.
+      staffCanEditRecord: recordEditableInScope({ store_id: karute.store_id ?? null }, {
+        viewAll: false,
+        allowedStoreIds: allowedStoreIds ? [...allowedStoreIds] : null,
+      }),
       // ⚠ HIDE, NEVER SHOW-AND-REFUSE (⚖ 9/3 named grant; fix round 4) — the
       // Bearer twin of the web page's line, the same server expression the
       // regenerate route enforces. A named grantee reads a colleague's words

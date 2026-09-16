@@ -505,7 +505,7 @@ export const colorTokenMeaning: Record<string, string> = {
  *  the STORE (`src/actions/stores.ts:330,405` → `synqed.stores.create/update`,
  *  core's `stores.business_type` column). The row is per-store here, says so, and
  *  names the other home in its own 詳しく rather than pretending there is one. */
-export const businessProfiles: ReadonlyArray<{ value: string; label: string }> = [
+export const businessProfiles = [
   { value: 'esthetic_salon', label: 'エステサロン' },
   { value: 'hair_salon', label: 'ヘアサロン' },
   { value: 'nail_salon', label: 'ネイルサロン' },
@@ -532,7 +532,9 @@ export const businessProfiles: ReadonlyArray<{ value: string; label: string }> =
   { value: 'pet_grooming', label: 'トリミングサロン' },
   { value: 'training_school', label: 'スクール・レッスン' },
   { value: 'other', label: 'その他' },
-]
+] as const satisfies ReadonlyArray<{ value: string; label: string }>
+
+export type BusinessProfileKey = (typeof businessProfiles)[number]['value']
 
 // ══ ⚖ S17 · C7 — THE PERMISSION RULEBOOK, BY SHAPE ══════════════════════════
 //
@@ -603,8 +605,8 @@ export interface Rulebook {
   unadoptedRoleKeys: readonly string[]
 }
 
-/** `src/lib/auth/permissions.ts:14-54` (CAPABILITIES) · `:59-66`
- *  (PERMISSION_ROLES) · `:72-98` (ROLE_PRESETS), all on `origin/main`. */
+/** `src/lib/auth/permissions.ts` — CAPABILITIES (minus NOT_YET_TOGGLEABLE, see
+ *  the note inside `capabilities`) · PERMISSION_ROLES · ROLE_PRESETS. */
 export const rulebook: Rulebook = {
   capabilities: [
     { token: 'billing.manage', label: '契約・請求の管理' },
@@ -626,6 +628,14 @@ export const rulebook: Rulebook = {
     { token: 'stores.viewAll', label: '全店舗の閲覧' },
     { token: 'alerts.manage', label: '離客・回数券のお知らせの操作' },
     { token: 'customers.view', label: '顧客の閲覧' },
+    // ⚠ `customers.manage` IS NOT HERE, and that is the point (⚖ fold round 2).
+    // This list is what the sheet OFFERS PER PERSON, and 「a label is a promise
+    // that the role can be chosen」 — Karute's own StaffForm filters that token
+    // out (NOT_YET_TOGGLEABLE, lib/auth/permissions.ts), because the implied
+    // rule in effectiveCapabilities() would put an unticked box straight back.
+    // Advertising a switch here that Karute refuses to render would make the
+    // mirror lie. It stays in `grants` below, where it is simply true: every
+    // shipped preset holds it.
     { token: 'bookings.manage', label: '予約の管理' },
   ],
   roles: [
@@ -644,7 +654,7 @@ export const rulebook: Rulebook = {
       'billing.manage', 'business.manage', 'staff.invite', 'staff.manage', 'settings.manage',
       'menus.manage', 'audit.view', 'sync.view', 'data.export', 'records.delete',
       'records.reassign', 'records.discardView', 'records.write', 'recordings.viewAll', 'recordings.viewShared',
-      'analytics.viewAll', 'stores.viewAll', 'alerts.manage', 'customers.view', 'bookings.manage',
+      'analytics.viewAll', 'stores.viewAll', 'alerts.manage', 'customers.view', 'customers.manage', 'bookings.manage',
     ],
     // manager: ALL minus billing.manage · business.manage · recordings.viewAll ·
     // audit.view · sync.view (`permissions.ts:81-89`). recordings.viewShared IS
@@ -653,14 +663,14 @@ export const rulebook: Rulebook = {
     manager: [
       'staff.invite', 'staff.manage', 'settings.manage', 'menus.manage', 'data.export',
       'records.delete', 'records.reassign', 'records.discardView', 'records.write', 'recordings.viewShared',
-      'analytics.viewAll', 'stores.viewAll', 'alerts.manage', 'customers.view', 'bookings.manage',
+      'analytics.viewAll', 'stores.viewAll', 'alerts.manage', 'customers.view', 'customers.manage', 'bookings.manage',
     ],
     senior: [
       'records.write', 'records.delete', 'records.reassign', 'data.export',
-      'analytics.viewAll', 'stores.viewAll', 'customers.view', 'bookings.manage', 'menus.manage',
+      'analytics.viewAll', 'stores.viewAll', 'customers.view', 'customers.manage', 'bookings.manage', 'menus.manage',
     ],
-    practitioner: ['records.write', 'customers.view', 'bookings.manage'],
-    frontdesk: ['customers.view', 'bookings.manage'],
+    practitioner: ['records.write', 'customers.view', 'customers.manage', 'bookings.manage'],
+    frontdesk: ['customers.view', 'customers.manage', 'bookings.manage'],
     custom: [],
   },
   roleKeyOf: {

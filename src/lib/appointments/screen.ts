@@ -7,7 +7,7 @@
 // the page, Bearer fan-out in the facade route), so this can never re-fetch
 // or diverge between the two.
 
-import type { DayWeekMonthView, MonthGridCell } from '@synqed-kk/ui'
+import type { DayWeekMonthView } from '@synqed-kk/ui'
 import type { Appointment } from '@synqed-kk/client'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { OrgSettings } from '@/actions/org-settings'
@@ -21,9 +21,11 @@ import {
   appointmentsToWeekData,
   appointmentsToMonthCells,
   appointmentsToMonthFacts,
+  type MonthCell,
   type WeekDayRowData,
 } from '@/lib/adapters/reservation'
 import type { AppointmentWindow } from '@/lib/appointments/by-date'
+import { monthCompareDeltaFrom, monthCompareWindow } from '@/lib/appointments/month-compare'
 import type { DayHoursFact } from '@/lib/operating-hours'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
 import { isReturningCustomer } from '@/lib/customers/status-signals'
@@ -109,6 +111,10 @@ export interface AppointmentsScreenInputs {
   /** The selected day's own window — fetched only in day view; in week/month
    *  view the selected day is already inside the bigger window. */
   dayWindow?: AppointmentWindow | null
+  /** The PREVIOUS month's compared window (monthCompareWindow's range) — read
+   *  only in month view, and only while the 先月同期間比 switch is on. Absent →
+   *  the clause has no number and stays absent. */
+  prevMonthWindow?: AppointmentWindow | null
   /** That day's resolved hours, keyed by JST YYYY-MM-DD (resolveWindowHours). */
   hoursFacts?: ReadonlyMap<string, DayHoursFact>
   /** THIS STORE's vertical — the per-store column when core carries it, else
@@ -155,7 +161,7 @@ export interface AppointmentsScreen {
   businessHours: { start: number; end: number }
   weekData: WeekDayRowData[] | null
   weekStartIso: string | null
-  monthData: MonthGridCell[] | null
+  monthData: MonthCell[] | null
   /** The month's capacity facts, keyed by the cell's own id (JST YYYY-MM-DD),
    *  beside the cells rather than inside them: MonthGridCell is the package's
    *  type and cannot grow app fields. Built from the SAME rows and the same
@@ -164,6 +170,11 @@ export interface AppointmentsScreen {
    *  cells render no numbers. */
   monthFacts: ReadonlyMap<string, CapacityFact> | null
   monthStartIso: string | null
+  /** 先月同期間比 — the displayed month's counted bookings so far MINUS the same
+   *  elapsed span of the previous month. Null = no honest number, so the clause
+   *  is absent (a future month, a truncated read, or no base to compare with);
+   *  see month-compare.ts for the three cases. */
+  monthCompareDelta: number | null
   /** The SELECTED day's row, from the same adapter the week rows come from —
    *  so the day line and the week row can never disagree. Null when no window
    *  covers the selected day, or when the read was truncated. */
@@ -233,6 +244,7 @@ export function buildAppointmentsScreen(
     weekWindow,
     monthWindow,
     dayWindow,
+    prevMonthWindow,
     hoursFacts,
     businessType,
     enrichment,
@@ -492,10 +504,11 @@ export function buildAppointmentsScreen(
     )
 
   let weekData: WeekDayRowData[] | null = null
-  let monthData: MonthGridCell[] | null = null
+  let monthData: MonthCell[] | null = null
   let monthFacts: ReadonlyMap<string, CapacityFact> | null = null
   let weekStartIso: string | null = null
   let monthStartIso: string | null = null
+  let monthCompareDelta: number | null = null
 
   if (weekRange && weekWin) {
     if (!truncated) {
@@ -509,6 +522,9 @@ export function buildAppointmentsScreen(
         monthRange.monthStart,
         monthRange.monthEnd,
         now,
+        // ONE source for 休: the same map the week rows read their own `closed`
+        // from, so the month cell and the week row cannot disagree about a day.
+        hoursFacts,
       )
       // The same rows, the same month, one call beside the other — the cells
       // and their facts cannot come from different reads.
@@ -518,6 +534,28 @@ export function buildAppointmentsScreen(
         monthRange.monthEnd,
         { hoursFacts, soloMode, rosterHeadcount: capacityRoster, laneKind },
       )
+      // 先月同期間比, in the SAME branch that owns the grid: a truncated read
+      // can then never carry a delta by construction, rather than by the
+      // coincidence that month view happens to read no week or day window
+      // today. The selected-day card sitting under this grid is the obvious
+      // future day-window caller, and the day it exists the clause would have
+      // printed a number over a failed-read grid.
+      //
+      // The displayed month's own window is one side of it, so the clause and
+      // 「予約 N件」 are derived from the SAME rows; the other side is the
+      // caller's extra read. Either read truncated → null, never a low number
+      // (month-compare.ts).
+      //
+      // No previous read at all — the switch off, a future month, a failed
+      // optional read — means no clause, and the window arithmetic is skipped
+      // with it: it builds a dozen JST date parts for a discarded answer.
+      if (prevMonthWindow) {
+        monthCompareDelta = monthCompareDeltaFrom(
+          monthCompareWindow(monthRange.monthStart, now),
+          monthWin,
+          prevMonthWindow,
+        )
+      }
     }
     monthStartIso = monthRange.monthStart.toISOString()
   }
@@ -549,6 +587,7 @@ export function buildAppointmentsScreen(
     monthData,
     monthFacts,
     monthStartIso,
+    monthCompareDelta,
     dayTotals,
     truncated,
     soloMode,

@@ -31,12 +31,15 @@ import {
   storeDivisorRosterForBusiness,
   storeStaffIdSetForBusiness,
 } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import {
   emptyAppointmentWindow,
   fetchAppointmentWindow,
   fetchCoreStaffByProfileId,
   getAppointmentsByDateWithClient,
 } from '@/lib/appointments/by-date'
+import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
+import { monthCompareWindow } from '@/lib/appointments/month-compare'
 import {
   buildAppointmentsScreen,
   parseDateParam,
@@ -87,6 +90,12 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     capabilities: ctx.identity.capabilities,
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
+  // ⚠ `clamp.storeId ?? undefined` is the WHOLE bug class: `undefined` means
+  // EVERY STORE to core. For an actor who reaches no store that is the exact
+  // opposite of the answer, so every reader below is skipped rather than
+  // called with it (Greptile on #948 — the census listed this route's customer
+  // lens and its picker, but not its day/week/month reads).
+  const blind = reachesNoStore(clamp)
   // ⚖ R1-4 — the SPANS and the ROSTER resolve ONE store, the same way both
   // doors do.
   //
@@ -111,6 +120,10 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
   // behaviour rather than 403-ing a read screen: that caller already sees every
   // store, and the roster lens still returns null, so the days get no capacity
   // — the count table, never an invented number.
+  //
+  // A store-unassigned actor (`blind`, allowedStoreIds = []) never reaches the
+  // fallback: its allowedStoreIds is not null, so storeId stays undefined and
+  // every reader below is skipped on `blind` (#948).
   const storeId =
     clamp.storeId ??
     (clamp.allowedStoreIds === null
@@ -119,8 +132,19 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
   const customerLens = customerLensFor(clamp)
 
   try {
+    // ONE clock for this response: the compare window below and the screen
+    // build further down both read it, and two `new Date()` calls either side
+    // of a midnight would compare one month against a different elapsed span.
+    const now = new Date()
     const weekRange = view === 'week' ? computeWeekRange(selectedDate) : null
     const monthRange = view === 'month' ? computeMonthRange(selectedDate) : null
+    // 先月同期間比's extra read (spec §8). Null = no clause, hence no read: a
+    // future month has nothing elapsed to compare, and while the switch is off
+    // nothing renders it either — so neither case pays for a fetch.
+    const compareWindow =
+      monthRange && BOOKING_SWITCHES.monthCompare
+        ? monthCompareWindow(monthRange.monthStart, now)
+        : null
 
     // Wave 1 — roster, cached customer list, org settings, menu union.
     const [staffList, customers, orgSettings, menus] = await Promise.all([
@@ -176,7 +200,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     // capacity model's intersection index. JST has no DST, so one day is
     // exactly 86,400,000 ms off the JST-midnight start every caller passes.
     const windowFor = (fromIso: string, toIso: string) =>
-      unknown
+      unknown || blind
         ? Promise.resolve(emptyAppointmentWindow())
         : fetchAppointmentWindow(
             synqed,
@@ -199,6 +223,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       weekWindow,
       monthWindow,
       dayWindow,
+      prevMonthWindow,
       policy,
       closedDays,
       storeStaffIds,
@@ -207,11 +232,13 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     ] = await Promise.all([
       // includeCancelled: the agenda is the ONE consumer that renders
       // terminal rows (キャンセル済み / 無断 tombstones in their slot).
-      getAppointmentsByDateWithClient(synqed, selectedDateStr, {
-        storeId,
-        nameById,
-        includeCancelled: true,
-      }),
+      blind
+        ? Promise.resolve([])
+        : getAppointmentsByDateWithClient(synqed, selectedDateStr, {
+            storeId,
+            nameById,
+            includeCancelled: true,
+          }),
       weekRange
         ? windowFor(
             weekRange.rangeFrom.toISOString(),
@@ -231,6 +258,21 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             jstEndOfDay(selectedDate).toISOString(),
           )
         : Promise.resolve(null),
+      // The previous month's compared span — through the SAME windowFor as the
+      // month read above, so the two sides of the comparison carry one store
+      // clamp and one 担当 filter. In this wave, so it costs no waterfall.
+      //
+      // The ONE read in this wave that does not reach the 502. Every other one
+      // must, because a calm empty week is the lie this screen may never tell
+      // — but the clause is an optional annotation whose absent state is
+      // exactly `null`, so a half-down core costs the phone one clause instead
+      // of the whole 予約 screen.
+      compareWindow
+        ? windowFor(compareWindow.fromIso, compareWindow.toIso).catch((err) => {
+            console.error('[appointments] 先月同期間比 read degraded:', err)
+            return null
+          })
+        : Promise.resolve(null),
       // No catch: storePolicies.get answers the PLATFORM DEFAULTS for a store
       // with no row of its own (`source: 'default'`, the SDK's own contract in
       // dist/store-policies.d.ts), so "no policy row" is a normal 200. Anything
@@ -242,10 +284,14 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             to: span.toExclusiveYmd, // exclusive, per the SDK's own contract
           })
         : Promise.resolve({ closed_days: [] as { date: string }[] }),
-      storeStaffIdSetForBusiness(staffList, storeId ?? null, businessId),
+      blind
+        ? Promise.resolve(new Set<string>())
+        : storeStaffIdSetForBusiness(staffList, storeId ?? null, businessId),
       // ⚖ R1-5 — the DIVISOR's roster is the strict one: a member no assignment
       // row could place is not a lane at this store (nor at any other).
-      storeDivisorRosterForBusiness(staffList, storeId ?? null, businessId),
+      blind
+        ? Promise.resolve(null)
+        : storeDivisorRosterForBusiness(staffList, storeId ?? null, businessId),
       // The store's own row, for its vertical (S5). Degraded-allowed and
       // CAUGHT, unlike its neighbours in this wave: a store row we cannot read
       // says nothing about whether this shop runs classes, and the org-wide
@@ -285,7 +331,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
 
     const screen = buildAppointmentsScreen({
       locale,
-      now: new Date(),
+      now,
       selectedDate,
       staffFilter,
       staffList,
@@ -305,6 +351,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       weekWindow,
       monthWindow,
       dayWindow,
+      prevMonthWindow,
       hoursFacts,
       // Per-store first (a chain can run a yoga studio next to a hair salon),
       // the business-wide setting second. Empty string is the org default.
@@ -346,6 +393,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         weekStartIso: screen.weekStartIso,
         dayTotals: screen.dayTotals,
         monthStartIso: screen.monthStartIso,
+        monthCompareDelta: screen.monthCompareDelta,
         truncated: screen.truncated,
         soloMode: screen.soloMode,
         monthData:
@@ -356,6 +404,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
             isToday: c.isToday,
             count: c.count,
             density: c.density,
+            closed: c.closed,
             // The cell's own capacity fact, keyed by the same id the cell
             // carries. An out-of-month padding cell has none and takes the
             // no-capacity defaults — it renders no numbers either way.

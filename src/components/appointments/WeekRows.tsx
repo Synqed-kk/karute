@@ -7,6 +7,7 @@
 // The `data-week-*` markers exist so the port itself is testable: every one of
 // those CSS rules is pinned by a named test, not left to a screenshot.
 import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { MonthDensityBucket } from '@synqed-kk/ui'
 import { useTranslations } from 'next-intl'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -50,14 +51,24 @@ function shortMonthDay(dateIso: string): string {
   return `${p.month}/${p.day}`
 }
 
+/** ONE band→colour map for every 予約 surface that draws a density dot: the
+ *  week row's own dot and the 月 grid's (MonthPage's `cellTone`). A second map
+ *  is how the same day ends up green here and blue there. */
+export const DENSITY_DOT_CLASS: Record<MonthDensityBucket, string | null> = {
+  empty: null,
+  light: 'bg-[var(--color-success)]',
+  medium: 'bg-[var(--color-accent)]',
+  busy: 'bg-[var(--color-warning)]',
+}
+
 /** The app's ONE fixed density table (mirrors reservation.ts's private
  *  densityFor / @synqed-kk/ui's MonthDensityBucket thresholds — not
  *  exported, so reproduced here; pinned equal by a test). null = no dot. */
 export function densityDotClass(count: number): string | null {
-  if (count === 0) return null
-  if (count <= 2) return 'bg-[var(--color-success)]'
-  if (count <= 5) return 'bg-[var(--color-accent)]'
-  return 'bg-[var(--color-warning)]'
+  if (count === 0) return DENSITY_DOT_CLASS.empty
+  if (count <= 2) return DENSITY_DOT_CLASS.light
+  if (count <= 5) return DENSITY_DOT_CLASS.medium
+  return DENSITY_DOT_CLASS.busy
 }
 
 // Shared with DayNumbersLine.tsx (W5) — one tone→class map for both cell
@@ -102,6 +113,22 @@ export const VALUE_TONE_CLASS: Record<Cell['tone'], string> = {
   muted: 'text-[var(--color-text-muted)]',
 }
 
+// mock `.dayline .shim{width:52px;height:12px;border-radius:999px;
+// margin-right:12px}` — the day line's AND the month line's pending pill,
+// through ONE door so the two surfaces cannot drift (R2-7). `mr-3` (12px) on
+// top of the line's own `gap-[14px]` is the mock's 26px edge-to-edge gap
+// between the two shims — margin and gap stack, they don't replace one
+// another. The trailing margin on the second pill is harmless (nothing sits
+// after it).
+export function LinePill() {
+  return (
+    <span
+      aria-hidden
+      className="reservation-shim mr-3 inline-block h-[12px] w-[52px] rounded-full"
+    />
+  )
+}
+
 // mock `.wkcell .shim{width:62px;height:11px;transform:translateY(1px)}` —
 // R3-18 swaps the fill+animation for the mock's own 1.1s sweep
 // (`.reservation-shim`, globals.css); the geometry is unchanged.
@@ -116,11 +143,15 @@ function ValuePill({ pending }: { pending?: boolean }) {
 }
 
 // mock `.wksum b{color:var(--ink);font-weight:700;font-variant-numeric:
-// tabular-nums}` — the LINE is grey 12.5/600, only the numbers are ink. The
+// tabular-nums}` — the LINE is grey 12/500, only the numbers are ink. The
 // 新規 number is ink here on purpose: §v11c turned 新規 blue on four surfaces
 // (day line · week rows · month line · selected-day card) and deliberately
 // not on this one (spec §3).
-const SUMMARY_NUMBER = 'font-bold tabular-nums text-[var(--color-text)]'
+//
+// Weight 600, never the mock's 700 (2026-09-15 type-system fix) — the
+// reservation agenda's value weight is the app's ceiling on this screen
+// (ReservationMobileAgenda.tsx :316).
+const SUMMARY_NUMBER = 'font-semibold tabular-nums text-[var(--color-text)]'
 
 // mock `.wksum .shim{width:38px;height:11px;transform:translateY(1px)}` —
 // narrower than the grid cells' 62px pill.
@@ -156,8 +187,12 @@ function GridCell({ cell, pending }: { cell: Cell; pending?: boolean }) {
        *  non-text-critical floor; the mock's own --mute step (2.54:1) was
        *  raised to the floor by taking the WORD tone instead (zinc-500
        *  dark:zinc-400 — DayNumbersLine's pair): 4.83:1 on white, 4.34:1 on
-       *  the today wash, 6.75:1 on the dark card. */}
-      <span className="shrink-0 text-[11px] font-bold leading-[1.2] text-zinc-500 dark:text-zinc-400">
+       *  the today wash, 6.75:1 on the dark card.
+       *
+       *  Weight 500, never the mock's 700 (2026-09-15 type-system fix): a
+       *  label on this screen matches the agenda's meta labels
+       *  (ReservationMobileAgenda.tsx :291, :451), never bold. */}
+      <span className="shrink-0 text-[11px] font-medium leading-[1.2] text-zinc-500 dark:text-zinc-400">
         {cell.label}
       </span>
       {pending ? (
@@ -169,7 +204,17 @@ function GridCell({ cell, pending }: { cell: Cell; pending?: boolean }) {
             // mock `.wkcell .vl{font-size:14.5px;font-weight:600;
             //  line-height:1.2;white-space:nowrap;tabular-nums}` +
             // `.vl.nw{display:inline-flex;align-items:center;gap:3px}`
-            'inline-flex items-center gap-[3px] whitespace-nowrap text-[14.5px] font-semibold leading-[1.2] tabular-nums',
+            //
+            // Size 13px, never the mock's 14.5 (2026-09-15 type-system fix):
+            // matches the agenda's value size (ReservationMobileAgenda.tsx
+            // :316). Weight 600 already matched the app's scale — unchanged.
+            // Values only get narrower here, never wider — the widest string
+            // (「予約時間 100時間30分」, R2-2/R3-12's own case) measures 130.06 px
+            // at 13px (was 139.42 at the mock's 14.5), so `minmax(130px,
+            // max-content)` grows the track by 0.06 px instead of clipping —
+            // still never walks into 無断's box, with far more margin than
+            // before. Production-build measurement, T-5 evidence.
+            'inline-flex items-center gap-[3px] whitespace-nowrap text-[13px] font-semibold leading-[1.2] tabular-nums',
             VALUE_TONE_CLASS[cell.tone],
           )}
         >
@@ -245,7 +290,11 @@ export function WeekRows({
           // labels. zinc-500 measures 4.83:1 on white; on the dark card it
           // drops to 3.67:1, under the 4.5:1 floor for words, so the dark pair
           // steps up to zinc-400 (6.75:1).
-          className="flex flex-wrap items-center gap-1.5 px-1 pb-[9px] text-[12.5px] font-semibold text-zinc-500 dark:text-zinc-400"
+          //
+          // 12/500, never the mock's 12.5/600 (2026-09-15 type-system fix) —
+          // the summary line is a WORD row on this screen; the app's own
+          // ceiling for a word is 500, the agenda's meta labels' size.
+          className="flex flex-wrap items-center gap-1.5 px-1 pb-[9px] text-[12px] font-medium text-zinc-500 dark:text-zinc-400"
         >
           <span>
             {t('summaryRange', {
@@ -346,12 +395,16 @@ export function WeekRows({
                 // R3-17 — mock `--hair` (#eef0f2) for the row rule against
                 // `--line` (#e6e8eb) for the card edge: two deliberately
                 // different greys, so the block reads as a card with hairlines
-                // inside it rather than a ruled table. Both pointed at
-                // `--color-border`. zinc-100 is the lighter step; on dark the
-                // zinc scale has nothing between the card's own background
-                // (#18181b) and its edge (#27272a), so the dark pair keeps
-                // today's relationship.
-                'flex min-h-[76px] w-full items-center gap-2.5 border-b border-zinc-100 py-3 pl-3 pr-2.5 text-left last:border-b-0 dark:border-zinc-800',
+                // inside it rather than a ruled table.
+                // R2-6 (LENS-3 #2) — zinc-100 (#f4f4f5) measured ~35% weaker
+                // than the mock's --hair on real pixels; `border-zinc-200/70`
+                // (≈#ececee over white) is the ONE hair token, shared with the
+                // month grid's own cell borders (MonthPage.tsx) — still
+                // lighter than the card edge (`--color-border`, zinc-200's
+                // full strength). On dark the zinc scale has nothing between
+                // the card's own background (#18181b) and its edge (#27272a),
+                // so the dark pair keeps today's relationship.
+                'flex min-h-[76px] w-full items-center gap-2.5 border-b border-zinc-200/70 py-3 pl-3 pr-2.5 text-left last:border-b-0 dark:border-zinc-800',
                 // MOTION (W-I), read off the mock's own cascade: `.wkrow`
                 // (line 144) sets `transition:background-color .12s ease`, but
                 // `[data-press]` (line 282) re-declares the same SHORTHAND at
@@ -397,9 +450,13 @@ export function WeekRows({
               )}
             >
               <div className="flex w-[52px] shrink-0 flex-col items-center gap-0.5">
+                {/* Size 20px stays — the mock's own column geometry — but
+                 *  weight is the app's 600, never 700 (2026-09-15
+                 *  type-system fix; the agenda's day block is 17/600,
+                 *  ReservationMobileAgenda.tsx :360). */}
                 <span
                   className={cn(
-                    'flex size-[30px] items-center justify-center rounded-full text-[20px] font-bold leading-none tabular-nums',
+                    'flex size-[30px] items-center justify-center rounded-full text-[20px] font-semibold leading-none tabular-nums',
                     isToday
                       ? 'bg-primary text-primary-foreground'
                       : isSat
@@ -426,7 +483,10 @@ export function WeekRows({
                       // still measures 6.00:1, clearing 4.5:1, so the dark
                       // pair is unchanged. Other rows keep zinc-500
                       // dark:zinc-400.
-                      'text-[11px] font-bold leading-none',
+                      //
+                      // Weight 600, never the mock's 700 (2026-09-15
+                      // type-system fix) — size 11px is untouched.
+                      'text-[11px] font-semibold leading-none',
                       isSat
                         ? 'text-primary'
                         : isSun
@@ -474,9 +534,11 @@ export function WeekRows({
               >
                 {closed ? (
                   // mock `.wkgrid .closedcell{grid-column:1/-1}` +
-                  // `.closedcell .vl{font-size:15px}` `.vl.mut`
+                  // `.closedcell .vl{font-size:15px}` `.vl.mut` — size 13px,
+                  // never the mock's 15 (2026-09-15 type-system fix), matching
+                  // the row's own value size.
                   <div className="col-span-full">
-                    <span className={cn('text-[15px]', VALUE_TONE_CLASS.muted)}>{t('closed')}</span>
+                    <span className={cn('text-[13px]', VALUE_TONE_CLASS.muted)}>{t('closed')}</span>
                   </div>
                 ) : (
                   cells.map((cell) => <GridCell key={cell.key} cell={cell} pending={pending} />)

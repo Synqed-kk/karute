@@ -162,7 +162,7 @@
     },
     "dateJump": {
       "loading": "Loading bookings…",
-      "failed": "Couldn't load bookings",
+      "failed": "Couldn't load bookings. Please try again.",
       "legendCount": "Number = bookings that day"
     },
     "weekCard": {
@@ -188,6 +188,7 @@
       "returning": "Returning",
       "cancelled": "Cancelled",
       "noShow": "No-show",
+      "lastMonthSamePeriod": "vs same period last month",
       "unset": "Not set",
       "closed": "Closed",
       "countValue": "{n}",
@@ -198,7 +199,10 @@
       "failed": "Couldn't load bookings. Please try again.",
       "rowAria": "{date} — {cells}",
       "ariaSep": ", ",
-      "ariaLoading": "Loading"
+      "ariaLoading": "Loading",
+      "moreRows": "{n} more",
+      "openDay": "Open this day →",
+      "noBookings": "No bookings yet for this day"
     },
     "status": {
       "booked": "Booked",
@@ -906,6 +910,11 @@
     "title": "Customers",
     "newCustomer": "+ New customer",
     "unknownName": "Unknown",
+    "otherStoreChip": "Other store",
+    "otherStoreSection": "Other store customers",
+    "otherStoreUnknownChip": "Store unknown",
+    "karuteNumberUnavailable": "Karute-number search is temporarily unavailable",
+    "remoteMore": "All-store search hit its limit of {n} — keep typing to narrow",
     "deletionBanner": {
       "title": "{name} is deleted — restorable for {days, plural, one {# more day} other {# more days}}",
       "titleToday": "The in-app restore window for {name} ends today",
@@ -2226,6 +2235,7 @@
     "tableColors": "Table Colors",
     "bookingSync": "Booking Sync",
     "bookingSyncDescription": "Sync with Quick Reserve etc.",
+    "bookingSyncStoreNotReady": "Quick Reserve sync for this store isn't ready yet. We'll let you know as soon as per-store sync is available.",
     "sync": {
       "webOnly": "Reservation sync is managed from the web version's settings",
       "healthy": "Syncing normally",
@@ -3545,6 +3555,7 @@
     "cap_stores_viewAll": "View all stores",
     "cap_alerts_manage": "Manage alerts",
     "cap_customers_view": "View customers",
+    "cap_customers_manage": "Add & edit customers",
     "cap_bookings_manage": "Manage bookings"
   },
   "staffSelector": {

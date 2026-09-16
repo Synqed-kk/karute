@@ -1,8 +1,10 @@
 // カルテ tab search-reveal web action (PR-1b 検索リビール, karute-tab
-// restructure packet). Pins:
-//   1. Store scoping: a clamped viewer's SEARCH is store-scoped (never
-//      another store's customer); a cross-store viewer's search is
-//      business-wide (list-all.ts's own enforceStore gate, copied verbatim).
+// restructure packet). Pins (⚖ Liam 2026-09-16, P3 cross-branch search —
+// updates pin 1 from the PR-1b original: search used to stay store-scoped
+// for a clamped viewer; it no longer does):
+//   1. Store scoping: the SEARCH is ALWAYS business-wide now, for a clamped
+//      viewer exactly like a cross-store one — "find any company customer"
+//      applies here too.
 //   2. The zero-karute CHECK is ALWAYS store-scoped, even when the search
 //      itself was business-wide — a customer with karute elsewhere still
 //      has none HERE.
@@ -86,13 +88,13 @@ beforeEach(() => {
 })
 
 describe('revealNoKaruteCustomer — store scoping', () => {
-  it('clamped viewer: the SEARCH is store-scoped (enforceStore gate)', async () => {
+  it('clamped viewer: the SEARCH is now ALSO business-wide (⚖ P3, 2026-09-16)', async () => {
     clampedTo('store-ginza')
     customersList.mockResolvedValueOnce({ customers: [customer()], total: 1 })
     karuteRecordsList.mockResolvedValueOnce({ karute_records: [], total: 0 })
     await revealNoKaruteCustomer('田中')
     expect(customersList).toHaveBeenCalledWith(
-      expect.objectContaining({ search: '田中', store_id: 'store-ginza', page_size: 5 }),
+      expect.objectContaining({ search: '田中', store_id: undefined, page_size: 5 }),
     )
   })
 

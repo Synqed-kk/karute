@@ -226,8 +226,12 @@ function freeOrBookedTimeSlot(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set
 }
 
 /** A closed day WITH bookings still shows its numbers (⚖ lead ruling) — only
- *  a truly empty closed day collapses to 「休」. */
-export function isClosedRow(row: WeekDayRowData): boolean {
+ *  a truly empty closed day collapses to 「休」.
+ *
+ *  The parameter is the two fields the question needs, not a week row: the 月
+ *  grid's cell asks it about the same day and must get the same answer, switch
+ *  included. One predicate, both surfaces. */
+export function isClosedRow(row: { closed: boolean; count: number }): boolean {
   return row.closed && row.count === 0 && BOOKING_SWITCHES.closedDays
 }
 

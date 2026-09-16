@@ -5,6 +5,9 @@ import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { ensureRecordStoreInScope } from '@/lib/auth/store-lock'
+import { AppApiError } from '@/lib/app-api/errors'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 /**
@@ -28,10 +31,41 @@ export async function updateKaruteOutcome(
   try {
     const synqed = await getSynqedClient()
     const record = await synqed.karuteRecords.get(karuteRecordId)
+    // STORE LOCK (⚖ Liam 2026-09-16): the outcome is a write ON a record, so a
+    // clamped actor must not be able to re-label another branch's karute by
+    // id. Its out-of-store refusal carries the exact 'karute record not found'
+    // a missing id already returns here — one answer, no existence oracle —
+    // and the catch below preserves it verbatim. The lock lives at THIS door
+    // (not in setKaruteOutcomeWithClient) because that core is also the
+    // save-embedded and background-job writer, which carry no actor scope and
+    // stamp their store through resolveKaruteStoreId instead.
+    ensureRecordStoreInScope(
+      { store_id: (record.store_id as string | null) ?? null },
+      await resolveStoreScope(),
+      'karute record not found',
+    )
     const linked = (record.customer_id as string | null) ?? null
     if (!linked) return { error: 'karute has no linked customer' }
     customerId = linked
-  } catch {
+  } catch (err) {
+    // ⚖ Greptile fold (2026-09-16): the lock's OWN refusals pass through with
+    // their own message; only a genuine READ failure collapses to not-found.
+    //
+    // The blanket collapse this replaces told a staff member the record was
+    // MISSING whenever their store-assignment lookup merely blipped — the
+    // lock's fail-closed `store_forbidden` wearing a not-found coat. That is
+    // a lie about someone else's data and it hides a retryable condition;
+    // every other locked web door already lets AppApiError's message ride
+    // (the booking cores and deleteKaruteRecord all return `err.message`),
+    // and the facade twin of THIS door maps the two codes apart.
+    //
+    // ⚠ The existence oracle stays closed, because the two answers are the
+    // same STRING by construction: the out-of-store refusal is thrown with
+    // 'karute record not found' above, which is what a missing id returns
+    // here — so passing it through changes nothing a clamped actor can see.
+    // Only `store_forbidden` (degraded scope) now reads differently, and it
+    // is an answer about the CALLER's own session, never about the record.
+    if (err instanceof AppApiError) return { error: err.message }
     return { error: 'karute record not found' }
   }
   const result = await setKaruteOutcome({

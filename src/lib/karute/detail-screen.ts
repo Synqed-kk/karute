@@ -99,6 +99,11 @@ export interface KaruteDetailScreen {
    *  the ACT is the owner's two keys, so a named grantee reads a colleague's
    *  words and may not rewrite them. Hide the control, never show-and-refuse. */
   staffCanRegenerate: boolean
+  /** May this viewer EDIT this record at all — the store lock's screen half
+   *  (⚖ Liam 2026-09-16). False hides the entry pencil, the summary pencil and
+   *  the 成約 control: after cross-branch search opens, a 銀座 staffer can OPEN
+   *  a 代官山 karute, and every write on it is refused by the server. */
+  staffCanEditRecord: boolean
   /** R8 discarded-record door (⚖ Liam 2026-09-13): non-null exactly when this
    *  karute's status is DISCARDED. The facts + discard reason a
    *  `records.discardView` holder (or the record's own staffer) may see —
@@ -178,6 +183,10 @@ export interface BuildKaruteDetailScreenArgs {
    *  expression actions/regenerate-karute.ts enforces — so the button and the
    *  action cannot drift apart. */
   staffCanRegenerate: boolean
+  /** The store lock's screen half, resolved by the caller with the SAME
+   *  predicate the write doors enforce (recordEditableInScope, auth/
+   *  store-lock.ts) — so the pencil and the action cannot drift apart. */
+  staffCanEditRecord: boolean
   /** customerId-gated wave-2 results — null when the karute has no linked client. */
   contact: Contact | null
   consentResult: { consent: unknown } | null
@@ -214,6 +223,7 @@ export function buildKaruteDetailScreen(
     businessId,
     staffCanReassignRecords,
     staffCanRegenerate,
+    staffCanEditRecord,
     contact,
     consentResult,
     customer,
@@ -390,6 +400,7 @@ export function buildKaruteDetailScreen(
     // server truth, not only the screen (never widen a write).
     staffCanReassignRecords: isDiscarded ? false : staffCanReassignRecords,
     staffCanRegenerate: isDiscarded ? false : staffCanRegenerate,
+    staffCanEditRecord: isDiscarded ? false : staffCanEditRecord,
     discarded: isDiscarded
       ? {
           reason: discardLedger?.reason ?? null,

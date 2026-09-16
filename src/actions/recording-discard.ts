@@ -12,6 +12,7 @@
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveWebActorId } from '@/lib/audit-web'
 import { requireCapability } from '@/lib/auth/require-permission'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getBusinessId, getCurrentAccessToken } from '@/lib/staff'
 import {
   discardRecordingWithClient,
@@ -24,9 +25,10 @@ import {
  *  same tier as the save action this discard is the alternative to (a
  *  frontdesk account that cannot record must not be able to file recording
  *  receipts). No finer capability check: the discard ACL matrix is Phase B
- *  (B6). Cross-tenant is impossible via the business-scoped client;
- *  within-tenant misattribution is staff-authenticated audit noise, accepted
- *  for Phase A receipts.
+ *  (B6). Cross-tenant is impossible via the business-scoped client, and
+ *  CROSS-STORE is refused by the choke point's store lock (⚖ Liam
+ *  2026-09-16); what stays accepted for Phase A receipts is within-STORE
+ *  misattribution between colleagues — staff-authenticated audit noise.
  *
  *  That accepted class now includes ONE DISPLAYED value, not only audit rows
  *  (names-fix 2026-08-31): the same call writes recordings.duration_seconds on
@@ -76,6 +78,10 @@ async function openDiscardDoor(): Promise<
       actor: {
         staffId: await resolveWebActorId(),
         businessId,
+        // Store lock (⚖ Liam 2026-09-16) — the choke point refuses a discard
+        // filed against another branch's session; a failed scope read arrives
+        // as `degraded` and fails closed there.
+        scope: await resolveStoreScope(),
         source: 'web',
         // PR-M5 piece ④: minted once at the action boundary.
         requestId: crypto.randomUUID(),

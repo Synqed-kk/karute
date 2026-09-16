@@ -162,7 +162,7 @@
     },
     "dateJump": {
       "loading": "予約状況を読み込み中…",
-      "failed": "予約状況を取得できませんでした",
+      "failed": "予約状況を取得できませんでした。もう一度お試しください。",
       "legendCount": "数字＝その日の予約件数"
     },
     "weekCard": {
@@ -188,6 +188,7 @@
       "returning": "再来",
       "cancelled": "キャンセル",
       "noShow": "無断",
+      "lastMonthSamePeriod": "先月同期間比",
       "unset": "未設定",
       "closed": "休",
       "countValue": "{n}件",
@@ -198,7 +199,10 @@
       "failed": "予約状況を取得できませんでした。もう一度お試しください。",
       "rowAria": "{date}、{cells}",
       "ariaSep": "、",
-      "ariaLoading": "読み込み中"
+      "ariaLoading": "読み込み中",
+      "moreRows": "他{n}件",
+      "openDay": "この日を開く →",
+      "noBookings": "この日の予約はまだありません"
     },
     "status": {
       "booked": "予約済",
@@ -906,6 +910,11 @@
     "title": "顧客",
     "newCustomer": "+ 新規顧客",
     "unknownName": "不明",
+    "otherStoreChip": "他店舗",
+    "otherStoreSection": "他店舗のお客様",
+    "otherStoreUnknownChip": "店舗不明",
+    "karuteNumberUnavailable": "カルテ番号での検索は一時的に使えません",
+    "remoteMore": "全店舗検索は上限の{n}件に達しました — さらに入力して絞り込み",
     "deletionBanner": {
       "title": "{name}様は削除済みです — 復元可能 残り{days}日",
       "titleToday": "{name}様のアプリ内復元期間は本日までです",
@@ -2226,6 +2235,7 @@
     "tableColors": "テーブル色",
     "bookingSync": "予約同期",
     "bookingSyncDescription": "Quick Reserve 等との同期",
+    "bookingSyncStoreNotReady": "この店舗の Quick Reserve 連携はまだ準備中です。店舗ごとの連携が入り次第ご案内します。",
     "sync": {
       "webOnly": "予約同期の設定はWeb版からご利用ください",
       "healthy": "正常に同期中",
@@ -3545,6 +3555,7 @@
     "cap_stores_viewAll": "全店舗の閲覧",
     "cap_alerts_manage": "アラートの管理",
     "cap_customers_view": "顧客の閲覧",
+    "cap_customers_manage": "顧客の登録・編集",
     "cap_bookings_manage": "予約の管理"
   },
   "staffSelector": {

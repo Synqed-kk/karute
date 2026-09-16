@@ -104,7 +104,10 @@ beforeEach(async () => {
   })
   s.policyGet.mockResolvedValue({ weekly_hours: { tue: { open: '10:00', close: '20:00' } } })
   s.closedDays.mockResolvedValue({ closed_days: [] })
-  ;(resolveStoreScope as jest.Mock).mockResolvedValue({ storeId: GINZA })
+  ;(resolveStoreScope as jest.Mock).mockResolvedValue({
+    storeId: GINZA,
+    allowedStoreIds: [GINZA],
+  })
   ;(getCurrentUserStaffId as jest.Mock).mockResolvedValue(VIEWER_PROFILE)
   ;(getOrgSettings as jest.Mock).mockResolvedValue({
     operating_hours: null,
@@ -123,7 +126,10 @@ describe('getAppointmentWindow — the store clamp rides every read (mutant m10)
   })
 
   it('a caller-named store cannot reach the read — only the clamp can', async () => {
-    ;(resolveStoreScope as jest.Mock).mockResolvedValue({ storeId: 'store-daikanyama' })
+    ;(resolveStoreScope as jest.Mock).mockResolvedValue({
+      storeId: 'store-daikanyama',
+      allowedStoreIds: ['store-daikanyama'],
+    })
     await getAppointmentWindow(FROM, TO, 'all')
     const s = await spies()
     expect(s.list).toHaveBeenCalledWith(
@@ -132,7 +138,10 @@ describe('getAppointmentWindow — the store clamp rides every read (mutant m10)
   })
 
   it('no store to name: no policy read at all, and the hours fall to the org blob', async () => {
-    ;(resolveStoreScope as jest.Mock).mockResolvedValue({ storeId: null })
+    ;(resolveStoreScope as jest.Mock).mockResolvedValue({
+      storeId: null,
+      allowedStoreIds: null,
+    })
     const win = await getAppointmentWindow(FROM, TO, 'all')
     const s = await spies()
     expect(s.policyGet).not.toHaveBeenCalled()
@@ -198,8 +207,11 @@ describe("getAppointmentWindow — 'self' is the SERVER's answer, never the call
   })
 
   it('takes no viewer-id argument at all, and ignores one if a caller POSTs it', async () => {
-    // 'use server' makes this an endpoint: a 4th argument is exactly what an
-    // attacker would send to read a colleague's 自分 week.
+    // 'use server' makes this an endpoint: an extra argument is exactly what
+    // an attacker would send to read a colleague's 自分 week. The action's
+    // only optional argument is `withHours`, a boolean that decides whether to
+    // ask about opening hours — it can never name an identity, and the three
+    // REQUIRED arguments are still the three that were always there.
     expect(getAppointmentWindow).toHaveLength(3)
     await (getAppointmentWindow as unknown as (...a: unknown[]) => Promise<unknown>)(
       FROM,
