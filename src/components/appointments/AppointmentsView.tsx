@@ -985,7 +985,17 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  full strength; the card's two shims are what says "working", and a tap
        *  during a pending read simply replaces the pending move. `aria-busy`
        *  stays — it says busy without taking the page away. */}
-      {/* ⚖ SWIPE (Liam 9/16) — 日 · 週 · 月 move under the finger, the same
+      {/* ⚖ 9/16 15:4x — Liam: the swipe is a source of accidental-page-turns on
+        *  a scrolled, tapped LIST (a drag mid-scroll would change the day
+        *  under the thumb); 週/月 are grids where a swipe reads as a page
+        *  turn. So the gesture binds ONLY on 週 and 月 — 日 renders exactly as
+        *  it did before this round: no track, no neighbour panes, no
+        *  `touch-action` change, no `data-gesture-inert` (`slide.bind` is
+        *  simply never spread, so the hook attaches no pointer listener). */}
+      {view === 'day' ? (
+        viewBody
+      ) : (
+      /* ⚖ SWIPE (Liam 9/16) — 週 · 月 move under the finger, the same
         *  gesture as the pop-down calendar's own months
         *  (src/lib/motion/use-horizontal-slide.ts), never a second one that
         *  feels almost like it.
@@ -996,7 +1006,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         *
         *  `overflow-hidden` clips the two neighbour panes; the pane in FLOW is
         *  the one on screen, so the box keeps the page's own height and the
-        *  travel adds no layout of its own. */}
+        *  travel adds no layout of its own. */
       <div
         ref={slideBoxRef}
         data-gesture-inert=""
@@ -1027,6 +1037,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           <div className="w-full">{viewBody}</div>
         </div>
       </div>
+      )}
 
       <NewBookingDialog
         open={dialogOpen}

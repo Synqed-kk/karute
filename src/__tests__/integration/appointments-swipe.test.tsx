@@ -8,6 +8,10 @@
  * PAGE can answer: that a landed swipe moves the right number of days for the
  * view it was made on, that a vertical intent leaves the page alone, and that
  * the pane travelling in is the neighbour's own dates with no numbers on them.
+ *
+ * ⚖ 9/16 15:4x (Liam) — 日 is a scrolled, tapped LIST; a horizontal drag there
+ * can change the day under a thumb mid-scroll. The gesture binds ONLY on 週
+ * and 月 now — see "no swipe on 日" below for the negative proof.
  */
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -75,7 +79,7 @@ function weekRow(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
 }
 
 function renderView(view: DayWeekMonthView) {
-  render(
+  return render(
     <AppointmentsView
       staff={[]}
       activeStaffId={null}
@@ -140,8 +144,6 @@ afterEach(() => {
 
 describe('a landed swipe moves the page by ONE unit of the view it was made on', () => {
   it.each([
-    ['day', -20, 'date=2026-09-15'],
-    ['day', 20, 'date=2026-09-13'],
     ['week', -20, 'date=2026-09-21'],
     ['week', 20, 'date=2026-09-07'],
     ['month', -20, 'date=2026-10-01'],
@@ -154,6 +156,38 @@ describe('a landed swipe moves the page by ONE unit of the view it was made on',
     expect(href).toContain(expected)
     // THE MODE NEVER CHANGES on a swipe — a week swipe stays on the week.
     expect(href).toContain(`view=${view}`)
+  })
+})
+
+describe('⚖ 9/16 — no swipe on 日 (Liam 15:4x): the 日 page is a list, not a track', () => {
+  it('day renders no slide track at all — the gesture has nothing to bind to', () => {
+    const { container } = renderView('day')
+    expect(container.querySelector('[data-slide-box]')).toBeNull()
+  })
+
+  it('day, dx -60 (a fast flick, the same speed that commits on week/month) never calls navigateTo', async () => {
+    const { container } = renderView('day')
+    // `[data-pending-dim]` is inside `viewBody`, so it sits INSIDE the track
+    // when a mutant re-wraps 日 in `data-slide-box` — the same flick that
+    // commits on week/month would then commit here too.
+    const el = container.querySelector('[data-pending-dim]')!
+    const id = 9
+    pointer('pointerdown', el, { pointerId: id, clientX: 300, clientY: 200, timeStamp: 1000 })
+    pointer('pointermove', el, { pointerId: id, clientX: 240, clientY: 201, timeStamp: 1001 })
+    pointer('pointerup', el, { pointerId: id, clientX: 240, clientY: 201, timeStamp: 1001 })
+    await frames(3000)
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('a vertical drag on 日 scrolls normally — no pointer-capture, no preventDefault path exists', async () => {
+    const { container } = renderView('day')
+    const el = container.querySelector('[data-pending-dim]')!
+    const id = 10
+    pointer('pointerdown', el, { pointerId: id, clientX: 300, clientY: 200, timeStamp: 2000 })
+    pointer('pointermove', el, { pointerId: id, clientX: 302, clientY: 340, timeStamp: 2016 })
+    pointer('pointerup', el, { pointerId: id, clientX: 302, clientY: 340, timeStamp: 2016 })
+    await frames(3000)
+    expect(push).not.toHaveBeenCalled()
   })
 })
 
