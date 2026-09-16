@@ -4113,6 +4113,7 @@ export function TodayScreen(props: TodayProps) {
           staffUntil: staffLane?.untilLabel ?? null,
           laneLocked: staffLane != null && locked.includes(staffLane.key),
           minutesOf: (x) => minuteOf(x, hours),
+          turnoverWord: (staffLane ? wordsForLane(staffLane) : props.words).turnoverWord ?? props.genericWords.turnoverWord!,
         }),
         hasPriceFor(id),
       )
@@ -4138,7 +4139,11 @@ export function TodayScreen(props: TodayProps) {
       }
       return checks
     },
-    [boardLanes, sellPublished.cells, hours, locked, hasPriceFor],
+    // ⚖ D-53 (ak)/(al) N2c-2 — RAW props, never `wordsForLane` itself: that
+    // function would give `checksFor` a new identity every render and kill
+    // the `pendingChecks` memo built on top of it (⚖ PLAN F10).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [boardLanes, sellPublished.cells, hours, locked, props.wordsByStore, props.words, props.genericWords, hasPriceFor],
   )
 
   /** canon `syncPendingUI` (:3673): while the board is showing a DIFFERENT day

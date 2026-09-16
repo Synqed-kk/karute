@@ -299,6 +299,7 @@ describe('the 仮押さえ checks — canon computeChecks :4691', () => {
     staffUntil: '18:00',
     laneLocked: false,
     minutesOf: (x: number) => Math.round(600 + (x / 100) * 540),
+    turnoverWord: '清掃',
   }
 
   it('a clean landing passes every check and unlocks 確定', () => {

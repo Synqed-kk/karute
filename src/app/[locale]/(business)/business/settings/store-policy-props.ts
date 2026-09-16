@@ -154,6 +154,9 @@ export async function storePolicyProps({
     operatorStaffId: shell.operator.staff_id,
     storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
     crossStore: !clamped,
+    // ⚖ D-53 (u) — the generic row until N3 hands the settings room its store's own row
+    wordsByStore: {},
+    genericWords: RESOURCE_WORDS.other,
   }
   const bookings = dayBookings(input)
   const lanes = buildLanes(input, bookings)
@@ -284,6 +287,7 @@ export async function storePolicyProps({
           staffUntil: sampleLane.untilLabel,
           laneLocked: false,
           minutesOf: (x) => minuteOf(x, hours),
+          turnoverWord: RESOURCE_WORDS.other.turnoverWord!,
         })
 
   /** ⚖ WHO COUNTS AS 「スタッフ」 FOR THE PREVIEW, read off the store's own data

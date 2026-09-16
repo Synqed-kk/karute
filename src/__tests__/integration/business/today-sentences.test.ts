@@ -8,7 +8,17 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { RESOURCE_WORDS } from '@/business/lib/resource-words'
-import { minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
+import {
+  buildLanes,
+  hhmm,
+  minuteOf,
+  place,
+  type BoardBooking,
+  type BoardItem,
+  type BoardLane,
+  type BuildInput,
+  type Hours,
+} from '@/business/lib/today-board'
 import {
   allocateBed,
   applyMoves,
@@ -27,8 +37,11 @@ import {
   type RailCell,
   type RailInput,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { computeChecks, type CheckContext } from '@/business/lib/canon-logic/drag-rules'
 import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import type { GapCell } from '@/business/lib/canon-logic/availability'
+import type { FixtureResource } from '@/business/lib/fixtures-today'
+import type { FixtureStaff } from '@/business/lib/fixtures'
 
 const HOURS: Hours = { open: 600, close: 1140 } // 10:00–19:00
 
@@ -177,12 +190,16 @@ describe('⚖ D-53 (u)/(n2b1) — the sentence functions read the resolved words
     // MINOR-4 — a bare `toContain` proved only one; a count pin proves all
     // three: the drag proxy, the card face, the dialog), and the DOM-level
     // proof is the N2b-2 blind round's own item.
+    // ⚖ D-53 (ak)/(al) N2c-2 — DISCLOSED PIN MOVE: 3 → 4. `checksFor`'s Home D
+    // resolution (`turnoverWord: (staffLane ? wordsForLane(staffLane) :
+    // props.words).turnoverWord ?? props.genericWords.turnoverWord!`) is a
+    // genuine fourth call site of the same fallback expression.
     it('TodayScreen resolves a missing lane turnover word from the generic row — source pin', () => {
       const SRC = readFileSync(
         join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
         'utf8',
       )
-      expect(SRC.match(/\?\? props\.genericWords\.turnoverWord!/g)).toHaveLength(3)
+      expect(SRC.match(/\?\? props\.genericWords\.turnoverWord!/g)).toHaveLength(4)
     })
 
     it('page.tsx hands the generic row from the \'other\' business type — source pin', () => {
@@ -637,5 +654,156 @@ describe('⚖ D-53 (ak)/(al) — the frozen word-minting files read the handed-i
       console.log('today-sentences (e) bedTruthViews params', params)
       expect(params).toEqual(['lanes: BoardLane[]', 'frame: DayFrame', 'hand: Hand | null', 'words: AskWords'])
     })
+  })
+
+  // ⚖ D-53 (ak)/(al) N2c-2 — Homes B/C/D: `today-board.ts`'s card label and
+  // cleanup rows, and `drag-rules.ts`'s guard-check label, read the words
+  // handed in through `BuildInput`/`CheckContext` instead of the hardcoded
+  // ベッド/個室/清掃 literals. (e)'s "resource wins" and "staff fallback" cases
+  // use SYNTHETIC per-store words rather than only real business-type rows:
+  // every non-null `privateWord` in the real table is the same literal
+  // (個室), so a real-data-only version of that pair would be vacuously true
+  // — disclosed in the build report.
+  describe('(f) the board builder and the guard check', () => {
+    const CHIRO = 'store-f-chiro'
+    const DENTAL = 'store-f-dental'
+    const HAIR = 'store-f-hair'
+    const YOGA = 'store-f-yoga'
+    const PROBE_STORE = 'store-f-probe'
+    const RESOURCE_STORE = 'store-f-resource-wins'
+    const STAFF_STORE = 'store-f-staff-fallback'
+
+    const WORDS_BY_STORE: Record<string, { privateWord: string | null; turnoverWord: string | null }> = {
+      [CHIRO]: RESOURCE_WORDS.chiropractic,
+      [DENTAL]: RESOURCE_WORDS.dental_clinic,
+      [HAIR]: RESOURCE_WORDS.hair_salon,
+      [YOGA]: RESOURCE_WORDS.yoga_studio,
+      [PROBE_STORE]: { privateWord: '個室X', turnoverWord: '清掃X' },
+      [RESOURCE_STORE]: { privateWord: 'Ｒ個室', turnoverWord: '清掃' },
+      [STAFF_STORE]: { privateWord: 'Ｓ個室', turnoverWord: '清掃' },
+    }
+
+    const mkResource = (over: Partial<FixtureResource> & Pick<FixtureResource, 'id' | 'store_id'>): FixtureResource => ({
+      name: over.id, note: '', cleanup_minutes: 0, room_class: 'standard', ...over,
+    })
+
+    const mkStaff = (id: string): FixtureStaff => ({ id, full_name: id, email: null })
+
+    const mkBooking = (over: Partial<BoardBooking> & Pick<BoardBooking, 'id' | 'staffId' | 'resourceId'>): BoardBooking => ({
+      displayNo: '', customerId: 'c-1', customerName: '見本 花子', staffName: '見本 太郎', menuName: '',
+      resourceName: 'ベッド1', startMinute: 600, endMinute: 660, timeRange: '10:00〜11:00', price: null,
+      category: 'repeat', requiresPrivateRoom: false, state: 'confirmed', settlement: null, source: '',
+      reassignedFromName: null, ticketBalance: null, takenDaysAgo: 0, updatedMinute: null, onBoard: true,
+      ...over,
+    })
+
+    const mkInput = (over: Partial<BuildInput>): BuildInput => ({
+      appointments: [], customers: [], menus: [], staff: [], resources: [],
+      shifts: [], qualifications: {}, staffListPrice: {}, staffStores: {},
+      absence: null, blocks: [], sellSlots: [], decisions: [], hours: HOURS,
+      dayKey: 0, operatorStaffId: '', storeNames: new Map(), crossStore: false,
+      wordsByStore: WORDS_BY_STORE, genericWords: RESOURCE_WORDS.other,
+      ...over,
+    })
+
+    it('(a) STORE_A-equivalent bytes — buildLanes’ card label, cleanup row, and computeChecks’ own label, all byte-for-byte against today’s shipped sentence', () => {
+      const resource = mkResource({ id: 'r-a', store_id: CHIRO, cleanup_minutes: 15 })
+      const staff = mkStaff('s-a')
+      const vip = mkBooking({ id: 'apt-a-vip', staffId: staff.id, resourceId: resource.id, requiresPrivateRoom: true })
+      const input = mkInput({ staff: [staff], resources: [resource], staffStores: { [staff.id]: [CHIRO] } })
+      const lanes = buildLanes(input, [vip])
+
+      const bedLane = lanes.find((l) => l.key === resource.id)!
+      const card = bedLane.items.find((i) => i.caseId === vip.id)!
+      expect(card.label).toContain('個室のみ・')
+
+      const cleanup = bedLane.items.find((i) => i.kind === 'cleanup')!
+      expect(cleanup.title).toBe('清掃')
+      expect(cleanup.label).toBe(`${resource.name}、${hhmm(vip.endMinute)}から${hhmm(vip.endMinute + resource.cleanup_minutes)}、清掃・予約不可`)
+
+      const ctx: CheckContext = {
+        spans: [{ id: 'other-cleanup', x: 0, w: 10, title: '清掃', derived: true, parked: false }],
+        bookingId: vip.id, staffName: staff.full_name, staffUntil: null, laneLocked: false,
+        minutesOf: (x) => x, turnoverWord: '清掃',
+      }
+      const checks = computeChecks({ x: 0, w: 10 }, ctx)
+      expect(checks.some((c) => c.label === '空き枠・清掃は確定時に自動再配置（清掃バッファは設定に従う）')).toBe(true)
+    })
+
+    it('(b) a dental resource’s cleanup row reads 消毒, and a hair-salon resource reads 片付け', () => {
+      const dentalResource = mkResource({ id: 'r-b-dental', store_id: DENTAL, cleanup_minutes: 10 })
+      const hairResource = mkResource({ id: 'r-b-hair', store_id: HAIR, cleanup_minutes: 10 })
+      const dentalBooking = mkBooking({ id: 'apt-b-dental', staffId: null, resourceId: dentalResource.id })
+      const hairBooking = mkBooking({ id: 'apt-b-hair', staffId: null, resourceId: hairResource.id })
+      const input = mkInput({ resources: [dentalResource, hairResource] })
+      const lanes = buildLanes(input, [dentalBooking, hairBooking])
+
+      const dentalCleanup = lanes.find((l) => l.key === dentalResource.id)!.items.find((i) => i.kind === 'cleanup')!
+      expect(dentalCleanup.title).toBe('消毒')
+      expect(dentalCleanup.label).toContain('、消毒・予約不可')
+
+      const hairCleanup = lanes.find((l) => l.key === hairResource.id)!.items.find((i) => i.kind === 'cleanup')!
+      expect(hairCleanup.title).toBe('片付け')
+      expect(hairCleanup.label).toContain('、片付け・予約不可')
+    })
+
+    it('(c) the probe — a hardcoded word would fail this: the card label, the cleanup row, and computeChecks’ own label all read the probe’s words', () => {
+      const resource = mkResource({ id: 'r-c', store_id: PROBE_STORE, cleanup_minutes: 10 })
+      const staff = mkStaff('s-c')
+      const vip = mkBooking({ id: 'apt-c-vip', staffId: staff.id, resourceId: resource.id, requiresPrivateRoom: true })
+      const input = mkInput({ staff: [staff], resources: [resource], staffStores: { [staff.id]: [PROBE_STORE] } })
+      const lanes = buildLanes(input, [vip])
+      const bedLane = lanes.find((l) => l.key === resource.id)!
+      const card = bedLane.items.find((i) => i.caseId === vip.id)!
+      expect(card.label).toContain('個室Xのみ・')
+
+      const cleanup = bedLane.items.find((i) => i.kind === 'cleanup')!
+      expect(cleanup.title).toBe('清掃X')
+      expect(cleanup.label).toContain('、清掃X・予約不可')
+
+      const ctx: CheckContext = {
+        spans: [{ id: 'other', x: 0, w: 10, title: '清掃X', derived: true, parked: false }],
+        bookingId: vip.id, staffName: staff.full_name, staffUntil: null, laneLocked: false,
+        minutesOf: (x) => x, turnoverWord: '清掃X',
+      }
+      const checks = computeChecks({ x: 0, w: 10 }, ctx)
+      expect(checks.some((c) => c.label === '空き枠・清掃Xは確定時に自動再配置（清掃Xバッファは設定に従う）')).toBe(true)
+    })
+
+    it('(d) the null cases — a yoga resource (privateWord/turnoverWord both null) falls to the generic 個室/清掃 row', () => {
+      const resource = mkResource({ id: 'r-d', store_id: YOGA, cleanup_minutes: 10 })
+      const staff = mkStaff('s-d')
+      const vip = mkBooking({ id: 'apt-d-vip', staffId: staff.id, resourceId: resource.id, requiresPrivateRoom: true })
+      const input = mkInput({ staff: [staff], resources: [resource], staffStores: { [staff.id]: [YOGA] } })
+      const lanes = buildLanes(input, [vip])
+      const bedLane = lanes.find((l) => l.key === resource.id)!
+      const card = bedLane.items.find((i) => i.caseId === vip.id)!
+      expect(card.label).toContain('個室のみ・')
+
+      const cleanup = bedLane.items.find((i) => i.kind === 'cleanup')!
+      expect(cleanup.title).toBe('清掃')
+      expect(cleanup.label).toContain('、清掃・予約不可')
+    })
+
+    it('(e) Home B’s store resolution — the booking’s RESOURCE store wins over its staff’s first store, and a no-unit booking falls to the staff’s store', () => {
+      const resource = mkResource({ id: 'r-e', store_id: RESOURCE_STORE })
+      const staff = mkStaff('s-e')
+      const withResource = mkBooking({ id: 'apt-e-with-resource', staffId: staff.id, resourceId: resource.id, requiresPrivateRoom: true })
+      const input = mkInput({ staff: [staff], resources: [resource], staffStores: { [staff.id]: [STAFF_STORE] } })
+      const lanes = buildLanes(input, [withResource])
+      const bedLane = lanes.find((l) => l.key === resource.id)!
+      const card = bedLane.items.find((i) => i.caseId === withResource.id)!
+      expect(card.label).toContain('Ｒ個室のみ・')
+      expect(card.label).not.toContain('Ｓ個室')
+
+      const noUnit = mkBooking({ id: 'apt-e-no-unit', staffId: staff.id, resourceId: null, requiresPrivateRoom: true })
+      const lanes2 = buildLanes(input, [noUnit])
+      const staffLane = lanes2.find((l) => l.key === staff.id)!
+      const card2 = staffLane.items.find((i) => i.caseId === noUnit.id)!
+      expect(card2.label).toContain('Ｓ個室のみ・')
+    })
+
+    // (f) the widened census = { offenders: 0 } on the tip — proven directly
+    // in resource-words.test.ts's own census leg (R-6), not re-proven here.
   })
 })

@@ -239,6 +239,8 @@ export default async function TodayPage({
     operatorStaffId: shell.operator.staff_id,
     storeNames,
     crossStore: !clamped,
+    wordsByStore,
+    genericWords,
   }
 
   const bookings = dayBookings(input)
