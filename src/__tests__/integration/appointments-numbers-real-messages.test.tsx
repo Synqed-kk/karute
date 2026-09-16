@@ -7,10 +7,13 @@
  * week-rows / day-numbers-line / metric-menu each hard-code their own JA
  * dictionary, so nothing in this lane ever read the shipped files and the EN
  * door went untested: `countValue` is 「{n}件」 in JA and 「{n}」 in EN, the day
- * line prints no label for the count (JA's value says 件 on its own), and EN
- * therefore rendered a naked "11" with no word anywhere near it. The line now
- * reads its own `countLine` key, which carries the unit in BOTH locales; the
- * GRID cell keeps `countValue` beside its own 予約 / Bookings label.
+ * line printed no label for the count (JA's value says 件 on its own), and EN
+ * therefore rendered a naked "11" with no word anywhere near it.
+ *
+ * ⚖ 2026-09-16 — Liam asked for 「11件 予約」: the line prints the WORD for the
+ * count like it does for the other three, so both surfaces now read the same
+ * `countValue` beside the same 予約 / Bookings label, and neither locale can
+ * leave a number standing on its own.
  *
  * next-intl ships ESM only and this repo's jest does not transform it (every
  * suite here mocks it), so the mock below is a real ICU-lite reader over the
@@ -80,22 +83,29 @@ afterEach(() => {
 
 describe('the day line never prints a naked count (R3-5)', () => {
   it.each([
-    ['ja', '11件'],
-    ['en', '11 bookings'],
-  ])('%s: the count carries its own unit', (loc, expected) => {
+    ['ja', '11件予約'],
+    ['en', '11Bookings'],
+  ])('%s: the count carries its own word', (loc, expected) => {
     locale = loc
     const { container } = render(
       <DayNumbersLine row={row()} soloMode={false} typeSlot="off" locale={loc} />,
     )
-    const text = container.querySelector('[data-day-line]')!.textContent!
-    expect(text.startsWith(expected)).toBe(true)
-    // …and no bare number is left stranded at the head of the line
-    expect(text).not.toMatch(/^11(?![件\s])/)
+    const line = container.querySelector('[data-day-line]')!
+    expect(line.textContent!.startsWith(expected)).toBe(true)
+    // …and the number is never left standing on its own: the word is inside
+    // the SAME element as the value it belongs to, in both locales. (The two
+    // read as one string here only because the 4px between them is a CSS gap,
+    // not a space — see the DOM-order suite for the rendered shape.)
+    const first = line.firstElementChild!
+    expect(first.querySelector('b')!.textContent).toBe(loc === 'ja' ? '11件' : '11')
+    expect(first.textContent).toBe(expected)
   })
 
-  it('JA output is byte-identical to what countValue used to produce', () => {
-    locale = 'ja'
-    expect(MESSAGES.ja.countLine).toBe(MESSAGES.ja.countValue)
+  it('the line and the grid print the SAME value key, in both locales', () => {
+    // One value, one label, two surfaces — the drift this suite exists to
+    // catch cannot start if there is only one key left to read.
+    expect(MESSAGES.ja.countValue).toBe('{n}件')
+    expect(MESSAGES.en.countValue).toBe('{n}')
   })
 
   it('a closed day reads the same way on the line', () => {
@@ -104,8 +114,9 @@ describe('the day line never prints a naked count (R3-5)', () => {
       <DayNumbersLine row={row({ closed: true, count: 0 })} soloMode={false} typeSlot="off" locale="en" />,
     )
     // Since R1-3 closedDays ships ON, so this takes the closed branch — which
-    // still prints the count beside 休. The assertion that matters is only
-    // that whatever the count cell prints carries its word, either way.
+    // still prints the count beside 休, through `countLine` (the one place a
+    // count is shown with NO label, because 休 is the word beside it). The
+    // assertion that matters is only that the number is never left naked.
     expect(container.querySelector('[data-day-line]')!.textContent).toContain('bookings')
   })
 })
