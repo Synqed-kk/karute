@@ -226,7 +226,7 @@ export function MonthPage({
                   <span className="sr-only">{t('ariaSep')}</span>
                   <LineItem
                     label={t('lastMonthSamePeriod')}
-                    value={`${deltaSign(monthCompareDelta)}${t('countValue', {
+                    value={`${deltaSign(monthCompareDelta)}${t('countLine', {
                       n: Math.abs(monthCompareDelta),
                     })}`}
                     tone={monthCompareDelta > 0 ? 'band-low' : 'muted'}

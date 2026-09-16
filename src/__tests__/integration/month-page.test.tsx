@@ -18,6 +18,10 @@ import type { MonthCell } from '@/lib/adapters/reservation'
 const JA_WEEK_ROWS = (require('../../../messages/ja.json') as {
   reservation: { weekRows: Record<string, string> }
 }).reservation.weekRows
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const EN_WEEK_ROWS = (require('../../../messages/en.json') as {
+  reservation: { weekRows: Record<string, string> }
+}).reservation.weekRows
 
 const WEEK_ROWS: Record<string, string> = {
   sep: '·',
@@ -28,6 +32,7 @@ const WEEK_ROWS: Record<string, string> = {
   ariaSep: '、',
   lastMonthSamePeriod: JA_WEEK_ROWS.lastMonthSamePeriod,
   countValue: JA_WEEK_ROWS.countValue,
+  countLine: JA_WEEK_ROWS.countLine,
   failed: '予約状況を取得できませんでした。もう一度お試しください。',
   rowAria: '{date} {cells}',
 }
@@ -555,6 +560,31 @@ describe('MonthPage — the month line', () => {
         <MonthPage {...baseProps} cells={monthCells(2026, 9)} monthCompareDelta={12} />,
       )
       expect(container.querySelector('[data-month-line]')!.textContent).toBe('予約0件')
+    })
+
+    it('EN: the clause carries its own word — 「+12 bookings」, never a bare number', () => {
+      // The JA `clause` finder above matches on the JA label text, so this
+      // one locates the same outer LineItem span by the EN label instead.
+      const enClause = (container: HTMLElement) =>
+        Array.from(container.querySelectorAll('[data-month-line] span')).find((el) =>
+          el.textContent?.startsWith(EN_WEEK_ROWS.lastMonthSamePeriod),
+        ) ?? null
+
+      const { MonthPage } = loadMonthPage({ monthCompare: true })
+      const jaDict = DICTS['reservation.weekRows']
+      DICTS['reservation.weekRows'] = EN_WEEK_ROWS
+      try {
+        const { container, rerender } = render(
+          <MonthPage {...baseProps} cells={monthCells(2026, 9)} monthCompareDelta={12} />,
+        )
+        expect(enClause(container)!.querySelector('span')!.textContent).toBe('+12 bookings')
+
+        // …and the same on the way down, behind the typographic minus.
+        rerender(<MonthPage {...baseProps} cells={monthCells(2026, 9)} monthCompareDelta={-12} />)
+        expect(enClause(container)!.querySelector('span')!.textContent).toBe('−12 bookings')
+      } finally {
+        DICTS['reservation.weekRows'] = jaDict
+      }
     })
   })
 
