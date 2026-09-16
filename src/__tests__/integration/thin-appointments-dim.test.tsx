@@ -141,3 +141,30 @@ it('cross-path date-nav DOES dim + block while the new day fetches', async () =>
   expect(dimmed(container)).toBe(true)
   expect(container.querySelector('.pointer-events-none')).not.toBeNull()
 })
+
+// G3 (Greptile round 1, FIX-932-G1) — a month-cell tap changes only `?date=`,
+// never `?view=`, so it's a cross-path fetch by the SAME reckoning as the day
+// case above — but the month page has its own pending treatment (the card's
+// shims, latest-finger-wins) and must never be washed out or input-blocked
+// for the round trip. The day case above stays the positive pin (no `view=`
+// in its URL, defaulting to 'day', still dims).
+it('cross-path date-nav WITHIN THE MONTH VIEW does not dim or block — the month page owns its own pending treatment', async () => {
+  history.replaceState({}, '', '/appointments?view=month&date=2026-07-23')
+  const apiFetch = jest
+    .fn<Promise<Response>, unknown[]>()
+    .mockResolvedValueOnce(jsonResponse({ ...DTO, view: 'month' }))
+    .mockImplementationOnce(() => new Promise<Response>(() => {}))
+  setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+  const { container } = render(<AppointmentsScreen />)
+  await waitFor(() => expect(screen.getByTestId('appointments-view')).toBeTruthy())
+
+  // A month-cell tap: same view, new date.
+  act(() => redirect('/appointments?view=month&date=2026-07-24'))
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+  // aria-busy stays HONEST (a fetch really is in flight) — only the
+  // dim/block classes are gated by view.
+  expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
+  expect(container.querySelector('.pointer-events-none')).toBeNull()
+  expect(container.querySelector('.opacity-50')).toBeNull()
+})

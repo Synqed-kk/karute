@@ -175,6 +175,15 @@ export function AppointmentsScreen() {
   // interactive: dimming it froze every 予約 revisit for the whole network
   // round trip (Liam field report 7/23).
   const crossPathPending = fetching && state.status === 'ready' && state.path !== path
+  // G3 (Greptile round 1, FIX-932-G1) — a month-cell tap changes `?date=` but
+  // never `?view=`, so it IS a cross-path fetch by this reckoning too: without
+  // this the wrapper below washed out the whole 月 page and blocked a second
+  // cell tap for the round trip — exactly what PIECE 4b already removed on
+  // the web (R1-6). The month page's own machinery (the card's shims,
+  // latest-finger-wins) is the pending treatment there; 日/週 still leave on
+  // a tap, so they keep the dim + block.
+  const view = search.get('view') ?? 'day'
+  const dim = crossPathPending && view !== 'month'
   return (
     <ScreenStates state={state} retry={retry}>
       {(dto) => (
@@ -186,7 +195,7 @@ export function AppointmentsScreen() {
         // re-pushing the same stale-derived date mid-fetch.
         <div
           className={`transition-opacity duration-150 ${
-            crossPathPending ? 'pointer-events-none opacity-50' : ''
+            dim ? 'pointer-events-none opacity-50' : ''
           }`}
           aria-busy={crossPathPending}
         >
