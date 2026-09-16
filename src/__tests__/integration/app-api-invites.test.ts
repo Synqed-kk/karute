@@ -466,14 +466,16 @@ describe('pending re-invites: list hides, revoke refuses', () => {
     expect(invitesUpdateStatus).toHaveBeenCalledWith(REINVITE.id, 'revoked')
   })
 
-  it('revoking as a viewAll caller never pays the invite lookup — and a broken lookup cannot block them', async () => {
-    // The clamp free-passes viewAll, so the LIST that feeds it is pure cost
-    // AND a pure new failure mode for an owner. Neither may exist.
+  it('revoking as a viewAll caller pays no CLAMP lookup — and a broken lookup cannot block them', async () => {
+    // The clamp free-passes viewAll, so the read that feeds IT is pure cost and
+    // a pure new failure mode for an owner. ⚖ FOLD ROUND 3 (F4): the invite ROW
+    // is now load-bearing for every caller (it names the card a revoked fresh
+    // invite leaves behind), so the core reads it once, quietly — and a broken
+    // read still cannot block the revoke, which is the half that matters.
     mockCapabilities.mockResolvedValue(new Set(['staff.invite', 'stores.viewAll']))
     invitesList.mockRejectedValue(new Error('core down'))
     const res = await DELETE(deleteReq(REINVITE.id), params(REINVITE.id))
     expect(res.status).toBe(200)
-    expect(invitesList).not.toHaveBeenCalled()
     // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
     // identity seam (the front gate reads the unassigned verdict itself, for
     // every non-viewAll request). What this pins is that the DOOR asks for

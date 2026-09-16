@@ -13,7 +13,7 @@
  */
 
 import { createStaffCore } from '@/actions/staff'
-import { createInviteCore } from '@/actions/invites'
+import { createInviteCore, revokeInviteCore } from '@/actions/invites'
 import { setStaffStoresAtCreationCore, createStoreCore } from '@/actions/stores'
 import {
   INVITE_NAME_REQUIRED,
@@ -413,6 +413,126 @@ describe('a fresh invite makes the card', () => {
     )
   })
 })
+
+// A REVOKED FRESH INVITE LEAVES NO ORPHAN (⚖ fold round 3, fresh-eyes F4)
+//
+// A fresh invite now MINTS a staff card. Revoking the invite used to flip only
+// the invite's status, leaving a named, store-placed card on the roster with no
+// login — eating a plan seat nobody could explain. It goes INACTIVE (soft, the
+// existing staff update path), never deleted (⚖ nothing deleted, soft only).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('a revoked fresh invite leaves no orphan card (F4)', () => {
+  const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1' }
+
+  function revokeClient(
+    invites: { id: string; email: string; status: string; invited_staff_id: string | null }[],
+    cards: Record<string, { id: string; email: string | null; user_id: string | null }>,
+  ) {
+    const staffUpdate = jest.fn(async () => ({}))
+    const updateStatus = jest.fn(async () => ({}))
+    return {
+      staffUpdate,
+      updateStatus,
+      api: {
+        invites: { list: async () => ({ invites }), updateStatus },
+        staff: {
+          get: async (id: string) => {
+            if (!cards[id]) throw new Error('no such staff')
+            return cards[id]
+          },
+          update: staffUpdate,
+        },
+      },
+    }
+  }
+
+  it('the card a FRESH invite minted goes INACTIVE — never deleted', async () => {
+    const c = revokeClient(
+      [{ id: 'inv-1', email: 'new@test.com', status: 'pending', invited_staff_id: 'staff-new' }],
+      { 'staff-new': { id: 'staff-new', email: 'new@test.com', user_id: null } },
+    )
+    const res = await revokeInviteCore(c.api as never, 'business-1', INV_DEPS, 'inv-1')
+    expect(res).toEqual({ ok: true })
+    expect(c.updateStatus).toHaveBeenCalledWith('inv-1', 'revoked')
+    expect(c.staffUpdate).toHaveBeenCalledWith('staff-new', { is_active: false })
+  })
+
+  it('a RE-invite’s pre-existing card is left alone — the invite never made it', async () => {
+    // 田中 has worked here for a year with no login. Re-inviting them at a new
+    // address and then cancelling must not switch them off.
+    const c = revokeClient(
+      [
+        {
+          id: 'inv-2',
+          email: 'new-address@test.com',
+          status: 'pending',
+          invited_staff_id: 'staff-tanaka',
+        },
+      ],
+      { 'staff-tanaka': { id: 'staff-tanaka', email: 'tanaka@test.com', user_id: null } },
+    )
+    const res = await revokeInviteCore(c.api as never, 'business-1', INV_DEPS, 'inv-2')
+    expect(res).toEqual({ ok: true })
+    expect(c.staffUpdate).not.toHaveBeenCalled()
+  })
+
+  it('an ALREADY WIRED card is left alone — that person has a login', async () => {
+    const c = revokeClient(
+      [{ id: 'inv-3', email: 'new@test.com', status: 'pending', invited_staff_id: 'staff-new' }],
+      { 'staff-new': { id: 'staff-new', email: 'new@test.com', user_id: 'auth-9' } },
+    )
+    await revokeInviteCore(c.api as never, 'business-1', INV_DEPS, 'inv-3')
+    expect(c.staffUpdate).not.toHaveBeenCalled()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ONE PENDING FRESH INVITE PER EMAIL (⚖ fold round 3, fresh-eyes F4)
+//
+// Inviting the same new hire twice minted two cards; accept wires one and the
+// other is permanent. The duplicate check that existed only looked at people
+// who ALREADY have a login.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('one pending fresh invite per email (F4)', () => {
+  const INV_DEPS = { actorId: 'mgr-1', source: 'web' as const, requestId: 'req-1' }
+
+  function pendingClient(pending: { email: string; status: string }[]) {
+    const c = client({ stores: ['store-ginza'] })
+    const invitesCreate = jest.fn(async () => ({ id: 'inv-1' }))
+    return {
+      ...c,
+      invitesCreate,
+      api: {
+        ...c.api,
+        invites: { create: invitesCreate, list: async () => ({ invites: pending }) },
+      },
+    }
+  }
+
+  it('REFUSES a second pending invite to the same email — two cards, one hire', async () => {
+    const c = pendingClient([{ email: 'New@Test.com', status: 'pending' }])
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com',
+      role: 'STYLIST',
+      name: '新人',
+    })
+    expect(res).toEqual({ error: 'INVITE_ALREADY_PENDING' })
+    expect(c.staffCreate).not.toHaveBeenCalled()
+    expect(c.invitesCreate).not.toHaveBeenCalled()
+  })
+
+  it('a REVOKED invite to that email is no obstacle — only PENDING ones are', async () => {
+    const c = pendingClient([{ email: 'new@test.com', status: 'revoked' }])
+    const res = await createInviteCore(c.api as never, 'business-1', INV_DEPS, null, {
+      email: 'new@test.com',
+      role: 'STYLIST',
+      name: '新人',
+    })
+    expect(res).toEqual({ token: expect.any(String) })
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FOLD ROUND 2 — the creator's OWN clamp (fresh-eyes F6 + F7)

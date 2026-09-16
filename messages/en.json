@@ -3530,7 +3530,8 @@
     "inviteNameRequired": "Please enter a name.",
     "inviteStoreLabel": "Store",
     "inviteStoreHint": "Choose the store this person works in. You can pick more than one.",
-    "inviteStoreRequired": "Please choose a store."
+    "inviteStoreRequired": "Please choose a store.",
+    "inviteAlreadyPending": "There is already a pending invite for this email address. Revoke it before sending a new one."
   },
   "permissions": {
     "roleLabel": "Role & permissions",

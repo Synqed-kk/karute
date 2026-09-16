@@ -124,6 +124,7 @@ export function InviteStaffDialog({
       else if (res.error === 'STORE_SCOPE_DENIED') setError(tSettings('staffStoreScopeDenied'))
       else if (res.error === 'INVITE_NAME_REQUIRED') setError(t('inviteNameRequired'))
       else if (res.error === 'STORE_REQUIRED_AT_CREATION') setError(t('inviteStoreRequired'))
+      else if (res.error === 'INVITE_ALREADY_PENDING') setError(t('inviteAlreadyPending'))
       else setError(res.error)
       return
     }

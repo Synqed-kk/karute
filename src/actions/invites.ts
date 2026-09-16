@@ -77,6 +77,27 @@ export interface InviteRow {
   linked?: boolean
 }
 
+/** Every invite row this business holds, or `null` when the list could not be
+ *  read. try/catch, not `.catch()`: a client with no invites port at all is the
+ *  same UNKNOWN as a failed call (the idiom new-card.ts uses for the store
+ *  count). Both callers treat UNKNOWN as "carry on" — neither the duplicate
+ *  refusal nor the orphan cleanup may block the act it rides on. */
+async function inviteRowsQuietly(
+  synqed: InviteClient,
+): Promise<{ id: string; email: string; status: string; invited_staff_id: string | null }[] | null> {
+  try {
+    return (await synqed.invites.list()).invites
+  } catch {
+    return null
+  }
+}
+
+/** A pending invite to this address already exists (⚖ fold round 3, F4). A
+ *  machine code for the same bundle reason as the store codes: this module
+ *  rides /join's pre-auth import graph, so the copy lives at the door
+ *  (InviteStaffDialog → invite.inviteAlreadyPending). */
+export const INVITE_ALREADY_PENDING = 'INVITE_ALREADY_PENDING'
+
 /** Gate invite management on the `staff.invite` capability (owner + manager by
  *  default) and return the caller's business to scope the writes. */
 async function requireInviteBusiness(): Promise<string> {
@@ -122,6 +143,24 @@ export async function createInviteCore(
     .eq('customer_id', businessId)
     .maybeSingle()
   if (existingMember) return { error: 'That email is already a member of this salon.' }
+
+  // ⚖ FOLD ROUND 3 (fresh-eyes F4) — ONE PENDING FRESH INVITE PER EMAIL.
+  // A fresh invite MINTS a card, so inviting the same new hire twice left two:
+  // accept wires one and the other is permanent, named, and eating a plan seat.
+  // The check above only sees people who already have a login here — a brand-new
+  // hire has none, which is the whole point of the door. Re-invites are exempt:
+  // they attach to a card that already exists and mint nothing.
+  //
+  // Best-effort by design: an unreadable invite list must NEVER block hiring
+  // (the same posture as the store-count read in new-card.ts). The worst case
+  // during a core blip is the duplicate we had before this fold.
+  if (!staffId) {
+    const openInvites = await inviteRowsQuietly(synqed)
+    const already = openInvites?.some(
+      (i) => i.status === 'pending' && i.email.toLowerCase() === email.toLowerCase(),
+    )
+    if (already) return { error: INVITE_ALREADY_PENDING }
+  }
 
   // ⚖ Liam 2026-09-16 — A FRESH INVITE MAKES THE CARD FIRST.
   //
@@ -443,6 +482,10 @@ export async function revokeInviteCore(
   deps: InviteWriteDeps,
   id: string,
 ): Promise<{ ok: true } | { error: string }> {
+  // Read the row BEFORE the flip: core has no invites.get, and after it the row
+  // is no longer pending. Best-effort — a revoke must never fail on this read.
+  const invite = (await inviteRowsQuietly(synqed))?.find((i) => i.id === id) ?? null
+
   try {
     // updateStatus is business-scoped server-side (id + x-business-id), so a
     // foreign invite id can't be revoked across tenants.
@@ -460,6 +503,52 @@ export async function revokeInviteCore(
     requestId: deps.requestId,
     source: deps.source,
   })
+
+  // ⚖ FOLD ROUND 3 (fresh-eyes F4) — THE CARD THE INVITE MADE. A fresh invite
+  // mints a staff card up front; revoking used to flip the invite only, leaving
+  // a named, store-placed card with no login on the roster — and on the plan's
+  // seat count — that nobody could explain. It goes INACTIVE, through the same
+  // staff update path a manager would use, and is NEVER deleted (⚖ nothing
+  // deleted, soft only): the owner can switch it back on in one tap.
+  //
+  // WHICH card: the invite's own, still UNWIRED (no login was ever attached),
+  // and carrying THIS invite's email — which a minted card does by
+  // construction. The email match is what keeps a RE-invite's pre-existing card
+  // out of it: re-inviting 田中 at a new address and then cancelling must not
+  // switch 田中 off. ponytail: the honest ceiling is that core gives us no
+  // "this card was born from this invite" flag; if it ever does, read that
+  // instead of the email.
+  //
+  // Best-effort, AFTER the revoke has already succeeded and been receipted: a
+  // failure here leaves exactly the orphan we had before the fold, never a
+  // half-revoked invite.
+  if (invite?.invited_staff_id && synqed.staff) {
+    try {
+      const card = await synqed.staff.get(invite.invited_staff_id)
+      if (
+        card.user_id == null &&
+        !!card.email &&
+        card.email.toLowerCase() === invite.email.toLowerCase()
+      ) {
+        await synqed.staff.update(card.id, { is_active: false })
+        audit({
+          category: 'staff',
+          action: 'staff.update',
+          actorId: deps.actorId,
+          actorType: 'staff',
+          businessId,
+          targetType: 'staff',
+          targetId: card.id,
+          detail: { is_active: false, reason: 'invite_revoked', invite_id: id },
+          requestId: deps.requestId,
+          source: deps.source,
+        })
+      }
+    } catch (err) {
+      console.error('[revokeInvite] could not deactivate the invited card:', err)
+    }
+  }
+
   return { ok: true }
 }
 

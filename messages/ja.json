@@ -3530,7 +3530,8 @@
     "inviteNameRequired": "お名前を入力してください。",
     "inviteStoreLabel": "担当店舗",
     "inviteStoreHint": "このスタッフが働く店舗を選んでください。複数選べます。",
-    "inviteStoreRequired": "担当店舗を選択してください。"
+    "inviteStoreRequired": "担当店舗を選択してください。",
+    "inviteAlreadyPending": "このメールアドレスには保留中の招待があります。取り消してから送り直してください。"
   },
   "permissions": {
     "roleLabel": "権限",
