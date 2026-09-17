@@ -736,6 +736,32 @@ describe('録音履歴 — saving from the server', () => {
     })
   })
 
+  it('server consent prefers the picked name over a different preloaded name for the same id', async () => {
+    mockGetConsent.mockResolvedValue({ consent: null })
+    mockSearchCustomers.mockResolvedValue({
+      options: [{ id: 'cust-1', name: '遠藤三郎', other_store: false }],
+      karute_number_unavailable: false,
+      remote_more: false,
+    })
+    serverSessions = [session({
+      recordingSessionId: 'sess-renamed', customerId: null,
+      serverAudio: 'object', createdAt: OLD(),
+    })]
+    // Same id as the picked result, but the preloaded map still has the old name.
+    await renderPage({ customers: [{ id: 'cust-1', name: '佐藤 美咲' } as never] })
+    fireEvent.click(within(row('session:sess-renamed')).getByText('recording.inbox.action.save'))
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+    await act(async () => { jest.advanceTimersByTime(300) })
+    fireEvent.click(screen.getByText('遠藤三郎'))
+    await flush(20)
+
+    const dialog = within(screen.getByRole('dialog', { name: 'recording.consentDialogTitle' }))
+    expect(dialog.getByText('遠藤三郎')).toBeInTheDocument()
+    expect(dialog.queryByText('佐藤 美咲')).not.toBeInTheDocument()
+    expect(mockGetConsent).toHaveBeenCalledWith('cust-1')
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
+  })
+
   it('a row that STILL has the take takes the old path — the local copy wins', async () => {
     serverSessions = [
       session({ recordingSessionId: 'sess-both', serverAudio: 'object', createdAt: OLD() }),
