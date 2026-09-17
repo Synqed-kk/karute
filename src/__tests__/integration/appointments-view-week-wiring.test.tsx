@@ -432,6 +432,29 @@ describe('every move keeps the 担当 filter (W-E, spec §1/§6)', () => {
 })
 
 describe('the MONTH branch renders MonthPage (A1-A3)', () => {
+  it('follows the registry when countNew is off, passing an off slot and null count', () => {
+    // Reuse this harness's registry mock; reload the view and metric menu
+    // together because TYPE_SLOT captures countNew at module load.
+    mockSwitches().countNew = false
+    try {
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { AppointmentsView: View } = require('@/components/appointments/AppointmentsView') as typeof import('@/components/appointments/AppointmentsView')
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { TYPE_SLOT: slot } = require('@/lib/appointments/metric-menu') as typeof import('@/lib/appointments/metric-menu')
+        expect(slot).toBe('off')
+        render(<View {...viewWith({
+          ...MONTH_VIEW,
+          monthData: [monthCell('2026-09-15', { count: 3, newCount: 5, newCountKnown: true })],
+        }).props} />)
+        expect(monthPageProps!.typeSlot).toBe('off')
+        expect(monthPageProps!.typeCount).toBeNull()
+      })
+    } finally {
+      Object.assign(mockSwitches(), mockShipped())
+    }
+  })
+
   it('hands it the cells, the selected day, today and the 月 weekday labels', () => {
     const { getByTestId } = renderView(MONTH_VIEW)
     getByTestId('month-page')

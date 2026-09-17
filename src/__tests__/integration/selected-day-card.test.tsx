@@ -286,6 +286,35 @@ describe('the loaded day', () => {
 })
 
 describe('the day line’s 新規 (S2, ⚖ PKT-2b — the slot is read off the switch registry, same as the day/week pages)', () => {
+  it('follows the registry when countNew is off, keeping the booking count visible', () => {
+    // Reuse metric-menu.test.ts's registry override, with isolated imports
+    // because TYPE_SLOT is read at module load. Keep the renderer's React.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const react = require('react') as typeof import('react')
+    jest.doMock('react', () => react)
+    jest.doMock('@/lib/appointments/booking-switches', () => {
+      const actual = jest.requireActual('@/lib/appointments/booking-switches') as {
+        BOOKING_SWITCHES: Record<string, boolean>
+      }
+      return { BOOKING_SWITCHES: { ...actual.BOOKING_SWITCHES, countNew: false } }
+    })
+    try {
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { SelectedDayCard: Card } = require('@/components/appointments/SelectedDayCard') as typeof import('@/components/appointments/SelectedDayCard')
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { TYPE_SLOT } = require('@/lib/appointments/metric-menu') as typeof import('@/lib/appointments/metric-menu')
+        expect(TYPE_SLOT).toBe('off')
+        render(<Card {...cardEl({ dayTotals: row({ newCustomerCount: 5, newCountKnown: true }) }).props} />)
+        expect(screen.getByText(WEEK_ROWS.countLine.replace('{n}', '6'))).toBeTruthy()
+        expect(screen.queryByText(WEEK_ROWS.new)).toBeNull()
+      })
+    } finally {
+      jest.dontMock('@/lib/appointments/booking-switches')
+      jest.dontMock('react')
+    }
+  })
+
   it('shows 新規 when the day’s history read is known', () => {
     renderCard({ dayTotals: row({ newCustomerCount: 5, newCountKnown: true }) })
     expect(screen.getByText(WEEK_ROWS.new)).toBeTruthy()
