@@ -86,7 +86,7 @@ describe('saveKaruteRecordInline — store_id resolution', () => {
     })
     appointments.get.mockResolvedValue({ id: 'ap-1', staff_id: 'me-staff', store_id: 'store-A' })
 
-    expect(await save({ ...baseInput, appointmentId: 'ap-1' })).toEqual({ error: STORE_SCOPE_UNVERIFIED })
+    expect(await save({ ...baseInput, appointmentId: 'ap-1' })).toEqual({ error: STORE_SCOPE_UNVERIFIED, code: 'store_forbidden' })
     expect(karuteRecords.create).not.toHaveBeenCalled()
     expect(appointments.get).not.toHaveBeenCalled()
     expect(resolveStoreScopeMock).toHaveBeenCalledTimes(1)

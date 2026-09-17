@@ -400,7 +400,10 @@ describe('createAppointment — active-store cookie clamp (write-side isolation)
 
     const res = await createAppointment(bookingInput)
 
-    expect(res).toEqual({ error: 'could not verify your store assignment (fail-closed)' })
+    expect(res).toEqual({
+      error: 'could not verify your store assignment (fail-closed)',
+      code: 'store_forbidden',
+    })
     expect(create).not.toHaveBeenCalled()
     expect(resolveSynqedStaffIdSpy).not.toHaveBeenCalled()
   })

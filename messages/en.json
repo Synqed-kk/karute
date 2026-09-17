@@ -334,7 +334,8 @@
       "toasts": {
         "customerMissing": "Pick a customer",
         "invalidDuration": "Invalid duration",
-        "invalidDateTime": "Invalid date or time"
+        "invalidDateTime": "Invalid date or time",
+        "storeScopeUnverified": "We could not verify your assigned store. Please try again later."
       }
     },
     "toasts": {
@@ -1570,6 +1571,8 @@
     "autoSaved": "Karute saved",
     "viewSaved": "View",
     "autosaveFailed": "Auto-save failed. Please save from the review screen.",
+    "saveNotFound": "The karute could not be found.",
+    "storeScopeUnverified": "We could not verify your assigned store. Please try again later.",
     "discard": "Discard",
     "aiSummaryPlaceholder": "AI-generated session summary...",
     "entryTitlePlaceholder": "Entry title...",

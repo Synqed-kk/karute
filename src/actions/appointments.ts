@@ -120,11 +120,11 @@ export async function createAppointment(input: AppointmentInput) {
     // the "removed but the auth session is still alive" case getCurrentUserStaffId
     // documents — walked straight through and booked, stamped from their own
     // active-store cookie. A scope we could not read vouches for nothing: refuse.
-    // Same string every locked booking door already returns for this condition
-    // (ensureRecordStoreInScope's degraded arm), so the dialog gives ONE answer.
+    // Keep the shared refusal message and expose its code so the dialog can
+    // translate the staff-facing answer.
     // ABOVE the wave for the same reason as the guard below: resolveSynqedStaffId
     // CREATES a core staff record on a miss.
-    if (scope.degraded) return { error: STORE_SCOPE_UNVERIFIED }
+    if (scope.degraded) return { error: STORE_SCOPE_UNVERIFIED, code: 'store_forbidden' }
     if (reachesNoStore(scope)) return { error: UNASSIGNED_STORE_DENIAL }
     const [synqed, synqedStaffId, activeStore, auditActor] = await Promise.all([
       getSynqedClient(),

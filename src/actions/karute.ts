@@ -325,7 +325,7 @@ export async function getCustomerKaruteRecordsWithClient(
  */
 export async function saveKaruteRecord(
   input: SaveKaruteInput,
-): Promise<{ error: string } | void> {
+): Promise<{ error: string; code?: AppApiError['code'] } | void> {
   let recordId: string
 
   try {
@@ -444,6 +444,7 @@ export async function saveKaruteRecord(
       })
     }
   } catch (err) {
+    if (err instanceof AppApiError) return { error: err.message, code: err.code }
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
 
@@ -464,7 +465,7 @@ export async function saveKaruteRecord(
  */
 export async function saveKaruteRecordInline(
   input: SaveKaruteInput,
-): Promise<{ id: string } | { error: string }> {
+): Promise<{ id: string } | { error: string; code?: AppApiError['code'] }> {
   try {
     // Recording a session = records.write (see saveKaruteRecord). Caught below →
     // returned as the house { error } shape the RecordingPanel already toasts.
@@ -568,6 +569,7 @@ export async function saveKaruteRecordInline(
     updateTag('dashboard')
     return { id }
   } catch (err) {
+    if (err instanceof AppApiError) return { error: err.message, code: err.code }
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
 }
