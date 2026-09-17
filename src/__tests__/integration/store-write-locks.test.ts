@@ -50,7 +50,7 @@ jest.mock('@/lib/audit', () => ({
   audit: (...a: unknown[]) => auditSpy(...(a as [])),
 }))
 
-import { ensureRecordStoreInScope } from '@/lib/auth/store-lock'
+import { ensureRecordStoreInScope, sourceStoreOutOfScope } from '@/lib/auth/store-lock'
 import { AppApiError } from '@/lib/app-api/errors'
 import { KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 import {
@@ -92,6 +92,13 @@ describe('ensureRecordStoreInScope — the one predicate', () => {
 
   it('clamped to ANOTHER store refuses as not_found, with the caller message', () => {
     expect(run(RECORD, CLAMPED_FOREIGN)).toEqual({ code: 'not_found', message: 'X not found' })
+  })
+
+  it.each(['store-ginza', null])('an unassigned scope refuses record store %p as not_found', (storeId) => {
+    const unassigned = { viewAll: false, allowedStoreIds: [] }
+    const record = { store_id: storeId }
+    expect(run(record, unassigned)).toEqual({ code: 'not_found', message: 'X not found' })
+    expect(sourceStoreOutOfScope(record, unassigned)).toBe(true)
   })
 
   it('a legacy store-less record refuses for a clamped actor (membership unprovable)', () => {
