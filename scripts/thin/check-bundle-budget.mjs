@@ -1546,7 +1546,20 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // property-access string that survives minification — appears 7× in this
 // build's index chunk versus 4× on the merge-tip build two entries up, which
 // is consistent with the extra read site this round adds.
-const BUDGET_BYTES = 2_121_862
+//
+// RE-MEASURED 2026-09-17 after PKT-REPLANT-2B v2 onto main dbdc2d9ad.
+// The three source commits are cherry-picked; both prior comment chains above
+// are retained as history. This entry supersedes their ceilings.
+// CI's six VITE_* values from .github/workflows/ci.yml, thin/dist emptied
+// before each lap, node v24.16.0, @synqed-kk/ui 0.3.2. Two clean laps have
+// identical paths, byte sizes and MD5s for every output file:
+//   en-CczsdZ_a.js       134,814 B
+//   index-DS_rOnA1.js  1,048,441 B
+//   vendor-BD5eMVWe.js   937,791 B
+// Total = 2,121,046 B; ceiling = measured + 1,000 = 2,122,046 B.
+// +184 B against main's prior 2,120,862 B measurement, all in index;
+// en and vendor unchanged. The source branch's ceiling is not carried.
+const BUDGET_BYTES = 2_122_046
 
 let dir
 try {
