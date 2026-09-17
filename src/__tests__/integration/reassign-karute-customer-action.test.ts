@@ -52,6 +52,7 @@ jest.mock('@/lib/customers/cached', () => ({ getCachedCustomerList: jest.fn(asyn
 
 import { revalidatePath as revalidatePathImport, revalidateTag as revalidateTagImport, updateTag as updateTagImport } from 'next/cache'
 import { requireCapability as requireCapabilityImport } from '@/lib/auth/require-permission'
+import { audit } from '@/lib/audit'
 import { auditWeb as auditWebImport } from '@/lib/audit-web'
 import { resolveStoreScope as resolveStoreScopeImport } from '@/lib/auth/store-scope'
 import { getSynqedClient as getSynqedClientImport } from '@/lib/synqed/client'
@@ -117,6 +118,8 @@ function fakeClient() {
   } as unknown as Parameters<typeof reassignKaruteCustomerWithClient>[0]
 }
 
+const ACTOR = { actorId: 'auth-user-1', businessId: 'biz-1', source: 'web' as const, requestId: 'req-1' }
+
 const VIEW_ALL = { viewAll: true, allowedStoreIds: null, degraded: false }
 
 // Roster data for listReassignCustomerOptions (fix round 2, item B): distinct
@@ -167,10 +170,23 @@ describe('pin 2 — store clamp (web)', () => {
       'cust-OTHER-STORE',
       { confirmed: true },
       { viewAll: false, allowedStoreIds: ['store-A'] },
+      ACTOR,
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
     expect(result).toEqual({ threw: true, message: 'that customer is outside your assigned store' })
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      ...ACTOR,
+      action: 'karute.store_write_refused',
+      targetId: 'kar-1',
+      detail: {
+        door: 'reassign.to_customer',
+        record_store_id: 'store-A',
+        code: 'store_forbidden',
+        to_customer_id: 'cust-OTHER-STORE',
+      },
+    }))
     expect(karuteRecordsUpdate).not.toHaveBeenCalled()
   })
 
@@ -181,6 +197,7 @@ describe('pin 2 — store clamp (web)', () => {
       'cust-OTHER-STORE',
       { confirmed: true },
       { viewAll: true, allowedStoreIds: null },
+      ACTOR,
     )
     expect(result).toMatchObject({ success: true, toCustomerId: 'cust-OTHER-STORE' })
     expect(karuteRecordsUpdate).toHaveBeenCalledWith('kar-1', { customer_id: 'cust-OTHER-STORE' })
@@ -193,6 +210,7 @@ describe('pin 2 — store clamp (web)', () => {
       'cust-TO',
       { confirmed: true },
       { viewAll: false, allowedStoreIds: ['store-A'] },
+      ACTOR,
     )
     expect(result).toMatchObject({ success: true, toCustomerId: 'cust-TO' })
   })
@@ -205,7 +223,8 @@ describe('pin 2 — store clamp (web)', () => {
         'cust-TO',
         { confirmed: true },
         { viewAll: false, allowedStoreIds: ['store-A'], degraded: true },
-      ),
+      ACTOR,
+    ),
     ).rejects.toThrow('could not verify your store assignment')
     expect(karuteRecordsUpdate).not.toHaveBeenCalled()
   })
@@ -226,6 +245,7 @@ describe('pin R3-1 — source-store clamp on the SOURCE record (web)', () => {
       'cust-TO',
       { confirmed: true },
       { viewAll: false, allowedStoreIds: ['store-A'] },
+      ACTOR,
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
@@ -246,6 +266,7 @@ describe('pin R3-1 — source-store clamp on the SOURCE record (web)', () => {
       'cust-TO',
       { confirmed: false },
       { viewAll: false, allowedStoreIds: ['store-A'] },
+      ACTOR,
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
@@ -269,6 +290,7 @@ describe('pin R3-1 — source-store clamp on the SOURCE record (web)', () => {
       'cust-TO',
       { confirmed: true },
       { viewAll: false, allowedStoreIds: ['store-A'] },
+      ACTOR,
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
@@ -289,6 +311,7 @@ describe('pin R3-1 — source-store clamp on the SOURCE record (web)', () => {
       'cust-TO',
       { confirmed: false },
       { viewAll: false, allowedStoreIds: ['store-A'] },
+      ACTOR,
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
@@ -308,6 +331,7 @@ describe('pin R3-1 — source-store clamp on the SOURCE record (web)', () => {
       'cust-TO',
       { confirmed: true },
       { viewAll: true, allowedStoreIds: null },
+      ACTOR,
     )
     expect(result).toMatchObject({ success: true })
   })
@@ -334,6 +358,7 @@ describe('pin R9-1 — destination clamp runs BEFORE the to-customer lookup', ()
       'cust-DOES-NOT-EXIST',
       { confirmed: true },
       clamp,
+      ACTOR,
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
@@ -343,6 +368,7 @@ describe('pin R9-1 — destination clamp runs BEFORE the to-customer lookup', ()
       'cust-OTHER-STORE', // real customer, but only in store-B's roster
       { confirmed: true },
       clamp,
+      ACTOR,
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
@@ -357,6 +383,7 @@ describe('pin R9-1 — destination clamp runs BEFORE the to-customer lookup', ()
       'cust-OTHER-STORE',
       { confirmed: true },
       { viewAll: false, allowedStoreIds: ['store-A'] },
+      ACTOR,
     ).catch(() => undefined)
     // Neither side's customers.get fired — the clamp (roster-membership via
     // customers.LIST, a separate mock) refused before reassignCustomerOrThrow
@@ -371,6 +398,7 @@ describe('pin R9-1 — destination clamp runs BEFORE the to-customer lookup', ()
       'cust-DOES-NOT-EXIST',
       { confirmed: true },
       { viewAll: true, allowedStoreIds: null },
+      ACTOR,
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
@@ -382,7 +410,7 @@ describe('pin R9-2 — source karute id: out-of-store vs nonexistent are indisti
   it('pin 3: clamped + out-of-store karute id vs clamped + nonexistent karute id → byte-identical refusal', async () => {
     KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
     const clamp = { viewAll: false, allowedStoreIds: ['store-A'] }
-    const outOfStore = await reassignKaruteCustomerWithClient(fakeClient(), 'kar-1', 'cust-TO', { confirmed: true }, clamp)
+    const outOfStore = await reassignKaruteCustomerWithClient(fakeClient(), 'kar-1', 'cust-TO', { confirmed: true }, clamp, ACTOR)
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
     const nonexistent = await reassignKaruteCustomerWithClient(
@@ -391,6 +419,7 @@ describe('pin R9-2 — source karute id: out-of-store vs nonexistent are indisti
       'cust-TO',
       { confirmed: true },
       clamp,
+      ACTOR,
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
@@ -405,6 +434,7 @@ describe('pin R9-2 — source karute id: out-of-store vs nonexistent are indisti
       'cust-TO',
       { confirmed: true },
       { viewAll: true, allowedStoreIds: null },
+      ACTOR,
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
@@ -430,6 +460,7 @@ describe('pin D-R9 — pre-clamp guards moved below the clamp (fix round 10)', (
       'cust-TO',
       { confirmed: true },
       { viewAll: false, allowedStoreIds: ['store-A'] },
+      ACTOR,
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
@@ -445,6 +476,7 @@ describe('pin D-R9 — pre-clamp guards moved below the clamp (fix round 10)', (
       'cust-FROM',
       { confirmed: true },
       { viewAll: false, allowedStoreIds: ['store-A'] },
+      ACTOR,
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
@@ -474,6 +506,7 @@ describe('pin R5-7 — multi-store clamped actor (fresh O6)', () => {
       'cust-OTHER-STORE',
       { confirmed: true },
       { viewAll: false, allowedStoreIds: ['store-A', 'store-B'] },
+      ACTOR,
     )
     expect(result).toMatchObject({ success: true, toCustomerId: 'cust-OTHER-STORE' })
     expect(karuteRecordsUpdate).toHaveBeenCalledWith('kar-1', { customer_id: 'cust-OTHER-STORE' })
@@ -490,6 +523,7 @@ describe('pin 3 — two-phase', () => {
       'cust-TO',
       { confirmed: false },
       VIEW_ALL,
+      ACTOR,
     )
     expect(result).toEqual({
       requiresConfirm: true,
@@ -515,6 +549,7 @@ describe('pin 3 — two-phase', () => {
       'cust-TO',
       { confirmed: false },
       VIEW_ALL,
+      ACTOR,
     )
     expect(result).toMatchObject({ linkedBurnCount: 1, sameDayBurnCount: 0 })
   })
@@ -524,7 +559,7 @@ describe('pin 3 — two-phase', () => {
 
 describe('pin 4 — write shape', () => {
   it('the confirmed update call carries EXACTLY { customer_id: toId } — never entries, never any other field', async () => {
-    await reassignKaruteCustomerWithClient(fakeClient(), 'kar-1', 'cust-TO', { confirmed: true }, VIEW_ALL)
+    await reassignKaruteCustomerWithClient(fakeClient(), 'kar-1', 'cust-TO', { confirmed: true }, VIEW_ALL, ACTOR)
     expect(karuteRecordsUpdate).toHaveBeenCalledTimes(1)
     expect(karuteRecordsUpdate).toHaveBeenCalledWith('kar-1', { customer_id: 'cust-TO' })
   })

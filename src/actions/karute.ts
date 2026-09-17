@@ -16,7 +16,7 @@ import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { resolveStoreScope, customerLensFor, storeStaffIdSet } from '@/lib/auth/store-scope'
-import { sourceStoreOutOfScope, ensureRecordStoreInScope, STORE_SCOPE_UNVERIFIED, type RecordStoreScope } from '@/lib/auth/store-lock'
+import { sourceStoreOutOfScope, STORE_SCOPE_UNVERIFIED, type RecordStoreScope } from '@/lib/auth/store-lock'
 import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
@@ -782,26 +782,21 @@ async function ensureReassignStoreScope(
   karuteId: string,
   toCustomerId: string,
   scope: ReassignScope,
-  actor: StoreRefusalActor | undefined,
+  actor: StoreRefusalActor,
 ): Promise<void> {
   // R3-1's record half now lives in ONE place for every by-id write door
-  // (ensureRecordStoreInScope, src/lib/auth/store-lock.ts) — same three
+  // (src/lib/auth/store-lock.ts) — same three
   // outcomes as before, byte for byte: viewAll passes, a degraded lookup
   // fails closed, an out-of-store record refuses as readKaruteRaw's own
   // not_found. Only the to-customer half below is reassign-specific.
-  // AUDITED when an actor is in hand (FRESH-EYES-P1 §5a) — the thrown error is
-  // byte-unchanged either way, so the no-oracle guarantee above still holds.
-  if (actor) {
-    ensureRecordStoreInScopeAudited(record, scope, KARUTE_NOT_FOUND, {
-      actor,
-      category: 'karute',
-      targetType: 'karute',
-      targetId: karuteId,
-      door: 'karute.customer_reassign',
-    })
-  } else {
-    ensureRecordStoreInScope(record, scope, KARUTE_NOT_FOUND)
-  }
+  // Every refusal carries the actor supplied by the authenticated caller.
+  ensureRecordStoreInScopeAudited(record, scope, KARUTE_NOT_FOUND, {
+    actor,
+    category: 'karute',
+    targetType: 'karute',
+    targetId: karuteId,
+    door: 'karute.customer_reassign',
+  })
   if (scope.viewAll) return
   if (!scope.allowedStoreIds) return // floating — unclamped
   if (await toCustomerInScope(synqed, toCustomerId, scope.allowedStoreIds)) return
@@ -811,29 +806,24 @@ async function ensureReassignStoreScope(
   // see it. Exactly ONE row per request either way: the record half THROWS, so
   // control only reaches here when it passed.
   // The throw below is untouched — auditStoreWriteRefused records, never decides.
-  if (actor) {
-    auditStoreWriteRefused({
-      actor,
-      category: 'karute',
-      targetType: 'karute',
-      targetId: karuteId,
-      door: 'reassign.to_customer',
-      recordStoreId: record.store_id,
-      code: 'store_forbidden',
-      // The id that was probed. Ids only — never the customer's name.
-      detail: { to_customer_id: toCustomerId },
-    })
-  }
+  auditStoreWriteRefused({
+    actor,
+    category: 'karute',
+    targetType: 'karute',
+    targetId: karuteId,
+    door: 'reassign.to_customer',
+    recordStoreId: record.store_id,
+    code: 'store_forbidden',
+    // The id that was probed. Ids only — never the customer's name.
+    detail: { to_customer_id: toCustomerId },
+  })
   throw new AppApiError('store_forbidden', 'that customer is outside your assigned store')
 }
 
 /**
- * Reassign core — audit-FREE (Core/WithClient split, same convention as
- * grantCustomerConsentWithClient/setCustomerLifecycleWithClient): capability
- * gating and the audit emit are the CALLER's job. The web wrapper below and
- * the facade route each emit their OWN row (D1-mirror doctrine — facade's
- * generic success hook off FACADE_AUDIT_MAP, web's own auditWeb call) —
- * never a shared choke-point single emit, so this core stays audit-free.
+ * Reassign core — refusal auditing requires the authenticated caller's actor.
+ * Capability gating and SUCCESS auditing remain the caller's job: the web
+ * wrapper emits auditWeb; the facade uses its FACADE_AUDIT_MAP success hook.
  *
  * TWO-PHASE, stateless (packet §2b): `confirmed:false` returns the honesty
  * preview and performs NO write; `confirmed:true` RE-RUNS every proof (a
@@ -852,12 +842,8 @@ export async function reassignKaruteCustomerWithClient(
   toCustomerId: string,
   opts: { confirmed: boolean },
   scope: ReassignScope,
-  /** For the store-lock REFUSAL row (FRESH-EYES-P1 §5a). OPTIONAL, unlike the
-   *  scope beside it: this is a trace, not a gate — a caller that omits it
-   *  loses the row, never the lock, and the 20-odd suites that drive this core
-   *  directly keep saying exactly what they mean. Both shipped callers (the web
-   *  wrapper below, the facade route) pass one. */
-  actor?: StoreRefusalActor,
+  /** Required for every store-lock refusal row, on both transports. */
+  actor: StoreRefusalActor,
 ): Promise<ReassignPreview | ReassignSuccess> {
   const record = await readKaruteRaw(synqed, karuteId)
   const fromCustomerId = record.customer_id
