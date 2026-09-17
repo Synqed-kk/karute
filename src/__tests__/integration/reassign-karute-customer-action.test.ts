@@ -162,6 +162,36 @@ describe('pin 1 — RBAC (web)', () => {
 // ── Pin 2: store clamp ───────────────────────────────────────────────────
 
 describe('pin 2 — store clamp (web)', () => {
+  it('a clamped WEB caller + a foreign record gets not_found and ONE refusal row', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    resolveStoreScope.mockResolvedValueOnce({
+      viewAll: false, allowedStoreIds: ['store-A'], degraded: false,
+    })
+
+    const result = await reassignKaruteCustomer('kar-1', 'cust-TO', { confirmed: true })
+
+    expect(result).toEqual({ error: 'karute not found in this business' })
+    expect(karuteRecordsUpdate).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'karute.store_write_refused',
+      category: 'karute',
+      actorId: 'auth-user-1',
+      actorType: 'staff',
+      businessId: 'biz-1',
+      targetType: 'karute',
+      targetId: 'kar-1',
+      source: 'web',
+      severity: 'warning',
+      detail: {
+        door: 'karute.customer_reassign',
+        record_store_id: 'store-B',
+        code: 'not_found',
+      },
+    }))
+  })
+
   it('a clamped actor + an out-of-store to-customer is refused, no write', async () => {
     resolveStoreScope.mockResolvedValue({ viewAll: false, allowedStoreIds: ['store-A'], degraded: false })
     const result = await reassignKaruteCustomerWithClient(

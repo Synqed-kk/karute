@@ -255,6 +255,58 @@ describe('entry_edit_id receipt threading (P3, core #69 / SDK 1.25)', () => {
 })
 
 describe('updateKaruteDetailEntry — web wrapper (T1 web side)', () => {
+  it('clamped WEB caller + foreign record returns not_found and ONE refusal row with the resolved actor (RS-wiring)', async () => {
+    const { resolveStoreScope } = jest.requireMock('@/lib/auth/store-scope') as {
+      resolveStoreScope: jest.Mock
+    }
+    const { getSynqedClient } = jest.requireMock('@/lib/synqed/client') as {
+      getSynqedClient: jest.Mock
+    }
+    resolveStoreScope.mockResolvedValueOnce({
+      viewAll: false,
+      allowedStoreIds: ['store-A'],
+      degraded: false,
+    })
+    getSynqedClient.mockResolvedValueOnce({
+      karuteRecords: {
+        get: jest.fn(async () => ({
+          id: 'kar-1',
+          customer_id: 'cust-authoritative',
+          store_id: 'store-B',
+        })),
+        updateEntry,
+      },
+    })
+
+    const result = await updateKaruteDetailEntry('kar-1', 'e1', {
+      content: 'edited',
+      expectedVersion: 1,
+    })
+
+    expect(result).toEqual({ error: 'karute not found in this business' })
+    expect(updateEntry).not.toHaveBeenCalled()
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: 'karute',
+        action: 'karute.store_write_refused',
+        actorId: 'auth-user-1',
+        actorType: 'staff',
+        businessId: 'biz-1',
+        targetType: 'karute',
+        targetId: 'kar-1',
+        source: 'web',
+        severity: 'warning',
+        requestId: expect.any(String),
+        detail: {
+          door: 'karute.entry_edit',
+          record_store_id: 'store-B',
+          code: 'not_found',
+        },
+      }),
+    )
+  })
+
   it('collapses validationError into {error} for the sheet', async () => {
     const result = await updateKaruteDetailEntry('kar-1', 'e1', {
       content: '   ',
