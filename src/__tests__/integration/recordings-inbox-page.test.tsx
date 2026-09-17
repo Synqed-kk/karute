@@ -305,6 +305,7 @@ import {
   type RecordPageNextAppointment,
 } from '@/components/karute/redesign/record/RecordPageView'
 import { loadInbox, resetInbox } from '@/lib/recordings/inbox-store'
+import { getRecoverableTake } from '@/lib/karute/take-store'
 
 function take(over: Partial<StoredTake> & { takeId: string }): StoredTake {
   return {
@@ -407,6 +408,47 @@ it('pipeline review consent receives the picked name absent from the preloaded l
   expect(dialog.getByText('遠藤三郎')).toBeInTheDocument()
   expect(dialog.queryByText('佐藤 美咲')).not.toBeInTheDocument()
   expect(mockGetConsent).toHaveBeenCalledWith('remote-customer')
+})
+
+it('re-picking an off-list recovery customer replaces the consent name', async () => {
+  mockGetConsent.mockResolvedValue({ consent: null })
+  jest.mocked(getRecoverableTake).mockResolvedValueOnce(take({
+    takeId: 'take-repick', target: null,
+  }) as Awaited<ReturnType<typeof getRecoverableTake>>)
+  mockSearchCustomers.mockResolvedValue({
+    options: [{ id: 'remote-X', name: '遠藤三郎', other_store: true }],
+    karute_number_unavailable: false,
+    remote_more: false,
+  })
+  await renderPage()
+  fireEvent.click(screen.getByText('recording.recoverPickAndSaveAction'))
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+  await act(async () => { jest.advanceTimersByTime(300) })
+  fireEvent.click(screen.getByText('遠藤三郎'))
+  await flush(20)
+
+  const firstDialog = within(screen.getByRole('dialog', { name: 'recording.consentDialogTitle' }))
+  expect(firstDialog.getByText('遠藤三郎')).toBeInTheDocument()
+  fireEvent.click(firstDialog.getByText('common.cancel'))
+
+  mockSearchCustomers.mockResolvedValue({
+    options: [{ id: 'remote-Y', name: '田中花子', other_store: true }],
+    karute_number_unavailable: false,
+    remote_more: false,
+  })
+  fireEvent.click(screen.getByText('recording.recoverRepoint'))
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: '田中' } })
+  await act(async () => { jest.advanceTimersByTime(300) })
+  fireEvent.click(screen.getByText('田中花子'))
+  await flush(20)
+  fireEvent.click(screen.getByText('recording.recoverSaveAction'))
+  await flush(20)
+
+  const secondDialog = within(screen.getByRole('dialog', { name: 'recording.consentDialogTitle' }))
+  expect(secondDialog.getByText('田中花子')).toBeInTheDocument()
+  expect(secondDialog.queryByText('遠藤三郎')).not.toBeInTheDocument()
+  expect(mockGetConsent).toHaveBeenLastCalledWith('remote-Y')
+  expect(mockPipelineStart).not.toHaveBeenCalled()
 })
 
 describe('録音履歴 — multi-take recovery', () => {
