@@ -17,7 +17,8 @@
  *   · A FAILED SERVER READ says so instead of rendering a clean, short list.
  */
 jest.mock('next-intl', () => ({
-  useTranslations: (ns?: string) => (key: string) => (ns ? `${ns}.${key}` : key),
+  useTranslations: (ns?: string) => (key: string, values?: { customerName?: string }) =>
+    key === 'consentScript' ? values?.customerName : (ns ? `${ns}.${key}` : key),
 }))
 const mockPush = jest.fn()
 jest.mock('@/i18n/navigation', () => ({
@@ -55,12 +56,14 @@ const currentConsent = () => ({
 })
 const mockGetConsent = jest.fn(async (_id: string): Promise<{ consent: unknown }> => currentConsent())
 const mockGrantConsent = jest.fn(async (_id: string, _o?: unknown) => ({ ok: true }) as { ok: boolean; error?: string })
+const mockSearchCustomers = jest.fn()
 jest.mock('@/actions/customers', () => ({
   // CURRENT consent, on the REAL policy version — the save gate fails closed on
   // a stale one, which would silently divert every save below into the grant
   // dialog instead of the writer.
   getCustomerConsent: (id: string) => mockGetConsent(id),
   grantCustomerConsent: (id: string, o?: unknown) => mockGrantConsent(id, o),
+  searchCustomersCompanyWide: (...args: unknown[]) => mockSearchCustomers(...args),
 }))
 jest.mock('@/actions/packs', () => ({
   createPackAction: jest.fn(),
@@ -672,6 +675,37 @@ describe('録音履歴 — saving from the server', () => {
       recordingSessionId: 'sess-walkin',
       customerId: 'cust-1',
       locale: 'ja',
+    })
+  })
+
+  it('server consent shows the company-wide picked name absent from the preloaded list', async () => {
+    mockGetConsent.mockResolvedValue({ consent: null })
+    mockSearchCustomers.mockResolvedValue({
+      options: [{ id: 'remote-customer', name: '遠藤三郎', other_store: true }],
+      karute_number_unavailable: false,
+      remote_more: false,
+    })
+    serverSessions = [session({
+      recordingSessionId: 'sess-remote', customerId: null,
+      serverAudio: 'object', createdAt: OLD(),
+    })]
+    await renderPage()
+    fireEvent.click(within(row('session:sess-remote')).getByText('recording.inbox.action.save'))
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '遠藤' } })
+    await act(async () => { jest.advanceTimersByTime(300) })
+    fireEvent.click(screen.getByText('遠藤三郎'))
+    await flush(20)
+
+    const dialog = within(screen.getByRole('dialog', { name: 'recording.consentDialogTitle' }))
+    expect(dialog.getByText('遠藤三郎')).toBeInTheDocument()
+    expect(dialog.queryByText('recording.recoverCustomerUnknown')).not.toBeInTheDocument()
+    expect(mockGetConsent).toHaveBeenCalledWith('remote-customer')
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
+    fireEvent.click(dialog.getByText('recording.consentConfirmButton'))
+    await flush(20)
+    expect(mockGrantConsent).toHaveBeenCalledWith('remote-customer', { method: 'VERBAL' })
+    expect(mockEnqueueFromSession).toHaveBeenCalledWith({
+      recordingSessionId: 'sess-remote', customerId: 'remote-customer', locale: 'ja',
     })
   })
 

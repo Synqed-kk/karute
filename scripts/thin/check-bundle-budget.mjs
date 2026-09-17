@@ -1492,7 +1492,15 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // (matching content hashes, node v24.16.0, @synqed-kk/ui 0.3.2, installed
 // == lock): en 134,814 · index 1,048,257 · vendor 937,791 = 2,120,862 B.
 // Ceiling = 2,120,862 + 1,000.
-const BUDGET_BYTES = 2_121_862
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-17 — #952 follow-up: the picked customer's name reaches
+// server-inbox consent and ReviewScreen via display-only pipeline context.
+// Exact CI six VITE_* placeholders; thin/dist emptied before each of TWO
+// builds; all 23 output files byte-identical (SHA-256), node v24.16.0:
+// en 134,814 · index 1,048,400 · vendor 937,791 = 2,121,005 B.
+// +143 B against the prior entry's measurement, all in index; no dependency
+// changes. Ceiling = measured 2,121,005 + 1,000 = 2,122,005 B.
+const BUDGET_BYTES = 2_122_005
 
 let dir
 try {
