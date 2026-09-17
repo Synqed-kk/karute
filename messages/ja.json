@@ -2490,7 +2490,6 @@
         },
         "karute": {
           "save": "カルテを保存",
-          "save_refused": "担当店舗外のカルテ保存を拒否",
           "entry_edit": "カルテ項目を編集",
           "view": "カルテを閲覧",
           "entry_edits_view": "カルテ編集履歴を閲覧",

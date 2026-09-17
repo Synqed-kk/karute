@@ -64,7 +64,6 @@ export const AUDIT_ACTIONS = [
   'karute.manual_create',
   'karute.outcome_set',
   'karute.save',
-  'karute.save_refused',
   'karute.summary_edit',
   'karute.view',
   'privacy.audit_log.view',

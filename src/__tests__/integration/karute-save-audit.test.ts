@@ -88,7 +88,7 @@ beforeEach(() => {
 })
 
 describe('karute.save — web saveKaruteRecord emits exactly once', () => {
-  it('a clamped WEB caller in store-A saving an existing store-B record gets not_found and ONE refusal row', async () => {
+  it('a clamped WEB caller in store-A saving an existing store-B record gets not_found and no audit row', async () => {
     jest.mocked(resolveStoreScope).mockResolvedValue({
       storeId: 'store-A', viewAll: false, allowedStoreIds: ['store-A'], degraded: false,
     })
@@ -101,21 +101,7 @@ describe('karute.save — web saveKaruteRecord emits exactly once', () => {
     expect(result).toEqual({ error: KARUTE_NOT_FOUND, code: 'not_found' })
     expect(karuteRecords.create).not.toHaveBeenCalled()
     expect(karuteRecords.update).not.toHaveBeenCalled()
-    expect(audit).toHaveBeenCalledTimes(1)
-    expect(audit).toHaveBeenCalledWith({
-      category: 'karute',
-      action: 'karute.save_refused',
-      actorId: 'auth-user-1',
-      actorType: 'staff',
-      businessId: 'biz-1',
-      targetType: 'karute',
-      targetId: 'kar-x',
-      storeId: 'store-B',
-      severity: 'warning',
-      detail: { reason: 'store_scope', recording_session_id: 'rs-1' },
-      requestId: expect.any(String),
-      source: 'web',
-    })
+    expect(audit).not.toHaveBeenCalled()
   })
 
   it('emits karute.save with actor/business/detail after the write settles', async () => {

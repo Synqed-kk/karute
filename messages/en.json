@@ -2490,7 +2490,6 @@
         },
         "karute": {
           "save": "Saved karute record",
-          "save_refused": "Refused to save a karute record outside assigned stores",
           "entry_edit": "Edited karute entry",
           "view": "Viewed karute record",
           "entry_edits_view": "Viewed karute edit history",
