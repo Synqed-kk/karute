@@ -179,23 +179,34 @@ describe('setRecordingAutostartWithClient — the one audited settings write', (
     })
   })
 
-  it('a degraded assignment lookup fails closed, the same way', async () => {
+  it.each([
+    { label: 'null assignment', allowedStoreIds: null },
+    { label: 'own-store assignment', allowedStoreIds: ['store-1'] },
+  ])('a degraded assignment lookup ($label) fails closed with NO refusal row', async ({ allowedStoreIds }) => {
     const c = fakeClient({})
-    const degraded = { ...ACTOR, scope: { viewAll: false, allowedStoreIds: ['store-1'], degraded: true } }
+    const degraded = { ...ACTOR, scope: { viewAll: false, allowedStoreIds, degraded: true } }
+    // Preserve the core's shipped unknown_store answer; the facade refuses a
+    // failed assignment lookup earlier with store_forbidden.
     expect(await setRecordingAutostartWithClient(c.client as never, degraded, 'store-1', true)).toEqual({
       ok: false,
       error: 'unknown_store',
     })
     expect(c.upsert).not.toHaveBeenCalled()
+    expect(c.client.orgSettings.get).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+    expect(auditRowSpy).not.toHaveBeenCalled()
   })
 
-  it('a clamped actor flipping their OWN store is unaffected', async () => {
+  it('a clamped actor flipping their OWN store succeeds with ONE receipt and NO refusal row', async () => {
     const c = fakeClient({})
     const own = { ...ACTOR, scope: { viewAll: false, allowedStoreIds: ['store-1'] } }
     expect(await setRecordingAutostartWithClient(c.client as never, own, 'store-1', true)).toMatchObject({
       ok: true,
     })
     expect(c.upsert).toHaveBeenCalledTimes(1)
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0]).toMatchObject({ action: 'settings.recording_autostart_toggle' })
+    expect(auditRowSpy).not.toHaveBeenCalled()
   })
 
   it('refuses an unattributable caller before reading anything', async () => {

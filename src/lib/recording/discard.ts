@@ -204,6 +204,9 @@ async function discardStoreAllowed(
   /** The door, for the refusal row: 'recording.discard' / the reason-row twin. */
   door: string,
 ): Promise<boolean> {
+  // A failed assignment lookup is retriable infrastructure failure, not a
+  // cross-store probe. Refuse before any record lookup or audit row.
+  if (!actor.scope.viewAll && actor.scope.degraded) return false
   let storeId: string | null = null
   if (recordingSessionId) {
     try {

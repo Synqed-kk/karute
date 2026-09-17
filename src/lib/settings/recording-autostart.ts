@@ -88,6 +88,10 @@ export async function setRecordingAutostartWithClient(
     return { ok: false, error: 'unknown_store' }
   }
 
+  // Preserve the door's refusal shape without treating an assignment lookup
+  // failure as a cross-store probe. The facade rejects this before the core.
+  if (!actor.scope.viewAll && actor.scope.degraded) return { ok: false, error: 'unknown_store' }
+
   let current: string[]
   try {
     // Store membership FIRST — a receipt-grade governance row must never

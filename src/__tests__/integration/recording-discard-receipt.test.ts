@@ -502,12 +502,35 @@ describe('a discard outside the caller’s store is refused', () => {
     })
   })
 
-  it('a session INSIDE the caller’s own store still files normally', async () => {
+  it.each(['receipt-only', 'with-reason'] as const)('own-store %s discard succeeds with ONE receipt and NO refusal row', async (door) => {
     const own = { ...webActor, scope: { viewAll: false, allowedStoreIds: ['store-1'] } }
-    expect(await discardRecordingWithReasonRow(fakeClient as never, own, WITH_REASON)).toMatchObject({
+    const result = door === 'with-reason'
+      ? await discardRecordingWithReasonRow(fakeClient as never, own, WITH_REASON)
+      : await discardRecordingWithClient(fakeClient as never, own, SYSTEM_VALID)
+    expect(result).toMatchObject({
       ok: true,
+      duplicate: false,
     })
-    expect(discardCreate).toHaveBeenCalledTimes(1)
+    expect(discardCreate).toHaveBeenCalledTimes(door === 'with-reason' ? 1 : 0)
+    expect(auditLog).toHaveBeenCalledTimes(1)
+    expect(auditLog.mock.calls[0][0]).toMatchObject({ action: 'recording.discard' })
+    expect(coreRows.filter((row) => row.action === 'recording.store_write_refused')).toHaveLength(0)
+  })
+
+  it.each(['receipt-only', 'with-reason'] as const)('degraded %s discard is refused with NO write or refusal row', async (door) => {
+    const degraded = { ...webActor, scope: { viewAll: false, allowedStoreIds: null, degraded: true } }
+    const result = door === 'with-reason'
+      ? await discardRecordingWithReasonRow(fakeClient as never, degraded, WITH_REASON)
+      : await discardRecordingWithClient(fakeClient as never, degraded, SYSTEM_VALID)
+    // The core keeps its shipped collapsed answer; the facade preflight below
+    // preserves store_forbidden. An assignment blip is not a cross-store probe.
+    expect(result).toEqual({ ok: false, error: 'forbidden' })
+    expect(discardCreate).not.toHaveBeenCalled()
+    expect(discardList).not.toHaveBeenCalled()
+    expect(auditList).not.toHaveBeenCalled()
+    expect(auditLog).not.toHaveBeenCalled()
+    expect(recordingUpdate).not.toHaveBeenCalled()
+    expect(coreRows).toEqual([])
   })
 
   // ⚖ Greptile round 2 — ONE CHECK, AND IT COMES FIRST. The STAFF path used to
@@ -551,6 +574,21 @@ describe('a discard outside the caller’s store is refused', () => {
     expect(res.status).toBe(403)
     expect(discardRows()).toHaveLength(0)
     expect(discardCreate).not.toHaveBeenCalled()
+  })
+
+  it.each(['receipt-only', 'with-reason'] as const)('facade degraded %s assignment lookup returns store_forbidden with NO row', async (door) => {
+    fakeClient.staffStores.get.mockRejectedValueOnce(new Error('assignment unavailable'))
+    const res = await post(door === 'with-reason' ? WITH_REASON : SYSTEM_VALID)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe('store_forbidden')
+    expect(fakeClient.staffStores.get).toHaveBeenCalledWith('auth-user-1')
+    expect(recordingsGet).not.toHaveBeenCalled()
+    expect(discardCreate).not.toHaveBeenCalled()
+    expect(discardList).not.toHaveBeenCalled()
+    expect(auditList).not.toHaveBeenCalled()
+    expect(auditLog).not.toHaveBeenCalled()
+    expect(recordingUpdate).not.toHaveBeenCalled()
+    expect(coreRows).toEqual([])
   })
 })
 
