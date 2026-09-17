@@ -8,6 +8,7 @@
 import type { SynqedClient } from '@synqed-kk/client'
 import { staffStoresOverlap, type Capability } from '@/lib/auth/permissions'
 import { reachesNoStore, storeAssignmentVerdict, storeCountForGate } from '@/lib/auth/store-gate'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { AppApiError } from './errors'
 
 /** SynqedError's HTTP status, duck-typed: a VALUE import of the SDK class
@@ -239,13 +240,13 @@ export interface WriteScopeArgs {
  * `requestedStoreId: null`, always: the ASSIGNMENT is the basis, so a phone-set
  * store-id header can neither widen nor narrow a lock.
  *
- * The refusal reuses resolveStoreForRequest's own failed-lookup message and
+ * The refusal reuses the shared write-lock's failed-assignment message and
  * carries NO `reason: 'store_header'` — the pin is fine, the caller is not, and
  * the thin shell's stranded-pin self-heal must not act on this one.
  */
 export async function resolveWriteStoreScope(args: WriteScopeArgs): Promise<ClampedStore> {
   if (!args.selfStaffId) {
-    throw new AppApiError('store_forbidden', 'could not resolve store assignment (fail-closed)')
+    throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
   }
   return resolveStoreForRequest({ ...args, requestedStoreId: null })
 }
