@@ -185,6 +185,7 @@ jest.mock('@/lib/karute/take-store', () => ({
 }))
 jest.mock('@/lib/karute/draft', () => ({
   loadDraft: jest.fn(async () => null),
+  saveDraft: jest.fn(),
   clearDraft: jest.fn(),
   currentUserId: jest.fn(async () => 'staff-A'),
 }))
@@ -226,9 +227,10 @@ const mockPipelineStart = jest.fn()
  *  Every other test leaves it idle, which is what it was before. */
 const pipe = {
   state: 'idle' as string,
+  result: null as import('@/lib/ai-pipeline').PipelineResult | null,
   error: null as string | null,
   context: null as
-    | { takeId: string; recordingSessionId: string; serverRowMissing?: boolean }
+    | (Partial<import('@/lib/global-pipeline').PipelineContext> & { takeId: string; recordingSessionId: string; serverRowMissing?: boolean })
     | null,
   errorRepeated: false,
 }
@@ -239,7 +241,9 @@ jest.mock('@/lib/global-pipeline', () => ({
       return pipe.state
     },
     step: null,
-    result: null,
+    get result() {
+      return pipe.result
+    },
     get error() {
       return pipe.error
     },
@@ -341,6 +345,7 @@ beforeEach(() => {
   mockGetConsent.mockImplementation(async () => currentConsent())
   mockGrantConsent.mockImplementation(async () => ({ ok: true }))
   pipe.state = 'idle'
+  pipe.result = null
   pipe.error = null
   pipe.context = null
   pipe.errorRepeated = false
@@ -381,6 +386,28 @@ async function flush(rounds = 14) {
 const inbox = () => screen.getByTestId('recordings-inbox')
 const rows = () => within(inbox()).getAllByTestId(/^inbox-row-/)
 const row = (key: string) => within(inbox()).getByTestId(`inbox-row-${key}`)
+
+it('pipeline review consent receives the picked name absent from the preloaded list', async () => {
+  mockGetConsent.mockResolvedValue({ consent: null })
+  pipe.state = 'review'
+  pipe.result = { transcript: 'hello', entries: [], summary: 'a summary' }
+  pipe.context = {
+    locale: 'ja',
+    customers: [{ id: 'cust-1', name: '佐藤 美咲' }],
+    appointmentCustomerId: 'remote-customer',
+    pickedCustomerName: '遠藤三郎',
+    takeId: 'take-review',
+    recordingSessionId: 'sess-review',
+  }
+  await renderPage()
+  fireEvent.click(screen.getByRole('button', { name: 'common.save' }))
+  await flush(20)
+
+  const dialog = within(screen.getByRole('dialog', { name: 'recording.consentDialogTitle' }))
+  expect(dialog.getByText('遠藤三郎')).toBeInTheDocument()
+  expect(dialog.queryByText('佐藤 美咲')).not.toBeInTheDocument()
+  expect(mockGetConsent).toHaveBeenCalledWith('remote-customer')
+})
 
 describe('録音履歴 — multi-take recovery', () => {
   it('two takes are two rows, and 保存する on the OLDER one saves THAT take', async () => {
