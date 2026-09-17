@@ -9,6 +9,8 @@
  * process-recording-outcome.test.ts — neither is touched by this file.
  */
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 
 jest.mock('react', () => {
   const actual = jest.requireActual('react')
@@ -69,6 +71,9 @@ const baseInput = { customerId: 'cust-1', transcript: 't', summary: 's', entries
 
 beforeEach(() => {
   jest.clearAllMocks()
+  jest.mocked(resolveStoreScope).mockResolvedValue({
+    storeId: null, viewAll: true, allowedStoreIds: null, degraded: false,
+  })
   karuteRecords.create.mockResolvedValue({ id: 'kar-1' })
   karuteRecords.getByRecordingSession.mockRejectedValue(
     Object.assign(new Error('nf'), { status: 404 }),
@@ -83,6 +88,36 @@ beforeEach(() => {
 })
 
 describe('karute.save — web saveKaruteRecord emits exactly once', () => {
+  it('a clamped WEB caller in store-A saving an existing store-B record gets not_found and ONE refusal row', async () => {
+    jest.mocked(resolveStoreScope).mockResolvedValue({
+      storeId: 'store-A', viewAll: false, allowedStoreIds: ['store-A'], degraded: false,
+    })
+    karuteRecords.getByRecordingSession.mockResolvedValueOnce({
+      id: 'kar-x', transcript: 'old', store_id: 'store-B',
+    } as never)
+
+    const result = await saveKaruteRecord({ ...baseInput, recordingSessionId: 'rs-1' })
+
+    expect(result).toEqual({ error: KARUTE_NOT_FOUND, code: 'not_found' })
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+    expect(karuteRecords.update).not.toHaveBeenCalled()
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith({
+      category: 'karute',
+      action: 'karute.save_refused',
+      actorId: 'auth-user-1',
+      actorType: 'staff',
+      businessId: 'biz-1',
+      targetType: 'karute',
+      targetId: 'kar-x',
+      storeId: 'store-B',
+      severity: 'warning',
+      detail: { reason: 'store_scope', recording_session_id: 'rs-1' },
+      requestId: expect.any(String),
+      source: 'web',
+    })
+  })
+
   it('emits karute.save with actor/business/detail after the write settles', async () => {
     await saveKaruteRecord({ ...baseInput })
     expect(audit).toHaveBeenCalledTimes(1)

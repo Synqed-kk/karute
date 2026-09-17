@@ -213,7 +213,29 @@ export async function createOrUpdateKaruteRecord(
       // with the SAME not_found readKaruteRaw throws for a missing id, so this
       // door is no existence oracle either. The CREATE arm needs no lock — its
       // store comes from resolveKaruteStoreId / resolveSaveStore, already clamped.
-      ensureRecordStoreInScope({ store_id: existing.store_id ?? null }, scope, KARUTE_NOT_FOUND)
+      try {
+        ensureRecordStoreInScope({ store_id: existing.store_id ?? null }, scope, KARUTE_NOT_FOUND)
+      } catch (err) {
+        // Only a cross-store refusal is an audit event. An unreadable actor
+        // assignment is a transient failure and must not write a refusal row.
+        if (err instanceof AppApiError && err.code === 'not_found') {
+          audit({
+            category: 'karute',
+            action: 'karute.save_refused',
+            actorId: actor.actorId,
+            actorType: 'staff',
+            businessId: actor.businessId,
+            targetType: 'karute',
+            targetId: existing.id,
+            storeId: existing.store_id ?? undefined,
+            severity: 'warning',
+            detail: { reason: 'store_scope', recording_session_id: recordingSessionId },
+            requestId: actor.requestId,
+            source: actor.source,
+          })
+        }
+        throw err
+      }
       // Collision on recording_session_id (fix round — the prior "this
       // branch's payload is the SAME content by construction" premise was
       // wrong: this branch is also reached by ReviewScreen's saveKaruteRecord

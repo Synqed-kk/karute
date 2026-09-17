@@ -432,7 +432,13 @@ describe('karute save converge branch — the recording_session_id door is store
     })
     expect(c.update).not.toHaveBeenCalled()
     expect(c.create).not.toHaveBeenCalled()
-    expect(auditSpy).not.toHaveBeenCalled()
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'karute.save_refused',
+      targetId: 'kar-1',
+      storeId: 'store-ginza',
+      actorId: KARUTE_ACTOR.actorId,
+    }))
   })
 
   it('a legacy store-less record is refused for a clamped actor', async () => {
@@ -445,6 +451,8 @@ describe('karute save converge branch — the recording_session_id door is store
     const c = convergeClient('store-ginza')
     await expect(save(c, DEGRADED)).rejects.toMatchObject({ code: 'store_forbidden' })
     expect(c.update).not.toHaveBeenCalled()
+    expect(c.create).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
   })
 
   it('viewAll, floating and same-store actors converge normally', async () => {
