@@ -1856,15 +1856,15 @@ export function RecordPageView({
       : offer.draft.appointmentCustomerId
         ? {
             customerId: offer.draft.appointmentCustomerId,
-            // B-1: a draft whose customer has since left the cached list still
-            // has a real, saveable id — only the NAME is unknown. Coalesce it
-            // so the banner can never read as unbound (which would send the
-            // staffer to a picker they don't need, and open a blank-titled
-            // popup). Bound-ness is decided by the destination, never by
-            // whether a display string happened to resolve.
-            customerName:
-              customers.find((c) => c.id === offer.draft.appointmentCustomerId)?.name ||
+            // Preserve the picked name through reload, even outside the cached
+            // list. Older drafts still fall back to the list or the unknown
+            // label; bound-ness depends on the id, never the display name.
+            customerName: pickedCustomerName(
+              offer.draft.pickedCustomerName,
+              customers,
+              offer.draft.appointmentCustomerId,
               t('recoverCustomerUnknown'),
+            ),
             appointmentId: offer.draft.appointmentId || null,
           }
         : null

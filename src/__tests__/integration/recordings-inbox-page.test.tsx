@@ -189,6 +189,11 @@ jest.mock('@/lib/karute/draft', () => ({
   clearDraft: jest.fn(),
   currentUserId: jest.fn(async () => 'staff-A'),
 }))
+jest.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({
+    auth: { getSession: async () => ({ data: { session: { user: { id: 'staff-A' } } } }) },
+  }),
+}))
 jest.mock('@/hooks/use-global-recorder', () => ({
   useGlobalRecorder: () => ({
     state: 'idle',
@@ -306,6 +311,7 @@ import {
 } from '@/components/karute/redesign/record/RecordPageView'
 import { loadInbox, resetInbox } from '@/lib/recordings/inbox-store'
 import { getRecoverableTake } from '@/lib/karute/take-store'
+import { loadDraft, saveDraft } from '@/lib/karute/draft'
 
 function take(over: Partial<StoredTake> & { takeId: string }): StoredTake {
   return {
@@ -339,12 +345,18 @@ function session(over: Partial<ServerSession> & { recordingSessionId: string }):
 beforeEach(() => {
   jest.useFakeTimers({ now: NOW, doNotFake: ['queueMicrotask'] })
   resetInbox()
+  localStorage.clear()
+  jest.mocked(loadDraft).mockReset().mockResolvedValue(null)
+  jest.mocked(saveDraft).mockReset()
   stored = []
   serverSessions = []
   serverThrows = false
   mockEnqueueFromSession.mockResolvedValue({ ok: true, jobId: 'job-1', status: 'QUEUED' })
   mockGetConsent.mockImplementation(async () => currentConsent())
   mockGrantConsent.mockImplementation(async () => ({ ok: true }))
+  mockSearchCustomers.mockReset().mockResolvedValue({
+    options: [], karute_number_unavailable: false, remote_more: false,
+  })
   pipe.state = 'idle'
   pipe.result = null
   pipe.error = null
@@ -448,6 +460,43 @@ it('re-picking an off-list recovery customer replaces the consent name', async (
   expect(secondDialog.getByText('田中花子')).toBeInTheDocument()
   expect(secondDialog.queryByText('遠藤三郎')).not.toBeInTheDocument()
   expect(mockGetConsent).toHaveBeenLastCalledWith('remote-Y')
+  expect(mockPipelineStart).not.toHaveBeenCalled()
+})
+
+it('restored review draft consent retains the picked name absent from the preloaded list', async () => {
+  const realDraft = jest.requireActual<typeof import('@/lib/karute/draft')>('@/lib/karute/draft')
+  jest.mocked(saveDraft).mockImplementation(realDraft.saveDraft)
+  jest.mocked(loadDraft).mockImplementation(realDraft.loadDraft)
+  mockGetConsent.mockResolvedValue({ consent: null })
+  pipe.state = 'review'
+  pipe.result = { transcript: 'hello', entries: [], summary: 'a summary' }
+  pipe.context = {
+    locale: 'ja',
+    customers: [{ id: 'cust-1', name: '佐藤 美咲' }],
+    appointmentCustomerId: 'remote-draft',
+    pickedCustomerName: '遠藤三郎',
+    takeId: 'take-draft',
+    recordingSessionId: 'sess-draft',
+  }
+  const review = await renderPage()
+  expect(await realDraft.loadDraft()).toMatchObject({
+    transcript: 'hello', appointmentCustomerId: 'remote-draft', savedByStaffId: 'staff-A',
+  })
+
+  // A reload loses both the component state and the in-memory pipeline. Only
+  // the real per-user localStorage draft can supply the customer's name now.
+  review.unmount()
+  pipe.state = 'idle'
+  pipe.result = null
+  pipe.context = null
+  await renderPage()
+  fireEvent.click(screen.getByText('recording.recoverSaveAction'))
+  await flush(20)
+
+  const dialog = within(screen.getByRole('dialog', { name: 'recording.consentDialogTitle' }))
+  expect(dialog.getByText('遠藤三郎')).toBeInTheDocument()
+  expect(dialog.queryByText('recording.recoverCustomerUnknown')).not.toBeInTheDocument()
+  expect(mockGetConsent).toHaveBeenLastCalledWith('remote-draft')
   expect(mockPipelineStart).not.toHaveBeenCalled()
 })
 

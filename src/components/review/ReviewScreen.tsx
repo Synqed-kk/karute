@@ -98,10 +98,11 @@ export function ReviewScreen({
       duration,
       appointmentId,
       appointmentCustomerId,
+      pickedCustomerName,
       recordingSessionId: recordingSessionId ?? undefined,
       takeId: takeId ?? undefined,
     })
-  }, [transcript, summary, entries, duration, appointmentId, appointmentCustomerId, recordingSessionId, takeId])
+  }, [transcript, summary, entries, duration, appointmentId, appointmentCustomerId, pickedCustomerName, recordingSessionId, takeId])
 
   // Fetch AI suggestions based on transcript
   useEffect(() => {
