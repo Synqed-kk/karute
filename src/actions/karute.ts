@@ -16,7 +16,7 @@ import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { resolveStoreScope, customerLensFor, storeStaffIdSet } from '@/lib/auth/store-scope'
-import { sourceStoreOutOfScope, ensureRecordStoreInScope, type RecordStoreScope } from '@/lib/auth/store-lock'
+import { sourceStoreOutOfScope, ensureRecordStoreInScope, STORE_SCOPE_UNVERIFIED, type RecordStoreScope } from '@/lib/auth/store-lock'
 import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
@@ -72,6 +72,10 @@ async function resolveKaruteStoreId(
   appointmentId: string | null | undefined,
   fetchedAppointment?: Appointment | null,
 ): Promise<{ storeId: string | null; appointment: Appointment | null }> {
+  const scope = await resolveStoreScope()
+  if (scope.degraded) throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
+  if (reachesNoStore(scope)) throw new Error(UNASSIGNED_STORE_DENIAL)
+
   // Also hands back the appointment it fetched so callers can copy booking
   // metadata (service = the booked menu) into the record without a second
   // appointments.get for the same save.
@@ -88,20 +92,13 @@ async function resolveKaruteStoreId(
     // attach the record to an appointment sitting in a different store. A
     // NULL-store appointment keeps today's behavior (pre-existing, out of scope).
     if (apptStore) {
-      const scope = await resolveStoreScope()
       if (scope.allowedStoreIds && !scope.allowedStoreIds.includes(apptStore)) {
         throw new Error('This booking belongs to a store you are not assigned to.')
       }
     }
     return { storeId: apptStore, appointment: appt }
   }
-  // No linked appointment: the record's store IS the actor's lens. An actor who
-  // reaches no store has no lens to stamp, and the old fallback wrote
-  // `store_id: null` — the exact failure mode this function's own doc above
-  // exists to prevent ("vanishes from every store-scoped カルテ list"). REFUSE
-  // the save instead (⚖ Liam 2026-09-16: unassigned does nothing).
-  const scope = await resolveStoreScope()
-  if (reachesNoStore(scope)) throw new Error(UNASSIGNED_STORE_DENIAL)
+  // No linked appointment: the record's store is the actor's verified lens.
   return { storeId: scope.storeId, appointment: null }
 }
 

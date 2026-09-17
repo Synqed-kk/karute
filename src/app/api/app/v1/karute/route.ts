@@ -15,6 +15,7 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { readCustomerRaw } from '@/lib/app-api/karute-facade'
 import { resolveStoreForRequest, resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
 import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { SaveKaruteSchema } from '@/lib/app-api/record-schemas'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
@@ -37,8 +38,13 @@ async function resolveSaveStore(
   synqed: Pick<SynqedClient, 'appointments'>,
   appointmentId: string | null | undefined,
   fetchedAppt: Appointment | null,
-  clamp: { storeId: string | null; allowedStoreIds: string[] | null },
+  clamp: { storeId: string | null; allowedStoreIds: string[] | null; degraded?: boolean },
 ): Promise<{ storeId: string | null; appointment: Appointment | null }> {
+  if (clamp.degraded) throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
+  if (reachesNoStore(clamp)) {
+    throw new AppApiError('store_forbidden', UNASSIGNED_STORE_DENIAL)
+  }
+
   // Web-parity: also hands back the fetched appointment so the save can copy
   // the booked menu (service) into the record without a second fetch.
   if (appointmentId) {
@@ -49,13 +55,7 @@ async function resolveSaveStore(
     }
     return { storeId: apptStore, appointment: appt }
   }
-  // No linked booking: the record's store IS the caller's lens. A caller who
-  // reaches no store has none, and the old fallback stamped `store_id: null` —
-  // a record invisible to every store-scoped カルテ list. REFUSE (⚖ Liam
-  // 2026-09-16; web twin: resolveKaruteStoreId).
-  if (reachesNoStore(clamp)) {
-    throw new AppApiError('store_forbidden', UNASSIGNED_STORE_DENIAL)
-  }
+  // No linked booking: the record's store is the caller's verified lens.
   return { storeId: clamp.storeId, appointment: null }
 }
 

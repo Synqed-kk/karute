@@ -13,6 +13,8 @@
  *      viewer who just hasn't touched the switcher)
  */
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
+import { UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 
 jest.mock('react', () => {
   const actual = jest.requireActual('react')
@@ -78,6 +80,30 @@ beforeEach(() => {
 })
 
 describe('saveKaruteRecordInline — store_id resolution', () => {
+  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: degraded scope + appointment refuses before create', async (save) => {
+    resolveStoreScopeMock.mockResolvedValue({
+      storeId: null, viewAll: false, allowedStoreIds: null, degraded: true,
+    })
+    appointments.get.mockResolvedValue({ id: 'ap-1', staff_id: 'me-staff', store_id: 'store-A' })
+
+    expect(await save({ ...baseInput, appointmentId: 'ap-1' })).toEqual({ error: STORE_SCOPE_UNVERIFIED })
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+    expect(appointments.get).not.toHaveBeenCalled()
+    expect(resolveStoreScopeMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([saveKaruteRecord, saveKaruteRecordInline])('%p: unassigned scope + NULL-store appointment refuses before create', async (save) => {
+    resolveStoreScopeMock.mockResolvedValue({
+      storeId: null, viewAll: false, allowedStoreIds: [], degraded: false,
+    })
+    appointments.get.mockResolvedValue({ id: 'ap-1', staff_id: 'me-staff', store_id: null })
+
+    expect(await save({ ...baseInput, appointmentId: 'ap-1' })).toEqual({ error: UNASSIGNED_STORE_DENIAL })
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+    expect(appointments.get).not.toHaveBeenCalled()
+    expect(resolveStoreScopeMock).toHaveBeenCalledTimes(1)
+  })
+
   it("(a) with appointmentId: stamps the BOOKING's store_id (authz-checked, in scope)", async () => {
     appointments.get.mockResolvedValue({ id: 'ap-1', staff_id: 'other-staff', store_id: 'store-A' })
     // In-scope caller (assigned to store-A) → the clamp passes and the record

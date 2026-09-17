@@ -5,6 +5,16 @@
 // mocked; memory ingest stubbed (best-effort, tested elsewhere).
 import { createHmac } from 'node:crypto'
 import { RECORDING_CONSENT_POLICY_VERSION, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
+import { UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
+import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+
+// Inject the resolved scope only: the route's stamp helper and write lock
+// remain real, so neither can hide a missing guard in the other.
+jest.mock('@/lib/app-api/store-clamp', () => {
+  const actual = jest.requireActual('@/lib/app-api/store-clamp')
+  return { ...actual, resolveStoreForRequest: jest.fn(actual.resolveStoreForRequest) }
+})
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 jest.mock('next-intl/server', () => ({ getTranslations: async () => (k: string) => k, getLocale: async () => 'ja' }))
@@ -116,6 +126,31 @@ beforeEach(() => {
 })
 
 describe('POST /api/app/v1/karute (save)', () => {
+  it('degraded scope + appointment refuses before create, without an audit row', async () => {
+    const degraded = { storeId: null, allowedStoreIds: null, degraded: true }
+    jest.mocked(resolveStoreForRequest).mockResolvedValueOnce(degraded)
+
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-1' }), noRoute)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: STORE_SCOPE_UNVERIFIED })
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it('unassigned scope + NULL-store appointment refuses before create', async () => {
+    jest.mocked(resolveStoreForRequest).mockResolvedValueOnce({ storeId: null, allowedStoreIds: [] })
+    fakeClient.appointments.get.mockResolvedValue({ staff_id: 'appt-staff', store_id: null, title: null })
+
+    const res = await savePOST(post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-1' }), noRoute)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden', message: UNASSIGNED_STORE_DENIAL })
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+    expect(fakeClient.appointments.get).not.toHaveBeenCalled()
+  })
+
   it('happy → 200 { id }, record created', async () => {
     const res = await savePOST(post({ ...auth, ...idem }, validSave), noRoute)
     expect(res.status).toBe(200)
