@@ -81,6 +81,9 @@ import { getBusinessId } from '@/lib/staff'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
 import { listAllPackUsageOrNull } from '@/lib/packs/store'
 import { getOrgSettings } from '@/actions/org-settings'
+import type { Appointment } from '@synqed-kk/client'
+import { buildAppointmentsScreen } from '@/lib/appointments/screen'
+import { computeMonthRange } from '@/lib/date/calendar-range'
 
 const cachedCustomers = getCachedCustomerList as jest.Mock
 const businessId = getBusinessId as jest.Mock
@@ -252,6 +255,52 @@ describe('⚖ G1 — the three 新規-only reads are caught individually', () =>
 // ---------------------------------------------------------------------------
 
 describe('⚖ G2 — a failed ledger read withholds, never an empty-map guess', () => {
+  it('merges withheld and known ledger counts onto the screen month cells', async () => {
+    cachedCustomers.mockResolvedValue([cust({ id: 'c1' })])
+    enrich.mockResolvedValue(new Map([['c1', history()]]))
+    const selectedDate = new Date(at(14))
+    const input = {
+      locale: 'ja',
+      now: selectedDate,
+      selectedDate,
+      staffFilter: 'all',
+      staffList: [],
+      activeStaffId: null,
+      storeStaffIds: null,
+      orgSettings: null,
+      customers: await getCachedCustomerList(),
+      dayAppointments: [],
+      weekRange: null,
+      monthRange: computeMonthRange(selectedDate),
+      weekRangeAppts: null,
+      monthRangeAppts: [appt({ id: 'a1', customer_id: 'c1', starts_at: at(14) }) as Appointment],
+      enrichment: await enrichCustomers('business-1', ['c1']),
+    }
+
+    packUsage.mockResolvedValue(null)
+    const withheld = buildAppointmentsScreen({
+      ...input,
+      packUsage: await listAllPackUsageOrNull(),
+    }).monthData!
+    expect(withheld.length).toBeGreaterThan(0)
+    for (const cell of withheld) {
+      expect(cell.newCountKnown).toBe(false)
+      expect(cell.newCount).toBe(0)
+    }
+
+    packUsage.mockResolvedValue(new Map())
+    const known = buildAppointmentsScreen({
+      ...input,
+      packUsage: await listAllPackUsageOrNull(),
+    }).monthData!
+    expect(known.find((c) => c.id === '2026-09-14')).toMatchObject({
+      inMonth: true,
+      newCount: 1,
+      newCountKnown: true,
+    })
+    expect(known.find((c) => !c.inMonth)).toMatchObject({ newCount: 0 })
+  })
+
   it('a rejecting ledger read withholds 新規 for the whole month', async () => {
     windowOf([appt({ id: 'a1', customer_id: 'c1', starts_at: at(14) })])
     cachedCustomers.mockResolvedValue([cust({ id: 'c1' })])

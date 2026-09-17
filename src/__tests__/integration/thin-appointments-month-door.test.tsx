@@ -16,7 +16,10 @@ jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
 }))
 
-type ViewProps = { loadMonthCells: (key: string) => Promise<unknown[]> }
+type ViewProps = {
+  loadMonthCells: (key: string) => Promise<unknown[]>
+  monthData: MonthCell[] | null
+}
 let capturedProps: ViewProps | null = null
 jest.mock('@/components/appointments/AppointmentsView', () => ({
   AppointmentsView: (props: ViewProps) => {
@@ -35,7 +38,7 @@ jest.mock('@/lib/karute/take-store', () => ({
 }))
 
 import { render, screen, waitFor } from '@testing-library/react'
-import { capacityRowFields } from '@/lib/adapters/reservation'
+import { capacityRowFields, type MonthCell } from '@/lib/adapters/reservation'
 import { setDataPort } from '@/lib/ports/data-port'
 import { dtoCache } from '../../../thin/screens/ScreenBoundary'
 import { AppointmentsScreen } from '../../../thin/screens/AppointmentsScreen'
@@ -122,6 +125,38 @@ it('asks the screen GET for that month, and carries NO staff param', async () =>
 it('returns the month cells verbatim — the DTO shape needs no translation', async () => {
   const { load } = await mountScreen()
   await expect(load('2026-12')).resolves.toEqual([MONTH_CELL])
+})
+
+it('hydrates withheld and known new counts onto the screen month cells', async () => {
+  // The view is a seam stub here: assert its hydrated props, not the loader's
+  // unmodified DTO cells, so dropping the screen's flag copy fails this pin.
+  for (const known of [false, true]) {
+    dtoCache.clear()
+    capturedProps = null
+    const cells = [
+      { ...MONTH_CELL, newCount: 2, newCountKnown: known },
+      {
+        ...MONTH_CELL,
+        id: '2026-12-02',
+        dateIso: new Date('2026-12-02T00:00:00+09:00').toISOString(),
+        newCount: 3,
+      },
+    ]
+    setDataPort({
+      apiFetch: jest.fn(async () => jsonResponse({ ...DTO, view: 'month', monthData: cells })),
+    } as unknown as Parameters<typeof setDataPort>[0])
+    const { unmount } = render(<AppointmentsScreen />)
+    await waitFor(() => expect(screen.getByTestId('appointments-view')).toBeTruthy())
+
+    const hydrated = capturedProps!.monthData!
+    expect(hydrated).toHaveLength(2)
+    expect(hydrated[0].newCountKnown).toBe(known)
+    expect(hydrated[1].newCountKnown).toBe(true)
+    expect(hydrated.map((c) => c.newCount)).toEqual([2, 3])
+    expect(hydrated.reduce((sum, c) => sum + c.count, 0)).toBe(8)
+    if (known) expect(hydrated.reduce((sum, c) => sum + (c.newCount ?? 0), 0)).toBe(5)
+    unmount()
+  }
 })
 
 it('THROWS on a failed read rather than reporting an empty month', async () => {
