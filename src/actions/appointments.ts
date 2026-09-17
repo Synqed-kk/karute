@@ -75,7 +75,10 @@ export interface AppointmentRow {
   status_set_at: string | null
 }
 
-export async function createAppointment(input: AppointmentInput) {
+export type CreateAppointmentError = { error: string; code?: 'store_forbidden' }
+export type CreateAppointmentResult = { id: string } | CreateAppointmentError
+
+export async function createAppointment(input: AppointmentInput): Promise<CreateAppointmentResult> {
   // Server-side gate: booking = bookings.manage (every staff preset holds it;
   // only a custom role with nothing toggled lacks it). Checked with can() — not
   // requireCapability() — because this action returns the house { error } shape
