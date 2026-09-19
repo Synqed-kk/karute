@@ -447,7 +447,12 @@ describe('staff writes are clamped to the caller\'s stores', () => {
       const res = await run()
       expect(res.status).toBeLessThan(300)
       expect(coreWrite).toHaveBeenCalled()
-      expect(staffStoresGet).not.toHaveBeenCalled()
+      // ⚖ 2026-09-16 fold round 2: the WRITE CLAMP still never consults an
+    // assignment on this path — what does is the front gate at the identity
+    // seam, which reads the CALLER's own assignment on every non-viewAll
+    // request. That is auth work, one memo-shared read; the clamp's own
+    // behaviour (and the TARGET's row) is untouched.
+    expect(staffStoresGet).not.toHaveBeenCalledWith(TARGET)
     })
 
     it("a failed lookup of the caller's own assignment fails closed → 403", async () => {
@@ -530,7 +535,12 @@ describe('staff writes are clamped to the caller\'s stores', () => {
     const res = await avatarPOST(avatarReq(CALLER, avatarForm()), params(CALLER))
     expect(res.status).toBe(201)
     expect(staffUploadAvatar).toHaveBeenCalledWith(CALLER, expect.anything())
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the WRITE CLAMP still never consults an
+    // assignment on this path — what does is the front gate at the identity
+    // seam, which reads the CALLER's own assignment on every non-viewAll
+    // request. That is auth work, one memo-shared read; the clamp's own
+    // behaviour (and the TARGET's row) is untouched.
+    expect(staffStoresGet).not.toHaveBeenCalledWith(TARGET)
   })
 
   it('every shipped preset that manages staff also holds stores.viewAll', () => {

@@ -17,6 +17,7 @@ import { staffStoresOverlap } from './permissions'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { listAllCoreStaff } from '@/lib/synqed/staff-pager'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
+import { actorIsUnassigned } from './store-gate'
 
 export interface StoreScope {
   /** The store_id to filter store-scoped reads by. null = no store filter
@@ -26,8 +27,11 @@ export interface StoreScope {
   /** True when the viewer may see every store (owner / manager / SV). */
   viewAll: boolean
   /** The stores the viewer is RESTRICTED to, or null when unrestricted
-   *  (viewAll, or a floating staff with an empty staff_stores set). A non-null
-   *  array means reads + search MUST stay within it. */
+   *  (viewAll, or a floating staff in a SINGLE-store business). A non-null
+   *  array means reads + search MUST stay within it, and an EMPTY array means
+   *  the viewer reaches NO store — the unassigned verdict (⚖ Liam 2026-09-16).
+   *  There is no separate `unassigned` flag: one truth, read through
+   *  `reachesNoStore` (lib/auth/store-gate.ts), so the two can never drift. */
   allowedStoreIds: string[] | null
   /** True when a non-viewAll actor's staff_stores assignment LOOKUP FAILED —
    *  never a genuine empty assignment (⚖ Liam 2026-08-17, F-A). An auth id the
@@ -92,6 +96,17 @@ export const resolveStoreScope = cache(async (): Promise<StoreScope> => {
   const degraded = lookup === null
   const allowed = lookup ?? []
   if (allowed.length === 0) {
+    // ⚖ Liam 2026-09-16 — THE FLIP. A GENUINE empty assignment in a business
+    // with ≥2 stores is no longer "works in every store": it is a staff member
+    // nobody has placed yet, and they reach NO store until a manager assigns
+    // one. The verdict comes from the gate's ONE resolution — the same memo the
+    // capability seam and the app shell's front gate read, so the three can
+    // never disagree, and the extra store-count call happens at most once per
+    // request and ONLY on this branch. A DEGRADED lookup is excluded here as
+    // well as inside the verdict: unknown is never unassigned.
+    if (staffId && !degraded && (await actorIsUnassigned(staffId))) {
+      return { storeId: null, viewAll: false, allowedStoreIds: [], degraded: false }
+    }
     // Floating staff (assigned to no specific store) = works in every store,
     // per the staff_stores convention. Same unset-cookie default as above.
     return {
@@ -473,5 +488,39 @@ export async function viewerStaffRoster<
     )
   } catch {
     return [...staff]
+  }
+}
+
+/**
+ * Does the SIGNED-IN viewer reach no store? The cookie-path FRONT GATE
+ * ((app)/layout.tsx) asks this before it starts any data read, so the honest
+ * 担当店舗が未設定です screen replaces the whole app shell rather than a set of
+ * empty pages inside it.
+ *
+ * Shares actorIsUnassigned's per-request memo with the capability seam, so the
+ * layout and every downstream `can()` resolve it exactly once. Lives here
+ * rather than in store-gate.ts because only this file knows how to resolve the
+ * COOKIE session's staff id.
+ */
+export async function viewerIsUnassigned(): Promise<boolean> {
+  try {
+    const staffId = await getCurrentUserStaffId()
+    if (!staffId) return false
+    // ⚠ THE FRONT GATE READS THE VERDICT ITSELF — it does NOT test the
+    // capability set first. That short-circuit was here as a performance win,
+    // and it made Layer 2 inherit Layer 1's correctness instead of standing
+    // beside it: remove the capability-emptying line and BOTH front gates
+    // silently stopped firing (fresh-eyes M2/F4, 2026-09-16). What IS still
+    // read first is `stores.viewAll` — a cross-store role's assignment is never
+    // consulted by ANY layer, so skipping it here is the same rule the verdict
+    // itself applies, not a shortcut through a sibling layer.
+    if ((await getMyCapabilities()).has('stores.viewAll')) return false
+    return await actorIsUnassigned(staffId)
+  } catch {
+    // The gate must never take the app shell down. A thrown identity or
+    // capability read is UNKNOWN, and unknown is never unassigned — the shell
+    // renders exactly as it does today and the layers beneath it (which each
+    // have their own fail-closed posture) stay in charge.
+    return false
   }
 }

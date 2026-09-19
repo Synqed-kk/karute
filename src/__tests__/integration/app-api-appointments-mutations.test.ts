@@ -99,11 +99,15 @@ const fakeClient = {
   packs: { listRecentRedemptions: jest.fn(async () => [] as { appointment_id: string }[]) },
   staffStores: { get: staffStoresGet },
   stores: {
+    // ⚖ Liam 2026-09-16 (fold round 2): ONE store here. The front gate now
+    // reads the unassigned verdict itself, and the verdict's third fact is the
+    // store COUNT — with two stores this suite's default EMPTY assignment
+    // would be the UNASSIGNED shape and every door below would 403 before
+    // running. This salon has one store, so the default caller stays FLOATING
+    // exactly as these tests were written. `stores.get` still validates the
+    // store-id header, which is what the tenancy cases use.
     list: jest.fn(async () => ({
-      stores: [
-        { id: 'store-A', name: '代官山', is_primary: true, active: true },
-        { id: 'store-B', name: '銀座', is_primary: false, active: true },
-      ],
+      stores: [{ id: 'store-A', name: '代官山', is_primary: true, active: true }],
     })),
   },
 }

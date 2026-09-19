@@ -228,7 +228,10 @@ describe('store clamp (#441 leak class) — REAL resolveStoreForRequest', () => 
 
   it('errored assignment lookup → fails CLOSED (403), never business-wide', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view']))
-    staffStoresGet.mockRejectedValueOnce(new Error('boom'))
+    // ⚖ 2026-09-16 fold round 2: `...Once` no longer reaches the clamp — the
+    // front gate reads the caller's assignment first, so the single rejection
+    // was consumed there. The test means "this lookup keeps failing".
+    staffStoresGet.mockRejectedValue(new Error('boom'))
     const res = await GET(req({ headers: auth }), route)
     expect(res.status).toBe(403)
     expect((await res.json()).error.code).toBe('store_forbidden')
