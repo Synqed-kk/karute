@@ -107,8 +107,10 @@ export function describeUnknownThrow(err: unknown): { errName: string; errStatus
   const errName = err instanceof Error ? err.name : typeof err
   const raw = err instanceof Error ? err.message : String(err)
   const firstLine = raw.split('\n')[0].replace(/\s+/g, ' ').trim()
-  const capped = firstLine.length > 200 ? `${firstLine.slice(0, 200)}…` : firstLine
-  const errMessage = maskSensitive(capped)
+  // Mask BEFORE capping: a secret cut in half by the length cap stops
+  // matching its pattern and leaks a fragment (fix round 1, 2026-09-19).
+  const masked = maskSensitive(firstLine)
+  const errMessage = masked.length > 200 ? `${masked.slice(0, 200)}…` : masked
   const status = (err as { status?: unknown } | null)?.status
   return typeof status === 'number' ? { errName, errStatus: status, errMessage } : { errName, errMessage }
 }

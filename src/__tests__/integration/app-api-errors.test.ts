@@ -111,6 +111,31 @@ describe('unknown-throw reason (server log only, client body untouched)', () => 
       expect(errMessage).toBe(`${'x'.repeat(200)}…`)
     })
 
+    // Fix round 1 (2026-09-19, lead line-read of 01037d53a): masking must run
+    // BEFORE the 200-char cap — a secret split by the cap stops matching its
+    // pattern and leaks a fragment.
+    it('masks an email that would otherwise be split by the 200-char cap', () => {
+      const msg = `${'x'.repeat(190)}user@example.com and more`
+      const { errMessage } = describeUnknownThrow(new Error(msg))
+      expect(errMessage).not.toContain('@')
+    })
+
+    it('masks a JWT that would otherwise be split by the 200-char cap', () => {
+      const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dGVzdHNpZ25hdHVyZQ'
+      // A single separator (not filler 'x's) so the \b before 'eyJ' still
+      // matches — the mask must see the JWT intact, that's the point of the test.
+      const msg = `${'x'.repeat(150)} ${jwt}`
+      const { errMessage } = describeUnknownThrow(new Error(msg))
+      expect(errMessage).not.toContain('eyJ')
+    })
+
+    it('masks a signed-URL token that would otherwise be split by the 200-char cap', () => {
+      const msg = `${'x'.repeat(180)}https://x.supabase.co/storage/v1/object/sign/recordings/a.webm?token=SECRETTOKEN`
+      const { errMessage } = describeUnknownThrow(new Error(msg))
+      expect(errMessage).not.toContain('SECRET')
+      expect(errMessage).not.toContain('token=')
+    })
+
     it('keeps only the first line of a multi-line message', () => {
       expect(describeUnknownThrow(new Error('first line\nsecond line with secrets')).errMessage).toBe('first line')
     })
