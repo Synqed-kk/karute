@@ -47,14 +47,14 @@ type InviteClient = Pick<SynqedClient, 'invites'> &
 type InviteWriteDeps = {
   actorId: string | null
   source: 'web' | 'facade'
-  /** ⚖ Liam 2026-09-16 — the CREATOR's own allowed stores, resolved by each
-   *  transport from its own identity. A fresh invite's card can only be placed
-   *  inside them; the rule itself lives in setStaffStoresAtCreationCore, the
-   *  one home both the staff door and this one share. `null` = unclamped. */
-  creatorAllowedStoreIds: readonly string[] | null
   /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
    *  the facade twin. */
   requestId?: string
+}
+
+export type InviteCreateDeps = InviteWriteDeps & {
+  /** REQUIRED on purpose: `null` = EXPLICITLY unclamped; omitted is not unclamped (see lib/staff/new-card.ts). */
+  creatorAllowedStoreIds: readonly string[] | null
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ function getPublicSynqedClient(): SynqedClient {
 export async function createInviteCore(
   synqed: InviteClient,
   businessId: string,
-  deps: InviteWriteDeps,
+  deps: InviteCreateDeps,
   invitedBy: string | null,
   input: InviteInput,
 ): Promise<{ token: string; storeUnknown?: true } | { error: string }> {
@@ -623,7 +623,7 @@ export async function revokeInvite(id: string): Promise<{ ok: true } | { error: 
   const result = await revokeInviteCore(
     synqed,
     businessId,
-    { actorId, source: 'web', requestId: crypto.randomUUID(), creatorAllowedStoreIds: [] },
+    { actorId, source: 'web', requestId: crypto.randomUUID() },
     id,
   )
   if ('ok' in result) updateTag('staff-invites')
