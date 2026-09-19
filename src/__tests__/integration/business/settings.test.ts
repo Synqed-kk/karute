@@ -337,6 +337,12 @@ describe('⚖ ONE TRUTH — every value this room shows is READ from the room th
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('PKT-BUILD-N3-1 §3 H4 — equipment nouns and counters', () => {
+  it('N3-3 the block movement description uses the fixed neutral copy', async () => {
+    const props = await room({ store: STORE_A })
+    const row = props.sections.flatMap((s) => s.blocks.flatMap((b) => b.rows)).find((r) => r.id === 'store-hours.row-block-step')!
+    expect(row.description).toBe('休憩・準備・記録・レジなどの予定ブロックを動かすときの刻みです。')
+  })
+
   it('H4 — real STORE_A counts equipment in its resolved counter', async () => {
     const props = await room({ store: STORE_A })
     const equipment = sectionOf(props, 'people-equipment').blocks.find((b) => b.id === 'people.equipment')!
@@ -3920,7 +3926,7 @@ describe('⚖ RECONNECT-READINESS + the three doctrine lines', () => {
 
 
 describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
-  it.each([[STORE_A, 'chiropractic'], [STORE_B, 'massage']])('N3-2 §3 H4 — %s has the six blocks and its own type %s', async (store, type) => {
+  it.each([[STORE_A, 'beauty_chiropractic'], [STORE_B, 'massage']])('N3-2 §3 H4 — %s has the six blocks and its own type %s', async (store, type) => {
     const props = await room({ store })
     const section = sectionOf(props, 'people-equipment')
     expect(section.blocks.map((b) => b.id)).toEqual([
@@ -3981,7 +3987,7 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     expect(section.blocks.map((b) => b.id)).toEqual(['people.staff', 'people.equipment', 'people.room-policy', 'people.shifts'])
     expect(section.aside!.lines).toEqual([
       { label: '名簿', value: 'スタッフ・シフトが使っている名簿' },
-      { label: '設備', value: '今日の運営のベッド割り当てが使っている一覧' },
+      { label: '設備', value: '今日の運営の設備割り当てが使っている一覧' },
       { label: '部屋の決まり', value: '今日の運営の自動割り当てが使っている決まり' },
     ])
   })

@@ -107,6 +107,8 @@ interface StaffListProps {
   businessType?: string
   stores?: StoreRow[]
   featureMultiStore?: boolean
+  /** ⚖ Liam 2026-09-16 — default pick for a NEW card's required 担当店舗. */
+  activeStoreId?: string | null
 }
 
 function formatJpDate(dateString: string, locale: 'ja' | 'en'): string {
@@ -137,6 +139,7 @@ export function StaffList({
   businessType,
   stores,
   featureMultiStore,
+  activeStoreId,
 }: StaffListProps) {
   const ts = useTranslations('settings')
   const tc = useTranslations('common')
@@ -228,6 +231,7 @@ export function StaffList({
             businessType={businessType}
             stores={stores}
             featureMultiStore={featureMultiStore}
+            activeStoreId={activeStoreId}
           />
         )}
       </div>
@@ -315,6 +319,7 @@ export function StaffList({
           businessType={businessType}
           stores={stores}
           featureMultiStore={featureMultiStore}
+          activeStoreId={activeStoreId}
         />
       )}
 

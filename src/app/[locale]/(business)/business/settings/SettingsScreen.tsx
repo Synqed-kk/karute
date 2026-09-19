@@ -73,7 +73,7 @@ import {
 } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
-import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsSentences } from '@/business/lib/settings-words'
+import { committedWordValues, wordsBlockingError, wordsBlockProblem, wordsLiveFact, wordsSentences, wordsTurnoverControl, wordsTurnoverFact } from '@/business/lib/settings-words'
 import { Collapse, DetailToggle } from './Collapse'
 import {
   isIntegerTextAtLeast,
@@ -1513,6 +1513,14 @@ function Block({
   const sentences = block.words ? wordsSentences(block.words, values, labelFor(block.words.typeId) ?? '') : null
   const wordProblem = wordsBlockProblem(block, values)
   const liveFact = wordsLiveFact(section, block.id, values, labelFor(section.blocks.find((b) => b.words)?.words?.typeId ?? '') ?? '')
+  const turnoverFact = wordsTurnoverFact(section, block.id, values)
+  const liveRows = block.rows.map((row) => ({
+    ...row,
+    controls: row.controls.map((c) => {
+      const live = wordsTurnoverControl(section, c.id, row.label, values)
+      return live === null ? c : { ...c, aria: live }
+    }),
+  }))
   return (
     <section
       className="st-block"
@@ -1531,9 +1539,9 @@ function Block({
       {block.rightsNote && <p className="st-rights">{block.rightsNote}</p>}
 
       {block.layout === 'week' ? (
-        <WeekTable block={block} values={values} onChange={onChange} reduced={reduced} />
+        <WeekTable block={{ ...block, rows: liveRows }} values={values} onChange={onChange} reduced={reduced} />
       ) : (
-        block.rows.map((r) => (
+        liveRows.map((r) => (
           <Row
             key={r.id}
             row={r}
@@ -1641,7 +1649,7 @@ function Block({
       )}
 
       {block.facts.map((f, index) => (
-        <p className="st-fact" key={f}>{liveFact?.index === index ? liveFact.sentence : f}</p>
+        <p className="st-fact" key={f}>{turnoverFact?.index === index ? turnoverFact.sentence : liveFact?.index === index ? liveFact.sentence : f}</p>
       ))}
 
       {block.links.length > 0 && (

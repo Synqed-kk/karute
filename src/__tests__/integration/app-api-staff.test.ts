@@ -107,10 +107,16 @@ const staffUploadAvatar = jest.fn(async () => ({ avatar_url: 'https://cdn.test/a
 // is the unclamped path every pre-clamp pin in this file was written against.
 let storeAssignments: Record<string, string[]> = {}
 const staffStoresGet = jest.fn(async (id: string) => ({ store_ids: storeAssignments[id] ?? [] }))
+// The business's stores, as core would list them. Empty by default so every
+// pre-existing pin keeps its single-store/unknown path — the store-at-creation
+// rule only speaks when a business really has two (⚖ fold round 3, M7).
+let storeList: { id: string }[] = []
+const storesList = jest.fn(async () => ({ stores: storeList }))
+const staffStoresSet = jest.fn(async () => ({}))
 const fakeClient = {
   staff: { create: staffCreate, update: staffUpdate, delete: staffDelete, uploadAvatar: staffUploadAvatar },
-  staffStores: { get: staffStoresGet },
-  stores: { get: jest.fn(async (id: string) => ({ id })) },
+  staffStores: { get: staffStoresGet, set: staffStoresSet },
+  stores: { get: jest.fn(async (id: string) => ({ id })), list: storesList },
 }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
@@ -139,6 +145,9 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) })
 const noParams = { params: Promise.resolve({}) }
 
 const VALID_STAFF = { name: 'New Hire', position: '', email: '', phone: '' }
+// storeIds are validated as UUIDs by staffProfileSchema.
+const STORE_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const STORE_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
 const postReq = (body: unknown, headers: Record<string, string> = {}) =>
   new Request('https://s/api/app/v1/staff', {
@@ -172,6 +181,8 @@ beforeEach(() => {
   profileUpdateError = null
   profileEqCalls = []
   storeAssignments = {}
+  storeList = []
+  storesList.mockImplementation(async () => ({ stores: storeList }))
   // clearAllMocks keeps implementations — restore the default so a fail-closed
   // test's thrower doesn't leak into the next one.
   staffStoresGet.mockImplementation(async (id: string) => ({ store_ids: storeAssignments[id] ?? [] }))
@@ -193,6 +204,50 @@ describe('POST /api/app/v1/staff (create)', () => {
   it('missing Idempotency-Key → 400, no write', async () => {
     const res = await createPOST(postReq(VALID_STAFF, { 'idempotency-key': '' }), noParams)
     expect(res.status).toBe(400)
+    expect(staffCreate).not.toHaveBeenCalled()
+  })
+
+  // ── THE STORE-AT-CREATION RULE ON THE BEARER TRANSPORT (⚖ fold round 3, M7)
+  // The rule was proved only through the web door: M7 dropped it from this
+  // route and all 660 suites stayed green. Both halves now have a witness here.
+  it('two stores and no 担当店舗 → STORE_REQUIRED_AT_CREATION, nothing minted', async () => {
+    // The owner on their phone: viewAll, so the front gate passes them and the
+    // clamp free-passes them — the store requirement is the only thing between
+    // a tapped 追加 and a staff member who sees nothing on their first login.
+    mockCapabilities.mockResolvedValue(new Set(['staff.invite', 'stores.viewAll']))
+    storeList = [{ id: STORE_A }, { id: STORE_B }]
+    const lines = await auditLines(async () => {
+      const res = await createPOST(postReq(VALID_STAFF), noParams)
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ error: 'STORE_REQUIRED_AT_CREATION' })
+    })
+    expect(staffCreate).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('a store-clamped caller cannot mint into another store → STORE_SCOPE_DENIED, card rolled back', async () => {
+    storeList = [{ id: STORE_A }, { id: STORE_B }]
+    storeAssignments = { 'auth-user-1': [STORE_A] }
+    const res = await createPOST(postReq({ ...VALID_STAFF, storeIds: [STORE_B] }), noParams)
+    expect(await res.json()).toEqual({ error: 'STORE_SCOPE_DENIED' })
+    expect(staffStoresSet).not.toHaveBeenCalled()
+    expect(staffDelete).toHaveBeenCalledWith('staff-new')
+  })
+
+  it('a caller the roster cannot place is refused outright, never read as floating (F7)', async () => {
+    // ⚖ FOLD ROUND 3 (fresh-eyes F7). This door resolved its scope through
+    // resolveStoreForRequest, which CANNOT tell an unplaceable caller from a
+    // floating one — core answers `{ store_ids: [] }` for both — so a phone
+    // holding a live token for somebody taken off the roster could still mint
+    // staff into any store. resolveWriteStoreScope is the one home that asks
+    // roster-placement first, and every Bearer write door goes through it.
+    // A SINGLE-store business on purpose: in a multi-store one the facade front
+    // gate already refuses an unassigned identity, so only here can this door's
+    // own resolver be seen deciding.
+    staffListByBusinessOrThrow.mockResolvedValue([])
+    storeList = [{ id: STORE_A }]
+    const res = await createPOST(postReq({ ...VALID_STAFF, storeIds: [STORE_A] }), noParams)
+    expect(res.status).toBe(403)
     expect(staffCreate).not.toHaveBeenCalled()
   })
 

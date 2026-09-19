@@ -82,11 +82,11 @@ describe('resource-words — ⚖ D-53 (c) R4, the words home', () => {
     }
   })
 
-  it('every fixture store’s business_type is a real key of the mirror, and the three play-phase values are chiropractic/massage/personal_gym', () => {
+  it('every fixture store’s business_type is a real key of the mirror, and the three play-phase values are beauty_chiropractic/massage/personal_gym', () => {
     for (const s of stores) {
       expect(businessProfiles.some((p) => p.value === s.business_type)).toBe(true)
     }
-    expect(stores.map((s) => s.business_type)).toEqual(['chiropractic', 'massage', 'personal_gym'])
+    expect(stores.map((s) => s.business_type)).toEqual(['beauty_chiropractic', 'massage', 'personal_gym'])
   })
 
   it('the counter matches the native pass’s sentence-proofed nouns: ベッド・セット面・ブース・教室 (m4 covers a business_type that is not a key)', () => {
