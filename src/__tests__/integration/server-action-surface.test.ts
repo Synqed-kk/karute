@@ -182,6 +182,35 @@ describe('server action surface (PKT-SEC-CORES-A)', () => {
     expect(directives(ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true))).toEqual([])
   })
 
+  it('r6: no function-level use server directives outside inventoried action files', () => {
+    const inventoried = new Set(actionFiles.map(({ file }) => file))
+    const offenders: string[] = []
+    for (const file of sourceFiles('src').sort()) {
+      if (inventoried.has(file)) continue
+      const source = readFileSync(join(ROOT, file), 'utf8')
+      // Literal text or an escape is necessary; the AST decides whether it is
+      // a directive, ignoring comments and ordinary strings. Parse candidates only.
+      if (!source.includes('use server') && !source.includes('\\')) continue
+      const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+      const visit = (node: ts.Node) => {
+        if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) ||
+             ts.isArrowFunction(node) || ts.isMethodDeclaration(node) ||
+             ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node) ||
+             ts.isConstructorDeclaration(node)) && node.body && ts.isBlock(node.body)) {
+          const first = node.body.statements[0]
+          if (first && ts.isExpressionStatement(first) &&
+              ts.isStringLiteral(first.expression) && first.expression.text === 'use server') {
+            const { line } = ast.getLineAndCharacterOfPosition(first.getStart(ast))
+            offenders.push(`${file}:${line + 1}: function-level use server directive`)
+          }
+        }
+        ts.forEachChild(node, visit)
+      }
+      visit(ast)
+    }
+    expect(offenders).toEqual([])
+  })
+
   it('r5: the internal debt count is pinned and may only go down', () => {
     expect(Object.values(INTERNAL_DEBT).reduce((sum, names) => sum + names.length, 0)).toBe(INTERNAL_DEBT_COUNT)
   })
