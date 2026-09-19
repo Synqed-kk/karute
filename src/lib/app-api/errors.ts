@@ -178,6 +178,11 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  *  opaque 32+-char blobs (base64 / API keys; a canonical UUID is exempt) →
  *  7+-digit runs (phone/card-like strings).
  *
+ *  Fix round 3: the labelled-credential pattern has no leading `\b` so
+ *  prefixed/camelCase names (access_token, clientSecret) are caught as
+ *  substrings too; this accepts over-masking an innocent word that merely
+ *  ends in a label (e.g. `monkey: banana`).
+ *
  *  The blob charset deliberately drops `/` from the base64 alphabet
  *  (`+/_=-`) despite it being a legal base64 char: a URL's kept origin+path
  *  (the step right above) is itself very often a 32+-char run of letters,
@@ -197,7 +202,7 @@ function maskSensitive(s: string): string {
   })
   out = out.replace(/\bBearer\s+\S+/gi, 'Bearer <token>')
   out = out.replace(
-    /\b(?:token|apikey|api_key|key|secret|password|authorization)\s*[:=]\s*['"]?[^\s&'"]+/gi,
+    /(?:token|apikey|api_key|key|secret|password|authorization)\s*[:=]\s*['"]?[^\s&'"]+/gi,
     '<label>=<redacted>',
   )
   out = out.replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '<jwt>')

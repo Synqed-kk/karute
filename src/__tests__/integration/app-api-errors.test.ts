@@ -161,6 +161,24 @@ describe('unknown-throw reason (server log only, client body untouched)', () => 
       expect(errMessage).not.toContain('sk-live')
     })
 
+    // Fix round 3: the labelled-credential pattern used to start with `\b`,
+    // and `_` is a word character (no boundary before it) while camelCase has
+    // no boundary at all — so the commonest real credential label shapes
+    // (access_token, client_secret, accessToken, clientSecret, …) passed
+    // through unmasked.
+    it.each([
+      ['access_token=abc123short', 'abc123short'],
+      ['client_secret: hunter2', 'hunter2'],
+      ['refresh_token=xyz', 'xyz'],
+      ['db_password=pw1', 'pw1'],
+      ['accessToken=abc999', 'abc999'],
+      ['clientSecret=abc999', 'abc999'],
+    ])('masks a prefixed/camelCase credential label: %s', (input, value) => {
+      const { errMessage } = describeUnknownThrow(new Error(input))
+      expect(errMessage).not.toContain(value)
+      expect(errMessage).toContain('<label>=<redacted>')
+    })
+
     it('masks a labelled credential embedded inside a URL PATH — the URL step above only strips the query', () => {
       const { errMessage } = describeUnknownThrow(new Error('GET https://x.test/key=secret failed'))
       expect(errMessage).toBe('GET https://x.test/<label>=<redacted> failed')
