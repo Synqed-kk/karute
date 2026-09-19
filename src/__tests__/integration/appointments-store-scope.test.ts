@@ -17,8 +17,6 @@
  *     and fails CLOSED on storeless (pre-repair import) rows.
  */
 
-jest.mock('next-intl/server', () => ({ getLocale: jest.fn(async () => 'ja') }))
-
 jest.mock('next/cache', () => ({
   unstable_cache: jest.fn((fn: (...a: unknown[]) => unknown) => fn),
   revalidatePath: jest.fn(),
@@ -230,7 +228,7 @@ describe('getMonthCells — store scope + the failure contract', () => {
 
   it('returns the month grid as wire cells, the month itself flagged inMonth', async () => {
     crossStore(null)
-    const cells = await getMonthCells('2026-07')
+    const cells = await getMonthCells('2026-07', 'ja')
     // 2026-07-01 is a Wednesday → 3 leading days; 31 days; 5 rows of 7.
     expect(cells).toHaveLength(35)
     expect(cells.filter((c) => c.inMonth)).toHaveLength(31)
@@ -238,6 +236,17 @@ describe('getMonthCells — store scope + the failure contract', () => {
     expect(cells[0].inMonth).toBe(false)
     expect(typeof cells[0].dateIso).toBe('string')
   })
+
+  it.each(['en', 'en-GB', 'not_a_locale', '', undefined])(
+    'uses the shipped locale or the routing default for %s',
+    async (locale) => {
+      crossStore(null)
+      const cells = await getMonthCells('2026-07', locale)
+      // Shipped en/ja start on Sunday; unsupported en-GB must NOT use Monday.
+      expect(cells[0].id).toBe('2026-06-28')
+      expect(new Date(`${cells[0].id}T00:00:00Z`).getUTCDay()).toBe(0)
+    },
+  )
 
   it('a failed read THROWS — it must never come back as a month of empty days', async () => {
     // The lie this prevents: getAppointmentsInRange's catch→[] would render
