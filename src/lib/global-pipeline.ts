@@ -53,6 +53,8 @@ export interface PipelineContext {
   appointmentId?: string
   /** Customer carried from the booking so review pre-fills attribution. */
   appointmentCustomerId?: string
+  /** Display-only name captured with the customer; never sent in write payloads. */
+  pickedCustomerName?: string
   /** Outcome chosen at stop (the coaching label) — carried to the save so the
    *  staff decides once, up front, and never re-opens a dialog at the end. */
   outcome?: SessionOutcome
