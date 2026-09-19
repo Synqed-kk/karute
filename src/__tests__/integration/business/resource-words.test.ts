@@ -175,12 +175,15 @@ describe('§3/H1 — the neutral row and the pure store resolver', () => {
     [{ counter: '台' }, 'pair'],
     [{ resourceNoun: '設備', counter: ' ', turnoverWord: '123456789|' }, 'empty'],
     [{ turnoverWord: '' }, 'empty'],
+    [{ resourceNoun: ' ブース', counter: 'つ' }, 'trim'],
+    [{ turnoverWord: ' 123456789' }, 'trim'],
     [{ turnoverWord: '123456789|' }, 'length'],
     [{ resourceNoun: '123456789', counter: '台' }, 'length'],
     [{ resourceNoun: '設備', counter: '123456789' }, 'length'],
     [{ turnoverWord: '清掃|' }, 'bar'],
     [{ resourceNoun: '設備|', counter: '台' }, 'bar'],
     [{ resourceNoun: '設備', counter: '台|' }, 'bar'],
+    [{ fullWord: '満員' as never }, 'full'],
     [{ turnoverWord: '休憩' }, 'reserved'],
     [{ turnoverWord: '準備' }, 'reserved'],
     [{ turnoverWord: '記録' }, 'reserved'],
@@ -191,6 +194,10 @@ describe('§3/H1 — the neutral row and the pure store resolver', () => {
     expect(wordOverrideProblem(override)).toBe(problem)
     expect(wordsForStore('personal_gym', override)).toBe(resourceWordsFor('personal_gym'))
     expect(wordsForStore('no-such-type', override)).toBe(GENERIC_WORDS)
+  })
+
+  it('F1-b mB — an unknown full word preserves the chiropractic base row by identity', () => {
+    expect(wordsForStore('chiropractic', { fullWord: '満員' as never })).toBe(resourceWordsFor('chiropractic'))
   })
 
   it('§3/H1 — null, empty, valid pairs and independent full/turnover words have no problem; eight characters are allowed', () => {
