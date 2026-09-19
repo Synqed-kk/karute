@@ -4,6 +4,7 @@ import ts from 'typescript'
 import { INTERNAL_DEBT, PUBLIC_ACTIONS } from './server-action-surface.data'
 
 const ROOT = process.cwd()
+const SOURCE_FILE = /^(?!.*\.d\.(?:ts|mts|cts)$).*\.(?:ts|tsx|js|jsx|mts|cts|mjs|cjs)$/
 // DEBT may only go DOWN. 2026-09-20 exception: #938 arrived before the ratchet;
 // setStoreHoursCore adds one after bootstrap removal, and leaves in repair B.
 const INTERNAL_DEBT_COUNT = 67 // may only go DOWN
@@ -15,7 +16,7 @@ function sourceFiles(dir: string): string[] {
     if (entry.name === '__tests__' || entry.name === 'node_modules') return []
     const file = `${dir}/${entry.name}`
     if (file === 'thin/dist') return []
-    return entry.isDirectory() ? sourceFiles(file) : /\.tsx?$/.test(file) ? [file] : []
+    return entry.isDirectory() ? sourceFiles(file) : SOURCE_FILE.test(file) ? [file] : []
   })
 }
 
@@ -220,6 +221,23 @@ describe('server action surface (PKT-SEC-CORES-A)', () => {
 
 describe('surface parser syntax coverage', () => {
   const parse = (source: string) => ts.createSourceFile('fixture.tsx', source, ts.ScriptTarget.Latest, true)
+
+  it('includes all supported source extensions and excludes declaration files', () => {
+    for (const extension of ['ts', 'tsx', 'js', 'jsx', 'mts', 'cts', 'mjs', 'cjs']) {
+      expect(SOURCE_FILE.test(`src/actions/fixture.${extension}`)).toBe(true)
+    }
+    for (const extension of ['d.ts', 'd.mts', 'd.cts', 'json', 'css', 'map']) {
+      expect(SOURCE_FILE.test(`src/actions/fixture.${extension}`)).toBe(false)
+    }
+  })
+
+  it('infers JSX parsing from the filename when collecting JavaScript exports', () => {
+    const ast = ts.createSourceFile('fixture.jsx', "'use server'; export const view = <div />", ts.ScriptTarget.Latest, true)
+    expect(directives(ast)).toEqual(['use server'])
+    expect(runtimeExports(ast).names).toEqual(['view'])
+    const statement = ast.statements[1] as ts.VariableStatement
+    expect(ts.isJsxSelfClosingElement(statement.declarationList.declarations[0].initializer!)).toBe(true)
+  })
 
   it('recognizes only directive prologues, including escaped literals and multiple directives', () => {
     for (const source of ["// comment\n'use server';", "'use strict'\n'use server'\nexport {}", "'use\\x20server'"]) {
