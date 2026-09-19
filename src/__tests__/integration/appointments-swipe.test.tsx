@@ -18,10 +18,17 @@ jest.mock('next-intl', () => ({
   useLocale: () => 'ja',
 }))
 
-const push = jest.fn()
+// Keep the router search in step with navigation, like the sibling wiring suite.
+let currentSearch = ''
+const push = jest.fn((href: string) => {
+  currentSearch = href.includes('?') ? href.split('?')[1] : ''
+})
 jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ push, replace: jest.fn(), refresh: jest.fn() }),
   usePathname: () => '/ja/appointments',
+}))
+jest.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(currentSearch),
 }))
 jest.mock('@/hooks/use-global-recorder', () => ({ useGlobalRecorder: () => ({ state: 'idle' }) }))
 jest.mock('@/lib/notifications/hooks', () => ({ useUnreadCount: () => 0 }))
@@ -79,6 +86,7 @@ function weekRow(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
 }
 
 function renderView(view: DayWeekMonthView) {
+  currentSearch = new URLSearchParams({ view, date: '2026-09-14' }).toString()
   return render(
     <AppointmentsView
       staff={[]}
@@ -136,6 +144,7 @@ async function flick(id: number, dx: number) {
 
 beforeEach(() => {
   push.mockClear()
+  currentSearch = ''
   jest.useFakeTimers()
 })
 afterEach(() => {
