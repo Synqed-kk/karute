@@ -11,6 +11,7 @@ import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
 import { businessDisplayName } from '@/lib/business-name'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { chooseStaffToLink } from '@/lib/invites/link'
+import { memberEmailsForBusiness } from '@/lib/invites/member-emails'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import { audit } from '@/lib/audit'
@@ -494,24 +495,6 @@ export async function listInvitesWithClient(
     }))
   } catch {
     return []
-  }
-}
-
-/** Login emails already attached to this business — a pending invite matching
- *  one is a ghost (best-effort: an empty set just means no 接続済み badges).
- *  Exported for the facade GET (same truth on the shell). */
-export async function memberEmailsForBusiness(businessId: string): Promise<Set<string>> {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = createServiceClient() as any
-    const { data } = await service.from('profiles').select('email').eq('customer_id', businessId)
-    return new Set(
-      ((data ?? []) as { email: string | null }[])
-        .map((r) => r.email?.toLowerCase())
-        .filter((e): e is string => !!e),
-    )
-  } catch {
-    return new Set()
   }
 }
 

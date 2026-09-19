@@ -316,14 +316,12 @@ export async function completeOnboarding(input: {
 }
 
 /**
- * Client-threaded core of writeOrgSettingsBlob (facade Bearer path, design-
- * parity packet 12 §S1 — same WithClient split as orgSettingsWithClient /
- * updateCustomerWithClient). Identical body to writeOrgSettingsBlob, just
- * parameterized on an explicit client instead of resolving one from the
- * cookie session — so the facade's PATCH /api/app/v1/org-settings route can
- * call it with a business-scoped Bearer client. Still NO capability gate
- * (see writeOrgSettingsBlob's doc comment); the facade route enforces
- * settings.manage itself, mirroring upsertOrgSettings's gate.
+ * Client-threaded core used by the private writeOrgSettingsBlob wrapper and
+ * the facade's PATCH /api/app/v1/org-settings route with an explicit,
+ * business-scoped Bearer client. Still NO capability gate: the facade route
+ * enforces settings.manage itself, mirroring upsertOrgSettings's gate.
+ * The voice service calls this core with its own voice OWNERSHIP gate instead
+ * (staff self-enrollment must not require settings.manage).
  */
 export async function writeOrgSettingsBlobWithClient(
   synqed: Pick<SynqedClient, 'orgSettings'>,
@@ -393,33 +391,24 @@ export async function writeOrgSettingsBlobWithClient(
 }
 
 /**
- * INTERNAL org-settings writer — the merge-and-upsert core write with NO
- * capability gate. Callers MUST enforce their own authorization first:
- *   - upsertOrgSettings gates on `settings.manage` (owner/manager settings mgmt).
- *   - the voice service gates on voice OWNERSHIP (a staffer enrolls only their
- *     own voice; owner/manager may act on others) — voice_enrollments is
- *     staff-owned data, so it must NOT require settings.manage.
- * Splitting the write from the gate is what lets one blob field (voice_enrollments)
- * carry a different authz rule than the rest without a settings.manage back door.
+ * Private cookie-session org-settings writer. Its only caller is
+ * upsertOrgSettings, which checks `settings.manage` before calling it.
+ * This function is not exported and is not a browser-callable server action.
  *
- * 自動録音 is NOT writable through this door either (spec §8.1, fix round F-A).
- * The strip lives HERE, not one level up in upsertOrgSettings: this function
- * is itself an exported, undecorated 'use server' function in the same module
- * — a sibling door, not a symbol only upsertOrgSettings can reach. Without the
- * strip here, the moment anything else imports writeOrgSettingsBlob directly
- * (Next mints it its own action id the first time a client component pulls it
- * in), any signed-in staffer — no settings.manage required — could set
- * recording_autostart_store_ids for an arbitrary, even foreign, store with no
- * audit row: exactly the silent flip §8.1's one audit exception exists to
- * prevent. NOT stripped one level deeper, in writeOrgSettingsBlobWithClient:
+ * 自動録音 is NOT writable through this path (spec §8.1, fix round F-A).
+ * The strip stays here as defence in depth for upsertOrgSettings, so that
+ * caller cannot bypass the dedicated, audited auto-start write path.
+ * NOT stripped one level deeper, in writeOrgSettingsBlobWithClient:
  * that is the choke point setRecordingAutostartWithClient
  * (src/lib/settings/recording-autostart.ts) calls directly, and it must keep
- * writing the key. The only door that reaches writeOrgSettingsBlobWithClient
- * WITH this key is setRecordingAutostartWithClient. Facade twin:
+ * writing the key. Current production callers supplying this key are the
+ * setRecordingAutostartWithClient write and its receipt-failure rollback.
+ * The exported WithClient writer remains internal debt and does not itself
+ * enforce that dedicated path. Facade twin:
  * OrgSettingsPatchDTO omits the key, same guard, same reason as
  * voice_enrollments.
  */
-export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
+async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
   const { recording_autostart_store_ids: _autostart, ...rest } = settings
 
   // Client init stays INSIDE the { error } contract, exactly as before the
