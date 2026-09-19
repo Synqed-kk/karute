@@ -45,7 +45,7 @@ export function wordOverrideProblem(o: WordOverride | null): 'pair' | 'empty' | 
     .filter((value): value is string => value !== undefined)
   if (values.some((value) => value.trim().length === 0)) return 'empty'
   if (values.some((value) => value !== value.trim())) return 'trim'
-  if (values.some((value) => value.length > WORD_MAX_CHARS)) return 'length'
+  if (values.some((value) => Array.from(value).length > WORD_MAX_CHARS)) return 'length'
   if (values.some((value) => value.includes('|'))) return 'bar'
   if (o.fullWord !== undefined && !['満室', '満席', '空きなし'].includes(o.fullWord)) return 'full'
   if (o.turnoverWord !== undefined && ['休憩', '準備', '記録', 'ミーティング'].includes(o.turnoverWord)) return 'reserved'
