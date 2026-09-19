@@ -1712,6 +1712,19 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Total = 2,121,046 B; ceiling = measured + 1,000 = 2,122,046 B.
 // +184 B against main's prior 2,120,862 B measurement, all in index;
 // en and vendor unchanged. The source branch's ceiling is not carried.
+//
+// RE-MEASURED 2026-09-19 after merging main bf2abd01a into the 2b branch (main-in ×2 the same afternoon: #957 fd250b41b, then #949 bf2abd01a).
+// The 2026-09-17 entry above and main's own chains are retained as history;
+// this entry supersedes their ceilings. Same recipe — CI's six VITE_* values
+// from .github/workflows/ci.yml, thin/dist emptied before each lap, node
+// v24.16.0, @synqed-kk/ui 0.3.2. Two clean laps byte-identical (matching
+// paths, byte sizes and SHA-256s for all 23 output files):
+//   en-BEPDH0gw.js       135,045 B
+//   index-Cqmq0nLZ.js  1,051,389 B
+//   vendor-BD5eMVWe.js   937,791 B
+// Total = 2,124,225 B; ceiling = measured + 1,000 = 2,125,225 B.
+// +221 B against main's own 2,124,004 B measurement (its ceiling 2,125,004), all in index + en (index +221 B, en +0 B); vendor unchanged.
+// (the intermediate tip 27aa6604e measured 2,121,229 B → 2,122,229 after #957 alone; superseded the same afternoon.)
 const BUDGET_BYTES = 2_125_225
 
 let dir
