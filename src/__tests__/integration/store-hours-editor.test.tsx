@@ -17,8 +17,8 @@ jest.mock('next-intl', () => ({
   useTranslations:
     () =>
     (k: string, v?: Record<string, string>) =>
-      k === 'unreadable'
-        ? jest.requireActual('../../../messages/ja.json').settings.stores.hours.unreadable
+      k === 'unreadable' || k === 'saveFailed'
+        ? jest.requireActual('../../../messages/ja.json').settings.stores.hours[k]
         : v ? `${k}(${Object.values(v).join(',')})` : k,
   useLocale: () => 'ja',
 }))
@@ -163,6 +163,37 @@ describe('a store that has never set its own hours', () => {
 })
 
 describe('unreadable store hours', () => {
+  it('x3: an open unreadable editor re-seeds when the week becomes readable, and on the reverse flip', () => {
+    const { container, rerender } = open({ weeklyHoursUnreadable: true })
+    expect(timeInputs(container)).toHaveLength(14)
+    timeInputs(container).forEach((input) => expect(input.value).toBe(''))
+    expect(screen.getByRole('status')).toHaveTextContent(ja.settings.stores.hours.unreadable)
+
+    rerender(<StoreHoursBlock storeId="store-7" weeklyHours={OWN_WEEK} weeklyHoursUnreadable={false} orgHours={ORG_HOURS} />)
+    expect(timeInputs(container).map((input) => input.value)).toEqual([
+      '11:00', '20:00', '10:00', '19:00', '11:00', '20:00', '11:00', '20:00',
+      '11:00', '20:00', '10:00', '19:00', '10:00', '18:00',
+    ])
+    expect(screen.getAllByText('closedToggle')[1]).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByText(ja.settings.stores.hours.unreadable)).not.toBeInTheDocument()
+    expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
+
+    rerender(<StoreHoursBlock storeId="store-7" weeklyHours={null} weeklyHoursUnreadable orgHours={ORG_HOURS} />)
+    timeInputs(container).forEach((input) => expect(input.value).toBe(''))
+    expect(screen.getByRole('status')).toHaveTextContent(ja.settings.stores.hours.unreadable)
+  })
+
+  it.each([false, true])('x4: a parent refresh with the same unreadable flag (%s) does not re-seed', (weeklyHoursUnreadable) => {
+    const { container, rerender } = open({ weeklyHours: OWN_WEEK, weeklyHoursUnreadable })
+    if (!weeklyHoursUnreadable) {
+      fireEvent.change(timeInputs(container)[0], { target: { value: '12:34' } })
+    }
+    const draftBefore = timeInputs(container).map((input) => input.value)
+    const changedWeek = { ...OWN_WEEK, mon: { open: '08:00', close: '17:00' } }
+    rerender(<StoreHoursBlock storeId="store-7" weeklyHours={changedWeek} weeklyHoursUnreadable={weeklyHoursUnreadable} orgHours={ORG_HOURS} />)
+    expect(timeInputs(container).map((input) => input.value)).toEqual(draftBefore)
+  })
+
   it.each([null, {}, OWN_WEEK])('blocks every write control and shows the approved notice (week: %j)', (weeklyHours) => {
     const { container } = open({ weeklyHours, weeklyHoursUnreadable: true })
     expect(screen.getByText(ja.settings.stores.hours.unreadable)).toBeInTheDocument()
@@ -747,21 +778,21 @@ describe('save/reset → collapse → reopen keeps the saved week (no refresh)',
 })
 
 
-// R4: React discards the promise returned by an event handler. For the two
-// rejection cases, invoke the button's actual attached handler and retain its
-// promise so Jest can observe the propagated rejection without an unhandled
-// rejection. The race cases below dispatch real synchronous DOM clicks.
+// R5 changes the R4 w1/w2 contract: rejected requests toast and resolve.
+// React discards event-handler promises, so invoke the actual attached handler
+// and retain its promise to assert that the rejection is handled. The race
+// cases below dispatch real synchronous DOM clicks.
 function asyncClickHandler(button: HTMLElement): () => Promise<void> {
   const propsKey = Object.keys(button).find((key) => key.startsWith('__reactProps$'))
   if (!propsKey) throw new Error('React button props were not attached')
   return (button as unknown as Record<string, { onClick: () => Promise<void> }>)[propsKey].onClick
 }
 
-describe('R4 request rejection and synchronous re-entry', () => {
+describe('R5 request rejection and R4 synchronous re-entry', () => {
   it.each([
-    ['w1', 'save'],
-    ['w2', 'resetConfirmYes'],
-  ])('%s: a rejected %s propagates and re-enables every control and the disclosure', async (_id, action) => {
+    ['x1', 'save'],
+    ['x2', 'resetConfirmYes'],
+  ])('%s: a rejected %s resolves with one error toast and re-enables every control and the disclosure', async (_id, action) => {
     let rejectRequest!: (error: Error) => void
     setStoreHours.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectRequest = reject }))
     const onSaved = jest.fn()
@@ -769,6 +800,8 @@ describe('R4 request rejection and synchronous re-entry', () => {
       weeklyHours: { ...OWN_WEEK, tue: { open: '11:00', close: '20:00' } },
       onSaved,
     })
+    fireEvent.change(timeInputs(container)[0], { target: { value: '12:34' } })
+    const draftBefore = timeInputs(container).map((input) => input.value)
     fireEvent.click(screen.getAllByText('closedToggle')[0])
     fireEvent.click(screen.getByText('resetToDefault'))
     const handler = asyncClickHandler(screen.getByText(action))
@@ -777,7 +810,10 @@ describe('R4 request rejection and synchronous re-entry', () => {
     expect(setStoreHours).toHaveBeenCalledTimes(1)
     expect(setStoreHours.mock.calls[0]).toEqual([
       'store-7',
-      action === 'save' ? { ...OWN_WEEK, tue: { open: '11:00', close: '20:00' } } : null,
+      action === 'save' ? {
+        ...OWN_WEEK, mon: { open: '12:34', close: '20:00' },
+        tue: { open: '11:00', close: '20:00' },
+      } : null,
     ])
     expect(screen.getByText('hide')).toBeDisabled()
     timeInputs(container).forEach((input) => expect(input).toBeDisabled())
@@ -788,9 +824,9 @@ describe('R4 request rejection and synchronous re-entry', () => {
 
     const droppedConnection = new Error('connection dropped')
     await act(async () => {
-      const rejection = expect(request).rejects.toBe(droppedConnection)
+      const resolution = expect(request).resolves.toBeUndefined()
       rejectRequest(droppedConnection)
-      await rejection
+      await resolution
     })
     const controls = container.querySelectorAll('input, button')
     expect(timeInputs(container)).toHaveLength(14)
@@ -799,7 +835,11 @@ describe('R4 request rejection and synchronous re-entry', () => {
     expect(screen.getByText('hide')).toBeEnabled()
     expect(onSaved).not.toHaveBeenCalled()
     expect(toast.success).not.toHaveBeenCalled()
-    expect(toast.error).not.toHaveBeenCalled()
+    expect(toast.error).toHaveBeenCalledTimes(1)
+    expect(toast.error).toHaveBeenCalledWith(ja.settings.stores.hours.saveFailed)
+    expect(timeInputs(container).map((input) => input.value)).toEqual(draftBefore)
+    expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
+    expect(screen.getByText('resetConfirmYes')).toBeInTheDocument()
     // The same editor can retry: the synchronous lock was released too.
     await act(async () => { await handler() })
     expect(setStoreHours).toHaveBeenCalledTimes(2)
