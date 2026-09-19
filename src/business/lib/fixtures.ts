@@ -39,7 +39,7 @@ export const STORE_C = 'store-test-shibuya'
  *  fallback to the org-level profile (C4). */
 export interface FixtureStore { id: string; name: string; business_type: string; default_kind_id: string }
 export const stores: FixtureStore[] = [
-  { id: STORE_A, name: 'テスト東京店', business_type: 'chiropractic', default_kind_id: 'k-a' },
+  { id: STORE_A, name: 'テスト東京店', business_type: 'beauty_chiropractic', default_kind_id: 'k-a' },
   { id: STORE_B, name: 'テスト横浜店', business_type: 'massage', default_kind_id: 'k-b' },
   { id: STORE_C, name: 'テスト渋谷店', business_type: 'personal_gym', default_kind_id: 'k-c' },
 ]
