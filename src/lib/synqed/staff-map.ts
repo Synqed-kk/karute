@@ -236,7 +236,7 @@ export async function lookupProfileIdForSynqedStaffId(
  * Translate a Supabase profile id to its synqed-core staff id, creating the
  * synqed record on demand when none exists (booking flow: appointments FK to
  * staff.id, so a record MUST exist before the insert). Throws only if the
- * profile itself doesn't exist — refusing to fall back to the raw profile id
+ * profile itself doesn't exist in this business — refusing to fall back to the raw profile id
  * (which would just hand a bad value to the FK and blow up synqed-core's
  * insert with a cryptic message). Flows that must not create (delete) use
  * lookupSynqedStaffId above instead.
@@ -266,6 +266,7 @@ export async function resolveSynqedStaffIdForBusiness(
     .from('profiles')
     .select('full_name, email')
     .eq('id', staffProfileId)
+    .eq('customer_id', businessId)
     .maybeSingle()
   const typedProfile = profile as
     | { full_name?: string | null; email?: string | null }
