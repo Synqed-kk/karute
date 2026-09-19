@@ -14,6 +14,8 @@
  * change a role someone already holds — a call with an invited staffer's userId
  * keeps their invites.ts-written role.
  */
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, relative } from 'node:path'
 import { effectiveCapabilities, synqedRoleToPreset } from '@/lib/auth/permissions'
 
 const UPDATE = jest.fn((_vals: unknown) => ({ eq: async () => ({ error: null }) }))
@@ -95,6 +97,43 @@ describe('bootstrapBusinessForNewUser — owner role write', () => {
     const caps = effectiveCapabilities(synqedRoleToPreset('OWNER'), null)
     expect(caps.has('settings.manage')).toBe(true)
     expect(effectiveCapabilities('practitioner', null).has('settings.manage')).toBe(false)
+  })
+})
+
+describe('bootstrap server-only boundary — PKT-SEC-SIGNUP-BOOTSTRAP', () => {
+  const root = process.cwd()
+  const bootstrapPath = join(root, 'src/actions/bootstrap.ts')
+
+  it('t1a: has no use server directive anywhere in the source', () => {
+    expect(readFileSync(bootstrapPath, 'utf8')).not.toMatch(/['"]use server['"]/)
+  })
+
+  it('t1b: starts with the server-only import', () => {
+    expect(readFileSync(bootstrapPath, 'utf8')).toMatch(/^\s*import ['"]server-only['"]\s*(?:;|\r?\n)/)
+  })
+
+  it('t2: only the email-confirmation callback imports bootstrap', () => {
+    const importers: string[] = []
+    function walk(directory: string) {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        if (entry.name === '__tests__') continue
+        const path = join(directory, entry.name)
+        if (entry.isDirectory()) walk(path)
+        else if (entry.isFile() && /['"]@\/actions\/bootstrap['"]/.test(readFileSync(path, 'utf8'))) {
+          importers.push(relative(root, path))
+        }
+      }
+    }
+    walk(join(root, 'src'))
+    walk(join(root, 'thin'))
+    const expected = ['src/app/[locale]/auth/callback/route.ts']
+    if (JSON.stringify(importers.sort()) !== JSON.stringify(expected)) {
+      throw new Error(
+        'a client importer would need the action back — read PKT-SEC-SIGNUP-BOOTSTRAP first\n' +
+          `Expected ${JSON.stringify(expected)}; found ${JSON.stringify(importers)}`,
+      )
+    }
+    expect(importers).toEqual(expected)
   })
 })
 
