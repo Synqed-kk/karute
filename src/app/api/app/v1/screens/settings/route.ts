@@ -84,7 +84,8 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
   const canViewAllStores = ctx.identity.capabilities.has('stores.viewAll')
 
   try {
-    const [staffList, orgSettings, storesResult, entitlementResult] = await Promise.all([
+    const [staffList, orgSettings, storesResult, entitlementResult, clampedStores] =
+      await Promise.all([
       staffListByBusinessOrThrow(businessId),
       orgSettingsWithClient(synqed),
       // Least-privilege: a non-viewAll identity never triggers the read at
@@ -102,6 +103,14 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
       canViewAllStores
         ? loadEntitlementWithClient(synqed, businessId).catch(() => null)
         : Promise.resolve(null),
+      // ⚖ Liam 2026-09-16 (fold round 2) — the stores this actor may place a
+      // NEW staff card in. A viewAll identity already has the full list above;
+      // a CLAMPED one gets their own assignment, and needs the names, so this
+      // is the one read the least-privilege gate above cannot skip for them.
+      // The web twin is menuStoresForScope on the same page.
+      canViewAllStores || !clamp.allowedStoreIds?.length
+        ? Promise.resolve(null)
+        : listStoresWithClient(synqed, businessId, { ensurePrimary: false }).catch(() => []),
     ])
 
     // isOwner mirrors page.tsx's own literal comparison (staffList.some(s =>
@@ -224,6 +233,10 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
         // change here.
         initialActiveStoreId: clamp.storeId,
         initialStores: storesResult,
+        assignableStores:
+          clampedStores === null
+            ? storesResult
+            : clampedStores.filter((s) => clamp.allowedStoreIds!.includes(s.id)),
         initialEntitlement: entitlementResult,
         // Server-truth flags (design-parity packet 12 §S4a) — this route's
         // own process.env is real (unlike thin's, which is {}); ship the

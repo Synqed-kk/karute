@@ -2356,8 +2356,11 @@
         "openAria": "{day} opening time",
         "closeAria": "{day} closing time"
       },
+      "assignCreateLabel": "Store",
+      "assignCreateHint": "Choose the store this person works in. You can pick more than one.",
+      "assignRequiredError": "Please choose a store.",
       "assignLabel": "Store / location",
-      "assignMultiHint": "Select any number. If none are selected, the staff appears in every store.",
+      "assignMultiHint": "Select any number. Leaving this empty means the staff member has no store assigned and sees nothing.",
       "unassigned": "Unassigned"
     },
     "coaching": {
@@ -3036,7 +3039,9 @@
     "staffCountWithLimit": "{n}/{limit} staff",
     "staffLimitHint": "Your plan's staff limit is reached. Upgrade to add more",
     "staffLimitInviteHint": "New staff can't be invited on your current plan (re-invites to existing staff still work)",
-    "staffStoreScopeDenied": "You can only edit staff from the stores you are assigned to. Editing another store's staff needs all-store access."
+    "staffStoreScopeDenied": "You can only edit staff from the stores you are assigned to. Editing another store's staff needs all-store access.",
+    "staffCardLeftBehind": "The store could not be assigned. The new staff member may still be on the list — please check the staff list.",
+    "staffAddedStoreUnknown": "The staff member was added with no store assigned. If this business has two or more stores, they will see nothing until one is set. Please assign a store in staff management."
   },
   "aiActions": {
     "title": "AI Recommended Actions",

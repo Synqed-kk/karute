@@ -101,6 +101,7 @@ const dto: SettingsScreenDTOType = {
   auditTargetId: null,
   initialActiveStoreId: null,
   initialStores: [],
+  assignableStores: [],
   initialEntitlement: null,
   featureStaffInvites: false,
   featureMultiStore: false,
@@ -178,6 +179,7 @@ describe('thin settings wiring — 破棄の記録 tab is live on the phone', ()
         initialTab={'discards' as SettingsTabId}
         initialStores={[]}
         menuStores={[]}
+        assignableStores={[]}
         initialActiveStoreId={null}
         initialMenus={[]}
         initialEntitlement={null}

@@ -73,6 +73,7 @@ const baseProps = {
   canManageMenus: true,
   initialMenus: [],
   menuStores: [],
+  assignableStores: [],
   initialStores: [] as StoreRow[],
   initialActiveStoreId: null,
   initialEntitlement: null,
