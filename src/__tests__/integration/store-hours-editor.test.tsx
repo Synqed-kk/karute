@@ -23,10 +23,14 @@ jest.mock('next-intl', () => ({
 jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn() } }))
 const setStoreHours = jest.fn(async () => ({ ok: true }) as { ok: true } | { error: string })
 const listStoresWithHours = jest.fn(async () => [] as unknown[])
+// The refresh() fallback (PKT-FIX-938 B1): the plain, no-hours list a
+// rejecting listStoresWithHours() falls back to.
+const listStores = jest.fn(async () => [] as unknown[])
 const updateStore = jest.fn(async () => ({ ok: true }))
 jest.mock('@/actions/stores', () => ({
   setStoreHours: (...a: unknown[]) => setStoreHours(...(a as [])),
   listStoresWithHours: () => listStoresWithHours(),
+  listStores: () => listStores(),
   updateStore: (...a: unknown[]) => updateStore(...(a as [])),
   createStore: jest.fn(async () => ({ id: 'store-new' })),
   setActiveStore: jest.fn(async () => ({ ok: true })),
@@ -102,6 +106,7 @@ beforeEach(() => {
   setStoreHours.mockResolvedValue({ ok: true })
   updateStore.mockResolvedValue({ ok: true })
   listStoresWithHours.mockResolvedValue([])
+  listStores.mockResolvedValue([])
 })
 
 describe('a store that has never set its own hours', () => {
@@ -432,6 +437,34 @@ describe('the section: a refresh never forgets a saved week', () => {
     await waitFor(() => expect(listStoresWithHours).toHaveBeenCalled())
 
     fireEvent.click(hoursDisclosure(0))
+    expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
+    expect(timeInputs(container)[0].value).toBe('11:00')
+  })
+
+  // PKT-FIX-938 B1 — a store-policy read blip must not make a rename look
+  // lost: refresh()'s with-hours call rejects (core's storePolicies endpoint
+  // down while stores itself is up), so it falls back to the plain list —
+  // the rename still repaints, and mergeKnownHours keeps the week this
+  // section already knew (never blanked, never reported as "no hours").
+  it('refresh() with the with-hours list REJECTING: the renamed row repaints and the known week is not blanked', async () => {
+    listStoresWithHours.mockRejectedValue(new Error('core storePolicies down'))
+    listStores.mockResolvedValue([
+      row('store-7', '代官山', undefined),
+      row('store-8', '別名', undefined),
+    ])
+    const { container } = renderSection(OWN_WEEK)
+
+    // Rename the OTHER store — the path that calls refresh().
+    fireEvent.click(screen.getAllByLabelText('edit')[1])
+    fireEvent.click(screen.getByText('submit-rename'))
+    await waitFor(() => expect(listStores).toHaveBeenCalled())
+
+    // The rename repainted even though the with-hours read rejected.
+    expect(screen.getByText('別名')).toBeInTheDocument()
+
+    fireEvent.click(hoursDisclosure(0))
+    // The week known from before the rejected refresh is still shown — never
+    // blanked to 「全店共通の初期値を使用中」.
     expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
     expect(timeInputs(container)[0].value).toBe('11:00')
   })

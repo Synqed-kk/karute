@@ -135,6 +135,7 @@ import { StoreRowSchema } from '@/lib/app-api/settings-screen-dto'
 import {
   STORE_HOURS_ACTOR_UNRESOLVED,
   STORE_HOURS_INVALID_WINDOW,
+  STORE_HOURS_UNKNOWN_STORE,
   STORE_HOURS_WEEK_INCOMPLETE,
   STORE_OWNER_DENIAL,
 } from '@/lib/validations/store'
@@ -198,7 +199,14 @@ beforeEach(() => {
   lookupSynqedStaffIdForBusiness.mockImplementation(async (profileId) =>
     profileId === PROFILE_ID ? CORE_STAFF_ID : null,
   )
-  storesList.mockResolvedValue({ stores: [] })
+  // 'store-7' is the storeId every test in this file writes to — it must be a
+  // KNOWN store of the caller's business, or the membership guard below
+  // refuses every one of them before core is ever reached.
+  storesList.mockResolvedValue({
+    stores: [
+      { id: 'store-7', name: 'Test store', address: null, phone: null, is_primary: true, active: true },
+    ],
+  })
   staffStoresCounts.mockResolvedValue({ counts: {} })
   customersCountsByStore.mockResolvedValue({ counts: {} })
   orgSettingsGet.mockResolvedValue({
@@ -398,6 +406,51 @@ describe('owner-only on the store write, settings.manage on the org write', () =
   })
 })
 
+// PKT-FIX-938 ROUND 1 B2 — a receipt-grade governance row must never carry a
+// store id this business does not own (the same guard the locked 自動録音
+// toggle carries, recording-autostart.ts). Checked AFTER the owner gate,
+// BEFORE any storePolicies call.
+describe('store membership — a storeId not owned by this business is refused', () => {
+  it('a storeId not in stores.list() is refused on the web door; storePolicies is never touched, no audit row', async () => {
+    const lines = await auditLines(async () => {
+      expect(await setStoreHours('store-elsewhere', FULL_WEEK)).toEqual({
+        error: STORE_HOURS_UNKNOWN_STORE,
+      })
+    })
+    expect(storePoliciesGet).not.toHaveBeenCalled()
+    expect(storePoliciesSet).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('the same storeId is refused on the phone door, the same way', async () => {
+    const lines = await auditLines(async () => {
+      const res = await hoursPATCH(patchReq(FULL_WEEK), params('store-elsewhere'))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ error: STORE_HOURS_UNKNOWN_STORE })
+    })
+    expect(storePoliciesGet).not.toHaveBeenCalled()
+    expect(storePoliciesSet).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it("an empty storeId is refused the same way; nothing is called", async () => {
+    const lines = await auditLines(async () => {
+      expect(await setStoreHours('', FULL_WEEK)).toEqual({ error: STORE_HOURS_UNKNOWN_STORE })
+    })
+    expect(storesList).not.toHaveBeenCalled()
+    expect(storePoliciesGet).not.toHaveBeenCalled()
+    expect(storePoliciesSet).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('the guard runs even for the reset (null) path — the same core, not a separate one', async () => {
+    expect(await setStoreHours('store-elsewhere', null)).toEqual({
+      error: STORE_HOURS_UNKNOWN_STORE,
+    })
+    expect(storePoliciesSet).not.toHaveBeenCalled()
+  })
+})
+
 describe('the exact SDK payload', () => {
   it('sends weekly_hours + acting_staff_id and NOTHING else — no other policy field is re-sent', async () => {
     expect(await setStoreHours('store-7', FULL_WEEK)).toEqual({ ok: true })
@@ -495,7 +548,7 @@ describe('the exact SDK payload', () => {
   it('a core write rejection produces no audit row and a soft { error }', async () => {
     storePoliciesSet.mockRejectedValueOnce(new Error('not found'))
     const lines = await auditLines(async () => {
-      const result = await setStoreHours('store-missing', FULL_WEEK)
+      const result = await setStoreHours('store-7', FULL_WEEK)
       expect('error' in result && result.error).toBeTruthy()
     })
     expect(lines).toHaveLength(0)
