@@ -391,21 +391,18 @@ async function processJob(job: RecordingJob): Promise<string> {
     entries: extraction.result.entries,
   })
 
-  // Coaching label (packet 22 B4) — same idempotent upsert the interactive
-  // save uses (writeSessionOutcome, packet B 2026-09-19 — shared with the
-  // existing-karute skip path above). UNLIKE the interactive call site, a
-  // write failure here THROWS: failing the whole job lets core's requeue
-  // converge on the SAME record (the upsert above is idempotent too, and PR4
-  // leaves the audio in place for that re-run).
-  if (payload.outcome) {
-    await writeSessionOutcome(synqed, record, payload.staff_id, payload.customer_id, payload.outcome)
-  }
-
   // Audit: the save is a completed action (server-side actor = the recorder).
   // The payload carries the SYNQED staff id (the appointments id-space);
   // actorId's contract is the auth uid, so translate via the roster. An
   // unwired recorder degrades to null (viewer renders 不明) — never emit the
   // wrong id-space; the synqed id stays in detail for forensics.
+  // ⚖ FIX ROUND 1 (packet B, 2026-09-19): this sits directly after the
+  // upsert and AHEAD OF the outcome label below, not after it — a label
+  // write that throws requeues the job into the existing-karute skip path
+  // above, which by design emits no save row, so this row must already be
+  // down before that throw can happen. Cannot double-log: once the record
+  // exists, a requeue of this same job never reaches this line again (the
+  // pre-spend check returns from the skip path first).
   const actorUserId = await synqed.staff
     .get(payload.staff_id)
     .then((s) => (s as { user_id?: string | null }).user_id ?? null)
@@ -437,6 +434,16 @@ async function processJob(job: RecordingJob): Promise<string> {
     requestId: job.id,
     source: 'system',
   })
+
+  // Coaching label (packet 22 B4) — same idempotent upsert the interactive
+  // save uses (writeSessionOutcome, packet B 2026-09-19 — shared with the
+  // existing-karute skip path above). UNLIKE the interactive call site, a
+  // write failure here THROWS: failing the whole job lets core's requeue
+  // converge on the SAME record (the upsert above is idempotent too, and PR4
+  // leaves the audio in place for that re-run).
+  if (payload.outcome) {
+    await writeSessionOutcome(synqed, record, payload.staff_id, payload.customer_id, payload.outcome)
+  }
 
   // 5. ⚖ THE AUDIO STAYS (capture pipeline PR4). A completed job used to delete
   // the object it had just transcribed. `audio_path` is the take's FINALIZED
