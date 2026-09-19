@@ -14,7 +14,7 @@
  * change a role someone already holds — a call with an invited staffer's userId
  * keeps their invites.ts-written role.
  */
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import ts from 'typescript'
 import { effectiveCapabilities, synqedRoleToPreset } from '@/lib/auth/permissions'
@@ -120,7 +120,7 @@ describe('bootstrap server-only boundary — PKT-SEC-SIGNUP-BOOTSTRAP', () => {
   const root = process.cwd()
   const bootstrapPath = join(root, 'src/actions/bootstrap.ts')
 
-  function hasTopLevelUseServer(sourceText: string): boolean {
+  function hasUseServerDirective(sourceText: string): boolean {
     const source = ts.createSourceFile(bootstrapPath, sourceText, ts.ScriptTarget.Latest, true)
     // Checking every top-level statement covers the directive prologue and also
     // rejects a misplaced directive after an import, without matching comments.
@@ -132,54 +132,65 @@ describe('bootstrap server-only boundary — PKT-SEC-SIGNUP-BOOTSTRAP', () => {
   }
 
   it('t1a: has no use server directive in the prologue or elsewhere at top level', () => {
-    expect(hasTopLevelUseServer(readFileSync(bootstrapPath, 'utf8'))).toBe(false)
+    expect(hasUseServerDirective(readFileSync(bootstrapPath, 'utf8'))).toBe(false)
+  })
+
+  it.each([
+    "'use server'\nimport 'server-only'\n",
+    "/* Leading comment block */\n'use server'\nimport 'server-only'\n",
+    "import 'server-only'\n'use server'\n",
+    '"use server"\nimport "server-only"\n',
+  ])('t1a directives: detects %s', (sourceText) => {
+    expect(hasUseServerDirective(sourceText)).toBe(true)
   })
 
   it.each([
     "// A comment quoting 'use server'\nimport 'server-only'\n",
     '/* A comment quoting "use server" */\nimport "server-only"\n',
   ])('t1a comments: ignores quoted directive text in %s', (sourceText) => {
-    expect(hasTopLevelUseServer(sourceText)).toBe(false)
+    expect(hasUseServerDirective(sourceText)).toBe(false)
   })
 
   it('t1b: starts with the server-only import', () => {
     expect(readFileSync(bootstrapPath, 'utf8')).toMatch(/^\s*import ['"]server-only['"]\s*(?:;|\r?\n)/)
   })
 
+  function importsBootstrapFrom(filePath: string, sourceText: string): boolean {
+    const source = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true)
+    let found = false
+    function visit(node: ts.Node) {
+      if (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) return
+      if (ts.isExportDeclaration(node) && node.isTypeOnly) return
+      const specifier = ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
+        ? node.moduleSpecifier
+        : ts.isCallExpression(node) && (
+          node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) && node.expression.text === 'require')
+        ) ? node.arguments[0] : undefined
+      if (specifier && ts.isStringLiteralLike(specifier)) {
+        const name = specifier.text
+        const target = name.startsWith('@/')
+          ? resolve(root, 'src', name.slice(2))
+          : name.startsWith('.') ? resolve(dirname(filePath), name) : undefined
+        // Match relative imports/re-exports as well as the alias, including
+        // explicit source or emitted JS extensions.
+        if (target?.replace(/\.(?:[cm]?[jt]sx?)$/, '') === bootstrapPath.slice(0, -3)) found = true
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
+    return found
+  }
+
   function bootstrapImporters(): string[] {
     const importers: string[] = []
-    function importsBootstrap(path: string): boolean {
-      const source = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true)
-      let found = false
-      function visit(node: ts.Node) {
-        if (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) return
-        if (ts.isExportDeclaration(node) && node.isTypeOnly) return
-        const specifier = ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
-          ? node.moduleSpecifier
-          : ts.isCallExpression(node) && (
-            node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-            (ts.isIdentifier(node.expression) && node.expression.text === 'require')
-          ) ? node.arguments[0] : undefined
-        if (specifier && ts.isStringLiteralLike(specifier)) {
-          const name = specifier.text
-          const target = name.startsWith('@/')
-            ? resolve(root, 'src', name.slice(2))
-            : name.startsWith('.') ? resolve(dirname(path), name) : undefined
-          // Match relative imports/re-exports as well as the alias, including
-          // explicit source or emitted JS extensions.
-          if (target?.replace(/\.(?:[cm]?[jt]sx?)$/, '') === bootstrapPath.slice(0, -3)) found = true
-        }
-        ts.forEachChild(node, visit)
-      }
-      visit(source)
-      return found
-    }
     function walk(directory: string) {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {
         if (entry.name === '__tests__') continue
         const path = join(directory, entry.name)
         if (entry.isDirectory()) walk(path)
-        else if (entry.isFile() && /\.[cm]?[jt]sx?$/.test(path) && importsBootstrap(path)) {
+        else if (entry.isFile() && /\.[cm]?[jt]sx?$/.test(path) &&
+          importsBootstrapFrom(path, readFileSync(path, 'utf8'))) {
           importers.push(relative(root, path))
         }
       }
@@ -194,17 +205,14 @@ describe('bootstrap server-only boundary — PKT-SEC-SIGNUP-BOOTSTRAP', () => {
     ["export type { BootstrapResult } from '@/actions/bootstrap'", false],
     ["import { type BootstrapResult, bootstrapBusinessForNewUser } from '@/actions/bootstrap'", true],
     ["import { bootstrapBusinessForNewUser } from '@/actions/bootstrap'", true],
+    ["import { bootstrapBusinessForNewUser } from '../../src/actions/bootstrap'", true],
+    ["export { bootstrapBusinessForNewUser } from '@/actions/bootstrap'", true],
+    ["const bootstrap = import('@/actions/bootstrap')", true],
+    ["const bootstrap = require('@/actions/bootstrap')", true],
+    ["import { bootstrapBusinessForNewUser } from '@/actions/bootstrapper'", false],
   ])('t2 cases: census handles %s', (sourceText, counts) => {
-    const directory = mkdtempSync(join(root, 'src', 'bootstrap-census-'))
-    const path = join(directory, 'importer.ts')
-    try {
-      writeFileSync(path, sourceText)
-      const expected = ['src/app/[locale]/auth/callback/route.ts']
-      if (counts) expected.push(relative(root, path))
-      expect(bootstrapImporters()).toEqual(expected.sort())
-    } finally {
-      rmSync(directory, { recursive: true, force: true })
-    }
+    // A synthetic path resolves relative specifiers without creating a file.
+    expect(importsBootstrapFrom(join(root, 'thin/x/y.ts'), sourceText)).toBe(counts)
   })
 
   it('t2: only the email-confirmation callback imports bootstrap', () => {
