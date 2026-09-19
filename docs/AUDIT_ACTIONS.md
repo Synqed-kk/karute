@@ -84,6 +84,8 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `settings.recording_autostart_toggle` | settings | live | `settings.auditLog.actions.settings.recording_autostart_toggle` |
 | `settings.staff_stores_change` | settings | live | `settings.auditLog.actions.settings.staff_stores_change` |
 | `settings.store_create` | settings | live | `settings.auditLog.actions.settings.store_create` |
+| `settings.store_hours_reset` | settings | live | `settings.auditLog.actions.settings.store_hours_reset` |
+| `settings.store_hours_update` | settings | live | `settings.auditLog.actions.settings.store_hours_update` |
 | `settings.store_update` | settings | live | `settings.auditLog.actions.settings.store_update` |
 | `settings.store_write_refused` | settings | live | `settings.auditLog.actions.settings.store_write_refused` |
 | `settings.sync_config_update` | settings | live | `settings.auditLog.actions.settings.sync_config_update` |
