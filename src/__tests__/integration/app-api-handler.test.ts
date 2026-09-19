@@ -103,4 +103,63 @@ describe('facadeHandler', () => {
     expect(res.status).toBe(401)
     expect((await res.json()).error.code).toBe('unauthenticated')
   })
+
+  // PKT-A (incident-recording-fallback-20260918): an unclassified throw's
+  // reason used to be unrecoverable — only code+status ever reached the log.
+  it('an unclassified throw carrying a signed-URL secret logs a sanitised reason, never the secret — client body unchanged', async () => {
+    const handler = facadeHandler(
+      'customer.read',
+      async () => {
+        throw new Error('deepgram said no https://x.supabase.co/storage/v1/object/sign/recordings/a.webm?token=SECRET')
+      },
+      { config: HS_CONFIG },
+    )
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const res = await handler(new Request('https://s/api/app/v1/x', { headers: { authorization: `Bearer ${hs256Token(SECRET)}` } }), route)
+      expect(res.status).toBe(500)
+      expect(await res.json()).toEqual({ error: { code: 'internal', message: 'Internal error' } })
+      const lines = warn.mock.calls
+        .map(([first]) => (typeof first === 'string' ? first : ''))
+        .filter((l) => l.includes('"evt":"facade_error"'))
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).not.toContain('SECRET')
+      const line = JSON.parse(lines[0]) as Record<string, unknown>
+      expect(line.errName).toBe('Error')
+      expect(line.errMessage).toContain('deepgram said no')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('a classified AppApiError throw logs NO errName/errMessage/errStatus keys — byte-identical to before', async () => {
+    const handler = facadeHandler(
+      'customer.read',
+      async () => { throw new AppApiError('forbidden', 'nope') },
+      { config: HS_CONFIG },
+    )
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const res = await handler(new Request('https://s/api/app/v1/x', { headers: { authorization: `Bearer ${hs256Token(SECRET)}` } }), route)
+      expect(res.status).toBe(403)
+      const requestId = res.headers.get('request-id')
+      const lines = warn.mock.calls
+        .map(([first]) => (typeof first === 'string' ? first : ''))
+        .filter((l) => l.includes('"evt":"facade_error"'))
+      expect(lines).toHaveLength(1)
+      const expectedLine = JSON.stringify({
+        evt: 'facade_error',
+        endpoint: 'customer.read',
+        code: 'forbidden',
+        status: 403,
+        requestId,
+        appVersion: null,
+        platform: null,
+        businessId: 'business-1',
+      })
+      expect(lines[0]).toBe(expectedLine)
+    } finally {
+      warn.mockRestore()
+    }
+  })
 })

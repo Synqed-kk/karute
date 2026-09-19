@@ -1,6 +1,6 @@
 // Error contract (packet 03 point 5). The load-bearing row is
 // jwks_unavailable → 503 (an upstream outage is NOT a 401 about the token).
-import { AppApiError, toAppApiError, errorBody } from '@/lib/app-api/errors'
+import { AppApiError, toAppApiError, errorBody, describeUnknownThrow } from '@/lib/app-api/errors'
 import { BearerVerifyError } from '@/lib/auth/verify-bearer'
 import { RevocationError } from '@/lib/auth/revocation'
 
@@ -52,5 +52,67 @@ describe('facade error contract', () => {
   it('error body is a stable {error:{code,message}} shape', () => {
     const body = errorBody(new AppApiError('conflict', 'stale', { currentVersion: 'v2' }))
     expect(body).toEqual({ error: { code: 'conflict', message: 'stale', currentVersion: 'v2' } })
+  })
+})
+
+// PKT-A: an unclassified throw keeps its reason, for the server log ONLY —
+// never the client body. incident-recording-fallback-20260918.
+describe('unknown-throw reason (server log only, client body untouched)', () => {
+  it('toAppApiError keeps the original value as a non-enumerable cause; describeUnknownThrow reads it', () => {
+    const err = toAppApiError(new Error('boom'))
+    expect(errorBody(err)).toEqual({ error: { code: 'internal', message: 'Internal error' } })
+    expect(describeUnknownThrow(err.cause)).toEqual({ errName: 'Error', errMessage: 'boom' })
+  })
+
+  it('the cause never appears in JSON.stringify(err) nor in errorBody(err)', () => {
+    const err = toAppApiError(new Error('boom'))
+    expect(Object.keys(JSON.parse(JSON.stringify(err)))).not.toContain('cause')
+    expect(Object.keys(errorBody(err).error)).not.toContain('cause')
+  })
+
+  it('a DeepgramHttpError-shaped throw (an Error with a numeric status) surfaces errStatus', () => {
+    const deepgramLike = Object.assign(new Error('Deepgram 400 Bad Request'), { name: 'DeepgramHttpError', status: 400 })
+    const err = toAppApiError(deepgramLike)
+    expect(describeUnknownThrow(err.cause)).toEqual({ errName: 'DeepgramHttpError', errStatus: 400, errMessage: 'Deepgram 400 Bad Request' })
+  })
+
+  it('a thrown non-Error does not throw inside the helper', () => {
+    expect(() => describeUnknownThrow('str')).not.toThrow()
+    expect(() => describeUnknownThrow({ a: 1 })).not.toThrow()
+    expect(() => describeUnknownThrow(null)).not.toThrow()
+    expect(describeUnknownThrow('str')).toEqual({ errName: 'string', errMessage: 'str' })
+    expect(describeUnknownThrow(null)).toEqual({ errName: 'object', errMessage: 'null' })
+  })
+
+  describe('masking table', () => {
+    it('masks an email', () => {
+      expect(describeUnknownThrow(new Error('contact liam@example.com for help')).errMessage).toBe('contact <email> for help')
+    })
+
+    it('masks a signed URL — query gone (the token), origin+path kept', () => {
+      const msg = 'deepgram said no https://x.supabase.co/storage/v1/object/sign/recordings/a.webm?token=SECRET'
+      const { errMessage } = describeUnknownThrow(new Error(msg))
+      expect(errMessage).toBe('deepgram said no https://x.supabase.co/storage/v1/object/sign/recordings/a.webm')
+      expect(errMessage).not.toContain('SECRET')
+    })
+
+    it('masks a JWT-shaped token', () => {
+      const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dGVzdHNpZ25hdHVyZQ'
+      expect(describeUnknownThrow(new Error(`bad token ${jwt}`)).errMessage).toBe('bad token <jwt>')
+    })
+
+    it('masks a run of 7+ digits (phone/card-like)', () => {
+      expect(describeUnknownThrow(new Error('card 12345678901 declined')).errMessage).toBe('card <digits> declined')
+    })
+
+    it('caps a long message at 200 chars, appending an ellipsis when cut', () => {
+      const long = 'x'.repeat(300)
+      const { errMessage } = describeUnknownThrow(new Error(long))
+      expect(errMessage).toBe(`${'x'.repeat(200)}…`)
+    })
+
+    it('keeps only the first line of a multi-line message', () => {
+      expect(describeUnknownThrow(new Error('first line\nsecond line with secrets')).errMessage).toBe('first line')
+    })
   })
 })
