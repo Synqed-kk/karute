@@ -1097,7 +1097,7 @@ describe('PKT-BUILD-N3-2 §3 H5 — the screen calls the pure save door', () => 
   const readout = blockSource.slice(blockSource.indexOf('{block.words && sentences && ('), blockSource.indexOf('{block.facts.map('))
 
   it('N3-2 §3 H5 — imports the door and names none of the words table rules', () => {
-    expect(SRC_CODE).toMatch(/import\s*\{[^}]*committedWordValues[^}]*\}\s*from '@\/business\/lib\/settings-words'/)
+    expect(SRC_CODE).toMatch(new RegExp("import\\s*\\{[^}]*committedWordValues[^}]*\\}\\s*" + "from '@/business/lib/settings-words'"))
     expect(SRC_CODE).not.toContain("from '@/business/lib/resource-words'")
     for (const forbidden of ['wordOverrideProblem', 'wordsForStore', 'WORD_MAX_CHARS']) expect(SRC).not.toContain(forbidden)
   })
