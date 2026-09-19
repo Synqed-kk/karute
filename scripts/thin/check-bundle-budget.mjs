@@ -2014,7 +2014,34 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Initial gate failed by 11 B against 2,155,502 B; purchase exclusion 0/13.
 // Proof: artifacts-speed/s13-r1/thin-lap-{1,2}.json, bundle-identity.txt,
 // thin-measured.json, thin-build-{1,2}.log, bundle-gate-{before,after}.log.
-const BUDGET_BYTES = 2_156_513
+//
+// RE-MEASURED 2026-09-20 — S13 main-in #2
+// feat/booking-speed-swipe-main, merged tip
+// ef78e5e678452283a5753e7dc56636d12ad840b7;
+// origin/main 5dbd0111d9efbd635787a9478c75dd2a1e7b42fc (through PR #974).
+// What ships: the speed + swipe round's shared slide gesture, appointments
+// track + neighbour panes and neighbour prefetch, including the shared cache
+// fence, with calendar-number persistence OFF, composed with main through
+// #974's invite/staff placement door. Both parents' dated entries remain
+// history; this merged-tip measurement supersedes their ceilings.
+//
+// Same CI recipe: npx --no -- vite build --config thin/vite.config.ts,
+// all six VITE_* values read programmatically from .github/workflows/ci.yml,
+// offline, node v24.16.0, vite 6.4.3, @synqed-kk/ui 0.3.2.
+// thin/dist emptied before EACH of two laps. All 23 output files
+// byte-identical (relative paths, sizes, SHA-256s and direct byte comparison):
+//   en-Y23xfm6U.js              138,722 B
+//   index-2Waqcdns.js         1,081,161 B
+//   vendor-DqXjNZNP.js          937,800 B
+// Total = 2,157,683 B; ceiling = measured + 1,000 = 2,158,683 B.
+// Comparison to main's newest RECORDED total (#974, STORE AT CREATION S7 —
+// 2/4: 2,146,610 B), not a fresh main build: +11,073 B total.
+// en and vendor match that recorded byte size; index accounts for +11,073 B.
+// Initial gate failed by 1,170 B against the merge ceiling 2,156,513 B;
+// purchase exclusion stayed clean (0/13). No dependency files changed.
+// Proof: artifacts-speed/s13-mi2/thin-lap-{1,2}.json, bundle-identity.txt,
+// thin-measured.json, thin-build-{1,2}.log, bundle-gate-{before,after}.log.
+const BUDGET_BYTES = 2_158_683
 let dir
 try {
   dir = readdirSync(DIST)
