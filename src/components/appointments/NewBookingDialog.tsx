@@ -21,6 +21,7 @@ import { StaffCombobox, type StaffComboboxOption } from '@/components/karute/Sta
 import { QuickCreateCustomer } from '@/components/karute/QuickCreateCustomer'
 import { MenuCombobox, formatYen } from '@/components/appointments/MenuCombobox'
 import { createAppointment } from '@/actions/appointments'
+import { searchCustomersCompanyWide } from '@/actions/customers'
 import { hmInJst, jstWallTimeToDate, ymdInJst } from '@/lib/date/jst'
 import type { CachedMenuOption } from '@/lib/menus/cached'
 // Type-only: the dialog branches on the EXACT refusal union both doors return
@@ -284,6 +285,17 @@ export function NewBookingDialog({
     setSaving(false)
 
     if ('error' in result) {
+      // ⚠ MERGE #937×#948 (2026-09-19): #948's own store_forbidden case
+      // (main) checked first — refusalKey (below) only codes the closed-day /
+      // hours refusals this branch adds, so a store_forbidden result would
+      // otherwise fall through to its raw server string instead of #948's
+      // translated line.
+      if (result.code === 'store_forbidden') {
+        const message = t('newBookingDialog.toasts.storeScopeUnverified')
+        toast.error(message)
+        announce(message)
+        return
+      }
       // ⚖ PKT-1c-C — a refusal arrives with its own provenance (which setting
       // closed the day, and whether it was the weekly hours or a 臨時休業
       // date; for an hours refusal, the window it judged against). Both doors
@@ -335,6 +347,7 @@ export function NewBookingDialog({
                   setCustomerFlow('quick-create')
                 }}
                 placeholder={t('newBookingDialog.customerPlaceholder')}
+                onRemoteSearch={searchCustomersCompanyWide}
               />
             )}
           </Field>

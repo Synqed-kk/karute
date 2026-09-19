@@ -7,6 +7,7 @@ import { loadKaruteWindowWithMonthProbe } from '@/lib/karute/karute-window'
 import { jstStartOfMonth } from '@/lib/date/jst'
 import { listAllCustomersCached } from '@/lib/customers/list-all'
 import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { buildSessionsListScreen } from '@/lib/karute/screen-rows'
 import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
 import { can } from '@/lib/auth/require-permission'
@@ -98,6 +99,9 @@ export default async function KaruteRecordsListPage() {
       t.phase('karuteData', () =>
         loadKaruteWindowWithMonthProbe(synqed, {
           storeId: activeStore,
+          // Same clamp the customer list above carries: a clamped actor with
+          // no store reaches NO karute, never the business-wide list.
+          enforceStore: clamped,
           monthFrom: monthStartIso,
           monthTo: nowIso,
           now,
@@ -152,7 +156,12 @@ export default async function KaruteRecordsListPage() {
   // staff names into every store's dropdown. Name resolution on rows stays
   // business-wide inside the builder.
   const storeStaffIds = await t.phase('storeStaffIds', () =>
-    storeStaffIdSet(staffList, activeStore),
+    // An actor who reaches no store gets an EMPTY picker — storeStaffIdSet's
+    // null (= "show everyone") is the documented fail-OPEN for a missing lens,
+    // and it must not be the answer for a clamp with no store.
+    reachesNoStore(scope)
+      ? Promise.resolve(new Set<string>())
+      : storeStaffIdSet(staffList, activeStore),
   )
   t.end()
 

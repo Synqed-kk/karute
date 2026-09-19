@@ -10,14 +10,24 @@
  *   2. onSaved fires on the NEXT_REDIRECT success branch so the chip is reset
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { toast } from 'sonner'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
-jest.mock('next-intl', () => ({
-  useTranslations: () => (key: string) => key,
-  // EntryCard (rendered whenever entries is non-empty — see the provenance
-  // suite below) also reads the locale directly.
-  useLocale: () => 'en',
-}))
+jest.mock('next-intl', () => {
+  const ja = jest.requireActual('../../../messages/ja.json')
+  return {
+    useTranslations: (ns: string) => (key: string, vars?: Record<string, unknown>) => {
+      let cur: unknown = ja
+      for (const part of `${ns}.${key}`.split('.'))
+        cur = (cur as Record<string, unknown> | undefined)?.[part]
+      if (typeof cur !== 'string') throw new Error(`missing ja.json key: ${ns}.${key}`)
+      return cur.replace(/\{(\w+)\}/g, (_m, v: string) => String(vars?.[v] ?? `{${v}}`))
+    },
+    // EntryCard also reads the locale directly.
+    useLocale: () => 'ja',
+  }
+})
+jest.mock('sonner', () => ({ toast: { error: jest.fn() } }))
 
 jest.mock('@/actions/karute', () => ({
   saveKaruteRecord: jest.fn(),
@@ -87,14 +97,14 @@ describe('ReviewScreen discard path', () => {
     const onDiscard = jest.fn()
     render(<ReviewScreen {...baseProps} onDiscard={onDiscard} />)
 
-    const discard = screen.getByRole('button', { name: 'discard' })
+    const discard = screen.getByRole('button', { name: '破棄' })
     fireEvent.click(discard)
     expect(onDiscard).toHaveBeenCalledTimes(1)
   })
 
   it('does not render a Discard button when onDiscard is omitted', () => {
     render(<ReviewScreen {...baseProps} />)
-    expect(screen.queryByRole('button', { name: 'discard' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '破棄' })).toBeNull()
   })
 
   it('calls onSaved on the NEXT_REDIRECT success branch (clears the chip)', async () => {
@@ -105,10 +115,35 @@ describe('ReviewScreen discard path', () => {
     render(<ReviewScreen {...baseProps} onSaved={onSaved} />)
 
     await withSwallowedRejections(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'save' }))
+      fireEvent.click(screen.getByRole('button', { name: '保存' }))
       await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1))
     })
     expect(saveKaruteRecord).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ReviewScreen save refusals', () => {
+  it.each([
+    {
+      code: 'not_found',
+      error: 'karute not found in this business',
+      message: 'カルテが見つかりませんでした。',
+    },
+    {
+      code: 'store_forbidden',
+      error: 'could not verify your store assignment (fail-closed)',
+      message: '担当店舗を確認できませんでした。時間をおいて、もう一度お試しください。',
+    },
+  ])('shows the Japanese message for $code and keeps review available', async ({ code, error, message }) => {
+    ;(saveKaruteRecord as jest.Mock).mockResolvedValueOnce({ error, code })
+    render(<ReviewScreen {...baseProps} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(message))
+    expect(toast.error).toHaveBeenCalledTimes(1)
+    expect(baseProps.onSaved).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '保存' })).toBeEnabled()
   })
 })
 
@@ -132,7 +167,7 @@ describe('ReviewScreen save provenance', () => {
 
   it('untouched AI entries save is_manual: false', async () => {
     render(<ReviewScreen {...baseProps} entries={[A, B]} />)
-    fireEvent.click(screen.getByRole('button', { name: 'save' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(saveKaruteRecord).toHaveBeenCalledTimes(1))
 
     expect(savedEntries()).toEqual([
@@ -143,10 +178,10 @@ describe('ReviewScreen save provenance', () => {
 
   it('editing an entry flips it to is_manual: true; the untouched neighbor stays false', async () => {
     render(<ReviewScreen {...baseProps} entries={[A, B]} />)
-    const titleInputs = screen.getAllByPlaceholderText('entryTitlePlaceholder')
+    const titleInputs = screen.getAllByPlaceholderText('エントリータイトル...')
     fireEvent.change(titleInputs[0], { target: { value: 'A-edited' } })
 
-    fireEvent.click(screen.getByRole('button', { name: 'save' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(saveKaruteRecord).toHaveBeenCalledTimes(1))
 
     expect(savedEntries()).toEqual([
@@ -157,9 +192,9 @@ describe('ReviewScreen save provenance', () => {
 
   it('a hand-added entry saves is_manual: true; existing entries are untouched', async () => {
     render(<ReviewScreen {...baseProps} entries={[A]} />)
-    fireEvent.click(screen.getByRole('button', { name: 'addEntry' }))
+    fireEvent.click(screen.getByRole('button', { name: 'エントリーを追加' }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'save' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(saveKaruteRecord).toHaveBeenCalledTimes(1))
 
     const saved = savedEntries()
@@ -173,9 +208,9 @@ describe('ReviewScreen save provenance', () => {
     // Remove B (index 1) — A and C slide, C now sits where B used to be.
     fireEvent.click(screen.getAllByRole('button', { name: 'Remove entry' })[1])
     // Append a new hand-added entry.
-    fireEvent.click(screen.getByRole('button', { name: 'addEntry' }))
+    fireEvent.click(screen.getByRole('button', { name: 'エントリーを追加' }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'save' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(saveKaruteRecord).toHaveBeenCalledTimes(1))
 
     expect(savedEntries()).toEqual([

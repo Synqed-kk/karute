@@ -15,7 +15,9 @@ import type { KaruteListItem } from '@/components/karute/spike-lifted/list/types
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
-import { resolveStoreScope, customerLensFor, sourceStoreOutOfScope, storeStaffIdSet } from '@/lib/auth/store-scope'
+import { resolveStoreScope, customerLensFor, storeStaffIdSet } from '@/lib/auth/store-scope'
+import { sourceStoreOutOfScope, ensureRecordStoreInScope, STORE_SCOPE_UNVERIFIED, type RecordStoreScope } from '@/lib/auth/store-lock'
+import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
@@ -26,7 +28,7 @@ import { ENTRY_CONTENT_INVALID_ERROR, type SaveKaruteInput } from '@/types/karut
 import type { KaruteRecord, SynqedClient, Appointment, EntryEditAction, KaruteEntryEdit } from '@synqed-kk/client'
 import type { SessionCategory } from '@/components/karute/redesign/detail/CurrentSessionCard'
 import { AppApiError } from '@/lib/app-api/errors'
-import { readKaruteRaw } from '@/lib/app-api/karute-facade'
+import { readKaruteRaw, readKaruteMetaRaw, KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 import { reassignFacts } from '@/lib/karute/reassign-facts'
 
 /** Redeclared, not imported (same "redeclare the shape" convention
@@ -70,6 +72,10 @@ async function resolveKaruteStoreId(
   appointmentId: string | null | undefined,
   fetchedAppointment?: Appointment | null,
 ): Promise<{ storeId: string | null; appointment: Appointment | null }> {
+  const scope = await resolveStoreScope()
+  if (scope.degraded) throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
+  if (reachesNoStore(scope)) throw new Error(UNASSIGNED_STORE_DENIAL)
+
   // Also hands back the appointment it fetched so callers can copy booking
   // metadata (service = the booked menu) into the record without a second
   // appointments.get for the same save.
@@ -86,14 +92,14 @@ async function resolveKaruteStoreId(
     // attach the record to an appointment sitting in a different store. A
     // NULL-store appointment keeps today's behavior (pre-existing, out of scope).
     if (apptStore) {
-      const scope = await resolveStoreScope()
       if (scope.allowedStoreIds && !scope.allowedStoreIds.includes(apptStore)) {
         throw new Error('This booking belongs to a store you are not assigned to.')
       }
     }
     return { storeId: apptStore, appointment: appt }
   }
-  return { storeId: (await resolveStoreScope()).storeId, appointment: null }
+  // No linked appointment: the record's store is the actor's verified lens.
+  return { storeId: scope.storeId, appointment: null }
 }
 
 /**
@@ -142,6 +148,11 @@ export async function createOrUpdateKaruteRecord(
     requestId?: string
   },
   entriesMode: 'replace' | 'fill-if-empty',
+  /** THE BY-ID WRITE STORE LOCK's scope for the CONVERGE branch below —
+   *  REQUIRED, never optional, so tsc forces every transport to hand one over
+   *  (web: resolveStoreScope(); facade: resolveWriteStoreScope()). An optional
+   *  parameter would have let a future caller re-open the hole silently. */
+  scope: RecordStoreScope,
 ): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }> {
   const emitSave = (result: { id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }) => {
     audit({
@@ -194,6 +205,15 @@ export async function createOrUpdateKaruteRecord(
         throw err
       })
     if (existing) {
+      // STORE LOCK (⚖ Liam 2026-09-16; BUILD-REPORT-P1.md §9.5 — the LAST by-id
+      // write door). This branch is keyed by recording_session_id alone, and the
+      // update below re-points customer_id / transcript / ai_summary /
+      // appointment_id / entries: without this line a clamped actor who holds one
+      // session id rewrites ANOTHER store's record on either transport. Refuses
+      // with the SAME not_found readKaruteRaw throws for a missing id, so this
+      // door is no existence oracle either. The CREATE arm needs no lock — its
+      // store comes from resolveKaruteStoreId / resolveSaveStore, already clamped.
+      ensureRecordStoreInScope({ store_id: existing.store_id ?? null }, scope, KARUTE_NOT_FOUND)
       // Collision on recording_session_id (fix round — the prior "this
       // branch's payload is the SAME content by construction" premise was
       // wrong: this branch is also reached by ReviewScreen's saveKaruteRecord
@@ -305,7 +325,7 @@ export async function getCustomerKaruteRecordsWithClient(
  */
 export async function saveKaruteRecord(
   input: SaveKaruteInput,
-): Promise<{ error: string } | void> {
+): Promise<{ error: string; code?: AppApiError['code'] } | void> {
   let recordId: string
 
   try {
@@ -383,6 +403,10 @@ export async function saveKaruteRecord(
       },
       { actorId, businessId, source: 'web', requestId: crypto.randomUUID() },
       'replace',
+      // The converge branch's store lock (same cookie scope the karute delete
+      // door passes) — resolveStoreScope is cached per request, so this costs
+      // no second assignment read.
+      await resolveStoreScope(),
     )
     recordId = id
 
@@ -420,6 +444,7 @@ export async function saveKaruteRecord(
       })
     }
   } catch (err) {
+    if (err instanceof AppApiError) return { error: err.message, code: err.code }
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
 
@@ -440,7 +465,7 @@ export async function saveKaruteRecord(
  */
 export async function saveKaruteRecordInline(
   input: SaveKaruteInput,
-): Promise<{ id: string } | { error: string }> {
+): Promise<{ id: string } | { error: string; code?: AppApiError['code'] }> {
   try {
     // Recording a session = records.write (see saveKaruteRecord). Caught below →
     // returned as the house { error } shape the RecordingPanel already toasts.
@@ -508,6 +533,8 @@ export async function saveKaruteRecordInline(
       },
       { actorId, businessId, source: 'web', requestId: crypto.randomUUID() },
       'fill-if-empty',
+      // Same converge-branch store lock as saveKaruteRecord above.
+      await resolveStoreScope(),
     )
 
     // Best-effort outcome write (the coaching label) — same as saveKaruteRecord.
@@ -542,6 +569,7 @@ export async function saveKaruteRecordInline(
     updateTag('dashboard')
     return { id }
   } catch (err) {
+    if (err instanceof AppApiError) return { error: err.message, code: err.code }
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
 }
@@ -561,7 +589,13 @@ export async function deleteKaruteRecord(karuteId: string): Promise<{ success: t
     // ids; include_entries: false keeps it to metadata (repo convention,
     // src/actions/audit-log.ts:437) so the full clinical text never ships
     // over the wire just to read four ids.
-    const record = await synqed.karuteRecords.get(karuteId, { include_entries: false })
+    const record = await readKaruteMetaRaw(synqed, karuteId)
+    // STORE LOCK (⚖ Liam 2026-09-16) — a clamped actor holding records.delete
+    // must not be able to delete another branch's karute by id. Refuses with
+    // the SAME not_found readKaruteMetaRaw throws for a missing/cross-tenant
+    // id, so this door is no existence oracle either. Web-only door: no
+    // facade twin exists (verified by grep, 2026-09-16).
+    ensureRecordStoreInScope(record, await resolveStoreScope(), KARUTE_NOT_FOUND)
     await synqed.karuteRecords.delete(karuteId)
 
     // Emit BEFORE revalidatePath/updateTag (F6) — if either throws after a
@@ -702,7 +736,7 @@ async function toCustomerInScope(
  *  business-wide roster ever reaches a clamped actor — this is the SERVER
  *  refusal backstopping the store-scoped picker (hide, never show-and-refuse).
  *
- *  R3-1 (fix round 4: moved to src/lib/auth/store-scope.ts —
+ *  R3-1 (fix round 4: moved out of this file — now src/lib/auth/store-lock.ts —
  *  sourceStoreOutOfScope is a pure predicate, the same class as
  *  customerLensFor/menuStoresForScope there, and shared with the
  *  reassign-options facade route): composes the SOURCE record's store clamp
@@ -727,13 +761,13 @@ async function ensureReassignStoreScope(
   toCustomerId: string,
   scope: ReassignScope,
 ): Promise<void> {
+  // R3-1's record half now lives in ONE place for every by-id write door
+  // (ensureRecordStoreInScope, src/lib/auth/store-lock.ts) — same three
+  // outcomes as before, byte for byte: viewAll passes, a degraded lookup
+  // fails closed, an out-of-store record refuses as readKaruteRaw's own
+  // not_found. Only the to-customer half below is reassign-specific.
+  ensureRecordStoreInScope(record, scope, KARUTE_NOT_FOUND)
   if (scope.viewAll) return
-  if (scope.degraded) {
-    throw new AppApiError('store_forbidden', 'could not verify your store assignment (fail-closed)')
-  }
-  if (sourceStoreOutOfScope(record, scope)) {
-    throw new AppApiError('not_found', 'karute not found in this business')
-  }
   if (!scope.allowedStoreIds) return // floating — unclamped
   if (await toCustomerInScope(synqed, toCustomerId, scope.allowedStoreIds)) return
   throw new AppApiError('store_forbidden', 'that customer is outside your assigned store')
@@ -1132,6 +1166,18 @@ export type UpdateKaruteEntryResult = { ok: true } | { conflict: true } | { erro
  *  action-module name a route imports to resolve to a function declaration. */
 type CoreUpdateEntryResult = UpdateKaruteEntryResult | { validationError: string }
 
+/** The by-id STORE lock's two inputs, threaded as ONE parameter so tsc makes
+ *  every caller answer for both (⚖ Liam 2026-09-16). `recordStoreId` is the
+ *  store off the caller's OWN authoritative read of the record — both
+ *  transports already perform it (the web wrapper for customer_id, the facade
+ *  route as its tenancy proof), so the lock costs no extra round trip; `scope`
+ *  is web's resolveStoreScope or the facade's resolveStoreForRequest clamp.
+ *  Required, never optional: a lock with a default is a lock that fails open. */
+export interface KaruteStoreLock {
+  recordStoreId: string | null
+  scope: RecordStoreScope
+}
+
 type SynqedEntryClient = Pick<SynqedClient, 'karuteRecords'>
 
 /**
@@ -1163,7 +1209,14 @@ export async function updateKaruteDetailEntryWithClient(
     requestId?: string
   },
   customerId: string | null,
+  lock: KaruteStoreLock,
 ): Promise<CoreUpdateEntryResult> {
+  // STORE LOCK FIRST — before the content bounds below, before any write: an
+  // actor who may not touch this record must not learn anything about it, not
+  // even that their edit was well-formed. Throws (never returns): the web
+  // wrapper's catch maps it to the house { error }, the facade handler maps it
+  // to the same 404 body a missing id gets.
+  ensureRecordStoreInScope({ store_id: lock.recordStoreId }, lock.scope, KARUTE_NOT_FOUND)
   // Content bounds checked HERE (not just the facade's zod) so the web path
   // is covered too — a whitespace-only edit or a >4000-char paste never
   // reaches updateEntry.
@@ -1259,9 +1312,12 @@ export async function updateKaruteDetailEntry(
     // the facade route gets from its proof-read; the extra GET is cheap on
     // this low-frequency manual path and also 404s a foreign record id
     // before any write is attempted.
-    const record = (await synqed.karuteRecords.get(recordId, {
-      include_entries: false,
-    })) as { customer_id?: string | null } | null
+    // readKaruteMetaRaw, not a bare get: it classifies a missing/cross-tenant
+    // id into the SAME not_found the store lock below throws, so the two
+    // refusals read identically on this transport (the facade twin already
+    // does this via readKaruteRaw). Still include_entries:false — the full
+    // clinical text never ships just to read two ids.
+    const record = await readKaruteMetaRaw(synqed, recordId)
     const result = await updateKaruteDetailEntryWithClient(
       synqed,
       recordId,
@@ -1274,6 +1330,7 @@ export async function updateKaruteDetailEntry(
       },
       { actorId, businessId, source: 'web', requestId: crypto.randomUUID() },
       record?.customer_id ?? null,
+      { recordStoreId: record?.store_id ?? null, scope: await resolveStoreScope() },
     )
     if ('ok' in result) {
       revalidatePath('/[locale]/(app)/karute/[id]', 'page')
@@ -1335,7 +1392,10 @@ export async function updateKaruteDetailSummaryWithClient(
   /** The effective summary BEFORE this edit (edited ?? ai), from the caller's
    *  authoritative read — rides the audit detail as `before`. */
   summaryBefore: string | null,
+  lock: KaruteStoreLock,
 ): Promise<CoreUpdateDetailSummaryResult> {
+  // STORE LOCK FIRST — see updateKaruteDetailEntryWithClient.
+  ensureRecordStoreInScope({ store_id: lock.recordStoreId }, lock.scope, KARUTE_NOT_FOUND)
   // Content bounds checked HERE (not just the facade's zod) so the web path
   // is covered too — same rule as updateKaruteDetailEntryWithClient: an
   // emptied or >4000-char summary never reaches core. The bullet-split check
@@ -1403,9 +1463,8 @@ export async function updateKaruteDetailSummary(
     const synqed = await getSynqedClient()
     const actorStaffId = await getCurrentUserStaffId()
     const { actorId, businessId } = await resolveWebAuditContext()
-    const record = (await synqed.karuteRecords.get(recordId, {
-      include_entries: false,
-    })) as { customer_id?: string | null; edited_summary?: string | null; ai_summary?: string | null } | null
+    // readKaruteMetaRaw — see updateKaruteDetailEntry's note.
+    const record = await readKaruteMetaRaw(synqed, recordId)
     const result = await updateKaruteDetailSummaryWithClient(
       synqed,
       recordId,
@@ -1413,6 +1472,7 @@ export async function updateKaruteDetailSummary(
       { actorId, businessId, source: 'web', requestId: crypto.randomUUID() },
       record?.customer_id ?? null,
       record?.edited_summary ?? record?.ai_summary ?? null,
+      { recordStoreId: record?.store_id ?? null, scope: await resolveStoreScope() },
     )
     if ('ok' in result) {
       revalidatePath('/[locale]/(app)/karute/[id]', 'page')
@@ -1559,11 +1619,12 @@ export interface KaruteRevealCandidate {
  * can show a single muted row + カルテを作成 CTA instead of hiding them
  * entirely. Never more than one — the first qualifying candidate wins.
  *
- * Store scoping (⚖ adversarial-round ruling, packet §PR-1b):
- *   - the SEARCH itself copies list-all.ts's own enforceStore gate verbatim
- *     (list-all.ts:58-66) — business-wide unless the viewer is RBAC-clamped,
- *     in which case the store filter stays on even while searching (a
- *     branch-restricted staff can't pull another store's customer this way).
+ * Store scoping (⚖ Liam 2026-09-16, P3 cross-branch search — supersedes the
+ * PR-1b adversarial-round ruling below for the search half):
+ *   - the SEARCH itself is now ALWAYS business-wide, same as list-all.ts's
+ *     own search (list-all.ts's storeFilter formula) — a branch-restricted
+ *     staff can find another store's customer here too, matching the "find
+ *     any company customer" rule.
  *   - the zero-karute CHECK is ALWAYS scoped to the active store, regardless
  *     of whether the search itself was business-wide — a customer with
  *     karute at another branch still has none HERE, so they still reveal.
@@ -1589,11 +1650,9 @@ export async function revealNoKaruteCustomer(
     if (enforceStore && !scope.storeId) return { candidate: null }
 
     const synqed = await getSynqedClient()
-    const res = await synqed.customers.list({
-      search: q,
-      store_id: enforceStore ? (scope.storeId ?? undefined) : undefined,
-      page_size: 5,
-    })
+    // Business-wide (P3): search no longer clamps on enforceStore — see the
+    // doc comment above.
+    const res = await synqed.customers.list({ search: q, store_id: undefined, page_size: 5 })
     for (const c of res.customers) {
       const karute = await synqed.karuteRecords.list({
         customer_id: c.id,
@@ -1708,6 +1767,8 @@ export async function loadKaruteWindow(input: {
         getCurrentUserStaffId(),
         loadKaruteWindowRows(synqed, {
           storeId: activeStore,
+          // Same clamp the customer list above carries — see the page.
+          enforceStore: clamped,
           olderThan: input.olderThan,
           month: input.month,
           loadedCount: input.loadedCount,
@@ -1716,7 +1777,9 @@ export async function loadKaruteWindow(input: {
         synqed.staff.list({ page_size: 200 }),
       ])
 
-    const storeStaffIds = await storeStaffIdSet(staffList, activeStore)
+    const storeStaffIds = reachesNoStore(scope)
+      ? new Set<string>()
+      : await storeStaffIdSet(staffList, activeStore)
     const screen = buildSessionsListScreen({
       staffList,
       storeStaffIds,

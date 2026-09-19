@@ -214,6 +214,19 @@ jest.mock('@/lib/app-api/store-clamp', () => {
   }
 })
 
+// 先月同期間比 forced ON for this file: the compare's whole point at THIS door is
+// that the route reads the previous span and puts the number on the wire, and a
+// test that only holds while the registry happens to say `true` would stop
+// proving it the day somebody flips the switch back. Nothing else in the
+// registry changes, and no other test here renders a month the compare applies
+// to (2027-03 is a future month — no compare, no extra read).
+jest.mock('@/lib/appointments/booking-switches', () => {
+  const actual = jest.requireActual(
+    '@/lib/appointments/booking-switches',
+  ) as { BOOKING_SWITCHES: Record<string, boolean> }
+  return { BOOKING_SWITCHES: { ...actual.BOOKING_SWITCHES, monthCompare: true } }
+})
+
 // Business-scoped synqed client — day + range appointment reads, the store
 // clamp's assignment lookup, and the by-date helper's karute/staff joins.
 const inMs = (min: number) => new Date(Date.now() + min * 60_000).toISOString()
@@ -256,10 +269,15 @@ const listAppointments = jest.fn(async (..._opts: unknown[]) => ({
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const fakeClient = {
   stores: {
+    // ⚖ Liam 2026-09-16: the store COUNT is the gate's third fact — with two
+    // stores, this suite's default EMPTY assignment would be the UNASSIGNED
+    // verdict and every read below would (correctly) answer empty, which is not
+    // what these tests are about. This salon has ONE store, so the default
+    // caller stays FLOATING exactly as before; `stores.get` still accepts
+    // 'store-B' so the out-of-assignment header case below is unchanged.
     list: jest.fn(async () => ({
       stores: [
         { id: 'store-A', name: 'La Estro 代官山', is_primary: true, active: true },
-        { id: 'store-B', name: 'La Estro 銀座', is_primary: false, active: true },
       ],
     })),
     get: jest.fn(async () => ({})),
@@ -310,6 +328,17 @@ function bearer() {
 }
 const auth = { authorization: `Bearer ${bearer()}` }
 const route = { params: Promise.resolve({}) }
+
+// The `from` the merged route actually asks core for, for a JST day.
+//
+// Since the capacity side landed, `windowFor` asks for 86,400,000 ms BEFORE
+// every window it reads, so a booking that starts before day 1's midnight and
+// runs into it is in the rows the intersection index needs. The lead-in moves
+// no count — every consumer re-applies its own YMD spans — so the numbers these
+// tests pin are unchanged; only the boundary the route asks for moved. ONE
+// helper so the month read and the compare read can never drift apart here.
+const askedFrom = (ymd: string) =>
+  new Date(Date.parse(new Date(`${ymd}T00:00:00+09:00`).toISOString()) - 86_400_000).toISOString()
 const req = (
   headers: Record<string, string> = {},
   url = 'https://s/api/app/v1/screens/appointments',
@@ -441,6 +470,54 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(listAppointments).toHaveBeenCalledTimes(2)
     const totalRangeBookings = dto.weekData!.reduce((n, d) => n + d.count, 0)
     expect(totalRangeBookings).toBe(1)
+  })
+
+  // ⚖ G2 (Greptile round 1 #934, P1, CONFIRMED) — a store row read that FAILS
+  // must never be indistinguishable from "no override": the org-wide type
+  // used to decide the lane kind either way, so a salon under a class-bound
+  // org lost its percentage, and a studio under a salon org printed one.
+  describe('⚖ G2 — a degraded store row withholds capacity, never guesses it from the org type', () => {
+    it('stores.get rejects → every week row is unknown, never a number, and the count table still renders', async () => {
+      fakeClient.stores.get.mockRejectedValueOnce(new Error('core 503'))
+      const res = await GET(
+        req({}, 'https://s/api/app/v1/screens/appointments?view=week'),
+        route,
+      )
+      expect(res.status).toBe(200)
+      const dto = await dtoOf(res)
+      expect(dto.weekData).toHaveLength(7)
+      for (const day of dto.weekData!) {
+        expect(day.capacityReason).toBe('unknown')
+        expect(day.capacityMinutes).toBeNull()
+        expect(day.occupancyPct).toBeNull()
+      }
+      // The 件 count is untouched — a degraded store row is not a degraded week.
+      const totalRangeBookings = dto.weekData!.reduce((n, d) => n + d.count, 0)
+      expect(totalRangeBookings).toBe(1)
+    })
+
+    it('the positive twin: a resolved store row with no override still falls to a class-bound org type', async () => {
+      const orgSettingsMock = jest.requireMock('@/actions/org-settings') as {
+        orgSettingsWithClient: jest.Mock
+      }
+      orgSettingsMock.orgSettingsWithClient.mockResolvedValueOnce({
+        ticket_packs_enabled: true,
+        operating_hours: null,
+        business_type: 'yoga_studio',
+      })
+      // fakeClient.stores.get's default ({}) resolves cleanly with no
+      // business_type of its own — a genuine no-override, not a degraded read.
+      const res = await GET(
+        req({}, 'https://s/api/app/v1/screens/appointments?view=week'),
+        route,
+      )
+      expect(res.status).toBe(200)
+      const dto = await dtoOf(res)
+      for (const day of dto.weekData!) {
+        expect(day.laneKind).toBe('none')
+        expect(day.capacityReason).toBe('kind-none')
+      }
+    })
   })
 
   // The 予約 date-jump panel's PHONE month door: the shell has no server
@@ -663,6 +740,145 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(dto.dayTotals!.hoursSaved).toBe(false)
   })
 
+  it('?view=month reads the PREVIOUS span as well and carries 先月同期間比 on the wire', async () => {
+    // Core answers each window with rows that really lie inside it: two counted
+    // bookings in last month's compared days (plus one BEFORE the window, which
+    // is what makes an honest base), five in this month's. Same predicate both
+    // sides → +3件, and the number has to survive the serialisation.
+    const row = (id: string, day: string) => ({
+      id,
+      staff_id: 'staff-core-1',
+      customer_id: 'cust-1',
+      starts_at: new Date(`${day}T10:00:00+09:00`).toISOString(),
+      duration_minutes: 60,
+      title: null,
+      notes: null,
+      created_at: new Date(`${day}T09:00:00+09:00`).toISOString(),
+      status: 'SCHEDULED',
+      source: 'MANUAL',
+    })
+    const PREV = ['2026-07-28', '2026-08-03', '2026-08-04']
+    const THIS = ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05']
+    listAppointments.mockImplementation(async (...opts: unknown[]) => {
+      const from = (opts[0] as { from?: string } | undefined)?.from ?? ''
+      // The compare read is the only one that starts before August — it opens
+      // seven days ahead of the previous month for exactly that reason.
+      const isPrevRead = from < new Date('2026-08-01T00:00:00+09:00').toISOString()
+      const rows = (isPrevRead ? PREV : THIS).map((d, i) => row(`x-${i}-${d}`, d))
+      // The default fixture's literal union is narrower than these plain rows.
+      return { appointments: rows as unknown as typeof dayRows, total: rows.length }
+    })
+    const res = await GET(
+      req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-15'),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.monthCompareDelta).toBe(3)
+    const froms = (listAppointments.mock.calls as unknown as { from?: string }[][]).map(
+      (c) => c[0]?.from,
+    )
+    // Both spans really were read: the month's own padded window and the
+    // previous one, which starts seven days before the 1st.
+    //
+    // Each `from` also carries the route's ONE-DAY LEAD-IN: since the capacity
+    // side landed, `windowFor` asks core for 86,400,000 ms before every window
+    // it reads, so a booking that starts before day 1's midnight and runs into
+    // it is in the rows the intersection index needs. It moves no count — the
+    // compare re-applies its own YMD spans — which is why 先月同期間比 is still
+    // +3 above. These are the boundaries the merged route actually asks for.
+    expect(froms).toContain(askedFrom('2026-08-25'))
+    expect(froms).toContain(askedFrom('2026-07-25'))
+  })
+
+  it('the previous span is clamped EXACTLY like the month read — same store, same 担当', async () => {
+    // ⚖ store isolation: a store-restricted staffer's comparison must never
+    // widen to the business. The code went through the same `windowFor`
+    // closure already — but nothing pinned it, so a previous-span read with an
+    // empty clamp survived the entire suite.
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-A'] })
+    const res = await GET(
+      req(
+        { 'store-id': 'store-A' },
+        'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-15&staff=self',
+      ),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const calls = (
+      listAppointments.mock.calls as unknown as {
+        from?: string
+        store_id?: string
+        staff_id?: string
+      }[][]
+    ).map((c) => c[0])
+    const at = (ymd: string) => calls.find((c) => c?.from === askedFrom(ymd))
+    const month = at('2026-08-25') // the month's own padded window
+    const prev = at('2026-07-25') // the compare's, seven days ahead of the 1st
+    expect(month).toBeDefined()
+    expect(prev).toBeDefined()
+    expect(prev!.store_id).toBe(month!.store_id)
+    expect(prev!.staff_id).toBe(month!.staff_id)
+    // …and not vacuously equal: the clamp and the 担当 filter really were on.
+    expect(month!.store_id).toBe('store-A')
+    expect(month!.staff_id).toBe('staff-core-1')
+  })
+
+  it('with the 先月同期間比 switch OFF the route reads NOTHING extra', async () => {
+    // The switch gates the FETCH, not only the render, and that contract lives
+    // at the door — so the registry is mocked off and the route re-required,
+    // rather than proving it on a pure function handed a null.
+    jest.resetModules()
+    jest.doMock('@/lib/appointments/booking-switches', () => {
+      const actual = jest.requireActual('@/lib/appointments/booking-switches') as {
+        BOOKING_SWITCHES: Record<string, boolean>
+      }
+      return { BOOKING_SWITCHES: { ...actual.BOOKING_SWITCHES, monthCompare: false } }
+    })
+    try {
+      const { GET: getWithSwitchOff } =
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require('@/app/api/app/v1/screens/appointments/route') as typeof import('@/app/api/app/v1/screens/appointments/route')
+      const res = await getWithSwitchOff(
+        req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-15'),
+        route,
+      )
+      expect(res.status).toBe(200)
+      const dto = await dtoOf(res)
+      expect(dto.monthCompareDelta).toBeNull()
+      const froms = (listAppointments.mock.calls as unknown as { from?: string }[][]).map(
+        (c) => c[0]?.from,
+      )
+      // The month's own window is still read; the previous one never is.
+      expect(froms).toContain(askedFrom('2026-08-25'))
+      expect(froms).not.toContain(askedFrom('2026-07-25'))
+    } finally {
+      jest.dontMock('@/lib/appointments/booking-switches')
+      jest.resetModules()
+    }
+  })
+
+  it('a FAILED previous read costs the CLAUSE, never the 予約 screen', async () => {
+    // Every other read in this wave belongs in the 502 — a calm empty month is
+    // the lie this screen may not tell. The compare is the exception: its
+    // absent state IS null, so a half-down core costs the phone one clause.
+    listAppointments.mockImplementation(async (...opts: unknown[]) => {
+      const from = (opts[0] as { from?: string } | undefined)?.from ?? ''
+      if (from < new Date('2026-08-01T00:00:00+09:00').toISOString()) {
+        throw new Error('core: previous span unavailable')
+      }
+      return { appointments: [], total: 0 }
+    })
+    const res = await GET(
+      req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-15'),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.monthCompareDelta).toBeNull()
+    expect(dto.monthData).not.toBeNull()
+  })
+
   it('?view=month carries monthStartIso on the wire', async () => {
     const res = await GET(
       req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-15'),
@@ -706,6 +922,36 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(res.status).toBe(200)
     const dto = await dtoOf(res)
     expect(dto.reservationViews.find((r) => r.id === 'appt-1')!.pack).toBeNull()
+  })
+
+  describe('⚖ G2 (Greptile round 1 #951) — a failed pack-ledger read withholds 新規, never an empty-map guess', () => {
+    it('status stays 200 and 新規 is withheld on the day totals, not just the pill', async () => {
+      listAllPackUsageWithClient.mockRejectedValueOnce(new Error('core down'))
+      const res = await GET(req(), route)
+      expect(res.status).toBe(200)
+      const dto = await dtoOf(res)
+      expect(dto.dayTotals?.newCountKnown).toBe(false)
+      expect(dto.dayTotals?.newCustomerCount).toBe(0)
+    })
+
+    it('the same failure withholds the week AND the month surfaces too', async () => {
+      listAllPackUsageWithClient.mockRejectedValueOnce(new Error('core down'))
+      const week = await dtoOf(
+        await GET(req({}, 'https://s/api/app/v1/screens/appointments?view=week'), route),
+      )
+      expect(week.weekData!.length).toBeGreaterThan(0)
+      expect(week.weekData!.every((r) => r.newCountKnown === false)).toBe(true)
+
+      listAllPackUsageWithClient.mockRejectedValueOnce(new Error('core down'))
+      const month = await dtoOf(
+        await GET(
+          req({}, 'https://s/api/app/v1/screens/appointments?view=month&date=2026-09-01'),
+          route,
+        ),
+      )
+      expect(month.monthData!.length).toBeGreaterThan(0)
+      expect(month.monthData!.every((c) => c.newCountKnown === false)).toBe(true)
+    })
   })
 
   it('the picker menu union rides the DTO verbatim, read for THIS business', async () => {

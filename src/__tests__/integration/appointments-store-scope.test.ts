@@ -100,8 +100,13 @@ import {
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getActiveStoreId } from '@/actions/stores'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 
 const scopeMock = resolveStoreScope as jest.Mock
+// The create-on-miss mapper (see unassigned-backstops-routes.test.ts's
+// resolveSynqedStaffIdForBusinessSpy) — pins that a refused booking never
+// reaches it, the same ordering the facade twin already asserts.
+const resolveSynqedStaffIdSpy = resolveSynqedStaffId as jest.Mock
 
 const GINZA = 'store-ginza'
 const DAIKANYAMA = 'store-daikanyama'
@@ -132,6 +137,11 @@ function makeSynqedAppointment(storeId: string | null) {
 async function appointmentsMock() {
   const client = await (getSynqedClient as jest.Mock)()
   return client.appointments as { list: jest.Mock; get: jest.Mock }
+}
+
+async function bookingStoreMocks() {
+  const client = await (getSynqedClient as jest.Mock)()
+  return client as { staffStores: { get: jest.Mock }; stores: { list: jest.Mock } }
 }
 
 beforeEach(() => {
@@ -187,6 +197,22 @@ describe('getMonthCells — store scope + the failure contract', () => {
     await getMonthCells('2026-07')
     const { list } = await appointmentsMock()
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+  })
+
+  it('an UNASSIGNED actor gets an EMPTY grid — `storeId ?? undefined` is every store', async () => {
+    // ⚖ Greptile on #948: the day and range reads were guarded in fold round 1,
+    // getMonthCells was not, and it builds its cells from the same unlensed
+    // read. Booking VOLUME per day is not a name, but it is a
+    // competitor-grade signal, and this door handed over the whole business's.
+    scopeMock.mockResolvedValue({
+      storeId: null,
+      viewAll: false,
+      allowedStoreIds: [],
+      degraded: false,
+    })
+    expect(await getMonthCells('2026-07')).toEqual([])
+    const { list } = await appointmentsMock()
+    expect(list).not.toHaveBeenCalled()
   })
 
   it('asks for the month window the key names, leading and trailing days included', async () => {
@@ -285,15 +311,25 @@ describe('createAppointment — active-store cookie clamp (write-side isolation)
     return client.appointments.create as jest.Mock
   }
 
-  it('branch-restricted staff + cookie for a NOT-allowed store: books via defaultBookingStore, never the cookie', async () => {
+  it('clamped staff + cookie already on their own store: books to that store', async () => {
+    clampedToGinza()
+    ;(getActiveStoreId as jest.Mock).mockResolvedValueOnce(GINZA)
+    const create = await createMock()
+
+    await createAppointment(bookingInput)
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
+  })
+
+  it('clamped staff + a stale cookie for a NOT-allowed store: books to their own first store, not the cookie', async () => {
     clampedToGinza()
     ;(getActiveStoreId as jest.Mock).mockResolvedValueOnce(DAIKANYAMA)
     const create = await createMock()
 
     await createAppointment(bookingInput)
 
-    // The 代官山 cookie is out of scope → dropped → defaultBookingStore stamps
-    // their own 銀座 store, NOT the cookie's 代官山.
+    // The 代官山 cookie is out of scope — resolveStoreScope already clamped it
+    // to their own 銀座 store, which createAppointment forwards as-is.
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
   })
 
@@ -307,16 +343,75 @@ describe('createAppointment — active-store cookie clamp (write-side isolation)
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: DAIKANYAMA }))
   })
 
-  it('branch-restricted staff + unset cookie: unchanged — books via defaultBookingStore, scope not consulted', async () => {
-    clampedToGinza()
+  it('cross-store viewer + unset cookie: unchanged — still falls through to defaultBookingStore', async () => {
+    crossStore(null)
     // getActiveStoreId default mock → null (no cookie)
     const create = await createMock()
 
     await createAppointment(bookingInput)
 
+    // The RESULT is what this pins and it is untouched: with no cookie the
+    // booking still lands via defaultBookingStore, not resolveStoreScope().storeId.
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
-    // No cookie to clamp → the scope lookup never runs (unset-cookie behavior
-    // is untouched — defaultBookingStore, not resolveStoreScope().storeId).
-    expect(scopeMock).not.toHaveBeenCalled()
+  })
+
+  it('clamped staff + unset cookie + a multi-store practitioner: books to the ACTOR\'s own store, never a defaultBookingStore guess (the 銀座/代官山 leak this fixes)', async () => {
+    clampedToGinza()
+    // getActiveStoreId default mock → null (no cookie)
+    const { staffStores, stores } = await bookingStoreMocks()
+    // The booked practitioner works at BOTH stores (defeats defaultBookingStore's
+    // single-store shortcut) and the business's primary store is the OTHER
+    // branch — if createAppointment ever fell through to defaultBookingStore
+    // for a clamped actor again, this would catch it landing on 代官山.
+    staffStores.get.mockResolvedValueOnce({ store_ids: [GINZA, DAIKANYAMA] })
+    stores.list.mockResolvedValueOnce({ stores: [{ id: DAIKANYAMA, is_primary: true }] })
+    const create = await createMock()
+
+    await createAppointment(bookingInput)
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
+  })
+
+  it('an UNASSIGNED actor is REFUSED — core never gets to default a store', async () => {
+    // ⚖ Liam 2026-09-16: a booking is a WRITE into a store. Without this the
+    // unset path falls through to core's defaultBookingStore, which picks one
+    // FOR somebody nobody has placed yet.
+    scopeMock.mockResolvedValue({
+      storeId: null,
+      viewAll: false,
+      allowedStoreIds: [],
+      degraded: false,
+    })
+    const create = await createMock()
+
+    const res = await createAppointment(bookingInput)
+
+    expect(res).toHaveProperty('error')
+    expect(create).not.toHaveBeenCalled()
+    expect(resolveSynqedStaffIdSpy).not.toHaveBeenCalled()
+  })
+
+  // ⚖ FRESH-EYES-P1B F4 — the WEB twin of the facade's placement refusal. A
+  // degraded scope is NOT `reachesNoStore` (its allowedStoreIds is null), so the
+  // guard above never saw this caller: their own assignment lookup failed and
+  // they booked anyway, stamped from their own cookie. A scope we could not read
+  // vouches for nothing.
+  it('a DEGRADED scope is REFUSED too — nothing written, and no core staff row minted', async () => {
+    scopeMock.mockResolvedValue({
+      storeId: GINZA,
+      viewAll: false,
+      allowedStoreIds: null,
+      degraded: true,
+    })
+    const create = await createMock()
+
+    const res = await createAppointment(bookingInput)
+
+    expect(res).toEqual({
+      error: 'could not verify your store assignment (fail-closed)',
+      code: 'store_forbidden',
+    })
+    expect(create).not.toHaveBeenCalled()
+    expect(resolveSynqedStaffIdSpy).not.toHaveBeenCalled()
   })
 })

@@ -358,7 +358,11 @@ describe("re-invites are clamped to the caller's stores", () => {
     storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
     const res = await reinvite()
     expect(res.status).toBe(201)
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
+    // identity seam (the front gate reads the unassigned verdict itself, for
+    // every non-viewAll request). What this pins is that the DOOR asks for
+    // nothing beyond it — no target's row, no second read.
+    expect(staffStoresGet.mock.calls.length).toBeLessThanOrEqual(1)
   })
 
   it("a failed lookup of the caller's own assignment fails closed → 403", async () => {
@@ -375,7 +379,11 @@ describe("re-invites are clamped to the caller's stores", () => {
     storeAssignments = { [CALLER]: ['store-a'] }
     const res = await POST(postReq(VALID_INVITE), noParams)
     expect(res.status).toBe(201)
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
+    // identity seam (the front gate reads the unassigned verdict itself, for
+    // every non-viewAll request). What this pins is that the DOOR asks for
+    // nothing beyond it — no target's row, no second read.
+    expect(staffStoresGet.mock.calls.length).toBeLessThanOrEqual(1)
     expect(invitesCreate).toHaveBeenCalled()
   })
 })
@@ -415,7 +423,11 @@ describe('pending re-invites: list hides, revoke refuses', () => {
     storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
     const res = await GET(getReq(), noParams)
     expect((await res.json()).invites).toHaveLength(2)
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
+    // identity seam (the front gate reads the unassigned verdict itself, for
+    // every non-viewAll request). What this pins is that the DOOR asks for
+    // nothing beyond it — no target's row, no second read.
+    expect(staffStoresGet.mock.calls.length).toBeLessThanOrEqual(1)
   })
 
   it('revoking an out-of-scope re-invite → 403 store_forbidden, core untouched, no audit row', async () => {
@@ -444,7 +456,11 @@ describe('pending re-invites: list hides, revoke refuses', () => {
     const res = await DELETE(deleteReq(REINVITE.id), params(REINVITE.id))
     expect(res.status).toBe(200)
     expect(invitesList).not.toHaveBeenCalled()
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
+    // identity seam (the front gate reads the unassigned verdict itself, for
+    // every non-viewAll request). What this pins is that the DOOR asks for
+    // nothing beyond it — no target's row, no second read.
+    expect(staffStoresGet.mock.calls.length).toBeLessThanOrEqual(1)
     expect(invitesUpdateStatus).toHaveBeenCalledWith(REINVITE.id, 'revoked')
   })
 
@@ -452,7 +468,11 @@ describe('pending re-invites: list hides, revoke refuses', () => {
     storeAssignments = { [CALLER]: ['store-a'] }
     const res = await DELETE(deleteReq(FRESH.id), params(FRESH.id))
     expect(res.status).toBe(200)
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
+    // identity seam (the front gate reads the unassigned verdict itself, for
+    // every non-viewAll request). What this pins is that the DOOR asks for
+    // nothing beyond it — no target's row, no second read.
+    expect(staffStoresGet.mock.calls.length).toBeLessThanOrEqual(1)
     expect(invitesUpdateStatus).toHaveBeenCalledWith(FRESH.id, 'revoked')
   })
 })

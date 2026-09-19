@@ -48,7 +48,7 @@ function t(key: string, values?: Record<string, string | number | Date>): string
 jest.mock('next-intl', () => ({ useTranslations: () => t }))
 
 function row(over: Partial<WeekDayRowData> = {}): WeekDayRowData {
-  // MERGE 2026-09-16 — this fixture arrived from feat/booking-week-face,
+  // MERGE 2026-09-16 (PR #934) — this fixture arrived from feat/booking-week-face,
   // where WeekDayRowData had no capacity half. On this branch the capacity
   // model owns nine more fields, and a row that sets capacityDefensible
   // without them describes a day with no capacity at all — the 稼働/空き
@@ -162,6 +162,50 @@ describe('type system — no font-bold on DayNumbersLine', () => {
       <DayNumbersLine row={row()} soloMode={false} typeSlot="off" locale="ja" pending />,
     )
     expect(boldViolations(container)).toEqual([])
+  })
+
+  // Positive pins (2026-09-16, FIX-931-R1): the font-bold checks above only
+  // prove 700 is absent — they would not have caught the merge dropping
+  // main's 2026-09-15 type-system fix back to the mock's own weights/size.
+  // These pin the actual values so that regression goes red.
+  it('the wrapper carries flat text-[13px], never the mock breakpoint step', () => {
+    const DayNumbersLine = loadDayNumbersLine()
+    const { container } = render(
+      <DayNumbersLine row={row()} soloMode={false} typeSlot="new" locale="ja" />,
+    )
+    const wrapper = container.querySelector('[data-day-line]')
+    const cls = wrapper?.getAttribute('class') ?? ''
+    expect(cls).toMatch(/\btext-\[13px\]/)
+    expect(cls).not.toMatch(/max-\[400px\]:/)
+    expect(cls).not.toMatch(/\btext-\[14px\]/)
+  })
+
+  it('every label span carries font-medium, never font-semibold', () => {
+    const DayNumbersLine = loadDayNumbersLine()
+    const { container } = render(
+      <DayNumbersLine row={row()} soloMode={false} typeSlot="new" locale="ja" />,
+    )
+    const labelSpans = Array.from(container.querySelectorAll('[data-day-line] > span'))
+    expect(labelSpans.length).toBeGreaterThan(0)
+    for (const el of labelSpans) {
+      const cls = el.getAttribute('class') ?? ''
+      expect(cls).toMatch(/\bfont-medium\b/)
+      expect(cls).not.toMatch(/\bfont-semibold\b/)
+    }
+  })
+
+  it('every value carries font-semibold tabular-nums', () => {
+    const DayNumbersLine = loadDayNumbersLine()
+    const { container } = render(
+      <DayNumbersLine row={row()} soloMode={false} typeSlot="new" locale="ja" />,
+    )
+    const values = Array.from(container.querySelectorAll('[data-day-line] b'))
+    expect(values.length).toBeGreaterThan(0)
+    for (const el of values) {
+      const cls = el.getAttribute('class') ?? ''
+      expect(cls).toMatch(/\bfont-semibold\b/)
+      expect(cls).toMatch(/\btabular-nums\b/)
+    }
   })
 })
 

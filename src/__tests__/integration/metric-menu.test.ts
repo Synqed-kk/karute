@@ -4,10 +4,11 @@
  * 未設定 gating. No React here; WeekRows.tsx / DayNumbersLine.tsx are
  * covered separately (week-rows.test.tsx, day-numbers-line.test.tsx).
  */
-import { capacityRowFields, type WeekDayRowData } from '@/lib/adapters/reservation'
+import { capacityRowFields, type MonthCell, type WeekDayRowData } from '@/lib/adapters/reservation'
 import { capacityOf, withDerivedCapacity } from './__fixtures__/capacity-row'
 import type { Translate } from '@/lib/appointments/format-duration'
 import type * as MetricMenu from '@/lib/appointments/metric-menu'
+import { monthNewCount } from '@/lib/appointments/metric-menu'
 
 const MESSAGES: Record<string, string> = {
   count: '予約',
@@ -667,7 +668,10 @@ describe('isClosedRow', () => {
     expect(isClosedRow(row({ closed: true, count: 0 }))).toBe(true)
   })
 
-  it('false when the switch is OFF, even closed with zero bookings', () => {
+  it('false while the switch is OFF, even closed with zero bookings', () => {
+    // R1-3 flipped the shipped default ON, so the OFF path needs saying now.
+    // It is still the honest path: with the switch off the cell shows numbers,
+    // never a half-rendered 休.
     const { isClosedRow } = loadMetricMenu({ closedDays: false })
     expect(isClosedRow(row({ closed: true, count: 0 }))).toBe(false)
   })
@@ -701,6 +705,9 @@ describe('the SHIPPED switch registry (⚖ Liam 9/15 11:1x — 空き ON, everyw
       typeof import('@/lib/appointments/booking-switches')
     >('@/lib/appointments/booking-switches')
     expect(BOOKING_SWITCHES.freeTimeCell).toBe(true)
+    // R1-3 (D-3), ⚖ Liam 16:0x 「everything as the mock」: 休 ships ON. The
+    // write-side door (booking INTO a closed day) is PKT-1c-C, same release.
+    expect(BOOKING_SWITCHES.closedDays).toBe(true)
 
     const { weekRowCells, dayLineCells } = jest.requireActual<typeof MetricMenu>(
       '@/lib/appointments/metric-menu',
@@ -870,5 +877,83 @@ describe('newCountKnown: false — the 新規 slot takes the next metric', () =>
     const r = row({ ...withCapacity })
     delete (r as { newCountKnown?: boolean }).newCountKnown
     expect(weekRowCells(r, ctx).map((c) => c.key)).toContain('new')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ⚖ PKT-2b (S1) — the month line's own Σ, beside the week's own rule above
+// ---------------------------------------------------------------------------
+
+describe('monthNewCount — the month line’s Σ (PKT-2b S1)', () => {
+  function monthCell(id: string, over: Partial<MonthCell> = {}): MonthCell {
+    return {
+      id,
+      date: new Date(`${id}T00:00:00+09:00`),
+      inMonth: true,
+      isToday: false,
+      count: 0,
+      density: 'empty',
+      closed: false,
+      ...over,
+    }
+  }
+
+  it('sums newCount over the in-month cells when every one is known', () => {
+    const cells = [
+      monthCell('2026-09-01', { newCount: 3, newCountKnown: true }),
+      monthCell('2026-09-02', { newCount: 5, newCountKnown: true }),
+    ]
+    expect(monthNewCount(cells, 'new')).toBe(8)
+  })
+
+  it('never 0-as-unknown — a real all-known 0 total stays 0, not null', () => {
+    const cells = [
+      monthCell('2026-09-01', { newCount: 0, newCountKnown: true }),
+      monthCell('2026-09-02', { newCount: 0, newCountKnown: true }),
+    ]
+    expect(monthNewCount(cells, 'new')).toBe(0)
+  })
+
+  it("null when the slot is 'off'", () => {
+    const cells = [monthCell('2026-09-01', { newCount: 5, newCountKnown: true })]
+    expect(monthNewCount(cells, 'off')).toBeNull()
+  })
+
+  it('null when there are no in-month cells at all (a truncated window)', () => {
+    const cells = [
+      monthCell('2026-08-31', { inMonth: false, newCount: 5, newCountKnown: true }),
+      monthCell('2026-10-01', { inMonth: false, newCount: 2, newCountKnown: true }),
+    ]
+    expect(monthNewCount(cells, 'new')).toBeNull()
+  })
+
+  it('null when ANY in-month cell is unknown — a partly-known sum is not an honest number', () => {
+    const cells = [
+      monthCell('2026-09-01', { newCount: 3, newCountKnown: true }),
+      monthCell('2026-09-02', { newCount: 999, newCountKnown: false }),
+    ]
+    expect(monthNewCount(cells, 'new')).toBeNull()
+  })
+
+  it('out-of-month cells are never counted, even a poisoned one', () => {
+    const cells = [
+      monthCell('2026-08-31', { inMonth: false, newCount: 999, newCountKnown: true }),
+      monthCell('2026-09-01', { newCount: 3, newCountKnown: true }),
+      monthCell('2026-10-01', { inMonth: false, newCount: 999, newCountKnown: true }),
+    ]
+    expect(monthNewCount(cells, 'new')).toBe(3)
+  })
+
+  it('an out-of-month cell being unknown does not poison the sum — only in-month cells gate it', () => {
+    const cells = [
+      monthCell('2026-08-31', { inMonth: false, newCountKnown: false }),
+      monthCell('2026-09-01', { newCount: 3, newCountKnown: true }),
+    ]
+    expect(monthNewCount(cells, 'new')).toBe(3)
+  })
+
+  it('an absent newCountKnown reads as known — the bundle-skew convention `WeekDayRowData` already carries', () => {
+    const cells = [monthCell('2026-09-01', { newCount: 4 })]
+    expect(monthNewCount(cells, 'new')).toBe(4)
   })
 })

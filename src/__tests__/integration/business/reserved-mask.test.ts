@@ -63,11 +63,12 @@ import {
   type ReleasedWindow,
   type ReservedLaneMask,
 } from '@/app/[locale]/(business)/business/today/reserved-mask'
-import { guardRailsFor, laneSpans } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { guardRailsFor, laneSpans, sharesStore, storeHasBeds } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { freePockets, type GuardPocketSpan } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
 import { opsConfig } from '@/business/lib/fixtures-today'
 import { hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 
 // ── the store the fixture runs in ───────────────────────────────────────────
 
@@ -75,6 +76,9 @@ const OPEN = 540 // 09:00
 const CLOSE = 1080 // 18:00
 const HOURS: Hours = { open: OPEN, close: CLOSE }
 const FRAME = { openMin: OPEN, closeMin: CLOSE, nowMin: OPEN }
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13); this file never reads a refusal string.
+const ASK_A: Parameters<typeof bedTruthViews>[3] = { resourceNoun: RESOURCE_WORDS.chiropractic.resourceNoun, privateWord: RESOURCE_WORDS.chiropractic.privateWord! }
 /** THE STORE'S OWN DIALS, read from the fixture — by the TEST, never by the
  *  module (the module takes every dial as a parameter; spec §2). */
 const SHIPPED_PROTECTED = opsConfig.newClientSessionMin
@@ -227,7 +231,7 @@ function board(spec: BoardSpec): BoardLane[] {
  *  the binding constraint rather than the roster. */
 const SWEEP: BoardSpec = { staff: 8, beds: 3, seed: 4242, perLane: 3 }
 
-const bookOf = (lanes: BoardLane[]): BedTruth => bedTruthViews(lanes, FRAME, null).world
+const bookOf = (lanes: BoardLane[]): BedTruth => bedTruthViews(lanes, FRAME, null, ASK_A).world
 const staffLanesOf = (lanes: BoardLane[]) => lanes.filter((l) => l.group === 'staff' && l.window != null)
 
 /** The mask, for one board at one dial combination. A FRESH book every time —
@@ -1000,7 +1004,7 @@ describe('9 — the hand is lifted from the mask exactly as the rail lifts it', 
         excludeId,
         // The same bed truth the mask is built from — spec §1's one held set.
         protectedWindowFeasible: (l, start, dur) => BOOK.newClientMask(l, dur)(start),
-      }).find((r) => r.laneKey === lane.key)!.cells
+      }, { byLaneKey: {}, generic: RESOURCE_WORDS.other }).find((r) => r.laneKey === lane.key)!.cells
 
     expect(JSON.stringify(railCells(id))).not.toBe(JSON.stringify(railCells(null)))
   })
@@ -1026,5 +1030,96 @@ describe('9 — the hand is lifted from the mask exactly as the rail lifts it', 
     for (const m of board2.filter((x) => x.laneKey !== lane.key)) {
       expect(JSON.stringify(m)).toBe(JSON.stringify(committed.find((c) => c.laneKey === m.laneKey)))
     }
+  })
+})
+
+// ⚖ ROUND 3 · C (⚖ D-52 (a)) — item 7's pins: the ONE hunk (the ctx line), by
+// its own behaviour. A lane whose store owns no bed lane gets NO callback
+// (`protectedWindowFeasible: undefined`) — the same switch `bedDoor` throws —
+// so its windows are held on staff time alone; a board that DOES have a bed
+// for the lane's store is byte-identical to before this round.
+describe('⚖ ROUND 3 · C — a store with no rooms holds windows on staff time alone', () => {
+  const GUARD = guardConfig()
+  const BOUNDS = { from: 600, until: 1140 } // 10:00-19:00
+
+  it('(a) two staff lanes, ZERO bed lanes — the mask is non-empty and equals canon’s own no-callback enumeration', () => {
+    const lanes: BoardLane[] = [
+      lane({
+        key: 'g-01', group: 'staff', label: 'テスト いちろう', window: BOUNDS, stores: ['store-gym'],
+        items: [item({ key: 'b1', kind: 'booking', caseId: 'b1', startMin: 660, endMin: 720 })],
+      }),
+      lane({
+        key: 'g-02', group: 'staff', label: 'テスト じろう', window: BOUNDS, stores: ['store-gym'],
+        items: [item({ key: 'b2', kind: 'booking', caseId: 'b2', startMin: 900, endMin: 960 })],
+      }),
+    ]
+    expect(storeHasBeds(lanes)).toBe(false)
+    const book = bedTruthViews(lanes, { openMin: BOUNDS.from, closeMin: BOUNDS.until, nowMin: BOUNDS.from }, null, ASK_A).world
+    const mask = reservedMaskFor({ lanes, closeMin: BOUNDS.until, nowMin: null, guard: GUARD, gapGuardMode: 'standard', book })
+    const engine = createGapGuard({ ...GUARD, mode: 'standard' })
+    const protectedMin = GUARD.protectedDurationMin!
+    const printed = lanes.map((l) => {
+      const m = mask.find((x) => x.laneKey === l.key)!
+      const pockets = freePockets({ from: BOUNDS.from, until: BOUNDS.until, close: BOUNDS.until, now: null, occupied: laneSpans(l, null) })
+      const canon = pockets.flatMap((p) => engine.protectedCapacity(p, null, {}).beforeStarts)
+      const hasRoomyPocket = pockets.some((p) => p.e - p.s >= protectedMin)
+      return { laneKey: l.key, protectedCount: m.protectedCount, spans: m.spans.map((s) => s.windowStart), canon, hasRoomyPocket }
+    })
+    console.log('7(a)', printed)
+    for (const p of printed) {
+      if (p.hasRoomyPocket) expect(p.protectedCount).toBeGreaterThan(0)
+      expect(p.spans).toEqual(p.canon)
+    }
+  })
+
+  it('(b) the SAME board plus one bed lane is byte-identical to the pre-round oracle (hand-derived, not a git-show pull)', () => {
+    // Adding a bed lane makes `storeHasBeds(lanes, l.stores)` true for g-01, so
+    // the ctx hunk installs the SAME callback it always did — a no-op by
+    // construction. Proven against `startsFor`/`bedCtx`, this file's own
+    // pre-existing oracle (§1-§8 above), which is unmoved by this round.
+    const lanes: BoardLane[] = [
+      lane({
+        key: 'g-01', group: 'staff', label: 'テスト いちろう', window: BOUNDS, stores: ['store-gym'],
+        items: [item({ key: 'b1', kind: 'booking', caseId: 'b1', startMin: 660, endMin: 720 })],
+      }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', window: null, stores: ['store-gym'] }),
+    ]
+    expect(storeHasBeds(lanes, ['store-gym'])).toBe(true)
+    const book = bedTruthViews(lanes, { openMin: BOUNDS.from, closeMin: BOUNDS.until, nowMin: BOUNDS.from }, null, ASK_A).world
+    const mask = reservedMaskFor({ lanes, closeMin: BOUNDS.until, nowMin: null, guard: GUARD, gapGuardMode: 'standard', book })
+    const g01 = lanes[0]
+    const oracle = startsFor(g01, GUARD, 'standard', bedCtx(book, g01))
+    const tip = mask.find((m) => m.laneKey === 'g-01')!.spans.map((s) => s.windowStart)
+    console.log('7(b)', { tip, oracle })
+    expect(tip).toEqual(oracle)
+  })
+
+  it('(c) a floating lane (stores: null) pairs with a room in another store — the callback IS installed', () => {
+    const lanes: BoardLane[] = [
+      lane({
+        key: 'g-float', group: 'staff', label: 'テスト さぶろう', window: BOUNDS, stores: null,
+        items: [item({ key: 'b3', kind: 'booking', caseId: 'b3', startMin: 660, endMin: 720 })],
+      }),
+      lane({
+        key: 'bed-01', group: 'beds', label: 'ベッド1', window: null, stores: ['store-gym'],
+        items: [item({ key: 'r1', kind: 'booking', caseId: 'r1', startMin: 780, endMin: 870 })],
+      }),
+    ]
+    expect(sharesStore(null, ['store-gym'])).toBe(true)
+    expect(storeHasBeds(lanes, null)).toBe(true)
+    const book = bedTruthViews(lanes, { openMin: BOUNDS.from, closeMin: BOUNDS.until, nowMin: BOUNDS.from }, null, ASK_A).world
+    const mask = reservedMaskFor({ lanes, closeMin: BOUNDS.until, nowMin: null, guard: GUARD, gapGuardMode: 'standard', book })
+    const printed = mask.find((m) => m.laneKey === 'g-float')
+    const withCallback = startsFor(lanes[0], GUARD, 'standard', bedCtx(book, lanes[0]))
+    const noCallback = startsFor(lanes[0], GUARD, 'standard', {})
+    console.log('7(c)', { spans: printed!.spans.map((s) => s.windowStart), withCallback, noCallback })
+    // The callback is installed (unlike the no-bed-lane case (a)): `bed-01`'s
+    // own booking (r1, 13:00-14:30) removes a start the no-callback
+    // enumeration would still hold. The mask's spans equal the WITH-callback
+    // oracle (this file's own `startsFor`/`bedCtx`) and genuinely differ from
+    // the WITHOUT-callback one — proof the callback is installed AND that it
+    // changes the answer on this board, not just that something printed.
+    expect(printed!.spans.map((s) => s.windowStart)).toEqual(withCallback)
+    expect(printed!.spans.map((s) => s.windowStart)).not.toEqual(noCallback)
   })
 })

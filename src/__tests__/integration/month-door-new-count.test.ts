@@ -64,7 +64,7 @@ jest.mock('@/lib/customers/list-enrich', () => ({
   enrichCustomers: jest.fn(async () => new Map()),
 }))
 jest.mock('@/lib/packs/store', () => ({
-  listAllPackUsage: jest.fn(async () => new Map()),
+  listAllPackUsageOrNull: jest.fn(async () => new Map()),
   listCustomerPacks: jest.fn(async () => []),
 }))
 jest.mock('@/lib/synqed/client', () => {
@@ -79,12 +79,17 @@ import { getMonthCells } from '@/actions/appointments'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getBusinessId } from '@/lib/staff'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
-import { listAllPackUsage } from '@/lib/packs/store'
+import { listAllPackUsageOrNull } from '@/lib/packs/store'
+import { getOrgSettings } from '@/actions/org-settings'
+import type { Appointment } from '@synqed-kk/client'
+import { buildAppointmentsScreen } from '@/lib/appointments/screen'
+import { computeMonthRange } from '@/lib/date/calendar-range'
 
 const cachedCustomers = getCachedCustomerList as jest.Mock
 const businessId = getBusinessId as jest.Mock
 const enrich = enrichCustomers as jest.Mock
-const packUsage = listAllPackUsage as jest.Mock
+const packUsage = listAllPackUsageOrNull as jest.Mock
+const orgSettings = getOrgSettings as jest.Mock
 const list = (jest.requireMock('@/lib/synqed/client') as { __list: jest.Mock }).__list
 
 const SEP = '2026-09'
@@ -210,5 +215,110 @@ describe('getMonthCells — the month’s 新規 is computed, not hardcoded', ()
     const cells = await getMonthCells(SEP)
     expect(enrich).not.toHaveBeenCalled()
     expect(cells.every((c) => c.newCount === 0 && c.newCountKnown === true)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ⚖ G1 (Greptile round 1 #951) — a failed OPTIONAL read must withhold the
+// 新規 annotation, never kill the whole month grid.
+// ---------------------------------------------------------------------------
+
+describe('⚖ G1 — the three 新規-only reads are caught individually', () => {
+  it('a rejecting enrichCustomers withholds 新規 for the whole month — the grid still draws', async () => {
+    windowOf([appt({ id: 'a1', customer_id: 'c1', starts_at: at(14) })])
+    cachedCustomers.mockResolvedValue([cust({ id: 'c1' })])
+    enrich.mockRejectedValue(new Error('core unavailable'))
+
+    const cells = await getMonthCells(SEP)
+    expect(cells.every((c) => c.newCount === 0 && c.newCountKnown === false)).toBe(true)
+  })
+
+  it('a rejecting getCachedCustomerList withholds 新規 too, same reason', async () => {
+    windowOf([appt({ id: 'a1', customer_id: 'c1', starts_at: at(14) })])
+    cachedCustomers.mockRejectedValue(new Error('core unavailable'))
+    enrich.mockResolvedValue(new Map([['c1', history()]]))
+
+    const cells = await getMonthCells(SEP)
+    expect(cells.every((c) => c.newCount === 0 && c.newCountKnown === false)).toBe(true)
+  })
+
+  it('the WINDOW rejecting still throws — a failed booking read must fail the month', async () => {
+    list.mockReset()
+    list.mockRejectedValue(new Error('core unavailable'))
+    await expect(getMonthCells(SEP)).rejects.toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ⚖ G2 (Greptile round 1 #951) — a failed 回数券 LEDGER read must withhold too,
+// never an empty map standing in for a genuinely empty ledger.
+// ---------------------------------------------------------------------------
+
+describe('⚖ G2 — a failed ledger read withholds, never an empty-map guess', () => {
+  it('merges withheld and known ledger counts onto the screen month cells', async () => {
+    cachedCustomers.mockResolvedValue([cust({ id: 'c1' })])
+    enrich.mockResolvedValue(new Map([['c1', history()]]))
+    const selectedDate = new Date(at(14))
+    const input = {
+      locale: 'ja',
+      now: selectedDate,
+      selectedDate,
+      staffFilter: 'all',
+      staffList: [],
+      activeStaffId: null,
+      storeStaffIds: null,
+      orgSettings: null,
+      customers: await getCachedCustomerList(),
+      dayAppointments: [],
+      weekRange: null,
+      monthRange: computeMonthRange(selectedDate),
+      weekRangeAppts: null,
+      monthRangeAppts: [appt({ id: 'a1', customer_id: 'c1', starts_at: at(14) }) as Appointment],
+      enrichment: await enrichCustomers('business-1', ['c1']),
+    }
+
+    packUsage.mockResolvedValue(null)
+    const withheld = buildAppointmentsScreen({
+      ...input,
+      packUsage: await listAllPackUsageOrNull(),
+    }).monthData!
+    expect(withheld.length).toBeGreaterThan(0)
+    for (const cell of withheld) {
+      expect(cell.newCountKnown).toBe(false)
+      expect(cell.newCount).toBe(0)
+    }
+
+    packUsage.mockResolvedValue(new Map())
+    const known = buildAppointmentsScreen({
+      ...input,
+      packUsage: await listAllPackUsageOrNull(),
+    }).monthData!
+    expect(known.find((c) => c.id === '2026-09-14')).toMatchObject({
+      inMonth: true,
+      newCount: 1,
+      newCountKnown: true,
+    })
+    expect(known.find((c) => !c.inMonth)).toMatchObject({ newCount: 0 })
+  })
+
+  it('a rejecting ledger read withholds 新規 for the whole month', async () => {
+    windowOf([appt({ id: 'a1', customer_id: 'c1', starts_at: at(14) })])
+    cachedCustomers.mockResolvedValue([cust({ id: 'c1' })])
+    enrich.mockResolvedValue(new Map([['c1', history()]]))
+    packUsage.mockRejectedValue(new Error('core unavailable'))
+
+    const cells = await getMonthCells(SEP)
+    expect(cells.every((c) => c.newCount === 0 && c.newCountKnown === false)).toBe(true)
+  })
+
+  it('tickets OFF → known exactly as before, and no ledger read happens at all', async () => {
+    windowOf([appt({ id: 'a1', customer_id: 'c1', starts_at: at(14) })])
+    cachedCustomers.mockResolvedValue([cust({ id: 'c1' })])
+    enrich.mockResolvedValue(new Map([['c1', history()]]))
+    orgSettings.mockResolvedValueOnce({ operating_hours: null, ticket_packs_enabled: false })
+
+    const cells = await getMonthCells(SEP)
+    expect(packUsage).not.toHaveBeenCalled()
+    expect(cellFor(cells, '2026-09-14').newCountKnown).toBe(true)
   })
 })

@@ -17,6 +17,7 @@
 
 import { getSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
@@ -51,12 +52,26 @@ export type AppointmentWindowPayload = AppointmentWindow & {
    *  class-bound, in which case one booking row is many people and no
    *  percentage is honest. Null = unknown, which reads as not class-bound. */
   businessType: string | null
+  /** ⚖ G2 (Greptile round 1 #934) — the store row read FAILED (never "there
+   *  was no store id to read"); `businessType` above already fell to the
+   *  org-wide setting the same way a genuine no-override store would, so the
+   *  screen must read THIS flag, not `businessType`, to know the org type is
+   *  a guess for this store and must not decide its lane kind. */
+  storeRowDegraded: boolean
 }
 
 export async function getAppointmentWindow(
   fromIso: string,
   toIso: string,
   staffFilter: string,
+  /** `false` = the bare window: the rows, and no store hours / 臨時休業 read
+   *  for this span at all. 先月同期間比's previous month wants a COUNT, and the
+   *  page takes its hours facts from the displayed window — so with the flag
+   *  left on, every 月 page view paid for two core calls and an hours
+   *  resolution over ~30 days that were thrown away on the next line. The
+   *  store clamp, the 担当 filter and the rows are identical either way; this
+   *  only says whether to ask about opening hours. */
+  withHours = true,
 ): Promise<AppointmentWindowPayload> {
   const [synqed, scope, orgSettings, activeStaffId] = await Promise.all([
     getSynqedClient(),
@@ -108,8 +123,10 @@ export async function getAppointmentWindow(
 
   const [window, policy, closed, store] = await Promise.all([
     // A filter naming somebody the roster cannot place gets ZERO rows, not the
-    // whole salon's week.
-    unknown
+    // whole salon's week — and neither does an actor who reaches NO store
+    // (`storeId` is undefined for them, which core reads as "every store";
+    // ⚖ Liam 2026-09-16, census: week/month window, FO).
+    unknown || reachesNoStore(scope)
       ? Promise.resolve(emptyAppointmentWindow())
       : fetchAppointmentWindow(synqed, fetchFromIso, toIso, { storeId, staffId }),
     // No catch on purpose. `storePolicies.get` answers the PLATFORM DEFAULTS for
@@ -117,8 +134,8 @@ export async function getAppointmentWindow(
     // @synqed-kk/client dist/store-policies.d.ts), so "no policy row" is a
     // normal 200, never an error to swallow. Anything that does throw here is a
     // real outage and must reach the page.
-    storeId ? synqed.storePolicies.get(storeId) : Promise.resolve(null),
-    storeId
+    withHours && storeId ? synqed.storePolicies.get(storeId) : Promise.resolve(null),
+    withHours && storeId
       ? synqed.storePolicies.listClosedDays(storeId, {
           from: span.fromYmd,
           to: span.toExclusiveYmd, // exclusive, per the SDK's own contract
@@ -130,20 +147,33 @@ export async function getAppointmentWindow(
     // below already answers that question for every store that has not
     // overridden it. Failing the whole week's numbers over it would be the
     // louder lie.
+    //
+    // ⚖ G2 — the catch returns `undefined`, NEVER `null`: `null` stays "no
+    // store id to read" (the branch below never even calls this), so
+    // `store === undefined` is the one honest way to tell a FAILED read
+    // apart from a genuine no-row. `businessType` below still falls to the
+    // org setting either way (unchanged) — `storeRowDegraded`, derived from
+    // this sentinel, is what now tells the screen the org type is a guess it
+    // must not use to decide this store's lane kind.
     storeId
       ? synqed.stores.get(storeId).catch((err) => {
-          console.error('[appointments-window] store row read degraded:', err)
-          return null
+          console.error(
+            '[appointments-window] store row read degraded — capacity withheld, not guessed:',
+            err,
+          )
+          return undefined
         })
       : Promise.resolve(null),
   ])
 
-  const hoursFacts = resolveWindowHours(span.days, {
-    weeklyHours: policy?.weekly_hours ?? null,
-    closedDates: new Set(closed.closed_days.map((d) => d.date)),
-    orgHours: orgSettings?.operating_hours,
-    orgSaved: new Set<WeekdayKey>(orgSettings?.operating_hours_saved ?? []),
-  })
+  const hoursFacts = withHours
+    ? resolveWindowHours(span.days, {
+        weeklyHours: policy?.weekly_hours ?? null,
+        closedDates: new Set(closed.closed_days.map((d) => d.date)),
+        orgHours: orgSettings?.operating_hours,
+        orgSaved: new Set<WeekdayKey>(orgSettings?.operating_hours_saved ?? []),
+      })
+    : new Map<string, DayHoursFact>()
 
   return {
     ...window,
@@ -155,5 +185,6 @@ export async function getAppointmentWindow(
     businessType:
       (store ? coreBusinessType(store) : null) ||
       (orgSettings?.business_type || null),
+    storeRowDegraded: store === undefined,
   }
 }

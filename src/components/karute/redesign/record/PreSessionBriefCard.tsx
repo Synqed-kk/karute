@@ -151,15 +151,14 @@ export function PreSessionBriefCard({
   // opener, or whose body is the opener restated. Length floors keep short
   // strings from matching incidentally (Japanese has no word boundaries:
   // 海 is inside 北海道, 運動 inside 運動会).
-  // Degenerate-pair seat belt: a memo-only generation can emit a body that is
-  // just the title reordered (「同棲中の彼氏 — 彼氏と同棲中」). Compare the full
-  // significant-character multiset so a single meaningful addition such as
-  // 「愛犬の手術後」 survives. When it trips we keep the hook and drop only the
-  // echo body.
+  // Degenerate-pair seat belt: drop only a provable normalized title echo.
+  // Character bags cannot prove Japanese semantic equivalence: particles can
+  // reverse who acts on whom (友人の紹介 / 友人を紹介). Preserve any non-exact
+  // body rather than hiding potentially meaningful staff context.
   const dedupedHooks = brief.hooks.map((h) => {
     const title = normalizeForDedup(h.title)
     const body = normalizeForDedup(h.body ?? '')
-    if (title.length >= 4 && body.length >= 4 && isReorderedRestatement(title, body)) {
+    if (title.length >= 4 && body.length >= 4 && title === body) {
       return { ...h, body: null }
     }
     return h
@@ -464,22 +463,7 @@ export function PreSessionBriefCard({
 // Strip whitespace + punctuation so "restated with different punctuation"
 // still registers as a duplicate (筋トレ再開したそうですね。 vs 筋トレ再開).
 function normalizeForDedup(s: string): string {
-  return s.replace(/[\s　、。・．，,.!！?？「」『』()（）〜~ー–—:：]/g, '')
-}
-
-/** Match a reordered restatement without discarding added context. Japanese
- *  particles may change when a phrase is reordered, so ignore only those and
- *  require every other character (including repeats) to match exactly. */
-function isReorderedRestatement(a: string, b: string): boolean {
-  const significantChars = (value: string) =>
-    [...value]
-      .filter((ch) => !'のとがをはにへで'.includes(ch))
-      .sort()
-      .join('')
-
-  const left = significantChars(a)
-  const right = significantChars(b)
-  return left.length >= 4 && left === right
+  return s.replace(/[\s　、。・．，,.!！?？「」『』()（）〜~–—:：]/g, '')
 }
 
 // ─────────────────────────────────────────────────────────────

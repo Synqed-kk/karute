@@ -64,6 +64,15 @@ accrue as more sites are adjudicated).
 Judge the ELEMENT, not the file: accent on a span INSIDE a link/button is
 part of the pressable and legal.
 
+**Ruled exceptions**
+
+予約 numbers (day line, week rows, month line): a value's colour is its
+MEANING — 稼働 band tones (<35 green · 35–65 blue · >65 amber) and 新規 in the
+新規 token — ⚖ Liam 2026-09-15 (week-page adjudication) + seen on his phone
+2026-09-16; pinned in `src/__tests__/integration/accent-tier-contract.test.tsx`
+(describe block R3-10) and `src/__tests__/integration/metric-menu.test.ts`
+(the band boundary tests).
+
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
 ## 1. Think Before Coding

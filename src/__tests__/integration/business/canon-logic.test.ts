@@ -299,6 +299,7 @@ describe('the 仮押さえ checks — canon computeChecks :4691', () => {
     staffUntil: '18:00',
     laneLocked: false,
     minutesOf: (x: number) => Math.round(600 + (x / 100) * 540),
+    turnoverWord: '清掃',
   }
 
   it('a clean landing passes every check and unlocks 確定', () => {
@@ -537,6 +538,23 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     // no window, exactly as canon's index-wise pairing caps it.
     const two = deriveSellableCells({ ...flat, staffLanes: [staff(), staff({ key: 's2', name: '見本 ごろう' })], resourceLanes: [], now: null })
     expect(two.filter((c) => c.h === 600)).toHaveLength(1)
+  })
+
+  it('⚖ D-53 (c) R1 — needsUnit: () => false sells every free staff, no cap (G1)', () => {
+    // The default (no predicate) is unmoved above — this is the seam's real
+    // answer for a store whose staff answer needsUnit false: no sentinel cap,
+    // one cell per free staff per slot, resourceKey/bed always ''.
+    const two = deriveSellableCells({
+      ...flat,
+      staffLanes: [staff(), staff({ key: 's2', name: '見本 ごろう' })],
+      resourceLanes: [],
+      now: null,
+      needsUnit: () => false,
+    })
+    const atOpen = two.filter((c) => c.h === 600)
+    expect(atOpen).toHaveLength(2)
+    expect(atOpen.every((c) => c.resourceKey === '' && c.bed === '')).toBe(true)
+    expect(two.filter((c) => c.group === 'beds')).toEqual([])
   })
 
   it('a window needs BOTH a free person and a free bed wherever beds exist', () => {

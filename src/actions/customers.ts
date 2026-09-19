@@ -4,11 +4,18 @@ import { z } from 'zod'
 import { revalidatePath, updateTag } from 'next/cache'
 import { getTranslations } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { requireCapability } from '@/lib/auth/require-permission'
+import { can, requireCapability } from '@/lib/auth/require-permission'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { parsePhotoUploadFields } from '@/lib/karute/photo-upload-fields'
+import type { CustomerOption, CustomerSearchOption } from '@/components/karute/CustomerCombobox'
+import type { CachedCustomerOption } from '@/lib/customers/cached'
+import {
+  CUSTOMER_SEARCH_LIMIT,
+  matchKaruteNumber,
+  foldKaruteNumberQuery,
+} from '@/lib/customers/karute-number-match'
 
 // ---------------------------------------------------------------------------
 // Backend error → user-facing message
@@ -205,7 +212,31 @@ export async function createCustomerWithClient(
  *  cache invalidations (Server-Action-only) and the success-only audit row.
  *  The collision/validation returns never reach them — the early return is
  *  the shared body's own `{ success: false }`. */
+/** The customer-profile WRITE gate (⚖ Liam 2026-09-16). Checked with can(),
+ *  not requireCapability(), because these actions return the house
+ *  { success:false, error } shape and their callers await them WITHOUT a
+ *  try/catch — the same contract createAppointment's own gate documents.
+ *
+ *  ⚠ CAPABILITY ONLY, deliberately: customers carry NO store_id (identity is
+ *  business-wide, list-all.ts's own header), so "is this customer a member of
+ *  MY store?" has no answer in this app today — membership is DERIVED from
+ *  events inside core. That store rule waits for core's membership change and
+ *  is NOT in this door. */
+/** Staff-visible, so it is TRANSLATED, never a literal: this string is returned
+ *  straight into the house `{ success:false, error }` shape the customer form
+ *  toasts. It reuses the app's existing generic refusal
+ *  (`common.noPermission` — 「この操作を行う権限がありません。」, already
+ *  born-native in messages/ja.json and shipped in en.json) rather than minting a
+ *  fourth wording of the same sentence: the screen the staff member is looking
+ *  at names the act, so the line only has to name the missing permission. */
+async function customerWriteDenied(): Promise<string> {
+  return (await getTranslations('common'))('noPermission')
+}
+
 export async function createCustomer(input: CustomerFormInput): Promise<ActionResult> {
+  if (!(await can('customers.manage'))) {
+    return { success: false, error: await customerWriteDenied() }
+  }
   const synqed = await getSynqedClient()
   const result = await createCustomerWithClient(synqed, input)
   if (!result.success) return { success: false, error: result.error }
@@ -262,6 +293,9 @@ export async function createQuickCustomerWithClient(
 
 /** The WEB door onto the twin above — same wrapper duties as createCustomer. */
 export async function createQuickCustomer(name: string): Promise<QuickCustomerResult> {
+  if (!(await can('customers.manage'))) {
+    return { success: false, error: await customerWriteDenied() }
+  }
   const synqed = await getSynqedClient()
   const result = await createQuickCustomerWithClient(synqed, name)
   if (!result.success) return { success: false, error: result.error }
@@ -331,6 +365,9 @@ export async function updateCustomer(
   id: string,
   input: CustomerFormInput | Record<string, unknown>,
 ): Promise<ActionResult> {
+  if (!(await can('customers.manage'))) {
+    return { success: false, error: await customerWriteDenied() }
+  }
   const synqed = await getSynqedClient()
   const result = await updateCustomerWithClient(synqed, id, input as Record<string, unknown>)
   if (result.success) {
@@ -734,5 +771,106 @@ export async function revokeCustomerConsent(customerId: string) {
     // Same policy as the other mutating actions in this file: never leak a
     // raw Prisma/synqed-core message into a user-facing toast.
     return { ok: false as const, error: await translateBackendError(err) }
+  }
+}
+
+/**
+ * Company-wide customer search (⚖ Liam 2026-09-16, P3 cross-branch search) —
+ * the REMOTE tier behind CustomerCombobox's/RecordCustomerPickerDialog's
+ * onRemoteSearch: their local filter over the preloaded store-lensed list
+ * runs first and stays instant; this backs the "find ANY company customer"
+ * half. Read-only — booking/karute creation from a picked row still writes
+ * at the actor's OWN store, which P1 already allows. ReassignCustomerAction
+ * does not use this (excluded — reassigning a karute to another store's
+ * customer is the write P1 refuses).
+ */
+export async function searchCustomersCompanyWide(
+  query: string,
+): Promise<
+  | { options: CustomerSearchOption[]; karute_number_unavailable: boolean; remote_more: boolean }
+  | { error: string }
+> {
+  try {
+    await requireCapability('customers.view')
+    const q = query.trim()
+    if (!q) return { options: [], karute_number_unavailable: false, remote_more: false }
+
+    // Lazy imports (same convention as revokeCustomerConsent above): these
+    // pull in store-scope.ts's / cached.ts's own SynqedClient chains, which
+    // every OTHER action in this file has no reason to carry as a permanent
+    // module-load cost.
+    const { resolveStoreScope, customerLensFor } = await import('@/lib/auth/store-scope')
+    const { getCachedCustomerList } = await import('@/lib/customers/cached')
+    const [synqed, scope] = await Promise.all([getSynqedClient(), resolveStoreScope()])
+    const enforceStore = scope.allowedStoreIds != null
+    const lens = customerLensFor(scope)
+
+    // Eligibility FIRST (Greptile fold): the business-wide cache scan is only
+    // useful for a karute-number term, so an ordinary name search never pays
+    // for loading it.
+    const karuteQuery = foldKaruteNumberQuery(q)
+
+    // "other_store" = not in the CALLER's own store-lensed preloaded list —
+    // the same cached list their combobox was already seeded with (no core
+    // membership call). Unclamped viewers are already preloaded business-wide,
+    // so nothing this search returns can ever be "other store" for them.
+    //
+    // Each cache read is settled on its OWN and its OUTCOME kept (ok/failed),
+    // not collapsed to a bare value — a failure here must read as UNKNOWN,
+    // never silently as "own store"/"no karute match" (Greptile fold: the
+    // prior .catch(() => null) made a failed lens read indistinguishable from
+    // "not attempted", so a foreign customer could ship with no 他店舗 chip).
+    const settleCache = (p: Promise<CachedCustomerOption[]> | null) =>
+      p ? p.then((rows) => ({ ok: true as const, rows })).catch(() => ({ ok: false as const })) : Promise.resolve(null)
+    const [searchRes, ownResult, businessResult] = await Promise.all([
+      // +1 (F-2 fold, ⚖ Liam 2026-09-16): a probe row so the cap below can
+      // tell "exactly 8" from "8 shown, more exist" — the source of truth
+      // for remote_more, never the SDK's own total.
+      synqed.customers.list({ search: q, page_size: CUSTOMER_SEARCH_LIMIT + 1 }),
+      settleCache(enforceStore && lens !== null ? getCachedCustomerList(lens) : null),
+      settleCache(karuteQuery ? getCachedCustomerList() : null),
+    ])
+    // null = not attempted (unclamped, or no karute-number term) — a real
+    // answer, not a failure. ownIds stays null on either "not attempted" OR
+    // "failed"; the caller can't tell those apart from ownIds alone, which is
+    // exactly why other_store below reads `enforceStore` too, not just ownIds.
+    const ownIds = ownResult?.ok ? new Set(ownResult.rows.map((c) => c.id)) : null
+    const businessWide = businessResult?.ok ? businessResult.rows : []
+    const karuteNumberUnavailable = karuteQuery != null && !businessResult?.ok
+
+    const rows: CustomerOption[] = searchRes.customers.map((c) => ({
+      id: c.id,
+      name: c.name,
+      furigana: c.furigana,
+      phone: c.phone,
+    }))
+    // Karute number ahead of the name/phone matches — a hit already present
+    // (digits also matched a phone number) is just reordered, never duplicated.
+    const karuteHits = matchKaruteNumber(q, businessWide)
+    const hitIds = new Set(karuteHits.map((h) => h.id))
+    const merged: CustomerOption[] = [
+      ...karuteHits.map((h) => ({ id: h.id, name: h.name, furigana: h.furigana, phone: h.phone })),
+      ...rows.filter((r) => !hitIds.has(r.id)),
+    ]
+    // F-2 fold (Greptile, PR #945): the remote tier was capping at
+    // CUSTOMER_SEARCH_LIMIT with no signal at all — computed AFTER the
+    // karute-number merge, off the +1 probe above (⚖ 8/25: numbers explain
+    // themselves; nothing hidden silently).
+    const remoteMore = merged.length > CUSTOMER_SEARCH_LIMIT
+
+    // true/false only once the lens read actually succeeded; enforceStore
+    // with no usable ownIds (lens failed, or had nothing to look up) is
+    // UNKNOWN — never defaults to false ("confirmed own store").
+    const otherStoreFor = (id: string): boolean | null => {
+      if (!enforceStore) return false
+      if (!ownIds) return null
+      return !ownIds.has(id)
+    }
+    const options: CustomerSearchOption[] = merged
+      .slice(0, CUSTOMER_SEARCH_LIMIT)
+      .map((r) => ({ ...r, other_store: otherStoreFor(r.id) }))
+    return { options, karute_number_unavailable: karuteNumberUnavailable, remote_more: remoteMore }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }

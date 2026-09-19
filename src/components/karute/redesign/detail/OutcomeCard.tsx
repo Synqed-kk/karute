@@ -25,6 +25,10 @@ interface OutcomeCardProps {
     autoDecided: boolean
     isFirstVisit: boolean
   } | null
+  /** ⚖ 9/16 store lock: the viewer may READ this label but not set it (the
+   *  record sits outside their store assignment, and updateKaruteOutcome
+   *  refuses). The chip stays; the 記録/編集 control goes. */
+  readOnly?: boolean
 }
 
 const CHIP: Record<
@@ -57,6 +61,7 @@ const chipFor = (status: string) =>
 
 export function OutcomeCard({
   karuteRecordId,
+  readOnly,
   customerId,
   customerName,
   current,
@@ -112,14 +117,16 @@ export function OutcomeCard({
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-muted"
-      >
-        <Pencil size={13} />
-        {status ? t('edit') : t('record')}
-      </button>
+      {!readOnly && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-muted"
+        >
+          <Pencil size={13} />
+          {status ? t('edit') : t('record')}
+        </button>
+      )}
 
       <PostSessionResolutionDialog
         open={open}

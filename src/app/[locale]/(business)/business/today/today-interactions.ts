@@ -55,6 +55,30 @@ import type { ReservedLaneMask, ReservedSpan } from './reserved-mask'
 
 export type { DragMode, DragOrigin }
 
+// ⚖ D-53 (u)/(n2b1) — a LOCAL structural alias, never an import: this file may
+// not import the words table even type-only (its inventory entry + the C5
+// leg both forbid it). Callers pass the table's rows, which are structurally
+// compatible.
+type LaneWords = { resourceNoun: string; privateWord: string | null; fullWord: string; turnoverWord: string | null }
+
+// ⚖ D-53 (ak)/(al) — a LOCAL structural alias, never an import: this file is
+// frozen for the round and may not import the words table. The caller
+// resolves a null private word with the generic row before handing this in.
+type AskWords = { resourceNoun: string; privateWord: string }
+
+// ⚖ D-53 (u)/(n2b2) — the WHOLE-BOARD shape: every lane's own row, keyed
+// GROUP + KEY (a lane key is unique only within its group), plus the ONE
+// fallback for a lane this map has no row for (a floating/unknown lane, or a
+// key nobody built the map for). Built once in TodayScreen from `props.lanes`
+// (R-1); every function below that walks a whole board takes this rather than
+// re-deriving `lane.stores` itself.
+type LaneWordsMap = { byLaneKey: Record<string, LaneWords>; generic: LaneWords }
+
+/** The one lane's resolved row, or the map's own fallback. Local — no test
+ *  needs it directly, every whole-board function below is exercised through
+ *  its own exported entry point. */
+const wordsFor = (words: LaneWordsMap, lane: BoardLane): LaneWords => words.byLaneKey[`${lane.group}:${lane.key}`] ?? words.generic
+
 /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET, INDEXED BY LANE, once per pass.
  *
  *  Every seam below reads the mask the same way and none of them derives it: an
@@ -842,6 +866,10 @@ export function applyMoves(
   parked: string[],
   added: Array<{ laneKey: string; item: BoardItem }>,
   hours: Hours,
+  // ⚖ D-53 (u)/(n2b2) — REQUIRED, immediately after `hours`: a booking that
+  // changes room re-mints its trailing turnaround (`withTrailingCleanup`
+  // below), which needs the destination lane's own word.
+  words: LaneWordsMap,
   /** ⚖ BATCH-6 flag 45 — THE BED SIDE'S OWN MEMBERSHIP. Absent (the default) is
    *  the behaviour this file shipped with and still the right one for every
    *  booking nobody has grabbed by its bed row: the room keeps the lane the
@@ -1014,7 +1042,7 @@ export function applyMoves(
       arrivals.push(row)
     }
     const settled = [...kept, ...arrivals].map((i) => moved(i, lane.group)).sort(byX)
-    return { ...lane, items: lane.group === 'beds' ? withTrailingCleanup(lane, settled, cleanupOf, hours, cleanupMinutesByBed, movedRoom) : settled }
+    return { ...lane, items: lane.group === 'beds' ? withTrailingCleanup(lane, settled, cleanupOf, hours, words, cleanupMinutesByBed, movedRoom) : settled }
   })
 }
 
@@ -1049,12 +1077,19 @@ function withTrailingCleanup(
   items: BoardItem[],
   cleanupOf: Map<string, BoardItem>,
   hours: Hours,
+  // ⚖ D-53 (u)/(n2b2) — REQUIRED, immediately after `hours`, before the
+  // optional `cleanupMinutesByBed?`. `lane` here is always a BEDS lane (the
+  // one caller only reaches this branch on `lane.group === 'beds'`).
+  words: LaneWordsMap,
   cleanupMinutesByBed?: Record<string, number>,
   movedRoom?: ReadonlySet<string>,
 ): BoardItem[] {
   const out = [...items]
   /** This room's own policy — the tail length for anyone who arrived here. */
   const policy = cleanupMinutesByBed?.[lane.key]
+  // This room's own turnover word, resolved ONCE — the generic row's own is
+  // pinned non-null (P13 in the words table's own suite), so the `!` is sound.
+  const t = wordsFor(words, lane).turnoverWord ?? words.generic.turnoverWord!
   for (const b of items) {
     if (b.kind !== 'booking' || !b.caseId) continue
     const orig = cleanupOf.get(b.caseId)
@@ -1075,14 +1110,14 @@ function withTrailingCleanup(
       // A room whose turnaround the SERVER never drew (origin 0, destination 15)
       // has no `orig` to re-place, so the tail is minted in today-board's own
       // shape (:594-600) rather than skipped — the same row, one room over.
-      ...(orig ?? cleanupShell(b)),
+      ...(orig ?? cleanupShell(b, t)),
       ...place(start, end, hours),
       time: `${clock(start)}〜`,
       micro: end - start <= 20,
       // The room's name is in the sentence a screen reader reads out, so a
       // retargeted turnaround that still says ベッド3 is the impossible state
       // ⚖ 8/9 forbids — the same reason the card's 【tag】 is rebuilt above.
-      label: `${lane.label}、${clock(start)}から${clock(end)}、清掃・予約不可`,
+      label: `${lane.label}、${clock(start)}から${clock(end)}、${t}・予約不可`,
     })
   }
   return out.sort(byX)
@@ -1091,14 +1126,14 @@ function withTrailingCleanup(
 /** ⚖ 9/8 PACKING fix round 2 (F4) — a 清掃 row for a booking the server drew no
  *  turnaround for, in today-board's own shape (:594-600). Every positional field
  *  is overwritten by the caller; what lives here is the chrome a turnaround
- *  wears — its key, its kind, its 清掃 title and the nulls that say it is not a
- *  booking. */
-function cleanupShell(b: BoardItem): BoardItem {
+ *  wears — its key, its kind, the turnover word handed in as its title (e.g.
+ *  清掃), and the nulls that say it is not a booking. */
+function cleanupShell(b: BoardItem, turnoverWord: string): BoardItem {
   return {
     key: `${b.caseId}-cleanup`,
     kind: 'cleanup', state: null, category: null,
     x: 0, w: 0, startMin: 0, endMin: 0,
-    title: '清掃', tag: '', time: '',
+    title: turnoverWord, tag: '', time: '',
     ticketCat: null, ticketCore: null, held: false, micro: false, caseId: null,
     label: '',
   }
@@ -1133,7 +1168,7 @@ const clock = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${S
  *  シフト管理 instead of watching nothing happen. The sentence rides with the
  *  decision rather than sitting in the JSX so it is provable without a
  *  renderer: null here and the board goes silent again. */
-export function blockChrome(kind: BoardItem['kind']): {
+export function blockChrome(kind: BoardItem['kind'], turnoverWord: string): {
   cls: 'cleanup' | 'absence' | 'block'
   opens: boolean
   locked: string | null
@@ -1158,7 +1193,7 @@ export function blockChrome(kind: BoardItem['kind']): {
     cls,
     opens,
     locked: opens ? null : '勤務不可はシフト管理で変更します — ボード上では動かせません',
-    notDeletable: cls === 'cleanup' ? 'この清掃は直前の予約に付いています。予約を動かせば一緒に動き、予約が消えれば一緒に消えます。' : null,
+    notDeletable: cls === 'cleanup' ? `この${turnoverWord}は直前の予約に付いています。予約を動かせば一緒に動き、予約が消えれば一緒に消えます。` : null,
   }
 }
 
@@ -1366,7 +1401,7 @@ export interface SellDrop {
  *  and it is legal: both are alternatives on one room's menu, and one booking
  *  takes the menu away. What the cap really guarantees is the per-slot form —
  *  within ONE slot the rooms are distinct — and that is the whole of it. */
-function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellReconcile): SellCell[] {
+function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellReconcile, words: AskWords): SellCell[] {
   /** The gap layer emits every box twice — once for the staff row, once for the
    *  bed row — so the pair collapses to one promise before anything is judged. */
   // ⚖ 75(i) — the claim's OWN LANE rides along. It was already on the `GapCell`
@@ -1484,6 +1519,7 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
         id: null,
         currentBed: null,
         stores,
+        words,
         // ⚖ ROOM RULE — a hypothetical never needs the private room. A window is
         // an advertisement, not a booking: there is no booking to carry a
         // 個室のみ tag, so the offer takes a standard room first like anyone else.
@@ -1537,6 +1573,9 @@ export function sellLayerFor(
     hi: number
     hqMin: number
     depth: number
+    /** ⚖ D-53 (ak)/(al) — pass-through to the reconcile's own allocator ask;
+     *  never read for the sell layer's own cells. */
+    words: AskWords
     /** ⚖ R4 — the other layer's finished promises. See `SellReconcile`. */
     reconcile?: SellReconcile
     /** ⚖ SPEC-SELLING-ENGINE §4.2 Q4 — the held set for THIS world. Absent =
@@ -1555,12 +1594,16 @@ export function sellLayerFor(
     sellSlotMin: opts.sellSlotMin,
     now: opts.nowMinute,
     priceFor: (lane, hour) => priceAt(lane.listPrice, hour, opts.hi, opts.hqMin, opts.depth),
+    // ⚖ D-53 (c) R1 — the same rule handed DOWN a third time (the mask C, the
+    // netting F4, the sell layer N0): a staff whose store owns no unit sells on
+    // staff time alone.
+    needsUnit: (s) => storeHasBeds(lanes, s.stores),
   })
   // ⚖ R4 — BEFORE `buildSellLayer`, never after and never in the renderer: the
   // bands, the density verdict and 「販売可能枠 N窓」 are all computed from these
   // cells, and a layer built from boxes the screen then declines to draw is a
   // board that counts what it does not show.
-  const cells = opts.reconcile ? reconcileSellCells(raw, lanes, opts.reconcile) : raw
+  const cells = opts.reconcile ? reconcileSellCells(raw, lanes, opts.reconcile, opts.words) : raw
   // ⚖ Q4 — TAGGED, NOT WITHHELD, and the difference is the whole ruling. A
   // standard hour inside a held window is exactly what a rank-opened store or a
   // release sells, so it stays derived and the layer keeps counting it; what it
@@ -2418,7 +2461,7 @@ function beforeCtxFor(lane: BoardLane, input: RailInput, ctx: GuardContext): Gua
 /** The 60分配置 rail for every staff lane — canon `renderSlotBoxes` (:7543),
  *  minus the DOM. Every exact 30-minute start on the board, judged by the
  *  guard engine against the pocket it would land in. */
-export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[] {
+export function guardRailsFor(lanes: BoardLane[], input: RailInput, words: LaneWordsMap): GuardRail[] {
   // ⚖ AMENDMENT 2, N2 — the same insurance, and here it is a TRUE hang: the cell
   // walk below is `start += input.stepMin`, so a zero step never reaches
   // `input.close` and takes the render thread with it. Unreachable today only
@@ -2455,7 +2498,7 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[]
     // ⚖ perf — the gap axis's rest leg, once for the whole rail (see `restResidueOn`).
     const restGap = restResidueOn(engine, pockets, resting, ctx, RESIDUE_COMPARE_STRIPS_EXEMPTIONS)
     for (let start = input.open; start < input.close; start += input.stepMin) {
-      cells.push(railCell(engine, pockets, start, input, ctx, resting, beforeCtx, restGap))
+      cells.push(railCell(engine, pockets, start, input, ctx, resting, beforeCtx, restGap, wordsFor(words, lane)))
     }
     rails.push({ laneKey: lane.key, laneLabel: lane.label, cells })
   }
@@ -2464,7 +2507,7 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[]
 
 /** The same verdict for ONE placement — the card actually in hand, at its own
  *  length, which is the question a drop asks and the 60-minute rail does not. */
-export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: number, input: RailInput): RailCell | null {
+export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: number, input: RailInput, words: LaneWordsMap): RailCell | null {
   const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
   if (!lane || lane.window == null || input.locked.includes(lane.key)) return null
   const pockets = freePockets({
@@ -2475,7 +2518,7 @@ export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: numbe
     occupied: laneSpans(lane, input.excludeId),
   })
   const ctx = railCtx(lane, input)
-  return railCell(createGapGuard(input.guard), pockets, start, input, ctx, restingOn(lane, input), beforeCtxFor(lane, input, ctx))
+  return railCell(createGapGuard(input.guard), pockets, start, input, ctx, restingOn(lane, input), beforeCtxFor(lane, input, ctx), undefined, wordsFor(words, lane))
 }
 
 /** ⚖ Liam 2026-09-07 (MOCK-NUDGE-RESIDUE-2026-09-07/SIGNOFF.md) — THE SLIVER POLICY.
@@ -2687,6 +2730,10 @@ function railCell(
   resting: GuardPlacement | null = null,
   beforeCtx: GuardContext = ctx,
   restGap: RestResidue | null = null,
+  // ⚖ D-53 (u)/(n2b2) — REQUIRED, trailing after the default-initialised
+  // params above (a required parameter may follow them; both callers already
+  // pass every earlier positional explicitly).
+  words: LaneWords,
 ): RailCell {
   const blocked = (sentence: string, reason: RailReason): RailCell => ({
     start, state: 'blocked', label: '—', sentence, reason, alternatives: [], alternativeKind: null, ackAllowed: false,
@@ -2797,7 +2844,7 @@ function railCell(
     return {
       ...blocked(
         input.placementFeasible
-          ? `この開始ではベッドを${input.dur}分確保できません`
+          ? `この開始では${words.resourceNoun}を${input.dur}分確保できません`
           : reasonLine(v.reason, input.protectedDur),
         'bed',
       ),
@@ -3063,8 +3110,8 @@ export const withheldTitle = (withName: string | null): string =>
  *  is the thing that is short, not the hour.
  *
  *  // JP-NATIVE PASS 2026-09-13: PASS as written */
-export const withheldSub = (dur: number): string =>
-  `${dur}分・ベッドが空いていません・確保が解除されれば販売に戻ります`
+export const withheldSub = (dur: number, words: LaneWords): string =>
+  `${dur}分・${words.resourceNoun}が空いていません・確保が解除されれば販売に戻ります`
 
 /** ⚖ D-11 · SPEC-R2 §3.2 — THE 枠 THE CLOCK LET GO OF, and its mark says so in
  *  the same words the manual release's own toast uses (TodayScreen `releaseAsk`),
@@ -3264,8 +3311,8 @@ export const RAIL_STEP_MIN = 30
  *  `companionLines`' own, byte for byte; `caution` is the verdict's own sentence
  *  when the shuffle costs a protected window, and `null` when it does not — it
  *  is never a second wording of one. */
-export function reseatSentence(base: string, lines: readonly string[], caution: string | null): string {
-  const moved = `ここに置くと、ほかのお客様のベッドを入れ替えて収めます（${lines.join('、')}）`
+export function reseatSentence(base: string, lines: readonly string[], caution: string | null, words: LaneWords): string {
+  const moved = `ここに置くと、ほかのお客様の${words.resourceNoun}を入れ替えて収めます（${lines.join('、')}）`
   return `${base}。${moved}${caution != null ? `。${caution}` : ''}`
 }
 
@@ -3343,12 +3390,18 @@ export function railExplain(
      *  by a minute and be perfectly placeable, and the sentence says so while
      *  the word must not. The word is about the 30 minutes it is drawn over. */
     reservedHalf?: boolean
-  } = {},
+    /** ⚖ D-53 (u)/(n2b2) — this chip's own lane's row, resolved by the caller
+     *  (`explainRails`, per-rail: its own staff lane's words, chrome when the
+     *  rail names no lane on the board). REQUIRED — a chip's word and sentence
+     *  are never generic by omission. */
+    words: LaneWords
+  },
 ): { word: string | null; wordReason: RailReason | null; sentence: string; cue: RailCue | null; mark: RailMark | null } {
   // ⚖ NATIVE PASS (2026-08-26) — 〜, NOT AN EN DASH. The bed branch's own
   // sentence, two chips away on the same strip, spells the identical window
   // 「13:30〜14:30」; one strip may not punctuate one fact two ways. The ⚖-ruled
   // appended-parenthesis SHAPE is untouched — this is the glyph inside it.
+  const w = opts.words
   const judged = `（${clockOf(cell.start)}〜${clockOf(cell.start + dur)}）`
   const blockers = opts.room?.blockers ?? []
   // ⚖ 44 FIX ROUND (blind lens 1, F1) — A WORD MAY ONLY RIDE A REFUSAL THAT
@@ -3374,7 +3427,10 @@ export function railExplain(
       //
       // ⚖ NATIVE PASS (2026-08-26) — 満室 and 清掃 confirmed as ruled. Both are
       // chip vocabulary, which the 8/25 pass deliberately left standing.
-      ? (blockers.every((i) => i.kind === 'cleanup') ? '清掃' : '満室')
+      // ⚖ D-53 (u)/(n2b2) — the store's own two words, with the null collapse:
+      // a row with no turnover word (yoga) never wears it, on a cleanup window
+      // or otherwise — the chip stays `w.fullWord` either way.
+      ? (w.turnoverWord == null ? w.fullWord : (blockers.every((i) => i.kind === 'cleanup') ? w.turnoverWord : w.fullWord))
       : null
   // ⚖ LIAM RULING 1 + 3 (2026-09-09) — THE SAME CLASSIFICATION, ASKED OF THE
   // HALF HOUR. One rule, one spelling: a refusal that named somebody, sorted
@@ -3383,7 +3439,7 @@ export function railExplain(
   const halfBlockers = opts.halfHour?.blockers ?? []
   const halfWord =
     opts.halfHour != null && opts.halfHour.full && opts.halfHour.refusal != null && halfBlockers.length > 0
-      ? (halfBlockers.every((i) => i.kind === 'cleanup') ? '清掃' : '満室')
+      ? (w.turnoverWord == null ? w.fullWord : (halfBlockers.every((i) => i.kind === 'cleanup') ? w.turnoverWord : w.fullWord))
       : null
   const word =
     // ⚖ PRECEDENCE, as Liam read it on the mock's 「変わらないもの」 tab and
@@ -3506,7 +3562,7 @@ export function railExplain(
     return {
       word: null,
       wordReason: null,
-      sentence: reseatSentence(base, opts.reseat.lines, opts.reseat.caution),
+      sentence: reseatSentence(base, opts.reseat.lines, opts.reseat.caution, w),
       cue: null,
       mark: { face: 'reseat', tone: opts.reseat.tone },
     }
@@ -3529,7 +3585,7 @@ export function railExplain(
   //     and invites 「then turn it back on」. The honest fact is that no sellable
   //     box was ever put out for this start.
   const clause = opts.takerLabel
-    ? `ベッドは別のスタッフ（${opts.takerLabel}）の枠が使うため、ここには販売可能枠を出していません`
+    ? `${w.resourceNoun}は別のスタッフ（${opts.takerLabel}）の枠が使うため、ここには販売可能枠を出していません`
     : 'この開始には販売可能枠が出ていません'
   return {
     word,
@@ -3725,6 +3781,10 @@ export function explainRails(
      *  the 9/8 round already lost a positional `true` to exactly that blind
      *  spot — so the count is the belt and this is the braces. */
     allocate?: typeof allocateBed
+    /** ⚖ D-53 (u)/(n2b2) — the WHOLE board's map, REQUIRED: each rail resolves
+     *  its own staff lane's row from it (chrome when the rail names no lane),
+     *  and the reseat search's own `applyBedMoves` call needs the whole map. */
+    words: LaneWordsMap
   },
 ): RailExplained {
   const out: RailExplained = new Map()
@@ -3746,6 +3806,14 @@ export function explainRails(
   // one. Reachable and worth fixing; not the commonest path.
   const handItem =
     opts.handId == null ? null : (lanes.flatMap((l) => l.items).find((i) => i.caseId === opts.handId) ?? null)
+  // ⚖ D-53 (ak)/(al) COLD-READ F1 — the ask's own word pair, per lane. `askOn`
+  // and `halfWalk` are declared ABOVE the rail loop, so the per-rail
+  // `railWords` below is out of scope here; this resolves the same map entry
+  // itself, once per lane asked.
+  const askWords = (lane: BoardLane): AskWords => {
+    const w = wordsFor(opts.words, lane)
+    return { resourceNoun: w.resourceNoun, privateWord: w.privateWord ?? opts.words.generic.privateWord! }
+  }
   /** THE STRIP'S OWN ROOM QUESTION, spelled once and asked over two windows: the
    *  chip's own length (the sentence a press answers with) and — ⚖ ruling 1 —
    *  its first half hour (the word it wears). Two windows of ONE question, so
@@ -3763,6 +3831,7 @@ export function explainRails(
     // it never gets here (fix round 3, delta2 lens 4 D8).
     requiresPrivate: handItem?.requiresPrivateRoom === true,
     stores: lane.stores,
+    words: askWords(lane),
     start: from,
     end: to,
     stagedId: opts.stagedId,
@@ -3787,6 +3856,11 @@ export function explainRails(
   }
   for (const rail of rails) {
     const staff = lanes.find((l) => l.key === rail.laneKey && l.group === 'staff')
+    // ⚖ D-53 (u)/(n2b2) — this rail's own row, once per rail: its staff lane's
+    // words, or chrome when the rail names no lane on the board (`staff` is
+    // `undefined` only in that case — every rail this function ever builds a
+    // strip for came from a real staff lane, but the type admits the miss).
+    const railWords = staff ? wordsFor(opts.words, staff) : opts.words.generic
     // Per lane, once — the ad-less test below is asked per cell and these three
     // lists do not change between them.
     const sellHere = opts.sellCells.filter((s) => s.group === 'staff' && s.laneKey === rail.laneKey)
@@ -4022,7 +4096,7 @@ export function explainRails(
         if (packed == null || packed.laneKey == null || packed.reseats.length === 0) return null
         const companions = companionsFor(lanes, packed.reseats)
         if (companions.length === 0) return null
-        const after = applyBedMoves(lanes, companions, opts.reseat!.hours, opts.reseat!.cleanupMinutesByBed)
+        const after = applyBedMoves(lanes, companions, opts.reseat!.hours, opts.words, opts.reseat!.cleanupMinutesByBed)
         const v = opts.reseat!.landingOn(after, rail.laneKey, c.start)
         if (v.kind === 'blocked') return null
         return {
@@ -4042,6 +4116,7 @@ export function explainRails(
           adless: !advertised && reserved == null && opts.sellDisplayed,
           takerLabel: takerKey != null ? (lanes.find((l) => l.key === takerKey)?.label ?? null) : null,
           reservedDur: reserved ? reserved.dur : null,
+          words: railWords,
         }),
       )
     }
@@ -4310,16 +4385,17 @@ export function nextSpan(origin: DragOrigin, track: Element, dx: number, step: n
 /** canon `parkBooking` (:5556). What the shelf chip says about a parked card:
  *  its length, its ticket line, and where it came from — because the chip is
  *  the only remaining record of a card that is no longer on the board. */
-export function parkChipText(item: BoardItem, hours: Hours, dayLabel: string): { title: string; line1: string; line2: string } {
+export function parkChipText(item: BoardItem, hours: Hours, dayLabel: string, words: LaneWords, generic: LaneWords): { title: string; line1: string; line2: string } {
   const durMin = item.endMin - item.startMin
   const tkt = [item.ticketCat, item.ticketCore].filter(Boolean).join(' ')
+  const p = words.privateWord ?? generic.privateWord!
   return {
     title: `${item.title}様（仮押さえ・未配置）`,
     // ⚖ FIX ROUND 1 (blind lens 4 F6) — AND THE 個室のみ TAG RIDES THE SHELF TOO.
     // The shelf is exactly where the operator re-places a parked card, and the
     // one fact that will refuse the drop was invisible there: the card said
     // 個室のみ and its own chip said only 「VIP 月額」.
-    line1: `${durMin}分${tkt ? `・${tkt}` : ''}${item.requiresPrivateRoom === true ? '・個室のみ' : ''}`,
+    line1: `${durMin}分${tkt ? `・${tkt}` : ''}${item.requiresPrivateRoom === true ? `・${p}のみ` : ''}`,
     line2: `元: ${dayLabel} ${clock(item.startMin)}〜${clock(item.endMin)} — 置きたい日の枠へドラッグ`,
   }
 }
@@ -4602,6 +4678,18 @@ export function blockNode(board: Element | null, key: string): HTMLElement | nul
  *  TEST when the operator chose the room themselves on a bed row — that gesture
  *  never reaches the allocator, which is how a staff/room pair in two different
  *  stores could be committed under the all-stores lens (Greptile #725). */
+/** ⚖ ROUND 3 · C (⚖ D-52 (a)) — DOES THIS STORE OWN A ROOM AT ALL, spelled ONCE.
+ *  The one home for the no-bed door: every bed sentence and every bed door on
+ *  this board is gated here or sits inside a bed-lane context by construction
+ *  (PKT-BUILD-R3-C §Census). `stores` narrows the question to one store binding
+ *  — the allocator's and the mask's form, `sharesStore`'s own two-sided rule —
+ *  and `null` asks the whole board, the doors' form. A store with no rooms has
+ *  no room constraint: a landing there needs no room, a protected window there
+ *  needs staff time alone, and the honest 確保 netting has nothing to net. */
+export function storeHasBeds(lanes: readonly BoardLane[], stores: string[] | null = null): boolean {
+  return lanes.some((l) => l.group === 'beds' && (stores === null || sharesStore(stores, l.stores)))
+}
+
 export function sharesStore(a: string[] | null, b: string[] | null): boolean {
   return a === null || b === null || a.some((s) => b.includes(s))
 }
@@ -5028,6 +5116,10 @@ export function allocateBed(
      *  construction. An optional field defaulting to "every store" would be
      *  fail-open, which is the one thing this must not be. */
     stores: string[] | null
+    /** ⚖ D-53 (ak)/(al) — the word the refusal sentence names the room by,
+     *  the store's own. REQUIRED: a silent literal default is exactly the
+     *  wrong-word bug this round exists to close. */
+    words: AskWords
     /** ⚖ ROOM RULE — 個室のみ, read off the BOOKING's own tag and never off the
      *  customer. Sitting in the 個室 grants nothing: an untagged booking in it
      *  moves to any free room with no verdict and no manager. */
@@ -5110,6 +5202,16 @@ export function allocateBed(
         i.endMin > start &&
         i.startMin < end,
     )
+  // ⚖ ROUND 3 · C (⚖ D-52 (a)) — A STORE WITH NO ROOMS NEEDS NO ROOM. The
+  // untagged booking on a staff lane whose store owns no bed lane used to fall
+  // through an empty candidate list into the now-retired 「ベッドがありません」
+  // refusal (FIX ROUND 1 F15 / FIX ROUND 2 N8 below) — a refusal that stopped
+  // every landing on a gym. The landing stands with no room; a 個室のみ booking
+  // still needs the private room it asks for, so it keeps the search and its
+  // sentence.
+  if (!opts.requiresPrivate && !storeHasBeds(lanes, opts.stores)) {
+    return { laneKey: null, refusal: null, blockers: [], reseats: [] }
+  }
   // ⚖ STORE ISOLATION where the allocator CHOOSES a room. The explicit bed-side
   // gesture never reaches here — the operator picked the room out loud — so the
   // same predicate is applied to that landing as a confirm-blocking check row;
@@ -5153,7 +5255,7 @@ export function allocateBed(
   if (packed) return { laneKey: packed.laneKey, refusal: null, blockers: [], reseats: packed.reseats }
   return {
     laneKey: null,
-    refusal: fullRoomsRefusal(rows, start, end, opts.requiresPrivate, opts.stagedId ?? null),
+    refusal: fullRoomsRefusal(rows, start, end, opts.requiresPrivate, opts.stagedId ?? null, opts.words),
     blockers: rows.flatMap(([, blockers]) => blockers),
     reseats: [],
   }
@@ -5253,10 +5355,13 @@ export function gestureAllocator(opts: {
     // ⚖ CODE-LENS-2 N1 — THE ASSUMPTION THE RAW `|` JOIN RESTS ON, stated: none
     // of the interpolated fields can CONTAIN a `|`. `id` and `stagedId` are
     // booking UUIDs, `currentBed` is a bed lane key, and `stores` arrives
-    // JSON-quoted. If any of them ever could, two different questions would
+    // JSON-quoted; ⚖ D-53 (ak)/(al) — the two word fields are rows of a frozen
+    // table with no `|` in any value today; when a store-editable override
+    // lands (N3) the override's validator, or a JSON-quoted pair here, must
+    // keep that true. If any of them ever could, two different questions would
     // share one key — the single failure a memo is not allowed to have — and
     // this line is where that would have to be answered.
-    const key = `${o.id}|${o.currentBed}|${JSON.stringify(o.stores)}|${o.requiresPrivate}|${o.start}|${o.end}|${o.stagedId ?? ''}|${o.now}|${o.allowBusy === true}`
+    const key = `${o.id}|${o.currentBed}|${JSON.stringify(o.stores)}|${o.requiresPrivate}|${o.start}|${o.end}|${o.stagedId ?? ''}|${o.now}|${o.allowBusy === true}|${o.words.resourceNoun}|${o.words.privateWord}`
     const hit = memo.get(key)
     if (hit !== undefined) {
       hits += 1
@@ -5369,8 +5474,11 @@ export function handRowStamp(boardLanes: readonly BoardLane[], handId: string, h
 export function bedFeasibility(
   lanes: BoardLane[],
   excludeId: string | null,
+  words: AskWords,
 ): ((lane: BoardLane, start: number, dur: number) => boolean) | undefined {
-  if (!lanes.some((l) => l.group === 'beds')) return undefined
+  // ⚖ ROUND 3 · C (⚖ D-52 (a)) — the spelling moves to the one home; the answer
+  // is identical on every board.
+  if (!storeHasBeds(lanes)) return undefined
   const held = excludeId ? lanes.flatMap((l) => l.items).find((i) => i.caseId === excludeId) : undefined
   const currentBed = excludeId
     ? (lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === excludeId))?.key ?? null)
@@ -5389,6 +5497,7 @@ export function bedFeasibility(
         id: excludeId,
         currentBed,
         stores: lane.stores,
+        words,
         // ⚖ ROOM RULE — the BOOKING's own tag, never the customer's badge.
         requiresPrivate: held?.requiresPrivateRoom === true,
         start,
@@ -5502,12 +5611,15 @@ export function applyBedMoves(
   lanes: BoardLane[],
   companions: readonly BedCompanion[],
   hours: Hours,
+  // ⚖ D-53 (u)/(n2b2) — REQUIRED, immediately after `hours` (same rule as
+  // `applyMoves`, which this forwards to).
+  words: LaneWordsMap,
   cleanupMinutesByBed?: Record<string, number>,
 ): BoardLane[] {
   if (companions.length === 0) return lanes
   const bedMoves: Moves = {}
   for (const c of companions) bedMoves[c.id] = { laneKey: c.bedTo, x: c.bedOrigin.x, w: c.bedOrigin.w }
-  return applyMoves(lanes, {}, [], [], hours, bedMoves, cleanupMinutesByBed)
+  return applyMoves(lanes, {}, [], [], hours, words, bedMoves, cleanupMinutesByBed)
 }
 
 /** ⚖ 9/8 PACKING, THE RE-LANDING RULE — every companion put back where it stood
@@ -5521,9 +5633,12 @@ export function lanesWithCompanionsRestored(
   lanes: BoardLane[],
   companions: readonly BedCompanion[] | undefined,
   hours: Hours,
+  // ⚖ D-53 (u)/(n2b2) — REQUIRED, immediately after `hours` (forwarded to
+  // `applyBedMoves`).
+  words: LaneWordsMap,
   cleanupMinutesByBed?: Record<string, number>,
 ): BoardLane[] {
-  return applyBedMoves(lanes, (companions ?? []).map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), hours, cleanupMinutesByBed)
+  return applyBedMoves(lanes, (companions ?? []).map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), hours, words, cleanupMinutesByBed)
 }
 
 /** ⚖ 9/8 PACKING — VACATE BEFORE OCCUPY. A card moving INTO a room is written
@@ -5588,6 +5703,7 @@ export function companionRoomStillFree(
    *  the two percent numbers are read. */
   span: { x: number; w: number },
   hours: Hours,
+  words: AskWords,
   allocate: typeof allocateBed = allocateBed,
 ): { ok: true } | { ok: false; refusal: string | null } {
   const staffLane = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === companion.id))
@@ -5596,6 +5712,7 @@ export function companionRoomStillFree(
     id: companion.id,
     currentBed: companion.bedTo,
     stores: staffLane?.stores ?? null,
+    words,
     requiresPrivate: held?.requiresPrivateRoom === true,
     start: minuteOf(span.x, hours),
     end: minuteOf(span.x + span.w, hours),
@@ -5705,19 +5822,20 @@ function fullRoomsRefusal(
   end: number,
   requiresPrivate: boolean,
   stagedId: string | null = null,
+  words: AskWords,
 ): string {
   const window = `${clockOf(start)}〜${clockOf(end)}`
-  const room = requiresPrivate ? '個室' : 'ベッド'
+  const room = requiresPrivate ? words.privateWord : words.resourceNoun
   // ⚖ ROOM RULE clause 5 — A DEAD END GETS THE WAY OUT. 「使える個室がありません」
   // told the operator a true thing they could do nothing with, so the move they
   // can actually make is named instead.
   //
-  // ⚖ FIX ROUND 1 (blind lens 3 F15) — WHICH BRANCH REACHES WHICH SENTENCE. This
-  // comment used to claim `rows.length === 0` "can now only mean a TAGGED
-  // booking at a store with no private room". It cannot: an UNTAGGED booking on
-  // a staff lane whose store owns no bed lane at all reaches it too (`beds` is
-  // empty, so `candidates` is empty), which is exactly why the `else` arm below
-  // is still live and correct code rather than a leftover.
+  // ⚖ FIX ROUND 1 (blind lens 3 F15) — WHICH BRANCH REACHES WHICH SENTENCE.
+  // ⚖ ROUND 3 · C (⚖ D-52 (a)) SUPERSEDES THIS: an UNTAGGED booking on a staff
+  // lane whose store owns no bed lane at all now returns before the search
+  // (`allocateBed`'s own early return, above `beds`), so it can never reach
+  // here. `rows.length === 0` now means only a TAGGED booking at a store whose
+  // beds are all standard — no private room to offer it.
   //
   // ⚖ FIX ROUND 1 (blind lens 3 F6) — AND THE WAY OUT IS ONE THE OPERATOR CAN
   // ACTUALLY TAKE. The first clause used to offer 「個室のみの指定を外す」, a
@@ -5727,15 +5845,14 @@ function fullRoomsRefusal(
   // verb was wrong: the booking already EXISTS and just got refused, so the
   // operator is 移す-ing it, never 予約する-ing it.
   //
-  // ⚖ FIX ROUND 2 (delta lens 3 N8) — AND THE SECOND ARM ANSWERS THE SAME
-  // QUESTION AS THE FIRST. Both arms are 「does a usable room exist HERE?」, and
-  // only one of them said so: 「14:05〜15:05に使えるベッドがありません」 named a
-  // window at a store that owns no bed lane at all, sending the operator hunting
-  // the clock for a room that does not exist at any hour.
+  // ⚖ FIX ROUND 2 (delta lens 3 N8) — AND THE SECOND ARM IS RETIRED. It used to
+  // answer the same 「does a usable room exist HERE?」 question for the
+  // UNTAGGED case too (「14:05〜15:05に使えるベッドがありません」 named at a
+  // store with no bed lane at all, sending the operator hunting the clock for a
+  // room that does not exist at any hour); ⚖ D-52 (a) closes that case before
+  // this function is ever called, so only the 個室 sentence remains.
   if (rows.length === 0) {
-    return requiresPrivate
-      ? 'この店舗には個室がありません。個室のある店舗へ移してください'
-      : 'この店舗には使えるベッドがありません'
+    return `この店舗には${words.privateWord}がありません。${words.privateWord}のある店舗へ移してください`
   }
   // ⚖ ROOM RULE clause 5 — AND UNTIL WHEN. The name alone left the operator to
   // go hunting the card for the one fact that lets them rearrange by hand, and
@@ -6121,7 +6238,7 @@ export interface LandingQuestion {
  *
  *  ⚖ 52 holds by construction: `blocked` is exactly the set where release does
  *  nothing, which is exactly where red and × are allowed to appear. */
-export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: RailCell | null): LandingVerdict {
+export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: RailCell | null, words: LaneWords, generic: LaneWords): LandingVerdict {
   // ⚖ 74 — the two facts this function computes and used to discard. They are
   // filled in as it walks, so a `stop` that fires before the walk reaches them
   // honestly reports none: no room had been solved and no row had been read.
@@ -6148,6 +6265,10 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // already passes a null escalation here (⚖ 61). `hard` is what that means.
   if (!staff) return stop('予約を置く行の中で離してください', 'hard')
 
+  // ⚖ D-53 (ak)/(al) COLD-READ F2 — the allocator's own resolved pair,
+  // declared here rather than beside this function's own `p` below (`solved`
+  // is used before `p`'s declaration otherwise — TS2448).
+  const ask: AskWords = { resourceNoun: words.resourceNoun, privateWord: words.privateWord ?? generic.privateWord! }
   // The room, solved or named. A refusal is HELD rather than returned: a person
   // who is already busy at this time is the more useful sentence, and saying
   // 満室 to someone whose staff member is double-booked answers the wrong half.
@@ -6158,6 +6279,7 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
         id: q.id,
         currentBed: q.bedLane,
         stores: staff.stores,
+        words: ask,
         requiresPrivate: q.requiresPrivate,
         start: q.start,
         end: q.end,
@@ -6202,6 +6324,7 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
       staffUntil: staff.untilLabel,
       laneLocked: q.locked.includes(staff.key),
       minutesOf: q.minutesOf,
+      turnoverWord: words.turnoverWord ?? generic.turnoverWord!,
     }),
     q.hasPrice,
   )
@@ -6244,8 +6367,9 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // both were wrong: the repetition is the rule's own vocabulary and it did not
   // change (three times in 36 now). What went is the third stop — 「〜ので」 joins
   // the reason to the action so they read in one breath.
+  const p = words.privateWord ?? generic.privateWord!
   if (!q.solveRoom && bed && !roomFitsNeed(bed, q.requiresPrivate)) {
-    return stop(`個室のみの予約です。${bed.label}は個室ではないので、個室の行に置いてください`, 'hard', null)
+    return stop(`${p}のみの予約です。${bed.label}は${p}ではないので、${p}の行に置いてください`, 'hard', null)
   }
 
   const failed = checks.find((c) => !c.ok)

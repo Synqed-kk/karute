@@ -15,6 +15,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { storeStaffIdSetForBusiness } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { listAllCustomers } from '@/lib/customers/list-all'
@@ -106,6 +107,9 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
         : listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       loadKaruteWindowRows(synqed, {
         storeId: activeStore,
+        // Same clamp the customer read above carries: a clamped caller with
+        // no store reaches NO karute (⚖ Liam 2026-09-16).
+        enforceStore: clamped,
         olderThan: parsed.data.olderThan,
         month: parsed.data.month,
         loadedCount: parsed.data.loadedCount,
@@ -117,11 +121,13 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
     const currentStaffId = staffList.some((s) => s.id === ctx.identity.authUserId)
       ? ctx.identity.authUserId
       : null
-    const storeStaffIds = await storeStaffIdSetForBusiness(
-      staffList,
-      activeStore,
-      ctx.identity.businessId,
-    )
+    const storeStaffIds = reachesNoStore(clamp)
+      ? new Set<string>()
+      : await storeStaffIdSetForBusiness(
+          staffList,
+          activeStore,
+          ctx.identity.businessId,
+        )
 
     const screen = buildSessionsListScreen({
       staffList,

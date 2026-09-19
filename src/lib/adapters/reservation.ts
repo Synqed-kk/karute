@@ -116,6 +116,35 @@ export type WeekDayRowData = WeekDayCardData &
     newCountKnown?: boolean
   }
 
+/** One month cell: the package's MonthGridCell plus the one fact the 月 page's
+ *  own grid needs and the package has no slot for. Structurally assignable to
+ *  MonthGridCell[], so the pop-down panel keeps seeding itself from the page's
+ *  cells unchanged (it renders through the package grid, which ignores the
+ *  extra key). */
+export type MonthCell = MonthGridCell & {
+  /** 定休日 or 臨時休業 — the SAME fact the week row carries, read from the
+   *  SAME hoursFacts map, so a day cannot be 休 on one surface and open on
+   *  the other. */
+  closed: boolean
+  /** ⚖ PKT-2b — people whose first visit falls on this day, the month
+   *  line's own rule (metric-menu.ts `monthNewCount`, Σ over `inMonth`
+   *  cells). Optional and absent reads as KNOWN with 0, the same
+   *  bundle-skew convention `WeekDayRowData.newCountKnown` already carries —
+   *  a cell nobody ever merged this onto (the pop-down's own placeholder
+   *  read) renders no 新規 slot anyway (its grid has none), so it costs
+   *  nothing there. Both real doors (screen.ts, the thin screen) always set
+   *  it alongside `newCountKnown`. */
+  newCount?: number
+  /** False = the history read behind 新規 did not happen for this window;
+   *  `monthNewCount` withholds the WHOLE month rather than summing partial
+   *  data in with real counts. The week row's own flag (reservation.ts
+   *  `WeekDayRowData.newCountKnown`), one door apart. */
+  newCountKnown?: boolean
+}
+
+/** A counted booking as the two numbers the overlap check needs. */
+type BookingSpan = { start: number; end: number }
+
 /** Everything the capacity model needs that is not in the booking rows: the
  *  store's lane kind, its booking roster, the day's resolved hours. The CALLER
  *  resolves all of it — the module itself knows nothing of stores, business
@@ -134,6 +163,13 @@ export interface CapacityInputs {
   /** The salon's solo_mode capability — only consulted while
    *  BOOKING_SWITCHES.multiStaffCapacity is OFF. */
   soloMode?: boolean
+  /** The store row could not be read (a transient failure — never "no store
+   *  id to read"). No fact is set for ANY day in this call, so every row and
+   *  cell falls through the SAME no-store path an unresolved door already
+   *  uses (`capacityRowFields(undefined)` → `'unknown'`), rather than let the
+   *  caller's org-wide fallback type decide a lane kind for a store we could
+   *  not actually check (⚖ G2, Greptile round 1 #934). */
+  storeRowDegraded?: boolean
 }
 
 const MS_PER_DAY = 86_400_000
@@ -156,11 +192,18 @@ function jstDayStartMs(ymd: string): number {
  *  entirely, so a day with four hours booked reported 13 % occupied and seven
  *  hours free, with the concurrency guard unable to see the row at all. It is
  *  the same unvalidated-column trust E30 rejected for duration_minutes; a
- *  cleanup can only ever add minutes to a booking, so the arithmetic says so. */
+ *  cleanup can only ever add minutes to a booking, so the arithmetic says so.
+ *
+ *  ⚖ G1 (Greptile #934) — `occupied_until` is unvalidated in BOTH directions:
+ *  a value that fails to parse (`Date.parse` → NaN) is no extension at all,
+ *  never a NaN that poisons the Math.max and drops the whole row from the
+ *  span validation below. */
 function spanOf(a: Appointment): BookedSpan {
+  const endMs = Date.parse(a.ends_at)
+  const cleanupMs = a.occupied_until == null ? NaN : Date.parse(a.occupied_until)
   return {
     startMs: Date.parse(a.starts_at),
-    endMs: Math.max(Date.parse(a.ends_at), Date.parse(a.occupied_until ?? a.ends_at)),
+    endMs: Number.isFinite(cleanupMs) ? Math.max(endMs, cleanupMs) : endMs,
     staffId: a.staff_id ?? null,
   }
 }
@@ -228,6 +271,11 @@ function capacityFactsFor(
 
   const facts = new Map<string, CapacityFact>()
   for (const key of dayKeys) {
+    // ⚖ G2 — degraded: no entry at all, so the caller reading this key falls
+    // through to the same no-store path an out-of-window month already hits
+    // (capacityRowFields(undefined)), withholding capacity instead of
+    // computing one off the org-wide fallback type.
+    if (inputs.storeRowDegraded) continue
     const dayStartMs = jstDayStartMs(key)
     const hoursFact = inputs.hoursFacts?.get(key)
     facts.set(
@@ -501,7 +549,7 @@ function densityFor(count: number): MonthDensityBucket {
  *  `newCounts` absent = this door read no history at all, which is NOT the same
  *  as "nobody was new" — the cells then carry 0 with `newCountKnown: false`. */
 export function monthCellsToDTO(
-  cells: readonly MonthGridCell[],
+  cells: readonly MonthCell[],
   opts: {
     newCounts?: { byDay: ReadonlyMap<string, number>; known: boolean }
     facts?: ReadonlyMap<string, CapacityFact> | null
@@ -519,6 +567,11 @@ export function monthCellsToDTO(
     // anybody's first visit on.
     newCount: (known && c.inMonth && opts.newCounts?.byDay.get(c.id)) || 0,
     newCountKnown: known,
+    // MERGE 2026-09-17 (#951) — `closed` (main's A2 fact) rides straight off
+    // the MonthCell the caller already built; the shared mapper's own callers
+    // both compute it from the same hoursFacts read, so it is never a second,
+    // less-informed answer.
+    closed: c.closed,
     // The cell's own capacity fact, keyed by the same id the cell carries. A
     // padding cell has none and takes the no-capacity defaults — it renders no
     // numbers either way.
@@ -531,7 +584,11 @@ export function appointmentsToMonthCells(
   monthStart: Date,
   monthEnd: Date,
   today: Date,
-): MonthGridCell[] {
+  /** That day's resolved hours, keyed by JST YYYY-MM-DD — the same map the
+   *  week adapter above reads its own `closed` from (resolveWindowHours).
+   *  Absent = no cell is closed, today's behaviour. */
+  hoursFacts?: ReadonlyMap<string, DayHoursFact>,
+): MonthCell[] {
   const buckets = new Map<string, number>()
   // Same guard as the week adapter above: ONE 件 definition, so a month cell
   // and its week row can never disagree about the same day.
@@ -556,7 +613,7 @@ export function appointmentsToMonthCells(
   const gridEnd = new Date(monthEnd)
   gridEnd.setDate(gridEnd.getDate() + trailing)
 
-  const cells: MonthGridCell[] = []
+  const cells: MonthCell[] = []
   const cursor = new Date(gridStart)
   while (cursor <= gridEnd) {
     const key = isoDay(cursor)
@@ -571,6 +628,13 @@ export function appointmentsToMonthCells(
       isToday: sameYMD(cursor, today),
       count: inMonth ? count : 0,
       density: inMonth ? densityFor(count) : 'empty',
+      // R2-5 (LENS-1 #5) — out-of-month cells ARE tappable (onPickOtherMonthDay
+      // → navigateTo('month', …) moves the page to their real month), so
+      // "inert" is stale. The reason `closed` is forced false here still
+      // holds: this window's `hoursFacts` was never fetched for a day outside
+      // the month it read, so that day's closed state is not a fact this
+      // read can answer — never claim it either way.
+      closed: inMonth ? (hoursFacts?.get(key)?.closed ?? false) : false,
     })
     cursor.setDate(cursor.getDate() + 1)
   }

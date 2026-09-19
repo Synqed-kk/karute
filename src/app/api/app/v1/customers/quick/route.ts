@@ -37,6 +37,7 @@ const QuickCustomerCreatedDTO = z.object({ id: z.string(), name: z.string() })
 
 export const POST = facadeHandler('customer.quickCreate', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'customers.view')
+  ensureCapability(ctx.identity.capabilities, 'customers.manage') // ⚖ 9/16 — see POST /customers
   requireIdempotencyKey(ctx.req)
 
   let body: unknown

@@ -1,6 +1,7 @@
 import { unstable_cache } from 'next/cache'
 import type { SynqedClient } from '@synqed-kk/client'
 import { paginateDedupe } from './paginate'
+import { matchKaruteNumber } from './karute-number-match'
 
 type ListAllOpts = {
   search?: string
@@ -16,12 +17,24 @@ type ListAllOpts = {
    */
   store_id?: string | null
   /**
-   * RBAC clamp: when true, the store filter is KEPT even while searching, so a
-   * regular staff member restricted to their branch can't pull another store's
-   * customers via search. Cross-store viewers (owner/manager/SV) leave this
-   * false → the documented business-wide search. See lib/auth/store-scope.
+   * RBAC clamp: keeps the store filter on the NO-SEARCH list (a regular staff
+   * member restricted to their branch still only lists their own store).
+   * ⚖ Liam 2026-09-16 (P3, cross-branch search): does NOT clamp search
+   * anymore — any staff member may FIND any company customer by name / kana /
+   * phone / email / karute number and open their full cross-store history;
+   * only writes (P1) and the reassign picker stay store-refused. See
+   * lib/auth/store-scope.
    */
   enforceStore?: boolean
+  /**
+   * Business id — OPTIONAL, opt-in. Only needed to also match `search`
+   * against karute_number (core's predicate doesn't cover it): when present
+   * and the folded term is a qualifying digit string, this scans the cached
+   * business-wide list for a karute_number hit and merges it in ahead of the
+   * name/phone matches (matchKaruteNumber, karute-number-match.ts). Omitted
+   * by most callers today — they keep exactly today's search behavior.
+   */
+  businessId?: string
 }
 
 /**
@@ -41,7 +54,14 @@ type ListAllOpts = {
  */
 export async function listAllCustomers(
   synqed: SynqedClient,
-  { search, sort_by = 'created_at', sort_order = 'asc', store_id, enforceStore }: ListAllOpts = {},
+  {
+    search,
+    sort_by = 'created_at',
+    sort_order = 'asc',
+    store_id,
+    enforceStore,
+    businessId,
+  }: ListAllOpts = {},
 ) {
   // ponytail: dead code in production, and it must stay that way — the guard
   // backstops an invariant the two resolvers hold today ("clamped ⇒ storeId
@@ -55,12 +75,13 @@ export async function listAllCustomers(
   // means the caller asked for a clamp it could not name.
   if (enforceStore && !store_id) return { customers: [], total: 0 }
 
-  // Search is business-wide by default: drop the store lens whenever a term is
-  // present so a customer from any store is findable. With no search, the active
-  // store scopes the LIST (derived from events, server-side). enforceStore (RBAC
-  // clamp) overrides this — a branch-restricted staff keeps the store filter
-  // even while searching, so search can't leak another store's customers.
-  const storeFilter = search && !enforceStore ? undefined : store_id ?? undefined
+  // Search is ALWAYS business-wide, even for an enforceStore-clamped actor
+  // (⚖ Liam 2026-09-16, P3): a branch's staff must be able to FIND any company
+  // customer by name/kana/phone/email/karute number and open their full
+  // cross-store history — only writes (P1) and the reassign picker stay
+  // store-refused. With no search, the active store still scopes the LIST
+  // (derived from events, server-side) for a clamped actor.
+  const storeFilter = search ? undefined : (store_id ?? undefined)
   const customers = await paginateDedupe((page) =>
     synqed.customers
       .list({ search, store_id: storeFilter, page, page_size: 500, sort_by, sort_order })
@@ -74,6 +95,33 @@ export async function listAllCustomers(
     const bv = key(b) ?? ''
     return av < bv ? -dir : av > bv ? dir : 0
   })
+  // Karute-number search (P3): core's `search` predicate can't see
+  // karute_number, so a chart-number term never reaches `customers` above.
+  // businessId is opt-in — omitted, this block never runs and behavior is
+  // unchanged. Provided, it scans the cached business-wide list (cheap: 60s
+  // cache, same one the dashboard already reads) for a hit and splices it in
+  // AHEAD of the name/phone matches; a hit already present (e.g. the digits
+  // also happened to match a phone number) is just reordered, never refetched.
+  // Lazy import (same reason as this file's own cachedCustomerList below, and
+  // cached.ts's own SynqedClient import): keeps the ESM client out of every
+  // test graph that never passes businessId.
+  if (search && businessId) {
+    const { getCachedCustomerListFor } = await import('./cached')
+    const cachedList = await getCachedCustomerListFor(businessId)
+    const hits = matchKaruteNumber(search, cachedList)
+    if (hits.length) {
+      const byId = new Map(customers.map((c) => [c.id, c]))
+      const missingIds = hits.map((h) => h.id).filter((id) => !byId.has(id))
+      if (missingIds.length) {
+        const fetched = await synqed.customers.list({ ids: missingIds, page_size: missingIds.length })
+        for (const c of fetched.customers) byId.set(c.id, c)
+      }
+      const front = hits.flatMap((h) => byId.get(h.id) ?? [])
+      const merged = [...front, ...customers.filter((c) => !hits.some((h) => h.id === c.id))]
+      return { customers: merged, total: merged.length }
+    }
+  }
+
   // total === customers.length once paged to completion (paginateDedupe stops at
   // the server's reported total); the call sites read `.total` for the header.
   return { customers, total: customers.length }

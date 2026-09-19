@@ -52,6 +52,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readCustomerRaw } from '@/lib/app-api/karute-facade'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { ManualKaruteCreateSchema } from '@/lib/app-api/record-schemas'
 import { createManualKaruteRecordWithClient } from '@/actions/karute'
@@ -109,6 +110,13 @@ export const POST = facadeHandler('karute.manualCreate', async (ctx) => {
     // file to be FUNCTION cores, and neither string ever reaches the user (the
     // dialog swaps in its own generic copy).
     throw new AppApiError('forbidden', 'You do not have permission to record a session for another staff member.')
+  }
+
+  // Manual creation has no linked booking, so the clamp's store IS the record's
+  // store. A caller who reaches none would stamp `store_id: null` — a record
+  // invisible to every store-scoped カルテ list. REFUSE (⚖ Liam 2026-09-16).
+  if (reachesNoStore(clamp)) {
+    throw new AppApiError('store_forbidden', UNASSIGNED_STORE_DENIAL)
   }
 
   const result = await createManualKaruteRecordWithClient(

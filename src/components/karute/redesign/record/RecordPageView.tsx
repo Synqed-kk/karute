@@ -39,10 +39,12 @@ import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { useTimetableStore } from '@/stores/timetable-store'
 import { type CustomerOption } from '@/components/karute/CustomerCombobox'
+import { pickedCustomerName } from '@/lib/customers/picked-customer-name'
 import {
   getCustomerConsent,
   grantCustomerConsent,
   deleteCustomerPhoto,
+  searchCustomersCompanyWide,
 } from '@/actions/customers'
 import { isConsentCurrent } from '@/lib/consent'
 import { sessionPhotoStore } from '@/lib/karute/session-photos'
@@ -1747,6 +1749,7 @@ export function RecordPageView({
         duration: Math.round(result.durationMs / 1000),
         appointmentId: effectiveAppointmentId,
         appointmentCustomerId: effectiveCustomerId,
+        pickedCustomerName: target?.customerName,
         outcome,
         outcomeSkipped,
         recordingSessionId,
@@ -1853,15 +1856,15 @@ export function RecordPageView({
       : offer.draft.appointmentCustomerId
         ? {
             customerId: offer.draft.appointmentCustomerId,
-            // B-1: a draft whose customer has since left the cached list still
-            // has a real, saveable id — only the NAME is unknown. Coalesce it
-            // so the banner can never read as unbound (which would send the
-            // staffer to a picker they don't need, and open a blank-titled
-            // popup). Bound-ness is decided by the destination, never by
-            // whether a display string happened to resolve.
-            customerName:
-              customers.find((c) => c.id === offer.draft.appointmentCustomerId)?.name ||
+            // Preserve the picked name through reload, even outside the cached
+            // list. Older drafts still fall back to the list or the unknown
+            // label; bound-ness depends on the id, never the display name.
+            customerName: pickedCustomerName(
+              offer.draft.pickedCustomerName,
+              customers,
+              offer.draft.appointmentCustomerId,
               t('recoverCustomerUnknown'),
+            ),
             appointmentId: offer.draft.appointmentId || null,
           }
         : null
@@ -1971,7 +1974,7 @@ export function RecordPageView({
    *  above (R6). A ref cannot re-render; this is what greys the one button. */
   const [serverSavingId, setServerSavingId] = useState<string | null>(null)
   /** A server save waiting on a consent grant (R10a). */
-  const [serverConsent, setServerConsent] = useState<{ row: InboxRow; customerId: string } | null>(
+  const [serverConsent, setServerConsent] = useState<{ row: InboxRow; customerId: string; customerName?: string } | null>(
     null,
   )
   // A SECOND, narrower latch for the popup's own 保存: the outer one spans the
@@ -2204,7 +2207,7 @@ export function RecordPageView({
     setServerSavingId(null)
   }
 
-  async function startServerSave(row: InboxRow, customerId: string) {
+  async function startServerSave(row: InboxRow, customerId: string, customerName?: string) {
     // ⚖ THE WHOLE SEAL, all three (fix round 1, R5). `discardReasonSubmittingRef`
     // is the one the first cut missed: startRecoveryFlow refuses for as long as
     // a discard confirm is mid-commit, and its comment calls the pair "the whole
@@ -2257,7 +2260,7 @@ export function RecordPageView({
       // flight from the staffer's point of view. Cancel releases it; the grant
       // continues to the door still holding it.
       setConsentError(null)
-      setServerConsent({ row, customerId })
+      setServerConsent({ row, customerId, customerName })
       return
     }
     await runServerSave(row, customerId)
@@ -2967,6 +2970,7 @@ export function RecordPageView({
           duration: flow.durationSec,
           appointmentId: dest.appointmentId || undefined,
           appointmentCustomerId: dest.customerId,
+          pickedCustomerName: dest.customerName,
           // WITH the outcome the take now qualifies for the existing autosave
           // cohort (isServerJobEligible) — it saves without a review detour.
           outcome,
@@ -3200,6 +3204,7 @@ export function RecordPageView({
           duration={pipeline.context.duration}
           appointmentId={pipeline.context.appointmentId}
           appointmentCustomerId={pipeline.context.appointmentCustomerId}
+          pickedCustomerName={pipeline.context.pickedCustomerName}
           outcome={pipeline.context.outcome}
           recordingSessionId={pipeline.context.recordingSessionId}
           takeId={pipeline.context.takeId}
@@ -3880,6 +3885,7 @@ export function RecordPageView({
         <RecordCustomerPickerDialog
           variant="repoint"
           customers={customers}
+          onRemoteSearch={searchCustomersCompanyWide}
           // B-8: the pinned row IS the original booking, so listing it again
           // below is a duplicate. Only that EXACT appointment is filtered — the
           // same customer's OTHER bookings that day stay selectable.
@@ -3924,7 +3930,7 @@ export function RecordPageView({
               appointmentId: booking.id,
             })
           }}
-          onSelectCustomer={(id) => {
+          onSelectCustomer={(id, name) => {
             // The pinned original → back to the take's own binding, appointment
             // and all. A re-point never invents a booking.
             if (offerBinding && id === offerBinding.customerId) {
@@ -3933,11 +3939,12 @@ export function RecordPageView({
             }
             // A-7: a searched customer, which only an UNBOUND take can reach —
             // no booking to attach, exactly like the walk-in pick-at-review
-            // path this mirrors.
+            // path this mirrors. `name` comes straight from the picker row
+            // (post-#945: a company-wide pick is not in `customers`, so the
+            // lookup fallback alone would mislabel it recoverCustomerUnknown).
             repointTo({
               customerId: id,
-              customerName:
-                customers.find((c) => c.id === id)?.name || t('recoverCustomerUnknown'),
+              customerName: pickedCustomerName(name, customers, id, t('recoverCustomerUnknown')),
               appointmentId: null,
             })
           }}
@@ -3964,6 +3971,7 @@ export function RecordPageView({
         <RecordCustomerPickerDialog
           variant="repoint"
           customers={customers}
+          onRemoteSearch={searchCustomersCompanyWide}
           bookings={[]}
           pinned={null}
           dayLabel={formatCompactDateJst(new Date(serverSaveRow.startedAt), locale)}
@@ -3974,10 +3982,10 @@ export function RecordPageView({
             setServerSaveRow(null)
             if (booking.customerId) void startServerSave(row, booking.customerId)
           }}
-          onSelectCustomer={(id) => {
+          onSelectCustomer={(id, name) => {
             const row = serverSaveRow
             setServerSaveRow(null)
-            void startServerSave(row, id)
+            void startServerSave(row, id, name)
           }}
         />
       )}
@@ -4004,11 +4012,12 @@ export function RecordPageView({
           RecoveryFlow it could never produce. */}
       {serverConsent && (
         <RecordingConsentDialog
-          customerName={
-            serverConsent.row.customerName ??
-            customerNameById.get(serverConsent.customerId) ??
-            t('recoverCustomerUnknown')
-          }
+          customerName={pickedCustomerName(
+            serverConsent.customerName || serverConsent.row.customerName || undefined,
+            [],
+            serverConsent.customerId,
+            customerNameById.get(serverConsent.customerId) || t('recoverCustomerUnknown'),
+          )}
           submitting={consentSubmitting}
           error={consentError}
           onCancel={() => {
@@ -4045,6 +4054,7 @@ export function RecordPageView({
       {showCustomerPicker && showNoTargetActions && (
         <RecordCustomerPickerDialog
           customers={customers}
+          onRemoteSearch={searchCustomersCompanyWide}
           bookings={nearbyBookings}
           facts={customerFacts}
           cancelLabel={tc('cancel')}

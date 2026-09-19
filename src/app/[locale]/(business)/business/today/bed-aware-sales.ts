@@ -70,9 +70,10 @@ export interface WithheldOffers {
    *  offer takes. Absent when no single 枠 is the cause (see `blockerOf`). */
   readonly blockedBy: ReadonlyMap<string, string>
   /** ⚖ D-17 / v7 — the offers whose verdict is WITHHELD because the restricted
-   *  walk ran out of budget rather than because a 枠 was really lost. A subset of
-   *  `keys`: the safe direction, said out loud so the report (and one day a
-   *  surface) can name it instead of it hiding inside the money answer. */
+   *  walk ran out of budget and THE CERTIFIER (⚖ D-50 (a)) could not turn that
+   *  into an exact loss either. A subset of `keys`: the safe direction, said out
+   *  loud so the report (and one day a surface) can name it instead of it hiding
+   *  inside the money answer — no surface reads it today (S1 F5). */
   readonly unresolved: ReadonlySet<string>
 }
 
@@ -117,19 +118,25 @@ const blocked = (book: BedTruth, room: string, start: number, end: number): BedT
  *  @param lanes the world they were cut from.
  *  @param book the capacity book for that world.
  *  @param on the round gate's value, passed in. False = nothing withheld.
+ *  @param needsRoom ⚖ D-52 (g) — the same predicate `honestHeld` takes. A
+ *    room-less row's kept 枠 can take no room from any offer, so it is never a
+ *    `hit`, and the re-net below is handed the same predicate so it agrees.
+ *    Absent = every row needs a room, today's reading.
  *
- *  ponytail: FOUR EXACT EXITS AND ONE MEMO, in this order — (a) an offer over no
- *  kept 枠 is free; (c) the WITNESS proves 「on sale」 out of the netting's own legal
- *  assignment; (d) the PIGEONHOLE proves 「withheld」 by counting, when every room on
- *  the board is already taken at one instant inside the offer's span; (e) the
- *  ELIGIBILITY PIGEONHOLE proves 「withheld」 by counting each candidate room's own
- *  eligible-room union against the held 枠 covering it (⚖ D-19 (3) · ROUND 3 · D).
- *  What survives all four pays at most ONE netting per (room, span) — memoised for
- *  the call, because the netting depends on nothing else about the offer. CEILING,
- *  STATED: the strict-subset store is now closed by (e); what still pays nettings is
- *  a saturated offer that neither counting exit can refute (no instant where the
- *  covering 枠 exhaust their eligible rooms). Upgrade: one joint allocation of kept
- *  枠 and offers, the day the slot-vs-offer ruling lands (⚖ D-05 · D-14).
+ *  ponytail: THREE EXACT EXITS, ONE MEMO, AND ONE CERTIFIER, in this order — (a) an
+ *  offer over no kept 枠 is free; (c) the WITNESS proves 「on sale」 out of the netting's
+ *  own legal assignment; (d) the PIGEONHOLE proves 「withheld」 by counting, when every
+ *  room on the board is already taken at one instant inside the offer's span. What
+ *  survives pays at most ONE netting per (room, span) — memoised for the call, because
+ *  the netting depends on nothing else about the offer — and, where that walk runs out
+ *  of budget, THE CERTIFIER (⚖ D-50 (a) · D-19 (3)) tries to turn its safe-but-unproven
+ *  「withheld」 into an EXACT one, for zero more nettings, by counting each candidate
+ *  room's own eligible-room union against the held 枠 covering it. CEILING, STATED
+ *  (⚖ D-50 (b) S1 F2): a strict-subset store's SHORT walks are certified where the
+ *  one-instant condition holds (the M4 boards) — not as a class; a sub-clique loss (a
+ *  third 枠 with rooms of its own) still leaves the offer `unresolved`. Upgrade: a
+ *  per-instant Hall MATCHING (queued, S1 F3) or one joint allocation of kept 枠 and
+ *  offers, the day the slot-vs-offer ruling lands (⚖ D-05 · D-14).
  *
  *  ⚠ CEILING, STATED: offers are tested INDEPENDENTLY, so two surviving offers
  *  can both be counting on the same spare room. Offer-vs-offer is R4's job
@@ -142,25 +149,34 @@ export function withheldOffers(
   lanes: readonly BoardLane[],
   book: BedTruth,
   on: boolean,
+  needsRoom: (lane: BoardLane) => boolean = () => true,
 ): WithheldOffers {
   if (!on || !honest) return NOTHING
 
   const want = heldIds(honest)
-  const heldSpans = honest.byLane.flatMap((l) =>
-    l.held.map((s, i) => ({
-      id: offerKey(l.laneKey, s.windowStart),
-      laneKey: l.laneKey,
-      start: s.start,
-      end: s.end,
-      // ⚖ ROUND 2 · SPEC-R2 v4 amendment item 1 — the room the netting GAVE this
-      // 枠. Carried for the witness exit below and read nowhere else.
-      room: l.heldRoom[i] ?? '',
-      // ⚖ ROUND 3 · D — the netting's own ELIGIBLE list for this 枠 over its whole
-      // span (honest-held.ts:190-199), read by the eligibility pigeonhole below and
-      // nowhere else; `[]` on the identity path.
-      rooms: l.heldRooms[i] ?? [],
-    })),
-  )
+  // ⚖ D-52 (g) — a lane not found in `lanes` needs a room, today's reading
+  // (the same fallback `honestHeld` takes for the lane it cannot find).
+  const laneOf = new Map(lanes.map((l) => [l.key, l]))
+  const heldSpans = honest.byLane
+    .filter((l) => {
+      const lane = laneOf.get(l.laneKey)
+      return !lane || needsRoom(lane)
+    })
+    .flatMap((l) =>
+      l.held.map((s, i) => ({
+        id: offerKey(l.laneKey, s.windowStart),
+        laneKey: l.laneKey,
+        start: s.start,
+        end: s.end,
+        // ⚖ ROUND 2 · SPEC-R2 v4 amendment item 1 — the room the netting GAVE this
+        // 枠. Carried for the witness exit below and read nowhere else.
+        room: l.heldRoom[i] ?? '',
+        // ⚖ ROUND 3 · D — the netting's own ELIGIBLE list for this 枠 over its whole
+        // span (honest-held.ts:190-199), read by the eligibility pigeonhole below and
+        // nowhere else; `[]` on the identity path.
+        rooms: l.heldRooms[i] ?? [],
+      })),
+    )
   // ⚖ ROUND 2 · SPEC-R2 v5 amendment item 3 — THE ONE ROOM UNIVERSE the pigeonhole
   // counts against: the board's own bed rows. A board drawn without them (a unit
   // suite whose book is a stub) has none and the exit never fires.
@@ -193,7 +209,7 @@ export function withheldOffers(
     const memoKey = `${room}|${start}|${end}`
     const seen = netted.get(memoKey)
     if (seen) return seen
-    const walk = honestHeld(heldOnly, lanes, blocked(book, room, start, end), true)
+    const walk = honestHeld(heldOnly, lanes, blocked(book, room, start, end), true, needsRoom)
     const after = { ids: new Set(heldIds(walk)) as ReadonlySet<string>, exact: walk.exact }
     netted.set(memoKey, after)
     return after
@@ -209,6 +225,10 @@ export function withheldOffers(
     if (rooms.length === 0) continue
     // LAZY EXIT (a): an offer over no kept 枠 costs ZERO nettings.
     const hit = heldSpans.filter((h) => overlaps(o.start, o.end, h.start, h.end))
+    // ⚖ D-50 (b) (4) — built by TIME overlap only, no store filter: a held 枠 of
+    // ANOTHER store can sit here and cost (d) and the certifier their free
+    // answer, never a wrong one — the witness, the walk and the certifier all
+    // read the offer's own store-aware `rooms` (S2 LEG 7, pinned in the suite).
     if (hit.length === 0) continue
 
     // LAZY EXIT (c) — THE WITNESS, and it is EXACT rather than a heuristic
@@ -305,8 +325,9 @@ export function withheldOffers(
     // (cold-read fold 3, ruled by Fable): the offer's start plus every overlapping
     // 枠's start AND END strictly inside the span. Why: `n(t)` (below, `covering`)
     // only steps up at starts, so (d) alone was complete checking starts only; but
-    // (e)'s quantity `|U(t) \ {r}| − n(t)` can DROP at an END — a 枠 that began
-    // before the offer and ends inside it takes its own spare rooms away with it
+    // the certifier's quantity `|U(t) \ {r}| − n(t)` can DROP at an END — a 枠
+    // that began before the offer and ends inside it takes its own spare rooms
+    // away with it
     // (A=[600,690)→{p,q} · B=[520,610)→{m,j} · C=[600,690)→{p,q}; offer [600,700)
     // rooms {p,q}: at 600 the margin is 1, at 610 — B's end — both rooms are
     // refuted; a starts-only check misses this and falls through to the walk).
@@ -315,51 +336,13 @@ export function withheldOffers(
     // for the one-instant form. (d) at the extra instants is still sound (any
     // instant works for it) and cannot fire where it did not before (its `n(t)` is
     // maximal at a start), so (d)'s answer stays byte-identical to main. Shared by
-    // (d) and (e) below — one computation, not two.
+    // (d) and the certifier below — one computation, not two; the certifier is
+    // where the ends earn their keep (the short-walk case).
     const covering = (t: number) => hit.reduce((n, h) => (h.start <= t && t < h.end ? n + 1 : n), 0)
     const steps = [o.start, ...hit.flatMap((h) => [h.start, h.end]).filter((t) => t > o.start && t < o.end)]
 
     if (roomUniverse >= 2 && !usedRooms.has('')) {
       if (steps.some((t) => covering(t) >= roomUniverse)) {
-        keys.add(o.key)
-        continue
-      }
-    }
-
-    // LAZY EXIT (e) — THE ELIGIBILITY PIGEONHOLE (⚖ D-19 (3) · ROUND 3 slice D ·
-    // D-49 (a)).
-    //
-    // At an instant `t` inside the offer's span let `S(t)` be the held 枠 covering
-    // `t` (`n = |S(t)|`) and `U(t)` the union of their `heldRooms` lists. Every 枠
-    // in `S(t)` contains `t`, so they pairwise overlap and need `n` DISTINCT
-    // rooms. With candidate room `r` blocked over the offer's span (`blocked()`
-    // removes `r` from every ask that overlaps the offer's span, and each 枠 in
-    // `S(t)` overlaps it because it contains `t`), each of those 枠's blocked
-    // eligible list is a SUBSET of `heldRooms[i] \ {r}` (the blocked book answers
-    // a subset of the unblocked answer), so all `n` must be seated inside
-    // `U(t) \ {r}`. If `|U(t) \ {r}| < n` no legal seating of the published set
-    // exists with `r` blocked — Hall's condition on the one subset `S(t)` — and
-    // the restricted walk for `r` would return a loss (or, out of budget, an
-    // inexact loss). If EVERY candidate room `r` of the offer is refuted at SOME
-    // instant, no room works ⇒ WITHHELD, exactly what the loop below would
-    // conclude, with zero nettings. Assignment-INDEPENDENT: the DECISION reads
-    // the eligibility lists and never the tie-break `heldRoom`; the guard reads
-    // `usedRooms` only to detect the identity path (no assignment exists to
-    // argue from), exactly as (d) does. Valid where the netting
-    // is inexact: a truncated answer is still a legal assignment of the published
-    // set and `heldRooms` is the book's own answer, not the search's. The count
-    // pigeonhole (d) is the special case `U(t)` = every bed row on the board, so
-    // (e) subsumes it — (d) stays, first, because it needs no sets. `n ≤ |U(t)|`
-    // always holds under a legal assignment, so `<` (strict) is the only fence —
-    // `<=` would withhold a sellable offer. Like (d) it NEVER NAMES (⚖ D-14 (d)
-    // (2): the loss lists are what a name is made of and this exit does not
-    // compute them; `blockedBy` stays absent for it).
-    if (roomUniverse >= 2 && rooms.length >= 2 && !usedRooms.has('')) {
-      const at = steps.map((t) => {
-        const cover = hit.filter((h) => h.start <= t && t < h.end)
-        return { n: cover.length, u: new Set(cover.flatMap((h) => h.rooms)) }
-      })
-      if (rooms.every((r) => at.some(({ n, u }) => u.size - (u.has(r) ? 1 : 0) < n))) {
         keys.add(o.key)
         continue
       }
@@ -388,12 +371,49 @@ export function withheldOffers(
     if (onSale) continue
 
     keys.add(o.key)
-    if (short) unresolved.add(o.key)
-    // ⚖ D-18 (2) — an UNRESOLVED verdict never names: `lostPer` off an inexact
-    // (`short`) walk has not proved its loss list, so `blockerOf` could hand
-    // back a 枠 the walk only failed to find, not one it actually proved lost.
-    // The naming rule's own discipline (above) — never name a reason the
-    // operator cannot check — applies to the walk's own verdict too.
+    // THE CERTIFIER (⚖ D-50 (a) · D-19 (3)) — a walk that ran out of budget withheld
+    // the offer on the safe side but has not PROVED its loss. Hall's condition on the
+    // held 枠's own eligible lists can, with zero more nettings, turn that safe-but-
+    // unproven verdict into an EXACT one: at an instant `t` inside the offer's span
+    // let `S(t)` be the held 枠 covering `t` (`n = |S(t)|`) and `U(t)` the union of
+    // their `heldRooms` lists. Every 枠 in `S(t)` contains `t`, so they pairwise
+    // overlap and need `n` DISTINCT rooms. With candidate room `r` blocked over the
+    // offer's span, each of those 枠's blocked eligible list is a SUBSET of
+    // `heldRooms[i] \ {r}` (the blocked book answers a subset of the unblocked
+    // answer), so all `n` must be seated inside `U(t) \ {r}`. If `|U(t) \ {r}| < n`
+    // no legal seating of the published set exists with `r` blocked — Hall's
+    // condition on the one subset `S(t)` — so the restricted walk's own SHORT
+    // verdict for `r` is really a PROVEN loss, not merely an unproven one. If EVERY
+    // candidate room is refuted this way at SOME instant, the offer really is
+    // withheld and `unresolved` would be wrong to claim it — the certifier clears
+    // it. SUFFICIENT, NOT COMPLETE (⚖ D-51 (a)): a room the walk itself proved lost
+    // exactly (its own search completed) while another room's walk stayed short is
+    // real too — the mixed per-room form is sound and queued, not built here,
+    // because `unresolved` has no reader in `src/` today (S1 F5) and the extra
+    // branch would be code without a consumer. The identity-path premise:
+    // `heldRooms` is `[]` on the identity path (the netting's own gate off), so
+    // `hit.every((h) => h.rooms.length > 0)` is what keeps the certifier from
+    // arguing over an assignment that was never made — the same premise (d) reads
+    // off `usedRooms`. `n ≤ |U(t)|` always holds under a legal assignment, so `<`
+    // (strict) is the only fence — `<=` would certify a room that was never
+    // refuted. The instant filter `t < o.end` is the tighter sound form: `t <=
+    // o.end` would also be sound (a 枠 covering the offer's end instant still
+    // overlaps the blocked span), and is not chosen (S2 mutant 3). Like the
+    // walk's own SHORT verdict, a certified offer NEVER NAMES (⚖ D-18 (2): the
+    // loss lists behind it are the walk's and unproven).
+    const proved = short && hit.every((h) => h.rooms.length > 0) && (() => {
+      const at = steps.map((t) => {
+        const cover = hit.filter((h) => h.start <= t && t < h.end)
+        return { n: cover.length, u: new Set(cover.flatMap((h) => h.rooms)) }
+      })
+      return rooms.every((r) => at.some(({ n, u }) => u.size - (u.has(r) ? 1 : 0) < n))
+    })()
+    if (short && !proved) unresolved.add(o.key)
+    // ⚖ D-18 (2) — an inexact walk never names, certified or not: `lostPer` off a
+    // `short` walk has not proved its loss list, so `blockerOf` could hand back a
+    // 枠 the walk only failed to find, not one it actually proved lost. The naming
+    // rule's own discipline (above) — never name a reason the operator cannot check
+    // — applies to the walk's own verdict too, certified or not.
     const blocker = short ? null : blockerOf(hit, lostPer)
     if (blocker) blockedBy.set(o.key, blocker)
   }

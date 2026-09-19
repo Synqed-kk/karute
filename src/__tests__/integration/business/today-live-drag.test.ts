@@ -37,6 +37,17 @@ import {
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { bookFor, handBoardFor, moveSetOf, slotKey, type BookCache } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import type { DayFrame } from '@/app/[locale]/(business)/business/today/capacity-ledger'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
+
+// ⚖ D-53 (u)/(n2b2) — the whole-board map, for every direct call this file
+// makes to a widened whole-board function: empty `byLaneKey` so every lane
+// falls to the generic row, STORE_A's own (chiropractic ≡ other, D-13) —
+// runtime expected sentences are unchanged.
+const LANE_WORDS = { byLaneKey: {}, generic: RESOURCE_WORDS.chiropractic }
+const A_WORDS = RESOURCE_WORDS.chiropractic
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A = { resourceNoun: A_WORDS.resourceNoun, privateWord: A_WORDS.privateWord! }
 
 const HOURS: Hours = { open: 540, close: 1200 }
 const FRAME: DayFrame = { openMin: HOURS.open, closeMin: HOURS.close, nowMin: 540 }
@@ -144,7 +155,7 @@ describe('M2 — `packImpossible`: a NECESSARY condition, never a sufficient one
     // search would have refused anyway.
     expect(
       allocateBed(lanes, {
-        id: 'HAND', currentBed: null, stores: ['store-a'], requiresPrivate: false,
+        id: 'HAND', currentBed: null, stores: ['store-a'], words: ASK_A, requiresPrivate: false,
         start: 600, end: 660, pack: true, now: 540, cleanupMinutesByBed: {},
       }).laneKey,
     ).toBeNull()
@@ -232,7 +243,7 @@ describe('M2 — `packImpossible`: a NECESSARY condition, never a sufficient one
     ]
     expect(pruned(lanes, { id: 'HAND', start: 600, end: 660 }, cleanup)).toBe(false)
     const solved = allocateBed(lanes, {
-      id: 'HAND', currentBed: null, stores: ['store-a'], requiresPrivate: true,
+      id: 'HAND', currentBed: null, stores: ['store-a'], words: ASK_A, requiresPrivate: true,
       start: 600, end: 660, pack: true, now: 540, cleanupMinutesByBed: cleanup,
     })
     expect({ laneKey: solved.laneKey, moved: solved.reseats.map((r) => `${r.id}:${r.from}→${r.to}`) })
@@ -252,7 +263,7 @@ describe('M2 — `packImpossible`: a NECESSARY condition, never a sufficient one
     ]
     expect(pruned(lanes, { id: 'HAND', start: 600, end: 660 }, {}, ['s'])).toBe(false)
     const solved = allocateBed(lanes, {
-      id: 'HAND', currentBed: null, stores: ['s'], requiresPrivate: false,
+      id: 'HAND', currentBed: null, stores: ['s'], words: ASK_A, requiresPrivate: false,
       start: 600, end: 660, pack: true, now: 540, cleanupMinutesByBed: {},
     })
     expect({ laneKey: solved.laneKey, moved: solved.reseats.map((r) => `${r.id}:${r.from}→${r.to}`) })
@@ -272,6 +283,7 @@ const memoAsk = (over: Partial<Parameters<typeof allocateBed>[1]> = {}) => ({
   id: 'HAND' as string | null,
   currentBed: null as string | null,
   stores: ['store-a'] as string[] | null,
+  words: ASK_A,
   requiresPrivate: false,
   start: 600,
   end: 660,
@@ -523,12 +535,12 @@ describe('`bookFor` — one capacity book per lanes array, and it dies with the 
   it('the SAME array with the same frame and the same lift is built once', () => {
     const cache: BookCache = new WeakMap()
     const lanes = board()
-    expect(bookFor(lanes, FRAME, 'a', cache)).toBe(bookFor(lanes, FRAME, 'a', cache))
+    expect(bookFor(lanes, FRAME, 'a', cache, ASK_A)).toBe(bookFor(lanes, FRAME, 'a', cache, ASK_A))
   })
 
   it('a DIFFERENT array is a different book', () => {
     const cache: BookCache = new WeakMap()
-    expect(bookFor(board(), FRAME, 'a', cache)).not.toBe(bookFor(board(), FRAME, 'a', cache))
+    expect(bookFor(board(), FRAME, 'a', cache, ASK_A)).not.toBe(bookFor(board(), FRAME, 'a', cache, ASK_A))
   })
 
   it('a different LIFT on the same array rebuilds — each door keeps its own', () => {
@@ -537,8 +549,8 @@ describe('`bookFor` — one capacity book per lanes array, and it dies with the 
     // so a caller asking about nobody can never be handed somebody's lifted world.
     const cache: BookCache = new WeakMap()
     const lanes = board()
-    const withHand = bookFor(lanes, FRAME, 'a', cache)
-    const withNobody = bookFor(lanes, FRAME, null, cache)
+    const withHand = bookFor(lanes, FRAME, 'a', cache, ASK_A)
+    const withNobody = bookFor(lanes, FRAME, null, cache, ASK_A)
     expect(withNobody).not.toBe(withHand)
     expect(withNobody.worldMinusHand).toBeNull()
     expect(withHand.worldMinusHand).not.toBeNull()
@@ -547,8 +559,28 @@ describe('`bookFor` — one capacity book per lanes array, and it dies with the 
   it('a different FRAME rebuilds', () => {
     const cache: BookCache = new WeakMap()
     const lanes = board()
-    const a = bookFor(lanes, FRAME, 'a', cache)
-    expect(bookFor(lanes, { ...FRAME, nowMin: 900 }, 'a', cache)).not.toBe(a)
+    const a = bookFor(lanes, FRAME, 'a', cache, ASK_A)
+    expect(bookFor(lanes, { ...FRAME, nowMin: 900 }, 'a', cache, ASK_A)).not.toBe(a)
+  })
+
+  // ⚖ D-53 (ak)/(al) N2c-1 mutant a5 — a WORDS-only change is a cache miss too
+  // (`frameKey` carries `${words.resourceNoun}|${words.privateWord}`), and the
+  // two books answer a full-house ask with two DIFFERENT refusal sentences,
+  // each wearing its own resourceNoun.
+  it('a different WORDS pair on the SAME array rebuilds, and the refusal wears its own resourceNoun', () => {
+    const cache: BookCache = new WeakMap()
+    const lanes = board()
+    const DENTAL_ASK = { resourceNoun: RESOURCE_WORDS.dental_clinic.resourceNoun, privateWord: RESOURCE_WORDS.dental_clinic.privateWord! }
+    const withA = bookFor(lanes, FRAME, null, cache, ASK_A)
+    const withDental = bookFor(lanes, FRAME, null, cache, DENTAL_ASK)
+    expect(withDental).not.toBe(withA)
+    const asker = { stores: ['store-a'] }
+    const refusalA = withA.world.bedFor(600, 660, asker).refusal
+    const refusalDental = withDental.world.bedFor(600, 660, asker).refusal
+    console.log('today-live-drag a5', { refusalA, refusalDental })
+    expect(refusalA).not.toBe(refusalDental)
+    expect(refusalA).toContain('ベッド')
+    expect(refusalDental).toContain('ユニット')
   })
 })
 
@@ -610,21 +642,21 @@ describe('`reseatSentence` — the swap said once, for both layers', () => {
    *  callers, and the wording is the board's own — 入れ替え is the legend's noun
    *  (`⇄ = ベッドを入れ替えて置ける`) and the parenthesis is `companionLines`'. */
   it('the ⇄ clause, with the companion lines in the parenthesis', () => {
-    expect(reseatSentence('この30分はベッドが空いています', ['見本 さくら様 ベッド1 → ベッド2'], null)).toBe(
+    expect(reseatSentence('この30分はベッドが空いています', ['見本 さくら様 ベッド1 → ベッド2'], null, A_WORDS)).toBe(
       'この30分はベッドが空いています。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（見本 さくら様 ベッド1 → ベッド2）',
     )
   })
 
   it('several companions ride one parenthesis, joined the surface’s own way', () => {
-    expect(reseatSentence('あ', ['い', 'う'], null)).toBe('あ。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（い、う）')
+    expect(reseatSentence('あ', ['い', 'う'], null, A_WORDS)).toBe('あ。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（い、う）')
   })
 
   it('the DEGRADED tone appends the shuffle’s own sentence, never a second wording of it', () => {
-    expect(reseatSentence('あ', ['い'], '新規用の枠が1つ減ります')).toBe(
+    expect(reseatSentence('あ', ['い'], '新規用の枠が1つ減ります', A_WORDS)).toBe(
       'あ。ここに置くと、ほかのお客様のベッドを入れ替えて収めます（い）。新規用の枠が1つ減ります',
     )
     // …and `null` adds nothing at all, which is what a clean shuffle costs.
-    expect(reseatSentence('あ', ['い'], null).endsWith('（い）')).toBe(true)
+    expect(reseatSentence('あ', ['い'], null, A_WORDS).endsWith('（い）')).toBe(true)
   })
 })
 
@@ -752,6 +784,7 @@ describe('the pre-check is SOUND — a pruned ask is one the search would have r
           id: sc.hand.id,
           currentBed: sc.hand.bed,
           stores: staff.stores,
+          words: ASK_A,
           requiresPrivate,
           start,
           end,
@@ -853,7 +886,7 @@ describe('the memo is EXACTLY the allocator — proven at every frame of random 
         // F1 — a staff-row drag writes BOTH copies at the live span.
         const liveMoves: Moves = { [sc.hand.id]: { laneKey, x: span.x, w: span.w } }
         const liveBedMoves: Moves = { [sc.hand.id]: { laneKey: sc.hand.bed, x: span.x, w: span.w } }
-        board = applyMoves(sc.lanes, liveMoves, [], [], HOURS, liveBedMoves, sc.cleanup)
+        board = applyMoves(sc.lanes, liveMoves, [], [], HOURS, LANE_WORDS, liveBedMoves, sc.cleanup)
         frames += 1
 
         // ⚖ ADJUDICATION L4 — a third of the frames move the WORLD under the card
@@ -865,6 +898,7 @@ describe('the memo is EXACTLY the allocator — proven at every frame of random 
           id: sc.hand.id,
           currentBed: sc.hand.bed,
           stores: board.find((x) => x.key === l && x.group === 'staff')!.stores,
+          words: ASK_A,
           requiresPrivate: priv,
           start: s,
           end: s + 60,
@@ -973,9 +1007,9 @@ describe('FRAME-SEAM — handBoardFor: one rule, one home, and the same array at
     // list — so it re-runs nothing and cannot produce a different byte. A copy
     // here is still CORRECT and silently re-derives the entire chain on every
     // render, which is the mutant this clause exists for.
-    expect(handBoardFor(L, null, 'apt-1', HOURS, {})).toBe(L)
-    expect(handBoardFor(L, null, null, HOURS, {})).toBe(L)
-    expect(handBoardFor(L, undefined, 'apt-1', HOURS, {})).toBe(L)
+    expect(handBoardFor(L, null, 'apt-1', HOURS, LANE_WORDS, {})).toBe(L)
+    expect(handBoardFor(L, null, null, HOURS, LANE_WORDS, {})).toBe(L)
+    expect(handBoardFor(L, undefined, 'apt-1', HOURS, LANE_WORDS, {})).toBe(L)
   })
 
   it('A STAGED CARD THAT IS NOT THE ONE IN HAND — still the same array', () => {
@@ -984,11 +1018,11 @@ describe('FRAME-SEAM — handBoardFor: one rule, one home, and the same array at
     // The question is about `apt-1`; the stage belongs to `apt-9`. Restoring
     // another card's companions here would put the strip on a day nobody is
     // looking at — and would break the identity at rest for every other reader.
-    expect(handBoardFor(L, pending, 'apt-1', HOURS, {})).toBe(L)
+    expect(handBoardFor(L, pending, 'apt-1', HOURS, LANE_WORDS, {})).toBe(L)
     // …and no hand at all, with a stage open, is still the board itself: this is
     // the state the screen is in whenever a 仮押さえ is standing and nothing is
     // being dragged, i.e. most of the time a stage exists.
-    expect(handBoardFor(L, pending, null, HOURS, {})).toBe(L)
+    expect(handBoardFor(L, pending, null, HOURS, LANE_WORDS, {})).toBe(L)
   })
 
   it('THE STAGED CARD IN HAND — every companion back in the room it came from', () => {
@@ -999,16 +1033,16 @@ describe('FRAME-SEAM — handBoardFor: one rule, one home, and the same array at
     // started on has her in bed-01, and that is the day this second gesture is
     // measured from — the drop's rule, which the strip now shares.
     expect(roomOf(L, 'apt-2')).toBe('bed-02')
-    const hand = handBoardFor(L, { id: 'apt-9', companions }, 'apt-9', HOURS, {})
+    const hand = handBoardFor(L, { id: 'apt-9', companions }, 'apt-9', HOURS, LANE_WORDS, {})
     expect(hand).not.toBe(L)
     expect(roomOf(hand, 'apt-2')).toBe('bed-01')
     // …and it is exactly `lanesWithCompanionsRestored`'s answer, never a second
     // spelling of the restore: the same helper the drop has always used.
-    const same = applyBedMoves(L, companions.map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), HOURS, {})
+    const same = applyBedMoves(L, companions.map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), HOURS, LANE_WORDS, {})
     expect(hand).toEqual(same)
     // An empty companion set is a restore of nothing — the array itself, so a
     // landing that packed nobody pays nothing for this rule.
-    expect(handBoardFor(L, { id: 'apt-9', companions: [] }, 'apt-9', HOURS, {})).toBe(L)
-    expect(handBoardFor(L, { id: 'apt-9' }, 'apt-9', HOURS, {})).toBe(L)
+    expect(handBoardFor(L, { id: 'apt-9', companions: [] }, 'apt-9', HOURS, LANE_WORDS, {})).toBe(L)
+    expect(handBoardFor(L, { id: 'apt-9' }, 'apt-9', HOURS, LANE_WORDS, {})).toBe(L)
   })
 })

@@ -18,6 +18,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { requireIdempotencyKey } from '@/lib/app-api/customer-facade'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
@@ -72,6 +73,33 @@ export const POST = facadeHandler('appointment.create', async (ctx) => {
   // resolver below would mint a synqed staff record for ANY profile id
   // (customer ids included) sent with bookings.manage.
   const roster = await staffListByBusinessOrThrow(businessId)
+  // ⚖ FRESH-EYES-P1 N1 — and the CALLER must be on that roster too. Core answers
+  // `{ store_ids: [] }` for an auth id it holds no staff row for, byte-identical
+  // to genuinely floating staff, so the clamp above reads a caller the roster
+  // cannot place as FLOATING and lets them book into whatever store their
+  // `store-id` header names. That is resolveWriteStoreScope's fail-closed
+  // placement rule (store-clamp.ts) and karute/manual's own
+  // `no staff identity` refusal, spelled against the roster THIS door already
+  // holds — no second read, and the store-id pin this create door needs is
+  // preserved (resolveWriteStoreScope drops it by design).
+  //
+  // ⚠ WHAT IT CATCHES, EXACTLY (⚖ FRESH-EYES-P1B F3 — the earlier claim here was
+  //   wrong and is corrected, not softened). It does NOT catch a staff member removed
+  //   from the roster whose phone still holds a live token: deleteStaff
+  //   (src/actions/staff.ts) removes the synqed-core staff record ONLY — its own doc
+  //   note says so — and the Supabase `profiles` row stays, which is the table
+  //   staffListByBusinessOrThrow / resolveSelfStaffId read (src/lib/staff.ts). That
+  //   person still resolves a staff id, still carries businessId + capabilities, and
+  //   core's `{ store_ids: [] }` still reads as floating.
+  //   What it DOES catch is an auth id with no `profiles` row at all, one whose
+  //   `profiles.customer_id` names another business, or one the roster read filters
+  //   out (`full_name IS NULL` / `full_name ILIKE '_system_%'`). Strictly narrower
+  //   than before, never wider — a real fail-closed narrowing, just not that one.
+  //   FOLLOW-UP QUEUED: roster removal must neutralise the profiles row, or core must
+  //   tell "no staff row" apart from "floating" (a CORE ask).
+  if (!roster.some((s) => s.id === ctx.identity.authUserId)) {
+    throw new AppApiError('store_forbidden', 'could not resolve store assignment (fail-closed)')
+  }
   if (!roster.some((s) => s.id === parsed.data.staffProfileId)) {
     throw new AppApiError(
       'validation',
@@ -93,6 +121,20 @@ export const POST = facadeHandler('appointment.create', async (ctx) => {
   // Profile → core staff id (create-on-miss, appointments FK to staff.id).
   // An unresolvable id returns the web action's own { error } string — the
   // dialog toasts it identically on both paths.
+  // ⚖ Liam 2026-09-16, the Bearer twin of the web action's line: an actor who
+  // reaches NO store may not CREATE a booking. `clamp.storeId` is null for
+  // them, and core's `defaultBookingStore` would stamp the booking into
+  // whatever store the business defaults to — a WRITE into a branch they do not
+  // belong to. Layers 1–2 refuse them first; the backstop holds alone.
+  //
+  // ⚠ ORDER IS LOAD-BEARING (Greptile on #948): this sits ABOVE
+  // resolveSynqedStaffIdForBusiness, which CREATES a core staff record on a
+  // miss. Below it, a refused booking still wrote a row — the refusal was
+  // honest about the booking and silent about the side effect.
+  if (reachesNoStore(clamp)) {
+    throw new AppApiError('store_forbidden', UNASSIGNED_STORE_DENIAL)
+  }
+
   let synqedStaffId: string
   try {
     synqedStaffId = await resolveSynqedStaffIdForBusiness(

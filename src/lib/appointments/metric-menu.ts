@@ -1,7 +1,7 @@
 // The pure cell logic for the week rows' grid and the day-numbers line
 // (spec §8, packet W3). NO React here — WeekRows.tsx / DayNumbersLine.tsx
 // render whatever these functions return.
-import type { WeekDayRowData } from '@/lib/adapters/reservation'
+import type { MonthCell, WeekDayRowData } from '@/lib/adapters/reservation'
 import { BOOKING_SWITCHES } from './booking-switches'
 import { formatHoursMinutes, type Translate } from './format-duration'
 
@@ -231,8 +231,12 @@ function freeOrBookedTimeSlot(row: WeekDayRowData, ctx: MetricMenuCtx, used: Set
 }
 
 /** A closed day WITH bookings still shows its numbers (⚖ lead ruling) — only
- *  a truly empty closed day collapses to 「休」. */
-export function isClosedRow(row: WeekDayRowData): boolean {
+ *  a truly empty closed day collapses to 「休」.
+ *
+ *  The parameter is the two fields the question needs, not a week row: the 月
+ *  grid's cell asks it about the same day and must get the same answer, switch
+ *  included. One predicate, both surfaces. */
+export function isClosedRow(row: { closed: boolean; count: number }): boolean {
   return row.closed && row.count === 0 && BOOKING_SWITCHES.closedDays
 }
 
@@ -314,4 +318,27 @@ export function dayLineCells(row: WeekDayRowData, ctx: MetricMenuCtx): Cell[] {
   const freeOrBooked = take(freeOrBookedTimeSlot(row, ctx, used))
   const fourth = take(pickNext(row, ctx, used))
   return [count, utilization, freeOrBooked, fourth]
+}
+
+/** ⚖ PKT-2b (S1) — the month line's own 新規, beside the week summary's rule
+ *  above (WeekRows.tsx's `wksum` block): Σ `newCount` over the month's
+ *  `inMonth` cells — the same `inMonth` filter `monthBookingTotal`
+ *  (MonthPage.tsx) already uses for 予約, so the line's two sums agree about
+ *  which days belong to the month.
+ *
+ *  null when the slot is off, when the month carries no in-month cells at
+ *  all (a truncated read), or when ANY in-month cell's history read did not
+ *  happen (`newCountKnown === false`) — a partly-known sum is not an honest
+ *  number, never a 0 standing in for "we don't know". The ONLY place the
+ *  month sum lives; `AppointmentsView`'s month branch calls this once and
+ *  hands the result straight to `MonthPage`'s `typeCount`. */
+export function monthNewCount(
+  cells: readonly MonthCell[],
+  typeSlot: TypeSlot,
+): number | null {
+  if (typeSlot === 'off') return null
+  const inMonthCells = cells.filter((c) => c.inMonth)
+  if (inMonthCells.length === 0) return null
+  if (inMonthCells.some((c) => c.newCountKnown === false)) return null
+  return inMonthCells.reduce((sum, c) => sum + (c.newCount ?? 0), 0)
 }

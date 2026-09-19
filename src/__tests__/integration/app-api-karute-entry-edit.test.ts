@@ -57,8 +57,14 @@ jest.mock('@/lib/audit', () => ({
 
 const get = jest.fn(async (id: string) => {
   if (id !== 'kar-1') throw Object.assign(new Error('not found'), { status: 404 })
-  return { id: 'kar-1', customer_id: 'cust-1' }
+  return { id: 'kar-1', customer_id: 'cust-1', store_id: 'store-1' }
 })
+// Store lock (⚖ 9/16): the route resolves the caller's assignment through
+// resolveStoreForRequest before calling the core. Default = floating (empty
+// assignment = works in every store, the house convention), so every case
+// below behaves exactly as it did; the clamped case has its own test.
+const assignedStores = { current: [] as string[] }
+const staffStoresGet = jest.fn(async () => ({ store_ids: assignedStores.current }))
 // P3 (2026-08-19): core #69 / SDK 1.25 returns entry_edit_id from updateEntry;
 // the facade receipt must carry it too (same shared choke point as the web
 // path). Optional on the MOCK so the degraded case below can omit it.
@@ -69,7 +75,10 @@ const updateEntry = jest.fn(
   }),
 )
 jest.mock('@/lib/synqed/client', () => ({
-  newSynqedClient: () => ({ karuteRecords: { get: (id: string) => get(id), updateEntry } }),
+  newSynqedClient: () => ({
+    karuteRecords: { get: (id: string) => get(id), updateEntry },
+    staffStores: { get: staffStoresGet },
+  }),
 }))
 
 import { PATCH } from '@/app/api/app/v1/karute/[id]/entries/[entryId]/route'
@@ -95,6 +104,7 @@ const patchReq = (body: unknown) =>
 beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['records.write'])
+  assignedStores.current = []
 })
 
 describe('PATCH /karute/[id]/entries/[entryId] (edit-layer W2 PR-B)', () => {
@@ -181,5 +191,30 @@ describe('PATCH /karute/[id]/entries/[entryId] (edit-layer W2 PR-B)', () => {
     expect(res.status).toBe(403)
     expect(get).not.toHaveBeenCalled()
     expect(updateEntry).not.toHaveBeenCalled()
+  })
+
+  // Store lock (⚖ Liam 2026-09-16) — records.write alone is no longer enough.
+  it("a clamped caller + another store's record → refused, nothing written", async () => {
+    assignedStores.current = ['store-daikanyama'] // the record lives in store-1
+    const res = await PATCH(patchReq({ content: 'edited', expectedVersion: 4 }), routeFor('kar-1', 'e1'))
+    expect(res.status).toBe(404)
+    expect(updateEntry).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  it('that refusal is BYTE-IDENTICAL to a missing id — no existence oracle', async () => {
+    assignedStores.current = ['store-daikanyama']
+    const refused = await PATCH(patchReq({ content: 'edited', expectedVersion: 4 }), routeFor('kar-1', 'e1'))
+    assignedStores.current = []
+    const missing = await PATCH(patchReq({ content: 'edited', expectedVersion: 4 }), routeFor('kar-OTHER', 'e1'))
+    expect(refused.status).toBe(missing.status)
+    expect(await refused.json()).toEqual(await missing.json())
+  })
+
+  it('a clamped caller inside the record own store still writes', async () => {
+    assignedStores.current = ['store-1']
+    const res = await PATCH(patchReq({ content: 'edited', expectedVersion: 4 }), routeFor('kar-1', 'e1'))
+    expect(res.status).toBe(200)
+    expect(updateEntry).toHaveBeenCalledTimes(1)
   })
 })

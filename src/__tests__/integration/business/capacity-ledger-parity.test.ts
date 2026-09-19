@@ -75,6 +75,7 @@ import { join } from 'node:path'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { STORE_A } from '@/business/lib/fixtures'
+import { RESOURCE_WORDS } from '@/business/lib/resource-words'
 import {
   bedTruthViews,
   LATTICE_STEP_MIN,
@@ -95,6 +96,9 @@ import { cleanupBlocks, hhmm, place, type BoardItem, type BoardLane, type Hours 
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
+// ⚖ D-53 (ak)/(al) N2c-1 — the allocator's own resolved pair, STORE_A's;
+// byte-identical to `other` (D-13), so no expected value below moves.
+const ASK_A = { resourceNoun: RESOURCE_WORDS.chiropractic.resourceNoun, privateWord: RESOURCE_WORDS.chiropractic.privateWord! }
 
 // ── the real board, assembled by the page itself ────────────────────────────
 
@@ -181,11 +185,11 @@ function parityRun(
   durs: number[],
   handId: string | null = null,
 ): { asked: number; diverged: string[]; truth: BedTruth } {
-  const views = bedTruthViews(lanes, frameOf(hours, nowMin), handId === null ? null : { id: handId })
+  const views = bedTruthViews(lanes, frameOf(hours, nowMin), handId === null ? null : { id: handId }, ASK_A)
   const truth = views.worldMinusHand ?? views.world
   const { currentBed, requiresPrivate } =
     handId === null ? { currentBed: null, requiresPrivate: false } : handBinding(lanes, handId)
-  const legacy = bedFeasibility(lanes, handId)!
+  const legacy = bedFeasibility(lanes, handId, ASK_A)!
   const starts = latticeOf(hours)
   const diverged: string[] = []
   let asked = 0
@@ -372,7 +376,7 @@ describe('P1 — the book’s hypothetical answer IS the rail’s, on the real b
     // Without this, a book that returned `true` everywhere would pass P1 on a
     // board whose rail also happened to say true everywhere.
     const dur = REAL.guard.standardSessionMin
-    const truth = bedTruthViews(REAL.lanes, frameOf(REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open), null).world
+    const truth = bedTruthViews(REAL.lanes, frameOf(REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open), null, ASK_A).world
     const lane = staffLanesOf(REAL.lanes)[0]
     const answers = new Set(
       latticeOf(REAL.hours).map((s) => truth.bedFor(s, s + dur, { stores: lane.stores }).laneKey !== null),
@@ -382,7 +386,7 @@ describe('P1 — the book’s hypothetical answer IS the rail’s, on the real b
 
   it('the store binding is part of the question — a foreign store gets a different answer', () => {
     const lanes = synthBoard(TWO_STORE, SYNTH_HOURS)
-    const truth = bedTruthViews(lanes, frameOf(SYNTH_HOURS, SYNTH_NOW), null).world
+    const truth = bedTruthViews(lanes, frameOf(SYNTH_HOURS, SYNTH_NOW), null, ASK_A).world
     const a = latticeOf(SYNTH_HOURS).map((s) => truth.bedFor(s, s + 60, { stores: ['store-a'] }).laneKey)
     const b = latticeOf(SYNTH_HOURS).map((s) => truth.bedFor(s, s + 60, { stores: ['store-b'] }).laneKey)
     expect(a).not.toEqual(b)
@@ -430,7 +434,7 @@ describe('P2 — with a card in hand, worldMinusHand IS the rail’s excluded wo
     // …and the tag binding is LOAD-BEARING: the same hand asked untagged gets a
     // different set of rooms, so `requiresPrivate: false` is not a harmless
     // mutation.
-    const views = bedTruthViews(REAL.lanes, frameOf(REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open), { id: hand })
+    const views = bedTruthViews(REAL.lanes, frameOf(REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open), { id: hand }, ASK_A)
     const lane = staffLanesOf(REAL.lanes)[0]
     const asTagged = latticeOf(REAL.hours).map((s) => views.worldMinusHand!.bedFor(s, s + 60, { id: hand, currentBed: bound.currentBed, requiresPrivate: true, stores: lane.stores }).laneKey)
     const asPlain = latticeOf(REAL.hours).map((s) => views.worldMinusHand!.bedFor(s, s + 60, { id: hand, currentBed: bound.currentBed, requiresPrivate: false, stores: lane.stores }).laneKey)
@@ -449,8 +453,8 @@ describe('P2 — with a card in hand, worldMinusHand IS the rail’s excluded wo
   it('the LIFT is load-bearing for a hypothetical asker — same question, two worlds, different answers', () => {
     const hand = handsOn(REAL.lanes).plain!
     const now = REAL.sell.nowMinute ?? REAL.hours.open
-    const withCard = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), null).world
-    const lifted = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), { id: hand }).worldMinusHand!
+    const withCard = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), null, ASK_A).world
+    const lifted = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), { id: hand }, ASK_A).worldMinusHand!
     let boolDiff = 0
     let keyDiff = 0
     let asked = 0
@@ -500,8 +504,8 @@ describe('P2 — with a card in hand, worldMinusHand IS the rail’s excluded wo
     const hand = handsOn(REAL.lanes).plain!
     const now = REAL.sell.nowMinute ?? REAL.hours.open
     const bound = handBinding(REAL.lanes, hand)
-    const lifted = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), { id: hand }).worldMinusHand!
-    const unlifted = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), null).world
+    const lifted = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), { id: hand }, ASK_A).worldMinusHand!
+    const unlifted = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), null, ASK_A).world
     const ask = (t: BedTruth, lane: BoardLane, start: number, currentBed: string | null) =>
       t.bedFor(start, start + 60, { id: hand, currentBed, requiresPrivate: bound.requiresPrivate, stores: lane.stores })
     let asked = 0
@@ -529,7 +533,16 @@ describe('P2 — with a card in hand, worldMinusHand IS the rail’s excluded wo
 
 /** The rail the screen builds — the same call shape as TodayScreen's `rails`
  *  memo (stepMin 30, canon's own), for any board. */
-function railsFor(lanes: BoardLane[], hours: { open: number; close: number }, excludeId: string | null, dur: number, nowMinute: number | null = null) {
+function railsFor(
+  lanes: BoardLane[],
+  hours: { open: number; close: number },
+  excludeId: string | null,
+  dur: number,
+  nowMinute: number | null = null,
+  // ⚖ D-53 (u)/(n2b2) — the caller's own map; the one caller below (`railsOn`)
+  // always passes REAL's own row.
+  words: { byLaneKey: Record<string, TodayProps['words']>; generic: TodayProps['words'] },
+) {
   return guardRailsFor(lanes, {
     open: hours.open,
     close: hours.close,
@@ -540,13 +553,13 @@ function railsFor(lanes: BoardLane[], hours: { open: number; close: number }, ex
     locked: [],
     guard: REAL.guard.config,
     excludeId,
-    placementFeasible: bedFeasibility(lanes, excludeId),
-  })
+    placementFeasible: bedFeasibility(lanes, excludeId, ASK_A),
+  }, words)
 }
 
 /** …and the same thing for the real board, at its own clock. */
 const railsOn = (props: TodayProps, excludeId: string | null, dur = props.guard.standardSessionMin) =>
-  railsFor(props.lanes, props.hours, excludeId, dur, props.sell.nowMinute)
+  railsFor(props.lanes, props.hours, excludeId, dur, props.sell.nowMinute, { byLaneKey: {}, generic: props.words })
 
 // ═══════════════════════════════════════════════════════════════════════════
 // P3 — 満室 RUNS ≡ THE STARTS THE RAIL REFUSES FOR WANT OF A ROOM
@@ -565,7 +578,7 @@ describe('P3 — fullRuns is the book’s own bedFor walk, and the rail agrees w
   it('per store binding, run coverage ≡ the refused starts (clip contract honoured)', () => {
     const dur = REAL.guard.standardSessionMin
     const now = REAL.sell.nowMinute ?? REAL.hours.open
-    const truth = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), null).world
+    const truth = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), null, ASK_A).world
     let checked = 0
     for (const stores of bindingsOf(REAL.lanes)) {
       const runs = truth.fullRuns(dur, stores)
@@ -582,7 +595,7 @@ describe('P3 — fullRuns is the book’s own bedFor walk, and the rail agrees w
 
   it('a start past the last possible one is in NO run — neither full nor bookable', () => {
     const dur = REAL.guard.standardSessionMin
-    const truth = bedTruthViews(REAL.lanes, frameOf(REAL.hours, REAL.hours.open), null).world
+    const truth = bedTruthViews(REAL.lanes, frameOf(REAL.hours, REAL.hours.open), null, ASK_A).world
     const stores = bindingsOf(REAL.lanes)[0]
     const runs = truth.fullRuns(dur, stores)
     const tail = latticeOf(REAL.hours).filter((s) => s + dur > REAL.hours.close)
@@ -638,7 +651,7 @@ describe('P3 — fullRuns is the book’s own bedFor walk, and the rail agrees w
   it('spot-check — every ベッド refusal the rail paints sits inside a 満室 run (fixture board)', () => {
     const dur = REAL.guard.standardSessionMin
     const now = REAL.sell.nowMinute ?? REAL.hours.open
-    const truth = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), null).world
+    const truth = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), null, ASK_A).world
     const byKey = new Map(REAL.lanes.map((l) => [l.key, l]))
     let cells = 0
     for (const rail of railsOn(REAL, null)) {
@@ -669,7 +682,7 @@ describe('P3 — fullRuns is the book’s own bedFor walk, and the rail agrees w
     const lanes = roomStarvedBoard()
     const hours = { open: 600, close: 1140 }
     const dur = 60
-    const truth = bedTruthViews(lanes, frameOf(hours, 600), null).world
+    const truth = bedTruthViews(lanes, frameOf(hours, 600), null, ASK_A).world
     const runs = truth.fullRuns(dur, ['store-a'])
     // The one free lane's rail: the pocket is the whole day, so the only thing
     // left that can refuse is the room — and it refuses everywhere.
@@ -677,8 +690,10 @@ describe('P3 — fullRuns is the book’s own bedFor walk, and the rail agrees w
       open: hours.open, close: hours.close, stepMin: 30, dur,
       protectedDur: REAL.guard.protectedDurationMin, nowMinute: null, locked: [],
       guard: REAL.guard.config, excludeId: null,
-      placementFeasible: bedFeasibility(lanes, null),
-    }).find((r) => r.laneKey === 'p-free')!
+      placementFeasible: bedFeasibility(lanes, null, ASK_A),
+      // ⚖ D-53 (u)/(n2b2) — `NO_ROOM` below is hardcoded to ベッド, so this
+      // synthetic board's own row must be REAL's (STORE_A/chiropractic).
+    }, { byLaneKey: {}, generic: REAL.words }).find((r) => r.laneKey === 'p-free')!
     const refused = rail.cells.filter((c) => NO_ROOM(dur).test(c.sentence) && c.start + dur <= hours.close)
     expect(refused.length).toBeGreaterThan(0)
     for (const cell of refused) {
@@ -739,6 +754,7 @@ describe('P4 — no dial combination annihilates a layer, and the book agrees at
             hi: price.hi,
             hqMin: REAL.dialogs.pricing.hqMin,
             depth,
+            words: ASK_A,
           })
           const gap = gapLayerFor(lanes, {
             gridMin,

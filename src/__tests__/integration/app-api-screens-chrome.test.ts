@@ -150,7 +150,11 @@ const req = (headers: Record<string, string> = {}, url = 'https://s/api/app/v1/s
 beforeEach(() => {
   jest.clearAllMocks()
   mockCapabilities.mockResolvedValue(new Set(['customers.view']))
-  staffStoresGet.mockResolvedValue({ store_ids: [] })
+  // ⚖ Liam 2026-09-16 (fold round 2): the front gate now reads the unassigned
+  // verdict ITSELF, so a caller with no assignment in this MULTI-store fixture
+  // is refused before the handler runs. The suite is about the screen, so the
+  // default caller is ASSIGNED; the tests that want another shape ask for it.
+  staffStoresGet.mockResolvedValue({ store_ids: ['store-A', 'store-B'] })
 })
 
 describe('GET /api/app/v1/screens/chrome', () => {
@@ -158,10 +162,19 @@ describe('GET /api/app/v1/screens/chrome', () => {
     mockCapabilities.mockResolvedValue(new Set())
     const res = await GET(req(), route)
     expect(res.status).toBe(403)
-    expect(fakeClient.stores.list).not.toHaveBeenCalled()
+    // ⚖ Liam 2026-09-16: a caller with ZERO capabilities is the shape the
+    // unassigned gate has to inspect, so it counts the business's stores at
+    // the identity seam. That is auth work — the handler still never runs, so
+    // no SCREEN data is read.
+    expect(listAppointments).not.toHaveBeenCalled()
   })
 
   it('happy path: valid DTO, in-session mic target, shell-shaped hrefs', async () => {
+    // ⚖ Liam 2026-09-16: this fixture's business has TWO stores, so a
+    // deliberate empty assignment is now UNASSIGNED, not floating — that shape
+    // never reaches a handler any more (facadeHandler refuses it). The chrome
+    // itself is what this test is about, so the caller is assigned to both.
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-A', 'store-B'] })
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
     const body = await res.json()
@@ -176,9 +189,9 @@ describe('GET /api/app/v1/screens/chrome', () => {
     })
     expect(dto.notifications.map((n) => n.href)).toEqual(['/appointments', null])
     expect(dto.stores).toHaveLength(2)
-    // Floating staff (deliberate empty assignment) → unrestricted, no default
-    // store pin.
-    expect(dto.activeStoreId).toBeNull()
+    // Clamped to both stores with no store-id header → the clamp's own default,
+    // the first assigned store.
+    expect(dto.activeStoreId).toBe('store-A')
     expect(newSynqedClient).toHaveBeenCalledWith('business-1')
   })
 
@@ -203,7 +216,10 @@ describe('GET /api/app/v1/screens/chrome', () => {
     expect(buildNotificationFeed).toHaveBeenCalledWith(
       'business-1',
       'en',
-      null,
+      // The caller is assigned to 代官山 now (see the beforeEach), so the feed
+      // is lensed rather than business-wide — which is the rule, not a change
+      // of subject: the digest injection below is what this test pins.
+      'store-A',
       // The injected digest — mapped from the route's own appointments fetch,
       // so the feed builder never re-reads the same day (Greptile #562).
       { todayAppointments: [{ isExistingCustomer: true }, { isExistingCustomer: true }] },

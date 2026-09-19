@@ -7,7 +7,7 @@
 // the page, Bearer fan-out in the facade route), so this can never re-fetch
 // or diverge between the two.
 
-import type { DayWeekMonthView, MonthGridCell } from '@synqed-kk/ui'
+import type { DayWeekMonthView } from '@synqed-kk/ui'
 import type { Appointment } from '@synqed-kk/client'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { OrgSettings } from '@/actions/org-settings'
@@ -21,10 +21,12 @@ import {
   appointmentsToWeekData,
   appointmentsToMonthCells,
   appointmentsToMonthFacts,
+  type MonthCell,
   type WeekDayRowData,
 } from '@/lib/adapters/reservation'
 import { countedClientIds, type AppointmentWindow } from '@/lib/appointments/by-date'
 import { isTerminalStatus } from '@/lib/appointments/status'
+import { monthCompareDeltaFrom, monthCompareWindow } from '@/lib/appointments/month-compare'
 import type { DayHoursFact } from '@/lib/operating-hours'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
 import {
@@ -118,6 +120,10 @@ export interface AppointmentsScreenInputs {
   /** The selected day's own window — fetched only in day view; in week/month
    *  view the selected day is already inside the bigger window. */
   dayWindow?: AppointmentWindow | null
+  /** The PREVIOUS month's compared window (monthCompareWindow's range) — read
+   *  only in month view, and only while the 先月同期間比 switch is on. Absent →
+   *  the clause has no number and stays absent. */
+  prevMonthWindow?: AppointmentWindow | null
   /** That day's resolved hours, keyed by JST YYYY-MM-DD (resolveWindowHours). */
   hoursFacts?: ReadonlyMap<string, DayHoursFact>
   /** THIS STORE's vertical — the per-store column when core carries it, else
@@ -126,8 +132,19 @@ export interface AppointmentsScreenInputs {
    *  many people and no percentage is honest at any layer. Absent/null reads
    *  as not class-bound. */
   businessType?: string | null
+  /** ⚖ G2 (Greptile round 1 #934) — the store row the caller tried to read
+   *  FAILED (never "there was no store id to read"); `businessType` above
+   *  still fell to the org-wide setting the same way a genuine no-override
+   *  store would, so THIS is the flag that says that fallback is a guess and
+   *  must not decide the store's lane kind. Absent = not degraded. */
+  storeRowDegraded?: boolean
   enrichment: Map<string, CustomerEnrichment>
-  packUsage: ReadonlyMap<string, { remaining: number; size: number }>
+  /** The 回数券 ledger (listAllPackUsage/listAllPackUsageWithClient). `null` =
+   *  the read FAILED (⚖ G2, Greptile round 1 #951) — never "there was no
+   *  ledger", which stays a real empty Map (tickets off, or genuinely nobody
+   *  holds a pack). `newCountKnown` below reads this null the same way it
+   *  reads a missing `enrichment`: withhold, don't guess empty. */
+  packUsage: ReadonlyMap<string, { remaining: number; size: number }> | null
 }
 
 export interface AppointmentsScreen {
@@ -164,7 +181,7 @@ export interface AppointmentsScreen {
   businessHours: { start: number; end: number }
   weekData: WeekDayRowData[] | null
   weekStartIso: string | null
-  monthData: MonthGridCell[] | null
+  monthData: MonthCell[] | null
   /** The month's capacity facts, keyed by the cell's own id (JST YYYY-MM-DD),
    *  beside the cells rather than inside them: MonthGridCell is the package's
    *  type and cannot grow app fields. Built from the SAME rows and the same
@@ -184,6 +201,11 @@ export interface AppointmentsScreen {
    *  menu). */
   newCountKnown: boolean
   monthStartIso: string | null
+  /** 先月同期間比 — the displayed month's counted bookings so far MINUS the same
+   *  elapsed span of the previous month. Null = no honest number, so the clause
+   *  is absent (a future month, a truncated read, or no base to compare with);
+   *  see month-compare.ts for the three cases. */
+  monthCompareDelta: number | null
   /** The SELECTED day's row, from the same adapter the week rows come from —
    *  so the day line and the week row can never disagree. Null when no window
    *  covers the selected day, or when the read was truncated. */
@@ -253,8 +275,10 @@ export function buildAppointmentsScreen(
     weekWindow,
     monthWindow,
     dayWindow,
+    prevMonthWindow,
     hoursFacts,
     businessType,
+    storeRowDegraded,
     enrichment,
     packUsage,
   } = input
@@ -380,7 +404,10 @@ export function buildAppointmentsScreen(
     now,
     isFirstTimeByClient,
     karuteNumberByClientId,
-    packUsage,
+    // ⚖ G2 — a failed ledger read withholds the NUMBER (newCountKnown above);
+    // the row-level pack badge/renewal flag degrades to "no pack" instead,
+    // same as a genuinely empty ledger renders today.
+    packUsage ?? new Map(),
     noShowCountByClient,
   )
 
@@ -448,8 +475,16 @@ export function buildAppointmentsScreen(
   // everybody — beside a list showing no 新規 chip at all. The number is
   // withheld instead. The LIST is untouched: an absent entry already reads
   // 予約済 there, which is why this is the number catching up, not a new rule.
+  //
+  // ⚖ G2 (Greptile round 1 #951) — same posture for the 回数券 LEDGER: a FAILED
+  // read reaches here as `packUsage: null` (never an empty map standing in for
+  // "nobody holds a pack"), and a pack holder with no other returning signal
+  // would otherwise be counted 新規 while the number claims to be known.
+  // `packUsage !== null` — tickets OFF already resolves to a real empty Map
+  // upstream, so that path stays known exactly as today.
   const newCountKnown =
-    enrichment.size > 0 || countedClientIds(weekWin, monthWin, dayWin).length === 0
+    (enrichment.size > 0 && packUsage !== null) ||
+    countedClientIds(weekWin, monthWin, dayWin).length === 0
   const newCountCache = new Map<AppointmentWindow, ReadonlyMap<string, number>>()
   const newCountsFor = (win: AppointmentWindow): ReadonlyMap<string, number> => {
     if (!newCountKnown) return EMPTY_NEW_COUNTS
@@ -518,7 +553,12 @@ export function buildAppointmentsScreen(
   // — at every layer, behind every switch, until core models class capacity
   // (C1 §6 / C2). Read from the STORE's own vertical where core carries it,
   // so a chain can run a studio next to a salon.
-  const laneKind: LaneKind = isClassBoundBusinessType(businessType) ? 'none' : 'staff'
+  // ⚖ G2 — a degraded store read never gets to decide a lane kind: laneKind
+  // stays the adapter's own neutral default ('staff'), and storeRowDegraded
+  // below withholds capacity entirely (capacityFactsFor's own no-store path)
+  // before this value would ever be read.
+  const laneKind: LaneKind =
+    !storeRowDegraded && isClassBoundBusinessType(businessType) ? 'none' : 'staff'
 
   const rowsFor = (win: AppointmentWindow, from: Date, to: Date): WeekDayRowData[] =>
     appointmentsToWeekData(
@@ -532,15 +572,16 @@ export function buildAppointmentsScreen(
       { cancelled: win.cancelled, noShow: win.noShow },
       hoursFacts,
       soloMode,
-      { rosterHeadcount: capacityRoster, laneKind },
+      { rosterHeadcount: capacityRoster, laneKind, storeRowDegraded },
     )
 
   let weekData: WeekDayRowData[] | null = null
-  let monthData: MonthGridCell[] | null = null
+  let monthData: MonthCell[] | null = null
   let monthFacts: ReadonlyMap<string, CapacityFact> | null = null
   let monthNewCounts: ReadonlyMap<string, number> | null = null
   let weekStartIso: string | null = null
   let monthStartIso: string | null = null
+  let monthCompareDelta: number | null = null
 
   if (weekRange && weekWin) {
     if (!truncated) {
@@ -554,6 +595,9 @@ export function buildAppointmentsScreen(
         monthRange.monthStart,
         monthRange.monthEnd,
         now,
+        // ONE source for 休: the same map the week rows read their own `closed`
+        // from, so the month cell and the week row cannot disagree about a day.
+        hoursFacts,
       )
       // The same rows, the same month, one call beside the other — the cells
       // and their facts cannot come from different reads.
@@ -561,11 +605,43 @@ export function buildAppointmentsScreen(
         monthWin.counted,
         monthRange.monthStart,
         monthRange.monthEnd,
-        { hoursFacts, soloMode, rosterHeadcount: capacityRoster, laneKind },
+        { hoursFacts, soloMode, rosterHeadcount: capacityRoster, laneKind, storeRowDegraded },
       )
       // Same window, same memo as the week rows would take — a month cell's
       // 新規 and the week row's 新規 for one day are one number.
       monthNewCounts = newCountsFor(monthWin)
+      // 先月同期間比, in the SAME branch that owns the grid: a truncated read
+      // can then never carry a delta by construction, rather than by the
+      // coincidence that month view happens to read no week or day window
+      // today. The selected-day card sitting under this grid is the obvious
+      // future day-window caller, and the day it exists the clause would have
+      // printed a number over a failed-read grid.
+      //
+      // The displayed month's own window is one side of it, so the clause and
+      // 「予約 N件」 are derived from the SAME rows; the other side is the
+      // caller's extra read. Either read truncated → null, never a low number
+      // (month-compare.ts).
+      //
+      // No previous read at all — the switch off, a future month, a failed
+      // optional read — means no clause, and the window arithmetic is skipped
+      // with it: it builds a dozen JST date parts for a discarded answer.
+      if (prevMonthWindow) {
+        monthCompareDelta = monthCompareDeltaFrom(
+          monthCompareWindow(monthRange.monthStart, now),
+          monthWin,
+          prevMonthWindow,
+        )
+      }
+      // ⚖ PKT-2b — this door's own cells, merged with the SAME map/flag
+      // monthCellsToDTO (route.ts) already merges onto the wire for the
+      // phone: one producer, two doors, so a month's 新規 total cannot mean
+      // two different things depending which door drew it. Out-of-month
+      // padding cells stay 0 either way (they render nothing).
+      monthData = monthData.map((c) => ({
+        ...c,
+        newCount: (newCountKnown && c.inMonth && monthNewCounts?.get(c.id)) || 0,
+        newCountKnown,
+      }))
     }
     monthStartIso = monthRange.monthStart.toISOString()
   }
@@ -599,6 +675,7 @@ export function buildAppointmentsScreen(
     monthNewCounts,
     newCountKnown,
     monthStartIso,
+    monthCompareDelta,
     dayTotals,
     truncated,
     soloMode,

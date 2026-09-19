@@ -750,7 +750,11 @@ describe('the named grant reads only inside the viewer’s own stores', () => {
     capabilities.current = new Set(['customers.view', 'recordings.viewAll', 'stores.viewAll'])
     const dto = await dtoFor()
     expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
+    // identity seam (the front gate reads the unassigned verdict itself, for
+    // every non-viewAll request). What this pins is that the DOOR asks for
+    // nothing beyond it — no target's row, no second read.
+    expect(staffStoresGet.mock.calls.length).toBeLessThanOrEqual(1)
   })
 
   it('a record with NO store — and no store on its recording either — is read by a clamped grantee (全店舗 / legacy)', async () => {
@@ -793,7 +797,11 @@ describe('the named grant reads only inside the viewer’s own stores', () => {
     staffStoresGet.mockResolvedValue({ store_ids: [] })
     const dto = await dtoFor()
     expect(dto.transcriptRestricted).toBe(true)
-    expect(staffStoresGet).not.toHaveBeenCalled()
+    // ⚖ 2026-09-16 fold round 2: the CALLER's own assignment is read once at the
+    // identity seam (the front gate reads the unassigned verdict itself, for
+    // every non-viewAll request). What this pins is that the DOOR asks for
+    // nothing beyond it — no target's row, no second read.
+    expect(staffStoresGet.mock.calls.length).toBeLessThanOrEqual(1)
   })
 
   it('an UNREADABLE assignment fails the grant closed — restricted, never widened, and the screen still renders', async () => {
@@ -1432,6 +1440,10 @@ describe('D14: the sharing layer-off matrix (recordings.viewShared, D3/D4/D5/D8)
       viewerRole: 'practitioner',
       staffCanReassignRecords: false,
       staffCanRegenerate: false,
+      // ⚖ 9/16 store lock's screen half — additive, and TRUE here: this
+      // fixture's caller has no store assignment (floating = works in every
+      // store), exactly what every case in this matrix already assumed.
+      staffCanEditRecord: true,
       discarded: null,
       contentWithheld: false,
       share: null,
@@ -1548,5 +1560,56 @@ describe('D14: the sharing layer-off matrix (recordings.viewShared, D3/D4/D5/D8)
     capabilities.current.add('records.write')
     const dto = await dtoFor()
     expect(dto.staffCanRegenerate).toBe(false)
+  })
+})
+
+// ── ⚖ THE STORE LOCK'S SCREEN HALF (Liam 2026-09-16) ───────────────────────
+// The by-id write doors refuse a record outside the caller's store assignment.
+// The DTO carries the same answer so the phone hides the pencils instead of
+// showing them and being refused — and it is ADDITIVE and DEFAULT-ALLOWED, so
+// a baked shell that ignores the key keeps exactly today's screen.
+describe('staffCanEditRecord — the DTO half of the store lock', () => {
+  const dtoFor = async () => (await GET(req({ headers: auth }), routeFor(KARUTE_UUID))).json()
+
+  it('a clamped caller on ANOTHER store’s karute → false', async () => {
+    KAR.current = { ...KAR.current, store_id: 'store-b' }
+    capabilities.current = new Set(['customers.view', 'records.write'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await dtoFor()).staffCanEditRecord).toBe(false)
+  })
+
+  it('the SAME caller on their own store’s karute → true', async () => {
+    KAR.current = { ...KAR.current, store_id: 'store-a' }
+    capabilities.current = new Set(['customers.view', 'records.write'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await dtoFor()).staffCanEditRecord).toBe(true)
+  })
+
+  it('a stores.viewAll caller → true anywhere, and still never consults an assignment', async () => {
+    KAR.current = { ...KAR.current, store_id: 'store-b' }
+    capabilities.current = new Set(['customers.view', 'records.write', 'stores.viewAll'])
+    expect((await dtoFor()).staffCanEditRecord).toBe(true)
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  it('a floating caller (empty assignment) → true, unchanged until the P2 flip', async () => {
+    KAR.current = { ...KAR.current, store_id: 'store-b' }
+    capabilities.current = new Set(['customers.view', 'records.write'])
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    expect((await dtoFor()).staffCanEditRecord).toBe(true)
+  })
+
+  it('a legacy store-less karute → false for a clamped caller (the write door refuses it too)', async () => {
+    KAR.current = { ...KAR.current, store_id: null }
+    capabilities.current = new Set(['customers.view', 'records.write'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await dtoFor()).staffCanEditRecord).toBe(false)
+  })
+
+  it('a FAILED assignment read hides rather than shows (fail closed)', async () => {
+    KAR.current = { ...KAR.current, store_id: 'store-a' }
+    capabilities.current = new Set(['customers.view', 'records.write'])
+    staffStoresGet.mockRejectedValue(new Error('core down'))
+    expect((await dtoFor()).staffCanEditRecord).toBe(false)
   })
 })

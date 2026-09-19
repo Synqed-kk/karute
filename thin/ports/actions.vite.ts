@@ -599,6 +599,7 @@ async function facadeRevealNoKaruteCustomer(
   }
 }
 
+
 // -- カルテ list: 日付チャンク読み込み (PR-2a さらに表示). READ, degrades to the
 // declared {error} result on any failure — same graceful convention as
 // facadeRevealNoKaruteCustomer above. The web action's own catch returns the
@@ -1119,6 +1120,15 @@ export const deleteCustomerPhoto = facadeDeleteCustomerPhoto
 export const getCustomerConsent = facadeGetCustomerConsent
 export const grantCustomerConsent = facadeGrantCustomerConsent
 export const revokeCustomerConsent = facadeRevokeCustomerConsent
+// notWired, not a real facade call (unlike facadeRevealNoKaruteCustomer's
+// analogous case above): the bundle is already 1.5 KB over budget, and this
+// tier is a progressive enhancement — useRemoteCustomerSearch swallows a
+// rejection into "no remote results", never a crash, so a loud throw here
+// degrades to exactly the local-only search this bundle already had before
+// P3. Wire a real facadeSearchCustomersCompanyWide (same shape as
+// facadeRevealNoKaruteCustomer, hitting GET /api/app/v1/customers/search)
+// once there's budget headroom.
+export const searchCustomersCompanyWide = notWired('searchCustomersCompanyWide')
 // -- packs
 export const createPackAction = facadeCreatePack
 export const setPackStatusAction = notWired('setPackStatusAction') // status flip = later batch

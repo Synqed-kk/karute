@@ -56,6 +56,11 @@ const CustomerCreatedDTO = z.object({
 
 export const POST = facadeHandler('customer.create', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'customers.view')
+  // Writing a profile is its own tier (⚖ Liam 2026-09-16): customers.view is
+  // the READ gate this route already held. Every shipped preset carries
+  // customers.manage too, so no real role loses the door. NOT a store rule —
+  // customers have no store_id; see the web twin's gate comment.
+  ensureCapability(ctx.identity.capabilities, 'customers.manage')
   requireIdempotencyKey(ctx.req)
 
   let body: unknown

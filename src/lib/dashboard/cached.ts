@@ -2,6 +2,7 @@ import { unstable_cache } from 'next/cache'
 import { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId } from '@/lib/staff'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { reachesNoStore } from '@/lib/auth/store-gate'
 import { ymdInJst, JST_OFFSET } from '@/lib/date/jst'
 import { isTerminalStatus } from '@/lib/appointments/status'
 import { effectiveSummary } from '@/lib/karute/effective-summary'
@@ -206,6 +207,22 @@ const dashboardByDay = unstable_cache(
   { revalidate: 60, tags: ['dashboard'] },
 )
 
+/** The zeroed dashboard — what an actor who reaches NO store is shown, on both
+ *  transports. Six store-keyed queries hang off getDashboardDataFor and every
+ *  one of them reads `storeId: null` as "no filter", so the first screen after
+ *  login is exactly where "sees nothing" would otherwise become "sees
+ *  everything" (census §3, FO-HIGHEST-VISIBILITY). */
+export function emptyDashboardData(): DashboardData {
+  return {
+    weeklyKaruteCount: 0,
+    monthlyKaruteCount: 0,
+    weekKaruteCount: 0,
+    todayAppointments: [],
+    tomorrowAppointments: [],
+    recentKarute: [],
+  }
+}
+
 export async function getDashboardData(): Promise<DashboardData> {
   const businessId = await getBusinessId()
   // resolveStoreScope: viewAll/floating viewers get the unset-cookie PRIMARY
@@ -213,8 +230,9 @@ export async function getDashboardData(): Promise<DashboardData> {
   // CLAMPED to their assigned store — so an unset/out-of-scope cookie can't leak
   // another branch's dashboard (the Ginza Apple-review leak). getDefaultStoreId
   // never applied that clamp here.
-  const activeStore = (await resolveStoreScope()).storeId
-  return getDashboardDataFor(businessId, activeStore)
+  const scope = await resolveStoreScope()
+  if (reachesNoStore(scope)) return emptyDashboardData()
+  return getDashboardDataFor(businessId, scope.storeId)
 }
 
 /** businessId/storeId-EXPLICIT variant (design-parity P-B-1) — does NOT read
