@@ -252,6 +252,40 @@ describe('the 休業 confirmation', () => {
 })
 
 describe('saving', () => {
+  it.each([{ ok: true } as const, { error: 'STORE_HOURS_UNREADABLE' }])(
+    'cold-pass pin mU8: reset locks the draft until its response (%j)', async (result) => {
+      let finishReset!: (value: { ok: true } | { error: string }) => void
+      setStoreHours.mockReturnValueOnce(new Promise((resolve) => { finishReset = resolve }))
+      const onSaved = jest.fn()
+      const { container } = open({ weeklyHours: OWN_WEEK, onSaved })
+      fireEvent.click(screen.getAllByText('closedToggle')[0])
+      fireEvent.click(screen.getByText('resetToDefault'))
+      fireEvent.click(screen.getByText('resetConfirmYes'))
+
+      expect(setStoreHours).toHaveBeenCalledTimes(1)
+      expect(setStoreHours).toHaveBeenCalledWith('store-7', null)
+      timeInputs(container).forEach((input) => expect(input).toBeDisabled())
+      screen.getAllByText('closedToggle').forEach((toggle) => expect(toggle).toBeDisabled())
+      for (const key of ['saving', 'closedConfirmYes', 'resetToDefault', 'resetConfirmYes']) {
+        expect(screen.getByText(key)).toBeDisabled()
+        fireEvent.click(screen.getByText(key))
+      }
+      expect(setStoreHours).toHaveBeenCalledTimes(1)
+      expect(onSaved).not.toHaveBeenCalled()
+
+      await act(async () => finishReset(result))
+      expect(screen.getByText('save')).not.toBeDisabled()
+      expect(timeInputs(container)[0]).not.toBeDisabled()
+      if ('ok' in result) {
+        expect(onSaved).toHaveBeenCalledWith('store-7', null)
+        expect(timeInputs(container)[0].value).toBe('10:00')
+      } else {
+        expect(onSaved).not.toHaveBeenCalled()
+        expect(timeInputs(container)[0].value).toBe('11:00')
+      }
+    },
+  )
+
   it('disables inputs and toggles while saving, then re-enables them after the response', async () => {
     let resolveSave!: (result: { ok: true }) => void
     setStoreHours.mockReturnValueOnce(new Promise((resolve) => { resolveSave = resolve }))
