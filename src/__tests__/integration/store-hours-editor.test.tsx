@@ -163,15 +163,19 @@ describe('a store that has never set its own hours', () => {
 })
 
 describe('unreadable store hours', () => {
-  it.each([null, OWN_WEEK])('blocks every write control and shows the approved notice (week: %j)', (weeklyHours) => {
+  it.each([null, {}, OWN_WEEK])('blocks every write control and shows the approved notice (week: %j)', (weeklyHours) => {
     const { container } = open({ weeklyHours, weeklyHoursUnreadable: true })
     expect(screen.getByText(ja.settings.stores.hours.unreadable)).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(ja.settings.stores.hours.unreadable)
     expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
     expect(screen.queryByText('usingDefaultHint')).not.toBeInTheDocument()
     const inputs = timeInputs(container)
     expect(inputs).toHaveLength(14)
     inputs.forEach((input) => expect(input).toBeDisabled())
-    if (!weeklyHours) inputs.forEach((input) => expect(input.value).toBe(''))
+    if (!weeklyHours || Object.keys(weeklyHours).length === 0) {
+      inputs.forEach((input) => expect(input.value).toBe(''))
+    }
+    expect(screen.queryByText('clampedMidnight')).not.toBeInTheDocument()
     const toggles = screen.getAllByText('closedToggle')
     expect(toggles).toHaveLength(7)
     toggles.forEach((toggle) => {
@@ -201,6 +205,37 @@ describe('unreadable store hours', () => {
 })
 
 describe('a store with its own saved week', () => {
+  it('a saved 24:00 close keeps controls enabled but requires retyping before saving', async () => {
+    const weeklyHours = { ...OWN_WEEK, mon: { open: '10:00', close: '24:00' } }
+    const { container } = open({ weeklyHours })
+    const inputs = timeInputs(container)
+    expect(inputs[0]).not.toBeDisabled()
+    expect(inputs[1]).not.toBeDisabled()
+    // The draft keeps 24:00; the time input sanitizes its displayed value to blank.
+    expect(inputs[1]).toHaveAttribute('value', '24:00')
+    expect(inputs[1].value).toBe('')
+    inputs.filter((_input, i) => i !== 2 && i !== 3)
+      .forEach((input) => expect(input).not.toBeDisabled())
+    screen.getAllByText('closedToggle').forEach((toggle) => expect(toggle).not.toBeDisabled())
+    expect(screen.getByText('resetToDefault')).not.toBeDisabled()
+    expect(screen.queryByText(ja.settings.stores.hours.unreadable)).not.toBeInTheDocument()
+    expect(screen.queryByText('clampedMidnight')).not.toBeInTheDocument()
+    expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
+    expect(screen.getByText('save')).toBeDisabled()
+    expect(screen.getByText('fixBeforeSaving')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('save'))
+    expect(setStoreHours).not.toHaveBeenCalled()
+    fireEvent.change(inputs[1], { target: { value: '23:30' } })
+    expect(screen.queryByText('fixBeforeSaving')).not.toBeInTheDocument()
+    expect(screen.getByText('save')).not.toBeDisabled()
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('saved'))
+    expect(setStoreHours).toHaveBeenCalledTimes(1)
+    expect(setStoreHours).toHaveBeenCalledWith('store-7', {
+      ...weeklyHours, mon: { open: '10:00', close: '23:30' },
+    })
+  })
+
   it('shows its own hours, and does NOT claim the company-wide default', () => {
     const { container } = open({ weeklyHours: OWN_WEEK })
     expect(screen.queryByText('usingDefault')).not.toBeInTheDocument()
@@ -252,6 +287,53 @@ describe('the 休業 confirmation', () => {
 })
 
 describe('saving', () => {
+  describe.each(['save', 'reset'] as const)('pending %s', (operation) => {
+    it.each([{ ok: true } as const, { error: 'STORE_HOURS_UNREADABLE' }])(
+      'locks the outer toggle until either outcome (%j)', async (result) => {
+        let finish!: (value: { ok: true } | { error: string }) => void
+        setStoreHours.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
+        open({ weeklyHours: OWN_WEEK })
+        const toggle = screen.getByText('hide')
+        if (operation === 'reset') {
+          fireEvent.click(screen.getByText('resetToDefault'))
+          fireEvent.click(screen.getByText('resetConfirmYes'))
+        } else {
+          fireEvent.click(screen.getByText('save'))
+        }
+        expect(toggle).toBeDisabled()
+        expect(toggle).toHaveAttribute('aria-expanded', 'true')
+        fireEvent.click(toggle)
+        expect(toggle).toHaveAttribute('aria-expanded', 'true')
+        expect(screen.getByText('saving')).toBeDisabled()
+        expect(setStoreHours).toHaveBeenCalledTimes(1)
+        await act(async () => finish(result))
+        expect(toggle).not.toBeDisabled()
+        fireEvent.click(toggle)
+        expect(screen.getByText('title')).toHaveAttribute('aria-expanded', 'false')
+      },
+    )
+  })
+
+  it('collapse/reopen cannot issue 12:00 while the 11:00 save is still pending', async () => {
+    let finish!: (value: { ok: true }) => void
+    setStoreHours.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
+    const onSaved = jest.fn()
+    const { container } = open({ weeklyHours: OWN_WEEK, onSaved })
+    fireEvent.click(screen.getByText('save'))
+    fireEvent.click(screen.getByText('hide'))
+    const reopen = screen.queryByText('title')
+    if (reopen) fireEvent.click(reopen)
+    const monday = timeInputs(container)[0]
+    if (!monday.disabled) fireEvent.change(monday, { target: { value: '12:00' } })
+    fireEvent.click(screen.queryByText('save') ?? screen.getByText('saving'))
+    expect(setStoreHours).toHaveBeenCalledTimes(1)
+    expect(onSaved).not.toHaveBeenCalled()
+    await act(async () => finish({ ok: true }))
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(onSaved).toHaveBeenCalledWith('store-7', OWN_WEEK)
+    expect(timeInputs(container)[0].value).toBe('11:00')
+  })
+
   it.each([{ ok: true } as const, { error: 'STORE_HOURS_UNREADABLE' }])(
     'cold-pass pin mU8: reset locks the draft until its response (%j)', async (result) => {
       let finishReset!: (value: { ok: true } | { error: string }) => void

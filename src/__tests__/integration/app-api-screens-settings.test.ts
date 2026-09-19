@@ -626,6 +626,44 @@ describe('Settings store DTO unreadable hours', () => {
     isPrimary: true, active: true, staffCount: 0, customerCount: 0, businessType: null,
   }
 
+  it('retains a saved 24:00 close intact as readable', () => {
+    const weeklyHours = {
+      mon: { open: '10:00', close: '24:00' }, tue: null, wed: null,
+      thu: null, fri: null, sat: null, sun: null,
+    }
+    expect(StoreRowSchema.parse({ ...row, weeklyHours }))
+      .toEqual({ ...row, weeklyHours, weeklyHoursUnreadable: false })
+  })
+
+  it.each([
+    ['24:00 open', { mon: { open: '24:00', close: '24:00' } }],
+    ['24:01 close', { mon: { open: '10:00', close: '24:01' } }],
+    ['25:00 close', { mon: { open: '10:00', close: '25:00' } }],
+    ['unknown day key', { mon: { open: '10:00', close: '19:00', future: true } }],
+    ['unknown week key', { mon: null, future: true }],
+    ['unknown key only', { future: true }],
+    ['array', []],
+  ])('marks %s unreadable instead of stripping it', (_label, weeklyHours) => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(StoreRowSchema.parse({ ...row, weeklyHours }))
+        .toEqual({ ...row, weeklyHours: null, weeklyHoursUnreadable: true })
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it.each([
+    ['null', null], ['empty', {}],
+    ['six days', { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null }],
+    ['absent days', { mon: { open: '10:00', close: '19:00' } }],
+    ['open after close', { mon: { open: '20:00', close: '10:00' } }],
+    ['open equals close', { mon: { open: '10:00', close: '10:00' } }],
+  ])('keeps the existing readable classification for %s', (_label, weeklyHours) => {
+    expect(StoreRowSchema.parse({ ...row, weeklyHours }))
+      .toEqual({ ...row, weeklyHours, weeklyHoursUnreadable: false })
+  })
+
   it('a malformed week preserves the row with null hours and an unreadable flag', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     try {

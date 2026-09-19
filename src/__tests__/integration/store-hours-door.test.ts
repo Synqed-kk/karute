@@ -181,6 +181,16 @@ const FULL_WEEK = {
   sun: { open: '09:00', close: '17:45' },
 }
 
+const MIDNIGHT_WEEK = { ...FULL_WEEK, mon: { open: '10:00', close: '24:00' } }
+const UNKNOWN_KEY_WEEKS = [
+  ['unknown day key', { ...FULL_WEEK, mon: { ...FULL_WEEK.mon, future: true } }],
+  ['unknown week key', { ...FULL_WEEK, future: true }],
+  ['unknown key only', { future: true }],
+] as const
+const HOURS_DOORS = [
+  ['web', 'save'], ['web', 'reset'], ['facade', 'save'], ['facade', 'reset'],
+] as const
+
 const MANAGER = [
   { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'manager' },
 ]
@@ -470,6 +480,44 @@ describe('store membership — a storeId not owned by this business is refused',
 })
 
 describe('unreadable current policy', () => {
+  describe.each(UNKNOWN_KEY_WEEKS)('%s', (_label, weekly_hours) => {
+    it.each(HOURS_DOORS)('%s %s refuses unknown stored keys without a write or audit', async (door, operation) => {
+      storePoliciesGet.mockResolvedValue({ weekly_hours })
+      const hours = operation === 'reset' ? null : FULL_WEEK
+      const lines = await auditLines(async () => {
+        const result = door === 'web'
+          ? await setStoreHours('store-7', hours)
+          : await (await hoursPATCH(patchReq(hours), params('store-7'))).json()
+        expect(result).toEqual({ error: STORE_HOURS_UNREADABLE })
+      })
+      expect(storePoliciesSet).not.toHaveBeenCalled()
+      expect(lines).toHaveLength(0)
+    })
+  })
+
+  it.each(HOURS_DOORS)('%s %s allows a saved 24:00 close and audits the intact BEFORE week', async (door, operation) => {
+    storePoliciesGet.mockResolvedValue({ weekly_hours: MIDNIGHT_WEEK })
+    const hours = operation === 'reset' ? null : FULL_WEEK
+    const lines = await auditLines(async () => {
+      const result = door === 'web'
+        ? await setStoreHours('store-7', hours)
+        : await (await hoursPATCH(patchReq(hours), params('store-7'))).json()
+      expect(result).toEqual({ ok: true })
+    })
+    expect(storePoliciesSet).toHaveBeenCalledTimes(1)
+    expect(storePoliciesSet).toHaveBeenCalledWith('store-7', {
+      weekly_hours: hours, acting_staff_id: CORE_STAFF_ID,
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action: operation === 'reset' ? 'settings.store_hours_reset' : 'settings.store_hours_update',
+      source: door,
+      detail: {
+        before: 'mon=10:00-24:00 tue=closed wed=10:00-19:30 thu=10:00-19:30 fri=10:00-21:00 sat=09:00-18:00 sun=09:00-17:45',
+      },
+    })
+  })
+
   it.each([
     ['web', 'save'], ['web', 'reset'], ['facade', 'save'], ['facade', 'reset'],
   ] as const)('%s %s refuses an unreadable stored week without a write or audit row', async (door, operation) => {
@@ -569,13 +617,18 @@ describe('the exact SDK payload', () => {
     expect((lines[0] as { detail: { before: string } }).detail.before).toBe('default')
   })
 
-  it('a failed BEFORE transport read says unavailable and retains the existing save behavior', async () => {
+  it.each(HOURS_DOORS)('%s %s refuses a failed BEFORE transport read with the existing core-failure result', async (door, operation) => {
     storePoliciesGet.mockRejectedValue(new Error('core down'))
+    const hours = operation === 'reset' ? null : FULL_WEEK
     const lines = await auditLines(async () => {
-      expect(await setStoreHours('store-7', FULL_WEEK)).toEqual({ ok: true })
+      const result = door === 'web'
+        ? await setStoreHours('store-7', hours)
+        : await (await hoursPATCH(patchReq(hours), params('store-7'))).json()
+      expect(result).toEqual({ error: 'Could not update store hours: core down' })
     })
-    expect(storePoliciesSet).toHaveBeenCalledTimes(1)
-    expect((lines[0] as { detail: { before: string } }).detail.before).toBe('unavailable')
+    expect(storePoliciesGet).toHaveBeenCalledWith('store-7')
+    expect(storePoliciesSet).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
   })
 
   it('the phone door emits the same row with source: facade', async () => {
@@ -666,6 +719,23 @@ describe('both doors, one core', () => {
 })
 
 describe('the settings read', () => {
+  it.each([
+    ['saved 24:00 close', MIDNIGHT_WEEK, false],
+    ...UNKNOWN_KEY_WEEKS.map(([label, week]) => [label, week, true] as const),
+  ] as const)('classifies %s on shared web and facade rows', async (_label, weekly_hours, unreadable) => {
+    storePoliciesList.mockResolvedValue({ policies: [{ store_id: 'store-7', weekly_hours }] })
+    const expected = { weeklyHours: unreadable ? null : weekly_hours, weeklyHoursUnreadable: unreadable }
+    const rows = await listStoresWithClient(fakeClient as never, 'business-1', {
+      ensurePrimary: false, withHours: true,
+    })
+    expect(rows[0]).toMatchObject(expected)
+    const res = await storesGET(new Request('https://s/api/app/v1/stores?withHours=1', {
+      headers: auth,
+    }), { params: Promise.resolve({}) })
+    expect(res.status).toBe(200)
+    expect((await res.json()).stores[0]).toMatchObject(expected)
+  })
+
   it('marks malformed stored hours unreadable in both the shared reader and stores facade', async () => {
     storePoliciesList.mockResolvedValue({ policies: [
       { store_id: 'store-7', weekly_hours: { mon: { open: 'bad', close: '19:00' } } },
