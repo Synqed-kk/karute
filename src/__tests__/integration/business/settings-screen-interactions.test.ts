@@ -1098,7 +1098,11 @@ describe('PKT-BUILD-N3-2 §3 H5 — the screen calls the pure save door', () => 
 
   it('N3-2 §3 H5 — imports the door and names none of the words table rules', () => {
     expect(SRC_CODE).toMatch(new RegExp("import\\s*\\{[^}]*committedWordValues[^}]*\\}\\s*" + "from '@/business/lib/settings-words'"))
-    expect(SRC_CODE).not.toContain("from '@/business/lib/resource-words'")
+    const tableImport = /\bfrom\s*['"]@\/business\/lib\/resource-words['"]/
+    expect(tableImport.test("import { wordsForStore } from '@/business/lib/resource-words'")).toBe(true)
+    expect(tableImport.test('import { wordsForStore } from "@/business/lib/resource-words"')).toBe(true)
+    expect(tableImport.test("import { wordsReadout } from '@/business/lib/settings-words'")).toBe(false)
+    expect(SRC_CODE).not.toMatch(tableImport)
     for (const forbidden of ['wordOverrideProblem', 'wordsForStore', 'WORD_MAX_CHARS']) expect(SRC).not.toContain(forbidden)
   })
 
@@ -1111,7 +1115,9 @@ describe('PKT-BUILD-N3-2 §3 H5 — the screen calls the pure save door', () => 
   })
 
   it('N3-2 §3 H5 — Block calls all three door decisions and receives the section', () => {
-    expect(openingTags(SRC_CODE, 'Block').every((tag) => tag.text.includes('section={section}'))).toBe(true)
+    const blockCalls = openingTags(SRC_CODE, 'Block')
+    expect(blockCalls.length).toBeGreaterThan(0)
+    expect(blockCalls.every((tag) => tag.text.includes('section={section}'))).toBe(true)
     expect(blockSource).toContain("wordsSentences(block.words, values, labelFor(block.words.typeId) ?? '')")
     expect(blockSource).toContain('wordsBlockProblem(block, values)')
     expect(blockSource).toContain('wordsLiveFact(section, block.id, values,')
