@@ -9,7 +9,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { businessProfiles, type BusinessProfileKey } from '@/business/lib/fixtures-settings'
 import { stores } from '@/business/lib/fixtures'
-import { RESOURCE_WORDS, resourceWordsFor, type ResourceWords } from '@/business/lib/resource-words'
+import { RESOURCE_WORDS, GENERIC_WORDS, WORD_MAX_CHARS, resourceWordsFor, wordsForStore, wordOverrideProblem, chromeWords, type ResourceWords, type WordOverride } from '@/business/lib/resource-words'
 
 // ── the folded VOCAB draft + native-pass counters, spelled out here as the
 //    ORACLE (the test is the record of the native pass, not a second truth) ──
@@ -107,6 +107,115 @@ describe('resource-words — ⚖ D-53 (c) R4, the words home', () => {
       (RESOURCE_WORDS.other as { counter: string }).counter = '名'
     }).toThrow()
     expect(RESOURCE_WORDS.other).toEqual(EXPECTED.other)
+  })
+})
+
+describe('§3/H1 — the neutral row and the pure store resolver', () => {
+  it('§3/H1 — the neutral row is frozen, has no bed noun, and has no private word', () => {
+    expect(GENERIC_WORDS).toEqual({
+      resourceNoun: '設備', counter: '台', groupLabel: '設備', tabWord: '設備',
+      privateWord: null, fullWord: '空きなし', turnoverWord: '清掃',
+    })
+    expect(Object.isFrozen(GENERIC_WORDS)).toBe(true)
+    expect(JSON.stringify(GENERIC_WORDS)).not.toContain('ベッド')
+  })
+
+  it('§3/H1 m2 — null and empty overrides preserve all 26 frozen row identities', () => {
+    expect(businessProfiles).toHaveLength(26)
+    for (const { value } of businessProfiles) {
+      expect(wordsForStore(value, null)).toBe(resourceWordsFor(value))
+      expect(wordsForStore(value, {})).toBe(resourceWordsFor(value))
+      expect(Object.isFrozen(wordsForStore(value, null))).toBe(true)
+    }
+  })
+
+  it('§3/H1 — unknown and inherited keys resolve to the neutral row', () => {
+    for (const type of ['no-such-type', '', 'constructor', 'toString', '__proto__']) {
+      expect(wordsForStore(type, null)).toBe(GENERIC_WORDS)
+      expect(wordsForStore(type, {})).toBe(GENERIC_WORDS)
+    }
+  })
+
+  it('§3/H1 m1 — noun and counter apply together, and either half is rejected', () => {
+    const base = resourceWordsFor('personal_gym')
+    expect(wordsForStore('personal_gym', { resourceNoun: '設備' })).toBe(base)
+    expect(wordsForStore('personal_gym', { counter: '台' })).toBe(base)
+    const override = Object.freeze({ resourceNoun: '設備', counter: '台' })
+    const resolved = wordsForStore('personal_gym', override)
+    expect(resolved).toEqual({ ...base, resourceNoun: '設備', counter: '台', groupLabel: '設備・設備' })
+    expect(resolved).not.toBe(base)
+    expect(Object.isFrozen(resolved)).toBe(true)
+    expect(override).toEqual({ resourceNoun: '設備', counter: '台' })
+    expect(base).toEqual(EXPECTED.personal_gym)
+  })
+
+  it('§3/H1 — full and turnover words can be overridden independently while tab and private words stay fixed', () => {
+    const base = resourceWordsFor('hair_salon')
+    expect(wordsForStore('hair_salon', { fullWord: '空きなし' })).toEqual({ ...base, fullWord: '空きなし' })
+    expect(wordsForStore('hair_salon', { turnoverWord: '清掃' })).toEqual({ ...base, turnoverWord: '清掃' })
+    const all = wordsForStore('hair_salon', { resourceNoun: '設備', counter: '台', fullWord: '満室', turnoverWord: '清掃' })
+    expect(all).toEqual({ ...base, resourceNoun: '設備', counter: '台', groupLabel: '設備・設備', fullWord: '満室', turnoverWord: '清掃' })
+    expect(all.tabWord).toBe(base.tabWord)
+    expect(all.privateWord).toBe(base.privateWord)
+    expect(Object.isFrozen(all)).toBe(true)
+  })
+
+  it('§3/H1 — an override cannot introduce turnover where the base has none', () => {
+    for (const type of ['yoga_studio', 'mental_health', 'training_school']) {
+      const resolved = wordsForStore(type, { turnoverWord: '清掃' })
+      expect(resolved).toEqual(resourceWordsFor(type))
+      expect(resolved.turnoverWord).toBeNull()
+      expect(resolved).not.toBe(resourceWordsFor(type))
+      expect(Object.isFrozen(resolved)).toBe(true)
+    }
+  })
+
+  const invalid: [WordOverride, Exclude<ReturnType<typeof wordOverrideProblem>, null>][] = [
+    [{ resourceNoun: '' }, 'pair'],
+    [{ counter: '台' }, 'pair'],
+    [{ resourceNoun: '設備', counter: ' ', turnoverWord: '123456789|' }, 'empty'],
+    [{ turnoverWord: '' }, 'empty'],
+    [{ turnoverWord: '123456789|' }, 'length'],
+    [{ resourceNoun: '123456789', counter: '台' }, 'length'],
+    [{ resourceNoun: '設備', counter: '123456789' }, 'length'],
+    [{ turnoverWord: '清掃|' }, 'bar'],
+    [{ resourceNoun: '設備|', counter: '台' }, 'bar'],
+    [{ resourceNoun: '設備', counter: '台|' }, 'bar'],
+    [{ turnoverWord: '休憩' }, 'reserved'],
+    [{ turnoverWord: '準備' }, 'reserved'],
+    [{ turnoverWord: '記録' }, 'reserved'],
+    [{ turnoverWord: 'ミーティング' }, 'reserved'],
+  ]
+
+  it.each(invalid)('§3/H1 — first validation problem for %j is %s, and invalid overrides preserve base identity', (override, problem) => {
+    expect(wordOverrideProblem(override)).toBe(problem)
+    expect(wordsForStore('personal_gym', override)).toBe(resourceWordsFor('personal_gym'))
+    expect(wordsForStore('no-such-type', override)).toBe(GENERIC_WORDS)
+  })
+
+  it('§3/H1 — null, empty, valid pairs and independent full/turnover words have no problem; eight characters are allowed', () => {
+    expect(WORD_MAX_CHARS).toBe(8)
+    for (const override of [null, {}, { resourceNoun: '設備', counter: '台' }, { fullWord: '満室' as const }, { fullWord: '満席' as const }, { fullWord: '空きなし' as const }, { turnoverWord: '12345678' }]) {
+      expect(wordOverrideProblem(override)).toBeNull()
+    }
+  })
+
+  it('§3/H1 — agreeing chrome returns the original row by identity', () => {
+    for (const { value } of businessProfiles) {
+      const row = resourceWordsFor(value)
+      expect(chromeWords([row])).toBe(row)
+      expect(chromeWords([row, { ...row }])).toBe(row)
+    }
+  })
+
+  it('§3/H1 m5 — every disagreement permutation and empty chrome resolves to the neutral row', () => {
+    const a = resourceWordsFor('chiropractic')
+    const b = resourceWordsFor('massage')
+    const c = resourceWordsFor('personal_gym')
+    for (const rows of [[a, b, c], [a, c, b], [b, a, c], [b, c, a], [c, a, b], [c, b, a]]) {
+      expect(chromeWords(rows)).toBe(GENERIC_WORDS)
+    }
+    expect(chromeWords([])).toBe(GENERIC_WORDS)
   })
 })
 
@@ -382,15 +491,10 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
     expect(results).toEqual([0, 0, 0, 0, 1, 1])
   })
 
-  // ⚖ D-53 (n) — DISCLOSED PIN MOVE: C5 no longer means "zero readers" — N2a
-  // gave page.tsx the ONE legitimate call site (R-N2-1). The pin now means
-  // "only page.tsx calls it, and TodayScreen.tsx names the type and nothing
-  // else" — a scoped allowlist, not a blanket relaxation, so a FUTURE stray
-  // `resourceWordsFor` call inside TodayScreen.tsx/today-interactions.ts
-  // still fails this leg.
-  it('⚖ C5 — resourceWordsFor/business_type/resource-words occur under today/ only in page.tsx, and in TodayScreen.tsx only as the authorized type import', () => {
+  // §3 C5 — one page assembler owns both calls; the screen only imports a type.
+  it('§3 C5 — resourceWordsFor/wordsForStore/business_type/resource-words occur under today/ only in page.tsx, and in TodayScreen.tsx only as the authorized type import', () => {
     const TYPE_IMPORT_LINE = "import type { ResourceWords } from '@/business/lib/resource-words'"
-    const PATTERN = /business_type|resourceWordsFor|resource-words/
+    const PATTERN = /business_type|resourceWordsFor|wordsForStore|resource-words/
     const hits: string[] = []
     for (const file of listSourceFiles(TODAY_DIR)) {
       const rel = relative(TODAY_DIR, file)
@@ -405,17 +509,12 @@ describe('⚖ D-53 (c) R4/R8 — today/’s resource-word census', () => {
     }
     expect(hits).toEqual(['page.tsx'])
 
-    // Pin page.tsx's own wiring to the ONE runtime-reader module (R-N2-1):
-    // the import specifier + the `allWordsByStore` map call + the
-    // `genericWords` call = three `resourceWordsFor` identifier occurrences,
-    // two call expressions, and one `business_type` occurrence (inside the
-    // map call). ⚖ D-53 (u)/(ad)/(n2b2) — `wordsByStore` (the clamped-narrowed
-    // prop) and `capabilitiesByStore` both now derive from this ONE internal
-    // map rather than calling `resourceWordsFor` a second/third time, so the
-    // count is unchanged from N2a.
+    // §3 C5 — each lookup has one import and one call; only the map reads the column.
     const pageStripped = stripComments(readFileSync(join(TODAY_DIR, 'page.tsx'), 'utf8'))
-    expect(countOccurrences(pageStripped, 'resourceWordsFor')).toBe(3)
-    expect((pageStripped.match(/resourceWordsFor\(/g) ?? []).length).toBe(2)
+    expect(countOccurrences(pageStripped, 'resourceWordsFor')).toBe(2)
+    expect((pageStripped.match(/resourceWordsFor\(/g) ?? []).length).toBe(1)
+    expect(countOccurrences(pageStripped, 'wordsForStore')).toBe(2)
+    expect((pageStripped.match(/wordsForStore\(/g) ?? []).length).toBe(1)
     expect(countOccurrences(pageStripped, 'business_type')).toBe(1)
   })
 })
