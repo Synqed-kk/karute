@@ -13,7 +13,7 @@
  */
 
 import { createStaffCore } from '@/actions/staff'
-import { createInviteCore, listInvitesWithClient } from '@/actions/invites'
+import { createInviteCore, listInvitesWithClient, reinviteTargetStaffIdWithClient } from '@/actions/invites'
 import { setStaffStoresAtCreationCore } from '@/actions/stores'
 import { STAFF_CARD_LEFT_BEHIND } from '@/lib/staff/new-card'
 import {
@@ -605,7 +605,7 @@ describe('a fresh invite makes the card', () => {
 // other is permanent. The duplicate check that existed only looked at people
 // who ALREADY have a login.
 // ─────────────────────────────────────────────────────────────────────────────
-describe('a creator never loses sight of the invite they just sent (F5)', () => {
+describe('a creator keeps their own invite only while its target is storeless (F5 / G1)', () => {
   // A fresh invite now carries invited_staff_id, so it goes through the same
   // store lens as a re-invite. A card minted during a core blip can have NO
   // store (the "an unreadable store list never blocks hiring" arm), and the
@@ -615,7 +615,10 @@ describe('a creator never loses sight of the invite they just sent (F5)', () => 
     { id: 'inv-mine', email: 'a@test.com', role: 'STYLIST', status: 'pending', created_at: '', expires_at: null, invited_by: 'mgr-1', invited_staff_id: 'card-a' },
     { id: 'inv-theirs', email: 'b@test.com', role: 'STYLIST', status: 'pending', created_at: '', expires_at: null, invited_by: 'mgr-2', invited_staff_id: 'card-b' },
   ]
-  const api = { invites: { list: async () => ({ invites: rows }) } }
+  const api = {
+    invites: { list: async () => ({ invites: rows }) },
+    staffStores: { get: async () => ({ store_ids: [] as string[] }) },
+  }
 
   it('keeps the creator’s own row and still hides somebody else’s', async () => {
     const list = await listInvitesWithClient(
@@ -625,6 +628,63 @@ describe('a creator never loses sight of the invite they just sent (F5)', () => 
       'mgr-1',
     )
     expect(list.map((i) => i.id)).toEqual(['inv-mine'])
+  })
+
+  it('lets the creator revoke their own storeless target, but still clamps somebody else’s', async () => {
+    expect(await reinviteTargetStaffIdWithClient(api as never, 'inv-mine', 'mgr-1')).toBeNull()
+    expect(await reinviteTargetStaffIdWithClient(api as never, 'inv-theirs', 'mgr-1')).toBe('card-b')
+  })
+
+  const noExemption = [
+    ['placed outside the creator’s stores', { get: async () => ({ store_ids: ['store-daikanyama'] }) }],
+    ['assignment read throws', { get: async () => { throw new Error('core down') } }],
+    ['no staffStores port', undefined],
+    ...[undefined, null, {}, { store_ids: null }, { store_ids: '' }, { store_ids: { length: 0 } }]
+      .map((answer) => [`malformed assignment ${JSON.stringify(answer)}`, { get: async () => answer }] as const),
+  ] as const
+
+  it.each(noExemption)('list uses the normal lens when %s', async (_label, staffStores) => {
+    const lens = jest.fn(async () => false)
+    const c = { ...api, staffStores }
+    expect(await listInvitesWithClient(c as never, undefined, lens, 'mgr-1')).toEqual([])
+    expect(lens).toHaveBeenCalledTimes(2)
+    expect(lens.mock.calls).toEqual(expect.arrayContaining([['card-a'], ['card-b']]))
+    lens.mockResolvedValue(true)
+    expect((await listInvitesWithClient(c as never, undefined, lens, 'mgr-1')).map((i) => i.id))
+      .toEqual(['inv-mine', 'inv-theirs'])
+  })
+
+  it.each(noExemption)('revoke returns the clamp target when %s', async (_label, staffStores) => {
+    expect(await reinviteTargetStaffIdWithClient({ ...api, staffStores } as never, 'inv-mine', 'mgr-1'))
+      .toBe('card-a')
+  })
+
+  it('reads only the self-created target and never the creator’s or another invite’s assignments', async () => {
+    const get = jest.fn(async (id: string) => ({ store_ids: id === 'card-a' ? [] : ['store-ginza'] }))
+    const lens = jest.fn(async () => false)
+    const c = { ...api, staffStores: { get } }
+    expect((await listInvitesWithClient(c as never, undefined, lens, 'mgr-1')).map((i) => i.id))
+      .toEqual(['inv-mine'])
+    expect(get.mock.calls).toEqual([['card-a']])
+    expect(lens.mock.calls).toEqual([['card-b']])
+    get.mockClear()
+    expect(await reinviteTargetStaffIdWithClient(c as never, 'inv-mine', 'mgr-1')).toBeNull()
+    expect(await reinviteTargetStaffIdWithClient(c as never, 'inv-theirs', 'mgr-1')).toBe('card-b')
+    expect(get.mock.calls).toEqual([['card-a']])
+  })
+
+  it('keeps email-only rows unchanged without an assignment read or a clamp', async () => {
+    const get = jest.fn()
+    const lens = jest.fn(async () => false)
+    const c = {
+      invites: { list: async () => ({ invites: [{ ...rows[0], invited_staff_id: null }] }) },
+      staffStores: { get },
+    }
+    expect((await listInvitesWithClient(c as never, undefined, lens, 'mgr-1')).map((i) => i.id))
+      .toEqual(['inv-mine'])
+    expect(await reinviteTargetStaffIdWithClient(c as never, 'inv-mine', 'mgr-1')).toBeNull()
+    expect(get).not.toHaveBeenCalled()
+    expect(lens).not.toHaveBeenCalled()
   })
 })
 

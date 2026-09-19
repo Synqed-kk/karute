@@ -66,6 +66,7 @@ type FakeInvite = {
   created_at: string
   expires_at: string
   invited_staff_id?: string
+  invited_by?: string
 }
 const invitesList = jest.fn(async () => ({
   invites: [
@@ -425,6 +426,49 @@ describe('pending re-invites: list hides, revoke refuses', () => {
 
   beforeEach(() => {
     invitesList.mockResolvedValue({ invites: [FRESH, REINVITE] })
+  })
+
+  it('a creator can list and revoke their own invite while the target is storeless', async () => {
+    storeAssignments = { [CALLER]: ['store-a'], [TARGET]: [] }
+    invitesList.mockResolvedValue({ invites: [{ ...REINVITE, invited_by: CALLER }] })
+    const listed = await GET(getReq(), noParams)
+    expect(listed.status).toBe(200)
+    expect((await listed.json()).invites.map((i: { id: string }) => i.id)).toEqual([REINVITE.id])
+    const revoked = await DELETE(deleteReq(REINVITE.id), params(REINVITE.id))
+    expect(revoked.status).toBe(200)
+    expect(await revoked.json()).toEqual({ ok: true })
+    expect(invitesUpdateStatus).toHaveBeenCalledWith(REINVITE.id, 'revoked')
+  })
+
+  it('a creator cannot list or revoke their own invite after its target is placed outside their stores', async () => {
+    storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+    invitesList.mockResolvedValue({ invites: [{ ...REINVITE, invited_by: CALLER }] })
+    const listed = await GET(getReq(), noParams)
+    expect(listed.status).toBe(200)
+    expect((await listed.json()).invites).toEqual([])
+    const lines = await auditLines(async () => {
+      const revoked = await DELETE(deleteReq(REINVITE.id), params(REINVITE.id))
+      expect(revoked.status).toBe(403)
+      expect((await revoked.json()).error).toMatchObject({ code: 'store_forbidden' })
+    })
+    expect(invitesUpdateStatus).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('an unreadable self-created target gets no list or revoke exemption', async () => {
+    storeAssignments = { [CALLER]: ['store-a'] }
+    invitesList.mockResolvedValue({ invites: [{ ...REINVITE, invited_by: CALLER }] })
+    staffStoresGet.mockImplementation(async (id: string) => {
+      if (id === TARGET) throw new Error('core down')
+      return { store_ids: storeAssignments[id] ?? [] }
+    })
+    const listed = await GET(getReq(), noParams)
+    expect(listed.status).toBe(200)
+    expect((await listed.json()).invites).toEqual([])
+    const revoked = await DELETE(deleteReq(REINVITE.id), params(REINVITE.id))
+    expect(revoked.status).toBe(403)
+    expect((await revoked.json()).error).toMatchObject({ code: 'store_forbidden' })
+    expect(invitesUpdateStatus).not.toHaveBeenCalled()
   })
 
   it('clamped viewer: the out-of-scope re-invite row is DROPPED, the fresh row stays', async () => {

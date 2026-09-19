@@ -395,6 +395,17 @@ export async function createInvite(
   return result
 }
 
+/** Only a successful, empty target assignment read proves a card storeless. */
+async function targetCardIsStoreless(synqed: InviteClient, staffId: string): Promise<boolean> {
+  try {
+    if (!synqed.staffStores) return false
+    const { store_ids } = await synqed.staffStores.get(staffId)
+    return Array.isArray(store_ids) && store_ids.length === 0
+  } catch {
+    return false
+  }
+}
+
 /** Client-threaded core of listInvites (facade Bearer path, design-parity
  *  packet 12 §S4b). Never throws — degrades to [] the same way the web
  *  action's own catch does. */
@@ -414,15 +425,16 @@ export async function listInvitesWithClient(
    *  rule now — a pending invite is visible to whoever may write to the card it
    *  points at.
    *
-   *  With ONE exception, `selfStaffId`: the person who CREATED the invite keeps
-   *  it on their own pending list. A card minted during a core blip can end up
-   *  with no store at all (the "an unreadable store list never blocks hiring"
-   *  arm), and a store-clamped creator would otherwise lose sight of the invite
-   *  they had just sent, with no way to cancel it. The revoke clamp free-passes
-   *  the same rows for the same reason (reinviteTargetStaffIdWithClient) —
-   *  never show-and-refuse. */
+   *  With ONE exception, `selfStaffId`: the creator keeps their own invite
+   *  only while its target card has a confirmed empty store assignment list.
+   *  A card minted during a core blip can have no store, and its clamped
+   *  creator must still see and cancel that invite. A placed card goes through
+   *  the normal lens even for its creator. Missing, failed or malformed reads
+   *  are UNKNOWN, not storeless, so they also go through the lens. The revoke
+   *  clamp uses the same exception (reinviteTargetStaffIdWithClient) — never
+   *  show-and-refuse. */
   canSeeReinvite?: (staffId: string) => Promise<boolean>,
-  /** The VIEWER's own staff id, so their own invites stay on their list. */
+  /** The VIEWER's own staff id, for the storeless-target exception only. */
   selfStaffId?: string | null,
 ): Promise<InviteRow[]> {
   try {
@@ -438,11 +450,14 @@ export async function listInvitesWithClient(
       // the loop and pass allowedStoreIds down, leaving one staffStores.get
       // per row (queued, not built).
       const visible = await Promise.all(
-        pending.map((i) =>
-          i.invited_staff_id && !(selfStaffId && i.invited_by === selfStaffId)
-            ? canSeeReinvite(i.invited_staff_id)
-            : Promise.resolve(true),
-        ),
+        pending.map(async (i) => {
+          if (!i.invited_staff_id) return true
+          if (
+            selfStaffId && i.invited_by === selfStaffId &&
+            await targetCardIsStoreless(synqed, i.invited_staff_id)
+          ) return true
+          return canSeeReinvite(i.invited_staff_id)
+        }),
       )
       pending = pending.filter((_, idx) => visible[idx])
     }
@@ -537,17 +552,21 @@ export async function listInvites(): Promise<InviteRow[]> {
 export async function reinviteTargetStaffIdWithClient(
   synqed: InviteClient,
   id: string,
-  /** The CALLER's own staff id. An invite they created themselves has nothing
-   *  to clamp: it is on their own pending list (listInvitesWithClient's same
-   *  free-pass), and cancelling it adds nobody to any store — ⚖ fold round 3,
-   *  fresh-eyes F5. Without the pair, a clamped creator sees an invite they
-   *  cannot cancel, which is the show-and-refuse the isolation law forbids. */
+  /** The CALLER's own staff id. Their invite has nothing to clamp ONLY while
+   *  its target has a confirmed empty store assignment list: a card minted
+   *  during a core blip must remain cancellable by its creator, matching
+   *  listInvitesWithClient's visibility exception. A placed card goes through
+   *  the normal lens even for its creator. Missing, failed or malformed reads
+   *  are UNKNOWN, not storeless, so return the target for the normal clamp. */
   selfStaffId?: string | null,
 ): Promise<string | null> {
   const { invites } = await synqed.invites.list()
   const invite = invites.find((i) => i.id === id)
   if (!invite) return null
-  if (selfStaffId && invite.invited_by === selfStaffId) return null
+  if (
+    invite.invited_staff_id && selfStaffId && invite.invited_by === selfStaffId &&
+    await targetCardIsStoreless(synqed, invite.invited_staff_id)
+  ) return null
   return invite.invited_staff_id ?? null
 }
 
