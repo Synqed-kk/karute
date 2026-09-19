@@ -42,6 +42,9 @@ import { capacityRowFields, type MonthCell } from '@/lib/adapters/reservation'
 import { monthNewCount } from '@/lib/appointments/metric-menu'
 import { setDataPort } from '@/lib/ports/data-port'
 import { dtoCache } from '../../../thin/screens/ScreenBoundary'
+import { rememberMonthNumbers, clearCalendarNumbers } from '../../../thin/data/calendar-numbers-store'
+import { setSessionState } from '@/lib/auth/mobile/session-store'
+import type { Session } from '@supabase/supabase-js'
 import { AppointmentsScreen } from '../../../thin/screens/AppointmentsScreen'
 
 const DTO = {
@@ -101,6 +104,8 @@ async function mountScreen(monthBody: unknown = { ...DTO, view: 'month', monthDa
 }
 
 beforeEach(() => {
+  clearCalendarNumbers()
+  setSessionState({ status: 'signed-in', session: { user: { id: 'u1' } } as Session })
   dtoCache.clear()
   history.replaceState({}, '', '/appointments?date=2026-09-14&staff=self')
   capturedProps = null
@@ -188,4 +193,26 @@ it('THROWS on a failed read rather than reporting an empty month', async () => {
 it('THROWS when the response carries no monthData — never a silently free month', async () => {
   const { load } = await mountScreen({ ...DTO, view: 'month', monthData: null })
   await expect(load('2026-12')).rejects.toThrow('monthData')
+})
+
+
+it('round-trips fixture month cells to the identical rendered toMonthCells output', async () => {
+  const cells = [MONTH_CELL, {
+    ...MONTH_CELL, id: '2026-12-02', dateIso: '2026-12-01T15:00:00.000Z',
+    count: 7, newCount: 2, newCountKnown: false, closed: true, isToday: true,
+  }]
+  const monthDto = { ...DTO, selectedDateIso: '2026-12-01', view: 'month', monthData: cells }
+  setDataPort({ apiFetch: jest.fn(async () => jsonResponse(monthDto)) } as unknown as Parameters<typeof setDataPort>[0])
+  const mounted = render(<AppointmentsScreen />)
+  await waitFor(() => expect(capturedProps?.monthData).toHaveLength(2))
+  const before = capturedProps!.monthData
+  mounted.unmount()
+
+  rememberMonthNumbers('/api/app/v1/screens/appointments?date=2026-12-01&view=month&locale=ja', cells)
+  dtoCache.clear()
+  capturedProps = null
+  setDataPort({ apiFetch: jest.fn(async () => jsonResponse({ ...DTO, selectedDateIso: '2026-12-01' })) } as unknown as Parameters<typeof setDataPort>[0])
+  render(<AppointmentsScreen />)
+  await waitFor(() => expect(capturedProps?.monthData).toEqual(before))
+  expect(capturedProps!.monthData).toHaveLength(2)
 })

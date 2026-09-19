@@ -245,10 +245,30 @@ describe('the calendar numbers kept on the device (S4)', () => {
     expect(readMonthNumbers(path)).toEqual(monthCells())
   })
 
-  it('⚖ REFUSES a cell carrying anything name-shaped', () => {
+  it('drops a name-shaped field without refusing the calendar numbers', () => {
     const poisoned = monthCells().map((c) => ({ ...c, customerName: '山田 花子' }))
     rememberMonthNumbers(path, poisoned as MonthCellDTOType[])
-    expect(readMonthNumbers(path)).toBeNull()
+    expect(readMonthNumbers(path)).toEqual(monthCells())
+    const raw = window.localStorage.getItem('karute-calendar-numbers')!
+    expect(raw).not.toContain('customerName')
+    expect(raw).not.toContain(poisoned[0].customerName)
+  })
+
+  it('drops unknown top-level and nested DTO fields from the raw stored JSON', () => {
+    const extra = monthCells().map((cell) => ({
+      ...cell, futureLabel: 'synthetic-top-level', futurePayload: { value: 'synthetic-nested' },
+    }))
+    rememberMonthNumbers(path, extra)
+    const raw = window.localStorage.getItem('karute-calendar-numbers')!
+    expect(raw).not.toContain('futureLabel')
+    expect(raw).not.toContain('synthetic-top-level')
+    expect(raw).not.toContain('futurePayload')
+    expect(raw).not.toContain('synthetic-nested')
+    expect(readMonthNumbers(path)).toEqual(monthCells())
+  })
+
+  it.each(['id', 'dateIso'] as const)('refuses non-date text in %s', (field) => {
+    rememberMonthNumbers(path, monthCells().map((cell) => ({ ...cell, [field]: 'not-a-date' })))
     expect(window.localStorage.getItem('karute-calendar-numbers')).toBeNull()
   })
 

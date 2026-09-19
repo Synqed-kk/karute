@@ -6,12 +6,11 @@
 // can be written down on the device and painted immediately, with the real read
 // landing behind them exactly as it does today.
 //
-// ⚖ NAMES NEVER GO IN HERE. Only `monthData` is persisted: id, date, in-month,
-// today, count, density, 休 and the capacity numbers — the wire shape the month
-// GRID is drawn from. `reservationViews` (a customer's name beside their time),
-// `customers` and `menus` are never written, and `assertNoNames` below REFUSES
-// the write if a future field ever arrives carrying one. The test is a second
-// wall, not the only one.
+// Only the nine fields read by AppointmentsScreen.toMonthCells are persisted,
+// copied explicitly. Unknown DTO fields (including nested objects) are dropped.
+// The free-form strings must have the producer's date/cell-id shapes; density
+// is a fixed enum. Capacity fields are not read by that mapper and stay out.
+// Entries are isolated by the current user, store lens and screen path.
 //
 // Plain namespaced `localStorage` with a version key and a cap, because no
 // shared utility fits: `src/lib/auth/mobile/secure-storage.ts` is for SECRETS
@@ -41,17 +40,31 @@ function entryKey(path: string): string | null {
   return JSON.stringify([userId, getThinActiveStore() ?? 'all', path])
 }
 
+export type CalendarMonthCell = Pick<MonthCellDTOType,
+  'id' | 'dateIso' | 'inMonth' | 'isToday' | 'count' | 'density' |
+  'closed' | 'newCount' | 'newCountKnown'
+>
+
 interface Blob {
   v: number
-  entries: Record<string, { at: number; monthData: MonthCellDTOType[] }>
+  entries: Record<string, { at: number; monthData: CalendarMonthCell[] }>
 }
 
-/** Any key that could carry a person's name, in any spelling this wire has
- *  used. A cell that has one is not a number and is not written down. */
-const NAME_LIKE = /name|customer|client|title|memo|note|phone|email/i
+const CELL_ID = /^\d{4}-\d{2}-\d{2}$/
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
-function hasNames(cells: readonly MonthCellDTOType[]): boolean {
-  return cells.some((cell) => Object.keys(cell).some((k) => NAME_LIKE.test(k)))
+function storedCell(cell: MonthCellDTOType): CalendarMonthCell {
+  return {
+    id: cell.id,
+    dateIso: cell.dateIso,
+    inMonth: cell.inMonth,
+    isToday: cell.isToday,
+    count: cell.count,
+    density: cell.density,
+    closed: cell.closed,
+    newCount: cell.newCount,
+    newCountKnown: cell.newCountKnown,
+  }
 }
 
 function read(): Blob {
@@ -73,20 +86,21 @@ function read(): Blob {
 }
 
 /**
- * Write down a month read's cells under the SAME path the screen cache keys it
- * by, so the reader below and the in-session cache agree about what "this
- * month" means. A read that carries no month, or a switch that is off, writes
+ * Write down a month under its user, store lens and screen-cache path. A read that carries no month, or a switch that is off, writes
  * nothing.
  */
 export function rememberMonthNumbers(path: string, monthData: MonthCellDTOType[] | null): void {
   if (!BOOKING_SWITCHES.persistCalendarNumbers) return
   if (!monthData || monthData.length === 0) return
-  if (hasNames(monthData)) return
   try {
+    if (monthData.some((cell) =>
+      typeof cell.id !== 'string' || !CELL_ID.test(cell.id) ||
+      typeof cell.dateIso !== 'string' || !ISO_DATE.test(cell.dateIso)
+    )) return
     const key = entryKey(path)
     if (key === null) return
     const blob = read()
-    blob.entries[key] = { at: Date.now(), monthData }
+    blob.entries[key] = { at: Date.now(), monthData: monthData.map(storedCell) }
     // Oldest out first, then the cap. Both are guards, not working limits.
     const keys = Object.keys(blob.entries).sort((a, b) => blob.entries[b].at - blob.entries[a].at)
     for (const stale of keys.slice(MAX_ENTRIES)) delete blob.entries[stale]
@@ -103,7 +117,7 @@ export function rememberMonthNumbers(path: string, monthData: MonthCellDTOType[]
 }
 
 /** The cells written down for this month path, or null. Never throws. */
-export function readMonthNumbers(path: string): MonthCellDTOType[] | null {
+export function readMonthNumbers(path: string): CalendarMonthCell[] | null {
   if (!BOOKING_SWITCHES.persistCalendarNumbers) return null
   try {
     const key = entryKey(path)

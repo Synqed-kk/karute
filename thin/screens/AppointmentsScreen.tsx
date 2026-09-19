@@ -24,7 +24,7 @@ import {
   cancelNeighbourWarm,
   warmAppointmentNeighbours,
 } from '../data/screen-neighbours'
-import { readMonthNumbers, rememberMonthNumbers } from '../data/calendar-numbers-store'
+import { readMonthNumbers, rememberMonthNumbers, type CalendarMonthCell } from '../data/calendar-numbers-store'
 import { monthKeyInJst } from '@/lib/appointments/date-jump'
 import { getThinLocale } from '../locale'
 import { useSearchParams } from '../ports/nav.vite'
@@ -38,7 +38,7 @@ const parse = (raw: unknown): AppointmentsScreenDTOType =>
  *  ⚖ PKT-2b — every field straight off the wire: monthCellsToDTO (route.ts)
  *  already merges the real numbers in, and this mapping was once the one place
  *  still throwing them away. */
-function toMonthCells(cells: NonNullable<AppointmentsScreenDTOType['monthData']>): MonthCell[] {
+function toMonthCells(cells: CalendarMonthCell[]): MonthCell[] {
   return cells.map((c) => ({
     id: c.id,
     date: new Date(c.dateIso),
