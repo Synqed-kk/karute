@@ -48,7 +48,6 @@ import {
   useReducer,
   useRef,
   useState,
-  type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -56,6 +55,7 @@ import { MonthGrid, type MonthGridCell } from '@synqed-kk/ui'
 import { useLocale, useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { makeSpring, type Spring, type SpringOptions } from '@/lib/motion/spring'
+import { useHorizontalSlide, usePrefersReducedMotion } from '@/lib/motion/use-horizontal-slide'
 import { appointmentsToMonthCells } from '@/lib/adapters/reservation'
 import { computeMonthRange, jstMidnight } from '@/lib/date/calendar-range'
 import {
@@ -77,15 +77,6 @@ import {
   type MonthCellData,
   type MonthKey,
 } from '@/lib/appointments/date-jump'
-
-/** Finger travel before the gesture claims an axis (MOCK 1345). */
-const AXIS_LOCK_PX = 6
-/** Fraction of the grid's width that commits a month on release (MOCK 1365). */
-const COMMIT_FRACTION = 0.25
-/** px/s — a flick commits regardless of distance (MOCK 1365-1366). */
-const COMMIT_VELOCITY = 550
-/** Upward travel that closes the panel. */
-const SWIPE_UP_PX = 40
 
 /**
  * The press feedback every button in the panel shares, and the reduced-motion
@@ -116,21 +107,6 @@ function chipButton(anchor: HTMLElement | null): HTMLElement | null {
   }
 }
 
-function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
-  useEffect(() => {
-    // A DOM without matchMedia (jsdom) means "no preference expressed" — the
-    // panel keeps its motion rather than refusing to mount.
-    if (typeof window.matchMedia !== 'function') return
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-    setReduced(mq.matches)
-    const onChange = () => setReduced(mq.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [])
-  return reduced
-}
-
 interface PaneProps {
   cells: MonthGridCell[]
   copy: { weekdayLabels: DateJumpPanelProps['weekdayLabels'] }
@@ -141,7 +117,7 @@ interface PaneProps {
  * One month's grid, and the only part of a pane that is expensive to draw.
  *
  * MonthGrid is a plain `forwardRef` in the package — nothing memoizes it there
- * — while the panel re-renders on every `setPending`, every `liveDir` flip and
+ * — while the panel re-renders on every `setPending`, every armed-direction flip and
  * every cache write. All three panes were therefore redrawing ~40 day buttons
  * each time: measured on the production build under a 4× CPU throttle, ONE
  * month change cost four long tasks of ~90-100 ms, and browsing months is the
@@ -175,8 +151,10 @@ export interface DateJumpPanelProps {
   anchorRef: RefObject<HTMLDivElement | null>
   /** The date the page is on: the month the panel opens at. */
   selectedDate: Date
-  /** The page's own 月 cells, when it is in 月 mode — that month needs no
-   *  fetch. Null in 日/週 mode. */
+  /** Cells for the month this panel OPENS on, when the host already has them
+   *  — the page's own 月 cells, or (on the phone) the same month out of the
+   *  screen cache / what the device kept from the last launch. The first paint,
+   *  never the last word: every open marks the seed stale and re-reads it. */
   seedCells: MonthGridCell[] | null
   /** THE DATA DOOR, injected by the host: the phone hands over the facade GET,
    *  web hands over the getMonthCells server action. Rejecting = that month
@@ -214,8 +192,6 @@ export function DateJumpPanel({
   const scrimRef = useRef<HTMLDivElement>(null)
   /** The height wrapper the months slide inside — the mock's `gridWrap`. */
   const gridRef = useRef<HTMLDivElement>(null)
-  /** The three-pane strip the spring translates — the mock's `track`. */
-  const trackRef = useRef<HTMLDivElement>(null)
   const paneRefs = {
     prev: useRef<HTMLDivElement>(null),
     current: useRef<HTMLDivElement>(null),
@@ -511,48 +487,19 @@ export function DateJumpPanel({
     [onPickDay, onClose],
   )
 
-  // ── month slide + swipe: the mock's slideSpring (MOCK 1069-1093, 1134-1149,
-  //    1332-1374) ──────────────────────────────────────────────────────────
-  // The spring's value IS the track's x in pixels, and while a shift is armed
-  // it interpolates the grid's height between the two months' row counts. Both
-  // used to be CSS transitions with a commit timer behind them; the timer was
-  // the thing that could lose a tap, and a transition cannot be handed the
-  // velocity of a flick.
-  /** The shift this travel commits when the spring comes to rest. */
-  const pendingRef = useRef(0)
-  /** The same number as RENDER state, because the JSX needs it too (which pane
-   *  may take a tap). The ref is what the spring's own callbacks read
-   *  synchronously mid-frame; a ref alone cannot re-render the panes when a
-   *  flick arms a shift at pointerup. Both are written through `setPending`
-   *  and never apart. */
-  const [liveDir, setLiveDir] = useState(0)
-  const setPending = useCallback((k: number) => {
-    pendingRef.current = k
-    setLiveDir(k)
-  }, [])
+  // ── month slide + swipe: THE SHARED GESTURE ──────────────────────────────
+  // The pointer tracking, the axis lock, the "distance OR speed" commit rule,
+  // the flick's velocity handed into the spring and the interruption/re-seat
+  // rules moved OUT of this file, unchanged, into
+  // src/lib/motion/use-horizontal-slide.ts — so the 予約 page's own 日/週/月
+  // swipe is THE SAME gesture rather than a second one that feels almost like
+  // it. What stays here is what is the PANEL's: what a commit MEANS (a month),
+  // the two grid heights the travel interpolates, and the keyboard's way home.
   /** Set by a commit that happened while the keyboard was inside the panel;
    *  read (and cleared) by the layout effect that runs on the re-keyed panes. */
   const refocusRef = useRef(false)
   const hFromRef = useRef<number | null>(null)
   const hToRef = useRef<number | null>(null)
-  /** Bumped by every new slide request so the layout effect below starts the
-   *  travel AFTER the panes have re-keyed — the heights it measures are then
-   *  the two months actually on screen. */
-  const [travel, setTravel] = useState(0)
-
-  /** The live gesture. Declared here because the re-seat effect has to know
-   *  whether a finger is on the glass. */
-  const gesture = useRef<{
-    id: number
-    x0: number
-    y0: number
-    dx: number
-    dir: number
-    lastX: number
-    lastT: number
-    velocity: number
-    axis: 'none' | 'x' | 'y'
-  } | null>(null)
 
   /** How far a month travels. The fallback is the mock's own (MOCK 1088): a
    *  DOM that has never laid out still has to produce a finite target. */
@@ -573,40 +520,29 @@ export function DateJumpPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** MOCK 1079-1087. Lands the armed shift. The track's re-seat and the height
-   *  reset are NOT done here: they belong to the same paint as the pane
-   *  re-key, which is the layout effect below — otherwise one frame shows the
-   *  month that just landed sitting at the old month's offset. */
-  const commitPending = useCallback(() => {
-    const k = pendingRef.current
-    if (!k) return
-    // The commit re-keys all three panes, so a focused day button is either
-    // unmounted or left inside a pane that has just gone inert — both blur to
-    // <body>, and the keyboard user is then outside the dialog with the next
-    // Tab starting at the top of the page. Remember the keyboard was in here.
-    refocusRef.current = !!panelRef.current?.contains(document.activeElement)
-    setPending(0)
-    hFromRef.current = null
-    hToRef.current = null
-    dispatch({ type: 'shiftMonth', delta: k })
-  }, [setPending])
-  const commitPendingRef = useRef(commitPending)
-  commitPendingRef.current = commitPending
-
-  const slideOpts = useRef<SpringOptions>({
-    response: 0.3,
-    damping: 1,
-    eps: 0.4,
-    onRest: () => commitPendingRef.current(),
-  }).current
-  // Reduced motion: every `set` lands instantly. The design gives a slide no
-  // fade to play instead, so the month is simply there.
-  slideOpts.reduced = reduced
-  const slideSpringRef = useRef<Spring | null>(null)
-  if (!slideSpringRef.current) {
-    slideSpringRef.current = makeSpring((x) => {
-      const track = trackRef.current
-      if (track) track.style.transform = `translate3d(${x}px,0,0)`
+  const slide = useHorizontalSlide({
+    width: paneW,
+    reduced,
+    // A finger can drag either way, so both neighbours have to be drawn before
+    // the first move — the same batch, one frame ahead of any measurement.
+    onGestureStart: () => ensureDrawn(),
+    onSwipeUp: onClose,
+    onArm: armHeights,
+    onCommit: (k) => {
+      // The commit re-keys all three panes, so a focused day button is either
+      // unmounted or left inside a pane that has just gone inert — both blur to
+      // <body>, and the keyboard user is then outside the dialog with the next
+      // Tab starting at the top of the page. Remember the keyboard was in here.
+      refocusRef.current = !!panelRef.current?.contains(document.activeElement)
+      hFromRef.current = null
+      hToRef.current = null
+      dispatch({ type: 'shiftMonth', delta: k })
+    },
+    // The wrapping grid's height, interpolated in the SAME frame as the track's
+    // transform. React sets neither and no CSS transition is declared for them:
+    // a transition fighting a per-frame write is a second motion language on one
+    // element, and a transition cannot be handed a flick's velocity.
+    onFrame: (x) => {
       const wrap = gridRef.current
       const from = hFromRef.current
       const to = hToRef.current
@@ -614,10 +550,9 @@ export function DateJumpPanel({
         const t = Math.min(1, Math.abs(x) / Math.max(1, wrap.clientWidth || 377))
         wrap.style.height = `${(from + (to - from) * t).toFixed(1)}px`
       }
-    }, slideOpts)
-  }
-  const slideSpring = slideSpringRef.current
-  useEffect(() => () => slideSpring.stop(), [slideSpring])
+    },
+  })
+  const { commitPending, reseat, reset, go } = slide
 
   // Every pane re-key and every new slide request lands here, BEFORE paint:
   // re-seat the track, arm the heights of the months now on screen, and start
@@ -632,33 +567,18 @@ export function DateJumpPanel({
         panelRef.current?.focus()
       }
     }
-    const g = gesture.current
-    if (g && g.axis === 'x') {
-      // A finger owns the track — re-seat under it, not at 0.
-      slideSpring.jump(g.dx)
-      armHeights(g.dir)
-      return
-    }
-    slideSpring.jump(0)
-    const k = pendingRef.current
-    armHeights(k)
-    if (k) slideSpring.set(-k * paneW())
-  }, [travel, state.visibleMonth, slideSpring, armHeights, paneW])
+    reseat()
+  }, [slide.travel, state.visibleMonth, reseat])
 
-  /** MOCK 1134-1141. A second tap mid-slide LANDS the first instantly and then
-   *  slides the next: the taps cannot race each other, because each one closes
-   *  the travel before it opens its own. No queue, no commit timer. */
   const goMonth = useCallback(
-    (delta: number) => {
+    (delta: -1 | 1) => {
       // The pane this travel moves toward has to EXIST before the layout
       // effect measures it — same batch, same commit, so it does. ONLY that
       // one: the month behind can wait for its own frame.
       ensureDrawn(delta > 0 ? nextKey : prevKey)
-      commitPendingRef.current()
-      setPending(delta)
-      setTravel((n) => n + 1)
+      go(delta)
     },
-    [ensureDrawn, nextKey, prevKey, setPending],
+    [ensureDrawn, nextKey, prevKey, go],
   )
 
   /** MOCK 1143-1149. */
@@ -668,124 +588,21 @@ export function DateJumpPanel({
         onPickMonth(...splitMonthKey(key))
         return onClose()
       }
-      setPending(0)
-      setTravel((n) => n + 1)
+      // Land nothing: a month chip abandons the travel in flight rather than
+      // committing it, and `reset` re-seats the track in the same tick.
+      reset()
       dispatch({ type: 'setMonth', month: key })
       dispatch({ type: 'setLevel', level: 'grid' })
     },
-    [setPending, onPickMonth, defaultLevel, onClose],
+    [reset, onPickMonth, defaultLevel, onClose],
   )
 
   // Opening or closing starts the slide over: land nothing, arm nothing. A
   // travel left in flight across a close walked the panel off the month it had
   // just reopened on.
   useLayoutEffect(() => {
-    setPending(0)
-    slideSpring.jump(0)
-    armHeights(0)
-  }, [open, slideSpring, armHeights, setPending])
-
-  // ── gestures: horizontal = month, upward = close ─────────────────────────
-  // No rubber-band: the mock damps the drag (`dx *= 0.35`, MOCK 1355) against
-  // its own 2025–2027 wall, and this calendar has no month bound anywhere in
-  // the reducer for a band to push back from.
-  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    // ONE FINGER OWNS THE TRACK. Pointer capture is per-pointer-id, so a
-    // second finger landing mid-drag (a palm, a second thumb) still reaches
-    // this handler — and overwriting the single gesture slot froze the track
-    // where the first finger left it: the first finger's moves were then
-    // ignored (wrong id) and the second's release had no x-axis to settle, so
-    // the grid sat showing two half-months until the next arrow tap.
-    if (gesture.current?.axis === 'x') return
-    // A finger can drag either way, so both neighbours have to be drawn before
-    // the first move — the same batch, one frame ahead of any measurement.
-    ensureDrawn()
-    // Deliberately does NOT touch the slide — the mock's pointerdown commits,
-    // and this app's does not (R10): committing here changed the month under
-    // the finger between pointerdown and click, and she tapped 9/1 and landed
-    // on 10/1. A tap leaves the travel in flight to its own spring.
-    gesture.current = {
-      id: e.pointerId,
-      x0: e.clientX,
-      y0: e.clientY,
-      dx: 0,
-      dir: 0,
-      lastX: e.clientX,
-      lastT: e.timeStamp,
-      velocity: 0,
-      axis: 'none',
-    }
-  }
-
-  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const g = gesture.current
-    if (!g || g.id !== e.pointerId) return
-    const dx = e.clientX - g.x0
-    const dy = e.clientY - g.y0
-    if (g.axis === 'none') {
-      if (Math.abs(dx) < AXIS_LOCK_PX && Math.abs(dy) < AXIS_LOCK_PX) return
-      g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y'
-      if (g.axis === 'x') {
-        // NOW it is a drag, and a drag is a new intention: land what is moving
-        // so the finger takes over from rest. No cell can be tapped past this
-        // point — the pointer is captured by the grid.
-        commitPending()
-        // Optional call: a stub DOM may not implement pointer capture, and the
-        // drag still works without it.
-        e.currentTarget.setPointerCapture?.(e.pointerId)
-      }
-    }
-    if (g.axis === 'y') {
-      if (dy <= -SWIPE_UP_PX) {
-        gesture.current = null
-        onClose()
-      }
-      return
-    }
-    const dt = Math.max(1, e.timeStamp - g.lastT)
-    // px/s — the unit the spring's nudge speaks (MOCK 1351).
-    g.velocity = ((e.clientX - g.lastX) / dt) * 1000
-    g.lastX = e.clientX
-    g.lastT = e.timeStamp
-    const k0 = dx < 0 ? 1 : -1
-    if (k0 !== g.dir) {
-      g.dir = k0
-      armHeights(k0)
-    }
-    g.dx = dx
-    slideSpring.jump(dx)
-    e.preventDefault()
-  }
-
-  const onPointerEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const g = gesture.current
-    // Only the pointer that owns the gesture may end it (see onPointerDown).
-    if (!g || g.id !== e.pointerId) return
-    gesture.current = null
-    // A gesture that never claimed the x axis never wrote the track: only an
-    // x-owner does, and onPointerDown will not hand the slot to a second
-    // pointer while one owns x — so the x-owner's own up/cancel, below, is the
-    // only settle there has ever been anything to settle.
-    if (g.axis !== 'x') return
-    if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId)
-    }
-    // MOCK 1364-1370: distance OR speed commits, and the flick's velocity is
-    // handed into the spring so the release continues the throw.
-    const dx = slideSpring.value()
-    const width = paneW()
-    const k =
-      dx < -width * COMMIT_FRACTION || g.velocity < -COMMIT_VELOCITY
-        ? 1
-        : dx > width * COMMIT_FRACTION || g.velocity > COMMIT_VELOCITY
-          ? -1
-          : 0
-    slideSpring.nudge(g.velocity)
-    setPending(k)
-    armHeights(k)
-    slideSpring.set(k ? -k * width : 0)
-  }
-
+    reset()
+  }, [open, reset])
 
   if (!rendered) return null
 
@@ -804,7 +621,7 @@ export function DateJumpPanel({
   // navigated to a date nobody chose.
   //
   // LIVE is: the CURRENT pane (paneDir 0 — the month the panel is ON) always,
-  // armed or not, PLUS — while a shift is armed — the pane `liveDir` is
+  // armed or not, PLUS — while a shift is armed — the pane `slide.dir` is
   // travelling TOWARD. Only the one pane left over (behind the direction of
   // travel) is inert. The slide spring rests on 0.4 px, so it keeps creeping
   // for ~350 ms after the track has visually stopped, and the commit only
@@ -834,7 +651,7 @@ export function DateJumpPanel({
       key={key}
       ref={ref}
       className={cn('w-full', className)}
-      inert={(paneDir !== 0 && paneDir !== liveDir) || undefined}
+      inert={(paneDir !== 0 && paneDir !== slide.dir) || undefined}
     >
       {drawn.has(key) ? (
         <Pane cells={cellsFor(key)} copy={gridCopy} onPickDay={pickDay} />
@@ -977,12 +794,9 @@ export function DateJumpPanel({
             <div
               ref={gridRef}
               className="relative touch-none overflow-hidden"
-              onPointerDown={onPointerDown}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerEnd}
-              onPointerCancel={onPointerEnd}
+              {...slide.bind}
             >
-              <div ref={trackRef} className="relative w-full">
+              <div ref={slide.trackRef} className="relative w-full">
                 {pane(prevKey, paneRefs.prev, -1, 'absolute -left-full top-0')}
                 {pane(state.visibleMonth, paneRefs.current, 0)}
                 {pane(nextKey, paneRefs.next, 1, 'absolute left-full top-0')}

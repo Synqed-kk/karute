@@ -1,6 +1,15 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import {
+  memo,
+  startTransition as startLowPriority,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from 'react'
 import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
 import { useUnreadCount } from '@/lib/notifications/hooks'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
@@ -21,14 +30,15 @@ import {
   jstWallTimeToDate,
   ymdInJst,
 } from '@/lib/date/jst'
-import { jstMidnight } from '@/lib/date/calendar-range'
-import {
-  firstDayOfMonthKey,
-  monthKeyInJst,
-  monthKeyOf,
-  shiftMonthKey,
-} from '@/lib/appointments/date-jump'
+import { computeMonthRange, computeWeekRange, jstMidnight } from '@/lib/date/calendar-range'
+import { monthKeyInJst, monthKeyOf } from '@/lib/appointments/date-jump'
+import { shiftAppointmentsDate } from '@/lib/appointments/date-step'
 import { BOOKING_SWITCHES } from '@/lib/appointments/booking-switches'
+import {
+  useHorizontalSlide,
+  usePrefersReducedMotion,
+} from '@/lib/motion/use-horizontal-slide'
+import { appointmentsToMonthCells, appointmentsToWeekData } from '@/lib/adapters/reservation'
 import { ReservationGrid } from '@/components/reservation/ReservationGrid'
 import { ReservationMobileAgenda } from '@/components/karute/spike-lifted/reservation/ReservationMobileAgenda'
 import {
@@ -144,29 +154,121 @@ const CHIP_OPEN =
 // wall-clock regardless of where the renderer is (Vercel UTC server vs.
 // traveler-with-VPN browser).
 
-// Cursor delta for prev/next, tuned to the visible chrome. The week/month
-// views advance the full unit; the day view advances one day.
-//
-// R2-1 (LENS-1 #1, HIGH) — 月 no longer advances via `next.setMonth()`: raw
-// Date month arithmetic overflows from a 31st (8/31 › used to land on 10/1,
-// skipping September whole; 3/31 ‹ didn't move at all). The month step goes
-// through the SAME helpers `onPickMonth` below already uses — one home, no
-// new date math — landing on the target month's 1st, or on `today` when the
-// target IS the current month.
-function shiftDate(date: Date, view: DayWeekMonthView, dir: 1 | -1, today: Date): Date {
-  if (view === 'day') {
-    const next = new Date(date)
-    next.setDate(next.getDate() + dir)
-    return next
-  }
-  if (view === 'week') {
-    const next = new Date(date)
-    next.setDate(next.getDate() + dir * 7)
-    return next
-  }
-  const targetKey = shiftMonthKey(monthKeyInJst(date), dir)
-  return targetKey === monthKeyInJst(today) ? today : firstDayOfMonthKey(targetKey)
-}
+/** How far the header's date chip fades while a pane travels. The incoming
+ *  date cannot be printed before the page has it, so the chip HANDS OVER: it
+ *  dims with the travel and is back at full strength on the landing, in the
+ *  same frame as the new date. */
+const CHIP_FADE = 0.55
+
+/** A pane either side of the one on screen.
+ *
+ *  It is the view's OWN markup in the view's OWN pending state, built from the
+ *  neighbour's REAL dates and no numbers — never a spinner, never a blank
+ *  block. A finger dragging has to see WHERE it is going; the counts arrive
+ *  with the page, which on a prefetched neighbour is the same frame the track
+ *  re-seats in (thin/data/screen-neighbours.ts).
+ *
+ *  The two builders are the app's own, called with no appointments — exactly
+ *  how the pop-down calendar already draws a month it has not read yet. One
+ *  rule for the shape of an unknown day, everywhere. */
+const NeighbourPane = memo(function NeighbourPane({
+  view,
+  dateIso,
+  todayIso,
+  locale,
+  weekdayLabels,
+  businessHours,
+  side,
+}: {
+  view: DayWeekMonthView
+  /** ⚠ A STRING, not a Date. `memo` compares by identity, and a fresh Date per
+   *  render compares unequal — which redrew ~42 day cells twice on every render
+   *  of the page, including every frame of a drag (measured: one long task
+   *  inside the gesture on 月, at CPU ×4). */
+  dateIso: string
+  todayIso: string
+  locale: string
+  weekdayLabels: [string, string, string, string, string, string, string]
+  businessHours: BusinessHours
+  side: -1 | 1
+}) {
+  const date = useMemo(() => jstWallTimeToDate(dateIso, '00:00'), [dateIso])
+  const today = useMemo(() => jstWallTimeToDate(todayIso, '00:00'), [todayIso])
+  /** Built ONCE per neighbour date — the pane is a picture of a date, and a
+   *  date does not change while a finger is on the glass. */
+  const cells = useMemo(
+    () => {
+      if (view !== 'month') return null
+      const { monthStart, monthEnd } = computeMonthRange(date)
+      return appointmentsToMonthCells([], monthStart, monthEnd, today)
+    },
+    [view, date, today],
+  )
+  const rows = useMemo(
+    () => {
+      if (view !== 'week') return null
+      const { weekStart, weekEnd } = computeWeekRange(date)
+      return appointmentsToWeekData(
+        [],
+        weekStart,
+        weekEnd,
+        (businessHours.end - businessHours.start) * 60,
+        today,
+        locale,
+      )
+    },
+    [view, date, today, locale, businessHours.start, businessHours.end],
+  )
+  const noop = () => {}
+  return (
+    <div
+      aria-hidden
+      inert
+      className={cn('absolute top-0 w-full', side < 0 ? '-left-full' : 'left-full')}
+    >
+      {view === 'month' ? (
+        <MonthPage
+          cells={cells ?? []}
+          selectedDateIso={dateIso}
+          todayIso={todayIso}
+          weekdayLabels={weekdayLabels}
+          typeSlot={TYPE_SLOT}
+          typeCount={null}
+          monthCompareDelta={null}
+          locale={locale}
+          pending
+          onPickDay={noop}
+          onPickOtherMonthDay={noop}
+        />
+      ) : view === 'week' ? (
+        <WeekRows
+          rows={rows ?? []}
+          weekStartIso={dateIso}
+          selectedDateIso={dateIso}
+          todayIso={todayIso}
+          soloMode={false}
+          typeSlot={TYPE_SLOT}
+          locale={locale}
+          pending
+          onPickDay={noop}
+        />
+      ) : (
+        /* 日 — the numbers line's own two shims above a card the same shape as
+         *  the agenda's rows. The list itself is NOT rendered empty: an empty
+         *  agenda prints 「予約なし」, and a day whose bookings have simply not
+         *  been read yet has not earned that sentence. */
+        <div className="space-y-6">
+          <DayNumbersLine row={null} pending soloMode={false} typeSlot={TYPE_SLOT} locale={locale} />
+          <div className="space-y-2 rounded-[var(--radius-md)] bg-[var(--color-bg-card)] p-4 ring-1 ring-black/5">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="reservation-shim h-[44px] w-full rounded-[var(--radius-sm)]" />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+})
 
 export function AppointmentsView(props: AppointmentsViewProps) {
   const router = useRouter()
@@ -257,7 +359,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   // `today` is reserved for the Today button (jump-to-now) — the displayed
   // header always reflects whichever date is currently selected.
   // jstStartOfToday() returns the UTC instant of JST 00:00 today, so
-  // arithmetic on it (via shiftDate) stays consistent in JST.
+  // arithmetic on it (via shiftAppointmentsDate) stays consistent in JST.
   const today = jstStartOfToday()
   const locale = useLocale()
   const tReservation = useTranslations('reservation')
@@ -305,10 +407,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   }
 
   function handlePrev() {
-    navigateTo(view, shiftDate(selectedDate, view, -1, today))
+    navigateTo(view, shiftAppointmentsDate(selectedDate, view, -1, today))
   }
   function handleNext() {
-    navigateTo(view, shiftDate(selectedDate, view, 1, today))
+    navigateTo(view, shiftAppointmentsDate(selectedDate, view, 1, today))
   }
   function handleToday() {
     navigateTo(view, today)
@@ -359,280 +461,86 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const headerDate =
     view === 'month' ? jstWallTimeToDate(shownDayIso, '00:00') : selectedDate
 
-  return (
-    // System padding rule: page wrapper owns its horizontal padding
-    // (the (app) layout no longer provides any). Matches the spike's
-    // reservation page wrapper (`px-4 md:px-6`). Cards inside this
-    // wrapper sit at 16/24px from edge — chrome (date selector, toggles,
-    // legend) lands at the same offset for visual alignment.
-    // space-y-4 (Liam 8/7): the date-nav row and the 日週月/filter row
-    // both carry borders — 12px read as touching; 16px matches the
-    // 顧客/カルテ header rhythm.
-    <div className="relative space-y-4 px-4 md:px-6">
-      {/* ─────────────────────────────────────────────────────────────
-       *  Sticky title bar — 予約 + bell. Pattern matches the existing
-       *  CustomersListHeader / KaruteRecordListView sticky bars so the
-       *  three top-level mobile pages share the same chrome.
-       *
-       *  Bell is a STUB. Spike has the full notifications system built
-       *  (8 categories, localStorage pub/sub + documented Supabase swap
-       *  path). See MERGE_NOTES_FOR_ANTHONY.md "Notifications system"
-       *  section for the end-to-end handoff:
-       *    spike sources →
-       *      src/lib/notifications.ts          (state layer + Supabase
-       *                                          swap docs inline)
-       *      src/mock/notifications.ts         (NotificationItem schema +
-       *                                          8 categories)
-       *      src/components/notifications/NotificationsPanel.tsx
-       *                                         (drawer UI)
-       *      src/components/layout/MobileHeader.tsx (bell + unread badge)
-       *
-       *  Pre-merge: click does nothing. Bell can stay a stub for the
-       *  visual; notifications land in their own PR. The button is
-       *  positioned absolutely on the right of the centered title so a
-       *  red `<span>` unread-count badge can be overlaid on the icon
-       *  later without restructuring (spike uses `useUnreadCount()`).
-       *  ─────────────────────────────────────────────────────────────
-       */}
-      {/* Mobile-hidden — the global MobileHeader (layout-level) now
-       *  owns mobile chrome (title + bell). Showing both produced
-       *  doubled bars at the top of every list page. Desktop keeps
-       *  this local sticky bar so the title + bell stay reachable
-       *  on wider viewports. */}
-      <div className="sticky top-0 z-20 -mx-4 hidden border-b border-border/40 bg-background/80 px-4 backdrop-blur md:-mx-6 md:block md:px-6">
-        <div className="relative flex items-center justify-center py-2">
-          <h1 className="text-base font-semibold tracking-tight text-foreground md:text-lg">
-            {tReservation('title')}
-          </h1>
-          {!isRecording && (
-            <button
-              type="button"
-              onClick={() => setNotificationsOpen(true)}
-              className="absolute right-0 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              aria-label={tCommon('notifications')}
-            >
-              <Bell size={16} />
-              {unreadCount > 0 && (
-                <span
-                  aria-hidden
-                  className="absolute -right-0.5 -top-0.5 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-semibold leading-none tabular-nums text-white ring-2 ring-background"
-                >
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
-          )}
-        </div>
-      </div>
+  // ── ⚖ THE SWIPE (Liam 9/16) ──────────────────────────────────────────────
+  const reduced = usePrefersReducedMotion()
+  const slideBoxRef = useRef<HTMLDivElement>(null)
+  /** Measured ONCE per gesture, on pointer-down. A `clientWidth` read inside
+   *  pointermove forces a layout on the hot path, sixty times a second. */
+  const paneWidthRef = useRef(0)
+  /** The header's date chip — both spellings of it (long and compact; CSS
+   *  shows one). Collected on pointer-down for the same reason the width is. */
+  const chipsRef = useRef<HTMLElement[]>([])
+  /** THE PANES EITHER SIDE ARE NOT DRAWN UNTIL A FINGER ASKS FOR THEM, and
+   *  once drawn they stay. A 月 pane is ~42 day cells: drawing two of them on
+   *  every render of a page nobody is swiping is the panel's own lesson
+   *  (DateJumpPanel's `drawn` set) paid twice over, and a staff member who
+   *  only ever taps 日/週/月 would pay it for nothing. */
+  const [neighboursDrawn, setNeighboursDrawn] = useState(false)
 
-      {/* R13 (2026-08-06): the app-level karute-theme accent override in
-       *  globals.css turned --color-accent blue system-wide, so the old
-       *  .reservation-today-blue wrapper and the custom dark newBookingSlot
-       *  (the "intentional black button" — carve-out killed by Liam 8/6)
-       *  are gone; the package defaults now render Today + new-booking in
-       *  the accent. */}
-      {/* The anchor for the date-jump panel: the chip and the panel live in
-       *  ONE box, so a pointerdown on the chip is never "outside" the panel
-       *  (which would close it just as the chip's own click reopens it). */}
-      <div
-        ref={dateJumpAnchorRef}
-        className={cn('relative mb-0', CHIP_CHEVRON, pickerOpen && CHIP_OPEN)}
-      >
-      <ReservationPageHeader
-        // Header structure contract (Liam 8/7): mb-0 kills the package's
-        // baked mb-4 — and, same property, the page's space-y-4 margin
-        // (v4 space-y is a zero-specificity :where() rule) — so the
-        // wrapper below owns the whole seam (9px since 9/15, the mock's
-        // own number; 24px before that). Same natural-height row as
-        // 顧客/カルテ (32px controls set the height).
-        // The anchor wrapper above carries mb-0 too, and for the second
-        // half of that reason: since the date-jump panel moved the anchor
-        // in between, IT is the direct child space-y-4 measures — this
-        // header is a grandchild, so its own mb-0 no longer meets the
-        // :where() rule it used to cancel (measured: 40px seam, not 24).
-        className="mb-0"
-        dateDisplay={
-          <span data-date-jump-chip>{formatLongDateJst(headerDate, locale)}</span>
-        }
-        dateDisplayCompact={
-          <span data-date-jump-chip>{formatCompactDateJst(headerDate, locale)}</span>
-        }
-        onPrev={handlePrev}
-        onNext={handleNext}
-        onToday={handleToday}
-        onPickDate={handlePickDate}
-        // Unified create pill (Liam 8/6, 案A): the package default is an
-        // icon-only square on mobile — the slot override keeps the same
-        // shared-Button「+ ラベル」pill as the 顧客/カルテ list pages. The
-        // slot bypasses the package's onNewBooking/newReservationLabel
-        // props entirely, so they are not passed — the slot's own onClick
-        // and label are the single source of truth.
-        newBookingSlot={
-          <Button
-            type="button"
-            aria-label={tReservation('new')}
-            onClick={() => setDialogOpen(true)}
-          >
-            <CalendarPlus className="size-3.5 min-[380px]:hidden" aria-hidden />
-            <span className="hidden min-[380px]:inline">{tReservation('new')}</span>
-          </Button>
-        }
-        // @synqed-kk/ui ships English defaults baked into the component
-        // ("Today", "New Reservation", etc.). Same pattern as the
-        // DayWeekMonthToggle — pass localized strings via the `copy`
-        // prop so the JA build reads "今日" instead of "Today".
-        copy={{
-          title: tReservation('title'),
-          todayLabel: tReservation('today'),
-          prevLabel: tReservation('prev'),
-          nextLabel: tReservation('next'),
-        }}
-      />
+  const slide = useHorizontalSlide({
+    reduced,
+    // ⚠ NEVER 0 — found by S7's own test. The commit rule is a FRACTION of
+    // this, so a width of zero makes every drag of any length past its own
+    // threshold: one pixel sideways would land the page on the next week. A box
+    // that has not laid out yet still has to answer with something finite, and
+    // the pane IS the page's width, so the viewport is the honest fallback (the
+    // pop-down calendar's own fallback is its 377 px grid, same rule).
+    width: () =>
+      paneWidthRef.current ||
+      slideBoxRef.current?.clientWidth ||
+      (typeof window !== 'undefined' ? window.innerWidth : 0) ||
+      393,
+    onGestureStart: () => {
+      // NOT URGENT. Drawing two month panes is ~84 day cells, and measured on
+      // the phone bundle at CPU ×4 that landed as ONE long task inside the
+      // pointerdown that asked for them. A transition hands the same work to
+      // React at low priority: the track still follows the finger from the
+      // first move (the spring writes the transform itself, never through
+      // React), and the panes arrive a frame or two later — while they are
+      // still off screen.
+      // ⚠ React's OWN startTransition, aliased — the component already holds a
+      // `startTransition` from `useTransition`, and THAT one also raises
+      // `isPending`, which dims the whole page to 50 %. Using it here would
+      // have flashed the dim at the start of every drag.
+      startLowPriority(() => setNeighboursDrawn(true))
+      const box = slideBoxRef.current
+      paneWidthRef.current = box?.clientWidth ?? 0
+      chipsRef.current = box
+        ? Array.from(box.ownerDocument.querySelectorAll<HTMLElement>('[data-date-jump-chip]'))
+        : []
+      // The travelling track gets its OWN compositor layer, and ONLY while it
+      // is travelling: a standing `will-change` on a page-sized element is a
+      // texture the device holds for as long as the screen is open.
+      const track = slide.trackRef.current
+      if (track) track.style.willChange = 'transform'
+    },
+    // THE LANDING IS THE MOVE. The URL — and the read behind it — changes when
+    // the spring comes to REST, never at the release: a `navigateTo` fired at
+    // pointerup re-renders the page underneath a track that is still sliding,
+    // which is the flicker this round exists to remove.
+    onCommit: (dir) => navigateTo(view, shiftAppointmentsDate(selectedDate, view, dir, today)),
+    onFrame: (x) => {
+      const t = Math.min(1, Math.abs(x) / Math.max(1, paneWidthRef.current || 1))
+      for (const chip of chipsRef.current) chip.style.opacity = String(1 - CHIP_FADE * t)
+      if (x !== 0) return
+      // At rest — hand the layer back and put the chip at full strength, in the
+      // same paint as the date it is naming.
+      const track = slide.trackRef.current
+      if (track?.style.willChange) track.style.willChange = ''
+    },
+  })
+  const { reseat: reseatSlide } = slide
+  // The track returns to 0 when the page's OWN answer changes — the commit's
+  // `navigateTo` and the DTO that follows it land in this same paint, so the
+  // pane that travelled in is REPLACED by the real one rather than shown
+  // twice. A read still in flight leaves the track parked where it landed:
+  // the neighbour pane stays on screen, filling in, instead of snapping back
+  // to the day the staff member just swiped away from.
+  useLayoutEffect(() => {
+    reseatSlide()
+  }, [slide.travel, props.selectedDateIso, view, reseatSlide])
 
-      <DateJumpPanel
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        anchorRef={dateJumpAnchorRef}
-        selectedDate={selectedDate}
-        // In 月 mode the page already holds this month's cells — no fetch.
-        seedCells={view === 'month' ? props.monthData : null}
-        loadMonthCells={props.loadMonthCells}
-        // MODE PRESERVED: picking a day never switches 日/週/月 — so in 月
-        // mode this IS navigateTo('month', date): the page stays on the month
-        // page and the tapped day becomes its selection.
-        onPickDay={(date) => navigateTo(view, date)}
-        weekdayLabels={monthWeekdayLabels}
-        // ⚖ §v11b — in 月 mode the chip opens on the twelve month chips, never
-        // a day grid over a day grid (the two calendars looked identical, which
-        // is what started this whole round). 日/週 are unchanged.
-        defaultLevel={view === 'month' ? 2 : 1}
-        // ⚖ §v11 point 1 / spec §1 — in 月 mode the chip's twelve month chips
-        // are the whole point of opening at level 2: picking one LANDS that
-        // month on the page (the mock's mGrid handler, MOCK 1263-1272), it
-        // does not drop into a day grid the staff member did not ask for.
-        // Selection = the 1st, or TODAY when the pick is the current month, so
-        // 「今月」 through the chip and 今日 agree. 日/週 pass nothing and keep
-        // the panel's own level-2 → level-1 behaviour.
-        onPickMonth={view === 'month' ? handlePickMonth : undefined}
-      />
-      </div>
-
-      {/* Chrome: Day/Week/Month toggle + Self/All segmented + per-staff pills
-       *  Row 1: DWM toggle (localized via copy prop — defaults to English
-       *         in @synqed-kk/ui, which read wrong on the JA build) +
-       *         Self/All segmented toggle on the same line.
-       *  Row 2: per-staff colored pills.
-       *  Wrapped in ReservationStaffFilter so the picker owns its own URL
-       *  state — DWM is just slotted in via prependSlot.
-       *
-       *  Defaults to "全スタッフ" so the agenda reads as the whole-salon
-       *  schedule (matches the spike's mobile screenshot Liam shared).
-       *  Picker mutates ?staff= which the page reads server-side to
-       *  refilter reservationViews. */}
-      {/* THE SEAM, AND THE ONE THAT OWNS IT — the approved mock's own two
-       *  numbers (DATE-JUMP-PICKER-MOCK.html, measured at 393 on the phone
-       *  shell, not read off the CSS):
-       *
-       *    date-bar control bottom → 日/週/月 control top   =  9px
-       *    日/週/月 control bottom → the page's next block  = 11px
-       *
-       *  In the mock those two fall out of the row boxes (a 56px date bar
-       *  holding a 40px control leaves 8px under it; the 52px filter row
-       *  centres its 40px control in a 42px content box, leaving 1px above
-       *  and 1px + its 10px padding below). This page's rows are natural
-       *  height — tight around their 32px controls — so the seam has to be
-       *  stated here instead, and these are the two places to state it: the
-       *  padding above, and the margin that replaces space-y-4's 16px below
-       *  (space-y-4 is a zero-specificity :where() rule, so a normal mb-*
-       *  utility wins — the same mechanism as the anchor's mb-0 above).
-       *
-       *  SUPERSEDES the 8/7 24px seam (pt-6): that number predates the
-       *  calendar mock Liam approved on 9/14, and on 9/15 he measured this
-       *  page against the mock and the 24px read as a gap. Padding above,
-       *  not margin: margins collapse. */}
-      <div className="pt-[9px] mb-[11px]">
-      <ReservationStaffFilter
-        staffList={props.staff.map<ReservationStaffEntry>((s) => ({
-          id: s.id,
-          name: s.name,
-          initials: s.avatarInitials,
-          isManagement: s.isManagement,
-        }))}
-        selfStaffId={props.activeStaffId}
-        selected={props.staffFilter}
-        prependSlot={
-          <DayWeekMonthToggle
-            view={view}
-            onChange={(v) => navigateTo(v, selectedDate)}
-            copy={{
-              day: tReservation('view.day'),
-              week: tReservation('view.week'),
-              month: tReservation('view.month'),
-            }}
-          />
-        }
-      />
-      </div>
-
-      {/* Legend — wrapped in a bordered card matching the spike.
-       *
-       *  Previously had a Loader2 chip rendered next to this box when
-       *  `isPending` fired (during date-nav transitions). The chip
-       *  appeared inline-after the legend, which forced flex-wrap to
-       *  re-flow the legend pills around it — Liam called this out as
-       *  "pushes one of the sections to the side, looks random and
-       *  weird". Removed: the agenda's `transition-opacity` below
-       *  already provides loading feedback (content drops to 50%
-       *  opacity during pending). No additional indicator needed. */}
-      <div className="hidden flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs md:flex">
-        <span className="text-muted-foreground">
-          {tReservation('legend.label')}
-        </span>
-        {/* Trimmed to the states that still mark rows (exceptions-only). */}
-        {(['in_session', 'new'] as const).map(
-          (tone) => (
-            <span key={tone} className="inline-flex items-center gap-1.5">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-sm"
-                style={{
-                  background: `var(--reservation-${tone.replace('_', '-')}-bg)`,
-                  // solid for ALL — the dashed 新規 swatch was a legend-only artifact
-                  // that never matched the actual badge (solid).
-                  border: `1px solid var(--reservation-${tone.replace('_', '-')}-border)`,
-                }}
-              />
-              {tReservation(`status.${tone}`)}
-            </span>
-          ),
-        )}
-        <span className="inline-flex items-center gap-1.5">
-          <span className="reservation-block-pattern inline-block h-2.5 w-4 rounded-sm border border-border" />
-          {tReservation('legend.block')}
-        </span>
-      </div>
-
-      {/* space-y-6 (24px) — agenda card has visual weight (bg + rounded
-       *  corners + content); the ReservationTotals beneath is light
-       *  tabular text. Without explicit spacing the totals visually
-       *  touched the card's bottom border (no space-y here previously,
-       *  just transition-opacity). System rhythm convention for this
-       *  page: chrome rows = space-y-3 (12px, tight); agenda → summary
-       *  stats = space-y-6 (24px, generous so the eye reads them as
-       *  distinct sections rather than a continuation of the list). */}
-      {/* R1-6 (LENS-3 #3 + #4) — the 月 branch sits OUTSIDE the pending
-       *  wrapper below, and that is the whole point of PIECE 4b. The wrapper's
-       *  `pointer-events-none opacity-50` is the 日/週 treatment: those views
-       *  LEAVE on a tap, and blocking input for the round trip is what stops a
-       *  second 翌日 tap re-pushing a stale-derived date. Since 4b a 月 cell tap
-       *  STAYS, so that same wrapper was locking the page's primary gesture for
-       *  the whole read — a second day tap during a pending one vanished with no
-       *  acknowledgement at all — and washing the grid, the ring the finger had
-       *  just landed and the card down to 50 % under a second, longer curve that
-       *  fought the card's own 120 ms. The month page keeps its input and its
-       *  full strength; the card's two shims are what says "working", and a tap
-       *  during a pending read simply replaces the pending move. `aria-busy`
-       *  stays — it says busy without taking the page away. */}
-      {view === 'month' && (monthFailed || props.monthData) ? (
+  const viewBody = view === 'month' && (monthFailed || props.monthData) ? (
         /* The app-local month grid + month line (spec §4 / mock §v10-§v11c),
          *  replacing @synqed-kk/ui's MonthGrid ON THE PAGE. The package grid
          *  has no selected day, no 休 cell, and prints its day numbers from a
@@ -823,6 +731,338 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             {tReservation('empty.noData')}
           </div>
         )}
+      </div>
+      )
+
+  return (
+    // System padding rule: page wrapper owns its horizontal padding
+    // (the (app) layout no longer provides any). Matches the spike's
+    // reservation page wrapper (`px-4 md:px-6`). Cards inside this
+    // wrapper sit at 16/24px from edge — chrome (date selector, toggles,
+    // legend) lands at the same offset for visual alignment.
+    // space-y-4 (Liam 8/7): the date-nav row and the 日週月/filter row
+    // both carry borders — 12px read as touching; 16px matches the
+    // 顧客/カルテ header rhythm.
+    <div className="relative space-y-4 px-4 md:px-6">
+      {/* ─────────────────────────────────────────────────────────────
+       *  Sticky title bar — 予約 + bell. Pattern matches the existing
+       *  CustomersListHeader / KaruteRecordListView sticky bars so the
+       *  three top-level mobile pages share the same chrome.
+       *
+       *  Bell is a STUB. Spike has the full notifications system built
+       *  (8 categories, localStorage pub/sub + documented Supabase swap
+       *  path). See MERGE_NOTES_FOR_ANTHONY.md "Notifications system"
+       *  section for the end-to-end handoff:
+       *    spike sources →
+       *      src/lib/notifications.ts          (state layer + Supabase
+       *                                          swap docs inline)
+       *      src/mock/notifications.ts         (NotificationItem schema +
+       *                                          8 categories)
+       *      src/components/notifications/NotificationsPanel.tsx
+       *                                         (drawer UI)
+       *      src/components/layout/MobileHeader.tsx (bell + unread badge)
+       *
+       *  Pre-merge: click does nothing. Bell can stay a stub for the
+       *  visual; notifications land in their own PR. The button is
+       *  positioned absolutely on the right of the centered title so a
+       *  red `<span>` unread-count badge can be overlaid on the icon
+       *  later without restructuring (spike uses `useUnreadCount()`).
+       *  ─────────────────────────────────────────────────────────────
+       */}
+      {/* Mobile-hidden — the global MobileHeader (layout-level) now
+       *  owns mobile chrome (title + bell). Showing both produced
+       *  doubled bars at the top of every list page. Desktop keeps
+       *  this local sticky bar so the title + bell stay reachable
+       *  on wider viewports. */}
+      <div className="sticky top-0 z-20 -mx-4 hidden border-b border-border/40 bg-background/80 px-4 backdrop-blur md:-mx-6 md:block md:px-6">
+        <div className="relative flex items-center justify-center py-2">
+          <h1 className="text-base font-semibold tracking-tight text-foreground md:text-lg">
+            {tReservation('title')}
+          </h1>
+          {!isRecording && (
+            <button
+              type="button"
+              onClick={() => setNotificationsOpen(true)}
+              className="absolute right-0 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label={tCommon('notifications')}
+            >
+              <Bell size={16} />
+              {unreadCount > 0 && (
+                <span
+                  aria-hidden
+                  className="absolute -right-0.5 -top-0.5 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-semibold leading-none tabular-nums text-white ring-2 ring-background"
+                >
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* R13 (2026-08-06): the app-level karute-theme accent override in
+       *  globals.css turned --color-accent blue system-wide, so the old
+       *  .reservation-today-blue wrapper and the custom dark newBookingSlot
+       *  (the "intentional black button" — carve-out killed by Liam 8/6)
+       *  are gone; the package defaults now render Today + new-booking in
+       *  the accent. */}
+      {/* The anchor for the date-jump panel: the chip and the panel live in
+       *  ONE box, so a pointerdown on the chip is never "outside" the panel
+       *  (which would close it just as the chip's own click reopens it). */}
+      <div
+        ref={dateJumpAnchorRef}
+        className={cn('relative mb-0', CHIP_CHEVRON, pickerOpen && CHIP_OPEN)}
+      >
+      <ReservationPageHeader
+        // Header structure contract (Liam 8/7): mb-0 kills the package's
+        // baked mb-4 — and, same property, the page's space-y-4 margin
+        // (v4 space-y is a zero-specificity :where() rule) — so the
+        // wrapper below owns the whole seam (9px since 9/15, the mock's
+        // own number; 24px before that). Same natural-height row as
+        // 顧客/カルテ (32px controls set the height).
+        // The anchor wrapper above carries mb-0 too, and for the second
+        // half of that reason: since the date-jump panel moved the anchor
+        // in between, IT is the direct child space-y-4 measures — this
+        // header is a grandchild, so its own mb-0 no longer meets the
+        // :where() rule it used to cancel (measured: 40px seam, not 24).
+        className="mb-0"
+        dateDisplay={
+          <span data-date-jump-chip>{formatLongDateJst(headerDate, locale)}</span>
+        }
+        dateDisplayCompact={
+          <span data-date-jump-chip>{formatCompactDateJst(headerDate, locale)}</span>
+        }
+        onPrev={handlePrev}
+        onNext={handleNext}
+        onToday={handleToday}
+        onPickDate={handlePickDate}
+        // Unified create pill (Liam 8/6, 案A): the package default is an
+        // icon-only square on mobile — the slot override keeps the same
+        // shared-Button「+ ラベル」pill as the 顧客/カルテ list pages. The
+        // slot bypasses the package's onNewBooking/newReservationLabel
+        // props entirely, so they are not passed — the slot's own onClick
+        // and label are the single source of truth.
+        newBookingSlot={
+          <Button
+            type="button"
+            aria-label={tReservation('new')}
+            onClick={() => setDialogOpen(true)}
+          >
+            <CalendarPlus className="size-3.5 min-[380px]:hidden" aria-hidden />
+            <span className="hidden min-[380px]:inline">{tReservation('new')}</span>
+          </Button>
+        }
+        // @synqed-kk/ui ships English defaults baked into the component
+        // ("Today", "New Reservation", etc.). Same pattern as the
+        // DayWeekMonthToggle — pass localized strings via the `copy`
+        // prop so the JA build reads "今日" instead of "Today".
+        copy={{
+          title: tReservation('title'),
+          todayLabel: tReservation('today'),
+          prevLabel: tReservation('prev'),
+          nextLabel: tReservation('next'),
+        }}
+      />
+
+      <DateJumpPanel
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        anchorRef={dateJumpAnchorRef}
+        selectedDate={selectedDate}
+        // The cells for the month the panel will open on, whenever the host
+        // has them: in 月 mode that is the page's own month; on 日/週 the phone
+        // hands over the same month's cells from this session's cache or from
+        // what the device kept (numbers only). Either way the panel marks the
+        // seed STALE on open and re-reads it — the seed changes WHEN the counts
+        // appear, never whether they are checked (52ecd1c2a).
+        seedCells={props.monthData}
+        loadMonthCells={props.loadMonthCells}
+        // MODE PRESERVED: picking a day never switches 日/週/月 — so in 月
+        // mode this IS navigateTo('month', date): the page stays on the month
+        // page and the tapped day becomes its selection.
+        onPickDay={(date) => navigateTo(view, date)}
+        weekdayLabels={monthWeekdayLabels}
+        // ⚖ §v11b — in 月 mode the chip opens on the twelve month chips, never
+        // a day grid over a day grid (the two calendars looked identical, which
+        // is what started this whole round). 日/週 are unchanged.
+        defaultLevel={view === 'month' ? 2 : 1}
+        // ⚖ §v11 point 1 / spec §1 — in 月 mode the chip's twelve month chips
+        // are the whole point of opening at level 2: picking one LANDS that
+        // month on the page (the mock's mGrid handler, MOCK 1263-1272), it
+        // does not drop into a day grid the staff member did not ask for.
+        // Selection = the 1st, or TODAY when the pick is the current month, so
+        // 「今月」 through the chip and 今日 agree. 日/週 pass nothing and keep
+        // the panel's own level-2 → level-1 behaviour.
+        onPickMonth={view === 'month' ? handlePickMonth : undefined}
+      />
+      </div>
+
+      {/* Chrome: Day/Week/Month toggle + Self/All segmented + per-staff pills
+       *  Row 1: DWM toggle (localized via copy prop — defaults to English
+       *         in @synqed-kk/ui, which read wrong on the JA build) +
+       *         Self/All segmented toggle on the same line.
+       *  Row 2: per-staff colored pills.
+       *  Wrapped in ReservationStaffFilter so the picker owns its own URL
+       *  state — DWM is just slotted in via prependSlot.
+       *
+       *  Defaults to "全スタッフ" so the agenda reads as the whole-salon
+       *  schedule (matches the spike's mobile screenshot Liam shared).
+       *  Picker mutates ?staff= which the page reads server-side to
+       *  refilter reservationViews. */}
+      {/* THE SEAM, AND THE ONE THAT OWNS IT — the approved mock's own two
+       *  numbers (DATE-JUMP-PICKER-MOCK.html, measured at 393 on the phone
+       *  shell, not read off the CSS):
+       *
+       *    date-bar control bottom → 日/週/月 control top   =  9px
+       *    日/週/月 control bottom → the page's next block  = 11px
+       *
+       *  In the mock those two fall out of the row boxes (a 56px date bar
+       *  holding a 40px control leaves 8px under it; the 52px filter row
+       *  centres its 40px control in a 42px content box, leaving 1px above
+       *  and 1px + its 10px padding below). This page's rows are natural
+       *  height — tight around their 32px controls — so the seam has to be
+       *  stated here instead, and these are the two places to state it: the
+       *  padding above, and the margin that replaces space-y-4's 16px below
+       *  (space-y-4 is a zero-specificity :where() rule, so a normal mb-*
+       *  utility wins — the same mechanism as the anchor's mb-0 above).
+       *
+       *  SUPERSEDES the 8/7 24px seam (pt-6): that number predates the
+       *  calendar mock Liam approved on 9/14, and on 9/15 he measured this
+       *  page against the mock and the 24px read as a gap. Padding above,
+       *  not margin: margins collapse. */}
+      <div className="pt-[9px] mb-[11px]">
+      <ReservationStaffFilter
+        staffList={props.staff.map<ReservationStaffEntry>((s) => ({
+          id: s.id,
+          name: s.name,
+          initials: s.avatarInitials,
+          isManagement: s.isManagement,
+        }))}
+        selfStaffId={props.activeStaffId}
+        selected={props.staffFilter}
+        prependSlot={
+          <DayWeekMonthToggle
+            view={view}
+            onChange={(v) => navigateTo(v, selectedDate)}
+            copy={{
+              day: tReservation('view.day'),
+              week: tReservation('view.week'),
+              month: tReservation('view.month'),
+            }}
+          />
+        }
+      />
+      </div>
+
+      {/* Legend — wrapped in a bordered card matching the spike.
+       *
+       *  Previously had a Loader2 chip rendered next to this box when
+       *  `isPending` fired (during date-nav transitions). The chip
+       *  appeared inline-after the legend, which forced flex-wrap to
+       *  re-flow the legend pills around it — Liam called this out as
+       *  "pushes one of the sections to the side, looks random and
+       *  weird". Removed: the agenda's `transition-opacity` below
+       *  already provides loading feedback (content drops to 50%
+       *  opacity during pending). No additional indicator needed. */}
+      <div className="hidden flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs md:flex">
+        <span className="text-muted-foreground">
+          {tReservation('legend.label')}
+        </span>
+        {/* Trimmed to the states that still mark rows (exceptions-only). */}
+        {(['in_session', 'new'] as const).map(
+          (tone) => (
+            <span key={tone} className="inline-flex items-center gap-1.5">
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-sm"
+                style={{
+                  background: `var(--reservation-${tone.replace('_', '-')}-bg)`,
+                  // solid for ALL — the dashed 新規 swatch was a legend-only artifact
+                  // that never matched the actual badge (solid).
+                  border: `1px solid var(--reservation-${tone.replace('_', '-')}-border)`,
+                }}
+              />
+              {tReservation(`status.${tone}`)}
+            </span>
+          ),
+        )}
+        <span className="inline-flex items-center gap-1.5">
+          <span className="reservation-block-pattern inline-block h-2.5 w-4 rounded-sm border border-border" />
+          {tReservation('legend.block')}
+        </span>
+      </div>
+
+      {/* space-y-6 (24px) — agenda card has visual weight (bg + rounded
+       *  corners + content); the ReservationTotals beneath is light
+       *  tabular text. Without explicit spacing the totals visually
+       *  touched the card's bottom border (no space-y here previously,
+       *  just transition-opacity). System rhythm convention for this
+       *  page: chrome rows = space-y-3 (12px, tight); agenda → summary
+       *  stats = space-y-6 (24px, generous so the eye reads them as
+       *  distinct sections rather than a continuation of the list). */}
+      {/* R1-6 (LENS-3 #3 + #4) — the 月 branch sits OUTSIDE the pending
+       *  wrapper below, and that is the whole point of PIECE 4b. The wrapper's
+       *  `pointer-events-none opacity-50` is the 日/週 treatment: those views
+       *  LEAVE on a tap, and blocking input for the round trip is what stops a
+       *  second 翌日 tap re-pushing a stale-derived date. Since 4b a 月 cell tap
+       *  STAYS, so that same wrapper was locking the page's primary gesture for
+       *  the whole read — a second day tap during a pending one vanished with no
+       *  acknowledgement at all — and washing the grid, the ring the finger had
+       *  just landed and the card down to 50 % under a second, longer curve that
+       *  fought the card's own 120 ms. The month page keeps its input and its
+       *  full strength; the card's two shims are what says "working", and a tap
+       *  during a pending read simply replaces the pending move. `aria-busy`
+       *  stays — it says busy without taking the page away. */}
+      {/* ⚖ 9/16 15:4x — Liam: the swipe is a source of accidental-page-turns on
+        *  a scrolled, tapped LIST (a drag mid-scroll would change the day
+        *  under the thumb); 週/月 are grids where a swipe reads as a page
+        *  turn. So the gesture binds ONLY on 週 and 月 — 日 renders exactly as
+        *  it did before this round: no track, no neighbour panes, no
+        *  `touch-action` change, no `data-gesture-inert` (`slide.bind` is
+        *  simply never spread, so the hook attaches no pointer listener). */}
+      {view === 'day' ? (
+        viewBody
+      ) : (
+      /* ⚖ SWIPE (Liam 9/16) — 週 · 月 move under the finger, the same
+        *  gesture as the pop-down calendar's own months
+        *  (src/lib/motion/use-horizontal-slide.ts), never a second one that
+        *  feels almost like it.
+        *
+        *  `data-gesture-inert` is the shell's OWN door (thin/gestures.ts walks
+        *  for it): without it a horizontal drag here would ALSO switch the
+        *  phone's bottom-bar tab, and one finger would do two things.
+        *
+        *  `overflow-hidden` clips the two neighbour panes; the pane in FLOW is
+        *  the one on screen, so the box keeps the page's own height and the
+        *  travel adds no layout of its own. */
+      <div
+        ref={slideBoxRef}
+        data-gesture-inert=""
+        data-slide-box
+        className="relative overflow-hidden"
+        {...slide.bind}
+      >
+        {/* `touch-pan-y`: a vertical intent is the PAGE's — the list scrolls,
+          *  always — and only a horizontal one reaches the gesture above. */}
+        {/* eslint-disable-next-line react-hooks/refs -- the hook owns this
+          *  element; handing its ref straight to the element it belongs to is
+          *  the whole point of returning it (same idiom as DateJumpPanel). */}
+        <div ref={slide.trackRef} className="relative w-full touch-pan-y">
+          {neighboursDrawn
+            ? ([-1, 1] as const).map((side) => (
+                <NeighbourPane
+                  key={side}
+                  view={view}
+                  dateIso={ymdInJst(shiftAppointmentsDate(selectedDate, view, side, today))}
+                  todayIso={ymdInJst(today)}
+                  locale={props.locale}
+                  weekdayLabels={monthWeekdayLabels}
+                  businessHours={props.businessHours}
+                  side={side}
+                />
+              ))
+            : null}
+          <div className="w-full">{viewBody}</div>
+        </div>
       </div>
       )}
 
