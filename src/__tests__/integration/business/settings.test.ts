@@ -354,7 +354,7 @@ describe('PKT-BUILD-N3-1 §3 H4 — equipment nouns and counters', () => {
     // This test-only world supplies dials without adding production settings.
     const { props } = await settingsProps({ locale: 'ja', store: STORE_C, world: { dials: storeDials[STORE_A] } })
     const equipment = sectionOf(props, 'people-equipment').blocks.find((b) => b.id === 'people.equipment')!
-    expect(equipment.facts[0]).toBe('いまこの店舗にはブースがありません。')
+    expect(equipment.facts[0]).toBe('いまこの店舗にはブースが登録されていません。')
   })
 })
 
