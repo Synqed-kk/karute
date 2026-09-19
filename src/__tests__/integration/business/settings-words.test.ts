@@ -82,7 +82,7 @@ describe('PKT-BUILD-N3-2 §3 H3 — the pure save door', () => {
   it('N3-2 §3 m5 — a typed pair survives a type change while standard full follows the type', () => {
     const v = values('ベッド', '台')
     expect(v[spec.fullId]).toBe('standard')
-    expect(wordsReadout(spec, v).current.fullWord).toBe(wordsForStore('chiropractic', null).fullWord)
+    expect(wordsReadout(spec, v).current.fullWord).toBe(wordsForStore('beauty_chiropractic', null).fullWord)
     v[spec.typeId] = 'personal_gym'
     const current = wordsReadout(spec, v).current
     expect(current.resourceNoun).toBe('ベッド')

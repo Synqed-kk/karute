@@ -3920,7 +3920,7 @@ describe('⚖ RECONNECT-READINESS + the three doctrine lines', () => {
 
 
 describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
-  it.each([[STORE_A, 'chiropractic'], [STORE_B, 'massage']])('N3-2 §3 H4 — %s has the six blocks and its own type %s', async (store, type) => {
+  it.each([[STORE_A, 'beauty_chiropractic'], [STORE_B, 'massage']])('N3-2 §3 H4 — %s has the six blocks and its own type %s', async (store, type) => {
     const props = await room({ store })
     const section = sectionOf(props, 'people-equipment')
     expect(section.blocks.map((b) => b.id)).toEqual([
