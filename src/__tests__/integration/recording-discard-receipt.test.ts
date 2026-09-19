@@ -517,6 +517,19 @@ describe('a discard outside the caller’s store is refused', () => {
     expect(coreRows.filter((row) => row.action === 'recording.store_write_refused')).toHaveLength(0)
   })
 
+  it.each(['receipt-only', 'with-reason'] as const)('viewAll + degraded %s discard succeeds with ONE receipt and NO refusal row', async (door) => {
+    const viewAll = { ...webActor, scope: { viewAll: true, allowedStoreIds: null, degraded: true } }
+    const result = door === 'with-reason'
+      ? await discardRecordingWithReasonRow(fakeClient as never, viewAll, WITH_REASON)
+      : await discardRecordingWithClient(fakeClient as never, viewAll, SYSTEM_VALID)
+    expect(result).toMatchObject({ ok: true, duplicate: false })
+    expect(discardCreate).toHaveBeenCalledTimes(door === 'with-reason' ? 1 : 0)
+    expect(recordingUpdate).toHaveBeenCalledTimes(1)
+    expect(auditLog).toHaveBeenCalledTimes(1)
+    expect(auditLog.mock.calls[0][0]).toMatchObject({ action: 'recording.discard' })
+    expect(coreRows.filter((row) => row.action === 'recording.store_write_refused')).toHaveLength(0)
+  })
+
   it.each(['receipt-only', 'with-reason'] as const)('degraded %s discard is refused with NO write or refusal row', async (door) => {
     const degraded = { ...webActor, scope: { viewAll: false, allowedStoreIds: null, degraded: true } }
     const result = door === 'with-reason'

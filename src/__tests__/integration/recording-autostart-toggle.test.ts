@@ -197,6 +197,20 @@ describe('setRecordingAutostartWithClient — the one audited settings write', (
     expect(auditRowSpy).not.toHaveBeenCalled()
   })
 
+  it('viewAll + degraded autostart succeeds with ONE receipt and NO refusal row', async () => {
+    const c = fakeClient({})
+    const viewAll = { ...ACTOR, scope: { viewAll: true, allowedStoreIds: null, degraded: true } }
+    expect(await setRecordingAutostartWithClient(c.client as never, viewAll, 'store-1', true)).toEqual({
+      ok: true,
+      storeIds: ['store-1'],
+    })
+    expect(c.upsert).toHaveBeenCalledTimes(1)
+    expect(c.state.settings.recording_autostart_store_ids).toEqual(['store-1'])
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0]).toMatchObject({ action: 'settings.recording_autostart_toggle' })
+    expect(auditRowSpy).not.toHaveBeenCalled()
+  })
+
   it('a clamped actor flipping their OWN store succeeds with ONE receipt and NO refusal row', async () => {
     const c = fakeClient({})
     const own = { ...ACTOR, scope: { viewAll: false, allowedStoreIds: ['store-1'] } }
