@@ -449,6 +449,22 @@ describe('store membership — a storeId not owned by this business is refused',
     })
     expect(storePoliciesSet).not.toHaveBeenCalled()
   })
+
+  // Lead's line-read (round 1 follow-up): a failed READ of the list is not
+  // proof the store is unknown — that used to tell a real owner 「unknown
+  // store」 for what was only core blipping. Refused, but honestly: the same
+  // core-failure shape the write below reports, never STORE_HOURS_UNKNOWN_STORE.
+  it('stores.list() itself rejecting is refused honestly — NOT the unknown-store code', async () => {
+    storesList.mockRejectedValueOnce(new Error('core stores.list down'))
+    const lines = await auditLines(async () => {
+      const result = await setStoreHours('store-7', FULL_WEEK)
+      expect('error' in result && result.error).toBeTruthy()
+      expect(result).not.toEqual({ error: STORE_HOURS_UNKNOWN_STORE })
+    })
+    expect(storePoliciesGet).not.toHaveBeenCalled()
+    expect(storePoliciesSet).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
 })
 
 describe('the exact SDK payload', () => {
