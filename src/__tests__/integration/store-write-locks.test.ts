@@ -53,6 +53,7 @@ jest.mock('@/lib/audit', () => ({
 import { ensureRecordStoreInScope, sourceStoreOutOfScope } from '@/lib/auth/store-lock'
 import { AppApiError } from '@/lib/app-api/errors'
 import { KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
+import { resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
 import {
   cancelAppointmentCore,
   restoreAppointmentCore,
@@ -430,6 +431,43 @@ describe('karute save converge branch — the recording_session_id door is store
       code: 'not_found',
       message: KARUTE_NOT_FOUND,
     })
+    expect(c.update).not.toHaveBeenCalled()
+    expect(c.create).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  it("an UNASSIGNED Bearer caller (real resolver, 2-store business) cannot converge-save onto any store's record", async () => {
+    const c = convergeClient('store-ginza')
+    const synqed = {
+      ...c.client,
+      staffStores: { get: jest.fn(async () => ({ store_ids: [] })) },
+      stores: {
+        list: jest.fn(async () => ({
+          stores: [
+            { id: 'store-ginza', active: true },
+            { id: 'store-daikanyama', active: true },
+          ],
+        })),
+      },
+    }
+    const scope = await resolveWriteStoreScope({
+      synqed: synqed as never,
+      authUserId: KARUTE_ACTOR.actorId,
+      selfStaffId: KARUTE_ACTOR.actorId,
+      capabilities: new Set(['records.write']),
+    })
+    expect(scope).toEqual({ storeId: null, allowedStoreIds: [] })
+    expect(synqed.staffStores.get).toHaveBeenCalledWith(KARUTE_ACTOR.actorId)
+    expect(synqed.stores.list).toHaveBeenCalledTimes(1)
+
+    await expect(createOrUpdateKaruteRecord(
+      synqed as never,
+      CONVERGE_PAYLOAD as never,
+      { ...KARUTE_ACTOR, source: 'facade' },
+      'replace',
+      scope,
+    )).rejects.toMatchObject({ code: 'not_found', message: KARUTE_NOT_FOUND })
+    expect(c.getByRecordingSession).toHaveBeenCalledWith('rec-1')
     expect(c.update).not.toHaveBeenCalled()
     expect(c.create).not.toHaveBeenCalled()
     expect(auditSpy).not.toHaveBeenCalled()
