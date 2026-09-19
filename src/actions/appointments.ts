@@ -377,7 +377,9 @@ export async function getAppointmentsInRange(
  * `newCountKnown: false` rather than a number nobody may print.
  *
  * @param monthKey 'YYYY-MM' in the JST calendar.
- * @param locale The page's locale; unsupported input uses the routing default.
+ * @param locale The client's locale; missing or unsupported input uses the
+ * routing default. A caller-chosen locale can only choose between the shipped
+ * week orders; it cannot change the store scope or the appointments read.
  */
 export async function getMonthCells(
   monthKey: string,

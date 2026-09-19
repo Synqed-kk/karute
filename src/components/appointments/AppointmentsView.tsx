@@ -124,9 +124,10 @@ interface AppointmentsViewProps {
   /** The date-jump panel's month reader, injected by the host: the web page
    *  passes the getMonthCells server action, the thin screen passes a facade
    *  GET (that route is Bearer-only, so the two cannot share one door — see
-   *  getMonthCells' comment). A rejection is honest: that month shows its
-   *  「取得できませんでした」 line and retries on the next visit. */
-  loadMonthCells: (monthKey: string) => Promise<MonthCellDTOType[]>
+   *  getMonthCells' comment). The panel supplies its locale; the thin loader
+   *  reads getThinLocale() for its request instead. A rejection is honest:
+   *  that month shows its 「取得できませんでした」 line and retries on the next visit. */
+  loadMonthCells: (monthKey: string, locale: string) => Promise<MonthCellDTOType[]>
 }
 
 // The header's date chip is rendered by @synqed-kk/ui, which exposes no class

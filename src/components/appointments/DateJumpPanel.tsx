@@ -178,9 +178,10 @@ export interface DateJumpPanelProps {
    *  never the last word: every open marks the seed stale and re-reads it. */
   seedCells: MonthGridCell[] | null
   /** THE DATA DOOR, injected by the host: the phone hands over the facade GET,
-   *  web hands over the getMonthCells server action. Rejecting = that month
+   *  web hands over the getMonthCells server action. Called with this panel's
+   *  locale; the phone reads getThinLocale() instead. Rejecting = that month
    *  shows as failed and is retried on the next visit. */
-  loadMonthCells: (monthKey: MonthKey) => Promise<MonthCellData[]>
+  loadMonthCells: (monthKey: MonthKey, locale: string) => Promise<MonthCellData[]>
   /** Tapping a day. The caller decides what "go there" means — and keeps the
    *  current 日/週/月 mode while doing it. */
   onPickDay: (date: Date) => void
@@ -440,7 +441,7 @@ export function DateJumpPanel({
       if (inFlightRef.current.has(key)) return
       inFlightRef.current.add(key)
       dispatch({ type: 'pending', month: key })
-      loadMonthCells(key).then(
+      loadMonthCells(key, locale).then(
         (cells) => {
           inFlightRef.current.delete(key)
           if (mountedRef.current) {
@@ -462,7 +463,7 @@ export function DateJumpPanel({
         },
       )
     },
-    [loadMonthCells],
+    [loadMonthCells, locale],
   )
 
   const visibleEntry = state.cache.get(state.visibleMonth)

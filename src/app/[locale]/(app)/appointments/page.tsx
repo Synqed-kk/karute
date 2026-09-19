@@ -360,10 +360,7 @@ export default async function AppointmentsPage({
         // is Bearer-only (lib/app-api/identity.ts), so this cookie session
         // reads months through the action instead — same range fetch, same
         // density rule, same store clamp.
-        loadMonthCells={async (monthKey: string) => {
-          'use server'
-          return getMonthCells(monthKey, locale)
-        }}
+        loadMonthCells={getMonthCells}
       />
     </>
   )

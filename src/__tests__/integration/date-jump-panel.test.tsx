@@ -147,7 +147,7 @@ function renderView({
   staffFilter = 'all',
 }: {
   view?: DayWeekMonthView
-  loadMonthCells?: (key: string) => Promise<MonthCellDTOType[]>
+  loadMonthCells?: (key: string, locale: string) => Promise<MonthCellDTOType[]>
   /** Wrap in <StrictMode>, i.e. what `next dev` and the shell's `vite dev`
    *  actually run: mount → unmount → remount, effects double-invoked. */
   strict?: boolean
@@ -293,26 +293,34 @@ describe('opening and closing', () => {
 })
 
 describe('walking the calendar', () => {
+  it.each(['ja', 'en'])('passes the panel locale %s to the month loader', async (locale) => {
+    mockLocale = locale
+    const loadMonthCells = jest.fn(async (key: string) => monthCells(key))
+    renderView({ loadMonthCells })
+    await openPanel()
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-09', locale))
+  })
+
   it('the arrows move one month, and the loader is asked for it', async () => {
     const loadMonthCells = jest.fn(async (key: string) => monthCells(key))
     renderView({ loadMonthCells })
     await openPanel()
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-09'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-09', 'ja'))
     // Neighbours prefetch once the visible month lands.
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-10'))
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-08'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-10', 'ja'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-08', 'ja'))
 
     const dialog = screen.getByRole('dialog')
     loadMonthCells.mockClear()
     fireEvent.click(within(dialog).getByRole('button', { name: 'next' }))
     // The slide commits on its timer; then the new visible month's neighbour
     // (2026-11) is the one that still needs fetching.
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-11'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-11', 'ja'))
 
     loadMonthCells.mockClear()
     fireEvent.click(within(dialog).getByRole('button', { name: 'prev' }))
     fireEvent.click(within(dialog).getByRole('button', { name: 'prev' }))
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-07'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-07', 'ja'))
   })
 
   it('the title opens the year of months, and a chip lands on the grid at that month', async () => {
@@ -351,7 +359,7 @@ describe('walking the calendar', () => {
     loadMonthCells.mockClear()
     fireEvent.click(within(dialog).getByRole('button', { name: '12月' }))
     await waitFor(() => expect(title()).toHaveTextContent('2026年12月'))
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-12'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-12', 'ja'))
     // Nothing navigated — level 2 moves the calendar, not the page.
     expect(push).not.toHaveBeenCalled()
   })
@@ -661,7 +669,7 @@ describe('reopening re-reads the months, showing the old counts meanwhile', () =
     const loadMonthCells = jest.fn(async (key: string) => monthCells(key))
     renderView({ loadMonthCells })
     await openPanel()
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-08'))
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-08', 'ja'))
     const firstRound = loadMonthCells.mock.calls.filter((c) => c[0] === '2026-09').length
     expect(firstRound).toBe(1)
 
@@ -948,8 +956,8 @@ describe('under StrictMode (what next dev and vite dev actually run)', () => {
     expect(within(centre).getAllByRole('button')[0]).toHaveTextContent('7')
     // And the neighbours were prefetched, which only happens once the visible
     // month's read has actually been applied.
-    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-10'))
-    expect(loadMonthCells).toHaveBeenCalledWith('2026-08')
+    await waitFor(() => expect(loadMonthCells).toHaveBeenCalledWith('2026-10', 'ja'))
+    expect(loadMonthCells).toHaveBeenCalledWith('2026-08', 'ja')
   })
 
   it('a failed read still reaches the failed line', async () => {

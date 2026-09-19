@@ -97,6 +97,8 @@ import {
   createAppointment,
   getMonthCells,
 } from '@/actions/appointments'
+import { defaultLocale } from '@/i18n/locales'
+import { weekStartFor } from '@/lib/date/week-start'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getActiveStoreId } from '@/actions/stores'
 import { getSynqedClient } from '@/lib/synqed/client'
@@ -236,6 +238,25 @@ describe('getMonthCells — store scope + the failure contract', () => {
     expect(cells[0].inMonth).toBe(false)
     expect(typeof cells[0].dateIso).toBe('string')
   })
+
+  it('starts March 2027 on Sunday for ja', async () => {
+    crossStore(null)
+    const cells = await getMonthCells('2027-03', 'ja')
+    expect(cells[0].id).toBe('2027-02-28')
+    expect(new Date(`${cells[0].id}T00:00:00Z`).getUTCDay()).toBe(0)
+  })
+
+  it.each(['xx', undefined, null, 42, {}, []])(
+    'falls back to the default week order without throwing for %j',
+    async (locale) => {
+      crossStore(null)
+      // Server action arguments are untrusted at runtime, regardless of TS.
+      const cells = await getMonthCells('2027-03', locale as string | undefined)
+      expect(cells.length).toBeGreaterThan(0)
+      expect(new Date(`${cells[0].id}T00:00:00Z`).getUTCDay()).toBe(weekStartFor(defaultLocale))
+      expect(cells).toEqual(await getMonthCells('2027-03', defaultLocale))
+    },
+  )
 
   it.each(['en', 'en-GB', 'not_a_locale', '', undefined])(
     'uses the shipped locale or the routing default for %s',
