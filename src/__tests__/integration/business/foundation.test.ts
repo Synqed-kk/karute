@@ -904,6 +904,7 @@ describe('the fixture data door', () => {
         '@/business/lib/canon-logic/pricing',
         '@/business/lib/clock',
         '@/business/lib/data',
+        '@/business/lib/fixtures-today',
         // ⚖ D-53 (u)/(n2b2) — same reason as StorePolicySection.tsx, above.
         '@/business/lib/resource-words',
         '@/business/lib/today-board',
