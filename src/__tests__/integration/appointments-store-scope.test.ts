@@ -383,4 +383,28 @@ describe('createAppointment — active-store cookie clamp (write-side isolation)
     expect(create).not.toHaveBeenCalled()
     expect(resolveSynqedStaffIdSpy).not.toHaveBeenCalled()
   })
+
+  // ⚖ FRESH-EYES-P1B F4 — the WEB twin of the facade's placement refusal. A
+  // degraded scope is NOT `reachesNoStore` (its allowedStoreIds is null), so the
+  // guard above never saw this caller: their own assignment lookup failed and
+  // they booked anyway, stamped from their own cookie. A scope we could not read
+  // vouches for nothing.
+  it('a DEGRADED scope is REFUSED too — nothing written, and no core staff row minted', async () => {
+    scopeMock.mockResolvedValue({
+      storeId: GINZA,
+      viewAll: false,
+      allowedStoreIds: null,
+      degraded: true,
+    })
+    const create = await createMock()
+
+    const res = await createAppointment(bookingInput)
+
+    expect(res).toEqual({
+      error: 'could not verify your store assignment (fail-closed)',
+      code: 'store_forbidden',
+    })
+    expect(create).not.toHaveBeenCalled()
+    expect(resolveSynqedStaffIdSpy).not.toHaveBeenCalled()
+  })
 })

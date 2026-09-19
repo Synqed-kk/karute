@@ -16,7 +16,7 @@ import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { resolveStoreScope, customerLensFor, storeStaffIdSet } from '@/lib/auth/store-scope'
-import { sourceStoreOutOfScope, ensureRecordStoreInScope, type RecordStoreScope } from '@/lib/auth/store-lock'
+import { sourceStoreOutOfScope, ensureRecordStoreInScope, STORE_SCOPE_UNVERIFIED, type RecordStoreScope } from '@/lib/auth/store-lock'
 import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
@@ -72,6 +72,10 @@ async function resolveKaruteStoreId(
   appointmentId: string | null | undefined,
   fetchedAppointment?: Appointment | null,
 ): Promise<{ storeId: string | null; appointment: Appointment | null }> {
+  const scope = await resolveStoreScope()
+  if (scope.degraded) throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
+  if (reachesNoStore(scope)) throw new Error(UNASSIGNED_STORE_DENIAL)
+
   // Also hands back the appointment it fetched so callers can copy booking
   // metadata (service = the booked menu) into the record without a second
   // appointments.get for the same save.
@@ -88,20 +92,13 @@ async function resolveKaruteStoreId(
     // attach the record to an appointment sitting in a different store. A
     // NULL-store appointment keeps today's behavior (pre-existing, out of scope).
     if (apptStore) {
-      const scope = await resolveStoreScope()
       if (scope.allowedStoreIds && !scope.allowedStoreIds.includes(apptStore)) {
         throw new Error('This booking belongs to a store you are not assigned to.')
       }
     }
     return { storeId: apptStore, appointment: appt }
   }
-  // No linked appointment: the record's store IS the actor's lens. An actor who
-  // reaches no store has no lens to stamp, and the old fallback wrote
-  // `store_id: null` — the exact failure mode this function's own doc above
-  // exists to prevent ("vanishes from every store-scoped カルテ list"). REFUSE
-  // the save instead (⚖ Liam 2026-09-16: unassigned does nothing).
-  const scope = await resolveStoreScope()
-  if (reachesNoStore(scope)) throw new Error(UNASSIGNED_STORE_DENIAL)
+  // No linked appointment: the record's store is the actor's verified lens.
   return { storeId: scope.storeId, appointment: null }
 }
 
@@ -151,6 +148,11 @@ export async function createOrUpdateKaruteRecord(
     requestId?: string
   },
   entriesMode: 'replace' | 'fill-if-empty',
+  /** THE BY-ID WRITE STORE LOCK's scope for the CONVERGE branch below —
+   *  REQUIRED, never optional, so tsc forces every transport to hand one over
+   *  (web: resolveStoreScope(); facade: resolveWriteStoreScope()). An optional
+   *  parameter would have let a future caller re-open the hole silently. */
+  scope: RecordStoreScope,
 ): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }> {
   const emitSave = (result: { id: string; fresh: boolean; transcriptChanged: boolean; storeId: string | null }) => {
     audit({
@@ -203,6 +205,15 @@ export async function createOrUpdateKaruteRecord(
         throw err
       })
     if (existing) {
+      // STORE LOCK (⚖ Liam 2026-09-16; BUILD-REPORT-P1.md §9.5 — the LAST by-id
+      // write door). This branch is keyed by recording_session_id alone, and the
+      // update below re-points customer_id / transcript / ai_summary /
+      // appointment_id / entries: without this line a clamped actor who holds one
+      // session id rewrites ANOTHER store's record on either transport. Refuses
+      // with the SAME not_found readKaruteRaw throws for a missing id, so this
+      // door is no existence oracle either. The CREATE arm needs no lock — its
+      // store comes from resolveKaruteStoreId / resolveSaveStore, already clamped.
+      ensureRecordStoreInScope({ store_id: existing.store_id ?? null }, scope, KARUTE_NOT_FOUND)
       // Collision on recording_session_id (fix round — the prior "this
       // branch's payload is the SAME content by construction" premise was
       // wrong: this branch is also reached by ReviewScreen's saveKaruteRecord
@@ -314,7 +325,7 @@ export async function getCustomerKaruteRecordsWithClient(
  */
 export async function saveKaruteRecord(
   input: SaveKaruteInput,
-): Promise<{ error: string } | void> {
+): Promise<{ error: string; code?: AppApiError['code'] } | void> {
   let recordId: string
 
   try {
@@ -392,6 +403,10 @@ export async function saveKaruteRecord(
       },
       { actorId, businessId, source: 'web', requestId: crypto.randomUUID() },
       'replace',
+      // The converge branch's store lock (same cookie scope the karute delete
+      // door passes) — resolveStoreScope is cached per request, so this costs
+      // no second assignment read.
+      await resolveStoreScope(),
     )
     recordId = id
 
@@ -429,6 +444,7 @@ export async function saveKaruteRecord(
       })
     }
   } catch (err) {
+    if (err instanceof AppApiError) return { error: err.message, code: err.code }
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
 
@@ -449,7 +465,7 @@ export async function saveKaruteRecord(
  */
 export async function saveKaruteRecordInline(
   input: SaveKaruteInput,
-): Promise<{ id: string } | { error: string }> {
+): Promise<{ id: string } | { error: string; code?: AppApiError['code'] }> {
   try {
     // Recording a session = records.write (see saveKaruteRecord). Caught below →
     // returned as the house { error } shape the RecordingPanel already toasts.
@@ -517,6 +533,8 @@ export async function saveKaruteRecordInline(
       },
       { actorId, businessId, source: 'web', requestId: crypto.randomUUID() },
       'fill-if-empty',
+      // Same converge-branch store lock as saveKaruteRecord above.
+      await resolveStoreScope(),
     )
 
     // Best-effort outcome write (the coaching label) — same as saveKaruteRecord.
@@ -551,6 +569,7 @@ export async function saveKaruteRecordInline(
     updateTag('dashboard')
     return { id }
   } catch (err) {
+    if (err instanceof AppApiError) return { error: err.message, code: err.code }
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
 }

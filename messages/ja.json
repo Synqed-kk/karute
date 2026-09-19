@@ -334,7 +334,8 @@
       "toasts": {
         "customerMissing": "お客様を選択してください",
         "invalidDuration": "所要時間が無効です",
-        "invalidDateTime": "日付または時刻が無効です"
+        "invalidDateTime": "日付または時刻が無効です",
+        "storeScopeUnverified": "担当店舗を確認できませんでした。時間をおいて、もう一度お試しください。"
       }
     },
     "toasts": {
@@ -1570,6 +1571,8 @@
     "autoSaved": "カルテを保存しました",
     "viewSaved": "確認する",
     "autosaveFailed": "自動保存に失敗しました。確認画面から保存してください。",
+    "saveNotFound": "カルテが見つかりませんでした。",
+    "storeScopeUnverified": "担当店舗を確認できませんでした。時間をおいて、もう一度お試しください。",
     "discard": "破棄",
     "aiSummaryPlaceholder": "AIが生成したセッションサマリー...",
     "entryTitlePlaceholder": "エントリータイトル...",

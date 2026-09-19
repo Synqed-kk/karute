@@ -8,6 +8,7 @@
 // The seam assertion (menuId reaching the action) rides a StrictMode render —
 // lane law after the PR-3a double-invoke incident.
 import { StrictMode } from 'react'
+import { toast } from 'sonner'
 import {
   act,
   cleanup,
@@ -38,7 +39,7 @@ jest.mock('@/i18n/navigation', () => ({ useRouter: () => ({ refresh: jest.fn() }
 jest.mock('@/actions/customers', () => ({ createQuickCustomer: jest.fn() }))
 
 const createAppointment = jest.fn(
-  async () => ({ id: 'appt-1' }) as { id: string } | { error: string },
+  async () => ({ id: 'appt-1' }) as { id: string } | { error: string; code?: string },
 )
 jest.mock('@/actions/appointments', () => ({
   createAppointment: (...args: unknown[]) => createAppointment(...(args as [])),
@@ -801,6 +802,22 @@ describe('dialog lifecycle', () => {
 })
 
 describe('save', () => {
+  it('shows the Japanese store-assignment refusal returned by the booking action', async () => {
+    createAppointment.mockResolvedValueOnce({
+      error: 'could not verify your store assignment (fail-closed)',
+      code: 'store_forbidden',
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    })
+    expect(toast.error).toHaveBeenCalledTimes(1)
+    expect(toast.error).toHaveBeenCalledWith(
+      '担当店舗を確認できませんでした。時間をおいて、もう一度お試しください。',
+    )
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '保存' })).toBeEnabled()
+  })
+
   it('sends menuId for a linked booking (StrictMode)', async () => {
     mount(CATALOG, true)
     pick('リタッチカラー')

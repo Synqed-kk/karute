@@ -263,7 +263,9 @@ export function NewBookingDialog({
     setSaving(false)
 
     if ('error' in result) {
-      toast.error(result.error)
+      toast.error(result.code === 'store_forbidden'
+        ? t('newBookingDialog.toasts.storeScopeUnverified')
+        : result.error)
       return
     }
     toast.success(t('toasts.bookingCreated'))

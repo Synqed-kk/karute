@@ -112,6 +112,14 @@ export interface RecordStoreScope {
  * (sourceStoreOutOfScope's R5-1 arm — an unprovable membership fails closed,
  * and the write plane is allowed to be narrower than the read plane).
  */
+/** The refusal a caller hears when their OWN store assignment could not be read
+ *  (web's `degraded` convention). Exported so the doors that have to spell this
+ *  answer without a record in hand — createAppointment's web-side placement
+ *  refusal (⚖ FRESH-EYES-P1B F4) — give the booking dialog ONE answer for one
+ *  condition, instead of a second wording for the same blip. No new import: this
+ *  module's purity is the reason every transport can reach it. */
+export const STORE_SCOPE_UNVERIFIED = 'could not verify your store assignment (fail-closed)'
+
 export function ensureRecordStoreInScope(
   record: { store_id: string | null },
   scope: RecordStoreScope,
@@ -119,7 +127,7 @@ export function ensureRecordStoreInScope(
 ): void {
   if (scope.viewAll) return
   if (scope.degraded) {
-    throw new AppApiError('store_forbidden', 'could not verify your store assignment (fail-closed)')
+    throw new AppApiError('store_forbidden', STORE_SCOPE_UNVERIFIED)
   }
   if (sourceStoreOutOfScope(record, { viewAll: false, allowedStoreIds: scope.allowedStoreIds })) {
     throw new AppApiError('not_found', notFoundMessage)

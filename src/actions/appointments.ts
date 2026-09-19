@@ -7,6 +7,7 @@ import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getActiveStoreId } from '@/actions/stores'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { reachesNoStore, UNASSIGNED_STORE_DENIAL } from '@/lib/auth/store-gate'
+import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { resolveWebAuditContext } from '@/lib/audit-web'
@@ -74,7 +75,10 @@ export interface AppointmentRow {
   status_set_at: string | null
 }
 
-export async function createAppointment(input: AppointmentInput) {
+export type CreateAppointmentError = { error: string; code?: 'store_forbidden' }
+export type CreateAppointmentResult = { id: string } | CreateAppointmentError
+
+export async function createAppointment(input: AppointmentInput): Promise<CreateAppointmentResult> {
   // Server-side gate: booking = bookings.manage (every staff preset holds it;
   // only a custom role with nothing toggled lacks it). Checked with can() — not
   // requireCapability() — because this action returns the house { error } shape
@@ -112,6 +116,18 @@ export async function createAppointment(input: AppointmentInput) {
     // about its side effect. The serial await costs nothing: resolveStoreScope
     // is React-cached and the layout already resolved it this request.
     const scope = await resolveStoreScope()
+    // ⚖ FRESH-EYES-P1B F4 — THE WEB TWIN of the facade's placement refusal
+    // (app/api/app/v1/appointments/route.ts). `reachesNoStore` is FALSE for a
+    // degraded scope (its allowedStoreIds is null, store-gate.ts), so a web
+    // caller whose OWN assignment lookup failed — resolveStoreScope's `degraded`,
+    // the "removed but the auth session is still alive" case getCurrentUserStaffId
+    // documents — walked straight through and booked, stamped from their own
+    // active-store cookie. A scope we could not read vouches for nothing: refuse.
+    // Keep the shared refusal message and expose its code so the dialog can
+    // translate the staff-facing answer.
+    // ABOVE the wave for the same reason as the guard below: resolveSynqedStaffId
+    // CREATES a core staff record on a miss.
+    if (scope.degraded) return { error: STORE_SCOPE_UNVERIFIED, code: 'store_forbidden' }
     if (reachesNoStore(scope)) return { error: UNASSIGNED_STORE_DENIAL }
     const [synqed, synqedStaffId, activeStore, auditActor] = await Promise.all([
       getSynqedClient(),
