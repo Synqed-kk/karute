@@ -36,12 +36,22 @@ jest.mock('@/actions/staff', () => ({
   createStaff: (...a: unknown[]) => createStaff(...(a as [Record<string, unknown>])),
   updateStaff: jest.fn(async () => undefined),
 }))
+const createInvite = jest.fn(async (_input: Record<string, unknown>): Promise<
+  { token: string; storeUnknown?: true }
+> => ({ token: 'tok-1' }))
+jest.mock('@/actions/invites', () => ({
+  createInvite: (...a: unknown[]) => createInvite(...(a as [Record<string, unknown>])),
+  listInvites: jest.fn(async () => []),
+  revokeInvite: jest.fn(async () => ({ ok: true })),
+}))
+
 jest.mock('sonner', () => ({
   toast: { success: jest.fn(), warning: jest.fn(), error: jest.fn() },
 }))
 
 import { toast } from 'sonner'
 import { StaffForm } from '@/components/staff/StaffForm'
+import { InviteStaffDialog } from '@/components/settings/redesign/sections/staff/InviteStaffDialog'
 import type { StoreRow } from '@/actions/stores'
 
 const store = (id: string, name: string): StoreRow => ({
@@ -61,6 +71,7 @@ const DAIKANYAMA = store('store-daikanyama', '代官山店')
 beforeEach(() => {
   jest.clearAllMocks()
   createStaff.mockResolvedValue({ error: 'STORE_REQUIRED_AT_CREATION' })
+  createInvite.mockResolvedValue({ token: 'tok-1' })
 })
 
 describe('追加 — a creator with ONE assignable store (F1)', () => {
@@ -144,6 +155,44 @@ describe('one assignable store, no active-store seed (T7)', () => {
     await waitFor(() => expect(createStaff).toHaveBeenCalled())
     expect(createStaff.mock.calls[0][0]).toMatchObject({ storeIds: ['store-ginza'] })
   })
+
+  it('招待 still sends that store', async () => {
+    render(<InviteStaffDialog staff={[]} stores={[GINZA]} />)
+    fireEvent.click(screen.getByText('inviteStaff'))
+    await screen.findByLabelText(/inviteEmailLabel/)
+    fireEvent.change(screen.getByLabelText(/inviteNameLabel/), { target: { value: '新人' } })
+    fireEvent.change(screen.getByLabelText(/inviteEmailLabel/), {
+      target: { value: 'new@test.com' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'inviteCreate' }))
+
+    await waitFor(() => expect(createInvite).toHaveBeenCalled())
+    expect(createInvite.mock.calls[0][0]).toMatchObject({ storeIds: ['store-ginza'] })
+  })
+})
+
+describe('招待 — the same rule on the invite door (F1b)', () => {
+  async function openDialog() {
+    render(<InviteStaffDialog staff={[]} stores={[GINZA]} activeStoreId={null} />)
+    fireEvent.click(screen.getByText('inviteStaff'))
+    await screen.findByLabelText(/inviteEmailLabel/)
+  }
+
+  it('a stale or empty active store never strands the invite: one assignable store is sent', async () => {
+    await openDialog()
+    fireEvent.change(screen.getByLabelText(/inviteNameLabel/), { target: { value: '新人' } })
+    fireEvent.change(screen.getByLabelText(/inviteEmailLabel/), {
+      target: { value: 'new@test.com' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'inviteCreate' }))
+
+    await waitFor(() => expect(createInvite).toHaveBeenCalled())
+    expect(createInvite.mock.calls[0][0]).toMatchObject({
+      email: 'new@test.com',
+      name: '新人',
+      storeIds: ['store-ginza'],
+    })
+  })
 })
 
 
@@ -157,5 +206,21 @@ describe('an unknown store count is visible at both doors (U-V7 / U-V8)', () => 
     await waitFor(() => expect(toast.warning).toHaveBeenCalledWith('staffAddedStoreUnknown'))
     expect(mockTranslate).toHaveBeenCalledWith('settings', 'staffAddedStoreUnknown')
     expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it('InviteStaffDialog requests the storeUnknown message key and displays the note (U-V8)', async () => {
+    createInvite.mockResolvedValue({ token: 'tok-1', storeUnknown: true })
+    render(<InviteStaffDialog staff={[]} stores={[]} />)
+    fireEvent.click(screen.getByText('inviteStaff'))
+    await screen.findByLabelText(/inviteEmailLabel/)
+    fireEvent.change(screen.getByLabelText(/inviteNameLabel/), { target: { value: '新人' } })
+    fireEvent.change(screen.getByLabelText(/inviteEmailLabel/), {
+      target: { value: 'new@test.com' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'inviteCreate' }))
+
+    expect(await screen.findByText('inviteStoreUnknown')).toBeInTheDocument()
+    expect(mockTranslate).toHaveBeenCalledWith('invite', 'inviteStoreUnknown')
+    expect(screen.getByText('inviteLinkReady')).toBeInTheDocument()
   })
 })

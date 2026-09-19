@@ -38,7 +38,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
+import { ensureStaffWriteInScope, resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
 import { createInviteCore, listInvitesWithClient } from '@/actions/invites'
 import { memberEmailsForBusiness } from '@/lib/invites/member-emails'
 import { inviteSchema } from '@/lib/validations/invite'
@@ -70,6 +70,10 @@ export const GET = facadeHandler('invite.list', async (ctx) => {
         () => true,
         () => false,
       ),
+    // ⚖ Fold round 3 (F5): the caller's own invites stay on their own list,
+    // even when the card they point at has no store yet. Bearer twin of the
+    // id web's listInvites passes.
+    ctx.identity.authUserId,
   )
   return ok(ctx, { invites })
 })
@@ -120,10 +124,29 @@ export const POST = facadeHandler('invite.create', async (ctx) => {
   }
 
   const invitedBy = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
+  // ⚖ Liam 2026-09-16: the same creator-subset rule as web, resolved from the
+  // Bearer identity — a fresh invite mints the card, so this door places staff.
+  //
+  // ⚖ FOLD ROUND 3 (fresh-eyes F7) — through resolveWriteStoreScope, the one
+  // home for a Bearer WRITE door, and with the roster identity this line
+  // already resolved one line above. Without it an UNPLACEABLE caller (core
+  // answers `{ store_ids: [] }` for a staff row it does not hold) reads as
+  // floating, i.e. unclamped.
+  const { allowedStoreIds } = await resolveWriteStoreScope({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    selfStaffId: invitedBy,
+  })
   const result = await createInviteCore(
     synqed,
     businessId,
-    { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
+    {
+      actorId: ctx.identity.authUserId,
+      source: 'facade',
+      requestId: ctx.meta.requestId,
+      creatorAllowedStoreIds: allowedStoreIds,
+    },
     invitedBy,
     parsed.data,
   )

@@ -111,6 +111,8 @@ export function StaffSection({
           )}
           <InviteStaffDialog
             staff={staffList.map((s) => ({ id: s.id, full_name: s.full_name, email: s.email }))}
+            stores={stores}
+            activeStoreId={activeStoreId}
           />
         </div>
       )}
