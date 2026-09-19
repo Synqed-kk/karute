@@ -23,10 +23,11 @@ export interface StoreRefusalActor {
 }
 
 /** The closed set of ids a door may carry on `trace.detail` — ids only, one
- *  entry per caller found at the top of the stack (2f277902b):
- *  recording_session_id (karute.ts's save door) and appointment_id
- *  (appointments/mutations.ts's booking doors). */
-export type StoreRefusalDetailKey = 'recording_session_id' | 'appointment_id'
+ *  entry per caller: recording_session_id (karute.ts's save door),
+ *  appointment_id (appointments/mutations.ts's booking doors), and
+ *  to_customer_id (karute.ts's reassign door, via auditStoreWriteRefused
+ *  directly). */
+export type StoreRefusalDetailKey = 'recording_session_id' | 'appointment_id' | 'to_customer_id'
 
 /** One refusal action per door CATEGORY — the prefix that door's own SUCCESS
  *  rows already use, so the 種類 filter puts a refused karute write next to the
@@ -109,30 +110,63 @@ export function ensureRecordStoreInScopeAudited(
     ensureRecordStoreInScope(record, scope, notFoundMessage)
   } catch (err) {
     if (!scope.degraded) {
-      emitStoreWriteRefused(STORE_WRITE_REFUSED[trace.category], {
-        category: trace.category,
-        actorId: trace.actor.actorId,
-        businessId: trace.actor.businessId,
-        targetType: trace.targetType,
-        targetId: trace.targetId,
-        // A cross-store write attempt is a security event, same tier as a PIN
-        // lockout or a scheduled deletion — the viewer's 警告 strip.
-        severity: 'warning',
-        detail: {
-          // trace.detail spreads FIRST — the reserved keys below always win,
-          // even if a future door's detail object tried to carry one (Greptile,
-          // P1b B1 review).
-          ...trace.detail,
-          door: trace.door,
-          record_store_id: record.store_id,
-          // Degraded lookup blips are not recorded; this row is an out-of-store
-          // refusal, so its code is the pure lock's 'not_found'.
-          code: err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : null,
-        },
-        requestId: trace.actor.requestId,
-        source: trace.actor.source,
+      auditStoreWriteRefused({
+        ...trace,
+        recordStoreId: record.store_id,
+        // Degraded lookup blips are not recorded; this row is an out-of-store
+        // refusal, so its code is the pure lock's 'not_found'.
+        code: err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : null,
       })
     }
     throw err
   }
+}
+
+/**
+ * THE ROW, on its own — for a store refusal that is NOT keyed on a record's own
+ * `store_id` and so cannot go through the twin above.
+ *
+ * One caller today (⚖ FRESH-EYES-P1B F7): the reassign door's TO-CUSTOMER half
+ * (`ensureReassignStoreScope`, src/actions/karute.ts). Its record half is already
+ * audited; its destination half refuses a customer outside the actor's stores,
+ * and left nothing behind — so a clamped actor could enumerate customer ids
+ * against a karute they legitimately hold and no owner would ever see it. Same
+ * probe, same row.
+ *
+ * It RECORDS ONLY. The caller throws its own error, unchanged — this never
+ * invents, wraps or swallows one, so no refusal shape moves.
+ */
+export function auditStoreWriteRefused(trace: {
+  actor: StoreRefusalActor
+  category: keyof typeof STORE_WRITE_REFUSED
+  targetType?: AuditEvent['targetType']
+  targetId?: string
+  door: string
+  /** The record's own store when there is one, else null. */
+  recordStoreId: string | null
+  /** The AppApiError code the caller is about to throw, when it has one. */
+  code: string | null
+  detail?: Partial<Record<StoreRefusalDetailKey, string | null>>
+}): void {
+  emitStoreWriteRefused(STORE_WRITE_REFUSED[trace.category], {
+    category: trace.category,
+    actorId: trace.actor.actorId,
+    businessId: trace.actor.businessId,
+    targetType: trace.targetType,
+    targetId: trace.targetId,
+    // A cross-store write attempt is a security event, same tier as a PIN
+    // lockout or a scheduled deletion — the viewer's 警告 strip.
+    severity: 'warning',
+    detail: {
+      // trace.detail spreads FIRST — the reserved keys below always win,
+      // even if a future door's detail object tried to carry one (Greptile,
+      // P1b B1 review).
+      ...trace.detail,
+      door: trace.door,
+      record_store_id: trace.recordStoreId,
+      code: trace.code,
+    },
+    requestId: trace.actor.requestId,
+    source: trace.actor.source,
+  })
 }

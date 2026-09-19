@@ -481,6 +481,32 @@ describe('POST /karute/[id]/outcome (§Build 3)', () => {
     expect(upsertOutcome).not.toHaveBeenCalled()
   })
 
+  // ⚖ FRESH-EYES-P1B F2 — and that refusal files ONE row. Nothing pinned it on
+  // this door: the twin could be reverted to the pure lock with the full suite
+  // still green. Read off the real audit() console sink.
+  it('that refusal files exactly ONE karute.store_write_refused row, naming the door', async () => {
+    REC.current = { ...REC.current, store_id: 'store-a' }
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-b'] })
+    const lines = await auditLines(() =>
+      outcome(jsonReq({ status: 'success' }), routeFor('00000000-0000-4000-8000-000000000007')),
+    )
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'karute',
+      action: 'karute.store_write_refused',
+      severity: 'warning',
+      target_type: 'karute',
+      target_id: '00000000-0000-4000-8000-000000000007',
+      source: 'facade',
+      detail: expect.objectContaining({
+        door: 'karute.outcome_set',
+        record_store_id: 'store-a',
+        code: 'not_found',
+      }),
+    })
+    expect(upsertOutcome).not.toHaveBeenCalled()
+  })
+
   it('a clamped caller inside the record own store still writes the label', async () => {
     REC.current = { ...REC.current, store_id: 'store-a' }
     staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })

@@ -69,6 +69,14 @@ export const POST = facadeHandler<Params>('karute.reassign', async (ctx: FacadeC
     toCustomerId,
     { confirmed },
     { viewAll: ctx.identity.capabilities.has('stores.viewAll'), allowedStoreIds, degraded: false },
+    // For the store-lock REFUSAL row — the success row still comes from the
+    // facade's generic hook below.
+    {
+      actorId: ctx.identity.authUserId,
+      businessId: ctx.identity.businessId,
+      source: 'facade',
+      requestId: ctx.meta.requestId,
+    },
   )
 
   if ('requiresConfirm' in result) {

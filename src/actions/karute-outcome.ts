@@ -1,12 +1,12 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { auditWeb } from '@/lib/audit-web'
+import { auditWeb, resolveWebAuditContext } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
-import { ensureRecordStoreInScope } from '@/lib/auth/store-lock'
+import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
 import { AppApiError } from '@/lib/app-api/errors'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
@@ -39,10 +39,18 @@ export async function updateKaruteOutcome(
     // (not in setKaruteOutcomeWithClient) because that core is also the
     // save-embedded and background-job writer, which carry no actor scope and
     // stamp their store through resolveKaruteStoreId instead.
-    ensureRecordStoreInScope(
+    const { actorId, businessId } = await resolveWebAuditContext()
+    ensureRecordStoreInScopeAudited(
       { store_id: (record.store_id as string | null) ?? null },
       await resolveStoreScope(),
       'karute record not found',
+      {
+        actor: { actorId, businessId, source: 'web' },
+        category: 'karute',
+        targetType: 'karute',
+        targetId: karuteRecordId,
+        door: 'karute.outcome_set',
+      },
     )
     const linked = (record.customer_id as string | null) ?? null
     if (!linked) return { error: 'karute has no linked customer' }
