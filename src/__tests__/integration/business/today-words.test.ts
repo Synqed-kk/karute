@@ -36,13 +36,14 @@ jest.mock('next/navigation', () => ({
 // reads the real fixture rows unchanged.
 jest.mock('@/business/lib/data', () => {
   const actual = jest.requireActual('@/business/lib/data')
-  return { ...actual, listStoreOptions: jest.fn(actual.listStoreOptions) }
+  return { ...actual, listStoreOptions: jest.fn(actual.listStoreOptions), listResources: jest.fn(actual.listResources) }
 })
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { STORE_A, STORE_B, stores } from '@/business/lib/fixtures'
-import { chromeWords, resourceWordsFor, RESOURCE_WORDS, type ResourceWords } from '@/business/lib/resource-words'
+import { STORE_A, STORE_B, STORE_C, stores } from '@/business/lib/fixtures'
+import { resources } from '@/business/lib/fixtures-today'
+import { chromeWords, resourceWordsFor, RESOURCE_WORDS, GENERIC_WORDS, type ResourceWords } from '@/business/lib/resource-words'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -120,12 +121,8 @@ describe('N2A (c) — the null-word gates, driven through the producer', () => {
     expect(props.dialogs.create.blockKinds).toEqual(['休憩', '準備', '記録', 'ミーティング'])
     expect(props.dialogs.create.blockKinds).not.toContain('清掃')
     expect(props.dialogs.create.blockKinds.some((k) => k == null)) .toBe(false)
-    // The capability the gate reads is really off (C6's type default) —
-    // pinned so a future change to page.tsx's page-local `capabilitiesByStore`
-    // map's formula (⚖ D-53 (z): not a TodayProps field — TodayScreen never
-    // read it) that still happened to produce the right blockKinds by
-    // coincidence fails HERE instead of hiding behind the array shape.
-    expect(props.caps).toEqual({ privateClass: false, turnover: false })
+    // N3-1 §3/H3 — the private row still exists; turnover vocabulary is absent.
+    expect(props.caps).toEqual({ privateClass: true, turnover: false })
     expect(props.words.turnoverWord).toBeNull()
     expect(props.words.privateWord).toBeNull()
   })
@@ -227,7 +224,7 @@ describe('N2A (d) — the viewAll chrome (C7), a pure leg on chromeWords', () =>
   const CHIRO = RESOURCE_WORDS.chiropractic
   const MASSAGE = RESOURCE_WORDS.massage
   const GYM_ROW = RESOURCE_WORDS.personal_gym
-  const GENERIC = RESOURCE_WORDS.other
+  const GENERIC = GENERIC_WORDS
 
   it('[] (no store options at all) returns the generic row', () => {
     expect(chromeWords([])).toEqual(GENERIC)
@@ -273,6 +270,38 @@ describe('N2A — cross-check: STORE_B (massage) is also byte-identical (C9)', (
   it('STORE_B\'s blockKinds are the same literal as STORE_A\'s (massage === other)', async () => {
     const props = await propsFor(STORE_B)
     expect(props.dialogs.create.blockKinds).toEqual(['休憩', '準備', '記録', '清掃', 'ミーティング'])
+  })
+})
+
+describe('N3-1 §3/H3 — row-derived capabilities and the nullable fallback', () => {
+  it('STORE_A keeps its private capability and manual turnover vocabulary', async () => {
+    const props = await propsFor(STORE_A)
+    expect(props.caps).toEqual({ privateClass: true, turnover: true })
+  })
+
+  it.each([['STORE_B', STORE_B], ['STORE_C', STORE_C]])('%s has no private row and keeps manual turnover vocabulary', async (_name, store) => {
+    const props = await propsFor(store)
+    expect(props.caps).toEqual({ privateClass: false, turnover: true })
+  })
+
+  it('a seeded STORE_A with synthetic standard-only rows has no private capability', async () => {
+    ;(data.listResources as jest.Mock).mockResolvedValueOnce(
+      resources.filter((r) => r.store_id === STORE_A).map((r) => ({ ...r, room_class: 'standard' })),
+    )
+    const props = await propsFor(STORE_A)
+    expect(props.caps).toEqual({ privateClass: false, turnover: true })
+  })
+
+  it('a yoga-typed STORE_A preserves the private prefix in the inspector and emitted booking label', async () => {
+    ;(data.listStoreOptions as jest.Mock).mockResolvedValueOnce(
+      stores.map((s) => (s.id === STORE_A ? { ...s, business_type: 'yoga_studio' } : s)),
+    )
+    const props = await propsFor(STORE_A)
+    const fact = props.cases['apt-29']?.facts.find(([label]) => label === '予約種別')?.[1]
+    expect(fact).toContain('個室のみ・')
+    const items = props.lanes.flatMap((lane) => lane.items).filter((item) => item.caseId === 'apt-29')
+    expect(items.length).toBeGreaterThan(0)
+    for (const item of items) expect(item.label).toContain('個室のみ・')
   })
 })
 

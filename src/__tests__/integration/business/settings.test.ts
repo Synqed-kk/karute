@@ -36,7 +36,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { analyticsPolicy, salesTargets } from '@/business/lib/fixtures-analytics'
-import { menus, operator, STORE_A, STORE_B, stores } from '@/business/lib/fixtures'
+import { menus, operator, STORE_A, STORE_B, STORE_C, stores } from '@/business/lib/fixtures'
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
 import { AUDIT_CATEGORIES, businessProfiles, rulebook, storeDials } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
@@ -335,6 +335,29 @@ describe('⚖ ONE TRUTH — every value this room shows is READ from the room th
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+describe('PKT-BUILD-N3-1 §3 H4 — equipment nouns and counters', () => {
+  it('H4 — real STORE_A counts equipment in its resolved counter', async () => {
+    const props = await room({ store: STORE_A })
+    const equipment = sectionOf(props, 'people-equipment').blocks.find((b) => b.id === 'people.equipment')!
+    expect(equipment.facts[0]).toBe('いまこの店舗にはベッドが3台あります。')
+  })
+
+  it('H4 — real STORE_C keeps the no-settings boundary', async () => {
+    const props = await room({ store: STORE_C })
+    const section = sectionOf(props, 'people-equipment')
+    expect(section.blocks).toEqual([])
+    expect(section.kicker).toBe('店舗を選んでください')
+    expect(section.lead.length).toBeGreaterThan(20)
+  })
+
+  it('H4 — a test-only STORE_C world uses the gym noun and the zero sentence', async () => {
+    // This test-only world supplies dials without adding production settings.
+    const { props } = await settingsProps({ locale: 'ja', store: STORE_C, world: { dials: storeDials[STORE_A] } })
+    const equipment = sectionOf(props, 'people-equipment').blocks.find((b) => b.id === 'people.equipment')!
+    expect(equipment.facts[0]).toBe('いまこの店舗にはブースが登録されていません。')
+  })
+})
+
 describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be made page-wide', () => {
   const NOBODY = accessFor('スタッフ', rulebook)
   const MANAGER = accessFor(operator.role, rulebook)
