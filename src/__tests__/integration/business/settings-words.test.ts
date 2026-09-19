@@ -63,6 +63,16 @@ describe('PKT-BUILD-N3-2 §3 H3 — the pure save door', () => {
     expect(overrideFromValues(spec, { ...values(), [spec.fullId]: '満席' })).toEqual({ fullWord: '満席' })
   })
 
+  it.each([
+    ['middle', 'ブ\u200bース'],
+    ['leading', '\u200bブース'],
+  ])('PKT-FIX-N3-2-F1-c — %s zero-width space is rejected through the door', (_, noun) => {
+    const v = values(noun, '台')
+    expect(wordsProblem(spec, v)).toBe('space')
+    const readout = wordsReadout(spec, v)
+    expect(readout.current).toBe(readout.standard)
+  })
+
   it('N3-2 §3 H3 — empty fields and a gym type preserve both base identities', () => {
     const readout = wordsReadout(spec, { ...values(), [spec.typeId]: 'personal_gym' })
     expect(readout.current).toBe(readout.standard)
