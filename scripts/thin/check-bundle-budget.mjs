@@ -1855,7 +1855,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // above (2,126,356 B) — this number is the ground truth for the merged tip,
 // not a sum of the two branches' separate deltas.
 
-// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-19 — main IN on PR #938 (feat/store-hours-door, the
 // per-store 営業時間 door), merged commit af49a232 — main's tip merged is
 // 85a451db9 (#960, 店舗の錠前 P1b 2/4, one commit past the #961 業種/N3-1
@@ -1933,7 +1932,23 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // of that tip; the delta includes main-in and round 3 as well as round 4.
 // Proof: artifacts-938-r2/r4/thin-build-{1,2}.log, thin-lap-{1,2}.json,
 // thin-measured.json. Ceiling = measured + 1,000 = 2,141,740 B.
-const BUDGET_BYTES = 2_141_740
+// ── THE LIVE ENTRY ────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-19 — STORE AT CREATION S7 — 1b/5
+// feat/sac-1b-add-staff-door, product/test tip `470eaf52a5ecb7433a1dea8dda6c2a1b8bed4a85`.
+// 追加: staff placement, store-list plumbing, staff message keys and the thin staff flag.
+// Re-stacked onto pinned parent c46349f7b70dcfe04c391e709b3a22abb5250694;
+// the previous entries remain as history, including both stale live markers.
+// Same CI recipe: npx --no -- vite build --config thin/vite.config.ts,
+// all six VITE_* placeholders read directly from .github/workflows/ci.yml.
+// thin/dist emptied before EACH of two builds; node v24.16.0.
+// All 23 output files byte-identical (relative paths, byte sizes, SHA-256s):
+//   en-5d_2hmBa.js                136,552 B
+//   index-jyIpoxjs.js           1,054,820 B
+//   vendor-BD5eMVWe.js            937,791 B
+// Total = 2,129,163 B; ceiling = measured + 1,000 = 2,130,163 B.
+// Against the previous measured total (2,126,943 B): +2,220 B.
+// Vendor remains 937,791 B; no dependency moved.
+const BUDGET_BYTES = 2_130_163
 
 let dir
 try {
