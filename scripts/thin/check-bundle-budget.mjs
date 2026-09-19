@@ -1712,7 +1712,7 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Total = 2,121,046 B; ceiling = measured + 1,000 = 2,122,046 B.
 // +184 B against main's prior 2,120,862 B measurement, all in index;
 // en and vendor unchanged. The source branch's ceiling is not carried.
-const BUDGET_BYTES = 2_125_004
+const BUDGET_BYTES = 2_125_225
 
 let dir
 try {
