@@ -1597,7 +1597,6 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // whole gate stack. Genuine rebase volume, not bloat, same class as every
 // prior raise on this line. Ceiling was 2,124,153 + 1,000.
 //
-// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-17 — REBASE 6 (PKT-REBASE-GATE-S4-2026-09-17): the gate
 // (pre-rebase tip `64bd5da1b`, six commits on `53bc4e9fb`) rebased onto
 // origin/main `dbdc2d9ad`, after #953 / #952 / #951 / #954 landed. One
@@ -1621,7 +1620,32 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // rebuilt here): +2,959 B total (en +231 · index +2,728 · vendor unchanged).
 // The ceiling follows the fresh measurement DOWN by 332 B, keeping exactly
 // 1,000 B headroom. Purchase exclusion remains 0/13 in both clean builds.
-const BUDGET_BYTES = 2_124_821
+//
+// ── THE LIVE ENTRY ──────────────────────────────────────────────────────────
+// RE-MEASURED 2026-09-19 — REBASE 7 (S5, PKT-REBASE-GATE-S5-2026-09-19):
+// the gate (pre-rebase tip `784d582d2`, seven commits on `dbdc2d9ad`)
+// rebased onto origin/main `fd250b41b`, after #956 / #957 landed. Two
+// conflicts during the seven-commit replay, both in this ledger: main's
+// entries kept verbatim (including #957's measured 2,121,012 B), its
+// superseded live marker removed, then the gate's own history appended.
+// The known stale live marker at line 1267 is retained as requested.
+//
+// Same CI recipe — both commands and all six VITE_* values read directly
+// from .github/workflows/ci.yml (208-char anon-key placeholder included),
+// thin/dist emptied before each of two laps on rebased code tip `244a14e0e`.
+// All 23 output files byte-identical (matching relative filenames, sizes,
+// bytes, SHA-256s and MD5s, node v24.16.0):
+//   en 135,045 · index 1,051,168 · vendor 937,791 = 2,124,004 B.
+// Ceiling = 2,124,004 + 1,000 = 2,125,004.
+//
+// Against REBASE 6's recorded figure: index 1,050,985 → 1,051,168 (+183 B),
+// en and vendor unchanged; total 2,123,821 → 2,124,004 B. The non-ledger
+// diff-of-diffs is empty: this measures moved main composed with the same
+// gate stack, with no new gate logic. Against main's own #957 measurement
+// above (2,121,012 B, not freshly rebuilt here): +2,992 B total (en +231 ·
+// index +2,761 · vendor unchanged). Ceiling rises by 183 B and retains
+// exactly 1,000 B headroom. Purchase exclusion remains 0/13 in both builds.
+const BUDGET_BYTES = 2_125_004
 
 let dir
 try {
