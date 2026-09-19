@@ -35,7 +35,6 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import * as data from '@/business/lib/data'
 import { wordsSentences } from '@/business/lib/settings-words'
 import { analyticsPolicy, salesTargets } from '@/business/lib/fixtures-analytics'
 import { menus, operator, STORE_A, STORE_B, STORE_C, stores } from '@/business/lib/fixtures'
@@ -91,10 +90,6 @@ import {
 } from '@/business/lib/settings'
 import { settingsHref } from '@/business/lib/settings-link'
 import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
-jest.mock('@/business/lib/data', () => {
-  const actual = jest.requireActual('@/business/lib/data')
-  return { ...actual, listStoreOptions: jest.fn(actual.listStoreOptions) }
-})
 // ⚡ R2 BRANCH C / ⚖ D-15 (round 3, A2) — the dial's own mapping pair.
 // `AUTO_RELEASE_CHOICES` is gone with the fixed select it existed to widen
 // (A2 turned the row into a select of two STATES plus a free minute field).
@@ -3963,25 +3958,31 @@ describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
     }
   })
 
-  it('N3-2 §3 H4 — no stores without supplied dials keeps the empty boundary', async () => {
-    const mock = jest.mocked(data.listStoreOptions).mockResolvedValue([])
+  const withoutStores = async (supplyDials: boolean): Promise<SettingsProps> => {
+    jest.doMock('@/business/lib/data', () => ({ ...jest.requireActual('@/business/lib/data'), listStoreOptions: async () => [] }))
+    let result!: SettingsProps
     try {
-      const { props } = await settingsProps({ locale: 'ja' })
-      expect(sectionOf(props, 'people-equipment').blocks).toEqual([])
-    } finally { mock.mockImplementation(jest.requireActual('@/business/lib/data').listStoreOptions) }
+      await jest.isolateModulesAsync(async () => {
+        const mod = await import('@/app/[locale]/(business)/business/settings/settings-props')
+        result = (await mod.settingsProps({ locale: 'ja', world: supplyDials ? { dials: storeDials[STORE_A] } : undefined })).props
+      })
+    } finally { jest.dontMock('@/business/lib/data') }
+    return result
+  }
+
+  it('N3-2 §3 H4 — no stores without supplied dials keeps the empty boundary', async () => {
+    const props = await withoutStores(false)
+    expect(sectionOf(props, 'people-equipment').blocks).toEqual([])
   })
 
   it('N3-2 §3 H4 — no stores with supplied dials keeps the four blocks and three-line aside', async () => {
-    const mock = jest.mocked(data.listStoreOptions).mockResolvedValue([])
-    try {
-      const { props } = await settingsProps({ locale: 'ja', world: { dials: storeDials[STORE_A] } })
-      const section = sectionOf(props, 'people-equipment')
-      expect(section.blocks.map((b) => b.id)).toEqual(['people.staff', 'people.equipment', 'people.room-policy', 'people.shifts'])
-      expect(section.aside!.lines).toEqual([
-        { label: '名簿', value: 'スタッフ・シフトが使っている名簿' },
-        { label: '設備', value: '今日の運営のベッド割り当てが使っている一覧' },
-        { label: '部屋の決まり', value: '今日の運営の自動割り当てが使っている決まり' },
-      ])
-    } finally { mock.mockImplementation(jest.requireActual('@/business/lib/data').listStoreOptions) }
+    const props = await withoutStores(true)
+    const section = sectionOf(props, 'people-equipment')
+    expect(section.blocks.map((b) => b.id)).toEqual(['people.staff', 'people.equipment', 'people.room-policy', 'people.shifts'])
+    expect(section.aside!.lines).toEqual([
+      { label: '名簿', value: 'スタッフ・シフトが使っている名簿' },
+      { label: '設備', value: '今日の運営のベッド割り当てが使っている一覧' },
+      { label: '部屋の決まり', value: '今日の運営の自動割り当てが使っている決まり' },
+    ])
   })
 })
