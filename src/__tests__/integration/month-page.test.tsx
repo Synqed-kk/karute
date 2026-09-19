@@ -145,7 +145,6 @@ const WEEKDAYS = Array.from({ length: 7 }, (_, i) =>
 const baseProps = {
   selectedDateIso: '2026-09-15',
   todayIso: '2026-09-14',
-  weekdayLabels: WEEKDAYS,
   weekStart: weekStartFor('ja'),
   tone: weekendTone('ja'),
   typeSlot: 'off' as const,
@@ -644,6 +643,24 @@ describe('MonthPage — a failed read says so', () => {
 
 
 describe('MonthPage — locale calendar colours', () => {
+  it.each([0, 1] as const)('headers follow cells in order %i despite the opposite fallback', (start) => {
+    const { MonthPage } = loadMonthPage()
+    const cells = monthCells(2027, 3, start)
+    const { container } = render(<MonthPage {...baseProps} weekStart={start === 0 ? 1 : 0} cells={cells} />)
+    const headers = container.querySelectorAll('[data-month-grid] > div:first-child > div')
+    const buttons = container.querySelectorAll('[data-month-cell]')
+    const fmt = new Intl.DateTimeFormat('ja', { weekday: 'short', timeZone: 'UTC' })
+    expect(headers).toHaveLength(7)
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(`${cells[i].id}T00:00:00Z`)
+      expect(headers[i].textContent).toBe(fmt.format(date))
+      expect(buttons[i].querySelector('span')!.textContent).toBe(String(date.getUTCDate()))
+      expect(headers[i].className).toContain(date.getUTCDay() === 0
+        ? 'text-red-600' : date.getUTCDay() === 6 ? 'text-primary' : 'text-zinc-500')
+      if (date.getUTCDay() === 0) expect(headers[i].className).toContain('dark:text-red-400')
+    }
+  })
+
   it('Sunday-first puts red on column 1 and accent on column 7', () => {
     const { MonthPage } = loadMonthPage()
     const { container } = render(<MonthPage {...baseProps} cells={monthCells(2026, 11, weekStartFor('ja'))} />)

@@ -177,7 +177,6 @@ const NeighbourPane = memo(function NeighbourPane({
   dateIso,
   todayIso,
   locale,
-  weekdayLabels,
   weekStart,
   tone,
   businessHours,
@@ -191,7 +190,6 @@ const NeighbourPane = memo(function NeighbourPane({
   dateIso: string
   todayIso: string
   locale: string
-  weekdayLabels: [string, string, string, string, string, string, string]
   weekStart: WeekStart
   tone: WeekendTone
   businessHours: BusinessHours
@@ -236,7 +234,6 @@ const NeighbourPane = memo(function NeighbourPane({
           cells={cells ?? []}
           selectedDateIso={dateIso}
           todayIso={todayIso}
-          weekdayLabels={weekdayLabels}
           weekStart={weekStart}
           tone={tone}
           typeSlot={TYPE_SLOT}
@@ -372,20 +369,11 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const tReservation = useTranslations('reservation')
   const tCommon = useTranslations('common')
 
-  // One locale answer shared by the page, its placeholders and the panel.
-  const { weekStart, tone, monthWeekdayLabels } = useMemo(() => {
-    const weekStart = weekStartFor(locale)
-    return {
-      weekStart,
-      tone: weekendTone(locale),
-      // 2024-01-07 is Sunday; shift the anchor to the locale's first day.
-      monthWeekdayLabels: Array.from({ length: 7 }, (_, i) =>
-        new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' }).format(
-          new Date(Date.UTC(2024, 0, 7 + weekStart + i)),
-        ),
-      ) as [string, string, string, string, string, string, string],
-    }
-  }, [locale])
+  // Locale supplies the skeleton order and tones; loaded headers follow cells.
+  const { weekStart, tone } = useMemo(() => ({
+    weekStart: weekStartFor(locale),
+    tone: weekendTone(locale),
+  }), [locale])
 
   function navigateTo(nextView: DayWeekMonthView, nextDate: Date): string {
     // R1-1 — any move spends the held tap. A month-cell tap re-arms it right
@@ -568,7 +556,6 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             // is the real selection the rest of the time.
             selectedDateIso={shownDayIso}
             todayIso={ymdInJst(today)}
-            weekdayLabels={monthWeekdayLabels}
             weekStart={weekStart}
             tone={tone}
             // ⚖ PKT-2b — 新規, for every business type (Liam 2026-09-15
@@ -892,7 +879,6 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         // mode this IS navigateTo('month', date): the page stays on the month
         // page and the tapped day becomes its selection.
         onPickDay={(date) => navigateTo(view, date)}
-        weekdayLabels={monthWeekdayLabels}
         weekStart={weekStart}
         tone={tone}
         // ⚖ §v11b — in 月 mode the chip opens on the twelve month chips, never
@@ -1068,7 +1054,6 @@ export function AppointmentsView(props: AppointmentsViewProps) {
                   dateIso={ymdInJst(shiftAppointmentsDate(selectedDate, view, side, today))}
                   todayIso={ymdInJst(today)}
                   locale={props.locale}
-                  weekdayLabels={monthWeekdayLabels}
                   weekStart={weekStart}
                   tone={tone}
                   businessHours={props.businessHours}

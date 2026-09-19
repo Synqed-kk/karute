@@ -53,7 +53,7 @@ import {
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { MonthGrid, type MonthGridCell } from '@synqed-kk/ui'
 import { useLocale, useTranslations } from 'next-intl'
-import type { WeekStart, WeekendTone } from '@/lib/date/week-start'
+import { weekStartOfCells, weekdayLabelsFor, type WeekStart, type WeekendTone } from '@/lib/date/week-start'
 import { cn } from '@/lib/utils'
 import { makeSpring, type Spring, type SpringOptions } from '@/lib/motion/spring'
 import { useHorizontalSlide, usePrefersReducedMotion } from '@/lib/motion/use-horizontal-slide'
@@ -129,7 +129,7 @@ function monthGridLocaleClass(weekStart: WeekStart, tone: WeekendTone): string {
 
 interface PaneProps {
   cells: MonthGridCell[]
-  copy: { weekdayLabels: DateJumpPanelProps['weekdayLabels'] }
+  copy: { weekdayLabels: ReturnType<typeof weekdayLabelsFor> }
   onPickDay: (date: Date) => void
   calendarClassName: string
 }
@@ -184,9 +184,6 @@ export interface DateJumpPanelProps {
   /** Tapping a day. The caller decides what "go there" means — and keeps the
    *  current 日/週/月 mode while doing it. */
   onPickDay: (date: Date) => void
-  /** Locale-ordered weekday headers, the same array the 月 view feeds
-   *  MonthGrid. */
-  weekdayLabels: [string, string, string, string, string, string, string]
   weekStart: WeekStart
   tone: WeekendTone
   /** 2 = open on the month chips (月 mode, §v11b) instead of the day grid. */
@@ -202,7 +199,6 @@ export function DateJumpPanel({
   seedCells,
   loadMonthCells,
   onPickDay,
-  weekdayLabels,
   weekStart,
   tone,
   defaultLevel = 1,
@@ -507,8 +503,9 @@ export function DateJumpPanel({
   /** The two props every pane hands MonthGrid that are not its cells. Memoized
    *  for the panes' `memo`: a fresh object or closure per render compares
    *  unequal and redraws all three months (see `Pane`). */
-  const calendarClassName = monthGridLocaleClass(weekStart, tone)
-  const gridCopy = useMemo(() => ({ weekdayLabels }), [weekdayLabels])
+  const gridCopies = useMemo(() => Array.from({ length: 7 }, (_, start) => ({
+    weekdayLabels: weekdayLabelsFor(locale, start as WeekStart),
+  })), [locale])
   const pickDay = useCallback(
     (date: Date) => {
       onPickDay(date)
@@ -676,18 +673,24 @@ export function DateJumpPanel({
     ref: RefObject<HTMLDivElement | null>,
     paneDir: -1 | 0 | 1,
     className?: string,
-  ) => (
-    <div
-      key={key}
-      ref={ref}
-      className={cn('w-full', className)}
-      inert={(paneDir !== 0 && paneDir !== slide.dir) || undefined}
-    >
-      {drawn.has(key) ? (
-        <Pane cells={cellsFor(key)} copy={gridCopy} onPickDay={pickDay} calendarClassName={calendarClassName} />
-      ) : null}
-    </div>
-  )
+  ) => {
+    const cells = drawn.has(key) ? cellsFor(key) : null
+    const effectiveStart = weekStartOfCells(cells, weekStart)
+    const gridCopy = gridCopies[effectiveStart]
+    const calendarClassName = monthGridLocaleClass(effectiveStart, tone)
+    return (
+      <div
+        key={key}
+        ref={ref}
+        className={cn('w-full', className)}
+        inert={(paneDir !== 0 && paneDir !== slide.dir) || undefined}
+      >
+        {cells ? (
+          <Pane cells={cells} copy={gridCopy} onPickDay={pickDay} calendarClassName={calendarClassName} />
+        ) : null}
+      </div>
+    )
+  }
 
   return (
     <>

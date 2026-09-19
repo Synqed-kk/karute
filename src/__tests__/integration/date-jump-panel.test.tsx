@@ -1827,6 +1827,54 @@ describe('the hidden native date input is gone', () => {
 
 
 describe('the panel shares the view locale calendar', () => {
+  it('cached Monday cells keep their own header beside a Sunday skeleton until refreshed', async () => {
+    const orderedCells = (first: string): MonthCellDTOType[] => Array.from({ length: 7 }, (_, i) => {
+      const id = new Date(Date.parse(`${first}T00:00:00Z`) + i * 86400000).toISOString().slice(0, 10)
+      return { ...monthCells('2026-09')[0], id, dateIso: `${id}T00:00:00+09:00` }
+    })
+    let release: (cells: MonthCellDTOType[]) => void = () => {}
+    let reads = 0
+    const loadMonthCells = jest.fn((key: string) => {
+      if (key === '2026-09' && reads++ === 0) return Promise.resolve(orderedCells('2026-08-31'))
+      return new Promise<MonthCellDTOType[]>((resolve) => {
+        if (key === '2026-09') release = resolve
+      })
+    })
+    const fmt = new Intl.DateTimeFormat('ja', { weekday: 'short', timeZone: 'UTC' })
+    const assertColumns = (grid: HTMLElement) => {
+      const headers = grid.querySelectorAll('[data-weekday-header] > div')
+      const cells = grid.querySelectorAll('[data-day]')
+      expect(headers).toHaveLength(7)
+      for (let i = 0; i < 7; i++) {
+        expect(headers[i].textContent).toBe(fmt.format(new Date(`${cells[i].getAttribute('data-day')}T00:00:00Z`)))
+      }
+    }
+    renderView({ loadMonthCells })
+    await openPanel()
+    await waitFor(() => expect(centreGrid(screen.getByRole('dialog')).querySelector('[data-day]')).toHaveAttribute('data-day', '2026-08-31'))
+    fireEvent.click(chip())
+    await waitFor(() => expect(panel()).toBeNull())
+    await openPanel()
+    await waitFor(() => expect(reads).toBe(2))
+    const dialog = screen.getByRole('dialog')
+    const grids = await allPanes(dialog)
+    const centre = centreGrid(dialog)
+    const sibling = grids.find((grid) => grid !== centre)!
+    assertColumns(centre)
+    assertColumns(sibling)
+    expect(centre.querySelector('[data-weekday-header] > div')!.textContent).toBe(fmt.format(new Date('2024-01-08')))
+    expect(centre.className).toBe('rounded-none border-0 bg-transparent shadow-none')
+    expect(sibling.querySelector('[data-weekday-header] > div')!.textContent).toBe(fmt.format(new Date('2024-01-07')))
+    expect(sibling.className).toContain('[&>div:first-child>div:nth-child(1)]:text-[var(--color-destructive)]')
+    mockGridRenders.length = 0
+    await act(async () => { release(orderedCells('2026-08-30')) })
+    assertColumns(centre)
+    expect(centre.querySelector('[data-day]')).toHaveAttribute('data-day', '2026-08-30')
+    expect(centre.querySelector('[data-weekday-header] > div')!.textContent).toBe(fmt.format(new Date('2024-01-07')))
+    expect(centre.className).toBe(sibling.className)
+    expect(mockGridRenders).toHaveLength(1)
+  })
+
   it('ja labels are Sunday-first and the grid receives all three header overrides', async () => {
     renderView({ loadMonthCells: () => new Promise(() => {}) })
     await openPanel()

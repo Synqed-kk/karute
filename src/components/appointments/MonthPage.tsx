@@ -17,7 +17,7 @@
 //      off `cell.id`, which is already the JST calendar day.
 import { useTranslations } from 'next-intl'
 import type { MonthDensityBucket } from '@synqed-kk/ui'
-import type { WeekStart, WeekendTone } from '@/lib/date/week-start'
+import { weekStartOfCells, weekdayLabelsFor, type WeekStart, type WeekendTone } from '@/lib/date/week-start'
 import { cn } from '@/lib/utils'
 import { formatCompactDateJst, jstWallTimeToDate, partsInJst } from '@/lib/date/jst'
 import type { MonthCell } from '@/lib/adapters/reservation'
@@ -33,10 +33,6 @@ interface MonthPageProps {
   /** Today in JST, YYYY-MM-DD. Absent → each cell's own `isToday`, which the
    *  server stamped (a bundle that sat through midnight would keep yesterday). */
   todayIso?: string
-  /** Locale-ordered weekday headers — the SAME array the pop-down feeds
-   *  the package grid, so the two calendars cannot label their columns
-   *  differently. */
-  weekdayLabels: [string, string, string, string, string, string, string]
   weekStart: WeekStart
   tone: WeekendTone
   /** PKT-2 supplies 'new' | 'returning' from the business type; until then
@@ -142,8 +138,7 @@ export function MonthPage({
   cells,
   selectedDateIso,
   todayIso,
-  weekdayLabels,
-  weekStart,
+  weekStart: weekStartProp,
   tone,
   typeSlot,
   typeCount = null,
@@ -157,6 +152,8 @@ export function MonthPage({
   const t = useTranslations('reservation.weekRows')
   const tMonth = useTranslations('reservation.month')
   const tJump = useTranslations('reservation.dateJump')
+  const weekStart = weekStartOfCells(cells, weekStartProp)
+  const weekdayLabels = weekdayLabelsFor(locale, weekStart)
 
   if (failed) {
     // The same line, the same role and the same words the week page uses: one
