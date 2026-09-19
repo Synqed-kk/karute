@@ -6,6 +6,7 @@ import { blockingError, labelOfValue, type RowValue, type SettingsBlock, type Se
 import {
   committedWordValues, normalisedWordValues, overrideFromValues, wordsBlockingError,
   wordsBlockProblem, wordsLiveFact, wordsProblem, wordsReadout, wordsSentences,
+  wordsTurnoverControl, wordsTurnoverFact,
 } from '@/business/lib/settings-words'
 
 let section: SettingsSection
@@ -24,6 +25,100 @@ beforeAll(async () => {
   }
   const type = section.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls)).find((c) => c.id === spec.typeId)!
   label = labelOfValue(type.control, seed[spec.typeId])
+})
+
+describe('N3-3 turnover seeds and live copy', () => {
+  const equipmentOf = (s: SettingsSection) => s.blocks.find((b) => b.id === 'people.equipment')!
+  const cleanupOf = (s: SettingsSection) => equipmentOf(s).rows.flatMap((row) =>
+    row.controls.filter((control) => control.id.startsWith('people.cleanup-')).map((control) => ({ row, control })))
+  const liveCopy = (v: Record<string, RowValue>) => [
+    wordsTurnoverFact(section, equipmentOf(section).id, v)!.sentence,
+    ...cleanupOf(section).map(({ row, control }) => wordsTurnoverControl(section, control.id, row.label, v)!),
+  ]
+  const expectSeed = (s: SettingsSection, v: Record<string, RowValue>) => {
+    const equipment = equipmentOf(s)
+    expect(wordsTurnoverFact(s, equipment.id, v)).toEqual({ index: 1, sentence: equipment.facts[1] })
+    const controls = cleanupOf(s)
+    expect(controls.length).toBeGreaterThan(0)
+    for (const { row, control } of controls) {
+      expect(wordsTurnoverControl(s, control.id, row.label, v)).toBe(control.aria)
+    }
+  }
+
+  it('N3-3 T1 every assembled seed equals its live copy', () => {
+    expectSeed(section, seed)
+  })
+
+  it('N3-3 T1 a real dental assembly seeds its fact and every cleanup name from the store word', async () => {
+    jest.doMock('@/business/lib/data', () => {
+      const actual = jest.requireActual('@/business/lib/data')
+      return { ...actual, listStoreOptions: async () => (await actual.listStoreOptions()).map((store: { id: string }) =>
+        store.id === STORE_A ? { ...store, business_type: 'dental_clinic' } : store) }
+    })
+    try {
+      await jest.isolateModulesAsync(async () => {
+        const { settingsProps: assemble } = await import('@/app/[locale]/(business)/business/settings/settings-props')
+        const { props } = await assemble({ locale: 'ja', store: STORE_A })
+        const dental = props.sections.find((s) => s.id === section.id)!
+        const dentalSeed = Object.fromEntries(dental.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls.map((c) => [c.id, c.value]))))
+        expectSeed(dental, dentalSeed)
+        const word = wordsForStore('dental_clinic', null).turnoverWord!
+        expect(word).not.toBe(wordsReadout(spec, seed).current.turnoverWord)
+        expect(equipmentOf(dental).facts[1]).toBe(spec.copy.turnoverFact.replace('{turnoverName}', word))
+        for (const { row, control } of cleanupOf(dental)) {
+          expect(control.aria).toBe(spec.copy.turnoverControl.replace('{name}', row.label).replace('{turnoverName}', word))
+        }
+      })
+    } finally { jest.dontMock('@/business/lib/data') }
+  })
+
+  it('N3-3 T2 a type change updates the fact and every cleanup name', () => {
+    const word = wordsForStore('dental_clinic', null).turnoverWord!
+    const seedWord = wordsReadout(spec, seed).current.turnoverWord!
+    expect(word).not.toBe(seedWord)
+    for (const sentence of liveCopy({ ...seed, [spec.typeId]: 'dental_clinic' })) {
+      expect(sentence).toContain(word)
+      expect(sentence).not.toContain(seedWord)
+    }
+  })
+
+  it('N3-3 T3 a valid custom word updates both surfaces and invalid words resolve to base', () => {
+    const custom = '換気'
+    for (const sentence of liveCopy(values('', '', custom))) expect(sentence).toContain(custom)
+    for (const invalid of ['休憩', '長'.repeat(9)]) {
+      expect(liveCopy(values('', '', invalid))).toEqual(liveCopy(values()))
+    }
+  })
+
+  it('N3-3 T4 absent turnover uses the fallback and ignores a typed word while the readout stays absent', () => {
+    const yoga = { ...values(), [spec.typeId]: 'yoga_studio' }
+    for (const sentence of liveCopy(yoga)) expect(sentence).toContain(spec.liveTurnover.fallback)
+    const typed = { ...yoga, [spec.turnoverId]: '換気' }
+    expect(liveCopy(typed)).toEqual(liveCopy(yoga))
+    for (const v of [yoga, typed]) {
+      expect(wordsReadout(spec, v).current.turnoverWord).toBeNull()
+      expect(wordsSentences(spec, v, label).current).toContain(spec.copy.noTurnover)
+    }
+  })
+
+  it('N3-3 T5 unrelated blocks, controls and sections without a spec return null', () => {
+    for (const id of [...section.blocks.filter((b) => b.id !== equipmentOf(section).id).map((b) => b.id), 'absent']) {
+      expect(wordsTurnoverFact(section, id, seed)).toBeNull()
+    }
+    expect(wordsTurnoverControl(section, 'people.class-resource', 'resource', seed)).toBeNull()
+    const withoutSpec = { ...section, blocks: section.blocks.filter((b) => !b.words) }
+    for (const s of [withoutSpec, { ...section, blocks: [] }]) {
+      expect(wordsTurnoverFact(s, equipmentOf(section).id, seed)).toBeNull()
+      expect(wordsTurnoverControl(s, 'people.cleanup-resource', 'resource', seed)).toBeNull()
+    }
+  })
+
+  it('N3-3 T6 slot tokens inside a resource name stay literal', () => {
+    const name = 'resource {turnoverName} {noun}'
+    const word = wordsReadout(spec, seed).current.turnoverWord!
+    expect(wordsTurnoverControl(section, 'people.cleanup-resource', name, seed))
+      .toBe(spec.copy.turnoverControl.replace('{turnoverName}', word).replace('{name}', name))
+  })
 })
 
 const values = (noun = '', counter = '', turnover = ''): Record<string, RowValue> => ({

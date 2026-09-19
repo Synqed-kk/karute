@@ -31,8 +31,22 @@ export function wordsReadout(spec: WordsSpec, values: Values): { current: Resour
   return { standard: wordsForStore(type, null), current: wordsForStore(type, overrideFromValues(spec, values)) }
 }
 
-function fillWords(template: string, slots: Record<string, string>): string {
-  return template.replace(/\{(noun|counter|full|turnover|typeLabel|n|word)\}/g, (whole, slot: string) => slots[slot] ?? whole)
+export function fillWords(template: string, slots: Record<string, string>): string {
+  return template.replace(/\{(noun|counter|full|turnover|typeLabel|n|word|name|turnoverName)\}/g, (whole, slot: string) => slots[slot] ?? whole)
+}
+
+export function wordsTurnoverName(spec: WordsSpec, values: Values): string {
+  return wordsReadout(spec, values).current.turnoverWord ?? spec.liveTurnover.fallback
+}
+
+export function wordsTurnoverFact(section: SettingsSection, blockId: string, values: Values): { index: number; sentence: string } | null {
+  const spec = section.blocks.find((block) => block.words?.liveTurnover.blockId === blockId)?.words
+  return spec ? { index: spec.liveTurnover.factIndex, sentence: fillWords(spec.copy.turnoverFact, { turnoverName: wordsTurnoverName(spec, values) }) } : null
+}
+
+export function wordsTurnoverControl(section: SettingsSection, controlId: string, name: string, values: Values): string | null {
+  const spec = section.blocks.find((block) => block.words && controlId.startsWith(block.words.liveTurnover.controlPrefix))?.words
+  return spec ? fillWords(spec.copy.turnoverControl, { name, turnoverName: wordsTurnoverName(spec, values) }) : null
 }
 
 export function wordsSentences(spec: WordsSpec, values: Values, typeLabel: string): { current: string; standard: string; example: string } {
