@@ -49,6 +49,30 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 }
 
+/**
+ Scenes are required by the iOS 27 SDK to avoid UIKit's
+ `_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption` assert.
+ This class lives in AppDelegate.swift so no project.pbxproj edit is needed.
+ The window comes from Main.storyboard via `UISceneStoryboardFile`; its root
+ remains CookieVC, unchanged.
+
+ Karute registers no URL scheme or associated domain today. The day one is
+ added, a scene-based app receives links HERE, not in
+ `application(_:open:options:)`: implement `scene(_:openURLContexts:)`,
+ `scene(_:continue:)` and the cold-start `connectionOptions`, forwarding to
+ Capacitor's `ApplicationDelegateProxy` (pattern: SYNQED Reserve, reserve#102).
+ */
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+
+    var window: UIWindow?
+
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        // Mirror the storyboard-created window: the SplashScreen plugin reads
+        // appDelegate.window first.
+        (UIApplication.shared.delegate as? AppDelegate)?.window = window
+    }
+}
+
 // MARK: - Session cookie persistence
 //
 // Fixes the forced re-login on every cold launch. WKWebView evicts the
