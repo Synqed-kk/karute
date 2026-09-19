@@ -40,9 +40,11 @@ export interface NewCardDeps {
   actorId: string | null
   source: 'web' | 'facade'
   requestId?: string
-  /** The CREATOR's own allowed stores; `null` = unclamped. The new card's
-   *  stores must be a subset of it (setStaffStoresAtCreationCore). */
-  creatorAllowedStoreIds?: readonly string[] | null
+  /** The CREATOR's own allowed stores; `null` = EXPLICITLY unclamped
+   *  (stores.viewAll, or a floating creator in a one-store salon). REQUIRED
+   *  on purpose: omitted is not unclamped. The new card's stores must be a
+   *  subset of it (setStaffStoresAtCreationCore). */
+  creatorAllowedStoreIds: readonly string[] | null
 }
 
 /**
@@ -58,6 +60,10 @@ export interface NewCardDeps {
  *     unplaced hire meets the honest screen, never another store's data;
  *   - a FAILED placement DELETES the card it just made. Never a floating card
  *     the salon can neither see nor assign.
+ *
+ * Deliberately REJECTS when staff.create itself rejects: each door catches
+ * and maps that inside its own try/catch (⚖ G6). The { error } arm carries
+ * refusals and placement failures only.
  */
 export async function createAndPlaceStaffCard(
   synqed: NewCardClient,
@@ -91,6 +97,12 @@ export async function createAndPlaceStaffCard(
     storeCountUnknown = storeCount === null
   }
 
+  // A cast or a JS caller can omit the REQUIRED clamp decision. Refuse
+  // before creating a card, so there is nothing to roll back.
+  if (card.storeIds.length > 0 && deps.creatorAllowedStoreIds === undefined) {
+    return { error: 'STORE_SCOPE_DENIED' }
+  }
+
   const created = await synqed.staff.create({
     name: card.name,
     email: card.email,
@@ -117,7 +129,7 @@ export async function createAndPlaceStaffCard(
       { staffList: [], selfUserId: deps.actorId, source: deps.source, requestId: deps.requestId },
       created.id,
       card.storeIds,
-      deps.creatorAllowedStoreIds ?? null,
+      deps.creatorAllowedStoreIds,
     )
     if ('error' in placed) return rollback(synqed, businessId, deps, created.id, placed.error)
   }
