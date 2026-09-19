@@ -22,8 +22,15 @@ jest.mock('@/actions/stores', () => ({
 }))
 // Only the RESOLVER is mocked; the lock's predicate lives in the pure
 // src/lib/auth/store-lock.ts and runs for real here (⚖ 9/16).
+// ⚖ FRESH-EYES-P1B F2 — the scope is now DRIVEN, not fixed. It used to be a
+// hardcoded viewAll, so this door's whole store-lock branch was never exercised
+// and its refusal row could be deleted in silence (mutant M8 survived the full
+// suite). The default stays viewAll, so every case below is unchanged.
+const storeScope = {
+  current: { storeId: null as string | null, viewAll: true, allowedStoreIds: null as string[] | null, degraded: false },
+}
 jest.mock('@/lib/auth/store-scope', () => ({
-  resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
+  resolveStoreScope: jest.fn(async () => storeScope.current),
 }))
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: jest.fn(async () => {}),
@@ -78,6 +85,7 @@ beforeEach(() => {
     store_id: 'store-1',
   })
   karuteRecordsDelete.mockResolvedValue({})
+  storeScope.current = { storeId: null, viewAll: true, allowedStoreIds: null, degraded: false }
 })
 
 describe('karute.delete — deleteKaruteRecord emits exactly once, success-only', () => {
@@ -165,6 +173,63 @@ describe('karute.delete — deleteKaruteRecord emits exactly once, success-only'
     expect(result).toEqual({ error: 'karute read failed' })
     expect(karuteRecordsDelete).not.toHaveBeenCalled()
     expect(audit).not.toHaveBeenCalled()
+  })
+
+  // ⚖ FRESH-EYES-P1B F2 — THE STORE-LOCK BRANCH OF THIS DOOR, pinned at last.
+  // The refusal row is what PR B ships; on this door nothing enforced it.
+  it('a clamped actor + another store karute → refused, nothing deleted, ONE refusal row', async () => {
+    storeScope.current = {
+      storeId: 'store-daikanyama',
+      viewAll: false,
+      allowedStoreIds: ['store-daikanyama'],
+      degraded: false,
+    }
+    karuteRecordsGet.mockResolvedValueOnce({
+      customer_id: 'cus-1',
+      recording_session_id: null,
+      appointment_id: null,
+      staff_id: 'staff-7',
+      store_id: 'store-ginza',
+    })
+
+    // Byte-identical to a missing id — no existence oracle (the case below
+    // proves the other side of that equality).
+    expect(await deleteKaruteRecord('kar-1')).toEqual({ error: 'karute not found in this business' })
+    expect(karuteRecordsDelete).not.toHaveBeenCalled()
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit.mock.calls[0][0]).toMatchObject({
+      category: 'karute',
+      action: 'karute.store_write_refused',
+      severity: 'warning',
+      targetType: 'karute',
+      targetId: 'kar-1',
+      detail: expect.objectContaining({
+        door: 'karute.delete',
+        record_store_id: 'store-ginza',
+        code: 'not_found',
+      }),
+    })
+  })
+
+  it('a clamped actor deleting their OWN store karute still emits karute.delete, not a refusal', async () => {
+    storeScope.current = {
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+      degraded: false,
+    }
+    karuteRecordsGet.mockResolvedValueOnce({
+      customer_id: 'cus-1',
+      recording_session_id: null,
+      appointment_id: null,
+      staff_id: 'staff-7',
+      store_id: 'store-ginza',
+    })
+
+    expect(await deleteKaruteRecord('kar-1')).toEqual({ success: true })
+    expect(karuteRecordsDelete).toHaveBeenCalledWith('kar-1')
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit.mock.calls[0][0]).toMatchObject({ action: 'karute.delete' })
   })
 
   it('a 404 read is the SAME answer the store lock gives — no existence oracle', async () => {

@@ -805,6 +805,7 @@ describe('the fixture data door', () => {
       // its caller already resolved. An import here would mean the link builder
       // started knowing about a room.
       'src/business/lib/settings-link.ts': [],
+      'src/business/lib/settings-words.ts': ['./resource-words', './settings'],
       'src/app/[locale]/(business)/business/settings/page.tsx': [
         './SettingsScreen',
         './settings-props',
@@ -844,6 +845,7 @@ describe('the fixture data door', () => {
         './StorePolicySection',
         '@/business/lib/guide',
         '@/business/lib/settings',
+        '@/business/lib/settings-words',
         // ⚖ S17 STEP 1 — the room's ONE integrator. Every moving thing on the
         // page (the segment's thumb, the switch's thumb, the 詳しく panel's
         // height, the save card's rise) is driven by `makeSpring`; a second

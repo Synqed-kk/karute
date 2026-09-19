@@ -16,7 +16,7 @@
 // Transaction rule (Liam): AI calls NEVER run inside a write transaction —
 // transcribe/extract/summarize happen first, then one short save.
 
-import { SynqedClient, type RecordingJob } from '@synqed-kk/client'
+import { SynqedClient, type KaruteRecord, type RecordingJob } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { runMeteredTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
 import { runKaruteExtraction } from '@/lib/ai/karute-extract'
@@ -34,7 +34,10 @@ import {
 } from '@/lib/recording/job-errors'
 import { AppApiError } from '@/lib/app-api/errors'
 import { audit } from '@/lib/audit'
-import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
+import {
+  setKaruteOutcomeWithClient,
+  REVISIT_NOT_ELIGIBLE,
+} from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
@@ -106,6 +109,80 @@ async function assertNotDiscardedByStaff(synqed: SynqedClient, recordingSessionI
   if (verdict === 'discarded') throw new Error(DISCARDED_BY_STAFF)
 }
 
+/** The by-recording-session lookup, ONE home for both the pre-spend
+ *  existing-karute check in processJob and upsertKaruteRecord's converge
+ *  branch (packet B, 2026-09-19): only a 404 means "no record yet" — any
+ *  other failure must throw so the job retries rather than treating "could
+ *  not ask" as "none". */
+async function findExistingKarute(
+  synqed: SynqedClient,
+  recordingSessionId: string,
+): Promise<KaruteRecord | null> {
+  return synqed.karuteRecords.getByRecordingSession(recordingSessionId).catch((err: unknown) => {
+    const status =
+      err && typeof err === 'object' && 'status' in err ? (err as { status: unknown }).status : undefined
+    if (status === 404) return null
+    throw err
+  })
+}
+
+/** The coaching-label write (packet 22 B4), lifted to ONE home (packet B,
+ *  2026-09-19) so the normal completion path and the existing-karute skip
+ *  path share the identical best-effort upsert + error handling instead of
+ *  two copies. A write failure here THROWS — unlike the interactive save's
+ *  swallow — because a silently lost label has no other retry path of its
+ *  own; failing the job lets core's requeue converge on the SAME record
+ *  (idempotent either way this is reached).
+ *  A rejected 'revisit' is DETERMINISTIC: retrying can never make it
+ *  eligible. Enqueue already 400s this case, so reaching here means the two
+ *  checks disagreed — keep the record, drop the label. Real write failures
+ *  still throw.
+ *  Returns whether a label was actually written (FIX ROUND 3, packet B,
+ *  2026-09-19): the skip path's caller uses this to decide whether a
+ *  karute.outcome_set row is owed (never on a dropped REVISIT_NOT_ELIGIBLE
+ *  label); the normal completion path ignores the value — that write is
+ *  already covered by the record's own karute.save. */
+async function writeSessionOutcome(
+  synqed: SynqedClient,
+  karuteRecordId: string,
+  staffId: string,
+  customerId: string,
+  outcome: SessionOutcome,
+): Promise<boolean> {
+  const outcomeResult = await setKaruteOutcomeWithClient(synqed, {
+    karuteRecordId,
+    customerId,
+    status: outcome.status,
+    reason: outcome.reason,
+    isFirstVisit: outcome.isFirstVisit,
+    decidedBy: staffId,
+    // Post-persist: the record this label attaches to already exists.
+    onUnverifiable: 'write',
+  })
+  if (outcomeResult.error === REVISIT_NOT_ELIGIBLE) {
+    console.warn('[job] revisit rejected server-side; record kept, label dropped', {
+      karuteRecordId,
+    })
+    return false
+  } else if (outcomeResult.error) {
+    throw new Error(`outcome write failed: ${outcomeResult.error}`)
+  }
+  return true
+}
+
+/** Roster-translate a synqed staff id → the auth uid `audit()`'s actorId
+ *  expects, ONE home (FIX ROUND 3, packet B, 2026-09-19) shared by both
+ *  audit() emits in processJob (karute.save on the normal completion path,
+ *  karute.outcome_set on the skip path below) instead of two copies. An
+ *  unwired recorder degrades to null (viewer renders 不明) — never the
+ *  wrong id-space. */
+async function resolveActorUserId(synqed: SynqedClient, staffId: string): Promise<string | null> {
+  return synqed.staff
+    .get(staffId)
+    .then((s) => (s as { user_id?: string | null }).user_id ?? null)
+    .catch(() => null)
+}
+
 /** Process one claimed job end-to-end. Throws on failure — the caller reports
  *  fail() to core, which requeues or FAILs by attempts. */
 async function processJob(job: RecordingJob): Promise<string> {
@@ -154,6 +231,94 @@ async function processJob(job: RecordingJob): Promise<string> {
   // all five doors share one place, and a refusal leaves here as AI_SPEND_LIMIT.
   const { consent } = await synqed.customers.getConsent(payload.customer_id)
   if (!isConsentCurrent(consent)) throw new Error(CONSENT_REQUIRED_ERROR)
+
+  // ⚖ AN EXISTING KARUTE MEANS THIS JOB'S WORK IS ALREADY DONE (packet B,
+  // 2026-09-19). The census found no intended caller that re-runs this worker
+  // over a session that already has a karute — 再生成 is a separate path that
+  // reuses the stored transcript, never this worker. Checked here, ahead of
+  // every paid call, so two doors landing on the same recording_session_id
+  // (the exact bug class this closes) never pay twice or overwrite content a
+  // staffer may already have edited.
+  const existing = await findExistingKarute(synqed, job.recording_session_id)
+  if (existing) {
+    // No signed URL, no org/reference reads, no transcription, no
+    // extraction, no summary, no karuteRecords.update — the existing
+    // record's transcript/summary/entries are NOT touched.
+    //
+    // THE OUTCOME LABEL is the one thing a late job can still owe: a requeue
+    // whose FIRST attempt saved the karute but failed the outcome write lands
+    // here and must still write its label. A session saved by ANOTHER door
+    // already carries the staffer's own choice, which this job must never
+    // overwrite — hence the "none recorded yet" read. FIX ROUND 3 (packet B,
+    // 2026-09-19): read STRICTLY, direct on the SDK (synqed.karuteOutcomes.get,
+    // null on a 404, throws on anything else) — the shared best-effort reader
+    // (getKaruteOutcomeWithClient) returns null BOTH for "no row" and for a
+    // read that threw, so a transient failure could otherwise read as "none
+    // recorded" and let this stale queued label overwrite a newer one a
+    // staffer just entered. A throw here fails the job; core requeues and the
+    // next attempt asks again — we never write a label blind.
+    // 保留 (pending) is a placeholder, not a decided choice — a later job
+    // carrying a real label must still land over it (Business auto-flips a
+    // stale 保留 to 不成約 after 14 days; losing the real label here would be
+    // silent and permanent).
+    const recordedOutcome = payload.outcome ? await synqed.karuteOutcomes.get(existing.id) : null
+    if (payload.outcome && (!recordedOutcome || recordedOutcome.outcome === 'pending')) {
+      // Discard check #2 (skip path) — the LAST read before the write,
+      // mirroring the normal path's check #2 below: a discard that landed
+      // after check #1 and before this late label write still wins.
+      await assertNotDiscardedByStaff(synqed, job.recording_session_id)
+      // The record's OWN customer, not the payload's: a record re-pointed to
+      // another customer (保存先を変更) must file the label under the person
+      // it now belongs to, never a queued job's stale customer_id.
+      const filedCustomerId = existing.customer_id ?? payload.customer_id
+      const wrote = await writeSessionOutcome(
+        synqed,
+        existing.id,
+        payload.staff_id,
+        filedCustomerId,
+        payload.outcome,
+      )
+      // FIX ROUND 3 (packet B, 2026-09-19): a label written by a LATER run
+      // gets no karute.save of its own (nothing was saved by this run) — this
+      // is that write's own receipt, the job-pipeline twin of the web door's
+      // after-the-fact karute.outcome_set (actions/karute-outcome.ts). Not
+      // emitted when writeSessionOutcome dropped the label
+      // (REVISIT_NOT_ELIGIBLE) — nothing was written.
+      if (wrote) {
+        audit({
+          category: 'karute',
+          action: 'karute.outcome_set',
+          actorId: await resolveActorUserId(synqed, payload.staff_id),
+          actorType: 'staff',
+          businessId: job.business_id,
+          targetType: 'karute',
+          targetId: existing.id,
+          storeId: existing.store_id ?? undefined,
+          detail: {
+            via: 'job_pipeline',
+            recording_session_id: job.recording_session_id,
+            customer_id: filedCustomerId,
+            staff_id: payload.staff_id,
+          },
+          requestId: job.id,
+          source: 'system',
+        })
+      }
+    }
+    // No karute.save audit: nothing was saved by this run, and that emit is
+    // not idempotent. This line is the receipt instead — ids only, never
+    // customer content.
+    console.info(
+      JSON.stringify({
+        evt: 'recording_job_skipped_existing',
+        jobId: job.id,
+        recordingSessionId: job.recording_session_id,
+        karuteRecordId: existing.id,
+        attempt: job.attempts,
+      }),
+    )
+    return existing.id
+  }
 
   // Layer A memory: object-keyed — a re-arm of the SAME audio_path skips the
   // paid call; no door refuses it (would push the phone to its own in-tab
@@ -295,46 +460,19 @@ async function processJob(job: RecordingJob): Promise<string> {
     entries: extraction.result.entries,
   })
 
-  // Coaching label (packet 22 B4) — same idempotent upsert the interactive
-  // save uses. UNLIKE that call site, a write failure here THROWS: there is no
-  // later opportunity to retry just the outcome — failing the whole job lets
-  // core's requeue converge on the SAME record (the upsert above is idempotent
-  // too, and PR4 leaves the audio in place for that re-run).
-  if (payload.outcome) {
-    const outcomeResult = await setKaruteOutcomeWithClient(synqed, {
-      karuteRecordId: record,
-      customerId: payload.customer_id,
-      status: payload.outcome.status,
-      reason: payload.outcome.reason,
-      isFirstVisit: payload.outcome.isFirstVisit,
-      decidedBy: payload.staff_id,
-      // Post-persist: upsertKaruteRecord above already committed the record.
-      onUnverifiable: 'write',
-    })
-    // A rejected 'revisit' is DETERMINISTIC, not a transient fault — retrying
-    // can never make it eligible, and this throw is post-AI: every requeue
-    // re-runs Deepgram + OpenAI until max_attempts. Enqueue already 400s this
-    // case, so reaching here means the two checks disagreed; keep the record,
-    // drop the label. Real write failures still throw (core's requeue converges
-    // on the same idempotent record).
-    if (outcomeResult.error === REVISIT_NOT_ELIGIBLE) {
-      console.warn('[job] revisit rejected server-side; record kept, label dropped', {
-        karuteRecordId: record,
-      })
-    } else if (outcomeResult.error) {
-      throw new Error(`outcome write failed: ${outcomeResult.error}`)
-    }
-  }
-
   // Audit: the save is a completed action (server-side actor = the recorder).
   // The payload carries the SYNQED staff id (the appointments id-space);
   // actorId's contract is the auth uid, so translate via the roster. An
   // unwired recorder degrades to null (viewer renders 不明) — never emit the
   // wrong id-space; the synqed id stays in detail for forensics.
-  const actorUserId = await synqed.staff
-    .get(payload.staff_id)
-    .then((s) => (s as { user_id?: string | null }).user_id ?? null)
-    .catch(() => null)
+  // ⚖ FIX ROUND 1 (packet B, 2026-09-19): this sits directly after the
+  // upsert and AHEAD OF the outcome label below, not after it — a label
+  // write that throws requeues the job into the existing-karute skip path
+  // above, which by design emits no save row, so this row must already be
+  // down before that throw can happen. Cannot double-log: once the record
+  // exists, a requeue of this same job never reaches this line again (the
+  // pre-spend check returns from the skip path first).
+  const actorUserId = await resolveActorUserId(synqed, payload.staff_id)
   audit({
     category: 'karute',
     action: 'karute.save',
@@ -362,6 +500,16 @@ async function processJob(job: RecordingJob): Promise<string> {
     requestId: job.id,
     source: 'system',
   })
+
+  // Coaching label (packet 22 B4) — same idempotent upsert the interactive
+  // save uses (writeSessionOutcome, packet B 2026-09-19 — shared with the
+  // existing-karute skip path above). UNLIKE the interactive call site, a
+  // write failure here THROWS: failing the whole job lets core's requeue
+  // converge on the SAME record (the upsert above is idempotent too, and PR4
+  // leaves the audio in place for that re-run).
+  if (payload.outcome) {
+    await writeSessionOutcome(synqed, record, payload.staff_id, payload.customer_id, payload.outcome)
+  }
 
   // 5. ⚖ THE AUDIO STAYS (capture pipeline PR4). A completed job used to delete
   // the object it had just transcribed. `audio_path` is the take's FINALIZED
@@ -397,17 +545,13 @@ async function upsertKaruteRecord(
 
   // Same upsert contract as createOrUpdateKaruteRecord (actions/karute.ts):
   // only a 404 means "no record yet" — any other failure must throw so the
-  // job retries rather than minting stale-content success.
-  const existing = await synqed.karuteRecords
-    .getByRecordingSession(job.recording_session_id)
-    .catch((err: unknown) => {
-      const status =
-        err && typeof err === 'object' && 'status' in err
-          ? (err as { status: unknown }).status
-          : undefined
-      if (status === 404) return null
-      throw err
-    })
+  // job retries rather than minting stale-content success. processJob's own
+  // pre-spend check already asked this same question before transcription
+  // (packet B, 2026-09-19); this second ask (shared helper, same rule) is for
+  // a record that appears WHILE transcription runs (~60s) — another door
+  // saving the same session mid-run still converges here instead of
+  // duplicating.
+  const existing = await findExistingKarute(synqed, job.recording_session_id)
   if (existing) {
     // Carry-forward merge (packet PR-2c). Unlike actions/karute.ts's retry
     // branch, a reprocess CAN legitimately produce a genuinely new AI

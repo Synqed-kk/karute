@@ -16,7 +16,10 @@ export const BOOKING_SWITCHES = {
    *  is better off than one who cannot. The remaining gap is the WRITE side —
    *  the app will still accept a booking into a 休 day — and that door is
    *  closed on the app side by PKT-1c-C, this same release; core's own
-   *  write-path refusal stays the ask (core ticket 1). */
+   *  write-path refusal stays the ask (core ticket 1). ⚖ MERGE #937 fix round
+   *  1, B2 — this one key now gates the 休 cell AND the door's closed-day
+   *  question together, on purpose: OFF must not leave the door refusing on a
+   *  fact the cell no longer shows. */
   closedDays: true,
   /** The month page's selected-day list-card below the grid. ON — spec §S1,
    *  this round's build. Flip: never expected; a floor once 1b-month lands. */

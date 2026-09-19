@@ -1,7 +1,7 @@
 jest.mock('@/lib/audit', () => ({ audit: jest.fn() }))
 
 import { audit } from '@/lib/audit'
-import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
+import { auditStoreWriteRefused, ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
 import { STORE_SCOPE_UNVERIFIED } from '@/lib/auth/store-lock'
 
 const actor = {
@@ -64,6 +64,19 @@ describe('audited store lock — refusal payload contains only door, store, code
     },
   )
 
+  it.each(['booking', 'karute', 'recording', 'settings'] as const)(
+    '%s refusal against an unknown store_id (null) refuses as not_found without an audit row',
+    (category) => {
+      expect(() => ensureRecordStoreInScopeAudited(
+        { store_id: null },
+        { viewAll: false, allowedStoreIds: ['store-A'] },
+        'Record not found',
+        { actor, category, targetId: 'kar-1', door: `${category}.test_write` },
+      )).toThrow(expect.objectContaining({ code: 'not_found', message: 'Record not found' }))
+      expect(audit).not.toHaveBeenCalled()
+    },
+  )
+
   it('an explicit empty assignment refuses as not_found and emits ONE ids-only row', () => {
     expect(() => ensureRecordStoreInScopeAudited(
       { store_id: 'store-A' },
@@ -91,6 +104,22 @@ describe('audited store lock — refusal payload contains only door, store, code
         detail: { door: 'spoofed.door', record_store_id: 'spoofed-store', code: 'spoofed_code' } as never,
       },
     )).toThrow(expect.objectContaining({ code: 'not_found' }))
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      detail: { door: 'karute.test_write', record_store_id: 'store-B', code: 'not_found' },
+    }))
+  })
+
+  it('a detail trying to carry door, record_store_id or code cannot override auditStoreWriteRefused\'s own values, called directly', () => {
+    auditStoreWriteRefused({
+      actor,
+      category: 'karute',
+      targetId: 'kar-1',
+      door: 'karute.test_write',
+      recordStoreId: 'store-B',
+      code: 'not_found',
+      // Reserved keys, cast through `as never` to get past the closed type.
+      detail: { door: 'spoofed.door', record_store_id: 'spoofed-store', code: 'spoofed_code' } as never,
+    })
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({
       detail: { door: 'karute.test_write', record_store_id: 'store-B', code: 'not_found' },
     }))

@@ -51,6 +51,12 @@ jest.mock('@/lib/settings/recording-autostart', () => ({
   setRecordingAutostartWithClient: (...a: unknown[]) => setRecordingAutostartWithClient(...a),
 }))
 
+const auditRowSpy = jest.fn()
+jest.mock('@/lib/audit', () => ({
+  ...(jest.requireActual('@/lib/audit') as object),
+  audit: (...a: unknown[]) => auditRowSpy(...a),
+}))
+
 // staffStores feeds the route's store-lock resolution (⚖ 9/16). Empty = a
 // floating caller (works in every store), so every case below is unchanged;
 // the clamped case has its own test.
@@ -131,6 +137,21 @@ describe('POST /api/app/v1/org-settings/recording-autostart', () => {
     expect(res.status).toBe(403)
     expect((await res.json()).error.code).toBe('store_forbidden')
     expect(setRecordingAutostartWithClient).not.toHaveBeenCalled()
+  })
+
+  it('a degraded assignment lookup returns store_forbidden with NO write or refusal row', async () => {
+    // Persistent for the whole request: the front probe reads the assignment first, so a one-shot rejection would be consumed there; a real outage lasts the request.
+    fakeClient.staffStores.get.mockRejectedValue(new Error('assignment unavailable'))
+    try {
+      const res = await POST(req({ storeId: 'store-1', enabled: true }), route)
+      expect(res.status).toBe(403)
+      expect((await res.json()).error.code).toBe('store_forbidden')
+      expect(fakeClient.staffStores.get).toHaveBeenCalledWith('auth-user-1')
+      expect(setRecordingAutostartWithClient).not.toHaveBeenCalled()
+      expect(auditRowSpy).not.toHaveBeenCalled()
+    } finally {
+      fakeClient.staffStores.get.mockImplementation(async () => ({ store_ids: assignedStores.current }))
+    }
   })
 
   it('a PLACED floating caller (empty assignment) is unchanged', async () => {

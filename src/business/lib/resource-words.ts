@@ -38,13 +38,14 @@ export interface WordOverride {
 
 export const WORD_MAX_CHARS = 8
 
-export function wordOverrideProblem(o: WordOverride | null): 'pair' | 'empty' | 'trim' | 'length' | 'bar' | 'full' | 'reserved' | null {
+export function wordOverrideProblem(o: WordOverride | null): 'pair' | 'empty' | 'trim' | 'space' | 'length' | 'bar' | 'full' | 'reserved' | null {
   if (o === null) return null
   if ((o.resourceNoun !== undefined) !== (o.counter !== undefined)) return 'pair'
   const values = [o.resourceNoun, o.counter, o.fullWord, o.turnoverWord]
     .filter((value): value is string => value !== undefined)
   if (values.some((value) => value.trim().length === 0)) return 'empty'
   if (values.some((value) => value !== value.trim())) return 'trim'
+  if (values.some((value) => /[\s\u200B\uFEFF]/u.test(value))) return 'space'
   if (values.some((value) => Array.from(value).length > WORD_MAX_CHARS)) return 'length'
   if (values.some((value) => value.includes('|'))) return 'bar'
   if (o.fullWord !== undefined && !['満室', '満席', '空きなし'].includes(o.fullWord)) return 'full'

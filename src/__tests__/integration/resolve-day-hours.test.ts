@@ -201,6 +201,28 @@ describe('resolveDayHours — weekly_hours: null means NEVER CONFIGURED', () => 
 })
 
 describe('resolveDayHours — 臨時休業 outranks everything', () => {
+  // ⚖ R1-7 — WHICH closed is the resolver's own answer, so the booking door
+  // never has to ask the same question a second time.
+  it('names WHICH closed: an ad-hoc date is closed_date, a missing weekday is weekday', () => {
+    const byDate = resolveDayHours({
+      date: TUE,
+      weeklyHours: STORE_OPEN_TUE,
+      closedDates: new Set(['2026-09-15']),
+      orgHours: ORG_HOURS,
+      orgSaved: NOTHING_SAVED,
+    })
+    expect(byDate).toMatchObject({ closed: true, kind: 'closed_date' })
+
+    const byWeekday = resolveDayHours({
+      date: WED,
+      weeklyHours: STORE_OPEN_TUE,
+      closedDates: NO_CLOSURES,
+      orgHours: ORG_HOURS,
+      orgSaved: NOTHING_SAVED,
+    })
+    expect(byWeekday).toMatchObject({ closed: true, kind: 'weekday' })
+  })
+
   it('an ad-hoc closed date closes the day even where the policy says open', () => {
     const fact = resolveDayHours({
       date: TUE,

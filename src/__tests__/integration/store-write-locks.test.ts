@@ -76,6 +76,14 @@ const DEGRADED = { viewAll: false, allowedStoreIds: ['store-ginza'], degraded: t
 
 const RECORD = { store_id: 'store-ginza' }
 
+/** Every `*.store_write_refused` row the audit spy saw — the refusal trace
+ *  (FRESH-EYES-P1 §5a). A door that PASSES the lock must file none: the row is
+ *  the refusal's receipt, not the write's. */
+const refusalRows = () =>
+  auditSpy.mock.calls.filter((c) =>
+    String((c[0] as { action?: unknown } | undefined)?.action ?? '').endsWith('.store_write_refused'),
+  )
+
 describe('ensureRecordStoreInScope — the one predicate', () => {
   const run = (record: { store_id: string | null }, scope: Parameters<typeof ensureRecordStoreInScope>[1]) => {
     try {
@@ -198,7 +206,17 @@ const BOOKING_DOORS: Array<{
   {
     name: 'update',
     call: (c, scope) =>
-      updateAppointmentCore(c.client as never, 'appt-1', { startsAt: '2026-09-17T01:00:00.000Z' }, ACTOR, scope),
+      // MERGE #937×#948 (2026-09-19): the store lock (this test's own
+      // subject) refuses before the hours param below is ever read — the
+      // values here are structural only, never asserted on.
+      updateAppointmentCore(
+        c.client as never,
+        'appt-1',
+        { startsAt: '2026-09-17T01:00:00.000Z' },
+        ACTOR,
+        { operatingHours: undefined, orgSaved: undefined },
+        scope,
+      ),
     writeOf: (c) => c.update,
   },
   {
@@ -213,12 +231,27 @@ describe('booking by-id writes — every door is store-locked', () => {
 
   for (const door of BOOKING_DOORS) {
     describe(door.name, () => {
-      it('a clamped actor + another store booking → refused, nothing written, no audit row', async () => {
+      it('a clamped actor + another store booking → refused, nothing written, ONE refusal row', async () => {
         const c = bookingClient('store-ginza')
         const result = await door.call(c, CLAMPED_FOREIGN)
         expect(result).toEqual({ error: APPOINTMENT_404 })
         expect(door.writeOf(c)).not.toHaveBeenCalled()
-        expect(auditSpy).not.toHaveBeenCalled()
+        // FRESH-EYES-P1 §5a — the refusal is no longer silent. Exactly one row,
+        // naming WHICH door refused and the id that was aimed at; ids only.
+        expect(auditSpy).toHaveBeenCalledTimes(1)
+        expect(auditSpy.mock.calls[0][0]).toMatchObject({
+          category: 'booking',
+          action: 'booking.store_write_refused',
+          severity: 'warning',
+          targetType: 'customer',
+          targetId: 'cust-1',
+          detail: expect.objectContaining({
+            door: `booking.${door.name.replace('-', '_')}`,
+            appointment_id: 'appt-1',
+            record_store_id: 'store-ginza',
+            code: 'not_found',
+          }),
+        })
       })
 
       it('the refusal is BYTE-IDENTICAL to a genuinely missing id — no existence oracle', async () => {
@@ -234,16 +267,24 @@ describe('booking by-id writes — every door is store-locked', () => {
               : door.name === 'no-show'
                 ? markNoShowAppointmentCore(c2.client as never, 'nope', { burnPack: false }, 'staff-1', ACTOR, VIEW_ALL)
                 : door.name === 'update'
-                  ? updateAppointmentCore(c2.client as never, 'nope', { startsAt: 'x' }, ACTOR, VIEW_ALL)
+                  ? updateAppointmentCore(
+                      c2.client as never,
+                      'nope',
+                      { startsAt: 'x' },
+                      ACTOR,
+                      { operatingHours: undefined, orgSaved: undefined },
+                      VIEW_ALL,
+                    )
                   : deleteAppointmentCore(c2.client as never, 'nope', ACTOR, VIEW_ALL)
         })()
         expect(refused).toEqual(missing)
       })
 
-      it('a legacy store-less booking is refused for a clamped actor', async () => {
+      it('a legacy store-less booking is refused for a clamped actor, with ZERO refusal rows — no foreign store was proven', async () => {
         const c = bookingClient(null)
         expect(await door.call(c, CLAMPED_OWN)).toEqual({ error: APPOINTMENT_404 })
         expect(door.writeOf(c)).not.toHaveBeenCalled()
+        expect(refusalRows()).toHaveLength(0)
       })
 
       it('a degraded assignment lookup fails closed', async () => {
@@ -263,6 +304,8 @@ describe('booking by-id writes — every door is store-locked', () => {
           // fixture; the rest hit their own terminal/burn guards).
           expect(result.error).not.toBe(APPOINTMENT_404)
           expect(result.error).not.toBe('could not verify your store assignment (fail-closed)')
+          // A door that was not refused files NO refusal row.
+          expect(refusalRows()).toHaveLength(0)
         }
       })
     })
@@ -319,14 +362,26 @@ describe('karute detail edits — the shared cores are store-locked', () => {
     ['summary edit', summary, 'update'],
   ] as const) {
     describe(name, () => {
-      it('a clamped actor + another store record → the SAME not_found a missing id gets', async () => {
+      it('a clamped actor + another store record → the SAME not_found a missing id gets, and ONE refusal row', async () => {
         const c = karuteClient()
         await expect(call(c, { recordStoreId: 'store-ginza', scope: CLAMPED_FOREIGN })).rejects.toMatchObject({
           code: 'not_found',
           message: KARUTE_NOT_FOUND,
         })
         expect(c[writeName]).not.toHaveBeenCalled()
-        expect(auditSpy).not.toHaveBeenCalled()
+        expect(auditSpy).toHaveBeenCalledTimes(1)
+        expect(auditSpy.mock.calls[0][0]).toMatchObject({
+          category: 'karute',
+          action: 'karute.store_write_refused',
+          severity: 'warning',
+          targetType: 'karute',
+          targetId: 'kar-1',
+          detail: expect.objectContaining({
+            door: name === 'entry edit' ? 'karute.entry_edit' : 'karute.summary_edit',
+            record_store_id: 'store-ginza',
+            code: 'not_found',
+          }),
+        })
       })
 
       it('a legacy store-less record is refused for a clamped actor', async () => {
@@ -375,6 +430,7 @@ describe('karute detail edits — the shared cores are store-locked', () => {
           const c = karuteClient()
           await expect(call(c, { recordStoreId: 'store-ginza', scope })).resolves.toEqual({ ok: true })
           expect(c[writeName]).toHaveBeenCalledTimes(1)
+          expect(refusalRows()).toHaveLength(0)
         }
       })
     })
@@ -433,7 +489,20 @@ describe('karute save converge branch — the recording_session_id door is store
     })
     expect(c.update).not.toHaveBeenCalled()
     expect(c.create).not.toHaveBeenCalled()
-    expect(auditSpy).not.toHaveBeenCalled()
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0]).toMatchObject({
+      category: 'karute',
+      action: 'karute.store_write_refused',
+      severity: 'warning',
+      targetType: 'karute',
+      targetId: 'kar-1',
+      detail: expect.objectContaining({
+        door: 'karute.save',
+        recording_session_id: 'rec-1',
+        record_store_id: 'store-ginza',
+        code: 'not_found',
+      }),
+    })
   })
 
   it("an UNASSIGNED Bearer caller (real resolver, 2-store business) cannot converge-save onto any store's record", async () => {
@@ -470,7 +539,7 @@ describe('karute save converge branch — the recording_session_id door is store
     expect(c.getByRecordingSession).toHaveBeenCalledWith('rec-1')
     expect(c.update).not.toHaveBeenCalled()
     expect(c.create).not.toHaveBeenCalled()
-    expect(auditSpy).not.toHaveBeenCalled()
+    expect(refusalRows()).toHaveLength(1)
   })
 
   it('a legacy store-less record is refused for a clamped actor', async () => {
@@ -496,6 +565,7 @@ describe('karute save converge branch — the recording_session_id door is store
       const c = convergeClient(store)
       await expect(save(c, scope)).resolves.toMatchObject({ id: 'kar-1', fresh: false })
       expect({ label, updates: c.update.mock.calls.length }).toEqual({ label, updates: 1 })
+      expect(refusalRows()).toHaveLength(0)
     }
   })
 

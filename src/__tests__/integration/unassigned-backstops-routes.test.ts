@@ -154,7 +154,14 @@ jest.mock('@/lib/synqed/staff-map', () => ({
 jest.mock('@/actions/org-settings', () => ({
   orgSettingsWithClient: async () => ({ operating_hours: null }),
 }))
-jest.mock('@/lib/appointments', () => ({ validateAppointmentTime: () => null }))
+// MERGE #937×#948 (2026-09-19): the facade route (route.ts) now also calls
+// validateAppointmentInput (PKT-1c-C's pure pre-check) ahead of the resolver
+// — added to the mock so it exists; this test's whole point is the store
+// guard above it, so it always passes (null = no refusal).
+jest.mock('@/lib/appointments', () => ({
+  validateAppointmentTime: () => null,
+  validateAppointmentInput: () => null,
+}))
 
 const apptCreate = jest.fn(async () => ({ id: 'appt-new' }))
 const defaultBookingStore = jest.fn(async () => 'store-daikanyama')

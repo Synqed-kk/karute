@@ -185,18 +185,28 @@ export type DayHoursFact = {
    *  10:00–24:00 fallback nobody set. */
   source: HoursSource
   closed: boolean
+  /** ⚖ R1-7 — WHICH closed, decided HERE and nowhere else: 'closed_date' = an
+   *  ad-hoc 臨時休業 date · 'weekday' = the weekly hours. The booking door
+   *  used to re-ask `closedDates.has(ymd)` itself to name the refusal; the two
+   *  agreed, but a precedence change inside this function would have desynced
+   *  them silently. Absent on an open day, which has no such answer. */
+  kind?: 'weekday' | 'closed_date'
 }
 
 /** Both closed paths are the STORE speaking: an ad-hoc 臨時休業 date and a
  *  weekly_hours day the store left out (its 定休日) are equally that store's
- *  own declaration. */
-const CLOSED_FACT: DayHoursFact = {
-  minutes: 0,
-  openMinute: 0,
-  closeMinute: 0,
-  saved: true,
-  source: 'store',
-  closed: true,
+ *  own declaration — they differ only in `kind`, which is why the two callers
+ *  below name it rather than re-deriving it. */
+function closedFact(kind: 'weekday' | 'closed_date'): DayHoursFact {
+  return {
+    minutes: 0,
+    openMinute: 0,
+    closeMinute: 0,
+    saved: true,
+    source: 'store',
+    closed: true,
+    kind,
+  }
 }
 
 /** 'HH:MM' → minutes from midnight, or null when the wire value is malformed. */
@@ -228,7 +238,7 @@ export interface DayHoursInput {
 export function resolveDayHours(input: DayHoursInput): DayHoursFact {
   const key = getWeekdayKey(input.date)
 
-  if (input.closedDates.has(ymdInJst(input.date))) return { ...CLOSED_FACT }
+  if (input.closedDates.has(ymdInJst(input.date))) return closedFact('closed_date')
 
   const weekly = input.weeklyHours
   // An object with NO keys at all is not "closed every day" — it is a store
@@ -239,7 +249,7 @@ export function resolveDayHours(input: DayHoursInput): DayHoursFact {
   if (weekly != null && Object.keys(weekly).length > 0) {
     const day = weekly[key]
     // null OR absent = 定休日. This is the first of the two nulls above.
-    if (day == null) return { ...CLOSED_FACT }
+    if (day == null) return closedFact('weekday')
     const open = minuteOfHhmm(day.open)
     const close = minuteOfHhmm(day.close)
     if (open != null && close != null && open < close) {

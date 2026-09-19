@@ -419,7 +419,13 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
 // in.
 describe('process-recording worker — persisted store_id in the karute.save emit (fix round 3)', () => {
   it('emits the EXISTING record store_id, not payload.store_id, when they differ', async () => {
-    getByRecordingSession.mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
+    // Packet B (2026-09-19): getByRecordingSession is now asked TWICE on the
+    // converge path — once early (pre-spend existing-karute check, 404 here
+    // so the normal path continues) and once late (upsertKaruteRecord's own
+    // converge lookup, which this test is pinning).
+    getByRecordingSession
+      .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+      .mockResolvedValueOnce({ id: 'record-existing', store_id: 'store-A' })
     karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing' })
     claim
       .mockResolvedValueOnce({
@@ -574,13 +580,17 @@ describe('process-recording worker — reprocess carry-forward merge (I1)', () =
     ;(runKaruteExtraction as jest.Mock).mockResolvedValueOnce({
       result: { entries: [{ category: 'symptom', title: 'fresh AI finding', source_quote: 'q', confidence_score: 0.9 }] },
     })
-    getByRecordingSession.mockResolvedValueOnce({
-      id: 'record-existing',
-      entries: [
-        { id: 'old-ai', category: 'PRODUCT', content: 'stale AI row', original_quote: 'x', confidence: 0.5, author: 'AI', is_manual: false },
-        { id: 'edited', category: 'SYMPTOM', content: 'staff-edited row', original_quote: 'y', confidence: 0.6, author: 'HUMAN_EDITED', is_manual: true },
-      ],
-    })
+    // Packet B (2026-09-19): 404 on the early pre-spend check, existing on
+    // the late converge lookup this test pins — see the store_id test above.
+    getByRecordingSession
+      .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+      .mockResolvedValueOnce({
+        id: 'record-existing',
+        entries: [
+          { id: 'old-ai', category: 'PRODUCT', content: 'stale AI row', original_quote: 'x', confidence: 0.5, author: 'AI', is_manual: false },
+          { id: 'edited', category: 'SYMPTOM', content: 'staff-edited row', original_quote: 'y', confidence: 0.6, author: 'HUMAN_EDITED', is_manual: true },
+        ],
+      })
     karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing' })
     claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
 
@@ -606,13 +616,17 @@ describe('process-recording worker — reprocess carry-forward merge (I1)', () =
     ;(runKaruteExtraction as jest.Mock).mockResolvedValueOnce({
       result: { entries: [{ category: 'symptom', title: 'fresh', source_quote: '', confidence_score: 0.9 }] },
     })
-    getByRecordingSession.mockResolvedValueOnce({
-      id: 'record-existing',
-      entries: [
-        { id: 'legacy-ai', category: 'PRODUCT', content: 'legacy AI row', original_quote: null, confidence: 0.4, is_manual: false },
-        { id: 'legacy-human', category: 'SYMPTOM', content: 'legacy human row', original_quote: null, confidence: 0, is_manual: true },
-      ],
-    })
+    // Packet B (2026-09-19): 404 on the early pre-spend check, existing on
+    // the late converge lookup this test pins — see the store_id test above.
+    getByRecordingSession
+      .mockRejectedValueOnce(Object.assign(new Error('nf'), { status: 404 }))
+      .mockResolvedValueOnce({
+        id: 'record-existing',
+        entries: [
+          { id: 'legacy-ai', category: 'PRODUCT', content: 'legacy AI row', original_quote: null, confidence: 0.4, is_manual: false },
+          { id: 'legacy-human', category: 'SYMPTOM', content: 'legacy human row', original_quote: null, confidence: 0, is_manual: true },
+        ],
+      })
     karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing' })
     claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
 

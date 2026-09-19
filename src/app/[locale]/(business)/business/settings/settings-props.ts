@@ -50,7 +50,7 @@ import {
 } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { closedWeekday, defaultKindOf, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
-import { GENERIC_WORDS, wordsForStore, type ResourceWords } from '@/business/lib/resource-words'
+import { GENERIC_WORDS, wordsForStore, type ResourceWords, type WordOverride, type wordOverrideProblem } from '@/business/lib/resource-words'
 import {
   accessFor,
   BOOKING_GUARD_ID,
@@ -162,6 +162,8 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     lensLabel,
     dials,
     words,
+    businessType: selectedStore?.business_type ?? null,
+    wordOverride: selectedStore ? defaultKindOf(selectedStore.id).words : null,
     access,
     now,
   }
@@ -253,6 +255,8 @@ interface Ctx {
   lensLabel: string
   dials: StoreDials | null
   words: ResourceWords
+  businessType: string | null
+  wordOverride: WordOverride | null
   access: SettingsAccess
   now: Date
 }
@@ -359,6 +363,7 @@ const block = (
   action: extra.action ?? null,
   audit: extra.audit ?? null,
   collection: extra.collection ?? null,
+  ...(extra.words ? { words: extra.words } : {}),
   ...(extra.layout ? { layout: extra.layout } : {}),
   ...(extra.flag ? { flag: extra.flag } : {}),
   ...(extra.rightsNote ? { rightsNote: extra.rightsNote } : {}),
@@ -909,12 +914,22 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
   const nameOf = new Map(staff.map((s) => [s.id, s.full_name]))
   const roster = Object.keys(d.staffActive)
   const beds = resources.filter((r) => r.store_id === ctx.storeId)
+  const override = ctx.wordOverride
   return {
     ...base,
     kicker: '店舗運営',
     title: '人・設備',
     lead: '誰が働いているか、どれだけの設備があるかの設定です。予約枠の空きは、この2つとスタッフのシフトから計算されます。',
     blocks: [
+      ...(ctx.businessType !== null ? [block('people.business-type', '業種', 'この店舗の業種です。ボード・予約一覧・設定で使われる設備の呼び名は、ここで選んだ業種の標準が元になります。', [
+        row('people.row-type', 'この店舗の業種', '26の業種から、この店舗に当てはまるものを選びます。', [
+          sel('people.type', 'この店舗の業種を選択', businessProfiles.map((p) => ({ value: p.value, label: p.label })), ctx.businessType),
+        ], { scopeLabel: STORE_SCOPE }),
+      ], {
+        facts: ['業種を変えると、設備の呼び名の標準もその業種のものに変わります。自分で入力した呼び名は、そのまま残ります。', 'AI相談とカルテが使う「業種プロファイル」は、これとは別の設定です。変更はサポートが承ります。'],
+        links: [{ label: '業種プロファイルはAI設定で', sectionId: 'ai' }],
+        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（業種を変更）`,
+      })] : []),
       block('people.staff', 'スタッフ', 'この店舗で働く人の稼働状態です。役職と権限はスタッフ管理で扱います。', roster.map((id) =>
         row(`people.row-${id}`, nameOf.get(id) ?? id, '', [
           sw(`people.active-${id}`, `${nameOf.get(id) ?? id}を稼働にする`, '稼働', '休止', d.staffActive[id]),
@@ -937,6 +952,45 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
           '清掃時間を0分にすると、予約と予約のあいだに何も確保しません。',
         ],
       }),
+      ...(ctx.businessType !== null ? [block('people.words', '設備の呼び名', 'ボード・予約一覧・設定で使われる言葉です。業種の標準のままでも、この店舗の言い方に変えてもかまいません。空欄にすると標準に戻ります。', [
+        row('people.row-words-pair', '設備の呼び名と数え方', '呼び名と数え方は、2つそろえて入力します。どちらも空欄にすると、業種の標準に戻ります。', [
+          txt('people.words-noun', '設備の呼び名', override?.resourceNoun ?? '', { placeholder: '例）ベッド' }),
+          txt('people.words-counter', '設備の数え方', override?.counter ?? '', { placeholder: '例）台' }),
+        ]),
+        row('people.row-words-full', 'すべて埋まったときの言い方', 'ボードで空きが1つもないときに出る言葉です。標準のままにすると、業種の標準を使います。', [
+          seg('people.words-full', 'すべて埋まったときの言い方', opts([['standard', '標準'], ['満室', '満室'], ['満席', '満席'], ['空きなし', '空きなし']]), override?.fullWord ?? 'standard'),
+        ]),
+        row('people.row-words-turnover', '予約のあいだの作業の呼び名', '予約と予約のあいだに確保する作業の呼び名です（清掃、消毒、片付けなど）。空欄にすると、業種の標準に戻ります。', [
+          txt('people.words-turnover', '予約のあいだの作業の呼び名', override?.turnoverWord ?? '', { placeholder: '例）清掃' }),
+        ]),
+      ], {
+        facts: ['個室の呼び名は業種の標準のままです。この画面からは変えられません。'],
+        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（設備の呼び名を変更）`,
+        words: {
+          typeId: 'people.type', nounId: 'people.words-noun', counterId: 'people.words-counter',
+          fullId: 'people.words-full', turnoverId: 'people.words-turnover', standardValue: 'standard',
+          count: beds.length, liveFact: { blockId: 'people.equipment', index: 0 },
+          copy: {
+            heading: 'いま使われている言葉',
+            current: '呼び名 {noun} ・ 数え方 {counter} ・ すべて埋まったとき {full} ・ あいだの作業 {turnover}',
+            standard: '{typeLabel}の標準: 呼び名 {noun} ・ 数え方 {counter} ・ すべて埋まったとき {full} ・ あいだの作業 {turnover}',
+            noTurnover: 'この業種では使いません',
+            exampleLabel: '例文',
+            example: 'いまこの店舗には{noun}が{n}{counter}あります。',
+            exampleZero: 'いまこの店舗には{noun}が登録されていません。',
+            problems: {
+              pair: '呼び名と数え方は、2つそろえて入力するか、どちらも空欄にしてください。',
+              empty: '空白だけが入力されています — 言葉を入力するか、空欄にしてください。',
+              trim: '言葉の前後に空白があります — 取り除いてください。',
+              space: '言葉の途中に空白は使えません（全角・半角とも） — 空白なしで入力してください。',
+              length: 'この言葉は8文字までです — 短くしてください。',
+              bar: '「|」（縦棒）は使えません — 別の文字にしてください。',
+              full: 'すべて埋まったときの言い方は、満室・満席・空きなしのどれかを選んでください。',
+              reserved: '「{word}」は、ボードですでに別の予定の名前として使われています — 別の言葉にしてください。',
+            } satisfies Record<NonNullable<ReturnType<typeof wordOverrideProblem>>, string>,
+          },
+        },
+      })] : []),
       /* ⚖ #843（Liam 2026-09-05）— この2つはもう「設定」ではありません。
        * 「VIPは個室から出さない」はルールとして廃止され、「個室は最後」はすべての
        * 店舗で常に有効になりました。回せないつまみは死んだレバーなので、スイッチは
@@ -957,6 +1011,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
       lines: [
         { label: '名簿', value: 'スタッフ・シフトが使っている名簿' },
         { label: '設備', value: '今日の運営のベッド割り当てが使っている一覧' },
+        ...(ctx.businessType !== null ? [{ label: '呼び名', value: '業種の標準の一覧と、この店舗で入力した言葉' }] : []),
         { label: '部屋の決まり', value: '今日の運営の自動割り当てが使っている決まり' },
       ],
       note: '稼働・設備の数を変えると、Reserveの空き枠は翌日の再計算から変わります。',

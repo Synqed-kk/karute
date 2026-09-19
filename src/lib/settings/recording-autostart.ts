@@ -35,7 +35,8 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { auditDurable } from '@/lib/audit'
-import { ensureRecordStoreInScope, type RecordStoreScope } from '@/lib/auth/store-lock'
+import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
+import { type RecordStoreScope } from '@/lib/auth/store-lock'
 import { orgSettingsWithClient, writeOrgSettingsBlobWithClient } from '@/actions/org-settings'
 
 type AutostartClient = Pick<SynqedClient, 'orgSettings' | 'stores'>
@@ -87,6 +88,10 @@ export async function setRecordingAutostartWithClient(
     return { ok: false, error: 'unknown_store' }
   }
 
+  // Preserve the door's refusal shape without treating an assignment lookup
+  // failure as a cross-store probe. The facade rejects this before the core.
+  if (!actor.scope.viewAll && actor.scope.degraded) return { ok: false, error: 'unknown_store' }
+
   let current: string[]
   try {
     // Store membership FIRST — a receipt-grade governance row must never
@@ -102,7 +107,21 @@ export async function setRecordingAutostartWithClient(
     // to one that does not exist, so the reply never enumerates the business's
     // other branches.
     try {
-      ensureRecordStoreInScope({ store_id: storeId }, actor.scope, 'unknown store')
+      // AUDITED (FRESH-EYES-P1 §5a): the reply is byte-unchanged — still the
+      // same 'unknown_store' a nonexistent store gets — but the attempt to flip
+      // another branch's switch now leaves a row.
+      ensureRecordStoreInScopeAudited({ store_id: storeId }, actor.scope, 'unknown store', {
+        actor: {
+          actorId: actor.staffId,
+          businessId: actor.businessId,
+          source: actor.source,
+          requestId: actor.requestId,
+        },
+        category: 'settings',
+        targetType: 'store',
+        targetId: storeId,
+        door: 'settings.recording_autostart_toggle',
+      })
     } catch {
       return { ok: false, error: 'unknown_store' }
     }

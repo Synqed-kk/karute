@@ -23,7 +23,7 @@ import { requireIdempotencyKey } from '@/lib/app-api/customer-facade'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { orgSettingsWithClient } from '@/actions/org-settings'
-import { validateAppointmentTime } from '@/lib/appointments'
+import { validateAppointmentInput } from '@/lib/appointments'
 import { createAppointmentCore } from '@/lib/appointments/mutations'
 
 export const runtime = 'nodejs'
@@ -107,15 +107,16 @@ export const POST = facadeHandler('appointment.create', async (ctx) => {
     )
   }
 
-  // Validate hours BEFORE the resolver — the web action's own invariant:
-  // resolveSynqedStaffId can CREATE a staff record on miss, and invalid input
-  // must not leave that side effect behind. (The core re-validates; pure.)
+  // Validate the PURE half BEFORE the resolver — the web action's own
+  // invariant: resolveSynqedStaffId can CREATE a staff record on miss, and
+  // invalid input must not leave that side effect behind. The schema above
+  // already rejects a non-positive duration; this catches an unparseable
+  // startTime (the schema takes any non-empty string) and returns the house
+  // { error } body rather than letting a date parse blow up downstream.
+  const inputError = validateAppointmentInput(parsed.data)
+  if (inputError) return ok(ctx, inputError)
+
   const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
-  const hoursError = await validateAppointmentTime(
-    parsed.data,
-    orgSettings?.operating_hours,
-  )
-  if (hoursError) return ok(ctx, { error: hoursError })
 
   // Profile → core staff id (create-on-miss, appointments FK to staff.id).
   // An unresolvable id returns the web action's own { error } string — the
@@ -144,10 +145,17 @@ export const POST = facadeHandler('appointment.create', async (ctx) => {
     return ok(ctx, { error: err instanceof Error ? err.message : 'Unknown error' })
   }
 
+  // ⚖ R1-2 — the closed-day rule runs INSIDE the core, against the store the
+  // row lands in (`preferredStoreId ?? defaultBookingStore`), through the SAME
+  // validator the web action reaches. A header-less viewAll caller used to
+  // clamp to null and so be judged by nobody, while the row still landed in
+  // the booked staff's own store. The refusal rides the 200 body verbatim, so
+  // the ONE dialog both doors render picks the identical line.
   const result = await createAppointmentCore(synqed, parsed.data, {
     synqedStaffId,
     preferredStoreId: clamp.storeId,
     operatingHours: orgSettings?.operating_hours,
+    orgSaved: orgSettings?.operating_hours_saved,
     actor: { actorId: ctx.identity.authUserId, businessId, source: 'facade', requestId: ctx.meta.requestId },
   })
   return ok(ctx, result, 'id' in result ? 201 : 200)

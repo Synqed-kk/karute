@@ -381,7 +381,18 @@ describe('updateAppointment — audit', () => {
     // the booking first (terminal guard, same as every sibling core) — a
     // live default so tests scoped to the patch/detail contract don't have
     // to know about it; the terminal/not-found tests below override it.
-    appointments.get.mockResolvedValue({ status: 'SCHEDULED', customer_id: 'cust-1' })
+    // ⚖ PKT-1c-C: the row now carries the fields a real core row always
+    // carries (13:00–14:00 JST, no store), because the reschedule path reads
+    // its time off the booking to run the ONE time validator — a stub with no
+    // starts_at is a row core never returns.
+    appointments.get.mockResolvedValue({
+      status: 'SCHEDULED',
+      customer_id: 'cust-1',
+      store_id: null,
+      starts_at: '2026-05-20T04:00:00.000Z',
+      ends_at: '2026-05-20T05:00:00.000Z',
+      duration_minutes: 60,
+    })
   })
 
   it('emits exactly one booking.update row, ids-only detail, changed:"staff" for a staff-only reassign', async () => {

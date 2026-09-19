@@ -1220,6 +1220,35 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // records — a 7 B difference between two worktrees' node_modules, not a code
 // difference. Which is exactly why all four figures above were re-measured in
 // one place instead of being subtracted across reports.)
+// Raised 2026-09-16 at ⚖ PKT-1c-C — the closed-day booking door: the app now
+// REFUSES a booking whose start day is a store's 定休日 or 臨時休業 date, on both
+// doors, through the ONE time validator, and the refusal names which setting
+// closed the day (three lines in ja + en). Ground truth from an EMPTIED
+// thin/dist, deterministic across two clean builds on each side, both measured
+// in this one place: base d1fe35d95 = 2,105,619 B, tip = 2,106,848 B — this
+// door's own cost is +1,229 B (the rule, the one-date policy read, the message
+// pick, and the three JA/EN strings that ship in the locale chunk). The prior
+// ceiling had only 1,000 B of headroom left at that base, so the overage is
+// 229 B, not a regression from nothing.
+//
+// Re-measured 2026-09-16 after the five-lens FIX ROUND (R1-1…R1-10), and
+// NORMALISED back to the lane's +1,000 convention — the 4,096 above was a
+// one-off to absorb the base's own overage, and carrying it forward would be
+// 3 KB of silent headroom nobody asked for. Ground truth again from an
+// EMPTIED thin/dist, two clean builds with CI's six VITE_* values, both
+// 2,106,996 B byte-for-byte. The round's own cost is +148 B over the
+// pre-round tip: the thin port's refusal passthrough (R1-1), the dialog's
+// key picker for the coded refusals (R1-5), and the rewritten JA pointer
+// lines in the locale chunk. Ceiling = 2,106,996 + 1,000.
+//
+// NOTE for whoever merges feat/store-hours-door after this branch: THIS
+// CONSTANT is the one merge conflict between the two (git merge-tree, clean
+// everywhere else). Do not resolve it by picking a side — that branch's
+// ceiling predates several byte costs already on main. Re-measure from a
+// clean build of the merged tree and set measured + 1,000.
+// (this branch's own chain ends here at 2_107_996 — kept as history; main's chain
+// below carries the live `const BUDGET_BYTES` forward, and this merge's own
+// entry (#937) is appended after it.)
 // (feat/booking-new-count's own chain ends here at 2_106_619 — kept as
 // history; main's chain below carries the live `const BUDGET_BYTES`
 // forward, and PR #951's own merge entry is appended after it.)
@@ -1764,6 +1793,29 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // Total = 2,124,225 B; ceiling = measured + 1,000 = 2,125,225 B.
 // +221 B against main's own 2,124,004 B measurement (its ceiling 2,125,004), all in index + en (index +221 B, en +0 B); vendor unchanged.
 // (the intermediate tip 27aa6604e measured 2,121,229 B → 2,122,229 after #957 alone; superseded the same afternoon.)
+//
+// RE-MEASURED 2026-09-19 after merging origin/main 77786f755 into
+// feat/booking-closed-day-door (PR #937, the closed-day booking door — a
+// booking refused before it can land on a store's 定休日 or 臨時休業 date, on
+// both doors, through the ONE time validator). The entries above are
+// retained as history; this entry supersedes their ceiling. Same recipe —
+// CI's six VITE_* values from .github/workflows/ci.yml, thin/dist emptied
+// before each lap, node v24.16.0, @synqed-kk/ui 0.3.2. Two clean laps
+// byte-identical (matching paths, byte sizes for all output files):
+//   en-Dt32exhO.js       135,712 B
+//   index--vwQvtir.js  1,052,853 B
+//   vendor-BD5eMVWe.js   937,791 B
+// Total = 2,126,356 B; ceiling = measured + 1,000 = 2,127,356 B.
+// +2,131 B against main's own 2,124,225 B measurement (en +667 B, index
+// +1,464 B, vendor unchanged): the closed-day door's own cost — the
+// day-hours resolver + refusal path, NewBookingDialog's refusalKey/coded
+// toast handling, and the three new closedDayStore/closedDayDate/closedDayOrg
+// ja+en string pairs. CORRECTION (fix round 1, 2026-09-19): the parenthetical
+// this entry originally carried here — "en chunk; the thin bundle ships EN
+// only" — was false. thin/main.tsx statically imports messages/ja.json (baked
+// into the main bundle, not lazy) and only messages/en.json is the dynamic
+// `import()` (thin/main.tsx:130) that makes en its own lazy chunk — both
+// locales ship, ja just isn't the one that gets its own file.
 
 // ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-19 — P1b B1 (PR #960, feat/p1b-refusal-audit-1),
@@ -1783,6 +1835,25 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // 2,125,225 B): +1,296 B total — en +535 B, index +761 B, vendor unchanged —
 // exactly the four new label strings landing in both locale bundles, no
 // dependency moved.
+//
+// RE-MEASURED 2026-09-19, PR #937 fix round 1 (main-in #2 + the B1/B2/B3
+// fixes — merge commit 96ca5c55, B1 d83fc5b5, B2 c9d569d7, B3 2520daa3 +
+// 65e74642). Same recipe — CI's six VITE_* values from
+// .github/workflows/ci.yml, thin/dist emptied before each lap, node
+// v24.16.0, @synqed-kk/ui 0.3.2. Two clean laps byte-identical (matching
+// filenames, byte sizes and SHA-256s for all 3 output files):
+//   en-CUmPcKIH.js       136,025 B
+//   index-CqecJczg.js  1,053,127 B
+//   vendor-BD5eMVWe.js   937,791 B
+// Total = 2,126,943 B; ceiling = measured + 1,000 = 2,127,943 B.
+// Against main's newest entry above (P1b B1, #960: 2,125,521 B, ceiling
+// 2,126,521 B): +1,422 B total — en +445 B, index +977 B, vendor unchanged.
+// B1 is comments only and B3 is tests only, so neither ships; the whole
+// delta is B2's switch read (the BOOKING_SWITCHES import + the one early
+// return in fetchBookingDayHours) plus whatever main's own #960 audit-log
+// labels weren't already counted in this branch's PRE-merge measurement
+// above (2,126,356 B) — this number is the ground truth for the merged tip,
+// not a sum of the two branches' separate deltas.
 
 // ── THE LIVE ENTRY ────────────────────────────────────────────────────────
 // RE-MEASURED 2026-09-19 — main IN on PR #938 (feat/store-hours-door, the

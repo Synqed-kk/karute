@@ -12,7 +12,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readKaruteRaw, KARUTE_NOT_FOUND } from '@/lib/app-api/karute-facade'
 import { resolveWriteStoreScope } from '@/lib/app-api/store-clamp'
-import { ensureRecordStoreInScope } from '@/lib/auth/store-lock'
+import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import {
   setKaruteOutcomeWithClient,
@@ -58,7 +58,7 @@ export const POST = facadeHandler<Params>('karute.outcome.set', async (ctx) => {
   // the caller must be PLACED in the roster at all: core answers
   // `{ store_ids: [] }` for an auth id it holds no staff row for, so an
   // unplaceable caller would otherwise pass this lock as floating.
-  ensureRecordStoreInScope(
+  ensureRecordStoreInScopeAudited(
     { store_id: (record.store_id as string | null) ?? null },
     await resolveWriteStoreScope({
       synqed,
@@ -67,6 +67,18 @@ export const POST = facadeHandler<Params>('karute.outcome.set', async (ctx) => {
       selfStaffId: await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId),
     }),
     KARUTE_NOT_FOUND,
+    {
+      actor: {
+        actorId: ctx.identity.authUserId,
+        businessId: ctx.identity.businessId,
+        source: 'facade',
+        requestId: ctx.meta.requestId,
+      },
+      category: 'karute',
+      targetType: 'karute',
+      targetId: id,
+      door: 'karute.outcome_set',
+    },
   )
   const customerId = (record.customer_id as string | null) ?? null
   if (!customerId) throw new AppApiError('not_found', 'karute has no linked customer')

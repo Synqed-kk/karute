@@ -16,8 +16,8 @@
 //   • 無断 (no-show) reason is the ONE fixed code, never a staff choice.
 
 import { SynqedError, type SynqedClient } from '@synqed-kk/client'
-import type { AppointmentInput } from '@/lib/appointments'
-import { validateAppointmentTime } from '@/lib/appointments'
+import type { AppointmentInput, BookingTimeRefusal } from '@/lib/appointments'
+import { validateAppointmentInput, validateAppointmentTime } from '@/lib/appointments'
 import {
   CANCEL_REASON_SAME_DAY_CONTACT,
   CANCEL_REASONS,
@@ -29,9 +29,12 @@ import {
   listCustomerPacksWithClient,
 } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
+import { fetchBookingDayHours } from '@/lib/appointments/day-hours'
+import type { WeekdayKey } from '@/lib/operating-hours'
 import { ymdInJst } from '@/lib/date/jst'
-import { ensureRecordStoreInScope, type RecordStoreScope } from '@/lib/auth/store-lock'
+import { type RecordStoreScope } from '@/lib/auth/store-lock'
 import { audit, type AuditSeverity } from '@/lib/audit'
+import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
 
 /** Liam ruling 2026-07-26: every booking mutation writes exactly ONE audit
  *  row, emitted from HERE so the web actions and the facade twins can never
@@ -79,14 +82,33 @@ const APPOINTMENT_NOT_FOUND = 'Appointment not found'
  *  house `{ error }` shape, which is also what the facade twins return
  *  verbatim. */
 function lockAppointmentStore(
-  appt: { store_id?: string | null } | null | undefined,
+  appt: { store_id?: string | null; customer_id?: string | null } | null | undefined,
   scope: RecordStoreScope,
+  actor: BookingActor,
+  appointmentId: string,
+  /** The door, for the refusal row: 'booking.cancel', 'booking.restore', … */
+  door: string,
 ): void {
   // `appt?.` because the lock runs BEFORE each core's own null check: a row
   // the client could not read is a row whose store cannot be proven, and for a
   // clamped caller that fails closed (sourceStoreOutOfScope's null arm) rather
   // than falling through to a message about a booking they may not have.
-  ensureRecordStoreInScope({ store_id: appt?.store_id ?? null }, scope, APPOINTMENT_NOT_FOUND)
+  //
+  // AUDITED (FRESH-EYES-P1 §5a): a refusal against a PROVEN foreign store
+  // files one row — probing another branch's booking ids is exactly what an
+  // owner wants to see. An unreadable or legacy store-less booking (store_id
+  // null above) refuses the same way but files none: no foreign store was
+  // established. The thrown error is unchanged, so the no-oracle guarantee
+  // above still holds. Target shape = every other booking row in this file:
+  // the CUSTOMER, with the appointment id in detail.
+  ensureRecordStoreInScopeAudited({ store_id: appt?.store_id ?? null }, scope, APPOINTMENT_NOT_FOUND, {
+    actor,
+    category: 'booking',
+    targetType: 'customer',
+    targetId: appt?.customer_id ?? undefined,
+    door,
+    detail: { appointment_id: appointmentId },
+  })
 }
 
 /** A no-show or a same-day-contact cancel is the one shape where a ticket may
@@ -100,7 +122,7 @@ function bookingAuditSeverity(kind: 'no_show' | 'cancel', reason?: string): Audi
 
 type MutationClient = Pick<
   SynqedClient,
-  'appointments' | 'packs' | 'staffStores' | 'stores'
+  'appointments' | 'packs' | 'staffStores' | 'stores' | 'storePolicies'
 >
 
 export type MarkNoShowError = { error: string; code?: 'no_burnable_pack' | 'already_terminal' }
@@ -145,18 +167,43 @@ export async function createAppointmentCore(
     synqedStaffId: string
     preferredStoreId: string | null
     operatingHours: unknown
+    /** ⚖ R1-2 — the org blob's SAVED weekdays. The store half of the hours
+     *  question is read HERE, not handed in: a caller that read it against the
+     *  store it happened to be looking at would be asking a different store
+     *  than the row lands in. */
+    orgSaved: readonly WeekdayKey[] | undefined
     actor: BookingActor
   },
-): Promise<{ id: string } | { error: string }> {
-  const hoursError = await validateAppointmentTime(input, deps.operatingHours)
-  if (hoursError) return { error: hoursError }
+): Promise<{ id: string } | BookingTimeRefusal> {
+  // The pure half runs at both doors too, ahead of their side-effecting staff
+  // resolver. Repeated here because this core is the LAST wall: a future caller
+  // that forgets its own pre-check is still refused.
+  const inputError = validateAppointmentInput(input)
+  if (inputError) return inputError
 
   const startTime = new Date(input.startTime)
   const endTime = new Date(startTime.getTime() + input.durationMinutes * 60000)
 
   try {
+    // ⚖ R1-2 — the door judges the store the row will LAND in. `storeId` is
+    // resolved FIRST and then used twice: once to ask that store's own hours,
+    // once as the row's store. Before this, the check asked whatever the door's
+    // clamp produced — and in a single-store salon that is nothing at all (the
+    // store switcher never renders below two stores, so the cookie is never
+    // set), while the row still landed in a real store with a real 定休日. The
+    // screen painted 休 and the door took the booking.
     const storeId =
       deps.preferredStoreId ?? (await defaultBookingStore(synqed, deps.synqedStaffId))
+    // Isolation is unchanged: this id is the door's clamped store, or one
+    // derived server-side from the booked staff's own assignment / the tenant
+    // primary — never client input, and never another store.
+    const dayHours = await fetchBookingDayHours(synqed, storeId, startTime, deps.orgSaved)
+    const hoursError = await validateAppointmentTime(input, deps.operatingHours, dayHours)
+    // Refused BEFORE anything reaches core: no appointment row, and no audit row
+    // claiming one (⚖ PKT-1c-C S4 — the audit() call below is the only writer in
+    // this core and it sits past this return).
+    if (hoursError) return hoursError
+
     const appt = await synqed.appointments.create({
       customer_id: input.clientId,
       staff_id: deps.synqedStaffId,
@@ -306,7 +353,7 @@ export async function cancelAppointmentCore(
     // Store lock BEFORE every other answer this row could give (terminal
     // state, customer presence): those are facts about a booking the caller
     // may not have, so leaking them is the same oracle the refusal closes.
-    lockAppointmentStore(appt, scope)
+    lockAppointmentStore(appt, scope, actor, appointmentId, 'booking.cancel')
     if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     if (isTerminalStatus(appt.status)) {
       return { error: 'This booking is already cancelled or marked as a no-show.', code: 'already_terminal' }
@@ -424,7 +471,7 @@ export async function restoreAppointmentCore(
     // staff already restored and started (SCHEDULED → IN_PROGRESS) back to
     // SCHEDULED with no error. Mirrors markNoShowCore's read-check.
     const appt = await synqed.appointments.get(appointmentId)
-    lockAppointmentStore(appt, scope) // see cancelAppointmentCore — lock first
+    lockAppointmentStore(appt, scope, actor, appointmentId, 'booking.restore') // see cancelAppointmentCore — lock first
     if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     if (!isTerminalStatus(appt.status)) {
       return { error: 'This booking is already active.' }
@@ -481,7 +528,7 @@ export async function markNoShowAppointmentCore(
 ): Promise<MarkNoShowResult> {
   try {
     const appt = await synqed.appointments.get(appointmentId)
-    lockAppointmentStore(appt, scope) // see cancelAppointmentCore — lock first
+    lockAppointmentStore(appt, scope, actor, appointmentId, 'booking.no_show') // see cancelAppointmentCore — lock first
     if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     // Already CANCELLED/NO_SHOW (double-open race, stale agenda): refuse
     // rather than re-mark — re-marking is harmless but a second burn is not.
@@ -573,24 +620,95 @@ export async function markNoShowAppointmentCore(
  * appointments.ts) have no caller anywhere yet — armed deliberately (Liam
  * ruling 2026-07-26: everything gets logged) so a future booking-edit
  * feature that picks them up is audited by default from day one.
+ *
+ * D-NOTE (⚖ PKT-1c-C S3, 2026-09-16): this core had NO time validation of any
+ * kind — a reschedule could land a booking on a closed day, or outside opening
+ * hours, on a path create has always refused. It now runs the SAME
+ * `validateAppointmentTime` create runs, so the rule has exactly one home and a
+ * reschedule can never be the way around it. Two consequences worth naming:
+ *   • the hours WINDOW check is new here too (not just the closed day) — that
+ *     is the point of one home, and the path has no caller to regress;
+ *   • the day is resolved against the BOOKING'S OWN store (`appt.store_id`,
+ *     already read for the terminal guard), which is stricter and more correct
+ *     than create's clamp: a reschedule cannot be judged by whichever store the
+ *     staffer happens to be looking at.
+ * Whatever the patch leaves out falls back to the booking's stored value, so a
+ * duration-only edit is still judged against the real start.
  */
 export async function updateAppointmentCore(
   synqed: MutationClient,
   appointmentId: string,
   patch: { staffId?: string; startsAt?: string; endsAt?: string; durationMinutes?: number },
   actor: BookingActor,
+  hours: {
+    operatingHours: unknown
+    /** The org blob weekdays a human actually saved (org settings'
+     *  `operating_hours_saved`). Required, like create's `dayHours`: an
+     *  optional one would be a door left open by omission. */
+    orgSaved: readonly WeekdayKey[] | undefined
+  },
   scope: RecordStoreScope,
-): Promise<{ success: true } | { error: string }> {
+): Promise<{ success: true } | BookingTimeRefusal> {
   try {
     // Terminal guard (Fable fix-round finding, 2026-07-27 — this core had NO
     // read-check while every sibling core does): mirrors
     // restoreAppointmentCore's read-check so a stale sheet can't silently
     // reschedule/reassign a booking that's already cancelled or no-show.
     const appt = await synqed.appointments.get(appointmentId)
-    lockAppointmentStore(appt, scope) // see cancelAppointmentCore — lock first
+    lockAppointmentStore(appt, scope, actor, appointmentId, 'booking.update') // see cancelAppointmentCore — lock first
     if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     if (isTerminalStatus(appt.status)) {
       return { error: 'A cancelled or no-show booking cannot be edited.' }
+    }
+
+    // ⚖ PKT-1c-C S3 — a reschedule goes through the same door. Only a patch
+    // that MOVES the booking in time is judged; a staff-only reassign leaves the
+    // time untouched and has no hours question to answer.
+    if (patch.startsAt !== undefined || patch.durationMinutes !== undefined) {
+      const startTime = patch.startsAt ?? appt.starts_at
+      // `duration_minutes` is nullable on core's row (BLOCK rows and some
+      // imports carry none), while starts_at/ends_at never are — so the span is
+      // the honest fallback, not a made-up default that would refuse the edit
+      // with the wrong reason.
+      const durationMinutes =
+        patch.durationMinutes ??
+        appt.duration_minutes ??
+        Math.round(
+          (new Date(appt.ends_at).getTime() - new Date(appt.starts_at).getTime()) / 60_000,
+        )
+      // ⚖ R1-2 — the same rule as create: the day is judged against the store
+      // the row LANDS in. A row whose store_id is null (BLOCK rows, some
+      // imports) used to reach `fetchBookingDayHours(null)`, which asks nobody
+      // — so any storeless booking could be rescheduled onto a 定休日 or a
+      // 臨時休業 with nothing to refuse it. It resolves the same way create
+      // does, off the booking's own staff.
+      const landingStaffId = patch.staffId ?? appt.staff_id
+      const landingStoreId =
+        appt.store_id ??
+        (landingStaffId ? await defaultBookingStore(synqed, landingStaffId) : null)
+      const dayHours = await fetchBookingDayHours(
+        synqed,
+        landingStoreId,
+        new Date(startTime),
+        hours.orgSaved,
+      )
+      const timeError = await validateAppointmentTime(
+        {
+          staffProfileId: patch.staffId ?? '',
+          clientId: appt.customer_id,
+          startTime,
+          durationMinutes,
+          // karute is JST-only (the same rule getAppointmentsByDate states at
+          // src/actions/appointments.ts) and the dialog already hard-codes it:
+          // JST is UTC+9 with no DST, so getTimezoneOffset semantics = -540.
+          tzOffsetMinutes: -540,
+        },
+        hours.operatingHours,
+        dayHours,
+      )
+      // Refused before `appointments.update` — the existing row is not touched
+      // and no audit row claims it was.
+      if (timeError) return timeError
     }
 
     const sdkPatch: {
@@ -664,7 +782,7 @@ export async function deleteAppointmentCore(
 ): Promise<{ success: true } | { error: string }> {
   try {
     const appt = await synqed.appointments.get(appointmentId)
-    lockAppointmentStore(appt, scope) // see cancelAppointmentCore — lock first
+    lockAppointmentStore(appt, scope, actor, appointmentId, 'booking.delete') // see cancelAppointmentCore — lock first
     if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
 
     // Burn-dedup guard (FIX 8, Fable fix-round finding, 2026-07-27): the burn

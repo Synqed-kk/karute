@@ -498,6 +498,21 @@ export interface SettingsBlock {
   /** canon's inline 権限がありません strip, when the PAGE is open but the block
    *  is not (録音設定's org block, データ入出力's export). */
   rightsNote?: string
+  /** ⚖ D-53 (bo) — the block that renames the store's words: which controls hold them, and the copy of its live readout. Pure data; the save door reads it. */
+  words?: {
+    typeId: string; nounId: string; counterId: string; fullId: string; turnoverId: string
+    /** The segment value that follows the business type. */
+    standardValue: string
+    /** This store's equipment rows today; the example sentence counts them. */
+    count: number
+    /** The static fact replaced on screen by the live example sentence. */
+    liveFact: { blockId: string; index: number }
+    copy: {
+      heading: string; current: string; standard: string; noTurnover: string
+      exampleLabel: string; example: string; exampleZero: string
+      problems: Record<string, string>
+    }
+  }
   rows: SettingsRow[]
   /** canon's `.fact-line` sentences. */
   facts: string[]

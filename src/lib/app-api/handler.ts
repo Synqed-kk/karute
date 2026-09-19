@@ -11,7 +11,7 @@
 //     (The metrics/Sentry sink itself is the separate observability packet.)
 
 import { corsHeaders, preflightResponse } from './cors'
-import { AppApiError, toAppApiError, errorBody } from './errors'
+import { AppApiError, toAppApiError, errorBody, describeUnknownThrow } from './errors'
 import { resolveBearerIdentity, type RequestIdentity } from './identity'
 import { audit, FACADE_AUDIT_MAP, type FacadeEndpointKey } from '@/lib/audit'
 import { withRequestId } from '@/lib/observability/request-context'
@@ -356,7 +356,12 @@ function reportUnmappedEndpoint(
 }
 
 /** Structured error line — the seam metrics/alerts attach to (packet point 10).
- *  Never logs token/PII, only the classified code + labels.
+ *  The promise: labels, plus — for `internal` only — the sanitised first line
+ *  of the thrown reason. The reason is pattern-masked (URL query, Bearer,
+ *  labelled credentials, JWT, email, non-ASCII text, phone shapes, 32+
+ *  blobs, 7+ digits) and bounded. Romanised free text in an upstream message
+ *  is NOT recognisable and can pass, which is accepted for an
+ *  access-controlled server log that already carries ids.
  *
  *  `detail.reason` is forwarded because a code+status pair is not always enough
  *  to tell two errors apart: a roster refusal and a genuine core outage are both
@@ -376,7 +381,23 @@ function reportUnmappedEndpoint(
  *  there is no tenant yet), so this line stays byte-identical to before for
  *  every pre-identity error and only GAINS a field for everything after, e.g.
  *  "mint failures per business" becomes one log filter on `endpoint` +
- *  `businessId` instead of `endpoint` alone. */
+ *  `businessId` instead of `endpoint` alone.
+ *
+ *  `errName`/`errStatus`/`errMessage` are the SAME additive promise, ONE MORE
+ *  gate narrower: only when `err.code === 'internal'` AND the AppApiError
+ *  carries a `cause` (toAppApiError's unknown-throw arm attaches the original
+ *  thrown value there — see errors.ts). `errMessage` is `describeUnknownThrow`'s
+ *  sanitised, bounded first line — never the stack, never `cause.cause`. Every
+ *  other code, and an `internal` with no cause (e.g. identity.ts's own throw),
+ *  logs byte-identically to before.
+ *
+ *  TWO LAYERS of safety around the enrichment (fix round 2, MUST-1): (a)
+ *  `describeUnknownThrow` is itself total (errors.ts) — it never throws. (b)
+ *  the call to it AND the `JSON.stringify` of the enriched line below still
+ *  sit in their own try/catch here, whose fallback logs the ORIGINAL
+ *  pre-enrichment line (code/status/reason/ids only) — belt-and-braces, so
+ *  the response is never at risk even if the enrichment somehow still fails;
+ *  only the log can degrade. */
 function logFacadeError(
   endpoint: string,
   err: AppApiError,
@@ -384,19 +405,30 @@ function logFacadeError(
   businessId?: string,
 ): void {
   const reason = typeof err.detail?.reason === 'string' ? err.detail.reason : undefined
-  console.warn(
-    JSON.stringify({
-      evt: 'facade_error',
-      endpoint,
-      code: err.code,
-      status: err.status,
-      reason,
-      requestId: meta.requestId,
-      appVersion: meta.appVersion,
-      platform: meta.platform,
-      businessId,
-    }),
-  )
+  const baseLine = {
+    evt: 'facade_error',
+    endpoint,
+    code: err.code,
+    status: err.status,
+    reason,
+    requestId: meta.requestId,
+    appVersion: meta.appVersion,
+    platform: meta.platform,
+    businessId,
+  }
+  try {
+    const unknownThrow = err.code === 'internal' && err.cause !== undefined ? describeUnknownThrow(err.cause) : undefined
+    console.warn(
+      JSON.stringify({
+        ...baseLine,
+        errName: unknownThrow?.errName,
+        errStatus: unknownThrow?.errStatus,
+        errMessage: unknownThrow?.errMessage,
+      }),
+    )
+  } catch {
+    console.warn(JSON.stringify(baseLine))
+  }
 }
 
 function cryptoRandomId(): string {

@@ -1091,3 +1091,55 @@ describe('自分の表示設定 — the one section that saves outside this scre
     }
   })
 })
+
+describe('PKT-BUILD-N3-2 §3 H5 — the screen calls the pure save door', () => {
+  const blockSource = SRC_CODE.slice(SRC_CODE.indexOf('function Block('), SRC_CODE.indexOf('function Collection('))
+  const readout = blockSource.slice(blockSource.indexOf('{block.words && sentences && ('), blockSource.indexOf('{block.facts.map('))
+
+  it('N3-2 §3 H5 — imports the door and names none of the words table rules', () => {
+    expect(SRC_CODE).toMatch(new RegExp("import\\s*\\{[^}]*committedWordValues[^}]*\\}\\s*" + "from '@/business/lib/settings-words'"))
+    const tableImport = /\bfrom\s*['"]@\/business\/lib\/resource-words['"]/
+    expect(tableImport.test("import { wordsForStore } from '@/business/lib/resource-words'")).toBe(true)
+    expect(tableImport.test('import { wordsForStore } from "@/business/lib/resource-words"')).toBe(true)
+    expect(tableImport.test("import { wordsReadout } from '@/business/lib/settings-words'")).toBe(false)
+    expect(SRC_CODE).not.toMatch(tableImport)
+    for (const forbidden of ['wordOverrideProblem', 'wordsForStore', 'WORD_MAX_CHARS']) expect(SRC).not.toContain(forbidden)
+  })
+
+  it('N3-2 §3 H5 — composes the blocked line and commits normalised values to both maps', () => {
+    expect(SRC_CODE).toMatch(/const blocked = [^\n]*blockingError\(section, values\) \?\? wordsBlockingError\(section, values\)/)
+    const commit = SRC_CODE.slice(SRC_CODE.indexOf('const commitSection ='), SRC_CODE.indexOf('const openSection ='))
+    expect(withoutInnerFns(commit.slice(commit.indexOf('=> {') + 4))).toContain('const wordValues = committedWordValues(target, values)')
+    expect(commit).toContain('setValues((prev) => ({ ...prev, ...wordValues }))')
+    expect(commit).toMatch(/setSaved\(\(prev\) => \{[\s\S]*return \{ \.\.\.next, \.\.\.wordValues \}/)
+  })
+
+  it('N3-2 §3 H5 — Block calls all three door decisions and receives the section', () => {
+    const blockCalls = openingTags(SRC_CODE, 'Block')
+    expect(blockCalls.length).toBeGreaterThan(0)
+    expect(blockCalls.every((tag) => tag.text.includes('section={section}'))).toBe(true)
+    expect(blockSource).toContain("wordsSentences(block.words, values, labelFor(block.words.typeId) ?? '')")
+    expect(blockSource).toContain('wordsBlockProblem(block, values)')
+    expect(blockSource).toContain('wordsLiveFact(section, block.id, values,')
+    expect(blockSource).toContain('liveFact?.index === index ? liveFact.sentence : f')
+  })
+
+  it('N3-2 §3 H5 — readout and inline problem use the room classes and live status attributes', () => {
+    const divs = openingTags(readout, 'div').map((tag) => tag.text)
+    expect(divs).toEqual(['<div className="st-preview" aria-live="polite">', '<div className="st-pv-note">'])
+    expect(openingTags(readout, 'p').map((tag) => tag.text)).toEqual(Array(3).fill('<p className="st-pv-text">'))
+    expect(readout).toContain('{sentences.current}')
+    expect(readout).toContain('{sentences.standard}')
+    expect(readout).toContain('{block.words.copy.exampleLabel}: {sentences.example}')
+    expect(openingTags(blockSource, 'p').map((tag) => tag.text)).toContain('<p className="st-field-msg" role="status">')
+    expect(blockSource.indexOf('{wordProblem !== null')).toBeGreaterThan(blockSource.indexOf('block.rows.map('))
+    expect(blockSource.indexOf('{wordProblem !== null')).toBeLessThan(blockSource.indexOf('{block.collection &&'))
+  })
+
+  it('N3-2 §3 H5 — every class literal added by the slice has an existing CSS rule', () => {
+    const addedMarkup = readout + blockSource.slice(blockSource.indexOf('{wordProblem !== null'), blockSource.indexOf('{block.collection &&'))
+    const classes = [...addedMarkup.matchAll(/className="([^"]+)"/g)].map((m) => m[1])
+    expect([...new Set(classes)].sort()).toEqual(['st-field-msg', 'st-preview', 'st-pv-note', 'st-pv-text'])
+    for (const name of classes.concat('st-fact')) expect(CSS_CODE).toMatch(new RegExp(`\\.${name}\\s*\\{`))
+  })
+})

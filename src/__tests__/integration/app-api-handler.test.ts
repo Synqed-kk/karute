@@ -11,13 +11,21 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 
 import { createHmac, generateKeyPairSync, sign as cryptoSign } from 'node:crypto'
 import { facadeHandler, ok } from '@/lib/app-api/handler'
-import { AppApiError } from '@/lib/app-api/errors'
+import { AppApiError, describeUnknownThrow } from '@/lib/app-api/errors'
 import type { VerifierConfig } from '@/lib/auth/verify-bearer'
 
 jest.mock('@/lib/staff', () => ({ businessIdForUser: jest.fn(async () => 'business-1') }))
 jest.mock('@/lib/auth/require-permission', () => ({
   capabilitiesForUser: jest.fn(async () => new Set(['customers.view'])),
 }))
+// Wraps the REAL describeUnknownThrow by default (every existing test below
+// gets its real behavior unchanged) — only the m4 mutant test below swaps in
+// a throwing implementation for ONE call, to test logFacadeError's OWN
+// try/catch (fix round 2, MUST-1b) independent of errors.ts's own safety.
+jest.mock('@/lib/app-api/errors', () => {
+  const actual = jest.requireActual('@/lib/app-api/errors')
+  return { ...actual, describeUnknownThrow: jest.fn(actual.describeUnknownThrow) }
+})
 
 const ISSUER = 'https://testproj.supabase.co/auth/v1'
 const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
@@ -102,5 +110,131 @@ describe('facadeHandler', () => {
     const res = await handler(new Request('https://s/api/app/v1/x', { headers: { authorization: `Bearer ${hs256Token('wrong-secret')}` } }), route)
     expect(res.status).toBe(401)
     expect((await res.json()).error.code).toBe('unauthenticated')
+  })
+
+  // PKT-A (incident-recording-fallback-20260918): an unclassified throw's
+  // reason used to be unrecoverable — only code+status ever reached the log.
+  it('an unclassified throw carrying a signed-URL secret logs a sanitised reason, never the secret — client body unchanged', async () => {
+    const handler = facadeHandler(
+      'customer.read',
+      async () => {
+        throw new Error('deepgram said no https://x.supabase.co/storage/v1/object/sign/recordings/a.webm?token=SECRET')
+      },
+      { config: HS_CONFIG },
+    )
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const res = await handler(new Request('https://s/api/app/v1/x', { headers: { authorization: `Bearer ${hs256Token(SECRET)}` } }), route)
+      expect(res.status).toBe(500)
+      expect(await res.json()).toEqual({ error: { code: 'internal', message: 'Internal error' } })
+      const lines = warn.mock.calls
+        .map(([first]) => (typeof first === 'string' ? first : ''))
+        .filter((l) => l.includes('"evt":"facade_error"'))
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).not.toContain('SECRET')
+      const line = JSON.parse(lines[0]) as Record<string, unknown>
+      expect(line.errName).toBe('Error')
+      expect(line.errMessage).toContain('deepgram said no')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('a classified AppApiError throw logs NO errName/errMessage/errStatus keys — byte-identical to before', async () => {
+    const handler = facadeHandler(
+      'customer.read',
+      async () => { throw new AppApiError('forbidden', 'nope') },
+      { config: HS_CONFIG },
+    )
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const res = await handler(new Request('https://s/api/app/v1/x', { headers: { authorization: `Bearer ${hs256Token(SECRET)}` } }), route)
+      expect(res.status).toBe(403)
+      const requestId = res.headers.get('request-id')
+      const lines = warn.mock.calls
+        .map(([first]) => (typeof first === 'string' ? first : ''))
+        .filter((l) => l.includes('"evt":"facade_error"'))
+      expect(lines).toHaveLength(1)
+      const expectedLine = JSON.stringify({
+        evt: 'facade_error',
+        endpoint: 'customer.read',
+        code: 'forbidden',
+        status: 403,
+        requestId,
+        appVersion: null,
+        platform: null,
+        businessId: 'business-1',
+      })
+      expect(lines[0]).toBe(expectedLine)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  // Fix round 2, MUST-1: a hostile thrown shape must never make the request
+  // promise reject — it must still answer 500 Internal error, with the log
+  // degrading (or masking) rather than the response breaking.
+  it('every MUST-1 hostile thrown shape still answers 500 through the real handler, with exactly one parseable warn line', async () => {
+    const hostileShapes: Array<() => unknown> = [
+      () => {
+        const e = new Error('placeholder')
+        Object.defineProperty(e, 'message', { get() { throw new Error('boom') } })
+        return e
+      },
+      () => ({ toString() { throw new Error('boom') } }),
+      () => {
+        const e = new Error('fine')
+        Object.defineProperty(e, 'status', { get() { throw new Error('boom') } })
+        return e
+      },
+      () => Object.assign(new Error('fine'), { name: BigInt(1) as unknown as string }),
+    ]
+    for (const makeHostile of hostileShapes) {
+      const handler = facadeHandler('customer.read', async () => { throw makeHostile() }, { config: HS_CONFIG })
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const res = await handler(
+          new Request('https://s/api/app/v1/x', { headers: { authorization: `Bearer ${hs256Token(SECRET)}` } }),
+          route,
+        )
+        expect(res.status).toBe(500)
+        expect(await res.json()).toEqual({ error: { code: 'internal', message: 'Internal error' } })
+        const lines = warn.mock.calls
+          .map(([first]) => (typeof first === 'string' ? first : ''))
+          .filter((l) => l.includes('"evt":"facade_error"'))
+        expect(lines).toHaveLength(1)
+        expect(() => JSON.parse(lines[0])).not.toThrow()
+      } finally {
+        warn.mockRestore()
+      }
+    }
+  })
+
+  // Fix round 2, MUST-1b (mutant m4 target): decoupled from errors.ts's own
+  // correctness — mock describeUnknownThrow itself to throw, and prove
+  // logFacadeError's OWN try/catch still protects the response.
+  it("logFacadeError's own try/catch protects the response even if describeUnknownThrow itself throws", async () => {
+    const spy = describeUnknownThrow as jest.Mock
+    spy.mockImplementationOnce(() => {
+      throw new Error('mock describeUnknownThrow failure')
+    })
+    const handler = facadeHandler('customer.read', async () => { throw new Error('deepgram said no') }, { config: HS_CONFIG })
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const res = await handler(new Request('https://s/api/app/v1/x', { headers: { authorization: `Bearer ${hs256Token(SECRET)}` } }), route)
+      expect(res.status).toBe(500)
+      expect(await res.json()).toEqual({ error: { code: 'internal', message: 'Internal error' } })
+      const lines = warn.mock.calls
+        .map(([first]) => (typeof first === 'string' ? first : ''))
+        .filter((l) => l.includes('"evt":"facade_error"'))
+      expect(lines).toHaveLength(1)
+      const line = JSON.parse(lines[0]) as Record<string, unknown>
+      // Fallback line (MUST-1b's "ORIGINAL pre-change line") — no enrichment keys.
+      expect('errName' in line).toBe(false)
+      expect('errMessage' in line).toBe(false)
+      expect('errStatus' in line).toBe(false)
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
