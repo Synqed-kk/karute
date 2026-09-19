@@ -32,8 +32,8 @@ import { CustomersScreenDTO } from '@/lib/app-api/customers-screen-dto'
 import { SessionsScreenWindowedDTO } from '@/lib/app-api/sessions-screen-dto'
 import { DashboardScreenDTO } from '@/lib/app-api/dashboard-screen-dto'
 import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
-import { subscribeRefresh, subscribeRevalidate } from '../ports/nav.vite'
-import { cacheDto, dtoCache, dtoSessionEpoch } from '../screens/ScreenBoundary'
+import { subscribeRevalidate } from '../ports/nav.vite'
+import { cacheDto, captureCacheFence, dtoCache } from '../screens/ScreenBoundary'
 import { getThinLocale } from '../locale'
 
 // Compressed vs brief-warm.ts's 3s/4s (Liam field feedback: staff tap
@@ -102,21 +102,8 @@ export const PREFETCH_PATHS: readonly string[] = TARGETS.map((t) => t.path)
 let armed = false
 let pendingTimers: number[] = []
 
-// Wipe fence (Greptile #604 P1, same class as brief-cache's F3 fences): a
-// post-mutation emitRefresh clears dtoCache but is NOT a sign-out, so the
-// sign-out epoch fence alone lets a prefetch that STARTED pre-mutation
-// settle after the wipe and re-populate the cleared entry with pre-mutation
-// data — the next mount would paint stale content until its own revalidate
-// swaps. Bump an epoch on every refresh wipe; a settle whose captured epoch
-// is stale discards. Timers not yet fired are unaffected — they fetch AFTER
-// the wipe, so their data is post-mutation fresh.
-let wipeEpoch = 0
-subscribeRefresh(() => {
-  wipeEpoch++
-})
-
 // Foreground re-warm (perf packet 36, PR-H3). On the #596 foreground event
-// (subscribeRevalidate — a NARROWER sibling of subscribeRefresh above; see
+// (subscribeRevalidate — a NARROWER sibling of subscribeRefresh; see
 // its own doc comment in nav.vite.tsx), re-run schedule() so any of the 5
 // targets a post-mutation emitRefresh wiped (or that fell out of dtoCache's
 // FIFO eviction cap) come back warm during all-day usage instead of staying
@@ -168,7 +155,7 @@ subscribeRevalidate(() => {
 // dtoCache, only ever mutated in place), so a stale settle from a
 // pre-sign-out fetch must delete from the SAME Set instance it was scheduled
 // against — a generation-keyed guard (session-store's currentGeneration(),
-// no longer imported by this file — see dtoSessionEpoch's own comment in
+// no longer imported by this file — see sessionEpoch's own comment in
 // ScreenBoundary.tsx) would be wrong for this: it bumps on every
 // authoritative write including a same-user resume echo, which would
 // wrongly treat a mere resume as "delete via the old instance".
@@ -209,15 +196,9 @@ function schedule(): void {
         myScheduled.delete(path)
         return
       }
-      // Captured at fetch START, mirroring ScreenBoundary/brief-cache's
-      // straggler fence — a sign-out mid-flight must not let this settle
-      // write into the replacement session's cache (dtoSessionEpoch, bumped
-      // ONLY on sign-out — a same-user boot double-settle must NOT discard
-      // this write, see ScreenBoundary.tsx's sessionEpoch comment), and a
-      // post-mutation cache wipe mid-flight must not be re-populated with
-      // pre-mutation data (wipeEpoch — see the fence note above).
-      const mySessionEpoch = dtoSessionEpoch()
-      const myEpoch = wipeEpoch
+      // Share the mount boundary's sign-out AND refresh fence, captured when
+      // this timer actually starts its request, not when it was scheduled.
+      const holdsCacheFence = captureCacheFence()
       getDataPort()
         .apiFetch(path)
         .then((res) => (res.ok ? res.json() : null))
@@ -225,8 +206,7 @@ function schedule(): void {
           if (body === null) return
           const dto = parse(body)
           if (
-            dtoSessionEpoch() === mySessionEpoch &&
-            wipeEpoch === myEpoch &&
+            holdsCacheFence() &&
             !dtoCache.has(path)
           )
             cacheDto(path, dto)
@@ -254,7 +234,7 @@ function schedule(): void {
 // This warms THAT key for the next couple of upcoming bookings while staff
 // are still looking at 予約. Lives here (not its own file) for the same
 // reason brief-warm.ts gives for staying separate FROM this file: it reuses
-// this module's wipeEpoch/pendingTimers/generation-fence/cacheDto plumbing
+// the shared cache fence and this module's pendingTimers/cacheDto plumbing
 // rather than duplicating it.
 //
 // RecordScreen.tsx builds its fetch URL as appointmentId→customerId→locale,
@@ -344,8 +324,7 @@ export function warmRecordForBookings(appointmentIds: string[]): void {
       // Same straggler fences as schedule()'s timer body above: captured at
       // fetch START so a cross-user (sign-out) or post-wipe settle can't
       // write.
-      const mySessionEpoch = dtoSessionEpoch()
-      const myEpoch = wipeEpoch
+      const holdsCacheFence = captureCacheFence()
       getDataPort()
         .apiFetch(path)
         .then((res) => (res.ok ? res.json() : null))
@@ -353,8 +332,7 @@ export function warmRecordForBookings(appointmentIds: string[]): void {
           if (body === null) return
           const dto = RecordScreenDTO.parse(body)
           if (
-            dtoSessionEpoch() === mySessionEpoch &&
-            wipeEpoch === myEpoch &&
+            holdsCacheFence() &&
             !dtoCache.has(path)
           )
             cacheDto(path, dto)

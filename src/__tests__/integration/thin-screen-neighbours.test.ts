@@ -60,6 +60,7 @@ import {
   readMonthNumbers,
   rememberMonthNumbers,
 } from '../../../thin/data/calendar-numbers-store'
+import { emitRefresh } from '../../../thin/ports/nav.vite'
 import { dtoCache, fetchedAtByPath } from '../../../thin/screens/ScreenBoundary'
 import type { MonthCellDTOType } from '@/lib/app-api/appointments-screen-dto'
 
@@ -410,5 +411,43 @@ describe('release 28 shipped persistence OFF', () => {
     seed()
     setSessionState({ status: 'signed-out' })
     expect(window.localStorage.getItem(key)).toBeNull()
+  })
+})
+
+
+describe('neighbour request fence', () => {
+  it.each(['sign-out', 'refresh'] as const)('drops a month settling after %s, including persistence when explicitly ON', async (event) => {
+    mockPersistCalendarNumbers = true
+    let settle!: (body: unknown) => void
+    mockFetch.mockResolvedValue({ ok: true, json: () => new Promise((resolve) => { settle = resolve }) })
+    warmAppointmentNeighbours({ ...base, view: 'month', selectedDate: SELECTED })
+    runFrames(1)
+    cancelNeighbourWarm()
+    await Promise.resolve()
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    const path = mockFetch.mock.calls[0][0]
+    if (event === 'sign-out') {
+      setSessionState({ status: 'signed-out' })
+      setSessionState({ status: 'signed-in', session: { user: { id: 'u2' } } as Session })
+    } else emitRefresh()
+    settle({ monthData: monthCells() })
+    await jest.runAllTimersAsync()
+    expect(dtoCache.has(path)).toBe(false)
+    expect(fetchedAtByPath.has(path)).toBe(false)
+    expect(window.localStorage.getItem('karute-calendar-numbers')).toBeNull()
+    expect(neighbourInFlight().size).toBe(0)
+  })
+
+  it('still caches with an intact fence and the shipped persistence default', async () => {
+    const dto = { monthData: monthCells() }
+    mockFetch.mockResolvedValue({ ok: true, json: async () => dto })
+    warmAppointmentNeighbours({ ...base, view: 'month', selectedDate: SELECTED })
+    runFrames(1)
+    cancelNeighbourWarm()
+    await jest.runAllTimersAsync()
+    const path = mockFetch.mock.calls[0][0]
+    expect(dtoCache.get(path)).toEqual(dto)
+    expect(fetchedAtByPath.has(path)).toBe(true)
+    expect(window.localStorage.getItem('karute-calendar-numbers')).toBeNull()
   })
 })

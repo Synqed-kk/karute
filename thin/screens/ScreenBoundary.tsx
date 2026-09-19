@@ -63,7 +63,7 @@ export function cacheDto(path: string, dto: unknown): void {
   fetchedAtByPath.set(path, Date.now())
 }
 
-// Straggler fence for in-flight mount-fetch writes — bumped ONLY on
+// Straggler fence for all in-flight screen-cache writes — bumped ONLY on
 // sign-out (mirrors brief-cache.ts's sessionEpoch idiom exactly; that
 // module hit this same trap first, Liam field bug 7/25 — see its comment
 // for the full story). Deliberately NOT session-store's currentGeneration():
@@ -78,13 +78,6 @@ export function cacheDto(path: string, dto: unknown): void {
 // narrower: a fetch started under user A must never write user B's cache,
 // and only a SIGN-OUT sits between any two users on a shared device.
 let sessionEpoch = 0
-
-/** Current sign-out epoch, for screen-prefetch.ts's timer bodies to capture
- *  at their own fetch start — they write into this same dtoCache and need
- *  the identical straggler fence. */
-export function dtoSessionEpoch(): number {
-  return sessionEpoch
-}
 
 // SHARED-IPAD LEAK GUARD: a signed-out transition wipes every cached DTO so
 // the next user (any user switch passes through 'signed-out' first) never
@@ -114,16 +107,23 @@ subscribeSessionState(() => {
 // can settle BEFORE that deferred cleanup — `alive` reads true and the
 // straggler re-populates the cache emitRefresh just cleared with
 // pre-mutation data. `sessionEpoch` above doesn't help either: a refresh is
-// not a sign-out. This is the exact class screen-prefetch.ts's wipeEpoch
-// fence already closes for its own timers (bumped by its OWN subscribeRefresh
-// listener, checked at settle) — mirrored here, but bumped by a MODULE-SCOPE
-// listener (not the per-hook one below, which keeps doing the hard clear +
+// not a sign-out. All non-mount writers now share this epoch through
+// captureCacheFence(), rather than keeping their own refresh counters.
+// Bumped by a MODULE-SCOPE listener (not the per-hook one below, which keeps doing the hard clear +
 // attempt bump unchanged) so it closes the window for every mounted hook
 // instance regardless of which one's cleanup is still pending.
 let refreshEpoch = 0
 subscribeRefresh(() => {
   refreshEpoch++
 })
+
+/** Capture at request time for every DTO writer. Same-user session echoes
+ *  preserve the fence; sign-out and refresh invalidate it synchronously. */
+export function captureCacheFence(): () => boolean {
+  const session = sessionEpoch
+  const refresh = refreshEpoch
+  return () => sessionEpoch === session && refreshEpoch === refresh
+}
 
 /** Fetch a facade screen DTO on mount; parse enforces the zod contract on the
  *  client too (same schema module the server validates with). `fetching` is
@@ -245,10 +245,7 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
     // stamped, so every revisit and every foreground revalidate refetched),
     // never a correctness one (the `alive` guard below already keeps
     // setState honest regardless).
-    const epoch = sessionEpoch
-    // Refresh-wipe fence (see refreshEpoch's declaration comment above):
-    // captured the same way, alongside the sign-out epoch.
-    const myRefreshEpoch = refreshEpoch
+    const holdsCacheFence = captureCacheFence()
     getDataPort()
       .apiFetch(path)
       .then(async (res) => {
@@ -292,8 +289,8 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
         //   fetch in flight when emitRefresh() clears dtoCache must not
         //   repopulate it with pre-mutation data, and `alive` alone races
         //   that clear too (same deferred-cleanup-vs-microtask gap). Mirrors
-        //   screen-prefetch.ts's wipeEpoch fence for its own timers exactly.
-        if (alive && sessionEpoch === epoch && refreshEpoch === myRefreshEpoch)
+        //   the same captureCacheFence() used by prefetch timers.
+        if (alive && holdsCacheFence())
           cacheDto(path, dto)
         if (alive) {
           setState((prev) =>

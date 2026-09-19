@@ -428,6 +428,9 @@ export function DateJumpPanel({
         },
         (error) => {
           inFlightRef.current.delete(key)
+          // The thin loader cancels responses whose session/refresh fence died.
+          // Drop the settle entirely: neither old counts nor a failure is news.
+          if (error instanceof DOMException && error.name === 'AbortError') return
           // Degraded is allowed, silent is not (the same line the facade's
           // menus read is held to, app-api/screens/appointments/route.ts:92-98):
           // staff get a Japanese line, and whoever reads the console gets the

@@ -32,8 +32,7 @@ import { monthKeyInJst } from '@/lib/appointments/date-jump'
 import { shiftAppointmentsDate } from '@/lib/appointments/date-step'
 import { ymdInJst } from '@/lib/date/jst'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
-import { subscribeRefresh } from '../ports/nav.vite'
-import { cacheDto, dtoCache, dtoSessionEpoch } from '../screens/ScreenBoundary'
+import { cacheDto, captureCacheFence, dtoCache } from '../screens/ScreenBoundary'
 import { rememberMonthNumbers } from './calendar-numbers-store'
 
 /**
@@ -104,15 +103,6 @@ export function neighbourPaths(input: NeighbourInput): string[] {
   return paths
 }
 
-// A post-mutation `emitRefresh` clears dtoCache but is NOT a sign-out, so the
-// sign-out epoch alone lets a warm that STARTED pre-mutation settle after the
-// wipe and repopulate the cleared entry with pre-mutation data. Same fence,
-// same reason, as screen-prefetch.ts's own `wipeEpoch`.
-let wipeEpoch = 0
-subscribeRefresh(() => {
-  wipeEpoch++
-})
-
 /** Bumped by every new land. A step from an older generation is a step toward
  *  a view the staff member has already left — it simply stops. */
 let generation = 0
@@ -132,8 +122,7 @@ function warmOne(path: string): void {
   // half of the same guard — background reads never compete with a recording.
   if (globalRecorder.state !== 'idle') return
   inFlight.add(path)
-  const mySessionEpoch = dtoSessionEpoch()
-  const myWipeEpoch = wipeEpoch
+  const holdsCacheFence = captureCacheFence()
   getDataPort()
     .apiFetch(path)
     .then((res) => (res.ok ? res.json() : null))
@@ -141,8 +130,7 @@ function warmOne(path: string): void {
       if (body === null) return
       const dto = AppointmentsScreenDTO.parse(body)
       if (
-        dtoSessionEpoch() === mySessionEpoch &&
-        wipeEpoch === myWipeEpoch &&
+        holdsCacheFence() &&
         !dtoCache.has(path)
       ) {
         cacheDto(path, dto)

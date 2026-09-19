@@ -26,6 +26,7 @@ jest.mock('@/lib/appointments/booking-switches', () => {
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
+  useLocale: () => 'ja',
 }))
 
 type ViewProps = {
@@ -68,7 +69,8 @@ import { DateJumpPanel } from '@/components/appointments/DateJumpPanel'
 import { capacityRowFields, type MonthCell } from '@/lib/adapters/reservation'
 import { monthNewCount } from '@/lib/appointments/metric-menu'
 import { setDataPort } from '@/lib/ports/data-port'
-import { dtoCache } from '../../../thin/screens/ScreenBoundary'
+import { emitRefresh } from '../../../thin/ports/nav.vite'
+import { dtoCache, fetchedAtByPath } from '../../../thin/screens/ScreenBoundary'
 import { rememberMonthNumbers, clearCalendarNumbers } from '../../../thin/data/calendar-numbers-store'
 import { setSessionState } from '@/lib/auth/mobile/session-store'
 import type { Session } from '@supabase/supabase-js'
@@ -279,4 +281,53 @@ it('release 28 OFF equals main: cold panel skeleton then network cells despite a
   await act(async () => { settle(jsonResponse({ ...DTO, view: 'month', monthData: cells })) })
   expect(screen.getByRole('status')).toHaveTextContent('')
   expect(screen.getAllByTestId('panel-grid').some((grid) => grid.textContent === '4')).toBe(true)
+})
+
+
+it.each(['sign-out', 'refresh'] as const)('loader drops a response after %s without changing either cache or the panel', async (event) => {
+  // ON makes the durable-cache assertion discriminate even after release 28.
+  mockPersistCalendarNumbers = true
+  const { apiFetch } = await mountScreen()
+  let settle!: (body: unknown) => void
+  apiFetch.mockResolvedValueOnce({ ok: true, json: () => new Promise((resolve) => { settle = resolve }) } as Response)
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    mountPanel()
+    await act(async () => { await Promise.resolve() })
+    const path = apiFetch.mock.calls.at(-1)![0]
+    const before = screen.getAllByTestId('panel-grid').map((grid) => grid.textContent)
+    expect(screen.getByRole('status')).toHaveTextContent('dateJump.loading')
+    // Any mount re-fetch triggered by refresh remains a day DTO, not month data.
+    apiFetch.mockResolvedValue(jsonResponse(DTO))
+    await act(async () => {
+      if (event === 'sign-out') {
+        setSessionState({ status: 'signed-out' })
+        setSessionState({ status: 'signed-in', session: { user: { id: 'u2' } } as Session })
+      } else emitRefresh()
+      settle({ ...DTO, view: 'month', monthData: [MONTH_CELL] })
+    })
+    expect(dtoCache.has(path)).toBe(false)
+    expect(fetchedAtByPath.has(path)).toBe(false)
+    expect(window.localStorage.getItem('karute-calendar-numbers')).toBeNull()
+    expect(screen.getByRole('status')).toHaveTextContent('dateJump.loading')
+    expect(screen.getAllByTestId('panel-grid').map((grid) => grid.textContent)).toEqual(before)
+    expect(warn).not.toHaveBeenCalled()
+  } finally {
+    warn.mockRestore()
+  }
+})
+
+it.each([undefined, true])('loader still caches with an intact fence (persistence override %s)', async (override) => {
+  mockPersistCalendarNumbers = override
+  const { apiFetch, load } = await mountScreen()
+  await expect(load('2026-12')).resolves.toEqual([MONTH_CELL])
+  const path = apiFetch.mock.calls.at(-1)![0]
+  expect(dtoCache.get(path)).toEqual(expect.objectContaining({ monthData: [MONTH_CELL] }))
+  expect(fetchedAtByPath.has(path)).toBe(true)
+  const calls = apiFetch.mock.calls.length
+  await expect(load('2026-12')).resolves.toEqual([MONTH_CELL])
+  expect(apiFetch).toHaveBeenCalledTimes(calls)
+  const raw = window.localStorage.getItem('karute-calendar-numbers')
+  if (override) expect(raw).toContain(MONTH_CELL.id)
+  else expect(raw).toBeNull()
 })

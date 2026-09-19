@@ -28,7 +28,7 @@ import { readMonthNumbers, rememberMonthNumbers, type CalendarMonthCell } from '
 import { monthKeyInJst } from '@/lib/appointments/date-jump'
 import { getThinLocale } from '../locale'
 import { useSearchParams } from '../ports/nav.vite'
-import { cacheDto, dtoCache, fetchedAtByPath, STALE_MS, ScreenStates, useScreenDto } from './ScreenBoundary'
+import { cacheDto, captureCacheFence, dtoCache, fetchedAtByPath, STALE_MS, ScreenStates, useScreenDto } from './ScreenBoundary'
 
 const parse = (raw: unknown): AppointmentsScreenDTOType =>
   AppointmentsScreenDTO.parse(raw)
@@ -181,9 +181,20 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       if (cached?.monthData && Date.now() - (fetchedAtByPath.get(path) ?? 0) < STALE_MS) {
         return cached.monthData
       }
-      const res = await getDataPort().apiFetch(path)
-      if (!res.ok) throw new Error(`date-jump month read failed: ${res.status}`)
-      const monthDto = AppointmentsScreenDTO.parse(await res.json())
+      const holdsCacheFence = captureCacheFence()
+      let monthDto: AppointmentsScreenDTOType
+      try {
+        const res = await getDataPort().apiFetch(path)
+        if (!res.ok) throw new Error(`date-jump month read failed: ${res.status}`)
+        monthDto = AppointmentsScreenDTO.parse(await res.json())
+      } catch (error) {
+        // A stale failure must not change the replacement panel either.
+        if (!holdsCacheFence()) throw new DOMException('Calendar request invalidated', 'AbortError')
+        throw error
+      }
+      // Checked after BOTH awaits. The panel ignores cancellation, so neither
+      // cache nor panel state can be populated by a pre-sign-out/refresh read.
+      if (!holdsCacheFence()) throw new DOMException('Calendar request invalidated', 'AbortError')
       // Never silently empty: no monthData means the read did not answer the
       // question, which the panel must show as failed, not as a free month.
       if (!monthDto.monthData) throw new Error('date-jump month read returned no monthData')
