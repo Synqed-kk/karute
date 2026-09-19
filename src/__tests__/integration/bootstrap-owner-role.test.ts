@@ -14,12 +14,13 @@
  * change a role someone already holds — a call with an invited staffer's userId
  * keeps their invites.ts-written role.
  */
-import { readdirSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import ts from 'typescript'
 import { effectiveCapabilities, synqedRoleToPreset } from '@/lib/auth/permissions'
 
-const UPDATE = jest.fn((_vals: unknown) => ({ eq: async () => ({ error: null }) }))
+let updateError: { message: string } | null = null
+const UPDATE = jest.fn((_vals: unknown) => ({ eq: async () => ({ error: updateError }) }))
 const INSERT = jest.fn(async (_vals: unknown) => ({ error: null }))
 let profileRow: { customer_id: string; full_name: string; permission_role?: string | null } | null = null
 
@@ -56,6 +57,7 @@ import { bootstrapBusinessForNewUser } from '@/actions/bootstrap'
 
 beforeEach(() => {
   jest.clearAllMocks()
+  updateError = null
   profileRow = null
   process.env.SYNQED_CORE_URL = 'https://core.test'
   process.env.SYNQED_CORE_API_KEY = 'test-key'
@@ -69,6 +71,19 @@ describe('bootstrapBusinessForNewUser — owner role write', () => {
     expect(UPDATE).toHaveBeenCalledWith(
       expect.objectContaining({ display_role: 'owner', permission_role: 'owner' }),
     )
+    expect(staffList).toHaveBeenCalledWith({ page_size: 200 })
+    expect(staffCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: 'user-1', role: 'OWNER' }),
+    )
+  })
+
+  it('u1: a failed profile UPDATE returns its error before the core staff step', async () => {
+    profileRow = { customer_id: 'biz-1', full_name: 'owner@example.com', permission_role: null }
+    updateError = { message: 'boom' }
+    const res = await bootstrapBusinessForNewUser('My Salon', 'user-1')
+    expect(res).toEqual({ ok: false, error: 'Failed to update profile: boom' })
+    expect(staffList).not.toHaveBeenCalled()
+    expect(staffCreate).not.toHaveBeenCalled()
   })
 
   it('a row that ALREADY has a role keeps it — no owner stamp, full_name still updates', async () => {
@@ -105,20 +120,40 @@ describe('bootstrap server-only boundary — PKT-SEC-SIGNUP-BOOTSTRAP', () => {
   const root = process.cwd()
   const bootstrapPath = join(root, 'src/actions/bootstrap.ts')
 
-  it('t1a: has no use server directive anywhere in the source', () => {
-    expect(readFileSync(bootstrapPath, 'utf8')).not.toMatch(/['"]use server['"]/)
+  function hasTopLevelUseServer(sourceText: string): boolean {
+    const source = ts.createSourceFile(bootstrapPath, sourceText, ts.ScriptTarget.Latest, true)
+    // Checking every top-level statement covers the directive prologue and also
+    // rejects a misplaced directive after an import, without matching comments.
+    return source.statements.some((statement) =>
+      ts.isExpressionStatement(statement) &&
+      ts.isStringLiteral(statement.expression) &&
+      statement.expression.text === 'use server',
+    )
+  }
+
+  it('t1a: has no use server directive in the prologue or elsewhere at top level', () => {
+    expect(hasTopLevelUseServer(readFileSync(bootstrapPath, 'utf8'))).toBe(false)
+  })
+
+  it.each([
+    "// A comment quoting 'use server'\nimport 'server-only'\n",
+    '/* A comment quoting "use server" */\nimport "server-only"\n',
+  ])('t1a comments: ignores quoted directive text in %s', (sourceText) => {
+    expect(hasTopLevelUseServer(sourceText)).toBe(false)
   })
 
   it('t1b: starts with the server-only import', () => {
     expect(readFileSync(bootstrapPath, 'utf8')).toMatch(/^\s*import ['"]server-only['"]\s*(?:;|\r?\n)/)
   })
 
-  it('t2: only the email-confirmation callback imports bootstrap', () => {
+  function bootstrapImporters(): string[] {
     const importers: string[] = []
     function importsBootstrap(path: string): boolean {
       const source = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true)
       let found = false
       function visit(node: ts.Node) {
+        if (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) return
+        if (ts.isExportDeclaration(node) && node.isTypeOnly) return
         const specifier = ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
           ? node.moduleSpecifier
           : ts.isCallExpression(node) && (
@@ -151,6 +186,29 @@ describe('bootstrap server-only boundary — PKT-SEC-SIGNUP-BOOTSTRAP', () => {
     }
     walk(join(root, 'src'))
     walk(join(root, 'thin'))
+    return importers.sort()
+  }
+
+  it.each([
+    ["import type { BootstrapResult } from '@/actions/bootstrap'", false],
+    ["export type { BootstrapResult } from '@/actions/bootstrap'", false],
+    ["import { type BootstrapResult, bootstrapBusinessForNewUser } from '@/actions/bootstrap'", true],
+    ["import { bootstrapBusinessForNewUser } from '@/actions/bootstrap'", true],
+  ])('t2 cases: census handles %s', (sourceText, counts) => {
+    const directory = mkdtempSync(join(root, 'src', 'bootstrap-census-'))
+    const path = join(directory, 'importer.ts')
+    try {
+      writeFileSync(path, sourceText)
+      const expected = ['src/app/[locale]/auth/callback/route.ts']
+      if (counts) expected.push(relative(root, path))
+      expect(bootstrapImporters()).toEqual(expected.sort())
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('t2: only the email-confirmation callback imports bootstrap', () => {
+    const importers = bootstrapImporters()
     const expected = ['src/app/[locale]/auth/callback/route.ts']
     if (JSON.stringify(importers.sort()) !== JSON.stringify(expected)) {
       throw new Error(
