@@ -15,7 +15,8 @@
  * keeps their invites.ts-written role.
  */
 import { readdirSync, readFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
+import ts from 'typescript'
 import { effectiveCapabilities, synqedRoleToPreset } from '@/lib/auth/permissions'
 
 const UPDATE = jest.fn((_vals: unknown) => ({ eq: async () => ({ error: null }) }))
@@ -114,12 +115,36 @@ describe('bootstrap server-only boundary — PKT-SEC-SIGNUP-BOOTSTRAP', () => {
 
   it('t2: only the email-confirmation callback imports bootstrap', () => {
     const importers: string[] = []
+    function importsBootstrap(path: string): boolean {
+      const source = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true)
+      let found = false
+      function visit(node: ts.Node) {
+        const specifier = ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
+          ? node.moduleSpecifier
+          : ts.isCallExpression(node) && (
+            node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+            (ts.isIdentifier(node.expression) && node.expression.text === 'require')
+          ) ? node.arguments[0] : undefined
+        if (specifier && ts.isStringLiteralLike(specifier)) {
+          const name = specifier.text
+          const target = name.startsWith('@/')
+            ? resolve(root, 'src', name.slice(2))
+            : name.startsWith('.') ? resolve(dirname(path), name) : undefined
+          // Match relative imports/re-exports as well as the alias, including
+          // explicit source or emitted JS extensions.
+          if (target?.replace(/\.(?:[cm]?[jt]sx?)$/, '') === bootstrapPath.slice(0, -3)) found = true
+        }
+        ts.forEachChild(node, visit)
+      }
+      visit(source)
+      return found
+    }
     function walk(directory: string) {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {
         if (entry.name === '__tests__') continue
         const path = join(directory, entry.name)
         if (entry.isDirectory()) walk(path)
-        else if (entry.isFile() && /['"]@\/actions\/bootstrap['"]/.test(readFileSync(path, 'utf8'))) {
+        else if (entry.isFile() && /\.[cm]?[jt]sx?$/.test(path) && importsBootstrap(path)) {
           importers.push(relative(root, path))
         }
       }
