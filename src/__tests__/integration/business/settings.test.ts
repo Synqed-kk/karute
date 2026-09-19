@@ -35,6 +35,8 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import * as data from '@/business/lib/data'
+import { wordsSentences } from '@/business/lib/settings-words'
 import { analyticsPolicy, salesTargets } from '@/business/lib/fixtures-analytics'
 import { menus, operator, STORE_A, STORE_B, STORE_C, stores } from '@/business/lib/fixtures'
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
@@ -89,6 +91,10 @@ import {
 } from '@/business/lib/settings'
 import { settingsHref } from '@/business/lib/settings-link'
 import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
+jest.mock('@/business/lib/data', () => {
+  const actual = jest.requireActual('@/business/lib/data')
+  return { ...actual, listStoreOptions: jest.fn(actual.listStoreOptions) }
+})
 // ⚡ R2 BRANCH C / ⚖ D-15 (round 3, A2) — the dial's own mapping pair.
 // `AUTO_RELEASE_CHOICES` is gone with the fixed select it existed to widen
 // (A2 turned the row into a select of two STATES plus a free minute field).
@@ -3914,5 +3920,68 @@ describe('⚖ RECONNECT-READINESS + the three doctrine lines', () => {
     expect(readPrefs('[]')).toEqual(PREFS_DEFAULT)
     expect(readPrefs('{"density":"enormous"}')).toEqual(PREFS_DEFAULT)
     expect(readPrefs('{"density":"compact","emphasis":"strong"}')).toEqual({ density: 'compact', emphasis: 'strong' })
+  })
+})
+
+
+describe('PKT-BUILD-N3-2 §3 H4 — the two settings blocks', () => {
+  it.each([[STORE_A, 'chiropractic'], [STORE_B, 'massage']])('N3-2 §3 H4 — %s has the six blocks and its own type %s', async (store, type) => {
+    const props = await room({ store })
+    const section = sectionOf(props, 'people-equipment')
+    expect(section.blocks.map((b) => b.id)).toEqual([
+      'people.business-type', 'people.staff', 'people.equipment', 'people.words', 'people.room-policy', 'people.shifts',
+    ])
+    const typeControl = controlOf(props, 'people.type')
+    expect(typeControl.value).toBe(type)
+    expect(typeControl.locked).toBeUndefined()
+    expect(typeControl.control.kind).toBe('select')
+    if (typeControl.control.kind !== 'select') throw new Error('Expected a select')
+    expect(typeControl.control.options).toHaveLength(26)
+    expect(typeControl.control.options).toEqual(businessProfiles.map((p) => ({ value: p.value, label: p.label })))
+    const words = section.blocks.find((b) => b.id === 'people.words')!
+    expect(words.rows.flatMap((r) => r.controls.map((c) => c.value))).toEqual(['', '', 'standard', ''])
+    for (const c of words.rows.flatMap((r) => r.controls)) {
+      expect(c.control).not.toHaveProperty('maxLength')
+      expect(c.control).not.toHaveProperty('required')
+    }
+    expect(Object.keys(words.words!.copy.problems).sort()).toEqual(['bar', 'empty', 'full', 'length', 'pair', 'reserved', 'space', 'trim'])
+    expect(section.aside!.lines.map((line) => line.label)).toEqual(['名簿', '設備', '呼び名', '部屋の決まり'])
+    expect(section.aside!.lines[2].value).toBe('業種の標準の一覧と、この店舗で入力した言葉')
+    expect(wordsSentences(words.words!, seedOf(props), labelOfValue(typeControl.control, typeControl.value)).example)
+      .toBe(section.blocks.find((b) => b.id === 'people.equipment')!.facts[0])
+    const added = section.blocks.filter((b) => ['people.business-type', 'people.words'].includes(b.id))
+    expect(added.flatMap((b) => b.rows.map((r) => r.id))).toEqual([
+      'people.row-type', 'people.row-words-pair', 'people.row-words-full', 'people.row-words-turnover',
+    ])
+    for (const b of added) {
+      expect(b.title.length).toBeGreaterThan(0)
+      expect(b.note.length).toBeGreaterThan(0)
+      for (const r of b.rows) {
+        expect(r.label.length).toBeGreaterThan(0)
+        expect(r.description.length).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('N3-2 §3 H4 — no stores without supplied dials keeps the empty boundary', async () => {
+    const mock = jest.mocked(data.listStoreOptions).mockResolvedValue([])
+    try {
+      const { props } = await settingsProps({ locale: 'ja' })
+      expect(sectionOf(props, 'people-equipment').blocks).toEqual([])
+    } finally { mock.mockImplementation(jest.requireActual('@/business/lib/data').listStoreOptions) }
+  })
+
+  it('N3-2 §3 H4 — no stores with supplied dials keeps the four blocks and three-line aside', async () => {
+    const mock = jest.mocked(data.listStoreOptions).mockResolvedValue([])
+    try {
+      const { props } = await settingsProps({ locale: 'ja', world: { dials: storeDials[STORE_A] } })
+      const section = sectionOf(props, 'people-equipment')
+      expect(section.blocks.map((b) => b.id)).toEqual(['people.staff', 'people.equipment', 'people.room-policy', 'people.shifts'])
+      expect(section.aside!.lines).toEqual([
+        { label: '名簿', value: 'スタッフ・シフトが使っている名簿' },
+        { label: '設備', value: '今日の運営のベッド割り当てが使っている一覧' },
+        { label: '部屋の決まり', value: '今日の運営の自動割り当てが使っている決まり' },
+      ])
+    } finally { mock.mockImplementation(jest.requireActual('@/business/lib/data').listStoreOptions) }
   })
 })
