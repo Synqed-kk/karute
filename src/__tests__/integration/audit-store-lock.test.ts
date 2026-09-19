@@ -64,6 +64,19 @@ describe('audited store lock — refusal payload contains only door, store, code
     },
   )
 
+  it.each(['booking', 'karute', 'recording', 'settings'] as const)(
+    '%s refusal against an unknown store_id (null) refuses as not_found without an audit row',
+    (category) => {
+      expect(() => ensureRecordStoreInScopeAudited(
+        { store_id: null },
+        { viewAll: false, allowedStoreIds: ['store-A'] },
+        'Record not found',
+        { actor, category, targetId: 'kar-1', door: `${category}.test_write` },
+      )).toThrow(expect.objectContaining({ code: 'not_found', message: 'Record not found' }))
+      expect(audit).not.toHaveBeenCalled()
+    },
+  )
+
   it('an explicit empty assignment refuses as not_found and emits ONE ids-only row', () => {
     expect(() => ensureRecordStoreInScopeAudited(
       { store_id: 'store-A' },

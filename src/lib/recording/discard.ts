@@ -33,7 +33,8 @@
 
 import { z } from 'zod'
 import { auditDurable } from '@/lib/audit'
-import { ensureRecordStoreInScope, type RecordStoreScope } from '@/lib/auth/store-lock'
+import { ensureRecordStoreInScopeAudited } from '@/lib/audit-store-lock'
+import { type RecordStoreScope } from '@/lib/auth/store-lock'
 import type { newSynqedClient } from '@/lib/synqed/client'
 import { BELOW_FLOOR_SEC } from './discard-floor'
 
@@ -199,8 +200,13 @@ export type DiscardRecordingResult =
 async function discardStoreAllowed(
   synqed: Pick<ReturnType<typeof newSynqedClient>, 'recordings'>,
   recordingSessionId: string | null | undefined,
-  scope: RecordStoreScope,
+  actor: DiscardRecordingActor,
+  /** The door, for the refusal row: 'recording.discard' / the reason-row twin. */
+  door: string,
 ): Promise<boolean> {
+  // A failed assignment lookup is retriable infrastructure failure, not a
+  // cross-store probe. Refuse before any record lookup or audit row.
+  if (!actor.scope.viewAll && actor.scope.degraded) return false
   let storeId: string | null = null
   if (recordingSessionId) {
     try {
@@ -211,7 +217,23 @@ async function discardStoreAllowed(
     }
   }
   try {
-    ensureRecordStoreInScope({ store_id: storeId }, scope, 'recording session not found')
+    // AUDITED (FRESH-EYES-P1 §5a) — the boolean this returns is unchanged; a
+    // refusal against a PROVEN foreign store leaves a row behind it now (a
+    // failed lookup above already set storeId to null, so a get() outage
+    // leaves none). actorId is the staff id the caller already vouched for
+    // (null is allowed by audit()).
+    ensureRecordStoreInScopeAudited({ store_id: storeId }, actor.scope, 'recording session not found', {
+      actor: {
+        actorId: actor.staffId,
+        businessId: actor.businessId,
+        source: actor.source,
+        requestId: actor.requestId,
+      },
+      category: 'recording',
+      targetType: 'recording',
+      targetId: recordingSessionId ?? undefined,
+      door,
+    })
     return true
   } catch {
     return false
@@ -258,7 +280,7 @@ export async function discardRecordingWithClient(
   // "this module wrote the row", and it can only have written it past the
   // check.
   if (vouch !== STAFF_ROW_VOUCH) {
-    if (!(await discardStoreAllowed(synqed, data.recordingSessionId, actor.scope))) {
+    if (!(await discardStoreAllowed(synqed, data.recordingSessionId, actor, 'recording.discard'))) {
       return { ok: false, error: 'forbidden' }
     }
   }
@@ -305,7 +327,7 @@ export async function discardRecordingWithReasonRow(
   // leave a reason row on another branch's session, or orphan an honest one
   // behind a blipped second read. Authorize once, here; everything downstream
   // is downstream OF this answer.
-  if (!(await discardStoreAllowed(synqed, receipt.recordingSessionId, actor.scope))) {
+  if (!(await discardStoreAllowed(synqed, receipt.recordingSessionId, actor, 'recording.discard_with_reason'))) {
     return { ok: false, error: 'forbidden' }
   }
 

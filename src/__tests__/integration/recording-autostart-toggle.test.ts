@@ -39,9 +39,13 @@ jest.mock('@/lib/synqed/client', () => ({
 // outcome the choke point acts on — so the spy resolves an outcome, and the
 // failure cases below drive it.
 const auditSpy = jest.fn()
+// The store lock's REFUSAL row rides plain audit() (fire-and-forget — nothing
+// downstream waits on it), so it gets its own spy.
+const auditRowSpy = jest.fn()
 jest.mock('@/lib/audit', () => ({
   ...(jest.requireActual('@/lib/audit') as object),
   auditDurable: (...a: unknown[]) => auditSpy(...a),
+  audit: (...a: unknown[]) => auditRowSpy(...a),
 }))
 
 const mockCapabilities = jest.fn(async () => new Set(['settings.manage']))
@@ -135,44 +139,88 @@ describe('normalizeOrgSettings — recording_autostart_store_ids (spec §8.1)', 
 
 // ── the write path ──────────────────────────────────────────────────────────
 describe('setRecordingAutostartWithClient — the one audited settings write', () => {
-  it('refuses a store id this business does not own — no write, no row', async () => {
+  it('refuses a store id this business does not own — no write, no row at all', async () => {
     const c = fakeClient({})
     const r = await setRecordingAutostartWithClient(c.client as never, ACTOR, 'store-OTHER', true)
     expect(r).toEqual({ ok: false, error: 'unknown_store' })
     expect(c.upsert).not.toHaveBeenCalled()
     expect(auditSpy).not.toHaveBeenCalled()
+    // Membership fails BEFORE the store lock, so not even a refusal row — a
+    // store this business does not own is nobody's probe of a sibling branch.
+    expect(auditRowSpy).not.toHaveBeenCalled()
   })
 
   // ⚖ Liam 2026-09-16 — the store must belong to the BUSINESS and to the
   // ACTOR. Under the shipped presets settings.manage always ships with
   // stores.viewAll, but the model allows a 「銀座 branch settings」 custom role,
   // and nothing else would stop it flipping 代官山's switch.
-  it('refuses a store the actor is not assigned to — the SAME answer a foreign store gets', async () => {
+  it('refuses a store the actor is not assigned to — the SAME answer a foreign store gets, and ONE refusal row', async () => {
     const c = fakeClient({})
     const clamped = { ...ACTOR, scope: { viewAll: false, allowedStoreIds: ['store-2'] } }
     const r = await setRecordingAutostartWithClient(c.client as never, clamped, 'store-1', true)
     expect(r).toEqual({ ok: false, error: 'unknown_store' })
     expect(c.upsert).not.toHaveBeenCalled()
+    // No TOGGLE receipt — nothing was flipped. One REFUSAL row (FRESH-EYES-P1
+    // §5a), and the reply itself is byte-unchanged (asserted above), so the
+    // 'unknown_store' answer still enumerates nothing.
     expect(auditSpy).not.toHaveBeenCalled()
+    expect(auditRowSpy).toHaveBeenCalledTimes(1)
+    expect(auditRowSpy.mock.calls[0][0]).toMatchObject({
+      category: 'settings',
+      action: 'settings.store_write_refused',
+      severity: 'warning',
+      targetType: 'store',
+      targetId: 'store-1',
+      detail: expect.objectContaining({
+        door: 'settings.recording_autostart_toggle',
+        record_store_id: 'store-1',
+        code: 'not_found',
+      }),
+    })
   })
 
-  it('a degraded assignment lookup fails closed, the same way', async () => {
+  it.each([
+    { label: 'null assignment', allowedStoreIds: null },
+    { label: 'own-store assignment', allowedStoreIds: ['store-1'] },
+  ])('a degraded assignment lookup ($label) fails closed with NO refusal row', async ({ allowedStoreIds }) => {
     const c = fakeClient({})
-    const degraded = { ...ACTOR, scope: { viewAll: false, allowedStoreIds: ['store-1'], degraded: true } }
+    const degraded = { ...ACTOR, scope: { viewAll: false, allowedStoreIds, degraded: true } }
+    // Preserve the core's shipped unknown_store answer; the facade refuses a
+    // failed assignment lookup earlier with store_forbidden.
     expect(await setRecordingAutostartWithClient(c.client as never, degraded, 'store-1', true)).toEqual({
       ok: false,
       error: 'unknown_store',
     })
     expect(c.upsert).not.toHaveBeenCalled()
+    expect(c.client.orgSettings.get).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+    expect(auditRowSpy).not.toHaveBeenCalled()
   })
 
-  it('a clamped actor flipping their OWN store is unaffected', async () => {
+  it('viewAll + degraded autostart succeeds with ONE receipt and NO refusal row', async () => {
+    const c = fakeClient({})
+    const viewAll = { ...ACTOR, scope: { viewAll: true, allowedStoreIds: null, degraded: true } }
+    expect(await setRecordingAutostartWithClient(c.client as never, viewAll, 'store-1', true)).toEqual({
+      ok: true,
+      storeIds: ['store-1'],
+    })
+    expect(c.upsert).toHaveBeenCalledTimes(1)
+    expect(c.state.settings.recording_autostart_store_ids).toEqual(['store-1'])
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0]).toMatchObject({ action: 'settings.recording_autostart_toggle' })
+    expect(auditRowSpy).not.toHaveBeenCalled()
+  })
+
+  it('a clamped actor flipping their OWN store succeeds with ONE receipt and NO refusal row', async () => {
     const c = fakeClient({})
     const own = { ...ACTOR, scope: { viewAll: false, allowedStoreIds: ['store-1'] } }
     expect(await setRecordingAutostartWithClient(c.client as never, own, 'store-1', true)).toMatchObject({
       ok: true,
     })
     expect(c.upsert).toHaveBeenCalledTimes(1)
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy.mock.calls[0][0]).toMatchObject({ action: 'settings.recording_autostart_toggle' })
+    expect(auditRowSpy).not.toHaveBeenCalled()
   })
 
   it('refuses an unattributable caller before reading anything', async () => {

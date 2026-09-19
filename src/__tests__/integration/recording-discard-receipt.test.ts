@@ -462,18 +462,32 @@ describe('one discard = exactly one recording.discard row', () => {
 describe('a discard outside the caller’s store is refused', () => {
   const clamped = { ...webActor, scope: { viewAll: false, allowedStoreIds: ['store-daikanyama'] } }
 
-  it('the STAFF door refuses BEFORE the reason row — no row, no receipt', async () => {
+  it('the STAFF door refuses BEFORE the reason row — no row, no receipt, ONE refusal row', async () => {
     const res = await discardRecordingWithReasonRow(fakeClient as never, clamped, WITH_REASON)
     expect(res).toEqual({ ok: false, error: 'forbidden' })
     expect(discardCreate).not.toHaveBeenCalled()
-    expect(auditLog).not.toHaveBeenCalled()
+    // The DISCARD row is still absent — nothing was discarded. What lands is the
+    // REFUSAL row (FRESH-EYES-P1 §5a): someone reaching for another branch's
+    // recording is exactly the event an owner wants to see.
+    expect(auditLog).toHaveBeenCalledTimes(1)
+    expect(auditLog.mock.calls[0][0]).toMatchObject({
+      category: 'recording',
+      action: 'recording.store_write_refused',
+      target_type: 'recording',
+      target_id: 'rs-1',
+      detail: expect.objectContaining({ door: 'recording.discard_with_reason' }),
+    })
   })
 
-  it('the receipt-only door refuses before the idempotency probe', async () => {
+  it('the receipt-only door refuses before the idempotency probe, and files ONE refusal row', async () => {
     const res = await discardRecordingWithClient(fakeClient as never, clamped, SYSTEM_VALID)
     expect(res).toEqual({ ok: false, error: 'forbidden' })
     expect(auditList).not.toHaveBeenCalled()
-    expect(auditLog).not.toHaveBeenCalled()
+    expect(auditLog).toHaveBeenCalledTimes(1)
+    expect(auditLog.mock.calls[0][0]).toMatchObject({
+      action: 'recording.store_write_refused',
+      detail: expect.objectContaining({ door: 'recording.discard' }),
+    })
   })
 
   it('an UNREADABLE session fails closed for a clamped caller, and is unchanged for everyone else', async () => {
@@ -488,12 +502,64 @@ describe('a discard outside the caller’s store is refused', () => {
     })
   })
 
-  it('a session INSIDE the caller’s own store still files normally', async () => {
+  it('an UNREADABLE session refuses with ZERO refusal rows — no foreign store was proven', async () => {
+    recordingsGet.mockRejectedValue(new Error('core down'))
+    try {
+      const res = await discardRecordingWithClient(fakeClient as never, clamped, SYSTEM_VALID)
+      expect(res).toEqual({ ok: false, error: 'forbidden' })
+      expect(discardCreate).not.toHaveBeenCalled()
+      expect(auditLog).not.toHaveBeenCalled()
+      expect(coreRows).toEqual([])
+    } finally {
+      // clearAllMocks() (beforeEach) does not reset a mockRejectedValue
+      // implementation — restore the default or every later test in this
+      // file would see recordings.get reject.
+      recordingsGet.mockImplementation(async () => ({ id: 'rec-1', store_id: sessionStore.current }))
+    }
+  })
+
+  it.each(['receipt-only', 'with-reason'] as const)('own-store %s discard succeeds with ONE receipt and NO refusal row', async (door) => {
     const own = { ...webActor, scope: { viewAll: false, allowedStoreIds: ['store-1'] } }
-    expect(await discardRecordingWithReasonRow(fakeClient as never, own, WITH_REASON)).toMatchObject({
+    const result = door === 'with-reason'
+      ? await discardRecordingWithReasonRow(fakeClient as never, own, WITH_REASON)
+      : await discardRecordingWithClient(fakeClient as never, own, SYSTEM_VALID)
+    expect(result).toMatchObject({
       ok: true,
+      duplicate: false,
     })
-    expect(discardCreate).toHaveBeenCalledTimes(1)
+    expect(discardCreate).toHaveBeenCalledTimes(door === 'with-reason' ? 1 : 0)
+    expect(auditLog).toHaveBeenCalledTimes(1)
+    expect(auditLog.mock.calls[0][0]).toMatchObject({ action: 'recording.discard' })
+    expect(coreRows.filter((row) => row.action === 'recording.store_write_refused')).toHaveLength(0)
+  })
+
+  it.each(['receipt-only', 'with-reason'] as const)('viewAll + degraded %s discard succeeds with ONE receipt and NO refusal row', async (door) => {
+    const viewAll = { ...webActor, scope: { viewAll: true, allowedStoreIds: null, degraded: true } }
+    const result = door === 'with-reason'
+      ? await discardRecordingWithReasonRow(fakeClient as never, viewAll, WITH_REASON)
+      : await discardRecordingWithClient(fakeClient as never, viewAll, SYSTEM_VALID)
+    expect(result).toMatchObject({ ok: true, duplicate: false })
+    expect(discardCreate).toHaveBeenCalledTimes(door === 'with-reason' ? 1 : 0)
+    expect(recordingUpdate).toHaveBeenCalledTimes(1)
+    expect(auditLog).toHaveBeenCalledTimes(1)
+    expect(auditLog.mock.calls[0][0]).toMatchObject({ action: 'recording.discard' })
+    expect(coreRows.filter((row) => row.action === 'recording.store_write_refused')).toHaveLength(0)
+  })
+
+  it.each(['receipt-only', 'with-reason'] as const)('degraded %s discard is refused with NO write or refusal row', async (door) => {
+    const degraded = { ...webActor, scope: { viewAll: false, allowedStoreIds: null, degraded: true } }
+    const result = door === 'with-reason'
+      ? await discardRecordingWithReasonRow(fakeClient as never, degraded, WITH_REASON)
+      : await discardRecordingWithClient(fakeClient as never, degraded, SYSTEM_VALID)
+    // The core keeps its shipped collapsed answer; the facade preflight below
+    // preserves store_forbidden. An assignment blip is not a cross-store probe.
+    expect(result).toEqual({ ok: false, error: 'forbidden' })
+    expect(discardCreate).not.toHaveBeenCalled()
+    expect(discardList).not.toHaveBeenCalled()
+    expect(auditList).not.toHaveBeenCalled()
+    expect(auditLog).not.toHaveBeenCalled()
+    expect(recordingUpdate).not.toHaveBeenCalled()
+    expect(coreRows).toEqual([])
   })
 
   // ⚖ Greptile round 2 — ONE CHECK, AND IT COMES FIRST. The STAFF path used to
@@ -537,6 +603,26 @@ describe('a discard outside the caller’s store is refused', () => {
     expect(res.status).toBe(403)
     expect(discardRows()).toHaveLength(0)
     expect(discardCreate).not.toHaveBeenCalled()
+  })
+
+  it.each(['receipt-only', 'with-reason'] as const)('facade degraded %s assignment lookup returns store_forbidden with NO row', async (door) => {
+    // Persistent for the whole request: the front probe reads the assignment first, so a one-shot rejection would be consumed there; a real outage lasts the request.
+    fakeClient.staffStores.get.mockRejectedValue(new Error('assignment unavailable'))
+    try {
+      const res = await post(door === 'with-reason' ? WITH_REASON : SYSTEM_VALID)
+      expect(res.status).toBe(403)
+      expect((await res.json()).error.code).toBe('store_forbidden')
+      expect(fakeClient.staffStores.get).toHaveBeenCalledWith('auth-user-1')
+      expect(recordingsGet).not.toHaveBeenCalled()
+      expect(discardCreate).not.toHaveBeenCalled()
+      expect(discardList).not.toHaveBeenCalled()
+      expect(auditList).not.toHaveBeenCalled()
+      expect(auditLog).not.toHaveBeenCalled()
+      expect(recordingUpdate).not.toHaveBeenCalled()
+      expect(coreRows).toEqual([])
+    } finally {
+      fakeClient.staffStores.get.mockImplementation(async () => ({ store_ids: assignedStores.current }))
+    }
   })
 })
 
